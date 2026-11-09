@@ -131,6 +131,16 @@ Limits and notes:
 - **Vsync off** is not supported: the second present would replace the first at once.
 - **Screenshots** (`--screenshot`, F12) read the stand-in, the generated frame, as they read
   the window's first image before.
+- **An outdated window surface** (a resize, alt-tab, a display mode or HDR change): the
+  presenter skips its images and marks the surface; Bevy's `create_surfaces` reconfigures it on
+  the render thread before the next frame, size changed or not. The presenter never configures
+  the surface itself: wgpu-core 30's `configure_surface` waits for the GPU and reports a
+  validation error when another thread submits meanwhile
+  (`wgpu-core-30.0.1/src/device/resource.rs` 5338-5351), and the render thread keeps
+  submitting.
+- **Closing the window** ends its presenter at the next frame. The presenter keeps the window
+  as long as it holds the window's surface (Bevy's `RawHandleWrapper`, as the render world does),
+  so the surface is never left on a destroyed window.
 - **Switching it off** ends the presenter (it presents what it was handed first) before Bevy
   takes the window's images again; switching it on starts a new one.
 - **`NVF_FG_PRESENTER=0`** presents from the render thread as before, for comparisons.

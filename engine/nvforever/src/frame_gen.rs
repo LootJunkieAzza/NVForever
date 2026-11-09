@@ -266,7 +266,7 @@ fn extract(
     support: Extract<Res<FrameGenSupport>>,
     play_state: Extract<Option<Res<State<nvf_play::PlayState>>>>,
     refresh: Extract<Option<Res<crate::frame_pace::Refresh>>>,
-    windows: Query<(Entity, Has<DeferredSwapchain>), With<ExtractedWindow>>,
+    windows: Query<(Entity, Has<DeferredSwapchain>, Has<SurfaceData>), With<ExtractedWindow>>,
 ) {
     *request = FrameGenRequest {
         on: switch.on && support.0 && pace.sync.vsync(),
@@ -280,7 +280,10 @@ fn extract(
     if !defer && !presenters.0.is_empty() {
         presenters.0.clear();
     }
-    for (window, deferred) in &windows {
+    // A window that lost its surface (closed) ends its presenter, and with it the presenter's
+    // hold on the surface and the window (bevy_render `SharedSurface`).
+    presenters.0.retain(|(window, _)| windows.get(*window).is_ok_and(|(_, _, surface)| surface));
+    for (window, deferred, _) in &windows {
         if defer && !deferred {
             commands.entity(window).insert(DeferredSwapchain::default());
         } else if !defer && deferred {

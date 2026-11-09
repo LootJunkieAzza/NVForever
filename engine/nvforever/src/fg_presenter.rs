@@ -29,6 +29,13 @@
 //! [observed 2026-11-08, 4K at 160 Hz, 78 real fps: each present held 1-1.6 ms in the driver,
 //! the render thread kept the cap].
 //!
+//! This thread never configures the surface: wgpu-core 30's `configure_surface` waits for the
+//! GPU and fails with a validation error when another thread submits meanwhile
+//! [documented: `wgpu-core-30.0.1/src/device/resource.rs` 5338-5351], and the render thread
+//! keeps submitting. An outdated surface's images are skipped and the surface is marked for
+//! the render thread, which reconfigures it before its next frame (bevy_render
+//! `SurfaceGuard::acquire`, `create_surfaces`).
+//!
 //! Measured against presenting from the render thread (h9x000/NVForever#1, 4K, the owner's
 //! settings): 77.7-78.0 real fps at the cap of 78 with a frame of about 8 ms and with 4 ms more
 //! (55.6 before), the 95th percentile between presents 7.0 ms (13.5 before); the generated
@@ -69,7 +76,7 @@ pub(crate) struct Shared {
     copied: Mutex<u64>,
     copied_changed: Condvar,
     /// Spent waiting for the presents' times, and frames that could not be presented (an
-    /// occluded window), since last read.
+    /// occluded or outdated window), since last read.
     pub(crate) paced_nanos: AtomicU64,
     pub(crate) skipped: AtomicU64,
     /// Generated frames left out to catch up (the presenter a whole frame behind), since last
@@ -207,7 +214,7 @@ fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::D
         let (_, view_format) = guard.formats();
         let count = frames.len();
         for (i, source) in frames.iter().enumerate() {
-            let Some(image) = guard.acquire(device) else {
+            let Some(image) = guard.acquire() else {
                 shared.skipped.fetch_add(1, Ordering::Relaxed);
                 continue;
             };

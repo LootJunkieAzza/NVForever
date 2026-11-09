@@ -83,11 +83,26 @@ docs/design/frame-generation.md "Presentation and pacing", h9x000/NVForever#1). 
   for it and points the window's view at a stand-in texture of the window's size instead
   (`STAND_INS` = 3, used in turn, so a thread may still read the last two).
 - `SharedSurface` (`SurfaceData::shared`): the window's surface and its configuration behind
-  a lock, for one other thread to take images from and present (`SurfaceGuard::acquire`
-  reconfigures once on `Outdated`; `present`). `create_surfaces` reconfigures under the same
-  lock, so never while that thread holds an image (wgpu allows one per surface).
+  a lock, for one other thread to take images from and present (`SurfaceGuard::acquire`,
+  `present`). `create_surfaces` reconfigures under the same lock, so never while that thread
+  holds an image (wgpu allows one per surface).
 - `SWAPCHAIN_WAITS`: the time spent in the swapchain's acquires and presents, for frame
   generation's log line.
+
+Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
+
+- The thread never configures the surface. `SurfaceGuard::acquire` returns no image on
+  `Outdated` and marks the surface (`SurfaceShare::outdated`); `need_surface_configuration`
+  and `create_surfaces` then reconfigure it on the render thread, under the lock, whether or
+  not the window's size changed (alt-tab, a display mode or HDR change), and clear the mark.
+  Before, `acquire` configured the surface itself, and wgpu-core 30's `configure_surface` waits
+  for the GPU and fails with `GpuWaitTimeout`, a validation error, when another thread submits
+  meanwhile (`wgpu-core-30.0.1/src/device/resource.rs` 5338-5351); the render thread keeps
+  submitting.
+- `SurfaceData` keeps a clone of the window's `RawHandleWrapper` and `SharedSurface` holds
+  one, dropped after its surface, so the window outlives every holder of the surface
+  (`create_surface_unsafe`'s contract, which upstream keeps by removing `RawHandleWrapper` and
+  `SurfaceData` together).
 
 Upstream Bevy has no way for a thread other than the render thread to present a window.
 

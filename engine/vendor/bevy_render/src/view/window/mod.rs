@@ -188,21 +188,44 @@ impl DeferredSwapchain {
 /// NVForever (2026-11-08): a window's surface for a thread of its own to take images from and
 /// present ([`DeferredSwapchain`]). Taking and presenting happen under [`SharedSurface::lock`],
 /// which [`create_surfaces`] also takes to reconfigure the surface.
+///
+/// NVForever (2026-11-09): the holder never configures the surface. wgpu-core 30's
+/// `configure_surface` waits for the GPU and fails (`GpuWaitTimeout`, a validation error) when
+/// another thread submits meanwhile, and the render thread keeps submitting; an outdated
+/// surface is marked instead ([`SurfaceGuard::acquire`]) and [`create_surfaces`] reconfigures it
+/// on the render thread, under the lock. It also keeps the window, as Bevy's [`RawHandleWrapper`]
+/// beside [`SurfaceData`] does, so the window outlives the surface (`create_surface_unsafe`'s
+/// contract) however long the holder keeps it.
 #[derive(Clone)]
 pub struct SharedSurface {
     surface: std::sync::Arc<WgpuSurface>,
-    state: std::sync::Arc<std::sync::Mutex<SurfaceConfiguration>>,
+    state: std::sync::Arc<SurfaceShare>,
+    /// NVForever (2026-11-09): after `surface`, so it is dropped after it.
+    _window: RawHandleWrapper,
+}
+
+/// NVForever (2026-11-09): what a window's [`SurfaceData`] shares with [`SharedSurface`]
+/// holders: the configuration as they see it, the lock they take the surface's images under,
+/// and whether one of them found the surface outdated.
+struct SurfaceShare {
+    configuration: std::sync::Mutex<SurfaceConfiguration>,
+    outdated: core::sync::atomic::AtomicBool,
 }
 
 /// The surface while [`SharedSurface::lock`] is held.
 pub struct SurfaceGuard<'a> {
     surface: &'a wgpu::Surface<'static>,
     configuration: std::sync::MutexGuard<'a, SurfaceConfiguration>,
+    outdated: &'a core::sync::atomic::AtomicBool,
 }
 
 impl SharedSurface {
     pub fn lock(&self) -> SurfaceGuard<'_> {
-        SurfaceGuard { surface: &self.surface, configuration: self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner) }
+        SurfaceGuard {
+            surface: &self.surface,
+            configuration: self.state.configuration.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            outdated: &self.state.outdated,
+        }
     }
 }
 
@@ -212,17 +235,16 @@ impl SurfaceGuard<'_> {
         (self.configuration.format, self.configuration.format.add_srgb_suffix())
     }
 
-    /// The next image, reconfiguring an outdated surface once; `None` when the window has none
-    /// to give (occluded, a timeout, or still outdated).
-    pub fn acquire(&self, device: &wgpu::Device) -> Option<wgpu::SurfaceTexture> {
+    /// The next image; `None` when the window has none to give (occluded, a timeout, lost, or
+    /// outdated). NVForever (2026-11-09): an outdated surface is not configured here but marked
+    /// for [`create_surfaces`], which reconfigures it on the render thread before the next frame
+    /// is prepared; the images until then are skipped.
+    pub fn acquire(&self) -> Option<wgpu::SurfaceTexture> {
         match timed_get_current_texture(self.surface) {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
             wgpu::CurrentSurfaceTexture::Outdated => {
-                self.surface.configure(device, &self.configuration);
-                match timed_get_current_texture(self.surface) {
-                    wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
-                    _ => None,
-                }
+                self.outdated.store(true, core::sync::atomic::Ordering::Relaxed);
+                None
             }
             _ => None,
         }
@@ -383,14 +405,23 @@ pub struct SurfaceData {
     configuration: SurfaceConfiguration,
     texture_view_format: Option<TextureFormat>,
     /// NVForever (2026-11-08): the configuration as [`SharedSurface`] holders see it, and the
-    /// lock they take the surface's images under.
-    shared: std::sync::Arc<std::sync::Mutex<SurfaceConfiguration>>,
+    /// lock they take the surface's images under. NVForever (2026-11-09): with whether a holder
+    /// found the surface outdated.
+    shared: std::sync::Arc<SurfaceShare>,
+    /// NVForever (2026-11-09): the window the surface was made on, for [`SharedSurface`] holders
+    /// (after `surface`, so it is dropped after it).
+    window: RawHandleWrapper,
 }
 
 impl SurfaceData {
     /// NVForever (2026-11-08): the surface for a thread of its own ([`DeferredSwapchain`]).
     pub fn shared(&self) -> SharedSurface {
-        SharedSurface { surface: self.surface.clone(), state: self.shared.clone() }
+        SharedSurface { surface: self.surface.clone(), state: self.shared.clone(), _window: self.window.clone() }
+    }
+
+    /// NVForever (2026-11-09): a [`SharedSurface`] holder found the surface outdated.
+    fn outdated(&self) -> bool {
+        self.shared.outdated.load(core::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -524,9 +555,10 @@ pub fn prepare_windows(
     }
 }
 
-pub fn need_surface_configuration(windows: Query<(&ExtractedWindow, Has<SurfaceData>)>) -> bool {
-    for (window, has_surface_data) in &windows {
-        if !has_surface_data || window.size_changed || window.present_mode_changed {
+pub fn need_surface_configuration(windows: Query<(&ExtractedWindow, Option<&SurfaceData>)>) -> bool {
+    for (window, surface_data) in &windows {
+        // NVForever (2026-11-09): or a surface a `SharedSurface` holder found outdated.
+        if surface_data.is_none_or(SurfaceData::outdated) || window.size_changed || window.present_mode_changed {
             return true;
         }
     }
@@ -617,16 +649,25 @@ pub fn create_surfaces(
 
             render_device.configure_surface(&surface, &configuration);
 
+            // NVForever (2026-11-08): the surface in an `Arc` and the share, for `SharedSurface`;
+            // NVForever (2026-11-09): with the window the surface was made on.
             commands.entity(entity).insert(SurfaceData {
                 surface: std::sync::Arc::new(WgpuSurface::new(surface)),
-                shared: std::sync::Arc::new(std::sync::Mutex::new(configuration.clone())),
+                shared: std::sync::Arc::new(SurfaceShare {
+                    configuration: std::sync::Mutex::new(configuration.clone()),
+                    outdated: core::sync::atomic::AtomicBool::new(false),
+                }),
+                window: handle.clone(),
                 configuration,
                 texture_view_format,
             });
             continue;
         };
 
-        if window.size_changed || window.present_mode_changed {
+        // NVForever (2026-11-09): also when a `SharedSurface` holder found the surface outdated,
+        // which can happen with the window's size unchanged (alt-tab, a display mode or HDR
+        // change); the holder does not configure it itself.
+        if window.size_changed || window.present_mode_changed || data.outdated() {
             // normally this is dropped on present but we double check here to be safe as failure to
             // drop it will cause validation errors in wgpu
             drop(window.swap_chain_texture.take());
@@ -641,7 +682,9 @@ pub fn create_surfaces(
             let caps = data.surface.get_capabilities(&render_adapter);
             data.configuration.present_mode = present_mode(&window, &caps);
             // NVForever (2026-11-08): not while a thread holding the surface takes or presents.
-            let mut shared = data.shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut shared = data.shared.configuration.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            // NVForever (2026-11-09): cleared under the lock, which holders set it under.
+            data.shared.outdated.store(false, core::sync::atomic::Ordering::Relaxed);
             render_device.configure_surface(&data.surface, &data.configuration);
             *shared = data.configuration.clone();
         }
