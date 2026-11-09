@@ -109,6 +109,7 @@ pub mod script_switches;
 pub mod script_draw;
 pub mod script_events;
 pub mod script_hud;
+pub mod jip_physics;
 pub mod sup_screen;
 pub mod sup_shots;
 pub mod script_trigger;
@@ -384,6 +385,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(screen_splatter::ScreenSplatterPlugin)
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
+            .add_plugins(jip_physics::JipPhysicsPlugin)
             .add_plugins(mines::MinesPlugin)
             .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)

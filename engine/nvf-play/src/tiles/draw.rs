@@ -991,6 +991,8 @@ pub(crate) struct View<'w, 's> {
     /// The Pip-Boy's image and the S.P.E.C.I.A.L. page's one decision (`super::stats_menu`).
     screen: Option<Res<'w, crate::pipboy::PipBoyScreen>>,
     stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
+    /// The Pip-Boy's repair page's one decision (`super::repair_menu`).
+    repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
     /// T15c: the container menu, when this frame's writer has it drawn from its tiles.
     container: Option<Res<'w, super::container_menu::ContainerTiles>>,
     barter: Option<Res<'w, super::barter_menu::BarterTiles>>,
@@ -1026,6 +1028,8 @@ pub(crate) struct MenusDrawn {
     tutorial: Drawn,
     /// The Pip-Boy's S.P.E.C.I.A.L. page, in the Pip-Boy's image.
     stats: Drawn,
+    /// The Pip-Boy's repair page, in the Pip-Boy's image.
+    repair_page: Drawn,
     container: Drawn,
     barter: Drawn,
     repair_services: Drawn,
@@ -1126,6 +1130,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     }
     *blur = blur_now;
     stats_page(&mut commands, game, &mut view, &mut kit, &mut others.stats, &mut nodes, heading, &glyphs);
+    repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
     // T11: the Mods page, the start menu's mod tiles over the pause menu.
     let mods_on = switch.start && view.paused.as_ref().zip(view.page.as_ref()).is_some_and(|(p, page)| crate::pause::mods_open(p, page));
     mods_page(&mut commands, &script, mods_on, &mut kit, &mut others.start, &mut nodes, scale * interface::menu_scale(), heading, &glyphs);
@@ -1173,6 +1178,43 @@ fn stats_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: 
     let shown = menu.map(|(_, m)| m);
     if let Some(stats) = view.stats.as_mut().filter(|s| s.shown != shown) {
         stats.shown = shown;
+    }
+}
+
+/// The Pip-Boy's repair page, in the Pip-Boy's image, while it is ready
+/// (`super::repair_menu::RepairTiles::ready`, decided before this drawing), as [`stats_page`].
+#[allow(clippy::too_many_arguments)]
+fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+    let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let name = super::repair_menu::REPAIR_MENU;
+    let ui = game.map(|g| &g.ui_tree);
+    let ready = view.repair_page.as_ref().and_then(|s| s.ready);
+    let menu = ui.zip(ready).filter(|(ui, m)| ui.is_live(*m));
+    let pieces = match (menu, view.repair_page.as_mut()) {
+        (Some((ui, menu)), Some(page)) => {
+            if drawn.told_menu != Some(menu) {
+                let (file, code) = origins(ui, menu);
+                info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
+                drawn.told_menu = Some(menu);
+            }
+            let pieces = std::mem::take(&mut page.pieces);
+            let names = pieces.iter().filter(|p| matches!(p.look, Look::Text { .. }) && ui.tile(p.tile).name.eq_ignore_ascii_case("ListItemText")).count();
+            let counts = (pieces.len(), names);
+            if counts != drawn.counts {
+                info!("tiles: {name} set out for the Pip-Boy's image: {} pieces, {} row names", counts.0, counts.1);
+                drawn.counts = counts;
+            }
+            pieces
+        }
+        _ => {
+            drawn.counts = (0, 0);
+            Vec::new()
+        }
+    };
+    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
+    let shown = menu.map(|(_, m)| m);
+    if let Some(page) = view.repair_page.as_mut().filter(|s| s.shown != shown) {
+        page.shown = shown;
     }
 }
 

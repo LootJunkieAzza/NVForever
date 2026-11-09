@@ -369,6 +369,7 @@ pub struct Input<'w, 's> {
     time: crate::pause::AidTime<'w>,
     asks: MessageWriter<'w, UseHint>,
     tiles: Option<Res<'w, crate::tiles::stats_menu::StatsTiles>>,
+    repair_tiles: Option<Res<'w, crate::tiles::repair_menu::RepairTiles>>,
 }
 
 /// What [`prepare`] keeps between frames.
@@ -417,7 +418,7 @@ pub fn prepare(
     // follow (`super::takes_keys`), and for the frame it closes in too: the press that closed
     // it was the box's, so A closing a tutorial over Status > RAD uses no RadAway.
     let menu = src.script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu);
-    let boxed = super::box_holds_keys(menu, input.tiles.as_deref());
+    let boxed = super::box_holds_keys(menu, input.tiles.as_deref(), input.repair_tiles.as_deref());
     let was = std::mem::replace(&mut mem.boxed, boxed);
     let held = boxed || was;
     let Some(mut view) = view else {

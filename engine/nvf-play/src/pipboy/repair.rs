@@ -33,6 +33,9 @@
 //! - The repair list's rows are silent [documented: the template's `&nosound;`]; a repair
 //!   plays `UIRepairWeapon` (`crate::ui_sounds`, as the vendor's).
 //! - Test aid: the Pip-Boy aid's `repair=open|down|up|use|cancel` (`test_aid.rs`).
+//! - Behind `[UI] TileMenus=RepairMenu` the list is drawn from its file instead
+//!   (`crate::tiles::repair_menu`, repair.md §5.1): the rules, sounds and log lines here stay, and
+//!   what the tiles are asked comes in as [`RepairInput`].
 
 use super::frame::{self, Align, Card, Ctx, LINE, MAIN, TEXT};
 use super::{Page, PipBoy};
@@ -102,7 +105,13 @@ struct RepairCancel;
 
 /// Only a row not chosen yet: choosing redraws the list, and the new row under the pointer
 /// would come over it again every frame, so a press and its release never met one row.
-fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, mut out: MessageWriter<RepairInput>) {
+///
+/// Not while the page drawn from its file has yet to decide (`crate::tiles::repair_menu::RepairTiles::waiting`):
+/// this list stands for that frame, and a pointer at rest would open the page on a part.
+fn on_row_over(over: On<PointerOver>, rows: Query<&RepairRow>, repair: Res<PipRepair>, tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>, mut out: MessageWriter<RepairInput>) {
+    if tiles.is_some_and(|t| t.waiting) {
+        return;
+    }
     let (Ok(r), Some(s)) = (rows.get(over.entity), repair.0.as_ref()) else { return };
     if s.selected != r.0 {
         out.write(RepairInput::Hover(r.0));
@@ -379,7 +388,7 @@ pub fn hint_word(o: Option<&Offer>) -> (&'static str, bool) {
 
 /// The figure a card shows for an item at a condition: damage or DT by our condition
 /// rules (combat-rules.md §17).
-fn stat(combat: Option<&crate::combat::Combat>, o: &Offer, condition: f32) -> Option<(&'static str, i32)> {
+pub(crate) fn stat(combat: Option<&crate::combat::Combat>, o: &Offer, condition: f32) -> Option<(&'static str, i32)> {
     let c = combat?;
     match o.gear {
         Gear::Weapon => c.forms.weapons.get(&o.item).filter(|w| w.base_damage > 0).map(|w| (super::labels::label("sInventoryDamage", "DAM"), (w.base_damage as f32 * fnv_combat::damage::condition_mult(condition)).round() as i32)),
