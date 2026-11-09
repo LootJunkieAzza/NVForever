@@ -22489,23 +22489,23 @@ manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box a
 
 [[scenario]]
 name = "pipboy-items-hints"
-source = "#1896 (docs/spec-notes/pipboy.md §4): the ITEMS page shows each tab's whole hint set, keys included (Repair/Maintain R), on Weapons Mod X), Equip/Unequip/Use Enter), Drop Right Mouse), Hotkey 1-8)), the ones that do nothing for the selected item dim (Repair on Aid, Misc and Ammo; Equip and Hotkey on Misc and Ammo); the weapon mod menu shows Exit E) and Mod Enter), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder"
+source = "#1896 (docs/spec-notes/pipboy.md §4): the ITEMS page shows each tab's whole hint set, keys included, in the original's order (Equip/Unequip/Use Enter), Drop Right Mouse), Repair/Maintain R), Hotkey 1-8), on Weapons Mod X)), the ones that do nothing for the selected item dim (Repair on Aid, Misc and Ammo; Equip and Hotkey on Misc and Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs"]
 env = { NVFOREVER_HOME = "pipboy-items-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_weapons.png,17:pipboy_items_hints_aid.png,22.5:pipboy_items_hints_mod.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
 run_seconds = 26
 expect = [
-  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Mod X\), (Equip|Unequip) Enter\), Drop Right Mouse\), Hotkey 1-8\)', label = "Weapons: Repair, Mod, Equip, Drop and Hotkey with their keys" },
-  { re = 'pipboy hints: items Apparel: (Repair|Maintain) R\)( \(dim\))?, (Equip|Unequip) Enter\)( \(dim\))?, Drop Right Mouse\)( \(dim\))?, Hotkey 1-8\)', label = "Apparel: the set without Mod" },
-  { re = 'pipboy hints: items Aid: Repair R\) \(dim\), Use Enter\), Drop Right Mouse\), Hotkey 1-8\)', label = "Aid: Use; Repair dim" },
-  { re = 'pipboy hints: items Misc: Repair R\) \(dim\), Equip Enter\) \(dim\), Drop Right Mouse\)( \(dim\))?, Hotkey 1-8\) \(dim\)', label = "Misc: Repair, Equip and Hotkey dim" },
-  { re = 'pipboy hints: items Ammo: Repair R\) \(dim\), Equip Enter\) \(dim\), Drop Right Mouse\), Hotkey 1-8\) \(dim\)', label = "Ammo: Repair, Equip and Hotkey dim" },
-  { text = "pipboy hints: mod menu: Exit E), Mod Enter) (dim)", label = "the mod menu on the weapon's row: Exit, and Mod dim" },
-  { re = 'pipboy hints: mod menu: Exit E\), Mod Enter\)(?! \(dim)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy hints: items Weapons: (Equip|Unequip) Enter\), Drop Right Mouse\), (Repair|Maintain) R\)( \(dim\))?, Hotkey 1-8\), Mod X\)', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their keys, in the original's order" },
+  { re = 'pipboy hints: items Apparel: (Equip|Unequip) Enter\)( \(dim\))?, Drop Right Mouse\)( \(dim\))?, (Repair|Maintain) R\)( \(dim\))?, Hotkey 1-8\)', label = "Apparel: the set without Mod" },
+  { re = 'pipboy hints: items Aid: Use Enter\), Drop Right Mouse\), Repair R\) \(dim\), Hotkey 1-8\)', label = "Aid: Use; Repair dim" },
+  { re = 'pipboy hints: items Misc: Equip Enter\) \(dim\), Drop Right Mouse\)( \(dim\))?, Repair R\) \(dim\), Hotkey 1-8\) \(dim\)', label = "Misc: Repair, Equip and Hotkey dim" },
+  { re = 'pipboy hints: items Ammo: Equip Enter\) \(dim\), Drop Right Mouse\), Repair R\) \(dim\), Hotkey 1-8\) \(dim\)', label = "Ammo: Repair, Equip and Hotkey dim" },
+  { text = "pipboy hints: mod menu: Mod Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Mod Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
   { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "the pistol's own Mod X) line, bright" },
 ]
-order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Exit E), Mod Enter) (dim)"]]
+order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod Enter) (dim), Exit E)"]]
 
 [[scenario]]
 name = "pipboy-data-hints"

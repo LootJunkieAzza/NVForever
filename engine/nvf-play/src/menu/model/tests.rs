@@ -940,11 +940,11 @@ fn the_equip_hint_is_bright_when_enter_does_something() {
     w.add_item_extra(PLAYER, FormId(RIFLE), 1, Extra { condition: Some(0.0), ..Extra::default() }).unwrap();
     let mut m = MenuModel::open_inventory(&mut w).unwrap();
     m.apply(&mut w, Command::SetCategory(Side::Player, Category::All));
-    // The equip hint (the second: no Mod hint off the Weapons tab): its word and whether dim.
+    // The equip hint (the first, as the original's order puts it): its word and whether dim.
     let equip_hint = |m: &MenuModel, w: &World<'_>, name: &str| -> (&'static str, bool) {
         let r = m.list(Side::Player).rows.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("no row {name}"));
         let h = crate::pipboy::items::page_hints(Category::All, Some(r), ("Repair", false), false, enter_acts(w, r));
-        (h[1].word, h[1].dim)
+        (h[0].word, h[0].dim)
     };
     let equip = crate::pipboy::labels::built_in_label("sInventoryEquip");
     assert_eq!(equip_hint(&m, &w, "Paradise Lost"), ("Use", true));

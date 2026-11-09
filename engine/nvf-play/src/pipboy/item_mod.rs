@@ -17,8 +17,9 @@
 //!   (450, 220) wrapped at 350; the figures from (415, 400), 427 x 180: two cards of half
 //!   that width at the top and, on a mod, an arrow 80 square in the middle, the gain in
 //!   font 4 at three quarters, 30 under the arrow's top, and the cards after the mod at
-//!   the bottom (on an attached mod, the weapon without it); "Exit E)" right-aligned at
-//!   855, 75 down, and under it "Mod Enter)", dim on the weapon's own row (#1896).
+//!   the bottom (on an attached mod, the weapon without it); "Mod Enter)" at 855, 75 down,
+//!   dim on the weapon's own row, and under it "Exit E)", the words right-aligned at 855
+//!   with the keys after them (#1896; `frame::Ctx::hint_column`).
 //!   The first row is the weapon,
 //!   boxed; the others the mods [hypothesis: as the repair list].
 //! - Keys: Up/Down (W/S) choose, Enter or Space attaches or removes the chosen mod, E or
@@ -77,18 +78,20 @@ const BUTTONS: Vec2 = Vec2::new(855.0, 75.0);
 /// The effect's line ends this short of the row's right end [design].
 const EFFECT_IN: f32 = 15.0;
 
-/// The menu's two hints in drawing order (#1896): the exit button, "Exit E)" (E or Esc,
-/// with a controller B [#1662]; `IMM_CancelButton`'s `sExit` [documented], its words the
-/// setting's text, else "Exit" [hypothesis: as the companion wheel's]); under it the mod
-/// button, "Mod Enter)" (Enter, with a controller A), attaching or removing the chosen mod
-/// and dim on the weapon's own row, where it does nothing [documented: the file's Mod
-/// button names `sInventoryMod`, `fnv_ui::strings`; design: its words "Mod" as the ITEMS
-/// page's, shown on the PC too, and its key].
+/// The menu's two hints in drawing order (#1896), the mod button first and the exit button
+/// under it [documented: the file lists the Mod button before `IMM_CancelButton`;
+/// observed: "Mod" over "Exit" on the original's screenshots on issue #1896]: "Mod
+/// Enter)" (Enter, with a controller A), attaching or removing the chosen mod and dim on
+/// the weapon's own row, where it does nothing [documented: the file's Mod button names
+/// `sInventoryMod`, `fnv_ui::strings`; design: its words "Mod" as the ITEMS page's, shown
+/// on the PC too, and its key]; then "Exit E)" (E or Esc, with a controller B [#1662];
+/// `IMM_CancelButton`'s `sExit` [documented], its words the setting's text, else "Exit"
+/// [hypothesis: as the companion wheel's]).
 pub fn menu_hints(s: &Session) -> [Hint; 2] {
     let chosen = s.selected.checked_sub(1).and_then(|i| s.offer.choices.get(i)).is_some();
     [
-        Hint::new(super::labels::label("sExit", "Exit"), crate::pad::hint(&[KeyCode::KeyE, KeyCode::Escape], items_at()), false),
         Hint::new(super::labels::label("sInventoryMod", "Mod"), crate::pad::hint(&[KeyCode::Enter], items_at()), !chosen),
+        Hint::new(super::labels::label("sExit", "Exit"), crate::pad::hint(&[KeyCode::KeyE, KeyCode::Escape], items_at()), false),
     ]
 }
 
@@ -96,7 +99,6 @@ pub fn menu_hints(s: &Session) -> [Hint; 2] {
 fn items_at() -> crate::pad::MenuAt {
     crate::pad::at_menu(fnv_game::game::menus::INVENTORY)
 }
-const ACT_DOWN: f32 = 40.0;
 /// The meter's empty part [documented: the repair template's alpha 64, the same meter].
 const BAR_BACK: f32 = 64.0 / 255.0;
 
@@ -450,15 +452,18 @@ pub fn draw_list(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, combat:
     let line = amber(LINE);
     let o = &s.offer;
     frame::heading_named(p, c, Page::Items.title(), &o.name, NAME_RIGHT_IN);
+    // The two hints as the ITEMS page's column (Mod, then Exit), each with its click area
+    // over its drawn text and 10 past it.
     let by = MAIN.min.y + BUTTONS.y + frame::BUTTON_TEXT_Y;
-    let [exit, act] = menu_hints(s);
-    // The drawn width, not the text's: a hint that names a button draws its picture.
-    let ew = c.text(p, 2, &exit.text(), MAIN.min.x + BUTTONS.x - 10.0, by, Align::Right, exit.color());
-    p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - ew, by - 5.0, ew + 10.0, 40.0), ModExit, Pickable::default())).observe(on_exit_click);
+    let hints = menu_hints(s);
+    let rows = c.hint_column(p, &hints, MAIN.min.x + BUTTONS.x, by);
+    let area = |r: &Rect| at(r.min.x, r.min.y - 5.0, r.width() + 10.0, 40.0);
     let chosen = s.selected.checked_sub(1).and_then(|i| o.choices.get(i));
-    let aw = c.text(p, 2, &act.text(), MAIN.min.x + BUTTONS.x - 10.0, by + ACT_DOWN, Align::Right, act.color());
-    if chosen.is_some() {
-        p.spawn((at(MAIN.min.x + BUTTONS.x - 10.0 - aw, by + ACT_DOWN - 5.0, aw + 10.0, 40.0), ModAct, Pickable::default())).observe(on_act_click);
+    if let (Some(r), true) = (rows.first(), chosen.is_some()) {
+        p.spawn((area(r), ModAct, Pickable::default())).observe(on_act_click);
+    }
+    if let Some(r) = rows.get(1) {
+        p.spawn((area(r), ModExit, Pickable::default())).observe(on_exit_click);
     }
     // The rows: the weapon, then the mods (an attached one marked, as the equipped
     // weapon), each mod's effect under its name.
@@ -580,8 +585,8 @@ mod tests {
         assert_eq!(offer(&bare, &forms, &WeaponStats::default(), GUN, Some(1.0), 0, true), None);
     }
 
-    /// The menu's two hints (#1896): "Exit E)" and "Mod Enter)", the Mod hint dim on the
-    /// weapon's own row and bright on a mod; with a controller B and A.
+    /// The menu's two hints (#1896): "Mod Enter)" over "Exit E)", the Mod hint dim on the
+    /// weapon's own row and bright on a mod; with a controller A and B.
     #[test]
     fn the_menu_shows_its_mod_and_exit_hints() {
         let forms = store();
@@ -589,13 +594,13 @@ mod tests {
         let groups = vec![(GUN, on, 1), (MAGS, Extra::default(), 1)];
         let mut s = Session { offer: offer(&groups, &forms, &pistol(), GUN, Some(1.0), 0, true).unwrap(), first: 0, selected: 0 };
         let shown = |s: &Session| menu_hints(s).iter().map(|h| (h.text(), h.dim)).collect::<Vec<_>>();
-        assert_eq!(shown(&s), [("Exit E)".to_string(), false), ("Mod Enter)".to_string(), true)]);
+        assert_eq!(shown(&s), [("Mod Enter)".to_string(), true), ("Exit E)".to_string(), false)]);
         s.selected = 1;
-        assert_eq!(shown(&s), [("Exit E)".to_string(), false), ("Mod Enter)".to_string(), false)]);
+        assert_eq!(shown(&s), [("Mod Enter)".to_string(), false), ("Exit E)".to_string(), false)]);
         crate::pad::set_labels(crate::pad::Labels::Xbox);
         let keys: Vec<String> = menu_hints(&s).iter().map(|h| h.key.clone()).collect();
         crate::pad::set_labels(crate::pad::Labels::Keys);
-        assert_eq!(keys, ["B)", "A)"]);
+        assert_eq!(keys, ["A)", "B)"]);
     }
 
     #[test]
