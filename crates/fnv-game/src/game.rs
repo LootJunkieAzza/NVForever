@@ -3543,6 +3543,8 @@ impl<'a> Game<'a> {
         self.hud_tick();
         self.lu3_tick();
         self.sup7_tick();
+        // SUP's HUD bars: their visibility conditions and fades (`crate::ui_hudbar`).
+        crate::ui_hudbar::tick(self);
         self.expire_aux_timers();
         self.input.next_frame();
         self.turned.clear();

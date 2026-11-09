@@ -877,7 +877,7 @@ rule are in the code beside it. Smoke: `ui-gradual-in-game`, `ui-string-dimensio
 | DumpTileInfo, DumpTileInfoALL, DumpTileInfoToArray | the three SUP pages [documented] | `[ Tilename ] : name` and `[ trait ] : value` lines (the ToArray page's example output) to the console, or to NVForever's log for DumpToFile (never `SUPNVSE.log` in the game folder); ToArray a string map; DumpTileInfo uses the live cursor tile for a missing or nonexistent path (path argument 1); ALL lists menus; ToArray still requires a path [design: `ui_more`] | none |
 | CacheUI, …Float, …String, …ModFloat, …GetFloat, …GetString, …Range, …RangeMod, …Erase, …Dump, …Gradual, …RangeGradual, …GradualDelay, …RangeGradualDelay, each with its Alt | the CacheUI pages (CacheUIModFloat's is `CacheUIMod`) [documented] | caches per calling plugin, Alt per key; delay pulls the value then, flags 0/1/2 and the lock, `match` ends a delay; modes 0-3, 5, 6 | mode 4 (rumble) mentioned but insufficiently specified: waveform, frequency, randomness, decay curve and final value are not given; remains refused (`ui_gradients::mode_built`); RangeMod's page and example differ in argument order, both taken [design]; the script runners' shared cache |
 | CUICreateQueue, CUIGetQueue, CUIGetQueueSize, CUIQueueCycle, CUIQueueFloat | the five pages [documented] | per plugin; toggle, forced add and remove, duplicates | cycle direction 0 [hypothesis] |
-| HudBar… (35 functions) | SUP HUD Bar Functions and each HudBar page [documented] | a `rect NVFHudBar<n>` with `Meter`, `Frame`, `Text`, `ImageEx` in `HUDMainMenu`, per plugin (console: first of the name), written after each change and after a load; types 0-5, value/max/percentage, text with prefix, postfix and max, alpha, colour, system colour, depth, zoom, rotation, size, indent, alt size, texture, text font and justify, auto position, bar and meter traits, all-bars arrays, element paths, debug lines to the log | live bindings, condition visibility and fades: its own issue, **HudBar live value bindings and conditional visibility**. ScriptVar needs retained variable identity (`fnv-script/src/vm.rs`, `host_function`); UDFs already have a callable representation but lack timed evaluation. Conditions and fade traits are stored, not evaluated (`ui_hudbar.rs`); reading a texture's size (`iCalculateSize`), the rotation on screen (the traits are written, the tile renderer turns no tile yet); the meter's width as indent plus the share of the rest, type 4 without a built-in `%`, the default max 100 and which elements show by default [hypothesis] |
+| HudBar… (35 functions) | SUP HUD Bar Functions and each HudBar page [documented] | a `rect NVFHudBar<n>` with `Meter`, `Frame`, `Text`, `ImageEx` in `HUDMainMenu`, per plugin (console: first of the name), written after each change and after a load; types 0-5, value/max/percentage, text with prefix, postfix and max, alpha, colour, system colour, depth, zoom, rotation, size, indent, alt size, texture, text font and justify, auto position, bar and meter traits, all-bars arrays, element paths, debug lines to the log | bound values (ext-sup7.md §3), the visibility conditions 0 and 21-27 with their fades 41-44/61-64 and HudBarGetVisible's -1: hud-bars.md (#1834); reading a texture's size (`iCalculateSize`), the rotation on screen (the traits are written, the tile renderer turns no tile yet); the meter's width as indent plus the share of the rest, type 4 without a built-in `%`, the default max 100 and which elements show by default [hypothesis] |
 
 [design] Numbers that are not numbers: SetUIFloatMultiple, AddTraitToTile, CacheUIFloat /
 ModFloat / Range / RangeMod (and their Alt forms), a HUD bar's place at creation and its
@@ -915,20 +915,8 @@ Implemented consumers and remaining exclusions:
   placed. **Project attached UI components onto model nodes** needs its own issue for
   animated node transforms, camera projection/interface units and lifetime. Occlusion,
   clipping, distance scaling and offscreen behavior are not settled by that page.
-- **HudBar live value bindings and conditional visibility** needs its own issue.
-  [documented: [ScriptVar](https://geckwiki.com/index.php?title=HudBarSetValueScriptVar),
-  [UDF](https://geckwiki.com/index.php?title=HudBarSetValueUDF),
-  [bar traits](https://geckwiki.com/index.php?title=HudBarSetBarTrait),
-  [GetVisible](https://geckwiki.com/index.php?title=HudBarGetVisible)] Values update on a
-  timer with optional normalization; UDFs take no arguments and an optional caller.
-  Conditions 21-27 cover movement, sneak, combat, aim, equipment, weapon and camera;
-  41-44/61-64 describe fades/movement/timing for 21-26. Trait 1 concerns removal on load,
-  trait 0 menu mode. GetVisible distinguishes condition-hidden -1, manually hidden 0,
-  visible 1. [design: `ui_hudbar.rs`, binding/visibility dispatch] Timers, safe callbacks,
-  variable lifetime, destruction/reentrancy and condition fades remain to implement.
-  [hypothesis] Menu-mode polarity (the page repeats 1), contradictory combination prose,
-  item/list precedence, empty lists, timer catch-up, fade easing/reversal, callback failures
-  and full save persistence need explicit choices and tests, not silent assumptions.
+- **HudBar live value bindings and conditional visibility**: built (#1834), choices and
+  tags in docs/spec-notes/hud-bars.md.
 - **CacheUI mode 4** [documented: [CacheUIRangeGradual](https://geckwiki.com/index.php?title=CacheUIRangeGradual)]
   mentions bounded, decaying rumble but is insufficiently specified: no waveform,
   frequency, randomness, decay curve or final value. [design: `ui_gradients.rs`,

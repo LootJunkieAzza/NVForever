@@ -7,12 +7,13 @@
 //!
 //! Bars belong to the calling plugin: two mods may name bars alike; called from the
 //! console, the first bar of the name is taken [documented: the category page]. Built:
-//! the bars' making, values, look and debug output. Not built (menu-xml.md §9): the
-//! visibility conditions and their gradual vanishing (bar traits 0 and 21-64 are kept and
-//! read back, not acted on), the texture sizes read from the files. The script-variable
-//! and UDF values are `crate::nvse_sup7`'s. The rotation traits are written into the tiles but the tile renderer
-//! turns no tile yet (`engine/nvf-play/src/tiles/layout.rs`), so HudBarSetRotation shows
-//! nothing until it does.
+//! the bars' making, values, look and debug output, and the visibility conditions (bar
+//! traits 0 and 21-27) with their gradual vanishing and appearing (41-44, 61-64), stepped
+//! each frame by [`tick`] (docs/spec-notes/hud-bars.md). Not built: the texture sizes read
+//! from the files. The script-variable and UDF values are `crate::nvse_sup7`'s. The
+//! rotation traits are written into the tiles but the tile renderer turns no tile yet
+//! (`engine/nvf-play/src/tiles/layout.rs`), so HudBarSetRotation shows nothing until it
+//! does.
 
 use crate::game::Game;
 use crate::ui_more::{finite, num, opt, text};
@@ -120,6 +121,68 @@ pub struct Bar {
     pub share: f64,
     pub item: Option<u32>,
     pub list: Option<u32>,
+    /// How far the bar is there under its conditions: 1 shown, 0 hidden by them, between
+    /// while it vanishes or appears gradually (traits 41 and 61) [design].
+    pub presence: f64,
+    /// The way the last change of `presence` went: true appearing (traits 61-64), false
+    /// vanishing (41-44); it picks the movement traits [design].
+    pub appearing: bool,
+}
+
+/// What the visibility conditions read from the game, gathered once a frame ([`tick`])
+/// or when HudBarGetVisible asks. All of it is the player's [documented: HudBarSetBarTrait,
+/// "player is sneaking", "player has their weapon out" and so on].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Situation {
+    /// [`Game::in_menu`]: a menu open or a conversation running.
+    pub menu_mode: bool,
+    /// The movement group of DisablePlayerControls (or any plugin's
+    /// DisablePlayerControlsAlt) is held (`Game::controls_locked`, index 0).
+    pub movement_disabled: bool,
+    pub sneaking: bool,
+    /// IsInCombat's answer for the player (`awareness::is_in_combat`).
+    pub combat: bool,
+    /// Aiming down the sights or the scope, as the engine tells it
+    /// (`nvse_jip2::PlayerTold::aiming`).
+    pub aiming: bool,
+    pub weapon_out: bool,
+    pub first_person: bool,
+    /// The base forms the player has equipped.
+    pub equipped: Vec<u32>,
+}
+
+impl Situation {
+    pub fn read(g: &Game) -> Situation {
+        let p = fnv_sim::FormId::PLAYER_REF;
+        let equipped = g.world.equipment(p).unwrap_or_default().into_iter().map(|f| f.0).collect();
+        Situation {
+            menu_mode: g.in_menu(),
+            movement_disabled: g.controls_locked()[0],
+            sneaking: g.is_sneaking(p),
+            combat: g.awareness.hunted(p),
+            aiming: g.jip2.told.aiming,
+            weapon_out: g.extra.get(&p).is_some_and(|e| e.weapon_out),
+            first_person: g.senses.first_person,
+            equipped,
+        }
+    }
+}
+
+/// Which of a bar's conditions hide it now.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Hidden {
+    /// By one of traits 21-26, the ones that may vanish and appear gradually
+    /// [documented: HudBarSetBarTrait, traits 41 and 61, "hidden via traits(21-26)"].
+    pub gradual: bool,
+    /// By trait 0 (menu mode) or 27 (camera): at once, the fades being only for 21-26
+    /// [hypothesis: read from the same words].
+    pub instant: bool,
+}
+
+impl Hidden {
+    pub fn any(self) -> bool {
+        self.gradual || self.instant
+    }
 }
 
 impl Bar {
@@ -133,6 +196,99 @@ impl Bar {
     /// [hypothesis].
     pub fn bar_trait(&self, k: i64) -> f64 {
         self.traits.get(&k).copied().unwrap_or(if k == 2 { 0.1 } else { 0.0 })
+    }
+
+    /// A trait as the whole number its page lists.
+    fn code(&self, k: i64) -> i64 {
+        self.bar_trait(k) as i64
+    }
+
+    /// Which conditions hide the bar in `s`; `item_on` says whether its item or any member
+    /// of its form list is equipped (trait 25, [`item_equipped`]).
+    ///
+    /// [documented: HudBarSetBarTrait] 0: 1 shown only in game mode; 21: 1 hidden while
+    /// the movement controls are disabled; 22, 23, 24: 1 hidden while sneaking, in combat,
+    /// aiming, 2 shown only then; 25: 1 hidden unless the item is equipped; 26: 1 hidden
+    /// with the weapon out, 2 hidden without it; 27: 1 hidden in third person, 2 in first
+    /// person.
+    ///
+    /// [hypothesis] Trait 0's page gives the value 1 to both "Show only in Gamemode" and
+    /// "Show only in menumode"; 1 is read as the first and 2 as the second, the way traits
+    /// 22-24 and 26 number their two alternatives. A value a page does not list hides
+    /// nothing [design].
+    ///
+    /// [design] The conditions combine as vetoes: the bar shows only when none of those
+    /// set hides it. The page's note says "any combination is possible" and gives "appear
+    /// only when aiming in combat" (22-24's value 2 on 23 and 24), then "in other cases it
+    /// will be shown", which no rule gives together with the first half; the veto rule
+    /// keeps the first half (each "only when" must hold) and so hides the bar outside
+    /// combat or when not aiming. docs/spec-notes/hud-bars.md §2.
+    pub fn hidden_by(&self, s: &Situation, item_on: bool) -> Hidden {
+        let only_or_not = |k: i64, now: bool| match self.code(k) {
+            1 => now,
+            2 => !now,
+            _ => false,
+        };
+        let gradual = (self.code(21) == 1 && s.movement_disabled)
+            || only_or_not(22, s.sneaking)
+            || only_or_not(23, s.combat)
+            || only_or_not(24, s.aiming)
+            || (self.code(25) == 1 && !item_on)
+            || only_or_not(26, s.weapon_out);
+        let instant = match self.code(0) {
+            1 => s.menu_mode,
+            2 => !s.menu_mode,
+            _ => false,
+        } || match self.code(27) {
+            1 => !s.first_person,
+            2 => s.first_person,
+            _ => false,
+        };
+        Hidden { gradual, instant }
+    }
+
+    /// One frame of `dt` seconds under the conditions `h`: `presence` moves towards 1
+    /// (none hides the bar) or 0. [documented: HudBarSetBarTrait] With 41 set the bar
+    /// vanishes over 44's seconds, with 61 set it appears over 64's, otherwise at once.
+    /// [design] A bar hidden by HudBarShowBar, or hidden by trait 0 or 27, takes the end
+    /// value at once (nothing is drawn to fade); a timer of 0 or less is at once; a change
+    /// that turns back half way goes back from where it is, at the other way's speed (no
+    /// jump). True when `presence` changed.
+    pub fn step_presence(&mut self, h: Hidden, dt: f64) -> bool {
+        let was = self.presence;
+        let target = if h.any() { 0.0 } else { 1.0 };
+        if target < self.presence {
+            self.appearing = false;
+        } else if target > self.presence {
+            self.appearing = true;
+        }
+        if !self.shown || h.instant {
+            self.presence = target;
+        } else if target != self.presence {
+            let (on, timer) = if self.appearing { (61, 64) } else { (41, 44) };
+            let t = self.bar_trait(timer);
+            self.presence = if self.bar_trait(on) != 0.0 && t > 0.0 && t.is_finite() {
+                let step = dt.max(0.0) / t;
+                if self.appearing { (self.presence + step).min(1.0) } else { (self.presence - step).max(0.0) }
+            } else {
+                target
+            };
+        }
+        self.presence != was
+    }
+
+    /// The bar's place moved by a gradual change: [documented: HudBarSetBarTrait] 42 (62)
+    /// 1 horizontally, 2 vertically, by 43's (63's) pixels, positive to the right (down,
+    /// [hypothesis: the interface's y grows downwards]); vanishing it moves away towards
+    /// the shift, appearing it comes from the shift to its place. [design] Linear in time.
+    pub fn place(&self) -> (f64, f64) {
+        let (mode, shift) = if self.appearing { (62, 63) } else { (42, 43) };
+        let d = self.bar_trait(shift) * (1.0 - self.presence);
+        match self.code(mode) {
+            1 => (self.x + d, self.y),
+            2 => (self.x, self.y + d),
+            _ => (self.x, self.y),
+        }
     }
 
     /// The Text element's string: for types 3 and 4 the value [documented: "Value/MaxValue"
@@ -210,6 +366,45 @@ pub fn set_value(g: &mut Game, i: usize, v: f64, of_max: bool) {
     apply(g, i);
 }
 
+/// Trait 25's test: the bar's item (HudBarSetItem) or any member of its form list
+/// (HudBarSetFormList) is equipped [documented: the two pages, "only show up when this
+/// item is equipped", "when any item from formlist is equipped"]. [design] With both
+/// set, either one is enough (neither page puts one before the other). [hypothesis]
+/// With neither set, or only an empty list, nothing named can be equipped, so trait 25
+/// keeps the bar hidden, as its words say ("hide bar when player doesn't have item
+/// equipped").
+pub fn item_equipped(g: &Game, b: &Bar, s: &Situation) -> bool {
+    let on = |f: u32| s.equipped.contains(&f);
+    b.item.is_some_and(on) || b.list.is_some_and(|l| crate::functions::refs::list_members(g, fnv_sim::FormId(l)).into_iter().any(|m| on(m.0)))
+}
+
+/// The conditions that hide bar `i` now (for HudBarGetVisible, between frames too).
+fn hidden_now(g: &Game, i: usize) -> Hidden {
+    let s = Situation::read(g);
+    let b = &g.ui_extra.bars.list[i];
+    b.hidden_by(&s, b.code(25) == 1 && item_equipped(g, b, &s))
+}
+
+/// Each frame (`Game::tick`): every bar's conditions read, its `presence` stepped by the
+/// frame's real seconds (`GameConfig::frame_seconds`, menus too [design: the fades are
+/// the interface's, game time stands still in menus]), and the bars that changed written
+/// again.
+pub fn tick(g: &mut Game) {
+    if g.ui_extra.bars.list.is_empty() {
+        return;
+    }
+    let s = Situation::read(g);
+    let dt = g.cfg.frame_seconds;
+    for i in 0..g.ui_extra.bars.list.len() {
+        let b = &g.ui_extra.bars.list[i];
+        let item_on = b.code(25) == 1 && item_equipped(g, b, &s);
+        let h = b.hidden_by(&s, item_on);
+        if g.ui_extra.bars.list[i].step_presence(h, dt) {
+            apply(g, i);
+        }
+    }
+}
+
 /// A plugin's name by its load-order index, lower case.
 fn plugin_at(g: &Game, index: f64) -> Option<String> {
     g.data.load_order.get(index.max(0.0) as usize).map(|p| p.to_ascii_lowercase())
@@ -241,9 +436,12 @@ pub fn apply(g: &mut Game, i: usize) -> bool {
             }
         }
     };
-    ui.set_trait(rect, "x", Value::Num(bar.x));
-    ui.set_trait(rect, "y", Value::Num(bar.y));
-    ui.set_trait(rect, "visible", Value::from_bool(bar.shown));
+    // The conditions' gradual change moves the bar and fades every element by its
+    // `presence`; at 0 the bar is not drawn [design].
+    let (x, y) = bar.place();
+    ui.set_trait(rect, "x", Value::Num(x));
+    ui.set_trait(rect, "y", Value::Num(y));
+    ui.set_trait(rect, "visible", Value::from_bool(bar.shown && bar.presence > 0.0));
     let children: Vec<TileId> = ui.tile(rect).children.clone();
     for (k, name) in ELEMENTS.iter().enumerate() {
         let Some(&t) = children.iter().find(|&&c| ui.tile(c).name == *name) else { continue };
@@ -260,7 +458,7 @@ pub fn apply(g: &mut Game, i: usize) -> bool {
         if k != 2 || e.height > 0.0 {
             set(ui, "height", Value::Num(e.height));
         }
-        set(ui, "alpha", Value::Num(e.alpha));
+        set(ui, "alpha", Value::Num(e.alpha * bar.presence));
         set(ui, "depth", Value::Num(e.depth));
         set(ui, "visible", Value::from_bool(e.visible));
         set(ui, "systemcolor", Value::Num(e.systemcolor));
@@ -302,6 +500,10 @@ pub fn apply(g: &mut Game, i: usize) -> bool {
 pub fn rebuilt(g: &mut Game) {
     g.ui_extra.bars.list.retain(|b| b.bar_trait(1) == 0.0);
     for i in 0..g.ui_extra.bars.list.len() {
+        // A fade under way is finished at once in the new HUD [design].
+        let h = hidden_now(g, i);
+        let b = &mut g.ui_extra.bars.list[i];
+        b.presence = if h.any() { 0.0 } else { 1.0 };
         apply(g, i);
     }
 }
@@ -384,6 +586,8 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
                 share: 0.0,
                 item: None,
                 list: None,
+                presence: 1.0,
+                appearing: true,
             };
             g.ui_extra.bars.list.push(bar);
             let i = g.ui_extra.bars.list.len() - 1;
@@ -468,16 +672,27 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
             }
             None => XVal::Str(String::new()),
         },
-        // `name element [modIndex]`; 10: 1 shown, 0 hidden by HudBarShowBar (-1, hidden by
-        // its conditions, is not built) [documented: HudBarGetVisible]. 0 without the bar
-        // [hypothesis].
+        // `name element [modIndex]`; 10: 1 shown, 0 hidden by HudBarShowBar, -1 hidden by
+        // its conditions [documented: HudBarGetVisible, "if it's set to be hidden in First
+        // person"]. [hypothesis] Hidden both ways is 0 (HudBarShowBar's); every condition
+        // (traits 0, 21-27) gives -1, read now, so -1 from the moment a condition hides the
+        // bar, while it still vanishes, and 1 from the moment none does, while it still
+        // appears. The elements 0, 1 and 3 answer their own HudBarSetVisible. 0 without the
+        // bar [hypothesis].
         "hudbargetvisible" => {
             let i = match opt(args, 2).and_then(|m| plugin_at(g, m)) {
                 Some(owner) => g.ui_extra.bars.list.iter().position(|b| b.owner == owner && b.name.eq_ignore_ascii_case(&name)),
                 None => found,
             };
             XVal::Num(match (i, num(args, 1) as i64) {
-                (Some(i), ALL) => f64::from(u8::from(g.ui_extra.bars.list[i].shown)),
+                (Some(i), ALL) if !g.ui_extra.bars.list[i].shown => 0.0,
+                (Some(i), ALL) => {
+                    if hidden_now(g, i).any() {
+                        -1.0
+                    } else {
+                        1.0
+                    }
+                }
                 (Some(i), e @ (0 | 1 | 3)) => f64::from(u8::from(g.ui_extra.bars.list[i].elements[e as usize].visible)),
                 _ => 0.0,
             })
@@ -577,7 +792,7 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
             _ => ok(false),
         },
         // [documented: HudBarSetItem, HudBarSetFormList: no form removes it; used by
-        // iDisableWhenItemNotEquipped, not built].
+        // iDisableWhenItemNotEquipped, trait 25, [`item_equipped`]].
         "hudbarsetitem" | "hudbarsetformlist" => match found {
             Some(i) => {
                 let f = match args.get(1) {
@@ -594,9 +809,16 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
             }
             None => ok(false),
         },
+        // A bar shown starts where its conditions are, without a fade [design: no frame
+        // of a bar its conditions hide]. Hidden, its value is no longer read
+        // (`crate::nvse_sup7`) [documented: HudBarShowBar, "Bar value calculations will
+        // stop processing"].
         "hudbarshowbar" => match found {
             Some(i) => {
-                g.ui_extra.bars.list[i].shown = num(args, 1) != 0.0;
+                let h = hidden_now(g, i);
+                let b = &mut g.ui_extra.bars.list[i];
+                b.shown = num(args, 1) != 0.0;
+                b.presence = if h.any() { 0.0 } else { 1.0 };
                 apply(g, i);
                 XVal::Num(1.0)
             }
@@ -629,4 +851,147 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
         },
         _ => return None,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bar(traits: &[(i64, f64)]) -> Bar {
+        Bar {
+            owner: String::new(),
+            name: "b".into(),
+            id: 1,
+            kind: 0,
+            x: 100.0,
+            y: 50.0,
+            shown: true,
+            elements: [Element::new(0), Element::new(1), Element::new(2), Element::new(3)],
+            texts: Default::default(),
+            traits: traits.iter().copied().collect(),
+            meter: [0.0, 255.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            value: 0.0,
+            max: 100.0,
+            share: 0.0,
+            item: None,
+            list: None,
+            presence: 1.0,
+            appearing: true,
+        }
+    }
+
+    fn hides(traits: &[(i64, f64)], s: &Situation) -> Hidden {
+        bar(traits).hidden_by(s, false)
+    }
+
+    const GRADUAL: Hidden = Hidden { gradual: true, instant: false };
+    const INSTANT: Hidden = Hidden { gradual: false, instant: true };
+    const NONE: Hidden = Hidden { gradual: false, instant: false };
+
+    #[test]
+    fn each_condition_hides_by_its_value() {
+        let calm = Situation::default();
+        let on = |f: fn(&mut Situation)| {
+            let mut s = Situation::default();
+            f(&mut s);
+            s
+        };
+        // Nothing set hides nothing.
+        assert_eq!(hides(&[], &calm), NONE);
+        // 21: movement controls disabled.
+        assert_eq!(hides(&[(21, 1.0)], &on(|s| s.movement_disabled = true)), GRADUAL);
+        assert_eq!(hides(&[(21, 1.0)], &calm), NONE);
+        // 22-24: 1 hidden while, 2 only while.
+        for (k, f) in [(22, (|s: &mut Situation| s.sneaking = true) as fn(&mut Situation)), (23, |s| s.combat = true), (24, |s| s.aiming = true)] {
+            assert_eq!(hides(&[(k, 1.0)], &on(f)), GRADUAL, "trait {k} 1 while it holds");
+            assert_eq!(hides(&[(k, 1.0)], &calm), NONE, "trait {k} 1 otherwise");
+            assert_eq!(hides(&[(k, 2.0)], &on(f)), NONE, "trait {k} 2 while it holds");
+            assert_eq!(hides(&[(k, 2.0)], &calm), GRADUAL, "trait {k} 2 otherwise");
+        }
+        // 26: 1 hidden with the weapon out, 2 without it.
+        assert_eq!(hides(&[(26, 1.0)], &on(|s| s.weapon_out = true)), GRADUAL);
+        assert_eq!(hides(&[(26, 1.0)], &calm), NONE);
+        assert_eq!(hides(&[(26, 2.0)], &calm), GRADUAL);
+        assert_eq!(hides(&[(26, 2.0)], &on(|s| s.weapon_out = true)), NONE);
+        // 25: the item test is the caller's.
+        assert_eq!(bar(&[(25, 1.0)]).hidden_by(&calm, false), GRADUAL);
+        assert_eq!(bar(&[(25, 1.0)]).hidden_by(&calm, true), NONE);
+        // 27: 1 hidden in third person, 2 in first; at once.
+        assert_eq!(hides(&[(27, 1.0)], &calm), INSTANT);
+        assert_eq!(hides(&[(27, 1.0)], &on(|s| s.first_person = true)), NONE);
+        assert_eq!(hides(&[(27, 2.0)], &on(|s| s.first_person = true)), INSTANT);
+        // 0: 1 game mode only, 2 menu mode only; at once.
+        assert_eq!(hides(&[(0, 1.0)], &on(|s| s.menu_mode = true)), INSTANT);
+        assert_eq!(hides(&[(0, 1.0)], &calm), NONE);
+        assert_eq!(hides(&[(0, 2.0)], &calm), INSTANT);
+        // A value no page lists hides nothing.
+        assert_eq!(hides(&[(22, 3.0), (27, 7.0), (21, 2.0)], &on(|s| s.sneaking = true)), NONE);
+    }
+
+    #[test]
+    fn conditions_combine_as_vetoes() {
+        // "Appear only when aiming in combat": 23 and 24 at 2.
+        let only = [(23, 2.0), (24, 2.0)];
+        let mut s = Situation { combat: true, aiming: true, ..Situation::default() };
+        assert_eq!(hides(&only, &s), NONE);
+        s.aiming = false;
+        assert_eq!(hides(&only, &s), GRADUAL, "in combat, not aiming");
+        s = Situation { aiming: true, ..Situation::default() };
+        assert_eq!(hides(&only, &s), GRADUAL, "aiming outside combat");
+        assert_eq!(hides(&only, &Situation::default()), GRADUAL);
+        // A gradual and an instant veto together.
+        let both = [(22, 1.0), (27, 2.0)];
+        let s = Situation { sneaking: true, first_person: true, ..Situation::default() };
+        assert_eq!(hides(&both, &s), Hidden { gradual: true, instant: true });
+    }
+
+    #[test]
+    fn presence_fades_by_the_timers_and_turns_back_smoothly() {
+        // Without trait 41 it goes at once.
+        let mut b = bar(&[]);
+        assert!(b.step_presence(GRADUAL, 0.25));
+        assert_eq!(b.presence, 0.0);
+        assert!(!b.appearing);
+        assert!(b.step_presence(NONE, 0.25));
+        assert_eq!(b.presence, 1.0);
+        // 41 over 1 s, 61 over 2 s.
+        let mut b = bar(&[(41, 1.0), (44, 1.0), (61, 1.0), (64, 2.0)]);
+        b.step_presence(GRADUAL, 0.25);
+        assert_eq!(b.presence, 0.75);
+        b.step_presence(GRADUAL, 0.25);
+        assert_eq!(b.presence, 0.5);
+        // Turned back half way: from 0.5 up at the appearing speed.
+        b.step_presence(NONE, 0.5);
+        assert_eq!(b.presence, 0.75);
+        assert!(b.appearing);
+        b.step_presence(NONE, 5.0);
+        assert_eq!(b.presence, 1.0);
+        assert!(!b.step_presence(NONE, 0.25), "nothing to change");
+        // An instant veto cuts a fade short.
+        b.step_presence(GRADUAL, 0.25);
+        b.step_presence(Hidden { gradual: true, instant: true }, 0.25);
+        assert_eq!(b.presence, 0.0);
+        // A timer of 0 is at once; so is a bar HudBarShowBar hides.
+        let mut b = bar(&[(41, 1.0), (44, 0.0)]);
+        b.step_presence(GRADUAL, 0.01);
+        assert_eq!(b.presence, 0.0);
+        let mut b = bar(&[(41, 1.0), (44, 5.0)]);
+        b.shown = false;
+        b.step_presence(GRADUAL, 0.01);
+        assert_eq!(b.presence, 0.0);
+    }
+
+    #[test]
+    fn a_gradual_change_moves_the_bar() {
+        let mut b = bar(&[(41, 1.0), (42, 1.0), (43, 40.0), (61, 1.0), (62, 2.0), (63, -10.0)]);
+        assert_eq!(b.place(), (100.0, 50.0));
+        b.presence = 0.5;
+        b.appearing = false;
+        assert_eq!(b.place(), (120.0, 50.0), "vanishing to the right");
+        b.presence = 0.25;
+        b.appearing = true;
+        assert_eq!(b.place(), (100.0, 42.5), "appearing from above");
+        b.traits.insert(62, 0.0);
+        assert_eq!(b.place(), (100.0, 50.0), "no movement");
+    }
 }
