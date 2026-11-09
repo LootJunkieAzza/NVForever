@@ -3263,6 +3263,9 @@ impl Vm<'_, '_> {
 fn out_params(lname: &str) -> Option<&'static [usize]> {
     Some(match lname {
         "getangleex" => &[0, 1, 2],
+        // JIP batch 13 (fnv_game::nvse_jip13).
+        "getangularvelocityalt" | "getlinearvelocityalt" => &[1, 2, 3],
+        "getreticleposalt" => &[0, 1, 2],
         "getanglesbetweenpoints" => &[6, 7],
         "getpointraycastpos" => &[5, 6, 7],
         "geteditorposition" => &[0, 1, 2, 3, 4, 5],
