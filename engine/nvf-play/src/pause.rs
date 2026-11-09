@@ -1267,7 +1267,7 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
                 list_row(r, look, i, chosen, d.dropdown.is_some_and(|o| o.row == i));
                 return;
             }
-            let value = if v > 0.5 { "ON" } else { "OFF" };
+            let value = tr(if v > 0.5 { "ON" } else { "OFF" });
             let vw = f.entry.font.width(value);
             r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
             sm_text(r, &f.entry, value, VALUE_AT - vw / 2.0, BASE + 2.0, color(Shade::Bright));
@@ -1341,9 +1341,9 @@ fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     scroll_bar(root, look, n, first, top, left);
     for (row, i) in (first..n).take(OPTION_ROWS).enumerate() {
         let (name, value) = match control_at(i) {
-            None if i == invert_row() => (INVERT_ROW, (if d.invert_y { "ON" } else { "OFF" }).to_string()),
+            None if i == invert_row() => (INVERT_ROW, tr(if d.invert_y { "ON" } else { "OFF" }).to_string()),
             None if i == sensitivity_row() => (SENSITIVITY_ROWS[usize::from(controller)], crate::bindings::sensitivity_text(d.sensitivity)),
-            None if i == rumble_row() => (RUMBLE_ROW, (if d.rumble { "ON" } else { "OFF" }).to_string()),
+            None if i == rumble_row() => (RUMBLE_ROW, tr(if d.rumble { "ON" } else { "OFF" }).to_string()),
             None => (DEVICE_ROW, device.to_string()),
             Some(_) if listening && i == selected => ("", (if controller { WAITING_PAD } else { WAITING }).to_string()),
             Some(_) => ("", d.controls.get(i - 1).cloned().unwrap_or_default()),

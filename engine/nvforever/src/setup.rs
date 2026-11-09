@@ -114,6 +114,17 @@ pub fn guess_code_page(plugins: &[fnv_esm::Plugin]) {
     }
 }
 
+/// NVForever's own words in the language of the game's text (#1948,
+/// `fnv_util::words::follow_code_page`): chosen and said in the log when the run's code
+/// page names a language and its file was read. Runs after the code page is settled and
+/// before NVForever.ini's rows are applied, so a `language=` there wins.
+pub fn follow_text_language() {
+    let page = fnv_util::text::code_page();
+    if let Some(id) = fnv_util::words::follow_code_page(page) {
+        eprintln!("setup: NVForever's own words in {id}, the language of the game's text ({page}); set language in NVForever.ini or on the settings page to choose another");
+    }
+}
+
 /// Draw the fonts the install's `Fallout_default.ini` names in `[Fonts]` (`sFontFile_N`),
 /// not always the English install's files (#1439). The file is in the game's own folder,
 /// read-only input; the per-user `My Games\FalloutNV` copy is never read

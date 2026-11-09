@@ -959,6 +959,9 @@ fn main() -> AppExit {
     if !code_page_named {
         setup::guess_code_page(&opened.plugins);
     }
+    // NVForever's own words in the language of the game's text, when the code page names
+    // one and a file of it was read (#1948); a `language=` in NVForever.ini still wins.
+    setup::follow_text_language();
     // `--load`: the save's place decides where the world starts (its worldspace before
     // the world is opened); its body waits for the scripts (nvf_play::save). It is read
     // in full now, remapped to the plugins opened and checked as the restore will

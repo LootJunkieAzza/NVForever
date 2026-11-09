@@ -261,6 +261,14 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   masters define none of them [observed: FalloutNV.esm and the add-ons], so an English
   install shows NVForever's own words; a plugin that defines one is drawn with its
   text (`pipboy::labels`) [design].
+- **The hints' words** (#1896). The ITEMS hints and the mod menu's read their settings
+  the same way: `sInventoryRepair`, `sMaintainItem`, `sInventoryMod`, `sExit` with the
+  pages' own words beside them ("Repair", "Maintain", "Mod", "Exit"); `sInventoryEquip`,
+  `sInventoryDrop`, `sInventoryHotKey` with NVForever's labels in the game strings table
+  (`fnv_ui::strings`: "Equip", "Drop", "Hotkey"; `labels::built_in_label`) [documented:
+  the setting names and the menus that use them, as that table cites them; design: the
+  words]. "Use" (aid, books) and "Unequip" (what is worn) have no setting named and stay
+  NVForever's own words [design].
 
 ## 5. The pages
 
@@ -329,14 +337,70 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
       height plus 10 under the button's y; observed: "Maintain R)" clear of the heading's
       cards on the owner's screenshot]. Before 2026-10-24 it was drawn at the button's y
       and touched the Caps card (the owner's report).
-    - **"Mod X)"** [documented: `IM_ModButton`, 47 under the Repair hint, `sInventoryMod`,
-      PC key X; hypothesis: shown for weapons with mod slots (WMI1–3), bright when the
+    - **"Mod X)"** [documented: `IM_ModButton`, `sInventoryMod`, PC key X; observed: the
+      last row of the hints on the original's Weapons tab (screenshots on issue #1896);
+      hypothesis: shown for weapons with mod slots (WMI1–3), bright when the
       player carries a mod that fits a free slot, dim otherwise]. X on a bright hint opens
       the mod menu (2026-10-20, weapon-mods.md §4–§5); elsewhere X does nothing, a right
       click drops (§6) [design: owner 2026-11-02, #1393].
     - The repair hint ("Repair R)" / "Maintain R)") is built (repair.md §5), and the
       repair list takes the pointer (repair.md §5).
-  - The mod menu (`item_mod.rs`): weapon-mods.md §5.
+  - **Every tab's hints** (2026-11-08, #1896; `items.rs::page_hints`), by the input device
+    (`crate::pad::labels`, the Controls page's Input Device; a change of device draws the
+    page again):
+    - **With a controller** the whole column, top to bottom in the original's order: the
+      equip action ("Equip A)", "Unequip A)" on what is worn, "Use A)" on aid and books),
+      "Drop X)", the repair action ("Repair Y)", "Maintain Y)" at full condition; dim on
+      what nothing repairs: aid, misc, ammo), "Hotkey 1-8)", and on Weapons "Mod LB)" (dim
+      on a weapon without mod slots) [observed: the original's screenshots on issue #1896,
+      taken with a controller connected, 1920 × 1080: Equip (Use on Aid), Drop, Repair,
+      Hot Key, then Mod on Weapons only]. The hotkey keeps "1-8)", no button assigns
+      hotkeys yet [design].
+    - **With the keyboard and mouse** only the repair action ("Repair R)" / "Maintain R)")
+      on every tab, dim where it does nothing, and "Mod X)" under it on Weapons [observed
+      2026-11-09: the original's InventoryMenu button tiles read with keyboard and mouse
+      on each ITEMS tab: `IM_EquipButton`, `IM_DropButton` and `IM_HotkeyButton` hidden
+      on every tab; `IM_RepairButton` shown on every tab, its target off where it does
+      nothing (Aid, Misc, Ammo, an item at full condition); `IM_ModButton` shown on
+      Weapons only]. Enter, the right click and the number keys still equip or use, drop
+      and assign hotkeys; only their hints are not shown. Until 2026-11-09 the keyboard
+      had the whole column too, with "Enter)", "Right Mouse)" and "1-8)".
+
+    Dim also: the equip action when Enter would do nothing,
+    by the game's own checks (`menu::model::enter_acts`: `World::equip_check`, which
+    `World::equip_at` runs, and `World::unequip_check`): misc and ammo, a book that
+    teaches nothing, a broken weapon not worn, what a script locked; the hotkey on what a
+    hotkey cannot hold (misc, ammo; weapon-wheel.md); drop on a quest item or a folder
+    row; every hint on an empty tab [design]. [documented: `IM_DropButton`'s X; observed:
+    the issue's report and screenshots of the original's sets per tab.] The hotkey panel
+    still hides them all. Log: one `pipboy hints: items <tab>: <hint>, …` line of the
+    hints drawn, "(dim)" after a dim hint, whenever the set changes (with the device too);
+    the item's own `pipboy items: <name> Repair R)` and `… Mod X)` lines stay (with a
+    controller `… Repair Y)`, `… Mod LB)`).
+    - **Their places** (`frame::Ctx::hint_column`): the first row at the Repair button's
+      place (855, 45) [documented: `IM_RepairButton`], its text `BUTTON_TEXT_Y` lower as
+      every button's; the rows 46 apart; each word right-aligned at 855, the heading's
+      right end, its key just after it [observed: the same screenshots: the first row's
+      letters 40 px under the Caps card's, rows 42 to 43 px apart against the item list's
+      47 to 48 px rows there (0.90), the words ending at the heading's right end with the
+      button glyph beside them] [design: in our units 0.90 × our 51-high list rows = 46;
+      40 px is about 43 units, our first row's letters stand 42.5 under the Caps card's].
+      With the keyboard the same column holds Repair and, on Weapons, Mod under it. The
+      keys may reach 45 past the menus' rectangle (the lit screen ends about 49 past the
+      heading at the first row on NVForever's 1280 × 720 frame); when the widest would
+      run further (a long key name, as the mod menu's "Enter)"), the whole column moves
+      left until it ends there, the words still on one line [design]. The column lies inside the picture's documented box (450 to 830), as
+      the original's words do; it is drawn after the picture, over it, so no picture
+      hides a hint (before 2026-11-09 the 10mm Pistol's picture covered "Drop" on
+      NVForever's own frame). Until
+      2026-11-09 the order was Repair, Mod, Equip, Drop, Hotkey, 47 apart, each whole hint
+      right-aligned 10 short of 855.
+  - The mod menu (`item_mod.rs`): weapon-mods.md §5. Its two hints are a column as the
+    page's, from (855, 75): "Mod Enter)" first, "Exit E)" 46 under it [observed: "Mod"
+    over "Exit", 43 px apart, on the original's screenshot on issue #1896; documented: the
+    file lists the Mod button first]; until 2026-11-09 Exit stood over Mod, 40 apart. The
+    same two rows with the keyboard and mouse [hypothesis: no reading of the original's mod
+    menu with the keyboard yet].
   - The flat image (no model's screen) shows only once the Pip-Boy is all the way up:
     before, it flashed for a frame or more on every Tab while the body took the screen
     (the owner's list 5, item 2).
@@ -713,13 +777,30 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     (75 + 120) less a button's height, the scroll bar on the right [documented]; each
     behind a square, filled and at half strength when done [hypothesis]; those to do
     first, each part from the latest objective down [hypothesis].
+  - The right pane (the objectives here, a note's text on Misc) scrolls when longer than
+    its window, by Page Up/Down a window (400 for the objectives, 385 for a note; a
+    controller's LB/RB press those keys, `pad.rs`) [design], the wheel over it 20 a step
+    [documented for a note's text; the objectives take the same step, design; over the
+    objectives' 400 × 400 window only, elsewhere on Quests the wheel scrolls the list]
+    and, on a
+    controller, the right stick's up and down smoothly while held, a note window (385) a
+    second at a full push [observed: the original scrolls both panes with the right
+    stick, issue #1667; the speed is design, as far a second as one LB/RB page]. One
+    scroll serves both panes (`pipboy/data.rs` `scroll_pane`): it stops at the top and at
+    the end (the last line at the window's foot) and starts at the top again when
+    another quest, note or tab is chosen [design] (Up on the first row or Down on the
+    last keeps the place). The objectives' scroll bar shows the part shown and takes the
+    pointer as the tile menus' bars do: a click on an arrow steps 20 (a wheel step), on
+    the track above or below the marker a page, and the marker held follows the pointer
+    [design]; a note's arrows step 20 a click [design].
   - "Show Location" shows the World Map [design: the quest's place is not centred].
 - **Misc**: the player's notes (AddNote; `NOTE` records) by name [hypothesis]; "(6 of 6)"
   is part of the note's name [observed: `VMQ01CourierNote` FULL "Mojave Express Delivery
   Order (6 of 6)"]. A text note's text is `TNAM`, a NUL-ended string [observed; the schema
   does not read `TNAM` of `NOTE`]: font 1, broken at 400, in a window 17 left of the item
-  data, 20 down, 400 × 385, scrolled 20 a wheel step [documented]; Page Up/Down scroll a
-  window [design]; arrows at its right when it is longer [documented]. The window reaches
+  data, 20 down, 400 × 385, scrolled 20 a wheel step [documented]; Page Up/Down and the
+  right stick scroll it as the objectives (above) [design]; arrows at its right when it
+  is longer [documented]. The window reaches
   10 over the first line so its letters are not cut [design]. Our lines break exactly as
   the screenshot's [observed]. An image note shows its picture (`XNAM`) 360 square at the
   right [documented]; sound and voice notes (holotapes) play when used (a click or
