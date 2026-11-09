@@ -316,10 +316,17 @@ are it'll come up once that menu closes".
   no script menu or loading screen is up: a menu holds it until it closes; an
   invitation goes first. The console is not a menu here: it is a debug overlay, and the
   prompt stays up (and Y works) under it [decision, 2026-11-09].
+- **A far guest is locked too.** The host's scene locks (DisablePlayerControls) reach
+  every guest, far ones included (owner, 2026-11-09: "that shouldn't matter because they
+  should always be with the host during those scenes"); the teleport prompt's Y is read
+  while the controls are locked (laptop run story-far-3b). The locks are the host's
+  state now, sent every 0.5 s (`SceneView::locks`), and a host not heard for 3 s holds
+  nothing, so EnablePlayerControls (or a lost host) lets every guest go.
 - **Not held**: add-on starts that are no conversation (the DM signal, the Lonesome Road
   tunnel): the far guests are left behind and waited for, but the start itself goes on.
-- Log: `co-op: story wait: …`; checked by the laptop runs story-near-3 and story-far-3
-  (2026-11-09).
+- Log: `co-op: story wait: …`; checked by the laptop runs story-near-3, story-far-3 and
+  story-far-3b (2026-11-09); the menu hold by the unit test
+  `a_menu_holds_the_teleport_offer_until_it_closes`.
 
 ## 8. Layer 4: guest actions go through the host
 

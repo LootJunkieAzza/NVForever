@@ -194,15 +194,15 @@ pub(super) fn story_prompts(
     } else if coop.is_guest() {
         let me = coop.link.as_ref().and_then(|l| l.id());
         let heard: Option<(u32, Vec<u8>)> = coop.scene.heard.as_ref().filter(|(_, at): &&(SceneView, f32)| now - *at < STALE).and_then(|(v, _)| v.waiting.clone());
+        let host = coop.peers.get(&0).map(|p| super::label(0, &p.name)).unwrap_or_else(|| "The host".into());
+        prompt = guest_prompt(heard.as_ref(), me, playing, &host);
         if let Some((npc, _)) = heard.filter(|(_, far)| me.is_some_and(|me| far.contains(&me))) {
-            let host = coop.peers.get(&0).map(|p| super::label(0, &p.name)).unwrap_or_else(|| "The host".into());
             if playing {
                 if state.offered.is_none_or(|(n, _)| n != npc) {
                     let why = if npc == FormId::PLAYER_REF.0 { String::new() } else { format!(" to talk to {}", shown_name(g, FormId(npc))) };
                     info!("co-op: story wait: the host waits{why}: offered a teleport to the host");
                     state.offered = Some((npc, now));
                 }
-                prompt = Some(StoryPrompt::Guest { host });
             } else if state.offered.is_none_or(|(n, _)| n != npc) && state.held_logged != Some(npc) {
                 info!("co-op: story wait: the teleport offer waits for this player's menu to close");
                 state.held_logged = Some(npc);
@@ -218,6 +218,16 @@ pub(super) fn story_prompts(
     if social.story != prompt {
         social.story = prompt;
     }
+}
+
+/// A guest's story prompt now: the host waits for it (`waiting`, the host's
+/// [`SceneView::waiting`], names `me` among the far players), shown only while it plays;
+/// under a menu it is held, and it is back as soon as the menu closes, for as long as the
+/// host waits for it [design: owner 2026-11-09, "if they are it'll come up once that menu
+/// closes"].
+fn guest_prompt(waiting: Option<&(u32, Vec<u8>)>, me: Option<u8>, playing: bool, host: &str) -> Option<nvf_play::coop_social::StoryPrompt> {
+    let far = waiting.is_some_and(|(_, far)| me.is_some_and(|me| far.contains(&me)));
+    (far && playing).then(|| nvf_play::coop_social::StoryPrompt::Guest { host: host.to_string() })
 }
 
 /// A guest's fast travel to the host, beside it, as a scene's pull puts it; refused in
@@ -469,6 +479,20 @@ mod tests {
         // It is gone from the host's: off here.
         assert_eq!(follow_mods(&mut given, &[]), (vec![], vec![0x0101_013B]));
         assert!(given.is_empty());
+    }
+
+    #[test]
+    fn a_menu_holds_the_teleport_offer_until_it_closes() {
+        use nvf_play::coop_social::StoryPrompt;
+        let waiting = (FormId::PLAYER_REF.0, vec![1u8]);
+        let offer = Some(StoryPrompt::Guest { host: "Host".into() });
+        // Far, in the Pip-Boy: held.
+        assert_eq!(guest_prompt(Some(&waiting), Some(1), false, "Host"), None);
+        // The Pip-Boy closes: shown, and stays while the host waits.
+        assert_eq!(guest_prompt(Some(&waiting), Some(1), true, "Host"), offer);
+        // Another guest is the far one, or the host waits no more: nothing.
+        assert_eq!(guest_prompt(Some(&waiting), Some(2), true, "Host"), None);
+        assert_eq!(guest_prompt(None, Some(1), true, "Host"), None);
     }
 
     #[test]
