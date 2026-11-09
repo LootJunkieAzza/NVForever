@@ -122,6 +122,9 @@ const GOLD_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_3.nif";
 /// models' vertices].
 const CAP_BODY: f32 = 0.58 / 0.74;
 const COIN_BODY: f32 = 0.55 / 0.74;
+/// The models drew 31 units across where 53 were asked (a cap, 32 mm) in the first
+/// capture, so the scale from their bounds is corrected by that [observed: 2026-11-09].
+const MODEL_FIT: f32 = 53.0 / 31.0;
 
 /// A piece of the pot on the table.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -256,7 +259,7 @@ fn place_money(commands: &mut Commands, models: &mut ModelCtx, b: &mut Built, po
     let pieces = money(pot);
     for (i, (kind, at, turn)) in pieces.iter().enumerate() {
         if let Some((path, body)) = kind.model() {
-            if let Some(e) = spawn_piece(commands, models, b, path, body * kind.size().x, on_table(*at), *turn) {
+            if let Some(e) = spawn_piece(commands, models, b, path, body * kind.size().x * MODEL_FIT, on_table(*at), *turn) {
                 b.money.push(e);
                 continue;
             }
