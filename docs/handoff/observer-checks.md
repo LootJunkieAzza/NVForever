@@ -1503,3 +1503,14 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     from the owner: NVFExtProbe.esp and the MCM plugin active, the three plugins installed,
     the test INIs copied, and the plugin order, or the word that the lab should take the
     game's order.
+
+## Added 2026-11-09 (a walking Securitron's wheel)
+
+104. **Does a walking Securitron's wheel roll on smoothly, or jump back once a cycle?**
+    (P3; animation.md §9.12.) The walk `nvsecuritron\locomotion\mtforward.kf` turns
+    `Bip01 Wheel` 661° in its 2.67 s loop with a `BSRotAccumTransfInterpolator`, so its
+    last key is 59° on from its first. NVForever adds that turn up from cycle to cycle
+    [hypothesis, from the name and the keys]; played as an ordinary loop the wheel would
+    snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
+    (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
+    each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
