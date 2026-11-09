@@ -82,10 +82,14 @@ pub const SECTIONS: &[Section] = &[
     section("Display", Some("Performance"), &["fps-counter"]),
     section("Audio", None, &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]),
     section("Controls", None, &CONTROLLER_KEYS),
+    // The quality presets over the rows they set, under a heading of their own; the
+    // enhanced look as a whole first under Picture [design: #1966].
+    section("Graphics", Some("Quality"), &["quality"]),
     section(
         "Graphics",
         Some("Picture"),
         &[
+            "enhanced",
             "grade",
             "sun-shadows",
             "fsr-upscaling",
@@ -289,9 +293,9 @@ mod tests {
             .collect()
     }
 
-    /// Every row the registry can hold today (upstream main 9af0a4552), by the group it
-    /// registers with.
-    const KNOWN: [(&str, &str); 87] = [
+    /// Every row the registry can hold today (upstream main 9af0a4552, with #1966's
+    /// quality and enhanced rows), by the group it registers with.
+    const KNOWN: [(&str, &str); 89] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -367,6 +371,8 @@ mod tests {
         ("light-shafts", "Graphics"),
         ("water-reflections", "Graphics"),
         ("water-mirror", "Graphics"),
+        ("enhanced", "Graphics"),
+        ("quality", "Graphics"),
         ("volume-master", "Sound"),
         ("volume-music", "Sound"),
         ("volume-footstep", "Sound"),
@@ -416,6 +422,9 @@ mod tests {
         assert_eq!(at("head-bob"), "Gameplay > Camera");
         assert_eq!(at("hud-red"), "Display > Interface");
         assert_eq!(at("sky-clock"), "Graphics > World");
+        assert_eq!(at("quality"), "Graphics > Quality");
+        assert_eq!(at("enhanced"), "Graphics > Picture");
+        assert_eq!(keys(&list, &l, "Graphics")[..4], ["[Quality]", "quality", "[Picture]", "enhanced"], "the presets first, under their own heading (#1966)");
         assert_eq!(at("button-style"), "Controls");
         // The registry itself is left as it was: its order and each row's group.
         let again = registry(&KNOWN);

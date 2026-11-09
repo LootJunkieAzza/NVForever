@@ -296,6 +296,8 @@ pub fn register(app: &mut App) {
     register_display(app);
     register_distances(app);
     register_graphics(app);
+    // The Quality and Enhanced effects rows over the rows above (#1966).
+    crate::quality::register(app, GROUP_GRAPHICS);
     // Renderer edits are latched by the shared settings setters, including Defaults.
     // Draw-distance streaming has no resume readiness contract yet (#1820) [design].
     register_pipeline_waits(app);
@@ -679,6 +681,9 @@ fn register_pipeline_waits(app: &mut App) {
         "anti-aliasing", "shadow-filter", "fsr-upscaling", "ambient-occlusion",
         "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
         "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
+        // The Enhanced effects row sets its effects directly when the page's Defaults
+        // puts it back (#1966).
+        "enhanced",
     ] {
         nvf_play::settings::wait_for_pipelines(app, key);
     }

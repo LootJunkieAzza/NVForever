@@ -65,7 +65,9 @@ Constraints that decide what fits:
 
 `--graphics vanilla|enhanced` picks the look; each improvement is also a switch on the pause
 menu's settings page (category "Graphics") and can be compared alone with
-`--graphics-only <keys>`. The log says what is on: `graphics: ambient occlusion, longer
+`--graphics-only <keys>`. The settings page's **Enhanced effects** row (Graphics > Picture, #1966) sets
+them all as `enhanced` (On) or `vanilla` (Off) does and reads Custom when they are mixed;
+the Quality row's presets never touch them (docs/spec-notes/quality-presets.md). The log says what is on: `graphics: ambient occlusion, longer
 shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water
 reflections` (or `graphics: vanilla (no engine-level improvements)`), again whenever a switch
 changes. Anti-aliasing (`anti-aliasing`: multisampling off/2x/4x/8x, FXAA, SMAA or TAA) and
