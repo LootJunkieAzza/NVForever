@@ -13,13 +13,19 @@
 //!
 //! Pacing follows the design of AMD's `FrameInterpolationSwapchainVK` (FidelityFX SDK 1.1.4,
 //! MIT; read as reference, no code taken): wait for the frame's GPU work, then space the
-//! presents by half the mean real frame time over the last 10 frames, less 0.1 x its variance
-//! and a 0.1 ms margin, the average started again after a gap of more than 100 ms; the wait
-//! sleeps, then spins its last millisecond. The spacing is never less than one refresh, and the
-//! real frame rate is capped slightly below half the refresh rate (`frame_gen::real_frame_cap`),
-//! as AMD advises, so two presents never fall within one refresh. A frame that reaches the
-//! presenter when the next is already waiting is shown without its generated frame, so the
-//! presenter catches up at once instead of keeping a frame of delay.
+//! presents by half the mean real frame time over the last 10 frames, less 0.1 x its standard
+//! deviation and a 0.1 ms margin, the average started again after a gap of more than 100 ms
+//! [documented: `FrameInterpolationSwapchainVK.cpp` 1251-1268, `varianceFactor` 0.1 and
+//! `safetyMarginInSec` 0.0001 in `FrameInterpolationSwapchainVK.h` 216-217; its `getVariance`
+//! returns the square root of the variance, `FrameInterpolationSwapchainVK_Helpers.h` 373-391].
+//! Two choices are NVForever's own: AMD presents back to back until 10 frames are in (its
+//! average is 0 until then), where this one averages the frames it has; and AMD's wait spins on
+//! the performance counter throughout (`FrameInterpolationSwapchainVK_Helpers.cpp` 29-36),
+//! where this one sleeps, then spins its last millisecond. The spacing is never less than one
+//! refresh, and the real frame rate is capped slightly below half the refresh rate
+//! (`frame_gen::real_frame_cap`), as AMD advises, so two presents never fall within one refresh.
+//! A frame that reaches the presenter when the next is already waiting is shown without its
+//! generated frame, so the presenter catches up at once instead of keeping a frame of delay.
 //!
 //! wgpu 30 lets one acquired image exist per surface and holds a device-wide lock across each
 //! present (`command_indices`, written), which stops submits from every thread while a present
@@ -327,20 +333,23 @@ impl Pacer {
         self.last = Some(now);
     }
 
-    /// Half the mean interval, less 0.1 x its variance and 0.1 ms, never below 0.
+    /// Half the mean interval, less 0.1 x its standard deviation and 0.1 ms, never below 0.
     fn spacing(&self) -> Duration {
         spacing(self.intervals.iter().copied())
     }
 }
 
+/// AMD's `getAverage() * 0.5 - getVariance() * varianceFactor`, less `safetyMarginInSec`, where
+/// `getVariance` is the standard deviation (the square root of the variance), in seconds here;
+/// over the intervals there are, where AMD's is 0 until it has 10.
 fn spacing(intervals: impl Iterator<Item = f64> + Clone) -> Duration {
     let n = intervals.clone().count();
     if n == 0 {
         return Duration::ZERO;
     }
     let mean = intervals.clone().sum::<f64>() / n as f64;
-    let variance = intervals.map(|i| (i - mean) * (i - mean)).sum::<f64>() / n as f64;
-    Duration::from_secs_f64((mean * 0.5 - variance * 0.1 - 0.0001).max(0.0))
+    let deviation = (intervals.map(|i| (i - mean) * (i - mean)).sum::<f64>() / n as f64).sqrt();
+    Duration::from_secs_f64((mean * 0.5 - deviation * 0.1 - 0.0001).max(0.0))
 }
 
 #[cfg(test)]
@@ -353,9 +362,12 @@ mod tests {
         let s = spacing(frames.iter().copied()).as_secs_f64();
         assert!((s - (0.00625 - 0.0001)).abs() < 1e-9, "{s}");
         assert_eq!(spacing([].iter().copied()), Duration::ZERO);
-        // Uneven frames: the variance takes a little more off.
+        // Uneven frames: a tenth of the standard deviation (2.5 ms here) comes off as well, as
+        // AMD's `getVariance` (a square root) gives it: 6.25 - 0.25 - 0.1 ms.
         let uneven = spacing([0.010, 0.015].iter().copied()).as_secs_f64();
-        assert!(uneven < 0.00625 - 0.0001 && uneven > 0.006, "{uneven}");
+        assert!((uneven - 0.0059).abs() < 1e-9, "{uneven}");
+        // Never below zero.
+        assert_eq!(spacing([0.0001].iter().copied()), Duration::ZERO);
     }
 
     #[test]

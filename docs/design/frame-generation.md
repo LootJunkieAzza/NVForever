@@ -98,11 +98,19 @@ acquire).
 
 **Pacing** follows the design of AMD's `FrameInterpolationSwapchainVK` (FidelityFX SDK 1.1.4,
 MIT; read as reference, no code taken): the two presents are spaced by half the mean real frame
-time of the last 10 frames, less 0.1 x its variance and 0.1 ms, never closer than one refresh;
-the spacing counts from when the last present was issued, not from when it returned. The wait
-sleeps and spins its last millisecond. The real frame rate is capped slightly below half the
-refresh rate (`frame_gen::real_frame_cap`: 1/40 under it, at least 1 fps; 78 at 160 Hz, 71 at
-144 Hz, 59 at 120 Hz), as AMD advises, so the two presents never fall within one refresh.
+time of the last 10 frames, less 0.1 x its standard deviation and 0.1 ms, never closer than one
+refresh; the average starts again after a gap of more than 100 ms [documented:
+`FrameInterpolationSwapchainVK.cpp` 1251-1268, with `varianceFactor` 0.1 and
+`safetyMarginInSec` 0.0001 from `FrameInterpolationSwapchainVK.h` 216-217; AMD's `getVariance`
+returns the square root of the variance, `FrameInterpolationSwapchainVK_Helpers.h` 373-391].
+The spacing counts from when the last present was issued, not from when it returned. Two
+choices are NVForever's own, not AMD's: until 10 frames are in, AMD's average is 0 and it
+presents back to back, where NVForever averages the frames it has; and AMD waits by spinning
+on the performance counter (`FrameInterpolationSwapchainVK_Helpers.cpp` 29-36), where
+NVForever sleeps and spins only its last millisecond. The real frame rate is capped slightly
+below half the refresh rate (`frame_gen::real_frame_cap`: 1/40 under it, at least 1 fps; 78 at
+160 Hz, 71 at 144 Hz, 59 at 120 Hz), as AMD advises, so the two presents never fall within one
+refresh.
 
 Limits and notes:
 
@@ -167,7 +175,8 @@ Limits and notes:
   against its `.glsl` file's `#define`s and the callbacks header's declarations, and against the
   bindings the compiled SPIR-V declares; the `cbFI` block's std140 layout; the pyramid sizes; the
   real-frame cap, the present-interval statistics, the switch's effect on latency reduction;
-  a presenter whose thread ended (it takes no frames and does not hold the render thread).
+  the presents' spacing (AMD's rule, with the standard deviation), and a presenter whose thread
+  ended (it takes no frames and does not hold the render thread).
 - **GPU harness** (`tools/fsr-validation`, `fg.rs`; numbers from 2026-11-07, RTX 5090, Vulkan
   validation layer on, no validation messages): a textured plane sliding at a known speed, the
   generated frame against the scene drawn at the true midpoint, mean absolute error per channel:
