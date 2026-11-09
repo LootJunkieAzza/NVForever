@@ -451,6 +451,9 @@ unless the player binds them, so nothing changes until then.
 | Shift to Talk While Sneaking | `bTalkWhileSneakingIfShiftIsHeld` | `activate::shift_talks` sets a switch read by `actor_action_in`, which then offers Talk |
 | No Active Quest From New Objectives / After Completing One | `bDontSetQuestWhenObjectivesAdded`, `bDontSetQuestWhenCompletingObjectives` | `pipboy::data` stops picking the first quest under way by itself; either switch does it, as NVForever has no separate objective-added moment there |
 | Hide Read Notes | `bHideReadNotes` | `pipboy::data` leaves out notes `Game::note_read` says are read, but for the one on screen |
+| Console Key | `iConsoleKey` | `tweaks::CONSOLE_KEYS` (the original's `` ` `` first, then keys nothing else takes) read by `console::toggle` |
+| Tab Closes Terminals | `bTabClosesTerminals` | `terminal::keys` sends Exit on Tab |
+| Tab Goes Back in the Pause Menu | `bTabBackInStartMenu` | `pause::choose`: Tab is Back on the main page's question and the load list; Settings and Controls keep Tab for their tabs |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -471,8 +474,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 367 |
-| to do | 236 |
+| done | 370 |
+| to do | 233 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -935,7 +938,9 @@ game's Data folder, read-only).
 | `bSortRecipeMenu` | done |  | 1 | already so for one order: makeable first (modes not built) |
 | `bStatsMenuPercentageXP` | done |  |  | Experience as a Percentage (the way through the level) |
 | `bStatsMenuShowEffectTimeRemaining` | done |  | 1 | Effect Time Left (seconds) |
+| `bTabBackInStartMenu` | done |  |  | Tab Goes Back in the Pause Menu (where Tab steps no tabs) |
 | `bTabClosesPipboyFromKeyAndLimbMenus` | done |  |  | already so: Tab closes the Pip-Boy from every page |
+| `bTabClosesTerminals` | done |  |  | Tab Closes Terminals (Backspace still goes back) |
 | `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
 | `bBarterShowCapsChange` | to do | yes | 1 | half_figure has no settings to read; pass the tweak in |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
@@ -991,8 +996,6 @@ game's Data folder, read-only).
 | `bShowBarterTotalWhenOverSellLimit` | to do |  |  | tiles barter snapshot amount; a menu bool |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bStartMenuQuickLoad` | to do |  |  | save::requests in the pause menu |
-| `bTabBackInStartMenu` | to do |  |  | pause::choose back conditions; Tab steps tabs on two pages |
-| `bTabClosesTerminals` | to do |  |  | Tab is Back; from the top menu it closes already |
 | `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
 | `bTerminalGreyReadNotes` | to do |  |  | no record of entries read |
 | `bTimescaleAffectsMinigames` | to do |  |  | each minigame steps on AidTime |
@@ -1002,6 +1005,7 @@ game's Data folder, read-only).
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
+| `iConsoleKey` | done |  | 1 | Console Key (a choice of six keys) |
 | `iDisableCollisionKey` | done |  | 1 | a Controls key: No Collision (held) |
 | `iExitGameKey` | done |  | 1 | a Controls key: Quit Game |
 | `iExitToMainMenuKey` | done |  | 1 | a Controls key: Main Menu |
@@ -1021,7 +1025,6 @@ game's Data folder, read-only).
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
-| `iConsoleKey` | to do |  | 1 | console toggle Backquote; RESERVED_KEYS |
 | `iDropEquippedWeaponKey` | to do |  | 1 | World::drop_equipped from a key; check the visuals follow |
 | `iEquipLastWeaponKey` | to do |  | 4 | not built: no previous weapon recorded |
 | `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |

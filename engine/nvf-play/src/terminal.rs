@@ -636,7 +636,10 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: M
     let mut send = |i| {
         out.write(i);
     };
-    if keys.just_pressed(Escape) {
+    // The player's tweak: Tab closes the terminal from any page (Backspace still goes
+    // back) [design: docs/design/tweaks.md].
+    let tab_closes = tweaks.as_ref().is_some_and(|t| t.tab_closes_terminals);
+    if keys.just_pressed(Escape) || (tab_closes && keys.just_pressed(Tab)) {
         send(TerminalInput::Exit);
         return;
     }
@@ -649,7 +652,7 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: M
     }
     let hacking = matches!(s.page, Page::Hacking(_));
     // The player's tweak: 1 to 9 and 0 (the tenth) choose a row [design: docs/design/tweaks.md].
-    if !hacking && tweaks.is_some_and(|t| t.numbered_terminal_keys) {
+    if !hacking && tweaks.as_ref().is_some_and(|t| t.numbered_terminal_keys) {
         let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Digit0];
         let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9, Numpad0];
         if let Some(row) = (0..10).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])) {

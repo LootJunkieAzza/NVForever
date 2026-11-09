@@ -259,6 +259,21 @@ pub struct TweakSettings {
     /// `bTalkWhileSneakingIfShiftIsHeld`: Shift held while sneaking talks to a person
     /// instead of picking their pocket.
     pub shift_talks_sneaking: bool,
+    /// `iConsoleKey`: which of [`CONSOLE_KEYS`] opens the console (0: the original's).
+    pub console_key: usize,
+    /// `bTabClosesTerminals`: Tab closes a terminal from any of its pages.
+    pub tab_closes_terminals: bool,
+    /// `bTabBackInStartMenu`: Tab goes back in the pause menu where it steps no tabs.
+    pub tab_back_in_pause: bool,
+}
+
+/// The keys the console may open on, the original's first; ones nothing else in the
+/// game takes [design: docs/design/tweaks.md].
+pub const CONSOLE_KEYS: [(KeyCode, &str); 6] = [(KeyCode::Backquote, "` (default)"), (KeyCode::Insert, "Insert"), (KeyCode::Home, "Home"), (KeyCode::End, "End"), (KeyCode::Delete, "Delete"), (KeyCode::F10, "F10")];
+
+/// The key that opens the console under the iConsoleKey tweak.
+pub fn console_key(t: Option<&TweakSettings>) -> KeyCode {
+    CONSOLE_KEYS[t.map_or(0, |t| t.console_key).min(CONSOLE_KEYS.len() - 1)].0
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -404,6 +419,9 @@ impl Default for TweakSettings {
             blackjack_total: false,
             slots_hold_to_spin: false,
             shift_talks_sneaking: false,
+            console_key: 0,
+            tab_closes_terminals: false,
+            tab_back_in_pause: false,
         }
     }
 }
@@ -1141,6 +1159,27 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-quest-set-on-objective", "No Active Quest From New Objectives", "With no quest active, a new objective does not make its quest the active one. (Stewie's Tweaks bDontSetQuestWhenObjectivesAdded)", game.no_quest_set_on_objective);
         switch!(app, "no-quest-set-on-complete", "No Active Quest After Completing One", "When the active quest is done, no other quest becomes active by itself. (Stewie's Tweaks bDontSetQuestWhenCompletingObjectives)", game.no_quest_set_on_complete);
         switch!(app, "hide-read-notes", "Hide Read Notes", "The Pip-Boy's notes list leaves out notes already read. (Stewie's Tweaks bHideReadNotes)", game.hide_read_notes);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-console-key",
+                GROUP,
+                "Console Key",
+                "The key that opens and closes the console. (Stewie's Tweaks iConsoleKey)",
+                Slider::choice(
+                    CONSOLE_KEYS.len(),
+                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(0, |t| t.console_key).min(CONSOLE_KEYS.len() - 1), CONSOLE_KEYS.len()),
+                    |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.console_key = choice_index(v, CONSOLE_KEYS.len());
+                        }
+                    },
+                    |v| CONSOLE_KEYS[choice_index(v, CONSOLE_KEYS.len())].1.to_string(),
+                ),
+            ),
+        );
+        switch!(app, "tab-closes-terminals", "Tab Closes Terminals", "Tab closes a terminal from any page instead of going back a page (Backspace still goes back). (Stewie's Tweaks bTabClosesTerminals)", tab_closes_terminals);
+        switch!(app, "tab-back-in-pause", "Tab Goes Back in the Pause Menu", "Tab goes back a page in the pause menu, as Backspace does (the Settings and Controls pages keep Tab for their tabs). (Stewie's Tweaks bTabBackInStartMenu)", tab_back_in_pause);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

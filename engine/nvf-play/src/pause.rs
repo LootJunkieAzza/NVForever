@@ -1683,9 +1683,12 @@ fn choose(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
     (mut request, main_menu, intro, mut to_main, mouse): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, MessageWriter<MainMenuRequest>, Res<ButtonInput<MouseButton>>),
-    (bindings, pads, sticks, pending, mods): (Option<Res<crate::bindings::Bindings>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>, Option<Res<crate::settings::PendingKeep>>, Option<Res<ModsEntry>>),
+    (bindings, pads, sticks, pending, mods, tweaks): (Option<Res<crate::bindings::Bindings>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>, Option<Res<crate::settings::PendingKeep>>, Option<Res<ModsEntry>>, Option<Res<crate::tweaks::TweakSettings>>),
     meters: Query<(&PauseButton, &RelativeCursorPosition)>,
 ) {
+    // The player's tweak: Tab goes back where it steps no tabs (the main page's question
+    // and the load list) [design: docs/design/tweaks.md].
+    let tab_back = tweaks.is_some_and(|t| t.tab_back_in_pause) && keys.just_pressed(KeyCode::Tab);
     use crate::bindings::{Bindings, Input, InputDevice, GAME_CONTROLS};
     use crate::pad::PadInput;
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -2097,7 +2100,7 @@ fn choose(
         Page::Main if view.confirm.is_some() => {
             let sel = view.confirm.unwrap_or(2);
             let mut take = None;
-            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || act("back") {
+            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || tab_back || act("back") {
                 take = Some(2);
             } else if let Some(PauseButton::Confirm(i)) = clicked {
                 take = Some(i);
@@ -2380,7 +2383,7 @@ fn choose(
             if (keys.just_pressed(KeyCode::Delete) || clicked == Some(PauseButton::Delete) || act("delete")) && *selected < rows {
                 view.delete_ask = Some(*selected);
                 info!("pause menu: delete {}?", menu.list.saves.get(*selected).map(|(p, _)| stem(p)).unwrap_or_default());
-            } else if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
+            } else if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || tab_back || clicked == Some(PauseButton::Back) || act("back") {
                 *page = Page::Main;
             } else if let Some(PauseButton::LoadRow(i)) = clicked {
                 *selected = i;
