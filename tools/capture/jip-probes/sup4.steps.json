@@ -62,7 +62,7 @@
    "text": true
   },
   {
-   "query": "ref rD\nref rNone\nref rH\narray_var aR\narray_var aIn\nfloat fA\nfloat fB\nfloat fC\nstring_var sOut\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet sOut := TranslitText \"\u041f\u0440\u0438\u0432\u0435\u0442\"\nSetFunctionValue sOut\nEnd\n",
+   "query": "ref rD\nref rNone\nref rH\narray_var aR\narray_var aIn\nfloat fA\nfloat fB\nfloat fC\nstring_var sOut\nBegin Function { }\nlet rD := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet sOut := TranslitText \"\u00cf\u00f0\u00e8\u00e2\u00e5\u00f2\"\nSetFunctionValue sOut\nEnd\n",
    "label": "sup4.translit",
    "field": "value",
    "text": true

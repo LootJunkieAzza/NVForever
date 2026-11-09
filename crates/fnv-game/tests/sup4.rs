@@ -84,7 +84,8 @@ fn arrays() {
         let m = s(&mut g, "Ar_GetRandomKeyMap (Ar_Map \"LALALA\"::1, \"TROLOLO\"::2)");
         assert!(m == "LALALA" || m == "TROLOLO", "{m}");
     }
-    assert_eq!(n(&mut g, "let aR := Ar_List\nSetFunctionValue (Ar_GetRandomKey aR)"), -1.0);
+    // An empty array 0 [observed: sup4 randomkey].
+    assert_eq!(n(&mut g, "let aR := Ar_List\nSetFunctionValue (Ar_GetRandomKey aR)"), 0.0);
     // An empty reference is an invalid one; a dimension searches the inner array.
     assert_eq!(n(&mut g, "let aR := Ar_List PlayerREF, TestMarkRef\nSetFunctionValue (Ar_HasInvalidRefs aR)"), 0.0);
     assert_eq!(n(&mut g, "let aR := Ar_List PlayerREF, rNone\nSetFunctionValue (Ar_HasInvalidRefs aR)"), 1.0);
@@ -132,8 +133,8 @@ fn saves_cells_and_the_rest() {
     assert_eq!(n(&mut g, "TestMarkRef.SetCaughtPCPickpocketting"), 0.0);
     assert_eq!(n(&mut g, "TestMarkRef.SetCaughtPCPickpocketting 1"), 1.0);
     assert_eq!(n(&mut g, "TestMarkRef.SetCaughtPCPickpocketting"), 1.0);
-    // No script runs a query: nothing marked.
-    assert_eq!(n(&mut g, "MarkScriptOnLoad"), 0.0);
+    // No script runs a query: nothing marked, 1 all the same [observed: sup4 markonload].
+    assert_eq!(n(&mut g, "MarkScriptOnLoad"), 1.0);
     assert_eq!(s(&mut g, "TranslitText \"Привет\""), "Privet");
     assert_eq!(n(&mut g, "AllocatePlayer"), 0.0);
 }

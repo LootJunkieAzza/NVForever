@@ -151,14 +151,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // there is one player [decision: nothing is done].
         "allocateplayer" => zero,
         // A random key of the array: a number for Ar_GetRandomKey, a string for the map
-        // form (a number key given as its text) [documented]; an empty or missing array
-        // -1 or "" [hypothesis].
+        // form (a number key given as its text) [documented]; an empty array 0 [observed:
+        // sup4 randomkey], "" for the map form [hypothesis]. The original's map key was
+        // neither of the two keys of `Ar_Map "LALALA"::1, "TROLOLO"::2` by `==` [observed:
+        // sup4 randomkey; open: what it gives is not known].
         "ar_getrandomkey" | "ar_getrandomkeymap" => {
             let keys: Vec<XKey> = entries(g, args.first()).unwrap_or_default().into_iter().map(|(k, _)| k).collect();
             let pick = (!keys.is_empty()).then(|| keys[g.rng.next_u32() as usize % keys.len()].clone());
             match (name, pick) {
                 ("ar_getrandomkey", Some(XKey::Num(k))) => XVal::Num(k),
-                ("ar_getrandomkey", _) => XVal::Num(-1.0),
+                ("ar_getrandomkey", _) => zero,
                 (_, Some(XKey::Str(s))) => XVal::Str(s),
                 (_, Some(XKey::Num(k))) => XVal::Str(fnv_ui::Value::Num(k).text()),
                 _ => XVal::Str(String::new()),
@@ -244,15 +246,14 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             list(g, found)
         }
         // The calling script, marked until the next load; the VM hands it over as the
-        // argument [documented: MarkScriptOnLoad, "Marks calling script"]. 1 [hypothesis:
-        // the page's return is an int].
-        "markscriptonload" => match form(args, 0) {
-            Some(s) => {
+        // argument [documented: MarkScriptOnLoad, "Marks calling script"]. 1, from a query
+        // with no script form too [observed: sup4 markonload].
+        "markscriptonload" => {
+            if let Some(s) = form(args, 0) {
                 g.sup4.marked.insert(s);
-                XVal::Num(1.0)
             }
-            None => zero,
-        },
+            XVal::Num(1.0)
+        }
         "isscriptmarkedonload" => XVal::Num(f64::from(u8::from(form(args, 0).is_some_and(|s| g.sup4.marked.contains(&s))))),
         // Kills the actors fighting the player, not the player's teammates [documented:
         // KillAll2, "kills all current player combat enemies leaving companions and

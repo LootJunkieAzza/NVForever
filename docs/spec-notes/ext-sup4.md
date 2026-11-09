@@ -53,3 +53,23 @@ At Doc Mitchell's house; Doc Mitchell's flag set back; the aux variable erased.
 8. `caught`: Doc Mitchell's flag read, set, read (hypothesis `0 1 1`).
 9. `translit`: "Привет" (hypothesis `Privet`; the runtime compiler's code page may change
    the letters).
+
+## 4. Probed in the original (2026-11-09, head af8a876c0)
+
+The first run compiled nothing: the runtime compiler refuses the declaration
+`string_var sA` [observed: the observer's diagnostic runs, other names compile], so the
+probes use `sOut`. The second run answered 10 rows; 3 matched (invalidrefs,
+nextframe.set, nextframe.wait). What the others say [observed]:
+
+| row | original | NVForever now |
+|---|---|---|
+| randomkey | `1 0 0` | an empty array's key is 0 (was -1); the map key the original gave was neither "LALALA" nor "TROLOLO" by `==` [open: what it gives] |
+| nextframe.read | `0` | the lambda's aux variable was not set two frames later [open: whether the original runs a lambda, or counts frames from the next one; NVForever runs it at the second frame] |
+| saves | `1 1 1 0` | the probe game had loaded a save; the lab's candidate (fnvtool) loads none, so it cannot match; the co-save's size (1 there) stays 0 by decision |
+| near | `1 20 25 1` | GetNearCells 2 gave 20 cells where -1 gave 25 [open: which 5 of the 5×5 square depth 2 leaves out; NVForever gives the 25] |
+| markonload | `1 0` | MarkScriptOnLoad gives 1 from a query too (was 0) |
+| caught | `0 0 0` | SetCaughtPCPickpocketting 1 on Doc Mitchell did not read back [open: NVForever sets and reads the flag a failed pickpocket sets] |
+| translit | not the question | the probe's UTF-8 Cyrillic reached the game as cp1252 bytes; the literal is now "Привет"'s cp1251 bytes written as cp1252 characters. The lab's candidate reads that literal as Latin letters, so it keeps them: the game's own text is decoded by code page (`fnv_esm::text_guess`), Cyrillic in a Windows-1251 plugin is Cyrillic to TranslitText |
+| setfloats | did not compile | `Ar_SetFloatsFrom aR fA fB fC` as a statement is refused by the runtime compiler, as SUP's other functions that write variables (ext-sup6.md §1); scripts compiled ahead keep the page's form |
+
+The open rows wait for another run (the coordinator decides).

@@ -8416,7 +8416,10 @@ SUP4_PROBES = (
      _sup4("caught", "let fA := rD.SetCaughtPCPickpocketting\nlet fB := rD.SetCaughtPCPickpocketting 1\nlet fC := rD.SetCaughtPCPickpocketting\n"
            "rD.SetCaughtPCPickpocketting fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
      # The page names no return value: the text back (hypothesis: "Privet"), or nothing.
-     _sup4("translit", "let sOut := TranslitText \"Привет\"\nSetFunctionValue sOut")]
+     # The literal is "Привет" as cp1251 bytes, written with the cp1252 characters of those
+     # bytes: the probe text reaches the game as cp1252 [observed 2026-11-09: UTF-8 Cyrillic
+     # arrived as cp1252 bytes].
+     _sup4("translit", "let sOut := TranslitText \"Ïðèâåò\"\nSetFunctionValue sOut")]
 )
 SETS.update({"sup4": SUP4_PROBES})
 WRITING_SETS |= {"sup4"}
