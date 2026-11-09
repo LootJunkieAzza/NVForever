@@ -16,11 +16,22 @@
 //!   process's memory now in RAM [documented: Win32 `PROCESS_MEMORY_COUNTERS`].
 //!
 //! The two PDH counters are separate queries, so a hidden GPU row collects no GPU
-//! counters. Off Windows, or where a counter cannot be opened, that part reads none.
+//! counters; the game's processor time and its working set are separate requests too, so
+//! the RAM row alone reads no processor time and the CPU row alone no memory counters.
+//! Off Windows, or where a counter cannot be opened, that part reads none.
+//!
+//! Each showing has a generation ([`Shared::show`] bumps it). The sampler tags what it
+//! publishes with the generation it collected under, and the game takes only what was
+//! collected for the showing it is in ([`Shared::read`]), so a collection under way when
+//! the overlay was hidden is never shown at the next showing; and the sampler starts its
+//! rates afresh when the generation changes, also when the overlay was hidden and shown
+//! again between two of its collections ([`step`]) [design].
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::Arc;
+
+use crate::perf_overlay::readings::cores_busy;
 
 /// What the sampler stores for "no reading".
 const NONE: u32 = u32::MAX;
@@ -28,7 +39,8 @@ const NONE: u32 = u32::MAX;
 /// The parts a showing wants ([`Shared::set_want`]).
 const WANT_CPU: u8 = 1;
 const WANT_GPU: u8 = 2;
-const WANT_PROCESS: u8 = 4;
+const WANT_PROCESS_CPU: u8 = 4;
+const WANT_RAM: u8 = 8;
 
 /// What the sampler read last; `None` where it did not.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -47,6 +59,10 @@ pub struct Usage {
 /// hundredths, the working set in MB.
 pub struct Shared {
     on: AtomicBool,
+    /// The showing's generation, bumped at each showing ([`Shared::show`]).
+    generation: AtomicU32,
+    /// The generation the stored readings were collected under.
+    published: AtomicU32,
     want: AtomicU8,
     cpu: AtomicU32,
     gpu: AtomicU32,
@@ -56,31 +72,62 @@ pub struct Shared {
 
 impl Shared {
     fn new() -> Shared {
-        Shared { on: AtomicBool::new(true), want: AtomicU8::new(0), cpu: AtomicU32::new(NONE), gpu: AtomicU32::new(NONE), cores: AtomicU32::new(NONE), ram_mb: AtomicU32::new(NONE) }
+        Shared {
+            on: AtomicBool::new(false),
+            generation: AtomicU32::new(0),
+            published: AtomicU32::new(0),
+            want: AtomicU8::new(0),
+            cpu: AtomicU32::new(NONE),
+            gpu: AtomicU32::new(NONE),
+            cores: AtomicU32::new(NONE),
+            ram_mb: AtomicU32::new(NONE),
+        }
     }
 
-    pub fn set_on(&self, on: bool) {
-        if self.on.swap(on, Ordering::Relaxed) && !on {
-            // A new showing waits for fresh readings, not the last showing's.
+    /// The overlay shows: a new showing (a new generation) when it was hidden.
+    pub fn show(&self) {
+        if !self.on.load(Ordering::Acquire) {
+            // The generation first: a sampler that sees the overlay on sees this showing's.
+            self.generation.fetch_add(1, Ordering::AcqRel);
+            self.on.store(true, Ordering::Release);
+        }
+    }
+
+    /// The overlay is hidden: the sampler stops collecting and the readings are forgotten.
+    pub fn hide(&self) {
+        if self.on.swap(false, Ordering::AcqRel) {
             for a in [&self.cpu, &self.gpu, &self.cores, &self.ram_mb] {
                 a.store(NONE, Ordering::Relaxed);
             }
         }
     }
 
-    /// The parts the rows switched on want: the machine's CPU, the GPU, the process's
-    /// own figures (its CPU for the CPU row, its working set for the RAM row).
-    pub fn set_want(&self, cpu: bool, gpu: bool, process: bool) {
-        let bits = (if cpu { WANT_CPU } else { 0 }) | (if gpu { WANT_GPU } else { 0 }) | (if process { WANT_PROCESS } else { 0 });
-        self.want.store(bits, Ordering::Relaxed);
+    fn is_on(&self) -> bool {
+        self.on.load(Ordering::Acquire)
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    fn generation(&self) -> u32 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    /// The parts the rows switched on want: the machine's CPU use and the game's
+    /// processor time (the CPU row), the GPU (the GPU row), the game's working set (the
+    /// RAM row).
+    pub fn set_want(&self, cpu: bool, gpu: bool, process_cpu: bool, ram: bool) {
+        let bit = |on: bool, b: u8| if on { b } else { 0 };
+        self.want.store(bit(cpu, WANT_CPU) | bit(gpu, WANT_GPU) | bit(process_cpu, WANT_PROCESS_CPU) | bit(ram, WANT_RAM), Ordering::Relaxed);
+    }
+
     fn wants(&self, part: u8) -> bool {
         self.want.load(Ordering::Relaxed) & part != 0
     }
 
+    /// What was collected for this showing: nothing from an earlier showing, nor while
+    /// hidden.
     pub fn read(&self) -> Usage {
+        if !self.is_on() || self.published.load(Ordering::Acquire) != self.generation() {
+            return Usage::default();
+        }
         let get = |a: &AtomicU32| match a.load(Ordering::Relaxed) {
             NONE => None,
             v => Some(v),
@@ -93,17 +140,88 @@ impl Shared {
         }
     }
 
-    /// A percentage, kept in tenths.
-    #[cfg_attr(not(windows), allow(dead_code))]
-    fn put_percent(a: &AtomicU32, v: Option<f32>) {
-        a.store(v.map_or(NONE, |p| (p.clamp(0.0, 100.0) * 10.0).round() as u32), Ordering::Relaxed);
+    /// Store a collection made under `generation`, tagged with it.
+    fn publish(&self, generation: u32, u: Usage) {
+        let percent = |v: Option<f32>| v.map_or(NONE, |p| (p.clamp(0.0, 100.0) * 10.0).round() as u32);
+        self.cpu.store(percent(u.cpu), Ordering::Relaxed);
+        self.gpu.store(percent(u.gpu), Ordering::Relaxed);
+        self.cores.store(u.cores.map_or(NONE, |c| (c.clamp(0.0, 10_000.0) * 100.0).round() as u32), Ordering::Relaxed);
+        self.ram_mb.store(u.ram_mb.map_or(NONE, |m| m.min(u64::from(NONE - 1)) as u32), Ordering::Relaxed);
+        self.published.store(generation, Ordering::Release);
     }
+}
 
-    #[cfg_attr(not(windows), allow(dead_code))]
-    fn put_process(&self, cores: Option<f32>, ram_mb: Option<u64>) {
-        self.cores.store(cores.map_or(NONE, |c| (c.clamp(0.0, 10_000.0) * 100.0).round() as u32), Ordering::Relaxed);
-        self.ram_mb.store(ram_mb.map_or(NONE, |m| m.min(u64::from(NONE - 1)) as u32), Ordering::Relaxed);
+/// Where the sampler's readings come from: Windows' counters on the sampler thread
+/// (`windows::Counters`), a stand-in in the tests.
+pub trait Source {
+    /// Collect the machine's CPU counter and read it: a rate, so none until the second
+    /// collection since it was last forgotten.
+    fn machine_cpu(&mut self) -> Option<f32>;
+    /// The same for the busiest GPU engine.
+    fn gpu(&mut self) -> Option<f32>;
+    /// Forget the named counters' last collection: their next collection starts a pair.
+    fn forget(&mut self, cpu: bool, gpu: bool);
+    /// The game's processor time over every thread, seconds.
+    fn process_cpu_secs(&mut self) -> Option<f64>;
+    /// The game's working set, MB.
+    fn working_set_mb(&mut self) -> Option<u64>;
+    /// Seconds on a steady clock.
+    fn now(&mut self) -> f64;
+}
+
+/// The sampler's own state between collections: the generation it last collected under
+/// and the game's processor time at its last collection (seconds, and when).
+#[derive(Default)]
+pub struct Baselines {
+    generation: Option<u32>,
+    process: Option<(f64, f64)>,
+}
+
+/// One turn of the sampler: while the overlay shows, collect the parts wanted and publish
+/// them under the generation they were collected for; a new generation (a new showing,
+/// even one that began and ended between two turns) starts every rate afresh. False: the
+/// overlay is hidden, nothing was collected.
+pub fn step(shared: &Shared, b: &mut Baselines, src: &mut impl Source) -> bool {
+    if !shared.is_on() {
+        src.forget(true, true);
+        *b = Baselines::default();
+        return false;
     }
+    let generation = shared.generation();
+    if b.generation != Some(generation) {
+        src.forget(true, true);
+        *b = Baselines { generation: Some(generation), process: None };
+    }
+    let cpu = if shared.wants(WANT_CPU) {
+        src.machine_cpu()
+    } else {
+        src.forget(true, false);
+        None
+    };
+    let gpu = if shared.wants(WANT_GPU) {
+        src.gpu()
+    } else {
+        src.forget(false, true);
+        None
+    };
+    let cores = if shared.wants(WANT_PROCESS_CPU) {
+        let now = src.now();
+        let secs = src.process_cpu_secs();
+        let cores = match (b.process, secs) {
+            (Some((before, at)), Some(secs)) => cores_busy(before, secs, now - at),
+            _ => None,
+        };
+        b.process = secs.map(|s| (s, now));
+        cores
+    } else {
+        b.process = None;
+        None
+    };
+    // The working set alone is a reading; the cores need a second collection, so a
+    // first collection gives the RAM and waits for the cores.
+    let ram_mb = if shared.wants(WANT_RAM) { src.working_set_mb() } else { None };
+    shared.publish(generation, Usage { cpu, gpu, cores, ram_mb });
+    true
 }
 
 /// Starts the sampler thread (none off Windows) and returns what it fills in.
@@ -135,7 +253,6 @@ pub fn busiest_engine<'a>(items: impl IntoIterator<Item = (&'a str, f64)>) -> Op
 #[cfg(windows)]
 mod windows {
     use std::ptr::{null, null_mut};
-    use std::sync::atomic::Ordering;
     use std::time::{Duration, Instant};
 
     use windows_sys::Win32::System::Performance::{
@@ -143,65 +260,69 @@ mod windows {
         PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhGetFormattedCounterValue, PdhOpenQueryW,
     };
 
-    use super::{Shared, WANT_CPU, WANT_GPU, WANT_PROCESS, busiest_engine};
-    use crate::perf_overlay::readings::cores_busy;
+    use super::{busiest_engine, step, Baselines, Shared, Source};
 
     const PERIOD: Duration = Duration::from_secs(1);
 
     pub fn run(shared: &Shared) {
-        let mut cpu = Counter::open(&["\\Processor Information(_Total)\\% Processor Utility", "\\Processor(_Total)\\% Processor Time"]);
-        let mut gpu = Counter::open(&["\\GPU Engine(*)\\Utilization Percentage"]);
-        if cpu.is_none() && gpu.is_none() {
+        let mut src = Counters {
+            cpu: Counter::open(&["\\Processor Information(_Total)\\% Processor Utility", "\\Processor(_Total)\\% Processor Time"]),
+            gpu: Counter::open(&["\\GPU Engine(*)\\Utilization Percentage"]),
+            start: Instant::now(),
+        };
+        if src.cpu.is_none() && src.gpu.is_none() {
             bevy::log::warn!("fps counter: no performance counters, CPU/GPU usage not shown");
         } else {
-            bevy::log::info!("fps counter: usage counters cpu {} gpu {}", cpu.is_some(), gpu.is_some());
+            bevy::log::info!("fps counter: usage counters cpu {} gpu {}", src.cpu.is_some(), src.gpu.is_some());
         }
-        // The process's processor time (seconds) at the last sample, and when.
-        let mut process: Option<(f64, Instant)> = None;
+        let mut baselines = Baselines::default();
         loop {
-            if !shared.on.load(Ordering::Relaxed) {
-                // Rates are differences between two collections; after a pause the
-                // first collection only starts a fresh pair.
-                for c in [&mut cpu, &mut gpu].into_iter().flatten() {
-                    c.primed = false;
-                }
-                process = None;
-                std::thread::sleep(PERIOD / 4);
-                continue;
-            }
-            let cpu_now = sample(&mut cpu, shared.wants(WANT_CPU), Counter::value);
-            let gpu_now = sample(&mut gpu, shared.wants(WANT_GPU), Counter::busiest);
-            let (cores, ram) = if shared.wants(WANT_PROCESS) {
-                let now = (crate::profile::process_cpu_secs(), Instant::now());
-                let cores = match (process, now.0) {
-                    (Some((before, at)), Some(secs)) => cores_busy(before, secs, now.1.duration_since(at).as_secs_f64()),
-                    _ => None,
-                };
-                process = now.0.map(|secs| (secs, now.1));
-                (cores, working_set_mb())
-            } else {
-                process = None;
-                (None, None)
-            };
-            if shared.on.load(Ordering::Relaxed) {
-                Shared::put_percent(&shared.cpu, cpu_now);
-                Shared::put_percent(&shared.gpu, gpu_now);
-                // The working set alone is a reading; the cores need a second sample, so
-                // a first sample keeps the RAM and waits for the cores.
-                shared.put_process(cores, ram);
-            }
-            std::thread::sleep(PERIOD);
+            // Hidden: look again soon, so a showing does not wait a whole period.
+            let collected = step(shared, &mut baselines, &mut src);
+            std::thread::sleep(if collected { PERIOD } else { PERIOD / 4 });
         }
     }
 
-    /// Collect a counter wanted and read it once it has a pair of collections; a counter
-    /// not wanted is not collected and reads none.
-    fn sample(counter: &mut Option<Counter>, wanted: bool, read: fn(&Counter) -> Option<f32>) -> Option<f32> {
-        let c = counter.as_mut()?;
-        if !wanted {
-            c.primed = false;
-            return None;
+    /// The PDH counters and the process's own figures, read on the sampler thread.
+    struct Counters {
+        cpu: Option<Counter>,
+        gpu: Option<Counter>,
+        start: Instant,
+    }
+
+    impl Source for Counters {
+        fn machine_cpu(&mut self) -> Option<f32> {
+            sample(&mut self.cpu, Counter::value)
         }
+
+        fn gpu(&mut self) -> Option<f32> {
+            sample(&mut self.gpu, Counter::busiest)
+        }
+
+        fn forget(&mut self, cpu: bool, gpu: bool) {
+            for (c, f) in [(&mut self.cpu, cpu), (&mut self.gpu, gpu)] {
+                if let (Some(c), true) = (c.as_mut(), f) {
+                    c.primed = false;
+                }
+            }
+        }
+
+        fn process_cpu_secs(&mut self) -> Option<f64> {
+            crate::profile::process_cpu_secs()
+        }
+
+        fn working_set_mb(&mut self) -> Option<u64> {
+            working_set_mb()
+        }
+
+        fn now(&mut self) -> f64 {
+            self.start.elapsed().as_secs_f64()
+        }
+    }
+
+    /// Collect a counter and read it once it has a pair of collections.
+    fn sample(counter: &mut Option<Counter>, read: fn(&Counter) -> Option<f32>) -> Option<f32> {
+        let c = counter.as_mut()?;
         let ok = c.collect();
         let value = if ok && c.primed { read(c) } else { None };
         c.primed = ok;
@@ -320,6 +441,69 @@ mod windows {
 mod tests {
     use super::*;
 
+    /// A stand-in for Windows' counters: each part's calls counted; the rates read once a
+    /// counter has a pair of collections, as PDH's do; the clock moves a second a call to
+    /// `now`, the processor time half a second a call.
+    #[derive(Default)]
+    struct Fake {
+        cpu_primed: bool,
+        gpu_primed: bool,
+        cpu_calls: u32,
+        gpu_calls: u32,
+        process_calls: u32,
+        ram_calls: u32,
+        clock: f64,
+        process: f64,
+        /// Run in the middle of a collection (after the machine's CPU is collected).
+        during: Option<Box<dyn FnMut()>>,
+    }
+
+    impl Source for Fake {
+        fn machine_cpu(&mut self) -> Option<f32> {
+            self.cpu_calls += 1;
+            if let Some(f) = self.during.as_mut() {
+                f();
+            }
+            let read = self.cpu_primed.then_some(30.0);
+            self.cpu_primed = true;
+            read
+        }
+
+        fn gpu(&mut self) -> Option<f32> {
+            self.gpu_calls += 1;
+            let read = self.gpu_primed.then_some(60.0);
+            self.gpu_primed = true;
+            read
+        }
+
+        fn forget(&mut self, cpu: bool, gpu: bool) {
+            self.cpu_primed &= !cpu;
+            self.gpu_primed &= !gpu;
+        }
+
+        fn process_cpu_secs(&mut self) -> Option<f64> {
+            self.process_calls += 1;
+            self.process += 0.5;
+            Some(self.process)
+        }
+
+        fn working_set_mb(&mut self) -> Option<u64> {
+            self.ram_calls += 1;
+            Some(4813)
+        }
+
+        fn now(&mut self) -> f64 {
+            self.clock += 1.0;
+            self.clock
+        }
+    }
+
+    fn all_wanted() -> Arc<Shared> {
+        let s = Arc::new(Shared::new());
+        s.set_want(true, true, true, true);
+        s
+    }
+
     #[test]
     fn gpu_use_is_the_busiest_engine_summed_over_processes() {
         let items = [
@@ -334,14 +518,96 @@ mod tests {
     }
 
     #[test]
-    fn a_hidden_overlay_forgets_its_readings() {
-        let s = Shared::new();
-        Shared::put_percent(&s.cpu, Some(34.44));
-        s.put_process(Some(1.625), Some(4813));
-        assert_eq!(s.read(), Usage { cpu: Some(34.4), gpu: None, cores: Some(1.63), ram_mb: Some(4813) });
-        s.set_on(false);
+    fn a_showing_reads_its_own_collections_and_a_hidden_overlay_none() {
+        let s = all_wanted();
+        let (mut b, mut src) = (Baselines::default(), Fake::default());
+        assert!(!step(&s, &mut b, &mut src), "hidden: nothing collected");
+        assert_eq!(src.cpu_calls + src.ram_calls, 0);
+        s.show();
+        assert_eq!(s.read(), Usage::default(), "nothing collected yet");
+        assert!(step(&s, &mut b, &mut src));
+        // The first collection: the working set, the rates wait for a pair.
+        assert_eq!(s.read(), Usage { cpu: None, gpu: None, cores: None, ram_mb: Some(4813) });
+        step(&s, &mut b, &mut src);
+        // 0.5 s of processor time over 1 s.
+        assert_eq!(s.read(), Usage { cpu: Some(30.0), gpu: Some(60.0), cores: Some(0.5), ram_mb: Some(4813) });
+        s.hide();
         assert_eq!(s.read(), Usage::default());
-        s.set_want(true, false, true);
-        assert!(s.wants(WANT_CPU) && !s.wants(WANT_GPU) && s.wants(WANT_PROCESS));
+    }
+
+    #[test]
+    fn a_collection_under_way_at_a_hide_is_not_shown_at_the_next_showing() {
+        let s = all_wanted();
+        let (mut b, mut src) = (Baselines::default(), Fake::default());
+        s.show();
+        step(&s, &mut b, &mut src);
+        // The overlay is hidden and shown again while the sampler collects: what it
+        // publishes was collected for the showing before.
+        let game = s.clone();
+        src.during = Some(Box::new(move || {
+            game.hide();
+            game.show();
+        }));
+        step(&s, &mut b, &mut src);
+        assert_eq!(s.read(), Usage::default(), "the earlier showing's collection is left out");
+        src.during = None;
+        // The next turn sees the new showing and starts its rates afresh.
+        step(&s, &mut b, &mut src);
+        assert_eq!(s.read(), Usage { cpu: None, gpu: None, cores: None, ram_mb: Some(4813) });
+        step(&s, &mut b, &mut src);
+        assert_eq!(s.read().cores, Some(0.5));
+    }
+
+    #[test]
+    fn hidden_and_shown_between_two_collections_starts_the_rates_afresh() {
+        let s = all_wanted();
+        let (mut b, mut src) = (Baselines::default(), Fake::default());
+        s.show();
+        step(&s, &mut b, &mut src);
+        step(&s, &mut b, &mut src);
+        assert!(s.read().cpu.is_some());
+        // Off and on while the sampler sleeps: it never sees the overlay hidden.
+        s.hide();
+        s.show();
+        assert_eq!(s.read(), Usage::default(), "the new showing waits for its own readings");
+        step(&s, &mut b, &mut src);
+        // A new generation: no rate from a pair that spans the two showings.
+        assert_eq!(s.read(), Usage { cpu: None, gpu: None, cores: None, ram_mb: Some(4813) });
+        step(&s, &mut b, &mut src);
+        assert_eq!(s.read(), Usage { cpu: Some(30.0), gpu: Some(60.0), cores: Some(0.5), ram_mb: Some(4813) });
+    }
+
+    #[test]
+    fn each_part_is_collected_only_while_a_row_wants_it() {
+        let s = Arc::new(Shared::new());
+        let (mut b, mut src) = (Baselines::default(), Fake::default());
+        s.show();
+        // The RAM row alone: the working set, no processor time, no counters.
+        s.set_want(false, false, false, true);
+        step(&s, &mut b, &mut src);
+        step(&s, &mut b, &mut src);
+        assert_eq!((src.cpu_calls, src.gpu_calls, src.process_calls, src.ram_calls), (0, 0, 0, 2));
+        assert_eq!(s.read(), Usage { ram_mb: Some(4813), ..Usage::default() });
+        // The CPU row alone: the machine's counter and the processor time, no working set.
+        s.set_want(true, false, true, false);
+        step(&s, &mut b, &mut src);
+        step(&s, &mut b, &mut src);
+        assert_eq!((src.cpu_calls, src.gpu_calls, src.process_calls, src.ram_calls), (2, 0, 2, 2));
+        assert_eq!(s.read(), Usage { cpu: Some(30.0), cores: Some(0.5), ..Usage::default() });
+        // The CPU row off for a turn and on again: its rates start afresh, the processor
+        // time's baseline as the counter's.
+        s.set_want(false, false, false, true);
+        step(&s, &mut b, &mut src);
+        s.set_want(true, false, true, true);
+        step(&s, &mut b, &mut src);
+        assert_eq!(s.read(), Usage { ram_mb: Some(4813), ..Usage::default() });
+        step(&s, &mut b, &mut src);
+        assert_eq!(s.read(), Usage { cpu: Some(30.0), cores: Some(0.5), ram_mb: Some(4813), gpu: None });
+        // The GPU row alone.
+        s.set_want(false, true, false, false);
+        step(&s, &mut b, &mut src);
+        step(&s, &mut b, &mut src);
+        assert_eq!((src.cpu_calls, src.gpu_calls, src.process_calls, src.ram_calls), (4, 2, 4, 5));
+        assert_eq!(s.read(), Usage { gpu: Some(60.0), ..Usage::default() });
     }
 }

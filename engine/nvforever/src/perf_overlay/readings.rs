@@ -4,7 +4,6 @@
 use std::collections::VecDeque;
 
 use crate::memory_budget::{GPU_PRESSURE, RAM_PRESSURE};
-use crate::stress_sample::frame_stats;
 
 /// How often the readout changes, in seconds: a number that changed every frame would
 /// only flicker [design, as the counter of #1087].
@@ -34,13 +33,26 @@ impl Default for Rows {
     }
 }
 
-/// The frame times of the readout's window and of the last [`LOW_SECS`], milliseconds.
+impl Rows {
+    /// Whether a row switched on reads the frame times (else none are kept).
+    pub fn needs_frames(&self) -> bool {
+        self.fps
+    }
+}
+
+/// The frame times of the readout's window (their count, sum and slowest, kept as they
+/// come: no list to sort) and of the last [`LOW_SECS`] (a list, for the 1 % low),
+/// milliseconds. Kept only while a row needs them (`super::Overlay::step`).
 #[derive(Default)]
 pub struct Frames {
-    window: Vec<f32>,
-    window_secs: f32,
+    count: u32,
+    sum_ms: f32,
+    worst_ms: f32,
+    secs: f32,
     recent: VecDeque<f32>,
     recent_secs: f32,
+    /// Reused for the 1 % low at each reading ([`low_of`]).
+    scratch: Vec<f32>,
 }
 
 impl Frames {
@@ -50,8 +62,10 @@ impl Frames {
             return;
         }
         let ms = dt * 1e3;
-        self.window.push(ms);
-        self.window_secs += dt;
+        self.count += 1;
+        self.sum_ms += ms;
+        self.worst_ms = self.worst_ms.max(ms);
+        self.secs += dt;
         self.recent.push_back(ms);
         self.recent_secs += dt;
         while self.recent_secs > LOW_SECS && self.recent.len() > 1 {
@@ -60,19 +74,25 @@ impl Frames {
         }
     }
 
-    /// The reading once the window covers [`WINDOW`] seconds (the window then starts
-    /// again), else none.
+    /// The reading of the frames since the last one (the window then starts again);
+    /// none without a frame.
     pub fn take(&mut self) -> Option<FrameReading> {
-        if self.window_secs < WINDOW {
+        if self.count == 0 || self.secs <= 0.0 {
             return None;
         }
-        let r = frame_reading(&self.window, self.window_secs, self.recent.make_contiguous())?;
-        self.window.clear();
-        self.window_secs = 0.0;
+        let low_ms = low_of(self.recent.iter().copied(), &mut self.scratch).unwrap_or(self.worst_ms);
+        let r = FrameReading { fps: self.count as f32 / self.secs, mean_ms: self.sum_ms / self.count as f32, worst_ms: self.worst_ms, low_ms };
+        (self.count, self.sum_ms, self.worst_ms, self.secs) = (0, 0.0, 0.0, 0.0);
         Some(r)
     }
 
-    /// Forget every frame: a new showing reads afresh.
+    /// Whether no frame is kept.
+    pub fn is_empty(&self) -> bool {
+        self.count == 0 && self.recent.is_empty()
+    }
+
+    /// Forget every frame, and the room they took: a new showing reads afresh, and a row
+    /// switched off keeps nothing.
     pub fn clear(&mut self) {
         *self = Frames::default();
     }
@@ -85,19 +105,25 @@ pub struct FrameReading {
     pub mean_ms: f32,
     /// The window's slowest frame (the log's `slowest`, as the counter had it).
     pub worst_ms: f32,
-    /// The mean of the slowest hundredth of the recent frames (`stress_sample::frame_stats`).
+    /// The mean of the slowest hundredth of the recent frames ([`low_of`]).
     pub low_ms: f32,
 }
 
-/// The reading of a window of frame times (ms, `secs` long) once it covers [`WINDOW`],
-/// the 1 % low from the `recent` frames (ms).
-pub fn frame_reading(window: &[f32], secs: f32, recent: &[f32]) -> Option<FrameReading> {
-    if window.is_empty() || secs < WINDOW {
+/// The 1 % low of frame times (ms): the mean of the slowest hundredth of them, one frame
+/// at least, as `stress_sample::frame_stats` takes it; none without frames. The slowest
+/// are picked out (`select_nth_unstable`), not sorted, in `scratch`, which keeps its room
+/// from one reading to the next.
+pub fn low_of(ms: impl Iterator<Item = f32>, scratch: &mut Vec<f32>) -> Option<f32> {
+    scratch.clear();
+    scratch.extend(ms);
+    if scratch.is_empty() {
         return None;
     }
-    let (mean_ms, _, worst_ms) = frame_stats(window);
-    let low_ms = if recent.is_empty() { worst_ms } else { frame_stats(recent).1 };
-    Some(FrameReading { fps: window.len() as f32 / secs, mean_ms, worst_ms, low_ms })
+    let n = (scratch.len() / 100).max(1);
+    if n < scratch.len() {
+        scratch.select_nth_unstable_by(n - 1, |a, b| b.total_cmp(a));
+    }
+    Some(scratch[..n].iter().sum::<f32>() / n as f32)
 }
 
 /// Cores kept busy from the process's processor time (user and kernel, seconds) at two
@@ -216,25 +242,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_reading_until_the_window_is_full() {
-        assert_eq!(frame_reading(&[], 0.0, &[]), None);
-        assert_eq!(frame_reading(&[100.0; 4], 0.4, &[100.0; 4]), None);
+    fn no_reading_without_a_frame() {
+        let mut f = Frames::default();
+        assert_eq!(f.take(), None);
+        // Frames that took no time (a paused clock) or none at all are not frames.
+        f.push(0.0);
+        f.push(f32::NAN);
+        assert_eq!(f.take(), None);
+        assert!(f.is_empty());
     }
 
     #[test]
     fn a_reading_gives_rate_mean_slowest_and_the_low_of_the_recent_frames() {
-        let mut window = vec![10.0; 49];
-        window.push(20.0);
-        // The recent frames: 198 of 10 ms and two of 50 ms; their slowest 1 % is the 50s.
-        let mut recent = vec![10.0; 198];
-        recent.extend([50.0, 50.0]);
-        let r = frame_reading(&window, 0.51, &recent).expect("0.51 s of frames");
-        assert!((r.fps - 50.0 / 0.51).abs() < 0.01, "{r:?}");
-        assert!((r.mean_ms - 10.2).abs() < 0.01, "{r:?}");
+        let mut f = Frames::default();
+        // 10 s before the window: 150 frames of 10 ms and two of 50 ms.
+        for _ in 0..150 {
+            f.push(0.01);
+        }
+        f.push(0.05);
+        f.push(0.05);
+        f.take();
+        // The window: 48 frames of 10 ms and one of 20 ms. The recent frames are 201
+        // (198 of 10 ms, one of 20 ms, two of 50 ms); their slowest 1 % is the two 50s.
+        for _ in 0..48 {
+            f.push(0.01);
+        }
+        f.push(0.02);
+        let r = f.take().expect("frames");
+        assert!((r.fps - 49.0 / 0.5).abs() < 0.01, "{r:?}");
+        assert!((r.mean_ms - 500.0 / 49.0).abs() < 0.01, "{r:?}");
         assert!((r.worst_ms - 20.0).abs() < 0.01, "{r:?}");
-        assert_eq!(r.low_ms, 50.0);
-        // No recent frames kept: the window's slowest.
-        assert_eq!(frame_reading(&window, 0.51, &[]).map(|r| r.low_ms), Some(20.0));
+        assert!((r.low_ms - 50.0).abs() < 0.01, "{r:?}");
+        assert_eq!(f.take(), None, "the window starts again");
+    }
+
+    #[test]
+    fn the_low_is_the_stress_samples_low_without_sorting() {
+        let mut scratch = Vec::new();
+        assert_eq!(low_of(std::iter::empty(), &mut scratch), None);
+        let mut ms: Vec<f32> = (0..1234).map(|i| ((i * 7919) % 1000) as f32 / 10.0).collect();
+        ms.extend([250.0, 120.0, 99.5]);
+        for take in [1, 50, 99, 100, 101, 250, ms.len()] {
+            let part = &ms[..take];
+            let low = low_of(part.iter().copied(), &mut scratch).expect("frames");
+            let sorted = crate::stress_sample::frame_stats(part).1;
+            assert!((low - sorted).abs() < 1e-3, "{take} frames: {low} against {sorted}");
+        }
+        // The scratch keeps its room for the next reading.
+        assert!(scratch.capacity() >= ms.len());
     }
 
     #[test]
@@ -242,7 +297,6 @@ mod tests {
         let mut f = Frames::default();
         // A 200 ms hitch, then 11 s of 10 ms frames: the hitch falls out of the low.
         f.push(0.2);
-        assert!(f.take().is_none(), "0.2 s: the window is not full");
         for _ in 0..31 {
             f.push(0.01);
         }
@@ -254,11 +308,8 @@ mod tests {
         let later = f.take().expect("a full window");
         assert!((later.low_ms - 10.0).abs() < 0.01, "{later:?}");
         assert!((later.worst_ms - 10.0).abs() < 0.01, "{later:?}");
-        // Frames that took no time (a paused clock) or none at all are not frames.
-        f.push(0.0);
-        f.push(f32::NAN);
-        assert!(f.take().is_none());
         f.clear();
+        assert!(f.is_empty());
         assert!(f.take().is_none());
     }
 

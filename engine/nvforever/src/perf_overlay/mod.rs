@@ -4,7 +4,7 @@
 //!
 //! | Row  | Reads | From |
 //! |------|-------|------|
-//! | FPS  | frames a second and the mean frame time of the last half second, the 1 % low of the last 10 s | the time between frames ([`readings::Frames`], `stress_sample::frame_stats`) |
+//! | FPS  | frames a second and the mean frame time of the last half second, the 1 % low of the last 10 s | the time between frames ([`readings::Frames`], the 1 % low as `stress_sample::frame_stats` takes it: [`readings::low_of`]) |
 //! | CPU  | the machine's use, and the game's own as cores kept busy | Windows' performance counters; the process's processor time ([`usage`]) |
 //! | GPU  | the busiest engine's use | Windows' performance counters ([`usage`]) |
 //! | VRAM | this process's GPU memory against the budget | `memory_budget.rs`'s check every 2 s (`MemoryBudget::vram_use_mb`) |
@@ -57,7 +57,10 @@ pub struct FpsCounter {
 /// set again.
 #[derive(Resource, Default)]
 struct Overlay {
+    /// The frame times, kept only while a row reads them ([`Rows::needs_frames`]).
     frames: Frames,
+    /// Real seconds since the readings were last taken ([`Overlay::step`]).
+    since: f32,
     readings: Readings,
     /// The sampler, started the first time the overlay shows.
     usage: Option<Arc<usage::Shared>>,
@@ -67,6 +70,28 @@ struct Overlay {
     dirty: bool,
     /// The switches changed: the panel's width starts again from its rows.
     fresh: bool,
+}
+
+impl Overlay {
+    /// A frame of `dt` seconds while the overlay shows: its time is kept only when a row
+    /// reads frame times (else none is kept, and what was is let go); true when the
+    /// readings are to be taken again, every [`readings::WINDOW`] of real time whatever
+    /// rows are on.
+    fn step(&mut self, rows: &Rows, dt: f32) -> bool {
+        if rows.needs_frames() {
+            self.frames.push(dt);
+        } else if !self.frames.is_empty() {
+            self.frames.clear();
+        }
+        if dt.is_finite() && dt > 0.0 {
+            self.since += dt;
+        }
+        if self.since < readings::WINDOW {
+            return false;
+        }
+        self.since = 0.0;
+        true
+    }
 }
 
 pub struct PerfOverlayPlugin(pub bool);
@@ -90,9 +115,14 @@ fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, mut was: Local
     }
     if *was != Some(counter.show) {
         overlay.frames.clear();
+        overlay.since = 0.0;
         overlay.readings = Readings::default();
         if let Some(u) = &overlay.usage {
-            u.set_on(counter.show);
+            if counter.show {
+                u.show();
+            } else {
+                u.hide();
+            }
         }
     }
     *was = Some(counter.show);
@@ -106,19 +136,23 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, budget: Option<Res<Me
     }
     let rows = counter.rows;
     let u = overlay.usage.get_or_insert_with(usage::start).clone();
-    u.set_on(true);
-    u.set_want(rows.cpu, rows.gpu, rows.cpu || rows.ram);
-    overlay.frames.push(time.delta_secs());
-    let Some(frame) = overlay.frames.take() else { return };
+    u.show();
+    // The CPU row reads the machine's counter and the game's processor time, the RAM row
+    // the game's working set: each asked for on its own.
+    u.set_want(rows.cpu, rows.gpu, rows.cpu, rows.ram);
+    if !overlay.step(&rows, time.delta_secs()) {
+        return;
+    }
+    let frame = overlay.frames.take();
     let got = u.read();
     let vram_mb = budget.as_ref().and_then(|b| b.vram_use_mb);
     let ram_share = budget.as_ref().and_then(|b| b.ram_share);
     let vram_share = vram_mb.map(|(used, b)| used as f64 / b.max(1) as f64);
     let (vram_warn, ram_warn) = readings::pressed_rows(budget.as_ref().is_some_and(|b| b.pressed), vram_share, ram_share);
     let o = &mut *overlay;
-    o.readings = Readings { frame: Some(frame), cpu: got.cpu, game_cores: got.cores, gpu: got.gpu, vram_mb, game_ram_mb: got.ram_mb, ram_share, vram_warn, ram_warn };
+    o.readings = Readings { frame, cpu: got.cpu, game_cores: got.cores, gpu: got.gpu, vram_mb, game_ram_mb: got.ram_mb, ram_share, vram_warn, ram_warn };
     o.dirty = true;
-    if !o.logged {
+    if let (false, Some(frame)) = (o.logged, frame) {
         o.logged = true;
         info!("fps counter: first reading {:.0} fps, {:.1} ms, slowest {:.1} ms, 1% low {:.1} ms", frame.fps, frame.mean_ms, frame.worst_ms, frame.low_ms);
     }
@@ -197,6 +231,26 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readings_are_taken_twice_a_second_and_frames_kept_only_for_a_row_that_reads_them() {
+        let mut o = Overlay::default();
+        let no_fps = Rows { fps: false, ..Rows::default() };
+        // Steps of an eighth of a second: a reading every fourth.
+        let due: Vec<bool> = (0..8).map(|_| o.step(&no_fps, 0.125)).collect();
+        assert_eq!(due, [false, false, false, true, false, false, false, true]);
+        assert!(o.frames.is_empty(), "no frame row: no frame kept");
+        assert_eq!(o.frames.take(), None);
+        // The frame rate row on: the frames are kept and read.
+        let fps = Rows::default();
+        let due: Vec<bool> = (0..4).map(|_| o.step(&fps, 0.125)).collect();
+        assert_eq!(due, [false, false, false, true]);
+        assert!(!o.frames.is_empty());
+        assert!(o.frames.take().is_some_and(|f| (f.fps - 8.0).abs() < 0.01));
+        // Off again: what was kept is let go at the next frame.
+        o.step(&no_fps, 0.125);
+        assert!(o.frames.is_empty());
+    }
 
     #[test]
     fn usage_text_shows_what_was_read() {
