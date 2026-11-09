@@ -19,6 +19,7 @@
 
 use super::*;
 use fnv_nav::Space;
+use std::collections::BTreeSet;
 
 /// Exterior cells simulated each way from a guest's cell (5 x 5, the script cells of
 /// `Game::cells_around`).
