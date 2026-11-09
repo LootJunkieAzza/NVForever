@@ -4337,6 +4337,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "menu-camera-world-runs"
+source = "[design] issue #1753: a menu's own 3D camera (the lockpicking view's) beside the main view's does not stop the world's systems; they find the main view by its marker (fly::WorldCamera, docs/design/layer4-play.md §2), so streaming keeps running for the seconds the lock is up (world.rs `note_other_cameras`)"
+note = "lockpick's wall safe in GSHouseInterior02 at Lockpick 55: opened at 12 s, the help closed, left with the menu's Exit at 20 s"
+areas = ["lockpick", "streaming", "camera"]
+paths = ["engine/nvforever/src/fly.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/lockpick_view.rs", "engine/nvforever/src/lod.rs", "engine/nvforever/src/grass.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_LOCKPICK = "1:skill:55,13.5:help,20:exit" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  "lockpick: open 0x00105229 Safe: Average lock (Lockpick 55, 3 bobby pins)",
+  { text = "world: streaming runs with another 3D camera active (Lockpicking camera)", label = "streaming runs while the lockpicking camera is up" },
+  "lockpick: closed (the player left)",
+  { re = 'world: streaming kept running behind another 3D camera \(Lockpicking camera\): [1-9]\d+ frames', label = "and kept running for the seconds the menu was open" },
+]]
+expect = [
+  { text = "lockpick view: the lock drawn", label = "the menu's own camera drew the lock" },
+]
+
+[[scenario]]
 name = "perk-infiltrator"
 source = "perk audit 2026-10-23 §3.4, owner 2026-10-24: Infiltrator gives one more try at a broken lock (docs/spec-notes/perk-entry-points.md §7)"
 note = "lockpick-floor-safe's setup (Ringo's floor safe in GSGasStation, Lockpick 30, two pins) with the perk Infiltrator from 3 s: a failed Force Lock breaks the safe; the next activation opens the menu again (one more try), a second failed Force Lock spends it, and the activation after is refused as broken"

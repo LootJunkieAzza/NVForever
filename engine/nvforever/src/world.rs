@@ -273,6 +273,9 @@ pub struct StreamStats {
     pub cells_waited: usize,
     pub cells_forced: usize,
     pub skipped_types: HashMap<String, usize>,
+    /// Frames [`stream`] found the main view's camera and the world root and went on
+    /// ([`note_other_cameras`] reads it).
+    pub frames: u64,
 }
 
 /// Game space → Bevy space.
@@ -295,7 +298,7 @@ pub fn stream(
     world: Res<WorldData>,
     mut streamer: ResMut<Streamer>,
     root: Query<Entity, With<WorldRoot>>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
     mut terrain: TerrainMaterials,
     mut water: WaterCtx,
@@ -309,6 +312,7 @@ pub fn stream(
     children: Query<&Children>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
+    streamer.stats.frames += 1;
     let before = (streamer.stats.actors.equipment_spawns, streamer.stats.actors.record_spawns);
     let frame_start = std::time::Instant::now();
     let behind_screen = loading.is_some_and(|l| l.unseen_frames());
@@ -801,7 +805,7 @@ pub fn loading_gate(
 /// the cells of the world root, so a yaw about game Z in the billboard's own transform
 /// is a yaw about the world's up axis.
 pub fn face_billboards(
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut trees: Query<(&mut Transform, &GlobalTransform), With<TreeBillboard>>,
 ) {
     let Ok(cam) = camera.single() else { return };
@@ -811,6 +815,54 @@ pub fn face_billboards(
         if d.x * d.x + d.y * d.y > 1e-6 {
             t.rotation = Quat::from_rotation_z(d.y.atan2(d.x));
         }
+    }
+}
+
+/// What [`note_other_cameras`] remembers between frames.
+#[derive(Default)]
+pub struct OtherCameras {
+    /// `StreamStats::frames` the frame before.
+    last: u64,
+    /// The other camera's name while one is active, once streaming has run beside it.
+    open: Option<String>,
+    /// Frames streaming ran while that camera was active.
+    frames: u64,
+}
+
+impl OtherCameras {
+    /// One frame: `frames` the streaming counter now, `other` the name of an active 3D
+    /// camera beside the main view's (a menu's or a scope's), if any. Returns the line to
+    /// log: when streaming first runs beside such a camera, and when the camera is gone.
+    pub fn step(&mut self, frames: u64, other: Option<&str>) -> Option<String> {
+        let ran = frames != std::mem::replace(&mut self.last, frames);
+        match other {
+            Some(name) if ran => {
+                self.frames += 1;
+                if self.open.is_none() {
+                    self.open = Some(name.to_string());
+                    return Some(format!("world: streaming runs with another 3D camera active ({name}), the main view's camera found by its marker"));
+                }
+                None
+            }
+            Some(_) => None,
+            None => self.open.take().map(|name| format!("world: streaming kept running behind another 3D camera ({name}): {} frames", std::mem::take(&mut self.frames))),
+        }
+    }
+}
+
+/// Log that streaming keeps running while a menu's or a scope's own 3D camera is active
+/// beside the main view's: once when it first runs beside one, and for how many frames
+/// when the camera is gone. Before, every system that took "the one `Camera3d`" stopped
+/// while such a camera existed [design: issue #1753, `fly::WorldCamera`]. The water
+/// reflection's camera does not count.
+pub fn note_other_cameras(
+    streamer: Res<Streamer>,
+    others: Query<(&Camera, Option<&Name>), (With<Camera3d>, Without<crate::fly::FlyCam>, Without<crate::reflection::ReflectionCamera>)>,
+    mut state: Local<OtherCameras>,
+) {
+    let other = others.iter().find(|(c, _)| c.is_active).map(|(_, n)| n.map_or("unnamed", Name::as_str));
+    if let Some(line) = state.step(streamer.stats.frames, other) {
+        info!("{line}");
     }
 }
 
@@ -1531,6 +1583,51 @@ mod tests {
         assert!((bevy_to_game(b) - g).length() < 1e-5);
         // Game up (z) is Bevy up (y).
         assert!((t.transform_point(Vec3::Z) - Vec3::Y).length() < 1e-5);
+    }
+
+    /// Issue #1753: with a menu's own `Camera3d` beside the main view's (and the water
+    /// reflection's), a world system follows the main view's camera (`fly::WorldCamera`)
+    /// instead of stopping or taking the menu's.
+    #[test]
+    fn billboards_face_the_main_view_beside_a_menu_camera() {
+        let mut app = App::new();
+        app.add_systems(Update, face_billboards);
+        let at = |p: Vec3| GlobalTransform::from(Transform::from_translation(p));
+        // The menu's camera, spawned first, 1000 units along game +X (Bevy +X).
+        app.world_mut().spawn((Name::new("Lockpicking camera"), Camera3d::default(), at(Vec3::new(1000.0, 0.0, 0.0))));
+        // The main view, 1000 units along game +Y (Bevy -Z).
+        let main = app.world_mut().spawn((Camera3d::default(), at(Vec3::new(0.0, 0.0, -1000.0)), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 })).id();
+        // The reflection, 1000 units along game -X.
+        app.world_mut().spawn((Camera3d::default(), at(Vec3::new(-1000.0, 0.0, 0.0)), crate::reflection::ReflectionCamera));
+        let tree = app.world_mut().spawn((TreeBillboard, Transform::from_rotation(Quat::from_rotation_z(-1.0)), GlobalTransform::IDENTITY)).id();
+        app.update();
+        let r = app.world().get::<Transform>(tree).unwrap().rotation;
+        assert!(r.angle_between(Quat::from_rotation_z(FRAC_PI_2)) < 1e-4, "faces the main view (game +Y), not the menu's camera: {r:?}");
+        // The main view moves; the tree follows it.
+        app.world_mut().entity_mut(main).insert(at(Vec3::new(0.0, 0.0, 1000.0)));
+        app.update();
+        let r = app.world().get::<Transform>(tree).unwrap().rotation;
+        assert!(r.angle_between(Quat::from_rotation_z(-FRAC_PI_2)) < 1e-4, "follows the main view to game -Y: {r:?}");
+    }
+
+    /// The log of `note_other_cameras`: once when streaming first runs beside another
+    /// camera, nothing while it stays or while streaming does not run, the count at the end.
+    #[test]
+    fn other_camera_lines() {
+        let mut s = OtherCameras::default();
+        assert_eq!(s.step(1, None), None);
+        assert_eq!(s.step(2, None), None);
+        let opened = s.step(3, Some("Lockpicking camera")).expect("the first frame beside it");
+        assert!(opened.starts_with("world: streaming runs with another 3D camera active (Lockpicking camera)"), "{opened}");
+        assert_eq!(s.step(4, Some("Lockpicking camera")), None);
+        // Streaming held (a loading screen): not counted.
+        assert_eq!(s.step(4, Some("Lockpicking camera")), None);
+        assert_eq!(s.step(5, Some("Lockpicking camera")), None);
+        assert_eq!(s.step(6, None).as_deref(), Some("world: streaming kept running behind another 3D camera (Lockpicking camera): 3 frames"));
+        assert_eq!(s.step(7, None), None);
+        // A camera beside the main view while streaming never runs logs nothing.
+        assert_eq!(s.step(7, Some("Scope camera")), None);
+        assert_eq!(s.step(7, None), None);
     }
 
     #[test]
