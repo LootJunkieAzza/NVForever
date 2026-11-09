@@ -41,7 +41,7 @@ const STEP: f32 = 30.0;
 /// Saves shown at once.
 const SAVE_ROWS: usize = 8;
 /// Emotes and their categories' headings shown at once.
-const EMOTE_ROWS: usize = 11;
+const EMOTE_ROWS: usize = 10;
 /// The longest code typed (12 characters and the dashes, with room for spaces).
 const MAX_TYPED: usize = 26;
 
@@ -281,7 +281,14 @@ fn input(
     }
     for a in aids {
         if let Some(file) = a.strip_prefix("shot=") {
-            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(std::path::PathBuf::from(file)));
+            // A bare name goes where the other shots go (`NVF_PLAY_TEST_SHOT_DIR`).
+            let mut path = std::path::PathBuf::from(file);
+            if path.is_relative() {
+                if let Some(dir) = std::env::var_os("NVF_PLAY_TEST_SHOT_DIR").filter(|d| !d.is_empty()) {
+                    path = std::path::PathBuf::from(dir).join(path);
+                }
+            }
+            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
         } else if let Some(code) = a.strip_prefix("code=") {
             if screen.mode.is_none() {
                 screen.open(Mode::Join);
@@ -633,7 +640,16 @@ fn emote_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, slot: Option<usize>) {
     let chosen = list.get(screen.selected).copied();
     let at = rows.iter().position(|r| matches!(r, Piece::Row(a, ..) if Some(*a) == chosen)).unwrap_or(0);
     let first = at.saturating_sub(EMOTE_ROWS / 2).min(rows.len().saturating_sub(EMOTE_ROWS));
+    let total = rows.len();
+    // Where the list goes on past the window.
+    let more = |n: usize, way: &str| Piece::Line(format!("  ({n} more {way}: Up and Down scroll)"), Shade::Dim);
+    if first > 0 {
+        v.push(more(first, "above"));
+    }
     v.extend(rows.into_iter().skip(first).take(EMOTE_ROWS));
+    if first + EMOTE_ROWS < total {
+        v.push(more(total - first - EMOTE_ROWS, "below"));
+    }
 }
 
 /// Who is in the lobby, one a line (the host and this player marked by the network side).
@@ -801,7 +817,8 @@ mod tests {
         let p = pieces(&screen, &state);
         assert!(p.contains(&Piece::Line("Sit and Lay".into(), Shade::Dim)), "{p:?}");
         assert!(p.contains(&Piece::Row(Act::Equip(sit), "  Sit   (slot 3)".into(), Shade::Bright)));
-        assert!(p.len() <= 3 + EMOTE_ROWS);
+        assert!(p.len() <= 5 + EMOTE_ROWS);
+        assert!(p.iter().any(|x| matches!(x, Piece::Line(t, Shade::Dim) if t.contains("more below"))), "{p:?}");
         // Slot 1 takes Sit: Sit's slot gets Wave.
         loadout.equip(0, sit);
         assert_eq!(loadout.slots[0], Some(sit));

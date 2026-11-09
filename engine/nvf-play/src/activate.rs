@@ -18,6 +18,11 @@
 //! - E on something the player can hold (`crate::grab`): the activation waits for E to
 //!   come up; held longer, the grab picks it up instead.
 //!
+//! Test aid: `NVF_PLAY_TEST_PICKUP=<seconds>[:<item FormID hex>][,...]` (world aid
+//! seconds): at each time the newest item the player dropped (`NVF_PLAY_TEST_DROP`), of
+//! that item if one is named, is picked up as E on it would (`ActivateNext`), whatever the
+//! crosshair is on: a pick-up in either view, for its clip (nvforever `consume_anims.rs`).
+//!
 //! Test aid: `NVF_PLAY_TEST_ACTIVATE=<seconds>[,<seconds>...]` presses E at those times
 //! on the world aids' clock (`crate::pause::WorldAidClock`; unattended in-game checks).
 //!
@@ -55,7 +60,8 @@ impl Plugin for ActivatePlugin {
             .init_resource::<HeldActivation>()
             .add_message::<PickedUp>()
             .insert_resource(AutoActivate::from_env())
-            .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
+            .insert_resource(AutoPickup::from_env())
+            .add_systems(Update, (pickup_aid, find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
     }
 }
@@ -551,6 +557,44 @@ impl AutoActivate {
         let before = self.times.len();
         self.times.retain(|&t| t > now);
         self.times.len() < before
+    }
+}
+
+/// `NVF_PLAY_TEST_PICKUP`: (world aid seconds, the item or any), soonest first.
+#[derive(Resource, Default)]
+pub(crate) struct AutoPickup(Vec<(f32, Option<u32>)>);
+
+impl AutoPickup {
+    fn from_env() -> AutoPickup {
+        let Ok(v) = std::env::var("NVF_PLAY_TEST_PICKUP") else { return AutoPickup::default() };
+        let mut out = Vec::new();
+        for part in v.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let (t, item) = part.split_once(':').map_or((part, None), |(t, i)| (t, Some(i)));
+            match (t.trim().parse::<f32>(), item.map(|i| u32::from_str_radix(i.trim().trim_start_matches("0x"), 16))) {
+                (Ok(t), None) => out.push((t, None)),
+                (Ok(t), Some(Ok(i))) => out.push((t, Some(i))),
+                _ => warn!("NVF_PLAY_TEST_PICKUP: {part:?}: expected <seconds>[:<item FormID hex>]"),
+            }
+        }
+        out.sort_by(|a, b| a.0.total_cmp(&b.0));
+        info!("test aid NVF_PLAY_TEST_PICKUP: {} pick-ups", out.len());
+        AutoPickup(out)
+    }
+}
+
+/// `NVF_PLAY_TEST_PICKUP`: the newest dropped item (of that base) goes to `ActivateNext`.
+fn pickup_aid(aid_time: crate::pause::AidTime, mut aid: ResMut<AutoPickup>, sim: Res<SimState>, mut next: ResMut<ActivateNext>) {
+    let Some(now) = aid_time.world_secs() else { return };
+    while aid.0.first().is_some_and(|(t, _)| *t <= now) {
+        let (_, item) = aid.0.remove(0);
+        let found = sim.world.created().filter(|(_, s)| !s.deleted && s.enabled && item.is_none_or(|i| s.base.0 == i)).filter(|(_, s)| sim.forms.get(s.base).is_some_and(|b| matches!(b.data, BaseData::Item(_)))).map(|(id, _)| id).last();
+        match found {
+            Some(id) => {
+                info!("test aid NVF_PLAY_TEST_PICKUP: picks up {id}");
+                next.0 = Some(id.0);
+            }
+            None => warn!("NVF_PLAY_TEST_PICKUP: no dropped item{} to pick up", item.map_or(String::new(), |i| format!(" {i:08X}"))),
+        }
     }
 }
 

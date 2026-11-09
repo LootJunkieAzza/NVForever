@@ -2043,10 +2043,19 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
     let mode = if o.looped { Mode::Loop } else { Mode::Once };
     if rig.furniture != Some(o.serial) {
         a.layers.retain(|l| l.tag >= TAG_SPECIAL);
-        a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        let i = a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        // Over a clip under it, the clip takes the bones it keys outright; the one under
+        // poses the rest (an emote's clip that keys no `Bip01 NonAccum`, or the head
+        // alone, would leave those in the bind pose: the body sank to the waist).
+        if o.under.is_some() {
+            a.lift(i, OVER_LIFT);
+        }
         rig.furniture = Some(o.serial);
     }
     a.begin();
+    if let Some(under) = &o.under {
+        a.want(under, TAG_FURNITURE - 1, 1.0, Mode::Loop, 0.0);
+    }
     a.want(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
     // A clip over it, once, above its priority (the fillet table's stabs and misses).
     match &o.over {

@@ -20,7 +20,8 @@
 //! Test aids:
 //! - `NVF_PLAY_TEST_EMOTE="<seconds>:<step>,..."` (world aid seconds): a step is an emote
 //!   key or wire id (`sit`, `3`), with `:<seconds>` after it to end it that long after it
-//!   starts; `cancel`; `1st` / `3rd` (the view); `wheel` (open the wheel), `pick=<slot>`
+//!   starts, and `@<clip>` before that to play a one-shot's clip of that file name rather
+//!   than one at random (`wave@AG_WaveShort`, `nod@AG_HeadNod:3`); `cancel`; `1st` / `3rd` (the view); `wheel` (open the wheel), `pick=<slot>`
 //!   (1-8, point it at a slot), `release` (let go: play the slot picked), `close`.
 //! - `NVF_PLAY_TEST_EMOTE_SLOTS="1:<key>,2:<key>,..."`: the loadout for this run (not
 //!   kept); `<n>:` alone empties slot n.
@@ -91,9 +92,10 @@ use Category::*;
 /// `nvf_coop::net::EmoteState`): new ones go at the end. The clips are those the request
 /// of 2026-11-09 named, checked in the load order's BSAs [observed: `Fallout - Meshes.bsa`
 /// and `HonestHearts - Main.bsa` listings; the lengths from fnvtool `nif anim`]. Left out:
-/// the mod's head-only nods (they move the head and neck alone, and need a pose under
-/// them), prop idles (a bottle, a guitar) and the hologram and creature clips of the same
-/// names.
+/// prop idles (a bottle, a guitar) and the hologram and creature clips of the same names.
+/// Every clip plays over the standing idle (nvforever `emote_play.rs`), so the mod's
+/// clips that key the head alone (its nods and head shakes) or no `Bip01 NonAccum` keep
+/// the standing body under them.
 pub const CATALOG: &[Emote] = &[
     once("wave", "Wave", Greet, &["wavehello", "wavehelloshort"], &["Wave", "WaveShort"]),
     once("salute", "Salute", Greet, &["salutea", "lazysalute"], &["Salute", "SaluteLazy", "SaluteLight"]),
@@ -144,6 +146,7 @@ pub const CATALOG: &[Emote] = &[
     once("feminine", "Flourish", Gesture, &[], &["Feminine"]),
     once("heart", "Heart", Misc, &[], &["Heart"]),
     once("chest-pound", "Chest Pound", Misc, &[], &["ChestPound1", "ChestPound2"]),
+    once("nod", "Nod", Gesture, &[], &["HeadNod", "HeadNodSingle"]),
 ];
 
 /// The default loadout [design: the request's update, 2026-11-09].
@@ -300,8 +303,9 @@ impl EmoteSlots {
 /// What the wheel and the test aids ask of the emote player (nvforever `emote_play.rs`).
 #[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub enum EmoteAsk {
-    /// Play catalogue emote `emote`; `cancel_after`: a test aid ends it that long after.
-    Play { emote: usize, cancel_after: Option<f32> },
+    /// Play catalogue emote `emote`; `cancel_after`: a test aid ends it that long after;
+    /// `variant`: a test aid's choice of a one-shot's clip (else one at random).
+    Play { emote: usize, cancel_after: Option<f32>, variant: Option<u8> },
     /// End the emote playing (its exit, if a loop's).
     Cancel,
 }
@@ -478,7 +482,7 @@ fn emote_aid(
                 match picked.and_then(|s| slots.slots[s]) {
                     Some(e) => {
                         info!("emotes: wheel: slot {} plays {}", picked.unwrap_or(0) + 1, CATALOG[e].key);
-                        asks.write(EmoteAsk::Play { emote: e, cancel_after: None });
+                        asks.write(EmoteAsk::Play { emote: e, cancel_after: None, variant: None });
                     }
                     None => info!("emotes: wheel closed: nothing chosen"),
                 }
@@ -492,9 +496,17 @@ fn emote_aid(
                         }
                         None => warn!("NVF_PLAY_TEST_EMOTE: pick={n}: no wheel open"),
                     }
-                } else if let Some(e) = by_key(head) {
+                } else if let Some(e) = by_key(head.split_once('@').map_or(head, |(k, _)| k)) {
                     let cancel_after = rest.and_then(|r| r.trim().parse::<f32>().ok());
-                    asks.write(EmoteAsk::Play { emote: e, cancel_after });
+                    let variant = head.split_once('@').and_then(|(_, name)| {
+                        let want = format!("\\{}.kf", name.trim().to_ascii_lowercase());
+                        let found = CATALOG[e].candidates().iter().position(|p| p.to_ascii_lowercase().ends_with(&want));
+                        if found.is_none() {
+                            warn!("NVF_PLAY_TEST_EMOTE: {head:?}: {} has no clip {name:?}", CATALOG[e].key);
+                        }
+                        found.map(|i| i as u8)
+                    });
+                    asks.write(EmoteAsk::Play { emote: e, cancel_after, variant });
                 } else {
                     warn!("NVF_PLAY_TEST_EMOTE: no step {head:?}");
                 }
@@ -569,7 +581,7 @@ fn input(
         match picked.and_then(|s| slots.slots[s].map(|e| (s, e))) {
             Some((s, e)) if book.available(e) => {
                 info!("emotes: wheel: slot {} plays {}", s + 1, CATALOG[e].key);
-                asks.write(EmoteAsk::Play { emote: e, cancel_after: None });
+                asks.write(EmoteAsk::Play { emote: e, cancel_after: None, variant: None });
             }
             Some((s, e)) => info!("emotes: wheel: slot {} ({}) is not installed", s + 1, CATALOG[e].key),
             None => info!("emotes: wheel closed: nothing chosen"),
@@ -720,8 +732,9 @@ pub mod draw {
                 text(m, &kit.medium, "EMOTES", c, c - 40.0, 0, bright.with_alpha(0.7));
                 text(m, &kit.large, &centre, c, c - 10.0, 0, bright);
             });
-            let hint = format!("Mouse: pick      Let go of {}: play      Esc: cancel      Lobby: change the emotes", s.key);
-            text(r, &kit.medium, &hint, width / 2.0, top + SIZE - 10.0, 0, bright.with_alpha(0.8));
+            // Above the wheel: under it the line ran into the compass and the AP bar.
+            let hint = format!("Mouse: pick     Let go of {}: play     Esc: cancel", s.key);
+            text(r, &kit.medium, &hint, width / 2.0, (top - 8.0).max(4.0), 0, bright.with_alpha(0.8));
         });
     }
 

@@ -2,8 +2,11 @@
 //! `nvf_play::emotes`).
 //!
 //! **This player**: an emote plays on the third-person body as furniture's clips do
-//! (`crate::furniture::BodyOverride`): the body holds `Bip01` still and is drawn where the
-//! clip's root track has it, the character held there (`PlayerSeat::hold`: it collides
+//! (`crate::furniture::BodyOverride`), over the standing idle (`STAND`) for the bones its
+//! clip does not key. The body holds `Bip01` still and is drawn where the emote started
+//! for the whole of it: the clips' root tracks move nothing (followed, the entry and exit
+//! clips walked the player forward a little each time, into a tree by the end of a
+//! laptop run, 2026-11-09). The character is held there (`PlayerSeat::hold`: it collides
 //! with nothing, so it pushes no one) and set on the ground under it again when the emote
 //! ends. The view goes to third person for the emote and back after it [design: the
 //! owner's choice, 2026-11-09]; the mouse then circles the camera round the body, which
@@ -22,7 +25,7 @@
 //! Log lines: `emotes: …` (start, each phase, end, refusals; the puppets' as
 //! `emotes: puppet …`).
 
-use crate::furniture::{root_at, BodyClip, BodyOverride};
+use crate::furniture::{BodyClip, BodyOverride};
 use crate::idles::ActorIdle;
 use crate::limbs::ActorRig;
 use bevy::prelude::*;
@@ -39,6 +42,9 @@ use nvf_play::emotes::{vanilla, EmoteAsk, EmoteBook, MateHeads, Shape, CATALOG};
 use nvf_play::PlayState;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// The standing idle under an emote's clip [observed: `Fallout - Meshes.bsa`].
+const STAND: &str = "meshes\\characters\\_male\\locomotion\\mtidle.kf";
 
 /// What this player's emote sends (`coop.rs`): the state, and the heading the body keeps.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
@@ -61,11 +67,10 @@ struct Run {
     t: f32,
     clip: Arc<Clip>,
     path: String,
-    /// Where the clip plays from: the feet and heading at the start, then where the entry
-    /// clip left the root.
+    /// Where the emote plays: the feet and heading at its start.
     frame: Frame,
-    /// Where the root is now.
-    pos: [f32; 3],
+    /// The standing idle under the clip.
+    stand: Option<Arc<Clip>>,
     /// Seconds since it started, and when a test aid ends it.
     age: f32,
     cancel_at: Option<f32>,
@@ -183,7 +188,7 @@ fn drive(
                     cancel = Some(("asked", false));
                 }
             }
-            EmoteAsk::Play { emote, cancel_after } => {
+            EmoteAsk::Play { emote, cancel_after, variant: chosen } => {
                 let Some(e) = CATALOG.get(emote) else { continue };
                 let character = phys.player.as_ref();
                 let swimming = character.is_some_and(|c| c.swimming);
@@ -202,6 +207,8 @@ fn drive(
                         let have: Vec<usize> = book.installed.get(emote).map_or_else(|| vec![0], |v| v.iter().enumerate().filter(|(_, b)| **b).map(|(i, _)| i).collect());
                         st.seed = st.seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407 ^ (time.elapsed_secs_f64().to_bits()));
                         let pick = have.get((st.seed >> 33) as usize % have.len().max(1)).copied().unwrap_or(0);
+                        // A test aid's choice, when that clip is installed.
+                        let pick = chosen.map(usize::from).filter(|c| have.contains(c)).unwrap_or(pick);
                         (phase::ONCE, pick as u8)
                     }
                     Shape::Loop { enter, .. } => (if enter.is_some() { phase::ENTER } else { phase::STAY }, 0),
@@ -211,20 +218,23 @@ fn drive(
                     continue;
                 };
                 if let Some(old) = st.run.take() {
-                    // Another emote over one under way: the old one ends where it is.
-                    info!("emotes: end {} (another emote) after {:.2}s", CATALOG[old.emote].key, old.age);
+                    // Another emote over one under way: the old one ends where it is (the
+                    // view stays third person for the new one).
+                    info!("emotes: end {} (another emote) after {:.2}s; the view stays for the next", CATALOG[old.emote].key, old.age);
                 }
                 if control.pov == Pov::First && st.restore.is_none() {
                     st.restore = Some(Pov::First);
                     control.pov = Pov::Third;
                 }
                 control.weapon_out = false;
-                let frame = Frame { pos: player.feet, heading: player.heading };
+                // Held where an emote under way had the player, else at the feet.
+                let frame = st.run.as_ref().map_or(Frame { pos: player.feet, heading: player.heading }, |r| r.frame);
+                let stand = ctx.clip(STAND);
                 st.serial += 1;
                 st.started += 1;
                 cancel = None;
                 info!("emotes: start {} (id {}, {}, variant {variant}): {path} ({:.2}s){}", e.key, nvf_play::emotes::Emote::id(emote), phase_name(ph), clip.length(), if st.restore.is_some() { "; the view goes to third person" } else { "" });
-                st.run = Some(Run { emote, variant, phase: ph, step: 0, t: 0.0, clip, path, frame, pos: frame.pos, age: 0.0, cancel_at: cancel_after });
+                st.run = Some(Run { emote, variant, phase: ph, step: 0, t: 0.0, clip, path, frame, stand, age: 0.0, cancel_at: cancel_after });
             }
         }
     }
@@ -267,8 +277,6 @@ fn drive(
             phase::ENTER | phase::STAY => match clip_path(r.emote, u8::from(fast), phase::EXIT, 0).and_then(|p| Some((p.clone(), ctx.clip(&p)?))) {
                 Some((path, clip)) if playing => {
                     info!("emotes: {key} exit ({why}{}): {path} ({:.2}s)", if fast { ", fast" } else { "" }, clip.length());
-                    // From where the root is.
-                    r.frame.pos = r.pos;
                     (r.phase, r.variant, r.step, r.t, r.clip, r.path) = (phase::EXIT, u8::from(fast), 0, 0.0, clip, path);
                     st.serial += 1;
                 }
@@ -288,10 +296,6 @@ fn drive(
         };
         match next.and_then(|(ph, step)| clip_path(r.emote, 0, ph, step).and_then(|p| Some((ph, step, p.clone(), ctx.clip(&p)?)))) {
             Some((ph, step, path, clip)) => {
-                if r.phase == phase::ENTER {
-                    // The loop plays where the entry left the root.
-                    r.frame.pos = root_at(&r.frame, &r.clip, f32::MAX);
-                }
                 info!("emotes: {key} {} {}: {path} ({:.2}s)", phase_name(ph), step, clip.length());
                 (r.phase, r.step, r.t, r.clip, r.path) = (ph, step, 0.0, clip, path);
                 st.serial += 1;
@@ -302,7 +306,7 @@ fn drive(
     if let Some(why) = end {
         let r = st.run.take().expect("an emote under way");
         // On the ground where it ends, facing as the body did.
-        phys.place_player(r.pos, 60.0, 200.0);
+        phys.place_player(r.frame.pos, 60.0, 200.0);
         player.heading = r.frame.heading;
         seat.hold = None;
         body.0 = None;
@@ -314,11 +318,10 @@ fn drive(
         return;
     }
     let looped = loops_alone(r.emote, r.phase);
-    r.pos = if r.phase == phase::STAY { r.frame.pos } else { root_at(&r.frame, &r.clip, r.t) };
     // `lying`: the third-person camera's pivot goes up as far as the pelvis has tipped
     // over (lying down, push-ups), so the camera stays out of the ground (`player_body.rs`).
-    body.0 = Some(BodyClip { clip: r.clip.clone(), looped, serial: st.serial, pos: r.pos, heading: r.frame.heading, lying: true, over: None });
-    seat.hold = Some(r.pos);
+    body.0 = Some(BodyClip { clip: r.clip.clone(), looped, serial: st.serial, pos: r.frame.pos, heading: r.frame.heading, lying: true, over: None, under: r.stand.clone() });
+    seat.hold = Some(r.frame.pos);
     let t = if looped && length > 1e-3 { r.t % length } else { r.t.min(length) };
     local.state = EmoteState { id: nvf_play::emotes::Emote::id(r.emote), variant: r.variant, phase: r.phase, step: r.step, t };
     local.heading = Some(r.frame.heading);
@@ -376,6 +379,9 @@ fn puppets(
                     s
                 }
             };
+            if let Some(old) = known.filter(|p| p.key.0 != e.id) {
+                info!("emotes: puppet {reference:08X} ended emote {} (another emote)", CATALOG.get(old.key.0 as usize - 1).map_or("?", |c| c.key));
+            }
             info!("emotes: puppet {reference:08X} plays {} {}{}: {path}{}", CATALOG.get(emote).map_or("?", |c| c.key), phase_name(e.phase), if e.phase == phase::STAY { format!(" {}", e.step) } else { String::new() }, if late { format!(" from {:.2}s (under way)", e.t) } else { String::new() });
             st.puppets.insert(reference, Puppet { key, serial });
         }
