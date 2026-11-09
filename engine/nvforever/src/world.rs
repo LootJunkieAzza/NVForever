@@ -856,6 +856,11 @@ impl OtherCameras {
     }
 }
 
+/// The 3D cameras beside the main view's (a menu's, a scope's), the water reflection's
+/// left out, with their names.
+type OtherCameraQuery<'w, 's> =
+    Query<'w, 's, (&'static Camera, Option<&'static Name>), (With<Camera3d>, Without<crate::fly::FlyCam>, Without<crate::reflection::ReflectionCamera>)>;
+
 /// Log that streaming keeps running while a menu's or a scope's own 3D camera is active
 /// beside the main view's: once when it first runs beside one, and for how many frames
 /// when the camera is gone. Before, every system that took "the one `Camera3d`" stopped
@@ -863,7 +868,7 @@ impl OtherCameras {
 /// reflection's camera does not count.
 pub fn note_other_cameras(
     streamer: Res<Streamer>,
-    others: Query<(&Camera, Option<&Name>), (With<Camera3d>, Without<crate::fly::FlyCam>, Without<crate::reflection::ReflectionCamera>)>,
+    others: OtherCameraQuery,
     mut state: Local<OtherCameras>,
 ) {
     let other = others.iter().find(|(c, _)| c.is_active).map(|(_, n)| n.map_or("unnamed", Name::as_str));
@@ -1608,12 +1613,12 @@ mod tests {
         let tree = app.world_mut().spawn((TreeBillboard, Transform::from_rotation(Quat::from_rotation_z(-1.0)), GlobalTransform::IDENTITY)).id();
         app.update();
         let r = app.world().get::<Transform>(tree).unwrap().rotation;
-        assert!(r.angle_between(Quat::from_rotation_z(FRAC_PI_2)) < 1e-4, "faces the main view (game +Y), not the menu's camera: {r:?}");
+        assert!(r.abs_diff_eq(Quat::from_rotation_z(FRAC_PI_2), 1e-5), "faces the main view (game +Y), not the menu's camera: {r:?}");
         // The main view moves; the tree follows it.
         app.world_mut().entity_mut(main).insert(at(Vec3::new(0.0, 0.0, 1000.0)));
         app.update();
         let r = app.world().get::<Transform>(tree).unwrap().rotation;
-        assert!(r.angle_between(Quat::from_rotation_z(-FRAC_PI_2)) < 1e-4, "follows the main view to game -Y: {r:?}");
+        assert!(r.abs_diff_eq(Quat::from_rotation_z(-FRAC_PI_2), 1e-5), "follows the main view to game -Y: {r:?}");
     }
 
     /// The log of `note_other_cameras`: once when streaming first runs beside another
