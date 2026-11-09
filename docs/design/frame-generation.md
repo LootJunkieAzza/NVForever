@@ -13,7 +13,13 @@ every switch. It runs when:
 - FSR 3.1 upscaling is on, in any mode (Native AA too): it reads the depth and motion FSR gets;
 - vsync is on (Vertical sync or Variable refresh): the two frames are paced by the swapchain;
 - the GPU runs the passes: Vulkan with SPIR-V passthrough and read-write storage textures in
-  the formats they use (`frame_gen::FrameGenPlugin::finish`).
+  the formats they use (`frame_gen::FrameGenPlugin::finish`);
+- the GPU reads and writes the output image without a format in the shader: Vulkan 1.3, and
+  `R16G16B16A16_SFLOAT` with `STORAGE_READ_WITHOUT_FORMAT` and `STORAGE_WRITE_WITHOUT_FORMAT`
+  in `VkFormatProperties3` (`frame_gen::storage_without_format`). AMD declares the output
+  with no format, so two passes' SPIR-V needs the `StorageImage{Read,Write}WithoutFormat`
+  capabilities [observed: their `OpCapability`s], and wgpu-hal 30 does not enable the Vulkan
+  1.0 features that would allow them otherwise.
 
 Otherwise the row is dimmed with the reason ("Needs FSR 3.1", "Needs vsync", "Not on this GPU")
 and the log says `frame generation: on but not running (...)`. While it runs, real frames are
@@ -92,8 +98,14 @@ Limits of this path:
 - **Variable refresh** keeps vsync on, so both presents are paced by the swapchain; the cap is
   the lower of half the refresh rate and the page's cap.
 - **Vsync off** is not supported: the second present would replace the first at once.
-- **Screenshots** (`--screenshot`, F12) take the window's first image of the frame, the
-  generated one.
+- **Screenshots** (`--screenshot`, F12): on the frame a screenshot of the window is taken,
+  no generated frame is presented. Bevy then draws the camera into a texture of its own and
+  copies it into the window's image only after the render graph, after the generated present
+  would have run [documented: bevy_render 0.20.1, `prepare_screenshots` in
+  `view/window/screenshot.rs`, `render_system` in `renderer/mod.rs`]. So the passes run (the
+  next frame interpolates from this one), but the real frame is presented once, and the
+  screenshot and the screen both show it (`frame_gen::generate`, the camera's output against
+  the window's image).
 - **The cap on slower screens**: half the refresh rate is 30 real frames a second on a 60 Hz
   screen, which is little to interpolate from and to aim with; frame generation suits screens
   of 120 Hz and more.

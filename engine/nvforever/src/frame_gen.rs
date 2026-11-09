@@ -25,7 +25,9 @@
 //!
 //! **No generated frame** in menus, dialogue, loading screens, while paused (all
 //! `PlayState`s but Playing), on a camera cut (`FsrCamera::cut_from`) or the first frame after
-//! any of them: those frames are presented once, as without frame generation.
+//! any of them: those frames are presented once, as without frame generation. Nor on a frame a
+//! screenshot of the window is taken (F12, `--screenshot`): the passes run, but only the real
+//! frame is presented, and the screenshot gets it too ([`generate`]).
 //!
 //! **Latency reduction** is turned on with it (AMD's advice for frame generation;
 //! `anti_lag.rs`, where the GPU has it).
@@ -71,8 +73,8 @@ pub struct FrameGeneration {
     pub on: bool,
 }
 
-/// Whether this device can run the passes (Vulkan SPIR-V passthrough and read-write storage
-/// in every format they use).
+/// Whether this device can run the passes (Vulkan SPIR-V passthrough, read-write storage
+/// in every format they use, and the output's storage without a format: `storage_without_format`).
 #[derive(Resource, Clone, Copy, Default)]
 pub struct FrameGenSupport(pub bool);
 
@@ -166,15 +168,46 @@ impl Plugin for FrameGenPlugin {
                     properties.allowed_usages.contains(wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING)
                         && properties.flags.contains(wgpu::TextureFormatFeatureFlags::STORAGE_READ_WRITE)
                 })
+                && storage_without_format(adapter)
         });
         app.insert_resource(FrameGenSupport(supported));
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.insert_resource(FrameGenSupport(supported));
         }
         if !supported {
-            info!("frame generation: not available on this GPU (needs Vulkan with SPIR-V passthrough and read-write storage textures)");
+            info!(
+                "frame generation: not available on this GPU (needs Vulkan 1.3 with SPIR-V passthrough, read-write storage textures, and Rgba16Float storage read and written without a format)"
+            );
         }
     }
+}
+
+/// Whether the output image may be read and written without a format in the shader. AMD
+/// declares `rw_output` with none ("app controlled format", `ffx_frameinterpolation_callbacks_glsl.h`),
+/// so the inpainting pass's SPIR-V declares `StorageImageReadWithoutFormat` and
+/// `StorageImageWriteWithoutFormat`, the interpolation pass's `StorageImageWriteWithoutFormat`
+/// [observed: their `OpCapability`s, 2026-11-09]. wgpu-hal 30 enables neither
+/// `shaderStorageImage*WithoutFormat` feature [observed: `vulkan/adapter.rs`], which leaves
+/// Vulkan 1.3: there the capabilities are valid, and the image's format must have
+/// `STORAGE_READ_WITHOUT_FORMAT` and `STORAGE_WRITE_WITHOUT_FORMAT` in `VkFormatProperties3`
+/// [documented: Vulkan spec, the SPIR-V environment appendix's capability table and the
+/// dispatch commands' `OpTypeImage` valid usage]. The output is `Rgba16Float` ([`prepare`]).
+fn storage_without_format(adapter: &wgpu::Adapter) -> bool {
+    use ash::vk;
+    // SAFETY: only reads through the hal adapter, which stays alive in the guard.
+    let Some(hal) = (unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>() }) else { return false };
+    let instance = hal.shared_instance();
+    // wgpu-hal asks the instance for Vulkan 1.3 when the loader has 1.1 or later; the device's
+    // own version caps it.
+    if instance.instance_api_version() < vk::API_VERSION_1_1 || hal.physical_device_capabilities().properties().api_version < vk::API_VERSION_1_3 {
+        return false;
+    }
+    let mut properties3 = vk::FormatProperties3::default();
+    let mut properties = vk::FormatProperties2::default().push_next(&mut properties3);
+    // SAFETY: the physical device belongs to this instance; the query is Vulkan 1.1 core and
+    // `VkFormatProperties3` 1.3 core, both checked above.
+    unsafe { instance.raw_instance().get_physical_device_format_properties2(hal.raw_physical_device(), vk::Format::R16G16B16A16_SFLOAT, &mut properties) };
+    properties3.optimal_tiling_features.contains(vk::FormatFeatureFlags2::STORAGE_READ_WITHOUT_FORMAT | vk::FormatFeatureFlags2::STORAGE_WRITE_WITHOUT_FORMAT)
 }
 
 /// Turns latency reduction on with frame generation and sets the real-frame cap.
@@ -434,6 +467,7 @@ fn generate(
     generated: Res<GeneratedFrames>,
     capture: Res<Capture>,
     device: Res<RenderDevice>,
+    windows: Query<(MainEntity, &ExtractedWindow)>,
     mut ctx: RenderContext,
 ) {
     let (target, fsr, fg, camera) = view.into_inner();
@@ -483,7 +517,19 @@ fn generate(
     drop(of_view);
     fg.history.store(true, Ordering::Relaxed);
     stats.real.fetch_add(1, Ordering::Relaxed);
-    if !reset {
+    // A screenshot of the window (F12, `--screenshot`) points the camera at a texture of Bevy's
+    // own, which Bevy copies into the window's image only after the render graph (after
+    // `present_generated`). Then present once, the real frame: the screen and the file get it.
+    let to_window = windows
+        .iter()
+        .find(|(w, _)| *w == window.entity())
+        .and_then(|(_, w)| w.swap_chain_texture_view.as_ref())
+        .zip(target.out_texture())
+        .is_some_and(|(image, out)| image.id() == out.id());
+    if !reset && !to_window {
+        info!("frame generation: the camera draws into a screenshot this frame; the real frame is presented alone");
+    }
+    if !reset && to_window {
         let size = fg.real.size();
         encoder.copy_texture_to_texture(main.as_image_copy(), fg.real.as_image_copy(), size);
         encoder.copy_texture_to_texture(fg.output.as_image_copy(), main.as_image_copy(), size);
@@ -544,7 +590,9 @@ fn show_real(
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame_gen_show_real") });
     for (entity, real) in pending.drain(..) {
         let Some((_, window)) = windows.iter().find(|(w, _)| *w == entity) else { continue };
-        let (Some(view), Some(format)) = (window.swap_chain_texture_view.as_ref(), window.swap_chain_texture_view_format) else {
+        // `present` takes the image but leaves its view: without a second image the view is
+        // the presented one's.
+        let (Some(_), Some(view), Some(format)) = (window.swap_chain_texture.as_ref(), window.swap_chain_texture_view.as_ref(), window.swap_chain_texture_view_format) else {
             warn!("frame generation: the window had no second image; the real frame is dropped");
             continue;
         };
