@@ -317,8 +317,9 @@ at the same view size). That is the work of each migration task, not guessed up 
 
 ## 7. What stays NVForever's own
 
-- The **settings pages** (Display, Gameplay, Sound, Controls), with their INI keys and
-  live switches. They are NVForever's design (settings.rs), not the original's.
+- The **settings pages** (Gameplay, Display, Audio, Controls, Graphics, Tweaks, Debug, with
+  headings: settings-page.md), with their INI keys and live switches. They are
+  NVForever's design (settings.rs, settings_layout.rs), not the original's.
 - The main menu's loading-screen background; the character creator; the poker table;
   the debug and test aids.
 - These may later be written as NVForever's own menu XML, so modders can restyle them
