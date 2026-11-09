@@ -3261,6 +3261,8 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "getmouseposition" | "getmousemovement" => &[0, 1],
         // [documented: HSVtoRGB, RGBtoHSV, three script variables in and three out].
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
+        // [documented: GetLinearVelocity and GetCurrentSkyColor, three script variables].
+        "getlinearvelocity" | "getcurrentskycolor" => &[1, 2, 3],
         _ => return None,
     })
 }

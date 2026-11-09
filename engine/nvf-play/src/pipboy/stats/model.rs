@@ -11,21 +11,6 @@ use fnv_sim::FormId;
 /// RightLeg (observed)].
 pub const LIMBS: [u16; 6] = [25, 26, 27, 28, 29, 30];
 
-/// The AVIF record of an actor value code in `FalloutNV.esm` [observed: the masters'
-/// AVIF FormIDs follow the codes in five runs: 0–4 from 0x514, 5–11 from 0x3E8, 12–31
-/// from 0x44C, 32–45 from 0x4B0, 46–76 from 0x5DC (`AVStrength` 0x3E8, `AVBarter`
-/// 0x4B0, `AVDamageThreshold` 0x5FA)].
-pub fn avif_form(code: u16) -> Option<u32> {
-    let c = code as u32;
-    Some(match code {
-        0..=4 => 0x514 + c,
-        5..=11 => 0x3E8 + c - 5,
-        12..=31 => 0x44C + c - 12,
-        32..=45 => 0x4B0 + c - 32,
-        46..=76 => 0x5DC + c - 46,
-        _ => return None,
-    })
-}
 
 /// The experience a level needs: (n − 1) × ((n − 2) / 2 × `iXPBumpBase` + `iXPBase`)
 /// [documented: GECK wiki Settings, "Experience required to level up"; defaults 200 and
@@ -45,35 +30,6 @@ pub fn modified_mark(shown: f64, permanent: f64) -> Option<&'static str> {
     } else {
         None
     }
-}
-
-/// A whole number as the page writes it.
-pub fn whole(v: f64) -> String {
-    format!("{}", v.round() as i64)
-}
-
-/// One change an effect makes: the value's short name, the amount, and whether the base
-/// effect is detrimental (MGEF flag "Detrimental").
-#[derive(Clone, Debug, PartialEq)]
-pub struct Change {
-    pub value: String,
-    pub amount: f64,
-    pub detrimental: bool,
-}
-
-/// The changes of one source, as the EFF list writes them: "Speech +2, Melee Weap. +2"
-/// [observed: the owner's EFF screenshot of the Vault Jumpsuit, whose enchantment adds 2
-/// to Speech and 2 to Melee Weapons; the short names are the AVIF records' ANAM;
-/// hypothesis: a detrimental effect is written with a minus].
-pub fn changes_text(changes: &[Change]) -> String {
-    changes
-        .iter()
-        .map(|c| {
-            let sign = if c.detrimental { '-' } else { '+' };
-            format!("{} {sign}{}", c.value, whole(c.amount.abs()))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// The amount a list of changes adds to one value, by the value's code.
@@ -120,83 +76,11 @@ pub fn hint_text(name: &str, count: i32) -> String {
     }
 }
 
-/// The karma's alignment and its picture from the four `Karma*` globals (very evil, evil,
-/// good, very good) [documented: the globals `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`,
-/// `KarmaVeryGood` in FalloutNV.esm; hypothesis: a karma at or beyond a threshold has
-/// that alignment, the words are the globals' and the pictures are
-/// `karma icons\karma_evil|bad|neutral|good|saintly.dds` in that order].
-pub fn karma_alignment(karma: f64, very_evil: f64, evil: f64, good: f64, very_good: f64) -> (&'static str, &'static str) {
-    if karma >= very_good {
-        ("Very Good", "karma_saintly")
-    } else if karma >= good {
-        ("Good", "karma_good")
-    } else if karma <= very_evil {
-        ("Very Evil", "karma_evil")
-    } else if karma <= evil {
-        ("Evil", "karma_bad")
-    } else {
-        ("Neutral", "karma_neutral")
-    }
-}
+pub use fnv_game::item_text::{avif_form, changes_text, whole, Change};
 
-/// The karma titles by level (1 to 30, 30 standing for 30 and over) and karma (good,
-/// neutral, evil), as the owner's table gives them (`todo 5.txt`, 2026-10-16) [observed:
-/// the owner's list]. Only a fallback: FalloutNV.esm holds most of them as the game
-/// settings `sKarmicTitle<Good|Neutral|Evil><level>` [observed: 50 of the 90; the others
-/// are presumably the executable's defaults], which win where present.
-pub const KARMA_TITLES: [[&str; 3]; 30] = [
-    ["Samaritan", "Drifter", "Grifter"],
-    ["Martyr", "Renegade", "Outlaw"],
-    ["Sentinel", "Seeker", "Opportunist"],
-    ["Defender", "Wanderer", "Plunderer"],
-    ["Dignitary", "Citizen", "Fat Cat"],
-    ["Peacekeeper", "Adventurer", "Marauder"],
-    ["Ranger of the Wastes", "Vagabond of the Wastes", "Pirate of the Wastes"],
-    ["Protector", "Mercenary", "Betrayer"],
-    ["Desert Avenger", "Desert Scavenger", "Desert Terror"],
-    ["Exemplar", "Observer", "Ne'er-do-well"],
-    ["Vegas Crusader", "Vegas Councilor", "Vegas Crime lord"],
-    ["Paladin", "Keeper", "Defiler"],
-    ["Mojave Legend", "Mojave Myth", "Mojave Boogeyman"],
-    ["Shield of Hope", "Pinnacle of Survival", "Sword of Despair"],
-    ["Vegas Legend", "Vegas Myth", "Vegas Boogeyman"],
-    ["Hero of the Wastes", "Strider of the Wastes", "Villain of the Wastes"],
-    ["Paragon", "Beholder", "Fiend"],
-    ["Wasteland Savior", "Wasteland Watcher", "Wasteland Destroyer"],
-    ["Saint", "Super-Human", "Evil Incarnate"],
-    ["Guardian of the Wastes", "Renegade of the Wastes", "Scourge of the Wastes"],
-    ["Restorer of Faith", "Soldier of Fortune", "Architect of Doom"],
-    ["Model of Selflessness", "Profiteer", "Bringer of Sorrow"],
-    ["Shepherd", "Egocentric", "Deceiver"],
-    ["Friend of the People", "Loner", "Consort of Discord"],
-    ["Champion of Justice", "Hero for Hire", "Stuff of Nightmares"],
-    ["Symbol of Order", "Model of Apathy", "Agent of Chaos"],
-    ["Herald of Tranquility", "Person of Refinement", "Instrument of Ruin"],
-    ["Last, Best Hope of Humanity", "Moneygrubber", "Soultaker"],
-    ["Savior of the Damned", "Gray Stranger", "Demon's Spawn"],
-    ["Messiah", "True Mortal", "Devil"],
-];
-
-/// The karma title's column for an alignment ([`karma_alignment`]'s word): good for Good
-/// and Very Good, evil for Evil and Very Evil [hypothesis: three columns over five
-/// alignments].
-pub fn karma_column(alignment: &str) -> usize {
-    match alignment {
-        "Good" | "Very Good" => 0,
-        "Evil" | "Very Evil" => 2,
-        _ => 1,
-    }
-}
-
-/// The karma title at a level for an alignment: the game setting
-/// `sKarmicTitle<Good|Neutral|Evil><level>` where the plugins hold it (`setting`), else
-/// [`KARMA_TITLES`]. Levels above 30 take 30's title, below 1 level 1's.
-pub fn karma_title(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> String {
-    let level = level.clamp(1, 30) as usize;
-    let column = karma_column(alignment);
-    let name = format!("sKarmicTitle{}{level}", ["Good", "Neutral", "Evil"][column]);
-    setting(&name).filter(|s| !s.is_empty()).unwrap_or_else(|| KARMA_TITLES[level - 1][column].to_string())
-}
+// The karma's alignment, the titles and their columns live with the rules
+// (`fnv_game::karma_titles`), which GetPlayerKarmaTitle reads too.
+pub use fnv_game::karma_titles::{karma_alignment, karma_column, karma_title, KARMA_TITLES};
 
 /// The title of a reputation from the levels (0–3) of fame and infamy
 /// (`crate::reputation::TITLES`).

@@ -772,6 +772,13 @@ impl SkyState {
         }
     }
 
+    /// Every colour type now as stored (0..255), for GetCurrentSkyColor
+    /// (`fnv_game::nvse_jg9`).
+    pub fn all_color_bytes(&self) -> [[f32; 3]; 10] {
+        use fnv_world::sky::ColorType::*;
+        [SkyUpper, Fog, Unused, Ambient, Sunlight, Sun, Stars, SkyLower, Horizon, EffectLighting].map(|t| self.color_bytes(t))
+    }
+
     /// A weather colour at the current hour, blended across a weather fade.
     pub fn color(&self, ty: ColorType) -> [f32; 3] {
         let cur = self.weather.color(&self.climate, ty, self.hour);
@@ -1771,6 +1778,13 @@ pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<Fl
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+/// The sky's colours now, for GetCurrentSkyColor (`fnv_game::nvse_jg9`); none in an
+/// interior, which shows no sky.
+pub fn tell_sky_colors(sky: Res<SkyState>, mut script: Option<ResMut<nvf_play::script::ScriptState>>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    rt.game.other.jg9.sky_colors = sky.interior.is_none().then(|| sky.all_color_bytes());
+}
+
 pub fn update_sky(
     mut sky: ResMut<SkyState>,
     time: Res<Time>,

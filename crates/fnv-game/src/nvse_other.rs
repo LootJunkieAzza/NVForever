@@ -103,6 +103,8 @@ pub struct OtherState {
     pub jg6: crate::nvse_jg6::Jg6State,
     /// JohnnyGuitar batch 7's switches, settings and queued texts (`nvse_jg7`).
     pub jg7: crate::nvse_jg7::Jg7State,
+    /// JohnnyGuitar batch 9's sounds from files and scripted holotapes (`nvse_jg9`).
+    pub jg9: crate::nvse_jg9::Jg9State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
