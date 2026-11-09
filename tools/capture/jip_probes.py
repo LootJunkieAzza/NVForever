@@ -8410,9 +8410,8 @@ JGNIF_PROBES = (
      # local place's height above the feet (hypothesis: "1 1").
      _jgnif("camera", "GetCameraTranslation fX fY fZ 0\nlet fA := ((fX - (PlayerREF.GetPos X)) ^ 2 + (fY - (PlayerREF.GetPos Y)) ^ 2) ^ 0.5\n"
             "GetCameraTranslation fX fY fZ 1\nSetFunctionValue (sv_Construct \"%g %g\" (fA < 200) (fZ > 50))"),
-     # The player's own place on the screen in first person: below the centre or off it
-     # (hypothesis: "0" or a Y above 0.5).
-     _jgnif("screen", "let fA := WorldToScreen fX fY fZ 0 0 0 2 PlayerREF\nSetFunctionValue (sv_Construct \"%g %.2f %.2f\" fA fX fY)"),
+     # WorldToScreen into variables did not compile in the original [observed: jgnif.screen,
+     # 2026-11-09], so it is not asked.
      # The sequence slots standing still, an idle sequence by name (hypothesis: the idle
      # group's code for slot 0, -1 for slot 4; "1" or "0" for mtidle).
      _jgnif("sequences", "SetFunctionValue (sv_Construct \"%g %g %g\" (PlayerREF.GetSequenceAnimGroup 0) (PlayerREF.GetSequenceAnimGroup 4) "

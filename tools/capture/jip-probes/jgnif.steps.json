@@ -40,12 +40,6 @@
    "text": true
   },
   {
-   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nlet fA := WorldToScreen fX fY fZ 0 0 0 2 PlayerREF\nSetFunctionValue (sv_Construct \"%g %.2f %.2f\" fA fX fY)\nEnd\n",
-   "label": "jgnif.screen",
-   "field": "value",
-   "text": true
-  },
-  {
    "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g %g %g\" (PlayerREF.GetSequenceAnimGroup 0) (PlayerREF.GetSequenceAnimGroup 4) (PlayerREF.IsNiSequenceActive \"mtidle\"))\nEnd\n",
    "label": "jgnif.sequences",
    "field": "value",

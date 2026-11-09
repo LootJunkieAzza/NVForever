@@ -134,13 +134,20 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             crate::nif_blocks::node_world(g, r, &text(args, 0)).map_or(zero, |p| XVal::Num(dist(p, hit)))
         }
         // `[block] [pc]`: the bounding sphere in the world, [x, y, z, radius]; the
-        // reference's root without a block [documented]. The engine tells it with the tree;
-        // an empty array before [hypothesis].
+        // reference's root without a block [documented]. A block the reference does not
+        // have gives four values too [observed: jgnif.bound on the player], taken as the
+        // root's [hypothesis]. The engine tells it with the tree; an empty array before
+        // [hypothesis].
         "getnibound" => {
             let Some(r) = on else { return Some(Ok(XVal::Array(0))) };
             let block = text(args, 0);
-            let node = if block.is_empty() { crate::nif_blocks::root_name(g, r) } else { Some(block) };
-            let b = node.and_then(|n| crate::nif_blocks::node_and_children(g, r, &n)).and_then(|(n, _)| n.info.and_then(|i| i.bound));
+            fn bound(g: &mut Game, r: FormId, n: &str) -> Option<[f32; 4]> {
+                crate::nif_blocks::node_and_children(g, r, n).and_then(|(n, _)| n.info.and_then(|i| i.bound))
+            }
+            let mut b = if block.is_empty() { None } else { bound(g, r, &block) };
+            if b.is_none() {
+                b = crate::nif_blocks::root_name(g, r).and_then(|n| bound(g, r, &n));
+            }
             match b {
                 Some(b) => list(g, b.iter().map(|x| XVal::Num(f64::from(*x))).collect()),
                 None => list(g, Vec::new()),
@@ -214,19 +221,22 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(f64::from(u8::from(playing || group)))
         }
         // `slot`: the anim group playing in that sequence slot, 0 idle … 7 special idle
-        // [documented]. The body's movement group fills slot 1 (movement), or slot 0 when it
-        // stands idle; the other slots and an unknown group -1 [hypothesis: the engine
-        // tells the movement group alone].
+        // [documented]. Slot 0 holds Idle on a standing actor [observed: jgnif.sequences,
+        // 0 on the player]; the body's other movement groups fill slot 1 (movement). The
+        // other slots -1 [observed: slot 4 standing], as an unknown group [hypothesis: the
+        // engine tells the movement group alone, and an actor it told nothing of stands].
         "getsequenceanimgroup" => {
             let Some(r) = on else { return Some(Ok(XVal::Num(-1.0))) };
             let slot = num(args, 0, -1.0) as i64;
-            let group = g.senses.anim.get(&r).and_then(|s| s.group);
-            let code = group.filter(|gr| (slot == 0) == gr.eq_ignore_ascii_case("Idle") && (slot == 0 || slot == 1)).and_then(|gr| group_code_of(g, gr));
+            let group = g.senses.anim.get(&r).and_then(|s| s.group).unwrap_or("Idle");
+            let idle = group.eq_ignore_ascii_case("Idle");
+            let code = ((slot == 0 && idle) || (slot == 1 && !idle)).then_some(group).and_then(|gr| group_code_of(g, gr));
             XVal::Num(code.map_or(-1.0, f64::from))
         }
         // The engine updates every drawn node each frame, so there is nothing to bring up
-        // to date [decision]; 0.
-        "updatescenegraph" => zero,
+        // to date [decision]. 1 on a reference [observed: jgnif.refresh], 0 without one
+        // [hypothesis].
+        "updatescenegraph" => XVal::Num(f64::from(u8::from(on.is_some()))),
         // `flags`: 1 the model, 2 the skin, 4 the head, 8 the face drawn again (an NPC's
         // through the appearance changes the engine draws, `crate::appearance`); 16 scale,
         // 32 lights and 64 position the engine takes each frame [documented: the flag
@@ -236,7 +246,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             if num(args, 0, 0.0) as i64 & 0xF != 0 {
                 g.appearance_changes.push(crate::appearance::AppearanceChange { actor: r, reset: false });
             }
-            zero
+            // 1 [observed: jgnif.refresh, flags 32 on the player].
+            XVal::Num(1.0)
         }
         // ---- the camera
         // `x y z worldOrLocal` (the VM writes x, y, z): the camera's place in the world, or

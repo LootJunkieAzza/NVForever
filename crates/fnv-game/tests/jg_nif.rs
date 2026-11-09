@@ -106,6 +106,8 @@ fn distances_and_bounds() {
     assert!((n(&mut g, "PlayerREF.Get3DDistanceFromHitToNiNode \"Bip01 Head\"") - 40.0).abs() < 1e-3);
     // The root's bound without a block.
     assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound\nSetFunctionValue aR[2] * 1000 + aR[3]"), 60_070.0);
+    // A block it does not have: the root's.
+    assert_eq!(n(&mut g, "let aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\nSetFunctionValue aR[2] * 1000 + aR[3]"), 60_070.0);
 }
 
 #[test]
@@ -141,7 +143,11 @@ fn particles_properties_and_switches() {
     assert!(g.take_appearance_changes().is_empty());
     q(&mut g, "PlayerREF.Update3DAlt 1");
     assert_eq!(g.take_appearance_changes().len(), 1);
-    assert_eq!(n(&mut g, "PlayerREF.UpdateScenegraph 0"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.UpdateScenegraph 0"), 1.0);
+    assert_eq!(n(&mut g, "PlayerREF.Update3DAlt 32"), 1.0);
+    // Standing (nothing told): Idle (0) in slot 0, nothing in slot 4.
+    assert_eq!(n(&mut g, "PlayerREF.GetSequenceAnimGroup 0"), 0.0);
+    assert_eq!(n(&mut g, "PlayerREF.GetSequenceAnimGroup 4"), -1.0);
 }
 
 #[test]
