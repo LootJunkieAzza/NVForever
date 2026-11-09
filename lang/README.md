@@ -4,8 +4,9 @@ NVForever writes some words itself: the settings page, a few messages, the termi
 hacking log. The original game's text is not copied (LEGAL.md). The game's own text
 (items, dialogue, quests) comes from the plugins of your install, so a localized install
 already shows it in its language. Only NVForever's own words need a translation, and
-this folder holds them, one file per language (#1443). `ru.toml` (Russian) is the first
-(#1948).
+this folder holds them, one file per language (#1443). Shipped (#1948): `de.toml`
+(Deutsch), `es.toml` (Español), `fr.toml` (Français), `it.toml` (Italiano) and `ru.toml`
+(Русский).
 
 ## A language file
 
@@ -57,3 +58,8 @@ Amber …) is not yet translated, so the notes that mention one keep its English
 The game's fonts hold 256 glyphs in the install's code page (docs/spec-notes/fonts.md),
 so a translation can only use the letters that code page has: Cyrillic on a Russian
 install (`[Text] CodePage=1251`), but not Chinese.
+
+So the language shown must suit the install's code page: German, French, Italian and
+Spanish need Windows-1252 (an English, German, French, Italian or Spanish install), and
+Russian needs Windows-1251 (a Russian install). A letter the fonts lack is drawn as `?`.
+Every file here keeps to its code page's letters (no `œ`).
