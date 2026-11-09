@@ -1663,6 +1663,11 @@ impl Ai {
         if game.in_menu() || game.loading {
             return;
         }
+        // A co-op host's story NPC waits, as for a menu, until every player is near it
+        // (`Game::story_gate`): Jed's greeting at Zion waits for the guests.
+        if game.story_gate(actor) {
+            return;
+        }
         // The force greet: a conversation also for a greeting with the Goodbye flag
         // (`Game::force_greet`).
         match game.force_greet(actor, talk.topic) {

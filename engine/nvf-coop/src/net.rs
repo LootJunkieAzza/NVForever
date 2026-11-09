@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 123;
+pub const VERSION: u8 = 124;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -513,6 +513,10 @@ pub struct SceneView {
     pub mods: Vec<(u32, f32)>,
     pub worn: Vec<(u32, bool)>,
     pub swaps: Vec<(u32, String, String)>,
+    /// The story NPC the host waits to talk to until every player is near it, and the
+    /// players (ids) not near it yet (`fnv_game::Game::story_gate`): each of those is
+    /// offered a fast travel to the host. `None`: no wait.
+    pub waiting: Option<(u32, Vec<u8>)>,
 }
 
 /// The quest the host has active, as its quest list shows it: the guests show it in place
@@ -2185,6 +2189,15 @@ fn encode(msg: &Msg) -> Vec<u8> {
                     b.extend_from_slice(s.as_bytes());
                 }
             }
+            match &v.waiting {
+                Some((npc, far)) => {
+                    b.extend_from_slice(&npc.to_le_bytes());
+                    let far = &far[..far.len().min(MAX_GUESTS)];
+                    b.push(far.len() as u8);
+                    b.extend_from_slice(far);
+                }
+                None => b.extend_from_slice(&0u32.to_le_bytes()),
+            }
         }
         Msg::Lines { seq, lines } => {
             b.push(17);
@@ -2509,7 +2522,17 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 let (shape, texture) = (text()?, text()?);
                 swaps.push((on, shape, texture));
             }
-            Msg::Scene(SceneView { locks, mods, worn, swaps })
+            let npc = r.u32()?;
+            let waiting = if npc == 0 {
+                None
+            } else {
+                let n = r.u8()? as usize;
+                if n > MAX_GUESTS {
+                    return None;
+                }
+                Some((npc, r.take(n)?.to_vec()))
+            };
+            Msg::Scene(SceneView { locks, mods, worn, swaps, waiting })
         }
         17 => {
             let seq = r.u32()?;
@@ -2634,7 +2657,8 @@ mod tests {
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
             Msg::Scene(SceneView::default()),
-            Msg::Scene(SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x0001_5D2B, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)], swaps: vec![(0x0101_38B2, "nvdlc01_intromovie00:0".into(), "textures/nvdlc01/slide03.dds".into())] }),
+            Msg::Scene(SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x0001_5D2B, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)], swaps: vec![(0x0101_38B2, "nvdlc01_intromovie00:0".into(), "textures/nvdlc01/slide03.dds".into())], waiting: None }),
+            Msg::Scene(SceneView { locks: 0, mods: vec![], worn: vec![], swaps: vec![], waiting: Some((0x0100_9E7C, vec![1, 3])) }),
             Msg::Revive { target: 2, by: 0, perks: revive_perk::CURE_RADS },
             Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
             Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
@@ -3193,7 +3217,7 @@ mod tests {
         let mut clock = Instant::now();
         let step = Duration::from_millis(10);
         run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
-        let held = SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.1)], worn: vec![(0x0100_F3A4, true)], swaps: vec![(0x0101_38B2, "nvdlc01_intromovie00:0".into(), "textures/x.dds".into())] };
+        let held = SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.1)], worn: vec![(0x0100_F3A4, true)], swaps: vec![(0x0101_38B2, "nvdlc01_intromovie00:0".into(), "textures/x.dds".into())], waiting: None };
         host.set_scene(held.clone());
         let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].contains(&Event::Scene(held.clone())));
         assert!(!seen[0].iter().any(|e| matches!(e, Event::Scene(_))), "not back to the host");

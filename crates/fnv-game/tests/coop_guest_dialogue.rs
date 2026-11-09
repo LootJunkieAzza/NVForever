@@ -92,10 +92,16 @@ fn plugin_bytes() -> Vec<u8> {
 /// topic is top-level, as Genaro's barter is reached only from his greeting [observed:
 /// FalloutNV.esm INFO 0012936A].
 fn plugin_bytes_as(vendor: bool) -> Vec<u8> {
+    plugin_bytes_quest(vendor, "QCashier")
+}
+
+/// As [`plugin_bytes_as`], the lines' quest named `quest` (a story quest's Editor ID makes
+/// the cashier a story NPC, `Game::story_npc`).
+fn plugin_bytes_quest(vendor: bool, quest: &str) -> Vec<u8> {
     let misc = record(b"MISC", 0, CASH, &[sub(b"EDID", z("TestCash")), sub(b"DATA", [1i32.to_le_bytes(), 0f32.to_le_bytes()].concat())]);
     let chip = record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))]);
     let suit = record(b"ARMO", 0, SUIT, &[sub(b"EDID", z("TestSuit")), sub(b"BMDT", [u32s(&[1 << 2]), vec![0; 4]].concat()), sub(b"DATA", [u32s(&[1, 100]), 1f32.to_le_bytes().to_vec()].concat())]);
-    let quest = record(b"QUST", 0, QC, &[sub(b"EDID", z("QCashier")), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
+    let quest = record(b"QUST", 0, QC, &[sub(b"EDID", z(quest)), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
     // The player's base form (0x7), whose reference carries the player's inventory.
     let npc = [record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]), record(b"NPC_", 0, CASHIER, &[sub(b"EDID", z("Cashier"))])].concat();
     let top_level = 2u8;
@@ -324,4 +330,45 @@ fn a_guest_wears_what_the_hosts_story_put_on_and_gives_it_back() {
     g.follow_story_gear(&[]);
     assert_eq!(count(&mut g), 1);
     assert!(!worn(&g));
+}
+
+/// Owner, 2026-11-09: a co-op host cannot start a conversation with a story NPC (one with
+/// lines of the main quest or a DLC's main quest) while another player is not within
+/// sight of it; it can once every player is near, and an NPC of no story quest is never
+/// held.
+#[test]
+fn a_host_waits_for_every_player_to_talk_to_a_story_npc() {
+    let near_story = |quest: &str, at: f32| {
+        let f = fixture_of(plugin_bytes_quest(false, quest));
+        let mut g = game(&f, false);
+        let cashier = FormId(CASHIER_REF);
+        // The fixture's reference has no cell of its own: put it in the casino.
+        let cell = Some(FormId(CELL));
+        g.world.get(cashier).unwrap().cell = cell;
+        let other = g.world.place(FormId::PLAYER_BASE, cell, [at, 0.0, 0.0], [0.0; 3], 1).unwrap();
+        g.coop_actors.insert(other, "P2".into());
+        let talked = g.start_dialogue(cashier, None).is_ok();
+        (talked, g.coop_story_wait.as_ref().map(|w| w.far.clone()))
+    };
+    // A DLC's main quest, the other player 3000 units away: held, with who is far.
+    let (talked, wait) = near_story("NVDLC02MQ99", 3000.0);
+    assert!(!talked);
+    assert_eq!(wait.map(|w| w.len()), Some(1));
+    // Near (within sight): the conversation starts.
+    let (talked, wait) = near_story("NVDLC02MQ99", 500.0);
+    assert!(talked && wait.is_none());
+    // Not a story quest: never held.
+    let (talked, wait) = near_story("QCashier", 3000.0);
+    assert!(talked && wait.is_none());
+}
+
+/// A player alone, and a guest's own game, are never held.
+#[test]
+fn no_story_wait_alone_or_for_a_guest() {
+    let f = fixture_of(plugin_bytes_quest(false, "NVDLC02MQ99"));
+    let mut solo = game(&f, false);
+    assert!(!solo.story_gate(FormId(CASHIER_REF)));
+    let mut g = game(&f, true);
+    g.coop_actors.insert(FormId(0xFF00_0001), "Host".into());
+    assert!(!g.story_gate(FormId(CASHIER_REF)));
 }

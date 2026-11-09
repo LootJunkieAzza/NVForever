@@ -487,6 +487,52 @@ impl Game<'_> {
             .min_by(f32::total_cmp)
     }
 
+    /// Whether `actor` is a story NPC: one with a line of a story quest not yet completed
+    /// or failed, or a line whose scripts set a stage of (or start) one ([`story_quest`]).
+    /// Its speakers are found once, by the line's fixed speaker or its own GetIsID
+    /// condition, as the coverage report finds them.
+    pub fn story_npc(&mut self, actor: FormId) -> bool {
+        let data = self.data;
+        let base = crate::functions::base_of(self, actor);
+        let speakers = self.story_speakers.get_or_insert_with(|| story_speakers(data));
+        let quests: Vec<FormId> = [Some(actor), base].into_iter().flatten().filter_map(|k| speakers.get(&k)).flatten().copied().collect();
+        quests.into_iter().any(|q| !self.quests.get(&q).is_some_and(|s| s.completed || s.failed))
+    }
+
+    /// The other players not within [`STORY_NEAR`] units of `actor` in its space.
+    pub fn players_far_from(&self, actor: FormId) -> Vec<FormId> {
+        let Some((space, at)) = self.space_pos(actor) else { return Vec::new() };
+        self.coop_actors
+            .keys()
+            .copied()
+            .filter(|p| !self.space_pos(*p).is_some_and(|(s, q)| s == space && (0..3).map(|i| (q[i] - at[i]).powi(2)).sum::<f32>() <= STORY_NEAR * STORY_NEAR))
+            .collect()
+    }
+
+    /// A co-op host's talk with a story NPC waits until every other player is near it
+    /// (owner, 2026-11-09: "testing host not being able to talk to important NPCs when
+    /// guests are too far"; story NPCs, within sight): true while one is not, with the
+    /// wait put in [`Game::coop_story_wait`] for the host's screen and the far players'
+    /// prompts. Asked when the host's player starts a conversation and when an NPC's
+    /// Dialogue package would force-greet it (`fnv_ai`); a script's StartConversation is
+    /// not held (its scene goes on). No gate for a guest's game or a game alone.
+    pub fn story_gate(&mut self, actor: FormId) -> bool {
+        if self.coop_guest || self.coop_actors.is_empty() {
+            self.coop_story_wait = None;
+            return false;
+        }
+        let (actor, _) = self.talker(actor);
+        let far = self.players_far_from(actor);
+        if far.is_empty() || !self.story_npc(actor) {
+            if self.coop_story_wait.as_ref().is_some_and(|w| w.actor == actor) {
+                self.coop_story_wait = None;
+            }
+            return false;
+        }
+        self.coop_story_wait = Some(StoryWait { actor, far, at: self.time });
+        true
+    }
+
     /// `r`, or the player for another player's actor: whom the world's actors take it
     /// for in friendship and enmity [design: the players are one side].
     pub fn as_player(&self, r: FormId) -> FormId {
@@ -496,4 +542,76 @@ impl Game<'_> {
             r
         }
     }
+}
+
+/// How near a story NPC every player must be for the host to talk to it, and how near the
+/// host a guest must be for a script's move of the host to take it along (owner,
+/// 2026-11-09: "within sight") [design: about the distance the HUD's compass shows].
+pub const STORY_NEAR: f32 = 2000.0;
+
+/// A co-op host's talk held for the other players ([`Game::story_gate`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoryWait {
+    /// The story NPC.
+    pub actor: FormId,
+    /// The other players' actors that are not near it.
+    pub far: Vec<FormId>,
+    /// When the talk was last asked for ([`Game::time`]).
+    pub at: f64,
+}
+
+/// A story quest: the main quest's (by its Editor ID prefixes in FalloutNV.esm, as the
+/// coverage report ranks them) or a DLC's main quest (NVDLC01MQ… to NVDLC04MQ…)
+/// [observed: the Editor IDs of the four story add-ons' main quests].
+pub(crate) fn story_quest(data: &GameData, q: FormId) -> bool {
+    let Some(e) = data.edid_of.get(&q) else { return false };
+    let e = e.to_ascii_lowercase();
+    let plugin = data.load_order.get((q.0 >> 24) as usize).map(|p| p.to_ascii_lowercase()).unwrap_or_default();
+    (plugin == "falloutnv.esm" && crate::coverage::MAIN_PREFIXES.iter().any(|p| e.starts_with(p))) || dlc_main_quest(&e)
+}
+
+/// NVDLC0nMQ…: an add-on's main quest.
+fn dlc_main_quest(edid: &str) -> bool {
+    edid.len() > 9 && edid.starts_with("nvdlc0") && edid.as_bytes()[6].is_ascii_digit() && &edid[7..9] == "mq"
+}
+
+/// The quests a script's source sets a stage of or starts (SetStage, StartQuest), by the
+/// Editor ID after the call.
+fn quests_named(data: &GameData, source: &str) -> Vec<FormId> {
+    let low = source.to_ascii_lowercase();
+    let mut out = Vec::new();
+    for call in ["setstage", "startquest"] {
+        for (i, _) in low.match_indices(call) {
+            let rest = low[i + call.len()..].trim_start();
+            let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            if let Some(q) = data.by_edid(&name) {
+                out.push(q);
+            }
+        }
+    }
+    out
+}
+
+/// Every story quest's speakers ([`Game::story_npc`]).
+fn story_speakers(data: &GameData) -> std::collections::HashMap<FormId, Vec<FormId>> {
+    let mut out: std::collections::HashMap<FormId, Vec<FormId>> = std::collections::HashMap::new();
+    for info in data.infos.values() {
+        let mut quests: Vec<FormId> = info.quest.into_iter().filter(|q| story_quest(data, *q)).collect();
+        for u in [info.begin, info.end].into_iter().flatten() {
+            if let Some(src) = data.unit(u).unit.source.as_deref() {
+                quests.extend(quests_named(data, src).into_iter().filter(|q| story_quest(data, *q)));
+            }
+        }
+        if quests.is_empty() {
+            continue;
+        }
+        let Some(speaker) = info.speaker.or_else(|| crate::coverage::line_actor(data, info)) else { continue };
+        let list = out.entry(speaker).or_default();
+        for q in quests {
+            if !list.contains(&q) {
+                list.push(q);
+            }
+        }
+    }
+    out
 }

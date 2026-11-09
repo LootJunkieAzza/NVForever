@@ -1014,6 +1014,11 @@ impl Runtime {
                     if g.is_out_cold(actor) {
                         self.skip.insert(i);
                     }
+                    // A co-op host's story NPC waiting for the other players
+                    // (`Game::story_gate`): the screen says so instead (`coop::scene`).
+                    if g.coop_story_wait.as_ref().is_some_and(|w| w.actor == g.talker(actor).0) {
+                        self.skip.insert(i);
+                    }
                     info!("dialogue: no conversation: {e}");
                 }
             }

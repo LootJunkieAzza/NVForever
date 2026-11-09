@@ -103,7 +103,146 @@ pub(super) fn scene_view(g: &fnv_game::Game) -> SceneView {
     let mods = if locks == 0 { Vec::new() } else { g.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)).take(net::SCENE_MODS_MAX).collect() };
     let worn = g.story_gear().into_iter().map(|(i, l)| (i.0, l)).take(net::SCENE_MODS_MAX).collect();
     let swaps = if locks == 0 { Vec::new() } else { scene_swaps(&g.texture_swaps) };
-    SceneView { locks, mods, worn, swaps }
+    SceneView { locks, mods, worn, swaps, waiting: None }
+}
+
+/// A story wait is fresh while the host's talk was asked for this recently (game seconds):
+/// the gate asks again every update of the NPC's force greet, and on each try to talk.
+const WAIT_FRESH: f64 = 3.0;
+
+/// The host's story wait to send ([`SceneView::waiting`], `fnv_game::Game::story_gate`):
+/// the NPC and the ids of the players (by their actors here) not near it.
+fn story_waiting(g: &fnv_game::Game, players: impl Iterator<Item = (u8, FormId)>) -> Option<(u32, Vec<u8>)> {
+    let w = g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH)?;
+    let far: Vec<u8> = players.filter(|(_, a)| w.far.contains(a)).map(|(id, _)| id).collect();
+    (!far.is_empty()).then_some((w.actor.0, far))
+}
+
+/// The name a story NPC shows (its base's FULL), else its Editor ID.
+fn shown_name(g: &fnv_game::Game, actor: FormId) -> String {
+    let base = g.world.peek(actor).map(|s| s.base).unwrap_or(actor);
+    g.data.full_names.get(&base).cloned().unwrap_or_else(|| g.data.name(actor))
+}
+
+/// What the story wait prompts keep ([`story_prompts`]).
+#[derive(Default)]
+pub(super) struct Prompts {
+    /// The host's: when its screen last said who it waits for.
+    told: Option<f32>,
+    /// A guest's: the NPC it was last offered a fast travel for, and when.
+    offered: Option<(u32, f32)>,
+    /// A guest's: the owner of the box it showed, while it is open.
+    open_box: Option<Option<String>>,
+}
+
+/// How often the host's screen says again whom it waits for, and how soon a guest who
+/// said "Not now" is offered the fast travel again (seconds).
+const TELL_EVERY: f32 = 8.0;
+const OFFER_AGAIN: f32 = 45.0;
+
+/// The story wait on the screens (owner, 2026-11-09): the host's corner says which
+/// players it waits for and for whom; each far guest gets a box offering a fast travel to
+/// the host ("Give an option for players to fast travel when host is waiting"), which
+/// puts it beside the host as a scene's pull does, unless it is in combat.
+///
+/// Log: `co-op: story wait: …`.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn story_prompts(
+    mut coop: ResMut<Coop>,
+    time: Res<Time>,
+    mut state: Local<Prompts>,
+    script: Option<ResMut<nvf_play::script::ScriptState>>,
+    mut corner: Option<ResMut<nvf_play::corner_messages::CornerMessages>>,
+    loading: Option<Res<Loading>>,
+    mut travel: MessageWriter<TravelRequest>,
+) {
+    let now = time.elapsed_secs();
+    let Some(mut script) = script else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
+    let g = &mut rt.game;
+    if coop.is_host() {
+        let names: Vec<String> = match g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH) {
+            Some(w) => w.far.iter().filter_map(|a| g.coop_actors.get(a).cloned()).collect(),
+            None => Vec::new(),
+        };
+        if names.is_empty() {
+            state.told = None;
+            return;
+        }
+        if state.told.is_some_and(|t| now - t < TELL_EVERY) {
+            return;
+        }
+        let npc = g.coop_story_wait.as_ref().map(|w| shown_name(g, w.actor)).unwrap_or_default();
+        let text = format!("Waiting for {} to come near {npc}.", names.join(", "));
+        info!("co-op: story wait: {text}");
+        if let Some(c) = corner.as_mut() {
+            c.push(text.into());
+        }
+        state.told = Some(now);
+        return;
+    }
+    if !coop.is_guest() {
+        return;
+    }
+    // The box's answer.
+    if let Some(owner) = state.open_box.clone() {
+        match g.message_box.as_ref() {
+            Some(m) if m.owner == owner => {
+                if let Some(b) = m.pressed {
+                    g.message_box = None;
+                    state.open_box = None;
+                    if b == 0 {
+                        fast_travel_to_host(&mut coop, g, now, loading.as_deref(), &mut travel, corner.as_deref_mut());
+                    } else {
+                        info!("co-op: story wait: this player stays where it is");
+                    }
+                }
+            }
+            // Closed some other way.
+            _ => state.open_box = None,
+        }
+        return;
+    }
+    let me = coop.link.as_ref().and_then(|l| l.id());
+    let heard: Option<(u32, Vec<u8>)> = coop.scene.heard.as_ref().filter(|(_, at): &&(SceneView, f32)| now - *at < STALE).and_then(|(v, _)| v.waiting.clone());
+    let Some((npc, _)) = heard.filter(|(_, far)| me.is_some_and(|me| far.contains(&me))) else { return };
+    if state.offered.is_some_and(|(n, at)| n == npc && now - at < OFFER_AGAIN) || g.message_box.is_some() || g.in_menu() || loading.is_some_and(|l| l.active()) {
+        return;
+    }
+    let name = shown_name(g, FormId(npc)).replace(['"', '|', '%'], "");
+    let line = format!("MessageBoxEx \"The host is waiting to talk to {name}, and you are too far away.|Fast travel to the host|Not now\"");
+    match g.run_source(&line, Default::default()) {
+        Ok(_) => {
+            info!("co-op: story wait: the host waits to talk to {name}: offered a fast travel to the host");
+            state.open_box = Some(g.message_box.as_ref().and_then(|m| m.owner.clone()));
+        }
+        Err(e) => warn!("co-op: story wait: no box for the fast travel: {e}"),
+    }
+    state.offered = Some((npc, now));
+}
+
+/// A guest's fast travel to the host, beside it, as a scene's pull puts it; refused in
+/// combat (the game's own rule for fast travel).
+fn fast_travel_to_host(coop: &mut Coop, g: &fnv_game::Game, now: f32, loading: Option<&Loading>, travel: &mut MessageWriter<TravelRequest>, corner: Option<&mut nvf_play::corner_messages::CornerMessages>) {
+    let Some(host) = coop.host else { return };
+    if g.awareness.hunted(FormId::PLAYER_REF) {
+        info!("co-op: story wait: no fast travel to the host: this player is in combat");
+        if let Some(c) = corner {
+            c.push("You cannot fast travel to the host while enemies are after you.".to_string().into());
+        }
+        return;
+    }
+    if loading.is_some_and(|l| l.active()) {
+        return;
+    }
+    let feet = beside(host.feet, host.yaw);
+    let (world, interior) = match host.place {
+        Place::Interior(c) => (None, Some(c)),
+        Place::Exterior(w) => (Some(w), None),
+    };
+    info!("co-op: story wait: fast travel to the host at {:?} {feet:?}", host.place);
+    travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees() }));
+    coop.last_leash = Some(now);
 }
 
 /// The host's texture swaps a held scene sends, at most [`net::SCENE_SWAPS_MAX`]: by
@@ -163,10 +302,11 @@ pub(super) fn share_scene(
         rt.game.coop_host_locks = [false; 7];
         coop.scene = Shared::default();
         if let Some(link) = coop.link.as_ref() {
-            let view = match sim.as_deref_mut() {
+            let mut view = match sim.as_deref_mut() {
                 Some(sim) => nvf_play::script::with_world(rt, sim, |rt| scene_view(&rt.game)),
                 None => scene_view(&rt.game),
             };
+            view.waiting = story_waiting(&rt.game, coop.peers.iter().filter_map(|(id, p)| p.actor.map(|a| (*id, a))));
             link.set_scene(view);
         }
         return;

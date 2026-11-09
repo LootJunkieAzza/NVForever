@@ -537,7 +537,13 @@ impl<'a> Game<'a> {
     /// A conversation started from a GameMode block holds the rest of that frame's
     /// GameMode scripts, as any menu does. [`Game::menu`] stays as it is: the
     /// conversation is the menu ([`Game::in_menu`], dialogue.md §6).
+    ///
+    /// A co-op host's talk with a story NPC waits for the other players to come near it
+    /// ([`Game::story_gate`]).
     pub fn start_dialogue(&mut self, actor: FormId, topic: Option<FormId>) -> Result<FormId, String> {
+        if self.story_gate(actor) {
+            return Err(format!("{} waits until every player is near", self.data.name(actor)));
+        }
         self.open_dialogue(actor, topic, false)
     }
 

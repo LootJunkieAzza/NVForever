@@ -72,6 +72,9 @@ pub(super) struct Repl {
     pub summon: Option<(u32, u32, [f32; 3], f32)>,
     /// The host's: the friendly-fire rule as last sent to the guests (`None`: send it).
     rules_sent: Option<bool>,
+    /// The host's: where its player stood at the end of the last frame, so a script's move
+    /// takes along only the guests that were within sight of it ([`fnv_game::coop::STORY_NEAR`]).
+    host_was: Option<(Place, [f32; 3])>,
     // The host's.
     shadows: HashMap<u8, Shadow>,
     /// References to send whole to a guest (a digest differed, or the stream started again).
@@ -101,6 +104,9 @@ pub(super) struct Repl {
     last_digest: f32,
     applied: u64,
     corrections: u64,
+    /// The guest's: corrections since the last perf line, by reference and component,
+    /// so a run of them names what the host keeps changing.
+    corrected: HashMap<(u32, u8), u64>,
     poses_heard: u64,
     /// The lowest (here - host) clock difference seen, and the newest round's.
     lag_floor: Option<i64>,
@@ -363,6 +369,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
     }
     sim.world.set_tracking(true);
     // The script effects the host's scripts asked for go to every guest (§7, phase 4).
+    let mut summons: Vec<(Effect, Vec<u8>)> = Vec::new();
     if let Some(g) = game {
         let asked = std::mem::take(g.coop_effects.get_or_insert_with(Vec::new));
         let mut effects: Vec<Effect> = asked
@@ -378,8 +385,20 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                         Some(w) => Effect::Summon { interior: 0, world: w.0, pos: s.pos, yaw: s.rot[2] },
                         None => Effect::Summon { interior: cell.0, world: 0, pos: s.pos, yaw: s.rot[2] },
                     };
-                    info!("replication: a script moved the host to {cell} {:?}: the guests go with it", s.pos);
-                    Some(summon)
+                    // Only the guests within sight of where the host stood go along
+                    // (owner, 2026-11-09: a cutscene pulls in the players within sight).
+                    let (near, far) = near_guests(r.host_was, &guests);
+                    let names = |ids: &[u8]| ids.iter().map(|i| format!("player {}", i + 1)).collect::<Vec<_>>().join(", ");
+                    info!(
+                        "replication: a script moved the host to {cell} {:?}: {} go with it{}",
+                        s.pos,
+                        if near.is_empty() { "no guest within sight".to_string() } else { names(&near) },
+                        if far.is_empty() { String::new() } else { format!("; {} too far, left where they are", names(&far)) }
+                    );
+                    if !near.is_empty() {
+                        summons.push((summon, near));
+                    }
+                    None
                 }
             })
             .collect();
@@ -395,7 +414,22 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 link.send_reliable(None, item);
             }
         }
+        for (summon, to) in summons {
+            r.effects_sent += 1;
+            for id in to {
+                for item in repl::pack_effects(std::slice::from_ref(&summon), ITEM) {
+                    link.send_reliable(Some(id), item);
+                }
+            }
+        }
     }
+    r.host_was = sim.world.peek(FormId::PLAYER_REF).and_then(|s| {
+        let c = s.cell?;
+        Some((match sim.world.placed.world_of(c) {
+            Some(w) => Place::Exterior(w.0),
+            None => Place::Interior(c.0),
+        }, s.pos))
+    });
     for e in r.inbox.drain(..) {
         match e {
             Event::RelReset { id } => {
@@ -573,6 +607,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         r.applied += 1;
                         if apply(sim, &mut r.slow, &c, residents.as_deref_mut(), commands) {
                             r.corrections += 1;
+                            *r.corrected.entry((c.reference, c.value.comp())).or_default() += 1;
                             if c.value.comp() == comp::PLACE && !moved.contains(&c.reference) {
                                 moved.push(c.reference);
                             }
@@ -822,6 +857,12 @@ fn perf_line(coop: &mut Coop, now: f32) {
             percentile(&r.lag, 0.95),
             r.effects_played
         );
+        if !r.corrected.is_empty() {
+            let mut most: Vec<((u32, u8), u64)> = r.corrected.drain().collect();
+            most.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            let top: Vec<String> = most.iter().take(3).map(|((id, c), n)| format!("{id:08X} {} x{n}", comp_name(*c))).collect();
+            line += &format!("; most corrected since the last line: {}", top.join(", "));
+        }
         r.poses_heard = 0;
         r.lag.clear();
     }
@@ -854,5 +895,46 @@ pub(super) fn hud(mut commands: Commands, mut coop: ResMut<Coop>, mut shown: Que
                 Node { position_type: PositionType::Absolute, top: Val::Px(8.0), right: Val::Px(8.0), max_width: Val::Px(520.0), ..default() },
             ));
         }
+    }
+}
+
+/// A replicated component's name, for the perf line.
+fn comp_name(c: u8) -> &'static str {
+    match c {
+        comp::ENABLED => "enabled",
+        comp::PLACE => "place",
+        comp::OPEN => "open",
+        comp::LOCK => "lock",
+        comp::LIFE => "life",
+        comp::LOOK => "look",
+        comp::EXISTS => "exists",
+        comp::ANIM => "anim",
+        _ => "?",
+    }
+}
+
+/// The guests within [`fnv_game::coop::STORY_NEAR`] units of where the host stood (same
+/// place), and the others. No place known for the host: every guest is near (as before).
+fn near_guests(host: Option<(Place, [f32; 3])>, guests: &[(u8, Place, [f32; 3], f32)]) -> (Vec<u8>, Vec<u8>) {
+    let near = |place: Place, feet: [f32; 3]| {
+        host.is_none_or(|(hp, hf)| hp == place && (0..3).map(|i| (feet[i] - hf[i]).powi(2)).sum::<f32>() <= fnv_game::coop::STORY_NEAR * fnv_game::coop::STORY_NEAR)
+    };
+    let (n, f): (Vec<&(u8, Place, [f32; 3], f32)>, Vec<_>) = guests.iter().partition(|g| near(g.1, g.2));
+    (n.iter().map(|g| g.0).collect(), f.iter().map(|g| g.0).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A script's move of the host takes the guests within sight of where it stood
+    /// (owner, 2026-11-09), not one in another place or farther; with no place known for
+    /// the host, every guest, as before.
+    #[test]
+    fn a_scripted_move_takes_the_guests_within_sight() {
+        let here = Place::Interior(0x0001_2345);
+        let guests = [(0u8, here, [500.0, 0.0, 0.0], 0.0), (1, here, [3000.0, 0.0, 0.0], 0.0), (2, Place::Exterior(0xDA726), [0.0; 3], 0.0)];
+        assert_eq!(near_guests(Some((here, [0.0; 3])), &guests), (vec![0], vec![1, 2]));
+        assert_eq!(near_guests(None, &guests).0, vec![0, 1, 2]);
     }
 }

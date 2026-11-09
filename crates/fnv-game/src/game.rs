@@ -1469,6 +1469,13 @@ pub struct Game<'a> {
     /// treat as they treat the player (`crate::coop`, [`Game::as_player`]), with the
     /// player's name. Not part of the saved state: a save leaves them out.
     pub coop_actors: BTreeMap<FormId, String>,
+    /// A co-op host's story NPC the host may not talk to yet: a player is not near it
+    /// ([`Game::story_gate`]); the far players, and when it was last asked (game
+    /// seconds). Not saved.
+    pub coop_story_wait: Option<crate::coop::StoryWait>,
+    /// The speakers (base or reference) of lines that belong to, or set a stage of, a story
+    /// quest, found once ([`Game::story_npc`]). Not saved.
+    pub(crate) story_speakers: Option<std::collections::HashMap<FormId, Vec<FormId>>>,
     /// This game is a co-op guest's (`crate::coop`): the host runs the world and its
     /// quests, so this player talks only to trade, to play and to change chips at a casino's
     /// cashier ([`Game::guest_lines`]) and
@@ -2241,6 +2248,8 @@ impl<'a> Game<'a> {
             player: PlayerState::default(),
             coop: Vec::new(),
             coop_actors: BTreeMap::new(),
+            coop_story_wait: None,
+            story_speakers: None,
             coop_guest: false,
             world_logic_off: false,
             story_plugins: Vec::new(),
