@@ -2237,7 +2237,18 @@ impl Vm<'_, '_> {
                 }
                 Ok(XVal::Array(self.store()?.new_array(kind, es)))
             }
-            _ => Err(VmError::NotBuilt(format!("the extender function {n} (task D2)"))),
+            // The plugins' own array functions (JohnnyGuitar's Ar_Shuffle, Ar_SortEditor)
+            // are the host's.
+            _ => {
+                let mut args = Vec::with_capacity(nargs);
+                for k in 0..nargs {
+                    args.push(val(self, k)?);
+                }
+                match self.host.ext_call(n, None, &args) {
+                    Some(r) => r.map_err(VmError::Host),
+                    None => Err(VmError::NotBuilt(format!("the extender function {n} (task D2)"))),
+                }
+            }
         }
     }
 
@@ -3264,6 +3275,8 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "getcameratranslation" | "worldtoscreen" => &[0, 1, 2],
         // [documented: HSVtoRGB, RGBtoHSV, three script variables in and three out].
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
+        // [documented: GetSystemColorAlt and GetPixelFromBMP, three variables for R, G, B].
+        "getsystemcoloralt" | "getpixelfrombmp" => &[1, 2, 3],
         _ => return None,
     })
 }

@@ -866,6 +866,11 @@ impl Game<'_> {
         if by == Some(FormId::PLAYER_REF) && !new.is_empty() {
             self.count_stat(crate::misc_stats::DISMEMBERED_LIMBS, new.len() as f64);
         }
+        // JohnnyGuitar's limb handlers: (actor, limb) (`crate::nvse_jg8`).
+        for &(l, _) in &new {
+            let (a, limb) = (fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(f64::from(l)));
+            self.jg8_fire(crate::nvse_jg8::Ev::LimbGone, &[a.clone(), limb.clone()], vec![a, limb]);
+        }
         new
     }
 

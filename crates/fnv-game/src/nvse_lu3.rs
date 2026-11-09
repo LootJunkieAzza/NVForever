@@ -85,14 +85,34 @@ fn of_sig(g: &Game, f: FormId, sigs: &[&[u8; 4]]) -> bool {
     g.data.sig(f).is_some_and(|s| sigs.iter().any(|x| **x == s))
 }
 
-/// The perk's entry `i` to change for the session (a copy made the first time).
-fn perk_entry_mut<'g>(g: &'g mut Game, perk: FormId, i: f64) -> Option<&'g mut crate::data::PerkEntry> {
+/// Where the script functions' Nth entry of a perk is in the record: the entries by rank,
+/// then priority, those alike in the reverse of the record's order [observed: lu3
+/// perkentry, Fast Shot's entry 1 is its third in the record (entry points 40, 43, 8, 34
+/// in the record, 8 read); gaps4 and jip2, Toughness's entry 0 is its rank-1 entry, the
+/// first of two ranks; hypothesis: the order between priorities, no perk probed has
+/// two].
+pub(crate) fn nth_entry(def: &PerkDef, i: f64) -> Option<usize> {
     let i = usize::try_from(i as i64).ok()?;
+    let mut order: Vec<usize> = (0..def.entries.len()).collect();
+    order.sort_by_key(|&k| (def.entries[k].rank, def.entries[k].priority, std::cmp::Reverse(k)));
+    order.get(i).copied()
+}
+
+/// The perk's Nth entry ([`nth_entry`]) as the session has it.
+pub(crate) fn nth_entry_of<'g>(g: &'g Game, perk: FormId, i: f64) -> Option<&'g crate::data::PerkEntry> {
+    let d = g.perk_def(perk)?;
+    d.entries.get(nth_entry(d, i)?)
+}
+
+/// The perk's Nth entry to change for the session (a copy made the first time).
+fn perk_entry_mut<'g>(g: &'g mut Game, perk: FormId, i: f64) -> Option<&'g mut crate::data::PerkEntry> {
     if !g.lu3.perk_edits.contains_key(&perk) {
         let def = g.data.perks.get(&perk)?.clone();
         g.lu3.perk_edits.insert(perk, def);
     }
-    g.lu3.perk_edits.get_mut(&perk)?.entries.get_mut(i)
+    let d = g.lu3.perk_edits.get_mut(&perk)?;
+    let k = nth_entry(d, i)?;
+    d.entries.get_mut(k)
 }
 
 /// The functions of this file; `None` for any other name.
@@ -291,11 +311,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // `perk rank [forTeammates]`: the player's rank set (added at it when missing), or
         // the teammates' perk; another actor's held rank [documented: SetPerkRank; the
         // NPC side as AddPerk on an NPC, `RefExtra::perks`]. A rank above the perk's ranks
-        // is cut to them, 0 takes the perk away [hypothesis].
+        // is cut to them; 0 changes nothing [observed: lu3 perkrank, Educated set to 9
+        // reads 1, then set to 0 still 1].
         "setperkrank" => {
             let (a, Some(p)) = (subject.unwrap_or(FormId::PLAYER_REF), form(args, 0).filter(|&p| g.data.perks.contains_key(&p))) else { return Some(Ok(zero)) };
             let max = g.data.perks.get(&p).map_or(1, |d| d.ranks.max(1));
             let rank = (num(args, 1, 0.0).max(0.0) as u8).min(max);
+            if rank == 0 {
+                return Some(Ok(zero));
+            }
             if a != FormId::PLAYER_REF {
                 let held = &mut g.extra.entry(a).or_default().perks;
                 if rank == 0 {
@@ -381,10 +405,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let entries = inside.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
             XVal::Array(g.ext.new_array(ArrayKind::List, entries))
         }
-        // Event names for SetEventHandler, not functions to call: 0 [documented: the
-        // pages' examples, `SetEventHandler "OnCellEnter" MyUDF`]; the events are sent by
-        // `Game::lu3_tick`.
-        "oncellenter" | "oncellexit" => zero,
+        // Event names for SetEventHandler (`SetEventHandler "OnCellEnter" MyUDF`
+        // [documented]); called as functions they give 2 and 3 [observed: lu3 events]. The
+        // events are sent by `Game::lu3_tick`.
+        "oncellenter" => XVal::Num(2.0),
+        "oncellexit" => XVal::Num(3.0),
         // `type depth taken cell`: GetRefsInCell's list [documented: GetCellRefs,
         // "deprecated by GetRefs/GetRefsInCell"]; the player's cell when none.
         "getcellrefs" => {
