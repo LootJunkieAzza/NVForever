@@ -18,6 +18,10 @@
 //!   are put on the guest's (`Game::apply_image_modifier`), again when the host's starts
 //!   again, and taken off when the host's goes. Outside a scene they are not sent: the
 //!   host's drugs, hits and the like are its own.
+//! - **The same slides.** While the host is held, the textures its scripts swapped on
+//!   references' shapes (`SwapTexture`: each slideshow line's begin script puts its slide
+//!   on the screen) are swapped here too (`TextureSwaps::follow_host`): a guest runs none
+//!   of the host's line scripts. They stay after the scene, as the host's do.
 //! - **Beside the host.** A guest whose movement the host's scene has held for [`SETTLE`]
 //!   seconds and that stands more than [`NEAR`] units from the host in the same place is
 //!   brought beside it (the host's right, [`BESIDE`] units off), as the leash brings it
@@ -41,6 +45,7 @@
 //!
 //! Log: `co-op: the host's scene holds this player (…)`, `co-op: the host's scene lets
 //! this player go`, `co-op: the host's scene: image space modifier 0x… on this screen`,
+//! `co-op: the host's scene: <texture> on 0x… (<shape>)`,
 //! `co-op: scene: beside the host at …`.
 
 use super::{place_of, Coop};
@@ -97,7 +102,17 @@ pub(super) fn scene_view(g: &fnv_game::Game) -> SceneView {
     let locks = lock_bits(g.controls_locked());
     let mods = if locks == 0 { Vec::new() } else { g.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)).take(net::SCENE_MODS_MAX).collect() };
     let worn = g.story_gear().into_iter().map(|(i, l)| (i.0, l)).take(net::SCENE_MODS_MAX).collect();
-    SceneView { locks, mods, worn }
+    let swaps = if locks == 0 { Vec::new() } else { scene_swaps(&g.texture_swaps) };
+    SceneView { locks, mods, worn, swaps }
+}
+
+/// The host's texture swaps a held scene sends, at most [`net::SCENE_SWAPS_MAX`]: by
+/// reference, each one's last calls first. `TextureSwaps` keeps the last call per shape,
+/// so a slideshow's screen, swapped again and again, sends its current slide.
+fn scene_swaps(swaps: &fnv_game::functions::misc::TextureSwaps) -> Vec<(u32, String, String)> {
+    let mut all: Vec<(u32, String, String)> = swaps.by_ref.iter().flat_map(|(r, l)| l.iter().rev().map(move |(s, t)| (r.0, s.clone(), t.clone()))).collect();
+    all.truncate(net::SCENE_SWAPS_MAX);
+    all
 }
 
 /// What the modifiers on the host's screen ask of this one: the modifiers to put on
@@ -204,6 +219,12 @@ pub(super) fn share_scene(
     }
     for m in off {
         g.remove_image_modifier(FormId(m));
+    }
+    // The host's slides: its line scripts swapped them, which this game does not run.
+    for (on, shape, texture) in &view.swaps {
+        if g.texture_swaps.follow_host(FormId(*on), shape.clone(), texture.clone()) {
+            info!("co-op: the host's scene: {texture} on {on:#010X} ({shape})");
+        }
     }
     // Beside the host while its movement is held.
     s.moving_held_since = if held[0] { s.moving_held_since.or(Some(now)) } else { None };

@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 122;
+pub const VERSION: u8 = 123;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -197,6 +197,10 @@ pub const CLOCK_EVERY: Duration = Duration::from_secs(2);
 pub const SCENE_EVERY: Duration = Duration::from_millis(500);
 /// Image space modifiers a [`SceneView`] carries at most.
 pub const SCENE_MODS_MAX: usize = 16;
+/// Texture swaps a [`SceneView`] carries at most, and the longest shape name or texture
+/// path one may have (bytes); a longer one is not sent.
+pub const SCENE_SWAPS_MAX: usize = 8;
+pub const SWAP_TEXT_MAX: usize = 200;
 /// How often the host sends every player's name ([`Msg::Names`]), and at once after a
 /// guest joins.
 pub const NAMES_EVERY: Duration = Duration::from_secs(2);
@@ -499,12 +503,16 @@ pub struct ClockView {
 /// `fnv_game::Player::controls_disabled`: movement, Pip-Boy, fighting, POV, looking,
 /// rollover, sneaking) and the image space modifiers on the screen (IMAD FormID, seconds
 /// since applied), at most [`SCENE_MODS_MAX`]; and what the host's scripts put on the host's
-/// player and it still wears (`worn`: item FormID, locked on), at most [`SCENE_MODS_MAX`].
+/// player and it still wears (`worn`: item FormID, locked on), at most [`SCENE_MODS_MAX`];
+/// and, while a group is held, the textures its scripts swapped on references' shapes
+/// (`swaps`: reference FormID, shape name, texture path; a slideshow's slides), at most
+/// [`SCENE_SWAPS_MAX`], each string at most [`SWAP_TEXT_MAX`] bytes.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SceneView {
     pub locks: u8,
     pub mods: Vec<(u32, f32)>,
     pub worn: Vec<(u32, bool)>,
+    pub swaps: Vec<(u32, String, String)>,
 }
 
 /// The quest the host has active, as its quest list shows it: the guests show it in place
@@ -854,6 +862,8 @@ impl Session {
     pub fn set_scene(&mut self, mut scene: SceneView) {
         scene.mods.truncate(SCENE_MODS_MAX);
         scene.worn.truncate(SCENE_MODS_MAX);
+        scene.swaps.retain(|(_, s, t)| s.len() <= SWAP_TEXT_MAX && t.len() <= SWAP_TEXT_MAX);
+        scene.swaps.truncate(SCENE_SWAPS_MAX);
         self.scene = scene;
     }
 
@@ -2166,6 +2176,15 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&item.to_le_bytes());
                 b.push(u8::from(*locked));
             }
+            let swaps: Vec<_> = v.swaps.iter().filter(|(_, s, t)| s.len() <= SWAP_TEXT_MAX && t.len() <= SWAP_TEXT_MAX).take(SCENE_SWAPS_MAX).collect();
+            b.push(swaps.len() as u8);
+            for (on, shape, texture) in swaps {
+                b.extend_from_slice(&on.to_le_bytes());
+                for s in [shape, texture] {
+                    b.push(s.len() as u8);
+                    b.extend_from_slice(s.as_bytes());
+                }
+            }
         }
         Msg::Lines { seq, lines } => {
             b.push(17);
@@ -2473,7 +2492,24 @@ fn decode(b: &[u8]) -> Option<Msg> {
             for _ in 0..n {
                 worn.push((r.u32()?, r.u8()? != 0));
             }
-            Msg::Scene(SceneView { locks, mods, worn })
+            let n = r.u8()? as usize;
+            if n > SCENE_SWAPS_MAX {
+                return None;
+            }
+            let mut swaps = Vec::with_capacity(n);
+            for _ in 0..n {
+                let on = r.u32()?;
+                let mut text = || -> Option<String> {
+                    let len = r.u8()? as usize;
+                    if len > SWAP_TEXT_MAX {
+                        return None;
+                    }
+                    Some(String::from_utf8_lossy(r.take(len)?).into_owned())
+                };
+                let (shape, texture) = (text()?, text()?);
+                swaps.push((on, shape, texture));
+            }
+            Msg::Scene(SceneView { locks, mods, worn, swaps })
         }
         17 => {
             let seq = r.u32()?;
@@ -2598,7 +2634,7 @@ mod tests {
             Msg::Unlock { reference: 0x0001_2345, terminal: true },
             Msg::Clock(ClockView { year: 2281.0, month: 9.0, day: 19.0, hour: 13.25, days_passed: 6.05 }),
             Msg::Scene(SceneView::default()),
-            Msg::Scene(SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x0001_5D2B, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)] }),
+            Msg::Scene(SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.25), (0x0001_5D2B, 3.5)], worn: vec![(0x0100_F3A4, true), (0x0100_6E8F, false)], swaps: vec![(0x0101_38B2, "nvdlc01_intromovie00:0".into(), "textures/nvdlc01/slide03.dds".into())] }),
             Msg::Revive { target: 2, by: 0, perks: revive_perk::CURE_RADS },
             Msg::Presence { list: LIST_ENABLED, serial: 7, page: 0, pages: 1, refs: Vec::new() },
             Msg::Presence { list: LIST_OPEN, serial: 8, page: 2, pages: 3, refs: vec![(0x0010_A202, true), (0x0016_8A92, false)] },
@@ -3157,7 +3193,7 @@ mod tests {
         let mut clock = Instant::now();
         let step = Duration::from_millis(10);
         run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
-        let held = SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.1)], worn: vec![(0x0100_F3A4, true)] };
+        let held = SceneView { locks: 0x7F, mods: vec![(0x0101_013B, 0.1)], worn: vec![(0x0100_F3A4, true)], swaps: vec![(0x0101_38B2, "nvdlc01_intromovie00:0".into(), "textures/x.dds".into())] };
         host.set_scene(held.clone());
         let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].contains(&Event::Scene(held.clone())));
         assert!(!seen[0].iter().any(|e| matches!(e, Event::Scene(_))), "not back to the host");

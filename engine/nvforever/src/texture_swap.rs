@@ -77,6 +77,17 @@ fn release_swapped(time: Res<Time<Real>>, mut swapped: ResMut<Swapped>, mut sinc
     }
 }
 
+/// Whether a model's shape `name` is the shape a swap names (`shape`, lower case with its
+/// leading `#`s taken off, `texture_swap_names`). The model's own name keeps them: the
+/// DLC intro slide screens' only shape is `##NVDLC01_IntroMovie00:0` and
+/// `##NVDLC02_Intro:0`, and their lines swap `"##nvdlc01_intromovie00:0"` and
+/// `"##nvdlc02_intro:0"` [observed: DeadMoney - Main.bsa
+/// nvdlc01introslide.nif, HonestHearts - Main.bsa nvdlc02_introslide.nif; the lines'
+/// begin scripts, e.g. DeadMoney.esm INFO 0x01013C5B].
+fn shape_is(name: &str, shape: &str) -> bool {
+    name.trim().trim_start_matches('#').eq_ignore_ascii_case(shape)
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn apply(
     mut commands: Commands,
@@ -106,7 +117,7 @@ pub(crate) fn apply(
             let targets: Vec<AssetId<NifMaterial>> = model
                 .iter()
                 .flat_map(|m| m.shapes.iter())
-                .filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(shape)))
+                .filter(|s| s.name.as_deref().is_some_and(|n| shape_is(n, shape)))
                 .map(|s| s.material.id())
                 .collect();
             for (e, rv, mat, name, mut faded, fading) in &mut drawn {
@@ -121,7 +132,7 @@ pub(crate) fn apply(
                     (None, None) => mat.id(),
                 };
                 let original = swapped.original.get(&own).copied().unwrap_or(own);
-                if !targets.contains(&original) && name.is_none_or(|n| n.0 != *shape) {
+                if !targets.contains(&original) && name.is_none_or(|n| !shape_is(&n.0, shape)) {
                     continue;
                 }
                 let key = (original, texture.clone());
@@ -160,5 +171,18 @@ pub(crate) fn apply(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shape_is;
+
+    #[test]
+    fn a_swap_finds_a_shape_named_with_hashes() {
+        let (shape, _) = fnv_game::functions::misc::texture_swap_names("##nvdlc01_intromovie00:0", r"nvdlc01\interface\intromovie\nvdlc01_intromovie14");
+        assert!(shape_is("##NVDLC01_IntroMovie00:0", &shape));
+        assert!(shape_is("pipboycard01:0", "pipboycard01:0"));
+        assert!(!shape_is("##NVDLC01_IntroMovie00:1", &shape));
     }
 }

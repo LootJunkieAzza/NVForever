@@ -19390,3 +19390,19 @@ order = [[
   { re = '0x01009E7C died', label = "Jed dies in the ambush" },
 ]]
 forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "dlc-intro-slides-dm"
+source = "cutscene sweep 2026-11-09 (overnight items 66/116): the Dead Money intro's slide screen kept its first picture while the narrator went on. Each narrator line's begin script swaps the screen's picture (DeadMoney.esm INFO 0x01013C5B and the others: SwapTexture 0x010138B2 \"##nvdlc01_intromovie00:0\" …intromovie14); the screen model's only shape is named \"##NVDLC01_IntroMovie00:0\" (DeadMoney - Main.bsa nvdlc01introslide.nif), so the swap must find a shape whose name keeps its leading #s [observed]"
+note = "Dead Money with FalloutNV.esm only; NVDLC01Intro started by console at 6 s from the Prospector Saloon; the narrator's lines run on their own"
+areas = ["scripts", "rendering", "dialogue"]
+paths = ["engine/nvforever/src/texture_swap.rs", "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/functions/refs.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:startquest NVDLC01Intro;6.5:close" }
+args = ["--play", "--cell", "GSProspectorSaloonInterior", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "--hour", "8", "--no-voice"]
+run_seconds = 45
+order = [[
+  { re = 'script: 0x00000014 moved to Some\(0x010109FF\)', label = "the player is in the slideshow room" },
+  { re = 'SwapTexture: reference 010138B2 shape nvdlc01_intromovie00:0: textures\\nvdlc01\\interface\\intromovie\\nvdlc01_intromovie\d\d\.dds', label = "a narrator line puts its slide on the screen" },
+  { re = 'SwapTexture: reference 010138B2 shape nvdlc01_intromovie00:0: textures\\nvdlc01\\interface\\intromovie\\nvdlc01_intromovie\d\d\.dds', label = "the next line puts on the next" },
+]]
+expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no slide missing" }]
