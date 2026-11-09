@@ -864,6 +864,29 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-weapon-hotkeys", "No Weapon Hotkeys", "The number keys and the D-pad pick no weapon (the wheel still does). (Stewie's Tweaks bDisableWeaponHotkeys)", no_weapon_hotkeys);
         switch!(app, "pipboy-opens-items", "Pip-Boy Opens on Items", "The Pip-Boy always opens on the inventory. (Stewie's Tweaks bOpenPipboyToInventoryByDefault)", pipboy_opens_items);
         switch!(app, "hide-crosshair-reloading", "No Crosshair While Reloading", "The crosshair is hidden while reloading. (Stewie's Tweaks bHideCrosshairWhileReloading)", hide_crosshair_reloading);
+        // ---- batch 22 ----
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-kill-xp-per-level",
+                GROUP,
+                "Kill XP by Level",
+                "Kill experience gains this much for each level the target is above the player, and loses it below; 0% changes nothing. (Stewie's Tweaks bLevelDifferenceAffectsCombatXP)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| (t.game.kill_xp_per_level * 5.0) as f32),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.kill_xp_per_level = f64::from(v) / 5.0;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| format!("{:.0}%", v * 20.0)),
+                },
+            ),
+        );
+        part!(app, "key-xp-share", "Experience for Keys", "Opening a lock with its key gives this share of picking it; 0% changes nothing. (Stewie's Tweaks bUsingKeysRewardsXP)", game.key_xp_share);
+        part!(app, "password-xp-share", "Experience for Passwords", "Opening a terminal with its password gives this share of hacking it, once; 0% changes nothing. (Stewie's Tweaks bUsingNotesRewardsXP)", game.password_xp_share);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

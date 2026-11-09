@@ -1028,6 +1028,12 @@ impl Game<'_> {
         let class = classes.iter().find(|(c, lvl, _)| level <= setting(self, &format!("iXPLevelKill{who}{c}"), *lvl)).unwrap_or(&classes[4]);
         // × the difficulty's `fDiffMultXP<level>` (1 at every level in FalloutNV.esm;
         // `crate::difficulty`).
-        setting(self, &format!("iXPRewardKill{reward}{}", class.0), class.2) * self.kill_xp_mult()
+        let xp = setting(self, &format!("iXPRewardKill{reward}{}", class.0), class.2) * self.kill_xp_mult();
+        // The player's tweak weighs the levels between them [design: docs/design/tweaks.md].
+        let per = self.tweaks.kill_xp_per_level;
+        if per == 0.0 {
+            return xp;
+        }
+        xp * (1.0 + per * (level - self.player_level())).max(0.0)
     }
 }

@@ -85,7 +85,18 @@ pub fn still_locked(g: &mut Game, reference: FormId, base: FormId) -> Option<Dif
     let unlocked = script.is_none() && t.has(terminal_flag::UNLOCKED);
     // [hypothesis, hacking.md §6] The password note opens a terminal without hacking,
     // even one locked out (GECK wiki Lock: the note keeps access); it is checked first.
-    if unlocked || g.terminals.access.get(&reference) == Some(&Access::Hacked) || has_password(g, t) {
+    let hacked = g.terminals.access.get(&reference) == Some(&Access::Hacked);
+    let with_note = has_password(g, t);
+    if unlocked || hacked || with_note {
+        // The player's tweak: the password earns a share of the hack's experience,
+        // once (the terminal counts as hacked after) [design: docs/design/tweaks.md].
+        let share = g.tweaks.password_xp_share;
+        if with_note && !hacked && !unlocked && share > 0.0 {
+            let d = Difficulty::from_code(t.difficulty);
+            let x = xp(g, d) * f64::from(share);
+            g.terminals.access.insert(reference, Access::Hacked);
+            crate::experience::award(g, crate::experience::Source::HackTerminal, x.round());
+        }
         return None;
     }
     // The Leveled flag is not applied: how the level would change with the player's

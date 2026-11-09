@@ -4632,6 +4632,14 @@ impl<'a> Game<'a> {
             self.world.activate_scripted(actor, target).map_err(|e| e.to_string())?
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
+        // The player's tweak: a key's opening earns a share of the picking's experience
+        // [design: docs/design/tweaks.md].
+        if act.unlocked_with.is_some() && actor == FormId::PLAYER_REF && self.tweaks.key_xp_share > 0.0 {
+            if let Some(lock) = self.world.peek(target).and_then(|s| s.lock) {
+                let x = crate::lockpick::xp(self, crate::lockpick::Level::of(lock.level)) * f64::from(self.tweaks.key_xp_share);
+                crate::experience::award(self, crate::experience::Source::PickLock, x.round());
+            }
+        }
         self.note_activating(actor, target);
         let activated_event = self.events.len();
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v) });

@@ -240,6 +240,16 @@ pub struct Tweaks {
     pub no_stealth_shimmer_in_pipboy: bool,
     /// `bPreventTeammateFootstepSounds`: teammates' feet are silent.
     pub quiet_teammate_steps: bool,
+    // ---- batch 22 ----
+    /// `bLevelDifferenceAffectsCombatXP`: kill experience gains this share for each
+    /// level the target is above the player (loses it below); 0 changes nothing.
+    pub kill_xp_per_level: f64,
+    /// `bUsingKeysRewardsXP`: opening a lock with its key gives this share of picking
+    /// it; 0 changes nothing.
+    pub key_xp_share: f32,
+    /// `bUsingNotesRewardsXP`: opening a terminal with its password gives this share of
+    /// hacking it, once; 0 changes nothing.
+    pub password_xp_share: f32,
 }
 
 impl Default for Tweaks {
@@ -340,6 +350,9 @@ impl Default for Tweaks {
             god_mode_off_on_load: false,
             no_stealth_shimmer_in_pipboy: false,
             quiet_teammate_steps: false,
+            kill_xp_per_level: 0.0,
+            key_xp_share: 0.0,
+            password_xp_share: 0.0,
         }
     }
 }

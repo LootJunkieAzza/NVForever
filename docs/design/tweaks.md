@@ -340,6 +340,14 @@ unless the player binds them, so nothing changes until then.
 | Pip-Boy Opens on Items | `bOpenPipboyToInventoryByDefault` | `pipboy::follow_menu` |
 | No Crosshair While Reloading | `bHideCrosshairWhileReloading` | `reticle::draw` |
 
+## Twenty-second batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Kill XP by Level (0–20% a level) | `bLevelDifferenceAffectsCombatXP` | `Game::kill_xp` |
+| Experience for Keys (part) | `bUsingKeysRewardsXP` | `Game::activate` (`unlocked_with`) |
+| Experience for Passwords (part) | `bUsingNotesRewardsXP` | `terminal::still_locked` |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -359,8 +367,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 291 |
-| to do | 312 |
+| done | 294 |
+| to do | 309 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -395,6 +403,7 @@ game's Data folder, read-only).
 | `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
 | `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
+| `bLevelDifferenceAffectsCombatXP` | done |  | 2 | Kill XP by Level (slider; scales the game's kill XP per level of difference instead of the plugin's base) |
 | `bLightStepAffectsCompanions` | done |  |  | Light Step for Companions |
 | `bLockNeedsKeyShowName` | done |  |  | Name the Key |
 | `bLockpickRememberBobbyPinAngle` | done |  |  | already so: a new pin keeps the angle |
@@ -435,6 +444,8 @@ game's Data folder, read-only).
 | `bStealingSendsNoAlarm` | done |  |  | Quiet Theft |
 | `bUnequipWeaponMods` | done |  | 7 | already so: attached mods can be taken off and come back (item_mod detach) |
 | `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
+| `bUsingKeysRewardsXP` | done |  | 3 | Experience for Keys (a share of the picking XP; the base and skill options not built) |
+| `bUsingNotesRewardsXP` | done |  | 3 | Experience for Passwords (a share of the hacking XP, once; the base and skill options not built) |
 | `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | already so: no projectile can be targeted in V.A.T.S. |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
@@ -470,7 +481,6 @@ game's Data folder, read-only).
 | `bImprovedHacking` | to do |  | 10 | each option is its own rule in hacking.rs |
 | `bJumpSwimsUpwards` | to do |  | 2 | MoveIntent.jump is a one-shot latch; needs a held flag |
 | `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
-| `bLevelDifferenceAffectsCombatXP` | to do |  | 2 | kill_xp; two numbers to choose |
 | `bLockpickForceBonusNearSweetSpot` | to do |  | 2 | lockpick force_chance; a field on lockpick::Settings |
 | `bLuckDoesntAffectGambling` | to do |  | 1 | already so? no Luck in the gambling rules found; check the original first |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
@@ -511,8 +521,6 @@ game's Data folder, read-only).
 | `bUseArmorRepairKitsInRepairMenu` | to do |  |  | the repair menu lists only parts |
 | `bUseCustomBarterPriceMultipliers` | to do |  | 13 | refresh_trade price; ten multipliers |
 | `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 | the repair menu lists only parts |
-| `bUsingKeysRewardsXP` | to do |  | 3 | activate unlocked_with; base and scale |
-| `bUsingNotesRewardsXP` | to do |  | 3 | terminal::still_locked; base and scale |
 | `bVATSDequeueWeaponShotsOnDisarm` | to do |  |  | vats_mode::shoot needs ActorParts |
 | `bVATSHipFire` | to do |  |  | a VatsMode flag set on entry |
 | `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
