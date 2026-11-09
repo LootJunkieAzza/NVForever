@@ -43,6 +43,58 @@ const CARD_VALUE_IN: f32 = 10.0;
 /// [documented: `text_box.xml` `button_text` y; the original's "Maintain R)" sits there
 /// on the owner's ITEMS screenshot].
 pub const BUTTON_TEXT_Y: f32 = 15.0 / 2.0 + 10.0;
+
+/// One button hint of a page: its words, the key's part after them ("R)", with a
+/// controller "Y)"), and whether it is drawn dim (it does nothing now) (#1896).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hint {
+    pub word: &'static str,
+    pub key: String,
+    pub dim: bool,
+}
+
+impl Hint {
+    pub fn new(word: &'static str, key: String, dim: bool) -> Hint {
+        Hint { word, key, dim }
+    }
+
+    /// As drawn: "Repair R)".
+    pub fn text(&self) -> String {
+        format!("{} {}", self.word, self.key)
+    }
+
+    /// The colour it is drawn in: bright, or dimmed.
+    pub fn color(&self) -> Color {
+        amber(if self.dim { DIMMED } else { TEXT })
+    }
+}
+
+/// A page's hints for the log, in drawing order: "Repair R) (dim), Equip Enter)".
+pub fn hints_line<'a>(hints: impl IntoIterator<Item = &'a Hint>) -> String {
+    hints.into_iter().map(|h| if h.dim { format!("{} (dim)", h.text()) } else { h.text() }).collect::<Vec<_>>().join(", ")
+}
+
+/// A column of hints at the top right (the ITEMS page's, the weapon mod menu's): one row
+/// under the other 46 apart, each row's word right-aligned on one line with its key just
+/// after it [observed: the original's screenshots on issue #1896, 1920 × 1080: rows 42 to
+/// 43 px apart, 0.90 of the item list's row step there (47 to 48 px); the words end at the
+/// heading's right end, the button glyph beside them; the mod menu's two rows 43 px apart
+/// too] [design: 0.90 of our 51-high list rows is 46].
+pub const HINT_PITCH: f32 = 46.0;
+/// How far right of the menus' rectangle a hint's key may reach on the canvas: the lit
+/// screen ends about 49 past the heading's right end at the first hint's row and further
+/// out lower down [design: measured on NVForever's own 1280 × 720 ITEMS frame].
+pub const HINT_KEY_ROOM: f32 = 45.0;
+
+/// Where a hint column's words end: at `words_right`, unless the widest key part
+/// (`key_widths`: each row's drawn width less its word's) would then run past `limit`;
+/// then the whole column moves left until that key ends at `limit`, the words still
+/// right-aligned on one line [design: some keyboard key names (the mod menu's "Enter)")
+/// are longer than a controller's buttons, which fit].
+pub fn hint_words_right(words_right: f32, limit: f32, key_widths: impl IntoIterator<Item = f32>) -> f32 {
+    let widest = key_widths.into_iter().fold(0.0, f32::max);
+    words_right.min(limit - widest)
+}
 /// The tab line: 650 down, as wide as the menus; a tab is its text and 35 across, 15 up
 /// and down; the lines between the tabs are as long as each other [hypothesis: the files
 /// leave their length to code; it fills the line evenly, as on the owner's screenshots].
@@ -189,6 +241,29 @@ impl<'a> Ctx<'a> {
         };
         crate::pad::set_hint(p, face, s, x, top + base(&face.font), color, self.glyphs);
         width
+    }
+
+    /// Draw `hints` as a column ([`HINT_PITCH`], [`hint_words_right`]) in font 2: the
+    /// words end at `words_right` (canvas units), the first row's text top at `top`, the
+    /// keys reaching at most [`HINT_KEY_ROOM`] past the menus' rectangle. Returns each
+    /// row's drawn rectangle (word and key), for its click area.
+    pub fn hint_column(&mut self, p: &mut ChildSpawnerCommands, hints: &[Hint], words_right: f32, top: f32) -> Vec<Rect> {
+        let face = self.kit.face(2);
+        let height = face.font.size;
+        // The drawn widths, not the text's: a hint that names a button draws its picture.
+        let widths: Vec<(f32, f32)> =
+            hints.iter().map(|h| (crate::pad::hint_width(face, h.word, self.glyphs), crate::pad::hint_width(face, &h.text(), self.glyphs))).collect();
+        let right = hint_words_right(words_right, MAIN.max.x + HINT_KEY_ROOM, widths.iter().map(|(word, all)| all - word));
+        hints
+            .iter()
+            .zip(widths)
+            .enumerate()
+            .map(|(k, (h, (word, all)))| {
+                let (x, y) = (right - word, top + HINT_PITCH * k as f32);
+                self.text(p, 2, &h.text(), x, y, Align::Left, h.color());
+                Rect::new(x, y, x + all, y + height)
+            })
+            .collect()
     }
 
     /// Draw a line already set, its top at `top`.
@@ -585,6 +660,19 @@ impl Ctx<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A hint column's words end at the heading's right end while every key fits in the
+    /// room past it (a controller's short keys); a longer key (the keyboard's "Enter)")
+    /// moves the whole column left until it ends at the limit (#1896).
+    #[test]
+    fn a_hint_column_moves_left_only_for_a_key_that_does_not_fit() {
+        let (right, limit) = (MAIN.max.x, MAIN.max.x + HINT_KEY_ROOM);
+        assert_eq!(hint_words_right(right, limit, [30.0, 40.0, HINT_KEY_ROOM]), right);
+        assert_eq!(hint_words_right(right, limit, [40.0, 160.0, 60.0]), limit - 160.0);
+        assert_eq!(hint_words_right(right, limit, []), right);
+        // The row pitch: 0.90 of the item list's 51-high rows, as the original's.
+        assert!((HINT_PITCH / super::super::items::ROW_H - 0.9).abs() < 0.01);
+    }
 
     #[test]
     fn a_dxt1_column_is_read_row_by_row() {

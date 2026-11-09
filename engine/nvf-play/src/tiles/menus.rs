@@ -146,6 +146,8 @@ pub struct TileMenuBlur {
     pub recipe: bool,
     /// `TraitMenu` is drawn from its tiles.
     pub traits: bool,
+    /// `RepairServicesMenu` is drawn from its tiles [design: repair.md §3.1].
+    pub repair_services: bool,
     /// [design: chargen.md §3.1] CharGenMenu is drawn from its tiles.
     pub tags: bool,
 }
@@ -153,6 +155,9 @@ pub struct TileMenuBlur {
 impl TileMenuBlur {
     /// Any menu drawn from its tiles wants the world blurred.
     pub fn any(self) -> bool {
+        if self.repair_services {
+            return true;
+        }
         self.tutorial || self.container || self.barter || self.recipe || self.traits || self.tags
     }
 }
@@ -242,6 +247,8 @@ pub fn hand_built_takes(menu: &str, key: &str) -> bool {
         &super::trait_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::dialog_menu::DIALOG_MENU) {
         &super::dialog_menu::HAND_BUILT_KEYS
+    } else if menu.eq_ignore_ascii_case(super::repair_services_menu::REPAIR_SERVICES_MENU) {
+        &super::repair_services_menu::HAND_BUILT_KEYS
     } else {
         &[]
     };
