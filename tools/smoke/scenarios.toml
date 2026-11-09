@@ -13417,6 +13417,25 @@ order = [[
 ]]
 
 [[scenario]]
+name = "scripted-npc-door-relocation"
+source = "issue #1703 [design: crates/fnv-game/src/game.rs, src/ai.rs; docs/spec-notes/doors.md section 5.2]: direct script activation of a teleport door hands the NPC's new placement to residents"
+note = "Easy Pete is held outdoors before his noon walk, given his saloon eating package, sent through the saloon's exterior door (0010636F, the door in push) at 14 s, then released. The player stays outside. Synthetic root tests cover scripted NPC GameMode, OnLoad and save selection; this run checks residents and later GetInCell. [design: existing push and package-flee setups; runtime result unverified]"
+areas = ["scripts", "ai"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/refs.rs", "crates/fnv-game/src/followers.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:call:EasyPeteRef:SetRestrained:1,2:call:EasyPeteRef:AddScriptPackage:EasyPeteEat12x2,14:call:0x0010636F:Activate:EasyPeteRef,15:call:EasyPeteRef:SetRestrained:0", NVF_PLAY_TEST_CONSOLE = "24:EasyPeteRef.GetInCell GSProspectorSaloonInterior;24.5:close;34:EasyPeteRef.GetInCell GSProspectorSaloonInterior;34.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+run_seconds = 40
+expect = [
+  { re = 'script: EasyPeteRef moved to Some\(0x[0-9A-F]{8}\) \[', count = 1, label = "one Moved destination notification for the scripted door" },
+  { re = 'console: GetInCell on EasyPeteRef >> 1\.00(?:\s|$)', count = 2, label = "the NPC remains in the destination after movement and social updates" },
+]
+order = [[
+  { re = 'script: EasyPeteRef moved to Some\(0x[0-9A-F]{8}\) \[', label = "the door move is traced" },
+  { re = 'EasyPeteRef: put at .* in GSProspectorSaloonInterior by a script \(MoveTo\): goes on from there', label = "residents consume the new placement" },
+  { re = 'console: GetInCell on EasyPeteRef >> 1\.00(?:\s|$)', label = "later destination confirmation" },
+]]
+
+[[scenario]]
 name = "onload-moved-reference"
 source = "issue #1577: the Goodsprings Mojave Express box (vMEGoodSpringsRef 0x0015F22D, vMojaveExpressBoxSCRIPT with an OnLoad block) is moved into the Prospector Saloon; its OnLoad runs at the start and when the saloon loads again, not when Goodsprings does"
 areas = ["scripts"]
