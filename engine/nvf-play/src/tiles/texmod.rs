@@ -42,7 +42,7 @@
 //!   review].
 
 use super::draw::{Look, Piece, Placed};
-use crate::compass_strip::StripTexels;
+use crate::compass_strip::{StripTexels, StripWindow};
 use crate::interface::SizedPicture;
 use crate::repeat::{self, MAX_TEXELS};
 use bevy::asset::RenderAssetUsages;
@@ -154,13 +154,15 @@ pub(super) type Repeat = ((u32, u32), (f64, f64));
 /// The texels a drawing may bake again in place per frame, accrued while unspent up to
 /// [`MAX_TEXELS`] (one largest image): a scrolling offset on a large picture is baked
 /// again as often as this allows, every frame for a 1024 x 1024 picture, every fourth
-/// for a 2048 x 2048 one, its last image shown meanwhile. A piece's first image is always
+/// for a 2048 x 2048 one, its last image shown meanwhile; several scrolling pieces take
+/// turns, the one waiting longest first ([`State`]). A piece's first image is always
 /// baked (it is spent from the next frames') [design: #1833 review; at most 4 MiB of
 /// texels a frame on average].
 pub const BAKE_BUDGET: i64 = 1 << 20;
 
-/// The decoded textures' bytes a drawing keeps; past it they are all let go and decoded
-/// again when next asked for [design].
+/// The decoded textures' bytes a drawing keeps: past it, the least recently used that
+/// nothing holds are let go as a texture is put in, and decoded again when next asked
+/// for [design].
 const DECODED_BUDGET: usize = 64 << 20;
 
 /// A texture's level 0 as RGBA8.
@@ -258,65 +260,166 @@ struct Plan {
     mask: Option<String>,
 }
 
+/// Where a tile's kept bake shows.
+enum Target {
+    /// Its image, baked again in place (the same handle, so its nodes stay).
+    Image(Handle<Image>),
+    /// The compass strip's window (`crate::compass_strip::StripWindow::reshift`), whose
+    /// strip is moved on again in place.
+    Strip,
+}
+
 /// A tile's baked image, kept to bake it again in place when only its shift changes.
 struct Entry {
     plan: Plan,
     /// The mask the script named (read or not).
     asked: Option<String>,
     shift: (usize, usize),
-    handle: Handle<Image>,
+    target: Target,
 }
+
+/// A decoded texture and the frame it was last used in.
+struct Cached {
+    texels: Arc<Texels>,
+    used: u64,
+}
+
+/// A piece waiting for the bake budget: the frame it began to wait, its cost, the frame it
+/// last asked.
+#[derive(Clone, Copy, Debug)]
+struct Waiting {
+    since: u64,
+    cost: i64,
+    asked: u64,
+}
+
+/// The refused textures remembered ([`State`]).
+const REFUSED_KEPT: usize = 256;
 
 /// A drawing's texture offsets and alpha maps: the textures decoded, the images baked,
 /// the bake budget and what was said in the log.
-#[derive(Default)]
 pub struct State {
     /// The tiles whose first drawing with an offset or a mask was said.
     told_drawn: HashSet<TileId>,
     /// The textures that could not be read, said.
     told_failed: HashSet<String>,
-    decoded: HashMap<String, Result<Arc<Texels>, String>>,
+    decoded: HashMap<String, Cached>,
     decoded_bytes: usize,
+    /// The textures refused, and why, so they are not read again at each spawn (at most
+    /// [`REFUSED_KEPT`], then forgotten).
+    refused: HashMap<String, String>,
     baked: HashMap<TileId, Entry>,
-    /// The texels left to bake again in place ([`BAKE_BUDGET`]).
+    /// The texels a frame adds to `tokens` ([`BAKE_BUDGET`]; tests set less).
+    budget: i64,
+    /// The decoded bytes kept ([`DECODED_BUDGET`]; tests set less).
+    capacity: usize,
+    /// The texels left to bake again in place.
     tokens: i64,
+    /// The frames painted so far.
+    frame: u64,
+    waiting: HashMap<TileId, Waiting>,
+}
+
+impl Default for State {
+    fn default() -> State {
+        State {
+            told_drawn: HashSet::new(),
+            told_failed: HashSet::new(),
+            decoded: HashMap::new(),
+            decoded_bytes: 0,
+            refused: HashMap::new(),
+            baked: HashMap::new(),
+            budget: BAKE_BUDGET,
+            capacity: DECODED_BUDGET,
+            tokens: 0,
+            frame: 0,
+            waiting: HashMap::new(),
+        }
+    }
 }
 
 impl State {
-    /// Once a frame, before the pieces are painted: the budget refilled.
+    /// Once a frame, before the pieces are painted: the budget refilled, and the pieces
+    /// that did not ask again last frame no longer wait.
     pub fn frame(&mut self) {
-        self.tokens = (self.tokens + BAKE_BUDGET).min(MAX_TEXELS as i64);
+        self.frame += 1;
+        self.tokens = (self.tokens + self.budget).min(MAX_TEXELS as i64);
+        let now = self.frame;
+        self.waiting.retain(|_, w| w.asked + 1 >= now);
     }
 
     /// Let go of what belongs to tiles no longer drawn with an offset or a mask: their
-    /// baked images (by the pieces about to be painted) and, with the tree, the told lines
-    /// of tiles no longer loaded, so neither grows with every tile ever modified [design:
-    /// #1833 review].
+    /// baked images (by the pieces about to be painted), the textures nothing kept uses
+    /// any more and, with the tree, the told lines of tiles no longer loaded, so none
+    /// grows with every tile ever modified [design: #1833 review].
     pub fn prune(&mut self, pieces: &[Piece], ui: Option<&Ui>) {
-        if !self.baked.is_empty() {
+        if !self.baked.is_empty() || !self.waiting.is_empty() {
             let keep: HashSet<TileId> = pieces.iter().filter(|p| p.tex.is_some()).map(|p| p.tile).collect();
             self.baked.retain(|t, _| keep.contains(t));
+            self.waiting.retain(|t, _| keep.contains(t));
+        }
+        if !self.decoded.is_empty() {
+            let unused: Vec<String> = self.decoded.keys().filter(|p| !self.held(p)).cloned().collect();
+            for p in unused {
+                self.release(&p);
+            }
         }
         if let Some(ui) = ui.filter(|_| !self.told_drawn.is_empty()) {
             self.told_drawn.retain(|t| ui.is_live(*t));
         }
     }
 
+    /// Whether a kept bake (its source or mask) or a drawn node (a strip window's mask)
+    /// uses texture `path`.
+    fn held(&self, path: &str) -> bool {
+        self.decoded.get(path).is_some_and(|c| Arc::strong_count(&c.texels) > 1) || self.baked.values().any(|e| e.plan.path == path || e.plan.mask.as_deref() == Some(path))
+    }
+
+    fn release(&mut self, path: &str) {
+        if let Some(c) = self.decoded.remove(path) {
+            self.decoded_bytes -= c.texels.rgba.len();
+        }
+    }
+
+    /// Put `texels` in as texture `path`, keeping within [`DECODED_BUDGET`]: the least
+    /// recently used that nothing holds go first; past it only while everything kept is
+    /// in use [design: #1833 review].
+    fn keep(&mut self, path: &str, texels: Arc<Texels>) {
+        self.decoded_bytes += texels.rgba.len();
+        self.decoded.insert(path.to_string(), Cached { texels, used: self.frame });
+        while self.decoded_bytes > self.capacity {
+            let oldest = self.decoded.iter().filter(|(p, _)| p.as_str() != path && !self.held(p)).min_by_key(|(_, c)| c.used).map(|(p, _)| p.clone());
+            match oldest {
+                Some(p) => self.release(&p),
+                None => break,
+            }
+        }
+    }
+
     /// Texture `path` decoded (at most [`MAX_TEXELS`]), kept; why not, for the log.
     fn texels(&mut self, path: &str, data: &GameData) -> Result<Arc<Texels>, String> {
-        if let Some(t) = self.decoded.get(path) {
-            return t.clone();
+        let now = self.frame;
+        if let Some(c) = self.decoded.get_mut(path) {
+            c.used = now;
+            return Ok(c.texels.clone());
         }
-        if self.decoded_bytes > DECODED_BUDGET {
-            self.decoded.clear();
-            self.decoded_bytes = 0;
+        if let Some(why) = self.refused.get(path) {
+            return Err(why.clone());
         }
-        let t = data.read(path).ok_or_else(|| "it is not in the data".to_string()).and_then(|b| decode(&b, MAX_TEXELS)).map(Arc::new);
-        if let Ok(t) = &t {
-            self.decoded_bytes += t.rgba.len();
+        match data.read(path).ok_or_else(|| "it is not in the data".to_string()).and_then(|b| decode(&b, MAX_TEXELS)) {
+            Ok(t) => {
+                let t = Arc::new(t);
+                self.keep(path, t.clone());
+                Ok(t)
+            }
+            Err(why) => {
+                if self.refused.len() >= REFUSED_KEPT {
+                    self.refused.clear();
+                }
+                self.refused.insert(path.to_string(), why.clone());
+                Err(why)
+            }
         }
-        self.decoded.insert(path.to_string(), t.clone());
-        t
     }
 
     fn failed(&mut self, path: &str, what: &str, who: &str, why: &str) {
@@ -331,36 +434,77 @@ impl State {
         }
     }
 
+    /// Spend `cost` texels for `tile` if the budget allows. The piece that has waited
+    /// longest is served first: the others spend only what is left over its cost, so one
+    /// scrolling piece cannot take every frame's budget from another, whatever order they
+    /// are painted in [design: #1833 review]. A piece refused waits from this frame on.
+    fn spend(&mut self, tile: TileId, cost: i64) -> bool {
+        let now = self.frame;
+        let since = self.waiting.get(&tile).map_or(now, |w| w.since);
+        let reserve = self.waiting.iter().filter(|(t, w)| (w.since, **t) < (since, tile)).min_by_key(|(t, w)| (w.since, **t)).map_or(0, |(_, w)| w.cost);
+        if self.tokens - reserve >= cost {
+            self.tokens -= cost;
+            self.waiting.remove(&tile);
+            true
+        } else {
+            self.waiting.insert(tile, Waiting { since, cost, asked: now });
+            false
+        }
+    }
+
+    /// A kept texture, or decoded again when it was let go (its texels spent from the
+    /// budget).
+    fn kept(&mut self, path: &str, data: Option<&GameData>) -> Option<Arc<Texels>> {
+        let now = self.frame;
+        if let Some(c) = self.decoded.get_mut(path) {
+            c.used = now;
+            return Some(c.texels.clone());
+        }
+        let t = self.texels(path, data?).ok()?;
+        self.tokens -= (t.rgba.len() / 4) as i64;
+        Some(t)
+    }
+
     /// `piece`, whose offset alone changed since its image was baked
-    /// ([`only_offset_differs`]), shown at its new offset by baking its kept image again in
-    /// place (the same handle, so its nodes stay): `Some(true)` when it shows it (or the
-    /// new offset is the same texel shift), `Some(false)` when the budget waits a frame
-    /// (its last image stays), `None` when nothing is kept to bake again (spawn it).
-    pub fn shift_in_place(&mut self, piece: &Piece, images: &mut Assets<Image>) -> Option<bool> {
+    /// ([`only_offset_differs`]), shown at its new offset by baking its kept image (or the
+    /// compass strip's window, `strip`) again in place: `Some(true)` when it shows it (or
+    /// the new offset is the same texel shift), `Some(false)` when the budget waits a frame
+    /// (its last image stays), `None` when nothing is kept to bake again (spawn it). A
+    /// texture let go since is decoded again from `data`.
+    pub fn shift_in_place(&mut self, piece: &Piece, images: &mut Assets<Image>, data: Option<&GameData>, strip: Option<&mut StripWindow>) -> Option<bool> {
         let tex = piece.tex.as_ref()?;
         let e = self.baked.get(&piece.tile)?;
-        if e.asked != tex.mask {
+        if e.asked != tex.mask || (matches!(e.target, Target::Strip) && strip.is_none()) {
             return None;
         }
         let plan = e.plan.clone();
         let shift = (texel_shift(tex.offset.0, plan.cut[2]), texel_shift(tex.offset.1, plan.cut[3]));
         if shift == e.shift {
+            self.waiting.remove(&piece.tile);
             return Some(true);
         }
-        let cost = (plan.out.0 * plan.out.1) as i64;
-        if self.tokens < cost {
+        if !self.spend(piece.tile, (plan.out.0 * plan.out.1) as i64) {
             return Some(false);
         }
-        let src = self.decoded.get(&plan.path)?.clone().ok()?;
+        let src = self.kept(&plan.path, data)?;
         let mask = match &plan.mask {
-            Some(m) => Some(self.decoded.get(m)?.clone().ok()?),
+            Some(m) => Some(self.kept(m, data)?),
             None => None,
         };
-        let rgba = compose(&src, plan.cut, shift, plan.across, plan.out, mask.as_deref())?;
-        let e = self.baked.get_mut(&piece.tile)?;
-        images.get_mut(&e.handle)?.data = Some(rgba);
-        e.shift = shift;
-        self.tokens -= cost;
+        match (&self.baked.get(&piece.tile)?.target, strip) {
+            (Target::Image(handle), _) => {
+                let rgba = compose(&src, plan.cut, shift, plan.across, plan.out, mask.as_deref())?;
+                images.get_mut(handle)?.data = Some(rgba);
+            }
+            (Target::Strip, Some(window)) => {
+                let texels = StripTexels::new(shifted(&src.rgba, src.width, plan.cut, tex.offset)?, plan.cut[2])?;
+                if !window.reshift(texels, images) {
+                    return None;
+                }
+            }
+            (Target::Strip, None) => return None,
+        }
+        self.baked.get_mut(&piece.tile)?.shift = shift;
         Some(true)
     }
 }
@@ -458,7 +602,7 @@ pub(super) fn apply(tex: &TexMod, piece: &Piece, d: Drawing<'_>, picture: Option
     });
     let handle = image(rgba, out.0, out.1, b.images);
     let plan = Plan { path: d.path.to_string(), cut, across, out, mask: mask.map(|(m, _)| m) };
-    b.state.baked.insert(piece.tile, Entry { plan, asked: tex.mask.clone(), shift, handle: handle.clone() });
+    b.state.baked.insert(piece.tile, Entry { plan, asked: tex.mask.clone(), shift, target: Target::Image(handle.clone()) });
     match node {
         Some(node) => (picture, Some((handle, node.0 as f32, node.1 as f32))),
         // The new image is the piece alone: an atlas piece's rect becomes all of it, so
@@ -484,6 +628,10 @@ pub(super) fn strip(tex: &TexMod, piece: &Piece, path: &str, rect: Option<Rect>,
     let cut = rect.map_or([0, 0, src.width, src.height], |r| repeat::piece_texels(r).map(|v| v as usize));
     let strip = StripTexels::new(shifted(&src.rgba, src.width, cut, tex.offset)?, cut[2])?;
     let mask = read_mask(tex, &who, &mut b);
+    // Kept so a new offset moves the strip on in place, the whole strip's texels its cost.
+    let shift = (texel_shift(tex.offset.0, cut[2]), texel_shift(tex.offset.1, cut[3]));
+    let plan = Plan { path: path.to_string(), cut, across: (cut[2], cut[3]), out: (cut[2], cut[3]), mask: mask.as_ref().map(|(m, _)| m.clone()) };
+    b.state.baked.insert(piece.tile, Entry { plan, asked: tex.mask.clone(), shift, target: Target::Strip });
     b.state.told(piece.tile, || {
         let alpha = mask.as_ref().map_or(String::new(), |(m, _)| format!(", alpha map {m}"));
         format!("tiles: {who}: texture offset {:.3}, {:.3}{alpha} drawn on the compass strip", tex.offset.0, tex.offset.1)
@@ -677,8 +825,8 @@ mod tests {
         let src = Arc::new(Texels::new(numbered(4, 1), 4).unwrap());
         let plan = Plan { path: "src".into(), cut: [0, 0, 4, 1], across: (4, 1), out: (4, 1), mask: None };
         let handle = image(compose(&src, plan.cut, (0, 0), plan.across, plan.out, None).unwrap(), 4, 1, images);
-        state.decoded.insert("src".into(), Ok(src));
-        state.baked.insert(tile, Entry { plan, asked: asked.map(String::from), shift: (0, 0), handle: handle.clone() });
+        state.keep("src", src);
+        state.baked.insert(tile, Entry { plan, asked: asked.map(String::from), shift: (0, 0), target: Target::Image(handle.clone()) });
         (state, handle)
     }
 
@@ -691,20 +839,20 @@ mod tests {
         let at = |offset: f64| Piece { tex: Some(TexMod { offset: (offset, 0.0), mask: None }), ..picture(tile, Fit::Stretch) };
         let data = |images: &Assets<Image>| reds(images.get(&handle).and_then(|i| i.data.as_deref()).unwrap());
         // A new offset that rounds to the same texel: nothing baked.
-        assert_eq!(state.shift_in_place(&at(0.1), &mut images), Some(true));
+        assert_eq!(state.shift_in_place(&at(0.1), &mut images, None, None), Some(true));
         assert_eq!(data(&images), [0, 1, 2, 3]);
         // A new texel with no budget left: the last image stays a frame.
-        assert_eq!(state.shift_in_place(&at(0.25), &mut images), Some(false));
+        assert_eq!(state.shift_in_place(&at(0.25), &mut images, None, None), Some(false));
         assert_eq!(data(&images), [0, 1, 2, 3]);
         // The next frame's budget: baked again into the same image.
         state.frame();
-        assert_eq!(state.shift_in_place(&at(0.25), &mut images), Some(true));
+        assert_eq!(state.shift_in_place(&at(0.25), &mut images, None, None), Some(true));
         assert_eq!(data(&images), [1, 2, 3, 0]);
         assert_eq!(images.len(), 1);
         // Another mask, or nothing kept: spawned again.
         let masked = Piece { tex: Some(TexMod { offset: (0.5, 0.0), mask: Some("m.dds".into()) }), ..picture(tile, Fit::Stretch) };
-        assert_eq!(state.shift_in_place(&masked, &mut images), None);
-        assert_eq!(State::default().shift_in_place(&at(0.5), &mut images), None);
+        assert_eq!(state.shift_in_place(&masked, &mut images, None, None), None);
+        assert_eq!(State::default().shift_in_place(&at(0.5), &mut images, None, None), None);
     }
 
     #[test]
@@ -744,5 +892,70 @@ mod tests {
         state.prune(&[], Some(&ui));
         assert!(state.baked.is_empty());
         assert_eq!(state.told_drawn.iter().collect::<Vec<_>>(), [&b]);
+    }
+
+    #[test]
+    fn two_scrolling_pieces_both_advance_on_one_budget() {
+        let ui = Ui::new();
+        let (a, b) = (ui.screen(), ui.globals());
+        let mut images = Assets::<Image>::default();
+        let (mut state, ha) = baked(a, None, &mut images);
+        let (other, hb) = baked(b, None, &mut images);
+        state.baked.extend(other.baked);
+        // One bake a frame for two pieces scrolling every frame, A always painted first.
+        state.budget = 4;
+        let at = |t: TileId, k: usize| Piece { tex: Some(TexMod { offset: (k as f64 * 0.25, 0.0), mask: None }), ..picture(t, Fit::Stretch) };
+        let first = |images: &Assets<Image>, h: &Handle<Image>| reds(images.get(h).and_then(|i| i.data.as_deref()).unwrap())[0];
+        let (mut was_a, mut was_b, mut moved_a, mut moved_b) = (0, 0, 0, 0);
+        for k in 1..=8 {
+            state.frame();
+            state.shift_in_place(&at(a, k), &mut images, None, None);
+            state.shift_in_place(&at(b, k), &mut images, None, None);
+            let (now_a, now_b) = (first(&images, &ha), first(&images, &hb));
+            moved_a += usize::from(now_a != was_a);
+            moved_b += usize::from(now_b != was_b);
+            (was_a, was_b) = (now_a, now_b);
+        }
+        // They take turns: neither freezes behind the other.
+        assert_eq!((moved_a, moved_b), (4, 4));
+    }
+
+    #[test]
+    fn the_decoded_textures_stay_within_their_budget_and_go_with_their_tiles() {
+        let mut state = State::default();
+        state.capacity = 64;
+        let texture = || Arc::new(Texels::new(vec![0; 32], 1).unwrap());
+        state.frame();
+        state.keep("a", texture());
+        let node = state.decoded["a"].texels.clone();
+        state.frame();
+        state.keep("b", texture());
+        // A third past the budget: the least recently used that nothing holds goes (b; a
+        // is held by a node).
+        state.frame();
+        state.keep("c", texture());
+        assert!(state.decoded.contains_key("a") && !state.decoded.contains_key("b") && state.decoded.contains_key("c"));
+        assert_eq!(state.decoded_bytes, 64);
+        // Nothing kept uses c: let go; a only while its node holds it.
+        state.prune(&[], None);
+        assert_eq!(state.decoded.keys().collect::<Vec<_>>(), ["a"]);
+        drop(node);
+        state.prune(&[], None);
+        assert!(state.decoded.is_empty());
+        assert_eq!(state.decoded_bytes, 0);
+    }
+
+    #[test]
+    fn a_bake_whose_texture_was_let_go_is_spawned_again_without_its_data() {
+        let ui = Ui::new();
+        let tile = ui.screen();
+        let mut images = Assets::<Image>::default();
+        let (mut state, handle) = baked(tile, None, &mut images);
+        state.release("src");
+        state.frame();
+        let at = Piece { tex: Some(TexMod { offset: (0.5, 0.0), mask: None }), ..picture(tile, Fit::Stretch) };
+        // No data to decode it again: spawned (its last image untouched meanwhile).
+        assert_eq!(state.shift_in_place(&at, &mut images, None, None), None);
+        assert_eq!(reds(images.get(&handle).and_then(|i| i.data.as_deref()).unwrap()), [0, 1, 2, 3]);
     }
 }

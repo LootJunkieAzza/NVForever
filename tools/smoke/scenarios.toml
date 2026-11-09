@@ -22851,7 +22851,7 @@ manual = "ui_texoffset_set.png: four amber-and-black strips on the left; A's lig
 [[scenario]]
 name = "ui-texoffset-compass"
 source = "#1833 review [documented: SetUITexOffset, SetUIAlphaMap; design: tiles/texmod.rs strip, compass_strip.rs StripWindow::masked] with the HUD drawn from tiles, the compass strip takes the offset on top of the heading's scroll and the mask over its window"
-note = "The fixture home's script sets offset 0.25 (a quarter turn of the 1024-unit strip) and the hit gradient mask on HUDMainMenu/HitPoints/compass_window at game start. Same place and heading as tiles-hud-compass-north (north at the window's middle there): here the letters stand a quarter turn on and fade from left to right."
+note = "The fixture home's script sets offset 0.25 (a quarter turn of the 1024-unit strip) and the hit gradient mask on HUDMainMenu/HitPoints/compass_window at game start. Same place and heading as tiles-hud-compass-north, whose N stands just right of the bracket's downward triangle: here the letters stand a quarter turn (256 units) on from there and fade from left to right."
 areas = ["ui", "scripts", "hud"]
 paths = ["engine/nvf-play/src/tiles/texmod.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/nvse_itr1.rs", "tools/smoke/fixtures/ui-texoffset-compass-home/"]
 env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-texoffset-compass-home", NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "10:ui_texoffset_compass.png" }

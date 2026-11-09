@@ -1023,6 +1023,8 @@ pub(crate) struct Nodes<'w, 's> {
     ink: Query<'w, 's, (&'static Ink, InkNodes)>,
     /// The game, for the pictures' texture offsets and alpha maps (`super::texmod`, #1833).
     script: Res<'w, ScriptState>,
+    /// The compass strips' windows, moved on in place by a new offset (#1833).
+    strips: Query<'w, 's, &'static mut TileStrip>,
 }
 
 /// The menus drawn from tiles besides the HUD (T15a, `super::menus`), each in its own
@@ -1448,7 +1450,13 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
         let mut how = change(was, piece);
         // Only the offset changed: its image baked again in place, its nodes kept (#1833).
         if how == Change::Spawn && super::texmod::only_offset_differs(was, piece) {
-            if let Some(shown) = drawn.tex.shift_in_place(piece, &mut kit.images) {
+            let strip = nodes.children.iter_descendants(slot.node).find(|e| nodes.strips.contains(*e));
+            let mut strip = strip.and_then(|e| nodes.strips.get_mut(e).ok());
+            let window = strip.as_mut().and_then(|s| match &mut s.0 {
+                StripNode::Baked(w) => Some(w),
+                StripNode::Moving => None,
+            });
+            if let Some(shown) = drawn.tex.shift_in_place(piece, &mut kit.images, kit.data.as_deref(), window) {
                 if !shown {
                     waiting.push((i, was.tex.clone()));
                 }

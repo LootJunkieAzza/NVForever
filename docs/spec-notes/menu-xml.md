@@ -917,10 +917,15 @@ Implemented consumers and remaining exclusions:
   over its whole box; radial tiles stay undrawn. The compass strip's texels are moved on
   by the offset before the heading scrolls them (the two add up) and its window is baked
   under the mask (`compass_strip::StripWindow::masked`) [design]. Textures are decoded
-  only up to `repeat::MAX_TEXELS`, read from the file's header first. An offset that
-  changes alone re-bakes the kept image in place (same nodes and handle), only when it is
-  another texel shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues
-  up to one largest image) [design: #1833 review]. Which way the offset moves (the texel
+  only up to `repeat::MAX_TEXELS`, read from the file's header first, by these bakes and
+  by `crate::repeat`'s (the tiled pictures, the compass strip), whose oversized textures
+  keep Bevy's drawing. An offset that changes alone re-bakes the kept image, or moves the
+  compass strip on, in place (same nodes and handle), only when it is another texel
+  shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to one
+  largest image; the piece waiting longest is served first, so scrolling pieces take
+  turns). Decoded textures are kept within 64 MiB a drawing, the least recently used that
+  nothing holds let go first, and released once no kept bake or node uses them
+  [design: #1833 review]. Which way the offset moves (the texel
   at the coordinate plus the offset), that the mask is not shifted and is read from its
   alpha, and that its path is under `textures\` as a `filename` are [hypothesis: the pages
   could not be reread on 2026-11-09; SetUITexOffset's "without changing the tile's screen

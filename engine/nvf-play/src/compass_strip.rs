@@ -142,6 +142,21 @@ impl StripWindow {
         self
     }
 
+    /// The window cut from `strip` instead (the same size: a SetUITexOffset offset moved it
+    /// on, `tiles::texmod`), baked again in place at the heading it stands at; false for a
+    /// strip of another size [design: #1833].
+    pub fn reshift(&mut self, strip: StripTexels, images: &mut Assets<Image>) -> bool {
+        if (strip.width, strip.height) != (self.strip.width, self.strip.height) {
+            return false;
+        }
+        self.strip = strip;
+        let texels = self.texels_at(self.offset);
+        if let Some(mut image) = images.get_mut(&self.image) {
+            image.data = Some(texels);
+        }
+        true
+    }
+
     /// The window's texels from the strip's texel `offset`, under the mask when it has one.
     fn texels_at(&self, offset: usize) -> Vec<u8> {
         let mut texels = bake(&self.strip, offset, self.columns);
@@ -305,6 +320,15 @@ mod tests {
         let mut window = window;
         assert!(window.turn(1.0, &mut images));
         check(alphas(&images));
+        // A strip moved on in place: the same image, the strip's texels moved; another
+        // size is refused.
+        let mut moved = StripWindow::new(strip(), COMPASS.x, 0.0, &mut images).unwrap();
+        let handle = moved.image();
+        let on = StripTexels::new(crate::tiles::texmod::shifted(&strip().rgba, 1024, [0, 0, 1024, 2], (0.25, 0.0)).unwrap(), 1024).unwrap();
+        assert!(moved.reshift(on.clone(), &mut images));
+        assert_eq!(moved.image(), handle);
+        assert_eq!(images.get(&handle).and_then(|i| i.data.clone()).unwrap(), bake(&on, 870, 345));
+        assert!(!moved.reshift(StripTexels::new(vec![0; 16], 2).unwrap(), &mut images));
         // No mask: the window as it was.
         let plain = StripWindow::new(strip(), COMPASS.x, 0.0, &mut images).unwrap().masked(None, &mut images);
         assert_eq!(images.get(&plain.image()).and_then(|i| i.data.clone()).unwrap(), bake(&strip(), 870, 345));
