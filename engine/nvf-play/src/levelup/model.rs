@@ -204,6 +204,8 @@ impl LevelUp {
                 let id = p.perks.get(self.selected).copied();
                 let d = id.and_then(|id| g.data.perks.get(&id));
                 let info = match (id, d) {
+                    // The player's tweak names the perk's plugins [design: docs/design/tweaks.md].
+                    (Some(id), Some(d)) if g.tweaks.perk_plugin_names => format!("{}\n\n({})", rules::perk_info(&chargen::requirement_line(g, id), d.ranks.max(1), &d.description), g.data.form_plugins(id).join(", ")),
                     (Some(id), Some(d)) => rules::perk_info(&chargen::requirement_line(g, id), d.ranks.max(1), &d.description),
                     _ => String::new(),
                 };

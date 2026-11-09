@@ -1078,7 +1078,8 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     // Under the question box the map stands still.
     let pointer = pointer.filter(|_| st.popup.is_none());
     let place = place(st, game);
-    let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time(&c)).unwrap_or_default();
+    let twelve = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.pipboy_12_hour);
+    let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time_with(&c, twelve)).unwrap_or_default();
     let mut buttons = Vec::new();
     let body = match tab {
         LOCAL | WORLD => {

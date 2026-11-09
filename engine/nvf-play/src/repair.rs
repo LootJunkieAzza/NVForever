@@ -205,7 +205,9 @@ fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&cra
                 _ => continue,
             };
             let condition = extra.condition_or_whole();
-            if !vendor_lists(gear, it.health, it.armor_dt, condition) {
+            // The player's tweak lists armour with no DT too [design: docs/design/tweaks.md].
+            let dt = if rt.game.tweaks.repair_any_armor { Some(it.armor_dt.unwrap_or(1.0).max(1.0)) } else { it.armor_dt };
+            if !vendor_lists(gear, it.health, dt, condition) {
                 continue;
             }
             let quote = vendor_quote(&settings, it.value.unwrap_or(0), condition, skill);

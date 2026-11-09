@@ -210,6 +210,20 @@ pub struct Tweaks {
     pub mark_other_ammo: bool,
     /// `bReputationShowsFameInfamy`: reputations show their fame and infamy.
     pub show_fame_infamy: bool,
+    // ---- batch 19 ----
+    /// `bShowQuestAndNoDRDTItemsInRepairMenu`: a repairer lists armour with no DT too.
+    pub repair_any_armor: bool,
+    /// `bSortMiscStats`: the STATS page's misc statistics in name order.
+    pub sort_misc_stats: bool,
+    /// `bStatsMenuShowEffectTimeRemaining`: effects show the seconds left.
+    pub effect_time_left: bool,
+    /// `bShowModNameInPerkDescriptions`: a perk's description names its plugins.
+    pub perk_plugin_names: bool,
+    /// `bCustomAddToInventoryMessageTimer`/`fAddItem`: seconds an "added" line stays;
+    /// 0 changes nothing.
+    pub item_added_seconds: f32,
+    /// `b12HourPipboyClock`: the Pip-Boy's clock in 12 hours.
+    pub pipboy_12_hour: bool,
 }
 
 impl Default for Tweaks {
@@ -297,6 +311,12 @@ impl Default for Tweaks {
             single_item_figures: false,
             mark_other_ammo: false,
             show_fame_infamy: false,
+            repair_any_armor: false,
+            sort_misc_stats: false,
+            effect_time_left: false,
+            perk_plugin_names: false,
+            item_added_seconds: 0.0,
+            pipboy_12_hour: false,
         }
     }
 }

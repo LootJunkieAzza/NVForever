@@ -305,6 +305,17 @@ unless the player binds them, so nothing changes until then.
 | Quit Game | `iExitGameKey` | `tweaks::keys` (`AppExit`) |
 | No Collision (held) | `iDisableCollisionKey` | `tweaks::keys` (`NoClip`) |
 
+## Nineteenth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Repairers Take Any Armor | `bShowQuestAndNoDRDTItemsInRepairMenu` | `repair::view` (`vendor_lists`) |
+| Sorted Statistics | `bSortMiscStats` | `pipboy::stats::read` |
+| Effect Time Left | `bStatsMenuShowEffectTimeRemaining` | `pipboy::stats::read` effect lines |
+| Perk Plugins | `bShowModNameInPerkDescriptions` | `levelup::model` (`GameData::form_plugins`) |
+| Item Added Line Time (0–10 s) | `bCustomAddToInventoryMessageTimer` | `script_events::effects` |
+| 12-Hour Pip-Boy Clock | `b12HourPipboyClock` | `pipboy::data::model::date_time_with` |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -321,8 +332,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 263 |
-| to do | 340 |
+| done | 269 |
+| to do | 334 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -651,6 +662,7 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `bAddRGBSliders` | done | yes | 1 | already a row: Interface tab, hud-red / hud-green / hud-blue |
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
+| `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
 | `bDisableGrenadeIndicator` | done |  |  | already so: NVForever has no grenade indicator |
 | `bDisableHUDCrippledLimbIndicator` | done |  |  | No Crippled Limb Figure |
@@ -687,7 +699,6 @@ game's Data folder, read-only).
 | `bCompassNPCDistanceBasedAlpha` | to do |  |  | the compass draws no alpha yet |
 | `bCompassQuestHeightIndicator` | to do |  |  | the compass marks are 2D; needs art |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
-| `bCustomAddToInventoryMessageTimer` | to do |  | 1 | script_events item-added Note seconds |
 | `bCustomSubtitleDistance` | to do |  | 1 | script_hud audible check with a distance |
 | `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
@@ -735,6 +746,7 @@ game's Data folder, read-only).
 | `bSkipSkillMenuIfNoPointsToAssign` | done | yes |  | Perks First When No Points |
 | `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (the option for emptying a category not built) |
 | `bTakeAllInCompanionContainers` | done | yes |  | already so: Take All shows for companions |
+| `b12HourPipboyClock` | done |  |  | 12-Hour Pip-Boy Clock |
 | `b24HourSleepWaitClock` | done |  |  | already so: the wait clock is 24-hour |
 | `bAddInventoryDropItemHotkey` | done |  |  | Q Drops Items |
 | `bAllowRebindNumkeys` | done |  |  | already so: the hotkeys and the D-pad are on the Controls tab |
@@ -765,12 +777,16 @@ game's Data folder, read-only).
 | `bShowAlternateAmmoTypesAvailableInMenus` | done |  |  | Mark Other Ammo |
 | `bShowCaravanCardsInMiscTabs` | done |  |  | already so: carried cards show in Misc |
 | `bShowCurrencyInContainers` | done |  |  | already so: caps and faction currency are listed in Misc |
+| `bShowModNameInPerkDescriptions` | done |  | 3 | Perk Plugins (the level-up menu; the Pip-Boy and hide-list options not built) |
+| `bShowQuestAndNoDRDTItemsInRepairMenu` | done |  |  | Repairers Take Any Armor (quest items were listed already) |
 | `bSkipLoadSaveConfirmationPrompt` | done |  | 1 | already so: a pick on the load page loads at once |
 | `bSleepWaitSliderShowsWakeTime` | done |  |  | already so: the hours line shows the wake time |
+| `bSortMiscStats` | done |  | 1 | Sorted Statistics (by name; other modes not built) |
 | `bSortPerkMenu` | done |  | 1 | already so for one order: available, level, name (other modes not built) |
 | `bSortPipboyNotes` | done |  | 1 | already so: notes are alphabetical (by-read not built) |
 | `bSortPipboyQuests` | done |  | 2 | already so for one order (modes and active-first not built) |
 | `bSortRecipeMenu` | done |  | 1 | already so for one order: makeable first (modes not built) |
+| `bStatsMenuShowEffectTimeRemaining` | done |  | 1 | Effect Time Left (seconds) |
 | `bTabClosesPipboyFromKeyAndLimbMenus` | done |  |  | already so: Tab closes the Pip-Boy from every page |
 | `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
 | `bBarterShowCapsChange` | to do | yes | 1 | half_figure has no settings to read; pass the tweak in |
@@ -788,7 +804,6 @@ game's Data folder, read-only).
 | `bSeparateHorizontalSensitivity` | to do | yes |  | one mouse sensitivity; mouse_look is at 15 parameters |
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
 | `bSortEquipableAmmo` | to do | yes |  | rows sort by name (menu/model.rs sort_rows) |
-| `b12HourPipboyClock` | to do |  |  | pipboy data model date_time with a bool |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bBarterQuantityMenuShowsPrice` | to do |  |  | the quantity box has no price |
 | `bBetterMapZoom` | to do |  |  | pipboy data take_input zoom around the pointer |
@@ -834,13 +849,9 @@ game's Data folder, read-only).
 | `bShowActiveQuestNotesShowsAllStartedQuests` | to do |  |  | data lists notes_of_active |
 | `bShowBarterTotalWhenOverSellLimit` | to do |  |  | tiles barter snapshot amount; a menu bool |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
-| `bShowModNameInPerkDescriptions` | to do |  | 3 | levelup perk info with data form_plugins |
-| `bShowQuestAndNoDRDTItemsInRepairMenu` | to do |  |  | repair vendor_lists DT part |
-| `bSortMiscStats` | to do |  | 1 | stats read general rows sort |
 | `bSortPipboyRepairMenu` | to do |  | 2 | repair offer sort with a bool |
 | `bStartMenuQuickLoad` | to do |  |  | save::requests in the pause menu |
 | `bStatsMenuPercentageXP` | to do |  |  | stats XP card with a Snapshot bool |
-| `bStatsMenuShowEffectTimeRemaining` | to do |  | 1 | stats read effect lines with the time left |
 | `bTabBackInStartMenu` | to do |  |  | pause::choose back conditions; Tab steps tabs on two pages |
 | `bTabClosesTerminals` | to do |  |  | Tab is Back; from the top menu it closes already |
 | `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |

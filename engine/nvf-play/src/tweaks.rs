@@ -811,6 +811,13 @@ impl Plugin for TweaksPlugin {
         switch!(app, "title-case-categories", "Quiet Category Titles", "Container category titles in title case, not capitals. (Stewie's Tweaks bNoCapitaliseContainerCategories)", title_case_categories);
         switch!(app, "no-right-click-drop", "No Right-Click Drop", "A right click in the Pip-Boy inventory does not drop the item. (Stewie's Tweaks bDisableInventoryRightClickDrop)", no_right_click_drop);
         switch!(app, "quiet-undiscovered", "Quiet Undiscovered Markers", "Clicking an undiscovered map marker puts up no box. (Stewie's Tweaks bPreventNoFastTravelMessage)", quiet_undiscovered);
+        // ---- batch 19 ----
+        switch!(app, "repair-any-armor", "Repairers Take Any Armor", "A repairer lists armor with no DT too. (Stewie's Tweaks bShowQuestAndNoDRDTItemsInRepairMenu)", game.repair_any_armor);
+        switch!(app, "sort-misc-stats", "Sorted Statistics", "The STATS page's misc statistics in name order. (Stewie's Tweaks bSortMiscStats)", game.sort_misc_stats);
+        switch!(app, "effect-time-left", "Effect Time Left", "Effects on the STATS page show the seconds left. (Stewie's Tweaks bStatsMenuShowEffectTimeRemaining)", game.effect_time_left);
+        switch!(app, "perk-plugin-names", "Perk Plugins", "A level-up perk's description names the plugins it comes from. (Stewie's Tweaks bShowModNameInPerkDescriptions)", game.perk_plugin_names);
+        amount!(app, "item-added-seconds", "Item Added Line Time", "Seconds an item-added line stays; 0 changes nothing. (Stewie's Tweaks bCustomAddToInventoryMessageTimer)", 10.0, f32, game.item_added_seconds);
+        switch!(app, "pipboy-12-hour", "12-Hour Pip-Boy Clock", "The Pip-Boy's clock in 12 hours with AM and PM. (Stewie's Tweaks b12HourPipboyClock)", game.pipboy_12_hour);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

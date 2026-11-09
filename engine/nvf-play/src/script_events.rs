@@ -406,13 +406,16 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
     // Items a script gave the player, one line each, or one line for many (the add-on
     // packs give dozens at once).
     const MANY: usize = 4;
+    // The player's tweak sets how long these lines stay [design: docs/design/tweaks.md].
+    let seconds = ctx.tweaks().map(|t| t.item_added_seconds).filter(|s| *s > 0.0);
+    let line = |text: String| ScriptEffect::Notify(Note { text, icon: None, seconds });
     if added.len() >= MANY {
         let total: i32 = added.iter().map(|(_, n)| n).sum();
-        out.push(ScriptEffect::Notify(format!("{} items added ({total} in all)", added.len()).into()));
+        out.push(line(format!("{} items added ({total} in all)", added.len())));
     } else {
         for (item, n) in added {
             let name = ctx.name(item);
-            out.push(ScriptEffect::Notify(if n > 1 { format!("{name} ({n}) added") } else { format!("{name} added") }.into()));
+            out.push(line(if n > 1 { format!("{name} ({n}) added") } else { format!("{name} added") }));
         }
     }
     out

@@ -11,14 +11,18 @@ pub const CELL: f32 = 4096.0;
 /// then the time of day as the wait menu writes it ("10.25.81, 9:29") [observed: the
 /// owner's screenshots show "10.25.81, 9:29" on 25 October 2281; hypothesis: no leading
 /// zero on the month or the day, a 24-hour clock as the wait menu's, wait-menu.md §4].
-pub fn date_time(c: &Calendar) -> String {
-    format!(
-        "{}.{}.{:02}, {}",
-        c.month as i64 + 1,
-        c.day as i64,
-        (c.year as i64).rem_euclid(100),
-        crate::wait::model::clock(crate::wait::model::minute_of_day(c))
-    )
+/// The clock in 12 hours with the player's tweak ("9:29 PM") [design: docs/design/tweaks.md].
+pub fn date_time_with(c: &Calendar, twelve: bool) -> String {
+    let minute = crate::wait::model::minute_of_day(c);
+    let clock = if twelve { clock_12(minute) } else { crate::wait::model::clock(minute) };
+    format!("{}.{}.{:02}, {clock}", c.month as i64 + 1, c.day as i64, (c.year as i64).rem_euclid(100))
+}
+
+/// `minute_of_day` as a 12-hour clock: 0:05 is "12:05 AM", 13:30 "1:30 PM".
+pub fn clock_12(minute_of_day: u32) -> String {
+    let h = minute_of_day / 60 % 24;
+    let shown = if h.is_multiple_of(12) { 12 } else { h % 12 };
+    format!("{shown}:{:02} {}", minute_of_day % 60, if h < 12 { "AM" } else { "PM" })
 }
 
 /// A quest in the list: when it was first seen listed (a running count; larger is newer),
@@ -203,9 +207,11 @@ mod tests {
     #[test]
     fn the_heading_writes_the_date_month_first() {
         let c = Calendar { year: 2281.0, month: 9.0, day: 25.0, hour: 9.0 + 29.0 / 60.0, days_passed: 12.0 };
-        assert_eq!(date_time(&c), "10.25.81, 9:29");
+        assert_eq!(date_time_with(&c, false), "10.25.81, 9:29");
         let c = Calendar { year: 2282.0, month: 0.0, day: 3.0, hour: 21.05, days_passed: 0.0 };
-        assert_eq!(date_time(&c), "1.3.82, 21:03");
+        assert_eq!(date_time_with(&c, false), "1.3.82, 21:03");
+        assert_eq!(date_time_with(&c, true), "1.3.82, 9:03 PM", "the 12-hour tweak");
+        assert_eq!(clock_12(5), "12:05 AM");
     }
 
     #[test]

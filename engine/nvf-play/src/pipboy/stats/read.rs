@@ -244,6 +244,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 row.value = Some(format!("{}", g.misc_stat(code).round() as i64));
             }
         }
+        // The player's tweak sorts them by name [design: docs/design/tweaks.md].
+        if g.tweaks.sort_misc_stats {
+            s.general.sort_by(|a, b| a.name.cmp(&b.name));
+        }
         // HP and AP out of a whole that an aid item's temporary modifier raises with them
         // (Buffout, Jet) [hypothesis].
         let whole = |g: &mut fnv_game::Game<'static>, code: u16| {
@@ -331,7 +335,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 })
                 .collect();
             if !changes.is_empty() {
-                s.effects.push(EffectLine { name: forms.text(e.source.0).name.clone(), text: model::changes_text(&changes) });
+                // The player's tweak adds the seconds left [design: docs/design/tweaks.md].
+                let name = forms.text(e.source.0).name.clone();
+                let name = if g.tweaks.effect_time_left && e.duration > 0.0 { format!("{name} ({:.0}s)", (e.duration - e.elapsed).max(0.0)) } else { name };
+                s.effects.push(EffectLine { name, text: model::changes_text(&changes) });
             }
         }
     });
