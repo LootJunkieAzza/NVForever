@@ -752,6 +752,7 @@ fn write_tutorial(
     mut fonts: draw::FontKit,
     mut written: Local<TutorialWritten>,
     mut check: ResMut<TutorialScrollCheck>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
 ) {
     check.wrote = None;
     if !switch.tutorial {
@@ -769,7 +770,7 @@ fn write_tutorial(
         check.drawn = None;
         return;
     }
-    let pages = crate::tutorial_menu::pages_with(game, tutorial_menu::body_text);
+    let pages = crate::tutorial_menu::pages_with(game, tutorial_menu::body_text, bindings.as_deref());
     let (Some(menu), false) = (game.ui_tree.menu(tutorial_menu::TUTORIAL_MENU), pages.is_empty()) else { return };
     let at = view.page.min(pages.len() - 1);
     let now = tutorial_menu::Shown { menu, page: pages[at].clone(), at, of: pages.len() };
