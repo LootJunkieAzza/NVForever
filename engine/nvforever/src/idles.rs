@@ -89,6 +89,7 @@
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
 use crate::residents::Residents;
+use crate::sprint_guard::{self, Pose, SprintGuard, Sprinting, Verdict};
 use crate::weapons::{HeldWeapon, WeaponHold};
 use bevy::prelude::*;
 use fnv_actor::idle::meshes_path;
@@ -102,7 +103,7 @@ use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Clip, Layer};
 use nvf_assets::model::ModelCtx;
 use nvf_play::control::PlayerControl;
-use nvf_play::player::Player;
+use nvf_play::player::{MoveIntent, Player};
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
 use std::borrow::Cow;
@@ -533,6 +534,8 @@ pub struct Idles {
     told: HashMap<u32, u32>,
     /// Idles asked for whose clip is being read on a worker thread, and since when.
     waiting: Vec<(IdleRequest, std::time::Instant)>,
+    /// The first-person sprint pose that stays after the sprint (queue item 113).
+    sprint: SprintGuard,
     rng: Rng,
     pub stats: Stats,
 }
@@ -548,7 +551,11 @@ impl Default for Idles {
             clock: 0.0,
             player_feet: None,
             told: HashMap::new(),
-            waiting: Vec::new(), rng: Rng(0x1D1E_5EED), stats: Stats::default() }
+            waiting: Vec::new(),
+            sprint: SprintGuard::default(),
+            rng: Rng(0x1D1E_5EED),
+            stats: Stats::default(),
+        }
     }
 }
 
@@ -617,7 +624,7 @@ pub fn drive(
     mut residents: Option<ResMut<Residents>>,
     mut sim: Option<ResMut<nvf_play::sim::SimState>>,
     player: Option<Res<Player>>,
-    control: Option<Res<PlayerControl>>,
+    (control, intent): (Option<Res<PlayerControl>>, Option<Res<MoveIntent>>),
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut actors: Query<Drawn>,
@@ -741,6 +748,12 @@ pub fn drive(
         (Some(a), Some(b)) => (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f32>().sqrt() > PLAYER_STILL,
         _ => true,
     };
+    // Across the ground, for the sprint guard.
+    let player_speed = match (feet, st.player_feet) {
+        (Some(a), Some(b)) if dt > 0.0 => ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt() / dt,
+        _ => 0.0,
+    };
+    let mut sprint_asked_again = false;
     st.player_feet = feet;
     let player_still = !moved
         && control.as_deref().is_some_and(|c| c.weapon_out && !c.aiming && !c.trigger && !c.reload && c.third_person_view())
@@ -1094,6 +1107,7 @@ pub fn drive(
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
                 let started = if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
+                sprint_asked_again |= first && !started;
                 match source {
                     IdleSource::Fidget => st.stats.player_fidgets += 1,
                     IdleSource::FurnitureFidget => st.stats.player_furniture_fidgets += 1,
@@ -1179,14 +1193,53 @@ pub fn drive(
             None => {}
         }
     }
+    // The first-person sprint pose that stays after the sprint (queue item 113): ended,
+    // through its fade, once the player has not sprinted for a moment (`sprint_guard.rs`).
+    // The world held by a menu is not watched.
+    if dt > 0.0 {
+        let pose = pi
+            .first
+            .cur
+            .as_ref()
+            .filter(|c| c.group.is_none() && c.source == IdleSource::Script && (c.play.endless() || c.play.ended()) && moves_with_player(game, FormId(c.idle)))
+            .map(|c| (c.idle, Pose { serial: c.serial, ended: c.play.ended(), asked_again: sprint_asked_again }));
+        let doing = Sprinting {
+            forward: intent.as_deref().map_or(0.0, |i| i.forward),
+            walk: intent.as_deref().is_some_and(|i| i.walk),
+            sneak: intent.as_deref().is_some_and(|i| i.sneak),
+            speed: player_speed,
+            aiming: control.as_deref().is_some_and(|c| c.aiming),
+            firing: control.as_deref().is_some_and(|c| c.trigger),
+            reloading: control.as_deref().is_some_and(|c| c.reload),
+        };
+        match st.sprint.step(pose.map(|p| p.1), sprint_guard::not_sprinting(&doing), dt) {
+            Verdict::Fine => {}
+            Verdict::Stuck { secs, why } => {
+                if let Some(c) = pi.first.cur.as_mut() {
+                    c.play.stop();
+                }
+                let name = pose.map_or(String::new(), |(idle, _)| game.data.name(FormId(idle)));
+                info!("guard 113: first-person sprint pose stuck for {secs:.2} s ({why}), back to idle: {name} ends");
+            }
+            Verdict::LeftToScript => {
+                let name = pose.map_or(String::new(), |(idle, _)| game.data.name(FormId(idle)));
+                info!("guard 113: a script played {name} again after the guard ended it: left to the script");
+            }
+        }
+    }
     for slot in [&mut pi.first, &mut pi.third] {
         slot.advance(dt);
     }
     if let Some(p) = pi.first.playing().or(pi.third.playing()) {
         now.insert(player_ref, p.idle);
     }
+    // Told again when the rules' own note is not what plays, not only when what plays
+    // changed: a load makes the game anew, without the note (`RefExtra::idle` is not
+    // saved), while the idle plays on here. JAM's sprint ends its pose only while
+    // IsIdlePlayingEx says it plays, and drops its effect once it does not: a note lost
+    // that way left the pose looping for good [hypothesis: one way to queue item 113].
     for (actor, idle) in &now {
-        if st.told.get(actor) != Some(idle) {
+        if st.told.get(actor) != Some(idle) || game.idle_playing(FormId(*actor)) != Some(FormId(*idle)) {
             game.set_idle_playing(FormId(*actor), Some(FormId(*idle)));
         }
     }
@@ -1251,6 +1304,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
     info!("furniture fidget summary: {} fidgets on furniture started on actors, {} on the player", s.actor_furniture_fidgets, s.player_furniture_fidgets);
     info!("talk gesture summary: {} gestures picked while talking, {} while listening; {} walks of the tree gave none", s.talk_gestures, s.listen_gestures, s.no_gesture);
     info!("cower summary: {} cower idles started on fleeing actors", s.cowers);
+    info!("guard 113 summary: the first-person sprint pose was ended {} times after it stayed past the sprint", st.sprint.fired);
 }
 
 #[cfg(test)]

@@ -19406,3 +19406,16 @@ order = [[
   { re = 'SwapTexture: reference 010138B2 shape nvdlc01_intromovie00:0: textures\\nvdlc01\\interface\\intromovie\\nvdlc01_intromovie\d\d\.dds', label = "the next line puts on the next" },
 ]]
 expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no slide missing" }]
+
+[[scenario]]
+name = "sprint-guard-quiet"
+source = "queue item 113 (engine/nvforever/src/sprint_guard.rs): the guard that ends a first-person sprint pose left after the sprint stays quiet in a run with no such pose; walking to the trigger outside Doc Mitchell's door and the opening's first-person idles do not set it off. JAM's own sprint start and stop need the MO2 load order and a held sprint key, which smoke runs do not have; the decision is unit-tested (sprint_guard::tests)"
+areas = ["idles"]
+paths = ["engine/nvforever/src/sprint_guard.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:walk:placed:VCG01RemoveDocCarebearModeTrigger" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 25
+expect = [
+  { re = 'guard 113: first-person sprint pose stuck', count = 0, label = "the guard never fires" },
+  { re = 'guard 113 summary: the first-person sprint pose was ended 0 times', label = "its summary: ended 0 times" },
+]

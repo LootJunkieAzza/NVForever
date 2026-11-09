@@ -70,6 +70,7 @@ mod graphics;
 mod grass;
 mod head_look;
 mod idles;
+mod sprint_guard;
 mod lights;
 mod limbs;
 mod lips;
