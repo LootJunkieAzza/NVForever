@@ -8528,6 +8528,45 @@ JG8_PROBES = (
 SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
 
 
+
+# jip14 (one write, AddNewEffect on the stimpak for the session; #1006): JIP batch 14
+# (docs/spec-notes/jip-last-14.md) in the probe save. The questions: AddNewEffect's count
+# and where the entry lands, primitives on an actor, GetSelfAsInventoryRef outside an
+# item's script, GetDetonationTimer on what is no projectile, the sequence frequency of
+# a sequence never set, GetBlockTextureSet on a shape, GetVATSTargets out of VATS, the
+# extra camera's answer.
+def _j14(pid, body, text=False):
+    return (f"jip14.{pid}", "ref rP\nref rObj\nref rE\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j14v(pid, setup, expr, text=False):
+    return _j14(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+_J14DOC = _form("rObj", NF["docref"])
+JIP14_PROBES = (
+    [_j14v("hasprimitive.doc", _J14DOC, "rObj.HasPrimitive"),
+     _j14v("primitivebound.doc", _J14DOC, "rObj.GetPrimitiveBound X"),
+     _j14v("selfinvref", "", "GetSelfAsInventoryRef"),
+     _j14v("detonation.player", "", "rP.GetDetonationTimer"),
+     _j14v("seqfreq.doc", _J14DOC, "rObj.GetAnimSequenceFrequency \"NoSuchSequence\""),
+     _j14v("extracamera.doc", _J14DOC, "rObj.AttachExtraCamera \"NVFProbeCam\" 1 \"Bip01 Head\""),
+     _j14("textureset.player", "let aList := rP.GetBlockTextureSet \"NoSuchBlock\"\nSetFunctionValue (ar_Size aList)"),
+     _j14("vatstargets", "let aList := GetVATSTargets\nSetFunctionValue (ar_Size aList)"),
+     _j14("addneweffect.stimpak", _form("rObj", NF["stimpak"]) + "let rE := GetNthEffectBase rObj 0\nlet fA := GetNumEffects rObj\n"
+          "let fB := AddNewEffect rObj rE 1 1\nSetFunctionValue (sv_Construct \"%g %g %g %z\" fA fB (GetNumEffects rObj) "
+          "(GetFormIDString (GetNthEffectBase rObj 0)))", True),
+     _j14("addneweffect.append", _form("rObj", NF["stimpak"]) + "let rE := GetNthEffectBase rObj 0\nlet fA := GetNumEffects rObj\n"
+          "let fB := AddNewEffect rObj rE 1 1 0 0 1\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)", True),
+     _j14("addneweffect.notmagic", _form("rObj", NF["pistol10"]) + "let rE := GetNthEffectBase (GetFormFromMod \"FalloutNV.esm\" \""
+          + NF["stimpak"] + "\") 0\nSetFunctionValue (AddNewEffect rObj rE 1 1)")]
+)
+
+SETS.update({"jip14": JIP14_PROBES})  # JIP batch 14 (#1006)
+WRITING_SETS |= {"jip14"}
+
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"

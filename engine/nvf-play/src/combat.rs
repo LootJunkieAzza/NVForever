@@ -2847,7 +2847,7 @@ pub(crate) fn fire(
         let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
         let sp = spread_perks(&mut c.spread_perks_logged, script.as_deref_mut(), &mut sim, id);
         let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength, sp);
-        let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
+        let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance) * wobble(script.as_deref(), FormId::PLAYER_REF);
         let (actor_spread, _) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, actor_spread);
         let cone = spread::cone_deg(actor_spread.max(0.0), c.kick.bloom, &w, &effects);
         c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
@@ -2939,7 +2939,7 @@ pub(crate) fn fire(
                 let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength, sp);
                 // The Calculate Gun Spread perks change the actor spread, not the weapon's
                 // minimum (docs/spec-notes/perk-entry-points.md §2).
-                let formula = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
+                let formula = spread::actor_spread(&c.rules, &c.tuning, &w, &stance) * wobble(script.as_deref(), FormId::PLAYER_REF);
                 let (actor_spread, by) = player_weapon_perk(script.as_deref_mut(), &mut sim, fnv_game::perks::CALCULATE_GUN_SPREAD, id, formula);
                 let actor_spread = actor_spread.max(0.0);
                 if !by.is_empty() {
@@ -4216,14 +4216,26 @@ fn actor_attacks(
     }
 }
 
+/// SetNoGunWobble (`fnv_game::nvse_jip14`): 0 for an actor whose gun does not wobble
+/// (no actor spread [hypothesis: the wobble the page names is the actor's spread, the
+/// aim's own unsteadiness]), else 1.
+pub fn wobble(script: Option<&ScriptState>, actor: FormId) -> f32 {
+    if script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.gun_wobble_off(actor)) {
+        0.0
+    } else {
+        1.0
+    }
+}
+
 /// The shot `FireWeapon` asks of `from` (`fnv_game::functions` fighting): from the
 /// reference's centre straight ahead along its rotation, with no spread [documented:
 /// GECK wiki FireWeapon, "from the center of the reference … straight out"]. The centre
 /// is the reference's origin, an actor's raised to its middle (half of 128 units)
 /// [hypothesis]; ahead is its heading (z, clockwise from north) tilted by its x angle,
 /// a positive x looking down [hypothesis: the game turns both clockwise]. The model's
-/// projectile node is not used yet.
-fn script_shot(sim: &SimState, from: FormId, weapon: FormId) -> Option<ActorFire> {
+/// projectile node is not used yet; FireWeaponEx's node (`fnv_game::nvse_jip14`) gives
+/// the start when its place is known.
+fn script_shot(sim: &SimState, from: FormId, weapon: FormId, muzzle: Option<[f32; 3]>) -> Option<ActorFire> {
     // A reference nothing has moved yet (a rigged shotgun) stands where it was placed.
     let (pos, rot) = match sim.world.peek(from) {
         Some(s) => (s.pos, s.rot),
@@ -4232,7 +4244,7 @@ fn script_shot(sim: &SimState, from: FormId, weapon: FormId) -> Option<ActorFire
     let actor = from == FormId::PLAYER_REF || sim.is_actor(from.0);
     let [x, _, z] = rot;
     let aim = [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()];
-    let origin = [pos[0], pos[1], pos[2] + if actor { 64.0 } else { 0.0 }];
+    let origin = muzzle.unwrap_or([pos[0], pos[1], pos[2] + if actor { 64.0 } else { 0.0 }]);
     Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false })
 }
 
@@ -4269,8 +4281,8 @@ fn fly(
         for req in requests {
             let actor = match req {
                 CombatRequest::Detonate(actor) => actor,
-                CombatRequest::Fire { from, weapon } => {
-                    match script_shot(&sim, from, weapon) {
+                CombatRequest::Fire { from, weapon, muzzle } => {
+                    match script_shot(&sim, from, weapon, muzzle) {
                         Some(shot) => c.script_shots.push(shot),
                         None => debug!("combat: FireWeapon on {from}: no such reference in the world"),
                     }
@@ -4280,8 +4292,8 @@ fn fly(
                     c.boom.push((explosion, at, None));
                     continue;
                 }
-                CombatRequest::Dismember { actor, location, by } => {
-                    match crate::dismember::scripted_check(c, &parts, &sim, actor, location, by) {
+                CombatRequest::Dismember { actor, location, by, explode } => {
+                    match crate::dismember::scripted_check(c, &parts, &sim, actor, location, by, explode) {
                         Some(check) => dm.checks.push(check),
                         None => info!("dismember: KillActor on {actor}: no part at location {location} can go (or its body is not drawn)"),
                     }
@@ -4325,6 +4337,22 @@ fn fly(
                     f.speed_mult = m;
                 }
                 rt.game.projectile_moved(r, f.p.pos, f.p.age, f.p.travelled);
+                // GetDetonationTimer (`fnv_game::nvse_jip14`): a timed explosive's time
+                // left; a mine or a proximity charge not set off, FLOAT_MAX [documented];
+                // none for the rest.
+                let fuse = match (f.p.explosion.is_some(), f.p.alt_trigger) {
+                    (true, true) if f.p.mine || f.p.proximity > 0.0 => Some(f32::MAX),
+                    (true, true) if f.p.timer > 0.0 => Some((f.p.timer - f.p.age).max(0.0)),
+                    _ => None,
+                };
+                rt.game.set_fuse(r, fuse);
+            }
+            for (r, secs) in rt.game.take_fuse_sets() {
+                if let Some(f) = flying.iter_mut().find(|f| f.rref == Some(r)) {
+                    f.p.timer = f.p.age + secs;
+                    f.p.proximity = 0.0;
+                    info!("combat: a script sets {r}'s fuse to {secs:.2} s");
+                }
             }
             for p in pending.iter_mut() {
                 let Some(r) = p.rref else { continue };
