@@ -18,11 +18,11 @@ use crate::frame_pace::{self, DisplaySync, FramePace};
 use crate::graphics::{self, Graphics};
 use crate::grass::GrassConfig;
 use crate::foot_ik::FootIkSettings;
-use crate::fps_counter::FpsCounter;
 use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
 use crate::lod::LodState;
 use crate::nav::NavState;
+use crate::perf_overlay::{FpsCounter, Low};
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
 use crate::window_mode;
@@ -32,8 +32,8 @@ use bevy::prelude::*;
 use nvf_play::pause::GROUP_MENUS;
 use nvf_play::settings::{add_choice_list, add_setting, choice_index, choice_part, ChoiceList, Setting, Slider};
 
-// The pause menu shows the groups as the original's settings categories (Gameplay,
-// Display, …), one short word each (nvf_play::pause).
+// The groups the rows register with, one short word each; which tab and heading the pause
+// menu shows each row under is nvf_play::settings_layout's table, not the group (#1953).
 const GROUP_WORLD: &str = "World";
 const GROUP_PICTURE: &str = "Display";
 const GROUP_DEVELOPER: &str = "Debug";
@@ -43,7 +43,7 @@ const GROUP_GRAPHICS: &str = "Graphics";
 /// the `--name` of each argument, without the `--size` a run taking over a load is given
 /// (the window's size then, handoff.rs). They win over the INI in a test run: a timed,
 /// measured or pictured run, whose results must be those of its switches (#1382).
-fn given_switches(args: &Args, line: &[String]) -> nvf_play::settings::GivenSwitches {
+pub(crate) fn given_switches(args: &Args, line: &[String]) -> nvf_play::settings::GivenSwitches {
     let handoff = line.iter().any(|a| a == "--handoff" || a.starts_with("--handoff="));
     let given = line
         .iter()
@@ -299,7 +299,7 @@ pub fn register(app: &mut App) {
     // Renderer edits are latched by the shared settings setters, including Defaults.
     // Draw-distance streaming has no resume readiness contract yet (#1820) [design].
     register_pipeline_waits(app);
-    // The Sound tab after the picture's, as the original lists Audio after Display.
+    // The volumes after the picture's rows (shown on the Audio tab: nvf_play::settings_layout).
     nvf_play::audio_out::register_settings(app);
     add_setting(
         app,
@@ -353,13 +353,22 @@ pub fn register(app: &mut App) {
     }
 }
 
+/// The Frame rate counter switch's note; the switch it names (`--fps`) decides with the
+/// INI whether the frame split takes GPU timestamps from the start
+/// (`perf_overlay::split::timestamps_wanted`), as `nvf_play::settings::apply_stored` reads it.
+pub(crate) const FPS_COUNTER_NOTE: &str = "On: a small panel of performance readings at the top right of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)";
+
+/// The frame split row's note (no command-line switch: the INI's state always applies).
+pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread (the game's own work), on the render thread (preparing the picture, including the wait for the window's next image, shown in brackets: with vertical sync that wait is the display's time, not work) and on the graphics card (the render passes it times, from GPU timestamps), each the mean over half a second. A frame held up by the processor has a long main time, or a long render time beside a short wait; the GPU time is what tells a frame held up by the graphics card. The GPU part needs this row and the counter on when the game starts (it takes effect at the next start), and a graphics card that offers timestamps; without them it is left out. Unless a measuring aid also uses them, the timestamps are taken only while the row shows.";
+
 /// The field of view's least and greatest degrees on the settings page, in steps of 5.
 const FOV_MIN: f32 = 50.0;
 const FOV_MAX: f32 = 110.0;
 const FOV_CHOICES: usize = 13;
 
-/// The field of view (`--fov`), the frame rate counter (`fps_counter.rs`) and how fast frames are shown (`frame_pace.rs`; not while
-/// `--log-frame-times` measures, which wants vsync off).
+/// The field of view (`--fov`), the frame rate counter (the performance overlay,
+/// `perf_overlay/`: its switch and a switch per row) and how fast frames are
+/// shown (`frame_pace.rs`; not while `--log-frame-times` measures, which wants vsync off).
 fn register_display(app: &mut App) {
     add_setting(
         app,
@@ -379,12 +388,13 @@ fn register_display(app: &mut App) {
             key: "fps-counter",
             group: GROUP_PICTURE,
             label: "Frame rate counter",
-            note: "On: the frames a second, the mean frame time and the slowest frame of the last half second are shown in the top-right corner. Not in the original. (--fps)",
+            note: FPS_COUNTER_NOTE,
             get: |w| w.resource::<FpsCounter>().show,
             set: |w, on| w.resource_mut::<FpsCounter>().show = on,
             slider: None,
         },
     );
+    register_counter_rows(app);
     if app.world().resource::<Args>().log_frame_times.is_some() {
         return;
     }
@@ -431,6 +441,117 @@ fn register_display(app: &mut App) {
             ),
         ),
     );
+}
+
+/// The frame rate counter's rows, listed under its switch (issue #1868; the
+/// defaults are the issue's, `perf_overlay::Rows`). Each note says what the row reads and
+/// where from.
+fn register_counter_rows(app: &mut App) {
+    let row = |key: &'static str, label: &'static str, note: &'static str, get: fn(&World) -> bool, set: fn(&mut World, bool)| Setting { key, group: GROUP_PICTURE, label, note, get, set, slider: None };
+    add_setting(
+        app,
+        row(
+            "fps-counter-fps",
+            "Counter: frame rate",
+            "The frames a second and the mean frame time of the last half second, and the 1% low (the mean of the slowest hundredth of the frames of the last 10 seconds) or the slowest frame of the last 10 seconds, as the row below chooses. Measured from the time between frames.",
+            |w| w.resource::<FpsCounter>().rows.fps,
+            |w, on| w.resource_mut::<FpsCounter>().rows.fps = on,
+        ),
+    );
+    add_choice_list(
+        app,
+        Setting {
+            key: "fps-counter-low",
+            group: GROUP_PICTURE,
+            label: "Counter: last figure",
+            note: "The frame rate row's last figure, over the last 10 seconds: 1% low, the mean of the slowest hundredth of the frames; Slowest frame, the single slowest.",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| Low::ALL.iter().map(|l| l.name().to_string()).collect(),
+            chosen: |w| w.resource::<FpsCounter>().rows.low.name().to_string(),
+            pick: set_counter_low,
+            save: |w| w.resource::<FpsCounter>().rows.low.stored().to_string(),
+            load: set_counter_low,
+            ask_keep: false,
+        },
+    );
+    let rows = [
+        row(
+            "fps-counter-graph",
+            "Counter: frame graph",
+            "The frame times of the last 5 seconds as a line under the frame rate, the newest at the right, with a faint line at a 60 Hz frame (16.7 ms); its top is the slowest frame drawn, or two 60 Hz frames when every frame was faster, so a spike reaches the top. Measured from the time between frames, drawn again twice a second.",
+            |w| w.resource::<FpsCounter>().rows.graph,
+            |w, on| w.resource_mut::<FpsCounter>().rows.graph = on,
+        ),
+        row(
+            "fps-counter-split",
+            "Counter: frame split",
+            FPS_SPLIT_NOTE,
+            |w| w.resource::<FpsCounter>().rows.split,
+            |w, on| w.resource_mut::<FpsCounter>().rows.split = on,
+        ),
+        row(
+            "fps-counter-cpu",
+            "Counter: CPU use",
+            "The whole machine's processor use, as Task Manager shows it, and the game's own as cores kept busy: 1.0 is all of one core's time, so a thread held at its limit reads at least 1.0 however many cores the machine has. From Windows' performance counters and the game's processor time, read once a second while the counter shows. Windows only.",
+            |w| w.resource::<FpsCounter>().rows.cpu,
+            |w, on| w.resource_mut::<FpsCounter>().rows.cpu = on,
+        ),
+        row(
+            "fps-counter-gpu",
+            "Counter: GPU use",
+            "The use of the graphics card's busiest engine by every program, as Task Manager shows it. From Windows' performance counters, read once a second while the counter shows. Windows only.",
+            |w| w.resource::<FpsCounter>().rows.gpu,
+            |w, on| w.resource_mut::<FpsCounter>().rows.gpu = on,
+        ),
+        row(
+            "fps-counter-vram",
+            "Counter: GPU memory",
+            "The graphics memory the game holds against the budget the driver gives it (Vulkan's memory budget, read every 2 seconds). It is the driver's figure: it counts the blocks kept empty for reuse, so it is what the game holds, not the size of what is drawn. Left out on a graphics chip that shares the machine's RAM, which has no budget of its own. Marked ! while the game keeps fewer unused models and textures because it is near the budget.",
+            |w| w.resource::<FpsCounter>().rows.vram,
+            |w, on| w.resource_mut::<FpsCounter>().rows.vram = on,
+        ),
+        row(
+            "fps-counter-ram",
+            "Counter: RAM",
+            "The game's memory in RAM (its working set, from Windows once a second while the counter shows) and the share of the machine's RAM in use (read every 2 seconds). Marked ! while the game keeps fewer unused models and textures because the machine has under a tenth of its RAM free. Windows only.",
+            |w| w.resource::<FpsCounter>().rows.ram,
+            |w, on| w.resource_mut::<FpsCounter>().rows.ram = on,
+        ),
+        row(
+            "fps-counter-loaded",
+            "Counter: loaded",
+            "What the game holds now: the cells loaded in the physics world, the placed objects with a model, the actors with a skeleton and every entity of the engine, counted twice a second while the row shows (the stress tests' counts).",
+            |w| w.resource::<FpsCounter>().rows.loaded,
+            |w, on| w.resource_mut::<FpsCounter>().rows.loaded = on,
+        ),
+    ];
+    for r in rows {
+        add_setting(app, r);
+    }
+}
+
+/// The frame rate row's last figure of this name (or INI text, `Low::parse`); false: not
+/// one.
+fn set_counter_low(world: &mut World, name: &str) -> bool {
+    let Some(low) = Low::parse(name) else { return false };
+    world.resource_mut::<FpsCounter>().rows.low = low;
+    true
+}
+
+/// `[Settings] <key>` of the INI this run reads (`SettingsFile::for_run`), for what has to
+/// be known when the app is built, before the INI is applied (`apply_stored`, PostStartup):
+/// the CPU placement (`cpu_placement.rs`), the frame split's GPU timestamps
+/// (`perf_overlay::split`). None without the INI or the key.
+pub(crate) fn stored_at_start(key: &str) -> Option<String> {
+    // Unattended: a test aid drives this run (as nvf_play's test_aid::Unattended).
+    let unattended = std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run));
+    let path = nvf_play::settings::SettingsFile::for_run(unattended).0?;
+    let text = std::fs::read_to_string(path).ok()?;
+    fnv_install::ini_get(&text, nvf_play::settings::SECTION, key)
 }
 
 /// The display sync of this name (or INI text, `DisplaySync::parse`); false: not one.

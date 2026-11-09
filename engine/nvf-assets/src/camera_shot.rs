@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(model(None).root_at(5.0).0, Vec3::new(-59.0, -226.0, 18.0));
         assert_eq!(model(None).length(), 0.0);
         let keys = Keys { kind: KeyKind::Linear, keys: vec![Key { time: 0.0, value: [0.0, -200.0, 20.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }, Key { time: 2.0, value: [0.0, -100.0, 20.0], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] }] };
-        let t = TransformTrack { translation: Channel::Keys(keys), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) };
+        let t = TransformTrack { translation: Channel::Keys(keys), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None };
         let m = model(Some(t));
         assert_eq!(m.length(), 2.0);
         assert!((m.root_at(1.0).0 - Vec3::new(0.0, -150.0, 20.0)).length() < 1e-3);
