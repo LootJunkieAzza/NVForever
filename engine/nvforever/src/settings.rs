@@ -32,8 +32,8 @@ use bevy::prelude::*;
 use nvf_play::pause::GROUP_MENUS;
 use nvf_play::settings::{add_choice_list, add_setting, choice_index, choice_part, ChoiceList, Setting, Slider};
 
-// The pause menu shows the groups as the original's settings categories (Gameplay,
-// Display, …), one short word each (nvf_play::pause).
+// The groups the rows register with, one short word each; which tab and heading the pause
+// menu shows each row under is nvf_play::settings_layout's table, not the group (#1953).
 const GROUP_WORLD: &str = "World";
 const GROUP_PICTURE: &str = "Display";
 const GROUP_DEVELOPER: &str = "Debug";
@@ -296,7 +296,7 @@ pub fn register(app: &mut App) {
     register_display(app);
     register_distances(app);
     register_graphics(app);
-    // The Sound tab after the picture's, as the original lists Audio after Display.
+    // The volumes after the picture's rows (shown on the Audio tab: nvf_play::settings_layout).
     nvf_play::audio_out::register_settings(app);
     add_setting(
         app,

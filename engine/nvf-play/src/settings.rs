@@ -254,8 +254,10 @@ impl Setting {
 
 type DisabledStatus = fn(&World) -> Option<&'static str>;
 
-/// The switches in the order the page lists them: by group, each group in the order its
-/// switches were added.
+/// The switches in the registry's order: by group, each group in the order its switches
+/// were added. The values, the INI and the test aids go by a row's index in it; where the
+/// page shows a row (its tab and heading) is `crate::settings_layout`'s, not this order
+/// [design: #1953].
 #[derive(Resource, Default)]
 pub struct Settings(Vec<Setting>, Vec<(&'static str, ChoiceList)>, Vec<(&'static str, DisabledStatus)>);
 
