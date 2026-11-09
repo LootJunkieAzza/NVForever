@@ -351,6 +351,13 @@ pub struct Tweaks {
     pub swap_ammo_holstered: bool,
     /// `bNoAutoContinueDialog`: each response of a conversation waits for a click.
     pub no_auto_continue_dialogue: bool,
+    /// `bDontSetQuestWhenObjectivesAdded`, `bDontSetQuestWhenCompletingObjectives`: the
+    /// Pip-Boy does not make a quest active by itself (only the player's pick or a
+    /// script's ForceActiveQuest does).
+    pub no_quest_set_on_objective: bool,
+    pub no_quest_set_on_complete: bool,
+    /// `bHideReadNotes`: the Pip-Boy's notes leave out those already read.
+    pub hide_read_notes: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -516,6 +523,9 @@ impl Default for Tweaks {
             pause_on_load: false,
             swap_ammo_holstered: false,
             no_auto_continue_dialogue: false,
+            no_quest_set_on_objective: false,
+            no_quest_set_on_complete: false,
+            hide_read_notes: false,
         }
     }
 }

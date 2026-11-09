@@ -1138,6 +1138,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "slots-hold-to-spin", "Slots: Hold to Spin", "Holding W at a slot machine spins it again each time the reels stop. (Stewie's Tweaks bSlotsAutoSpinHotkey)", slots_hold_to_spin);
         switch!(app, "no-auto-continue-dialogue", "Click to Continue Dialogue", "In a conversation each line waits for a click before the next, giving time to read. (Stewie's Tweaks bNoAutoContinueDialog)", game.no_auto_continue_dialogue);
         switch!(app, "shift-talks-sneaking", "Shift to Talk While Sneaking", "While sneaking, holding Shift talks to a person instead of picking their pocket. (Stewie's Tweaks bTalkWhileSneakingIfShiftIsHeld)", shift_talks_sneaking);
+        switch!(app, "no-quest-set-on-objective", "No Active Quest From New Objectives", "With no quest active, a new objective does not make its quest the active one. (Stewie's Tweaks bDontSetQuestWhenObjectivesAdded)", game.no_quest_set_on_objective);
+        switch!(app, "no-quest-set-on-complete", "No Active Quest After Completing One", "When the active quest is done, no other quest becomes active by itself. (Stewie's Tweaks bDontSetQuestWhenCompletingObjectives)", game.no_quest_set_on_complete);
+        switch!(app, "hide-read-notes", "Hide Read Notes", "The Pip-Boy's notes list leaves out notes already read. (Stewie's Tweaks bHideReadNotes)", game.hide_read_notes);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

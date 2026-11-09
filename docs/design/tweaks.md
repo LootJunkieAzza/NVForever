@@ -449,6 +449,8 @@ unless the player binds them, so nothing changes until then.
 | Slots: Hold to Spin | `bSlotsAutoSpinHotkey` | `slots::keys` sends Spin while W is held and the machine is waiting for a bet |
 | Click to Continue Dialogue | `bNoAutoContinueDialog` | `Game::update_dialogue` holds a response that ran out until `skip_response` (the click) |
 | Shift to Talk While Sneaking | `bTalkWhileSneakingIfShiftIsHeld` | `activate::shift_talks` sets a switch read by `actor_action_in`, which then offers Talk |
+| No Active Quest From New Objectives / After Completing One | `bDontSetQuestWhenObjectivesAdded`, `bDontSetQuestWhenCompletingObjectives` | `pipboy::data` stops picking the first quest under way by itself; either switch does it, as NVForever has no separate objective-added moment there |
+| Hide Read Notes | `bHideReadNotes` | `pipboy::data` leaves out notes `Game::note_read` says are read, but for the one on screen |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -469,8 +471,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 364 |
-| to do | 239 |
+| done | 367 |
+| to do | 236 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -716,6 +718,8 @@ game's Data folder, read-only).
 | `bDisableInteriorFog` | done |  | 1 | No Interior Fog (from the next interior; the threshold option not built) |
 | `bDisableTutorialMessages` | done |  |  | No Minigame Help (lockpick, blackjack, roulette, slots; Caravan not yet) |
 | `bDisableWeaponFOV` | done |  | 1 | No Iron Sight Zoom (the non-sighted option not built) |
+| `bDontSetQuestWhenCompletingObjectives` | done |  |  | No Active Quest After Completing One |
+| `bDontSetQuestWhenObjectivesAdded` | done |  |  | No Active Quest From New Objectives (both quest tweaks keep the Pip-Boy from picking one) |
 | `bFireWhileAiming` | done |  |  | already so: the trigger does not wait for the zoom |
 | `bHideMiscQuestItems` | done |  | 1 | Hide Quest Items in Misc (the star caps option not built) |
 | `bHoldCrouchToSneak` | done |  |  | Hold to Sneak |
@@ -767,8 +771,6 @@ game's Data folder, read-only).
 | `bAllowActivateWhileAnimPlays` | to do |  |  | NVForever never refuses activating during a reload; check what the original refuses |
 | `bAllowUnsafeFastTravel` | to do |  | 1 | only cells flagged Can't Travel From Here refuse; the tweak would skip that flag |
 | `bDisableHitShader` | to do |  | 1 | NVForever draws no hit shader yet |
-| `bDontSetQuestWhenCompletingObjectives` | to do |  |  | pipboy data::lists picks an active quest whenever none is |
-| `bDontSetQuestWhenObjectivesAdded` | to do |  |  | pipboy data::lists picks an active quest whenever none is |
 | `bEnteringVATSDoesntUnholsterWeapon` | to do |  |  | a drawn-by-VATS flag and a holster on end |
 | `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
 | `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
@@ -902,6 +904,7 @@ game's Data folder, read-only).
 | `bHideMapMarkerFactionReputation` | done |  |  | No Reputation on Map Markers |
 | `bHideQuestItemWeightAndValue` | done |  |  | No Figures for Quest Items |
 | `bHideRanksInTraitMenu` | done |  |  | No Ranks for Traits |
+| `bHideReadNotes` | done |  |  | Hide Read Notes (the note on screen stays) |
 | `bHideUnavailableRadios` | done |  |  | already so: the Pip-Boy lists only stations in range |
 | `bIndividialItemStats` | done |  |  | One Item's Figures (the Pip-Boy; containers already show one) |
 | `bInvertContainerTitleScrollwheelDirection` | done |  |  | Reverse Category Wheel |
@@ -966,7 +969,6 @@ game's Data folder, read-only).
 | `bHideHotkeyedItemsInBarter` | to do |  |  | the menu model has no hotkey view |
 | `bHideHotkeyedItemsInContainers` | to do |  |  | the menu model has no hotkey view |
 | `bHideHotkeyedItemsInRepairLists` | to do |  |  | repair offer has no hotkeys |
-| `bHideReadNotes` | to do |  |  | data lists with note_read; the shown note marks itself read |
 | `bHideReputationTabIfEmpty` | to do |  |  | stats view and switch; the flag on Snapshot |
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |

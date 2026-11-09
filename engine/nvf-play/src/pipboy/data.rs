@@ -712,10 +712,18 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         }
     }
     if !st.active_quest.is_some_and(|a| out.quests.iter().any(|q| q.form == a && !q.done)) {
-        st.active_quest = out.quests.iter().find(|q| !q.done).map(|q| q.form);
+        // The player's tweaks: no quest is made the active one by itself, neither when
+        // the active one is done nor when objectives come with none active [design: docs/design/tweaks.md].
+        let by_hand_only = g.tweaks.no_quest_set_on_objective || g.tweaks.no_quest_set_on_complete;
+        st.active_quest = if by_hand_only { None } else { out.quests.iter().find(|q| !q.done).map(|q| q.form) };
     }
     if let Some(w) = game.world.as_ref() {
         for n in &g.player.notes {
+            // The player's tweak: notes already read are left out, but for the one on
+            // screen (showing a note reads it) [design: docs/design/tweaks.md].
+            if g.tweaks.hide_read_notes && g.note_read(*n) && st.note_shown != Some(n.0) {
+                continue;
+            }
             let note = st.notes.entry(n.0).or_insert_with(|| read::note(w.lo, w.schema, n.0));
             if let Some(note) = note {
                 // The player's tweak takes in every quest under way [design: docs/design/tweaks.md].
