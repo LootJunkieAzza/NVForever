@@ -354,7 +354,12 @@ impl Model {
 
     /// The menu as the function that opened it has it: the character creator opens on
     /// Basics framed on the face; the barber on its Hair tab, framed for the hair.
-    pub fn of_kind(data: Arc<Creator>, look: Look, kind: RaceMenu) -> Model {
+    pub fn of_kind(data: Arc<Creator>, mut look: Look, kind: RaceMenu) -> Model {
+        // A save's or an older version's look younger than an adult opens as one (queue
+        // item 110); Reset goes back to that.
+        if let Some(was) = data.adult(&mut look) {
+            bevy::log::info!("creator: the look read {was:.0} years: raised to {}", creator::MIN_AGE);
+        }
         let tab = if kind == RaceMenu::Barber { Tab::Hair } else { Tab::Basics };
         Model {
             data,
@@ -757,6 +762,7 @@ impl Model {
             }
             Row::Group | Row::Slider(_) | Row::Voice => {}
         }
+        self.adult("a starting face or preset");
         self.look != before || row == Row::Preset
     }
 
@@ -797,6 +803,20 @@ impl Model {
             self.look.hair_color = p.hair_color.or(self.look.hair_color);
             self.look.head_parts = p.head_parts.clone();
             self.preset = 1;
+        }
+        self.adult("the race's first starting face");
+    }
+
+    /// The look's age reading (years), if the controls have an age control.
+    pub fn age(&self) -> Option<f64> {
+        self.sliders().iter().find(|s| s.label == AGE_LABEL).map(|s| s.value(&self.look.facegen, self.race_facegen()))
+    }
+
+    /// No face younger than an adult (`fnv_actor::creator::MIN_AGE`, queue item 110):
+    /// a random blend or an authored face that reads younger is raised to it.
+    fn adult(&mut self, what: &str) {
+        if let Some(was) = self.data.adult(&mut self.look) {
+            bevy::log::info!("creator: {what} read {was:.0} years: raised to {}", creator::MIN_AGE);
         }
     }
 
@@ -878,6 +898,7 @@ impl Model {
             creator::set_part(&mut self.look, &beards, None);
         }
         self.preset = 0;
+        self.adult("a random face");
     }
 
     pub fn undo(&mut self) -> bool {

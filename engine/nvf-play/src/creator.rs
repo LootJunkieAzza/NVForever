@@ -90,6 +90,33 @@ pub fn game_look(l: &fnv_actor::Look) -> rules::Look {
     }
 }
 
+/// A game look raised to an adult's age when it reads younger (`Creator::adult`, queue
+/// item 110): the age it read before, when raised.
+pub fn adult_game_look(data: &CreatorData, l: &mut rules::Look) -> Option<f64> {
+    let mut a = actor_look(l);
+    let was = data.0.adult(&mut a)?;
+    *l = game_look(&a);
+    Some(was)
+}
+
+/// The player's look as a save, a script or an older version left it: one younger than
+/// an adult is raised to one, once each time it changes (queue item 110).
+fn adult_player(data: Option<Res<CreatorData>>, mut script: Option<ResMut<ScriptState>>, mut seen: Local<Option<rules::Look>>) {
+    let Some(data) = data else { return };
+    let Some(look) = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.look.as_ref()) else { return };
+    if seen.as_ref() == Some(look) {
+        return;
+    }
+    let mut l = look.clone();
+    if let Some(was) = adult_game_look(&data, &mut l) {
+        info!("creator: the player's look read {was:.0} years: raised to {}", fnv_actor::creator::MIN_AGE);
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            rt.game.player.look = Some(l.clone());
+        }
+    }
+    *seen = Some(l);
+}
+
 /// The player's look after SexChange with reset (`fnv_game::appearance`): `start` (the
 /// look now, or the record's, with the new race and sex) with the race's first starting
 /// face for that sex ([`Model::reset_to_preset`]).
@@ -239,7 +266,7 @@ impl Plugin for CreatorPlugin {
         };
         app.init_resource::<CreatorMenu>()
             .insert_resource(CreatorAid(aid))
-            .add_systems(Update, (sync, input, write_look, camera, draw).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (adult_player, sync, input, write_look, camera, draw).chain().in_set(PlaySet::Ui))
             .add_systems(Startup, say_data);
     }
 }
@@ -709,6 +736,10 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
             if how != "drag" && how != "key held" {
                 info!("creator: {shown} ({how})");
             }
+        }
+        // The age each look reads (queue item 110: never under 18).
+        if let Some(a) = m.age() {
+            info!("creator: age {a:.0}");
         }
     }
     st.dirty = true;
