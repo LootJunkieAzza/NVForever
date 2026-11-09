@@ -14,7 +14,13 @@
 //!
 //! Test aid `NVF_PLAY_TEST_LOBBY="<seconds>:<action>,..."` (real seconds from the start):
 //! `code=<code>` types a code, `join`, `create`, `close`, `back`, `pick=<n>` (the n-th
-//! save that can join, from 0), `shot=<file>` (a screenshot).
+//! save that can join, from 0), `shot=<file>` (a screenshot); for the Emotes menu,
+//! `emotes` (open it), `slot=<n>` (1-8: choose a slot), `equip=<emote>` (put the emote,
+//! by key, in the slot chosen), `empty` (empty it).
+//!
+//! The Emotes menu (queue item 137) chooses the eight emotes of the emote wheel
+//! (`crate::emotes`): a slot, then the emote for it, from every emote the load order has,
+//! by category. One already in another slot swaps with it; a slot can be emptied.
 
 use crate::interface::{amber, bc_supported, u};
 use crate::start_menu::{color, highlight, text, wrapped, Faces, Shade, ITEM, LINE};
@@ -34,6 +40,8 @@ const PAD: f32 = 24.0;
 const STEP: f32 = 30.0;
 /// Saves shown at once.
 const SAVE_ROWS: usize = 8;
+/// Emotes and their categories' headings shown at once.
+const EMOTE_ROWS: usize = 13;
 /// The longest code typed (12 characters and the dashes, with room for spaces).
 const MAX_TYPED: usize = 26;
 
@@ -123,6 +131,12 @@ pub struct LobbyScreen {
     frame: u32,
     opened: u32,
     closed: Option<u32>,
+    /// The Emotes menu is up: `Some(slot)` while choosing the emote for that slot.
+    emotes: Option<Option<usize>>,
+    /// The loadout and the emotes the load order has, as of this frame (from
+    /// `crate::emotes`).
+    loadout: [Option<usize>; crate::emotes::SLOTS],
+    installed: Vec<usize>,
 }
 
 impl LobbyScreen {
@@ -132,6 +146,7 @@ impl LobbyScreen {
         self.mode = Some(mode);
         self.selected = 0;
         self.saves = None;
+        self.emotes = None;
         self.opened = self.frame;
     }
 
@@ -170,6 +185,14 @@ enum Act {
     Join,
     Back,
     Save(usize),
+    /// Open the Emotes menu.
+    Emotes,
+    /// Choose a slot (0-based) of the loadout.
+    Slot(usize),
+    /// Put this emote (catalogue index) in the slot chosen.
+    Equip(usize),
+    /// Empty the slot chosen.
+    Empty,
 }
 
 pub struct LobbyPlugin;
@@ -198,13 +221,18 @@ impl Plugin for LobbyPlugin {
 
 /// The buttons and rows that can be chosen, in order.
 fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
+    match (screen.mode, screen.emotes) {
+        (Some(Mode::Host), Some(None)) => return (0..crate::emotes::SLOTS).map(Act::Slot).chain([Act::Back]).collect(),
+        (Some(Mode::Host), Some(Some(_))) => return screen.installed.iter().map(|&e| Act::Equip(e)).chain([Act::Empty, Act::Back]).collect(),
+        _ => {}
+    }
     match screen.mode {
         None => Vec::new(),
-        Some(Mode::Host) if state.guest => vec![Act::Leave, Act::Back],
+        Some(Mode::Host) if state.guest => vec![Act::Leave, Act::Emotes, Act::Back],
         Some(Mode::Host) => match state.hosting {
-            Hosting::Off => vec![Act::Create, Act::FriendlyFire, Act::Back],
+            Hosting::Off => vec![Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back],
             Hosting::Opening => vec![Act::Back],
-            Hosting::Open { .. } => vec![Act::Close, Act::FriendlyFire, Act::Back],
+            Hosting::Open { .. } => vec![Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back],
         },
         Some(Mode::Join) => match (&state.joining, &screen.saves) {
             (Joining::Found, Some(saves)) => saves.iter().enumerate().filter(|(_, s)| s.ok).map(|(i, _)| Act::Save(i)).chain([Act::Back]).collect(),
@@ -233,8 +261,16 @@ fn input(
     mut asks: MessageWriter<LobbyRequest>,
     cfg: Option<Res<crate::save::SaveConfig>>,
     sim: Option<Res<crate::sim::SimState>>,
+    (mut loadout, book): (ResMut<crate::emotes::EmoteSlots>, Res<crate::emotes::EmoteBook>),
 ) {
     screen.frame = frames.map_or(screen.frame.wrapping_add(1), |f| f.0);
+    if screen.loadout != loadout.slots {
+        screen.loadout = loadout.slots;
+    }
+    let installed: Vec<usize> = (0..crate::emotes::CATALOG.len()).filter(|&i| book.available(i)).collect();
+    if screen.installed != installed {
+        screen.installed = installed;
+    }
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
     let now = real.elapsed_secs();
     let mut aids = Vec::new();
@@ -254,8 +290,20 @@ fn input(
         } else if let Some(n) = a.strip_prefix("pick=").and_then(|n| n.parse::<usize>().ok()) {
             let save = screen.saves.as_ref().and_then(|s| s.iter().enumerate().filter(|(_, s)| s.ok).nth(n)).map(|(i, _)| i);
             match save {
-                Some(i) => take(&mut screen, &state, Act::Save(i), &mut asks),
+                Some(i) => take(&mut screen, &state, Act::Save(i), &mut asks, &mut loadout),
                 None => warn!("NVF_PLAY_TEST_LOBBY: no save {n} can join"),
+            }
+        } else if let Some(n) = a.strip_prefix("slot=").and_then(|n| n.parse::<usize>().ok()).filter(|n| (1..=crate::emotes::SLOTS).contains(n)) {
+            if screen.mode.is_none() {
+                screen.open(Mode::Host);
+            }
+            screen.emotes = Some(None);
+            take(&mut screen, &state, Act::Slot(n - 1), &mut asks, &mut loadout);
+        } else if let Some(k) = a.strip_prefix("equip=") {
+            match crate::emotes::by_key(k) {
+                Some(e) if screen.emotes.is_some_and(|s| s.is_some()) => take(&mut screen, &state, Act::Equip(e), &mut asks, &mut loadout),
+                Some(_) => warn!("NVF_PLAY_TEST_LOBBY: equip={k}: no slot chosen"),
+                None => warn!("NVF_PLAY_TEST_LOBBY: no emote {k:?}"),
             }
         } else {
             let act = match a.as_str() {
@@ -270,13 +318,20 @@ fn input(
                 "leave" => Some(Act::Leave),
                 "friendly-fire" => Some(Act::FriendlyFire),
                 "back" => Some(Act::Back),
+                "emotes" => {
+                    if screen.mode.is_none() {
+                        screen.open(Mode::Host);
+                    }
+                    Some(Act::Emotes)
+                }
+                "empty" => Some(Act::Empty),
                 other => {
                     warn!("NVF_PLAY_TEST_LOBBY: no action {other:?}");
                     None
                 }
             };
             if let Some(act) = act {
-                take(&mut screen, &state, act, &mut asks);
+                take(&mut screen, &state, act, &mut asks, &mut loadout);
             }
         }
     }
@@ -353,13 +408,45 @@ fn input(
         chosen = Some(Act::Back);
     }
     if let Some(act) = chosen {
-        take(&mut screen, &state, act, &mut asks);
+        take(&mut screen, &state, act, &mut asks, &mut loadout);
     }
 }
 
-fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut MessageWriter<LobbyRequest>) {
+fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut MessageWriter<LobbyRequest>, loadout: &mut crate::emotes::EmoteSlots) {
     info!("lobby: {act:?}");
     match act {
+        Act::Emotes => {
+            screen.emotes = Some(None);
+            screen.selected = 0;
+        }
+        Act::Slot(n) => {
+            screen.emotes = Some(Some(n));
+            // The emote in it chosen, else the first.
+            screen.selected = loadout.slots[n].and_then(|e| screen.installed.iter().position(|&i| i == e)).unwrap_or(0);
+        }
+        Act::Equip(e) => {
+            if let Some(Some(n)) = screen.emotes {
+                loadout.equip(n, e);
+                info!("emotes: slot {} is now {} ({})", n + 1, crate::emotes::CATALOG[e].key, loadout.line());
+                loadout.save();
+                screen.emotes = Some(None);
+                screen.selected = n;
+            }
+        }
+        Act::Empty => {
+            if let Some(Some(n)) = screen.emotes {
+                loadout.empty(n);
+                info!("emotes: slot {} emptied ({})", n + 1, loadout.line());
+                loadout.save();
+                screen.emotes = Some(None);
+                screen.selected = n;
+            }
+        }
+        Act::Back if screen.emotes.is_some() => {
+            let back_to = screen.emotes.flatten();
+            screen.emotes = if back_to.is_some() { Some(None) } else { None };
+            screen.selected = back_to.unwrap_or(0);
+        }
         Act::Create => {
             asks.write(LobbyRequest::Create);
         }
@@ -438,6 +525,11 @@ fn friendly_fire_label(on: bool) -> String {
 fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
     use Piece::*;
     let mut v = Vec::new();
+    if let (Some(Mode::Host), Some(slot)) = (screen.mode, screen.emotes) {
+        emote_pieces(&mut v, screen, slot);
+        v.push(Button(Act::Back, "Back".into()));
+        return v;
+    }
     match screen.mode {
         None => {}
         Some(Mode::Host) if state.guest => {
@@ -447,6 +539,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
             players(&mut v, state);
             v.push(Line(format!("Friendly fire: {} (the host's choice)", on_off(state.friendly_fire)), Shade::Dim));
             v.push(Button(Act::Leave, "Leave Lobby".into()));
+            v.push(Button(Act::Emotes, "Emotes".into()));
         }
         Some(Mode::Host) => {
             v.push(Title("Co-op Lobby".into()));
@@ -455,6 +548,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     v.push(Line("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.".into(), Shade::Bright));
                     v.push(Button(Act::Create, "Create Lobby".into()));
                     v.push(Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire)));
+                    v.push(Button(Act::Emotes, "Emotes".into()));
                 }
                 Hosting::Opening => v.push(Line("Asking your router to let friends in...".into(), Shade::Bright)),
                 Hosting::Open { code, note } => {
@@ -467,6 +561,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     players(&mut v, state);
                     v.push(Button(Act::Close, "Close Lobby".into()));
                     v.push(Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire)));
+                    v.push(Button(Act::Emotes, "Emotes".into()));
                 }
             }
         }
@@ -505,6 +600,40 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
         v.push(Button(Act::Back, "Back".into()));
     }
     v
+}
+
+/// The Emotes menu: the slots, or (`slot` chosen) the emotes for it by category, a window
+/// of [`EMOTE_ROWS`] round the one chosen.
+fn emote_pieces(v: &mut Vec<Piece>, screen: &LobbyScreen, slot: Option<usize>) {
+    use crate::emotes::{Category, CATALOG};
+    let name = |e: Option<usize>| e.map_or("Empty".to_string(), |e| CATALOG[e].name.to_string());
+    v.push(Piece::Title("Emotes".into()));
+    let Some(n) = slot else {
+        v.push(Piece::Line("The emote wheel's slots (Emote held opens it). Choose a slot, then the emote to put in it.".into(), Shade::Bright));
+        for (i, e) in screen.loadout.iter().enumerate() {
+            v.push(Piece::Row(Act::Slot(i), format!("{}   {}", i + 1, name(*e)), Shade::Bright));
+        }
+        return;
+    };
+    v.push(Piece::Line(format!("Slot {}: {}. Choose its emote:", n + 1, name(screen.loadout[n])), Shade::Bright));
+    // Every emote installed, under its category's heading.
+    let mut rows: Vec<Piece> = Vec::new();
+    for c in Category::ALL {
+        let mut first = true;
+        for &e in screen.installed.iter().filter(|&&e| CATALOG[e].category == c) {
+            if std::mem::take(&mut first) {
+                rows.push(Piece::Line(c.label().to_string(), Shade::Dim));
+            }
+            let held = screen.loadout.iter().position(|s| *s == Some(e)).map_or(String::new(), |k| format!("   (slot {})", k + 1));
+            rows.push(Piece::Row(Act::Equip(e), format!("  {}{held}", CATALOG[e].name), Shade::Bright));
+        }
+    }
+    rows.push(Piece::Row(Act::Empty, "  Empty this slot".into(), Shade::Bright));
+    let list = acts(screen, &LobbyState::default());
+    let chosen = list.get(screen.selected).copied();
+    let at = rows.iter().position(|r| matches!(r, Piece::Row(a, ..) if Some(*a) == chosen)).unwrap_or(0);
+    let first = at.saturating_sub(EMOTE_ROWS / 2).min(rows.len().saturating_sub(EMOTE_ROWS));
+    v.extend(rows.into_iter().skip(first).take(EMOTE_ROWS));
 }
 
 /// Who is in the lobby, one a line (the host and this player marked by the network side).
@@ -630,7 +759,7 @@ mod tests {
     fn a_guest_sees_the_players_and_can_leave_not_create() {
         let screen = opened(Mode::Host);
         let state = LobbyState { players: vec!["Cass (you)".into(), "Veronica (host)".into()], guest: true, ..default() };
-        assert_eq!(acts(&screen, &state), vec![Act::Leave, Act::Back]);
+        assert_eq!(acts(&screen, &state), vec![Act::Leave, Act::Emotes, Act::Back]);
         let p = pieces(&screen, &state);
         assert!(p.contains(&Piece::Line("You are in Veronica's lobby.".into(), Shade::Bright)));
         assert!(p.contains(&Piece::Line("  Cass (you)".into(), Shade::Bright)) && p.contains(&Piece::Line("  Veronica (host)".into(), Shade::Bright)));
@@ -639,7 +768,7 @@ mod tests {
         // Left: the normal choice again.
         assert!(p.contains(&Piece::Line("Friendly fire: Off (the host's choice)".into(), Shade::Dim)));
         let alone = LobbyState::default();
-        assert_eq!(acts(&screen, &alone), vec![Act::Create, Act::FriendlyFire, Act::Back]);
+        assert_eq!(acts(&screen, &alone), vec![Act::Create, Act::FriendlyFire, Act::Emotes, Act::Back]);
     }
 
     #[test]
@@ -648,9 +777,34 @@ mod tests {
         let state = LobbyState { hosting: Hosting::Open { code: "ABCD-EFGH".into(), note: None }, players: vec!["Veronica (host, you)".into(), "Cass".into()], ..default() };
         let p = pieces(&screen, &state);
         assert!(p.contains(&Piece::Line("  Cass".into(), Shade::Bright)));
-        assert_eq!(acts(&screen, &state), vec![Act::Close, Act::FriendlyFire, Act::Back]);
+        assert_eq!(acts(&screen, &state), vec![Act::Close, Act::FriendlyFire, Act::Emotes, Act::Back]);
         assert!(p.contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: Off".into())));
         let on = LobbyState { friendly_fire: true, ..state };
         assert!(pieces(&screen, &on).contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: On".into())));
+    }
+
+    #[test]
+    fn the_emotes_menu_chooses_a_slot_then_its_emote() {
+        use crate::emotes::{by_key, EmoteSlots, CATALOG};
+        let mut screen = opened(Mode::Host);
+        let mut loadout = EmoteSlots::default();
+        screen.loadout = loadout.slots;
+        screen.installed = (0..CATALOG.len()).collect();
+        let state = LobbyState::default();
+        screen.emotes = Some(None);
+        assert_eq!(acts(&screen, &state).len(), 9);
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Row(Act::Slot(2), "3   Sit".into(), Shade::Bright)));
+        let sit = by_key("sit").unwrap();
+        screen.emotes = Some(Some(0));
+        screen.selected = acts(&screen, &state).iter().position(|a| *a == Act::Equip(sit)).unwrap();
+        let p = pieces(&screen, &state);
+        assert!(p.contains(&Piece::Line("Sit and Lay".into(), Shade::Dim)), "{p:?}");
+        assert!(p.contains(&Piece::Row(Act::Equip(sit), "  Sit   (slot 3)".into(), Shade::Bright)));
+        assert!(p.len() <= 3 + EMOTE_ROWS);
+        // Slot 1 takes Sit: Sit's slot gets Wave.
+        loadout.equip(0, sit);
+        assert_eq!(loadout.slots[0], Some(sit));
+        assert_eq!(loadout.slots[2], by_key("wave"));
     }
 }

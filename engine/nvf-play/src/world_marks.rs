@@ -43,6 +43,9 @@ use crate::{space, Location, PlayState, PlaySet, PlayerCamera};
 /// How far over a player's feet its name tag stands (game units) [design: over the head
 /// of a standing character, about 128 tall].
 pub const HEAD_HEIGHT: f32 = 140.0;
+/// A tag's height over the head bone of a player in an emote (its standing head bone is
+/// about this far under [`HEAD_HEIGHT`]) [design: queue item 137].
+pub const OVER_HEAD: f32 = 24.0;
 /// A name tag is in full up to the near distance, then fades and shrinks, gone by the far
 /// distance (game units); the settings offer these [design: queue item 136, the parity
 /// session's suggestion of about 1500 and 4000].
@@ -432,6 +435,7 @@ fn draw(
     tags: Res<NameTags>,
     pings: Res<Pings>,
     mates: Res<SocialMates>,
+    heads: Res<crate::emotes::MateHeads>,
     loc: Option<Res<Location>>,
     sim: Option<Res<SimState>>,
     (state, pipboy, glance): PlayAndPipBoy,
@@ -464,7 +468,8 @@ fn draw(
         };
         if tags.on {
             for m in mates.mates.iter().filter(|m| m.here && !m.lost) {
-                let p = [m.feet[0], m.feet[1], m.feet[2] + HEAD_HEIGHT];
+                // Sitting or lying in an emote: over its head where it is (queue item 137).
+                let p = heads.0.get(&m.reference).map_or([m.feet[0], m.feet[1], m.feet[2] + HEAD_HEIGHT], |h| [h[0], h[1], h[2] + OVER_HEAD]);
                 let Some(fade) = tag_fade(space::to_bevy(p).distance(eye), tags.near, tags.far) else { continue };
                 let Some((s, true)) = on_screen(cam, ct, size, p) else { continue };
                 if !(0.0..=1.0).contains(&s.x) || !(0.0..=1.0).contains(&s.y) {

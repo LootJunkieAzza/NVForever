@@ -760,7 +760,7 @@ impl PlayerUse {
 /// Where a getting-on or getting-off clip has the root at `t` seconds into it: the
 /// player's body holds `Bip01` still (`nvf_assets::anim_blend`), so the root follows its
 /// track.
-fn root_at(frame: &Frame, clip: &Clip, t: f32) -> [f32; 3] {
+pub(crate) fn root_at(frame: &Frame, clip: &Clip, t: f32) -> [f32; 3] {
     let p = clip_body(clip, clip.start + t.clamp(0.0, clip.length())).bip01;
     frame.point([p[0], p[1], 0.0])
 }

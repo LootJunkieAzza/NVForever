@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 125;
+pub const VERSION: u8 = 126;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -302,6 +302,30 @@ pub struct PlayerState {
     pub furniture: u32,
     /// [`more_flag`] bits: the states [`PlayerState::flags`] has no room for.
     pub more: u8,
+    /// The emote the player plays (queue item 137), for the others to draw on its puppet.
+    pub emote: EmoteState,
+}
+
+/// An emote as it goes to the others: which (`id` 0 for none, else the emote's number
+/// plus one, `nvf_play::emotes`), which of its clips (`variant`), its phase ([`emote`]),
+/// which of its loop's clips (`step`) and how far into the clip it is (`t`, seconds), so
+/// one who joins or comes near late sees it where it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EmoteState {
+    pub id: u8,
+    pub variant: u8,
+    pub phase: u8,
+    pub step: u8,
+    pub t: f32,
+}
+
+/// [`EmoteState::phase`] values.
+pub mod emote {
+    pub const ENTER: u8 = 0;
+    pub const STAY: u8 = 1;
+    pub const EXIT: u8 = 2;
+    /// A one-shot emote's only clip.
+    pub const ONCE: u8 = 3;
 }
 
 /// [`PlayerState::more`] bits.
@@ -318,7 +342,7 @@ pub mod more_flag {
 impl PlayerState {
     /// A state with nothing in hand and nothing worn.
     pub fn at(place: Place, feet: [f32; 3], yaw: f32) -> Self {
-        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0, more: 0 }
+        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0, more: 0, emote: EmoteState { id: 0, variant: 0, phase: 0, step: 0, t: 0.0 } }
     }
 
     pub fn has(&self, f: u8) -> bool {
@@ -2124,6 +2148,9 @@ fn encode(msg: &Msg) -> Vec<u8> {
             b.push(state.pipboy);
             b.extend_from_slice(&state.furniture.to_le_bytes());
             b.push(state.more);
+            let e = &state.emote;
+            b.extend_from_slice(&[e.id, e.variant, e.phase, e.step]);
+            b.extend_from_slice(&e.t.to_le_bytes());
         }
         Msg::Bye { id } => b.extend_from_slice(&[5, *id]),
         Msg::Npcs { seq, npcs } => {
@@ -2403,6 +2430,10 @@ fn decode(b: &[u8]) -> Option<Msg> {
             state.pipboy = r.u8()?;
             state.furniture = r.u32()?;
             state.more = r.u8()?;
+            state.emote = EmoteState { id: r.u8()?, variant: r.u8()?, phase: r.u8()?, step: r.u8()?, t: r.f32()? };
+            if !state.emote.t.is_finite() {
+                return None;
+            }
             Msg::State { id, seq, state }
         }
         5 => Msg::Bye { id: r.u8()? },
@@ -2712,6 +2743,7 @@ mod tests {
                     pipboy: 2,
                     furniture: 0x0011_C601,
                     more: more_flag::SWIMMING,
+                    emote: EmoteState { id: 5, variant: 1, phase: emote::STAY, step: 2, t: 3.25 },
                     ..state(4.0)
                 },
             },

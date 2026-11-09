@@ -102,6 +102,7 @@ mod nav;
 mod coop;
 // B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
 mod consume_anims;
+mod emote_play;
 mod darts_arm;
 mod darts_world;
 mod pool_world;
@@ -1564,6 +1565,8 @@ fn main() -> AppExit {
             app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
             // Item animations: B42 Inject and Interact (consume_anims.rs).
             app.add_plugins(consume_anims::ConsumeAnimsPlugin);
+            // Emotes on the player's body and the other players' puppets (emote_play.rs).
+            app.add_plugins(emote_play::EmotePlayPlugin);
             // Darts played at the cabinet: the darts' models in the world (darts_world.rs).
             app.add_plugins(darts_world::DartsWorldPlugin);
             // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).
