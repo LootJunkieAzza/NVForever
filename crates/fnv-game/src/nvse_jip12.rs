@@ -546,7 +546,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             }
         }
         // [decision: the page is empty (marked Incomplete); without its hash, 0. Follow-up
-        // in the spec note.]
+        // in the spec note.] It takes a string: `GetStringHash "NVForever"` compiles in the
+        // original and gives -439019037 [observed: jip12 hash], no common 32-bit string
+        // hash we tried (FNV-1/1a, djb2, sdbm, ×31, ×131, CRC-32, Adler-32) on the text as written, lower or upper case.
         "getstringhash" => zero,
         // Created references (FF) only [documented]; the toggle's state, or the state
         // without an argument.
