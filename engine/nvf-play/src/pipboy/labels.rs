@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn the_hints_settings_have_built_in_labels() {
         // The hints that read NVForever's labels (`built_in_label`) each have one.
-        for name in ["sInventoryEquip", "sInventoryDrop", "sInventoryHotKey", "sTravel", "sMakeActiveQuest", "sTune", "sPlaceMarker", "sShowLocation", "sShowActiveNotes", "sShowAllNotes"] {
+        for name in ["sInventoryEquip", "sInventoryDrop", "sInventoryHotKey", "sTravel", "sMakeActiveQuest", "sTune", "sPlaceMarker", "sShowLocation", "sShowActiveNotes", "sShowAllNotes", "sPlayAudio", "sStopAudio", "sNextChallenge"] {
             assert!(fnv_ui::strings::built_in(name).is_some_and(|w| !w.is_empty()), "{name}");
         }
     }
