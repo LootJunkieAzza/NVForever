@@ -696,6 +696,17 @@ impl TextureSwaps {
         self.generation += 1;
     }
 
+    /// A co-op guest: draw the host's swap of `on`'s `shape` (names as
+    /// [`texture_swap_names`] gives them) when this game does not have it yet. Whether it
+    /// was new.
+    pub fn follow_host(&mut self, on: fnv_sim::FormId, shape: String, texture: String) -> bool {
+        if self.by_ref.get(&on).is_some_and(|l| l.iter().any(|(s, t)| *s == shape && *t == texture)) {
+            return false;
+        }
+        self.swap(on, shape, texture);
+        true
+    }
+
     /// Show `texture` (a path as [`texture_swap_names`] gives it) on the Securitron
     /// `on`'s screen, and keep it for the save.
     pub fn set_securitron(&mut self, on: fnv_sim::FormId, texture: String) {
