@@ -76,6 +76,37 @@ Code: `graphics.rs` (preset, switches, applying them), `ssao.rs`/`ssao.wesl`,
 `sky.rs` (`shadow_reach`), `nvf_assets::texture::set_anisotropy`, `frame_pace.rs`, the rows in
 `settings.rs`.
 
+[design: `engine/nvf-play/src/graphics_resume.rs`, `settings.rs`, `pause.rs`;
+`engine/nvforever/src/settings.rs`, `pipeline_gate.rs`] **Resuming after graphics edits
+(pipeline portion of #1820).** Effective edits to the registered renderer rows latch for
+the pause session, including Defaults. Continue, Esc and the timed resume aid use one
+request. An unchanged session resumes immediately. A changed session keeps
+`PlayState::Menu`, `Paused(true)` and the pause picture while rendering and pipeline
+compilation continue. The wait counts all `PipelineGate::busy()` pipelines, including
+sun shadows even with the travel-only shadow test aid enabled.
+
+[design: the same files; `engine/nvf-play/src/loading.rs`] After the resume request and
+after any further edit, fresh completed render frames must report no pending pipelines
+and no new requests for at least 0.25 real seconds and three render frames. A stale zero
+count cannot release the menu; a late request restarts settling even if it has already
+finished. The wait ends at the loading screen's `PIPELINE_CAP_SECS` (15 real seconds)
+if readiness never arrives. Repeated resume requests keep the first deadline. Loading a
+save, quitting or closing the menu clears the session. Choosing anything else on the
+column while the wait runs (Save, Load, Settings, Mods, Quit), or any page or the quit
+question opening by another path, cancels the wait but keeps the latch: the release
+would otherwise close what the player just opened, and the next Continue waits again
+with a new deadline. The timed resume aid acts as Esc back to the column, then Continue. Completion is logged once as
+`pause menu: resume after graphics change: pipelines waited <seconds> s, pending <n>, capped <true|false>`;
+the existing `pause menu: resume` follows only when release is requested.
+
+[design: `engine/nvforever/src/world.rs`, `loading_gate.rs`] Draw-distance streaming
+stays outside this wait. Loading screens have cell/model readiness signals, but no
+contract identifies which newly visible assets a distance edit must await. That part
+of #1820 remains open; this change does not fully close the issue. Runtime compilation
+timing and the two smoke setups remain unverified until run. State tests use synthetic
+settings and controlled gate samples; smoke scenarios are `settings-resume-pipelines`
+and `settings-resume-unchanged` in `tools/smoke/scenarios.toml`.
+
 Pass order after the main pass (under FSR 3.1 the ambient occlusion comes before FSR, §3.1): tonemapping → ambient occlusion → temporal anti-aliasing, FXAA or
 SMAA → sun shafts → bloom and sharpening → the game's image-space blur and grade (imagespace.rs) → UI. So the game's grade and its modifiers
 (fades, blur, double vision) work on top of the improvements exactly as on the vanilla picture,

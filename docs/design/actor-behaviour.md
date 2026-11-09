@@ -229,7 +229,8 @@ plays the run clip faster to match (up to its 2.5 rate limit), so the feet do no
 - **Movement** is `fnv_nav::Walker` (on the navmesh surface, no physics), and the
   actor's cell and position in the game are kept up to date as it walks, so scripts and
   conditions (GetInCell, GetDistance) see it.
-- **Put somewhere by a script** (MoveTo, MoveToMarkerWithFade; `Game::teleported`,
+- **Put somewhere by a script** (MoveTo, MoveToMarkerWithFade, direct teleport-door
+  activation for an NPC; `Game::teleported`,
   `Ai::moved_by_scripts`, since 2026-10-11): the walker starts again where the game has
   the actor now, facing the marker's way, and takes up its package afresh (its walk,
   furniture, sandbox, search or random conversation are given up) [design]. In the
@@ -242,6 +243,14 @@ plays the run clip faster to match (up to its 2.5 rate limit), so the feet do no
   I'm ready." (INFO 0x00105CC2, whose end script moves her to SunnySpawnMarker in the
   gas station and gives her SunnyTriggerGunfightDialoguePackage) [owner playtest
   2026-10-11].
+  Successful discontinuous placements share `Game::note_relocated`: scripted references
+  are registered for destination script selection, non-player references are handed to
+  the walker, non-actors request redraw, and one `Moved` event records the destination
+  [design: `crates/fnv-game/src/ai.rs`, `functions/refs.rs`, `followers.rs`, `game.rs`].
+  Ordinary `set_actor_place` walking updates do not queue relocation. An AI door request
+  still grants permission for its existing walker transition (`npc_doors.rs`); the
+  relocation queue is consumed before residents think [design:
+  `engine/nvforever/src/residents.rs` `take_moved`].
 
 ### 5.3 What the checks show
 
