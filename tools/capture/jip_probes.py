@@ -8115,6 +8115,54 @@ SETS.update({"jip6": JIP6_PROBES, "jip7": JIP7_PROBES, "jip6b": JIP6B_PROBES, "j
 WRITING_SETS |= {"jip6", "jip7", "jip6b", "jip7b"}
 
 
+# lu3 (writes, session only, each change put back; #1009): Lutana batch 3
+# (docs/spec-notes/ext-lutana.md §10): the activator prompt, the Anim Object idle and the
+# loading screen type's colour on the pages' example forms, perk ranks and perk entries on
+# the player, the regions and cell references at Doc Mitchell's, the deprecated
+# SetVariableFloat and the event names called as functions. Every value set is read
+# back, then set back to what was read.
+_LU3_HEAD = "ref rP\nref rObj\narray_var aR\nstring_var sOld\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\n"
+
+
+def _lu3(pid, body, text=True):
+    return (f"lu3.{pid}", _LU3_HEAD + body, text, None, "")
+
+
+LU3_PROBES = (
+    # The prompt of the page's example table, set and read back, set back (hypothesis:
+    # the record's XATO, else "", then "NVF Probe").
+    [_lu3("prompt", "let sOld := GetActivatorPrompt BlackjackTableGomorrah\nSetActivatorPrompt \"NVF Probe\" BlackjackTableGomorrah\n"
+          "SetFunctionValue (sv_Construct \"[%z] [%z]\" sOld (GetActivatorPrompt BlackjackTableGomorrah))\nSetActivatorPrompt $sOld BlackjackTableGomorrah"),
+     # The page's Anim Object's idle (hypothesis: its ANIO DATA), its Editor ID.
+     _lu3("anio", "let rObj := GetAnimObjectIdle RepairWall01Wrench\nSetFunctionValue (GetFormIDString rObj)"),
+     # The page's example: r 255, g 180, b 53 [documented]; set and read, set back.
+     _lu3("lsct", "let aR := GetLoadScreenTypeTextRGB StandardLoadingTip\nlet fA := aR[\"r\"]\nlet fB := aR[\"g\"]\nlet fC := aR[\"b\"]\n"
+          "SetLoadScreenTypeTextRGB StandardLoadingTip 59.3 181 300\nlet aR := GetLoadScreenTypeTextRGB StandardLoadingTip\n"
+          "SetFunctionValue (sv_Construct \"%g %g %g / %.1f %g %g\" fA fB fC aR[\"r\"] aR[\"g\"] aR[\"b\"])\nSetLoadScreenTypeTextRGB StandardLoadingTip fA fB fC"),
+     # A rank above the perk's ranks, a lower one, 0 (hypothesis: "3 1 0", Educated has 1
+     # rank so "1 1 0" if it is cut). Educated is put back as it was.
+     _lu3("perkrank", "let fA := PlayerREF.GetPerkRank Educated\nPlayerREF.SetPerkRank Educated 9\nlet fB := PlayerREF.GetPerkRank Educated\n"
+          "PlayerREF.SetPerkRank Educated 0\nlet fC := PlayerREF.GetPerkRank Educated\nPlayerREF.SetPerkRank Educated fA\n"
+          "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (PlayerREF.GetPerkRank Educated))"),
+     # The page's example: Fast Shot's 2nd entry from Calculate Hit Chance (8) to Calculate
+     # Weapon Range (7), read back, set back (hypothesis: "8 7 8").
+     _lu3("perkentry", "let fA := GetNthPerkEntryFunction FastShot 1\nSetNthPerkEntryFunction FastShot 1 7\nlet fB := GetNthPerkEntryFunction FastShot 1\n"
+          "SetNthPerkEntryFunction FastShot 1 fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB (GetNthPerkEntryFunction FastShot 1))"),
+     # Indoors: no regions (hypothesis: an empty array, 0).
+     _lu3("regions", "let aR := GetPlayerRegions\nSetFunctionValue (ar_Size aR)", False),
+     # GetCellRefs against GetRefs in the player's cell, every type (hypothesis: equal).
+     _lu3("cellrefs", "let aR := GetCellRefs 0 0 0\nlet fA := ar_Size aR\nlet aR := GetRefs 0 0 0\nSetFunctionValue (sv_Construct \"%g\" (fA == (ar_Size aR)))"),
+     # SetVariableFloat on the probe plugin's quest variable iDone (the eighth set's), its
+     # result and the value read back, set back (hypothesis: "0 7").
+     _lu3("setvar", "let rObj := GetFormFromMod \"NVFExtProbe.esp\" \"B40\"\nlet fA := GetVariable \"iDone\" rObj\nlet fB := SetVariableFloat \"iDone\" 7 rObj\n"
+          "let fC := GetVariable \"iDone\" rObj\nSetVariable \"iDone\" fA rObj\nSetFunctionValue (sv_Construct \"%g %g\" fB fC)"),
+     # The event names called as functions (hypothesis: "0 0", or they do not compile).
+     _lu3("events", "SetFunctionValue (sv_Construct \"%g %g\" (OnCellEnter) (OnCellExit))")]
+)
+SETS.update({"lu3": LU3_PROBES})
+WRITING_SETS |= {"lu3"}
+
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"

@@ -175,6 +175,11 @@ nothing values by the owner's decisions of 2026-11-08; not probed yet, set sup5)
 it: 560 (SUP 93 → 51).
 With both ShowOff batch 4 and SUP batch 5 merged: 526 (ShowOff 37, SUP 51) [hypothesis: 602 − 34 − 42;
 the extender_census test decides].
+Lutana batch 3: the last 24 (#1009, ext-lutana.md §10: the activator prompt, ANIO and LSCT fields and the
+loading screen's texture as session record edits, race, template and template flags, CopyFaceGenFrom
+through the appearance changes the engine draws, SetBaseForm, EquipItemData and SetEquippedData,
+SetPerkRank, the perk entry setters read by the perk effects, GetPlayerRegions, the cell enter and exit
+events, GetCellRefs, SetVariableFloat, BaseAddItemHealth; set lu3, not probed yet). LU 24 → 0.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
