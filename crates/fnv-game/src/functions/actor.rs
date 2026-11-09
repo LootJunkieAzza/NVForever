@@ -300,13 +300,16 @@ pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// change: (code, old value, new value) [observed: data3, ModAV Luck +1 gave (11, 10,
 /// 11), -1 (11, 11, 10)].
 fn watched(g: &mut Game, ctx: &Ctx, a: &Args, f: fn(&mut Game, &Ctx, &Args) -> Result<Value, String>) -> Result<Value, String> {
-    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| !g.gaps.av_handlers.is_empty());
+    let target = ctx.subject().ok().zip(a.code(0).ok()).filter(|_| !g.gaps.av_handlers.is_empty() || g.jg8_listening(crate::nvse_jg8::Ev::NpcActorValue));
     let before = target.and_then(|(r, c)| actor_value(g, r, c).ok());
     let out = f(g, ctx, a)?;
     if let (Some((r, c)), Some(old)) = (target, before) {
         if let Ok(new) = actor_value(g, r, c) {
             if new != old {
-                g.av_event(r, c, old, new);
+                if !g.gaps.av_handlers.is_empty() {
+                    g.av_event(r, c, old, new);
+                }
+                g.jg8_actor_value(r, c, old, new);
             }
         }
     }

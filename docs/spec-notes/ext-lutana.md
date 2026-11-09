@@ -210,10 +210,10 @@ Session edits are not saved [hypothesis: as batch 1's setters].
 | CopyFaceGenFrom `[sourceNPC]` | the source NPC record's race and sex and its face geometry (FaceGen FGGS/FGGA, 100 %) through the appearance changes AgeRace, SexChange and MatchFaceGeometry use (`crate::appearance`), so the engine draws the actor again at once [documented: "Visual update is already performed"]; without a source the backup is put back [documented]. [decision: on the calling actor, not every reference of its base (the page changes the base); NVForever keeps a look per reference, saved with it.] The player's face geometry is not copied (its creator look is matched only to a face the game holds); hair, eyes and skin tone stay [not built: the drawn head reads them from the record] |
 | SetBaseForm `newBase` | the reference's base for the session, of another type too [documented: JIP LN 56.70]; not the player; the drawn reference changes when its 3D is built again [hypothesis; engine follow-up] |
 | EquipItemData `item [health] [mods] [noUnequip] [noMessage]`, SetEquippedData `array [noUnequip] [noMessage]` | the carried unit of that health in points (within half a point; -1 any) and mod flags, as GetEquippedData gives them [documented; hypothesis: points], equipped as EquipItem with OnActorEquip and OnEquip [documented: "Also triggers OnEquip"]; none such, nothing |
-| SetPerkRank `perk rank [forTeammates]` | the player's rank (gained rank by rank up to it, with the perk's quest stages; lowered or 0 taken away), the teammates' perk, or another actor's held rank [documented]; cut to the perk's ranks [hypothesis] |
-| SetNthPerkEntryForm, SetNthPerkEntryFunction, SetNthPerkEntryString | a session copy of the perk with the entry's spell or quest, entry point code, or button label changed [documented]; the perk effects, abilities, activate choices and the GetNthPerkEntry… getters read the copy (`Game::perk_def`) |
+| SetPerkRank `perk rank [forTeammates]` | the player's rank (gained rank by rank up to it, with the perk's quest stages; lowered), the teammates' perk, or another actor's held rank [documented]; cut to the perk's ranks, 0 changes nothing [observed: lu3 perkrank, Educated set to 9 reads 1, then 0 still 1] |
+| SetNthPerkEntryForm, SetNthPerkEntryFunction, SetNthPerkEntryString | a session copy of the perk with the entry's spell or quest, entry point code, or button label changed [documented]; the perk effects, abilities, activate choices and the GetNthPerkEntry… getters read the copy (`Game::perk_def`). The Nth entry is numbered by rank, then priority, entries alike in the reverse of the record's order (`nvse_lu3::nth_entry`), for the getters too [observed: lu3 perkentry, Fast Shot's entry 1 is 8, its third of four rank-0 entry points in the record (40, 43, 8, 34); gaps4 and jip2, Toughness's entry 0 is its rank-1 entry] |
 | GetPlayerRegions | the regions the player stands in, IsPlayerInRegion's test, in FormID order [documented; hypothesis: the order] |
-| OnCellEnter, OnCellExit | event names for SetEventHandler: sent with the cell when the player's cell changes, exit first, exterior cells too [documented: the notes; hypothesis: the order]; called as functions 0 |
+| OnCellEnter, OnCellExit | event names for SetEventHandler: sent with the cell when the player's cell changes, exit first, exterior cells too [documented: the notes; hypothesis: the order]; called as functions 2 and 3 [observed: lu3 events] |
 | GetCellRefs `type depth taken [cell]` | GetRefsInCell's list, the player's cell by default [documented: deprecated by GetRefs] |
 | SetVariableFloat `name value [quest]` | SetVariable's [documented: deprecated by SetVariable] |
 | BaseAddItemHealth `item count health [base]` | the base container's entry with that health (a fraction 0-1) for the session [documented: deprecated, "NOT save baked"] |
@@ -221,6 +221,14 @@ Session edits are not saved [hypothesis: as batch 1's setters].
 Engine follow-ups: the loading screen's texture and text colour, the drawn race and the
 template resolution of a changed base, hair, eyes and skin tone of CopyFaceGenFrom, the
 3D of a reference after SetBaseForm.
+
+Probed once in the original (2026-11-09, PR #1914's head, issue #1925): 2 of the 5 rows
+it answered matched; the three that did not (perkrank, perkentry, events) are followed
+above. Four did not compile there and are rewritten: the prompt is read only (the setter
+with `$sOld` to put it back did not compile), the LSCT colour's elements go into floats
+before sv_Construct, GetCellRefs is given its cell (the page lists it as not optional),
+and SetVariableFloat uses a FalloutNV.esm quest variable (nGeckosKilled of 10A214) as the
+probe plugin is not active in the probe game.
 
 Probe questions (set `lu3`, every change put back):
 

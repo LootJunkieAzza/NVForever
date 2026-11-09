@@ -693,6 +693,12 @@ fn report_written(world: &mut World) {
                 let kind = format!("{:?}", d.kind).to_lowercase();
                 let thumb = if *shot > 0 { format!("thumbnail {THUMB_W}x{THUMB_H} ({shot} bytes PNG)") } else { "no thumbnail".into() };
                 info!("save: wrote {} ({kind}, {bytes} bytes, {} changed references), {thumb} in {:.0} ms (snapshot {:.0} ms)", d.path.display(), d.refs, d.t0.elapsed().as_secs_f64() * 1e3, d.snapshot_ms);
+                // SUP's GetSaveName and GetSavedSaveSize read the last save written
+                // (`fnv_game::nvse_sup4`).
+                if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+                    let name = d.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    rt.game.save_files.saved = Some(fnv_game::nvse_sup4::SaveFile { name, bytes: *bytes as u64 });
+                }
                 if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
                     c.push(if d.kind == SaveKind::Auto { "Autosaved".to_string() } else { "Game saved".to_string() }.into());
                 }

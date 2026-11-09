@@ -158,6 +158,12 @@ yield timer, viewmodel clip, NiLOD and save switches, UI update sounds, reputati
 marker icons, barter hiding, the queued cinematic and objective texts, TogglePipBoy, the
 engine requests, HSVtoRGB and RGBtoHSV into script variables, GetJohnnyPatch,
 GetDefaultHeapSize, IsMenuPaused; probe set jg7 written, not run yet). JohnnyGuitar 147 → 109.
+JohnnyGuitar batch 8: 31 (#1007, ext-jg8.md: the last 14 event handlers (failed quests, lost
+limbs, seen cells, processing levels, NPCs' actor values, reputations, NPC responses, sleep and
+wait, general subtitles, the crosshair, settings, keyboard selection, radio sounds, taking items
+back), the custom map marker, MD5File and SHA1File, IsBSALoaded, the DDS texture getters,
+GetPixelFromBMP, Ar_Shuffle and Ar_SortEditor, the system colours, the sleep/wait menu state,
+TuneRadioRef; probe set jg8 written, not run yet). JohnnyGuitar 109 → 78.
 ShowOff batch 5: the last 37 (#1010, ext-showoff.md §8: the level-up and pause menus on request, live
 explosions, the shot switches, fast travel, detection and combat counts, VATS and item values, the
 player's small states; from the pages, not probed). Census after it, beside batch 4: 565 (ShowOff 71 → 34;
@@ -202,6 +208,10 @@ an NPC, ResetFallTime, active effects and effect lists, the equipped items, armo
 condition and GetArmourPenetrated, SetBaseFactionRank, ClearDeadActors, the hardcore stages'
 effects, SetConditionDamagePenalty; four nothing values by decision, §7; probed, set
 jip11, 22 of 28 after the fixes that follow it, jip-actors-11.md §6). Census after it: JIP 142 → 102.
+SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid references, Ar_SetFloatsFrom through
+the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
+the last save's and load's names and sizes told by the engine, the cells and map markers near the player,
+MarkScriptOnLoad, KillAll2, the caught-pickpocketing flag, TranslitText; set sup4, not probed yet). SUP 17 → 0.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
