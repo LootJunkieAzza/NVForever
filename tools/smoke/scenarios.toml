@@ -869,6 +869,49 @@ order = [[
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
 
+[[scenario]]
+name = "settings-resume-pipelines"
+source = "[design] #1820 pipeline portion: graphics-enhanced.md section 3; resume 0.5 seconds after AA/AO edits, keeping the pause menu until fresh pipeline samples settle (loading-pipelines-start covers the start's gate)"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvf-play/src/graphics_resume.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/pipeline_gate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:11.5", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=1,11:ambient-occlusion" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics", "vanilla", "--msaa", "1", "--sun-shadows"]
+run_seconds = 32
+order = [[
+  "pause menu: open",
+  "settings: ambient-occlusion on",
+  "settings: anti-aliasing TAA",
+  "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
+  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$' },
+  { re = 'pause menu: resume$' },
+]]
+expect = [
+  { re = 'pause menu: resume after graphics change:', count = 1, label = "one pipeline wait completion" },
+  { re = 'pause menu: resume$', count = 1, label = "one actual release" },
+]
+forbid = [
+  { text = "capped true", label = "the graphics-resume cap" },
+  { text = "Caught rendering error", label = "a rendering validation error" },
+  { text = "failed and will not be tried again", label = "a failed pipeline" },
+  { text = "and no longer waited for", label = "a pipeline over its retry cap" },
+]
+
+[[scenario]]
+name = "settings-resume-unchanged"
+source = "[design] #1820: an unchanged pause session resumes immediately through the timed aid without a pipeline wait; graphics-enhanced.md section 3"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvf-play/src/graphics_resume.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/pipeline_gate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:11" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 13
+order = [[
+  "pause menu: open",
+  "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
+  { re = 'pause menu: resume$' },
+]]
+expect = [{ re = 'pause menu: resume$', count = 1, label = "one unchanged release" }]
+forbid = [{ text = "pause menu: resume after graphics change:", label = "no graphics wait for an unchanged session" }]
+
 # ------------------------------------------------------------------ navmesh and AI
 
 [[scenario]]

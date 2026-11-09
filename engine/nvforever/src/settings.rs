@@ -296,6 +296,9 @@ pub fn register(app: &mut App) {
     register_display(app);
     register_distances(app);
     register_graphics(app);
+    // Renderer edits are latched by the shared settings setters, including Defaults.
+    // Draw-distance streaming has no resume readiness contract yet (#1820) [design].
+    register_pipeline_waits(app);
     // The Sound tab after the picture's, as the original lists Audio after Display.
     nvf_play::audio_out::register_settings(app);
     add_setting(
@@ -684,6 +687,16 @@ fn register_graphics(app: &mut App) {
     }
 }
 
+fn register_pipeline_waits(app: &mut App) {
+    for key in [
+        "anti-aliasing", "shadow-filter", "fsr-upscaling", "ambient-occlusion",
+        "fine-shadows", "bloom", "glow", "eye-adaptation", "neon-glow", "sharpen",
+        "light-shafts", "water-reflections", "water-mirror", "sun-shadows", "grade",
+    ] {
+        nvf_play::settings::wait_for_pipelines(app, key);
+    }
+}
+
 fn fsr_chosen(world: &World) -> String {
     let quality = world.resource::<Graphics>().fsr;
     graphics::FSR_CHOICES.iter().find(|(_, mode)| mode.quality() == quality).map_or("Off", |(name, _)| *name).to_string()
@@ -728,6 +741,40 @@ fn set_overlay(world: &mut World, on: bool) {
 #[cfg(test)]
 mod fsr_settings_tests {
     use super::*;
+
+    #[test]
+    fn renderer_registration_covers_aa_ao_fsr_and_defaults_without_latching_no_ops() {
+        use nvf_play::{graphics_resume::GraphicsResume, pause::Paused, settings, PlayState};
+        let mut app = App::new();
+        app.insert_resource(Graphics::preset(graphics::Preset::Vanilla))
+            .insert_resource(graphics::MsaaSetting(Msaa::Off)).init_resource::<GraphicsResume>()
+            .insert_resource(Paused(true)).insert_resource(State::new(PlayState::Menu));
+        register_graphics(&mut app);
+        register_pipeline_waits(&mut app);
+        let rows = app.world().resource::<settings::Settings>();
+        let aa = rows.index("anti-aliasing").unwrap();
+        let ao = rows.index("ambient-occlusion").unwrap();
+        let fsr = rows.index("fsr-upscaling").unwrap();
+        let world = app.world_mut();
+        settings::set_slider(world, aa, 0.0);
+        settings::restore(world, ao, 0.0);
+        assert!(!settings::pick(world, fsr, "Off"));
+        assert!(world.resource_mut::<GraphicsResume>().request(0.0));
+        settings::set_slider(world, aa, 1.0);
+        assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
+        world.resource_mut::<GraphicsResume>().reset();
+        settings::restore(world, aa, 0.0);
+        assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
+        world.resource_mut::<GraphicsResume>().reset();
+        settings::flip(world, ao);
+        assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
+        world.resource_mut::<GraphicsResume>().reset();
+        settings::pick(world, fsr, "Quality");
+        assert!(!world.resource_mut::<GraphicsResume>().request(0.0));
+        world.resource_mut::<GraphicsResume>().reset();
+        settings::restore(world, fsr, 0.0);
+        assert!(!world.resource_mut::<GraphicsResume>().request(0.0), "Defaults also restores named choices");
+    }
 
     #[test]
     fn native_aa_row_is_off_and_locked_for_every_supported_fsr_mode_then_restores_the_saved_choice() {
