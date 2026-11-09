@@ -454,6 +454,9 @@ unless the player binds them, so nothing changes until then.
 | Console Key | `iConsoleKey` | `tweaks::CONSOLE_KEYS` (the original's `` ` `` first, then keys nothing else takes) read by `console::toggle` |
 | Tab Closes Terminals | `bTabClosesTerminals` | `terminal::keys` sends Exit on Tab |
 | Tab Goes Back in the Pause Menu | `bTabBackInStartMenu` | `pause::choose`: Tab is Back on the main page's question and the load list; Settings and Controls keep Tab for their tabs |
+| Fast Travel From Anywhere | `bAllowUnsafeFastTravel` | `pipboy::data::travel::tweak_checks` drops the place refusal (Can't Travel From Here, Can't Fast Travel) |
+| V.A.T.S. Burst Stops on a Kill | `bVATSStopBurstIfTargetDead` | `vats_mode`: a burst's later rounds are held once the mark's target is dead |
+| Repair Needs the Weapon's Skill | `bRepairRequiresWeaponSkill` | `pipboy::repair::keys` refuses to open the list for a weapon whose `skill_req` is above the player's Repair |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -474,8 +477,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 370 |
-| to do | 233 |
+| done | 373 |
+| to do | 230 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -666,6 +669,7 @@ game's Data folder, read-only).
 | `bPowerAttackWhileOverencumbered` | done |  |  | already so: nothing gates power attacks on weight |
 | `bSneakCriticalsHeadshotsOnly` | done |  |  | Sneak Criticals Head Only |
 | `bSneakCriticalsOnlyMeleeWeapons` | done |  |  | Sneak Criticals Melee Only |
+| `bVATSStopBurstIfTargetDead` | done |  |  | V.A.T.S. Burst Stops on a Kill |
 | `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 | dismember checks carry no critical flag |
 | `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
@@ -679,7 +683,6 @@ game's Data folder, read-only).
 | `bRemoveWeaponDamageBuffer` | to do |  |  | condition_mult is a free function; needs a Rules field (serialized) |
 | `bScaleCriticalDamage` | to do |  | 1 | needs a field on fnv-combat Rules; check what its serialized dumps feed first |
 | `bVATSAutoTargetHead` | to do |  |  | V.A.T.S. picks no target on entry |
-| `bVATSStopBurstIfTargetDead` | to do |  |  | vats_mode shoot with the target dead |
 | `bWeaponRequirementsMatter` | to do |  | 7 | equip_at has no actor values |
 
 ### Quality-of-life
@@ -711,6 +714,7 @@ game's Data folder, read-only).
 | `bVatsExitKey` | done | yes | 1 | Skip Kill Camera (right click; Tab is the Pip-Boy key here) |
 | `bAllowFiringWhileLanding` | done |  |  | already so: firing waits only for the weapon to be ready |
 | `bAllowOpenPipboyDuringCameraShake` | done |  |  | already so: no camera shake blocks the Pip-Boy |
+| `bAllowUnsafeFastTravel` | done |  | 1 | Fast Travel From Anywhere (no warning; bShowWarning not done) |
 | `bAllowVATSWhileAnimsPlay` | done |  |  | already so: no animation refuses V.A.T.S. |
 | `bAllowWeaponHotkeysAndPipBoyWhileReloading` | done |  |  | already so: nothing refuses them while reloading |
 | `bAllowWeaponHotkeysWhileEquipping` | done |  |  | already so: the swap waits its turn |
@@ -752,6 +756,7 @@ game's Data folder, read-only).
 | `bQuestTextVisibleWhileAiming` | done |  |  | already so: aiming hides only the reticle |
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
+| `bRepairRequiresWeaponSkill` | done |  |  | Repair Needs the Weapon's Skill (Pip-Boy repair) |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
 | `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
 | `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
@@ -772,7 +777,6 @@ game's Data folder, read-only).
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
 | `bAllowActivateWhileAnimPlays` | to do |  |  | NVForever never refuses activating during a reload; check what the original refuses |
-| `bAllowUnsafeFastTravel` | to do |  | 1 | only cells flagged Can't Travel From Here refuse; the tweak would skip that flag |
 | `bDisableHitShader` | to do |  | 1 | NVForever draws no hit shader yet |
 | `bEnteringVATSDoesntUnholsterWeapon` | to do |  |  | a drawn-by-VATS flag and a holster on end |
 | `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
@@ -789,7 +793,6 @@ game's Data folder, read-only).
 | `bPickLocksEvenWithKey` | to do |  | 1 | activate::activate before activate_by_hand |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRemoveLandingAnim` | to do |  |  | fnv_actor jump::JumpState plays the landing clip |
-| `bRepairRequiresWeaponSkill` | to do |  |  | pipboy repair keys with the weapon skill requirement |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
 | `bScaleExplosionShake` | to do |  | 2 | not built: explosions do not shake the camera |
 | `bScopeVisibilityDelay` | to do |  | 4 | aim_zoom with a held timer |

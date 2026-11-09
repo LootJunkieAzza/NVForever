@@ -265,6 +265,8 @@ pub struct TweakSettings {
     pub tab_closes_terminals: bool,
     /// `bTabBackInStartMenu`: Tab goes back in the pause menu where it steps no tabs.
     pub tab_back_in_pause: bool,
+    /// `bAllowUnsafeFastTravel`: fast travel from places flagged against it (indoors).
+    pub unsafe_fast_travel: bool,
 }
 
 /// The keys the console may open on, the original's first; ones nothing else in the
@@ -422,6 +424,7 @@ impl Default for TweakSettings {
             console_key: 0,
             tab_closes_terminals: false,
             tab_back_in_pause: false,
+            unsafe_fast_travel: false,
         }
     }
 }
@@ -1180,6 +1183,9 @@ impl Plugin for TweaksPlugin {
         );
         switch!(app, "tab-closes-terminals", "Tab Closes Terminals", "Tab closes a terminal from any page instead of going back a page (Backspace still goes back). (Stewie's Tweaks bTabClosesTerminals)", tab_closes_terminals);
         switch!(app, "tab-back-in-pause", "Tab Goes Back in the Pause Menu", "Tab goes back a page in the pause menu, as Backspace does (the Settings and Controls pages keep Tab for their tabs). (Stewie's Tweaks bTabBackInStartMenu)", tab_back_in_pause);
+        switch!(app, "unsafe-fast-travel", "Fast Travel From Anywhere", "Fast travel works from places flagged against it, such as interiors; leaving a scripted place this way can break it. (Stewie's Tweaks bAllowUnsafeFastTravel)", unsafe_fast_travel);
+        switch!(app, "vats-burst-stops-on-kill", "V.A.T.S. Burst Stops on a Kill", "The rest of a burst in V.A.T.S. is not fired once its target is dead. (Stewie's Tweaks bVATSStopBurstIfTargetDead)", game.vats_burst_stops_on_kill);
+        switch!(app, "repair-needs-weapon-skill", "Repair Needs the Weapon's Skill", "The player can repair a weapon only with Repair at least the weapon's skill requirement. (Stewie's Tweaks bRepairRequiresWeaponSkill)", game.repair_needs_weapon_skill);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

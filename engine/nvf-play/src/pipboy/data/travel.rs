@@ -110,6 +110,7 @@ pub fn tweak_checks(c: &mut Checks, t: &crate::tweaks::TweakSettings) {
     c.in_air &= !t.midair_fast_travel;
     c.hostiles_near &= !t.fast_travel_enemies_nearby;
     c.encumbered &= !t.fast_travel_overencumbered;
+    c.place &= !t.unsafe_fast_travel;
 }
 
 /// The first refusal that applies, if any.

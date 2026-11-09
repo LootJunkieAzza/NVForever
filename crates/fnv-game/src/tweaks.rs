@@ -358,6 +358,11 @@ pub struct Tweaks {
     pub no_quest_set_on_complete: bool,
     /// `bHideReadNotes`: the Pip-Boy's notes leave out those already read.
     pub hide_read_notes: bool,
+    /// `bVATSStopBurstIfTargetDead`: a V.A.T.S. burst stops once its target is dead.
+    pub vats_burst_stops_on_kill: bool,
+    /// `bRepairRequiresWeaponSkill`: the player repairs a weapon only with Repair at
+    /// least its skill requirement.
+    pub repair_needs_weapon_skill: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -526,6 +531,8 @@ impl Default for Tweaks {
             no_quest_set_on_objective: false,
             no_quest_set_on_complete: false,
             hide_read_notes: false,
+            vats_burst_stops_on_kill: false,
+            repair_needs_weapon_skill: false,
         }
     }
 }

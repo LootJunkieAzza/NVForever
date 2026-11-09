@@ -271,6 +271,7 @@ pub fn keys(
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
     modding: Res<super::item_mod::PipItemMod>,
+    combat: Option<Res<crate::combat::Combat>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
@@ -307,6 +308,14 @@ pub fn keys(
                     continue;
                 }
                 let skill = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map_or(0.0, |rt| crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR)) as f32);
+                // The player's tweak: a weapon's skill requirement asks as much Repair [design: docs/design/tweaks.md].
+                let wanted = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.repair_needs_weapon_skill);
+                let need = combat.as_ref().filter(|_| wanted).and_then(|c| c.forms.weapons.get(&o.item)).map_or(0, |w| w.skill_req);
+                if need as f32 > skill {
+                    info!("pipboy repair: {} needs Repair {need} (tweak), the player has {skill:.0}", o.name);
+                    sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Refused });
+                    continue;
+                }
                 info!(
                     "pipboy repair: open {} at {}% (Repair {:.0}): {}",
                     o.name,

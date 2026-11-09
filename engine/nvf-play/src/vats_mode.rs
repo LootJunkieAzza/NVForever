@@ -820,6 +820,15 @@ fn update(
             let dt = time.delta_secs();
             match v.run.as_mut() {
                 Some(Run::Volley(vo)) => match vo.step(dt) {
+                    // The player's tweak: the rest of a burst is held once its target is
+                    // dead [design: docs/design/tweaks.md].
+                    Some(VolleyEvent::Shot { mark, round })
+                        if round > 0
+                            && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_burst_stops_on_kill)
+                            && v.queue.marks().get(mark).is_some_and(|m| crate::combat::is_dead(script.as_deref(), m.target.0)) =>
+                    {
+                        debug!("vats mode: round {} of mark {} held, the target is dead (tweak)", round + 1, mark + 1);
+                    }
                     Some(VolleyEvent::Shot { mark, round }) => shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds),
                     Some(VolleyEvent::Done) => end(v, "all shots fired", &mut sounds),
                     None => {}
