@@ -1,9 +1,17 @@
 //! The interface's two colours as settings: the one the HUD and the menus are drawn in,
 //! and the one of the Pip-Boy's screens (`crate::interface::hud_rgb`, `pipboy_rgb`). Each
-//! is a row of named colours on the settings page (Amber, the default, and a few others;
-//! "Custom" once the sliders leave them) over a slider for each of red, green and blue
-//! (0 to 255), kept in `[Settings]` of `NVForever.ini` like every row (`crate::settings`):
-//! `hud-colour=Amber`, `hud-red=1.00`, … The page's Defaults puts both back to amber.
+//! is a row of named colours on the settings page (Amber, the default, a few others and
+//! Custom) over a slider for each of red, green and blue (0 to 255), kept in `[Settings]`
+//! of `NVForever.ini` like every row (`crate::settings`): `hud-colour=Amber`,
+//! `hud-red=1.00`, … The page's Defaults puts both back to amber.
+//!
+//! **Custom** [design: #1953]: the list always offers it. Taking it keeps the colour as it
+//! is and shows the three sliders under it ([`channel_shown`]); taking a named colour sets
+//! that colour and hides them again. A colour is Custom while it was chosen so (or a slider
+//! was moved, [`CustomColours`]) or while it is none of the named ones (an INI or a test aid
+//! setting a slider directly). `hud-colour=Custom` in the INI keeps the choice; there is no
+//! key of its own for it. A slider's row keeps its key while hidden: the INI and the test
+//! aids set it all the same.
 //!
 //! Not the original's settings: its own HUD and Pip-Boy colour choices are not copied
 //! [design: owner 2026-10-26, "rgb colour pickers" for the HUD and the Pip-Boy, amber
@@ -21,7 +29,8 @@ use crate::interface::{hud_rgb, pipboy_rgb, set_hud_rgb, set_pipboy_rgb, AMBER_R
 use crate::settings::{add_choice_list, add_setting, ChoiceList, Setting, Slider};
 use bevy::prelude::*;
 
-/// The settings page's heading for these rows.
+/// The group these rows register with (shown under Display › Interface,
+/// `crate::settings_layout`).
 pub const GROUP: &str = "Interface";
 
 /// The named colours, the default first [design, module notes].
@@ -52,30 +61,81 @@ pub fn preset_name(rgb: [u8; 3]) -> &'static str {
     PRESETS.iter().find(|(_, c)| *c == rgb).map_or(CUSTOM, |(n, _)| n)
 }
 
+/// Whether each colour, the HUD's (0) and the Pip-Boy's (1), is Custom by choice (module
+/// notes) [design: #1953]. Not kept on its own: `hud-colour=Custom` is.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CustomColours(pub [bool; 2]);
+
+/// The name a colour `rgb` goes by in its list: [`CUSTOM`] when chosen so (`custom`) or
+/// none of the presets, else the preset's.
+pub fn chosen_name(rgb: [u8; 3], custom: bool) -> &'static str {
+    if custom {
+        CUSTOM
+    } else {
+        preset_name(rgb)
+    }
+}
+
+/// The list's choices: the presets, then [`CUSTOM`], always (module notes).
+pub fn choice_names() -> Vec<String> {
+    PRESETS.iter().map(|(n, _)| n.to_string()).chain([CUSTOM.to_string()]).collect()
+}
+
+/// Choice `name` taken: the colour and whether it is Custom by choice after it; `None`: not
+/// a choice. Custom keeps the colour as it is; a preset sets its colour [design: #1953].
+pub fn picked(name: &str, rgb: [u8; 3]) -> Option<([u8; 3], bool)> {
+    if name.eq_ignore_ascii_case(CUSTOM) {
+        return Some((rgb, true));
+    }
+    PRESETS.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, c)| (*c, false))
+}
+
+/// Colour `which`'s Custom choice (none before the page first sets one).
+fn custom_flag(world: &World, which: usize) -> bool {
+    world.get_resource::<CustomColours>().is_some_and(|c| c.0[which])
+}
+
+fn set_custom_flag(world: &mut World, which: usize, on: bool) {
+    world.get_resource_or_insert_with(CustomColours::default).0[which] = on;
+}
+
+/// Whether colour `which` (0 the HUD's, 1 the Pip-Boy's) shows its sliders: it is Custom
+/// ([`chosen_name`]).
+pub fn custom_shown(flags: Option<&CustomColours>, which: usize) -> bool {
+    let rgb = if which == 0 { hud_rgb() } else { pipboy_rgb() };
+    chosen_name(rgb, flags.is_some_and(|f| f.0[which])) == CUSTOM
+}
+
+/// The colour a slider row `key` is a part of: which (0 the HUD's, 1 the Pip-Boy's) and
+/// its list row's key; `None` for every other row.
+pub fn channel_of(key: &str) -> Option<(usize, &'static str)> {
+    match key {
+        "hud-red" | "hud-green" | "hud-blue" => Some((0, "hud-colour")),
+        "pipboy-red" | "pipboy-green" | "pipboy-blue" => Some((1, "pipboy-colour")),
+        _ => None,
+    }
+}
+
+/// Whether row `key` is shown, as far as the colours go: a colour's slider only while the
+/// colour is Custom, every other row always [design: #1953].
+pub fn channel_shown(key: &str, flags: Option<&CustomColours>) -> bool {
+    channel_of(key).is_none_or(|(which, _)| custom_shown(flags, which))
+}
+
 fn names<const W: usize>(_: &World) -> Vec<String> {
-    let mut out: Vec<String> = PRESETS.iter().map(|(n, _)| n.to_string()).collect();
-    if preset_name(rgb::<W>()) == CUSTOM {
-        out.push(CUSTOM.to_string());
-    }
-    out
+    choice_names()
 }
 
-fn chosen<const W: usize>(_: &World) -> String {
-    preset_name(rgb::<W>()).to_string()
+fn chosen<const W: usize>(w: &World) -> String {
+    chosen_name(rgb::<W>(), custom_flag(w, W)).to_string()
 }
 
-/// Take a preset by name; [`CUSTOM`] keeps the colour as it is (the sliders say which).
-fn pick<const W: usize>(_: &mut World, name: &str) -> bool {
-    if name == CUSTOM {
-        return true;
-    }
-    match PRESETS.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
-        Some((_, c)) => {
-            set_rgb::<W>(*c);
-            true
-        }
-        None => false,
-    }
+/// Take a preset by name, or [`CUSTOM`] (module notes).
+fn pick<const W: usize>(w: &mut World, name: &str) -> bool {
+    let Some((rgb, custom)) = picked(name, rgb::<W>()) else { return false };
+    set_rgb::<W>(rgb);
+    set_custom_flag(w, W, custom);
+    true
 }
 
 fn save<const W: usize>(w: &World) -> String {
@@ -88,10 +148,13 @@ fn channel<const W: usize, const C: usize>(_: &World) -> f32 {
     (f32::from(rgb::<W>()[C]) / 255.0 * 1000.0).round() / 1000.0
 }
 
-fn set_channel<const W: usize, const C: usize>(_: &mut World, v: f32) {
+/// A slider moved: the colour is Custom by choice from then on, so its sliders stay up
+/// when they pass a named colour's values on the way [design].
+fn set_channel<const W: usize, const C: usize>(w: &mut World, v: f32) {
     let mut c = rgb::<W>();
     c[C] = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
     set_rgb::<W>(c);
+    set_custom_flag(w, W, true);
 }
 
 /// A slider's part as the 0 to 255 the page shows.
@@ -187,7 +250,7 @@ pub struct UiColourPlugin;
 
 impl Plugin for UiColourPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Drawn { hud: hud_rgb(), pipboy: pipboy_rgb() }).add_systems(Update, recolour.after(crate::PlaySet::Ui).before(crate::PlaySet::Sync));
+        app.insert_resource(Drawn { hud: hud_rgb(), pipboy: pipboy_rgb() }).init_resource::<CustomColours>().add_systems(Update, recolour.after(crate::PlaySet::Ui).before(crate::PlaySet::Sync));
         rows::<0>(
             app,
             "hud-colour",
@@ -215,6 +278,45 @@ mod tests {
         assert_eq!(preset_name([26, 255, 128]), "Green");
         assert_eq!(preset_name([1, 2, 3]), CUSTOM);
         assert_eq!(PRESETS[0], ("Amber", [255, 182, 66]), "amber is the default");
+    }
+
+    #[test]
+    fn custom_is_always_offered_and_keeps_the_colour() {
+        let names = choice_names();
+        assert_eq!(names.last().map(String::as_str), Some(CUSTOM), "at a preset too");
+        assert_eq!(names.len(), PRESETS.len() + 1);
+        // Custom at amber's values stays Custom, with the values as they were.
+        assert_eq!(picked("Custom", AMBER_RGB), Some((AMBER_RGB, true)));
+        assert_eq!(chosen_name(AMBER_RGB, true), CUSTOM);
+        // A preset leaves Custom and sets its colour.
+        assert_eq!(picked("green", [1, 2, 3]), Some(([26, 255, 128], false)));
+        assert_eq!(chosen_name([26, 255, 128], false), "Green");
+        // Values that are no preset are Custom whatever was chosen (an INI's or an aid's).
+        assert_eq!(chosen_name([1, 2, 3], false), CUSTOM);
+        assert_eq!(picked("Purple", AMBER_RGB), None);
+    }
+
+    #[test]
+    fn the_sliders_belong_to_their_colour() {
+        assert_eq!(channel_of("hud-green"), Some((0, "hud-colour")));
+        assert_eq!(channel_of("pipboy-blue"), Some((1, "pipboy-colour")));
+        assert_eq!(channel_of("hud-colour"), None);
+        assert!(channel_shown("language", None), "not a slider of a colour: always shown");
+    }
+
+    #[test]
+    fn the_custom_choice_survives_the_ini_and_defaults_put_back_the_preset() {
+        // The list's INI text is its chosen name (`save`), read back by `load` (= `pick`):
+        // Custom at a preset's values reads back as Custom with those values, a preset as
+        // the preset.
+        for (rgb, custom) in [(AMBER_RGB, true), (AMBER_RGB, false), ([1, 2, 3], false), ([26, 255, 128], true)] {
+            let saved = chosen_name(rgb, custom);
+            let (back, flag) = picked(saved, rgb).unwrap();
+            assert_eq!(chosen_name(back, flag), saved, "{rgb:?} {custom}");
+            assert_eq!(back, rgb, "the values come back as they were");
+        }
+        // Defaults loads the start's text ("Amber"): the preset, out of Custom.
+        assert_eq!(picked(chosen_name(AMBER_RGB, false), [1, 2, 3]), Some((AMBER_RGB, false)));
     }
 
     #[test]

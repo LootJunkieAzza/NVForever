@@ -1010,7 +1010,7 @@ impl TextureSource for Deferred {
         self.formats.get(&h.id()).is_some_and(|&f| crate::nif_spawn::format_lacks_alpha(f))
     }
     fn alpha_is_mask(&self, raw_path: &str) -> bool {
-        crate::texture::texture_alpha_shares(raw_path, &self.data).is_some_and(|s| s.is_mask())
+        self.workers.alpha_is_mask(raw_path, &self.data)
     }
 }
 
