@@ -491,6 +491,9 @@ pub fn euler_xyz_to_quat(a: [f32; 3]) -> [f32; 4] {
 }
 
 /// What a controlled block drives.
+// A track is read once when its sequence loads and its transform is then shared behind an
+// `Arc` (`anim_play::Clip`), so the size of the transform variant costs nothing per frame.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum TrackData {
     Transform(TransformTrack),
@@ -718,7 +721,8 @@ fn per_cycle_turn(track: &TransformTrack) -> Option<[f32; 4]> {
         (None, Channel::Keys(k)) => (k.keys.first()?.time, k.keys.last()?.time),
         _ => return None,
     };
-    if !(to > from) {
+    // Keys over no time (or at no finite time) make no cycle.
+    if to.partial_cmp(&from) != Some(std::cmp::Ordering::Greater) {
         return None;
     }
     let [w, x, y, z] = track.rotation_at(from)?;
