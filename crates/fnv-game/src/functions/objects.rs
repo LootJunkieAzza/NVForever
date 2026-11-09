@@ -219,8 +219,7 @@ pub fn destruction_stage(g: &Game, r: FormId) -> i32 {
     if def.health <= 0 {
         return def.stages.iter().map(|s| s.index as i32).max().unwrap_or(0);
     }
-    let pct = 100.0 * (def.health as f64 - d).max(0.0) / def.health as f64;
-    def.stages.iter().filter(|s| pct <= s.health_percent as f64).map(|s| s.index as i32).max().unwrap_or(0)
+    def.stages.iter().filter(|s| crate::combat::destruction_threshold_reached(d, def.health as f64, s.health_percent)).map(|s| s.index as i32).max().unwrap_or(0)
 }
 
 /// `ref.DamageObject amount`: object damage on a destructible, not destroyed

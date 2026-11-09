@@ -47,6 +47,7 @@ const WRLD: u32 = 0x900;
 const EXT_CELL: u32 = 0x910;
 const CELL: u32 = 0x200;
 const ACTI_REF: u32 = 0x300;
+const SECOND_ACTI_REF: u32 = 0x302;
 const CONT_REF: u32 = 0x301;
 const CHILD_REF: u32 = 0x320;
 const ADULT_REF: u32 = 0x321;
@@ -188,6 +189,7 @@ fn plugin_bytes() -> Vec<u8> {
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let refs = [
         placed(b"REFR", ACTI_REF, ACTI, [0.0; 3]),
+        placed(b"REFR", SECOND_ACTI_REF, ACTI, [100.0, 0.0, 0.0]),
         placed(b"REFR", CONT_REF, CONT, [0.0; 3]),
         placed(b"ACHR", CHILD_REF, NPC_CHILD, [0.0; 3]),
         placed(b"ACHR", ADULT_REF, NPC_ADULT, [0.0; 3]),
@@ -887,6 +889,186 @@ fn destruction_stages_from_combat_damage() {
     assert_eq!((c.after, c.destroyed), (2, true));
     assert!(g.damage_object(acti, 10.0).is_none());
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
+}
+
+fn capped_destruction_fixture() -> Fixture {
+    use fnv_game::data::{DestructionDef, DestructionStage as Stage};
+    let mut f = fixture();
+    // Synthetic stages for the numerical regression; no model or script data needed.
+    let stages = [98, 95, 75].into_iter().enumerate().map(|(index, health_percent)| {
+        Stage {
+            health_percent,
+            index: index as u8,
+            flags: Stage::CAP_DAMAGE | if index == 2 { Stage::DISABLE | Stage::DESTROY } else { 0 },
+            self_damage_per_second: if index < 2 { 1 } else { 0 },
+            explosion: (index == 2).then_some(FormId(0x893)),
+            ..Stage::default()
+        }
+    }).collect();
+    f.data.destructibles.insert(FormId(ACTI), DestructionDef { health: 20, stages, ..DestructionDef::default() });
+    f
+}
+
+fn destruction_roundtrip<'a>(f: &'a Fixture, g: &Game<'_>) -> Game<'a> {
+    let saved = serde_json::to_string(&g.snapshot()).unwrap();
+    let back = serde_json::from_str::<fnv_game::game::GameSnapshot>(&saved).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    Game::restore(&f.data, world, g.cfg, &back).unwrap()
+}
+
+#[test]
+fn cap_damage_allows_self_damage_to_reach_each_stage_once() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    let first = g.damage_object(acti, 5.0).unwrap();
+    assert_eq!((first.before, first.after), (-1, 0));
+    assert_eq!(g.extra[&acti].damage, Some(0.4));
+    assert_eq!(g.extra[&acti].burning, Some(1.0));
+    assert!(first.explosions.is_empty());
+    assert!(!first.destroyed && !first.disabled);
+    for _ in 0..1000 {
+        assert!(g.destruction_tick(0.0001).is_empty());
+    }
+    assert!((g.extra[&acti].damage.unwrap() - 0.5).abs() < 1e-12);
+    let second = g.destruction_tick(2.0);
+    assert_eq!(second.len(), 1);
+    assert_eq!((second[0].0, second[0].1.before, second[0].1.after), (acti, 0, 1));
+    assert_eq!(g.extra[&acti].damage, Some(1.0));
+    assert_eq!(g.extra[&acti].burning, Some(1.0));
+    assert!(second[0].1.explosions.is_empty());
+    assert!(!second[0].1.destroyed && !second[0].1.disabled);
+    let last = g.destruction_tick(10.0);
+    assert_eq!(last.len(), 1);
+    assert_eq!((last[0].0, last[0].1.before, last[0].1.after), (acti, 1, 2));
+    assert_eq!(g.extra[&acti].damage, Some(5.0));
+    assert_eq!(last[0].1.explosions, [FormId(0x893)]);
+    assert!(last[0].1.destroyed && last[0].1.disabled);
+    assert!(g.extra[&acti].destroyed);
+    assert!(!g.world.get(acti).unwrap().enabled());
+    assert_eq!(g.extra[&acti].burning, None);
+    assert!(g.destruction_tick(100.0).is_empty());
+    assert!(g.damage_object(acti, 100.0).is_none());
+}
+
+#[test]
+fn cap_damage_continues_after_each_saved_threshold_including_old_rounding() {
+    let f = capped_destruction_fixture();
+    let acti = FormId(ACTI_REF);
+    for legacy in [false, true] {
+        let mut g = game(&f);
+        g.damage_object(acti, 5.0).unwrap();
+        for (stage, percent) in [98, 95, 75].into_iter().enumerate() {
+            if legacy {
+                g.extra.get_mut(&acti).unwrap().damage = Some(20.0 * (1.0 - f64::from(percent) / 100.0));
+            }
+            let damage = g.extra[&acti].damage;
+            g = destruction_roundtrip(&f, &g);
+            // The save's JSON may read a float back one unit in the last place off
+            // (serde_json without its float_roundtrip feature), as a real save does: the
+            // stage must hold through that, so compare loosely and go on from what loaded.
+            let loaded = g.extra[&acti].damage;
+            assert!((loaded.unwrap() - damage.unwrap()).abs() <= 1e-12, "{loaded:?} vs {damage:?}");
+            let damage = loaded;
+            assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64);
+            if stage == 2 {
+                assert!(g.extra[&acti].destroyed);
+                assert!(!g.world.get(acti).unwrap().enabled());
+                assert!(g.destruction_tick(10.0).is_empty());
+                assert!(g.damage_object(acti, 10.0).is_none());
+                break;
+            }
+            assert_eq!(g.extra[&acti].burning, Some(1.0));
+            let zero = g.damage_object(acti, 0.0).unwrap();
+            assert_eq!((zero.before, zero.after), (stage as i32, stage as i32));
+            assert_eq!(g.extra[&acti].damage, damage);
+            assert!(g.destruction_tick(0.0).is_empty());
+            assert!(g.destruction_tick(0.01).is_empty());
+            assert!(g.extra[&acti].damage.unwrap() > damage.unwrap());
+            let next = if stage == 0 {
+                g.damage_object(acti, 10.0).unwrap()
+            } else {
+                let mut changes = g.destruction_tick(10.0);
+                assert_eq!(changes.len(), 1);
+                changes.remove(0).1
+            };
+            assert_eq!((next.before, next.after), (stage as i32, stage as i32 + 1));
+            assert_eq!(g.extra[&acti].damage, Some(if stage == 0 { 1.0 } else { 5.0 }));
+            assert_eq!(next.explosions, if stage == 0 { vec![] } else { vec![FormId(0x893)] });
+            assert_eq!((next.destroyed, next.disabled), (stage == 1, stage == 1));
+        }
+    }
+}
+
+#[test]
+fn cap_damage_and_stage_lookup_agree_for_roundoff_below_a_saved_threshold() {
+    let f = capped_destruction_fixture();
+    let acti = FormId(ACTI_REF);
+    for (stage, damage) in [0.4 - 1e-15, 1.0 - 1e-15].into_iter().enumerate() {
+        let mut g = game(&f);
+        g.damage_object(acti, 5.0).unwrap();
+        if stage == 1 {
+            g.damage_object(acti, 5.0).unwrap();
+        }
+        g.extra.get_mut(&acti).unwrap().damage = Some(damage);
+        g = destruction_roundtrip(&f, &g);
+        assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), stage as f64);
+        let next = g.damage_object(acti, 1e-6).unwrap();
+        assert_eq!((next.before, next.after), (stage as i32, stage as i32));
+        assert!(g.extra[&acti].damage.unwrap() > damage + 1e-7);
+        let next = g.damage_object(acti, 10.0).unwrap();
+        assert_eq!((next.before, next.after), (stage as i32, stage as i32 + 1));
+    }
+}
+
+#[test]
+fn cap_crossings_use_damage_even_when_the_stage_already_reads_zero() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    let zero = g.damage_object(acti, 0.0).unwrap();
+    assert_eq!((zero.before, zero.after), (-1, 0));
+    assert_eq!(g.extra[&acti].damage, Some(0.0));
+    // Stage 0 is the fallback above every threshold (functions/objects.rs), so it
+    // cannot tell whether the first cap has been crossed [design].
+    let below = g.damage_object(acti, 0.4 - 1e-10).unwrap();
+    assert_eq!((below.before, below.after), (0, 0));
+    assert!(g.extra[&acti].damage.unwrap() < 0.4);
+    g.damage_object(acti, 5e-11).unwrap();
+    assert!(g.extra[&acti].damage.unwrap() < 0.4);
+    g.damage_object(acti, 10.0).unwrap();
+    assert_eq!(g.extra[&acti].damage, Some(0.4));
+    // A distinct, small interval below the later stage must not be rounded away.
+    g.damage_object(acti, 0.6 - 1e-10).unwrap();
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 0.0);
+    g.damage_object(acti, 5e-11).unwrap();
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 0.0);
+    let next = g.damage_object(acti, 10.0).unwrap();
+    assert_eq!((next.before, next.after), (0, 1));
+    assert_eq!(g.extra[&acti].damage, Some(1.0));
+}
+
+#[test]
+fn cap_damage_is_independent_for_two_references_across_a_save() {
+    let f = capped_destruction_fixture();
+    let mut g = game(&f);
+    let first = FormId(ACTI_REF);
+    let second = FormId(SECOND_ACTI_REF);
+    g.damage_object(first, 10.0).unwrap();
+    g.damage_object(first, 10.0).unwrap();
+    g.damage_object(second, 10.0).unwrap();
+    g = destruction_roundtrip(&f, &g);
+    assert_eq!((g.extra[&first].damage, g.extra[&second].damage), (Some(1.0), Some(0.4)));
+    let mut changes = g.destruction_tick(10.0);
+    changes.sort_by_key(|(r, _)| *r);
+    assert_eq!(changes.iter().map(|(r, c)| (*r, c.before, c.after)).collect::<Vec<_>>(), [(first, 1, 2), (second, 0, 1)]);
+    assert_eq!((g.extra[&first].damage, g.extra[&second].damage), (Some(5.0), Some(1.0)));
+    assert!(g.extra[&first].destroyed && !g.extra[&second].destroyed);
+    let last = g.destruction_tick(10.0);
+    assert_eq!(last.len(), 1);
+    assert_eq!((last[0].0, last[0].1.before, last[0].1.after), (second, 1, 2));
+    assert_eq!(last[0].1.explosions, [FormId(0x893)]);
+    assert!(g.destruction_tick(10.0).is_empty());
 }
 
 /// The model damage stage follows the destruction stage reached (the fixture's DSTDs
