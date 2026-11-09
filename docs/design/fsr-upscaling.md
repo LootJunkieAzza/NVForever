@@ -88,7 +88,8 @@ FSR 3.1.4 reads two masks [observed, in its shaders: `ffx_fsr3upscaler_prepare_r
   thin features and its luma-instability allowance), without cutting the accumulation.
 
 The port has no `GenerateReactive` step, so `fsr.rs` makes both masks itself
-(`fsr_reactive.wgsl`, one pass with three R8 outputs):
+(`fsr_reactive.wgsl`, two passes: `presence_pass` writes each pixel's presence (R8) and
+luminance (R16F), `fragment` the two masks (R8 each) from those):
 
 - The main texture is copied after the opaque pass (`capture_opaque`).
 - **Presence**: that copy against the finished frame, relative to the brighter of the two,
@@ -112,7 +113,7 @@ The port has no `GenerateReactive` step, so `fsr.rs` makes both masks itself
   vectors carry the old shading along, and FSR's history, an average over many frames, lags
   it even when each frame changes little. Each pixel's 3x3 texels are compared with FSR's
   last output at the same surface points (by each texel's own motion, this frame's jitter
-  undone; `fsr_fallback.wgsl` `luma` keeps that output's luminance, display size). Where at
+  undone; `fsr_fallback.wgsl` `luma` keeps that output's luminance, render size). Where at
   least 8 of the 9 are brighter, or darker, by more than |ln| 0.12 (full at 0.5), the history
   is stale. With 7 of 9, thin aliased detail (slats, a ridge against a hill) set it off now
   and then and flickered 12% more.

@@ -1305,7 +1305,7 @@ fn main() -> AppExit {
     // plugin, which keeps it), so the test aids reach the same view on the same frame in every
     // run: renderer changes compared frame by frame (docs/design/fsr-upscaling.md, "Mip
     // bias"). A diagnostic, not a setting.
-    if let Some(ms) = std::env::var("NVF_FIXED_FRAME_TIME_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|ms| *ms > 0.0) {
+    if let Some(ms) = std::env::var("NVF_FIXED_FRAME_TIME_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|ms| ms.is_finite() && *ms > 0.0) {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(ms / 1000.0)));
         app.add_systems(Startup, move || info!("fixed frame time: every frame {ms} ms (NVF_FIXED_FRAME_TIME_MS)"));
     }

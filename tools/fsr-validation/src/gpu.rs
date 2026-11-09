@@ -165,10 +165,16 @@ pub(crate) fn read(
 
 /// The Vulkan device every check runs on. `WGPU_VALIDATION=1` turns on the Khronos
 /// validation layer (Vulkan SDK); any wgpu validation error stops the run.
-/// `NVF_FSR_FP16=1`: the FSR dispatches use AMD's half-precision accumulate pass (the
-/// engine's default where the GPU has 16-bit shader floats and integers); full precision
-/// otherwise.
+/// The FSR dispatches use AMD's half-precision accumulate pass where the GPU has 16-bit
+/// shader floats and integers, as the engine does (fsr.rs `FP16`), so a run with nothing set
+/// checks what the game runs. `NVF_FSR_FP16=0`: full precision; `NVF_FSR_FP16=1`: half
+/// precision or stop (a GPU without it).
 pub fn fp16_requested() -> bool {
+    !std::env::var("NVF_FSR_FP16").is_ok_and(|v| v.trim() == "0")
+}
+
+/// `NVF_FSR_FP16=1`: stop when the GPU cannot run the half-precision pass.
+fn fp16_required() -> bool {
     std::env::var("NVF_FSR_FP16").is_ok_and(|v| v.trim() == "1")
 }
 
@@ -218,14 +224,14 @@ pub fn device() -> (Device, Queue) {
             .flags
             .contains(TextureFormatFeatureFlags::STORAGE_READ_WRITE));
     }
-    let fp16 = fp16_requested();
-    if fp16 {
+    if fp16_required() {
         assert!(
             adapter.features().contains(wgpu_ffx::FP16_FEATURES),
             "NVF_FSR_FP16=1 but the adapter lacks {:?}",
             wgpu_ffx::FP16_FEATURES - adapter.features()
         );
     }
+    let fp16 = fp16_requested() && adapter.features().contains(wgpu_ffx::FP16_FEATURES);
     let required = if fp16 { required | wgpu_ffx::FP16_FEATURES } else { required };
     let (device, queue) = pollster::block_on(adapter.request_device(&DeviceDescriptor {
         required_features: required,

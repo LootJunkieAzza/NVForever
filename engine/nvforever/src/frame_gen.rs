@@ -122,8 +122,8 @@ pub fn real_frame_cap(refresh_millihertz: Option<u32>) -> u32 {
 }
 
 /// Generated frames presented since the start, shared by the render world (which counts them)
-/// and the main world's frame-rate counter (`fps_counter.rs`, which shows frames presented and
-/// real frames apart).
+/// and the main world, for the performance overlay to show frames presented and real frames
+/// apart (#1959; nothing reads it yet).
 #[derive(Resource, Clone, Default)]
 pub struct GeneratedFrames(pub std::sync::Arc<AtomicU64>);
 
@@ -1030,6 +1030,11 @@ fn write_capture(capture: Res<Capture>, device: Res<RenderDevice>) {
         buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
     }
     if let Err(error) = device.poll(wgpu::PollType::wait_indefinitely()) {
+        warn!("frame generation capture: {error}");
+        return;
+    }
+    // Never into the game's folders (fnv-install, docs/design/install-layout.md).
+    if let Err(error) = fnv_install::guard_write(dir, None) {
         warn!("frame generation capture: {error}");
         return;
     }
