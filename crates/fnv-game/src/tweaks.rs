@@ -342,6 +342,13 @@ pub struct Tweaks {
     pub repair_low_first: bool,
     /// `bNoSkillBooksAbove100`: a skill book whose skill is already at 100 is not read.
     pub no_skill_books_at_max: bool,
+    /// `bLessFrequentPlayerPainSounds` (`iMinPlayerPainSoundIntervalMS`): seconds the
+    /// player's pain line waits before it may come again; 0 as the original.
+    pub player_pain_gap: f64,
+    /// `bPauseOnSaveLoad`: a loaded save starts in the pause menu.
+    pub pause_on_load: bool,
+    /// `bSwapAmmoWithWeaponHolstered`: Ammo Swap works with the weapon put away.
+    pub swap_ammo_holstered: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -503,6 +510,9 @@ impl Default for Tweaks {
             repair_same_first: false,
             repair_low_first: false,
             no_skill_books_at_max: false,
+            player_pain_gap: 0.0,
+            pause_on_load: false,
+            swap_ammo_holstered: false,
         }
     }
 }

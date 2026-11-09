@@ -2801,6 +2801,21 @@ pub(crate) fn fire(
         if vats_shot.is_some() {
             info!("combat: the VATS mode shot could not leave (the weapon is not out)");
         }
+        // The player's tweak: Ammo Swap works with the weapon put away; it reloads once
+        // drawn [design: docs/design/tweaks.md].
+        let holstered_swap = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.swap_ammo_holstered);
+        if swap && holstered_swap {
+            if let Some(cur) = c.ammo {
+                let next = c.forms.next_ammo(id, cur, |a| player_count(&sim, Some(a)) > 0);
+                if next.is_some_and(|n| n != cur) {
+                    c.ammo = next;
+                    if !god {
+                        cycle.swap_ammo();
+                    }
+                    info!("combat: ammo swapped to {} with the weapon away (tweak)", next.and_then(|a| c.forms.ammo.get(&a)).and_then(|a| a.edid.clone()).unwrap_or_default());
+                }
+            }
+        }
         return;
     }
     // The reload at the player's rate: Agility, then the Reload Speed perks (Rapid

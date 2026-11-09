@@ -443,6 +443,9 @@ unless the player binds them, so nothing changes until then.
 | Red Health / Action Point Bar Below | `bColoredHUDBars` | `hud::pips` colours the ticks with the hostile red below each share |
 | Red / Flashing Weapon Condition Below | `bColorWeaponCndLabel` | `hud::draw` colours the condition bar (red below one share, flashing twice a second below the other) |
 | Blackjack Hand Total | `bBlackJackTotalDisplay` | `blackjack::screen::hand_line` under the status line (our words) |
+| Less Frequent Pain Sounds (0–10 s) | `bLessFrequentPlayerPainSounds` | `Game::hit_lines` keeps the player's Hit line apart by `CombatLines::next_said` |
+| Pause On Load | `bPauseOnSaveLoad` | `loading::finish`: a start from a save (`Runtime::restored_from_save`) asks the pause menu as ShowPauseMenu does |
+| Swap Ammo While Holstered | `bSwapAmmoWithWeaponHolstered` | `combat::fire` takes the Ammo Swap before the weapon-not-ready return; the reload follows once drawn |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -463,8 +466,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 358 |
-| to do | 245 |
+| done | 361 |
+| to do | 242 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -720,6 +723,7 @@ game's Data folder, read-only).
 | `bKeepHolotapePlayingWhenSelectingOtherNotes` | done |  |  | already so: only voice and sound notes start playing |
 | `bKeepRouletteBetAmount` | done |  |  | already so: the bet stays between spins |
 | `bKeepXPBarWhenClosingMenus` | done |  |  | already so: the XP meter holds while a menu is up |
+| `bLessFrequentPlayerPainSounds` | done |  | 1 | Less Frequent Pain Sounds (seconds between the player's Hit lines) |
 | `bLockpickHackingMessageShowsCurrentSkill` | done |  | 2 | Say My Skill |
 | `bMidairFastTravel` | done |  |  | Fast Travel in the Air |
 | `bMinBloodSplatterHealthDamage` | done |  | 1 | Blood Only on Big Hits (slider) |
@@ -731,12 +735,14 @@ game's Data folder, read-only).
 | `bNoMapMarkerAddedPopup` | done |  |  | already so: NVForever shows no marker-added popup |
 | `bNoPipboyIdleAnims` | done |  |  | already so: only the raise clip plays |
 | `bNoReputationMessages` | done |  | 5 | Quiet Reputation (box and sound together; per-kind options not built) |
+| `bPauseOnSaveLoad` | done |  |  | Pause On Load (a loaded save opens the pause menu) |
 | `bPopupMenusDontMoveCursor` | done |  |  | already so: nothing moves the pointer |
 | `bPreventBushPassthroughSounds` | done |  |  | already so: walking through plants makes no sound |
 | `bQuestTextVisibleWhileAiming` | done |  |  | already so: aiming hides only the reticle |
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
+| `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
 | `bTurnSlowerWhileAiming` | done |  | 2 | Aiming Turn Speed: Across / Up and Down (two sliders) |
 | `bUnequipBrokenArmor` | done |  | 1 | Unequip Broken Armour (no message, sArmorBreakMessage not done) |
 | `bUnspokenNPCIndicator` | done |  |  | Mark Strangers |
@@ -762,7 +768,6 @@ game's Data folder, read-only).
 | `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
 | `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
 | `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
-| `bLessFrequentPlayerPainSounds` | to do |  | 1 | combat_lines hit_lines with a last-said time |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bMoveDuringVATSPlayback` | to do |  |  | kill_cam hold_input and ControlInput::held both hold movement |
 | `bNoAutoContinueDialog` | to do |  |  | Game::update_dialogue would hold the line timer |
@@ -772,7 +777,6 @@ game's Data folder, read-only).
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bNoScreenshotPopup` | to do |  | 3 | NVForever shows no screenshot message yet |
 | `bNPCsDropWeaponHolsteredWeapon` | to do |  |  | combat::death_drops from the equipped weapon |
-| `bPauseOnSaveLoad` | to do |  |  | loading::finish asks pause::open; tell a load from a new game |
 | `bPickLocksEvenWithKey` | to do |  | 1 | activate::activate before activate_by_hand |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRemoveLandingAnim` | to do |  |  | fnv_actor jump::JumpState plays the landing clip |
@@ -782,7 +786,6 @@ game's Data folder, read-only).
 | `bScopeVisibilityDelay` | to do |  | 4 | aim_zoom with a held timer |
 | `bSkipVigorTesterSpecialPages` | to do |  |  | chargen vigor page and its pose clip |
 | `bSlotsAutoSpinHotkey` | to do |  |  | slots keys; check Spin while reels turn |
-| `bSwapAmmoWithWeaponHolstered` | to do |  |  | combat::fire before the not-ready return |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bTurnFurtherWhileSeated` | to do |  |  | nvforever player_body NECK_TURN; drive_body is at 16 params |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | the D-pad is fixed to hotkeys; needs a current slot |

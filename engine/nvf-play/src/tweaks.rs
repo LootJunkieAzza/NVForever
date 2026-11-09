@@ -1125,6 +1125,9 @@ impl Plugin for TweaksPlugin {
         part!(app, "weapon-cnd-red-below", "Red Weapon Condition Below", "The HUD's weapon condition bar turns red below this condition; 0% never. (Stewie's Tweaks bColorWeaponCndLabel)", weapon_cnd_red_below);
         part!(app, "weapon-cnd-flash-below", "Flashing Weapon Condition Below", "The HUD's weapon condition bar flashes red below this condition; 0% never. (Stewie's Tweaks bColorWeaponCndLabel)", weapon_cnd_flash_below);
         switch!(app, "blackjack-total", "Blackjack Hand Total", "The Blackjack screen shows the total of the hand being played. (Stewie's Tweaks bBlackJackTotalDisplay)", blackjack_total);
+        amount!(app, "player-pain-gap", "Less Frequent Pain Sounds", "Seconds after a pain sound before the player makes another; 0 changes nothing. (Stewie's Tweaks bLessFrequentPlayerPainSounds)", 10.0, f64, game.player_pain_gap);
+        switch!(app, "pause-on-load", "Pause On Load", "A loaded save starts in the pause menu instead of straight into play. (Stewie's Tweaks bPauseOnSaveLoad)", game.pause_on_load);
+        switch!(app, "swap-ammo-holstered", "Swap Ammo While Holstered", "Ammo Swap changes the ammo type with the weapon put away; it reloads when drawn. (Stewie's Tweaks bSwapAmmoWithWeaponHolstered)", game.swap_ammo_holstered);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

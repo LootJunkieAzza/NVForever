@@ -391,10 +391,17 @@ impl Game<'_> {
         if friendly && !self.package_allows(target, crate::package::fallout::FRIENDLY_FIRE_COMMENTS) {
             return;
         }
+        // The player's tweak: the player's pain line no more often than every so many
+        // seconds [design: docs/design/tweaks.md].
+        let gap = if target == FormId::PLAYER_REF { self.tweaks.player_pain_gap } else { 0.0 };
+        if gap > 0.0 && self.combat_lines.next_said.get(&(target, "Hit")).is_some_and(|&at| self.time < at) {
+            return;
+        }
         let t = self.combat_timing();
         let roll = self.combat_lines.unit();
-        if says_hit(before - after, max, roll, &t, target != FormId::PLAYER_REF) {
-            self.combat_line(target, attacker, "Hit");
+        if says_hit(before - after, max, roll, &t, target != FormId::PLAYER_REF) && self.combat_line(target, attacker, "Hit").is_some() && gap > 0.0 {
+            let at = self.time + gap;
+            self.combat_lines.next_said.insert((target, "Hit"), at);
         }
     }
 

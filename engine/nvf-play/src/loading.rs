@@ -570,7 +570,7 @@ fn finish(
     mut commands: Commands,
     mut loading: ResMut<Loading>,
     phys: Option<Res<PhysState>>,
-    scripts: Option<Res<crate::script::ScriptState>>,
+    mut scripts: Option<ResMut<crate::script::ScriptState>>,
     real: Res<Time<Real>>,
     mut clock: ResMut<Time<Virtual>>,
     mut next: ResMut<NextState<PlayState>>,
@@ -608,6 +608,13 @@ fn finish(
         }
         loading.start = None;
         info!("loading screen down after {waited:.2} s (the start: cells, actors and scripts ready); the test aids and --run-seconds count from now");
+        // The player's tweak: a loaded save starts in the pause menu [design: docs/design/tweaks.md]; asked as
+        // ShowPauseMenu asks (`crate::pause`).
+        if let Some(rt) = scripts.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.restored_from_save && rt.game.tweaks.pause_on_load) {
+            rt.game.showoff.b5.pause_asks += 1;
+            rt.game.showoff.b5.pause_mode = 0;
+            info!("loading screen: the save starts paused (tweak)");
+        }
     } else {
         return;
     }
