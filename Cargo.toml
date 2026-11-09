@@ -4,7 +4,9 @@ members = ["crates/fnv-util", "crates/fnv-install", "crates/fnv-save", "crates/f
 exclude = ["viewer"]
 
 [workspace.package]
-version = "0.1.0"
+# The release's version, the same as engine/Cargo.toml's: saves are stamped with it and
+# fnvtool reports it (crates/fnv-save has the test that holds the two together).
+version = "0.6.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/LootJunkieAzza/NVForever"
