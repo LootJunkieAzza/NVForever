@@ -729,6 +729,7 @@ fn gate_anim() -> fnv_collide::anim::ModelAnim {
         rotation: Channel::Static(None),
         euler: None,
         scale: Channel::Static(None),
+        per_cycle: None,
     };
     anim.add_sequence("Forward", 1.0, 2, vec![(1, slide)]);
     anim

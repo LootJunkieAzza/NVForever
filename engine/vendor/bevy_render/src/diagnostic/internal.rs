@@ -232,6 +232,8 @@ struct FrameData {
     value_buffers: Vec<(Buffer, Cow<'static, str>, bool)>,
     is_mapped: Arc<AtomicBool>,
     callback: Option<Box<dyn FnOnce(RenderDiagnostics) + Send + Sync + 'static>>,
+    // NVForever recorded instant: when this frame began recording, carried to the store.
+    began: Option<Instant>,
     #[cfg(feature = "tracing-tracy")]
     tracy_gpu_context: Option<tracy_client::GpuContext>,
 }
@@ -308,12 +310,14 @@ impl FrameData {
             value_buffers: Vec::new(),
             is_mapped: Arc::new(AtomicBool::new(false)),
             callback: None,
+            began: None,
             #[cfg(feature = "tracing-tracy")]
             tracy_gpu_context,
         }
     }
 
     fn begin(&mut self) {
+        self.began = Some(Instant::now());
         self.num_timestamps = 0;
         self.num_pipeline_statistics = 0;
         self.path_components.clear();
@@ -552,7 +556,7 @@ impl FrameData {
                 });
             }
 
-            callback(RenderDiagnostics(diagnostics));
+            callback(RenderDiagnostics(diagnostics, self.began));
             return;
         };
 
@@ -693,7 +697,7 @@ impl FrameData {
             });
         }
 
-        callback(RenderDiagnostics(diagnostics));
+        callback(RenderDiagnostics(diagnostics, self.began));
 
         drop(data);
         read_buffer.unmap();
@@ -704,8 +708,10 @@ impl FrameData {
 }
 
 /// Resource which stores render diagnostics of the most recent frame.
+// NVForever recorded instant: the second field is when the frame began recording
+// (`RenderDiagnosticsRecorded`).
 #[derive(Debug, Default, Clone, Resource)]
-pub struct RenderDiagnostics(Vec<RenderDiagnostic>);
+pub struct RenderDiagnostics(Vec<RenderDiagnostic>, Option<Instant>);
 
 /// A render diagnostic which has been recorded, but not yet stored in [`DiagnosticsStore`].
 #[derive(Debug, Clone, Resource)]
@@ -724,12 +730,26 @@ pub struct RenderDiagnostic {
 pub struct RenderDiagnosticsMutex(pub(crate) Arc<Mutex<Option<RenderDiagnostics>>>);
 
 /// Updates render diagnostics measurements.
-pub fn sync_diagnostics(mutex: Res<RenderDiagnosticsMutex>, mut store: ResMut<DiagnosticsStore>) {
+/// NVForever recorded instant: the last render diagnostics put in the store, as (when they
+/// were put in, the time their measurements carry; when their frame began recording). The
+/// store keeps the import time (upstream); this pairs it with the recording time, so a
+/// reader can tell the frames before a moment from those after it (nvforever
+/// `perf_overlay::split`).
+#[derive(Debug, Default, Clone, Copy, Resource)]
+pub struct RenderDiagnosticsRecorded(pub Option<(Instant, Instant)>);
+
+pub fn sync_diagnostics(
+    mutex: Res<RenderDiagnosticsMutex>,
+    mut store: ResMut<DiagnosticsStore>,
+    mut recorded: ResMut<RenderDiagnosticsRecorded>,
+) {
     let Some(diagnostics) = mutex.0.lock().ok().and_then(|mut v| v.take()) else {
         return;
     };
 
     let time = Instant::now();
+    // NVForever recorded instant (`RenderDiagnosticsRecorded`).
+    recorded.0 = diagnostics.1.map(|began| (time, began));
 
     for diagnostic in &diagnostics.0 {
         if store.get(&diagnostic.path).is_none() {
