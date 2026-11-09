@@ -160,12 +160,14 @@ fn controls(a: &Args, default: [bool; 7], missing: bool) -> [bool; 7] {
     out
 }
 
-pub fn disable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn disable_player_controls(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     // A left-out parameter is 0: the group is left as it is [hypothesis; §5.2 has a
     // capture that does not fit any simple rule].
     let which = controls(a, [true, true, true, true, false, false, false], false);
-    for (d, w) in g.player.controls_disabled.iter_mut().zip(which) {
+    let story = g.is_story_caller(ctx);
+    for ((d, s), w) in g.player.controls_disabled.iter_mut().zip(g.story_locked.iter_mut()).zip(which) {
         *d |= w;
+        *s |= w && story;
     }
     none()
 }
@@ -178,9 +180,10 @@ pub fn enable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
     // the opening turned it off; read with a left-out 0 the player could never sneak
     // again. controls.md §5.2].
     let which = controls(a, [true; 7], true);
-    for (d, w) in g.player.controls_disabled.iter_mut().zip(which) {
+    for ((d, s), w) in g.player.controls_disabled.iter_mut().zip(g.story_locked.iter_mut()).zip(which) {
         if w {
             *d = false;
+            *s = false;
         }
     }
     none()

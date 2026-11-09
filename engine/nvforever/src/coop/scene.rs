@@ -9,8 +9,10 @@
 //! scene on its own and stay locked after it. The host sends what its scripts do to its
 //! player ([`net::SceneView`]) and each guest shares it:
 //!
-//! - **Held as the host is.** The control groups the host's scripts hold (every lock
-//!   `Game::controls_locked` reads, the NVSE Alt locks included) hold the guest too
+//! - **Held as the host is.** The control groups the host's story scripts hold
+//!   (`Game::story_locks`: a quest's, a stage's or dialogue result's, a trigger volume's,
+//!   and the NVSE Alt locks; not the host's own menus or what it uses, owner 2026-11-09
+//!   "only story scenes", coop-replication.md §7.1) hold the guest too
 //!   (`fnv_game::Game::coop_host_locks`), and let go when the host's do. A host that has
 //!   not been heard for [`STALE`] seconds holds nothing: a guest is never left locked by a
 //!   lost host.
@@ -99,7 +101,9 @@ fn locks_of(bits: u8) -> [bool; 7] {
 /// A host's scene now: its scripts' locks, and its screen's modifiers while one is held.
 /// (A host holds nothing for another: `coop_host_locks` is clear.)
 pub(super) fn scene_view(g: &fnv_game::Game) -> SceneView {
-    let locks = lock_bits(g.controls_locked());
+    // Story locks only (owner, 2026-11-09): the host's own menus and the things it uses
+    // hold the host alone (`Game::story_locks`).
+    let locks = lock_bits(g.story_locks());
     let mods = if locks == 0 { Vec::new() } else { g.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)).take(net::SCENE_MODS_MAX).collect() };
     let worn = g.story_gear().into_iter().map(|(i, l)| (i.0, l)).take(net::SCENE_MODS_MAX).collect();
     let swaps = if locks == 0 { Vec::new() } else { scene_swaps(&g.texture_swaps) };

@@ -81,6 +81,10 @@ pub(super) struct Repl {
     pub summon: Option<(u32, u32, [f32; 3], f32)>,
     /// The host's: the friendly-fire rule as last sent to the guests (`None`: send it).
     rules_sent: Option<bool>,
+    /// The host's: guests whose stream started again, to be told the animation group
+    /// each reference was last asked to play (a rocket bay a script opened before they
+    /// joined stays open for them).
+    anims_for: Vec<u8>,
     /// The host's: where its player stood at the end of the last frame, so a script's move
     /// takes along only the guests that were within sight of it ([`fnv_game::coop::STORY_NEAR`]).
     host_was: Option<(Place, [f32; 3])>,
@@ -407,6 +411,8 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
             .filter_map(|e| match e {
                 fnv_game::sound::CoopEffect::Sound { sound, at } => Some(Effect::Sound { sound: sound.0, at_ref: at.0, pos: [0.0; 3] }),
                 fnv_game::sound::CoopEffect::Music(m) => Some(Effect::Music { music: m.0 }),
+                fnv_game::sound::CoopEffect::Anim { on, group, flag } => Some(Effect::Anim { on: on.0, group, flag: flag.clamp(0, 2) as u8, settled: false }),
+                fnv_game::sound::CoopEffect::AnimReset(on) => Some(Effect::AnimReset { on: on.0 }),
                 fnv_game::sound::CoopEffect::PlayerMoved => {
                     // Where the script put the host's player.
                     let s = sim.world.peek(FormId::PLAYER_REF)?;
@@ -452,6 +458,22 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 link.send_reliable(None, item);
             }
         }
+        // A guest whose stream started again: what the host's scripts last asked each
+        // reference to play, shown on its copy as a draw shows it.
+        let asked: Vec<Effect> = if r.anims_for.is_empty() {
+            Vec::new()
+        } else {
+            g.anims.asked_all().iter().map(|(on, (group, _))| Effect::Anim { on: on.0, group: *group, flag: 0, settled: true }).collect()
+        };
+        for id in std::mem::take(&mut r.anims_for) {
+            if !asked.is_empty() {
+                info!("replication: player {} is told the {} animation groups the host's scripts last asked", id + 1, asked.len());
+                r.effects_sent += asked.len() as u64;
+                for item in repl::pack_effects(&asked, ITEM) {
+                    link.send_reliable(Some(id), item);
+                }
+            }
+        }
         for (summon, to) in summons {
             r.effects_sent += 1;
             for id in to {
@@ -472,6 +494,9 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         match e {
             Event::RelReset { id } => {
                 r.rules_sent = None;
+                if !r.anims_for.contains(&id) {
+                    r.anims_for.push(id);
+                }
                 r.shadows.remove(&id);
                 r.sent_at.remove(&id);
                 r.poses.remove(&id);
@@ -695,6 +720,17 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                                     info!("replication: the host's script moved it: this player goes too");
                                     r.summon = Some((interior, world, pos, yaw));
                                 }
+                                Effect::Anim { on, group, flag, settled } => {
+                                    let name = g.anim_group_name(group);
+                                    if settled {
+                                        if let Some(name) = name {
+                                            g.anims.show_asked(FormId(on), group, name);
+                                        }
+                                    } else {
+                                        g.ask_anim(fnv_game::anims::AnimRequest { on: FormId(on), group, name, start: fnv_game::anims::Start::from_flag(i32::from(flag)) });
+                                    }
+                                }
+                                Effect::AnimReset { on } => g.anims.reset(FormId(on)),
                                 Effect::Rules { friendly_fire } => {
                                     if coop.friendly_fire != friendly_fire {
                                         info!("replication: the host's rules: friendly fire {}", if friendly_fire { "on" } else { "off" });

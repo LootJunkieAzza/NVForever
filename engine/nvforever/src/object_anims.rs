@@ -210,6 +210,13 @@ pub fn drive(
     if seen.len() > by_ref.len() {
         seen.retain(|e| rigs.contains(*e));
     }
+    // Groups a co-op host's scripts asked before this guest joined (`ObjectAnims::show_asked`):
+    // a drawn object shows it as when drawn again.
+    for on in std::mem::take(&mut game.anims.reshow) {
+        if let Some(e) = by_ref.get(&on.0) {
+            seen.remove(e);
+        }
+    }
     for (root, mut rig, _, mats, _) in &mut rigs {
         if !seen.insert(root) {
             continue;

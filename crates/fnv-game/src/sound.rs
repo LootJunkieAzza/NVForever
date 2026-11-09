@@ -44,6 +44,11 @@ pub enum CoopEffect {
     Music(FormId),
     /// A script moved the player (MoveTo, PositionCell...): the guests go with it.
     PlayerMoved,
+    /// A script played an animation group on a reference (`PlayGroup`, flag 0-2): the
+    /// guests' copies play it too (a rocket bay opening, a gate rising).
+    Anim { on: FormId, group: u16, flag: i32 },
+    /// A script reset a reference's animation state (`Reset3DState`).
+    AnimReset(FormId),
 }
 
 impl Game<'_> {

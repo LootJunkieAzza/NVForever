@@ -322,6 +322,15 @@ are it'll come up once that menu closes".
   while the controls are locked (laptop run story-far-3b). The locks are the host's
   state now, sent every 0.5 s (`SceneView::locks`), and a host not heard for 3 s holds
   nothing, so EnablePlayerControls (or a lost host) lets every guest go.
+- **Only story locks reach the guests** (owner, 2026-11-09: "only story scenes"). A lock
+  is a story lock when the script that set it runs for a quest (a quest's script, a
+  stage's result, a dialogue result) or is a trigger volume's (a placed reference whose
+  script has OnTriggerEnter, OnTrigger or OnTriggerLeave: the level designers' story
+  triggers, the DLC intros, the slideshows) (`Game::is_story_caller`, kept per control
+  group in `Game::story_locked`; a plugin's Alt lock counts too). A lock set by the script
+  of something the host uses (ED-E's repair message boxes, an activator, a terminal) and
+  the host's own menus hold the host alone (laptop run q-ede-repair-2p held the guest for
+  7 s before). EnablePlayerControls still lets every group go, and the 3 s rule stands.
 - **Not held**: add-on starts that are no conversation (the DM signal, the Lonesome Road
   tunnel): the far guests are left behind and waited for, but the start itself goes on.
 - Log: `co-op: story wait: …`; checked by the laptop runs story-near-3, story-far-3 and

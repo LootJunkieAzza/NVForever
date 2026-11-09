@@ -90,6 +90,10 @@ pub struct ObjectAnims {
     /// object shows when it is drawn or given collision again, a group played once at its
     /// end (`nvforever` object_anims.rs, `nvf_play::phys`). Saved [design].
     asked: BTreeMap<FormId, (u16, String)>,
+    /// References whose last group asked was set from outside the game's scripts (a co-op
+    /// guest told by its host what the host's scripts asked before it joined): the engine
+    /// shows it again as on a fresh draw ([`ObjectAnims::show_asked`]).
+    pub reshow: Vec<FormId>,
 }
 
 impl ObjectAnims {
@@ -131,6 +135,16 @@ impl ObjectAnims {
         &self.asked
     }
 
+    /// `on`'s last group asked is `group` (`name`), as a co-op host's scripts asked it
+    /// before this game joined: kept as if asked here, and shown as a draw shows it (a
+    /// group played once at its end, a loop from its start), not played from its start.
+    pub fn show_asked(&mut self, on: FormId, group: u16, name: String) {
+        self.asked.insert(on, (group, name));
+        if !self.reshow.contains(&on) {
+            self.reshow.push(on);
+        }
+    }
+
     /// The last groups asked, from a saved game.
     pub fn restore_asked(&mut self, asked: BTreeMap<FormId, (u16, String)>) {
         self.asked = asked;
@@ -154,6 +168,10 @@ impl Game<'_> {
         }
         if let Some(name) = &r.name {
             self.anims.asked.insert(r.on, (r.group, name.clone()));
+        }
+        // A co-op host's: its guests' copies play it too.
+        if let Some(out) = self.coop_effects.as_mut().filter(|o| o.len() < crate::sound::MAX_PENDING) {
+            out.push(crate::sound::CoopEffect::Anim { on: r.on, group: r.group, flag: r.start.flag() });
         }
         let q = &mut self.anims.requests;
         if q.len() >= crate::sound::MAX_PENDING {

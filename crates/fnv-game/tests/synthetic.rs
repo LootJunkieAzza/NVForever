@@ -2969,6 +2969,28 @@ fn player_control_locks_are_kept_per_plugin() {
     assert_eq!(g.controls_locked(), [true, false, false, false, false, false, false], "the other plugin's lock stays");
 }
 
+/// Only a story script's locks hold a co-op host's guests (owner, 2026-11-09: "only story
+/// scenes", coop-replication.md §7.1): a quest's lock is a story lock, an object
+/// script's on something the player uses is not, and EnablePlayerControls clears both.
+#[test]
+fn only_a_story_scripts_lock_is_a_story_lock() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str, ctx: fnv_game::game::RunCtx| {
+        g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), ctx).unwrap();
+    };
+    let own = fnv_game::game::RunCtx { self_ref: Some(FormId::PLAYER_REF), ..Default::default() };
+    q(&mut g, "DisablePlayerControls 1 0 0 0", own);
+    assert!(g.controls_locked()[0], "the host is held");
+    assert_eq!(g.story_locks(), [false; 7], "an object script's lock is the host's own");
+    let story = fnv_game::game::RunCtx { quest: Some(FormId(0x901)), ..Default::default() };
+    q(&mut g, "DisablePlayerControls 0 1 0 0", story);
+    assert_eq!(g.story_locks(), [false, true, false, false, false, false, false], "a quest's lock goes to the guests");
+    q(&mut g, "EnablePlayerControls", fnv_game::game::RunCtx::default());
+    assert_eq!(g.story_locks(), [false; 7]);
+    assert_eq!(g.controls_locked(), [false; 7]);
+}
+
 /// The runner's `created:<base>` names the newest reference made at run time from a
 /// base form (PlaceAtMe, a drop), as the sim runner's actions do: a chain can then
 /// activate a container a quest script placed (Emergency Radio's supply cache).

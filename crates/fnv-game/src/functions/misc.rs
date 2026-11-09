@@ -874,6 +874,9 @@ pub fn set_actor_alpha(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 pub fn reset_3d_state(g: &mut Game, ctx: &Ctx, _: &Args) -> Result<Value, String> {
     let on = ctx.subject()?;
     g.anims.reset(on);
+    if let Some(out) = g.coop_effects.as_mut().filter(|o| o.len() < crate::sound::MAX_PENDING) {
+        out.push(crate::sound::CoopEffect::AnimReset(on));
+    }
     none()
 }
 

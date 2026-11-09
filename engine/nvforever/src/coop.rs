@@ -335,6 +335,7 @@ impl Plugin for CoopPlugin {
             repl_hud: None,
             ended: false,
             leaving: Default::default(),
+            parting: false,
             scene: Default::default(),
         };
         // The main menu's run after a lobby ended neither hosts nor joins, whatever the
@@ -549,6 +550,9 @@ struct Coop {
     ended: bool,
     /// A guest's way out while it autosaves ([`leave`]).
     leaving: leave::Leaving,
+    /// A guest's way out is done (autosaved, the link stopped) and the main menu is on its
+    /// way: this game still stands in the host's world until then ([`follow_npcs`]).
+    parting: bool,
     /// The host's script scenes ([`scene::share_scene`]).
     scene: scene::Shared,
 }
@@ -2280,10 +2284,21 @@ fn follow_npcs(
     let coop = &mut *coop;
     // The host's NPCs reach this game once it is kept as the guest's own (module notes).
     let guest = coop.link.as_ref().is_some_and(|l| !l.is_host() && l.id().is_some()) && !at_main_menu(main_menu.as_deref()) && solo.is_some();
+    // A guest on its way out (the host ended the lobby, or it chose the main menu) still
+    // stands in the host's world while it autosaves and until the main menu is up: it
+    // stays a guest's world, running none of its own world logic, scripts or triggers.
+    // Before, the link's end made it its own world at once, and its player and the host's
+    // ambushers standing in a trigger volume ran the trigger's quest script there (Tops
+    // ambush: VMQTops objective 20 set on the guest's game, two-window check 2026-11-09).
+    let parting = (coop.ended || !matches!(coop.leaving, leave::Leaving::No) || coop.parting) && !at_main_menu(main_menu.as_deref());
+    if !guest && parting && coop.ai_was_off.is_some() {
+        return;
+    }
     let mut game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if !guest {
         // Left the lobby: this game's world is its own again.
         if let Some(was) = coop.ai_was_off.take() {
+            coop.parting = false;
             stats.relay = None;
             if let Some(r) = residents.as_deref_mut() {
                 r.remote = None;

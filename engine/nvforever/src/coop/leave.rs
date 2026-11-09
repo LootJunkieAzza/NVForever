@@ -128,6 +128,8 @@ pub(super) fn guest_leaves(
         Some(p) => info!("co-op: autosaved ({}): to the main menu", p.display()),
         None => warn!("co-op: no autosave after {SAVE_WAIT} s: to the main menu without it"),
     }
+    // Still in the host's world until the main menu is up (`follow_npcs`).
+    coop.parting = true;
     match std::mem::take(&mut coop.leaving) {
         Leaving::Ended { .. } => {
             std::env::set_var(ENDED_ENV, ENDED_TEXT);

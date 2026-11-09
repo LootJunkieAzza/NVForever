@@ -184,6 +184,39 @@ impl Game<'_> {
     /// The control groups locked now: DisablePlayerControls', every plugin's
     /// DisablePlayerControlsAlt's and, on a co-op guest, the host's scene's
     /// ([`Game::coop_host_locks`]) (the engine reads this).
+    /// The groups held by a story script's DisablePlayerControls ([`Game::story_locked`])
+    /// and any plugin's Alt lock: what a co-op host's scene holds its guests with (owner,
+    /// 2026-11-09: "only story scenes"). A lock from the script of something the host
+    /// uses (a companion's repair message boxes, an activator, a terminal) is the host's
+    /// alone.
+    pub fn story_locks(&self) -> [bool; 7] {
+        let mut out = [false; 7];
+        for ((o, d), s) in out.iter_mut().zip(self.player.controls_disabled).zip(self.story_locked) {
+            *o = d && s;
+        }
+        for locks in self.other.alt_locks.values() {
+            for (o, l) in out.iter_mut().zip(locks) {
+                *o |= l;
+            }
+        }
+        out
+    }
+
+    /// Whether the script calling with `ctx` tells a story: a quest's script or stage
+    /// result, a dialogue result (each runs for a quest), or the script of a trigger
+    /// volume (a placed reference whose script has a trigger block: the level designers'
+    /// story triggers). An object script on anything else (an activator, a companion, a
+    /// terminal) is the player's own business there.
+    pub fn is_story_caller(&self, ctx: &crate::functions::Ctx) -> bool {
+        if ctx.quest.is_some() {
+            return true;
+        }
+        let Some(r) = ctx.self_ref else { return false };
+        let Some(base) = self.world.placed.get(r).map(|p| p.base) else { return false };
+        let Some(unit) = self.data.script_of_base(base).and_then(|s| self.data.script(s)) else { return false };
+        [crate::game::event::ON_TRIGGER_ENTER, crate::game::event::ON_TRIGGER, crate::game::event::ON_TRIGGER_LEAVE].iter().any(|&b| unit.has_block(b))
+    }
+
     pub fn controls_locked(&self) -> [bool; 7] {
         let mut out = self.player.controls_disabled;
         for (o, l) in out.iter_mut().zip(self.coop_host_locks) {

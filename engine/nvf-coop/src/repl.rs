@@ -397,6 +397,12 @@ pub enum Effect {
     /// The session's rules the host set in the lobby: whether players can hurt each
     /// other (item 122). Sent when they change and when a guest's stream starts.
     Rules { friendly_fire: bool },
+    /// A script played animation group `group` (the bytecode's code) on reference `on`
+    /// with start flag `flag`. `settled`: what the host's scripts last asked of it before
+    /// this guest's stream started, shown as a draw shows it, not played anew.
+    Anim { on: u32, group: u16, flag: u8, settled: bool },
+    /// A script reset reference `on`'s animation state (`Reset3DState`).
+    AnimReset { on: u32 },
 }
 
 pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
@@ -429,6 +435,17 @@ pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
                 rec.push(3);
                 rec.push(u8::from(*friendly_fire));
             }
+            Effect::Anim { on, group, flag, settled } => {
+                rec.push(4);
+                rec.extend_from_slice(&on.to_le_bytes());
+                rec.extend_from_slice(&group.to_le_bytes());
+                rec.push(*flag);
+                rec.push(u8::from(*settled));
+            }
+            Effect::AnimReset { on } => {
+                rec.push(5);
+                rec.extend_from_slice(&on.to_le_bytes());
+            }
         }
         if cur.len() + rec.len() > max && cur.len() > 1 {
             out.push(std::mem::replace(&mut cur, vec![kind::EFFECTS]));
@@ -454,6 +471,8 @@ pub fn unpack_effects(item: &[u8]) -> Option<Vec<Effect>> {
             1 => Effect::Music { music: r.u32()? },
             2 => Effect::Summon { interior: r.u32()?, world: r.u32()?, pos: [r.f32()?, r.f32()?, r.f32()?], yaw: r.f32()? },
             3 => Effect::Rules { friendly_fire: r.u8()? != 0 },
+            4 => Effect::Anim { on: r.u32()?, group: r.u16()?, flag: r.u8()?, settled: r.u8()? != 0 },
+            5 => Effect::AnimReset { on: r.u32()? },
             _ => return None,
         });
     }
@@ -729,6 +748,9 @@ mod tests {
             Effect::Summon { interior: 0x1234, world: 0, pos: [0.0; 3], yaw: 0.0 },
             Effect::Rules { friendly_fire: true },
             Effect::Rules { friendly_fire: false },
+            Effect::Anim { on: 0x0008_D36C, group: 0x10, flag: 1, settled: false },
+            Effect::Anim { on: 0xFF00_0001, group: 0x2A, flag: 0, settled: true },
+            Effect::AnimReset { on: 0x0010_4C16 },
         ];
         let items = pack_effects(&e, 1100);
         assert_eq!(unpack_effects(&items[0]).unwrap(), e);

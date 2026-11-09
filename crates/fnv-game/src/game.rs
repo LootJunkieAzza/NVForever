@@ -1507,6 +1507,10 @@ pub struct Game<'a> {
     /// (a scene), held on this player too ([`Game::controls_locked`]; nvforever `coop`).
     /// Not saved.
     pub coop_host_locks: [bool; 7],
+    /// The control groups whose lock a story script set (a quest's script or stage, a
+    /// dialogue result, a trigger volume's script): what a co-op host's scene holds its
+    /// guests with ([`Game::story_locks`]). Not saved.
+    pub story_locked: [bool; 7],
     /// What scripts put on the player (EquipItem on the player, until UnequipItem), with
     /// whether locked on (NoUnequipFlag): a co-op host sends those still worn to the
     /// guests, who wear them too (a DLC's collar, jumpsuit or gown; nvforever `coop`).
@@ -2257,6 +2261,7 @@ impl<'a> Game<'a> {
             coop_cells: BTreeSet::new(),
             own_cells: BTreeSet::new(),
             coop_host_locks: [false; 7],
+            story_locked: [false; 7],
             script_worn: BTreeMap::new(),
             coop_story_gear: BTreeMap::new(),
             coop_session: false,
