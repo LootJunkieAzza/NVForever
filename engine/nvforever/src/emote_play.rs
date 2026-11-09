@@ -136,6 +136,7 @@ impl EmoteGround {
     }
 
     fn ground(&mut self, ctx: &mut ActorCtx, path: &str, raw: Arc<Clip>) -> Arc<Clip> {
+        let raw = sane(path, raw);
         let (Some(skel), Some(stand)) = (ctx.skeleton(SKELETON), ctx.clip(STAND)) else { return raw };
         let reference = *self.stand.get_or_insert_with(|| lowest(&skel, &[&stand]).map(|(z, _)| z));
         let (Some(reference), Some((low, bone))) = (reference, lowest(&skel, &[&stand, &raw])) else { return raw };
@@ -200,6 +201,58 @@ fn lowest(skel: &Arc<PreparedSkeleton>, clips: &[&Arc<Clip>]) -> Option<(f32, St
             (n.starts_with("Bip01 ") && n != NON_ACCUM && !n.contains("Pauldron")).then(|| (a.model_space(i).translation.z, n.to_string()))
         })
         .min_by(|x, y| x.0.total_cmp(&y.0))
+}
+
+/// Bounds an emote clip's tracks are kept within, so one bad key cannot fill a viewer's
+/// screen with a puppet: a bone's scale (a body's bones keep theirs at 1) and the root's
+/// distance from the actor (game units; `Bip01 NonAccum` stands at the pelvis, 66 up)
+/// [design].
+const SCALE_BOUNDS: (f32, f32) = (0.5, 2.0);
+const ROOT_REACH: f32 = 150.0;
+
+/// `clip` with what is out of bounds left out (logged): a track's scale past
+/// [`SCALE_BOUNDS`] at any key, the root's or `Bip01 NonAccum`'s translation past
+/// [`ROOT_REACH`]. The bone then takes its bind pose's part, as for a clip that does not
+/// key it.
+fn sane(path: &str, clip: Arc<Clip>) -> Arc<Clip> {
+    let values = |c: &Channel<1>| -> Vec<f32> {
+        match c {
+            Channel::Static(Some([s])) => vec![*s],
+            Channel::Keys(k) => k.keys.iter().map(|k| k.value[0]).collect(),
+            Channel::BSpline { spline, .. } => spline.points.clone(),
+            _ => Vec::new(),
+        }
+    };
+    let reach = |c: &Channel<3>| -> f32 {
+        let len = |v: &[f32]| v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        match c {
+            Channel::Static(Some(v)) => len(v),
+            Channel::Keys(k) => k.keys.iter().map(|k| len(&k.value)).fold(0.0, f32::max),
+            Channel::BSpline { spline, .. } if spline.dim == 3 => spline.points.chunks(3).map(len).fold(0.0, f32::max),
+            _ => 0.0,
+        }
+    };
+    let root = clip.accum_root.clone().unwrap_or_else(|| "Bip01".to_string());
+    let mut out: Option<Clip> = None;
+    for i in 0..clip.tracks.len() {
+        let (name, track) = &clip.tracks[i];
+        let bad_scale = values(&track.scale).into_iter().find(|s| !(SCALE_BOUNDS.0..=SCALE_BOUNDS.1).contains(s));
+        let far = (*name == root || name == NON_ACCUM).then(|| reach(&track.translation)).filter(|r| *r > ROOT_REACH);
+        if bad_scale.is_none() && far.is_none() {
+            continue;
+        }
+        let mut t = (**track).clone();
+        if let Some(s) = bad_scale {
+            warn!("emotes: ground: {path}: {name} scale {s} is out of bounds: left out");
+            t.scale = Channel::Static(None);
+        }
+        if let Some(r) = far {
+            warn!("emotes: ground: {path}: {name} reaches {r:.0} units from the actor: its translation left out");
+            t.translation = Channel::Static(None);
+        }
+        out.get_or_insert_with(|| (*clip).clone()).tracks[i].1 = Arc::new(t);
+    }
+    out.map_or(clip, Arc::new)
 }
 
 /// `clip` with node `node`'s translation moved up by `dz`; `None` when the clip has no
