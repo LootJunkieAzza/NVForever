@@ -42,10 +42,20 @@ On other GPUs the row is dimmed ("Not on this GPU") and the start says so once:
     [engineering choice: the latest point before the present that Bevy offers].
 - **Off** sends mode OFF every frame. `maxFPS` is 0: the frame cap stays `frame_pace`'s
   [engineering choice; the driver's limiter could take it over once Anti-Lag can be measured].
-- **Side effect of `raw_vulkan_init`.** Bevy then creates a Vulkan-only wgpu instance whenever
-  Vulkan starts. DX12 and GL stay only for when Vulkan can't start (bevy_render 0.20.1
+- **Side effect of `raw_vulkan_init`.** When the backends include Vulkan (the default: all of
+  them), Bevy creates a Vulkan-only wgpu instance whenever Vulkan starts; DX12 and GL stay only
+  for when the Vulkan instance can't be created (bevy_render 0.20.1
   `renderer/raw_vulkan_init.rs`). FSR, the GPU memory budget and the gpu-allocator patch already
   work through Vulkan.
+  - What remains: if the Vulkan instance is created but no Vulkan adapter can draw to the
+    window, the start stops at Bevy's "Unable to find a GPU" instead of picking DX12
+    [documented: bevy_render 0.20.1 `renderer/mod.rs`, `initialize_renderer`; not reproduced].
+    `WGPU_BACKEND=dx12` gets round it.
+  - Undone in the vendored bevy_render (`engine/vendor/README.md`): upstream, the feature builds
+    the Vulkan instance whatever `WGPU_BACKEND` says, and turns wgpu's indirect-call validation
+    off in every release build, the DX12 fallback included. Now the Vulkan instance is made only
+    when the backends include Vulkan, and `VALIDATION_INDIRECT_CALL` is removed only when they
+    don't include DX12, as without the feature.
 
 ## Checks
 

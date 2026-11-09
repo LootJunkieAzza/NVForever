@@ -28,9 +28,11 @@
 //! - **Off** sends mode OFF, so the driver paces nothing. `maxFPS` stays 0: the frame cap is
 //!   `frame_pace`'s [engineering choice].
 //!
-//! With `raw_vulkan_init` on, Bevy creates a Vulkan-only wgpu instance whenever Vulkan starts.
-//! Other backends remain only for when it can't (bevy_render 0.20.1
-//! `renderer/raw_vulkan_init.rs`).
+//! With `raw_vulkan_init` on, Bevy creates a Vulkan-only wgpu instance whenever the backends
+//! include Vulkan (the default) and Vulkan starts; other backends remain for when it can't
+//! (bevy_render 0.20.1 `renderer/raw_vulkan_init.rs`). The vendored bevy_render keeps
+//! `WGPU_BACKEND` and indirect-call validation as they were without the feature
+//! (`engine/vendor/README.md`).
 
 use std::ffi::{c_void, CStr};
 

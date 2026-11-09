@@ -59,7 +59,7 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
-Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). One
+Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
 change, in `src/renderer/render_context.rs`, each part marked by a comment starting
 `NVForever early finish`: when a render system is done (`RenderContextState`'s
 `SystemBuffer::queue`), each encoder it recorded is handed to the compute threads to be
@@ -74,6 +74,26 @@ not `Send`).
 `profile` build] Alone it took 0.2-0.5 ms a frame off finishing the encoders' wall time
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
+
+Second change (#1778, docs/design/latency-reduction.md): Bevy's `raw_vulkan_init` feature,
+which the engine turns on so `anti_lag.rs` can add a device extension, no longer changes which
+backend starts or which validation wgpu runs. Each part is marked by a comment starting
+`NVForever (2026-11-09)`:
+
+- `src/renderer/mod.rs` `initialize_renderer`: the raw Vulkan instance is created only when
+  the backends include Vulkan, otherwise `Instance::new`, as without the feature. Upstream
+  creates it whatever the backends say, so `WGPU_BACKEND=dx12` or `gl` was ignored.
+- `src/settings.rs` `WgpuSettings::default`: upstream, the feature also removes
+  `InstanceFlags::VALIDATION_INDIRECT_CALL` in every release build, on every backend. Left
+  out: the flag goes only when the backends don't include DX12, as without the feature. On
+  DX12 the built-ins `num_workgroups`, `vertex_index` and `instance_index` read wrong in
+  indirect calls without it [documented: wgpu-types 30.0.1 `instance.rs`], and release builds
+  on Vulkan with the default backends keep the validation (and its GPU time) they had before.
+
+Still as upstream: when the backends include Vulkan, the instance is Vulkan-only whenever
+Vulkan starts, so a Vulkan instance with no adapter that can draw to the window stops the start
+instead of falling back to DX12. Drop this change when a Bevy release makes the feature follow
+the backends.
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
