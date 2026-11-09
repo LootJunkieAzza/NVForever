@@ -12,6 +12,9 @@
 //!   without any swimming movement clip swim on their standing clips.
 //! - **Weapons**: a swimmer moves unarmed, as the player's body holsters in water
 //!   [design].
+//! - **Co-op players**: the other players' bodies here are no characters of this game's
+//!   physics; they swim while their own games say so (`nvf_coop::net::more_flag::SWIMMING`),
+//!   handed over in [`Swimmers`] (item 121).
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
@@ -23,10 +26,16 @@ pub struct SwimmingPlugin;
 impl Plugin for SwimmingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SwimStats>()
+            .init_resource::<Swimmers>()
             .add_systems(Update, swim.after(nvf_play::PlaySet::Scripts).before(crate::locomotion::walk_test))
             .add_systems(Last, report);
     }
 }
+
+/// References swimming by another game's word: the co-op players whose own games have them
+/// in the water (`coop.rs` fills it each frame).
+#[derive(Resource, Default)]
+pub struct Swimmers(pub std::collections::HashSet<u32>);
 
 #[derive(Resource, Default)]
 struct SwimStats {
@@ -37,10 +46,10 @@ struct SwimStats {
     no_clips: std::collections::BTreeSet<u32>,
 }
 
-fn swim(phys: Option<Res<PhysState>>, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut stats: ResMut<SwimStats>) {
+fn swim(phys: Option<Res<PhysState>>, swimmers: Res<Swimmers>, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut stats: ResMut<SwimStats>) {
     let Some(phys) = phys else { return };
     for (rig, mut lo) in &mut actors {
-        let want = phys.npcs.get(&rig.reference).is_some_and(|n| n.ch.swimming);
+        let want = swimmers.0.contains(&rig.reference) || phys.npcs.get(&rig.reference).is_some_and(|n| n.ch.swimming);
         if want == lo.swimming {
             continue;
         }

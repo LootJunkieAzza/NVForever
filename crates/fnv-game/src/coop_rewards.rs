@@ -17,6 +17,15 @@
 //! ([`RewardLedger::due`]) and sends them to the guests, which take them with
 //! [`Game::take_coop_reward`]. Item rewards stay the host's: they are for a later
 //! "synced progression" option (owner, 2026-11-04).
+//!
+//! **Hand-outs** are not rewards: the items a quest's or a dialogue line's result script
+//! gives the player along the way (Sunny Smiles' varmint rifle and its rounds, Ringo's
+//! Caravan deck) go to every player (owner, items 112 and 114) [design]. The ledger keeps
+//! them ([`RewardLedger::hand_out`], not caps, not quest items: those stay the host's,
+//! item 123), unless the same script took caps from the player (a purchase); each run of
+//! a result script is one batch. A guest takes them with [`Game::take_coop_gift`]: ammo,
+//! aid and chips always; Caravan cards only if it had none when the batch began (one
+//! deck); anything else only if it has none of it yet (no second rifle).
 
 use crate::game::Game;
 use fnv_sim::FormId;
@@ -64,6 +73,11 @@ pub struct RewardLedger {
     /// Gains a quest's result scripts gave, waiting for that quest's completion:
     /// (frame, quest, XP, caps).
     held: Vec<(u64, FormId, f64, i32)>,
+    /// Hand-outs of the result script running now: (item, count).
+    giving: Vec<(FormId, i32)>,
+    /// Hand-outs ready for the guests: (batch, item, count).
+    pub gifts: Vec<(u32, FormId, i32)>,
+    batch: u32,
 }
 
 impl RewardLedger {
@@ -91,6 +105,29 @@ impl RewardLedger {
         while self.recent.front().is_some_and(|g| g.0 + BEFORE < frame) {
             self.recent.pop_front();
         }
+    }
+
+    /// A result script gave the player `count` of `item` (not caps, not a quest item).
+    pub fn hand_out(&mut self, item: FormId, count: i32) {
+        if self.on && self.paying.is_some() && count > 0 {
+            self.giving.push((item, count));
+        }
+    }
+
+    /// The result script that ran ended: its hand-outs become one batch for the guests,
+    /// unless it took caps from the player (`bought`: a purchase is the buyer's).
+    pub fn handed_out(&mut self, bought: bool) -> usize {
+        if self.giving.is_empty() {
+            return 0;
+        }
+        let given = std::mem::take(&mut self.giving);
+        if bought {
+            return 0;
+        }
+        self.batch = self.batch.wrapping_add(1);
+        let n = given.len();
+        self.gifts.extend(given.into_iter().map(|(i, c)| (self.batch, i, c)));
+        n
     }
 
     /// A result script of `quest` starts running (`Some`), or the one that ran before it
@@ -156,6 +193,43 @@ impl Game<'_> {
         }
         Ok(gained)
     }
+
+    /// A co-op guest takes a hand-out of the host's scripts (module notes): `batch`
+    /// groups one script's items, `had_cards` is kept between the calls of a batch. The
+    /// count given (0: this player keeps what it has).
+    pub fn take_coop_gift(&mut self, batch: u32, item: FormId, count: i32, last: &mut Option<(u32, bool)>) -> Result<i32, String> {
+        use fnv_sim::forms::ItemKind;
+        let inv = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref());
+        let has = inv.map_or(0, |i| i.count(item));
+        let kind = self.world.forms.item(item).map(|i| i.kind);
+        let has_cards = || inv.is_some_and(|i| i.groups().any(|(it, _, _)| self.world.forms.item(it).is_some_and(|f| f.kind == ItemKind::CaravanCard)));
+        let give = match kind {
+            Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney) => true,
+            Some(ItemKind::CaravanCard) => {
+                let had = match *last {
+                    Some((b, had)) if b == batch => had,
+                    _ => has_cards(),
+                };
+                *last = Some((batch, had));
+                !had
+            }
+            _ => has == 0,
+        };
+        // Lent by the host's story (`Game::follow_story_gear`: Sunny's script equips the
+        // varmint rifle on the host): handed out too, it is this player's to keep.
+        if let Some(lent) = self.coop_story_gear.get_mut(&item).filter(|l| **l) {
+            *lent = false;
+        }
+        if !give {
+            return Ok(0);
+        }
+        let n = if matches!(kind, Some(ItemKind::Ammo | ItemKind::Aid | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard)) { count } else { 1 };
+        let added = self.world.add_item(FormId::PLAYER_REF, item, n).map_err(|e| e.to_string())?;
+        for (item, count) in added {
+            self.emit(crate::trace::EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, silent: false });
+        }
+        Ok(n)
+    }
 }
 
 #[cfg(test)]
@@ -167,6 +241,24 @@ mod tests {
 
     fn ledger() -> RewardLedger {
         RewardLedger { on: true, ..RewardLedger::default() }
+    }
+
+    #[test]
+    fn a_result_scripts_hand_outs_are_one_batch_unless_bought() {
+        let mut l = ledger();
+        l.hand_out(FormId(0x100), 1);
+        assert!(l.gifts.is_empty() && l.handed_out(false) == 0, "outside a result script: nothing");
+        l.paying(Some(Q1));
+        l.hand_out(FormId(0x100), 1);
+        l.hand_out(FormId(0x101), 20);
+        l.paying(None);
+        assert_eq!(l.handed_out(false), 2);
+        assert_eq!(l.gifts, vec![(1, FormId(0x100), 1), (1, FormId(0x101), 20)]);
+        l.paying(Some(Q1));
+        l.hand_out(FormId(0x102), 1);
+        l.paying(None);
+        assert_eq!(l.handed_out(true), 0, "a purchase stays the buyer's");
+        assert_eq!(l.gifts.len(), 2);
     }
 
     #[test]

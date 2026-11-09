@@ -207,6 +207,12 @@ fn actors(rt: &mut Runtime, phys: &PhysState, player: Capsule) -> Vec<(FormId, C
         let k = (fnv_game::functions::scale_of(g, r) as f32).max(0.0);
         out.push((r, Capsule { feet, radius: npc.radius * k, height: npc.height * k }));
     }
+    // The other players' actors, which set off the co-op random encounters (item 131).
+    for &r in g.coop_actors.keys() {
+        if let Some(s) = g.world.peek(r).filter(|s| s.cell.is_some_and(|c| g.loaded_cells.contains(&c))) {
+            out.push((r, Capsule { feet: s.pos, radius: npc.radius, height: npc.height }));
+        }
+    }
     out
 }
 
@@ -290,6 +296,14 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     let g = &mut rt.game;
     let who = |g: &fnv_game::Game, a: FormId| if a == FormId::PLAYER_REF { "player".to_string() } else { g.data.name(a) };
     for &(t, a) in &ch.entered {
+        // Another player entering a co-op random encounter's trigger is the player there
+        // (`fnv_game::coop::COOP_ENCOUNTERS`, item 131).
+        let a = if g.is_coop_actor(a) && g.coop_encounter(t) {
+            bevy::log::info!("script: co-op player {} sets off the encounter trigger {} as the player", who(g, a), g.data.name(t));
+            FormId::PLAYER_REF
+        } else {
+            a
+        };
         bevy::log::info!("script: {} entered trigger {}", who(g, a), g.data.name(t));
         g.ref_event(t, event::ON_TRIGGER_ENTER, Some(Value::Ref(a.0)), Some(a));
     }

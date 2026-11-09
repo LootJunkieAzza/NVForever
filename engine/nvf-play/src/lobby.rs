@@ -53,6 +53,8 @@ pub enum LobbyRequest {
     Close,
     /// A guest leaves its host's lobby.
     Leave,
+    /// The host sets Friendly Fire (item 122): whether players can hurt each other.
+    FriendlyFire(bool),
     /// Look for the host of this code.
     Find(String),
     /// Stop looking (or leave the host found).
@@ -95,6 +97,8 @@ pub struct LobbyState {
     pub joining: Joining,
     /// This game is a guest in another player's lobby.
     pub guest: bool,
+    /// Friendly Fire, as the host set it (item 122; off by default).
+    pub friendly_fire: bool,
 }
 
 /// A save on the guest's list.
@@ -161,6 +165,8 @@ enum Act {
     Create,
     Close,
     Leave,
+    /// Friendly Fire on or off (the host's).
+    FriendlyFire,
     Join,
     Back,
     Save(usize),
@@ -196,9 +202,9 @@ fn acts(screen: &LobbyScreen, state: &LobbyState) -> Vec<Act> {
         None => Vec::new(),
         Some(Mode::Host) if state.guest => vec![Act::Leave, Act::Back],
         Some(Mode::Host) => match state.hosting {
-            Hosting::Off => vec![Act::Create, Act::Back],
+            Hosting::Off => vec![Act::Create, Act::FriendlyFire, Act::Back],
             Hosting::Opening => vec![Act::Back],
-            Hosting::Open { .. } => vec![Act::Close, Act::Back],
+            Hosting::Open { .. } => vec![Act::Close, Act::FriendlyFire, Act::Back],
         },
         Some(Mode::Join) => match (&state.joining, &screen.saves) {
             (Joining::Found, Some(saves)) => saves.iter().enumerate().filter(|(_, s)| s.ok).map(|(i, _)| Act::Save(i)).chain([Act::Back]).collect(),
@@ -262,6 +268,7 @@ fn input(
                 }
                 "close" => Some(Act::Close),
                 "leave" => Some(Act::Leave),
+                "friendly-fire" => Some(Act::FriendlyFire),
                 "back" => Some(Act::Back),
                 other => {
                     warn!("NVF_PLAY_TEST_LOBBY: no action {other:?}");
@@ -362,6 +369,9 @@ fn take(screen: &mut LobbyScreen, state: &LobbyState, act: Act, asks: &mut Messa
         Act::Leave => {
             asks.write(LobbyRequest::Leave);
         }
+        Act::FriendlyFire => {
+            asks.write(LobbyRequest::FriendlyFire(!state.friendly_fire));
+        }
         Act::Join => {
             let code = screen.typed.trim().to_string();
             if !code.is_empty() {
@@ -412,6 +422,19 @@ enum Piece {
     Row(Act, String, Shade),
 }
 
+fn on_off(on: bool) -> &'static str {
+    if on {
+        "On"
+    } else {
+        "Off"
+    }
+}
+
+/// The host's Friendly Fire button [design: item 122, a lobby option; off by default].
+fn friendly_fire_label(on: bool) -> String {
+    format!("Friendly Fire: {}", on_off(on))
+}
+
 fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
     use Piece::*;
     let mut v = Vec::new();
@@ -422,6 +445,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
             let host = state.players.iter().find_map(|p| p.strip_suffix(" (host)"));
             v.push(Line(host.map_or_else(|| "You are in another player's lobby.".to_string(), |h| format!("You are in {h}'s lobby.")), Shade::Bright));
             players(&mut v, state);
+            v.push(Line(format!("Friendly fire: {} (the host's choice)", on_off(state.friendly_fire)), Shade::Dim));
             v.push(Button(Act::Leave, "Leave Lobby".into()));
         }
         Some(Mode::Host) => {
@@ -430,6 +454,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                 Hosting::Off => {
                     v.push(Line("Open a lobby on this game: friends join with its code, from their main menu's Join Lobby.".into(), Shade::Bright));
                     v.push(Button(Act::Create, "Create Lobby".into()));
+                    v.push(Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire)));
                 }
                 Hosting::Opening => v.push(Line("Asking your router to let friends in...".into(), Shade::Bright)),
                 Hosting::Open { code, note } => {
@@ -441,6 +466,7 @@ fn pieces(screen: &LobbyScreen, state: &LobbyState) -> Vec<Piece> {
                     }
                     players(&mut v, state);
                     v.push(Button(Act::Close, "Close Lobby".into()));
+                    v.push(Button(Act::FriendlyFire, friendly_fire_label(state.friendly_fire)));
                 }
             }
         }
@@ -611,8 +637,9 @@ mod tests {
         assert!(p.contains(&Piece::Button(Act::Leave, "Leave Lobby".into())));
         assert!(!p.iter().any(|x| matches!(x, Piece::Button(Act::Create | Act::Close, _))), "nothing of the host's");
         // Left: the normal choice again.
+        assert!(p.contains(&Piece::Line("Friendly fire: Off (the host's choice)".into(), Shade::Dim)));
         let alone = LobbyState::default();
-        assert_eq!(acts(&screen, &alone), vec![Act::Create, Act::Back]);
+        assert_eq!(acts(&screen, &alone), vec![Act::Create, Act::FriendlyFire, Act::Back]);
     }
 
     #[test]
@@ -621,6 +648,9 @@ mod tests {
         let state = LobbyState { hosting: Hosting::Open { code: "ABCD-EFGH".into(), note: None }, players: vec!["Veronica (host, you)".into(), "Cass".into()], ..default() };
         let p = pieces(&screen, &state);
         assert!(p.contains(&Piece::Line("  Cass".into(), Shade::Bright)));
-        assert_eq!(acts(&screen, &state), vec![Act::Close, Act::Back]);
+        assert_eq!(acts(&screen, &state), vec![Act::Close, Act::FriendlyFire, Act::Back]);
+        assert!(p.contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: Off".into())));
+        let on = LobbyState { friendly_fire: true, ..state };
+        assert!(pieces(&screen, &on).contains(&Piece::Button(Act::FriendlyFire, "Friendly Fire: On".into())));
     }
 }

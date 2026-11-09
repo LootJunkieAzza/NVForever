@@ -54,6 +54,9 @@ pub enum Action {
     /// Stimpak, or a drink with Quack Surgeon, `fnv_game::coop_perks::revive_item`);
     /// `None`: this player has nothing to revive with.
     Revive { with: Option<String> },
+    /// A co-op guest at an NPC the host's active quest is on: the host leads it, so E only
+    /// says to wait for them (`host`: the host's name; owner, item 130 Q1).
+    HostOnly { host: String },
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -110,6 +113,8 @@ impl Action {
             Action::Player => "Interact".into(),
             // [design: queue item 29, the game's own rollover with the verb]
             Action::Revive { .. } => "Revive".into(),
+            // [design: owner, item 130: "Wait for <host name>"]
+            Action::HostOnly { host } => format!("Wait for {host}"),
         }
     }
 }

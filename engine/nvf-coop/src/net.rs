@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 120;
+pub const VERSION: u8 = 122;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -155,6 +155,9 @@ pub mod npc_flag {
     pub const SIGHTS: u8 = 32;
     /// On its furniture ([`NpcState::furniture`]), not walking up to it.
     pub const SEATED: u8 = 64;
+    /// Knocked down or out and lying (`fnv_game::unconscious`): the others' copies lie
+    /// until it clears, then get up (queue item 104).
+    pub const KNOCKED: u8 = 128;
 }
 
 /// NPC states in one packet (41 bytes each: under 1200 bytes in all).
@@ -293,12 +296,20 @@ pub struct PlayerState {
     /// The furniture reference holding the player (a chair, a couch, a bed), 0 for none:
     /// the others draw the player getting on, sitting or lying there, and getting off.
     pub furniture: u32,
+    /// [`more_flag`] bits: the states [`PlayerState::flags`] has no room for.
+    pub more: u8,
+}
+
+/// [`PlayerState::more`] bits.
+pub mod more_flag {
+    /// In deep water: the others draw the player swimming.
+    pub const SWIMMING: u8 = 1;
 }
 
 impl PlayerState {
     /// A state with nothing in hand and nothing worn.
     pub fn at(place: Place, feet: [f32; 3], yaw: f32) -> Self {
-        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0 }
+        Self { place, feet, yaw, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, attack_kind: 0, reloads: 0, worn: [0; MAX_WORN], worn_len: 0, pipboy: 0, furniture: 0, more: 0 }
     }
 
     pub fn has(&self, f: u8) -> bool {
@@ -445,6 +456,10 @@ pub enum Progress {
     /// Every player is down with nobody left to revive: every game loads its last shared
     /// save. Only the host's are taken.
     Reload { stamp: u32 },
+    /// A hand-out of the host's result scripts (`count` of `item`; `batch` groups one
+    /// script's): every guest takes it as its rules say (`fnv_game::coop_rewards`, items
+    /// 112 and 114). Only the host's are taken.
+    Gift { batch: u32, item: u32, count: u32 },
 }
 
 impl Progress {
@@ -2089,6 +2104,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
             }
             b.push(state.pipboy);
             b.extend_from_slice(&state.furniture.to_le_bytes());
+            b.push(state.more);
         }
         Msg::Bye { id } => b.extend_from_slice(&[5, *id]),
         Msg::Npcs { seq, npcs } => {
@@ -2240,6 +2256,12 @@ fn encode(msg: &Msg) -> Vec<u8> {
                     b.push(2);
                     b.extend_from_slice(&stamp.to_le_bytes());
                 }
+                Progress::Gift { batch, item, count } => {
+                    b.push(3);
+                    for v in [batch, item, count] {
+                        b.extend_from_slice(&v.to_le_bytes());
+                    }
+                }
             }
         }
         Msg::Rel { epoch, frame } => {
@@ -2343,6 +2365,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
             state.worn_len = n as u8;
             state.pipboy = r.u8()?;
             state.furniture = r.u32()?;
+            state.more = r.u8()?;
             Msg::State { id, seq, state }
         }
         5 => Msg::Bye { id: r.u8()? },
@@ -2426,6 +2449,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 0 => Progress::Reward { quest: r.u32()?, xp: r.u32()?, caps: r.u32()? },
                 1 => Progress::Save { stamp: r.u32()?, kind: r.u8()? },
                 2 => Progress::Reload { stamp: r.u32()? },
+                3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()? },
                 _ => return None,
             };
             Msg::Progress { id, seq, what }
@@ -2596,6 +2620,7 @@ mod tests {
             Msg::Anim { id: 1, seq: 65_535, cue: AnimCue { kind: AnimCue::CONSUME, style: 2, power_armor: false, item: 0x0001_5169, edid: "Stimpak".into(), clip: "meshes\\characters\\_male\\idleanims\\b42inject\\0\\1\\stimpak\\stimpak.kf".into() } },
             Msg::Anim { id: 0, seq: 0, cue: AnimCue::default() },
             Msg::Progress { id: 0, seq: 9, what: Progress::Reward { quest: 0x0010_4C1D, xp: 250, caps: 100 } },
+            Msg::Progress { id: 0, seq: 10, what: Progress::Gift { batch: 3, item: 0x0011_A208, count: 24 } },
             Msg::Progress { id: 2, seq: 65_535, what: Progress::Save { stamp: u32::MAX, kind: Progress::SYSTEM } },
             Msg::Progress { id: 0, seq: 0, what: Progress::Reload { stamp: 7 } },
             Msg::Npcs {
@@ -2621,6 +2646,7 @@ mod tests {
                     worn_len: 3,
                     pipboy: 2,
                     furniture: 0x0011_C601,
+                    more: more_flag::SWIMMING,
                     ..state(4.0)
                 },
             },

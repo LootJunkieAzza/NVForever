@@ -656,6 +656,12 @@ struct Core {
     known: HashSet<u32>,
     /// Cells whose actors were handed over (`all`).
     cells_seen: HashSet<CellKey>,
+    /// A co-op host: the exterior cells of other worldspaces (or of this one while the
+    /// host is indoors) around guests away from it whose actors were handed over, by
+    /// worldspace and grid square ([`ResidentsCore::take_cells`]).
+    far_seen: HashSet<(u32, (i32, i32))>,
+    /// Those worldspaces' persistent references by grid square, indexed once each.
+    far_persistent: HashMap<u32, HashMap<(i32, i32), Vec<u32>>>,
     /// The game's loaded cells when actors placed elsewhere were last looked for there.
     loaded_seen: BTreeSet<FormId>,
     clock: Clock,
@@ -971,6 +977,8 @@ impl Residents {
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
+            far_seen: HashSet::new(),
+            far_persistent: HashMap::new(),
             loaded_seen: BTreeSet::new(),
             clock,
             prepared: false,
@@ -1226,12 +1234,63 @@ impl Core {
         });
     }
 
+    /// The actors of exterior cells, given by worldspace and grid square, that are not the
+    /// cells the host draws (`take_cells`): the cell's own references and the worldspace's
+    /// persistent ones standing in that square, as for the host's own cells.
+    fn take_far_cells(&mut self, world: &WorldData, refs: &RefTable, now: Vec<(u32, (i32, i32))>) {
+        let now: HashSet<(u32, (i32, i32))> = now.into_iter().collect();
+        let new: Vec<(u32, (i32, i32))> = now.difference(&self.far_seen).copied().collect();
+        self.far_seen = now;
+        let had = self.list.len();
+        for (w, g) in new {
+            let Some(ws) = world.index.worldspaces.get(&w) else { continue };
+            let persistent = self.far_persistent.entry(w).or_insert_with(|| {
+                let mut by_grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
+                let pc = ws.persistent_cell.and_then(|c| world.index.cells.get(&c));
+                for &r in pc.map_or(&[][..], |c| &c.refs) {
+                    if let Some(p) = refs.get(FormId(r)) {
+                        by_grid.entry(fnv_world::cell_of(p.pos[0], p.pos[1])).or_default().push(r);
+                    }
+                }
+                by_grid
+            });
+            let mine: Vec<u32> = persistent.get(&g).cloned().unwrap_or_default();
+            let cell = ws.grid.get(&g).and_then(|c| world.index.cells.get(c));
+            for r in cell.into_iter().flat_map(|c| c.refs.iter().copied()).chain(mine) {
+                if is_actor(refs, FormId(r)) {
+                    self.add(refs, FormId(r), None);
+                }
+            }
+        }
+        if self.list.len() > had {
+            info!("ai: {} actors of the cells around co-op guests away from the host join ({} in all)", self.list.len() - had, self.list.len());
+        }
+    }
+
     /// With `all`: hand over the actors of the cells that have loaded since last time.
     fn take_cells(&mut self, world: &WorldData, streamer: &Streamer, refs: &RefTable) {
-        let now: HashSet<CellKey> = match streamer.interior {
+        let mut now: HashSet<CellKey> = match streamer.interior {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
+        // A co-op host: the cells around each guest away from it are simulated too
+        // (`crate::coop::areas`), so their actors join as the host's own cells' do. Before
+        // (night of 2026-11-09) only the host's cells and the interiors behind their doors
+        // were taken: a guest at Primm found it empty. Exterior cells of the worldspace the
+        // host draws go by its grid (`WorldData::grid_cell`); those of any other worldspace
+        // (Freeside, the Strip, a DLC's), or of this one while the host is indoors, by
+        // [`Self::take_far_cells`].
+        let mut far = Vec::new();
+        for area in &streamer.coop_areas {
+            match area.space {
+                Space::Interior(c) => {
+                    now.insert(CellKey::Interior(c));
+                }
+                Space::World(w) if w == world.world && streamer.interior.is_none() => now.extend(area.cells.iter().map(|g| CellKey::Exterior(*g))),
+                Space::World(w) => far.extend(area.cells.iter().map(|g| (w, *g))),
+            }
+        }
+        self.take_far_cells(world, refs, far);
         let new: Vec<CellKey> = now.difference(&self.cells_seen).copied().collect();
         self.cells_seen = now;
         let before = self.list.len();
@@ -2882,6 +2941,61 @@ pub fn drive(
         }
     }
     crate::profile::actor_spawns(spawn_stats.equipment_spawns, spawn_stats.record_spawns);
+}
+
+/// How often [`one_body_each`] looks, seconds.
+const BODY_CHECK_EVERY: f32 = 2.0;
+
+/// The bodies [`one_body_each`] counts: every actor rig but the other players' puppets.
+type DrawnBodies<'w, 's> = Query<'w, 's, (Entity, &'static crate::limbs::ActorRig, &'static GlobalTransform, Has<crate::coop::Remote>, Has<crate::locomotion::Dying>), Without<crate::coop::Puppet>>;
+
+/// Each placed actor is drawn once (queue item 124: a co-op guest saw a second copy of an
+/// NPC standing in the first): every [`BODY_CHECK_EVERY`] seconds, the references with more
+/// than one body are told in the log once each, with every body's place and kind, and
+/// which one is the body its AI walks. The other players' puppets are left out (`coop.rs`
+/// draws them by their own numbers).
+pub fn one_body_each(
+    time: Res<Time>,
+    residents: Res<Residents>,
+    bodies: DrawnBodies,
+    mut last: Local<f32>,
+    mut told: Local<HashSet<u32>>,
+) {
+    let now = time.elapsed_secs();
+    if now - *last < BODY_CHECK_EVERY {
+        return;
+    }
+    *last = now;
+    let mut by_ref: HashMap<u32, Vec<(Entity, Vec3, bool, bool)>> = HashMap::new();
+    for (e, rig, t, remote, dying) in &bodies {
+        by_ref.entry(rig.reference).or_default().push((e, t.translation(), remote, dying));
+    }
+    for (r, list) in by_ref.into_iter().filter(|(_, l)| l.len() > 1) {
+        if !told.insert(r) {
+            continue;
+        }
+        let own = residents.core.list.iter().find(|x| x.actor.0 == r);
+        let walked = own.and_then(|x| x.root);
+        let label = own.map_or_else(|| format!("{r:08X}"), |x| format!("{} {r:08X}", x.label));
+        let each: Vec<String> = list
+            .iter()
+            .map(|(e, at, remote, dying)| {
+                let g = crate::world::bevy_to_game(*at);
+                let mut kind = Vec::new();
+                if Some(*e) == walked {
+                    kind.push("its AI's");
+                }
+                if *remote {
+                    kind.push("the host's pose");
+                }
+                if *dying {
+                    kind.push("dead");
+                }
+                format!("{e:?} at ({:.0}, {:.0}, {:.0}) [{}]", g.x, g.y, g.z, kind.join(", "))
+            })
+            .collect();
+        warn!("actors: {label} is drawn {} times: {}", list.len(), each.join("; "));
+    }
 }
 
 /// The residents' state when the app exits (smoke tests read it).

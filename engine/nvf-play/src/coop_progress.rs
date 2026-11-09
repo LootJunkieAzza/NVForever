@@ -20,6 +20,12 @@
 //!   come back into the host's world as it was at that save. The last shared save's path
 //!   is kept in [`SHARED_ENV`] across those restarts.
 //!
+//! - **A guest down far from everyone: its own last save.** A guest whose health runs out
+//!   with no other player up near it (nobody to revive it; nvforever `coop` decides,
+//!   [`CoopProgress::alone_down`]) loads its last save after [`ALONE_HOLD`] seconds, as a
+//!   player alone does (owner, item 129 Q5). The load restarts its game, which rejoins the
+//!   host's session as the same player. Without a save it respawns by another player.
+//!
 //! nvforever's `coop` moves the messages: it sets [`CoopProgress::role`] and
 //! [`CoopProgress::everyone_down`], puts what it heard in `inbox` and sends `outbox`.
 
@@ -37,6 +43,8 @@ pub const AUTO_QUIET: f64 = 20.0;
 pub const DOWN_HOLD: f64 = 3.0;
 /// The host loads this long after telling the guests to.
 pub const RELOAD_DELAY: f64 = 0.5;
+/// A guest down with nobody near loads its last save after this long (seconds).
+pub const ALONE_HOLD: f64 = 5.0;
 /// The last shared save's path, kept across the restart a load makes.
 pub const SHARED_ENV: &str = "NVF_COOP_SHARED_SAVE";
 
@@ -55,6 +63,8 @@ pub enum Shared {
     Reward { quest: u32, xp: u32, caps: u32 },
     Save { stamp: u32, kind: SaveKind },
     Reload { stamp: u32 },
+    /// A hand-out of the host's scripts (`fnv_game::coop_rewards`, items 112 and 114).
+    Gift { batch: u32, item: u32, count: u32 },
 }
 
 /// The mailbox between this module and nvforever's `coop`.
@@ -63,11 +73,15 @@ pub struct CoopProgress {
     pub role: Role,
     /// Every player is down now (the host's view; module notes).
     pub everyone_down: bool,
+    /// A guest: this player is down with no other player up near it (module notes).
+    pub alone_down: bool,
     /// Heard from player `id`.
     pub inbox: Vec<(u8, Shared)>,
     /// To send.
     pub outbox: Vec<Shared>,
     pub saves: SharedSaves,
+    /// A guest: the hand-out batch being taken, and whether it had Caravan cards before it.
+    pub gift_batch: Option<(u32, bool)>,
 }
 
 /// What a game does about its own save just written ([`SharedSaves::saved`]).
@@ -108,6 +122,9 @@ pub struct SharedSaves {
     told_at: Option<f64>,
     loaded: bool,
     told_no_save: bool,
+    /// A guest's watch while down alone: since when, and whether it loaded or said so.
+    alone_since: Option<f64>,
+    alone_done: bool,
 }
 
 impl SharedSaves {
@@ -175,6 +192,26 @@ impl SharedSaves {
     }
 }
 
+impl SharedSaves {
+    /// A guest's watch, each frame: down with nobody near (`alone`) at `now`.
+    pub fn alone(&mut self, alone: bool, now: f64) -> DownStep {
+        if !alone {
+            self.alone_since = None;
+            self.alone_done = false;
+            return DownStep::Wait;
+        }
+        let since = *self.alone_since.get_or_insert(now);
+        if self.alone_done || now - since < ALONE_HOLD {
+            return DownStep::Wait;
+        }
+        self.alone_done = true;
+        match self.last.clone() {
+            Some(path) => DownStep::Load(path),
+            None => DownStep::NoSave,
+        }
+    }
+}
+
 /// Every player is down: this one, and each other one down or lost (nobody left to
 /// revive); `others` is (down, lost) per other player, and there must be one.
 pub fn everyone_down(me_down: bool, others: impl IntoIterator<Item = (bool, bool)>) -> bool {
@@ -209,7 +246,7 @@ impl Plugin for CoopProgressPlugin {
     fn build(&self, app: &mut App) {
         let mut p = CoopProgress::default();
         p.saves.last = std::env::var_os(SHARED_ENV).map(PathBuf::from).filter(|p| p.exists());
-        app.insert_resource(p).add_systems(Update, (take_inbox, rewards, announce_saves, all_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
+        app.insert_resource(p).add_systems(Update, (take_inbox, rewards, announce_saves, all_down, alone_down).chain().in_set(crate::PlaySet::Ui)).add_systems(Update, follow_saves.after(crate::PlaySet::Ui));
     }
 }
 
@@ -236,6 +273,18 @@ fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, 
                     // The host by its character's name (`coop_social::SocialMates`).
                     Ok(gained) => say(&mut corner, format!("{} completed {name}: +{gained} XP{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str()), if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
                     Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
+                }
+            }
+            Shared::Gift { batch, item, count } if p.role == Role::Guest && id == 0 => {
+                let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else {
+                    warn!("co-op: a hand-out came before the scripts run: {count} of {} lost", FormId(item));
+                    continue;
+                };
+                let name = rt.game.data.name(FormId(item));
+                match rt.game.take_coop_gift(batch, FormId(item), count as i32, &mut p.gift_batch) {
+                    Ok(0) => info!("co-op: the host's hand-out {name} ({count}): this player has its own"),
+                    Ok(n) => say(&mut corner, format!("{} handed out {name}{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host's quest", |m| m.name.as_str()), if n > 1 { format!(" ({n})") } else { String::new() })),
+                    Err(e) => warn!("co-op: the hand-out {name} could not be given: {e}"),
                 }
             }
             Shared::Save { kind, .. } if p.role != Role::Solo => {
@@ -265,6 +314,10 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
     }
     if !host {
         return;
+    }
+    for (batch, item, count) in std::mem::take(&mut rt.game.coop_rewards.gifts) {
+        info!("co-op: a script handed the player {} ({count}): to the guests too", rt.game.data.name(item));
+        p.outbox.push(Shared::Gift { batch, item: item.0, count: count.max(0) as u32 });
     }
     for r in rt.game.coop_rewards.due(rt.game.frame) {
         info!("co-op: {} completed: {} XP and {} caps to the guests", rt.game.data.name(r.quest), r.xp, r.caps);
@@ -344,6 +397,21 @@ fn all_down(mut p: ResMut<CoopProgress>, time: Res<Time>, mut corner: Option<Res
     }
 }
 
+/// A guest down with nobody near: its own last save (module notes).
+fn alone_down(mut p: ResMut<CoopProgress>, time: Res<Time>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, mut load: MessageWriter<LoadRequest>) {
+    let p = &mut *p;
+    let alone = p.role == Role::Guest && p.alone_down;
+    match p.saves.alone(alone, time.elapsed_secs_f64()) {
+        DownStep::Load(path) => {
+            say(&mut corner, "Down with nobody near: back to your last save".into());
+            info!("co-op: down far from the other players: loading this game's last save {}", path.display());
+            load.write(LoadRequest { path });
+        }
+        DownStep::NoSave => say(&mut corner, "Down with nobody near, and no save to go back to: respawn by another player".into()),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,6 +447,21 @@ mod tests {
         assert_eq!(s.saved(&path("Save 3.nvs"), false, 6.0), Announce::Tell);
         assert_eq!(s.last, Some(path("Save 3.nvs")));
         assert_eq!(s.saved(&path("auto.nvs"), true, 6.0 + AUTO_QUIET), Announce::Tell);
+    }
+
+    #[test]
+    fn a_guest_down_alone_loads_its_last_save_once() {
+        let mut s = SharedSaves { last: Some(path("q.nvs")), ..Default::default() };
+        assert_eq!(s.alone(true, 0.0), DownStep::Wait);
+        assert_eq!(s.alone(true, ALONE_HOLD - 0.1), DownStep::Wait);
+        assert_eq!(s.alone(true, ALONE_HOLD), DownStep::Load(path("q.nvs")));
+        assert_eq!(s.alone(true, ALONE_HOLD + 1.0), DownStep::Wait, "once");
+        // Revived (or someone came near): the watch starts over.
+        assert_eq!(s.alone(false, 20.0), DownStep::Wait);
+        assert_eq!(s.alone(true, 21.0), DownStep::Wait);
+        let mut n = SharedSaves::default();
+        n.alone(true, 0.0);
+        assert_eq!(n.alone(true, ALONE_HOLD), DownStep::NoSave);
     }
 
     #[test]

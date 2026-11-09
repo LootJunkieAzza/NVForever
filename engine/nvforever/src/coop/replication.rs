@@ -38,6 +38,9 @@ const TICK: f32 = 0.05;
 const SWEEP: f32 = 1.0;
 /// How often a guest sends its digest.
 const DIGEST_EVERY: f32 = 3.0;
+/// A reference changed this recently is in flight, not out of step (`Repl::sent_at`)
+/// [engineering choice: two digests].
+const SETTLE: f32 = 2.0 * DIGEST_EVERY;
 /// How often each side writes its perf line.
 const PERF_EVERY: f32 = 5.0;
 /// A guest's area: its interior cell, or this far around it outdoors (game units). The
@@ -67,10 +70,18 @@ pub(super) struct Repl {
     /// A guest's: where the host's script moved the host's player (interior cell or 0,
     /// worldspace, feet, yaw): this guest goes there too (`coop::leash`).
     pub summon: Option<(u32, u32, [f32; 3], f32)>,
+    /// The host's: the friendly-fire rule as last sent to the guests (`None`: send it).
+    rules_sent: Option<bool>,
     // The host's.
     shadows: HashMap<u8, Shadow>,
     /// References to send whole to a guest (a digest differed, or the stream started again).
     forced: HashMap<u8, BTreeSet<u32>>,
+    /// The host's: when each reference's last change went to each guest. A digest is
+    /// late by up to [`DIGEST_EVERY`] and the trip, so a reference that moves all the
+    /// time (a tumbleweed in the wind) always differs from the host's copy by then; one
+    /// changed within [`SETTLE`] is not a desync (night of 2026-11-09: two tumbleweeds
+    /// were sent whole again every digest, a guest's corrections matching its changes).
+    sent_at: HashMap<u8, HashMap<u32, f32>>,
     dirty: BTreeSet<FormId>,
     last_tick: f32,
     last_sweep: f32,
@@ -240,7 +251,7 @@ pub(super) fn replicate(
     (mut sim, mut script, actor_world, mut residents): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<Res<ActorWorld>>, Option<ResMut<Residents>>),
     loc: Option<Res<Location>>,
     player: Option<Res<Player>>,
-    (grab, phys, mut repose): (Option<Res<nvf_play::grab::GrabState>>, Option<Res<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>),
+    (grab, mut phys, mut repose): (Option<Res<nvf_play::grab::GrabState>>, Option<ResMut<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>),
 ) {
     let started = Instant::now();
     let now = time.elapsed_secs();
@@ -254,6 +265,9 @@ pub(super) fn replicate(
         }
         if !coop.repl.shadows.is_empty() || !coop.repl.slow.is_empty() {
             coop.repl = Repl::default();
+        }
+        if let Some(p) = phys.as_deref_mut().filter(|p| !p.follow_only.is_empty()) {
+            p.follow_only.clear();
         }
         if solo_perf() {
             perf_line(coop, now);
@@ -270,6 +284,23 @@ pub(super) fn replicate(
     } else {
         guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), loc.as_deref(), player.as_deref(), now)
     };
+    // A guest's copies of the objects the host's world moves follow the host: this
+    // game's physics does not write them back (`PhysState::follow_only`), or its own
+    // simulation of a rolling object would differ from the host's and the desync
+    // detector would send it again every digest (night of 2026-11-09). What this guest
+    // carries is its own until it is put down.
+    if let Some(p) = phys.as_deref_mut() {
+        if host {
+            if !p.follow_only.is_empty() {
+                p.follow_only.clear();
+            }
+        } else {
+            p.follow_only.extend(moved.iter().copied());
+            if let Some((id, _)) = coop.repl.carrying {
+                p.follow_only.remove(&id);
+            }
+        }
+    }
     for id in moved {
         repose.write(nvf_play::RefRepose { form_id: id });
     }
@@ -334,7 +365,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
     // The script effects the host's scripts asked for go to every guest (§7, phase 4).
     if let Some(g) = game {
         let asked = std::mem::take(g.coop_effects.get_or_insert_with(Vec::new));
-        let effects: Vec<Effect> = asked
+        let mut effects: Vec<Effect> = asked
             .into_iter()
             .filter_map(|e| match e {
                 fnv_game::sound::CoopEffect::Sound { sound, at } => Some(Effect::Sound { sound: sound.0, at_ref: at.0, pos: [0.0; 3] }),
@@ -352,6 +383,12 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 }
             })
             .collect();
+        // The lobby's rules (item 122): when they change, and again for a stream started anew.
+        if r.rules_sent != Some(coop.friendly_fire) {
+            r.rules_sent = Some(coop.friendly_fire);
+            info!("replication: the rules go to the guests: friendly fire {}", if coop.friendly_fire { "on" } else { "off" });
+            effects.push(Effect::Rules { friendly_fire: coop.friendly_fire });
+        }
         if !effects.is_empty() {
             r.effects_sent += effects.len() as u64;
             for item in repl::pack_effects(&effects, ITEM) {
@@ -362,7 +399,9 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
     for e in r.inbox.drain(..) {
         match e {
             Event::RelReset { id } => {
+                r.rules_sent = None;
                 r.shadows.remove(&id);
+                r.sent_at.remove(&id);
                 r.poses.remove(&id);
                 info!("replication: player {} starts again: the whole area goes to it", id + 1);
             }
@@ -390,9 +429,13 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                     }
                 } else if let Some(d) = repl::unpack_digest(&item) {
                     let shadow = r.shadows.entry(id).or_default();
+                    let sent_at = r.sent_at.entry(id).or_default();
                     for (reference, theirs) in d.refs {
                         let rf = FormId(reference);
                         let Some(mine) = world_values(&sim.world, rf) else { continue };
+                        if sent_at.get(&reference).is_some_and(|&t| now - t < SETTLE) {
+                            continue;
+                        }
                         if repl::digest_of(&mine) != theirs {
                             r.desyncs += 1;
                             let what: Vec<String> = mine.iter().filter(|v| !shadow.of(reference).any(|s| s == *v)).map(|v| format!("{v:?}")).collect();
@@ -471,6 +514,11 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
             }
         }
         if !changes.is_empty() {
+            let sent_at = r.sent_at.entry(id).or_default();
+            sent_at.retain(|_, t| now - *t < SETTLE);
+            for c in &changes {
+                sent_at.insert(c.reference, now);
+            }
             *r.changes_sent.entry(id).or_default() += changes.len() as u64;
             for item in repl::pack_changes(&changes, ITEM) {
                 link.send_reliable(Some(id), item);
@@ -559,6 +607,12 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                                 Effect::Summon { interior, world, pos, yaw } => {
                                     info!("replication: the host's script moved it: this player goes too");
                                     r.summon = Some((interior, world, pos, yaw));
+                                }
+                                Effect::Rules { friendly_fire } => {
+                                    if coop.friendly_fire != friendly_fire {
+                                        info!("replication: the host's rules: friendly fire {}", if friendly_fire { "on" } else { "off" });
+                                    }
+                                    coop.friendly_fire = friendly_fire;
                                 }
                             }
                         }

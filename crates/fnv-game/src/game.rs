@@ -1522,6 +1522,12 @@ pub struct Game<'a> {
     /// On a guest: the host's active quest, which its quest list, objectives and markers
     /// show in place of this game's own (`None`: the host has none).
     pub coop_host_quest: Option<crate::coop::HostQuest>,
+    /// On a guest: the host's character name, for "Wait for <host>" (item 130).
+    pub coop_host_name: Option<String>,
+    /// On a co-op host, while a guest's shot on a placed object runs its hit blocks as
+    /// the player's ([`Game::hit_object`], item 111): the weapon it was fired with.
+    /// IsWeaponOut, GetWeaponAnimType and GetEquipped on the player answer for that shot.
+    pub(crate) shot_for_player: Option<FormId>,
     /// On a co-op host: what its scripts gave the player around each completed quest, for
     /// the guests (`crate::coop_rewards`). Not saved.
     pub coop_rewards: crate::coop_rewards::RewardLedger,
@@ -2248,6 +2254,8 @@ impl<'a> Game<'a> {
             coop_story: Default::default(),
             coop_from_others: Default::default(),
             coop_host_quest: None,
+            coop_host_name: None,
+            shot_for_player: None,
             coop_rewards: crate::coop_rewards::RewardLedger::default(),
             guest_lines: std::sync::OnceLock::new(),
             form_lists: BTreeMap::new(),
@@ -2324,8 +2332,12 @@ impl<'a> Game<'a> {
             _ => None,
         };
         // Caps for the player: part of a completed quest's reward for co-op guests.
-        if let Some((crate::coop_rewards::CAPS, count)) = acquired {
-            self.coop_rewards.gain(self.frame, 0.0, count);
+        match acquired {
+            Some((crate::coop_rewards::CAPS, count)) => self.coop_rewards.gain(self.frame, 0.0, count),
+            // Anything else a result script hands the player goes to the guests too
+            // (`crate::coop_rewards`, items 112 and 114); quest items stay the host's.
+            Some((item, count)) if self.coop_rewards.on && !self.world.is_quest_item(item) => self.coop_rewards.hand_out(item, count),
+            _ => {}
         }
         self.events.push(Event { frame: self.frame, kind });
         // Items coming to the player count towards the acquire challenges (`crate::challenges`).
@@ -2682,7 +2694,13 @@ impl<'a> Game<'a> {
         self.cover_result(|| c.key());
         // What it gives the player is its quest's co-op reward (`crate::coop_rewards`).
         let before = self.coop_rewards.paying(ctx.quest);
+        let caps = |g: &Self| g.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(crate::coop_rewards::CAPS));
+        let caps_before = if self.coop_rewards.on { caps(self) } else { 0 };
         self.exec(c, &c.program.top, Locals::Temp(BTreeMap::new()), ctx);
+        if self.coop_rewards.on && before.is_none() {
+            let bought = caps(self) < caps_before;
+            self.coop_rewards.handed_out(bought);
+        }
         self.coop_rewards.paying(before);
     }
 
