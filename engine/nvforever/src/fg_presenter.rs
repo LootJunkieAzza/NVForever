@@ -17,7 +17,9 @@
 //! and a 0.1 ms margin, the average started again after a gap of more than 100 ms; the wait
 //! sleeps, then spins its last millisecond. The spacing is never less than one refresh, and the
 //! real frame rate is capped slightly below half the refresh rate (`frame_gen::real_frame_cap`),
-//! as AMD advises, so two presents never fall within one refresh.
+//! as AMD advises, so two presents never fall within one refresh. A frame that reaches the
+//! presenter when the next is already waiting is shown without its generated frame, so the
+//! presenter catches up at once instead of keeping a frame of delay.
 //!
 //! wgpu 30 lets one acquired image exist per surface and holds a device-wide lock across each
 //! present (`command_indices`, written), which stops submits from every thread while a present
@@ -70,6 +72,9 @@ pub(crate) struct Shared {
     /// occluded window), since last read.
     pub(crate) paced_nanos: AtomicU64,
     pub(crate) skipped: AtomicU64,
+    /// Generated frames left out to catch up (the presenter a whole frame behind), since last
+    /// read.
+    pub(crate) dropped: AtomicU64,
     /// From each frame's handing over to its first present (the GPU wait, the pacing and any
     /// frames ahead of it: what the presenter adds to the latency), since last read.
     pub(crate) queued_nanos: AtomicU64,
@@ -79,6 +84,8 @@ pub(crate) struct Shared {
     pub(crate) gpu_polls: AtomicU64,
     /// When each present was issued (frame generation's log line).
     presents: Arc<Mutex<Vec<Instant>>>,
+    /// `frame_gen::GeneratedFrames`: counted when generated, taken back when left out.
+    generated_shown: Arc<AtomicU64>,
 }
 
 impl Shared {
@@ -92,16 +99,18 @@ impl Shared {
 }
 
 impl Presenter {
-    pub(crate) fn start(surface: SharedSurface, device: wgpu::Device, queue: wgpu::Queue, presents: Arc<Mutex<Vec<Instant>>>) -> Self {
+    pub(crate) fn start(surface: SharedSurface, device: wgpu::Device, queue: wgpu::Queue, presents: Arc<Mutex<Vec<Instant>>>, generated_shown: Arc<AtomicU64>) -> Self {
         let shared = Arc::new(Shared {
             copied: Mutex::new(0),
             copied_changed: Condvar::new(),
             paced_nanos: AtomicU64::new(0),
             skipped: AtomicU64::new(0),
+            dropped: AtomicU64::new(0),
             queued_nanos: AtomicU64::new(0),
             gpu_wait_nanos: AtomicU64::new(0),
             gpu_polls: AtomicU64::new(0),
             presents,
+            generated_shown,
         });
         let (jobs, received) = mpsc::channel();
         let thread_shared = shared.clone();
@@ -153,13 +162,42 @@ fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::D
     let mut blit = Blit::default();
     let mut pacer = Pacer::default();
     let mut last_present: Option<Instant> = None;
-    while let Ok(job) = received.recv() {
+    let mut next: Option<Job> = None;
+    loop {
+        let job = match next.take() {
+            Some(job) => job,
+            None => match received.recv() {
+                Ok(job) => job,
+                Err(_) => break,
+            },
+        };
+        // A whole frame behind (the next frame is already here): show this frame's real image
+        // only, a refresh after the last present, and leave its generated frame out. At the cap
+        // two paced presents take nearly a whole real frame, so a backlog drained by about
+        // 0.2 ms a frame and the frames waited here for up to another frame [observed
+        // 2026-11-09, 4K at 160 Hz, 78 real fps: the first present 13-21 ms after the frame
+        // was handed over in some 10 s periods, 7.4 in others].
+        let behind = match received.try_recv() {
+            Ok(newer) => {
+                next = Some(newer);
+                true
+            }
+            Err(_) => false,
+        };
         pacer.add(job.sent, job.held);
+        let frames = if behind && job.frames.len() == 2 {
+            shared.dropped.fetch_add(1, Ordering::Relaxed);
+            // Not shown after all: the frame-rate counter counts generated frames shown.
+            shared.generated_shown.fetch_sub(1, Ordering::Relaxed);
+            &job.frames[1..]
+        } else {
+            &job.frames[..]
+        };
         // Never closer than a refresh: two presents within one queue up in the driver, and the
         // second waits there for the first to be shown [observed 2026-11-08: spaced 5.4-6.15 ms
         // at 160 Hz, each present took about 2 ms].
-        let spacing = pacer.spacing().max(job.refresh);
-        let paired = job.frames.len() == 2;
+        let paired = frames.len() == 2;
+        let spacing = if paired { pacer.spacing().max(job.refresh) } else { job.refresh };
         if paired {
             let (waited, polls) = wait_for_gpu(device, queue);
             shared.gpu_wait_nanos.fetch_add(waited.as_nanos() as u64, Ordering::Relaxed);
@@ -167,8 +205,8 @@ fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::D
         }
         let guard = surface.lock();
         let (_, view_format) = guard.formats();
-        let count = job.frames.len();
-        for (i, source) in job.frames.iter().enumerate() {
+        let count = frames.len();
+        for (i, source) in frames.iter().enumerate() {
             let Some(image) = guard.acquire(device) else {
                 shared.skipped.fetch_add(1, Ordering::Relaxed);
                 continue;
@@ -180,7 +218,9 @@ fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::D
             if i + 1 == count {
                 shared.copied(job.index);
             }
-            if let (true, Some(last)) = (paired, last_present) {
+            // Paired frames are spaced; a frame shown alone while catching up is held a refresh
+            // after the last present; frames without a generated one (menus, cuts) go at once.
+            if let (true, Some(last)) = (paired || behind, last_present) {
                 let waited = wait_until(last + spacing);
                 shared.paced_nanos.fetch_add(waited.as_nanos() as u64, Ordering::Relaxed);
             }

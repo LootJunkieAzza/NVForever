@@ -576,7 +576,7 @@ fn generate(
 /// Each deferred window's frame to its presenter (`fg_presenter.rs`, started the first time):
 /// the stand-in, which holds the generated frame (or the only one, on a frame without), then
 /// the real frame when there is one.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn hand_to_presenter(
     mut presenters: ResMut<Presenters>,
     pending: Res<PendingReal>,
@@ -584,6 +584,7 @@ fn hand_to_presenter(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     stats: Res<Stats>,
+    generated: Res<GeneratedFrames>,
     windows: Query<(Entity, MainEntity, &DeferredSwapchain, &SurfaceData)>,
 ) {
     let refresh = request.refresh_millihertz.filter(|m| *m > 0).map_or(std::time::Duration::ZERO, |m| std::time::Duration::from_secs_f64(1000.0 / f64::from(m)));
@@ -597,7 +598,7 @@ fn hand_to_presenter(
         let presenter = match presenters.0.iter().position(|(e, _)| *e == entity) {
             Some(at) => &mut presenters.0[at].1,
             None => {
-                let started = crate::fg_presenter::Presenter::start(surface.shared(), device.wgpu_device().clone(), (**queue).clone(), stats.presents.clone());
+                let started = crate::fg_presenter::Presenter::start(surface.shared(), device.wgpu_device().clone(), (**queue).clone(), stats.presents.clone(), generated.0.clone());
                 presenters.0.push((entity, started));
                 &mut presenters.0.last_mut().unwrap().1
             }
@@ -762,7 +763,7 @@ fn log_stats(mut stats: ResMut<Stats>, presenters: Res<Presenters>) {
     stats.waits = now;
     let per_frame = |nanos: u64| nanos as f64 / 1e6 / real.max(1) as f64;
     let generated_present = stats.generated_present_nanos.swap(0, Ordering::Relaxed);
-    let (paced, queued, gpu_wait, polls, skipped) = presenters.0.iter().fold((0, 0, 0, 0, 0), |(p, q, g, n, s), (_, presenter)| {
+    let (paced, queued, gpu_wait, polls, skipped, dropped) = presenters.0.iter().fold((0, 0, 0, 0, 0, 0), |(p, q, g, n, s, d), (_, presenter)| {
         let shared = presenter.shared();
         (
             p + shared.paced_nanos.swap(0, Ordering::Relaxed),
@@ -770,13 +771,14 @@ fn log_stats(mut stats: ResMut<Stats>, presenters: Res<Presenters>) {
             g + shared.gpu_wait_nanos.swap(0, Ordering::Relaxed),
             n + shared.gpu_polls.swap(0, Ordering::Relaxed),
             s + shared.skipped.swap(0, Ordering::Relaxed),
+            d + shared.dropped.swap(0, Ordering::Relaxed),
         )
     });
     let place = if presenters.0.is_empty() {
         format!("on the render thread (the generated frame's {:.2})", per_frame(generated_present))
     } else {
         format!(
-            "on the presenter thread, which paced them {:.2} ms and issued the first {:.2} ms after it was handed over ({:.2} waiting for the GPU, {:.1} polls); {skipped} not presented",
+            "on the presenter thread, which paced them {:.2} ms and issued the first {:.2} ms after it was handed over ({:.2} waiting for the GPU, {:.1} polls); {skipped} not presented, {dropped} generated left out to catch up",
             per_frame(paced),
             per_frame(queued),
             per_frame(gpu_wait),
@@ -786,7 +788,7 @@ fn log_stats(mut stats: ResMut<Stats>, presenters: Res<Presenters>) {
     info!(
         "frame generation: {real} real frames and {generated} generated in {seconds:.1} s ({:.1} real fps, {:.1} presented fps{spread}); a real frame's {:.1} presents took {:.2} ms {place}, {:.1} image takes {:.2} ms",
         real as f64 / seconds,
-        (real + generated) as f64 / seconds,
+        (real + generated).saturating_sub(dropped) as f64 / seconds,
         pn as f64 / real.max(1) as f64,
         per_frame(p),
         an as f64 / real.max(1) as f64,

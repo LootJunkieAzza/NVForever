@@ -114,6 +114,14 @@ Limits and notes:
   0.3-0.5 ms later at the same frame rate, and much earlier where the old path fell below the
   cap. Latency reduction is turned on to offset it where the driver has it (AMD). NVIDIA's
   `VK_NV_low_latency2` is not used (needs swapchain hooks wgpu lacks).
+- **Catching up**: at the cap two paced presents take nearly a whole real frame, so a backlog
+  (a late frame followed by an early one) drained by only about 0.2 ms a frame, and frames
+  waited in the presenter for up to another frame [observed 2026-11-09, 4K, 78 real fps: the
+  first present 13-21 ms after the frame was handed over in some 10 s periods, 7.4 in others].
+  When the next frame is already waiting, the presenter now shows the late frame's real image
+  only, a refresh after the last present, and leaves its generated frame out (the log line
+  counts them): 7.3-7.75 ms in every period after, 8.5-9.0 with 4 ms more work, one generated
+  frame left out in 14 periods of 10 s.
 - **wgpu holds a device-wide lock across each present**, which stops submits from every
   thread while a present waits in the driver (1-1.6 ms each at 160 Hz with the presents 6.3 ms
   apart). The real frame's present falls about 1 ms after the next frame's submit, so the
@@ -201,6 +209,10 @@ effect at the top), playing at the Goodsprings skyline at noon, 45 s runs, the l
 | On, presenter (cap 78) | 77.8-78.0 | 155-156 | 6.9-7.0 ms | none |
 | On, presenter, 4 ms more | 77.6-77.9 | 155-156 | 6.9 ms | none |
 | On, presenter, walking and turning | 77.8 | 155 | 7.0 ms | none |
+
+Below the cap (12 ms more work a frame, 51.5-52.2 real fps) the presents were 9.6 ms apart
+(median; 95th percentile 10.1), half a real frame: the generated frame halfway [observed
+2026-11-09, r8's build].
 
 With frame generation off the presenter path is not used: 7.47-7.49 ms a frame against r7's
 7.59-7.83 (`--log-frame-times`, GPU time 2.74 ms in both). The first version spaced the
