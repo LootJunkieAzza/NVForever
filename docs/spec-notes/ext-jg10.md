@@ -1,0 +1,96 @@
+# JohnnyGuitar NVSE, batch 10 (2026-11-09, #1007)
+
+The last 26 JohnnyGuitar functions the census lists once batch 9 (#1930) and the NIF and
+camera slice (#1928) are counted, in `crates/fnv-game/src/nvse_jg10.rs`. Sources: the
+GECK wiki export [documented: the page named, in our own words], the ESM records, and
+NVForever's own systems where a page leaves a value open [hypothesis, with the reason].
+Not probed yet: probe set `jg10` (`tools/capture/jip_probes.py`) and lab scenario
+`L5.ext.jg10` are written, not run. Tests: `crates/fnv-game/tests/jg10.rs`.
+
+26 functions. Census: JohnnyGuitar 78 → 52 on main, 0 with #1928 and #1930.
+
+The batch's state is the session's (`OtherState::jg10`) and is not saved:
+DisableMuzzleFlashLights "does not persist through saves" and HighlightBodyPartAlt is
+"session-persistent" [documented]; the rest is a session's too [hypothesis].
+
+## 1. The functions
+
+| Function | What it does here |
+|---|---|
+| AddNavmeshObstacle, RemoveNavmeshobstacle | The calling reference joins or leaves the script obstacle list [documented]. Returns 0. The engine does not cut the navmesh round it yet (§3). |
+| GetNearestNavMeshTriangle `x y z skipDisabled [zLimit]` | [x, y, z, distance] of the nearest loaded triangle's centre [documented]. Asked of the engine's navmesh through `nav_ask` (a new `triangle` question); an empty array when there is no answer [hypothesis]. |
+| GetPointInNavMesh `x y z skipDisabled [zLimit]` | The same for the triangle whose area holds the point seen from above [documented]. |
+| PathToPoint `x y z [radius] [angle]`, PathToRef `target [radius] [face]` | The actor walks there and keeps its package [documented]. NVForever queues the request for the engine (§3). Returns 1 when queued and 0 with no actor or target [hypothesis: the page gives a float return and no meaning]. A new request replaces the actor's last one. |
+| ApplyWeaponPoison `[poison]` | Puts the poison on the actor's equipped weapon or the weapon's inventory reference; none, or a null form, takes it off [documented]. The poison must be an ALCH [hypothesis: the page's Bleak Venom is one]. GetEquippedWeaponPoison (JIP batch 11) reads it. The hit does not apply it yet (§3). |
+| EjectCasing `[node] [model]` | A casing from the reference's weapon [documented]. On the player, the engine throws the weapon's casing from ShellCasingNode on its next combat frame. |
+| DisableMuzzleFlashLights `[mode]` | 0 on, 1 off for all, 2 the player's off, 3 NPCs' off [documented]. nvforever's `shot_fx` leaves the flash's light out. A mode outside 0–3 is ignored [hypothesis]. |
+| SetWeaponScopeUIModel `path [weapon]` | The scope picture; a weapon gives its own MOD3 and the path is ignored [documented]. |
+| ToggleWeaponScopeUIModel `visible` | Hides (0) or shows (1) the scope [documented]. |
+| ClearWeaponScopeUIModel | Hides the scope and takes its picture away [documented]. |
+| RemoveScopeModelPath `weapon` | Clears the weapon's MOD3 (as SetScopeModelPath's override) [documented]. Returns 1 when it had one [hypothesis: a weapon without one fails]. |
+| FaceGenGetNthProperty `base type n` | The base's nth FaceGen value of the type. Type 0 is FGGS (50 values), 1 FGGA (30), 2 FGTS (50) [hypothesis: the page leaves the types undocumented; this is the records' order, xEdit wbFaceGen]. The player's comes from the character creator's look. Out of range gives 0. |
+| FaceGenSetNthProperty `base type n value` | Sets it. On the player, in the look (drawn again); on an NPC, as the base's record value [documented: the arguments]. Returns 1 when set [hypothesis]. |
+| FaceGenRefreshAppearance | The reference is drawn again (an appearance change, as SexChange's) [documented]. |
+| HighlightBodyPartAlt `[part]` | One actor at a time; no part, or 15, is everything but the weapon [documented]. A part outside 0–15 is not taken [hypothesis]. |
+| DeactivateAllHighlightsAlt | Every highlight goes [documented]. |
+| RemoveHighlightedRef | The calling reference's highlight goes [hypothesis: the page is empty; read from its name]. |
+| GetLandTextureUnderFeet | The land texture (LTEX) under the reference; nothing indoors [documented]. A cast straight down from 64 units above (`ray::CastKind::LandTexture`). The engine answers with the texture showing most where it meets the terrain, from the LAND's BTXT/ATXT layers, as footsteps choose their sound. It gives 0 where the default texture shows more [hypothesis]. |
+| RemapLand `land world x y` / `land` | The LAND takes the cell's landscape; the form alone puts it back [documented]. Returns 1 when done. It returns 0 for a source cell that does not exist, or a reset of a LAND never remapped [hypothesis]. The game's data keeps no LAND record types, so any form of no other known type is taken as a LAND [hypothesis]. The terrain is not redrawn yet (§3). |
+| RefreshIdle `[stop]` | The actor picks its own idles again after PlayIdle; 1 stops the one playing at once [documented]. NVForever's PlayIdle holds no override past its idle, so the stop (StopIdle's) is all that is left to do [hypothesis]. |
+| ShowBarberMenuEx `flag list` | The barber menu (1036). 0 blacklists hairs and beards, 1 blacklists beards and whitelists hairs, 2 the reverse, 3 whitelists both [documented]. `Game::barber_allows` answers for the menu. A flag outside 0–3 or no list opens it unfiltered [hypothesis]. |
+| TriggerScreenSplatterEx `count duration size opacity alpha colour flare fade` | TriggerScreenSplatter's splats; the textures and the fade are kept for the engine [documented]. Returns 1 when splats are asked for, 0 for a count of 0 [hypothesis: 0/1 is documented, not when]. |
+| UpdateCrosshairPrompt, UpdateRepairMenu | Counted (`Game::ui_refreshes`); the engine works the prompt or the repair list out again on each new count [documented: what they do]. |
+
+The functions that change something and document no return value return 0.
+
+## 2. Data
+
+The NPC and CREA records now also keep FGGS, FGGA and FGTS among their decoded subrecords
+(`ACTOR_SUBS`, data.rs), for FaceGenGetNthProperty.
+
+## 3. Follow-ups (engine)
+
+The game side of each is built; the engine does not read these yet:
+
+- The navmesh answerer: `nav_ask::with_nav` around the script tick (ITR's follow-up,
+  ext-itr.md §12), now with `triangle` too. Until it is lent, the triangle functions
+  give empty arrays in the game.
+- Script obstacles (`Game::script_nav_obstacles`) cut into the nav graph
+  (`fnv_nav::obstacles`).
+- PathToPoint and PathToRef (`Game::take_path_requests`): the walker goes there
+  without a new package.
+- A weapon's poison applied by its hits (`Game::weapon_poison`), and how many hits it
+  lasts.
+- EjectCasing's own node and model, and other actors' casings.
+- The scope picture and its hiding (`Game::script_scope`) in `aim_zoom` / `scope_view`.
+- An NPC's FaceGen values set by script, drawn from the base's override when the head
+  is built.
+- VATS body part highlights (`Game::body_part_highlight`).
+- RemapLand's swaps (`Game::land_remaps`) in the terrain.
+- The barber menu's filter in the creator's hair and beard lists.
+- TriggerScreenSplatterEx's textures in `screen_splatter`.
+- The prompt and repair menu refreshes.
+
+## 4. Probe questions (set jg10)
+
+On the player at Doc Mitchell's (an interior):
+
+1. `tri`: the nearest triangle at the player's place. Hypothesis `4 1`: four values, the
+   distance under 200.
+2. `tri.under`: the triangle under the player, and under a point 100,000 units east.
+   Hypothesis `4 0`.
+3. `underfeet`: indoors. Hypothesis `0`: no form.
+4. `facegen`: Doc Mitchell's FGGS[0], FGGA[0], FGTS[0], FGGA[30] (out of range) and type
+   3. This shows whether types 0/1/2 are FGGS/FGGA/FGTS.
+5. `facegen.set`: set FGGS[1] to 0.5, read it, and put it back. Hypothesis `1 0.500` and
+   the old value.
+6. `returns`: what HighlightBodyPartAlt, RemoveHighlightedRef, DeactivateAllHighlightsAlt,
+   Add/RemoveNavmeshObstacle, UpdateCrosshairPrompt, UpdateRepairMenu and
+   DisableMuzzleFlashLights 0 return. Hypothesis: all 0.
+7. `scope.remove`: RemoveScopeModelPath on the 10mm pistol, which has no scope.
+   Hypothesis `0`.
+8. `remapland`: `RemapLand 1`, a reset of nothing. Hypothesis `0`.
+
+Left out, because they move actors, open menus, draw on the screen or need a poison form
+not listed here: PathToPoint, PathToRef, ShowBarberMenuEx, TriggerScreenSplatterEx,
+ApplyWeaponPoison, EjectCasing and the scope picture functions.

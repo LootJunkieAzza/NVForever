@@ -1388,6 +1388,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "sup", "probes", "sup4"]
+  },
+  {
+   "id": "L5.ext.jg10",
+   "layer": 5,
+   "description": "JohnnyGuitar batch 10 (#1007; docs/spec-notes/ext-jg10.md): navmesh triangles at and far from the player in Doc Mitchell's house, the land texture underfoot indoors, Doc Mitchell's FaceGen values by type and one set and put back, the return values of the highlight, obstacle, refresh and muzzle light calls, RemoveScopeModelPath on the 10mm pistol, RemapLand's reset; set jg10 of tools/capture/jip_probes.py, keyed by probe id, steps in order; puts back what it changes. Not probed yet. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jg10.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jg10.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jg", "probes", "jg10"]
   }
  ]
 }

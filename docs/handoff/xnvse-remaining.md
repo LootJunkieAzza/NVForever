@@ -212,6 +212,12 @@ SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid referen
 the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
 the last save's and load's names and sizes told by the engine, the cells and map markers near the player,
 MarkScriptOnLoad, KillAll2, the caught-pickpocketing flag, TranslitText; set sup4, not probed yet). SUP 17 → 0.
+JohnnyGuitar batch 10: the last 26 (#1007, ext-jg10.md: navmesh obstacles, triangles through `nav_ask` and paths,
+weapon poisons (GetEquippedWeaponPoison reads them), EjectCasing, DisableMuzzleFlashLights, the scope picture and
+RemoveScopeModelPath, FaceGen values by type, body part highlights, GetLandTextureUnderFeet through the engine's
+land-texture cast, RemapLand, RefreshIdle, ShowBarberMenuEx, TriggerScreenSplatterEx, the prompt and repair menu
+refreshes; engine follow-ups in §3 of the note; set jg10, not probed yet). Census after it: JohnnyGuitar 78 → 52
+on main, 0 with #1928 and #1930.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

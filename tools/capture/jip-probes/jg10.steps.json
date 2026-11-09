@@ -1,0 +1,53 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jg10",
+ "title": "jg10, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet fA := PlayerREF.GetPos X\nlet fB := PlayerREF.GetPos Y\nlet fC := PlayerREF.GetPos Z\nlet aOut := GetNearestNavMeshTriangle fA fB fC 1\nlet fD := Ar_Size aOut\nSetFunctionValue (sv_Construct \"%g %g\" fD (aOut[3] < 200))\nEnd\n",
+   "label": "jg10.tri",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet fA := PlayerREF.GetPos X\nlet fB := PlayerREF.GetPos Y\nlet fC := PlayerREF.GetPos Z\nlet aOut := GetPointInNavMesh fA fB fC 1\nlet fD := Ar_Size aOut\nlet aOut := GetPointInNavMesh (fA + 100000) fB fC 1\nSetFunctionValue (sv_Construct \"%g %g\" fD (Ar_Size aOut))\nEnd\n",
+   "label": "jg10.tri.under",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := PlayerREF.GetLandTextureUnderFeet\nSetFunctionValue (IsFormValid rA)\nEnd\n",
+   "label": "jg10.underfeet",
+   "field": "value"
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (sv_Construct \"%.3f %.3f %.3f %.3f %.3f\" (FaceGenGetNthProperty rA 0 0) (FaceGenGetNthProperty rA 1 0) (FaceGenGetNthProperty rA 2 0) (FaceGenGetNthProperty rA 1 30) (FaceGenGetNthProperty rA 3 0))\nEnd\n",
+   "label": "jg10.facegen",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nlet fA := FaceGenGetNthProperty rA 0 1\nlet fB := FaceGenSetNthProperty rA 0 1 0.5\nlet fC := FaceGenGetNthProperty rA 0 1\nFaceGenSetNthProperty rA 0 1 fA\nSetFunctionValue (sv_Construct \"%g %.3f %.3f\" fB fC (FaceGenGetNthProperty rA 0 1))\nEnd\n",
+   "label": "jg10.facegen.set",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fA := rA.HighlightBodyPartAlt 1\nlet fB := rA.RemoveHighlightedRef\nlet fC := PlayerREF.DeactivateAllHighlightsAlt\nlet fD := rA.AddNavmeshObstacle\nSetFunctionValue (sv_Construct \"%g %g %g %g %g %g %g %g\" fA fB fC fD (rA.RemoveNavmeshobstacle) (UpdateCrosshairPrompt) (UpdateRepairMenu) (DisableMuzzleFlashLights 0))\nEnd\n",
+   "label": "jg10.returns",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nSetFunctionValue (RemoveScopeModelPath rA)\nEnd\n",
+   "label": "jg10.scope.remove",
+   "field": "value"
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nSetFunctionValue (RemapLand 1)\nEnd\n",
+   "label": "jg10.remapland",
+   "field": "value"
+  }
+ ]
+}
