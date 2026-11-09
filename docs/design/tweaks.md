@@ -385,6 +385,14 @@ unless the player binds them, so nothing changes until then.
 | Skip Easy Locks (+ margin) | `bSkipVeryEasyLocksAtMaxSkill` | `lockpick::opening` (`opened` with its XP) |
 | Pick Up Disarmed Mines | `bDisarmingMinesPicksThemUp` | `Game::activate` after a disarm |
 
+## Twenty-eighth batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| NPC Weapons Hit Whole | `bNoScaleNpcDamageByCondition` | `combat` NPC blows and shots (`HitInput::condition`) |
+| Killing Knockdowns Count | `bLethalHitsIncreaseLimbChallenges` | `Game::knock` |
+| Shared Keys | `bAllowDuplicateControlBinds` | `Bindings::rebind`, `rebind_pad` (`allow_duplicates`) |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -404,8 +412,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 306 |
-| to do | 297 |
+| done | 309 |
+| to do | 294 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -583,6 +591,7 @@ game's Data folder, read-only).
 | `bMaxVATSDistanceUsesWeaponRange` | done |  | 3 | already so: V.A.T.S. reach is the projectile range |
 | `bNoCompanionKillXP` | done |  | 1 | No XP for Companion Kills (also leaves their damage out of the kill share) |
 | `bNoDisarmCompanions` | done |  |  | Companions Keep Their Weapons |
+| `bNoScaleNpcDamageByCondition` | done |  |  | NPC Weapons Hit Whole |
 | `bNoSelfExplosionDamage` | done |  |  | Own Blasts Spare the Player |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
 | `bNoVATSTargetInvisible` | done |  |  | already so: cloaked actors are barred without Enhanced Sensors |
@@ -598,7 +607,6 @@ game's Data folder, read-only).
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
 | `bNoHealingInCombat` | to do |  | 1 | the refusal belongs before MenuModel::apply takes the item |
 | `bNoPipBoyInCombat` | to do |  | 5 | menu::open_menus is where; needs a message for the refusal |
-| `bNoScaleNpcDamageByCondition` | to do |  |  | two condition reads in combat (blows and shots) |
 | `bNoScaleNpcDamageResistanceByCondition` | to do |  |  | target_armor computed twice for NPC targets |
 | `bNoScaleNpcDamageThresholdByCondition` | to do |  |  | target_armor computed twice for NPC targets |
 | `bNoSelfMeltdownDamage` | to do |  | 3 | the blast loop by the Meltdown explosion form |
@@ -996,6 +1004,7 @@ game's Data folder, read-only).
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
+| `bAllowDuplicateControlBinds` | done |  |  | Shared Keys |
 | `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
 | `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
 | `bDetachedBeams` | done |  |  | Detached Beams |
@@ -1009,6 +1018,7 @@ game's Data folder, read-only).
 | `bInvertCameraX` | done |  |  | Invert Look Left/Right |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
 | `bKeepSelectedConsoleRef` | done |  |  | already so: closing the console keeps the selection |
+| `bLethalHitsIncreaseLimbChallenges` | done |  |  | Killing Knockdowns Count (crippling already counted on a kill) |
 | `bMenuFadesIgnoreTimescale` | done |  |  | already so: menu fades run on real time while the world waits |
 | `bNoAltTabPause` | done |  | 1 | already so: losing focus opens no pause menu |
 | `bNoAudioDistortion` | done |  | 1 | No Helmet Voice Filter (the apply-to-everything option not built) |
@@ -1044,7 +1054,6 @@ game's Data folder, read-only).
 | `bUseAnimVariants` | unsure, skipped | yes | 3 | depends on animation file naming conventions not yet checked |
 | `bVATSStopFollowingDeadTargets` | to do | yes |  | needs the kill camera shot's start frame kept |
 | `bWeaponImpactEffects` | to do | yes |  | hits on the hand weapon use the flesh impact; holstered weapons have no hit part |
-| `bAllowDuplicateControlBinds` | to do |  |  | Bindings::rebind swap loop |
 | `bAlternateLevelupSounds` | to do |  | 4 | xp level_up sound; the sound cache takes static names |
 | `bAnimDebugging` | n/a |  |  | a mod-author debug print |
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
@@ -1061,7 +1070,6 @@ game's Data folder, read-only).
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bHapticPipboy` | to do |  |  | pipboy sounds play with a rumble request |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
-| `bLethalHitsIncreaseLimbChallenges` | to do |  |  | crippling counts already; knockdown on a kill does not |
 | `bNoAmmoCasings` | to do |  |  | NVForever gives no casings yet |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bNoSkillBooksAbove100` | to do |  |  | the refusal belongs before equip_at takes the book (Pip-Boy, hotkeys, EquipItem) |

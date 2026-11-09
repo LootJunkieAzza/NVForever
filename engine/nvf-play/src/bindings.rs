@@ -335,6 +335,9 @@ pub struct Bindings {
     pub rumble: bool,
     /// The Controls tab's Stick Sensitivity: the right stick's look speeds times this.
     pub stick_sensitivity: f32,
+    /// A key may serve two controls (the Duplicate Binds tweak, set by `crate::tweaks`):
+    /// rebinding does not swap.
+    pub allow_duplicates: bool,
 }
 
 impl Default for Bindings {
@@ -364,6 +367,7 @@ impl Bindings {
             look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
             rumble: RUMBLE,
             stick_sensitivity: 1.0,
+            allow_duplicates: false,
         }
     }
 
@@ -384,7 +388,8 @@ impl Bindings {
     pub fn rebind_pad(&mut self, c: Control, p: PadInput) -> Vec<Control> {
         let old = self.pad(c);
         let mut swapped = Vec::new();
-        for (k, x) in self.pad.iter_mut().filter(|(k, x)| *k != c && *x == Some(p)) {
+        let swaps = !self.allow_duplicates;
+        for (k, x) in self.pad.iter_mut().filter(|(k, x)| swaps && *k != c && *x == Some(p)) {
             *x = old;
             swapped.push(*k);
         }
@@ -439,7 +444,9 @@ impl Bindings {
     pub fn rebind(&mut self, c: Control, input: Input) -> Vec<Control> {
         let old = self.get(c);
         let mut swapped = Vec::new();
-        for (k, b) in self.map.iter_mut().filter(|(k, _)| *k != c) {
+        // The player's tweak lets two controls share an input [design: docs/design/tweaks.md].
+        let swaps = !self.allow_duplicates;
+        for (k, b) in self.map.iter_mut().filter(|(k, _)| swaps && *k != c) {
             match input {
                 Input::Key(key) if b.key == Some(key) => b.key = old.key,
                 Input::Mouse(m) if b.mouse == Some(m) => b.mouse = old.mouse,
@@ -1221,6 +1228,16 @@ mod tests {
         for (c, _, _) in &GAME_CONTROLS[TWEAK_CONTROLS..] {
             assert_eq!(b.get(*c), Binding { key: None, mouse: None }, "{c:?}");
         }
+    }
+
+    #[test]
+    fn shared_keys_leave_the_other_control_alone() {
+        let mut b = Bindings::game_defaults();
+        b.allow_duplicates = true;
+        let jump = b.get(Control::Jump).key;
+        assert!(b.rebind(Control::Activate, Input::Key(jump.unwrap())).is_empty());
+        assert_eq!(b.get(Control::Jump).key, jump, "Jump keeps its key");
+        assert_eq!(b.get(Control::Activate).key, jump);
     }
 
     #[test]

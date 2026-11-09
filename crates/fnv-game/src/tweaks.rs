@@ -268,6 +268,12 @@ pub struct Tweaks {
     pub skip_lock_margin: f32,
     /// `bDisarmingMinesPicksThemUp`: a mine the player disarms goes into the inventory.
     pub pick_up_disarmed: bool,
+    // ---- batch 28 ----
+    /// `bNoScaleNpcDamageByCondition`: NPCs' weapons hit as if whole.
+    pub npc_weapons_whole: bool,
+    /// `bLethalHitsIncreaseLimbChallenges`: a killing knockdown still counts for the
+    /// knockdown challenges.
+    pub lethal_knockdowns_count: bool,
 }
 
 impl crate::game::Game<'_> {
@@ -385,6 +391,8 @@ impl Default for Tweaks {
             skip_easy_locks: false,
             skip_lock_margin: 0.0,
             pick_up_disarmed: false,
+            npc_weapons_whole: false,
+            lethal_knockdowns_count: false,
         }
     }
 }

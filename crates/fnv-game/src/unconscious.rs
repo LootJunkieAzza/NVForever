@@ -221,6 +221,11 @@ impl Game<'_> {
     fn knock(&mut self, r: FormId, cause: Cause, by: Option<FormId>, shove: Option<[f32; 3]>) -> bool {
         // The player is knocked down but never knocked out (§2.1, §5.4).
         if (r == FormId::PLAYER_REF && !cause.awake()) || self.is_dead(r) {
+            // The player's tweak: a killing knockdown by the player still counts for the
+            // challenges [design: docs/design/tweaks.md].
+            if self.is_dead(r) && self.tweaks.lethal_knockdowns_count && by == Some(FormId::PLAYER_REF) && cause.knockdown() {
+                self.challenge_knockdown(r);
+            }
             return false;
         }
         let old = self.knockout(r);

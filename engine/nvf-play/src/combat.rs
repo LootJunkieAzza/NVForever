@@ -4123,7 +4123,9 @@ fn actor_attacks(
         // A person's power attack: × its direction's fDamagePowerAttack…Bonus, as the
         // player's (combat-rules.md §10.1); a creature's deals its usual damage.
         let power = b.anim.filter(|_| b.creature_damage.is_none()).and_then(fnv_combat::melee::PowerDir::of_group).map_or(1.0, |d| d.damage(&c.rules));
-        let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(&sim, b.attacker, id), ammo_effects: &[], part: HitPart::default(), power };
+        // The player's tweak: NPCs' weapons hit as if whole [design: docs/design/tweaks.md].
+        let whole = b.attacker != FormId::PLAYER_REF && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npc_weapons_whole);
+        let h = HitInput { weapon: &w, projectiles: 1, condition: if whole { 1.0 } else { item_condition(&sim, b.attacker, id) }, ammo_effects: &[], part: HitPart::default(), power };
         if power != 1.0 {
             info!("combat: {}'s power attack {} on {}: damage x{power:.1}", b.attacker, b.anim.unwrap_or("?"), b.target);
         }
@@ -4777,7 +4779,8 @@ fn fly(
             (p.actor == Some(PLAYER)).then(|| player_body_part(c, &phys, player.as_deref(), p.point)).flatten()
         });
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
-        let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: item_condition(&sim, shooter, id), ammo_effects: &ammo_effects, part, power: 1.0 };
+        let whole = shooter != FormId::PLAYER_REF && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npc_weapons_whole);
+        let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: if whole { 1.0 } else { item_condition(&sim, shooter, id) }, ammo_effects: &ammo_effects, part, power: 1.0 };
         let roll = c.rng.next_f32();
         let Some(actor) = p.actor else {
             stats.world_hits += 1;

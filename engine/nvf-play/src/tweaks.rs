@@ -219,6 +219,8 @@ pub struct TweakSettings {
     /// `bNoFreeBarterItems`/`fFreeItemCost`: the price of things worth nothing in a
     /// barter; 0 changes nothing.
     pub free_item_price: f32,
+    /// `bAllowDuplicateControlBinds`: one input may serve two controls.
+    pub duplicate_binds: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -345,6 +347,7 @@ impl Default for TweakSettings {
             auto_continue: false,
             hide_ammo_label: false,
             free_item_price: 0.0,
+            duplicate_binds: false,
         }
     }
 }
@@ -967,6 +970,10 @@ impl Plugin for TweaksPlugin {
         switch!(app, "skip-easy-locks", "Skip Easy Locks", "A lock well under the player's Lockpick opens at once (with its experience); use it again to go through. (Stewie's Tweaks bSkipVeryEasyLocksAtMaxSkill)", game.skip_easy_locks);
         amount!(app, "skip-lock-margin", "Skip Easy Locks: Margin", "How far over the lock Lockpick must be to skip the game (0 to 50). (Stewie's Tweaks bSkipVeryEasyLocksAtMaxSkill, iThreshold)", 50.0, f32, game.skip_lock_margin);
         switch!(app, "pick-up-disarmed", "Pick Up Disarmed Mines", "A mine the player disarms goes straight into the inventory. (Stewie's Tweaks bDisarmingMinesPicksThemUp)", game.pick_up_disarmed);
+        // ---- batch 28 ----
+        switch!(app, "npc-weapons-whole", "NPC Weapons Hit Whole", "NPCs' weapons hit as hard as whole ones, whatever their condition. (Stewie's Tweaks bNoScaleNpcDamageByCondition)", game.npc_weapons_whole);
+        switch!(app, "lethal-knockdowns", "Killing Knockdowns Count", "A knockdown that kills still counts for the knockdown challenges. (Stewie's Tweaks bLethalHitsIncreaseLimbChallenges)", game.lethal_knockdowns_count);
+        switch!(app, "duplicate-binds", "Shared Keys", "Binding an input to a control leaves other controls with it as they are (no swap). (Stewie's Tweaks bAllowDuplicateControlBinds)", duplicate_binds);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1074,7 +1081,13 @@ fn keys(
 }
 
 /// Hand the game's part to the running game when it differs, and log the change.
-fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>) {
+#[allow(clippy::too_many_arguments)]
+fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>) {
+    if let Some(mut b) = bindings {
+        if b.allow_duplicates != tweaks.duplicate_binds {
+            b.allow_duplicates = tweaks.duplicate_binds;
+        }
+    }
     if let Some(mut l) = loading {
         if l.hide_tips != tweaks.no_loading_tips {
             l.hide_tips = tweaks.no_loading_tips;
