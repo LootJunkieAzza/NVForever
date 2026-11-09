@@ -202,6 +202,9 @@ pub struct MeleeInput<'a> {
     /// attack plays it instead of `attackpower` [hypothesis: which power attacks it
     /// replaces is not documented; the directional ones keep their own clips].
     pub power_override: Option<&'a str>,
+    /// NVForever's Power Attack If Blocking tweak (docs/design/tweaks.md): a press of Use
+    /// starts a power attack at once, with no hold.
+    pub instant_power: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -258,6 +261,10 @@ impl Melee {
         if pressed {
             self.held = Some(0.0);
             self.chained = self.swing.is_some();
+            if input.instant_power {
+                self.held = None;
+                self.power = true;
+            }
         } else if let Some(h) = self.held.as_mut().filter(|_| input.trigger) {
             *h += input.dt;
         }
@@ -342,7 +349,7 @@ mod tests {
         let mut now = 0.0;
         let mut i = 0u32;
         while now < secs {
-            let input = MeleeInput { trigger: trigger(now), dt: DT, forward, right: 0.0, first: "attackright", rolls: [0.25, (i % 2) as f32 * 0.6], power_override };
+            let input = MeleeInput { trigger: trigger(now), dt: DT, forward, right: 0.0, first: "attackright", rolls: [0.25, (i % 2) as f32 * 0.6], power_override, instant_power: false };
             out.extend(m.tick(input, &t, SwingTiming::of(None, None, None, 1.0, 1.0)));
             if let Some(s) = m.swing.clone() {
                 let timing = if s.stem.starts_with("attackright_") { right() } else if s.stem.starts_with("attackleft_") { left() } else { power() };
@@ -395,6 +402,24 @@ mod tests {
     }
 
     #[test]
+    fn the_blocking_tweak_makes_a_tap_a_power_attack() {
+        // A tap far shorter than the power hold: a plain swing without the tweak, the
+        // standing power attack at once with it.
+        let t = CombatTuning::default();
+        for (instant, want) in [(false, None), (true, Some(PowerDir::Stand))] {
+            let mut m = Melee::default();
+            let input = |trigger| MeleeInput { trigger, dt: DT, forward: 0.0, right: 0.0, first: "attackright", rolls: [0.0, 0.0], power_override: None, instant_power: instant };
+            let mut ev = m.tick(input(true), &t, SwingTiming::of(None, None, None, 1.0, 1.0));
+            ev.extend(m.tick(input(false), &t, SwingTiming::of(None, None, None, 1.0, 1.0)));
+            let power = ev.iter().find_map(|e| match e {
+                MeleeEvent::Started { power, .. } => Some(*power),
+                _ => None,
+            });
+            assert_eq!(power, Some(want), "instant {instant}: {ev:?}");
+        }
+    }
+
+    #[test]
     fn a_press_waits_for_the_a_key() {
         // Tapped at 0.2 s into the right swing: the left one starts at its a:L (0.63 s
         // after the right one started), not at its end (1.43 s).
@@ -404,7 +429,7 @@ mod tests {
         let mut now = 0.0f32;
         while now < 1.5 {
             let trigger = now < 0.05 || (0.25..0.3).contains(&now);
-            let input = MeleeInput { trigger, dt: DT, forward: 0.0, right: 0.0, first: "attackright", rolls: [0.0, 0.0], power_override: None };
+            let input = MeleeInput { trigger, dt: DT, forward: 0.0, right: 0.0, first: "attackright", rolls: [0.0, 0.0], power_override: None, instant_power: false };
             for e in m.tick(input, &t, SwingTiming::of(None, None, None, 1.0, 1.0)) {
                 if let MeleeEvent::Started { stem, .. } = e {
                     starts.push((now, stem));

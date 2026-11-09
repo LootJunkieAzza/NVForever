@@ -494,7 +494,9 @@ fn open(
         Opening::Pick { level, skill, pins } => {
             stats.opened += 1;
             let mut rng = ChaCha8Rng::seed_from_u64(seed(reference, now));
-            let game = Picking::new(level, skill, pins, unit(&mut rng), Settings::default());
+            // The player's tweak: a force chance that grows near the sweet spot [design: docs/design/tweaks.md].
+            let settings = Settings { force_near_bonus: rt.game.tweaks.lockpick_force_near_bonus, ..Settings::default() };
+            let game = Picking::new(level, skill, pins, unit(&mut rng), settings);
             info!(
                 "lockpick: open {reference} {name}: {} lock (Lockpick {skill:.0}, {pins} bobby pins): sweet spot {:.1}° ± {:.1}°, Force Lock {:.0}%",
                 level.name(),

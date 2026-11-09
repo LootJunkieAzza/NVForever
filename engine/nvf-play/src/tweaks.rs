@@ -230,6 +230,10 @@ pub struct TweakSettings {
     pub warn_encumbrance: bool,
     /// `bHapticPipboy`: a short controller buzz on a Pip-Boy page or tab change.
     pub pipboy_buzz: bool,
+    /// `bPowerAttackIfBlocking`: while blocking, a press of Use is a power attack at once.
+    pub power_attack_if_blocking: bool,
+    /// `bVATSHipFire`: V.A.T.S. entered without aiming fires every shot from the hip.
+    pub vats_hip_fire: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -361,6 +365,8 @@ impl Default for TweakSettings {
             kill_cam_chance: 1.0,
             warn_encumbrance: false,
             pipboy_buzz: false,
+            power_attack_if_blocking: false,
+            vats_hip_fire: false,
         }
     }
 }
@@ -1023,6 +1029,31 @@ impl Plugin for TweaksPlugin {
         );
         switch!(app, "repair-scales-crafting", "Crafting Uses Repair", "Weapons and armour made at a workbench come out at a condition set by Repair: half at 0, whole at 100. (Stewie's Tweaks bRepairScalesCraftingCondition)", game.repair_scales_crafting);
         switch!(app, "no-healing-in-combat", "No Healing In Combat", "Aid that restores health or a limb cannot be used from the Pip-Boy while something fights the player. (Stewie's Tweaks bNoHealingInCombat)", game.no_healing_in_combat);
+        switch!(app, "power-attack-if-blocking", "Power Attack From a Block", "While blocking with a melee weapon, a press of attack is a power attack at once, with no hold. (Stewie's Tweaks bPowerAttackIfBlocking)", power_attack_if_blocking);
+        amount!(app, "breath-regain", "Slow Breath Regen", "Seconds of breath each second at the surface gives back; the meter stays up until it is whole. 0 refills it at once. (Stewie's Tweaks bSlowBreathRegen)", 20.0, f32, game.breath_regain);
+        switch!(app, "vats-hip-fire", "V.A.T.S. Hip Fire", "V.A.T.S. entered without aiming fires every shot from the hip (the chance to hit is the same). (Stewie's Tweaks bVATSHipFire)", vats_hip_fire);
+        switch!(app, "pickpocket-caught-detects", "Caught Pickpocketing Means Detected", "An actor that catches the player pickpocketing detects the player, so a hostile one does not leave them hidden. (Stewie's Tweaks bPickpocketCaughtCausesDetection)", game.pickpocket_caught_detects);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-agility-jump",
+                GROUP,
+                "Agility Scales Jump Height",
+                "The jump height times 1 + this x (Agility - 1), from 0 to 0.2 per point; 0 changes nothing. (Stewie's Tweaks bAgilityScalesJumpHeight)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| t.game.agility_jump_mult * 5.0),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.agility_jump_mult = v / 5.0;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| format!("{:.2}", v / 5.0)),
+                },
+            ),
+        );
+        amount!(app, "lockpick-force-near", "Force Lock Near the Sweet Spot", "Percent added to Force Lock with the pin on the sweet spot, less the further away, none at 90 degrees; 0 changes nothing. (Stewie's Tweaks bLockpickForceBonusNearSweetSpot)", 50.0, f32, game.lockpick_force_near_bonus);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

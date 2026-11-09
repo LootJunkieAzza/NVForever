@@ -1770,6 +1770,18 @@ fn stat_speed(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>
     let (mult, armor) = with_world(rt, &mut sim, |rt| (rt.game.move_speed_mult(FormId::PLAYER_REF) as f32, rt.game.armor_speed_mult(FormId::PLAYER_REF)));
     let scale = sim.script_scale(FormId::PLAYER_REF.0).unwrap_or(1.0).max(crate::sim::MIN_DRAWN_SCALE);
     let want = mult * scale;
+    // The player's tweak: Agility scales the jump, 1 + mult x (Agility - 1) [design: docs/design/tweaks.md].
+    let k = rt.game.tweaks.agility_jump_mult;
+    let jump = if k > 0.0 {
+        let agility = with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::AGILITY)) as f32;
+        (1.0 + k * (agility - 1.0)).max(0.1)
+    } else {
+        1.0
+    };
+    if (speed.1 - jump).abs() > 1e-4 {
+        speed.1 = jump;
+        info!("movement: the player jumps {:.0}% as high (Agility tweak)", jump * 100.0);
+    }
     if (speed.0 - want).abs() > 1e-4 {
         speed.0 = want;
         let size = if scale == 1.0 { String::new() } else { format!(", scale {scale:.2}") };
@@ -3675,7 +3687,8 @@ fn melee(
     // §4): the swing takes the standing one.
     let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
     // The weapon's power attack override plays for the standing power attack.
-    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref() };
+    let input = MeleeInput { trigger: control.trigger || vats_tap, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()], power_override: w.power_attack_override.as_deref(), instant_power: control.aiming && tweaks.as_ref().is_some_and(|t| t.power_attack_if_blocking) };
+    // (`instant_power`: the player's tweak, a power attack at once while blocking [design: docs/design/tweaks.md].)
     let mut strike = None;
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
         match e {

@@ -418,6 +418,12 @@ unless the player binds them, so nothing changes until then.
 | Semi-Auto Shot Queue (0–0.5 s) | `bSemiAutoQueue` | `fnv_combat::attack::Cycle` (`semi_auto_queue`) |
 | Crafting Uses Repair | `bRepairScalesCraftingCondition` | `crafting::make_recipe`; `fnv_game::tweaks::crafted_condition` (ours: 0.5 + Repair / 200) |
 | No Healing In Combat | `bNoHealingInCombat` | `tweaks::healing_barred` in `menu::apply_input` and the Stats page's `use_hints`; a fight is `after_combat::AfterCombat::fighting`. The weapon hotkeys do not check yet |
+| Power Attack From a Block | `bPowerAttackIfBlocking` | `fnv_combat::melee::MeleeInput::instant_power`, set by `combat::melee` while Block is held. `bOnlyIfBlocking` is taken as on: outside a block the hold stays |
+| Slow Breath Regen (0–20 s/s) | `bSlowBreathRegen` | `Game::breath_rules` gives the player a finite `recover`; the breath meter already stays up until whole (`hud_breath::shown`), so `bShowBreathMeterOutOfWater` is already so |
+| V.A.T.S. Hip Fire | `bVATSHipFire` | `vats_mode::read_keys`: `aimed_before` kept while the mode is off; entered not aiming, the firing phase keeps the sights down for guns |
+| Caught Pickpocketing Means Detected | `bPickpocketCaughtCausesDetection` | `Game::caught_detects` from `pickpocket_caught`: the pair is recorded as detected (the sneak word's `[DETECTED]` until measured again) and fed to `observe_threat` |
+| Agility Scales Jump Height (0–0.2) | `bAgilityScalesJumpHeight` | `combat::stat_speed` puts 1 + mult x (Agility − 1) in `player::StatSpeed`'s second number, a factor on the jump height (the tweak's own formula) |
+| Force Lock Near the Sweet Spot (0–50 %) | `bLockpickForceBonusNearSweetSpot` | `lockpick::Picking::force_chance` adds `Settings::force_near_bonus` × (1 − distance / 90°); the falloff is ours (the tweak's formula is not all known) |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -438,8 +444,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 325 |
-| to do | 278 |
+| done | 331 |
+| to do | 272 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -449,6 +455,7 @@ game's Data folder, read-only).
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
 | `bActorsStickToSlopes` | done |  | 2 | already so: characters settle onto walkable ground going down (fnv-phys character) |
+| `bAgilityScalesJumpHeight` | done |  | 1 | Agility Scales Jump Height (1 + mult x (Agility - 1)) |
 | `bAgilityScalesMovementSpeed` | done |  | 3 | Agility Moves Faster (slider, every actor; the player-only and NPC-only options not built) |
 | `bAimingSpeed` | done |  | 2 | Full Pace While Aiming (aiming and blocking together) |
 | `bAimingUnholstersWeapons` | done |  |  | Aiming Draws the Weapon |
@@ -479,6 +486,7 @@ game's Data folder, read-only).
 | `bLevelDifferenceAffectsCombatXP` | done |  | 2 | Kill XP by Level (slider; scales the game's kill XP per level of difference instead of the plugin's base) |
 | `bLightStepAffectsCompanions` | done |  |  | Light Step for Companions |
 | `bLockNeedsKeyShowName` | done |  |  | Name the Key |
+| `bLockpickForceBonusNearSweetSpot` | done |  | 2 | Force Lock Near the Sweet Spot (our falloff: full bonus on the middle, none 90 degrees away) |
 | `bLockpickRememberBobbyPinAngle` | done |  |  | already so: a new pin keeps the angle |
 | `bLootUnconsciousVictims` | done |  |  | Search the Unconscious |
 | `bMarkNearbyLocationsOnMap` | done |  | 1 | Mark Nearby Places (slider, game units) |
@@ -498,10 +506,12 @@ game's Data folder, read-only).
 | `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
 | `bPerksAffectFistWeaponSpeed` | done |  |  | already so: the fists are the weapon the perks are asked about |
 | `bPickLocksWithoutSkill` | done |  | 1 | Pick Any Lock (the lock plays as before; the difficulty option not built) |
+| `bPickpocketCaughtCausesDetection` | done |  |  | Caught Pickpocketing Means Detected |
 | `bPickpocketFleeingActors` | done |  |  | Pickpocket the Fleeing |
 | `bPowerArmorNeedsNoTraining` | done |  |  | Power Armor Without Training |
 | `bPowerArmorScalesFallDamage` | done |  | 2 | Falls in Power Armor (slider; applies to everyone, the player-only option not built) |
 | `bPowerArmorScalesLimbDamage` | done |  | 3 | Limb Damage in Power Armor (slider, every limb; the head and mode options not built) |
+| `bPowerAttackIfBlocking` | done |  | 1 | Power Attack From a Block (a press of attack while blocking is a power attack at once; bOnlyIfBlocking taken as on) |
 | `bPreventHittingHolsteredWeapons` | done |  | 2 | already so: only a drawn weapon has a hit part |
 | `bPreventNPCAddiction` | done |  |  | No NPC Addiction |
 | `bPreventReloadWeaponUnholstering` | done |  |  | Ready Does Not Draw |
@@ -521,12 +531,14 @@ game's Data folder, read-only).
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
 | `bSkipVeryEasyLocksAtMaxSkill` | done |  | 2 | Skip Easy Locks (+ margin; full XP; use again to go through) |
 | `bSleepOnChairs` | done |  |  | Sleep on Chairs |
+| `bSlowBreathRegen` | done |  | 2 | Slow Breath Regen (seconds of breath a second at the surface; the meter already stays up until whole) |
 | `bSpeedMultScalesJumpHeight` | done |  |  | Speed Scales the Jump (the player; NPCs do not jump) |
 | `bStealingSendsNoAlarm` | done |  |  | Quiet Theft |
 | `bUnequipWeaponMods` | done |  | 7 | already so: attached mods can be taken off and come back (item_mod detach) |
 | `bUseCustomSniperZoomRate` | done |  | 2 | Scope Zoom Time (slider; the zoom-out option not built) |
 | `bUsingKeysRewardsXP` | done |  | 3 | Experience for Keys (a share of the picking XP; the base and skill options not built) |
 | `bUsingNotesRewardsXP` | done |  | 3 | Experience for Passwords (a share of the hacking XP, once; the base and skill options not built) |
+| `bVATSHipFire` | done |  |  | V.A.T.S. Hip Fire (entered not aiming: every gun shot from the hip) |
 | `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | already so: no projectile can be targeted in V.A.T.S. |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
@@ -534,7 +546,6 @@ game's Data folder, read-only).
 | `bHiddenFragsFix` | to do | yes |  | NPCs' own unplayable explosives are hidden from the pickpocket list |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bAdjustableScopeZoom` | to do |  | 14 | needs a zoom level in AimZoom and the wheel (now the third-person distance) |
-| `bAgilityScalesJumpHeight` | to do |  | 1 | jump height is a fixed character param; needs a small system with Agility |
 | `bArmorCausesSinking` | to do |  | 4 | the physics step does not know the worn armour class |
 | `bBarterAffectsRepairCosts` | to do |  | 3 | repair::view vendor_quote; three numbers to choose |
 | `bCapSkillsBySPECIAL` | to do |  | 5 | SkillSheet needs a per-row cap read at three places |
@@ -560,7 +571,6 @@ game's Data folder, read-only).
 | `bImprovedHacking` | to do |  | 10 | each option is its own rule in hacking.rs |
 | `bJumpSwimsUpwards` | to do |  | 2 | MoveIntent.jump is a one-shot latch; needs a held flag |
 | `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
-| `bLockpickForceBonusNearSweetSpot` | to do |  | 2 | lockpick force_chance; a field on lockpick::Settings |
 | `bLuckDoesntAffectGambling` | to do |  | 1 | already so? no Luck in the gambling rules found; check the original first |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
@@ -572,10 +582,8 @@ game's Data folder, read-only).
 | `bNPCsEarnAmmoCasings` | to do |  |  | actor_attacks; spent_ammo_item is player-only |
 | `bOverencumberedTweak` | to do |  | 8 | encumbered_walks and ap_costs together, with a timer |
 | `bPerBulletLoopingReloads` | to do |  | 2 | a press counter on the attack Cycle |
-| `bPickpocketCaughtCausesDetection` | to do |  |  | pickpocket_caught; needs the awareness call |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
 | `bPlantingLiveGrenadesRequiresWeaponSkill` | to do |  |  | pickpocket::results; a dud when under the skill |
-| `bPowerAttackIfBlocking` | to do |  | 1 | a field on MeleeInput |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
 | `bRememberBobbyPinHealth` | to do |  |  | Picking::new starts a full pin; needs a stored health |
@@ -584,7 +592,6 @@ game's Data folder, read-only).
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
 | `bScopeHoldBreath` | to do |  | 7 | scope_view has no input or AP |
 | `bSleepHealingMinDuration` | to do |  | 2 | needs::pass_hours; the bed is not known there |
-| `bSlowBreathRegen` | to do |  | 2 | breath_rules recover rate; a rate to choose |
 | `bSneakAttackWithoutCrouching` | to do |  |  | sneaking comes from control.sneak (melee) and the projectile; both need the switch |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | to do |  |  | not built: fThrowingStrengthPenalty is not read |
@@ -593,7 +600,6 @@ game's Data folder, read-only).
 | `bUseCustomBarterPriceMultipliers` | to do |  | 13 | refresh_trade price; ten multipliers |
 | `bUseWeaponRepairKitsInRepairMenu` | to do |  | 2 | the repair menu lists only parts |
 | `bVATSDequeueWeaponShotsOnDisarm` | to do |  |  | vats_mode::shoot needs ActorParts |
-| `bVATSHipFire` | to do |  |  | a VatsMode flag set on entry |
 | `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
 | `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
 | `bWeaponModdingSkillRequirement` | to do |  |  | item_mod keys needs the skill and two params |

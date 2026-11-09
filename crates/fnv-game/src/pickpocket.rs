@@ -251,9 +251,26 @@ impl Game<'_> {
             return false;
         }
         let turned = self.crime_turn(victim, Kind::Pickpocket);
+        // The player's tweak: the victim that caught the player detects them [design: docs/design/tweaks.md].
+        if self.tweaks.pickpocket_caught_detects {
+            self.caught_detects(victim);
+        }
         let owner = base_of(self, victim);
         self.crimes.notes.push(Note::Crime { kind: Kind::Pickpocket, victim: owner, seen_by: vec![victim], hostile: if turned { vec![victim] } else { Vec::new() } });
         turned
+    }
+
+    /// `victim` caught the player's hand in its pocket: it has the player in the detected
+    /// band now (the sneak word's `[DETECTED]` until the engine measures the pair again),
+    /// and one that would attack the player takes them as a known target
+    /// (`Game::observe_threat`) [design: docs/design/tweaks.md].
+    pub fn caught_detects(&mut self, victim: FormId) {
+        let det = crate::detection::Detection { value: 100.0, band: crate::detection::Band::Detected, seen: true, clear: true, ..Default::default() };
+        let now = self.time;
+        self.detection.record(victim, FormId::PLAYER_REF, det, now);
+        if let Some(at) = crate::awareness::position(self, FormId::PLAYER_REF) {
+            self.observe_threat(victim, FormId::PLAYER_REF, &det, at);
+        }
     }
 
     /// The player placed `item` in `victim`'s pocket, a live explosive (the engine knows

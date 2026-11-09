@@ -357,6 +357,9 @@ pub struct VatsMode {
     /// or the next), and whether that rule has the sights up (`None`: not decided yet).
     aim_mark: usize,
     sights_up: Option<bool>,
+    /// Whether the player aimed down the sights just before the mode began (kept while
+    /// it is off), for the V.A.T.S. Hip Fire tweak.
+    aimed_before: bool,
     /// The hit rolls' generator (seeded, so a run repeats) and this stay's hits and misses.
     rng: Option<SplitMix>,
     hits: u32,
@@ -620,8 +623,14 @@ fn read_keys(
     mut control: ResMut<PlayerControl>,
     player: Res<Player>,
     mut sounds: Sounds,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
+    if vats.phase == Phase::Off {
+        vats.aimed_before = control.aiming;
+    }
+    // The player's tweak: entered not aiming, every shot from the hip {D}.
+    let hip_fire = tweaks.is_some_and(|t| t.vats_hip_fire) && !vats.aimed_before;
     let pressed = |c: Control| playing && input.just_pressed(c);
     let now = real.elapsed_secs_f64();
     vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate) };
@@ -668,6 +677,13 @@ fn read_keys(
         Phase::Firing => {
             let gun = vats.weapon.as_ref().filter(|w| matches!(w.style, AttackStyle::Single | AttackStyle::Burst { .. }));
             match gun.map(|w| w.sight_fov) {
+                Some(_) if hip_fire => {
+                    if vats.sights_up != Some(false) {
+                        vats.sights_up = Some(false);
+                        info!("vats mode: fires from the hip (entered not aiming, tweak)");
+                    }
+                    control.aiming = false;
+                }
                 // The body's clips show it: a gun's sights up for a far mark, from the hip
                 // for a near one, as the NPCs fire (`crate::combat::aims_down_sights`).
                 Some(fov) if control.third_person_view() => {

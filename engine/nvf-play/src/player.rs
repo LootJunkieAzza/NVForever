@@ -653,12 +653,14 @@ type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, Ru
 /// The player's Speed Mult and body armour's factor on its movement, walking, running
 /// and sneaking, as people's (`fnv_game::Game::move_speed_mult`, `crate::combat`'s
 /// `stat_speed`; actors.md §8.10, issue #1364).
+/// The second number is the player's Agility Scales Jump Height tweak, a factor on the
+/// jump height (1 with the tweak off) [design: docs/design/tweaks.md].
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct StatSpeed(pub f32);
+pub struct StatSpeed(pub f32, pub f32);
 
 impl Default for StatSpeed {
     fn default() -> Self {
-        StatSpeed(1.0)
+        StatSpeed(1.0, 1.0)
     }
 }
 
@@ -1305,7 +1307,8 @@ fn step(
             let legs = limbs.as_deref().map_or(0, |l| i32::from(l.crippled(29)) + i32::from(l.crippled(30)));
             // Speed Mult (and armour) scale it too with the player's tweak [design: docs/design/tweaks.md].
             let speed = if t.game.speed_scales_jump { stat_pace.as_deref().map_or(1.0, |p| p.0) } else { 1.0 };
-            c.params.jump_height = base.jump_height * t.crippled_leg_jump.powi(legs) * speed;
+            let agility = stat_pace.as_deref().map_or(1.0, |p| p.1);
+            c.params.jump_height = base.jump_height * t.crippled_leg_jump.powi(legs) * speed * agility;
         }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
         // The drawn body and view climb steps and bumps smoothly (`phys::step_lift`).

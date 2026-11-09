@@ -303,6 +303,17 @@ pub struct Tweaks {
     pub repair_scales_crafting: bool,
     /// `bNoHealingInCombat`: aid that restores health or a limb is refused in a fight.
     pub no_healing_in_combat: bool,
+    /// `bSlowBreathRegen` (`fBreathRegainRate`): seconds of breath a second at the
+    /// surface gives the player back; 0 keeps the whole breath at once.
+    pub breath_regain: f32,
+    /// `bPickpocketCaughtCausesDetection`: the victim that catches the player detects them.
+    pub pickpocket_caught_detects: bool,
+    /// `bAgilityScalesJumpHeight` (`fAgilityMult`): the jump height is 1 + this x
+    /// (Agility - 1) times its own; 0 leaves it.
+    pub agility_jump_mult: f32,
+    /// `bLockpickForceBonusNearSweetSpot`: percent added to Force Lock with the pin on the
+    /// sweet spot's middle, falling to none 90 degrees away.
+    pub lockpick_force_near_bonus: f32,
 }
 
 /// The condition (a fraction) a crafted weapon or armour comes out at under the Repair
@@ -441,6 +452,10 @@ impl Default for Tweaks {
             semi_auto_queue: 0.0,
             repair_scales_crafting: false,
             no_healing_in_combat: false,
+            breath_regain: 0.0,
+            pickpocket_caught_detects: false,
+            agility_jump_mult: 0.0,
+            lockpick_force_near_bonus: 0.0,
         }
     }
 }

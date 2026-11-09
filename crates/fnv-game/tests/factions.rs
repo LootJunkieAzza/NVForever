@@ -1444,3 +1444,16 @@ fn an_old_save_has_no_live_plants_and_empty_plants_are_omitted() {
     assert!(!h.is_dead(victim));
     assert_eq!(h.world.item_count(victim, item).unwrap(), 1);
 }
+
+#[test]
+fn the_pickpocket_tweak_leaves_the_caught_player_detected() {
+    // bPickpocketCaughtCausesDetection (docs/design/tweaks.md): without the tweak being
+    // caught changes nothing the sneak word reads; with it the victim detects the player.
+    let f = fixture();
+    for on in [false, true] {
+        let mut g = game(&f);
+        g.tweaks.pickpocket_caught_detects = on;
+        g.pickpocket_caught(FormId(WATCHMAN_REF));
+        assert_eq!(g.player_detected_for_sneak(), on, "tweak {on}");
+    }
+}

@@ -147,6 +147,9 @@ pub struct Settings {
     /// Lock [15%]" at Lockpick 30 on an Easy lock (25), on the owner's screenshots].
     pub force_per_point: f32,
     pub force_max: f32,
+    /// NVForever's tweak (docs/design/tweaks.md): percent added to the force chance with
+    /// the pin on the sweet spot's middle, less the further it is, none 90° away.
+    pub force_near_bonus: f32,
 }
 
 impl Default for Settings {
@@ -163,6 +166,7 @@ impl Default for Settings {
             new_pin_seconds: 1.45,
             force_per_point: 3.0,
             force_max: 95.0,
+            force_near_bonus: 0.0,
         }
     }
 }
@@ -402,7 +406,13 @@ impl Picking {
 
     /// The chance to force this lock, 0 to 100.
     pub fn force_chance(&self) -> f32 {
-        force_chance(self.level, self.skill, &self.settings)
+        let base = force_chance(self.level, self.skill, &self.settings);
+        // The tweak's bonus near the sweet spot [design: docs/design/tweaks.md].
+        let near = (1.0 - (self.pin - self.sweet).abs() / 90.0).clamp(0.0, 1.0);
+        if self.settings.force_near_bonus <= 0.0 || self.level == Level::RequiresKey {
+            return base;
+        }
+        (base + self.settings.force_near_bonus * near).clamp(0.0, self.settings.force_max)
     }
 
     /// Force the lock with a roll in [0, 100): it opens when the roll is under the
@@ -606,6 +616,20 @@ mod tests {
         assert_eq!(max_turn(100.0, 10.0, &st), st.play);
         // Halfway across the ring: half a turn.
         assert!((max_turn(10.0 + 22.5, 10.0, &st) - 45.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_tweak_adds_to_force_lock_near_the_sweet_spot() {
+        // Lockpick 30 on an Easy lock: 15% plain; with a 40% bonus, 55% on the middle,
+        // 35% 45 degrees off, 15% at 90 and beyond.
+        let settings = Settings { force_near_bonus: 40.0, ..s() };
+        let mut p = Picking::new(Level::Easy, 30.0, 3, 0.5, settings);
+        let middle = p.sweet;
+        for (off, want) in [(0.0, 55.0), (45.0, 35.0), (90.0, 15.0)] {
+            p.pin = middle + off;
+            assert!((p.force_chance() - want).abs() < 1e-3, "{off}: {}", p.force_chance());
+        }
+        assert_eq!(Picking::new(Level::Easy, 30.0, 3, 0.5, s()).force_chance(), 15.0);
     }
 
     #[test]
