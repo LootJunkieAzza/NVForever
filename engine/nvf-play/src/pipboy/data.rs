@@ -162,6 +162,16 @@ const DONE_ALPHA: f32 = 0.5;
 /// arrow's triangle 25 px and the quest marker's 12 × 23 px, at 0.62 px a unit; the
 /// pictures fill part of their squares].
 const MARKER: f32 = 24.0;
+/// A co-op player's head on a map, and the gap between it and its name under it (queue
+/// item 134) [design].
+const HEAD: f32 = 34.0;
+const HEAD_TAG_GAP: f32 = 2.0;
+/// The Map Icon box (`crate::coop_heads`): heads a row, rows shown, each head's square and
+/// the picture in it [design: the question box's look, `popup`].
+const PICK_COLS: usize = 10;
+const PICK_ROWS: usize = 5;
+const PICK_CELL: f32 = 52.0;
+const PICK_ICON: f32 = 44.0;
 const CURSOR: f32 = 40.0;
 const QUEST_MARKER: f32 = 56.0;
 /// The quest marker: the HUD compass's objective marker [hypothesis: the shape on the
@@ -238,6 +248,9 @@ enum Act {
     /// The pointer came onto an answer of the question box, or clicked it.
     PopupOver(usize),
     PopupPick(usize),
+    /// The pointer came onto a head of the Map Icon box, or clicked it.
+    HeadOver(usize),
+    HeadPick(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,6 +259,8 @@ enum ButtonKind {
     ShowLocation,
     NotesFilter,
     Challenges,
+    /// The Map Icon box: the head the others see this player as (`crate::coop_heads`).
+    MapIcon,
 }
 
 /// A place name's cell: worldspace, interior, grid square.
@@ -334,6 +349,19 @@ pub struct DataState {
     press: Option<(Vec2, f32)>,
     /// The fast-travel question box over the World Map (`travel`).
     popup: Option<Popup>,
+    /// The Map Icon box over a map, while it is up.
+    heads: Option<HeadPicker>,
+}
+
+/// The Map Icon box: the heads offered, the one under the pointer or the keys, and the
+/// first row shown.
+#[derive(Debug, Clone, PartialEq)]
+struct HeadPicker {
+    choices: Vec<crate::coop_heads::Choice>,
+    over: usize,
+    first: usize,
+    /// The head chosen now (its picture), framed.
+    chosen: String,
 }
 
 // ---- what is shown ------------------------------------------------------------------------
@@ -378,10 +406,17 @@ struct MapMark {
     highlighted: bool,
     /// The marker's middle in the map's window.
     at: Vec2,
+    /// A co-op player's head (its picture, `crate::coop_heads`) in place of the icon, and
+    /// the name always shown under it.
+    head: Option<String>,
+    tag: Option<String>,
 }
 
 impl MapMark {
     fn picture(&self) -> String {
+        if let Some(h) = &self.head {
+            return h.clone();
+        }
         match self.icon {
             Some((kind, found)) => model::marker_icon(kind, found),
             None => DOOR_ICON.into(),
@@ -423,6 +458,7 @@ pub struct View {
     buttons: Vec<Button>,
     body: Body,
     popup: Option<Popup>,
+    heads: Option<HeadPicker>,
 }
 
 // ---- the system -------------------------------------------------------------------------
@@ -439,6 +475,10 @@ pub struct Game<'w> {
     places: Option<Res<'w, RadioPlaces>>,
     phys: Option<ResMut<'w, crate::phys::PhysState>>,
     holotape: Option<ResMut<'w, crate::holotape::Holotape>>,
+    /// The other co-op players (nvforever `coop.rs`): their heads on the maps, travelled to.
+    mates: Option<Res<'w, super::glance::CoopMates>>,
+    /// The head the others see this player as (`crate::coop_heads`), chosen here.
+    head: Option<ResMut<'w, crate::coop_heads::MapHead>>,
 }
 
 /// What the player presses.
@@ -492,6 +532,7 @@ pub fn draw(
     let Some((body, b)) = body else {
         st.was_open = false;
         st.popup = None;
+        st.heads = None;
         st.note_shown = None;
         input.wheel.clear();
         input.menu.clear();
@@ -502,6 +543,7 @@ pub fn draw(
         st.last_tab = Some(tab);
         st.boxed = false;
         st.popup = None;
+        st.heads = None;
     }
     if !st.was_open {
         st.was_open = true;
@@ -768,6 +810,10 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         popup_input(st, input);
         return;
     }
+    if st.heads.is_some() {
+        heads_input(st, game, input);
+        return;
+    }
     let len = list_len(tab, l);
     let mut moves: Vec<i32> = Vec::new();
     let mut use_it = input.keys.any_just_pressed([Enter, NumpadEnter, Space]);
@@ -846,7 +892,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
                 st.sel[tab] = i;
                 use_row(st, tab, i, l, game);
             }
-            Act::Button(k) => button(st, k, input),
+            Act::Button(k) => button(st, k, input, game),
             _ => {}
         }
     }
@@ -860,7 +906,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     }
     // A click on the World Map (the left button let go where it went down) on a marker
     // asks to travel there (`travel`).
-    if tab == WORLD {
+    if tab == WORLD || tab == LOCAL {
         if input.buttons.just_pressed(MouseButton::Left) {
             st.press = in_map(pointer).and(pointer).map(|p| (p, 0.0));
         } else if let (Some((from, moved)), Some(p)) = (st.press.as_mut(), pointer) {
@@ -996,8 +1042,102 @@ fn popup_input(st: &mut DataState, input: &mut Input) {
     st.popup = None;
 }
 
-fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
+impl DataState {
+    /// The Pip-Boy test aid's `heads=` (`super::test_aid`): the Map Icon button, or a
+    /// click on the box's head `i`, through the same path as the pointer's.
+    pub(super) fn aid_heads(&mut self, head: Option<usize>) {
+        self.acts.push(match head {
+            None => Act::Button(ButtonKind::MapIcon),
+            Some(i) => Act::HeadPick(i),
+        });
+    }
+}
+
+/// The Map Icon box's keys and clicks: the arrows (W, A, S, D) move over the heads, the
+/// wheel scrolls, Enter, Space, E or a click takes the head, Tab, Backspace or the Map Icon
+/// button again closes it. Nothing else on the page moves meanwhile.
+fn heads_input(st: &mut DataState, game: &mut Game, input: &mut Input) {
+    use KeyCode::*;
+    st.press = None;
+    st.drag_from = None;
+    input.aid.drag = Vec2::ZERO;
+    let acts = std::mem::take(&mut st.acts);
+    let Some(h) = st.heads.as_mut() else { return };
+    let n = h.choices.len();
+    if n == 0 {
+        st.heads = None;
+        return;
+    }
+    let mut pick = None;
+    let mut close = input.keys.any_just_pressed([Tab, Backspace]);
+    let mut by = 0i32;
+    for (keys, step) in [([ArrowLeft, KeyA], -1), ([ArrowRight, KeyD], 1), ([ArrowUp, KeyW], -(PICK_COLS as i32)), ([ArrowDown, KeyS], PICK_COLS as i32)] {
+        if input.keys.any_just_pressed(keys) {
+            by += step;
+        }
+    }
+    for m in input.menu.read() {
+        match m.0 {
+            Command::Up => by -= PICK_COLS as i32,
+            Command::Down => by += PICK_COLS as i32,
+            Command::One => pick = Some(h.over),
+            _ => {}
+        }
+    }
+    if input.keys.any_just_pressed([Enter, NumpadEnter, Space, KeyE]) {
+        pick = Some(h.over);
+    }
+    let rows = n.div_ceil(PICK_COLS);
+    let mut notches = 0.0;
+    for w in input.wheel.read() {
+        notches += match w.unit {
+            MouseScrollUnit::Line => w.y,
+            MouseScrollUnit::Pixel => w.y / 20.0,
+        };
+    }
+    if notches != 0.0 {
+        h.first = (h.first as f32 - notches).round().clamp(0.0, rows.saturating_sub(PICK_ROWS) as f32) as usize;
+    }
+    if by != 0 {
+        h.over = (h.over as i32 + by).clamp(0, n as i32 - 1) as usize;
+        let row = h.over / PICK_COLS;
+        h.first = h.first.min(row).max((row + 1).saturating_sub(PICK_ROWS));
+    }
+    for a in acts {
+        match a {
+            Act::HeadOver(i) if i < n => h.over = i,
+            Act::HeadPick(i) if i < n => pick = Some(i),
+            Act::Button(ButtonKind::MapIcon) => close = true,
+            _ => {}
+        }
+    }
+    if let Some(i) = pick {
+        let c = &h.choices[i];
+        info!("co-op map head: {} ({})", c.name, c.path);
+        if let Some(head) = game.head.as_mut() {
+            let kept = crate::coop_heads::kept(&c.path);
+            if head.0 != kept {
+                head.0 = kept;
+            }
+        }
+        close = true;
+    }
+    if close {
+        st.heads = None;
+    }
+}
+
+fn button(st: &mut DataState, k: ButtonKind, input: &mut Input, game: &Game) {
     match k {
+        ButtonKind::MapIcon => {
+            let perks = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| crate::coop_heads::perk_heads(&rt.game)).unwrap_or_default();
+            let choices = crate::coop_heads::choices(perks);
+            let chosen = game.head.as_ref().map_or(crate::coop_heads::PLAIN.to_string(), |h| h.picture().to_string());
+            let over = choices.iter().position(|c| c.path.eq_ignore_ascii_case(&chosen)).unwrap_or(0);
+            let first = (over / PICK_COLS).saturating_sub(PICK_ROWS - 1);
+            info!("co-op map head: the Map Icon box offers {} heads", choices.len());
+            st.heads = Some(HeadPicker { choices, over, first, chosen });
+        }
         ButtonKind::NotesFilter => {
             st.notes_of_active = !st.notes_of_active;
             st.sel[NOTES] = 0;
@@ -1036,6 +1176,10 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     let body = match tab {
         LOCAL | WORLD => {
             buttons.push(Button { text: "Place Marker".into(), key: None, kind: ButtonKind::PlaceMarker });
+            // In a co-op session: the head the others see this player as (item 134).
+            if game.mates.as_ref().is_some_and(|m| !m.0.is_empty()) {
+                buttons.push(Button { text: "Map Icon".into(), key: None, kind: ButtonKind::MapIcon });
+            }
             Body::Map(if tab == WORLD { world_map(st, game, pointer) } else { local_map(st, game, pointer) })
         }
         QUESTS => {
@@ -1085,7 +1229,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::List { rows, first: st.first[RADIO], boxed: st.boxed.then_some(st.sel[RADIO]), right: Right::Wave { on: l.playing.is_some() } }
         }
     };
-    View { tab, place, when, buttons, body, popup: st.popup.clone() }
+    View { tab, place, when, buttons, body, popup: st.popup.clone(), heads: st.heads.clone() }
 }
 
 fn quest_name(game: &Game, q: u32) -> String {
@@ -1195,10 +1339,18 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let all = markers(st, game).cloned().unwrap_or_default();
     for mk in all.iter().filter(|mk| mk.world == world) {
         let Some(found) = known(st, game, mk) else { continue };
-        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(mk.pos[0], mk.pos[1]) });
+        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(mk.pos[0], mk.pos[1]), head: None, tag: None });
         names.push(mk.name.clone());
         forms.push(mk.form);
         details.push(mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
+    }
+    // The other co-op players: outdoors in this worldspace where they stand, indoors at a
+    // door outdoors into their interior, named "<name>, in <cell>" (item 134).
+    for (mate, at, inside) in mates_on_world_map(st, game, world) {
+        marks.push(MapMark { icon: None, highlighted: false, at: on_map(at[0], at[1]), head: Some(crate::coop_heads::picture(&mate.head).to_string()), tag: Some(mate.name.clone()) });
+        names.push(mate.name.clone());
+        forms.push(mate.reference);
+        details.push(inside);
     }
     let quests = quest_targets(st, game)
         .into_iter()
@@ -1427,7 +1579,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at });
+            marks.push(MapMark { icon: None, highlighted: false, at, head: None, tag: None });
             names.push(d.name.clone());
         }
     }
@@ -1437,7 +1589,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
             if inside(at) {
-                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at });
+                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, head: None, tag: None });
                 names.push(mk.name.clone());
             }
         }
@@ -1453,8 +1605,47 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             Vec2::new(c.x.clamp(0.0, MAP.width() - w), c.y.clamp(0.0, MAP.height() - 0.75 * h))
         })
         .collect();
-    let (cursor, label, _) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
+    // The other co-op players in this interior, or outdoors in this worldspace (item 134).
+    let doors_and_markers = marks.len();
+    let mut mate_refs = Vec::new();
+    for m in game.mates.iter().flat_map(|m| m.0.iter()).filter(|m| m.interior == loc.interior && (m.interior.is_some() || m.world == loc.world)) {
+        let at = on_map(m.feet[0], m.feet[1]);
+        if inside(at) {
+            marks.push(MapMark { icon: None, highlighted: false, at, head: Some(crate::coop_heads::picture(&m.head).to_string()), tag: Some(m.name.clone()) });
+            names.push(m.name.clone());
+            mate_refs.push(m.reference);
+        }
+    }
+    let (cursor, label, under) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
+    // Only a player's head is travelled to from here.
+    st.cursor_marker = under.and_then(|i| i.checked_sub(doors_and_markers)).and_then(|i| mate_refs.get(i).copied());
     MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, cursor, label, detail: None }
+}
+
+/// The other co-op players on the World Map of `world`: each one, where its head stands
+/// (game x, y) and the line under its name. Outdoors in `world`: where it stands. Indoors:
+/// at a door outdoors in `world` into its interior (`Game::doors_into`, as a quest target
+/// indoors, `targets_of`), with "In <the cell's name>" [design]; one whose interior has no
+/// door into `world` is not drawn.
+fn mates_on_world_map(st: &mut DataState, game: &Game, world: u32) -> Vec<(super::glance::Mate, [f32; 3], Option<String>)> {
+    let mut out = Vec::new();
+    for m in game.mates.iter().flat_map(|m| m.0.iter()) {
+        match m.interior {
+            None if m.world == world => out.push((m.clone(), m.feet, None)),
+            None => {}
+            Some(cell) => {
+                let (Some(sim), Some(rt)) = (game.sim.as_ref(), game.script.as_ref().and_then(|s| s.rt.as_ref())) else { continue };
+                let refs = sim.refs;
+                let doors = st.doors_into.entry(cell).or_insert_with(|| rt.game.doors_into(FormId(cell)));
+                let door = fnv_game::quest_targets::marker_door(&sim.world, doors, true).and_then(|d| refs.get(d)).and_then(|d| Some((refs.cell_world.get(&d.cell?)?.0, d.pos)));
+                if let Some((_, pos)) = door.filter(|(w, _)| *w == world) {
+                    let name = rt.game.data.full_names.get(&FormId(cell)).cloned().unwrap_or_else(|| rt.game.data.name(FormId(cell)));
+                    out.push((m.clone(), pos, Some(format!("In {name}"))));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -1630,6 +1821,59 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
     }
     if let Some(q) = &v.popup {
         popup(p, c, q);
+    }
+    if let Some(h) = &v.heads {
+        heads_box(p, c, h);
+    }
+}
+
+/// The Map Icon box over the map, in the question box's look (`popup`): its title, the
+/// heads in rows (the one under the pointer or the keys framed, the one chosen now
+/// brighter), and the name of the one framed under them.
+fn heads_box(p: &mut ChildSpawnerCommands, c: &mut Ctx, h: &HeadPicker) {
+    let grid = Vec2::new(PICK_COLS as f32 * PICK_CELL, PICK_ROWS as f32 * PICK_CELL);
+    let line_h = c.line_height(2);
+    let w = grid.x + 2.0 * POPUP_PAD;
+    let ht = POPUP_PAD + line_h + POPUP_ROW_PAD + grid.y + POPUP_ROW_PAD + line_h + POPUP_PAD;
+    let mid = MAIN.min + MAP.min + MAP_MID;
+    let r = Rect::new(mid.x - w / 2.0, mid.y - ht / 2.0, mid.x + w / 2.0, mid.y + ht / 2.0);
+    p.spawn((at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y), Pickable::default()));
+    c.boxed(p, r, amber(LINE), Some(Color::BLACK));
+    c.text(p, 2, "Map Icon", mid.x, r.min.y + POPUP_PAD, Align::Centre, amber(TEXT));
+    let top = r.min.y + POPUP_PAD + line_h + POPUP_ROW_PAD;
+    let left = r.min.x + POPUP_PAD;
+    let shown = h.choices.iter().enumerate().skip(h.first * PICK_COLS).take(PICK_COLS * PICK_ROWS);
+    for (i, choice) in shown {
+        let k = i - h.first * PICK_COLS;
+        let cell = Vec2::new(left + (k % PICK_COLS) as f32 * PICK_CELL, top + (k / PICK_COLS) as f32 * PICK_CELL);
+        let frame = Rect::from_corners(cell, cell + Vec2::splat(PICK_CELL - 2.0));
+        if i == h.over {
+            c.boxed(p, frame, amber(LINE), Some(amber(FILL.0).with_alpha(FILL.1 / 255.0)));
+        }
+        let pad = (PICK_CELL - 2.0 - PICK_ICON) / 2.0;
+        let bright = if choice.path.eq_ignore_ascii_case(&h.chosen) { MARKER_BRIGHTNESS.1 } else { MARKER_BRIGHTNESS.0 };
+        c.image(p, &choice.path, at(cell.x + pad, cell.y + pad, PICK_ICON, PICK_ICON), amber(bright));
+        p.spawn((at(frame.min.x, frame.min.y, frame.width(), frame.height()), HeadHit(i), Pickable::default())).observe(on_head_over).observe(on_head_click);
+    }
+    let rows = h.choices.len().div_ceil(PICK_COLS);
+    let name = h.choices.get(h.over).map_or("", |c| c.name.as_str());
+    let more = if rows > PICK_ROWS { format!("  ({}/{})", h.first + 1, rows - PICK_ROWS + 1) } else { String::new() };
+    c.text(p, 2, &format!("{name}{more}"), mid.x, top + grid.y + POPUP_ROW_PAD, Align::Centre, amber(TEXT));
+}
+
+/// A head of the Map Icon box (its index in the choices).
+#[derive(Component, Clone, Copy)]
+struct HeadHit(usize);
+
+fn on_head_over(e: On<PointerOver>, hits: Query<&HeadHit>, state: Option<ResMut<DataState>>) {
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::HeadOver(h.0));
+    }
+}
+
+fn on_head_click(e: On<PointerClick>, hits: Query<&HeadHit>, state: Option<ResMut<DataState>>) {
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::HeadPick(h.0));
     }
 }
 
@@ -1936,8 +2180,13 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         // In the menu file's depth order: markers 1, quest markers 4, the player's arrow
         // 7, the highlighted marker 11 [documented: map_menu.xml].
         let marker = |p: &mut ChildSpawnerCommands, c: &mut Ctx, mk: &MapMark| {
-            let (size, brightness) = if mk.highlighted { (MARKER * MARKER_GROW, MARKER_BRIGHTNESS.1) } else { (MARKER, MARKER_BRIGHTNESS.0) };
+            let base = if mk.head.is_some() { HEAD } else { MARKER };
+            let (size, brightness) = if mk.highlighted { (base * MARKER_GROW, MARKER_BRIGHTNESS.1) } else { (base, MARKER_BRIGHTNESS.0) };
             c.image(p, &mk.picture(), at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size), amber(brightness));
+            // A co-op player's name under its head, always (the highlight box names the rest).
+            if let Some(tag) = mk.tag.as_deref().filter(|_| !mk.highlighted) {
+                c.text(p, 2, tag, mk.at.x, mk.at.y + size / 2.0 + HEAD_TAG_GAP, Align::Centre, amber(TEXT));
+            }
         };
         for mk in m.marks.iter().filter(|mk| !mk.highlighted) {
             marker(p, c, mk);

@@ -308,6 +308,11 @@ pub struct PlayerState {
 pub mod more_flag {
     /// In deep water: the others draw the player swimming.
     pub const SWIMMING: u8 = 1;
+    /// In combat (the battle music's test): the others cannot fast travel to this player.
+    pub const COMBAT: u8 = 2;
+    /// Somewhere no one may fast travel to this player: in a conversation or a scene that
+    /// holds the controls, or with fast travel turned off by a script (queue item 134).
+    pub const NO_TRAVEL: u8 = 4;
 }
 
 impl PlayerState {

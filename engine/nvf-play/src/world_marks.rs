@@ -10,8 +10,11 @@
 //!
 //! - **Name tags** ([`NameTags`], setting `name-tags`, on at first): each other player in
 //!   this player's cell or worldspace, its name over its head ([`HEAD_HEIGHT`] over its
-//!   feet), out to [`NAME_TAG_RANGE`]; seen through walls, as JVO's markers are; not drawn
-//!   while it is off screen.
+//!   feet); seen through walls, as JVO's markers are; not drawn while it is off screen.
+//!   None for a player in another interior or worldspace (its `here`), so none through a
+//!   door. In full up to the setting `name-tag-near` ([`NEAR_DEFAULT`]), then smaller and
+//!   fainter, gone at `name-tag-far` ([`FAR_DEFAULT`]) [design: owner 2026-11-09, queue
+//!   item 136, "fade away, get smaller and then disappear"; [`tag_fade`]].
 //! - **Pings** (control Ping, C or the mouse's back button [design]): the point under the
 //!   crosshair, out to [`PING_REACH`], is marked for every player for [`PING_SECONDS`],
 //!   the pinger's name over it, with the thing pinged when it has a name ("Player 2:
@@ -40,8 +43,32 @@ use crate::{space, Location, PlayState, PlaySet, PlayerCamera};
 /// How far over a player's feet its name tag stands (game units) [design: over the head
 /// of a standing character, about 128 tall].
 pub const HEAD_HEIGHT: f32 = 140.0;
-/// Name tags are drawn out to this distance (game units) [design].
-pub const NAME_TAG_RANGE: f32 = 12_000.0;
+/// A name tag is in full up to the near distance, then fades and shrinks, gone by the far
+/// distance (game units); the settings offer these [design: queue item 136, the parity
+/// session's suggestion of about 1500 and 4000].
+pub const NEAR_DEFAULT: f32 = 1500.0;
+pub const FAR_DEFAULT: f32 = 4000.0;
+pub const NEAR_CHOICES: [f32; 7] = [500.0, 1000.0, 1500.0, 2000.0, 3000.0, 4000.0, 6000.0];
+pub const FAR_CHOICES: [f32; 7] = [2000.0, 3000.0, 4000.0, 6000.0, 8000.0, 12000.0, 16000.0];
+/// How small a tag gets just before it is gone (a part of its size) [design].
+pub const FAR_SCALE: f32 = 0.5;
+/// Fade steps: a tag is drawn again only when its fade moves a step [design].
+const FADE_STEPS: f32 = 20.0;
+
+/// How a name tag `distance` away is drawn: its strength and its size (parts of full),
+/// or `None` when it is gone. Eased (smoothstep) between `near` and `far`; a `far` not
+/// past `near` counts as 500 past it [design].
+pub fn tag_fade(distance: f32, near: f32, far: f32) -> Option<(f32, f32)> {
+    let far = far.max(near + 500.0);
+    if distance >= far {
+        return None;
+    }
+    let t = ((distance - near) / (far - near)).clamp(0.0, 1.0);
+    let t = t * t * (3.0 - 2.0 * t);
+    let step = |v: f32| (v * FADE_STEPS).round() / FADE_STEPS;
+    let alpha = step(1.0 - t);
+    (alpha > 0.0).then_some((alpha, step(1.0 - (1.0 - FAR_SCALE) * t)))
+}
 /// How far the crosshair's ray reaches for a ping (game units) [design: the loaded cells].
 pub const PING_REACH: f32 = 40_000.0;
 /// How long a ping stays (real seconds) [design].
@@ -73,12 +100,28 @@ const UNITS_PER_FOOT: f32 = 21.333;
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct NameTags {
     pub on: bool,
+    /// The fade's near and far distances (game units, [`tag_fade`]).
+    pub near: f32,
+    pub far: f32,
 }
 
 impl Default for NameTags {
     fn default() -> Self {
-        NameTags { on: true }
+        NameTags { on: true, near: NEAR_DEFAULT, far: FAR_DEFAULT }
     }
+}
+
+fn choice_of(choices: &[f32], v: f32) -> f32 {
+    let i = choices.iter().position(|&c| c >= v).unwrap_or(choices.len() - 1);
+    crate::settings::choice_part(i, choices.len())
+}
+
+fn value_of(choices: &[f32], part: f32) -> f32 {
+    choices[crate::settings::choice_index(part, choices.len()).min(choices.len() - 1)]
+}
+
+fn units(v: f32) -> String {
+    format!("{v:.0} units")
 }
 
 /// What a mark is.
@@ -168,6 +211,8 @@ struct Shown {
     label: String,
     distance: Option<String>,
     focus: bool,
+    /// A name tag's distance fade: its strength and size (1 for pings, [`tag_fade`]).
+    fade: (f32, f32),
 }
 
 /// A mark's root node on the screen.
@@ -201,6 +246,44 @@ impl Plugin for WorldMarksPlugin {
                 },
                 slider: None,
             },
+        );
+        add_setting(
+            app,
+            Setting::slider(
+                "name-tag-near",
+                "Co-op",
+                "Name tags fade from",
+                "A player's name tag is in full up to this distance, then fades and shrinks.",
+                crate::settings::Slider::choice(
+                    NEAR_CHOICES.len(),
+                    |w| choice_of(&NEAR_CHOICES, w.resource::<NameTags>().near),
+                    |w, v| {
+                        let near = value_of(&NEAR_CHOICES, v);
+                        info!("world marks: name tags fade from {near:.0} units");
+                        w.resource_mut::<NameTags>().near = near;
+                    },
+                    |v| units(value_of(&NEAR_CHOICES, v)),
+                ),
+            ),
+        );
+        add_setting(
+            app,
+            Setting::slider(
+                "name-tag-far",
+                "Co-op",
+                "Name tags gone at",
+                "A player's name tag is gone at this distance (at least 500 units past where it starts to fade).",
+                crate::settings::Slider::choice(
+                    FAR_CHOICES.len(),
+                    |w| choice_of(&FAR_CHOICES, w.resource::<NameTags>().far),
+                    |w, v| {
+                        let far = value_of(&FAR_CHOICES, v);
+                        info!("world marks: name tags gone at {far:.0} units");
+                        w.resource_mut::<NameTags>().far = far;
+                    },
+                    |v| units(value_of(&FAR_CHOICES, v)),
+                ),
+            ),
         );
     }
 }
@@ -379,14 +462,12 @@ fn draw(
         if tags.on {
             for m in mates.mates.iter().filter(|m| m.here && !m.lost) {
                 let p = [m.feet[0], m.feet[1], m.feet[2] + HEAD_HEIGHT];
-                if space::to_bevy(p).distance(eye) > NAME_TAG_RANGE {
-                    continue;
-                }
+                let Some(fade) = tag_fade(space::to_bevy(p).distance(eye), tags.near, tags.far) else { continue };
                 let Some((s, true)) = on_screen(cam, ct, size, p) else { continue };
                 if !(0.0..=1.0).contains(&s.x) || !(0.0..=1.0).contains(&s.y) {
                     continue;
                 }
-                want.push((Shown { kind: MarkKind::NameTag, label: m.name.clone(), distance: None, focus: focus(s) }, s));
+                want.push((Shown { kind: MarkKind::NameTag, label: m.name.clone(), distance: None, focus: focus(s), fade }, s));
             }
         }
         for p in pings.0.iter().filter(|p| p.msg.here(loc)) {
@@ -395,7 +476,7 @@ fn draw(
             let Some((s, _)) = on_screen(cam, ct, size, at) else { continue };
             let s = Vec2::new(s.x.clamp(EDGE.x, 1.0 - EDGE.x), s.y.clamp(EDGE.y, 1.0 - EDGE.y));
             let feet = (space::to_bevy(at).distance(eye) / UNITS_PER_FOOT).round() as i64;
-            want.push((Shown { kind: MarkKind::Ping, label: p.label.clone(), distance: Some(format!("{feet} ft")), focus: focus(s) }, s));
+            want.push((Shown { kind: MarkKind::Ping, label: p.label.clone(), distance: Some(format!("{feet} ft")), focus: focus(s), fade: (1.0, 1.0) }, s));
         }
     }
     let bc = crate::interface::bc_supported(formats.as_deref());
@@ -433,11 +514,11 @@ fn draw(
     }
     let Some(kit) = kit.as_ref() else { return };
     for (shown, s) in &want {
-        let alpha = if shown.focus { 1.0 } else { AWAY_ALPHA };
+        let alpha = if shown.focus { 1.0 } else { AWAY_ALPHA } * shown.fade.0;
         let color = amber(255.0).with_alpha(alpha);
         let line_h = kit.face.font.size.max(16.0);
         let base = crate::interface::line_base(&kit.face);
-        let root = commands.spawn((MarkRoot, crate::safe_zone::SafeZoneIgnore, root_node(*s, size), GlobalZIndex(3))).id();
+        let root = commands.spawn((MarkRoot, crate::safe_zone::SafeZoneIgnore, root_node(*s, size), UiTransform::from_scale(Vec2::splat(shown.fade.1)), GlobalZIndex(3))).id();
         last.push((shown.clone(), root));
         commands.entity(root).with_children(|p| {
             let mut top = 0.0;
@@ -490,7 +571,8 @@ fn mark_box(kit: &Kit, shown: &Shown) -> Rect {
         top -= line_h;
         half = half.max(line.width / 2.0);
     }
-    Rect { min: Vec2::new(-half, top), max: Vec2::new(half, 0.0) }
+    let k = shown.fade.1;
+    Rect { min: Vec2::new(-half, top) * k, max: Vec2::new(half, 0.0) * k }
 }
 
 /// A mark's root: a zero-size node at its point on the screen.
@@ -501,6 +583,28 @@ fn root_node(s: Vec2, size: Vec2) -> Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_tag_is_full_near_then_smaller_and_fainter_then_gone() {
+        assert_eq!(tag_fade(0.0, 1500.0, 4000.0), Some((1.0, 1.0)));
+        assert_eq!(tag_fade(1500.0, 1500.0, 4000.0), Some((1.0, 1.0)));
+        let (a, k) = tag_fade(2750.0, 1500.0, 4000.0).unwrap();
+        assert!((a - 0.5).abs() < 1e-6 && (k - 0.75).abs() < 1e-6, "halfway: {a} {k}");
+        let (a2, k2) = tag_fade(3500.0, 1500.0, 4000.0).unwrap();
+        assert!(a2 < a && k2 < k && k2 >= FAR_SCALE);
+        assert_eq!(tag_fade(4000.0, 1500.0, 4000.0), None);
+        assert_eq!(tag_fade(3990.0, 1500.0, 4000.0), None, "the last step is gone");
+        // A far distance not past the near one counts as 500 past it.
+        assert!(tag_fade(2400.0, 2000.0, 1000.0).is_some());
+        assert_eq!(tag_fade(2500.0, 2000.0, 1000.0), None);
+    }
+
+    #[test]
+    fn the_fade_settings_go_to_their_choices_and_back() {
+        for (choices, v) in [(&NEAR_CHOICES, NEAR_DEFAULT), (&FAR_CHOICES, FAR_DEFAULT)] {
+            assert_eq!(value_of(choices, choice_of(choices, v)), v);
+        }
+    }
 
     #[test]
     fn a_ping_goes_over_the_wire_and_back() {
