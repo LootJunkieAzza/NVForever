@@ -8374,8 +8374,10 @@ WRITING_SETS |= {"sup7"}
 # array, a UDF frames later, the last save and load, the cells and map markers near the
 # player at Doc Mitchell's, the scripts marked on load, the caught-pickpocketing flag on
 # Doc Mitchell (set back), transliteration. One step per frame.
+# The string variable is sOut: `string_var sA` did not compile in the original
+# [observed 2026-11-09, sup4 diagnostic runs; other names, sOld, did].
 def _sup4(pid, body, text=True):
-    return (f"sup4.{pid}", "ref rD\nref rNone\nref rH\narray_var aR\narray_var aIn\nfloat fA\nfloat fB\nfloat fC\nstring_var sA\nBegin Function { }\n"
+    return (f"sup4.{pid}", "ref rD\nref rNone\nref rH\narray_var aR\narray_var aIn\nfloat fA\nfloat fB\nfloat fC\nstring_var sOut\nBegin Function { }\n"
             + _form("rD", NF["docref"]) + body, text, None, "")
 
 
@@ -8383,8 +8385,8 @@ SUP4_PROBES = (
     # A key of a five-element list in 0-4, a key of a two-key map, an empty list's
     # (hypothesis: "1 1 -1").
     [_sup4("randomkey", "let aR := Ar_List 10, 20, 30, 40, 50\nlet fA := Ar_GetRandomKey aR\n"
-           "let aIn := Ar_Map \"LALALA\"::1, \"TROLOLO\"::2\nlet sA := Ar_GetRandomKeyMap aIn\nlet aR := Ar_List\n"
-           "SetFunctionValue (sv_Construct \"%g %g %g\" ((fA >= 0) && (fA <= 4) && (fA == Floor fA)) ((sA == \"LALALA\") || (sA == \"TROLOLO\")) (Ar_GetRandomKey aR))"),
+           "let aIn := Ar_Map \"LALALA\"::1, \"TROLOLO\"::2\nlet sOut := Ar_GetRandomKeyMap aIn\nlet aR := Ar_List\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" ((fA >= 0) && (fA <= 4) && (fA == Floor fA)) ((sOut == \"LALALA\") || (sOut == \"TROLOLO\")) (Ar_GetRandomKey aR))"),
      # Valid references, an empty one, the empty one inside an inner array searched with
      # and without its dimension (hypothesis: "0 1 0 1").
      _sup4("invalidrefs", "let aR := Ar_List PlayerREF, rD\nlet fA := Ar_HasInvalidRefs aR\nlet aR := Ar_List PlayerREF, rNone\nlet fB := Ar_HasInvalidRefs aR\n"
@@ -8401,8 +8403,8 @@ SUP4_PROBES = (
      # The probe game loads a save before the steps: its size, the co-save's, its name
      # given, the last save's name before any save (hypothesis: "1 1 1 0"; NVForever
      # writes no co-save and gives 0 for type 1 [decision]).
-     _sup4("saves", "let sA := GetSaveName 1\nSetFunctionValue (sv_Construct \"%g %g %g %g\" ((GetLoadedSaveSize 0) > 0) ((GetLoadedSaveSize 1) > 0) "
-           "((Sv_Length sA) > 0) ((Sv_Length (GetSaveName 0)) > 0))"),
+     _sup4("saves", "let sOut := GetSaveName 1\nSetFunctionValue (sv_Construct \"%g %g %g %g\" ((GetLoadedSaveSize 0) > 0) ((GetLoadedSaveSize 1) > 0) "
+           "((Sv_Length sOut) > 0) ((Sv_Length (GetSaveName 0)) > 0))"),
      # Indoors: the player's cell alone at depth 0, 2 and -1, no map markers (hypothesis:
      # "1 1 1 0").
      _sup4("near", "let aR := GetNearCells 0\nlet fA := Ar_Size aR\nlet aR := GetNearCells 2\nlet fB := Ar_Size aR\nlet aR := GetNearCells -1\nlet fC := Ar_Size aR\n"
@@ -8414,7 +8416,7 @@ SUP4_PROBES = (
      _sup4("caught", "let fA := rD.SetCaughtPCPickpocketting\nlet fB := rD.SetCaughtPCPickpocketting 1\nlet fC := rD.SetCaughtPCPickpocketting\n"
            "rD.SetCaughtPCPickpocketting fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
      # The page names no return value: the text back (hypothesis: "Privet"), or nothing.
-     _sup4("translit", "let sA := TranslitText \"Привет\"\nSetFunctionValue sA")]
+     _sup4("translit", "let sOut := TranslitText \"Привет\"\nSetFunctionValue sOut")]
 )
 SETS.update({"sup4": SUP4_PROBES})
 WRITING_SETS |= {"sup4"}
