@@ -50,14 +50,18 @@ pub const NEAR_DEFAULT: f32 = 1500.0;
 pub const FAR_DEFAULT: f32 = 4000.0;
 pub const NEAR_CHOICES: [f32; 7] = [500.0, 1000.0, 1500.0, 2000.0, 3000.0, 4000.0, 6000.0];
 pub const FAR_CHOICES: [f32; 7] = [2000.0, 3000.0, 4000.0, 6000.0, 8000.0, 12000.0, 16000.0];
-/// How small a tag gets just before it is gone (a part of its size) [design].
+/// How small and faint a tag gets just before it is gone (parts of its size and
+/// strength) [design: kept readable to the cutoff; at 0.1 strength a 640x360 laptop run
+/// showed nothing at 3500 of 4000 units, queue item 136].
 pub const FAR_SCALE: f32 = 0.5;
+pub const FAR_ALPHA: f32 = 0.35;
 /// Fade steps: a tag is drawn again only when its fade moves a step [design].
 const FADE_STEPS: f32 = 20.0;
 
 /// How a name tag `distance` away is drawn: its strength and its size (parts of full),
-/// or `None` when it is gone. Eased (smoothstep) between `near` and `far`; a `far` not
-/// past `near` counts as 500 past it [design].
+/// or `None` when it is gone. Eased (smoothstep) between `near` and `far` down to
+/// [`FAR_ALPHA`] and [`FAR_SCALE`], then gone; a `far` not past `near` counts as 500 past
+/// it [design].
 pub fn tag_fade(distance: f32, near: f32, far: f32) -> Option<(f32, f32)> {
     let far = far.max(near + 500.0);
     if distance >= far {
@@ -66,8 +70,7 @@ pub fn tag_fade(distance: f32, near: f32, far: f32) -> Option<(f32, f32)> {
     let t = ((distance - near) / (far - near)).clamp(0.0, 1.0);
     let t = t * t * (3.0 - 2.0 * t);
     let step = |v: f32| (v * FADE_STEPS).round() / FADE_STEPS;
-    let alpha = step(1.0 - t);
-    (alpha > 0.0).then_some((alpha, step(1.0 - (1.0 - FAR_SCALE) * t)))
+    Some((step(1.0 - (1.0 - FAR_ALPHA) * t), step(1.0 - (1.0 - FAR_SCALE) * t)))
 }
 /// How far the crosshair's ray reaches for a ping (game units) [design: the loaded cells].
 pub const PING_REACH: f32 = 40_000.0;
@@ -589,11 +592,13 @@ mod tests {
         assert_eq!(tag_fade(0.0, 1500.0, 4000.0), Some((1.0, 1.0)));
         assert_eq!(tag_fade(1500.0, 1500.0, 4000.0), Some((1.0, 1.0)));
         let (a, k) = tag_fade(2750.0, 1500.0, 4000.0).unwrap();
-        assert!((a - 0.5).abs() < 1e-6 && (k - 0.75).abs() < 1e-6, "halfway: {a} {k}");
+        assert!((0.6..=0.7).contains(&a) && (k - 0.75).abs() < 1e-6, "halfway: {a} {k}");
         let (a2, k2) = tag_fade(3500.0, 1500.0, 4000.0).unwrap();
-        assert!(a2 < a && k2 < k && k2 >= FAR_SCALE);
+        assert!(a2 < a && k2 < k && k2 >= FAR_SCALE && a2 >= FAR_ALPHA, "3500: {a2} {k2}");
+        // Still readable just before the cutoff, then gone.
+        let (a3, k3) = tag_fade(3990.0, 1500.0, 4000.0).unwrap();
+        assert!((a3 - FAR_ALPHA).abs() < 0.05 && (k3 - FAR_SCALE).abs() < 0.05);
         assert_eq!(tag_fade(4000.0, 1500.0, 4000.0), None);
-        assert_eq!(tag_fade(3990.0, 1500.0, 4000.0), None, "the last step is gone");
         // A far distance not past the near one counts as 500 past it.
         assert!(tag_fade(2400.0, 2000.0, 1000.0).is_some());
         assert_eq!(tag_fade(2500.0, 2000.0, 1000.0), None);
