@@ -235,6 +235,7 @@ impl Game<'_> {
             }
         }
         // The player's voice set says its own line for the topic (crate::player_voice).
+        let sent = self.quip.out.len();
         let quip = if actor == FormId::PLAYER_REF { self.player_quip(topic) } else { None };
         let line = match quip {
             Some(info) => {
@@ -250,6 +251,9 @@ impl Game<'_> {
             },
         };
         self.combat_lines.said.push((topic, actor, line));
+        if let (FormId::PLAYER_REF, Some(info)) = (actor, line) {
+            self.share_own_line(info, sent);
+        }
         if line.is_some() {
             self.queue_response(actor, topic);
         }
@@ -385,6 +389,7 @@ impl Game<'_> {
         let topics: &[&'static str] = if topic == "Attack" { &["Attack"] } else { &[topic, "Attack"] };
         for &name in topics {
             let Some(t) = data.by_edid(name).filter(|t| data.topic_defs.contains_key(t)) else { continue };
+            let sent = self.quip.out.len();
             let quip = if actor == FormId::PLAYER_REF { self.player_quip(name) } else { None };
             let Some(info) = quip.or_else(|| self.select_line(actor, listener, t)) else {
                 self.emit(crate::trace::EventKind::NoLine { speaker: actor, topic: t });
@@ -393,6 +398,9 @@ impl Game<'_> {
             };
             self.cut_line(actor);
             self.say_line(actor, target, t, info, crate::game::LineKind::Say);
+            if actor == FormId::PLAYER_REF {
+                self.share_own_line(info, sent);
+            }
             self.combat_lines.said.push((name, actor, Some(info)));
             self.queue_response(actor, name);
             return Some(info);

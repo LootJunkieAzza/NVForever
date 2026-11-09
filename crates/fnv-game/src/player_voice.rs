@@ -451,6 +451,11 @@ pub struct QuipState {
     pub last_react: Option<f64>,
     /// Comments and reactions said, for the log: (event, line).
     pub said: Vec<(String, FormId)>,
+    /// The player's own lines (not its voice set's: the GenericPlayer grunts) said here in
+    /// co-op, for the other players: the engine sends them, with the voice type they are
+    /// said in (`Game::line_voice_type`), so the others hear them from this player's
+    /// character (item 106).
+    pub own_out: Vec<(FormId, Option<FormId>)>,
     /// Triggers that said nothing, for the log: (event, why) [item 64].
     pub skipped: Vec<(String, String)>,
     /// When the last line of the player's voice was said (any kind).
@@ -491,6 +496,19 @@ impl Game<'_> {
         }
         self.quip.last_line = Some(self.time);
         local.then_some(info)
+    }
+
+    /// The player said `info`, a combat line, in co-op: when no line of its voice set went
+    /// to the others for it since `sent` (the length of [`QuipState::out`] before), it is
+    /// the player's own line (a grunt), sent so the others hear the same as here (item
+    /// 106). One line per event goes out: a set line sent for the event is what the others
+    /// hear, even when the player hears its own grunt (a line not for its own ears).
+    pub fn share_own_line(&mut self, info: FormId, sent: usize) {
+        let set_line = self.player_voice.as_ref().is_some_and(|v| v.lines.contains(&info));
+        if self.quips.coop && self.quip.out.len() == sent && !set_line {
+            let vt = self.line_voice_type(FormId::PLAYER_REF, info);
+            self.quip.own_out.push((info, vt));
+        }
     }
 
     /// Why a line of the player's voice for `event` waits now: another player's quip is
@@ -590,11 +608,20 @@ impl Game<'_> {
 
     /// Another player did `deed` near this one: this player's voice answers it with a
     /// `react.*` line, at most every [`REACT_EVERY`] seconds, sent to the others (who hear
-    /// this player's character say it) and heard here when it is a first-person line. A
-    /// fired gun is answered out of a fight only (in a fight everyone shoots).
+    /// this player's character say it) and heard here when it is a first-person line.
+    ///
+    /// A fired gun is not answered (item 106, 2026-11-09): the line was meant for a shot
+    /// out of a fight, but whether the shooter is in a fight is the shooter's state, which
+    /// this player does not have (on a guest nobody is ever seen fighting it, so every
+    /// shot of the host's fight was answered: "other players' voicelines triggered by
+    /// another player's flags"). The deeds left are about this player itself: a grenade
+    /// or mine near it, sights held on it; none in a fight of its own (`in_combat`).
     pub fn player_reacts(&mut self, deed: Deed, in_combat: bool) -> Option<FormId> {
-        if deed == Deed::FireWeapon && in_combat {
-            return None;
+        if deed == Deed::FireWeapon {
+            return self.quip_skipped(deed.event(), "gunfire is not answered (the shooter's fight is not known here)");
+        }
+        if in_combat {
+            return self.quip_skipped(deed.event(), "in a fight");
         }
         if let Some(why) = self.quip_held(deed.event()) {
             return self.quip_skipped(deed.event(), why);

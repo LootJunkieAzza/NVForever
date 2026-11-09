@@ -122,12 +122,21 @@ fn read_sets(mut sets: ResMut<VoiceSets>, assets: Option<Res<nvf_assets::GameDat
 }
 
 /// The voice the player chose, resolved into the game; the switches, into the game.
-fn apply(sets: Res<VoiceSets>, switches: Res<QuipSwitches>, mut script: ResMut<ScriptState>, mut failed: Local<Option<String>>, mut aid: Local<Option<Option<String>>>, mut aided: Local<Option<String>>, mut told: Local<Option<String>>) {
+#[allow(clippy::too_many_arguments)]
+fn apply(sets: Res<VoiceSets>, switches: Res<QuipSwitches>, mut script: ResMut<ScriptState>, mut failed: Local<Option<String>>, mut aid: Local<Option<Option<String>>>, mut aided: Local<Option<String>>, mut told: Local<Option<String>>, mut hidden_told: Local<bool>) {
     if !sets.read {
         return;
     }
     let Some(rt) = script.rt.as_mut() else { return };
     let g = &mut rt.game;
+    // Sets whose speaker's plugin is not loaded (Follows-Chalk without Honest Hearts) are
+    // not offered (`VoiceSets::options`): said once.
+    if !*hidden_told {
+        *hidden_told = true;
+        for s in sets.sets.iter().filter(|s| !s.speaker.is_empty() && fnv_game::player_voice::resolve_ref(g.data, &s.speaker).is_none()) {
+            info!("player voices: {} ({}) is hidden: its speaker {} is not in the load order", s.name, s.id, s.speaker);
+        }
+    }
     // The test aid, once there is a game.
     let aid = aid.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_VOICE").ok().filter(|v| !v.is_empty()));
     if let Some(id) = aid.take() {

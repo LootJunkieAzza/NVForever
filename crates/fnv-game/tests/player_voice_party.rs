@@ -111,16 +111,18 @@ fn in_coop_every_line_is_sent_and_only_first_person_ones_are_heard_here() {
 }
 
 #[test]
-fn a_deed_is_answered_at_most_every_react_every_and_gunfire_not_in_a_fight() {
+fn a_deed_is_answered_at_most_every_react_every_and_gunfire_never() {
     let l = load();
     let mut g = game(&l);
     g.quips.coop = true;
-    assert_eq!(g.player_reacts(Deed::FireWeapon, true), None, "in a fight everyone shoots");
+    assert_eq!(g.player_reacts(Deed::ThrowGrenade, true), None, "not in a fight of its own");
     assert_eq!(g.player_reacts(Deed::ThrowGrenade, false), Some(info(&l, 2)));
     assert_eq!(g.quip.out, vec![info(&l, 2)]);
-    assert_eq!(g.player_reacts(Deed::FireWeapon, false), None, "too soon after the last");
+    assert_eq!(g.player_reacts(Deed::ThrowGrenade, false), None, "too soon after the last");
     g.time += REACT_EVERY;
-    assert_eq!(g.player_reacts(Deed::FireWeapon, false), Some(info(&l, 3)));
+    // Another player's gunfire is never answered: its fight is that player's state (item 106).
+    assert_eq!(g.player_reacts(Deed::FireWeapon, false), None);
+    assert_eq!(g.quip.skipped.last().map(|s| s.0.as_str()), Some("react.fireweapon"));
     assert_eq!(g.player_reacts(Deed::LayMine, false), None, "no line for it");
     assert_eq!(Deed::of_attack(Some(10)), Some(Deed::ThrowGrenade));
     assert_eq!(Deed::of_attack(Some(5)), Some(Deed::FireWeapon));
@@ -192,4 +194,35 @@ fn a_fight_is_remarked_on_as_it_begins_and_ends_with_a_gap_between_lines() {
     g.time += QUIP_GAP;
     assert_eq!(g.player_fight_lines(true), None);
     assert_eq!(g.quip.skipped.last().map(|s| (s.0.as_str(), s.1.as_str())), Some(("fight start", "the set has no first-person line for it")));
+}
+
+/// In co-op the player's own grunt (no voice-set line for the event) goes to the others
+/// with the voice type it is said in; when a set line went out for the event, that is
+/// what the others hear and the grunt stays here (one line per event, item 106). Solo
+/// nothing is sent.
+#[test]
+fn in_coop_the_players_own_grunt_is_sent_once() {
+    let l = load();
+    let mut g = game(&l);
+    let grunt = FormId(0x0004_1E64);
+    // Solo: nothing goes out.
+    g.share_own_line(grunt, g.quip.out.len());
+    assert!(g.quip.own_out.is_empty());
+    g.quips.coop = true;
+    // No set line went out for the event: the grunt does.
+    g.share_own_line(grunt, g.quip.out.len());
+    assert_eq!(g.quip.own_out.len(), 1);
+    assert_eq!(g.quip.own_out[0].0, grunt);
+    // A set line went out for the event (a party-only Attack line): the grunt stays here.
+    let sent = g.quip.out.len();
+    assert_eq!(g.player_quip("Attack"), None);
+    assert_eq!(g.quip.out.len(), sent + 1);
+    g.share_own_line(grunt, sent);
+    assert_eq!(g.quip.own_out.len(), 1);
+    // A set line said here is never sent again as the player's own.
+    g.time += QUIP_GAP;
+    let sent = g.quip.out.len();
+    let hit = g.player_quip("Hit").unwrap();
+    g.share_own_line(hit, sent);
+    assert_eq!(g.quip.own_out.len(), 1);
 }
