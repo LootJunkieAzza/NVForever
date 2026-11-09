@@ -20257,7 +20257,7 @@ order = [[
 [[scenario]]
 name = "tiles-container"
 source = "[design] ui-tile-tree.md §6.2 step 3, barter-menu.md §8 (T15c, issue #1468): with [UI] TileMenus=ContainerMenu the container menu is drawn from container_menu.xml; rows come from the template and keep what they stand for, the lists scroll by the counts the capture reads, and clicks and keys go through the hand-built menu's commands: a store through the prompt (drawn from QuantityMenu's tiles with no switch of its own; cancelled, then accepted), focus, keyboard selection, the bar's arrows, page areas and marker, a heading's arrow and wheel, Take All and Exit"
-note = "positions at 1280 x 720 (screen 1706.67 x 960; CM_MainRect at 341.33, 80): left rows x 378-803, row n at y 160 + 52 n; right rows from x 938; left bar x 346-378, its arrows at y 160-176 and 509-525, the marker 6 wide at x 358-364, its area y 176-509; the left heading's left arrow at 391-408, y 90-125; Take All x 1259-1375, y 670-717; Exit x 1307-1375, y 715-762. the 20 rounds given join the start inventory's 50, so the first row reads '10mm Round (70)', and the prompt asks at 70; the box holds the mug alone until the stack goes in. The marker is 32 high with 22 items, 14.33 a value from y 176: at value 5 (after the bar's clicks) y 247.67-279.67, so the press at y 264 takes it, 136 down leaves it at value 14. Card shots: the selection walks 40mm Grenade, 9mm Pistol, Armored Vault 13 Jumpsuit, Binoculars, Bleak Venom at 22.2 s to 23 s. The aid's pointer moves no real cursor, so the wheel's hold stays on after 25 s (crate::menu::WheelHold) and no later row is hovered"
+note = "positions at 1280 x 720 (screen 1706.67 x 960; CM_MainRect at 341.33, 80): left rows x 378-803, row n at y 160 + 52 n; right rows from x 938; left bar x 346-378, its arrows at y 160-176 and 509-525, the marker 6 wide at x 358-364, its area y 176-509; the left heading's left arrow at 391-408, y 90-125; Take All x 1259-1375, y 670-717; Exit x 1307-1375, y 715-762. the 20 rounds given join the start inventory's 50, so the first row reads '10mm Round (70)', and the prompt asks at 70; the box holds the mug alone until the stack goes in. The marker is 32 high with 23 items, 13.68 a value from y 176: at value 5 (after the bar's clicks) y 244.41-276.41, so the press at y 264 takes it, 136 down leaves it at value 14. Card shots: the selection walks 40mm Grenade, 9mm Pistol, Armored Vault 13 Jumpsuit, Binoculars, Bleak Venom at 22.2 s to 23 s. The aid's pointer moves no real cursor, so the wheel's hold stays on after 25 s (crate::menu::WheelHold) and no later row is hovered"
 areas = ["ui", "menu", "items"]
 paths = [
   "engine/nvforever/src/imagespace.rs",
@@ -20299,7 +20299,7 @@ expect = [
   { text = "tiles: ContainerMenu Up on its tiles", count = 1, label = "the bar's up arrow" },
   { text = "tiles: ContainerMenu PageDown on its tiles", count = 1, label = "the bar's page area" },
   { text = "tiles: ContainerMenu PageUp on its tiles", count = 1, label = "the other page area" },
-  { text = "tiles: ContainerMenu player list scrolled to 14 of 21", count = 1, label = "the marker held and moved" },
+  { text = "tiles: ContainerMenu player list scrolled to 14 of 22", count = 1, label = "the marker held and moved" },
   { re = 'tiles: ContainerMenu \S+ list drawn at \S+, not the \S+ written', count = 0, label = "the scroll never draws the file's own count of the clicks" },
   { text = "tiles: ContainerMenu Category(Player, -1) on its tiles", count = 1, label = "the heading's arrow" },
   { re = 'tiles: ContainerMenu drawn from tiles: "AMMO" ', label = "the category changes the list and its title" },
@@ -22595,6 +22595,86 @@ expect = [
   "pipboy repair: cancel",
 ]
 order = [["pipboy repair: open", "pipboy repair: 10mm Pistol", "pipboy repair: stays open:", "pipboy repair: cancel"]]
+
+[[scenario]]
+name = "tiles-recipe-places"
+source = "[design] crafting.md section 4, issue #1468: where the recipe menu's tiles stand at 1280x720 and that the pointer finds them, read before any click"
+note = "[observed 2026-11-07, first run at 1280x720, interface units] Rows at 600:186 and 600:238, and the bar's page area 362:480 were read from the pointer lines. [observed, the original's capture, where they were clicked by id] The arrows 400:107 and 543:107, the title 468:109, Accept 1304:693 and Exit 1321:740. Move-only: the lines name what is under each place. Accept takes the pointer only while the selected recipe can be made (its target), so Survival is set first and the pointer is back on the first row before it. No click, so nothing here changes the model but the hover."
+areas = ["ui", "crafting", "menus"]
+paths = ["engine/nvf-play/src/tiles/recipe_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/crafting.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RecipeMenu", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_POINTER = "13:600:238,14:400:107,14.5:543:107,15:468:109,16:362:480,16.5:1100:396,17:600:186,18:1304:693,19:1321:740,21:off", NVF_PLAY_TEST_RECIPE = "20:exit", NVF_PLAY_TEST_SHOTS = "12:tiles_recipe_places.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 23
+expect = [
+  { re = 'tiles: RecipeMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "the menu is drawn from its file" },
+  { text = "RecipeMenu drawn by hand:", count = 0, label = "no path missing" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ItemsRect/RM_Items_InventoryList/', label = "a row" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ItemsRect/RM_Items_LeftFilterArrow', label = "the left arrow" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ItemsRect/RM_Items_RightFilterArrow', label = "the right arrow" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ItemsRect/RM_ItemsTitle', label = "the title" },
+  { re = 'tiles: pointer over RecipeMenu/.*/lb_scrollbar/scrollbar_vert_page_down', label = "the bar's page area" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ButtonRect/RM_ButtonX', label = "Accept" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ButtonRect/RM_ButtonB', label = "Exit" },
+  { re = 'tiles: pointer over RecipeMenu/.*RM_Items_IngredientList', count = 0, label = "an ingredient row takes no pointer" },
+  "recipe menu: closed",
+]
+
+[[scenario]]
+name = "tiles-recipe"
+source = "[design] crafting.md section 4, issue #1468: the recipe menu from its file, rows, right box, card, filter, Accept and Exit use the existing model and its sounds; the hand-built prompt stands over it and no click passes it"
+note = "[observed 2026-11-07] Places as tiles-recipe-places reads them. The console sets Survival, which the first recipe needs [observed: 15 of 40 refuses it]; the script aid's SetActorValue takes no name. All aids use the start clock. Hover 1 and 0, Select 1 and 0, Accept on its button with 2 made through the prompt, Accept by the selected row whose prompt blocks a click on another row and is then cancelled, the title's filter, the left key back, the bar's page, a key's move, Exit. Shots show the open menu, a row, the prompt, the filter and the scroll."
+areas = ["ui", "crafting", "menus"]
+paths = ["engine/nvf-play/src/tiles/recipe_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/item_card.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/crafting.rs", "crates/fnv-game/src/crafting.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RecipeMenu", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_POINTER = "13:600:238,14:600:186,15:600:238:click,16:600:186:click,17:1304:693,17.5:1304:693:click,20:600:186:click,21:600:238:click,22:468:109:click,25:362:480:click,27:1100:396:click,28:1321:740,28.5:1321:740:click,29.5:off", NVF_PLAY_TEST_RECIPE = "18:more,19:accept,21.5:cancel", NVF_PLAY_TEST_KEYS = "24:left,26:down", NVF_PLAY_TEST_SHOTS = "12:tiles_recipe_open.png,14.5:tiles_recipe_row.png,18.5:tiles_recipe_prompt.png,23:tiles_recipe_filtered.png,25.5:tiles_recipe_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 32
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=RecipeMenu .*RecipeMenu drawn from tiles', label = "opt-in switch" },
+  { re = 'tiles: RecipeMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "file with code rows" },
+  { text = "RecipeMenu drawn by hand:", count = 0, label = "complete file" },
+  { re = 'tiles: RecipeMenu drawn from tiles: \d+ rows, [1-9]\d* ready; filtered 0; selected "Antivenom \(2\)"; ingredients [1-9]\d*; figures: \S', label = "rows, the choice, its ingredients and card" },
+  { re = 'tiles: RecipeMenu drawn from tiles: \d+ rows, \d+ ready; filtered [1-9]\d*;', label = "the filter leaves recipes out" },
+  { text = "tiles: RecipeMenu Hover(1) on its tiles", count = 1, label = "the pointer comes onto a row; not under the prompt" },
+  { text = "tiles: RecipeMenu Hover(0) on its tiles", count = 1, label = "and back" },
+  { text = "tiles: RecipeMenu Select(1) on its tiles", count = 1, label = "a click on another row; no click passes the prompt" },
+  { text = "tiles: RecipeMenu Select(0) on its tiles", count = 1, label = "and back" },
+  { text = "tiles: RecipeMenu Accept on its tiles", count = 2, label = "the button, then the selected row" },
+  { re = 'recipe menu: how many\? 1 of ([2-9]|\d\d+)', count = 2, label = "the prompt, each time" },
+  "recipe menu: how many? cancelled",
+  { text = 'recipe menu: made 2 x "Antivenom"', count = 1, label = "the amount from the prompt" },
+  { text = "tiles: RecipeMenu Filter(1) on its tiles", count = 1, label = "the title steps the filter" },
+  "ui sounds: recipe category changed: UIMenuPrevNext",
+  { text = "tiles: RecipeMenu PageDown on its tiles", label = "the bar is the view's" },
+  { re = 'tiles: RecipeMenu recipes list scrolled to [1-9]', label = "the bar scrolls" },
+  { re = 'tiles: RecipeMenu \w+ list drawn at', count = 0, label = "the scroll drawn is the one written" },
+  { re = '(pointer over|clicked) RecipeMenu/.*RM_Items_IngredientList', count = 0, label = "a click on an ingredient row reaches nothing" },
+  { text = "tiles: RecipeMenu Exit on its tiles", count = 1, label = "Exit once" },
+  "recipe menu: closed",
+  "tile menu blur: RecipeMenu radius 3",
+  "tile menu blur: off",
+  { text = "tiles: ContainerMenu", count = 0, label = "recipe only" },
+  { text = "tiles: BarterMenu", count = 0, label = "recipe only" },
+  { text = "tiles: RepairServicesMenu", count = 0, label = "recipe only" },
+]
+order = [["recipe menu: open", "tiles: RecipeMenu Select(1) on its tiles", "tiles: RecipeMenu Accept on its tiles", "recipe menu: how many?", "recipe menu: made 2 x", "recipe menu: how many? cancelled", "tiles: RecipeMenu Filter(1) on its tiles", "tiles: RecipeMenu Exit on its tiles", "recipe menu: closed"]]
+
+[[scenario]]
+name = "recipe-default-drawing"
+source = "[design] crafting.md section 4: with the tile switch empty the hand-built recipe menu stays the default and no adapter runs; Accept, the prompt, the filter and Exit keep their behaviour"
+note = "The gives and size of tiles-recipe through the model's test aid, with no pointer. At 1280x720 its shots are the comparison set."
+areas = ["crafting", "menus"]
+paths = ["engine/nvf-play/src/tiles/recipe_menu.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/crafting.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_RECIPE = "13:down,13.5:up,14:accept,15:more,16:accept,18:filter,20:exit", NVF_PLAY_TEST_SHOTS = "12:default_recipe_open.png,14.5:default_recipe_prompt.png,19:default_recipe_filtered.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { text = "tiles: RecipeMenu", count = 0, label = "no recipe adapter runs" },
+  { text = "tile menu blur:", count = 0, label = "no tile blur" },
+  { re = 'recipe menu: how many\? 1 of ([2-9]|\d\d+) \("Antivenom"\)', label = "Accept asks how many" },
+  { text = 'recipe menu: made 2 x "Antivenom"', count = 1, label = "the amount from the prompt" },
+  "ui sounds: recipe category changed: UIMenuPrevNext",
+  "recipe menu: closed",
+]
 
 
 [[scenario]]

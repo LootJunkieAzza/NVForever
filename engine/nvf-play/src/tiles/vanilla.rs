@@ -67,6 +67,9 @@ pub struct TileMenus {
     pub container: bool,
     /// `BarterMenu`: barter from its file, including its quantity prompt [design: section 9].
     pub barter: bool,
+    /// `RecipeMenu`: the recipe menu from its file, the hand-built one (`crate::crafting`) not
+    /// drawn but for its prompt (`super::recipe_menu`).
+    pub recipe: bool,
     /// `TraitMenu`: the trait menu from its file, the hand-built one (`crate::chargen::lists`)
     /// not spawned (`super::trait_menu`).
     pub traits: bool,
@@ -108,6 +111,8 @@ impl TileMenus {
                 menus.container = true;
             } else if name.eq_ignore_ascii_case(super::barter_menu::BARTER_MENU) {
                 menus.barter = true;
+            } else if name.eq_ignore_ascii_case(super::recipe_menu::RECIPE_MENU) {
+                menus.recipe = true;
             } else if name.eq_ignore_ascii_case(super::trait_menu::TRAIT_MENU) {
                 menus.traits = true;
             } else if name.eq_ignore_ascii_case(super::tag_menu::TAG_MENU) {
@@ -154,12 +159,12 @@ pub(crate) fn setup(app: &mut App) {
 
 impl TileMenus {
     /// The menus the switch acts on, in its order.
-    pub const NAMES: [&str; 14] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU, super::wait_menu::SLEEP_WAIT_MENU, super::tutorial_menu::TUTORIAL_MENU, super::container_menu::CONTAINER_MENU, super::barter_menu::BARTER_MENU, super::trait_menu::TRAIT_MENU, super::tag_menu::TAG_MENU, super::mods::START_MENU, super::stats_menu::STATS_MENU, super::dialog_menu::DIALOG_MENU, super::repair_services_menu::REPAIR_SERVICES_MENU, super::repair_menu::REPAIR_MENU];
+    pub const NAMES: [&str; 15] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU, super::wait_menu::SLEEP_WAIT_MENU, super::tutorial_menu::TUTORIAL_MENU, super::container_menu::CONTAINER_MENU, super::barter_menu::BARTER_MENU, super::recipe_menu::RECIPE_MENU, super::trait_menu::TRAIT_MENU, super::tag_menu::TAG_MENU, super::mods::START_MENU, super::stats_menu::STATS_MENU, super::dialog_menu::DIALOG_MENU, super::repair_services_menu::REPAIR_SERVICES_MENU, super::repair_menu::REPAIR_MENU];
 
     /// The start-up line's end: the menus drawn from tiles, or none, and that an item menu's
     /// prompt follows it when its own switch is off (`super::menus::quantity_tiled`).
     pub fn line(&self) -> String {
-        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.sleep_wait, self.tutorial, self.container, self.barter, self.traits, self.tags, self.start, self.stats, self.dialog, self.repair_services, self.repair_menu]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
+        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.sleep_wait, self.tutorial, self.container, self.barter, self.recipe, self.traits, self.tags, self.start, self.stats, self.dialog, self.repair_services, self.repair_menu]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
         if on.is_empty() {
             "no menu drawn from tiles".into()
         } else if (self.container || self.barter) && !self.quantity {
@@ -547,6 +552,10 @@ mod tests {
         assert_eq!(TileMenus::parse(" barterMENU "), (barter, Vec::new()));
         assert_eq!(barter.line(), "BarterMenu drawn from tiles; its QuantityMenu prompt follows");
         assert!(!TileMenus::default().barter);
+        let recipe = TileMenus { recipe: true, ..TileMenus::default() };
+        assert_eq!(TileMenus::parse(" recipeMENU "), (recipe, Vec::new()));
+        assert_eq!(recipe.line(), "RecipeMenu drawn from tiles");
+        assert!(!TileMenus::default().recipe);
         let container = TileMenus { container: true, ..TileMenus::default() };
         assert_eq!(TileMenus::parse("containermenu"), (container, Vec::new()));
         assert_eq!(container.line(), "ContainerMenu drawn from tiles; its QuantityMenu prompt follows");

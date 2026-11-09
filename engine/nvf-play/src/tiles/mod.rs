@@ -38,6 +38,7 @@
 
 pub mod container_menu;
 pub mod barter_menu;
+pub mod recipe_menu;
 pub mod repair_cards;
 pub mod repair_menu;
 pub mod repair_services_menu;
@@ -141,7 +142,7 @@ pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
     if menus.repair_services || menus.repair_menu {
         return true;
     }
-    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog
+    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -888,7 +889,7 @@ fn write_container(
 /// it (`fnv_ui::Ui::update`). The scripts' gradual changes step first, on real time
 /// (`fnv_game::ui_gradients`, task T9).
 #[allow(clippy::too_many_arguments)]
-fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check: ResMut<input::WaitSliderCheck>, mut tutorial_check: ResMut<TutorialScrollCheck>, mut container: ResMut<container_menu::ContainerTiles>, mut barter: ResMut<barter_menu::BarterTiles>, mut traits: ResMut<trait_menu::TraitTiles>, mut tags: ResMut<tag_menu::TagTiles>) {
+fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check: ResMut<input::WaitSliderCheck>, mut tutorial_check: ResMut<TutorialScrollCheck>, mut container: ResMut<container_menu::ContainerTiles>, mut barter: ResMut<barter_menu::BarterTiles>, mut recipe: ResMut<recipe_menu::RecipeTiles>, mut traits: ResMut<trait_menu::TraitTiles>, mut tags: ResMut<tag_menu::TagTiles>) {
     let Some(rt) = script.rt.as_mut() else { return };
     rt.game.ui_gradients.step(&mut rt.game.ui_tree, f64::from(time.delta_secs()));
     if rt.game.ui_files.is_some() {
@@ -904,6 +905,10 @@ fn update(mut script: ResMut<ScriptState>, time: Res<Time<Real>>, mut wait_check
         if barter.menu().is_some() {
             barter_menu::mark_tiles(&mut rt.game.ui_tree);
             barter.view.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
+        }
+        if recipe.menu.is_some() {
+            recipe_menu::mark_tiles(&mut rt.game.ui_tree);
+            recipe.check_drawn(&rt.game.ui_tree, &mut |line| info!("{line}"));
         }
         if traits.menu.is_some() {
             trait_menu::mark_tiles(&mut rt.game.ui_tree);
@@ -938,6 +943,7 @@ impl Plugin for TilesPlugin {
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
+            .init_resource::<recipe_menu::RecipeTiles>()
             .init_resource::<repair_services_menu::RepairServicesTiles>()
             .init_resource::<repair_menu::RepairTiles>()
             .add_message::<crate::repair::RepairServicesInput>()
@@ -955,6 +961,7 @@ impl Plugin for TilesPlugin {
             // T15c: the container menu's state for this frame's input.
             .add_systems(Update, write_container.after(write).before(input::feed))
             .add_systems(Update, barter_menu::write_system.after(write).before(input::feed))
+            .add_systems(Update, recipe_menu::write_system.after(write).before(input::feed))
             .add_systems(Update, repair_services_menu::write_system.after(write).before(input::feed))
             // [design] The trait and tag-skill lists, likewise.
             .add_systems(Update, trait_menu::write_system.after(write).before(input::feed))
@@ -1116,6 +1123,7 @@ mod tests {
         assert!(interface_screen(vanilla::TileMenus { tutorial: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { container: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { barter: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { recipe: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { repair_services: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { repair_menu: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));

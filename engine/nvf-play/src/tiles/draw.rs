@@ -996,6 +996,7 @@ pub(crate) struct View<'w, 's> {
     /// T15c: the container menu, when this frame's writer has it drawn from its tiles.
     container: Option<Res<'w, super::container_menu::ContainerTiles>>,
     barter: Option<Res<'w, super::barter_menu::BarterTiles>>,
+    recipe: Option<Res<'w, super::recipe_menu::RecipeTiles>>,
     /// The vendor's repair menu, when this frame's writer has it drawn from its tiles.
     repair_services: Option<Res<'w, super::repair_services_menu::RepairServicesTiles>>,
     /// The trait menu, when this frame's writer has it drawn from its tiles.
@@ -1032,6 +1033,7 @@ pub(crate) struct MenusDrawn {
     repair_page: Drawn,
     container: Drawn,
     barter: Drawn,
+    recipe: Drawn,
     repair_services: Drawn,
     traits: Drawn,
     tags: Drawn,
@@ -1093,6 +1095,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         (super::tutorial_menu::TUTORIAL_MENU, game.is_some_and(|g| super::tutorial_menu::tiled(switch.tutorial, g)), TUTORIAL_Z, &mut others.tutorial),
         (super::container_menu::CONTAINER_MENU, container_on, CONTAINER_Z, &mut others.container),
         (super::barter_menu::BARTER_MENU, barter_on, CONTAINER_Z, &mut others.barter),
+        (super::recipe_menu::RECIPE_MENU, view.recipe.as_ref().is_some_and(|r| r.menu.is_some()), CONTAINER_Z, &mut others.recipe),
         (super::repair_services_menu::REPAIR_SERVICES_MENU, view.repair_services.as_ref().is_some_and(|r| r.menu.is_some()), CONTAINER_Z, &mut others.repair_services),
         // One decision with the hand-built menu's and, below, the blur's (`trait_menu::drawn`).
         (super::trait_menu::TRAIT_MENU, view.traits.as_ref().is_some_and(|t| super::trait_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.traits_open()), game).is_some()), TRAIT_Z, &mut others.traits),
@@ -1105,6 +1108,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         blur_now.tutorial |= name == super::tutorial_menu::TUTORIAL_MENU && menu.is_some();
         blur_now.container |= name == super::container_menu::CONTAINER_MENU && menu.is_some();
         blur_now.barter |= name == super::barter_menu::BARTER_MENU && menu.is_some();
+        blur_now.recipe |= name == super::recipe_menu::RECIPE_MENU && menu.is_some();
         blur_now.repair_services |= name == super::repair_services_menu::REPAIR_SERVICES_MENU && menu.is_some();
         blur_now.traits |= name == super::trait_menu::TRAIT_MENU && menu.is_some();
         blur_now.tags |= name == super::tag_menu::TAG_MENU && menu.is_some();
