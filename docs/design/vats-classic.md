@@ -82,6 +82,10 @@ game's own menu file is driven, §9.]
 A new target starts on the part with the best chance [design]. Each part's label shows
 its name and chance, the selected one bracketed, with "xN" when N attacks are queued on
 it; with Concentrated Fire the label shows the chance the next attack on it would have.
+Under each label a bar shows the part's condition (its condition actor value of 100; a
+part without one has no bar), and at the top of the view the target's name stands over
+a bar of its health [documented: the original shows each part's chance and condition;
+design: this layout, the engine-drawn screen that stays as the fallback, §8].
 
 ## 5. The player and the view
 
@@ -90,8 +94,12 @@ mouse does not turn the view [documented: the player cannot move or dodge]. The 
 turns onto the selected target in real time (`TURN_RATE`). Left without firing, the view
 goes back to where it was on entering; after firing it stays on the last target.
 
-Planned: the field of view narrowing to frame the target (§5 of the plan, on the
-dialogue camera's framing).
+The field of view narrows to frame the selected target whole, at
+`dialogue_zoom::VATS_TARGET_SHARE` (0.6) of the view's height [design: no page gives a
+number]. It is the conversation zoom's machinery (`dialogue_zoom::track`): the same
+ownership of the field of view, the same depth of field, the third-person camera
+travelling to the eye. Its ease runs in real time (`VATS_IN_SECONDS`), since the world's
+clock may stand still, and it eases out when the attacks start to play or the mode ends.
 
 ## 6. What it shares with Dead Eye
 
@@ -109,7 +117,6 @@ V.A.T.S.", 75 % in New Vegas, 10 % in Fallout 3]. Not while targets are chosen
 
 ## 8. Planned on this branch
 
-- The zoom onto the target (§5).
 - Playback cameras from the game's camera records, shot by shot.
 - The target screen driven by the game's own VATS menu file, the engine-drawn labels
   as the fallback.

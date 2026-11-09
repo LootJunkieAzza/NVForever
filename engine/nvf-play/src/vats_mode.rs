@@ -439,6 +439,15 @@ impl VatsMode {
         self.style
     }
 
+    /// The classic style's header while targets are chosen (vats-classic.md §4): the
+    /// selected target's name and its health as a share, once its preview is built.
+    fn classic_header(&self) -> Option<(&str, f32)> {
+        let actor = self.selected()?;
+        let name = self.preview.parts.first().filter(|_| self.preview.actor == Some(actor))?.spot.name.as_str();
+        let share = self.preview.health.map_or(1.0, |(now, max)| if max > 0.0 { (now / max).clamp(0.0, 1.0) } else { 0.0 });
+        Some((name, share))
+    }
+
     /// The classic style's selected target (reference), while targets are chosen.
     pub fn selected(&self) -> Option<u32> {
         self.classic.selected.filter(|_| self.style == VatsStyle::Classic && self.phase == Phase::Marking)
@@ -1304,6 +1313,9 @@ struct PreviewPart {
     under: bool,
     /// The classic style: the attacks queued on it (vats-classic.md §4).
     queued: u32,
+    /// The classic style: the part's condition now, 0 (crippled) to 1; `None` for a part
+    /// without a condition actor value.
+    condition: Option<f32>,
 }
 
 /// The actor whose parts' chances are shown before marking (§17.5).
@@ -1313,6 +1325,8 @@ struct Preview {
     parts: Vec<PreviewPart>,
     /// Real seconds when the parts (and their perks) were last worked out.
     built_at: f64,
+    /// The classic style: the actor's health now and at most.
+    health: Option<(f32, f32)>,
 }
 
 /// The preview's actor, when the crosshair is not on one, is the nearest valid actor
@@ -1429,9 +1443,19 @@ fn preview(v: &mut VatsMode, combat: &Combat, parts: &ActorParts, mut script: Op
             for &part in list.iter().take(MAX_PREVIEW) {
                 let Some(point) = point_of(phys, actor, part) else { continue };
                 let (spot, _) = spot_on(v, combat, parts, script.as_deref_mut(), sim, player, actor, part, point, 0);
-                pv.parts.push(PreviewPart { part, spot, shown: false, under: false, queued: 0 });
+                pv.parts.push(PreviewPart { part, spot, shown: false, under: false, queued: 0, condition: None });
             }
             v.preview_list = list;
+            // The classic style's screen shows each part's condition and the target's
+            // health (vats-classic.md §4), read as often as the parts are.
+            pv.health = None;
+            if let Some(rt) = script.and_then(|s| s.rt.as_mut()).filter(|_| chosen.is_some()) {
+                let (limbs, health) = with_world(rt, sim, |rt| (rt.game.limb_conditions(FormId(actor)), rt.game.health_of(FormId(actor))));
+                for p in &mut pv.parts {
+                    p.condition = p.spot.condition.and_then(|c| limbs.get(usize::from(c).wrapping_sub(usize::from(*fnv_game::combat::LIMB_CONDITIONS.start()))).map(|v| (*v as f32 / 100.0).clamp(0.0, 1.0)));
+                }
+                pv.health = Some((health.0 as f32, health.1 as f32));
+            }
             if changed {
                 let name = pv.parts.first().map_or("?", |p| p.spot.name.as_str());
                 let figures: Vec<String> = pv.parts.iter().map(|p| format!("{} {}", p.spot.part, chance_text(p.spot.chance))).collect();
@@ -1958,6 +1982,15 @@ fn spawn_marks(mut commands: Commands) {
     for i in 0..MAX_PREVIEW {
         commands.spawn((Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, GlobalZIndex(5), PreviewLabel { i, shown: String::new(), width: 0.0 }));
     }
+    // The classic style's bars: one a part's label and one for the header (`HEADER_BAR`),
+    // each a dark ground and its filled share.
+    for i in 0..=MAX_PREVIEW {
+        for fill in [false, true] {
+            let colour = if fill { LABEL_COLOUR } else { BAR_GROUND };
+            commands.spawn((Node { position_type: PositionType::Absolute, ..default() }, BackgroundColor(colour), Visibility::Hidden, GlobalZIndex(if fill { 5 } else { 4 }), PreviewBar { i, fill }));
+        }
+    }
+    commands.spawn((Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, GlobalZIndex(5), ClassicHeader { shown: String::new(), width: 0.0 }));
     for i in 0..MAX_DRAWN {
         commands.spawn((Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, GlobalZIndex(5), MarkLabel { i, shown: String::new() }));
     }
@@ -2066,6 +2099,36 @@ fn draw_labels(
     }
 }
 
+/// A bar of the classic style's screen (vats-classic.md §4): under part label `i` the
+/// part's condition, under the header ([`HEADER_BAR`]) the target's health; the ground or
+/// the filled share.
+#[derive(Component)]
+struct PreviewBar {
+    i: usize,
+    fill: bool,
+}
+
+/// The header's bar among the [`PreviewBar`]s.
+const HEADER_BAR: usize = MAX_PREVIEW;
+/// The bars' ground [design: dark, so the amber share reads on any picture].
+const BAR_GROUND: Color = Color::srgba(0.0, 0.0, 0.0, 0.55);
+/// A bar's height and the least width of a part's bar, interface units (960 to the view's
+/// height) [design].
+const BAR_HEIGHT: f32 = 5.0;
+const BAR_MIN_WIDTH: f32 = 60.0;
+/// The header: its top from the view's top, and its bar's width, interface units [design:
+/// the original names the target and shows its health at the top of the view].
+const HEADER_TOP: f32 = 70.0;
+const HEADER_BAR_WIDTH: f32 = 260.0;
+
+/// The classic style's header: the selected target's name; `shown` and `width` as a
+/// [`PreviewLabel`]'s.
+#[derive(Component)]
+struct ClassicHeader {
+    shown: String,
+    width: f32,
+}
+
 /// A previewed part's chance (§17.5): `shown` is the text its glyphs now spell, `width`
 /// that text's width in interface units.
 #[derive(Component)]
@@ -2121,7 +2184,7 @@ pub fn preview_text(out: &mut String, part: &str, chance: f32, under: bool) {
 /// Put each previewed part's chance on its point (§17.5): centred on it, a label that
 /// would overlap one placed before it moved down a line, so a far actor's labels stay
 /// apart.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw_previews(
     mut commands: Commands,
     vats: Res<VatsMode>,
@@ -2134,8 +2197,12 @@ fn draw_previews(
     mut text: Local<String>,
     mut placed: Local<Vec<[f32; 4]>>,
     mut labels: Query<(Entity, &mut PreviewLabel, &mut Node, &mut Visibility)>,
+    mut bars: Query<(&PreviewBar, &mut Node, &mut Visibility), (Without<PreviewLabel>, Without<ClassicHeader>)>,
+    mut header: Query<(Entity, &mut ClassicHeader, &mut Node, &mut Visibility), (Without<PreviewLabel>, Without<PreviewBar>)>,
 ) {
-    let height = windows.iter().next().map_or(720.0, |w| w.height());
+    // Each bar's place and share this frame: left, top, width, share.
+    let mut bar_at: [Option<[f32; 4]>; MAX_PREVIEW + 1] = [None; MAX_PREVIEW + 1];
+    let (width, height) = windows.iter().next().map_or((1280.0, 720.0), |w| (w.width(), w.height()));
     let px = height / 960.0;
     let tall = LABEL_HEIGHT * px;
     let camera = cameras.single().ok();
@@ -2182,6 +2249,49 @@ fn draw_previews(
         placed.push([x, y, w, tall]);
         node.left = Val::Px(x);
         node.top = Val::Px(y);
+        if let Some(share) = p.condition {
+            let bw = w.max(BAR_MIN_WIDTH * px);
+            bar_at[label.i] = Some([at.x - bw / 2.0, y + tall * 0.92, bw, share]);
+        }
+    }
+    drop(shown);
+    // The header: the target's name over its health (the classic style only).
+    let head = vats.classic_header();
+    for (e, mut h, mut node, mut vis) in &mut header {
+        let want = if head.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        let Some((name, share)) = head else { continue };
+        if h.shown != name {
+            let f = face_.get_or_insert_with(|| font_face(LABEL_FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
+            let line = f.font.lines(name, None).into_iter().next();
+            h.width = line.as_ref().map_or(0.0, |l| l.width);
+            commands.entity(e).despawn_related::<Children>().with_children(|c| {
+                if let Some(line) = &line {
+                    set_line(c, f, line, 0.0, LABEL_BASE, LABEL_COLOUR);
+                }
+            });
+            h.shown = name.to_string();
+        }
+        let top = HEADER_TOP * px;
+        node.left = Val::Px(width / 2.0 - h.width * px / 2.0);
+        node.top = Val::Px(top);
+        let bw = HEADER_BAR_WIDTH * px;
+        bar_at[HEADER_BAR] = Some([width / 2.0 - bw / 2.0, top + tall, bw, share]);
+    }
+    for (bar, mut node, mut vis) in &mut bars {
+        let at = bar_at.get(bar.i).copied().flatten();
+        let want = if at.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        let Some([x, y, w, share]) = at else { continue };
+        let tall = (BAR_HEIGHT * px).max(2.0);
+        node.left = Val::Px(x);
+        node.top = Val::Px(y);
+        node.width = Val::Px(if bar.fill { w * share.clamp(0.0, 1.0) } else { w });
+        node.height = Val::Px(tall);
     }
 }
 
@@ -2277,7 +2387,7 @@ mod tests {
         let head = Spot { point: [900.0, 0.0, 60.0], part: "Head".into(), base: 30.0, size: 0.4, ..Default::default() };
         let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), weapon: Some(gun.clone()), ..Default::default() };
         let previewed = chance_of(&head, &gun, [0.0; 3], Some(1.5));
-        v.preview = Preview { actor: Some(7), parts: vec![PreviewPart { part: Some(1), spot: Spot { chance: previewed, ..head.clone() }, shown: true, under: true, queued: 0 }], built_at: 0.0 };
+        v.preview = Preview { health: None, actor: Some(7), parts: vec![PreviewPart { part: Some(1), spot: Spot { chance: previewed, ..head.clone() }, shown: true, under: true, queued: 0, condition: None }], built_at: 0.0 };
         // Marked, the part's chance is worked out again the marks' way: the same figure.
         v.queue.push(FormId(7), Some(1), f32::INFINITY).unwrap();
         v.spots.push(head);

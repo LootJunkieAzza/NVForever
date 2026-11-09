@@ -11247,6 +11247,7 @@ run_seconds = 20
 order = [[
   { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot, 6 rounds loaded', label = "V enters VATS mode with the .357" },
   { re = 'vats mode: classic: \d+ targets, [0-9A-F]{8} selected; the clock at 0\.00', label = "the targets are found and the clock stops" },
+  { re = 'dialogue zoom: in on .* a VATS target, framed whole', label = "the view narrows onto the selected target, in real time with the clock stopped" },
   { re = 'vats mode: classic: part ', label = "S moves to another part" },
   { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "the first queued attack reserves 26 AP" },
   { re = 'vats mode: marked .* mark 2; 52 AP reserved', label = "the second reserves 52 AP" },
