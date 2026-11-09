@@ -51,6 +51,7 @@ impl Plugin for MovedPlugin {
 
 type Drawn<'w, 's> = Query<'w, 's, (Entity, &'static RefVisual, &'static mut Transform, Option<&'static Baked>, &'static ChildOf)>;
 
+#[allow(clippy::too_many_arguments)]
 fn follow(
     mut commands: Commands,
     sim: Res<SimState>,
