@@ -567,9 +567,10 @@ pub fn pipboy_open(pip: Res<PipBoy>) -> bool {
 /// Whether the Pip-Boy's keys are its own: not while the tutorial menu is open over it
 /// (`crate::tutorial_menu`, whose A, S and E are Next, Previous and Close), and with the
 /// page drawn from its tiles not in the frame a menu over it closes either: that key was the
-/// menu's (`crate::tiles::stats_menu::StatsTiles::modal`).
-fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>) -> bool {
-    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref())
+/// menu's (`crate::tiles::stats_menu::StatsTiles::modal`,
+/// `crate::tiles::repair_menu::RepairTiles::modal`).
+fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>) -> bool {
+    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal)
 }
 
 /// The rule of [`takes_keys`], by the scripts' open menu and the tiles' state: a box over the

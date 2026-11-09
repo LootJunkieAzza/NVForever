@@ -1130,6 +1130,21 @@ pub fn spot_turn(heading: f32, target: f32, dt: f32) -> (f32, bool) {
     (d.clamp(-max, max), d.abs() <= max)
 }
 
+/// FaceObject and Turn (`fnv_game::nvse_jip13`): the actor turns on the spot to the
+/// heading, playing its turn clip.
+pub fn script_turns(mut commands: Commands, script: Option<ResMut<nvf_play::script::ScriptState>>, actors: Query<(Entity, &crate::limbs::ActorRig), With<Locomotion>>) {
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    for (r, heading) in rt.game.take_turns() {
+        match actors.iter().find(|(_, rig)| rig.reference == r.0) {
+            Some((e, _)) => {
+                commands.entity(e).insert(TurnTo { heading });
+                info!("locomotion: a script turns {r} to {:.0}°", heading.to_degrees());
+            }
+            None => debug!("locomotion: a script turns {r}, which is not drawn"),
+        }
+    }
+}
+
 /// Turn the actors with a [`TurnTo`]: the root about its parent's z, and the turn rate
 /// that makes [`drive`] choose the turn clip. An actor whose `TurnTo` is taken away
 /// mid-turn stops turning.

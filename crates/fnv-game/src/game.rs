@@ -3584,6 +3584,7 @@ impl<'a> Game<'a> {
         }
         // `MoveToMarkerWithFade` moves whose fade out has ended.
         crate::functions::refs::finish_fade_moves(self);
+        self.jip13_tick();
         // Without an engine taking them (a headless run) the lists are kept short.
         if self.script_looks.disabled_after_fade.len() > 256 {
             self.script_looks.disabled_after_fade.drain(..128);
