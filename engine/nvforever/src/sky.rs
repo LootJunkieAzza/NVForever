@@ -2033,6 +2033,9 @@ mod tests {
             live_globals: HashMap::new(),
             resume: Some(SAVED),
             flash: [0.0; 3],
+            script_wind: None,
+            moon_textures: Default::default(),
+            lightning_request: false,
         };
         sky.place(Some(None));
         assert_eq!((sky.rolls, sky.pick), (0, SAVED), "the first look keeps the saved weather");
@@ -2095,6 +2098,9 @@ mod tests {
             live_globals: HashMap::new(),
             resume: Some(HELD),
             flash: [0.0; 3],
+            script_wind: None,
+            moon_textures: Default::default(),
+            lightning_request: false,
         }
     }
 
