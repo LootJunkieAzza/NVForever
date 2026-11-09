@@ -1884,7 +1884,7 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
         ViewEntry::Row(id) => id.name(list),
     };
     info!("pause menu: inspect: shown {}", entries[drawn].iter().map(line).collect::<Vec<_>>().join(", "));
-    let rows: Vec<String> = entries.iter().filter_map(|e| matches!(e, ViewEntry::Row(_)).then(|| line(e))).collect();
+    let rows: Vec<String> = entries.iter().filter(|e| matches!(e, ViewEntry::Row(_))).map(line).collect();
     info!("pause menu: inspect: rows {}", rows.join(","));
     // The words drawn: the rail's and the headings' (translated), or the empty list's.
     let mut words: Vec<&str> = rail.iter().filter(|r| !matches!(r, RailItem::Defaults | RailItem::Back)).map(|r| tr(r.name())).collect();
