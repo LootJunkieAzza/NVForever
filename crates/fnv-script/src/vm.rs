@@ -2237,9 +2237,13 @@ impl Vm<'_, '_> {
                 }
                 Ok(XVal::Array(self.store()?.new_array(kind, es)))
             }
-            // The plugins' own array functions (JohnnyGuitar's Ar_Shuffle, Ar_SortEditor)
-            // are the host's.
+            // The plugins' own array functions are the host's (JohnnyGuitar's Ar_Shuffle,
+            // Ar_SortEditor; SUP's Ar_GetRandomKey …); one that writes script variables
+            // (SUP's Ar_SetFloatsFrom) goes as the other output functions do.
             _ => {
+                if let Some(outs) = out_params(n) {
+                    return self.out_call(n, c, outs);
+                }
                 let mut args = Vec::with_capacity(nargs);
                 for k in 0..nargs {
                     args.push(val(self, k)?);
@@ -2938,6 +2942,15 @@ impl Vm<'_, '_> {
                 None => Err(VmError::NotBuilt(format!("the extender function {name}"))),
             };
         }
+        // [documented: MarkScriptOnLoad, "Marks calling script"]: the host gets the
+        // running script form (0 for none) as the argument.
+        if lname == "markscriptonload" {
+            let script = XVal::Ref(self.host.current_script().unwrap_or(0));
+            return match self.host.ext_call(&lname, None, &[script]) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Err(VmError::NotBuilt(format!("the extender function {name}"))),
+            };
+        }
         // Functions that give their results in script variables: the host answers with an
         // array of the return value and then each output, written to the variables here.
         if let Some(outs) = out_params(&lname) {
@@ -3250,6 +3263,8 @@ impl Vm<'_, '_> {
 fn out_params(lname: &str) -> Option<&'static [usize]> {
     Some(match lname {
         "getangleex" => &[0, 1, 2],
+        // [documented: GetActorVelocityAlt, "placed into the 3 specified Script Variables"].
+        "getactorvelocityalt" => &[0, 1, 2],
         "getanglesbetweenpoints" => &[6, 7],
         "getpointraycastpos" => &[5, 6, 7],
         "geteditorposition" => &[0, 1, 2, 3, 4, 5],
@@ -3273,6 +3288,9 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // [documented: GetCameraTranslation and WorldToScreen, "Stores … in xOut, yOut and
         // zOut variables"].
         "getcameratranslation" | "worldtoscreen" => &[0, 1, 2],
+        // [documented: Ar_SetFloatsFrom, "Sets float variables from variables in array (up
+        // to 10)"].
+        "ar_setfloatsfrom" => &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         // [documented: HSVtoRGB, RGBtoHSV, three script variables in and three out].
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
         // [documented: GetSystemColorAlt and GetPixelFromBMP, three variables for R, G, B].

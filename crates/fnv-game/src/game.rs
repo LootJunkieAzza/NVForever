@@ -1257,6 +1257,11 @@ pub struct Game<'a> {
     /// SUP batch 7's NIF block interpolations and HUD bar sources (`crate::nvse_sup7`).
     /// Not saved [hypothesis: the pages say a hot reload loses the variables set].
     pub sup7: crate::nvse_sup7::Sup7State,
+    /// SUP batch 4's scripts marked since the last load (`crate::nvse_sup4`).
+    pub sup4: crate::nvse_sup4::Sup4State,
+    /// The last save written and the last loaded this session; the engine sets them, a
+    /// load keeps them ([`Game::take_session`], `crate::nvse_sup4`).
+    pub save_files: crate::nvse_sup4::SaveFiles,
     /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
     pub traits: crate::nvse_traits::TraitState,
     /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
@@ -2083,6 +2088,10 @@ pub struct Session {
     jip_kept: crate::jip_events::JipKept,
     /// The dialogue records scripts changed (`crate::dialogue_edits`).
     dialogue_edits: crate::dialogue_edits::DialogueEdits,
+    /// SUP's last save and load (`crate::nvse_sup4`).
+    save_files: crate::nvse_sup4::SaveFiles,
+    /// SUP's CallFunctionNextFrame calls with removeOnLoad 0 (`crate::delayed`).
+    kept_calls: Vec<crate::delayed::Delayed>,
 }
 
 /// An event handler: the event (lower case), the function or lambda, the filters by
@@ -2214,6 +2223,8 @@ impl<'a> Game<'a> {
             sup: Default::default(),
             lu3: Default::default(),
             sup7: Default::default(),
+            sup4: Default::default(),
+            save_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
             anim_folders: Default::default(),
@@ -3178,7 +3189,7 @@ impl<'a> Game<'a> {
             .collect();
         let pp = self.pp_take_session();
         let sr_registered = self.sr.take_registered();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session() }
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls() }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -3192,6 +3203,8 @@ impl<'a> Game<'a> {
         self.sr.put_registered(s.sr_registered);
         self.jip.kept = s.jip_kept;
         self.dialogue_edits = s.dialogue_edits;
+        self.save_files = s.save_files;
+        self.put_kept_calls(s.kept_calls);
     }
 
     /// Run every handler registered for `event` whose filters match, highest priority
@@ -4919,7 +4932,8 @@ impl<'a> Game<'a> {
         // on the player with its first effect].
         let mut took_ids: Vec<u32> = Vec::new();
         for (index, e) in items.iter().enumerate() {
-            if mods.only.is_some_and(|o| o != index) {
+            // RemoveNthEffect's entries (`crate::nvse_jip11`).
+            if mods.only.is_some_and(|o| o != index) || self.effect_removed(source, index) {
                 continue;
             }
             let label = format!("{} effect {index}", data.name(source));

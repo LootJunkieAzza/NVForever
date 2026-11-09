@@ -1769,6 +1769,11 @@ pub(crate) fn run_scripts(
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
                             restored = true;
+                            // SUP's GetSaveName and GetLoadedSaveSize read the last save
+                            // loaded (`fnv_game::nvse_sup4`).
+                            let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                            let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
+                            rt.game.save_files.loaded = Some(fnv_game::nvse_sup4::SaveFile { name, bytes });
                             if let Some(doors) = doors.as_deref_mut() {
                                 doors.rest_as_restored(&sim);
                             }
