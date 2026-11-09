@@ -84,6 +84,17 @@ impl Layer {
         }
     }
 
+    /// Whole cycles a looping Loop layer has played, for the tracks whose rotation adds
+    /// up from cycle to cycle (`TransformTrack::rotation_after`, docs/spec-notes/animation.md
+    /// §9.12); 0 for every other layer.
+    pub fn cycles(&self) -> i64 {
+        let len = self.clip.length();
+        match self.mode {
+            Mode::Loop if self.clip.cycle_type == 0 && len > 0.0 && self.time.is_finite() => (self.time / len).floor() as i64,
+            _ => 0,
+        }
+    }
+
     /// Whether a Once layer has reached the clip's end.
     pub fn finished(&self) -> bool {
         self.time >= self.clip.length()
@@ -472,7 +483,7 @@ impl Animator {
                     let track = &l.clip.tracks[c.track as usize].1;
                     let time = l.sample_time(phase);
                     t += f * track.translation.sample(time).map_or(bind.translation, Vec3::from_array);
-                    let r = track.rotation_at(time).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w));
+                    let r = track.rotation_after(time, l.cycles()).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w));
                     let mut v = Vec4::from(r);
                     let reference = *first.get_or_insert(v);
                     if v.dot(reference) < 0.0 {
@@ -513,7 +524,7 @@ impl Animator {
                 let track = &l.clip.tracks[track as usize].1;
                 let time = l.sample_time(self.phase);
                 t += w * track.translation.sample(time).map_or(bind.translation, Vec3::from_array);
-                let mut v = Vec4::from(track.rotation_at(time).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w)));
+                let mut v = Vec4::from(track.rotation_after(time, l.cycles()).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w)));
                 if v.dot(*first.get_or_insert(v)) < 0.0 {
                     v = -v;
                 }
@@ -587,7 +598,7 @@ mod tests {
             tracks: tracks
                 .iter()
                 .map(|(n, t, _)| {
-                    let tt = TransformTrack { translation: Channel::Static(Some(*t)), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) };
+                    let tt = TransformTrack { translation: Channel::Static(Some(*t)), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None };
                     (n.to_string(), Arc::new(tt))
                 })
                 .collect(),

@@ -4898,9 +4898,9 @@ order = [[
 
 [[scenario]]
 name = "securitron-screen"
-source = "docs/spec-notes/effects-animation-audit.md §2-§3: the street Securitron 0x0013BB1F on the Strip plays its idle's screen tracks (Screen01:0 glow, squash and roll; ScreenStatic:0 noise drifting); frames every 0.5 s over one idle cycle in target/smoke (securitron_screen_NN.png); the Strip's own free controllers (Ultra-Luxe sign glow moving, Tops sign materials)"
-areas = ["effects", "effect-shaders"]
-paths = ["engine/nvforever/src/actor_materials.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-nif/src/anim.rs"]
+source = "docs/spec-notes/effects-animation-audit.md §2-§3: the street Securitron 0x0013BB1F on the Strip plays its idle's screen tracks (Screen01:0 glow, squash and roll; ScreenStatic:0 noise drifting); frames every 0.5 s over one idle cycle in target/smoke (securitron_screen_NN.png); the Strip's own free controllers (Ultra-Luxe sign glow moving, Tops sign materials); the Securitron's walk binds its wheel track, a BSRotAccumTransfInterpolator whose rotation adds up per cycle (docs/spec-notes/animation.md §9.12)"
+areas = ["effects", "effect-shaders", "animation"]
+paths = ["engine/nvforever/src/actor_materials.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/model.rs", "crates/fnv-nif/src/anim.rs", "engine/nvforever/src/locomotion.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:0013BB1F", NVF_PLAY_TEST_SHOTS = "6:securitron_screen_00.png,6.5:securitron_screen_01.png,7:securitron_screen_02.png,7.5:securitron_screen_03.png,8:securitron_screen_04.png,8.5:securitron_screen_05.png,9:securitron_screen_06.png,9.5:securitron_screen_07.png,10:securitron_screen_08.png,10.5:securitron_screen_09.png,11:securitron_screen_10.png,11.5:securitron_screen_11.png,12:securitron_screen_12.png,12.5:securitron_screen_13.png,13:securitron_screen_14.png,13.5:securitron_screen_15.png,14:securitron_screen_16.png,14.5:securitron_screen_17.png,15:securitron_screen_18.png,15.5:securitron_screen_19.png,16:securitron_screen_20.png,16.5:securitron_screen_21.png,17:securitron_screen_22.png,17.5:securitron_screen_23.png,18:securitron_screen_24.png,18.5:securitron_screen_25.png,19:securitron_screen_26.png,19.5:securitron_screen_27.png" }
 args = ["--play", "--world", "TheStripWorldNew", "--pos=-112,3100,1030", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 21
@@ -4909,6 +4909,7 @@ expect = [
   "actor materials: reference 0013BB1F shape screenstatic:0 driven by its clips",
   { re = 'ultraluxsignglow\.nif: 0 material and 1 transform track', label = "the Ultra-Luxe sign glow's own transform controller" },
   { re = 'nv_thetops-casino04\.nif: [1-9]\d* material and', label = "The Tops sign's own material controllers" },
+  { re = 'actor locomotion: meshes.creatures.nvsecuritron .*[:;] Forward 2[.]67s [^;]*rotation adding up per cycle \["Bip01 Wheel"\]', label = "the Securitron's walk turns its wheel, rotation adding up per cycle" },
 ]
 
 [[scenario]]
