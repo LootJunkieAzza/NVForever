@@ -5,10 +5,12 @@
 //!   Boy picture in the HUD's colour, which moves in its own way for each moment, with a
 //!   ring that bursts out behind it, and the moment's name under it in the HUD's font
 //!   over a line that draws itself out. Then all of it rises a little and fades.
-//!   - bullseye: the picture pops in and kicks back as the dart lands;
-//!   - triple: three quick pulses, each with a ring;
-//!   - pool, several balls down: the 8-ball rolls in from the side and lands;
-//!   - a hand won: the picture hops twice.
+//!   - bullseye (Sniper): the picture pops in and kicks back as the dart lands;
+//!   - triple (Splash Damage): three quick pulses, each with a ring;
+//!   - pool, several balls down (the very happy face): rolls in from the side and lands;
+//!   - a hand won (the Luck Implant's cards): the picture hops twice.
+//!
+//!   Which picture for which moment: the owner's picks, 2026-11-09.
 //! - **The pictures**: first the owner's own (`interface\icons\nvforever\highlight_*.dds`,
 //!   a mod, not in this repository), else the game's Vault Boy art [observed: the files
 //!   below are in Fallout - Textures2.bsa]; with neither, the words alone.
@@ -79,9 +81,9 @@ impl Highlight {
     pub fn pictures(self) -> [&'static str; 2] {
         match self {
             Highlight::Bullseye => [r"interface\icons\nvforever\highlight_bullseye.dds", r"interface\icons\pipboyimages\perks\perk_sniper.dds"],
-            Highlight::Triple => [r"interface\icons\nvforever\highlight_triple.dds", r"interface\icons\pipboyimages\perks\perk_gunslinger.dds"],
-            Highlight::MultiBall => [r"interface\icons\nvforever\highlight_multiball.dds", r"interface\icons\pipboyimages\items\items_lucky_8_ball.dds"],
-            Highlight::HandWon => [r"interface\icons\nvforever\highlight_hand_won.dds", r"interface\icons\message icons\glow_message_vaultboy_very_happy.dds"],
+            Highlight::Triple => [r"interface\icons\nvforever\highlight_triple.dds", r"interface\icons\pipboyimages\perks\perk_splash_damage.dds"],
+            Highlight::MultiBall => [r"interface\icons\nvforever\highlight_multiball.dds", r"interface\icons\message icons\glow_message_vaultboy_very_happy.dds"],
+            Highlight::HandWon => [r"interface\icons\nvforever\highlight_hand_won.dds", r"interface\icons\pipboyimages\perks\perk_probability_calculator.dds"],
         }
     }
 
@@ -406,7 +408,9 @@ fn show(
             .spawn((
                 Stamp { born: now, kind: f.kind },
                 Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), top: crate::interface::u(TOP), justify_content: JustifyContent::Center, ..default() },
-                GlobalZIndex(60),
+                // Over the card games' screens (106), under message boxes (108) and the
+                // pause menu (110).
+                GlobalZIndex(107),
                 Pickable::IGNORE,
             ))
             .with_children(|root| {
