@@ -246,6 +246,11 @@ pub struct Cycle {
     /// No round regenerates while set (ShowOff's FreezeAmmoRegen, the game's
     /// `ShowOffState::ammo_regen_frozen`) [documented: FreezeAmmoRegen].
     pub regen_frozen: bool,
+    /// NVForever's tweaks, set by the engine each tick (docs/design/tweaks.md): a reload
+    /// may start while the last shot's recovery still runs; a semi-automatic pull this
+    /// close (seconds) before the recovery ends is kept and fired when it does.
+    pub reload_in_recovery: bool,
+    pub semi_auto_queue: f32,
     /// Every fourth shot uses no ammunition (a "Regenerate Ammo (shots)" mod,
     /// docs/spec-notes/weapon-data-fields.md §5); shots fired so far.
     free_fourth: bool,
@@ -275,6 +280,8 @@ impl Cycle {
             regen: (w.regen_rate > 0.0).then_some(w.regen_rate),
             regen_acc: 0.0,
             regen_frozen: false,
+            reload_in_recovery: false,
+            semi_auto_queue: 0.0,
             free_fourth: w.free_fourth_shot,
             shots: 0,
             held: false,
@@ -441,12 +448,26 @@ impl Cycle {
                     self.phase = Phase::Cooldown { left: (self.timing.interval - self.timing.fire_delay).max(0.0) };
                 }
                 Phase::Cooldown { left } => {
+                    // The tweaks [design: docs/design/tweaks.md]: a reload cuts the recovery short, and a
+                    // semi-automatic pull close to its end is kept for it.
+                    if self.reload_in_recovery && i.reload && self.can_reload(i.carried) {
+                        self.phase = self.start_reload();
+                        out.push(Event::ReloadStarted);
+                        continue;
+                    }
+                    if fresh && !self.automatic && left <= self.semi_auto_queue {
+                        self.queued = Some(0.0);
+                    }
                     if left > dt {
                         self.phase = Phase::Cooldown { left: left - dt };
                         break;
                     }
                     dt -= left;
                     self.phase = Phase::Ready;
+                    if !self.automatic && self.semi_auto_queue > 0.0 && self.queued.take().is_some() {
+                        pulled = true;
+                        continue;
+                    }
                     // An automatic weapon keeps firing while held; a semi-automatic one
                     // waits for the next pull.
                     if !(i.trigger && self.automatic) {

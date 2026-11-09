@@ -1000,6 +1000,27 @@ impl Plugin for TweaksPlugin {
         amount!(app, "mark-nearby-places", "Mark Nearby Places", "Map markers within this many units of the player are marked on the map; 0 changes nothing. (Stewie's Tweaks bMarkNearbyLocationsOnMap)", 10000.0, f32, game.mark_nearby_places);
         switch!(app, "scale-ash-piles", "Ash Piles Fit the Body", "An ash pile takes the size of the actor it was (between half and twice). (Stewie's Tweaks bScaleAshpileSize)", game.scale_ash_piles);
         switch!(app, "pipboy-buzz", "Pip-Boy Buzz", "A short controller buzz on each Pip-Boy page or tab change (with rumble on). (Stewie's Tweaks bHapticPipboy)", pipboy_buzz);
+        switch!(app, "reload-while-firing", "Reload While Firing", "A reload can start while the last shot's recovery still runs. (Stewie's Tweaks bReloadWhileFiring)", game.reload_while_firing);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-semi-auto-queue",
+                GROUP,
+                "Semi-Auto Shot Queue",
+                "A semi-automatic pull this close before the weapon is ready again is kept and fired then (0 to 0.5 s); 0 changes nothing. (Stewie's Tweaks bSemiAutoQueue)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| t.game.semi_auto_queue * 2.0),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.semi_auto_queue = v / 2.0;
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(|v| format!("{:.3} s", v / 2.0)),
+                },
+            ),
+        );
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

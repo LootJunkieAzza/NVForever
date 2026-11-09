@@ -414,6 +414,8 @@ unless the player binds them, so nothing changes until then.
 | Mark Nearby Places (0–10000) | `bMarkNearbyLocationsOnMap` | `compass::discover` (ShowMap's set) |
 | Ash Piles Fit the Body | `bScaleAshpileSize` | `Game` ash pile creation (`scale_of`) |
 | Pip-Boy Buzz | `bHapticPipboy` | `rumble::rumble` on a page or tab change |
+| Reload While Firing | `bReloadWhileFiring` | `fnv_combat::attack::Cycle` (`reload_in_recovery`, set by `combat::fire`) |
+| Semi-Auto Shot Queue (0–0.5 s) | `bSemiAutoQueue` | `fnv_combat::attack::Cycle` (`semi_auto_queue`) |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -434,8 +436,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 321 |
-| to do | 282 |
+| done | 323 |
+| to do | 280 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -506,11 +508,13 @@ game's Data folder, read-only).
 | `bReloadingPreventsWeaponHotkeys` | done |  |  | No Hotkeys While Reloading (the weapon wheel and its taps) |
 | `bReloadingWithFullClipSwitchesAmmoType` | done |  |  | Full Reload Swaps Ammo |
 | `bReloadJamsAffectedByAgility` | done |  |  | Jams at Reload Pace |
+| `bReloadWhileFiring` | done |  |  | Reload While Firing (during the last shot's recovery) |
 | `bRepairsRewardXP` | done |  | 1 | Experience per Repair (slider; Pip-Boy repairs) |
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
 | `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
 | `bSellStolenItems` | done |  |  | already so: barter never checks stolen items |
+| `bSemiAutoQueue` | done |  | 2 | Semi-Auto Shot Queue (slider, up to 0.5 s before the weapon is ready) |
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
 | `bSkipVeryEasyLocksAtMaxSkill` | done |  | 2 | Skip Easy Locks (+ margin; full XP; use again to go through) |
 | `bSleepOnChairs` | done |  |  | Sleep on Chairs |
@@ -571,14 +575,12 @@ game's Data folder, read-only).
 | `bPowerAttackIfBlocking` | to do |  | 1 | a field on MeleeInput |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
-| `bReloadWhileFiring` | to do |  |  | a field on attack::Input |
 | `bRememberBobbyPinHealth` | to do |  |  | Picking::new starts a full pin; needs a stored health |
 | `bRepairScalesCraftingCondition` | to do |  |  | crafting::make_recipe output condition |
 | `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
 | `bScopeHoldBreath` | to do |  | 7 | scope_view has no input or AP |
-| `bSemiAutoQueue` | to do |  | 2 | attack::Cycle cooldown; a field on attack::Input |
 | `bSleepHealingMinDuration` | to do |  | 2 | needs::pass_hours; the bed is not known there |
 | `bSlowBreathRegen` | to do |  | 2 | breath_rules recover rate; a rate to choose |
 | `bSneakAttackWithoutCrouching` | to do |  |  | sneaking comes from control.sneak (melee) and the projectile; both need the switch |

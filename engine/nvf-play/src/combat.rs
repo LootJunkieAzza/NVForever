@@ -2843,6 +2843,11 @@ pub(crate) fn fire(
     let carried = total.saturating_sub(cycle.magazine);
     let was_winding = matches!(cycle.phase, fnv_combat::attack::Phase::WindUp { .. });
     cycle.regen_frozen = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.showoff.ammo_regen_frozen);
+    // The player's tweaks on the firing cycle [design: docs/design/tweaks.md].
+    if let Some(t) = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.tweaks) {
+        cycle.reload_in_recovery = t.reload_while_firing;
+        cycle.semi_auto_queue = t.semi_auto_queue;
+    }
     // The player's tweak: no reload until the magazine is empty [design: docs/design/tweaks.md].
     let empty_only = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.reload_only_when_empty);
     let reload = reload && !(empty_only && cycle.magazine > 0);

@@ -293,6 +293,11 @@ pub struct Tweaks {
     pub mark_nearby_places: f32,
     /// `bScaleAshpileSize`: an ash pile takes its actor's scale (0.5 to 2).
     pub scale_ash_piles: bool,
+    /// `bReloadWhileFiring`: a reload may start during the last shot's recovery.
+    pub reload_while_firing: bool,
+    /// `bSemiAutoQueue`: a semi-automatic pull this many seconds before the weapon is
+    /// ready again is kept and fired then; 0 changes nothing.
+    pub semi_auto_queue: f32,
 }
 
 impl crate::game::Game<'_> {
@@ -420,6 +425,8 @@ impl Default for Tweaks {
             compare_weapons: false,
             mark_nearby_places: 0.0,
             scale_ash_piles: false,
+            reload_while_firing: false,
+            semi_auto_queue: 0.0,
         }
     }
 }
