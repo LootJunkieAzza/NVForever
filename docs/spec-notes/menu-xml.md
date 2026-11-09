@@ -919,9 +919,10 @@ Implemented consumers and remaining exclusions:
   model, `nvf_play::RefNodes`; statics' baked shapes and worn or held models keep none)
   goes through the player's camera to the HUD's interface units (960 to the window's
   height divided by NVForever's UI scale, as the HUD is drawn; the view taken to fill the
-  window), and the rect's `x`/`y` (its top left) are put on that point. The XML's own
-  `x`/`y`, expressions included, are taken off when it is attached; the component centres
-  itself through its children. `visible` is written 1 when it comes on screen and 0 when
+  window), and the rect's `x`/`y` (its top left) are put on that point. When it is
+  attached its `x`/`y` lose any expression and stay plain numbers (an authored constant as
+  written, else 0) that scripts can read and write until the next placement; the
+  component centres itself through its children. `visible` is written 1 when it comes on screen and 0 when
   it leaves. Hidden: behind the camera, nearer than the near plane or farther than the
   camera's far distance (checked on the camera-space depth: Bevy's perspective matrix
   has no far plane), the point outside the view's sides, no such node, no drawn model
