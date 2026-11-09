@@ -437,7 +437,7 @@ mod tests {
         ];
         let key = |time: f32, value: [f32; 4]| Key { time, value, forward: [0.0; 4], backward: [0.0; 4], tbc: [0.0; 3] };
         let rotation = Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, rot_z(0.0)), key(1.0, rot_z(std::f32::consts::FRAC_PI_2))] });
-        let track = TransformTrack { translation: Channel::Static(None), rotation, euler: None, scale: Channel::Static(None) };
+        let track = TransformTrack { translation: Channel::Static(None), rotation, euler: None, scale: Channel::Static(None), per_cycle: None };
         let seq = AnimSequence { name: "Open".into(), start: 0.0, stop: 1.0, cycle_type: 2, text_keys: vec![], tracks: vec![(1, Arc::new(track))] };
         let anim = ModelAnim { nodes, by_block: HashMap::from([(0, 0), (1, 1), (2, 2)]), sequences: vec![seq] };
         let s = anim.sequence("open");
@@ -466,6 +466,7 @@ mod tests {
             rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])),
             euler: None,
             scale: Channel::Static(Some([1.0])),
+            per_cycle: None,
         };
         let mut anim = ModelAnim::from_nodes([
             (0, Some("Root".into()), None, sim([0.0; 3])),

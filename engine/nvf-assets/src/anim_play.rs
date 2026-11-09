@@ -827,6 +827,65 @@ pub struct BlendPlayer {
     rest_changes: u32,
     /// What the last pose was made from, when [`Self::pose_held`] made it.
     posed_from: Option<PosedFrom>,
+    /// Each slot's whole cycles of the clip playing in it ([`Loops`]).
+    loops: [Loops; MAX_LAYERS],
+}
+
+/// How many whole cycles the clip in one [`BlendPlayer`] slot has looped, for the tracks
+/// whose rotation adds up from cycle to cycle (`TransformTrack::rotation_after`: the
+/// Securitron's wheel in its walk, docs/spec-notes/animation.md §9.12). Layers carry only
+/// their phase (0–1), so a wrap is seen as the phase jumping by more than half a cycle
+/// between samples: forward from near 1 to near 0 adds a cycle, back from near 0 to near
+/// 1 (a clip played backwards) takes one off. A clip that moves to another slot takes its
+/// count along (locomotion moves the walk from slot 0 to the fading-out slot 1 when the
+/// move changes, and under a jump); a clip new to every slot starts from none [design:
+/// the count only keeps the rolling smooth from one cycle to the next; a count missed
+/// while an actor is not sampled turns the wheel by some amount, as starting again does].
+/// The phase alone cannot tell a seek within the same clip from playing on (a jump of
+/// more than half a cycle reads as a wrap, a whole cycle between samples as none): the
+/// callers only advance a looping clip's phase, a resync comes with a new clip.
+#[derive(Debug, Default, Clone)]
+struct Loops {
+    clip: Option<Arc<BoundClip>>,
+    phase: f32,
+    cycles: i64,
+}
+
+impl Loops {
+    /// Follow every slot's layer as it stands at this sample.
+    fn follow_all(loops: &mut [Loops; MAX_LAYERS], layers: &[Option<Layer>; MAX_LAYERS]) {
+        let held = |l: &Loops, layer: &Layer| l.clip.as_ref().is_some_and(|c| Arc::ptr_eq(c, &layer.clip));
+        // A clip new to its slot that another slot held at the last sample: its state there.
+        let mut carry: [Option<(f32, i64)>; MAX_LAYERS] = [None; MAX_LAYERS];
+        for (k, layer) in layers.iter().enumerate() {
+            if let Some(l) = layer.as_ref().filter(|l| !held(&loops[k], l)) {
+                carry[k] = loops.iter().find(|o| held(o, l)).map(|o| (o.phase, o.cycles));
+            }
+        }
+        for (k, layer) in layers.iter().enumerate() {
+            loops[k].follow(layer.as_ref(), carry[k]);
+        }
+    }
+
+    /// Follow the slot's layer as it stands at this sample; `carry` is the clip's phase and
+    /// count in the slot that held it at the last sample, when it is new to this one.
+    fn follow(&mut self, layer: Option<&Layer>, carry: Option<(f32, i64)>) {
+        let Some(l) = layer.filter(|l| l.phase.is_finite()) else {
+            *self = Loops::default();
+            return;
+        };
+        if !self.clip.as_ref().is_some_and(|c| Arc::ptr_eq(c, &l.clip)) {
+            let (phase, cycles) = carry.unwrap_or((l.phase, 0));
+            *self = Loops { clip: Some(l.clip.clone()), phase, cycles };
+        }
+        let d = l.phase - self.phase;
+        if d < -0.5 {
+            self.cycles += 1;
+        } else if d > 0.5 {
+            self.cycles -= 1;
+        }
+        self.phase = l.phase;
+    }
 }
 
 /// What a [`BlendPlayer`]'s pose is made from, besides its bind transforms.
@@ -862,6 +921,7 @@ impl BlendPlayer {
             rest: Vec::new(),
             rest_changes: 0,
             posed_from: None,
+            loops: Default::default(),
         }
     }
 
@@ -902,13 +962,16 @@ impl BlendPlayer {
         self.posed_from = None;
         let mut sampled = 0;
         let layers = std::mem::take(&mut self.layers);
+        Loops::follow_all(&mut self.loops, &layers);
         // A weight or phase that is not a finite number (a clip of no length divided by)
         // gives no layer or the cycle's start, never NaN bones.
-        for layer in layers.iter().flatten().filter(|l| l.weight > 0.0 && l.weight.is_finite()) {
+        for (k, layer) in layers.iter().enumerate().filter_map(|(k, l)| Some((k, l.as_ref()?))).filter(|(_, l)| l.weight > 0.0 && l.weight.is_finite()) {
             let (bc, w) = (&layer.clip, layer.weight);
             let at = if layer.phase.is_finite() { layer.phase } else { 0.0 };
             let time = cycle_time(bc.time_at(at), bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
             let phase = if bc.clip.stop > bc.clip.start { (time - bc.clip.start) / (bc.clip.stop - bc.clip.start) } else { 0.0 };
+            // Whole cycles count only for a looping clip (cycle type 0).
+            let cycles = if bc.clip.cycle_type == 0 { self.loops[k].cycles } else { 0 };
             for (j, (i, track, p)) in bc.tracks.iter().enumerate() {
                 let b = self.rest_of(*i);
                 let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
@@ -922,7 +985,7 @@ impl BlendPlayer {
                         t.z -= start_z;
                     }
                 }
-                let r = track.rotation_at(time).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                let r = track.rotation_after(time, cycles).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
                 let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
                 self.add(*i, Contrib { t, r, s, w, p: *p });
                 sampled += 1;
@@ -1143,6 +1206,7 @@ mod tests {
             rotation: Channel::Static(None),
             euler: None,
             scale: Channel::Static(Some([1.0])),
+            per_cycle: None,
         };
         let mut clip = Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
         clip.tracks.push(("Bip01".into(), Arc::new(track(1.0))));
@@ -1161,6 +1225,7 @@ mod tests {
             rotation: Channel::Static(None),
             euler: None,
             scale: Channel::Static(Some([sc])),
+            per_cycle: None,
         };
         let clip = |t: TransformTrack| {
             let mut c = Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
@@ -1239,6 +1304,7 @@ mod tests {
                 rotation: Channel::Static(None),
                 euler: None,
                 scale: Channel::Static(None),
+                per_cycle: None,
             }),
         };
         Sequence {
@@ -1318,7 +1384,7 @@ mod tests {
     }
 
     fn track(t: Channel<3>, r: Channel<4>) -> Arc<TransformTrack> {
-        Arc::new(TransformTrack { translation: t, rotation: r, euler: None, scale: Channel::Static(None) })
+        Arc::new(TransformTrack { translation: t, rotation: r, euler: None, scale: Channel::Static(None), per_cycle: None })
     }
 
     fn key3(time: f32, value: [f32; 3]) -> Key<3> {
@@ -1356,6 +1422,52 @@ mod tests {
         let bind = vec![Transform::IDENTITY, Transform::from_xyz(0.0, 0.657, 67.771), Transform::IDENTITY, Transform::from_xyz(5.0, 0.0, 0.0)];
         let ix = |n: &str| ["Bip01", "Bip01 NonAccum", "Other"].iter().position(|x| *x == n).map(|i| i + 1);
         (BlendPlayer::new(nodes, Arc::new(bind)), ix)
+    }
+
+    #[test]
+    fn an_accumulating_rotation_keeps_turning_across_loops() {
+        // A wheel turning 300° about Z a cycle (ten keys of 30°), as the Securitron's
+        // walk turns its `Bip01 Wheel` (docs/spec-notes/animation.md §9.12).
+        let q = |deg: f32| Quat::from_rotation_z(deg.to_radians());
+        let keys = (0..=10).map(|k| {
+            let r = q(30.0 * k as f32);
+            Key { time: k as f32 / 10.0, value: [r.w, r.x, r.y, r.z], forward: [0.0; 4], backward: [0.0; 4], tbc: [0.0; 3] }
+        });
+        let d = q(300.0);
+        let wheel = Arc::new(TransformTrack {
+            per_cycle: Some([d.w, d.x, d.y, d.z]),
+            ..(*track(Channel::Static(None), Channel::Keys(Keys { kind: KeyKind::Linear, keys: keys.collect() }))).clone()
+        });
+        let (mut p, ix) = player();
+        let bound = Arc::new(BoundClip::bind(clip(1.0, vec![("Other", wheel)]), &ix));
+        let mut out = Vec::new();
+        let mut at = |p: &mut BlendPlayer, clip: &Arc<BoundClip>, phase: f32| {
+            p.layers[0] = Some(Layer { clip: clip.clone(), phase, weight: 1.0 });
+            p.sample(&mut out);
+            out.iter().find(|(i, _)| *i == 3).unwrap().1.rotation
+        };
+        let same = |a: Quat, b: Quat| a.dot(b).abs() > 1.0 - 1e-5;
+        assert!(same(at(&mut p, &bound, 0.95), q(285.0)));
+        // Past the loop it goes on from 300°, not back to the first key.
+        assert!(same(at(&mut p, &bound, 0.05), q(315.0)));
+        assert!(same(at(&mut p, &bound, 0.5), q(450.0)));
+        // Played backwards over the loop, the cycle comes off again.
+        assert!(same(at(&mut p, &bound, 0.05), q(315.0)));
+        assert!(same(at(&mut p, &bound, 0.95), q(285.0)));
+        // Another clip in the slot starts from its own first cycle.
+        let other = Arc::new(BoundClip::bind(bound.clip.clone(), &ix));
+        assert!(same(at(&mut p, &bound, 0.05), q(315.0)));
+        assert!(same(at(&mut p, &other, 0.05), q(15.0)));
+        // A looped clip moved to the fading-out slot (a change of move) keeps its count.
+        assert!(same(at(&mut p, &bound, 0.95), q(285.0)));
+        assert!(same(at(&mut p, &bound, 0.05), q(315.0)));
+        p.layers[0] = Some(Layer { clip: other.clone(), phase: 0.1, weight: 0.5 });
+        p.layers[1] = Some(Layer { clip: bound.clone(), phase: 0.1, weight: 0.5 });
+        p.sample(&mut out);
+        p.layers[0] = None;
+        p.layers[1] = Some(Layer { clip: bound.clone(), phase: 0.1, weight: 1.0 });
+        p.sample(&mut out);
+        assert!(same(out.iter().find(|(i, _)| *i == 3).unwrap().1.rotation, q(330.0)));
     }
 
     /// A clip with one track, on node 0 of the player in the `pose_held` tests.
@@ -1591,6 +1703,7 @@ mod tests {
                 rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])),
                 euler: None,
                 scale: Channel::Static(Some([2.0])),
+                per_cycle: None,
             });
             let tracks = vec![
                 ("Full", full),

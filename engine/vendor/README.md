@@ -43,6 +43,11 @@ by a comment starting `NVForever FSR integration`:
 Without the override both do what upstream does. This is a new patch for Bevy 0.20.1, not
 the dropped 0.19.1 one below.
 
+Both FSR changes are already in Bevy's `main`, written almost the same way: bevyengine/bevy#26235
+(transmission, merged 2026-10-26) and bevyengine/bevy#26236 (cluster lookup, merged
+2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
+Bevy release that has both.
+
 Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
 that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
 queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
@@ -82,6 +87,25 @@ upstream merges the jobs.
 [observed 2026-11-08, Nsight Graphics GPU Trace, Goodsprings 12:00, 2560x1440, 4x MSAA,
 no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
 frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
+
+Third change (#1868), in `src/diagnostic/mod.rs`, each part marked by a comment starting
+`NVForever recorder gate`: `begin_diagnostics_frame`, `resolve_encoder` and
+`finish_diagnostics_frame` take the `DiagnosticsRecorder` as optional and do nothing
+without it. Upstream they require it, so taking it out of the render world stops the app
+(a missing resource fails the systems' parameter check). Every pass already records only
+while the recorder is there (`RenderContext::diagnostic_recorder` is optional; the camera
+driver checks `contains_resource`), so without it no timestamp is written, resolved or read
+back. `nvforever/src/perf_overlay/split.rs` takes it out while the performance overlay's
+frame split, the only reader that added the render diagnostics, is not shown. With the
+recorder there (every run that does not take it out) the systems do what upstream does.
+
+`NVForever recorded instant` (`diagnostic/internal.rs`, `diagnostic/mod.rs`): each frame's
+`FrameData` notes when it began recording, `RenderDiagnostics` carries that instant, and
+`sync_diagnostics` keeps the last pair (the import time its measurements carry in the store,
+the frame's recording time) in a new main-world resource, `RenderDiagnosticsRecorded`. The
+store's measurements keep upstream's import time (frame telemetry exports it as such,
+docs/design/frame-telemetry.md). `nvforever/src/perf_overlay/split.rs` uses the pairs to
+read only the measurements of frames recorded in its window and since its row began to show.
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 

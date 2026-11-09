@@ -11,9 +11,10 @@
 //!   text's height and the template's `_VerticalSpacing`, unless the template gave one. The
 //!   file itself moves a row up by `_current_value` × `_scroll_delta` (`list_box_template.xml`),
 //!   so nothing here or in the layout subtracts the scroll again.
-//! - **The counts** ([`counts`]): the scrollbar has `rows - (rows fitting whole from the
-//!   top) + 1` items and 1 visible, and `_scroll_delta` is what is left over by the positions
-//!   after the first; a list that fits has 1 item and keeps the file's `_scroll_delta`.
+//! - **The counts** ([`counts`]): what is left over, in rows of the average height and
+//!   rounded up, gives the positions after the first; the scrollbar has one item more and 1
+//!   visible, and `_scroll_delta` is what is left over by those positions; a list that fits
+//!   has 1 item and keeps the file's `_scroll_delta`.
 //! - **The highlight**: `_highlight_y` the selected row's place after the scroll,
 //!   `_selected_height` its height; -1 and 0 with none, which the file reads as hidden.
 //! - **The scroll**: a menu's own state ([`write_value`]). The prefab's `_current_value`
@@ -128,28 +129,25 @@ impl Counts {
 
 /// The counts of rows `heights` in a list `page` high [observed: three lists of the container
 /// capture, 15 rows 885 high: 10 items, delta 57.78; 16 rows 937 high: 11, 57.20, twice;
-/// lists that fit: 1 item; design: a value's rows are the ones whole from the top, as those
-/// numbers read]. A list that fits has no delta of its own here: the capture read the file's 26
+/// lists that fit: 1 item; the recipe capture, 41 rows: 37 items, delta 60.75]. The positions
+/// after the first are what overflows over the rows' average height, rounded up [hypothesis:
+/// it fits all 15 lists read, the test `the_counts_fit_the_lists_read_in_the_original` holds
+/// them; counting the rows whole from the top, as this did, fits most of them but is one short
+/// on an inventory list with one row of two lines, 8 items read]. A list that fits has no delta of its own here: the capture read the file's 26
 /// on a right list with nothing filtered and 57.2 on one with 15 of 16 rows filtered [observed];
-/// that every list keeps its last delta so is [hypothesis] from that one case (the caller's
+/// and the recipe capture's last filter, 7 rows that fit, read the 60.75 of the list before it;
+/// that every list keeps its last delta so is [hypothesis] from those two (the caller's
 /// `file_delta`, [`write_counts`]).
 pub fn counts(heights: &[f64], page: f64) -> Counts {
     let total: f64 = heights.iter().sum();
     if total <= page {
         return Counts { items: 1.0, visible: 1.0, delta: None };
     }
-    let mut fit = 0;
-    let mut y = 0.0;
-    for h in heights {
-        y += h;
-        if y > page {
-            break;
-        }
-        fit += 1;
-    }
-    // A first row taller than the list still scrolls.
-    let positions = (heights.len() - fit).max(1);
-    Counts { items: positions as f64 + 1.0, visible: 1.0, delta: Some((total - page) / positions as f64) }
+    let over = total - page;
+    // A hair under, so an exact number of rows is that number. A first row taller than the list
+    // still scrolls.
+    let positions = (over * heights.len() as f64 / total - 1e-9).ceil().max(1.0);
+    Counts { items: positions + 1.0, visible: 1.0, delta: Some(over / positions) }
 }
 
 /// The scroll to show a row whose top is `top` and height `height`, moved as little as keeps
@@ -620,19 +618,62 @@ mod tests {
         assert_eq!(heights, [40.0, 70.0, 40.0]);
         ui.update();
         assert_eq!(ui.tile(rows[2].tile).get("_y").map(Value::num), Some(110.0));
-        // A list 100 high: one row whole, two positions after the first, each (150 - 100) / 2.
+        // A list 100 high: 50 over rows of 50 on average, one position after the first.
         let c = counts(&heights, 100.0);
-        assert_eq!((c.items, c.delta), (3.0, Some(25.0)));
+        assert_eq!((c.items, c.delta), (2.0, Some(50.0)));
         write_counts(&mut ui, list, &c, OWN_DELTA);
         // Nothing here moves a row: what is drawn follows the value and the delta written.
         let shown = |ui: &Ui, row: TileId| ui.tile(row).get("y").map(Value::num);
         write_value(&mut ui, list, 1.0);
         ui.update();
-        assert_eq!(shown(&ui, rows[0].tile), Some(-25.0));
-        assert_eq!(shown(&ui, rows[2].tile), Some(85.0));
-        write_value(&mut ui, list, 2.0);
-        ui.update();
+        assert_eq!(shown(&ui, rows[0].tile), Some(-50.0));
         assert_eq!(shown(&ui, rows[2].tile), Some(60.0));
+    }
+
+    /// [observed: the numbers read from the original at 1280 x 720, in the private jobs named]
+    /// The rows are 52 high, 87 with two lines; where the two-line rows were not read one by
+    /// one (the recipe's filters) their number is worked back from the delta read [hypothesis].
+    /// No list here comes from a menu file's expressions, only what the running game read.
+    #[test]
+    fn the_counts_fit_the_lists_read_in_the_original() {
+        // The job, the rows, how many have two lines, the list's height, items, delta.
+        let lists: [(&str, usize, usize, f64, f64, f64); 15] = [
+            ("container capture, left", 15, 3, 365.0, 10.0, 57.78),
+            ("container capture, right", 16, 3, 365.0, 11.0, 57.20),
+            ("run07_recipe, no filter", 41, 12, 365.0, 37.0, 60.75),
+            ("run07_recipe, filter 1", 7, 1, 365.0, 2.0, 34.0),
+            ("run07_recipe, filter 2", 19, 11, 365.0, 15.0, 72.0),
+            ("run07_recipe, filter 3", 8, 0, 365.0, 2.0, 51.0),
+            ("run07_inventory, Weapons", 15, 1, 468.0, 8.0, 49.57),
+            ("run07_inventory_pipboy, Weapons", 13, 1, 468.0, 6.0, 48.60),
+            ("run07_repair_menu, Weapons", 12, 1, 468.0, 5.0, 47.75),
+            ("run07_inventory, Apparel", 8, 2, 468.0, 2.0, 18.0),
+            ("run07c_inventory, Weapons", 12, 0, 468.0, 4.0, 52.0),
+            ("run07_repair_services", 16, 0, 580.0, 6.0, 50.40),
+            ("run07b_stats, Skills", 13, 0, 468.0, 5.0, 52.0),
+            ("run07b_stats, Perks", 14, 0, 468.0, 6.0, 52.0),
+            ("run07b_stats, General", 43, 0, 542.0, 34.0, 51.33),
+        ];
+        for (job, rows, two_lines, page, items, delta) in lists {
+            let heights: Vec<f64> = (0..rows).map(|i| if i < two_lines { 87.0 } else { 52.0 }).collect();
+            let c = counts(&heights, page);
+            assert_eq!((c.items, c.visible), (items, 1.0), "{job}");
+            assert!((c.delta.unwrap() - delta).abs() < 0.005, "{job}: {:?}", c.delta);
+        }
+        // Lists that fit: 1 item, and no delta of their own (run07c_recipe, the last filter).
+        assert_eq!(counts(&[52.0; 7], 365.0), Counts { items: 1.0, visible: 1.0, delta: None });
+    }
+
+    #[test]
+    fn a_tall_row_counts_through_the_average_height() {
+        // 35 over rows of 13 on average: three positions, where the rows whole from the top
+        // would leave two. The last value still shows the list's end.
+        let c = counts(&[10.0, 10.0, 10.0, 10.0, 25.0], 30.0);
+        assert_eq!(c.items, 4.0);
+        assert!((c.delta.unwrap() * c.most() - 35.0).abs() < 1e-9);
+        // An exact number of rows is that number, and a row taller than the list scrolls.
+        assert_eq!(counts(&[20.0; 5], 60.0).items, 3.0);
+        assert_eq!(counts(&[200.0], 100.0), Counts { items: 2.0, visible: 1.0, delta: Some(100.0) });
     }
 
     #[test]

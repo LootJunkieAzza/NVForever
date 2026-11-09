@@ -86,6 +86,29 @@ impl GivenSwitches {
         let hits: Vec<&str> = note_switches(note).into_iter().filter(|n| self.given.iter().any(|g| g == n)).collect();
         (!hits.is_empty()).then(|| hits.join(", "))
     }
+
+    /// The switches of `note` that keep the command line's state over the INI's: those
+    /// given, in a test run ([`GivenSwitches::win`]); `None`: the stored state applies
+    /// ([`apply_stored`], [`switch_after_ini`]).
+    pub fn keeping(&self, note: &str) -> Option<String> {
+        if self.win {
+            self.named_in(note)
+        } else {
+            None
+        }
+    }
+}
+
+/// A switch's state once the INI is applied, by [`apply_stored`]'s precedence: the stored
+/// state when the INI has one, unless the command line keeps its own
+/// ([`GivenSwitches::keeping`]); the command line's state otherwise. For what has to be
+/// decided when the app is built, before `apply_stored` runs (nvforever's frame split
+/// takes its GPU timestamps from the start or not at all), so the two cannot disagree.
+pub fn switch_after_ini(command_line: bool, stored: Option<bool>, given: &GivenSwitches, note: &str) -> bool {
+    match stored {
+        Some(v) if given.keeping(note).is_none() => v,
+        _ => command_line,
+    }
 }
 
 /// The command-line switches a row's note names (`--no-lip`, `--msaa`), leaving out one
@@ -555,7 +578,7 @@ pub fn fix_ui_scale() {
 }
 
 /// `1`/`0` (also true/false, on/off, yes/no, any case).
-fn parse_switch(v: &str) -> Option<bool> {
+pub fn parse_switch(v: &str) -> Option<bool> {
     match v.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "on" | "yes" => Some(true),
         "0" | "false" | "off" | "no" => Some(false),
@@ -647,7 +670,7 @@ pub fn apply_stored(world: &mut World) {
             continue;
         }
         let flags = given.named_in(list[i].note);
-        if let (Some(f), true) = (&flags, given.win) {
+        if let Some(f) = given.keeping(list[i].note) {
             listed += 1;
             kept += 1;
             kept_rows.push((i, v.to_string()));
@@ -673,7 +696,7 @@ pub fn apply_stored(world: &mut World) {
             continue;
         }
         let flags = given.named_in(s.note);
-        if let (Some(f), true) = (&flags, given.win) {
+        if let Some(f) = given.keeping(s.note) {
             kept += 1;
             kept_rows.push((i, s.stored_text(v)));
             info!("settings: {} kept at {} as {f} on the command line set it; [{SECTION}] {}={} of {} is not applied in a test run", s.key, shown(&s, now), s.key, s.stored_text(v), path.display());
