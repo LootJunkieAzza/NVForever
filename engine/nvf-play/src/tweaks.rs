@@ -568,7 +568,7 @@ impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys).in_set(crate::PlaySet::Input))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
         add_setting(
@@ -1219,6 +1219,24 @@ impl Plugin for TweaksPlugin {
         // ---- items ----
         switch!(app, "power-armor-no-training", "Power Armor Without Training", "Power armor can be worn without Power Armor Training. (Stewie's Tweaks bPowerArmorNeedsNoTraining)", game.power_armor_needs_no_training);
     }
+}
+
+/// The Radio Volume Up and Down keys: the Settings page's Radio volume a tenth either
+/// way, between none and whole [design: docs/design/tweaks.md].
+fn radio_volume_keys(input: crate::bindings::ControlInput, volumes: Option<Res<crate::audio_out::SoundVolumes>>) {
+    use crate::audio_out::SoundCategory;
+    use crate::bindings::Control;
+    let Some(v) = volumes else { return };
+    let step = if input.just_pressed(Control::RadioVolumeUp) {
+        0.1
+    } else if input.just_pressed(Control::RadioVolumeDown) {
+        -0.1
+    } else {
+        return;
+    };
+    let level = ((v.get(SoundCategory::Radio) + step) * 10.0).round() / 10.0;
+    v.set(SoundCategory::Radio, level.clamp(0.0, 1.0));
+    info!("tweaks: Radio volume {:.0}% (key)", v.get(SoundCategory::Radio) * 100.0);
 }
 
 /// The Drop Weapon key: the equipped weapon falls in front of the player as the

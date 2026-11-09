@@ -118,13 +118,16 @@ pub enum Control {
     ToggleIronSights,
     /// The weapon in hand dropped (iDropEquippedWeaponKey).
     DropWeapon,
+    /// The Radio volume a tenth up or down (iRadioVolumeUpKey, iRadioVolumeDownKey).
+    RadioVolumeUp,
+    RadioVolumeDown,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 46] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 48] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -171,6 +174,8 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 46] = [
     (Control::OpenRadio, "Radio", 0xFFFFFFFF),
     (Control::ToggleIronSights, "Toggle Iron Sights", 0xFFFFFFFF),
     (Control::DropWeapon, "Drop Weapon", 0xFFFFFFFF),
+    (Control::RadioVolumeUp, "Radio Volume Up", 0xFFFFFFFF),
+    (Control::RadioVolumeDown, "Radio Volume Down", 0xFFFFFFFF),
 ];
 
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
@@ -559,6 +564,8 @@ pub fn label(c: Control) -> &'static str {
         OpenRadio => "Pip-Boy: Radio",
         ToggleIronSights => "True Iron Sights",
         DropWeapon => "Drop Weapon",
+        RadioVolumeUp => "Radio Volume Up",
+        RadioVolumeDown => "Radio Volume Down",
     }
 }
 

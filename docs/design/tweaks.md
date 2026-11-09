@@ -461,6 +461,7 @@ unless the player binds them, so nothing changes until then.
 | Hide Unknown Names | `bHideUnknownNPCNames` | `activate::find_target`: Talk targets without `talked_to_pc` get no name; bodies (Search) keep theirs |
 | V.A.T.S. Puts the Weapon Back | `bEnteringVATSDoesntUnholsterWeapon` | `vats_mode`: `drew_weapon` when the mode draws it; `end` with nothing fired asks `put_away`, done in `read_keys` |
 | Drop Weapon key | `iDropEquippedWeaponKey` | a new unbound Control; `tweaks::drop_weapon` drops the equipped weapon as the Pip-Boy's Drop does (`World::drop_equipped`, `RefChanged`) |
+| Radio Volume Up / Down keys | `iRadioVolumeUpKey`, `iRadioVolumeDownKey` | two new unbound Controls; `tweaks::radio_volume_keys` steps `SoundVolumes`' Radio level a tenth |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -482,8 +483,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 381 |
-| to do | 222 |
+| done | 383 |
+| to do | 220 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1028,6 +1029,8 @@ game's Data folder, read-only).
 | `iPipboyItemsKey` | done |  | 1 | Pip-Boy: Items key (Controls page) |
 | `iPipboyStatsKey` | done |  | 1 | Pip-Boy: Stats key (Controls page) |
 | `iPrevRadioStationKey` | done |  | 1 | already so: [ steps to the previous station in the Pip-Boy |
+| `iRadioVolumeDownKey` | done |  | 1 | Radio Volume Down key |
+| `iRadioVolumeUpKey` | done |  | 1 | Radio Volume Up key (a tenth of the Radio volume) |
 | `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
 | `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |
 | `iTogglePipboyLightKey` | done |  | 2 | a Controls key: Pip-Boy Light (the night vision part not built) |
@@ -1037,8 +1040,6 @@ game's Data folder, read-only).
 | `iEquipLastWeaponKey` | to do |  | 4 | not built: no previous weapon recorded |
 | `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
 | `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
-| `iRadioVolumeDownKey` | to do |  | 1 | a key setting the radio sound volume |
-| `iRadioVolumeUpKey` | to do |  | 1 | a key setting the radio sound volume |
 | `iRepeatActivateKey` | to do |  | 2 | activate is at 16 params; a timer in a tuple |
 | `iScreenshotKey` | to do |  | 1 | not built: no player screenshot key outside F12 in nvforever |
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
