@@ -8377,6 +8377,62 @@ SETS.update({"sup7": SUP7_PROBES})
 WRITING_SETS |= {"sup7"}
 
 
+# sup4 (writes, session only, each change put back; #1008): SUP batch 4
+# (docs/spec-notes/ext-sup4.md): random array keys, invalid references, floats from an
+# array, a UDF frames later, the last save and load, the cells and map markers near the
+# player at Doc Mitchell's, the scripts marked on load, the caught-pickpocketing flag on
+# Doc Mitchell (set back), transliteration. One step per frame.
+# The string variable is sOut: `string_var sA` did not compile in the original
+# [observed 2026-11-09, sup4 diagnostic runs; other names, sOld, did].
+def _sup4(pid, body, text=True):
+    return (f"sup4.{pid}", "ref rD\nref rNone\nref rH\narray_var aR\narray_var aIn\nfloat fA\nfloat fB\nfloat fC\nstring_var sOut\nBegin Function { }\n"
+            + _form("rD", NF["docref"]) + body, text, None, "")
+
+
+SUP4_PROBES = (
+    # A key of a five-element list in 0-4, a key of a two-key map, an empty list's
+    # (hypothesis: "1 1 -1").
+    [_sup4("randomkey", "let aR := Ar_List 10, 20, 30, 40, 50\nlet fA := Ar_GetRandomKey aR\n"
+           "let aIn := Ar_Map \"LALALA\"::1, \"TROLOLO\"::2\nlet sOut := Ar_GetRandomKeyMap aIn\nlet aR := Ar_List\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" ((fA >= 0) && (fA <= 4) && (fA == Floor fA)) ((sOut == \"LALALA\") || (sOut == \"TROLOLO\")) (Ar_GetRandomKey aR))"),
+     # Valid references, an empty one, the empty one inside an inner array searched with
+     # and without its dimension (hypothesis: "0 1 0 1").
+     _sup4("invalidrefs", "let aR := Ar_List PlayerREF, rD\nlet fA := Ar_HasInvalidRefs aR\nlet aR := Ar_List PlayerREF, rNone\nlet fB := Ar_HasInvalidRefs aR\n"
+           "let aIn := Ar_List rNone\nlet aR := Ar_List PlayerREF, aIn\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB (Ar_HasInvalidRefs aR) (Ar_HasInvalidRefs aR 1))"),
+     # The page's example: 3 8 5 [documented].
+     _sup4("setfloats", "let aR := Ar_List 3, 8, 5, 1\nAr_SetFloatsFrom aR fA fB fC\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
+     # A UDF two frames later writes an aux variable; read at once and two steps later
+     # (hypothesis: "0", then "1").
+     _sup4("nextframe.set", "PlayerREF.AuxVarErase \"*sup4\"\nCallFunctionNextFrame (Begin Function { }\nPlayerREF.AuxVarSetFlt \"*sup4\" 1\nEnd) 2\n"
+           "SetFunctionValue (PlayerREF.AuxVarGetFlt \"*sup4\")", False),
+     _sup4("nextframe.wait", "SetFunctionValue 0", False),
+     _sup4("nextframe.read", "SetFunctionValue (PlayerREF.AuxVarGetFlt \"*sup4\")\nPlayerREF.AuxVarErase \"*sup4\"", False),
+     # The probe game loads a save before the steps: its size, the co-save's, its name
+     # given, the last save's name before any save (hypothesis: "1 1 1 0"; NVForever
+     # writes no co-save and gives 0 for type 1 [decision]).
+     _sup4("saves", "let sOut := GetSaveName 1\nSetFunctionValue (sv_Construct \"%g %g %g %g\" ((GetLoadedSaveSize 0) > 0) ((GetLoadedSaveSize 1) > 0) "
+           "((Sv_Length sOut) > 0) ((Sv_Length (GetSaveName 0)) > 0))"),
+     # Indoors: the player's cell alone at depth 0, 2 and -1, no map markers (hypothesis:
+     # "1 1 1 0").
+     _sup4("near", "let aR := GetNearCells 0\nlet fA := Ar_Size aR\nlet aR := GetNearCells 2\nlet fB := Ar_Size aR\nlet aR := GetNearCells -1\nlet fC := Ar_Size aR\n"
+           "let aR := GetNearMapMarkers 2\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (Ar_Size aR))"),
+     # A probe query is no script form: nothing marked (hypothesis: "0 0"; the original may
+     # refuse the call outside a script).
+     _sup4("markonload", "let fA := MarkScriptOnLoad\nSetFunctionValue (sv_Construct \"%g %g\" fA (IsScriptMarkedOnLoad GSDocMitchellScript))"),
+     # Doc Mitchell's flag read, set, read, set back (hypothesis: "0 1 1").
+     _sup4("caught", "let fA := rD.SetCaughtPCPickpocketting\nlet fB := rD.SetCaughtPCPickpocketting 1\nlet fC := rD.SetCaughtPCPickpocketting\n"
+           "rD.SetCaughtPCPickpocketting fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
+     # The page names no return value: the text back (hypothesis: "Privet"), or nothing.
+     # The literal is "Привет" as cp1251 bytes, written with the cp1252 characters of those
+     # bytes: the probe text reaches the game as cp1252 [observed 2026-11-09: UTF-8 Cyrillic
+     # arrived as cp1252 bytes].
+     _sup4("translit", "let sOut := TranslitText \"Ïðèâåò\"\nSetFunctionValue sOut")]
+)
+SETS.update({"sup4": SUP4_PROBES})
+WRITING_SETS |= {"sup4"}
+
+
 # jg8 (reads only, nothing changed; #1007): JohnnyGuitar batch 8 (docs/spec-notes/ext-jg8.md):
 # file hashes of Data\Credits.txt, loaded archives, a world map icon's DDS header, the
 # system colours, the sleep/wait menu's state outside it, Ar_SortEditor on Stimpak
