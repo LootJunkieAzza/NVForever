@@ -2169,6 +2169,9 @@ fn open_settings(page: &mut Page, view: &mut PauseView, kept: Option<&'static st
     let (scope, selected, scroll) = view.last.unwrap_or((kept.map_or_else(SettingsScope::default, SettingsScope::Tab), None, 0));
     show_scope(page, view, scope);
     view.scroll = scroll;
+    // The window as it was left: its row counts as followed, so it is not pulled back up
+    // to its heading (a row gone since is followed anew by `normalize`).
+    view.followed = selected;
     *page = Page::Settings { selected };
 }
 
@@ -2912,7 +2915,8 @@ fn choose(
     // [design: #1953; docs/design/screen-menu.md §3.1].
     let hover = if matches!(*page, Page::Settings { .. }) && !over {
         pointed.iter().find_map(|(s, b)| match (s, b) {
-            (PointerState::Hovered | PointerState::Pressed, PauseButton::Rail(item)) => Some(*item),
+            // Only a pointer resting on it: a press keeps its state when dragged away.
+            (PointerState::Hovered, PauseButton::Rail(item)) => Some(*item),
             _ => None,
         })
     } else {
