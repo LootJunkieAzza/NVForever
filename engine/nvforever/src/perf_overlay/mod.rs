@@ -119,7 +119,7 @@ impl Plugin for PerfOverlayPlugin {
     fn build(&self, app: &mut App) {
         // In Update: the panel is drawn at the UI scale, fixed once the INI is read
         // (`nvf_play::interface::fix_ui_scale`, PostStartup).
-        app.insert_resource(FpsCounter { show: self.0, ..default() }).init_resource::<Overlay>().add_systems(Update, (switch, sample, draw).chain());
+        app.insert_resource(FpsCounter { show: self.0, ..default() }).init_resource::<Overlay>().add_systems(Update, (switch, split::note_gpu_frame, sample, draw).chain());
         // The GPU timestamps are a plugin, added now or not at all: from the INI as the
         // settings will apply it (`split::timestamps_at_start`).
         split::build(app, split::timestamps_at_start(self.0, self.1.as_ref()));

@@ -21,8 +21,9 @@
 //!   wait is the display's time. GPU time is what tells a GPU-bound frame.
 //! - **GPU**: the sum of the top-level render passes' GPU times from GPU timestamp
 //!   queries, as Bevy's render diagnostics give them (`RenderDiagnosticsPlugin`,
-//!   `readings::gpu_frame_ms`), each the mean of its measurements since the row began to
-//!   show ([`mean_since`]), so an earlier showing's are never in it. Passes Bevy does not
+//!   `readings::gpu_frame_ms`), each the mean of its measurements of the frames recorded
+//!   in the reading's half second and since the row began to show ([`mean_where`],
+//!   [`GpuFrames`]), so an earlier showing's are never in it. Passes Bevy does not
 //!   time (the shadow passes, `graphics.rs`) are not in it, so it is a lower bound of the
 //!   GPU's frame. The plugin can only be added when the app is built: it is added at the
 //!   start when the INI, applied as the settings will apply it, has the split row and the
@@ -266,8 +267,6 @@ pub fn build(app: &mut App, timestamps: bool) {
         .insert_resource(OverlayAddedDiagnostics(added))
         .init_resource::<MainSpan>()
         .init_resource::<GpuFrames>()
-        // After `PreUpdate`, where Bevy puts the render diagnostics in the store.
-        .add_systems(Update, note_gpu_frame)
         .add_systems(First, main_begin.before(bevy::time::TimeSystems))
         .add_systems(Last, main_end.before(crate::frame_pace::cap_rate));
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
@@ -405,12 +404,12 @@ fn render_end(clock: Res<SplitClock>, mut span: ResMut<RenderSpan>) {
     }
 }
 
-/// The mean of a render pass's measurements `(when, value)` taken at or after `since`, and
+/// The mean of a render pass's measurements `(when, value)` whose time `keep` takes, and
 /// the seconds from the last of them to `now`; none without one.
-pub fn mean_since(measurements: impl IntoIterator<Item = (Instant, f64)>, since: Instant, now: Instant) -> Option<(f64, f64)> {
+pub fn mean_where(measurements: impl IntoIterator<Item = (Instant, f64)>, keep: impl Fn(Instant) -> bool, now: Instant) -> Option<(f64, f64)> {
     let (mut sum, mut n, mut last) = (0.0, 0u32, None::<Instant>);
     for (at, v) in measurements {
-        if at < since || !v.is_finite() {
+        if !keep(at) || !v.is_finite() {
             continue;
         }
         sum += v;
@@ -432,10 +431,12 @@ pub struct GpuFrames(std::collections::VecDeque<(Instant, Instant)>);
 const GPU_FRAMES_KEPT: Duration = Duration::from_secs(1);
 
 impl GpuFrames {
-    /// The import time from which the store's measurements are of frames recorded at or
-    /// after `cut`; none before such a frame came.
-    pub fn imported_from(&self, cut: Instant) -> Option<Instant> {
-        self.0.iter().find(|(_, recorded)| *recorded >= cut).map(|(imported, _)| *imported)
+    /// When the frame whose measurements the store stamped `imported` was recorded; none
+    /// for a frame not noted (put in before the row showed). Each measurement is looked up
+    /// on its own: the recorder can hand its frames over out of order (it takes finished
+    /// frames with `swap_remove`), so the import order is not the recording order.
+    pub fn recorded_for(&self, imported: Instant) -> Option<Instant> {
+        self.0.iter().rev().find(|(at, _)| *at == imported).map(|(_, recorded)| *recorded)
     }
 
     fn note(&mut self, imported: Instant, recorded: Instant, now: Instant) {
@@ -449,7 +450,9 @@ impl GpuFrames {
 }
 
 /// Notes the frame Bevy last put in the store, while the row shows; forgets them while not.
-fn note_gpu_frame(clock: Res<SplitClock>, recorded: Option<Res<RenderDiagnosticsRecorded>>, mut frames: ResMut<GpuFrames>) {
+/// After `PreUpdate` (where Bevy puts the render diagnostics in the store) and before the
+/// overlay's reading (`super::sample`), in its chain.
+pub(super) fn note_gpu_frame(clock: Res<SplitClock>, recorded: Option<Res<RenderDiagnosticsRecorded>>, mut frames: ResMut<GpuFrames>) {
     if !clock.0.is_on() {
         if !frames.0.is_empty() {
             frames.0.clear();
@@ -477,15 +480,17 @@ impl SplitInputs<'_> {
         let m = self.clock.0.take();
         let now = Instant::now();
         // The frames of this window recorded since the showing began: the store stamps a
-        // measurement when it is put in, a few frames after its frame, so the cut is found
-        // in recording time and turned into the import time it starts from (the vendored
-        // `bevy_render` diagnostic `RenderDiagnosticsRecorded`, `NVForever recorded
-        // instant`). The GPU time then covers the window main and render do [design].
+        // measurement when it is put in, a few frames after its frame, so each is kept by
+        // its frame's recording time (the vendored `bevy_render` diagnostic
+        // `RenderDiagnosticsRecorded`, `NVForever recorded instant`; [`GpuFrames`]). The
+        // GPU time then covers the window main and render do [design].
         let window = Duration::from_secs_f32(WINDOW);
-        let since = self.clock.0.began().map(|b| b.max(now.checked_sub(window).unwrap_or(b))).and_then(|cut| self.frames.imported_from(cut));
-        let gpu_ms = self.store.as_deref().zip(since).and_then(|(store, since)| {
+        let cut = self.clock.0.began().map(|b| b.max(now.checked_sub(window).unwrap_or(b)));
+        let frames = &*self.frames;
+        let gpu_ms = self.store.as_deref().zip(cut).and_then(|(store, cut)| {
+            let keep = |imported: Instant| frames.recorded_for(imported).is_some_and(|r| r >= cut);
             gpu_frame_ms(store.iter().filter_map(|d| {
-                let (mean, age) = mean_since(d.measurements().map(|m| (m.time, m.value)), since, now)?;
+                let (mean, age) = mean_where(d.measurements().map(|m| (m.time, m.value)), keep, now)?;
                 Some((d.path().as_str(), mean, age))
             }))
         });
@@ -522,20 +527,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gpu_frames_turn_a_recording_cut_into_an_import_time() {
+    fn gpu_frames_give_each_import_its_recording_time() {
         let t0 = Instant::now();
         let at = |ms: u64| t0 + Duration::from_millis(ms);
         let mut f = GpuFrames::default();
-        // Frames recorded at 0, 16, 33 ms, each put in the store 50 ms later.
-        for r in [0, 16, 33] {
-            f.note(at(r + 50), at(r), at(r + 50));
+        // Frames recorded at 16, 0 (handed over out of order) and 33 ms, put in the store
+        // at 50, 66 and 83 ms.
+        for (imported, recorded) in [(50, 16), (66, 0), (83, 33)] {
+            f.note(at(imported), at(recorded), at(imported));
         }
         // The same import noted twice is one frame.
         f.note(at(83), at(33), at(83));
         assert_eq!(f.0.len(), 3);
-        assert_eq!(f.imported_from(at(10)), Some(at(66)), "the first frame recorded at or after the cut");
-        assert_eq!(f.imported_from(at(0)), Some(at(50)));
-        assert_eq!(f.imported_from(at(40)), None, "no frame recorded since");
+        assert_eq!(f.recorded_for(at(66)), Some(at(0)));
+        assert_eq!(f.recorded_for(at(40)), None, "an import not noted");
+        // A cut at 10 ms keeps the frames recorded at 16 and 33, not the late older one.
+        let m = [(at(50), 2.0), (at(66), 100.0), (at(83), 4.0)];
+        let keep = |t: Instant| f.recorded_for(t).is_some_and(|r| r >= at(10));
+        assert_eq!(mean_where(m, keep, at(100)).map(|(mean, _)| mean), Some(3.0));
         // Frames put in over a second before are forgotten.
         f.note(at(2_000), at(1_950), at(2_000));
         assert_eq!(f.0.len(), 1);
@@ -709,10 +718,10 @@ mod tests {
         let t0 = Instant::now();
         let at = |ms: u64| t0 + Duration::from_millis(ms);
         let m = [(at(0), 9.0), (at(100), 9.0), (at(600), 2.0), (at(700), 3.0), (at(800), f64::NAN)];
-        let (mean, age) = mean_since(m, at(500), at(1_200)).expect("two since");
+        let (mean, age) = mean_where(m, |t| t >= at(500), at(1_200)).expect("two since");
         assert!((mean - 2.5).abs() < 1e-9, "the earlier showing's 9 ms are left out: {mean}");
         assert!((age - 0.5).abs() < 1e-9, "{age}");
-        assert_eq!(mean_since(m[..2].iter().copied(), at(500), at(1_200)), None, "none since: no GPU time yet");
+        assert_eq!(mean_where(m[..2].iter().copied(), |t| t >= at(500), at(1_200)), None, "none since: no GPU time yet");
     }
 
     #[test]
