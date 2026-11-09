@@ -836,6 +836,57 @@ order = [[
 ]]
 
 [[scenario]]
+name = "perf-overlay-rows"
+source = "engine/nvforever/src/perf_overlay/ (issue #1868): --fps shows the performance overlay with its default rows, and the settings page turns on the rows that are off by default (the frame graph, the frame split, the loaded counts) and picks the slowest frame for the frame rate row; each row logs its first reading. This run keeps no INI, so the split had no GPU timestamps from the start: its GPU part is matched as optional (and is absent on a device without timestamp queries)"
+areas = ["renderer", "settings"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/stress_sample.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/memory_budget.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:fps-counter-graph,11.5:fps-counter-split,12:fps-counter-loaded,12.5:fps-counter-low=Slowest frame" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps"]
+run_seconds = 18
+expect = [
+  { re = 'fps counter: first reading \d+ fps, [\d.]+ ms, slowest [\d.]+ ms, 1% low [\d.]+ ms', label = "the frame rate row's first reading" },
+  { text = "settings: fps-counter-graph on", label = "the frame graph row is turned on" },
+  { re = 'fps counter: first graph drawn \(\d+ x \d+ pixels\)', label = "the frame graph is drawn" },
+  { text = "settings: fps-counter-split on", label = "the frame split row is turned on" },
+  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms(, GPU [\d.]+ ms)?$', label = "the frame split's first reading (main and render; GPU where timestamps were taken)" },
+  { text = "settings: fps-counter-loaded on", label = "the loaded row is turned on" },
+  { re = 'fps counter: first loaded reading \d+ cells, [1-9]\d* references drawn, \d+ actors, [1-9]\d* entities', label = "the loaded row's first counts, Goodsprings loaded" },
+  { text = "settings: fps-counter-low Slowest frame", label = "the frame rate row's last figure is the slowest frame" },
+]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the graph image is written" }]
+
+[[scenario]]
+name = "perf-overlay-split-write"
+source = "issue #1868: the first half of the frame split's GPU round trip (perf-overlay-split-gpu starts in the same home): the settings page's Defaults, then the frame split row turned on, which is stored in the home's NVForever.ini"
+note = "Defaults first: the home's INI may hold the row on from an earlier run, and the settings aid flips a switch"
+areas = ["renderer", "settings"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "perf-overlay-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,13:fps-counter-split", NVF_PLAY_TEST_PAUSE_MENU = "12:defaults" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps"]
+run_seconds = 17
+expect = [
+  { text = "pause menu: settings back to their defaults", label = "Defaults turns the split row off" },
+  { text = "settings: fps-counter-split on", label = "the split row is turned on and stored" },
+  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms', label = "the split row reads" },
+]
+order = [["pause menu: settings back to their defaults", "settings: fps-counter-split on"]]
+
+[[scenario]]
+name = "perf-overlay-split-gpu"
+source = "issue #1868: the second half: the next start reads the split row on from the home perf-overlay-split-write kept it in, takes GPU timestamps from the start (Bevy's render diagnostics) and the split's first reading has its GPU part where the device offers timestamp queries"
+note = "The GPU part is matched as optional (a device without timestamp queries has none, and says so); the run must not say the timestamps were not taken from the start"
+areas = ["renderer", "settings"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "perf-overlay-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps"]
+run_seconds = 14
+expect = [
+  { text = "fps counter: the frame split row is on: GPU timestamps are taken for its GPU time", count = 1, label = "the INI's split row adds the GPU timestamps at the start" },
+  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms(, GPU [\d.]+ ms)?$', label = "the split's first reading, its GPU part where the device has timestamps" },
+]
+forbid = [{ text = "GPU timestamps were not taken from the start", label = "the timestamps were added at the start" }, { text = "Caught rendering error", label = "a rendering (validation) error with the timestamps" }]
+
+[[scenario]]
 name = "graphics-settings"
 source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, display sync (vsync off) and frame-rate limit change while the game runs, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
