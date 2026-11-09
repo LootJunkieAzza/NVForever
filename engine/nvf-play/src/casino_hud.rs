@@ -142,7 +142,7 @@ const BOARD_TOP: f32 = 45.0;
 /// The leaderboard at the top middle of the view: "<winner> WINS" over a line, then the
 /// places numbered from 1, each over a line.
 pub fn leaderboard(p: &mut ChildSpawnerCommands, f: &CasinoFaces, winner: &str, places: &[Place]) {
-    let title = format!("{} WINS", winner.to_uppercase());
+    let title = win_title(winner);
     let face = &f.faces.entry;
     let small = &f.faces.small;
     let title_h = f.title.font.size * 1.2;
@@ -167,6 +167,12 @@ pub fn leaderboard(p: &mut ChildSpawnerCommands, f: &CasinoFaces, winner: &str, 
     });
 }
 
+/// "<NAME> WINS"; "YOU WIN" and "<A> & <B> WIN" for this player and for teams.
+pub fn win_title(winner: &str) -> String {
+    let verb = if winner == "You" || winner.contains(" & ") { "WIN" } else { "WINS" };
+    format!("{} {verb}", winner.to_uppercase())
+}
+
 /// A help line at the HUD's bottom left, in the HUD font.
 pub fn help_line(p: &mut ChildSpawnerCommands, f: &CasinoFaces, lines: &str) {
     let face = &f.faces.small;
@@ -189,5 +195,12 @@ mod tests {
         assert_eq!(ranked(2, &[100, 40, 0]), vec![2, 1, 0]);
         // Ties keep seat order.
         assert_eq!(ranked(1, &[100, 0, 100, 100]), vec![1, 0, 2, 3]);
+    }
+
+    #[test]
+    fn the_title_agrees_with_its_winner() {
+        assert_eq!(win_title("Guest"), "GUEST WINS");
+        assert_eq!(win_title("You"), "YOU WIN");
+        assert_eq!(win_title("You & Third"), "YOU & THIRD WIN");
     }
 }
