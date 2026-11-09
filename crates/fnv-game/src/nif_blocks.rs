@@ -52,6 +52,10 @@ pub struct SceneMirror {
     trees: HashMap<FormId, Vec<SceneNode>>,
     watched: HashSet<FormId>,
     edits: Vec<SceneEdit>,
+    /// The shapes whose vertices a script asked for (SUP's NifBlockGetVerticles), by
+    /// reference and lower-case name, and what the engine told of them.
+    vert_wanted: HashSet<(FormId, String)>,
+    verts: HashMap<(FormId, String), Vec<[f32; 3]>>,
 }
 
 impl SceneMirror {
@@ -78,6 +82,59 @@ impl SceneMirror {
     fn tree(&mut self, r: FormId) -> Option<&mut Vec<SceneNode>> {
         self.watched.insert(r);
         self.trees.get_mut(&r)
+    }
+
+    /// A node of a reference's tree as the mirror holds it now (the reference watched
+    /// from now on); `None` without the tree or the node.
+    pub fn node_now(&mut self, r: FormId, node: &str) -> Option<SceneNode> {
+        let t = self.tree(r)?;
+        find(t, node).map(|i| t[i].clone())
+    }
+
+    /// A translation, rotation or scale for the engine, shown in the mirror at once as
+    /// the NIF block setters' (SUP's interpolations, `crate::nvse_sup7`).
+    pub fn push_edit(&mut self, e: SceneEdit) {
+        let (r, node) = match &e {
+            SceneEdit::Translation { r, node, .. } | SceneEdit::Rotation { r, node, .. } | SceneEdit::Scale { r, node, .. } => (*r, node.clone()),
+            _ => {
+                self.edits.push(e);
+                return;
+            }
+        };
+        if let Some(t) = self.tree(r) {
+            if let Some(i) = find(t, &node) {
+                match &e {
+                    SceneEdit::Translation { v, .. } => t[i].translation = *v,
+                    SceneEdit::Rotation { v, .. } => t[i].rotation = *v,
+                    SceneEdit::Scale { v, .. } => t[i].scale = *v,
+                    _ => {}
+                }
+            }
+        }
+        self.edits.push(e);
+    }
+
+    /// A shape's vertices as the engine last told them, in the shape's own space; asked
+    /// for from now on. `None` until told, or when the reference draws no such shape.
+    pub fn vertices(&mut self, r: FormId, node: &str) -> Option<Vec<[f32; 3]>> {
+        let key = (r, node.to_ascii_lowercase());
+        let v = self.verts.get(&key).cloned();
+        self.vert_wanted.insert(key);
+        v
+    }
+
+    /// The shapes whose vertices the engine should tell (reference, lower-case name).
+    pub fn wanted_vertices(&self) -> impl Iterator<Item = &(FormId, String)> + '_ {
+        self.vert_wanted.iter()
+    }
+
+    /// The engine tells a shape's vertices (none: it draws no shape of that name).
+    pub fn set_vertices(&mut self, r: FormId, node: &str, v: Option<Vec<[f32; 3]>>) {
+        let key = (r, node.to_ascii_lowercase());
+        match v {
+            Some(v) => self.verts.insert(key, v),
+            None => self.verts.remove(&key),
+        };
     }
 }
 
