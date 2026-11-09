@@ -65,6 +65,7 @@ mod frame_telemetry;
 mod blit_warm;
 mod handoff;
 mod furniture;
+mod fuller_fire;
 mod fillet_stage;
 mod graphics;
 mod grass;
