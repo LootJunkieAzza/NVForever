@@ -965,6 +965,9 @@ pub mod menus {
     /// GetSelectedItemRef, "Pipboy DATA Menu (1023) - Quest/Note/Challenge";
     /// GetMenuTargetRef, "1023 The Map Marker on which the mouse is over"].
     pub const MAP: u16 = 1023;
+    /// The sleep/wait menu (`nvf-play` wait.rs opens it as 1012) [documented: GECK wiki
+    /// MenuMode].
+    pub const SLEEP_WAIT: u16 = 1012;
     /// The Pip-Boy's repair list (`crate::repair::REPAIR_MENU`) [documented: GECK wiki
     /// GetSelectedItemRef, "Pipboy Repair Menu (1035)"].
     pub const REPAIR: u16 = crate::repair::REPAIR_MENU;
@@ -1244,6 +1247,17 @@ pub struct Game<'a> {
     /// SUP batch 6's state: the mouse, the cursor, the debug texts, the lockpick menu …
     /// (`crate::nvse_sup6`; the engine fills and takes it).
     pub sup: crate::nvse_sup6::SupState,
+    /// Lutana batch 3's perk entry copies, face backups and the player's last cell
+    /// (`crate::nvse_lu3`). Not saved [hypothesis: the pages' session changes].
+    pub lu3: crate::nvse_lu3::Lu3State,
+    /// SUP batch 7's NIF block interpolations and HUD bar sources (`crate::nvse_sup7`).
+    /// Not saved [hypothesis: the pages say a hot reload loses the variables set].
+    pub sup7: crate::nvse_sup7::Sup7State,
+    /// SUP batch 4's scripts marked since the last load (`crate::nvse_sup4`).
+    pub sup4: crate::nvse_sup4::Sup4State,
+    /// The last save written and the last loaded this session; the engine sets them, a
+    /// load keeps them ([`Game::take_session`], `crate::nvse_sup4`).
+    pub save_files: crate::nvse_sup4::SaveFiles,
     /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
     pub traits: crate::nvse_traits::TraitState,
     /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
@@ -1878,6 +1892,10 @@ pub struct GameSnapshot {
     /// ModExtraMiscStat, "Stats and their values are stored in the save"].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra_misc_stats: BTreeMap<String, f64>,
+    /// JIP's variables added at run time and the references' extra data [documented:
+    /// AddScriptVariable, SetRefExtraData, "saved with the game"] (`crate::nvse_jip10`).
+    #[serde(default, skip_serializing_if = "crate::nvse_jip10::Jip10Saved::is_empty")]
+    pub jip10: crate::nvse_jip10::Jip10Saved,
 }
 
 impl GameSnapshot {
@@ -2066,6 +2084,10 @@ pub struct Session {
     jip_kept: crate::jip_events::JipKept,
     /// The dialogue records scripts changed (`crate::dialogue_edits`).
     dialogue_edits: crate::dialogue_edits::DialogueEdits,
+    /// SUP's last save and load (`crate::nvse_sup4`).
+    save_files: crate::nvse_sup4::SaveFiles,
+    /// SUP's CallFunctionNextFrame calls with removeOnLoad 0 (`crate::delayed`).
+    kept_calls: Vec<crate::delayed::Delayed>,
 }
 
 /// An event handler: the event (lower case), the function or lambda, the filters by
@@ -2195,6 +2217,10 @@ impl<'a> Game<'a> {
             showoff: Default::default(),
             mod_files: Default::default(),
             sup: Default::default(),
+            lu3: Default::default(),
+            sup7: Default::default(),
+            sup4: Default::default(),
+            save_files: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
             anim_folders: Default::default(),
@@ -2355,10 +2381,15 @@ impl<'a> Game<'a> {
             EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, .. } => Some((item, count)),
             _ => None,
         };
+        // JohnnyGuitar's failed-quest and reputation handlers (`crate::nvse_jg8`).
+        let jg8 = self.jg8_from_event(&kind);
         self.events.push(Event { frame: self.frame, kind });
         // Items coming to the player count towards the acquire challenges (`crate::challenges`).
         if let Some((item, count)) = acquired {
             self.challenge_acquired(item, count);
+        }
+        if let Some((ev, keys, args)) = jg8 {
+            self.jg8_fire(ev, &keys, args);
         }
     }
 
@@ -3154,7 +3185,7 @@ impl<'a> Game<'a> {
             .collect();
         let pp = self.pp_take_session();
         let sr_registered = self.sr.take_registered();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session() }
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls() }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -3168,6 +3199,8 @@ impl<'a> Game<'a> {
         self.sr.put_registered(s.sr_registered);
         self.jip.kept = s.jip_kept;
         self.dialogue_edits = s.dialogue_edits;
+        self.save_files = s.save_files;
+        self.put_kept_calls(s.kept_calls);
     }
 
     /// Run every handler registered for `event` whose filters match, highest priority
@@ -3273,6 +3306,10 @@ impl<'a> Game<'a> {
     fn run_blocks(&mut self, key: InstKey, script: FormId, event: u16, subject: Option<Value>, ctx: RunCtx, coded_only: bool) -> bool {
         let data = self.data;
         let Some(unit) = data.script(script) else { return false };
+        // SetScriptDisabled and SetScriptEventDisabled (`crate::nvse_jip10`).
+        if self.script_blocked(key, script, event) {
+            return false;
+        }
         let mut ran = false;
         let coded = |b: &&Block| !coded_only || b.params.as_ref().is_some_and(|p| !p.is_empty());
         for (i, b) in unit.program.blocks.iter().enumerate().filter(|(_, b)| b.event == event && coded(b)) {
@@ -3504,6 +3541,8 @@ impl<'a> Game<'a> {
         self.projectiles_tick(dt as f32);
         self.jg_event(crate::nvse_jip3::JgEvent::RenderUpdate, None);
         self.hud_tick();
+        self.lu3_tick();
+        self.sup7_tick();
         self.expire_aux_timers();
         self.input.next_frame();
         self.turned.clear();
@@ -4156,6 +4195,13 @@ impl<'a> Game<'a> {
             _ => self.line_seconds(speaker, info),
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
+        // JohnnyGuitar's general subtitle handlers: (speaker, the first response's text,
+        // topic) [hypothesis: the arguments; the page gives none] (`crate::nvse_jg8`).
+        if self.jg8_listening(crate::nvse_jg8::Ev::GeneralSubtitle) {
+            let text = def.response_order().first().map(|&r| def.responses[r].text.clone()).unwrap_or_default();
+            let sp = fnv_script::vm::XVal::Ref(speaker.0);
+            self.jg8_fire(crate::nvse_jg8::Ev::GeneralSubtitle, std::slice::from_ref(&sp), vec![sp.clone(), fnv_script::vm::XVal::Str(text), fnv_script::vm::XVal::Ref(topic.0)]);
+        }
         self.cover_info(info);
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         // [design] Mark this line before callbacks can finish it or replace it.
@@ -4448,6 +4494,9 @@ impl<'a> Game<'a> {
         // before anything in them runs (`crate::respawn`).
         self.cells_left(&left);
         let reset: Vec<FormId> = new.iter().copied().filter(|&c| self.cell_entered(c).is_some()).collect();
+        // JohnnyGuitar's seen-cell and processing-level handlers (`crate::nvse_jg8`).
+        let first_seen: Vec<FormId> = new.iter().copied().filter(|c| !self.forms.visited_cells.contains(c)).collect();
+        let levels_before = self.jg8_listening(crate::nvse_jg8::Ev::ProcessLevel).then(|| self.package_actors());
         self.forms.visited_cells.extend(new.iter().copied());
         // Their encounter zones get a level, their actors and containers theirs, before
         // anything rolls their carried items (`crate::zones`).
@@ -4495,6 +4544,7 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        self.jg8_loaded(&first_seen, levels_before);
     }
 
     /// Actors in loaded cells that never were loaded put on their outfit and take up
@@ -4879,7 +4929,8 @@ impl<'a> Game<'a> {
         // on the player with its first effect].
         let mut took_ids: Vec<u32> = Vec::new();
         for (index, e) in items.iter().enumerate() {
-            if mods.only.is_some_and(|o| o != index) {
+            // RemoveNthEffect's entries (`crate::nvse_jip11`).
+            if mods.only.is_some_and(|o| o != index) || self.effect_removed(source, index) {
                 continue;
             }
             let label = format!("{} effect {index}", data.name(source));
@@ -5431,6 +5482,7 @@ impl<'a> Game<'a> {
             form_instances: self.pp.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
             object_groups: self.anims.asked_all().clone(),
             extra_misc_stats: self.jip2.misc_stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            jip10: self.jip10_saved(),
         }
     }
 
@@ -5504,6 +5556,7 @@ impl<'a> Game<'a> {
         g.pp_restore_instances(&s.form_instances);
         g.anims.restore_asked(s.object_groups.clone());
         g.jip2.misc_stats = s.extra_misc_stats.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        g.restore_jip10(&s.jip10);
         g.awareness.actors = s.awareness.clone();
         g.awareness.forced = s.forced_combat.clone();
         // A save from before `fighting` was saved cannot say which starts had run: everyone
@@ -5983,6 +6036,22 @@ impl Host for Exec<'_, '_> {
         }
     }
 
+    /// A global, another script's variable or a local of a script instance, kept for
+    /// SUP's HudBarSetValueScriptVar (`crate::nvse_sup7`); a result script's locals
+    /// have no place.
+    fn var_place(&mut self, var: &VarRef) -> Option<u32> {
+        use crate::nvse_sup7::VarPlace;
+        let p = match (var.on, var.var) {
+            (_, VarSlot::Global { global }) => VarPlace::Global(self.global_form(global).ok()?),
+            (None, VarSlot::Local { index, .. }) => match &self.locals {
+                Locals::Instance(k) => VarPlace::Var(*k, index),
+                Locals::Temp(_) => return None,
+            },
+            (Some(r), VarSlot::Local { index, .. }) => VarPlace::Var(self.remote(r).ok()?.0, index),
+        };
+        Some(self.game.add_var_place(p))
+    }
+
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
         let on = on.and_then(|v| v.as_form()).map(FormId);
         let ctx = self.ctx;
@@ -6005,7 +6074,8 @@ impl Host for Exec<'_, '_> {
     }
 
     fn objective_text(&mut self, quest: u32, index: i32) -> Option<String> {
-        self.game.data.quests.get(&FormId(quest))?.objectives.get(&index)?.text.clone()
+        // SetObjectiveText's first (`crate::nvse_jip10`).
+        self.game.objective_text(FormId(quest), index)
     }
 
     fn calling_ref(&mut self) -> Option<u32> {
