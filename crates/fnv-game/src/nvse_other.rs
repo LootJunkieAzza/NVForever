@@ -101,6 +101,8 @@ pub struct OtherState {
     pub jg5: crate::nvse_jg5::Jg5State,
     /// JohnnyGuitar batch 6's state (`nvse_jg6`).
     pub jg6: crate::nvse_jg6::Jg6State,
+    /// JohnnyGuitar batch 7's switches, settings and queued texts (`nvse_jg7`).
+    pub jg7: crate::nvse_jg7::Jg7State,
     /// JohnnyGuitar batch 8's handlers, custom map marker and radio tuning (`nvse_jg8`).
     pub jg8: crate::nvse_jg8::Jg8State,
 }

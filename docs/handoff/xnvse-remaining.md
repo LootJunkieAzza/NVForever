@@ -153,12 +153,17 @@ temporary ingestible effects, available perks, hotkey slots, the owner's trespas
 visited and expired cells, lighting template cells, the moon phase, radios, talking
 activator actors, prompt overrides, primitives, effect shaders, armed mines, CallPerRef and
 CallPerMobileObject; probe set jg6 written, not run yet). JohnnyGuitar 184 → 147.
+JohnnyGuitar batch 7: 38 (#1007, ext-jg7.md: the combat music, level-up menu, menu arrow key,
+yield timer, viewmodel clip, NiLOD and save switches, UI update sounds, reputation and map
+marker icons, barter hiding, the queued cinematic and objective texts, TogglePipBoy, the
+engine requests, HSVtoRGB and RGBtoHSV into script variables, GetJohnnyPatch,
+GetDefaultHeapSize, IsMenuPaused; probe set jg7 written, not run yet). JohnnyGuitar 147 → 109.
 JohnnyGuitar batch 8: 31 (#1007, ext-jg8.md: the last 14 event handlers (failed quests, lost
 limbs, seen cells, processing levels, NPCs' actor values, reputations, NPC responses, sleep and
 wait, general subtitles, the crosshair, settings, keyboard selection, radio sounds, taking items
 back), the custom map marker, MD5File and SHA1File, IsBSALoaded, the DDS texture getters,
 GetPixelFromBMP, Ar_Shuffle and Ar_SortEditor, the system colours, the sleep/wait menu state,
-TuneRadioRef; probe set jg8 written, not run yet). JohnnyGuitar 147 → 116 on its own branch.
+TuneRadioRef; probe set jg8 written, not run yet). JohnnyGuitar 109 → 78.
 ShowOff batch 5: the last 37 (#1010, ext-showoff.md §8: the level-up and pause menus on request, live
 explosions, the shot switches, fast travel, detection and combat counts, VATS and item values, the
 player's small states; from the pages, not probed). Census after it, beside batch 4: 565 (ShowOff 71 → 34;
@@ -181,6 +186,11 @@ nothing values by the owner's decisions of 2026-11-08; not probed yet, set sup5)
 it: 560 (SUP 93 → 51).
 With both ShowOff batch 4 and SUP batch 5 merged: 526 (ShowOff 37, SUP 51) [hypothesis: 602 − 34 − 42;
 the extender_census test decides].
+Lutana batch 3: the last 24 (#1009, ext-lutana.md §10: the activator prompt, ANIO and LSCT fields and the
+loading screen's texture as session record edits, race, template and template flags, CopyFaceGenFrom
+through the appearance changes the engine draws, SetBaseForm, EquipItemData and SetEquippedData,
+SetPerkRank, the perk entry setters read by the perk effects, GetPlayerRegions, the cell enter and exit
+events, GetCellRefs, SetVariableFloat, BaseAddItemHealth; set lu3, not probed yet). LU 24 → 0.
 JIP batch 10: 36 (#1006, jip-scripts-10.md: quest objectives and their targets, the quest lists,
 SetStageAlt, perks and factions, script variables added at run time (saved), scripts and event
 blocks switched off, FakeScriptEvent, linked and enable children, the references' extra data

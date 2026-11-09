@@ -315,10 +315,13 @@ fn nif_block_materials_and_places() {
     // A missing block: 0, the variables kept [documented].
     assert_eq!(place(&mut g, "GetNifBlockTranslationAlt \"Panel:1\" fX fY fZ 1\nlet fR := DoorRef.GetNifBlockTranslationAlt \"None\" fX fY fZ 1"), "0 10.00 25.00 40.00");
     // The rotation: to the parent (none), then the world's (the arm's), then intrinsic.
-    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Panel:1\" fX fY fZ"), "1 0.00 0.00 0.00");
-    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Panel:1\" fX fY fZ 1"), "1 0.00 0.00 90.00");
+    // No turn gives Y as asin(-0), -0, and `%.2f` keeps its sign [observed: `%f` of -0,
+    // #1919; the original's nif-blocks nb.obj.rot reads "90.00 -0.00 90.00"; hypothesis:
+    // the same -0 for no turn at all].
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Panel:1\" fX fY fZ"), "1 0.00 -0.00 0.00");
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Panel:1\" fX fY fZ 1"), "1 0.00 -0.00 90.00");
     g.scene.set_tree(r, vec![node("Scene Root", None, [0.0; 3], [30.0, 0.0, 90.0], None)]);
-    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ"), "1 30.00 0.00 90.00");
+    assert_eq!(place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ"), "1 30.00 -0.00 90.00");
     let intrinsic = place(&mut g, "GetNifBlockRotationAlt \"Scene Root\" fX fY fZ 2");
-    assert_ne!(intrinsic, "1 30.00 0.00 90.00", "the same turn about the turning axes: other angles");
+    assert_ne!(intrinsic, "1 30.00 -0.00 90.00", "the same turn about the turning axes: other angles");
 }

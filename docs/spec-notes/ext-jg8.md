@@ -9,7 +9,7 @@ named, in our own words]; RFC 1321 (MD5) and RFC 3174 (SHA-1); the DDS layout of
 Not probed yet: probe set `jg8` (`tools/capture/jip_probes.py`) and lab scenario
 `L5.ext.jg8` are written, not run. Tests: `crates/fnv-game/tests/jg8.rs`.
 
-31 functions. Census on this branch: JohnnyGuitar 147 → 116.
+31 functions. Census with batch 7 (#1908): JohnnyGuitar 109 → 78.
 
 ## 1. Event handlers
 

@@ -1247,6 +1247,9 @@ pub struct Game<'a> {
     /// SUP batch 6's state: the mouse, the cursor, the debug texts, the lockpick menu …
     /// (`crate::nvse_sup6`; the engine fills and takes it).
     pub sup: crate::nvse_sup6::SupState,
+    /// Lutana batch 3's perk entry copies, face backups and the player's last cell
+    /// (`crate::nvse_lu3`). Not saved [hypothesis: the pages' session changes].
+    pub lu3: crate::nvse_lu3::Lu3State,
     /// SUP batch 7's NIF block interpolations and HUD bar sources (`crate::nvse_sup7`).
     /// Not saved [hypothesis: the pages say a hot reload loses the variables set].
     pub sup7: crate::nvse_sup7::Sup7State,
@@ -2205,6 +2208,7 @@ impl<'a> Game<'a> {
             showoff: Default::default(),
             mod_files: Default::default(),
             sup: Default::default(),
+            lu3: Default::default(),
             sup7: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
@@ -3524,6 +3528,7 @@ impl<'a> Game<'a> {
         self.projectiles_tick(dt as f32);
         self.jg_event(crate::nvse_jip3::JgEvent::RenderUpdate, None);
         self.hud_tick();
+        self.lu3_tick();
         self.sup7_tick();
         self.expire_aux_timers();
         self.input.next_frame();
