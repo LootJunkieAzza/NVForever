@@ -2236,7 +2236,13 @@ impl Vm<'_, '_> {
                 }
                 Ok(XVal::Array(self.store()?.new_array(kind, es)))
             }
-            _ => Err(VmError::NotBuilt(format!("the extender function {n} (task D2)"))),
+            // The plugins' array functions the host builds (SUP's Ar_GetRandomKey …).
+            _ => {
+                if let Some(outs) = out_params(n) {
+                    return self.out_call(n, c, outs);
+                }
+                self.host_function(n, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {n} (task D2)")))
+            }
         }
     }
 
@@ -2926,6 +2932,15 @@ impl Vm<'_, '_> {
                 None => Err(VmError::NotBuilt(format!("the extender function {name}"))),
             };
         }
+        // [documented: MarkScriptOnLoad, "Marks calling script"]: the host gets the
+        // running script form (0 for none) as the argument.
+        if lname == "markscriptonload" {
+            let script = XVal::Ref(self.host.current_script().unwrap_or(0));
+            return match self.host.ext_call(&lname, None, &[script]) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Err(VmError::NotBuilt(format!("the extender function {name}"))),
+            };
+        }
         // Functions that give their results in script variables: the host answers with an
         // array of the return value and then each output, written to the variables here.
         if let Some(outs) = out_params(&lname) {
@@ -3258,6 +3273,9 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // [documented: GetMousePosition, GetMouseMovement, "output … to fPosX and fPosY
         // script variables"].
         "getmouseposition" | "getmousemovement" => &[0, 1],
+        // [documented: Ar_SetFloatsFrom, "Sets float variables from variables in array (up
+        // to 10)"].
+        "ar_setfloatsfrom" => &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         // [documented: HSVtoRGB, RGBtoHSV, three script variables in and three out].
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
         _ => return None,

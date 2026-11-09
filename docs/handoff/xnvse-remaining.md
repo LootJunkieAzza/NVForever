@@ -190,6 +190,10 @@ scene mirror's edits, their finish events, the vertices told by the engine's `ni
 the HUD bars' script-variable (a variable handed over by place, `Host::var_place`) and UDF
 sources; not probed yet, set sup7). Census after it: SUP 29 → 17 (the 17 of batch 4).
 With both JIP batch 10 and SUP batch 7 merged: JIP 142, SUP 17 [hypothesis: 378 − 36 − 12 = 330 in all; the extender_census test decides].
+SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid references, Ar_SetFloatsFrom through
+the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
+the last save's and load's names and sizes told by the engine, the cells and map markers near the player,
+MarkScriptOnLoad, KillAll2, the caught-pickpocketing flag, TranslitText; set sup4, not probed yet). SUP 17 → 0.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
