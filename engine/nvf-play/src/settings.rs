@@ -480,6 +480,41 @@ pub fn restore(world: &mut World, i: usize, v: f32) {
     }
 }
 
+/// The rows set away from the page's Defaults (`baseline`: [`StartStates`], or the states
+/// the page was first shown with), in registry order: the Changed list [design: #1953
+/// point 6]. A switch by its on/off, a slider by its value as [`Slider::fit`] keeps it (so
+/// a getter's rounding is no change), a list by its state as the INI keeps it against
+/// [`StartChoices`] (its choices' indices may differ by now), or by its chosen index when
+/// the start's text is missing. A disabled row counts by its saved state, not by the
+/// explanation shown in its place; a hidden row counts as any other.
+pub fn changed_rows(world: &World, baseline: &[f32]) -> Vec<usize> {
+    let Some(settings) = world.get_resource::<Settings>() else { return Vec::new() };
+    let start = world.get_resource::<StartChoices>();
+    (0..settings.list().len())
+        .filter(|&i| {
+            let s = &settings.list()[i];
+            if let Some(c) = settings.choices(i) {
+                return match start.and_then(|sc| sc.0.iter().find(|(r, _)| *r == i)) {
+                    Some((_, t)) => (c.save)(world) != *t,
+                    None => baseline.get(i).is_some_and(|b| settings.value(world, i) != *b),
+                };
+            }
+            let Some(b) = baseline.get(i) else { return false };
+            match &s.slider {
+                Some(sl) => sl.fit((sl.get)(world)) != sl.fit(*b),
+                None => (s.get)(world) != (*b > 0.5),
+            }
+        })
+        .collect()
+}
+
+/// The list rows' states as the INI keeps them now, for [`StartChoices`] when there is
+/// none (the page's first-shown Defaults, a run without [`apply_stored`]).
+pub fn choices_now(world: &World) -> StartChoices {
+    let Some(settings) = world.get_resource::<Settings>() else { return StartChoices::default() };
+    StartChoices((0..settings.list().len()).filter_map(|i| settings.choices(i).map(|c| (i, (c.save)(world)))).collect())
+}
+
 pub(crate) fn setup(app: &mut App) {
     app.init_resource::<Settings>();
     app.insert_resource(SettingsFile::for_run(crate::test_aid::Unattended::from_env().0));
@@ -525,12 +560,14 @@ fn stored(text: &str, list: &[Setting], lists: &[&str], bad: &mut Vec<String>) -
 }
 
 /// Every row's state ([`Setting::value`]) before the INI was read: the defaults and the
-/// command line (what the page's Defaults goes back to).
+/// command line (what the page's Defaults goes back to, and what its Changed list compares
+/// with: [`changed_rows`]).
 #[derive(Resource, Clone, Debug, Default)]
 pub struct StartStates(pub Vec<f32>);
 
 /// The list rows' states before the INI was read, as the INI keeps them (what the page's
-/// Defaults goes back to): (row, text).
+/// Defaults goes back to, and what the Changed list compares a list's state with; without
+/// [`apply_stored`] the page takes them when first shown, [`choices_now`]): (row, text).
 #[derive(Resource, Clone, Debug, Default)]
 pub struct StartChoices(pub Vec<(usize, String)>);
 
@@ -996,5 +1033,42 @@ reach=0.5
                 assert_eq!((back, choice_index(back, n)), (v, i), "{i} of {n} read back");
             }
         }
+    }
+
+    #[test]
+    fn the_changed_rows_are_those_away_from_defaults_by_their_kept_state() {
+        let mut app = App::new();
+        app.init_resource::<Lamp>().insert_resource(Reach(0.5)).insert_resource(Size("1280x800".into()));
+        add_setting(&mut app, setting("lamp", "Test"));
+        add_setting(&mut app, slider("reach"));
+        add_choice_list(&mut app, setting("size", "Test"), sizes());
+        let world = app.world_mut();
+        // Defaults' states, the list's as the INI keeps it.
+        let base = world.resource::<Settings>().values(world);
+        world.insert_resource(StartChoices(vec![(2, "1280x800;kept".into())]));
+        assert!(changed_rows(world, &base).is_empty(), "nothing changed yet");
+        // A slider's getter off its steps by less than Slider::fit keeps is no change.
+        world.resource_mut::<Reach>().0 = 0.5004;
+        assert!(changed_rows(world, &base).is_empty());
+        world.resource_mut::<Reach>().0 = 0.55;
+        world.resource_mut::<Lamp>().0 = true;
+        assert_eq!(changed_rows(world, &base), [0, 1]);
+        // A list by its kept text, not by the index of its choice.
+        world.resource_mut::<Size>().0 = "1920x1080".into();
+        assert_eq!(changed_rows(world, &base), [0, 1, 2]);
+        world.insert_resource(StartChoices(vec![(2, "1920x1080;kept".into())]));
+        assert_eq!(changed_rows(world, &base), [0, 1], "its start's text matches again");
+        // Without the start's text: by the index.
+        world.remove_resource::<StartChoices>();
+        assert_eq!(changed_rows(world, &base), [0, 1, 2]);
+        assert_eq!(choices_now(world).0, [(2, "1920x1080;kept".to_string())]);
+        // A disabled row is counted by its kept state.
+        app.world_mut().resource_mut::<Size>().0 = "1280x800".into();
+        set_disabled_status(&mut app, "lamp", |_| Some("Off (FSR active)"));
+        let world = app.world_mut();
+        assert_eq!(changed_rows(world, &base), [0, 1]);
+        // Restored, it is no longer listed; the others are left as they are.
+        restore(world, 1, base[1]);
+        assert_eq!(changed_rows(world, &base), [0], "the disabled lamp cannot be put back and stays listed");
     }
 }
