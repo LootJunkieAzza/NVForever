@@ -10,11 +10,10 @@
 //! the camera: from most places the fire reads as a flat sprite.
 //!
 //! An add-on node whose model is one of those fire files (its file name begins
-//! `mpsfire`) also emits, from the same node, systems made here from the game's own
-//! (their textures, blending, colours and modifiers), so the fire keeps its look and
-//! gains volume:
-//! - **Body**: each flame system again, denser, longer-lived and from a tighter core,
-//!   so overlapping flames at different depths stack into a column.
+//! `mpsfire`) burns a volumetric flame in place of its flame squares
+//! (`fire_volume.rs`; a first try, the squares again denser, looked like a denser top,
+//! not 3D: owner 2026-11-09), and also emits systems made here from the game's own
+//! (their textures, blending, colours and modifiers):
 //! - **Embers**: the sparks (else the first flame system) as small glowing points that
 //!   live several times longer and rise well above the flames, drifting apart.
 //! - **Smoke**: ADDN 35's `MPS\MPSSmokeSmall01.NIF` systems, fainter and shorter,
@@ -34,16 +33,6 @@ pub const PREFIX: &str = "fuller fire: ";
 
 /// The smoke the fires gain (ADDN 35 `MPSSmokeSmall01`), as a mesh path.
 pub const SMOKE: &str = "meshes\\mps\\mpssmokesmall01.nif";
-
-/// Body: births a second, the most alive, life and core size against the file's.
-const BODY_RATE: f32 = 2.0;
-const BODY_MAX: f32 = 3.0;
-const BODY_LIFE: f32 = 1.5;
-const BODY_CORE: f32 = 0.6;
-const BODY_SIZE: f32 = 1.1;
-/// The body's colour against the file's: the flames add their light, and stacked at
-/// full strength over a campfire's five fires they burnt to a white blob at night.
-const BODY_GLOW: f32 = 0.6;
 
 /// Embers: size, life, births and speed against the file's sparks, and how much of
 /// their pull up they keep (so they climb slower and higher, not shoot off).
@@ -74,27 +63,19 @@ pub fn is_added(d: &ParticleSystemDef) -> bool {
     d.name.starts_with(PREFIX)
 }
 
+fn is_spark(d: &&ParticleSystemDef) -> bool {
+    d.name.to_ascii_lowercase().contains("spark")
+}
+
+/// Whether `d` is one of a fire file's own flame systems (not its sparks), which the
+/// volumetric flame stands in for.
+pub fn is_flame(d: &ParticleSystemDef) -> bool {
+    !is_added(d) && !is_spark(&d)
+}
+
 /// The systems a fire whose own are `fire` gains, with the smoke systems `smoke`.
 pub fn layers(fire: &[ParticleSystemDef], smoke: &[ParticleSystemDef]) -> Vec<ParticleSystemDef> {
-    let is_spark = |d: &&ParticleSystemDef| d.name.to_ascii_lowercase().contains("spark");
     let mut out = Vec::new();
-    for d in fire.iter().filter(|d| !is_spark(d) && d.strip.is_none()) {
-        let mut b = d.clone();
-        b.name = format!("{PREFIX}{} body", d.name);
-        b.rate *= BODY_RATE;
-        b.max = scaled(d.max, BODY_MAX);
-        unkey(&mut b);
-        let e = &mut b.emitter;
-        e.life *= BODY_LIFE;
-        e.life_variation *= BODY_LIFE;
-        e.size *= BODY_CORE;
-        e.radius *= BODY_SIZE;
-        e.radius_variation *= BODY_SIZE;
-        for c in &mut e.color[..3] {
-            *c *= BODY_GLOW;
-        }
-        out.push(b);
-    }
     if let Some(d) = fire.iter().find(is_spark).or_else(|| fire.iter().find(|d| d.strip.is_none())) {
         let mut m = d.clone();
         m.name = format!("{PREFIX}{} embers", d.name);

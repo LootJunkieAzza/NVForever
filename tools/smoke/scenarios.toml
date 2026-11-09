@@ -15605,16 +15605,18 @@ expect = [
 
 [[scenario]]
 name = "fuller-fire"
-source = "owner 2026-11-09 (after queue item 103): \"I still want more 3d fire in general\". A fire add-on node (file name mpsfire*) also emits systems made from the game's own: a denser flame body, embers, and ADDN 35's smoke above it (engine/nvforever/src/fuller_fire.rs, docs/design/graphics-enhanced.md §3.12). The Abandoned Shack's fire barrel burns ADDN 14"
+source = "owner 2026-11-09 (after queue item 103): \"I still want more 3d fire in general\". A fire add-on node (file name mpsfire*) burns a volumetric flame in place of its flame squares (fire_volume.rs) and emits embers and ADDN 35's smoke made from the game's own systems (fuller_fire.rs; docs/design/graphics-enhanced.md §3.12). The Abandoned Shack's fire barrel burns ADDN 14"
 areas = ["effects"]
-paths = ["engine/nvforever/src/fuller_fire.rs", "engine/nvforever/src/particles.rs"]
+paths = ["engine/nvforever/src/fuller_fire.rs", "engine/nvforever/src/fire_volume.rs", "engine/nvforever/src/fire_volume.wesl", "engine/nvforever/src/particles.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:2000:2063:6642", NVF_PLAY_TEST_LOOK = "2.5:90:-15", NVF_PLAY_TEST_SHOTS = "7:fuller_fire.png" }
 args = ["--cell", "GSAbandonedShack", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
 run_seconds = 10
-manual = "fuller_fire.png: the barrel's flames fuller than the data's alone, embers rising over them"
+manual = "fuller_fire.png: the barrel burns a volumetric flame with ragged tongues, embers rising over it"
 expect = [
-  { re = 'particles: add-on node 14: 3 system\(s\) of the fuller fire', label = "the barrel's fire gains its three systems" },
-  { re = 'particles: born in add-on node 14: .*fuller fire: pFlames02 body [1-9].*fuller fire: pSparks embers [1-9]', label = "the added flames and embers are born" },
+  { re = 'particles: add-on node 14: 2 system\(s\) of the fuller fire', label = "the barrel's fire gains embers and smoke" },
+  { re = 'fire volume: 1 flame\(s\) drawn \(\S+mpsfiresmall01\.nif', label = "it burns a volumetric flame" },
+  { re = 'particles: born in add-on node 14: .*fuller fire: pSparks embers [1-9]', label = "the embers are born" },
+  { re = 'particles: born in add-on node 14: (?!.*pFlames02 [1-9])', label = "its flame squares are not (the volume stands in for them)" },
 ]
 
 [[scenario]]

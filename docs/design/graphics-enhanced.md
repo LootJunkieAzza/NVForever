@@ -401,17 +401,31 @@ differences in the parity frames.
 
 An NVForever addition, not the original's look: the owner, with the campfires lit (queue
 item 103, 2026-11-09), asked for "more 3d fire in general". The world's fires burn as the
-particles of add-on nodes 14 and 0 (`MPS\MPSFireSmall01.NIF`, `MPS\MPSFireMed01.NIF`);
-about five camera-facing flame squares per fire, which read as a flat sprite. An add-on
-node whose model's file name begins `mpsfire` also emits systems made from the game's own
-(`fuller_fire.rs`): its flames again, twice the births, three times the cap, half again
-the life, from a core 0.6 the size, at 0.6 the colour; embers (the sparks at 0.08 the size, 3.5 times the
-life, half the pull up, spread at least 0.5 rad); and ADDN 35's smoke
-(`MPS\MPSSmokeSmall01.NIF`) from 48 units above, half the births and opacity, 0.6 the
-life. All values are [design], set by eye on the campfire shots of 2026-11-09. The file's
-own systems are unchanged; the log names the added ones `fuller fire: …`. On in
-`vanilla` too, as the owner plays it; `--graphics-only no-fuller-fire` or the settings
-switch "Fuller fire" gives the fires of the data alone, for comparing with the original.
+particles of add-on nodes 14 and 0 (`MPS\MPSFireSmall01.NIF`, `MPS\MPSFireMed01.NIF`):
+about five camera-facing flame squares per fire, which read as a flat sprite.
+
+- **Volumetric flame** (`fire_volume.rs`, `fire_volume.wesl`): an add-on node whose
+  model's file name begins `mpsfire` burns a flame drawn by marching rays through a box
+  above it (30 units across the base and 100 high for the small fire, 48 and 165 for the
+  medium, times the node's scale). Its density is a teardrop cut into tongues by rising,
+  swirling 3D noise; its colour goes by heat from deep red through orange to a pale
+  yellow core, added to what is behind; each step hides what burns behind it, so the
+  flame's front shows. The march stops at the depth the scene drew, so the flame sits
+  among the logs. 40 steps a pixel. Its flame squares are then not born; its sparks
+  stay. This is the common technique of real-time volumetric fire (noise-shaped
+  density, a heat-to-colour ramp, emission summed along the ray); it looks the same
+  from every side and from above.
+- **Embers and smoke** (`fuller_fire.rs`): systems made from the game's own, from the
+  same node: the sparks as embers (0.08 the size, 3.5 times the life, half the pull up,
+  spread at least 0.5 rad) and ADDN 35's smoke (`MPS\MPSSmokeSmall01.NIF`) from 48
+  units above, at half the births and opacity and 0.6 the life.
+- Tried first and dropped: the flame squares again, denser and longer-lived. The owner
+  found it "just denser, not 3d or real".
+
+All values are [design], set by eye on the campfire shots of 2026-11-09 (test aid
+`NVF_FIRE_VOLUME=radius,height,brightness,frequency,gain,edge,swirl`). On in `vanilla`
+too, as the owner plays it; `--graphics-only no-fuller-fire` or the settings switch
+"Fuller fire" gives the fires of the data alone.
 
 ## 4. Tried and dropped
 
