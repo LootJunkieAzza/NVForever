@@ -1626,6 +1626,7 @@ fn main() -> AppExit {
             app.insert_resource(r)
                 .add_systems(Startup, residents::log_startup)
                 .add_systems(Update, residents::drive.after(world::stream).after(readahead::read_ahead).after(nvf_play::PlaySet::Scripts).before(nav::drive))
+                .add_systems(Update, residents::one_body_each.after(residents::drive))
                 .add_systems(Last, residents::report);
             // Patrols and sandboxes go on after a load where the save had them.
             if play.is_some() {

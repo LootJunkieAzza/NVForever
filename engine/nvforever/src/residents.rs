@@ -2884,6 +2884,61 @@ pub fn drive(
     crate::profile::actor_spawns(spawn_stats.equipment_spawns, spawn_stats.record_spawns);
 }
 
+/// How often [`one_body_each`] looks, seconds.
+const BODY_CHECK_EVERY: f32 = 2.0;
+
+/// The bodies [`one_body_each`] counts: every actor rig but the other players' puppets.
+type DrawnBodies<'w, 's> = Query<'w, 's, (Entity, &'static crate::limbs::ActorRig, &'static GlobalTransform, Has<crate::coop::Remote>, Has<crate::locomotion::Dying>), Without<crate::coop::Puppet>>;
+
+/// Each placed actor is drawn once (queue item 124: a co-op guest saw a second copy of an
+/// NPC standing in the first): every [`BODY_CHECK_EVERY`] seconds, the references with more
+/// than one body are told in the log once each, with every body's place and kind, and
+/// which one is the body its AI walks. The other players' puppets are left out (`coop.rs`
+/// draws them by their own numbers).
+pub fn one_body_each(
+    time: Res<Time>,
+    residents: Res<Residents>,
+    bodies: DrawnBodies,
+    mut last: Local<f32>,
+    mut told: Local<HashSet<u32>>,
+) {
+    let now = time.elapsed_secs();
+    if now - *last < BODY_CHECK_EVERY {
+        return;
+    }
+    *last = now;
+    let mut by_ref: HashMap<u32, Vec<(Entity, Vec3, bool, bool)>> = HashMap::new();
+    for (e, rig, t, remote, dying) in &bodies {
+        by_ref.entry(rig.reference).or_default().push((e, t.translation(), remote, dying));
+    }
+    for (r, list) in by_ref.into_iter().filter(|(_, l)| l.len() > 1) {
+        if !told.insert(r) {
+            continue;
+        }
+        let own = residents.core.list.iter().find(|x| x.actor.0 == r);
+        let walked = own.and_then(|x| x.root);
+        let label = own.map_or_else(|| format!("{r:08X}"), |x| format!("{} {r:08X}", x.label));
+        let each: Vec<String> = list
+            .iter()
+            .map(|(e, at, remote, dying)| {
+                let g = crate::world::bevy_to_game(*at);
+                let mut kind = Vec::new();
+                if Some(*e) == walked {
+                    kind.push("its AI's");
+                }
+                if *remote {
+                    kind.push("the host's pose");
+                }
+                if *dying {
+                    kind.push("dead");
+                }
+                format!("{e:?} at ({:.0}, {:.0}, {:.0}) [{}]", g.x, g.y, g.z, kind.join(", "))
+            })
+            .collect();
+        warn!("actors: {label} is drawn {} times: {}", list.len(), each.join("; "));
+    }
+}
+
 /// The residents' state when the app exits (smoke tests read it).
 pub fn report(
     mut exit: MessageReader<AppExit>,
