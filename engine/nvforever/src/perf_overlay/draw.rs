@@ -149,10 +149,12 @@ pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], measured: 
         bracket(panel);
         for (row, value) in rows.iter().zip(values) {
             if row.graph {
-                // Across the inner width (the panel's column stretches its rows).
-                let node = Node { width: Val::Percent(100.0), height: u(pitch * GRAPH_PITCHES), ..default() };
+                // Across the inner width, given outright: a percentage of the panel, whose
+                // width comes from its content, resolved against the whole view and
+                // stretched the panel across the screen [design].
+                let node = Node { width: u(width - PAD.0 - PAD_BRACKET), height: u(pitch * GRAPH_PITCHES), ..default() };
                 match &graph {
-                    Some(image) => panel.spawn((node, ImageNode::new(image.clone()).with_color(amber(VALUE)))),
+                    Some(image) => panel.spawn((node, ImageNode { color: amber(VALUE), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })),
                     None => panel.spawn(node),
                 };
                 continue;
