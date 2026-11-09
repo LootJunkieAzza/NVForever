@@ -66,6 +66,8 @@ impl Game<'_> {
 
     /// The cells `left` are no longer in the loaded area: their reset clock starts.
     pub(crate) fn cells_left(&mut self, left: &[FormId]) {
+        // TogglePurgeOnUnload's references in them go (`crate::nvse_jip12`).
+        self.purge_left(left);
         for &c in left {
             // Without the time globals (synthetic data) there is no clock to start.
             let _ = self.world.detach_cell(c);

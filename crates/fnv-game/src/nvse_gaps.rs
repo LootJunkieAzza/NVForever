@@ -876,14 +876,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // The player's worldspace's climate; none indoors [observed: gaps4 and gaps8,
-        // 0008809B in the Mojave, unchanged by RefreshCurrentClimate].
-        "getcurrentclimate" => {
-            let w = g.cell_of(FormId::PLAYER_REF).and_then(|c| g.world.placed.world_of(c));
-            match w.and_then(|w| crate::nvse::record_value(g, w, "CNAM", "")) {
-                Some(XVal::Ref(c)) => XVal::Ref(c),
-                _ => XVal::Ref(0),
-            }
-        }
+        // 0008809B in the Mojave, unchanged by RefreshCurrentClimate]. ForceClimate's
+        // or SetCurrentClimate's when a script set one (`crate::nvse_jip12`).
+        "getcurrentclimate" => XVal::Ref(crate::nvse_jip12::current_climate(g).map_or(0, |c| c.0)),
         "refreshcurrentclimate" => zero,
         // WRLD DATA flags bit by bit [observed: gaps8, WastelandNV only 7].
         "getworldspaceflag" | "setworldspaceflag" => {
