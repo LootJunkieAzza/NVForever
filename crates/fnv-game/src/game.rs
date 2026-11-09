@@ -4671,6 +4671,14 @@ impl<'a> Game<'a> {
                 self.count_stat(crate::misc_stats::MINES_DISARMED, 1.0);
                 let x = crate::experience::mine_disarm_xp(self);
                 crate::experience::award(self, crate::experience::Source::DisarmMine, x);
+                // The player's tweak picks the disarmed mine up [design: docs/design/tweaks.md].
+                if let (true, Outcome::Disarmed { placed: Some(p), .. }) = (self.tweaks.pick_up_disarmed, &act.outcome) {
+                    let p = *p;
+                    match self.world.activate(actor, p) {
+                        Ok(_) => tracing::info!("mines: disarmed {p} picked up (tweak)"),
+                        Err(e) => tracing::info!("mines: disarmed {p} not picked up: {e}"),
+                    }
+                }
             }
             _ => {}
         }

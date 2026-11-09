@@ -963,6 +963,10 @@ impl Plugin for TweaksPlugin {
         // ---- batch 26 ----
         switch!(app, "hide-ammo-label", "No Ammo Counter", "The HUD shows no ammo counter. (Stewie's Tweaks bHideAmmoLabel)", hide_ammo_label);
         amount!(app, "free-item-price", "Price for Worthless Things", "What merchants pay or ask for things worth nothing (spent casings); 0 changes nothing. (Stewie's Tweaks bNoFreeBarterItems)", 10.0, f32, free_item_price);
+        // ---- batch 27 ----
+        switch!(app, "skip-easy-locks", "Skip Easy Locks", "A lock well under the player's Lockpick opens at once (with its experience); use it again to go through. (Stewie's Tweaks bSkipVeryEasyLocksAtMaxSkill)", game.skip_easy_locks);
+        amount!(app, "skip-lock-margin", "Skip Easy Locks: Margin", "How far over the lock Lockpick must be to skip the game (0 to 50). (Stewie's Tweaks bSkipVeryEasyLocksAtMaxSkill, iThreshold)", 50.0, f32, game.skip_lock_margin);
+        switch!(app, "pick-up-disarmed", "Pick Up Disarmed Mines", "A mine the player disarms goes straight into the inventory. (Stewie's Tweaks bDisarmingMinesPicksThemUp)", game.pick_up_disarmed);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

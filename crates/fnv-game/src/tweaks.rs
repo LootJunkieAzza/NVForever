@@ -261,6 +261,13 @@ pub struct Tweaks {
     /// gains this share per point of Endurance above 5 (loses it below); 0 changes
     /// nothing.
     pub fall_height_per_endurance: f32,
+    // ---- batch 27 ----
+    /// `bSkipVeryEasyLocksAtMaxSkill`: a lock at least `skip_lock_margin` under the
+    /// player's Lockpick opens without the game (its experience given).
+    pub skip_easy_locks: bool,
+    pub skip_lock_margin: f32,
+    /// `bDisarmingMinesPicksThemUp`: a mine the player disarms goes into the inventory.
+    pub pick_up_disarmed: bool,
 }
 
 impl crate::game::Game<'_> {
@@ -375,6 +382,9 @@ impl Default for Tweaks {
             power_armor_blocks_radiation: false,
             power_armor_limb_damage: 1.0,
             fall_height_per_endurance: 0.0,
+            skip_easy_locks: false,
+            skip_lock_margin: 0.0,
+            pick_up_disarmed: false,
         }
     }
 }

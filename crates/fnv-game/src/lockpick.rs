@@ -498,6 +498,13 @@ pub fn opening(g: &mut Game, reference: FormId, skill: f32) -> Opening {
     if again {
         tracing::info!("lockpick: {reference} is broken; Ignore Broken Lock (Infiltrator) gives one more try");
     }
+    // The player's tweak: a lock well under the skill opens at once [design: docs/design/tweaks.md]; the door or
+    // container is then used with the next press.
+    if g.tweaks.skip_easy_locks && !broken && level.required_skill().is_some_and(|n| skill >= n + g.tweaks.skip_lock_margin) {
+        tracing::info!("lockpick: {reference} opened without the game (Lockpick {skill}, tweak)");
+        opened(g, reference, level, true);
+        return Opening::NotLocked;
+    }
     // The player's tweak: the skill is not asked for (the lock itself plays as before) [design: docs/design/tweaks.md].
     let asked = if g.tweaks.pick_locks_without_skill { skill.max(100.0) } else { skill };
     match may_pick(level, asked, n, broken && !again) {

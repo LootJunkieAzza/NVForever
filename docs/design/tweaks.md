@@ -378,6 +378,13 @@ unless the player binds them, so nothing changes until then.
 | No Ammo Counter | `bHideAmmoLabel` | `hud::gather` |
 | Price for Worthless Things (0–10) | `bNoFreeBarterItems` | `MenuModel::refresh_trade` (`free_item_price`) |
 
+## Twenty-seventh batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Skip Easy Locks (+ margin) | `bSkipVeryEasyLocksAtMaxSkill` | `lockpick::opening` (`opened` with its XP) |
+| Pick Up Disarmed Mines | `bDisarmingMinesPicksThemUp` | `Game::activate` after a disarm |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -397,8 +404,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 304 |
-| to do | 299 |
+| done | 306 |
+| to do | 297 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -473,6 +480,7 @@ game's Data folder, read-only).
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
 | `bSellStolenItems` | done |  |  | already so: barter never checks stolen items |
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
+| `bSkipVeryEasyLocksAtMaxSkill` | done |  | 2 | Skip Easy Locks (+ margin; full XP; use again to go through) |
 | `bSleepOnChairs` | done |  |  | Sleep on Chairs |
 | `bSpeedMultScalesJumpHeight` | done |  |  | Speed Scales the Jump (the player; NPCs do not jump) |
 | `bStealingSendsNoAlarm` | done |  |  | Quiet Theft |
@@ -541,7 +549,6 @@ game's Data folder, read-only).
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
 | `bScopeHoldBreath` | to do |  | 7 | scope_view has no input or AP |
 | `bSemiAutoQueue` | to do |  | 2 | attack::Cycle cooldown; a field on attack::Input |
-| `bSkipVeryEasyLocksAtMaxSkill` | to do |  | 2 | lockpick::opening like Skip Easy Hacks; the engine only logs NotLocked |
 | `bSleepHealingMinDuration` | to do |  | 2 | needs::pass_hours; the bed is not known there |
 | `bSlowBreathRegen` | to do |  | 2 | breath_rules recover rate; a rate to choose |
 | `bSneakAttackWithoutCrouching` | to do |  |  | sneaking comes from control.sneak (melee) and the projectile; both need the switch |
@@ -996,6 +1003,7 @@ game's Data folder, read-only).
 | `bDisableSellingItems` | done |  |  | No Selling |
 | `bDisableStealthEffectInPipboy` | done |  |  | No Stealth Shimmer in the Pip-Boy |
 | `bDisableWeaponHotkeys` | done |  |  | No Weapon Hotkeys (the wheel still picks) |
+| `bDisarmingMinesPicksThemUp` | done |  |  | Pick Up Disarmed Mines |
 | `bDontOpenDoorsAfterLockpick` | done |  |  | Picked Doors Stay Shut |
 | `bDontShowContainerAfterLockpick` | done |  |  | Picked Containers Stay Shut |
 | `bInvertCameraX` | done |  |  | Invert Look Left/Right |
@@ -1050,7 +1058,6 @@ game's Data folder, read-only).
 | `bDisableCharacterRespec` | to do |  |  | the respec is plugin script data |
 | `bDisableControllerDeadzones` | to do |  | 2 | pad STICK_DEAD and Bevy axis settings |
 | `bDisableRegionBordersKeepMessage` | to do |  |  | not built: no world borders |
-| `bDisarmingMinesPicksThemUp` | to do |  |  | Game::activate after a disarm |
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bHapticPipboy` | to do |  |  | pipboy sounds play with a rumble request |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
