@@ -349,6 +349,8 @@ pub struct Tweaks {
     pub pause_on_load: bool,
     /// `bSwapAmmoWithWeaponHolstered`: Ammo Swap works with the weapon put away.
     pub swap_ammo_holstered: bool,
+    /// `bNoAutoContinueDialog`: each response of a conversation waits for a click.
+    pub no_auto_continue_dialogue: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -513,6 +515,7 @@ impl Default for Tweaks {
             player_pain_gap: 0.0,
             pause_on_load: false,
             swap_ammo_holstered: false,
+            no_auto_continue_dialogue: false,
         }
     }
 }

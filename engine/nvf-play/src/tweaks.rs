@@ -254,6 +254,11 @@ pub struct TweakSettings {
     pub weapon_cnd_flash_below: f32,
     /// `bBlackJackTotalDisplay`: the Blackjack screen shows the player's hand's total.
     pub blackjack_total: bool,
+    /// `bSlotsAutoSpinHotkey`: W held spins the slot machine again each time it stops.
+    pub slots_hold_to_spin: bool,
+    /// `bTalkWhileSneakingIfShiftIsHeld`: Shift held while sneaking talks to a person
+    /// instead of picking their pocket.
+    pub shift_talks_sneaking: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -397,6 +402,8 @@ impl Default for TweakSettings {
             weapon_cnd_red_below: 0.0,
             weapon_cnd_flash_below: 0.0,
             blackjack_total: false,
+            slots_hold_to_spin: false,
+            shift_talks_sneaking: false,
         }
     }
 }
@@ -1128,6 +1135,9 @@ impl Plugin for TweaksPlugin {
         amount!(app, "player-pain-gap", "Less Frequent Pain Sounds", "Seconds after a pain sound before the player makes another; 0 changes nothing. (Stewie's Tweaks bLessFrequentPlayerPainSounds)", 10.0, f64, game.player_pain_gap);
         switch!(app, "pause-on-load", "Pause On Load", "A loaded save starts in the pause menu instead of straight into play. (Stewie's Tweaks bPauseOnSaveLoad)", game.pause_on_load);
         switch!(app, "swap-ammo-holstered", "Swap Ammo While Holstered", "Ammo Swap changes the ammo type with the weapon put away; it reloads when drawn. (Stewie's Tweaks bSwapAmmoWithWeaponHolstered)", game.swap_ammo_holstered);
+        switch!(app, "slots-hold-to-spin", "Slots: Hold to Spin", "Holding W at a slot machine spins it again each time the reels stop. (Stewie's Tweaks bSlotsAutoSpinHotkey)", slots_hold_to_spin);
+        switch!(app, "no-auto-continue-dialogue", "Click to Continue Dialogue", "In a conversation each line waits for a click before the next, giving time to read. (Stewie's Tweaks bNoAutoContinueDialog)", game.no_auto_continue_dialogue);
+        switch!(app, "shift-talks-sneaking", "Shift to Talk While Sneaking", "While sneaking, holding Shift talks to a person instead of picking their pocket. (Stewie's Tweaks bTalkWhileSneakingIfShiftIsHeld)", shift_talks_sneaking);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

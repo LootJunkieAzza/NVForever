@@ -53,7 +53,7 @@ impl Plugin for ActivatePlugin {
             .init_resource::<HudMessage>()
             .init_resource::<ActivateNext>()
             .insert_resource(AutoActivate::from_env())
-            .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
+            .add_systems(Update, (shift_talks, find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
     }
 }
@@ -366,6 +366,15 @@ fn actor_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id:
     crate::script::with_world(rt, sim, |rt| actor_action_in(&mut rt.game, creature, id, talkers))
 }
 
+/// The player's Talk While Sneaking tweak: Shift held while sneaking talks instead of
+/// picking a pocket [design: docs/design/tweaks.md]. Set each frame by [`shift_talks`].
+static SHIFT_TALKS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    let on = tweaks.is_some_and(|t| t.shift_talks_sneaking) && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    SHIFT_TALKS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
     let r = FormId(id);
     // The player's tweak lets an unconscious actor be searched as a dead one is [design: docs/design/tweaks.md].
@@ -378,7 +387,8 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     }
     // Sneaking, the player picks pockets instead (`crate::pickpocket`); one that caught
     // the player before still shows Steal and says so on E.
-    if g.is_sneaking(FormId::PLAYER_REF) && g.pickpocket_refusal(r) != Some(fnv_game::pickpocket::Refusal::NotAllowed) {
+    let shift = SHIFT_TALKS.load(std::sync::atomic::Ordering::Relaxed);
+    if !shift && g.is_sneaking(FormId::PLAYER_REF) && g.pickpocket_refusal(r) != Some(fnv_game::pickpocket::Refusal::NotAllowed) {
         return Action::Steal;
     }
     if !creature {

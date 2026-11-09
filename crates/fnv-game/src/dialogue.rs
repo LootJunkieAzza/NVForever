@@ -707,6 +707,9 @@ impl<'a> Game<'a> {
     /// over the line ends ([`Game::finish_line`]). An actor that died, was disabled or
     /// deleted ends the conversation [hypothesis].
     pub(crate) fn update_dialogue(&mut self, dt: f64) {
+        /// What is left of a response the No Auto Continue Dialog tweak holds: next to
+        /// nothing, so a click ends it at once.
+        const HELD_RESPONSE: f64 = 1e-6;
         let Some(c) = self.dialogue.as_ref() else { return };
         let actor = c.actor;
         if !self.present(c.through.unwrap_or(actor)) || self.extra.get(&actor).is_some_and(|e| e.dead) {
@@ -718,6 +721,15 @@ impl<'a> Game<'a> {
         let Some(def) = dv.info(&line.info) else { return };
         let order = def.response_order();
         line.remaining -= dt;
+        // The player's tweak: a response that has run out waits for the player's click
+        // (`Game::skip_response`, which calls with no time passing) [design: docs/design/tweaks.md].
+        if self.tweaks.no_auto_continue_dialogue && dt > 0.0 && line.remaining <= 1e-9 {
+            line.remaining = HELD_RESPONSE;
+            if let Some(c) = self.dialogue.as_mut() {
+                c.line = Some(line);
+            }
+            return;
+        }
         while line.remaining <= 1e-9 {
             line.response += 1;
             match order.get(line.response) {

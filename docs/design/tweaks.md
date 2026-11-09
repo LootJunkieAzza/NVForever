@@ -446,6 +446,9 @@ unless the player binds them, so nothing changes until then.
 | Less Frequent Pain Sounds (0–10 s) | `bLessFrequentPlayerPainSounds` | `Game::hit_lines` keeps the player's Hit line apart by `CombatLines::next_said` |
 | Pause On Load | `bPauseOnSaveLoad` | `loading::finish`: a start from a save (`Runtime::restored_from_save`) asks the pause menu as ShowPauseMenu does |
 | Swap Ammo While Holstered | `bSwapAmmoWithWeaponHolstered` | `combat::fire` takes the Ammo Swap before the weapon-not-ready return; the reload follows once drawn |
+| Slots: Hold to Spin | `bSlotsAutoSpinHotkey` | `slots::keys` sends Spin while W is held and the machine is waiting for a bet |
+| Click to Continue Dialogue | `bNoAutoContinueDialog` | `Game::update_dialogue` holds a response that ran out until `skip_response` (the click) |
+| Shift to Talk While Sneaking | `bTalkWhileSneakingIfShiftIsHeld` | `activate::shift_talks` sets a switch read by `actor_action_in`, which then offers Talk |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -466,8 +469,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 361 |
-| to do | 242 |
+| done | 364 |
+| to do | 239 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -728,6 +731,7 @@ game's Data folder, read-only).
 | `bMidairFastTravel` | done |  |  | Fast Travel in the Air |
 | `bMinBloodSplatterHealthDamage` | done |  | 1 | Blood Only on Big Hits (slider) |
 | `bMinigamesPlayXPSoundAtMaxLevel` | done |  |  | XP Sound at the Level Cap (any XP at the cap, not only minigames) |
+| `bNoAutoContinueDialog` | done |  |  | Click to Continue Dialogue |
 | `bNoDropWeaponSoundOnPlayerDeath` | done |  |  | already so: the player weapon is not put away at death |
 | `bNoEquippedWeaponMovementPenalty` | done |  |  | No Weapon Movement Penalty (the two-handed run slowdown) |
 | `bNoFoodWornOffMessage` | done |  | 1 | already so: no worn-off message is shown |
@@ -742,6 +746,7 @@ game's Data folder, read-only).
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
+| `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
 | `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
 | `bTurnSlowerWhileAiming` | done |  | 2 | Aiming Turn Speed: Across / Up and Down (two sliders) |
 | `bUnequipBrokenArmor` | done |  | 1 | Unequip Broken Armour (no message, sArmorBreakMessage not done) |
@@ -770,7 +775,6 @@ game's Data folder, read-only).
 | `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bMoveDuringVATSPlayback` | to do |  |  | kill_cam hold_input and ControlInput::held both hold movement |
-| `bNoAutoContinueDialog` | to do |  |  | Game::update_dialogue would hold the line timer |
 | `bNoExteriorLoadScreens` | to do |  |  | loading::begin interior-to-exterior |
 | `bNoKillcamKillSound` | to do |  |  | NVForever plays no sound when a kill camera starts |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
@@ -785,7 +789,6 @@ game's Data folder, read-only).
 | `bScaleExplosionShake` | to do |  | 2 | not built: explosions do not shake the camera |
 | `bScopeVisibilityDelay` | to do |  | 4 | aim_zoom with a held timer |
 | `bSkipVigorTesterSpecialPages` | to do |  |  | chargen vigor page and its pose clip |
-| `bSlotsAutoSpinHotkey` | to do |  |  | slots keys; check Spin while reels turn |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bTurnFurtherWhileSeated` | to do |  |  | nvforever player_body NECK_TURN; drive_body is at 16 params |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | the D-pad is fixed to hotkeys; needs a current slot |
@@ -828,6 +831,7 @@ game's Data folder, read-only).
 | `bShowNearestUndiscoveredLocation` | done |  | 2 | Nearest Unfound Place (the compass; the map option not built) |
 | `bShowSneakLabelWhileStanding` | done |  |  | Sneak Label While Standing |
 | `bSubtitlesShowActorNames` | done |  |  | Subtitles Name the Speaker |
+| `bTalkWhileSneakingIfShiftIsHeld` | done |  |  | Shift to Talk While Sneaking |
 | `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
 | `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
 | `bEnemyHealthbarShowBuffedHP` | to do | yes |  | max_health leaves out temporary modifiers; choose how bars share them |
@@ -858,7 +862,6 @@ game's Data folder, read-only).
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
 | `bShowQuestObjectivesOnCellChange` | to do |  | 1 | cell change detection and objectives for the active quest |
 | `bShowUsePasswordOnTerminalsWithNote` | to do |  | 1 | a labelled Action variant for the note |
-| `bTalkWhileSneakingIfShiftIsHeld` | to do |  |  | activate::actor_action_in needs the Shift state |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
 | `iDateFormat` | to do |  | 1 | three date formatters |
 
