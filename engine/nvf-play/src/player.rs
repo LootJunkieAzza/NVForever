@@ -1288,6 +1288,9 @@ fn step(
             landed.write(crate::rumble::Landed { speed });
         }
         // A fall's damage (`crate::falls`).
+        if let Some(f) = falls.as_deref_mut() {
+            f.note_player(c.id);
+        }
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(c.id, p.prev_feet[2], &s)) {
             fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height, feet: s.feet });
         }
