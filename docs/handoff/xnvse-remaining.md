@@ -201,6 +201,14 @@ scene mirror's edits, their finish events, the vertices told by the engine's `ni
 the HUD bars' script-variable (a variable handed over by place, `Host::var_place`) and UDF
 sources; not probed yet, set sup7). Census after it: SUP 29 → 17 (the 17 of batch 4).
 With both JIP batch 10 and SUP batch 7 merged: JIP 142, SUP 17 [hypothesis: 378 − 36 − 12 = 330 in all; the extender_census test decides].
+JIP batch 13: 39 (#1006, jip-physics-13.md: the collision objects' velocities, layers and
+properties through fnv_phys::script, contacts, the ground under an actor and its material,
+GetRayCastMaterial, IsGrabbable, ToggleObjectCollision, SetLocalGravityVector,
+PushActorAwayAlt and PushActorNoRagdoll, TravelToRef and MoveAwayFrom as made Travel
+packages, MoveToNode, MoveToReticle, MoveToFadeDelay, PlaceAtCell, RotateAroundPoint,
+SetAngleEx, FaceObject and Turn with the turn clip, SynchronizePosition, GetReticleNode,
+GetReticlePosAlt; not probed yet, set jip13). Census after it: JIP 142 → 103 on main, 29 with
+batches 11 (#1915) and 12 (#1929).
 SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid references, Ar_SetFloatsFrom through
 the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
 the last save's and load's names and sizes told by the engine, the cells and map markers near the player,

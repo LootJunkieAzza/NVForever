@@ -206,14 +206,13 @@ fn pushes_turns_and_travel() {
     let _ = g.take_phys_requests();
     q(&mut g, "NpcRef.PushActorNoRagdoll 10 90\nNpcRef.Turn 90\nNpcRef.FaceObject OtherRef");
     let reqs = g.take_phys_requests();
+    let turns = g.take_turns();
     match &reqs[0] {
         PhysRequest::Shove { dir, speed, .. } => assert!((dir[0] - 1.0).abs() < 1e-5 && dir[1].abs() < 1e-5 && *speed == 300.0, "east, 10 × 30"),
         other => panic!("{other:?}"),
     }
-    match (&reqs[1], &reqs[2]) {
-        (PhysRequest::Turn { heading: a, .. }, PhysRequest::Turn { heading: b, .. }) => assert!((a - std::f32::consts::FRAC_PI_2).abs() < 1e-5 && b.abs() < 1e-5),
-        other => panic!("{other:?}"),
-    }
+    assert_eq!(turns.len(), 2);
+    assert!((turns[0].1 - std::f32::consts::FRAC_PI_2).abs() < 1e-5 && turns[1].1.abs() < 1e-5, "{turns:?}");
     // TravelToRef gives the actor a Travel package to the reference.
     q(&mut g, "NpcRef.TravelToRef OtherRef 1");
     let p = g.extra.get(&FormId(NPC_REF)).and_then(|e| e.script_package).expect("a script package");

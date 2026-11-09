@@ -62,6 +62,13 @@ impl PhysWorld {
         (0..n).filter(|&i| node == "*" || nodes.and_then(|v| v.get(i)).and_then(|o| o.as_deref()).is_some_and(|m| m.eq_ignore_ascii_case(node))).collect()
     }
 
+    /// The node of the reference's collision object `object` (as a hit's owner names it).
+    pub fn object_node(&self, form_id: u32, object: u16) -> Option<&str> {
+        let bodies = self.refs.get(&form_id)?;
+        let i = bodies.iter().position(|&h| self.w.bodies.get(h).and_then(|b| Owner::decode(b.user_data)).is_some_and(|o| matches!(o, Owner::Ref { object: ob, .. } if ob == object)))?;
+        self.ref_nodes.get(&form_id)?.get(i)?.as_deref()
+    }
+
     /// The reference's bodies as scripts see them, in its list's order.
     pub fn script_bodies(&self, form_id: u32) -> Vec<ScriptBody> {
         let k = self.k;

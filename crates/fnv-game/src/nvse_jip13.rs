@@ -75,9 +75,6 @@ pub enum PhysRequest {
     Collision { r: FormId, on: bool },
     /// The moving bodies' gravity, game units a second squared; `None` the world's own.
     Gravity(Option<[f32; 3]>),
-    /// An actor turns on the spot to this heading (radians, clockwise from north),
-    /// playing its turn.
-    Turn { r: FormId, heading: f32 },
     /// An actor is shoved along `dir` (unit, game x y) at `speed` game units a second
     /// without falling.
     Shove { r: FormId, dir: [f32; 2], speed: f32 },
@@ -107,6 +104,9 @@ pub struct Jip13State {
     pub fade_delays: Vec<(f64, FormId, FormId)>,
     /// The reticle's node as the engine tells it.
     pub reticle_node: Option<String>,
+    /// FaceObject's and Turn's turns: the actor and the heading (radians, clockwise from
+    /// north) it turns on the spot to, playing its turn (`nvforever::locomotion`).
+    pub turns: Vec<(FormId, f32)>,
     /// Travel packages made for TravelToRef and MoveAwayFrom.
     pub made_packages: u32,
 }
@@ -247,6 +247,11 @@ impl Game<'_> {
     /// The scripts' requests since the last frame.
     pub fn take_phys_requests(&mut self) -> Vec<PhysRequest> {
         std::mem::take(&mut self.other.jip13.requests)
+    }
+
+    /// FaceObject's and Turn's turns since the last frame.
+    pub fn take_turns(&mut self) -> Vec<(FormId, f32)> {
+        std::mem::take(&mut self.other.jip13.turns)
     }
 
     /// The reticle's node (GetReticleNode), as the engine tells it.
@@ -391,7 +396,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // For a frame [documented]: the console's SetVel path (`nvf_play::console`).
         "setactorvelocity" => {
             let (Some(r), Some(a), Some(v)) = (subject, axis(args, 0), num(args, 1)) else { return Some(Ok(zero)) };
-            g.console_requests.push(crate::functions::console::ConsoleRequest::SetVel { on: r, axis: ['x', 'y', 'z'][a], speed: v as f32 });
+            g.console_requests.push(crate::functions::console::ConsoleRequest::SetVel { on: r, axis: ['X', 'Y', 'Z'][a], speed: v as f32 });
             zero
         }
         // 0 for an actor [documented]; a moving body's mass up to 100, 100 for one that
@@ -699,7 +704,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 let Some((o, _)) = form(args, 0).and_then(|o| g.ref_pos_rot(o)) else { return Some(Ok(zero)) };
                 (o[0] - pos[0]).atan2(o[1] - pos[1])
             };
-            g.other.jip13.requests.push(PhysRequest::Turn { r, heading: heading.rem_euclid(std::f32::consts::TAU) });
+            g.other.jip13.turns.push((r, heading.rem_euclid(std::f32::consts::TAU)));
             zero
         }
         // The reference kept at the target's node (its root without one), its angles too

@@ -1,0 +1,108 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jip13",
+ "title": "jip13, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetRigidBodyMass)\nEnd\n",
+   "label": "jip13.mass.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetHasPhantom)\nEnd\n",
+   "label": "jip13.phantom.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetGroundMaterial)\nEnd\n",
+   "label": "jip13.ground.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetGroundMaterial)\nEnd\n",
+   "label": "jip13.ground.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (rP.GetObjectUnderFeet))\nEnd\n",
+   "label": "jip13.underfeet.player",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetRayCastMaterial)\nEnd\n",
+   "label": "jip13.raycast.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.IsGrabbable)\nEnd\n",
+   "label": "jip13.grabbable.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetCollisionObjLayerType \"Bip01 Spine\")\nEnd\n",
+   "label": "jip13.layer.doc.spine",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetCollisionObjProperty \"Bip01 Spine\" 7)\nEnd\n",
+   "label": "jip13.property.doc.mass",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rObj.GetAngularVelocity \"Bip01 Spine\" Z)\nEnd\n",
+   "label": "jip13.angvel.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetObjectVelocity)\nEnd\n",
+   "label": "jip13.velocity.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetObjectVelocity Z)\nEnd\n",
+   "label": "jip13.velocity.player.z",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nSetFunctionValue (rP.GetHasContact rObj)\nEnd\n",
+   "label": "jip13.contact.player.doc",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (rP.GetHasContactType 42)\nEnd\n",
+   "label": "jip13.contacttype.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetReticleNode)\nEnd\n",
+   "label": "jip13.reticlenode",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fA := -1\nlet fB := rObj.GetLinearVelocityAlt \"NoSuchNode\" fA fC fD\nSetFunctionValue (sv_Construct \"%g %g\" fB fA)\nEnd\n",
+   "label": "jip13.linvel.doc.none",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetReticlePosAlt fB fC fD\nSetFunctionValue (sv_Construct \"%g\" fA)\nEnd\n",
+   "label": "jip13.reticlepos",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet aList := rP.GetContactRefs\nSetFunctionValue (ar_Size aList)\nEnd\n",
+   "label": "jip13.contacts.player",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"104C0F\"\nlet fA := rObj.GetAngle Z\nrObj.SetAngleEx 0 0 (fA + 90)\nlet fB := rObj.GetAngle Z\nrObj.SetAngleEx 0 0 fA\nlet fC := rObj.GetAngle Z\nSetFunctionValue (sv_Construct \"%.1f %.1f\" (fB - fA) (fC - fA))\nEnd\n",
+   "label": "jip13.setangleex.doc",
+   "field": "value",
+   "text": true
+  }
+ ]
+}
