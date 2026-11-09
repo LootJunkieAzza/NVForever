@@ -28,7 +28,6 @@ use crate::awareness::Cause;
 use crate::detection::Band;
 use crate::functions::{Args, Ctx};
 use crate::game::Game;
-use crate::trace::EventKind;
 use crate::package::{PackageType, TargetKind};
 use crate::provocation::Note;
 
@@ -136,12 +135,8 @@ impl Game<'_> {
             let cell = self.world.placed.exterior_cell_at(cell, at).unwrap_or(cell);
             let Ok(s) = self.world.get(t) else { continue };
             (s.cell, s.pos, s.rot) = (Some(cell), at, [0.0, 0.0, h]);
-            if self.ref_script(t).is_some() {
-                self.moved.insert(t);
-            }
-            self.teleported.insert(t);
+            self.note_relocated(t, Some(cell), at);
             self.brought_along.insert(t);
-            self.emit(EventKind::Moved { reference: t, cell: Some(cell), pos: at });
             out.push(t);
         }
         out
