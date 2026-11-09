@@ -553,8 +553,12 @@ fn sky_range(sort_keys: impl Iterator<Item = f32>) -> Range<usize> {
 
 /// `NVF_FSR_DEBUG_VIEW=1`: FSR draws AMD's debug view over its output (a 3x3 grid: dilated
 /// motion, protected areas and depth on top; disocclusion, shading change with the reactive
-/// mask, and the transparency/composition mask in the bottom row, in green). For checking where
-/// the masks act; a diagnostic, not a setting.
+/// mask, and the transparency/composition mask with FSR's motion divergence (its protection
+/// takedown, the `REACTIVE` channel of `ffx_fsr3upscaler_prepare_reactivity.h`) in the bottom
+/// row, in green). For checking where the masks act; a diagnostic, not a setting. With the debug
+/// view the light term is off: the output holds the grid, so the history luminance is cleared
+/// each frame instead of read from it (as on a reset), and the masks shown are those of play
+/// without the light term.
 static DEBUG_VIEW: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var("NVF_FSR_DEBUG_VIEW").is_ok_and(|v| v.trim() == "1"));
 
 /// Reconstruction is before every effect expecting the full display-sized image.
@@ -612,7 +616,13 @@ pub(crate) fn fsr_pass(
             let after_span = diagnostics.time_span(encoder, "alpha_and_history");
             auxiliary.restore_alpha(device, encoder, prepared, target);
             target.post_process_write();
-            auxiliary.keep_history_luma(device, encoder, prepared, target);
+            if *DEBUG_VIEW {
+                // The output is AMD's grid, not what FSR's history shows: a cleared history
+                // makes the next frame's light term skip (`DEBUG_VIEW`).
+                encoder.clear_texture(&prepared.history_luma, &wgpu::ImageSubresourceRange::default());
+            } else {
+                auxiliary.keep_history_luma(device, encoder, prepared, target);
+            }
             after_span.end(encoder);
             prepared.history_valid.store(true, Ordering::Relaxed);
             if !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {

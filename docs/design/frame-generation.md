@@ -13,7 +13,13 @@ every switch. It runs when:
 - FSR 3.1 upscaling is on, in any mode (Native AA too): it reads the depth and motion FSR gets;
 - vsync is on (Vertical sync or Variable refresh): the two frames are paced by the swapchain;
 - the GPU runs the passes: Vulkan with SPIR-V passthrough and read-write storage textures in
-  the formats they use (`frame_gen::FrameGenPlugin::finish`).
+  the formats they use (`frame_gen::FrameGenPlugin::finish`);
+- the GPU reads and writes the output image without a format in the shader: Vulkan 1.3, and
+  `R16G16B16A16_SFLOAT` with `STORAGE_READ_WITHOUT_FORMAT` and `STORAGE_WRITE_WITHOUT_FORMAT`
+  in `VkFormatProperties3` (`frame_gen::storage_without_format`). AMD declares the output
+  with no format, so two passes' SPIR-V needs the `StorageImage{Read,Write}WithoutFormat`
+  capabilities [observed: their `OpCapability`s], and wgpu-hal 30 does not enable the Vulkan
+  1.0 features that would allow them otherwise.
 
 Otherwise the row is dimmed with the reason ("Needs FSR 3.1", "Needs vsync", "Not on this GPU")
 and the log says `frame generation: on but not running (...)`. While it runs, real frames are
@@ -138,10 +144,15 @@ Limits and notes:
   generation cap and the page's cap.
 - **Vsync off** is not supported: the second present would replace the first at once.
 - **Screenshots** (`--screenshot`, F12): Bevy points the camera's output at a screenshot
-  texture of its own, and after the render graph copies it to the screenshot's buffer and
-  draws it into the stand-in. On such a frame the presenter path leaves the generated frame
-  out: the real frame is drawn into the screenshot texture before that copy, so the screenshot
-  and the window both get the real frame, presented once (`frame_gen::take_for_presenters`).
+  texture of its own, and only after the render graph copies it to the screenshot's buffer and
+  into the window's image (the stand-in, with the presenter) [documented: bevy_render 0.20.1,
+  `prepare_screenshots` in `view/window/screenshot.rs`, `render_system` in `renderer/mod.rs`].
+  On such a frame no generated frame is presented (`frame_gen::generate`, the camera's output
+  against the window's image): the passes still run, so the next frame interpolates from this
+  one, and the real frame is presented once, so the screenshot and the screen both show it.
+  The presenter is handed the frame after `render_system`, once that copy is in the stand-in;
+  `frame_gen::take_for_presenters` draws the real frame into the screenshot texture should a
+  generated one have been queued.
 - **An outdated window surface** (a resize, alt-tab, a display mode or HDR change): the
   presenter skips its images and marks the surface; Bevy's `create_surfaces` reconfigures it on
   the render thread before the next frame, size changed or not. The presenter never configures

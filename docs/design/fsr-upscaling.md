@@ -161,7 +161,12 @@ See also "Mip bias, the Pip-Boy and the Strip" below, measured frame by frame in
 
 `NVF_FSR_DEBUG_VIEW=1` has FSR draw AMD's debug view over its output: a 3x3 grid, the
 bottom row the disocclusions, the shading change with the reactive mask, and the
-transparency/composition mask, in green. A diagnostic, not a setting.
+transparency/composition mask with FSR's motion divergence (its protection takedown: the
+`REACTIVE` channel, `max(motion divergence, dilated T&C)` [documented: the vendored FSR
+3.1.4 `ffx_fsr3upscaler_prepare_reactivity.h`]), in green. With the debug view the light term
+is off: the output holds the grid, not the picture, so the history luminance is cleared each
+frame instead of read from it, as on a reset, and the masks shown are those of play without
+the light term. A diagnostic, not a setting.
 
 Two bands of the transparent phase draw surfaces that are solid in effect.
 `reference_sky_and_terrain_layers` draws them again over the copy before the mask is made,
