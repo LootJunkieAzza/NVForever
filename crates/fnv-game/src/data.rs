@@ -1578,7 +1578,7 @@ const BOUNDS_SIGS: [[u8; 4]; 20] = [
 ];
 
 /// The record types whose fields [`GameData::record_fields`] keeps.
-pub const FIELD_SIGS: [[u8; 4]; 49] = [
+pub const FIELD_SIGS: [[u8; 4]; 51] = [
     *b"PROJ", *b"EXPL", *b"AMMO", *b"WEAP", *b"ARMO", *b"LSCR", *b"NOTE", *b"PERK", *b"MESG", *b"TERM", *b"IMOD", *b"CHAL", *b"BOOK", *b"BPTD", *b"MISC", *b"ALCH", *b"KEYM",
     *b"NPC_", *b"CREA", *b"FACT", *b"RACE", *b"HAIR", *b"EYES", *b"SOUN", *b"WTHR", *b"IMGS", *b"IMAD", *b"AMEF", *b"CLMT", *b"CELL", *b"WRLD", *b"IPDS", *b"IPCT", *b"IDLE", *b"ACTI",
     // JIP batch 4 (`crate::nvse_jip4`).
@@ -1591,6 +1591,8 @@ pub const FIELD_SIGS: [[u8; 4]; 49] = [
     *b"EFSH", *b"MSET",
     // JIP batch 8 (`crate::nvse_jip8`): GetEffectFlag / SetEffectFlag read SPIT and ENIT flags.
     *b"SPEL", *b"ENCH",
+    // Lutana batch 3 (`crate::nvse_lu3`): the Anim Object's idle, the loading screen type.
+    *b"ANIO", *b"LSCT",
 ];
 
 /// The winning records of the [`FIELD_SIGS`] types, each decoded by
