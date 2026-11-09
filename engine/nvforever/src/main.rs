@@ -44,6 +44,7 @@ mod decals;
 mod dismember;
 mod knockouts;
 mod pose_watch;
+mod actor_twins;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -1507,6 +1508,7 @@ fn main() -> AppExit {
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             app.add_plugins(pose_watch::PoseWatchPlugin);
+            app.add_plugins(actor_twins::ActorTwinsPlugin);
             // Co-op (private fork): idle until a lobby is opened or joined.
             app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
