@@ -11,8 +11,8 @@
 //!   the wheel scrolls; an image note's picture; an audio note's time remaining and
 //!   meter, its marker moving while that note plays (at the right end, nothing left,
 //!   for a note not playing). Using an audio note plays it from its start, using the
-//!   one playing pauses it and goes on (`crate::holotape`). The notes' filter (X,
-//!   `sShowActiveNotes`) keeps the notes of the active quest.
+//!   one playing pauses it and goes on (`crate::holotape`). "Show Active Quest Notes"
+//!   keeps the notes of the active quest.
 //! - **Radio**: the stations the Pip-Boy receives here (`crate::radio`'s list), the
 //!   playing one's square filled; a click or Enter tunes to a station or, on the playing
 //!   one, turns the radio off; the waveform panel at the right (a trace that runs to the
@@ -48,7 +48,7 @@ mod outline;
 pub(crate) mod read;
 pub mod travel;
 
-use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at, u};
 use crate::menu::model::Command;
@@ -123,13 +123,13 @@ const MARK_AT: Vec2 = Vec2::new(15.0, 20.0);
 const MARK: f32 = 25.0;
 const WRAP: f32 = 310.0;
 /// The buttons at the right: right-aligned at 855, from 75 down, each its text with 20
-/// across and 15 up and down; the text 10 under the middle of the box's spare height
-/// [documented]. The file puts a PC key's label 5 after the box; here the key is part of
-/// the text, inside the box ([`button_boxes`], #1897) [design].
+/// across and 15 up and down; the text 10 under the middle of the box's spare height;
+/// a PC key's label 5 after the box.
 const BUTTONS: Vec2 = Vec2::new(855.0, 75.0);
 const BUTTON_HORBUF: f32 = 20.0;
 const BUTTON_VERBUF: f32 = 15.0;
 const BUTTON_TEXT_DROP: f32 = 10.0;
+const KEY_GAP: f32 = 5.0;
 /// The item data at the right: 400 wide at the menus' right edge, under the buttons'
 /// place (75 + 120) less a button's height; a note's text 17 left of it and 20 down,
 /// 400 × 385, in font 1, scrolled 20 a step; an image note's picture 360 square at its
@@ -258,11 +258,6 @@ enum ButtonKind {
     ShowLocation,
     NotesFilter,
     Challenges,
-    /// The A button's actions (Enter): travel to the marker under the highlight box, make
-    /// the selected quest the active one, tune to the selected station (#1897).
-    Travel,
-    MakeActive,
-    Tune,
 }
 
 /// A place name's cell: worldspace, interior, grid square.
@@ -290,7 +285,7 @@ pub struct DataState {
     /// When each quest was first seen listed (a running count).
     seen: HashMap<u32, u64>,
     seen_count: u64,
-    /// The notes' filter is on: only the active quest's notes (`sShowActiveNotes`).
+    /// "Show Active Quest Notes" is on.
     notes_of_active: bool,
     /// The note whose page was last shown, so it is marked read once (GetNoteRead).
     note_shown: Option<u32>,
@@ -341,12 +336,6 @@ pub struct DataState {
     world_logged: Option<(u32, usize, usize, usize, usize)>,
     /// The World Map's marker under the highlight box, when last drawn.
     cursor_marker: Option<u32>,
-    /// The marker the Travel hint, Enter and the controller's A travel to
-    /// ([`travel_target`], #1897).
-    travel_marker: Option<u32>,
-    /// The boxes of the buttons at the right as last drawn, and their tab
-    /// ([`button_boxes`], [`on_button`]).
-    button_rects: (usize, Vec<Rect>),
     /// Where the left button went down on the World Map, and how far the pointer has
     /// moved since (a click asks to travel, a drag does not).
     press: Option<(Vec2, f32)>,
@@ -384,7 +373,8 @@ enum Right {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Button {
-    hint: Hint,
+    text: String,
+    key: Option<String>,
     kind: ButtonKind,
 }
 
@@ -515,7 +505,6 @@ pub fn draw(
         st.was_open = false;
         st.popup = None;
         st.note_shown = None;
-        st.travel_marker = None;
         input.wheel.clear();
         input.menu.clear();
         return;
@@ -525,7 +514,6 @@ pub fn draw(
         st.last_tab = Some(tab);
         st.boxed = false;
         st.popup = None;
-        st.travel_marker = None;
     }
     if !st.was_open {
         st.was_open = true;
@@ -548,18 +536,11 @@ pub fn draw(
     if tab == LOCAL {
         advance_outline(st, &mut game, &mut tools.images);
     }
-    // Over a button at the right the pointer is off the map: the highlight box stays where
-    // it was, and with it the Travel hint's marker (#1897).
-    let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
-    let view = build(st, tab, &lists, &game, on_map, pointer.is_some());
-    if st.shown.as_ref().is_none_or(|s| s.tab != view.tab || s.buttons != view.buttons) {
-        info!("pipboy hints: data {}: {}", TAB_NAMES[view.tab.min(RADIO)], super::frame::hints_line(view.buttons.iter().map(|b| &b.hint)));
-    }
+    let view = build(st, tab, &lists, &game, pointer);
     if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
         return;
     }
     let mut c = Ctx::new(&mut tools.kit, tools.data.as_deref(), &mut tools.images, tools.formats.as_deref(), &tools.glyphs);
-    st.button_rects = (view.tab, button_boxes(&c, &view.buttons).into_iter().map(|(r, _)| r).collect());
     commands.entity(body).despawn_children().with_children(|p| show(p, &mut c, st, &view));
     st.shown = Some(view);
 }
@@ -835,15 +816,6 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     if tab == NOTES && input.keys.just_pressed(KeyR) {
         st.acts.push(Act::Button(ButtonKind::Challenges));
     }
-    // X (with a controller X, `crate::pad::menu_buttons`) is the tab's X button (#1897).
-    if input.keys.just_pressed(KeyX) {
-        match tab {
-            LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
-            QUESTS if !l.quests.is_empty() => st.acts.push(Act::Button(ButtonKind::ShowLocation)),
-            NOTES if l.challenges.is_none() => st.acts.push(Act::Button(ButtonKind::NotesFilter)),
-            _ => {}
-        }
-    }
     if tab == NOTES {
         if input.keys.just_pressed(PageDown) {
             st.text_first += TEXT_H;
@@ -901,17 +873,11 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
                 st.sel[tab] = i;
                 use_row(st, tab, i, l, game);
             }
-            // The A button's hints do what Enter does on the tab.
-            Act::Button(ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::Tune) => use_it = true,
             Act::Button(k) => button(st, k, input),
             _ => {}
         }
     }
     st.text_first = st.text_first.clamp(0.0, st.text_max.max(0.0));
-    // On the World Map Enter (or Space, or the Travel hint's click) asks to travel to the
-    // Travel hint's marker, as the controller's A does (#1897). A also presses Enter
-    // (`crate::pad`), so the two ask once.
-    let travel = tab == WORLD && (use_it || crate::pad::menu_button(&input.pads, input.bindings.as_deref(), GamepadButton::South));
     if use_it && len > 0 {
         use_row(st, tab, st.sel[tab].min(len - 1), l, game);
     }
@@ -920,20 +886,37 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
     }
     // A click on the World Map (the left button let go where it went down) on a marker
-    // asks to travel there (`travel`); so does the controller's A (the confirm button) on a
-    // highlighted marker [observed: the original; docs/design/controller.md §3].
-    let mouse = (input.buttons.just_pressed(MouseButton::Left), input.buttons.just_released(MouseButton::Left));
-    if let Some(m) = travel_ask(st, tab, pointer, mouse, travel) {
-        input.ask.write(FastTravelAsk(m));
+    // asks to travel there (`travel`).
+    if tab == WORLD {
+        if input.buttons.just_pressed(MouseButton::Left) {
+            st.press = in_map(pointer).and(pointer).map(|p| (p, 0.0));
+        } else if let (Some((from, moved)), Some(p)) = (st.press.as_mut(), pointer) {
+            *moved = moved.max(p.distance(*from));
+        }
+        if input.buttons.just_released(MouseButton::Left) {
+            if let (Some((_, moved)), Some(m)) = (st.press.take(), st.cursor_marker) {
+                if moved <= CLICK_SLOP {
+                    input.ask.write(FastTravelAsk(m));
+                }
+            }
+        }
+    } else {
+        st.press = None;
     }
-    // Dragging a map moves the point at its middle: the left button held down on it (not
-    // on a button at the right), the pointer moving (or the test aid's drag).
+    // The controller's A (the confirm button) on a highlighted marker asks to travel
+    // there, as a click does [observed: the original; docs/design/controller.md §3].
+    if tab == WORLD && crate::pad::menu_button(&input.pads, input.bindings.as_deref(), GamepadButton::South) {
+        if let Some(m) = st.cursor_marker {
+            input.ask.write(FastTravelAsk(m));
+        }
+    }
+    // Dragging a map moves the point at its middle: the left button held down on it, the
+    // pointer moving (or the test aid's drag).
     let held = input.buttons.pressed(MouseButton::Left);
     if !held || !(tab == LOCAL || tab == WORLD) {
         st.drag_from = None;
     } else if input.buttons.just_pressed(MouseButton::Left) {
-        let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
-        st.drag_from = in_map(on_map).and(on_map);
+        st.drag_from = in_map(pointer).and(pointer);
     } else if let (Some(from), Some(p)) = (st.drag_from, pointer) {
         st.drag += p - from;
         st.drag_from = Some(p);
@@ -1069,8 +1052,6 @@ fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
             info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
         }
         ButtonKind::PlaceMarker => info!("pipboy data: {k:?} is not built"),
-        // Taken as Enter in `take_input`.
-        ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::Tune => {}
     }
 }
 
@@ -1089,16 +1070,21 @@ fn map_for(st: &mut DataState, game: &Game, world: u32) -> Option<WorldMap> {
 }
 
 /// Gather what the page shows.
-/// The page as it is now; `pointer` is the pointer over the page off its buttons, `aiming`
-/// whether the pointer is in use at all ([`travel_target`]).
-fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option<Vec2>, aiming: bool) -> View {
+fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option<Vec2>) -> View {
     // Under the question box the map stands still.
     let pointer = pointer.filter(|_| st.popup.is_none());
     let place = place(st, game);
     let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time(&c)).unwrap_or_default();
+    let mut buttons = Vec::new();
     let body = match tab {
-        LOCAL | WORLD => Body::Map(if tab == WORLD { world_map(st, game, pointer, aiming) } else { local_map(st, game, pointer) }),
+        LOCAL | WORLD => {
+            buttons.push(Button { text: super::labels::label("sPlaceMarker", "Place Marker").into(), key: None, kind: ButtonKind::PlaceMarker });
+            Body::Map(if tab == WORLD { world_map(st, game, pointer) } else { local_map(st, game, pointer) })
+        }
         QUESTS => {
+            if !l.quests.is_empty() {
+                buttons.push(Button { text: super::labels::label("sShowLocation", "Show Location").into(), key: None, kind: ButtonKind::ShowLocation });
+            }
             let rows = l
                 .quests
                 .iter()
@@ -1108,6 +1094,9 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::List { rows, first: st.first[QUESTS], boxed: st.boxed.then_some(st.sel[QUESTS]), right }
         }
         NOTES if l.challenges.is_some() => {
+            // The challenges in place of the notes; R goes back [hypothesis: the button's
+            // word then].
+            buttons.push(Button { text: "Notes".into(), key: Some(challenges_hint()), kind: ButtonKind::Challenges });
             let list = l.challenges.as_deref().unwrap_or_default();
             let rows = list.iter().map(|c| Row { text: c.name.clone(), mark: Mark::None, done: c.completed }).collect();
             let right = list.get(st.sel[NOTES]).map_or(Right::None, |c| {
@@ -1117,6 +1106,11 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
         }
         NOTES => {
+            let text = if st.notes_of_active { "Show All Notes" } else { "Show Active Quest Notes" };
+            if !l.notes.is_empty() || st.notes_of_active {
+                buttons.push(Button { text: text.into(), key: None, kind: ButtonKind::NotesFilter });
+            }
+            buttons.push(Button { text: "Challenges".into(), key: Some(challenges_hint()), kind: ButtonKind::Challenges });
             let rows = l.notes.iter().map(|n| Row { text: n.name.clone(), mark: Mark::None, done: false }).collect();
             let right = match l.notes.get(st.sel[NOTES]) {
                 Some(n) if n.kind == 1 => Right::Text { text: n.text.clone().unwrap_or_default(), first: st.text_first },
@@ -1134,82 +1128,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::List { rows, first: st.first[RADIO], boxed: st.boxed.then_some(st.sel[RADIO]), right: Right::Wave { on: l.playing.is_some() } }
         }
     };
-    // The hints after the body: the World Map's marker under the highlight box is found
-    // while its map is gathered.
-    let facts = HintFacts {
-        marker: st.travel_marker.is_some(),
-        quests: !l.quests.is_empty(),
-        quest_done: l.quests.get(st.sel[QUESTS]).map(|q| q.done),
-        notes: !l.notes.is_empty(),
-        notes_of_active: st.notes_of_active,
-        challenges: l.challenges.is_some(),
-        stations: !l.stations.is_empty(),
-    };
-    let buttons = tab_buttons(tab, &facts);
     View { tab, place, when, buttons, body, popup: st.popup.clone() }
-}
-
-/// What a tab's hints depend on ([`tab_buttons`]).
-#[derive(Debug, Default, Clone, Copy)]
-struct HintFacts {
-    /// The World Map has a Travel target ([`travel_target`]).
-    marker: bool,
-    /// Quests are listed, and whether the selected one is done.
-    quests: bool,
-    quest_done: Option<bool>,
-    /// Notes are listed; the notes' filter is on; Misc shows the challenges.
-    notes: bool,
-    notes_of_active: bool,
-    challenges: bool,
-    /// The Pip-Boy receives a station here.
-    stations: bool,
-}
-
-/// The names of the tabs, for the log.
-const TAB_NAMES: [&str; 5] = ["local map", "world map", "quests", "misc", "radio"];
-
-/// The A button's key: Enter, with a controller A (the shared menu buttons,
-/// `crate::pad`).
-fn a_key() -> String {
-    crate::pad::hint(&[KeyCode::Enter], crate::pad::at_menu(fnv_game::game::menus::MAP))
-}
-
-/// The X button's key: X, with a controller X (`crate::pad::menu_buttons`' map entry,
-/// #1897).
-fn x_key() -> String {
-    crate::pad::hint(&[KeyCode::KeyX], crate::pad::at_menu(fnv_game::game::menus::MAP))
-}
-
-/// A tab's hints at the right, top to bottom (#1897): each the A or X button's title on
-/// that page in `map_menu.xml` [documented: the setting names `sTravel`,
-/// `sMakeActiveQuest`, `sTune` (A) and `sPlaceMarker`, `sShowLocation`,
-/// `sShowActiveNotes`, `sShowAllNotes` (X), `fnv_ui::strings`], and Misc's Challenges (R,
-/// with a controller Y). The words are the settings' texts, else NVForever's labels for
-/// them in the game strings table (`fnv_ui::strings`, `labels::built_in_label`);
-/// "Challenges" and "Notes" have no setting named and are NVForever's own. A hint that
-/// does nothing now is dim: Travel with no Travel target ([`travel_target`]), Place
-/// Marker (not built), the make-active hint on a quest done or with none, Show Location
-/// and the notes' filter with nothing listed, Tune with no station [design].
-fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
-    use super::labels::built_in_label;
-    let b = |word, key, dim, kind| Button { hint: Hint::new(word, key, dim), kind };
-    let place_marker = || b(built_in_label("sPlaceMarker"), x_key(), true, ButtonKind::PlaceMarker);
-    match tab {
-        LOCAL => vec![place_marker()],
-        WORLD => vec![b(built_in_label("sTravel"), a_key(), !f.marker, ButtonKind::Travel), place_marker()],
-        QUESTS => vec![
-            b(built_in_label("sMakeActiveQuest"), a_key(), f.quest_done != Some(false), ButtonKind::MakeActive),
-            b(built_in_label("sShowLocation"), x_key(), !f.quests, ButtonKind::ShowLocation),
-        ],
-        // The challenges in place of the notes; R goes back [hypothesis: the button's word
-        // then].
-        NOTES if f.challenges => vec![b("Notes", challenges_hint(), false, ButtonKind::Challenges)],
-        NOTES => {
-            let filter = built_in_label(if f.notes_of_active { "sShowAllNotes" } else { "sShowActiveNotes" });
-            vec![b(filter, x_key(), !f.notes && !f.notes_of_active, ButtonKind::NotesFilter), b("Challenges", challenges_hint(), false, ButtonKind::Challenges)]
-        }
-        _ => vec![b(built_in_label("sTune"), a_key(), !f.stations, ButtonKind::Tune)],
-    }
 }
 
 fn quest_name(game: &Game, q: u32) -> String {
@@ -1301,50 +1220,6 @@ fn scroll_map(st: &mut DataState, tab: usize, game: &Game, d: Vec2) {
     }
 }
 
-/// Whether the pointer is over one of the tab's buttons at the right, as last drawn
-/// ([`button_boxes`]): there it is the buttons' pointer, never the map's (#1897).
-fn on_button(st: &DataState, tab: usize, pointer: Option<Vec2>) -> bool {
-    let (drawn, rects) = &st.button_rects;
-    *drawn == tab && pointer.is_some_and(|p| rects.iter().any(|r| r.contains(p)))
-}
-
-/// The marker the Travel hint, Enter and the controller's A travel to (#1897): the one
-/// under the highlight box; while the pointer is in use (`aiming`), else the last one the
-/// box was on, kept while the pointer goes on to the Travel hint (the box does not follow
-/// it over the buttons, [`on_button`]) until a click on the map away from any marker
-/// ([`travel_ask`]); always one still shown (`shown`) [design].
-fn travel_target(kept: Option<u32>, under: Option<u32>, aiming: bool, shown: &[u32]) -> Option<u32> {
-    under.or(kept.filter(|_| aiming)).filter(|m| shown.contains(m))
-}
-
-/// The marker the World Map asks to travel to this frame, at most one (#1897): a click on
-/// the map (the left button let go, `mouse.1`, near where it went down, `mouse.0`) on a
-/// marker, or `travel` (Enter, the controller's A, the Travel hint's click) to the Travel
-/// target ([`travel_target`]). A press on a button at the right is the button's, never a
-/// map click; a click on the map away from any marker drops the Travel target.
-fn travel_ask(st: &mut DataState, tab: usize, pointer: Option<Vec2>, (pressed, released): (bool, bool), travel: bool) -> Option<u32> {
-    if tab != WORLD {
-        st.press = None;
-        return None;
-    }
-    let over_button = on_button(st, tab, pointer);
-    if pressed {
-        st.press = in_map(pointer).filter(|_| !over_button).and(pointer).map(|p| (p, 0.0));
-    } else if let (Some((from, moved)), Some(p)) = (st.press.as_mut(), pointer) {
-        *moved = moved.max(p.distance(*from));
-    }
-    let mut clicked = None;
-    if released {
-        if let Some((_, moved)) = st.press.take().filter(|_| !over_button) {
-            if moved <= CLICK_SLOP {
-                st.travel_marker = st.cursor_marker;
-                clicked = st.cursor_marker;
-            }
-        }
-    }
-    clicked.or(st.travel_marker.filter(|_| travel))
-}
-
 /// The highlight box: at the pointer while it is over the map, else where it was left
 /// (the window's middle at first); on a marker within reach it takes the marker's place
 /// and name [hypothesis: the owner's screenshots show it away from the middle, once round
@@ -1383,7 +1258,7 @@ fn known(st: &DataState, game: &Game, m: &read::Marker) -> Option<bool> {
     (enabled && (found || shown || m.flags & 1 != 0)).then_some(found)
 }
 
-fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: bool) -> MapShown {
+fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown {
     let Some(world) = game.location.as_ref().map(|l| l.world) else { return empty_map() };
     let Some(m) = map_of(st, game) else { return empty_map() };
     let mag = st.magnify[WORLD].max(ZOOM.0);
@@ -1428,7 +1303,6 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         info!("pipboy data: world map highlights {} ({}){}", names[i], FormId(forms[i]), detail.as_ref().map(|d| format!(", reputation line \"{d}\"")).unwrap_or_default());
     }
     st.cursor_marker = under.map(|i| forms[i]);
-    st.travel_marker = travel_target(st.travel_marker, st.cursor_marker, aiming, &forms);
     MapShown {
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
         outline: None,
@@ -1815,28 +1689,20 @@ fn challenges_hint() -> String {
     crate::pad::hint(&[KeyCode::KeyR], crate::pad::at_menu(fnv_game::game::menus::MAP))
 }
 
-/// Where each button at the right goes (canvas): its box, one under the other, and its
-/// text's top. The key stands in the text, after the words, so the whole hint ends inside
-/// the box at the menus' right edge and never runs off the screen (#1897: "Challenges"
-/// with its key after the box ran past the 1280 x 720 screen's edge) [design].
-fn button_boxes(c: &Ctx, list: &[Button]) -> Vec<(Rect, f32)> {
-    let h = button_height(c);
-    let right = MAIN.min.x + BUTTONS.x;
-    list.iter()
-        .enumerate()
-        .map(|(k, b)| {
-            let w = crate::pad::hint_width(c.kit.face(2), &b.hint.text(), c.glyphs) + BUTTON_HORBUF;
-            let top = MAIN.min.y + BUTTONS.y + h * k as f32;
-            (Rect::new(right - w, top, right, top + h), top + (h - c.line_height(2)) / 2.0 + BUTTON_TEXT_DROP)
-        })
-        .collect()
-}
-
 /// The buttons at the right, one under the other.
 fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, list: &[Button]) {
-    for (b, (r, text_top)) in list.iter().zip(button_boxes(c, list)) {
-        c.text(p, 2, &b.hint.text(), r.max.x - BUTTON_HORBUF / 2.0, text_top, Align::Right, b.hint.color());
-        p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), ButtonHit(b.kind), Pickable::default())).observe(on_button_click);
+    let bright = amber(TEXT);
+    let h = button_height(c);
+    for (k, b) in list.iter().enumerate() {
+        let w = c.width(2, &b.text) + BUTTON_HORBUF;
+        let right = MAIN.min.x + BUTTONS.x;
+        let top = MAIN.min.y + BUTTONS.y + h * k as f32;
+        let text_top = top + (h - c.line_height(2)) / 2.0 + BUTTON_TEXT_DROP;
+        c.text(p, 2, &b.text, right - BUTTON_HORBUF / 2.0, text_top, Align::Right, bright);
+        if let Some(key) = &b.key {
+            c.text(p, 2, key, right + KEY_GAP, text_top, Align::Left, bright);
+        }
+        p.spawn((at(right - w, top, w, h), ButtonHit(b.kind), Pickable::default())).observe(on_button_click);
     }
 }
 
@@ -2160,7 +2026,7 @@ mod tests {
             let game = state.get_mut(&mut world).unwrap();
             track(&mut st, &game);
             assert_eq!(st.discovered, BTreeSet::from([20]));
-            let shown = world_map(&mut st, &game, None, false);
+            let shown = world_map(&mut st, &game, None);
             assert_eq!(shown.marks.len(), 2);
             assert_eq!(shown.picture.as_ref().unwrap().0, "root.dds");
             assert_eq!(shown.player, Some((MAP_MID, 0.7)));
@@ -2180,130 +2046,9 @@ mod tests {
         world.resource_mut::<Location>().world = 1;
         let game = state.get_mut(&mut world).unwrap();
         st.centre[WORLD] = None;
-        let shown = world_map(&mut st, &game, None, false);
+        let shown = world_map(&mut st, &game, None);
         assert_eq!(shown.marks.len(), 2);
         assert_eq!(st.world_logged, Some((1, 2, 2, 1, 1)));
-    }
-
-    fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {
-        tab_buttons(tab, f).iter().map(|b| (b.hint.text(), b.hint.dim)).collect()
-    }
-
-    fn hint(text: &str, dim: bool) -> (String, bool) {
-        (text.to_string(), dim)
-    }
-
-    /// Each tab's hints with their keys (#1897; keyboard keys, the tests' labels).
-    #[test]
-    fn each_tab_shows_its_hints_with_their_keys() {
-        let all = HintFacts { marker: true, quests: true, quest_done: Some(false), notes: true, stations: true, ..HintFacts::default() };
-        assert_eq!(shown(LOCAL, &all), [hint("Place Marker X)", true)]);
-        assert_eq!(shown(WORLD, &all), [hint("Travel Enter)", false), hint("Place Marker X)", true)]);
-        assert_eq!(shown(QUESTS, &all), [hint("Set Active Enter)", false), hint("Show Location X)", false)]);
-        assert_eq!(shown(NOTES, &all), [hint("Active Notes X)", false), hint("Challenges R)", false)]);
-        assert_eq!(shown(NOTES, &HintFacts { notes_of_active: true, ..all }), [hint("All Notes X)", false), hint("Challenges R)", false)]);
-        assert_eq!(shown(NOTES, &HintFacts { challenges: true, ..all }), [hint("Notes R)", false)]);
-        assert_eq!(shown(RADIO, &all), [hint("Tune In Enter)", false)]);
-        // With a controller: A, X and Y.
-        crate::pad::set_labels(crate::pad::Labels::Xbox);
-        let keys: Vec<String> = [WORLD, NOTES].iter().flat_map(|&t| tab_buttons(t, &all)).map(|b| b.hint.key).collect();
-        crate::pad::set_labels(crate::pad::Labels::Keys);
-        assert_eq!(keys, ["A)", "X)", "X)", "Y)"]);
-    }
-
-    /// What does nothing now is dim (#1897): Travel without a marker under the highlight
-    /// box, the make-active hint on a quest done or with none selected, Show Location and
-    /// the notes' filter with nothing listed, Tune with no station.
-    #[test]
-    fn hints_that_do_nothing_are_dim() {
-        let none = HintFacts::default();
-        assert_eq!(shown(WORLD, &none)[0], hint("Travel Enter)", true));
-        assert_eq!(shown(WORLD, &HintFacts { marker: true, ..none })[0], hint("Travel Enter)", false));
-        assert!(shown(QUESTS, &none).iter().all(|h| h.1));
-        assert!(shown(QUESTS, &HintFacts { quests: true, quest_done: Some(true), ..none })[0].1);
-        assert_eq!(shown(NOTES, &none), [hint("Active Notes X)", true), hint("Challenges R)", false)]);
-        assert!(shown(RADIO, &none)[0].1);
-    }
-
-    /// The Travel hint's marker is kept while the pointer goes from the marker to the hint
-    /// (#1897): the highlight box leaves the marker on the way, the target stays; with no
-    /// pointer (a controller) it is the marker under the box; only a marker still shown.
-    #[test]
-    fn the_travel_target_is_kept_on_the_way_to_the_hint() {
-        let shown = [5, 7];
-        assert_eq!(travel_target(None, Some(5), true, &shown), Some(5));
-        // The pointer leaves the marker for the hint over empty map: kept.
-        assert_eq!(travel_target(Some(5), None, true, &shown), Some(5));
-        // Onto another marker: that one.
-        assert_eq!(travel_target(Some(5), Some(7), true, &shown), Some(7));
-        // No pointer: only the marker under the box.
-        assert_eq!(travel_target(Some(5), None, false, &shown), None);
-        assert_eq!(travel_target(Some(5), Some(7), false, &shown), Some(7));
-        // A marker no longer shown is no target.
-        assert_eq!(travel_target(Some(9), None, true, &shown), None);
-    }
-
-    /// Over a button the pointer is not on the map (#1897): a press and release on the
-    /// Travel hint asks to travel once, to the Travel target, though another marker lies
-    /// under the button; a click on the map on a marker asks for it and makes it the
-    /// target, and a click away from any marker drops the target.
-    #[test]
-    fn a_click_on_a_button_is_never_a_map_click() {
-        // A button where the buttons start, inside the map's window.
-        let button = Rect::new(MAIN.min.x + BUTTONS.x - 200.0, MAIN.min.y + BUTTONS.y, MAIN.min.x + BUTTONS.x, MAIN.min.y + BUTTONS.y + 45.0);
-        let over = Some(button.center());
-        assert!(in_map(over).is_some());
-        let mut st = DataState { button_rects: (WORLD, vec![button]), cursor_marker: Some(7), travel_marker: Some(5), ..DataState::default() };
-        assert!(on_button(&st, WORLD, over));
-        assert!(!on_button(&st, QUESTS, over), "the rects of another tab's buttons");
-        // The press on the button is no press on the map.
-        assert_eq!(travel_ask(&mut st, WORLD, over, (true, false), false), None);
-        assert_eq!(st.press, None);
-        // The release: the button's click (`travel`) asks once, for the Travel target.
-        assert_eq!(travel_ask(&mut st, WORLD, over, (false, true), true), Some(5));
-        // A release over the button alone asks nothing.
-        assert_eq!(travel_ask(&mut st, WORLD, over, (false, true), false), None);
-        assert_eq!(st.travel_marker, Some(5));
-        // On the map, a click on the marker under the box.
-        let on_map = Some(MAIN.min + MAP.min + Vec2::new(100.0, 300.0));
-        assert!(!on_button(&st, WORLD, on_map));
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (true, false), false), None);
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), Some(7));
-        assert_eq!(st.travel_marker, Some(7));
-        // Enter in the same frame as that click still asks once.
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (true, false), false), None);
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), true), Some(7));
-        // A click away from any marker drops the target.
-        st.cursor_marker = None;
-        travel_ask(&mut st, WORLD, on_map, (true, false), false);
-        assert_eq!(travel_ask(&mut st, WORLD, on_map, (false, true), false), None);
-        assert_eq!(st.travel_marker, None);
-    }
-
-    /// Misc's hints fit their place: each ends 10 short of the menus' right edge (inside
-    /// what the 1280 x 720 screen shows of the canvas, `super::super::SCREEN_CROP`) and
-    /// starts right of the list, with every set of labels, a PlayStation button's name
-    /// written out (the glyphs not loaded) too (#1897: "Challenges" ran off the screen).
-    #[test]
-    fn the_misc_hints_fit_their_width() {
-        let mut kit = Kit::default();
-        let mut images = Assets::<Image>::default();
-        let glyphs = crate::pad::PadGlyphs::default();
-        let c = Ctx::new(&mut kit, None, &mut images, None, &glyphs);
-        let facts = HintFacts { notes: true, ..HintFacts::default() };
-        for labels in [crate::pad::Labels::Keys, crate::pad::Labels::Xbox, crate::pad::Labels::PlayStation] {
-            crate::pad::set_labels(labels);
-            for f in [facts, HintFacts { notes_of_active: true, ..facts }] {
-                let list = tab_buttons(NOTES, &f);
-                for (b, (r, _)) in list.iter().zip(button_boxes(&c, &list)) {
-                    let text_right = r.max.x - BUTTON_HORBUF / 2.0;
-                    let text_left = text_right - crate::pad::hint_width(c.kit.face(2), &b.hint.text(), c.glyphs);
-                    assert!(r.max.x <= MAIN.max.x && text_right < super::super::SCREEN_CROP.x, "{labels:?} {:?} ends at {}", b.hint, r.max.x);
-                    assert!(text_left > MAIN.min.x + LIST.max.x, "{labels:?} {:?} starts at {text_left}", b.hint);
-                }
-            }
-        }
-        crate::pad::set_labels(crate::pad::Labels::Keys);
     }
 
     #[test]
