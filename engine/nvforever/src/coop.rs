@@ -907,6 +907,10 @@ struct Peer {
     /// Its own body was seen knocked down (`flag::LYING`) and its puppet fell here for it
     /// ([`duel_falls`]); cleared once the body is up again, so one knockdown is one fall.
     lying_fell: bool,
+    /// Fell here for its own game's knockdown, a duel this game took no part in: where
+    /// its player's feet were then, and when; its puppet's ragdoll is thrown the way they
+    /// go next ([`duel_falls`]).
+    fall_from: Option<([f32; 3], f32)>,
 }
 
 impl Peer {
@@ -1044,6 +1048,13 @@ const DUEL_FALL_MAX: f32 = 8.0;
 /// How long a fallen puppet's throw waits for its ragdoll before it is let go (seconds).
 const DUEL_SHOVE_WAIT: f32 = 2.0;
 
+/// A knocked-down player's feet gone this far (game units) in its own game tell which
+/// way its body was thrown [design: above the samples' jitter].
+const FALL_TELL: f32 = 12.0;
+/// How long after the fall that is looked for (seconds) [design: a throw shows within
+/// a few samples; a body that has not moved by then fell in place].
+const FALL_TELL_WAIT: f32 = 0.6;
+
 /// The loser of a duel against this player: its puppet falls as a downed player's does
 /// ([`downed`]), its ragdoll thrown away from this player as the loser's own game throws
 /// it (`nvf_play::coop_social::duel::throw`, the same velocity), and gets up with the
@@ -1113,6 +1124,25 @@ fn duel_falls(
         g.extra.entry(FormId(r)).or_default().dead = true;
         hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
         info!("co-op: {} is knocked down in its own game: the puppet falls here too", label(id, &p.name));
+        p.fall_from = p.samples.back().map(|(_, s)| (s.feet, now));
+    }
+    // A third player's view of a duel's loser (or a blast's): its own game threw its body,
+    // and its feet start to go the throw's way. The puppet's ragdoll is thrown the same
+    // way, as the duelists' games throw it ([`nvf_play::coop_social::duel::throw`]): before,
+    // it fell in place, came to rest far from where its player got up (270 units in the
+    // duel3c run, 2026-11-09) and the get-up had to make that up.
+    for (&id, p) in coop.peers.iter_mut() {
+        let Some((from, since)) = p.fall_from else { continue };
+        let Some(&(_, s)) = p.samples.back() else { continue };
+        let gone = (s.feet[0] - from[0]).hypot(s.feet[1] - from[1]);
+        if gone >= FALL_TELL {
+            let shove = nvf_play::coop_social::duel::throw(s.feet, from);
+            p.fall_shove = Some((shove, now));
+            p.fall_from = None;
+            info!("co-op: {}'s body goes ({:.0}, {:.0}) in its own game: the puppet is thrown that way", label(id, &p.name), shove[0], shove[1]);
+        } else if now - since > FALL_TELL_WAIT || !p.lying_fell {
+            p.fall_from = None;
+        }
     }
     // The throw: the ragdoll starts with it, or (already in the world) is pushed by it.
     for (&id, p) in coop.peers.iter_mut() {
