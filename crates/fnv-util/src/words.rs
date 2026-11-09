@@ -20,6 +20,7 @@
 //! read once at start; the chosen one can change at any time ([`set_language`]), and
 //! [`generation`] counts the changes so that text drawn once can be drawn again.
 
+use crate::text::CodePage;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -70,6 +71,11 @@ impl Table {
 
     pub fn is_empty(&self) -> bool {
         self.words.is_empty()
+    }
+
+    /// Every (English, translation) pair, in no order.
+    pub fn pairs(&self) -> impl Iterator<Item = (&str, &'static str)> {
+        self.words.iter().map(|(k, v)| (k.as_str(), *v))
     }
 }
 
@@ -156,6 +162,25 @@ pub fn set_language(id_or_name: &str) -> bool {
         GENERATION.fetch_add(1, Ordering::Relaxed);
     }
     true
+}
+
+/// The language of the game's text when its code page tells it (#1948): Windows-1251 is
+/// Russian, the one Cyrillic release of the game [hypothesis: one Russian install looked
+/// at, docs/spec-notes/fonts.md §2.1]. Windows-1250 (Polish or Czech) and 1252 (English,
+/// French, German, Italian, Spanish) are each several languages, so they tell none.
+pub fn for_code_page(page: CodePage) -> Option<&'static str> {
+    match page {
+        CodePage::Windows1251 => Some("ru"),
+        CodePage::Windows1250 | CodePage::Windows1252 => None,
+    }
+}
+
+/// At the start, before NVForever.ini's rows are applied: choose the language of the
+/// game's text ([`for_code_page`]) when a file of it was read. A `language=` in the INI,
+/// applied after, still wins. The id chosen, if one was.
+pub fn follow_code_page(page: CodePage) -> Option<&'static str> {
+    let id = for_code_page(page)?;
+    set_language(id).then(language)
 }
 
 /// Counts the changes of language: text drawn under an older count is out of date.
@@ -251,11 +276,21 @@ mod tests {
     }
 
     #[test]
+    fn only_a_code_page_of_one_language_names_it() {
+        assert_eq!(for_code_page(CodePage::Windows1251), Some("ru"));
+        assert_eq!(for_code_page(CodePage::Windows1250), None);
+        assert_eq!(for_code_page(CodePage::Windows1252), None);
+    }
+
+    #[test]
     fn without_languages_english_is_all_there_is() {
         // No test loads tables into the run's list, so only English can be chosen.
         assert_eq!(languages()[0], (ENGLISH, "English"));
         assert!(set_language("English") && set_language("en"));
         assert!(!set_language("xx"));
+        assert_eq!(language(), ENGLISH);
+        // A Russian install's text asks for Russian, but no file of it was read.
+        assert_eq!(follow_code_page(CodePage::Windows1251), None);
         assert_eq!(language(), ENGLISH);
         assert_eq!(tr("Accepted."), "Accepted.");
         assert_eq!(trf("{n} of {len} right", &[("n", &1), ("len", &5)]), "1 of 5 right");

@@ -21,6 +21,7 @@
 //!   from 0, `fnv_ui`), so the value is written again on every frame after the clicks, and
 //!   `_SetInCode` poked [documented: scrollbar_vert.xml], as the wait menu's slider.
 
+use super::menus::Tiled;
 use fnv_ui::{TileId, Ui, Value};
 
 /// The scrollbar's and the row's names [documented: list_box.xml, scrollbar_vert.xml].
@@ -298,6 +299,153 @@ pub fn value_under(ui: &Ui, drag: Drag, pointer_y: f64) -> Option<f64> {
     Some(((pointer_y - drag.grab - drag.top) / step + 1e-9).floor().clamp(0.0, most))
 }
 
+/// A list's view: where it is scrolled, and what the last frame worked out. `K` is what a
+/// row stands for ([`RowTile::key`]).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct ListView<K> {
+    /// The scrollbar's value, whole.
+    pub(super) value: f64,
+    pub(super) counts: Counts,
+    /// The highlighted row's top and height before the scroll.
+    selected: Option<(f64, f64)>,
+    /// The highlighted row the scroll last followed.
+    watched: Option<K>,
+    /// Its top and height, the list's height, the scroll's scale and its highest value then.
+    geometry: Option<(f64, f64, f64, f64, f64)>,
+    /// The caller's count of the keys' moves then ([`settle_list`]'s `navigated`).
+    navigated: u32,
+    /// The `_scroll_delta` a list that fits keeps: its last overflowing one, the file's before
+    /// that (26) [observed once: 15 of 16 rows filtered read 57.2; hypothesis: that every list
+    /// keeps it so].
+    kept_delta: Option<f64>,
+    /// The caller's filter of the rows then (a category): a new one starts at the top.
+    group: u32,
+    /// The file's `_scroll_delta` before any code wrote it, for a list that fits.
+    file_delta: Option<f64>,
+}
+
+impl<K> Default for ListView<K> {
+    fn default() -> Self {
+        ListView { value: 0.0, counts: Counts { items: 1.0, visible: 1.0, delta: None }, selected: None, watched: None, geometry: None, navigated: 0, kept_delta: None, group: 0, file_delta: None }
+    }
+}
+
+impl<K> ListView<K> {
+    /// Set the scroll, held in the bar's range (the bar's pieces, the marker's drag): the
+    /// view's own, no command of a model's. Returns whether it moved.
+    pub(super) fn scroll_to(&mut self, value: f64) -> bool {
+        let value = value.clamp(0.0, self.counts.most());
+        let moved = value != self.value;
+        self.value = value;
+        moved
+    }
+
+    /// The scroll and the highlight written from the view: after [`settle_list`]'s places, and
+    /// after the input's step and its clicks.
+    pub(super) fn rewrite(&self, ui: &mut Ui, list: TileId) {
+        write_value(ui, list, self.value);
+        write_highlight(ui, list, self.selected, self.value);
+    }
+}
+
+/// One list's part of a tiled frame, its texts measured and the tree worked out: the rows
+/// placed, the counts written, the scroll held in range. `selected` is the row with the
+/// highlight, `group` the list's filter (a new one starts at the top), `pointer_pick` that the
+/// pointer last moved the selection, `navigated` a count of the keys' moves. The caller then
+/// writes the view ([`ListView::rewrite`]) and works the tree out again.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn settle_list<K: PartialEq + Clone>(ui: &mut Ui, list_tile: TileId, rows: &[RowTile<K>], row_text: &str, view: &mut ListView<K>, selected: Option<usize>, group: u32, pointer_pick: bool, navigated: u32) {
+    let heights = measure_rows(ui, rows, row_text);
+    let page = ui.tile(list_tile).get("height").map_or(0.0, Value::num);
+    let counts = counts(&heights, page);
+    let file_delta = *view.file_delta.get_or_insert_with(|| ui.tile(list_tile).get("_scroll_delta").map_or(26.0, Value::num));
+    view.kept_delta = counts.delta.or(view.kept_delta);
+    write_counts(ui, list_tile, &counts, view.kept_delta.unwrap_or(file_delta));
+    view.counts = counts;
+    if view.group != group {
+        view.group = group;
+        view.value = 0.0;
+    }
+    let picked = selected.filter(|&k| k < heights.len());
+    view.selected = picked.map(|k| (heights[..k].iter().sum(), heights[k]));
+    let key = picked.map(|k| rows[k].key.clone());
+    let scale = counts.delta.unwrap_or(file_delta);
+    let geometry = view.selected.map(|(top, height)| (top, height, page, scale, counts.most()));
+    // The keys' picks bring their row into view, the pointer's do not. So does a key's or
+    // the wheel's move that ends on the same row, and a row moved by a refresh or a new
+    // measure (rows above it came or went, a wrap, the list's height, or a wrap below it,
+    // which changes what a value moves); while none of that happens the bar and the marker
+    // move the list freely.
+    let moved = view.watched != key || view.navigated != navigated || view.geometry != geometry;
+    if let (true, true, Some((top, height))) = (!pointer_pick, moved, view.selected) {
+        view.value = keep_row_shown(view.value, top, height, page, scale, counts.most());
+    }
+    view.watched = key;
+    view.geometry = geometry;
+    view.navigated = navigated;
+    view.value = view.value.clamp(0.0, counts.most());
+}
+
+/// What a tile is, for a click or the pointer: the walk up from it finds a row, a scrollbar's
+/// piece of a list, or a named target first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Hit<T> {
+    /// The list's place in `lists`, the row's in the list.
+    Row(usize, usize),
+    /// The list's place in `lists`, the piece.
+    Bar(usize, BarPiece),
+    Target(T),
+    Other,
+}
+
+/// What `tile` stands for: `lists` are each list's tile name and its rows, `targets` the tiles
+/// with a meaning of their own, by name. A row or a target holds for what is inside it too.
+pub(super) fn hit<K, T: Copy>(ui: &Ui, tile: TileId, lists: &[(&str, &[RowTile<K>])], targets: &[(&str, T)]) -> Hit<T> {
+    let mut piece = None;
+    let mut at = Some(tile);
+    while let Some(t) = at {
+        for (list, (_, rows)) in lists.iter().enumerate() {
+            if let Some(index) = rows.iter().position(|r| r.tile == t) {
+                return Hit::Row(list, index);
+            }
+        }
+        if piece.is_none() {
+            piece = bar_piece(ui, t);
+        }
+        if let Some((_, what)) = targets.iter().find(|(name, _)| ui.tile(t).name.eq_ignore_ascii_case(name)) {
+            return Hit::Target(*what);
+        }
+        for (list, (name, _)) in lists.iter().enumerate() {
+            // A one-sided menu's other list has no name; an unnamed tile is not that list.
+            if !name.is_empty() && ui.tile(t).name.eq_ignore_ascii_case(name) {
+                return piece.map_or(Hit::Other, |p| Hit::Bar(list, p));
+            }
+        }
+        at = ui.tile(t).parent;
+    }
+    Hit::Other
+}
+
+/// Whether the menu's `template` has the row `row` with `children`, each (kind, name): what an
+/// adapter checks before it makes rows from it.
+pub(super) fn template_has(ui: &Ui, menu: &str, template: &str, row: &str, children: &[(&str, &str)]) -> Tiled {
+    let Some(menu_tile) = ui.find_tile(menu) else { return Tiled::No(format!("{menu} missing")) };
+    let Some(found) = ui.tile(menu_tile).templates.iter().find(|t| t.name.eq_ignore_ascii_case(template)) else {
+        return Tiled::No(format!("{template} missing"));
+    };
+    let row_element = found.body.iter().find_map(|n| match n {
+        fnv_ui::xml::Node::Element(e) if e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(row)) => Some(e),
+        _ => None,
+    });
+    let Some(row_element) = row_element else { return Tiled::No(format!("{template}/{row} missing")) };
+    for &(kind, name) in children {
+        if !row_element.elements().any(|e| e.is(kind) && e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(name))) {
+            return Tiled::No(format!("{template}/{row}/{name} missing"));
+        }
+    }
+    Tiled::Yes
+}
+
 /// Text heights by a list's rows' strings, for a test: as many lines as `|` splits.
 #[cfg(test)]
 pub(super) fn lines_size(_: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
@@ -357,6 +505,63 @@ mod tests {
         let names = wanted(keys);
         let w: Vec<Wanted<'_, u32>> = names.iter().map(|(key, name)| Wanted { key, name }).collect();
         assert!(reconcile(ui, LIST, "T", rows, &w));
+    }
+
+    #[test]
+    fn a_tile_stands_for_its_row_its_bar_or_its_target() {
+        let (mut ui, list) = menu();
+        let mut rows = Vec::new();
+        sync(&mut ui, &mut rows, &[1, 2]);
+        ui.update();
+        let none: Vec<RowTile<u32>> = Vec::new();
+        let lists = [("Other", none.as_slice()), ("L", rows.as_slice())];
+        let targets = [("R", 7)];
+        let text = child(&ui, rows[1].tile, "ListItemText").unwrap();
+        assert_eq!(hit(&ui, text, &lists, &[("Absent", 7)]), Hit::Row(1, 1), "what is inside a row");
+        let bar = child(&ui, list, SCROLLBAR).unwrap();
+        let down = child(&ui, bar, DOWN).unwrap();
+        assert_eq!(hit(&ui, down, &lists, &targets), Hit::Bar(1, BarPiece::Down));
+        assert_eq!(hit(&ui, list, &lists, &targets), Hit::Other, "the list's own tile: no piece");
+        let outer = ui.find_tile("M/R").unwrap();
+        assert_eq!(hit(&ui, outer, &lists, &targets), Hit::Target(7));
+        assert_eq!(hit(&ui, outer, &lists, &[("Absent", 7)]), Hit::Other);
+    }
+
+    #[test]
+    fn the_template_check_names_what_is_missing() {
+        let (ui, _) = menu();
+        assert_eq!(template_has(&ui, "M", "T", "Row", &[("text", "ListItemText")]), Tiled::Yes);
+        assert_eq!(template_has(&ui, "Gone", "T", "Row", &[]), Tiled::No("Gone missing".into()));
+        assert_eq!(template_has(&ui, "M", "Gone", "Row", &[]), Tiled::No("Gone missing".into()));
+        assert_eq!(template_has(&ui, "M", "T", "Gone", &[]), Tiled::No("T/Gone missing".into()));
+        assert_eq!(template_has(&ui, "M", "T", "Row", &[("image", "ListItemText")]), Tiled::No("T/Row/ListItemText missing".into()));
+    }
+
+    #[test]
+    fn settling_a_list_starts_a_new_group_at_the_top() {
+        let (mut ui, list) = menu();
+        let mut rows = Vec::new();
+        sync(&mut ui, &mut rows, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        ui.update();
+        let mut view = ListView::default();
+        // Each row 10 high (no text size here), the list 300: make the rows taller so it scrolls.
+        for r in &rows {
+            let t = child(&ui, r.tile, "ListItemText").unwrap();
+            ui.set_trait(t, "height", Value::Num(60.0));
+        }
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, None, 0, false, 0);
+        assert!(view.counts.most() > 0.0);
+        assert!(view.scroll_to(1.0));
+        assert!(!view.scroll_to(1.0), "no move");
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, None, 0, false, 0);
+        assert_eq!(view.value, 1.0, "the bar's scroll is kept");
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, None, 3, false, 0);
+        assert_eq!(view.value, 0.0, "another filter: the top");
+        // The key's pick brings its row in, the pointer's leaves the list where it is.
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, Some(9), 3, true, 0);
+        assert_eq!(view.value, 0.0);
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, Some(9), 3, false, 1);
+        assert!(view.value > 0.0);
     }
 
     #[test]

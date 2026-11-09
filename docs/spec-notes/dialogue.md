@@ -81,14 +81,43 @@ documented** in our sources. What the data shows:
   shared lines, 59 and 7 remain [observed: the scratch survey; the real-data test
   asserts 7,325 / 257 / 7].
 
-The runtime counts a shared line as a line of the topic that lists it
-(`GameData::lines_tried`): the topic's own lines with each shared line put in at its
-Info Index (a negative index or one past the end puts it last), then sorted by quest
-priority as in §4 [hypothesis, from the data above: otherwise those 257 lines would
-offer nothing they link to; the place given by the index is a hypothesis too]. A
-listing topic's line is said under that topic (the event's `topic`); the line keeps its
-own Choices, Add Topics and result scripts. GREETING shares five lines, four of them
-`VMS07Greeting`'s at indices 11–14, so those can now greet. Capture question 9 stays
+[hypothesis] Info Index is a position among the **listing quest's** lines for this
+topic, rather than among all the topic's lines. xEdit's per-added-quest grouping is
+documented above; the behavioral interpretation is not established vanilla behavior.
+The supplied data survey in [issue #1895](https://github.com/LootJunkieAzza/NVForever/issues/1895)
+reports HELLO sharing 223 pairs from 14 quests, with indices restarting per quest;
+38 indices are used by multiple quests. Its Powder Ganger indices 5–24 follow their
+GREETING order: the eligible Random lines `00151A7B`, `00151A7A`, `0015694C`,
+`0015694D` precede the plain `00151A7C`. Topic-wide insertion instead placed the plain
+line first [observed: fnvtool dialogue topics/lines over FalloutNV.esm, issue #1895].
+
+[design: `crates/fnv-game/src/data.rs`, `shared_lines` / `GameData::lines_tried`]
+The topic's own lines keep their stored order (§3.1); no line of them moves. Each
+listing QSTI quest's list is its own lines of this topic, in stored order, with its
+shared lines inserted at their Info Index in index order (a negative, missing or
+out-of-range index puts the line last in that list). In the topic's list a shared line
+goes just before the quest's own line that follows it in the quest's list, or right
+after the quest's last own line when none follows; shared lines that meet at one place
+keep index order, then QSTI order. A quest with no own line in the topic (Powder
+Gangers in HELLO) has its shared lines appended after all own lines, quests in QSTI
+order, each quest's lines in index order, so the Powder Ganger Random pool still comes
+before their plain line. The list then gets the stable priority sort of §4, using each
+INFO's **owning** quest, even when that differs from the listing quest. Since the own
+lines never move, own lines of equal priority are tried in the same order as in a
+topic without shared lines (`GameData::lines_by_priority`, "within one priority the
+stored order", §4), also when two quests' own lines are interleaved. Hash-map
+iteration never decides the order. Missing INFOs are skipped; an INFO already present
+is not inserted again (the first pair in stable index order wins). If a valid pair
+lacks QSTI, the entire topic retains the previous topic-wide merge as a malformed-data
+fallback, including equal-index insertion order. This avoids guessing a listing quest
+from INFO ownership or changing the malformed topic's interleaving.
+
+[design: `crates/fnv-game/src/dialogue.rs`, `Game::select_line`, `Game::say_line`]
+A shared line counts as a line of the listing topic and is said under that topic
+(the event's `topic`); it retains its own conditions, Choices, Add Topics and result
+scripts. GREETING's four `VMS07Greeting` shared lines at indices 11–14 therefore remain
+available through GREETING. Synthetic and optional real-data regressions live in
+`crates/fnv-game/tests/dialogue.rs` and `dialogue_data.rs`. Capture question 9 stays
 open for the in-game check.
 
 ### 1.3 Counts [observed: the summary]

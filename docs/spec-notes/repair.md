@@ -103,6 +103,76 @@ screen's height):
 - At vendor skill 100 every item's condition after the repair is full.
 - The item's figure is DAM for a weapon (Varmint Rifle 8 → 11, 9mm Pistol 7 → 9).
 
+### 3.1 The menu drawn from its file
+
+Behind `[UI] TileMenus=RepairServicesMenu`, off by default, the menu is drawn from
+`menus\repair_services_menu.xml` (issue #1468) [design: `engine/nvf-play/src/tiles/repair_services_menu.rs`,
+the card pair in `tiles/repair_cards.rs`, in the shape of the barter menu, barter-menu.md §9].
+Off, nothing here runs and the hand-built menu above is unchanged. The rules, the keys,
+sounds, refusals and log lines stay `engine/nvf-play/src/repair.rs`'s: the adapter writes
+what the model shows and sends what a click asks (`RepairServicesInput`). The world is
+blurred behind it, as behind the container's, in place of the hand-built backing the maintainer
+asked for (`top_menu_backing`, playtest list 7 item 2), which the default keeps [design].
+
+**The words**, each with its source [design: LEGAL.md]:
+
+| Tile | What it shows | Source |
+| --- | --- | --- |
+| `RSM_Headline_Title` | not written | the file's `sRepairServicesTitle` |
+| `RSM_EmptyRepairListText` | only `visible` | the file's `sNoItemsToRepair` |
+| Repair's, Done's `button_text` | not written | the file's `sRepairItem`, `sDone` |
+| Repair All's `button_text` | the file's words, a space, the total in brackets | the file's `sRepairAllItems`, the model's figure |
+| `RSM_VendorSkillLabel` | setting, two spaces, number | `sRepairSkill` |
+| `RSM_CapsLabel` | setting, two spaces, number | `sInventoryCaps` |
+| `_PCButtonText` of Repair All, Done | hint | `sPCMenuHintA`, `sPCMenuHintE` (a controller's button name, `pad::game_hint`) |
+| a row's `ListItemText` | item's name and count | the record's name; "(n)" is ours |
+| `RSM_RepairCostText` | setting, two spaces, number | `sInventoryCaps` |
+| `RSM_ErrorText` | one sentence | ours (`repair::BEYOND_WORDS`), the original's is in its code |
+| the condition cards' `_Title` | the file's; only where the file has none | `sInventoryCondition` |
+| the stat cards' `_Title` | setting | `sInventoryDamage` for a weapon, `sInventoryDamageThreshold` for armour |
+| the stat cards' `_Value`, the two gains | numbers, "+" and "%" | the model |
+
+Words the hand-built menu shows that this one does not: "Cost:" and the "caps" after the
+figure, on the original's screen alone [observed: §3's screenshots] and not in the strings
+table [design: `crates/fnv-ui/src/strings.rs`], so the line reads the setting and the figure; the short card titles "CND" and "DAM" from the same screenshots,
+for the settings above.
+
+**A title wider than its place**: the file's meter stands 85 in, which leaves room for a short
+word, and the label NVForever supplies for `sInventoryCondition` is longer. The meter then
+starts 10 past the title and keeps its right end, so it is shorter than the original's while
+that label is in use; a plugin's shorter setting leaves the file's place [design].
+
+**What the captures said** [observed: private jobs run07_repair_services and
+run07c_repair_services, 1280x720, read and in their pictures; the second has rows lit]:
+
+- The meters: a row's `RSM_Template_Meter/width` is condition x 60, the back's width; a card's
+  meter follows the card's `user0`, which is what is written (the file makes the meter's
+  `_Value` copy it).
+- `RSM_RepairButton` stays hidden on a PC, by the file, and Repair All takes its place. Its
+  `target` reads 1 with no row and on a lit row, 0 on a refused or too dear one.
+- Repair All shows the file's words, a space and the total in brackets, even out of reach.
+  `target` is 1 when the caps reach the total, 0 otherwise and at a total of 0, and the file
+  dims it by `alpha` from that; `brightness` stays 255.
+- A row refused or too dear reads `alpha` 128 on its text, fill and square, `brightness` 255. A
+  highlighted one stays dim. The cost line reads 128 when the caps fall short.
+- The gains carry no space and show at nothing too ("+0%", "+0").
+- After a repair the menu stays, and the row stays listed, dim, at the limit; repaired to true
+  full it leaves the list. Repair All acts at once. Enter on the row repairs it.
+- Two items at one condition are two rows there and no suffix shows; the model's one row of
+  several (§4) is the maintainer's rule and stays. The cost line then says what one repair
+  takes.
+- The order of the rows differs: bright first, dearest first, then dim, cheapest first
+  [hypothesis on the key]; the model's stays (§4).
+- `RSM_Background/alpha` reads 193.8, as the container's: the file's 32 is replaced while the
+  game runs. The arrow shows on a refused row too.
+- The labels' gap is about twice a word space [hypothesis: two spaces].
+- A selection the pointer leaves hides the cards and the picture in the original. The model
+  always has a row selected, so here they stay [design: the model's rule].
+
+**Still open** [hypothesis]: a pointer click on a row in the original; a long name's two-line
+row; the sort's key for refused rows. The original's limit at a vendor's skill does not fit the
+model's rule (§4's "How far"): that is the maintainer's to weigh, nothing here changes it.
+
 ## 4. The vendor's rules
 
 - **What is listed**: the player's weapons and armour worn below full condition, one row
