@@ -91,8 +91,14 @@ Limits of this path:
 - **Variable refresh** keeps vsync on, so both presents are paced by the swapchain; the cap is
   the lower of half the refresh rate and the page's cap.
 - **Vsync off** is not supported: the second present would replace the first at once.
-- **Screenshots** (`--screenshot`, F12) take the window's first image of the frame, the
-  generated one.
+- **Screenshots** (`--screenshot`, F12): on the frame a screenshot of the window is taken,
+  no generated frame is presented. Bevy then draws the camera into a texture of its own and
+  copies it into the window's image only after the render graph, after the generated present
+  would have run [documented: bevy_render 0.20.1, `prepare_screenshots` in
+  `view/window/screenshot.rs`, `render_system` in `renderer/mod.rs`]. So the passes run (the
+  next frame interpolates from this one), but the real frame is presented once, and the
+  screenshot and the screen both show it (`frame_gen::generate`, the camera's output against
+  the window's image).
 - **Swapchain depth**: Bevy's default (two frames queued). Three and four were tried (2026-11-07,
   the walk below): three lowered the real rate (56 fps), four gave the same as two.
 

@@ -25,7 +25,9 @@
 //!
 //! **No generated frame** in menus, dialogue, loading screens, while paused (all
 //! `PlayState`s but Playing), on a camera cut (`FsrCamera::cut_from`) or the first frame after
-//! any of them: those frames are presented once, as without frame generation.
+//! any of them: those frames are presented once, as without frame generation. Nor on a frame a
+//! screenshot of the window is taken (F12, `--screenshot`): the passes run, but only the real
+//! frame is presented, and the screenshot gets it too ([`generate`]).
 //!
 //! **Latency reduction** is turned on with it (AMD's advice for frame generation;
 //! `anti_lag.rs`, where the GPU has it).
@@ -452,6 +454,7 @@ fn generate(
     stats: Res<Stats>,
     capture: Res<Capture>,
     device: Res<RenderDevice>,
+    windows: Query<(MainEntity, &ExtractedWindow)>,
     mut ctx: RenderContext,
 ) {
     let (target, fsr, fg, camera) = view.into_inner();
@@ -501,7 +504,19 @@ fn generate(
     drop(of_view);
     fg.history.store(true, Ordering::Relaxed);
     stats.real.fetch_add(1, Ordering::Relaxed);
-    if !reset {
+    // A screenshot of the window (F12, `--screenshot`) points the camera at a texture of Bevy's
+    // own, which Bevy copies into the window's image only after the render graph (after
+    // `present_generated`). Then present once, the real frame: the screen and the file get it.
+    let to_window = windows
+        .iter()
+        .find(|(w, _)| *w == window.entity())
+        .and_then(|(_, w)| w.swap_chain_texture_view.as_ref())
+        .zip(target.out_texture())
+        .is_some_and(|(image, out)| image.id() == out.id());
+    if !reset && !to_window {
+        info!("frame generation: the camera draws into a screenshot this frame; the real frame is presented alone");
+    }
+    if !reset && to_window {
         let size = fg.real.size();
         encoder.copy_texture_to_texture(main.as_image_copy(), fg.real.as_image_copy(), size);
         encoder.copy_texture_to_texture(fg.output.as_image_copy(), main.as_image_copy(), size);
@@ -561,7 +576,9 @@ fn show_real(
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame_gen_show_real") });
     for (entity, real) in pending.drain(..) {
         let Some((_, window)) = windows.iter().find(|(w, _)| *w == entity) else { continue };
-        let (Some(view), Some(format)) = (window.swap_chain_texture_view.as_ref(), window.swap_chain_texture_view_format) else {
+        // `present` takes the image but leaves its view: without a second image the view is
+        // the presented one's.
+        let (Some(_), Some(view), Some(format)) = (window.swap_chain_texture.as_ref(), window.swap_chain_texture_view.as_ref(), window.swap_chain_texture_view_format) else {
             warn!("frame generation: the window had no second image; the real frame is dropped");
             continue;
         };
