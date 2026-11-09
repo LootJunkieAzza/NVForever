@@ -15,11 +15,12 @@ impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
             .add_systems(PreUpdate, script_input.after(bevy::input::InputSystems))
-            // What the scripts read of the player's weapon (the magazine, sights up for
-            // the HUD bars' aiming condition) is handed over after combat has updated it
-            // this frame and before the scripts run [design].
-            .add_systems(Update, (tell_magazine, tell_player_state).after(crate::PlaySet::Activation).before(crate::PlaySet::Scripts))
-            .add_systems(Update, mod_file_roots);
+            // The player's state the scripts read (sights up, for the HUD bars' aiming
+            // condition) is handed over after combat has updated it this frame and before
+            // the scripts run [design]. `tell_magazine` keeps its own place: it also
+            // applies the scripts' pending ammo writes, which must reach combat first.
+            .add_systems(Update, tell_player_state.after(crate::PlaySet::Activation).before(crate::PlaySet::Scripts))
+            .add_systems(Update, (tell_magazine, mod_file_roots));
     }
 }
 
