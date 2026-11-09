@@ -107,6 +107,8 @@ pub struct OtherState {
     pub jg7: crate::nvse_jg7::Jg7State,
     /// JohnnyGuitar batch 8's handlers, custom map marker and radio tuning (`nvse_jg8`).
     pub jg8: crate::nvse_jg8::Jg8State,
+    /// JohnnyGuitar batch 10's requests and switches for the engine (`nvse_jg10`).
+    pub jg10: crate::nvse_jg10::Jg10State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
