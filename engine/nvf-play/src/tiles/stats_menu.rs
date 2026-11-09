@@ -327,7 +327,7 @@ impl Paths {
 }
 
 /// The first tile named `name` under `root` (or `root`), in file order, case not mattering.
-fn find_named(ui: &Ui, root: TileId, name: &str) -> Option<TileId> {
+pub(super) fn find_named(ui: &Ui, root: TileId, name: &str) -> Option<TileId> {
     let mut stack = vec![root];
     while let Some(t) = stack.pop() {
         let tile = ui.tile(t);
@@ -2005,7 +2005,7 @@ pub(crate) fn setup(app: &mut App) {
 }
 
 /// [`CUT_AID`]'s value: the name and the time it stops at.
-fn parse_cut(v: &str) -> (String, Option<f32>) {
+pub(super) fn parse_cut(v: &str) -> (String, Option<f32>) {
     match v.split_once('@') {
         Some((name, until)) => (name.trim().to_string(), until.trim().parse().ok()),
         None => (v.trim().to_string(), None),

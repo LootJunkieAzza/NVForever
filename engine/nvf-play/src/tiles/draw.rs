@@ -991,6 +991,8 @@ pub(crate) struct View<'w, 's> {
     /// The Pip-Boy's image and the STATS tiles' one decision (`super::stats_menu`).
     screen: Option<Res<'w, crate::pipboy::PipBoyScreen>>,
     stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
+    /// The ITEMS page's one decision (`super::inventory_menu`).
+    inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
     /// The Pip-Boy's repair page's one decision (`super::repair_menu`).
     repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
     /// T15c: the container menu, when this frame's writer has it drawn from its tiles.
@@ -1029,6 +1031,8 @@ pub(crate) struct MenusDrawn {
     tutorial: Drawn,
     /// The Pip-Boy's STATS page, in the Pip-Boy's image.
     stats: Drawn,
+    /// The Pip-Boy's ITEMS page, in the Pip-Boy's image.
+    inventory: Drawn,
     /// The Pip-Boy's repair page, in the Pip-Boy's image.
     repair_page: Drawn,
     container: Drawn,
@@ -1087,10 +1091,11 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     let prompt_open = view.active.as_ref().and_then(|a| a.0.as_ref()).is_some_and(|m| m.quantity.is_some());
     let container_on = view.container.as_ref().is_some_and(|c| c.menu.is_some());
     let barter_on = view.barter.as_ref().is_some_and(|b| b.menu().is_some());
+    let inventory_on = view.inventory.as_ref().is_some_and(|i| i.ready.is_some());
     let mut blur_now = super::menus::TileMenuBlur::default();
     for (name, on, z, drawn) in [
         (super::menus::MESSAGE_MENU, game.is_some_and(|g| super::menus::message_tiled(switch.message, g)), MESSAGE_Z, &mut others.message),
-        (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open, container_on || barter_on)), QUANTITY_Z, &mut others.quantity),
+        (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open, container_on || barter_on || inventory_on)), QUANTITY_Z, &mut others.quantity),
         (super::wait_menu::SLEEP_WAIT_MENU, game.is_some_and(|g| super::wait_menu::tiled(switch.sleep_wait, g)), SLEEP_WAIT_Z, &mut others.sleep_wait),
         (super::tutorial_menu::TUTORIAL_MENU, game.is_some_and(|g| super::tutorial_menu::tiled(switch.tutorial, g)), TUTORIAL_Z, &mut others.tutorial),
         (super::container_menu::CONTAINER_MENU, container_on, CONTAINER_Z, &mut others.container),
@@ -1133,7 +1138,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
-    stats_page(&mut commands, game, &mut view, &mut kit, &mut others.stats, &mut nodes, heading, &glyphs);
+    pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory), &mut nodes, heading, &glyphs);
     repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
     // T11: the Mods page, the start menu's mod tiles over the pause menu.
     let mods_on = switch.start && view.paused.as_ref().zip(view.page.as_ref()).is_some_and(|(p, page)| crate::pause::mods_open(p, page));
@@ -1144,53 +1149,60 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale * interface::ui_scale(), heading, &glyphs);
 }
 
-/// The Pip-Boy's STATS page, in the Pip-Boy's image, while it is ready
-/// (`super::stats_menu::StatsTiles::ready`, decided before this drawing). What was painted is
-/// published for the next frame's tile input, which acts on what the player saw. Logged when it
-/// changes: how many pieces go to the painter, and how many of them are the rows' names. That
-/// is structure, before painting: it says nothing of the pixels, which only shots can.
+/// The Pip-Boy's pages drawn from their files, in the Pip-Boy's image, each while it is ready
+/// (`super::stats_menu::StatsTiles::ready`, `super::inventory_menu::InventoryTiles::ready`,
+/// decided before this drawing). What was painted is published for the next frame's tile input,
+/// which acts on what the player saw.
 #[allow(clippy::too_many_arguments)]
-fn stats_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, (stats_drawn, inventory_drawn): (&mut Drawn, &mut Drawn), nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
-    let name = super::stats_menu::STATS_MENU;
     let ui = game.map(|g| &g.ui_tree);
-    let ready = view.stats.as_ref().and_then(|s| s.ready);
-    let menu = ui.zip(ready).filter(|(ui, m)| ui.is_live(*m));
-    // The one measured layout the decision checked; worked out again next frame.
-    let pieces = match (menu, view.stats.as_mut()) {
-        (Some((ui, menu)), Some(stats)) => {
-            // Told once its rows are there, on whichever tab first has some: Status with no effects
-            // has no code tile to count.
+    let live = |ready: Option<TileId>| ready.filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
+    // The one measured layout each decision checked; worked out again next frame.
+    let menu = live(view.stats.as_ref().and_then(|s| s.ready));
+    let pieces = menu.and(view.stats.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::stats_menu::STATS_MENU, menu, pieces, target, kit, stats_drawn, nodes, heading, glyphs);
+    if let Some(stats) = view.stats.as_mut().filter(|s| s.shown != menu) {
+        stats.shown = menu;
+    }
+    let menu = live(view.inventory.as_ref().and_then(|s| s.ready));
+    let pieces = menu.and(view.inventory.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::inventory_menu::INVENTORY_MENU, menu, pieces, target, kit, inventory_drawn, nodes, heading, glyphs);
+    if let Some(inventory) = view.inventory.as_mut().filter(|s| s.shown != menu) {
+        inventory.shown = menu;
+    }
+}
+
+/// One page of [`pipboy_pages`]; `menu` while it is ready, `pieces` what its decision checked.
+/// Logged when it changes: how many pieces go to the painter, and how many of them are the rows'
+/// names. That is structure, before painting: it says nothing of the pixels, which only shots can.
+#[allow(clippy::too_many_arguments)]
+fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Option<TileId>, pieces: Vec<Piece>, target: Target, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+    match ui.zip(menu) {
+        Some((ui, menu)) => {
+            // The STATS page is told once its rows are there, on whichever tab first has some:
+            // Status with no effects has no code tile to count (#1944); the others at once.
             if drawn.told_menu != Some(menu) {
                 let (file, code) = origins(ui, menu);
-                if code > 0 {
+                if code > 0 || name != super::stats_menu::STATS_MENU {
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
             }
-            let pieces = std::mem::take(&mut stats.pieces);
             let names = pieces.iter().filter(|p| matches!(p.look, Look::Text { .. }) && ui.tile(p.tile).name.eq_ignore_ascii_case("ListItemText")).count();
             let counts = (pieces.len(), names);
             if counts != drawn.counts {
                 info!("tiles: {name} set out for the Pip-Boy's image: {} pieces, {} row names", counts.0, counts.1);
                 drawn.counts = counts;
             }
-            pieces
         }
-        _ => {
-            drawn.counts = (0, 0);
-            Vec::new()
-        }
-    };
-    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
-    let shown = menu.map(|(_, m)| m);
-    if let Some(stats) = view.stats.as_mut().filter(|s| s.shown != shown) {
-        stats.shown = shown;
+        None => drawn.counts = (0, 0),
     }
+    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
 }
 
 /// The Pip-Boy's repair page, in the Pip-Boy's image, while it is ready
-/// (`super::repair_menu::RepairTiles::ready`, decided before this drawing), as [`stats_page`].
+/// (`super::repair_menu::RepairTiles::ready`, decided before this drawing), as [`pipboy_page`].
 #[allow(clippy::too_many_arguments)]
 fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
