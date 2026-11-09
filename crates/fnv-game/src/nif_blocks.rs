@@ -267,7 +267,7 @@ fn intrinsic_angles(m: &Mat) -> [f32; 3] {
 /// A node's translation and rotation: as its parent holds it, or (`world`) in the world,
 /// through the nodes above it and the reference's own position and angles. `None`
 /// without the tree or the node.
-fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
+pub(crate) fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
     let t = g.scene.tree(r)?.clone();
     let mut i = find(&t, node)?;
     let local = |n: &SceneNode| (n.translation, rotation(n.rotation.map(f32::to_radians)), n.scale);

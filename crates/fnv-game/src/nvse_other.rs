@@ -97,6 +97,8 @@ pub struct OtherState {
     /// JIP batch 10's objectives, added variables, disabled scripts, extra data, map
     /// markers (`nvse_jip10`).
     pub jip10: crate::nvse_jip10::Jip10State,
+    /// JIP batch 14's effects, primitives, models, VATS, fuses and frequencies (`nvse_jip14`).
+    pub jip14: crate::nvse_jip14::Jip14State,
     /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
     pub jip11: crate::nvse_jip11::Jip11State,
     /// JohnnyGuitar batch 5's record changes (`nvse_jg5`).
