@@ -286,6 +286,41 @@ co-op, the rule is a table per effect kind:
 
 The same table settles item 66: cutscene cameras and hiding the players apply to everyone.
 
+### 7.1 Story moments wait for every player (item 133)
+
+Owner, 2026-11-09: "testing host not being able to talk to important NPCs when guests
+are too far"; "It shouldn't be a choice the host should have to wait"; "It should be a
+prompt like the duel prompt on the hosts end it'll say waiting for players, and then
+give guests only the option to teleport while they're not in a menu already and if they
+are it'll come up once that menu closes".
+
+- **Story NPC**: the speaker of a line of a story quest (FalloutNV.esm's main quest by
+  its Editor ID prefixes, or an add-on's NVDLC0nMQ… quest), or of a line whose result
+  scripts name one in their compiled reference list, while that quest is not completed
+  or failed (`fnv_game::Game::story_npc`). Jed at Zion counts through HonestHearts.esm
+  INFO 0x0100F195, which starts NVDLC02MQ01.
+- **Within sight**: 2000 units in the same space (`fnv_game::coop::STORY_NEAR`), for both
+  the gate and a script's move.
+- **The gate** (`Game::story_gate`, host only): the host's talk with a story NPC, and a
+  story NPC's Dialogue package (force greet or Say To), wait while any other player is
+  not within sight of the NPC. A script's StartConversation is not held.
+- **A script's move of the host** (a DLC start, MoveTo) takes the guests within sight
+  along, 72 units to the host's right (not on its feet: that pushed the host out of
+  Jed's 250-unit greeting). Guests not within sight are left where they are, and the
+  host waits for them until each is near (`Repl::wait_for`). The move itself is not held
+  (a MoveTo runs mid-script).
+- **The prompts** are the co-op invitation's banner (`nvf_play::coop_social::StoryPrompt`):
+  the host's "WAITING FOR PLAYERS..." with no keys; a far guest's "<HOST> IS WAITING FOR
+  YOU" with only "Y) Teleport to the host" (refused in combat), which neither lapses nor
+  can be declined. A prompt shows only while that player is in `PlayState::Playing` and
+  no script menu or loading screen is up: a menu holds it until it closes; an
+  invitation goes first. The console is not a menu here: it is a debug overlay, and the
+  prompt stays up (and Y works) under it [decision, 2026-11-09].
+- **Not held**: add-on starts that are no conversation (the DM signal, the Lonesome Road
+  tunnel): the far guests are left behind and waited for, but the start itself goes on.
+- Log: `co-op: story wait: …`; checked by the laptop runs story-near-3 and story-far-3
+  (2026-11-09).
+
 ## 8. Layer 4: guest actions go through the host
 
 A guest's input that changes the world is a request. The host runs it as the guest's
