@@ -214,6 +214,8 @@ pub(crate) fn find_target(
     // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
     let mut far = None;
     let mut far_ref = None;
+    // The node of what the far ray meets (GetReticleNode, `fnv_game::nvse_jip13`).
+    let mut far_node = None;
     let mut behind = None;
     let hit = phys.and_then(|mut p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
@@ -221,6 +223,10 @@ pub(crate) fn find_target(
         filter.exclude_layers.insert(layers::TRIGGER);
         let far_hit = p.world.queries().ray(eye, dir, fnv_game::functions::senses::RETICLE_REACH, &filter);
         far = far_hit.as_ref().map(|h| h.distance);
+        far_node = far_hit.as_ref().and_then(|h| match h.owner {
+            Owner::Ref { form_id, object, .. } => p.world.object_node(form_id, object).map(str::to_string),
+            _ => None,
+        });
         far_ref = far_hit.and_then(|h| match h.owner {
             Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
             _ => None,
@@ -264,6 +270,9 @@ pub(crate) fn find_target(
     });
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
+        if rt.game.other.jip13.reticle_node != far_node {
+            rt.game.set_reticle_node(far_node);
+        }
         // GetCrosshairRef: what is in activation reach; GetCrosshairRefEx: at any range.
         let now = hit.as_ref().and_then(|h| h.form_id).map(FormId);
         // JohnnyGuitar's crosshair handlers hear each reference the prompt comes onto.

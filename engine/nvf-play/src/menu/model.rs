@@ -1569,5 +1569,21 @@ pub fn nearest_container(
         .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
 }
 
+/// Whether the inventory's Enter (`Command::One` on the row `r`, an item row) does
+/// anything: the game takes off what is worn ([`World::unequip_check`]) and puts on or uses
+/// the rest ([`World::equip_check`], the checks `World::equip_at` runs: a book that teaches
+/// nothing, a broken weapon, misc and ammo are refused); a Caravan card is for the table.
+/// The Pip-Boy's equip hint reads it (#1896). `false` for a folder row (Enter opens it).
+pub fn enter_acts(world: &World<'_>, r: &Row) -> bool {
+    if r.folder.is_some() || r.kind == Some(ItemKind::CaravanCard) {
+        return false;
+    }
+    if r.equipped {
+        world.unequip_check(PLAYER, r.item).is_ok()
+    } else {
+        world.equip_check(PLAYER, r.item, r.pick()).is_ok()
+    }
+}
+
 #[cfg(test)]
 mod tests;

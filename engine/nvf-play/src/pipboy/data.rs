@@ -7,8 +7,8 @@
 //!   ([`model::sort_quests`]); the active quest's square filled, those done dimmed; the
 //!   selected quest's objectives at the right, each behind a square, filled when done.
 //!   A click or Enter makes a quest the active one.
-//! - **Misc**: the player's notes (AddNote) by name and the selected note's text, which
-//!   the wheel scrolls; an image note's picture; an audio note's time remaining and
+//! - **Misc**: the player's notes (AddNote) by name and the selected note's text; an
+//!   image note's picture; an audio note's time remaining and
 //!   meter, its marker moving while that note plays (at the right end, nothing left,
 //!   for a note not playing). Using an audio note plays it from its start, using the
 //!   one playing pauses it and goes on (`crate::holotape`). "Show Active Quest Notes"
@@ -36,6 +36,11 @@
 //! - On a controller the right stick moves the highlight box — pushed past an edge it
 //!   pans the map ([`scroll_map`]) — and the left stick's up and down zooms in and out
 //!   smoothly while held ([`stick_cursor`], [`stick_zoom`]).
+//! - The right pane's objectives (Quests) and note text (Misc) scroll as one
+//!   ([`scroll_pane`]): Page Up/Down (a controller's LB/RB) a window, the wheel over the
+//!   pane, and on a controller the right stick smoothly while held; a new quest or note
+//!   starts at the top. Their scroll bars take the pointer ([`bar_spots`]): an arrow
+//!   steps, the track above or below the marker pages, the marker drags.
 //!
 //! Selection: Up/Down (W/S) and the pointer (the row under it is selected and boxed);
 //! the test aid's `key=down|up|use` steps (`crate::menu::MenuInput`) do the same here.
@@ -206,6 +211,12 @@ const CURSOR_SPEED: f32 = 600.0;
 /// second (the wheel's 1.25 a step, from 1 to 4 times) [design: tuned by playtest to
 /// match the original's zoom feel, observed].
 const ZOOM_STICK_STEPS: f32 = 4.5;
+/// The controller's right stick scrolls the right pane (a note's text, a quest's
+/// objectives) this fast at a full push, canvas units a second [design: one note window
+/// (385) a second, so a full push goes as far in a second as one LB/RB (Page Down) press
+/// and a light push reads a line at a time; that the original scrolls the pane with the
+/// right stick is observed (issue #1667), its speed was not measured].
+const PANE_STICK_SPEED: f32 = TEXT_H;
 /// The trace drawn while the radio plays: its greatest height either side of the middle
 /// [observed: the capture, about a third of the panel at its loudest], the waves across
 /// the panel [observed: 8], how fast its envelope runs to the left, panels a second
@@ -250,6 +261,21 @@ enum Act {
     /// The pointer came onto an answer of the question box, or clicked it.
     PopupOver(usize),
     PopupPick(usize),
+    /// A part of the right pane's scroll bar was clicked (the marker: pressed).
+    Bar(BarPart),
+}
+
+/// A part of the right pane's scroll bar ([`bar_spots`]): an arrow steps it as a wheel
+/// notch does, the track above or below the marker pages it as Page Up/Down does, the
+/// marker held drags it (`.0`: the pane's units a unit of the bar) [design: as the
+/// tile menus' bars, `crate::tiles::list`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum BarPart {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Marker(f32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +290,23 @@ enum ButtonKind {
 type PlaceKey = (u32, Option<u32>, (i32, i32));
 /// The local map's doors: interior, or the grid square at its middle.
 type DoorKey = (Option<u32>, (i32, i32));
+/// What the right pane shows: the tab, whether Misc shows the challenges, and the quest
+/// or note (a challenge by its row).
+type PaneKey = (usize, bool, u32);
+
+/// What scrolls the right pane in a frame ([`scroll_pane`]): Page Down presses less Page
+/// Up presses (LB/RB press those, and the scroll bar's track), wheel notches over the
+/// pane and the scroll bar's arrow clicks (up positive), the right stick's up and down
+/// (up positive) for `dt` seconds, and how far the scroll bar's marker was dragged (the
+/// pane's units, down positive).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct PaneMoves {
+    pages: f32,
+    notches: f32,
+    stick: f32,
+    dt: f32,
+    drag: f32,
+}
 
 /// The DATA page's state.
 #[derive(Resource, Default)]
@@ -274,9 +317,19 @@ pub struct DataState {
     fit: [usize; 5],
     /// The selected row is boxed (the pointer is on it, or a key moved it).
     boxed: bool,
-    /// How far the note's text is scrolled, and how far it can be.
+    /// How far the right pane (a note's text, a quest's objectives) is scrolled, and how
+    /// far it can be ([`scroll_pane`]).
     text_first: f32,
     text_max: f32,
+    /// What the right pane showed when last scrolled (a new quest or note starts at its
+    /// top), and whether the right stick was scrolling it (logged when let go).
+    pane_of: Option<PaneKey>,
+    pane_stick: bool,
+    /// The objectives' window when last drawn (canvas; the wheel over it scrolls them).
+    pane_rect: Option<Rect>,
+    /// The scroll bar's marker held: the pointer's last height and the pane's units a
+    /// unit of the bar ([`drag_bar`]).
+    bar_drag: Option<(f32, f32)>,
     /// The active quest: the player's pick while it runs, else the newest running quest
     /// [design].
     active_quest: Option<u32>,
@@ -362,7 +415,7 @@ struct Row {
 #[derive(Debug, Clone, PartialEq)]
 enum Right {
     None,
-    Objectives(Vec<Row>),
+    Objectives { rows: Vec<Row>, first: f32 },
     Text { text: String, first: f32 },
     Image(String),
     /// A Sound or Voice note: tenths of a second still to play and the share played
@@ -505,6 +558,7 @@ pub fn draw(
         st.was_open = false;
         st.popup = None;
         st.note_shown = None;
+        st.bar_drag = None;
         input.wheel.clear();
         input.menu.clear();
         return;
@@ -820,25 +874,22 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             None => info!("pipboy data: note {} is not in the Notes list shown", FormId(f)),
         }
     }
-    for by in moves {
-        if len > 0 {
-            st.sel[tab] = model::step(st.sel[tab], by, len);
-            st.boxed = true;
-            st.text_first = 0.0;
-        }
-    }
+    step_rows(st, tab, &moves, len);
     if tab == NOTES && input.keys.just_pressed(KeyR) {
         st.acts.push(Act::Button(ButtonKind::Challenges));
     }
-    if tab == NOTES {
+    // The right pane (a note's text, a quest's objectives) scrolls by Page Up/Down (a
+    // controller's LB/RB), the wheel over it and the right stick ([`scroll_pane`]).
+    let mut pane = PaneMoves { dt: input.time.delta_secs(), ..default() };
+    if tab == NOTES || tab == QUESTS {
         if input.keys.just_pressed(PageDown) {
-            st.text_first += TEXT_H;
+            pane.pages += 1.0;
         }
         if input.keys.just_pressed(PageUp) {
-            st.text_first -= TEXT_H;
+            pane.pages -= 1.0;
         }
     }
-    // The wheel zooms a map, scrolls a note's text, else the list.
+    // The wheel zooms a map, scrolls the right pane under the pointer, else the list.
     let mut notches = 0.0;
     for w in input.wheel.read() {
         notches += match w.unit {
@@ -847,10 +898,9 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         };
     }
     if notches != 0.0 {
-        let over_text = pointer.is_some_and(|p| p.x >= MAIN.min.x + DATA_X + TEXT_AT.x);
         match tab {
             LOCAL | WORLD => st.magnify[tab] = (st.magnify[tab].max(ZOOM.0) * ZOOM_STEP.powf(notches)).clamp(ZOOM.0, ZOOM.1),
-            NOTES if over_text => st.text_first -= notches * TEXT_STEP,
+            NOTES | QUESTS if wheel_on_pane(tab, pointer, st.pane_rect) => pane.notches += notches,
             _ => {
                 let fit = st.fit[tab].max(1);
                 st.first[tab] = (st.first[tab] as f32 - notches).round().clamp(0.0, len.saturating_sub(fit) as f32) as usize;
@@ -873,12 +923,15 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             st.magnify[tab] = stick_zoom(st.magnify[tab], left.y, dt);
         }
     }
+    // On Quests and Misc the right stick's up and down scrolls the right pane smoothly
+    // while held [observed: the original, issue #1667; the speed is design].
+    if input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller) && (tab == NOTES || tab == QUESTS) {
+        pane.stick = crate::pad::stick(&input.pads, false).y;
+    }
     for a in std::mem::take(&mut st.acts) {
         match a {
+            // Another row shown starts its pane at the top (`scroll_pane`, by `pane_key`).
             Act::Hover(t, i) if t == tab && i < len => {
-                if st.sel[tab] != i {
-                    st.text_first = 0.0;
-                }
                 st.sel[tab] = i;
                 st.boxed = true;
             }
@@ -888,10 +941,11 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
                 use_row(st, tab, i, l, game);
             }
             Act::Button(k) => button(st, k, input),
+            Act::Bar(b) if tab == QUESTS || tab == NOTES => bar_act(st, b, pointer, &mut pane),
             _ => {}
         }
     }
-    st.text_first = st.text_first.clamp(0.0, st.text_max.max(0.0));
+    drag_bar(st, input.buttons.pressed(MouseButton::Left), pointer, &mut pane);
     if use_it && len > 0 {
         use_row(st, tab, st.sel[tab].min(len - 1), l, game);
     }
@@ -899,6 +953,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         st.sel[tab] = st.sel[tab].min(len - 1);
         st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
     }
+    let shows = pane_key(st, tab, l);
+    scroll_pane(st, tab, shows, pane);
     // A click on the World Map (the left button let go where it went down) on a marker
     // asks to travel there (`travel`).
     if tab == WORLD {
@@ -954,6 +1010,120 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
                 c[1] += drag.y * scale / mag;
             }
         }
+    }
+}
+
+/// What the right pane shows now: the selected quest's objectives, the selected note or
+/// challenge; `None` on the other tabs.
+fn pane_key(st: &DataState, tab: usize, l: &Lists) -> Option<PaneKey> {
+    let sel = st.sel[tab];
+    let id = match tab {
+        QUESTS => l.quests.get(sel).map(|q| q.form),
+        NOTES if st.challenges => Some(sel as u32),
+        NOTES => l.notes.get(sel).map(|n| n.form),
+        _ => None,
+    }?;
+    Some((tab, tab == NOTES && st.challenges, id))
+}
+
+/// A page of the right pane: the objectives' window on Quests, a note's on Misc (the
+/// windows 400 and 385 high [documented: map_menu.xml]; a page a window [design]).
+fn pane_page(tab: usize) -> f32 {
+    if tab == QUESTS { OBJECTIVES_H } else { TEXT_H }
+}
+
+/// Scroll the right pane (a note's text or a quest's objectives; one scroll for both):
+/// it starts at the top when it shows another quest, note or tab (`shows`), moves a page a
+/// Page Up/Down, [`TEXT_STEP`] a wheel notch and [`PANE_STICK_SPEED`] a second at the
+/// right stick's full push (up scrolls back toward the top), and stays between its top
+/// and how far it can go (`text_max`, from when it was last drawn).
+fn scroll_pane(st: &mut DataState, tab: usize, shows: Option<PaneKey>, m: PaneMoves) {
+    // A new pane starts at the top; this frame's moves wait until it is drawn and its
+    // length known (`text_max` is still the last pane's).
+    if shows != st.pane_of {
+        st.pane_of = shows;
+        st.text_first = 0.0;
+        st.pane_stick = false;
+        st.bar_drag = None;
+        return;
+    }
+    let max = st.text_max.max(0.0);
+    let before = st.text_first;
+    if shows.is_some() {
+        st.text_first += m.pages * pane_page(tab) - m.notches * TEXT_STEP - m.stick * PANE_STICK_SPEED * m.dt + m.drag;
+    }
+    st.text_first = st.text_first.clamp(0.0, max);
+    let what = match shows {
+        Some((QUESTS, ..)) => "objectives",
+        Some((_, true, _)) => "challenge text",
+        _ => "note text",
+    };
+    if shows.is_some() && (m.pages != 0.0 || m.notches != 0.0) {
+        info!("pipboy data: {what} scrolled from {before:.0} to {:.0} of {max:.0}", st.text_first);
+    }
+    let stick = shows.is_some() && m.stick != 0.0;
+    if st.pane_stick && !stick {
+        info!("pipboy data: {what} scrolled by the right stick to {:.0} of {max:.0}", st.text_first);
+    }
+    st.pane_stick = stick;
+}
+
+/// Up/Down (and the test aid's steps) move the selection, held at the list's ends. The
+/// right pane is not touched here: it starts at the top only when it shows another quest
+/// or note ([`scroll_pane`] by [`pane_key`]), so Up on the first row or Down on the last
+/// keeps the place read.
+fn step_rows(st: &mut DataState, tab: usize, moves: &[i32], len: usize) {
+    for &by in moves {
+        if len > 0 {
+            st.sel[tab] = model::step(st.sel[tab], by, len);
+            st.boxed = true;
+        }
+    }
+}
+
+/// The objectives' window drawn at `data` (canvas): 400 × 400 [documented: map_menu.xml].
+fn objectives_rect(data: Vec2) -> Rect {
+    Rect::from_corners(data, data + Vec2::new(LIST_W, OBJECTIVES_H))
+}
+
+/// The wheel scrolls the right pane when the pointer is over it: on Quests the
+/// objectives' window as last drawn (`pane`), on Misc anywhere right of the note text's
+/// left edge (as before the objectives scrolled); elsewhere it scrolls the list.
+fn wheel_on_pane(tab: usize, pointer: Option<Vec2>, pane: Option<Rect>) -> bool {
+    let Some(p) = pointer else { return false };
+    match tab {
+        QUESTS => pane.is_some_and(|r| r.contains(p)),
+        NOTES => p.x >= MAIN.min.x + DATA_X + TEXT_AT.x,
+        _ => false,
+    }
+}
+
+/// A click on the right pane's scroll bar: an arrow steps as a wheel notch, the track a
+/// page; a press on the marker holds it for [`drag_bar`].
+fn bar_act(st: &mut DataState, b: BarPart, pointer: Option<Vec2>, pane: &mut PaneMoves) {
+    match b {
+        BarPart::Up => pane.notches += 1.0,
+        BarPart::Down => pane.notches -= 1.0,
+        BarPart::PageUp => pane.pages -= 1.0,
+        BarPart::PageDown => pane.pages += 1.0,
+        BarPart::Marker(scale) => st.bar_drag = pointer.map(|p| (p.y, scale)),
+    }
+}
+
+/// The marker held (`held`: the left button still down) follows the pointer's own
+/// movement, as the maps do (the pane is drawn again as it scrolls, which would end a
+/// Bevy drag at once); let go, it stops.
+fn drag_bar(st: &mut DataState, held: bool, pointer: Option<Vec2>, pane: &mut PaneMoves) {
+    match (st.bar_drag, pointer) {
+        (Some(_), _) if !held => {
+            st.bar_drag = None;
+            info!("pipboy data: scroll bar let go at {:.0} of {:.0}", st.text_first, st.text_max.max(0.0));
+        }
+        (Some((y, scale)), Some(p)) => {
+            pane.drag += (p.y - y) * scale;
+            st.bar_drag = Some((p.y, scale));
+        }
+        _ => {}
     }
 }
 
@@ -1106,7 +1276,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
                 .iter()
                 .map(|q| Row { text: quest_name(game, q.form), mark: if Some(q.form) == st.active_quest { Mark::Filled } else { Mark::None }, done: q.done })
                 .collect();
-            let right = l.quests.get(st.sel[QUESTS]).map_or(Right::None, |q| Right::Objectives(objectives(game, q.form)));
+            let right = l.quests.get(st.sel[QUESTS]).map_or(Right::None, |q| Right::Objectives { rows: objectives(game, q.form), first: st.text_first });
             Body::List { rows, first: st.first[QUESTS], boxed: st.boxed.then_some(st.sel[QUESTS]), right }
         }
         NOTES if l.challenges.is_some() => {
@@ -1618,6 +1788,26 @@ fn on_button_click(e: On<PointerClick>, buttons: Query<&ButtonHit>, state: Optio
     }
 }
 
+/// A part of the right pane's scroll bar ([`bar_spots`]).
+#[derive(Component, Clone, Copy)]
+struct BarHit(BarPart);
+
+fn on_bar_click(e: On<PointerClick>, hits: Query<&BarHit>, state: Option<ResMut<DataState>>) {
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::Bar(h.0));
+    }
+}
+
+/// The marker is taken when the button goes down on it, to be dragged ([`drag_bar`]).
+fn on_bar_press(e: On<PointerPress>, hits: Query<&BarHit>, state: Option<ResMut<DataState>>) {
+    if e.button != PointerButton::Primary {
+        return;
+    }
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::Bar(h.0));
+    }
+}
+
 fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View) {
     heading(p, c, &v.place, &v.when);
     buttons(p, c, &v.buttons);
@@ -1627,10 +1817,14 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
             st.fit[v.tab] = list(p, c, MAIN.min + LIST.min, LIST.height(), true, rows, *first, *boxed, Some(v.tab));
             let data_y = BUTTONS.y + if v.buttons.is_empty() { 0.0 } else { BUTTON_RECT_H } - button_height(c);
             let data = MAIN.min + Vec2::new(DATA_X, data_y);
+            // Only a note's text and the objectives scroll; the other panes leave none.
+            st.text_max = 0.0;
+            st.pane_rect = None;
             match right {
                 Right::None => {}
-                Right::Objectives(o) => {
-                    list(p, c, data, OBJECTIVES_H, false, o, 0, None, None);
+                Right::Objectives { rows, first } => {
+                    st.text_max = objectives_pane(p, c, data, rows, *first);
+                    st.pane_rect = Some(objectives_rect(data));
                 }
                 Right::Text { text, first } => st.text_max = note_text(p, c, data + TEXT_AT, text, *first),
                 Right::Image(path) => {
@@ -1729,8 +1923,6 @@ fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, list: &[Button]) {
 /// rows fit.
 #[allow(clippy::too_many_arguments)]
 fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, height: f32, bar_left: bool, rows: &[Row], first: usize, boxed: Option<usize>, tab: Option<usize>) -> usize {
-    let bright = amber(TEXT);
-    let line = amber(LINE);
     let x0 = if bar_left { SCROLLBAR } else { 0.0 };
     let row_w = LIST_W - SCROLLBAR - ROW_SHORT;
     let mut fit = 0;
@@ -1738,27 +1930,11 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, height: f32, ba
         let mut y = 0.0;
         for (i, r) in rows.iter().enumerate().skip(first) {
             let lines = c.lines(2, &r.text, Some(WRAP));
-            let h = ROW_H + ROW_PITCH * lines.len().saturating_sub(1) as f32;
+            let h = row_height(&lines);
             if y + h > height && fit > 0 {
                 break;
             }
-            let colour = if r.done { bright.with_alpha(DONE_ALPHA) } else { bright };
-            if boxed == Some(i) {
-                c.boxed(p, Rect::new(x0 - BOX_LEFT, y, x0 + row_w, y + h - 1.0), line, None);
-            }
-            let mark = match r.mark {
-                Mark::None => None,
-                Mark::Empty => Some("Interface\\Shared\\Marker\\square.dds"),
-                Mark::Filled => Some("Interface\\Shared\\Marker\\square_filled.dds"),
-            };
-            if let Some(m) = mark {
-                if c.image(p, m, at(x0 + MARK_AT.x, y + MARK_AT.y, MARK, MARK), colour).is_none() {
-                    p.spawn((at(x0 + MARK_AT.x, y + MARK_AT.y, MARK, MARK), BackgroundColor(colour)));
-                }
-            }
-            for (k, l) in lines.iter().enumerate() {
-                c.set(p, 2, l, x0 + ROW_TEXT.x, y + ROW_TEXT.y - THICK + ROW_PITCH * k as f32, Align::Left, colour);
-            }
+            row(p, c, x0, y, h, r, &lines, boxed == Some(i));
             if let Some(t) = tab {
                 p.spawn((at(x0, y, row_w, h), RowHit(t, i), Pickable::default())).observe(on_row_over).observe(on_row_out).observe(on_row_click);
             }
@@ -1773,14 +1949,115 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, height: f32, ba
     fit
 }
 
+/// A row's height: its text's first line and the further ones.
+fn row_height(lines: &[fnv_font::Line]) -> f32 {
+    ROW_H + ROW_PITCH * lines.len().saturating_sub(1) as f32
+}
+
+/// One row `h` high at `x0`, `y` in its list's window: its square, its text broken into
+/// `lines`, boxed when selected.
+#[allow(clippy::too_many_arguments)]
+fn row(p: &mut ChildSpawnerCommands, c: &mut Ctx, x0: f32, y: f32, h: f32, r: &Row, lines: &[fnv_font::Line], boxed: bool) {
+    let bright = amber(TEXT);
+    let row_w = LIST_W - SCROLLBAR - ROW_SHORT;
+    let colour = if r.done { bright.with_alpha(DONE_ALPHA) } else { bright };
+    if boxed {
+        c.boxed(p, Rect::new(x0 - BOX_LEFT, y, x0 + row_w, y + h - 1.0), amber(LINE), None);
+    }
+    let mark = match r.mark {
+        Mark::None => None,
+        Mark::Empty => Some("Interface\\Shared\\Marker\\square.dds"),
+        Mark::Filled => Some("Interface\\Shared\\Marker\\square_filled.dds"),
+    };
+    if let Some(m) = mark {
+        if c.image(p, m, at(x0 + MARK_AT.x, y + MARK_AT.y, MARK, MARK), colour).is_none() {
+            p.spawn((at(x0 + MARK_AT.x, y + MARK_AT.y, MARK, MARK), BackgroundColor(colour)));
+        }
+    }
+    for (k, l) in lines.iter().enumerate() {
+        c.set(p, 2, l, x0 + ROW_TEXT.x, y + ROW_TEXT.y - THICK + ROW_PITCH * k as f32, Align::Left, colour);
+    }
+}
+
+/// The quest's objectives at `origin`, scrolled `first` down as a note's text is (one
+/// scroll for both, [`scroll_pane`]), the scroll bar on the right while they are longer
+/// than the window; returns how far they can scroll.
+fn objectives_pane(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, rows: &[Row], first: f32) -> f32 {
+    let laid: Vec<Vec<fnv_font::Line>> = rows.iter().map(|r| c.lines(2, &r.text, Some(WRAP))).collect();
+    let total: f32 = laid.iter().map(Vec::as_slice).map(row_height).sum();
+    p.spawn((Node { overflow: Overflow::clip(), ..at(origin.x, origin.y, LIST_W, OBJECTIVES_H) }, Pickable::IGNORE)).with_children(|p| {
+        let mut y = -first;
+        for (r, lines) in rows.iter().zip(&laid) {
+            let h = row_height(lines);
+            if y + h > 0.0 && y < OBJECTIVES_H {
+                row(p, c, 0.0, y, h, r, lines, false);
+            }
+            y += h;
+        }
+        if total > OBJECTIVES_H {
+            let (from, part) = (first / total, OBJECTIVES_H / total);
+            scroll_bar(p, c, LIST_W - SCROLLBAR, OBJECTIVES_H, from, part);
+            bar_hits(p, bar_spots(LIST_W - SCROLLBAR, OBJECTIVES_H, from, part, total / bar_run(OBJECTIVES_H)));
+        }
+    });
+    objectives_max(total)
+}
+
+/// The run a scroll bar `height` high leaves its marker between the arrows.
+fn bar_run(height: f32) -> f32 {
+    height - 2.0 * ARROW_H - 8.0
+}
+
+/// A scroll bar's marker in a bar `height` high: its top and height for the part shown
+/// (`part`) from `from` (shares of the whole).
+fn bar_marker(height: f32, from: f32, part: f32) -> (f32, f32) {
+    let run = bar_run(height);
+    (ARROW_H + 4.0 + run * from.clamp(0.0, 1.0), (run * part.clamp(0.0, 1.0)).max(8.0))
+}
+
+/// The places on a scroll bar at `x`, `height` high ([`scroll_bar`]) that take the
+/// pointer: the arrows, the track above and below the marker, and the marker (as wide as
+/// the bar), whose drag moves the pane `scale` units a unit of the bar.
+fn bar_spots(x: f32, height: f32, from: f32, part: f32, scale: f32) -> Vec<(Rect, BarPart)> {
+    let (top, h) = bar_marker(height, from, part);
+    let foot = height - ARROW_H;
+    let mut out = vec![(Rect::new(x, 0.0, x + SCROLLBAR, ARROW_H), BarPart::Up)];
+    if top > ARROW_H {
+        out.push((Rect::new(x, ARROW_H, x + SCROLLBAR, top), BarPart::PageUp));
+    }
+    out.push((Rect::new(x, top, x + SCROLLBAR, (top + h).min(foot)), BarPart::Marker(scale)));
+    if foot > top + h {
+        out.push((Rect::new(x, top + h, x + SCROLLBAR, foot), BarPart::PageDown));
+    }
+    out.push((Rect::new(x, foot, x + SCROLLBAR, height), BarPart::Down));
+    out
+}
+
+/// Spawn a scroll bar's places that take the pointer (drawn after what they cover).
+fn bar_hits(p: &mut ChildSpawnerCommands, spots: Vec<(Rect, BarPart)>) {
+    for (r, b) in spots {
+        let mut e = p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), BarHit(b), Pickable::default()));
+        if matches!(b, BarPart::Marker(_)) {
+            e.observe(on_bar_press);
+        } else {
+            e.observe(on_bar_click);
+        }
+    }
+}
+
+/// How far objectives `total` high can scroll in their window.
+fn objectives_max(total: f32) -> f32 {
+    (total - OBJECTIVES_H).max(0.0)
+}
+
 /// A scroll bar: an arrow at each end and a line between them for the part shown
 /// [hypothesis: the marker's look; the arrows are the file's, 32 × 16].
 pub(super) fn scroll_bar(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, height: f32, from: f32, part: f32) {
     let line = amber(LINE);
     c.image(p, "Interface\\Shared\\scrollbar\\arrow_up.dds", at(x, 0.0, SCROLLBAR, ARROW_H), line);
     c.image(p, "Interface\\Shared\\scrollbar\\arrow_down.dds", at(x, height - ARROW_H, SCROLLBAR, ARROW_H), line);
-    let run = height - 2.0 * ARROW_H - 8.0;
-    c.line(p, x + (SCROLLBAR - THICK) / 2.0, ARROW_H + 4.0 + run * from.clamp(0.0, 1.0), THICK, (run * part.clamp(0.0, 1.0)).max(8.0), line);
+    let (top, h) = bar_marker(height, from, part);
+    c.line(p, x + (SCROLLBAR - THICK) / 2.0, top, THICK, h, line);
 }
 
 /// A note's text from `first` down, in a window at `origin`; returns how far it can
@@ -1816,8 +2093,20 @@ fn note_text(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, text: &str
         let x = origin.x + DATA_W;
         c.image(p, "Interface\\Shared\\scrollbar\\arrow_up.dds", at(x, origin.y, SCROLLBAR, ARROW_H), line);
         c.image(p, "Interface\\Shared\\scrollbar\\arrow_down.dds", at(x, origin.y + TEXT_H - ARROW_H, SCROLLBAR, ARROW_H), line);
+        // The note's bar is its arrows only [documented]: each steps as a wheel notch.
+        bar_hits(p, note_arrows(origin));
     }
     (total - TEXT_H).max(0.0)
+}
+
+/// A note's arrows, at the right of its text window at `origin` (canvas), where
+/// [`note_text`] draws them.
+fn note_arrows(origin: Vec2) -> Vec<(Rect, BarPart)> {
+    let x = origin.x + DATA_W;
+    vec![
+        (Rect::new(x, origin.y, x + SCROLLBAR, origin.y + ARROW_H), BarPart::Up),
+        (Rect::new(x, origin.y + TEXT_H - ARROW_H, x + SCROLLBAR, origin.y + TEXT_H), BarPart::Down),
+    ]
 }
 
 /// An audio note's time remaining and meter, the box's top left at `o`.
@@ -2137,6 +2426,199 @@ mod tests {
         let (cursor, _, _) = place_cursor(&mut st, WORLD, None, &mut marks, &names);
         assert_eq!(cursor, at);
         assert_eq!(st.cursor[WORLD], Some(at));
+    }
+
+    fn quests(forms: &[u32]) -> Lists {
+        Lists { quests: forms.iter().map(|&form| QuestKey { seen: 1, form, done: false }).collect(), ..default() }
+    }
+
+    fn pages(n: f32) -> PaneMoves {
+        PaneMoves { pages: n, ..default() }
+    }
+
+    #[test]
+    fn the_objectives_scroll_by_pages_and_the_wheel_and_clamp_at_both_ends() {
+        let l = quests(&[0x10, 0x20]);
+        // Objectives 600 high in their 400-high window scroll 200 at most.
+        let mut st = DataState { text_max: objectives_max(600.0), ..default() };
+        assert_eq!(st.text_max, 200.0);
+        let shows = pane_key(&st, QUESTS, &l);
+        assert_eq!(shows, Some((QUESTS, false, 0x10)));
+        // The frame the pane comes up it only starts at the top (its length not drawn yet).
+        scroll_pane(&mut st, QUESTS, shows, pages(1.0));
+        assert_eq!(st.text_first, 0.0);
+        scroll_pane(&mut st, QUESTS, shows, PaneMoves { notches: -2.0, ..default() });
+        assert_eq!(st.text_first, 2.0 * TEXT_STEP);
+        // A page down goes past the end: held at the bottom; two up: held at the top.
+        scroll_pane(&mut st, QUESTS, shows, pages(1.0));
+        assert_eq!(st.text_first, 200.0);
+        scroll_pane(&mut st, QUESTS, shows, pages(-2.0));
+        assert_eq!(st.text_first, 0.0);
+        // Objectives that fit do not scroll.
+        st.text_max = objectives_max(300.0);
+        scroll_pane(&mut st, QUESTS, shows, pages(1.0));
+        assert_eq!(st.text_first, 0.0);
+    }
+
+    #[test]
+    fn another_quest_or_note_starts_at_the_top() {
+        let mut l = quests(&[0x10, 0x20]);
+        let mut st = DataState { text_max: 1000.0, ..default() };
+        let shows = pane_key(&st, QUESTS, &l);
+        scroll_pane(&mut st, QUESTS, shows, PaneMoves::default());
+        let shows = pane_key(&st, QUESTS, &l);
+        scroll_pane(&mut st, QUESTS, shows, pages(1.0));
+        assert_eq!(st.text_first, OBJECTIVES_H);
+        st.sel[QUESTS] = 1;
+        let shows = pane_key(&st, QUESTS, &l);
+        assert_eq!(shows, Some((QUESTS, false, 0x20)));
+        scroll_pane(&mut st, QUESTS, shows, PaneMoves::default());
+        assert_eq!(st.text_first, 0.0);
+        // The same quest moved in the list keeps its place.
+        scroll_pane(&mut st, QUESTS, shows, pages(1.0));
+        l.quests.swap(0, 1);
+        st.sel[QUESTS] = 0;
+        let shows = pane_key(&st, QUESTS, &l);
+        scroll_pane(&mut st, QUESTS, shows, PaneMoves::default());
+        assert_eq!(st.text_first, OBJECTIVES_H);
+        // Misc pages by a note's window; the challenges are another pane.
+        let notes = Lists { notes: vec![read::Note { form: 0x30, name: "A".into(), kind: 1, text: None, image: None, quest: None }], ..default() };
+        let shows = pane_key(&st, NOTES, &notes);
+        scroll_pane(&mut st, NOTES, shows, PaneMoves::default());
+        assert_eq!(st.text_first, 0.0);
+        let shows = pane_key(&st, NOTES, &notes);
+        scroll_pane(&mut st, NOTES, shows, pages(1.0));
+        assert_eq!(st.text_first, TEXT_H);
+        st.challenges = true;
+        let shows = pane_key(&st, NOTES, &notes);
+        scroll_pane(&mut st, NOTES, shows, PaneMoves::default());
+        assert_eq!(st.text_first, 0.0);
+        // The other tabs have no pane to scroll.
+        assert_eq!(pane_key(&st, RADIO, &notes), None);
+    }
+
+    #[test]
+    fn the_right_stick_scrolls_the_pane_on_both_tabs() {
+        let l = Lists { notes: vec![read::Note { form: 0x30, name: "A".into(), kind: 1, text: None, image: None, quest: None }], ..quests(&[0x10]) };
+        for tab in [QUESTS, NOTES] {
+            let mut st = DataState { text_max: 1000.0, ..default() };
+            let shows = pane_key(&st, tab, &l);
+            scroll_pane(&mut st, tab, shows, PaneMoves::default());
+            // Pushed down (negative y) it scrolls on, at the speed for the push.
+            scroll_pane(&mut st, tab, shows, PaneMoves { stick: -1.0, dt: 0.5, ..default() });
+            assert_eq!(st.text_first, PANE_STICK_SPEED * 0.5);
+            assert!(st.pane_stick);
+            scroll_pane(&mut st, tab, shows, PaneMoves { stick: -0.5, dt: 0.5, ..default() });
+            assert_eq!(st.text_first, PANE_STICK_SPEED * 0.75);
+            // Up goes back, held at the top; let go, it stops.
+            scroll_pane(&mut st, tab, shows, PaneMoves { stick: 1.0, dt: 5.0, ..default() });
+            assert_eq!(st.text_first, 0.0);
+            scroll_pane(&mut st, tab, shows, PaneMoves { dt: 0.5, ..default() });
+            assert!(!st.pane_stick);
+            // Held at the bottom too.
+            scroll_pane(&mut st, tab, shows, PaneMoves { stick: -1.0, dt: 10.0, ..default() });
+            assert_eq!(st.text_first, 1000.0);
+        }
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_objectives_only_over_their_window() {
+        let rect = objectives_rect(MAIN.min + Vec2::new(DATA_X, 150.0));
+        let at = |x: f32, y: f32| Some(MAIN.min + Vec2::new(x, y));
+        // Over the objectives: they scroll.
+        assert!(wheel_on_pane(QUESTS, at(600.0, 300.0), Some(rect)));
+        // Over the buttons above them, the bottom tabs below, the heading or the list:
+        // the list scrolls, as before the objectives did.
+        assert!(!wheel_on_pane(QUESTS, at(800.0, 90.0), Some(rect)));
+        assert!(!wheel_on_pane(QUESTS, at(600.0, 600.0), Some(rect)));
+        assert!(!wheel_on_pane(QUESTS, at(700.0, 10.0), Some(rect)));
+        assert!(!wheel_on_pane(QUESTS, at(100.0, 300.0), Some(rect)));
+        // No objectives drawn, no pointer: the list.
+        assert!(!wheel_on_pane(QUESTS, at(600.0, 300.0), None));
+        assert!(!wheel_on_pane(QUESTS, None, Some(rect)));
+        // Misc keeps its rule: right of the note text's left edge.
+        assert!(wheel_on_pane(NOTES, at(800.0, 90.0), None));
+        assert!(!wheel_on_pane(NOTES, at(100.0, 300.0), None));
+        assert!(!wheel_on_pane(RADIO, at(600.0, 300.0), Some(rect)));
+    }
+
+    #[test]
+    fn up_on_the_first_row_or_down_on_the_last_keeps_the_place_read() {
+        let l = quests(&[0x10, 0x20]);
+        let mut st = DataState { text_max: 1000.0, ..default() };
+        let settle = |st: &mut DataState, moves: &[i32], m: PaneMoves| {
+            step_rows(st, QUESTS, moves, 2);
+            let shows = pane_key(st, QUESTS, &l);
+            scroll_pane(st, QUESTS, shows, m);
+        };
+        settle(&mut st, &[], PaneMoves::default());
+        settle(&mut st, &[], pages(1.0));
+        assert_eq!(st.text_first, OBJECTIVES_H);
+        // Up on the first quest: the same quest shown, the same place.
+        settle(&mut st, &[-1], PaneMoves::default());
+        assert_eq!((st.sel[QUESTS], st.text_first), (0, OBJECTIVES_H));
+        // Down: another quest, from its top.
+        settle(&mut st, &[1], PaneMoves::default());
+        assert_eq!((st.sel[QUESTS], st.text_first), (1, 0.0));
+        settle(&mut st, &[], pages(1.0));
+        // Down on the last: kept.
+        settle(&mut st, &[1], PaneMoves::default());
+        assert_eq!((st.sel[QUESTS], st.text_first), (1, OBJECTIVES_H));
+    }
+
+    #[test]
+    fn the_scroll_bar_steps_pages_and_drags() {
+        // A bar 400 high: arrows of 16, the marker's run 360; half way, a quarter shown.
+        let spots = bar_spots(368.0, 400.0, 0.5, 0.25, 4.0);
+        let part_at = |y: f32| spots.iter().find(|(r, _)| r.contains(Vec2::new(380.0, y))).map(|s| s.1);
+        assert_eq!(part_at(8.0), Some(BarPart::Up));
+        assert_eq!(part_at(100.0), Some(BarPart::PageUp));
+        assert_eq!(part_at(250.0), Some(BarPart::Marker(4.0)));
+        assert_eq!(part_at(350.0), Some(BarPart::PageDown));
+        assert_eq!(part_at(392.0), Some(BarPart::Down));
+        assert_eq!(bar_marker(400.0, 0.5, 0.25), (200.0, 90.0));
+        // At the top the marker starts 4 under the arrow.
+        let top = bar_spots(368.0, 400.0, 0.0, 0.25, 4.0);
+        assert!(top.iter().any(|(r, b)| *b == BarPart::Marker(4.0) && r.min.y == ARROW_H + 4.0));
+        // A note's arrows stand at the right of its window.
+        let o = Vec2::new(500.0, 200.0);
+        assert_eq!(note_arrows(o)[0], (Rect::new(o.x + DATA_W, o.y, o.x + DATA_W + SCROLLBAR, o.y + ARROW_H), BarPart::Up));
+        assert_eq!(note_arrows(o)[1].0.max.y, o.y + TEXT_H);
+
+        let l = quests(&[0x10]);
+        let mut st = DataState { text_max: 1000.0, ..default() };
+        let shows = pane_key(&st, QUESTS, &l);
+        scroll_pane(&mut st, QUESTS, shows, PaneMoves::default());
+        let click = |st: &mut DataState, b: BarPart, y: f32| {
+            let mut m = PaneMoves::default();
+            bar_act(st, b, Some(Vec2::new(380.0, y)), &mut m);
+            scroll_pane(st, QUESTS, shows, m);
+        };
+        // The track below the marker pages down, an arrow steps a wheel notch.
+        click(&mut st, BarPart::PageDown, 350.0);
+        assert_eq!(st.text_first, OBJECTIVES_H);
+        click(&mut st, BarPart::Up, 8.0);
+        assert_eq!(st.text_first, OBJECTIVES_H - TEXT_STEP);
+        click(&mut st, BarPart::Down, 392.0);
+        click(&mut st, BarPart::PageUp, 100.0);
+        assert_eq!(st.text_first, 0.0);
+        // The marker pressed follows the pointer while the button is held, 4 units a unit.
+        click(&mut st, BarPart::Marker(4.0), 100.0);
+        assert_eq!(st.bar_drag, Some((100.0, 4.0)));
+        let drag = |st: &mut DataState, held: bool, y: f32| {
+            let mut m = PaneMoves::default();
+            drag_bar(st, held, Some(Vec2::new(380.0, y)), &mut m);
+            scroll_pane(st, QUESTS, shows, m);
+        };
+        drag(&mut st, true, 110.0);
+        assert_eq!(st.text_first, 40.0);
+        drag(&mut st, true, 105.0);
+        assert_eq!(st.text_first, 20.0);
+        // Let go, it stays.
+        drag(&mut st, false, 200.0);
+        assert_eq!((st.bar_drag, st.text_first), (None, 20.0));
+        drag(&mut st, true, 300.0);
+        assert_eq!(st.text_first, 20.0);
     }
 
     #[test]

@@ -81,6 +81,10 @@ Russian install showed is in "Seen in a Russian install" below.
   apart from 1252 this way and is still set by hand. The start's log says when the
   plugins chose it. The game's language plugins (`<master>_lang.esp`) are turned on in
   NVForever's plugin list when it first lists them (`fnv_install::plugins`).
+  NVForever's own words (`lang/`) follow: a run whose code page is Windows-1251 starts
+  in Russian when `lang/ru.toml` is there and NVForever.ini keeps no `language=`
+  (`fnv_util::words::follow_code_page`, #1948) [design; hypothesis: 1251 means
+  Russian, the one Cyrillic release; 1250 and 1252 name no language].
 - **Every code page here maps all 256 bytes** to a character (the WHATWG tables in
   `encoding_rs`; an undefined slot becomes the C1 control of the same value), so text read
   and written again keeps its bytes [documented: WHATWG Encoding Standard, the

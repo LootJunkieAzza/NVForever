@@ -183,6 +183,14 @@ cancellation and a cold New Game gift at 16:9 and 4:3 after this review revision
 
 ## 4. Scope and open points
 
+- [design: `engine/nvf-play/src/graphics_resume.rs`, `pause.rs`;
+  `engine/nvforever/src/pipeline_gate.rs`] The pause menu reuses the pipeline cap and
+  settling constants for effective graphics edits (#1820), retaining its own picture
+  and pause state. Its bridge always counts shadows and requires fresh render samples.
+  See [graphics settings](graphics-enhanced.md#3-what-was-built) for the policy and tests.
+  This is only the pipeline portion of #1820: draw-distance streaming still needs a
+  separate readiness contract and remains open.
+
 - Travel and a world start (§1a) show a loading screen. A New Game chosen on the main
   menu still loads behind the menu and the intro film.
 - Travel without `--play` (the free camera following `--npc-travel` NPCs) is unchanged:
