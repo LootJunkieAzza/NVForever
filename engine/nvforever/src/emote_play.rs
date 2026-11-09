@@ -239,9 +239,13 @@ fn drive(
     // What ends it.
     let moved = [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight, Control::Jump].into_iter().any(|c| input.just_pressed(c)) || seat.leave;
     seat.leave = false;
+    // A menu or a conversation over it (the world stands still) holds it; a loading
+    // screen (another place) ends it.
     if cancel.is_none() {
-        cancel = if !playing {
-            Some(("the game left play", true))
+        cancel = if *state.get() == PlayState::Loading {
+            Some(("a loading screen", true))
+        } else if !playing {
+            None
         } else if r.cancel_at.is_some_and(|c| r.age >= c) {
             Some(("test aid", false))
         } else if moved {
@@ -311,7 +315,9 @@ fn drive(
     }
     let looped = loops_alone(r.emote, r.phase);
     r.pos = if r.phase == phase::STAY { r.frame.pos } else { root_at(&r.frame, &r.clip, r.t) };
-    body.0 = Some(BodyClip { clip: r.clip.clone(), looped, serial: st.serial, pos: r.pos, heading: r.frame.heading, lying: false, over: None });
+    // `lying`: the third-person camera's pivot goes up as far as the pelvis has tipped
+    // over (lying down, push-ups), so the camera stays out of the ground (`player_body.rs`).
+    body.0 = Some(BodyClip { clip: r.clip.clone(), looped, serial: st.serial, pos: r.pos, heading: r.frame.heading, lying: true, over: None });
     seat.hold = Some(r.pos);
     let t = if looped && length > 1e-3 { r.t % length } else { r.t.min(length) };
     local.state = EmoteState { id: nvf_play::emotes::Emote::id(r.emote), variant: r.variant, phase: r.phase, step: r.step, t };

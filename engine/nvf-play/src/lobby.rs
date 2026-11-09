@@ -41,7 +41,7 @@ const STEP: f32 = 30.0;
 /// Saves shown at once.
 const SAVE_ROWS: usize = 8;
 /// Emotes and their categories' headings shown at once.
-const EMOTE_ROWS: usize = 13;
+const EMOTE_ROWS: usize = 11;
 /// The longest code typed (12 characters and the dashes, with room for spaces).
 const MAX_TYPED: usize = 26;
 
