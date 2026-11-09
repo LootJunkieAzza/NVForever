@@ -452,15 +452,23 @@ pub(crate) fn show_actor(
     dt: f32,
 ) -> Result<(), &'static str> {
     let Who { reference, base, creature, scale, strafe, air } = who;
+    // Its bodies under the world root: the one drawn, and any stray (owner's overnight
+    // queue item 105: a body spawned, then let go before it was found here, stayed where
+    // it was, and the next spawn drew a second one; detection measured both by turns).
+    let bodies = || roots.iter().filter(move |(_, v, p)| v.0 == reference && p.parent() == world_root).map(|(e, _, _)| e);
     if !visible {
-        if let Some(e) = root.take() {
+        for e in bodies_to_let_go(root, spawned, bodies) {
             commands.entity(e).despawn();
         }
-        *spawned = false;
         return Ok(());
     }
     let Some(aw) = actor_world else { return Ok(()) };
     if !*spawned {
+        // A body of it left behind is not drawn a second time over.
+        for e in bodies() {
+            warn!("nav: {reference:08X} had a body left behind ({e}); it goes before it is drawn again");
+            commands.entity(e).despawn();
+        }
         let at = Vec3::from_array(feet);
         let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-heading), at);
         let mut ctx = ActorCtx { cache: parts, models };
@@ -520,6 +528,21 @@ pub(crate) fn show_actor(
         lo.in_air = air;
     }
     Ok(())
+}
+
+/// The bodies to take away when an actor stops being drawn: the one found, or, spawned
+/// but not found yet (spawned a frame or two ago), every body of its reference there is
+/// (`bodies`). Without the second, a body spawned and let go before it was found stayed
+/// where it was and the next spawn drew a second one (owner's overnight queue item 105:
+/// a young gecko hunter at the edge of the loaded cells). It is no longer spawned after.
+pub(crate) fn bodies_to_let_go<I: Iterator<Item = Entity>>(root: &mut Option<Entity>, spawned: &mut bool, bodies: impl FnOnce() -> I) -> Vec<Entity> {
+    let out = match root.take() {
+        Some(e) => vec![e],
+        None if *spawned => bodies().collect(),
+        None => Vec::new(),
+    };
+    *spawned = false;
+    out
 }
 
 /// `--follow-npc`: the camera behind the first traveller, a little above, looking at it.
@@ -636,6 +659,23 @@ pub fn report(mut exit: MessageReader<AppExit>, nav: Res<NavState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_spawned_but_not_found_yet_goes_when_the_actor_is_let_go() {
+        let mut w = World::new();
+        let (a, b) = (w.spawn_empty().id(), w.spawn_empty().id());
+        // Found: that one goes, the search is not needed.
+        let (mut root, mut spawned) = (Some(a), true);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || -> std::vec::IntoIter<Entity> { panic!("no search") }), vec![a]);
+        assert_eq!((root, spawned), (None, false));
+        // Spawned last frame, not found yet: whatever of it is there goes.
+        let (mut root, mut spawned) = (None, true);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![b].into_iter()), vec![b]);
+        assert!(!spawned);
+        // Never spawned: nothing.
+        let (mut root, mut spawned) = (None, false);
+        assert!(bodies_to_let_go(&mut root, &mut spawned, || vec![b].into_iter()).is_empty());
+    }
 
     #[test]
     fn heading_of_a_root_rotation() {

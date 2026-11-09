@@ -802,7 +802,11 @@ fn drive(
                 continue;
             }
         };
-        let Some((root, actor, rig, ..)) = rigs.iter().find(|r| r.1.reference == speaker.0) else {
+        // The speaker's body nearest the camera: a second body of the same reference left
+        // behind (owner's queue items 105 and 120) must not take the mouth from the one in
+        // view.
+        let cam = camera.iter().next().map(GlobalTransform::translation);
+        let Some((root, actor, rig, ..)) = nearest(rigs.iter().filter(|r| r.1.reference == speaker.0), cam, |r| r.3.translation()) else {
             st.skipped += 1;
             info!("lip: skipped {lip_path}: speaker {who} has no face rig here (a creature, a robot, an activator, or not drawn)");
             continue;
@@ -1000,6 +1004,12 @@ fn drive(
 
 /// Turn the speakers' heads by their `.lip` head channels, on top of what the frame's
 /// animation, head tracking and a conversation wrote to the bone.
+/// Of `items`, the one whose position is nearest `to` (the first when `to` is unknown).
+pub(crate) fn nearest<T>(items: impl Iterator<Item = T>, to: Option<Vec3>, at: impl Fn(&T) -> Vec3) -> Option<T> {
+    let Some(to) = to else { return items.into_iter().next() };
+    items.min_by(|a, b| at(a).distance_squared(to).total_cmp(&at(b).distance_squared(to)))
+}
+
 fn turn_heads(mut state: ResMut<LipState>, mut transforms: Query<&mut Transform>) {
     let st = &mut *state;
     for face in st.faces.values() {
@@ -1212,6 +1222,16 @@ impl Plugin for LipsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_speakers_body_nearest_the_camera_moves_its_mouth() {
+        let bodies = [("stray", Vec3::new(500.0, 0.0, 0.0)), ("seen", Vec3::new(2.0, 0.0, 0.0))];
+        let pick = |cam| nearest(bodies.iter(), cam, |b| b.1).map(|b| b.0);
+        assert_eq!(pick(Some(Vec3::ZERO)), Some("seen"));
+        assert_eq!(pick(Some(Vec3::new(600.0, 0.0, 0.0))), Some("stray"));
+        assert_eq!(pick(None), Some("stray"), "no camera: the first, as before");
+        assert_eq!(nearest(std::iter::empty::<Vec3>(), Some(Vec3::ZERO), |v| *v), None);
+    }
 
     fn lip(start: i32, frames: Vec<[f32; CHANNELS]>) -> Lip {
         Lip { version: 1, flag: 1, start_frame: start, frames }
