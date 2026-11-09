@@ -251,6 +251,20 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 if w.base_damage > 0 {
                     i.dps = Some(format!("{:.0}", weapon_dps(w, r.condition.unwrap_or(1.0))));
                 }
+                // The player's tweak compares with the weapon in hand, both whole [design: docs/design/tweaks.md].
+                if tweaks.compare_weapons && w.base_damage > 0 {
+                    let held = sim.world.equipment(FormId::PLAYER_REF).unwrap_or_default().into_iter().find(|&e| sim.forms.item(e).is_some_and(|it| it.kind == ItemKind::Weapon));
+                    if let Some(cur) = held.filter(|&e| e != r.item).and_then(|e| cf.and_then(|f| f.weapons.get(&e))) {
+                        let dam = i64::from(w.base_damage) - i64::from(cur.base_damage);
+                        let dps = weapon_dps(w, 1.0) - weapon_dps(cur, 1.0);
+                        if let Some((_, v)) = i.first.as_mut() {
+                            *v = format!("{v} ({dam:+})");
+                        }
+                        if let Some(v) = i.dps.as_mut() {
+                            *v = format!("{v} ({dps:+.0})");
+                        }
+                    }
+                }
                 // Always bright: the mod menu also takes mods off [design: the owner's
                 // rule, 2026-10-27].
                 i.mod_hint = w.mods.iter().any(|m| m.item.is_some());

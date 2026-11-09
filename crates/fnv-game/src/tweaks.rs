@@ -285,6 +285,9 @@ pub struct Tweaks {
     pub subtitle_distance: f32,
     /// `bSneakCriticalsHeadshotsOnly`: sneak criticals only on the head.
     pub sneak_criticals_head_only: bool,
+    /// `bCompareWeaponStats`: a weapon's DAM and DPS in the Pip-Boy show the difference
+    /// from the weapon in hand.
+    pub compare_weapons: bool,
 }
 
 impl crate::game::Game<'_> {
@@ -409,6 +412,7 @@ impl Default for Tweaks {
             god_mode_free_crafting: false,
             subtitle_distance: 0.0,
             sneak_criticals_head_only: false,
+            compare_weapons: false,
         }
     }
 }

@@ -409,6 +409,7 @@ unless the player binds them, so nothing changes until then.
 | Kill Camera Chance (part) | `bChanceBasedKillcams` | `kill_cam::update` (the game's RNG) |
 | Subtitle Distance (0–10000) | `bCustomSubtitleDistance` | `script_hud` (`voice::hearing`) |
 | Sneak Criticals Head Only | `bSneakCriticalsHeadshotsOnly` | `combat::melee` and `combat::fly` after the body part |
+| Compare Weapons | `bCompareWeaponStats` | `pipboy::items::info_of` |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -429,8 +430,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 316 |
-| to do | 287 |
+| done | 317 |
+| to do | 286 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -848,6 +849,7 @@ game's Data folder, read-only).
 | `bAddInventoryDropItemHotkey` | done |  |  | Q Drops Items |
 | `bAllowRebindNumkeys` | done |  |  | already so: the hotkeys and the D-pad are on the Controls tab |
 | `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
+| `bCompareWeaponStats` | done |  |  | Compare Weapons (DAM and DPS, both at full condition) |
 | `bContainerTakeAllDoesntCloseMenu` | done |  |  | Take All Stays Open |
 | `bDialogueKeepVoiceActingNotes` | done |  |  | Keep Acting Notes (spoken lines; topics as before) |
 | `bDisableInventoryRightClickDrop` | done |  |  | No Right-Click Drop |
@@ -910,7 +912,6 @@ game's Data folder, read-only).
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
 | `bCompareArmorStats` | to do |  |  | needs the worn pieces of the same slots summed |
-| `bCompareWeaponStats` | to do |  |  | pipboy items info_of with the equipped weapon |
 | `bContainerEncumbranceIndicator` | to do |  |  | menu look half figure in red |
 | `bContainerMenuStoreAllHotkey` | to do |  | 1 | a Store All command |
 | `bContainerQuantityMenuShowsWeight` | to do |  |  | the quantity box has no weight |
