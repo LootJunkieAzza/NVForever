@@ -492,7 +492,7 @@ pub fn fix_ui_scale() {
 }
 
 /// `1`/`0` (also true/false, on/off, yes/no, any case).
-fn parse_switch(v: &str) -> Option<bool> {
+pub fn parse_switch(v: &str) -> Option<bool> {
     match v.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "on" | "yes" => Some(true),
         "0" | "false" | "off" | "no" => Some(false),

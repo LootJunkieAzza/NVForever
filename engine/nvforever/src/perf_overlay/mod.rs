@@ -4,16 +4,21 @@
 //!
 //! | Row  | Reads | From |
 //! |------|-------|------|
-//! | FPS  | frames a second and the mean frame time of the last half second, the 1 % low of the last 10 s | the time between frames ([`readings::Frames`], the 1 % low as `stress_sample::frame_stats` takes it: [`readings::low_of`]) |
+//! | FPS  | frames a second and the mean frame time of the last half second, the 1 % low (or the slowest frame, a choice) of the last 10 s | the time between frames ([`readings::Frames`], the 1 % low as `stress_sample::frame_stats` takes it: [`readings::low_of`]) |
+//! | graph (off) | the last 5 s of frame times as a line | the same frame times ([`graph`]) |
+//! | SPLIT (off) | a frame's main-thread, render-thread and GPU time | the schedules' spans and GPU timestamps ([`split`]) |
 //! | CPU  | the machine's use, and the game's own as cores kept busy | Windows' performance counters; the process's processor time ([`usage`]) |
 //! | GPU  | the busiest engine's use | Windows' performance counters ([`usage`]) |
 //! | VRAM | this process's GPU memory against the budget | `memory_budget.rs`'s check every 2 s (`MemoryBudget::vram_use_mb`) |
 //! | RAM  | the game's working set, the machine's RAM in use | the process's memory counters ([`usage`]); `memory_budget.rs`'s check |
+//! | LOADED (off) | cells, references drawn, actors, entities | the stress samples' counts (`stress_sample::LoadedCounts`) |
 //!
 //! The settings page's Frame rate counter switch and `--fps` show it (off by default);
 //! the rows are its own
 //! switches. A row with nothing to read (no GPU budget on an integrated GPU; off Windows
-//! the counters' rows) is left out, and nothing is read while the overlay is hidden. Not
+//! the counters' rows) is left out, and nothing is read while the overlay is hidden: the
+//! frame times are kept only while the FPS or the graph row is on, the split's spans
+//! taken only while its row is on, the counts read only at a reading of their row. Not
 //! in the original [engineering choice, issue #1087].
 //!
 //! The times are wall-clock (`Time<Real>`), so a paused game or a slowed clock still
@@ -21,29 +26,35 @@
 //! read ([`readings::WINDOW`]).
 //!
 //! The log says the first readings of the first showing (`fps counter: first reading …`,
-//! `first usage reading …`, `first process reading …`) and each turn on or off
-//! (`fps counter: on`), as the smoke scenarios read them.
+//! `first usage reading …`, `first process reading …`, `first split reading …`, `first
+//! loaded reading …`, `first graph drawn`) and each turn on or off (`fps counter: on`),
+//! as the smoke scenarios read them.
 //!
 //! - [`readings`]: the numbers and the rows' text (pure, tested).
 //! - [`usage`]: the sampler thread for what Windows gives.
+//! - [`split`]: the frame split's spans and GPU times.
+//! - [`graph`]: the frame graph's pixels.
 //! - [`draw`]: the panel.
 //!
-//! A later row (the frame graph, the frame split, the loaded counts) is a switch in
-//! [`readings::Rows`], a row of [`readings::rows`] and, if it draws other than a line of
-//! text, a part of [`draw`].
+//! A later row is a switch in [`readings::Rows`], a row of [`readings::rows`] and, if it
+//! draws other than a line of text, a part of [`draw`].
 
 mod draw;
+mod graph;
 mod readings;
+mod split;
 mod usage;
 
 use std::sync::Arc;
 
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use nvf_assets::GameData;
 
 use crate::memory_budget::MemoryBudget;
-pub use readings::Rows;
+use crate::stress_sample::LoadedCounts;
+pub use readings::{Low, Rows};
 use readings::{Frames, Readings};
 
 /// Whether the overlay is shown, and its rows.
@@ -67,6 +78,11 @@ struct Overlay {
     logged: bool,
     usage_logged: bool,
     process_logged: bool,
+    split_logged: bool,
+    /// Readings the split's first line waited for its GPU time.
+    split_waited: u32,
+    loaded_logged: bool,
+    graph_logged: bool,
     dirty: bool,
     /// The switches changed: the panel's width starts again from its rows.
     fresh: bool,
@@ -101,15 +117,23 @@ impl Plugin for PerfOverlayPlugin {
         // In Update: the panel is drawn at the UI scale, fixed once the INI is read
         // (`nvf_play::interface::fix_ui_scale`, PostStartup).
         app.insert_resource(FpsCounter { show: self.0, ..default() }).init_resource::<Overlay>().add_systems(Update, (switch, sample, draw).chain());
+        // The GPU timestamps are a plugin, added now or not at all: from the INI as it
+        // is before the settings apply it (`split::timestamps_at_start`).
+        split::build(app, split::timestamps_at_start(self.0));
+    }
+
+    fn finish(&self, app: &mut App) {
+        split::finish(app);
     }
 }
 
 /// A change of the switches: a new showing starts from the waiting text, not the last
-/// showing's reading; a hidden overlay stops the sampler.
-fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, mut was: Local<Option<bool>>) {
+/// showing's reading; a hidden overlay stops the sampler, a hidden split row its spans.
+fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, clock: Res<split::SplitClock>, mut was: Local<Option<bool>>) {
     if !counter.is_changed() {
         return;
     }
+    clock.0.set_on(counter.show && counter.rows.split);
     if was.is_some_and(|w| w != counter.show) {
         info!("fps counter: {}", if counter.show { "on" } else { "off" });
     }
@@ -130,7 +154,7 @@ fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, mut was: Local
     overlay.fresh = true;
 }
 
-fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, budget: Option<Res<MemoryBudget>>, mut overlay: ResMut<Overlay>) {
+fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, budget: Option<Res<MemoryBudget>>, mut overlay: ResMut<Overlay>, timing: split::SplitInputs, counts: LoadedCounts) {
     if !counter.show {
         return;
     }
@@ -145,12 +169,14 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, budget: Option<Res<Me
     }
     let frame = overlay.frames.take();
     let got = u.read();
+    let split = rows.split.then(|| timing.read()).flatten();
+    let loaded = rows.loaded.then(|| counts.read());
     let vram_mb = budget.as_ref().and_then(|b| b.vram_use_mb);
     let ram_share = budget.as_ref().and_then(|b| b.ram_share);
     let vram_share = vram_mb.map(|(used, b)| used as f64 / b.max(1) as f64);
     let (vram_warn, ram_warn) = readings::pressed_rows(budget.as_ref().is_some_and(|b| b.pressed), vram_share, ram_share);
     let o = &mut *overlay;
-    o.readings = Readings { frame, cpu: got.cpu, game_cores: got.cores, gpu: got.gpu, vram_mb, game_ram_mb: got.ram_mb, ram_share, vram_warn, ram_warn };
+    o.readings = Readings { frame, cpu: got.cpu, game_cores: got.cores, gpu: got.gpu, vram_mb, game_ram_mb: got.ram_mb, ram_share, vram_warn, ram_warn, split, loaded };
     o.dirty = true;
     if let (false, Some(frame)) = (o.logged, frame) {
         o.logged = true;
@@ -167,6 +193,40 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, budget: Option<Res<Me
         o.process_logged = true;
         info!("fps counter: first process reading: the game keeps {cores:.2} cores busy, working set {ram_mb} MB");
     }
+    // The GPU times come a few frames after the first frames, and the first reading may
+    // be in the start's long frames: a split that awaits GPU times waits for them, a few
+    // readings at most, before its first line goes without.
+    let gpu_pending = |s: &readings::Split, waited: u32| s.gpu_ms.is_none() && timing.gpu_expected() && waited < SPLIT_GPU_WAIT;
+    if let (false, Some(s)) = (o.split_logged, split.filter(|s| !gpu_pending(s, o.split_waited))) {
+        o.split_logged = true;
+        info!("fps counter: first split reading {}", split_log(&s));
+        if s.gpu_ms.is_none() {
+            info!("fps counter: frame split without GPU time: {}", timing.no_gpu_reason());
+        }
+    }
+    if split.is_some() && !o.split_logged {
+        o.split_waited += 1;
+    }
+    if let (false, Some(l)) = (o.loaded_logged, loaded) {
+        o.loaded_logged = true;
+        info!("fps counter: first loaded reading {} cells, {} references drawn, {} actors, {} entities", l.cells, l.refs, l.actors, l.entities);
+    }
+}
+
+/// The readings (half a second each) the split's first line waits for a GPU time that is
+/// to come [design].
+const SPLIT_GPU_WAIT: u32 = 10;
+
+/// `main 9.8 ms, render 4.1 ms, GPU 6.2 ms`, each part only when read.
+fn split_log(s: &readings::Split) -> String {
+    let mut out = format!("main {:.1} ms", s.main_ms);
+    if let Some(r) = s.render_ms {
+        out += &format!(", render {r:.1} ms");
+    }
+    if let Some(g) = s.gpu_ms {
+        out += &format!(", GPU {g:.1} ms");
+    }
+    out
 }
 
 /// `  CPU 34%  GPU 71%`, each part only when it was read (the log's wording since #1704).
@@ -181,12 +241,15 @@ fn usage_text(cpu: Option<f32>, gpu: Option<f32>) -> String {
     s
 }
 
-/// What the panel was last set with: its kit, its width this showing, the HUD colour.
+/// What the panel was last set with: its kit, its width this showing, the HUD colour, the
+/// frame graph's image and its columns (kept for their room).
 #[derive(Default)]
 struct Drawn {
     kit: Option<draw::Kit>,
     width: f32,
     rgb: [u8; 3],
+    graph: Option<Handle<Image>>,
+    columns: Vec<f32>,
 }
 
 /// Set the panel again when the readings or the switches changed, or the HUD colour did
@@ -200,6 +263,7 @@ fn draw(
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     panels: Query<Entity, With<draw::PanelRoot>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     mut drawn: Local<Drawn>,
 ) {
     let rgb = nvf_play::interface::hud_rgb();
@@ -222,10 +286,29 @@ fn draw(
         drawn.kit = Some(draw::Kit::load(data.as_deref(), &mut images, formats.as_deref()));
     }
     let rows = readings::rows(&overlay.readings, &counter.rows);
-    let Drawn { kit, width, .. } = &mut *drawn;
-    if let Some(kit) = kit {
-        draw::spawn(&mut commands, kit, &rows, width);
-    }
+    let Drawn { kit, width, graph, columns, .. } = &mut *drawn;
+    let Some(kit) = kit else { return };
+    let measured = draw::measure(kit, &rows, width);
+    // The frame graph: its image as many pixels as the row is on screen, its pixels
+    // written again now (`graph`: twice a second, with the readings).
+    let graph = rows.iter().any(|r| r.graph).then(|| {
+        let view_height = windows.single().map_or(720, |w| w.physical_height());
+        let (w, h) = draw::graph_pixels(kit, *width, view_height);
+        let handle = graph.get_or_insert_with(|| images.add(graph::new_image(w, h))).clone();
+        if let Some(mut image) = images.get_mut(&handle) {
+            if image.size() != UVec2::new(w, h) {
+                image.resize(graph::size(w, h));
+            }
+            graph::columns(overlay.frames.newest_first(), w as usize, columns);
+            let drew = image.data.as_mut().is_some_and(|px| graph::paint(columns, h as usize, px));
+            if drew && !overlay.graph_logged {
+                overlay.graph_logged = true;
+                info!("fps counter: first graph drawn ({w} x {h} pixels)");
+            }
+        }
+        handle
+    });
+    draw::spawn(&mut commands, kit, &rows, &measured, *width, graph);
 }
 
 #[cfg(test)]
@@ -235,7 +318,7 @@ mod tests {
     #[test]
     fn readings_are_taken_twice_a_second_and_frames_kept_only_for_a_row_that_reads_them() {
         let mut o = Overlay::default();
-        let no_fps = Rows { fps: false, ..Rows::default() };
+        let no_fps = Rows { fps: false, graph: false, ..Rows::default() };
         // Steps of an eighth of a second: a reading every fourth.
         let due: Vec<bool> = (0..8).map(|_| o.step(&no_fps, 0.125)).collect();
         assert_eq!(due, [false, false, false, true, false, false, false, true]);
@@ -250,6 +333,16 @@ mod tests {
         // Off again: what was kept is let go at the next frame.
         o.step(&no_fps, 0.125);
         assert!(o.frames.is_empty());
+        // The graph alone keeps the frames too.
+        o.step(&Rows { graph: true, ..no_fps }, 0.125);
+        assert!(!o.frames.is_empty());
+    }
+
+    #[test]
+    fn the_split_log_says_each_part_read() {
+        let s = readings::Split { main_ms: 9.84, render_ms: Some(4.12), gpu_ms: Some(6.24) };
+        assert_eq!(split_log(&s), "main 9.8 ms, render 4.1 ms, GPU 6.2 ms");
+        assert_eq!(split_log(&readings::Split { gpu_ms: None, ..s }), "main 9.8 ms, render 4.1 ms");
     }
 
     #[test]

@@ -4,6 +4,8 @@
 use std::collections::VecDeque;
 
 use crate::memory_budget::{GPU_PRESSURE, RAM_PRESSURE};
+/// The loaded row's counts, as the stress samples read them.
+pub use crate::stress_sample::Loaded;
 
 /// How often the readout changes, in seconds: a number that changed every frame would
 /// only flicker [design, as the counter of #1087].
@@ -15,28 +17,75 @@ pub const WINDOW: f32 = 0.5;
 /// slowest 6 of them.
 pub const LOW_SECS: f32 = 10.0;
 
+/// The seconds of frames the frame graph draws [design: issue #1868, "the last few
+/// seconds"].
+pub const GRAPH_SECS: f32 = 5.0;
+
 /// Which rows the overlay shows, each a switch of the settings page (`settings.rs`, kept
-/// in `NVForever.ini`). The defaults are issue #1868's. A later row (the frame graph, the
-/// frame split, the loaded counts) is a field here, a row of [`rows`] and a switch.
+/// in `NVForever.ini`), and what the frame rate row's last figure is. The defaults are
+/// issue #1868's. A later row is a field here, a row of [`rows`] and a switch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rows {
     pub fps: bool,
+    pub graph: bool,
+    pub split: bool,
     pub cpu: bool,
     pub gpu: bool,
     pub vram: bool,
     pub ram: bool,
+    pub loaded: bool,
+    /// The frame rate row's last figure (the settings' choice row).
+    pub low: Low,
 }
 
 impl Default for Rows {
     fn default() -> Rows {
-        Rows { fps: true, cpu: true, gpu: true, vram: true, ram: true }
+        Rows { fps: true, graph: false, split: false, cpu: true, gpu: true, vram: true, ram: true, loaded: false, low: Low::OnePercent }
     }
 }
 
 impl Rows {
-    /// Whether a row switched on reads the frame times (else none are kept).
+    /// Whether a row switched on reads the frame times (else none are kept): the frame
+    /// rate row and the graph.
     pub fn needs_frames(&self) -> bool {
-        self.fps
+        self.fps || self.graph
+    }
+}
+
+/// The frame rate row's last figure: issue #1868's "1 % low (or the slowest frame, a
+/// choice)", both over the last [`LOW_SECS`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Low {
+    /// The mean of the slowest hundredth of the frames ([`low_of`]).
+    #[default]
+    OnePercent,
+    /// The slowest frame.
+    Slowest,
+}
+
+impl Low {
+    pub const ALL: [Low; 2] = [Low::OnePercent, Low::Slowest];
+
+    /// The settings page's name of the choice.
+    pub fn name(self) -> &'static str {
+        match self {
+            Low::OnePercent => "1% low",
+            Low::Slowest => "Slowest frame",
+        }
+    }
+
+    /// As `NVForever.ini` keeps it.
+    pub fn stored(self) -> &'static str {
+        match self {
+            Low::OnePercent => "low",
+            Low::Slowest => "slowest",
+        }
+    }
+
+    /// The choice of a page name or an INI value.
+    pub fn parse(s: &str) -> Option<Low> {
+        let s = s.trim();
+        Low::ALL.into_iter().find(|l| l.name().eq_ignore_ascii_case(s) || l.stored().eq_ignore_ascii_case(s))
     }
 }
 
@@ -81,9 +130,15 @@ impl Frames {
             return None;
         }
         let low_ms = low_of(self.recent.iter().copied(), &mut self.scratch).unwrap_or(self.worst_ms);
-        let r = FrameReading { fps: self.count as f32 / self.secs, mean_ms: self.sum_ms / self.count as f32, worst_ms: self.worst_ms, low_ms };
+        let slowest_ms = self.recent.iter().copied().fold(self.worst_ms, f32::max);
+        let r = FrameReading { fps: self.count as f32 / self.secs, mean_ms: self.sum_ms / self.count as f32, worst_ms: self.worst_ms, low_ms, slowest_ms };
         (self.count, self.sum_ms, self.worst_ms, self.secs) = (0, 0.0, 0.0, 0.0);
         Some(r)
+    }
+
+    /// The frame times of the last [`LOW_SECS`] (ms), the newest first (the graph's).
+    pub fn newest_first(&self) -> impl Iterator<Item = f32> + '_ {
+        self.recent.iter().rev().copied()
     }
 
     /// Whether no frame is kept.
@@ -107,6 +162,18 @@ pub struct FrameReading {
     pub worst_ms: f32,
     /// The mean of the slowest hundredth of the recent frames ([`low_of`]).
     pub low_ms: f32,
+    /// The slowest of the recent frames (the frame rate row's other choice, [`Low`]).
+    pub slowest_ms: f32,
+}
+
+impl FrameReading {
+    /// The frame rate row's last figure, as chosen.
+    pub fn last_figure(&self, low: Low) -> f32 {
+        match low {
+            Low::OnePercent => self.low_ms,
+            Low::Slowest => self.slowest_ms,
+        }
+    }
 }
 
 /// The 1 % low of frame times (ms): the mean of the slowest hundredth of them, one frame
@@ -153,43 +220,113 @@ pub struct Readings {
     /// Whether the VRAM and the RAM row carry the warning mark ([`pressed_rows`]).
     pub vram_warn: bool,
     pub ram_warn: bool,
+    /// The frame split row's times.
+    pub split: Option<Split>,
+    /// The loaded row's counts.
+    pub loaded: Option<Loaded>,
 }
 
-/// One row: its label, its value and whether it warns.
+/// A frame's main-thread, render-thread and GPU time, ms, each the mean over the
+/// readout's window (`super::split`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Split {
+    pub main_ms: f32,
+    /// None until the render world has run a frame for the window.
+    pub render_ms: Option<f32>,
+    /// None without GPU timestamps (the device does not offer them, or the render
+    /// diagnostics were not added at the start).
+    pub gpu_ms: Option<f32>,
+}
+
+
+
+/// One row: its label, its value and whether it warns. The graph row (`graph`) has no
+/// text: the panel draws the frame graph there (`super::draw`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub label: &'static str,
     pub value: String,
     pub warn: bool,
+    pub graph: bool,
 }
 
-/// The rows' labels, in the order they are shown: the label column is as wide as the
-/// widest of them.
-pub const LABELS: [&str; 5] = ["FPS", "CPU", "GPU", "VRAM", "RAM"];
+/// The rows' labels, in the order they are shown (the graph row's is empty); the label
+/// column is as wide as the widest label shown.
+pub const LABELS: [&str; 8] = ["FPS", "", "SPLIT", "CPU", "GPU", "VRAM", "RAM", "LOADED"];
 
 /// The rows to show: those switched on, in [`LABELS`]' order, each left out when it has
 /// nothing to read. The frame rate row shows `--` until its first reading, so a showing
-/// starts with something on screen, as the counter's `-- FPS` did.
+/// starts with something on screen, as the counter's `-- FPS` did; the graph row shows
+/// from the start (its line grows as frames come).
 pub fn rows(r: &Readings, on: &Rows) -> Vec<Row> {
-    let mut out = Vec::new();
-    let mut add = |shown: bool, label: &'static str, value: Option<String>, warn: bool| {
-        if let Some(value) = value.filter(|_| shown) {
-            out.push(Row { label, value, warn });
-        }
-    };
-    add(on.fps, LABELS[0], Some(r.frame.as_ref().map_or_else(|| "--".to_string(), fps_text)), false);
-    add(on.cpu, LABELS[1], cpu_text(r.cpu, r.game_cores), false);
-    add(on.gpu, LABELS[2], r.gpu.map(percent), false);
-    add(on.vram, LABELS[3], r.vram_mb.map(|(used, budget)| vram_text(used, budget)), r.vram_warn);
-    add(on.ram, LABELS[4], ram_text(r.game_ram_mb, r.ram_share), r.ram_warn);
-    out
+    let fps = r.frame.as_ref().map_or_else(|| "--".to_string(), |f| fps_text(f, on.low));
+    let parts = [
+        (on.fps, Some(fps), false),
+        (on.graph, Some(String::new()), false),
+        (on.split, r.split.as_ref().map(split_text), false),
+        (on.cpu, cpu_text(r.cpu, r.game_cores), false),
+        (on.gpu, r.gpu.map(percent), false),
+        (on.vram, r.vram_mb.map(|(used, budget)| vram_text(used, budget)), r.vram_warn),
+        (on.ram, ram_text(r.game_ram_mb, r.ram_share), r.ram_warn),
+        (on.loaded, r.loaded.as_ref().map(loaded_text), false),
+    ];
+    LABELS
+        .iter()
+        .zip(parts)
+        .enumerate()
+        .filter_map(|(i, (&label, (shown, value, warn)))| Some(Row { label, value: value.filter(|_| shown)?, warn, graph: i == 1 }))
+        .collect()
 }
 
-/// `60  16.7 ms  1% low 21.3`: the rate and the mean of the window, the 1 % low. The
-/// numbers are padded to their usual width, so in the overlay's even-width font the
-/// row keeps its length while they change.
-pub fn fps_text(f: &FrameReading) -> String {
-    format!("{:>3.0}  {:>4.1} ms  1% low {:>4.1}", f.fps, f.mean_ms, f.low_ms)
+/// `60  16.7 ms  1% low 21.3` (or `slowest 21.3`, [`Low`]): the rate and the mean of the
+/// window, the last 10 s's 1 % low or slowest frame. The numbers are padded to their
+/// usual width, so in the overlay's even-width font the row keeps its length while they
+/// change.
+pub fn fps_text(f: &FrameReading, low: Low) -> String {
+    let name = match low {
+        Low::OnePercent => "1% low",
+        Low::Slowest => "slowest",
+    };
+    format!("{:>3.0}  {:>4.1} ms  {name} {:>4.1}", f.fps, f.mean_ms, f.last_figure(low))
+}
+
+/// `main  9.8  render  4.1  GPU  6.2 ms`: each part when read, padded as [`fps_text`].
+pub fn split_text(s: &Split) -> String {
+    let mut out = format!("main {:>4.1}", s.main_ms);
+    if let Some(r) = s.render_ms {
+        out += &format!("  render {r:>4.1}");
+    }
+    if let Some(g) = s.gpu_ms {
+        out += &format!("  GPU {g:>4.1}");
+    }
+    out + " ms"
+}
+
+/// ` 9 cells   2410 refs   12 actors   18240 entities`, padded as [`fps_text`].
+pub fn loaded_text(l: &Loaded) -> String {
+    format!("{:>2} cells  {:>5} refs  {:>3} actors  {:>6} entities", l.cells, l.refs, l.actors, l.entities)
+}
+
+/// How old the last GPU time of a render pass may be for the frame split to count it,
+/// seconds: a pass that stopped running keeps its old figure in the diagnostics store
+/// [design].
+pub const GPU_STALE_SECS: f64 = 1.0;
+
+/// The GPU time of a frame (ms) from Bevy's render diagnostics `(path, mean of its kept
+/// measurements, seconds since its last)`: the sum over the top-level passes
+/// (`render/<pass>/elapsed_gpu`; a nested pass is inside its parent's time) measured in
+/// the last [`GPU_STALE_SECS`], as `graphics.rs`'s `gpu time:` line sums them. None
+/// without any (no timestamps).
+pub fn gpu_frame_ms<'a>(passes: impl IntoIterator<Item = (&'a str, f64, f64)>) -> Option<f32> {
+    let mut total = None;
+    for (path, ms, age) in passes {
+        let Some(pass) = path.strip_prefix("render/").and_then(|p| p.strip_suffix("/elapsed_gpu")) else { continue };
+        if pass.contains('/') || !(0.0..=GPU_STALE_SECS).contains(&age) || !ms.is_finite() {
+            continue;
+        }
+        *total.get_or_insert(0.0) += ms;
+    }
+    total.map(|t| t as f32)
 }
 
 /// ` 34%`, padded to three digits.
@@ -323,10 +460,75 @@ mod tests {
 
     #[test]
     fn the_frame_rate_row_reads_like_the_counter() {
-        let f = FrameReading { fps: 59.6, mean_ms: 16.78, worst_ms: 21.0, low_ms: 24.04 };
-        assert_eq!(fps_text(&f), " 60  16.8 ms  1% low 24.0");
-        let fast = FrameReading { fps: 144.0, mean_ms: 6.94, worst_ms: 9.0, low_ms: 8.5 };
-        assert_eq!(fps_text(&fast), "144   6.9 ms  1% low  8.5");
+        let f = FrameReading { fps: 59.6, mean_ms: 16.78, worst_ms: 21.0, low_ms: 24.04, slowest_ms: 40.0 };
+        assert_eq!(fps_text(&f, Low::OnePercent), " 60  16.8 ms  1% low 24.0");
+        let fast = FrameReading { fps: 144.0, mean_ms: 6.94, worst_ms: 9.0, low_ms: 8.5, slowest_ms: 9.5 };
+        assert_eq!(fps_text(&fast, Low::OnePercent), "144   6.9 ms  1% low  8.5");
+    }
+
+    #[test]
+    fn the_slowest_frame_choice_reads_the_slowest_of_the_last_ten_seconds() {
+        let mut f = Frames::default();
+        // A 120 ms hitch, then 2 s of 10 ms frames over four readings: the window's
+        // slowest is 10 ms, the last 10 s's slowest the hitch, its 1 % low the hitch and
+        // the slowest 10 ms frame (200 frames and the hitch: the two slowest).
+        f.push(0.12);
+        for _ in 0..4 {
+            for _ in 0..50 {
+                f.push(0.01);
+            }
+            f.take();
+        }
+        for _ in 0..50 {
+            f.push(0.01);
+        }
+        let r = f.take().expect("frames");
+        assert!((r.worst_ms - 10.0).abs() < 0.01, "{r:?}");
+        assert!((r.slowest_ms - 120.0).abs() < 0.01, "{r:?}");
+        assert!((r.low_ms - 65.0).abs() < 0.01, "{r:?}");
+        assert_eq!(fps_text(&r, Low::Slowest), "100  10.0 ms  slowest 120.0");
+        assert_eq!(fps_text(&r, Low::OnePercent), "100  10.0 ms  1% low 65.0");
+        // The choice is kept by its INI name and read back by either name.
+        for l in Low::ALL {
+            assert_eq!(Low::parse(l.stored()), Some(l));
+            assert_eq!(Low::parse(l.name()), Some(l));
+        }
+        assert_eq!(Low::parse("slowest"), Some(Low::Slowest));
+        assert_eq!(Low::parse("fastest"), None);
+        assert_eq!(Rows::default().low, Low::OnePercent);
+    }
+
+    #[test]
+    fn the_split_row_shows_each_time_it_has() {
+        let all = Split { main_ms: 9.84, render_ms: Some(4.12), gpu_ms: Some(6.24) };
+        assert_eq!(split_text(&all), "main  9.8  render  4.1  GPU  6.2 ms");
+        let no_gpu = Split { gpu_ms: None, ..all };
+        assert_eq!(split_text(&no_gpu), "main  9.8  render  4.1 ms");
+        let slow = Split { main_ms: 31.0, render_ms: None, gpu_ms: Some(12.0) };
+        assert_eq!(split_text(&slow), "main 31.0  GPU 12.0 ms");
+    }
+
+    #[test]
+    fn the_gpu_time_is_the_top_level_passes_measured_lately() {
+        let passes = [
+            ("render/main_opaque_pass_3d/elapsed_gpu", 3.0, 0.1),
+            ("render/main_opaque_pass_3d/sub/elapsed_gpu", 1.0, 0.1),
+            ("render/tonemapping/elapsed_gpu", 0.5, 0.0),
+            ("render/tonemapping/elapsed_cpu", 9.0, 0.0),
+            ("render/old_pass/elapsed_gpu", 7.0, 5.0),
+            ("else/elapsed_gpu", 2.0, 0.0),
+        ];
+        assert_eq!(gpu_frame_ms(passes), Some(3.5));
+        assert_eq!(gpu_frame_ms([("render/tonemapping/elapsed_cpu", 1.0, 0.0)]), None, "no timestamps: no GPU time");
+        assert_eq!(gpu_frame_ms([]), None);
+    }
+
+    #[test]
+    fn the_loaded_row_counts_what_is_loaded() {
+        let l = Loaded { cells: 9, refs: 2410, actors: 12, entities: 18_240 };
+        assert_eq!(loaded_text(&l), " 9 cells   2410 refs   12 actors   18240 entities");
+        let empty = Loaded::default();
+        assert_eq!(loaded_text(&empty), " 0 cells      0 refs    0 actors       0 entities");
     }
 
     #[test]
@@ -358,9 +560,9 @@ mod tests {
         let on = Rows::default();
         // A showing's start: only the frame rate row, waiting.
         let waiting = rows(&Readings::default(), &on);
-        assert_eq!(waiting, vec![Row { label: "FPS", value: "--".into(), warn: false }]);
+        assert_eq!(waiting, vec![Row { label: "FPS", value: "--".into(), warn: false, graph: false }]);
         let r = Readings {
-            frame: Some(FrameReading { fps: 60.0, mean_ms: 16.7, worst_ms: 20.0, low_ms: 21.3 }),
+            frame: Some(FrameReading { fps: 60.0, mean_ms: 16.7, worst_ms: 20.0, low_ms: 21.3, slowest_ms: 30.0 }),
             cpu: Some(12.0),
             game_cores: Some(1.6),
             gpu: Some(71.0),
@@ -369,20 +571,32 @@ mod tests {
             ram_share: Some(0.62),
             vram_warn: true,
             ram_warn: false,
+            split: Some(Split { main_ms: 9.8, render_ms: Some(4.1), gpu_ms: None }),
+            loaded: Some(Loaded { cells: 9, refs: 2410, actors: 12, entities: 18_240 }),
         };
-        let all = rows(&r, &on);
+        let defaults = rows(&r, &on);
+        assert_eq!(defaults.iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS", "CPU", "GPU", "VRAM", "RAM"]);
+        assert_eq!(defaults[0].value, " 60  16.7 ms  1% low 21.3");
+        assert_eq!(defaults[2].value, " 71%");
+        assert!(defaults[3].warn && !defaults[4].warn);
+        // Every row: the graph under the frame rate, the split under it, the counts last.
+        let every = Rows { graph: true, split: true, loaded: true, ..on };
+        let all = rows(&r, &every);
         assert_eq!(all.iter().map(|r| r.label).collect::<Vec<_>>(), LABELS);
-        assert_eq!(all[0].value, " 60  16.7 ms  1% low 21.3");
-        assert_eq!(all[2].value, " 71%");
-        assert!(all[3].warn && !all[4].warn);
+        assert_eq!(all.iter().map(|r| r.graph).collect::<Vec<_>>(), [false, true, false, false, false, false, false, false]);
+        assert_eq!(all[2].value, "main  9.8  render  4.1 ms");
+        assert_eq!(all[7].value, " 9 cells   2410 refs   12 actors   18240 entities");
+        // The slowest frame chosen.
+        assert_eq!(rows(&r, &Rows { low: Low::Slowest, ..on })[0].value, " 60  16.7 ms  slowest 30.0");
         // Only the frame rate row: one line, as the counter was.
-        let fps_only = Rows { fps: true, cpu: false, gpu: false, vram: false, ram: false };
+        let none = Rows { fps: false, graph: false, split: false, cpu: false, gpu: false, vram: false, ram: false, loaded: false, low: Low::OnePercent };
+        let fps_only = Rows { fps: true, ..none };
         assert_eq!(rows(&r, &fps_only).len(), 1);
-        // No GPU budget (an integrated GPU) and nothing from Windows: those rows go.
+        // No GPU budget (an integrated GPU) and nothing from Windows: those rows go; the
+        // split and the counts wait for their first reading.
         let bare = Readings { frame: r.frame, ..Readings::default() };
-        assert_eq!(rows(&bare, &on).iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS"]);
+        assert_eq!(rows(&bare, &every).iter().map(|r| r.label).collect::<Vec<_>>(), ["FPS", ""]);
         // Every row off: nothing to draw.
-        let none = Rows { fps: false, cpu: false, gpu: false, vram: false, ram: false };
         assert!(rows(&r, &none).is_empty());
     }
 

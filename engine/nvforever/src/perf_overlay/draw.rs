@@ -11,6 +11,11 @@
 //! warns gets its label at full brightness and a `!` mark beside it, never another
 //! colour [design: issue #1868].
 //!
+//! The frame graph row is one image node across the panel's inner width
+//! ([`GRAPH_PITCHES`] rows high), tinted in the value's brightness of the HUD's colour;
+//! its pixels are `super::graph`'s, as many as the node covers on screen
+//! ([`graph_pixels`]), so its line stays one pixel thin.
+//!
 //! Lengths are the interface's units (960 to the view's height, `nvf_play::interface::u`).
 
 use bevy::image::CompressedImageFormatSupport;
@@ -19,7 +24,7 @@ use fnv_font::{code_of, Font, Line, Placed};
 use nvf_assets::GameData;
 use nvf_play::interface::{amber, bc_supported, face, font_units, line_base, plain_font, set_line, u, ui_scale, units_at, Face, FONT_FILES};
 
-use super::readings::{Row, LABELS};
+use super::readings::Row;
 
 /// Above every menu, the HUD (`nvf_play::interface::TOP_MENU_Z` is 107) and the loading
 /// screen (200, `nvf_play::loading`), so a load's frame rate can be read too.
@@ -55,17 +60,22 @@ const BRACKET_ARM: f32 = 14.0;
 /// [design].
 const EDGE: (f32, f32) = (12.0, 16.0);
 
+/// The frame graph row's height, in text rows [design: tall enough for a spike to read,
+/// short enough for a corner].
+const GRAPH_PITCHES: f32 = 1.6;
+/// The graph image's least and greatest size in pixels (a sanity bound for odd views).
+const GRAPH_PX: (u32, u32) = (8, 2048);
+
 /// The panel's root, despawned with its rows when the panel is set again.
 #[derive(Component)]
 pub(super) struct PanelRoot;
 
-/// What the panel is drawn with: font 7 (or its stand-in), and the label column's width.
+/// What the panel is drawn with: font 7 (or its stand-in).
 pub(super) struct Kit {
     face: Face,
     /// Whether there was game data to read the font from; a kit made without it is made
     /// again once the data is there.
     pub(super) had_data: bool,
-    label_width: f32,
     mark_width: f32,
 }
 
@@ -74,21 +84,44 @@ impl Kit {
         // Font 7 [documented: Fallout_default.ini `sFontFile_7`]; the stand-in as the
         // corner messages' (`nvf_play::corner_messages`).
         let face = face(FONT_FILES[6], plain_font(36.0, 17.0), data, images, bc_supported(formats));
-        let label_width = LABELS.iter().map(|l| face.font.width(l)).fold(0.0, f32::max);
         let mark_width = face.font.width(MARK);
-        Kit { had_data: data.is_some(), face, label_width, mark_width }
-    }
-
-    /// The label column: the widest label, then room for the mark.
-    fn label_column(&self) -> f32 {
-        self.label_width + MARK_GAP + self.mark_width
+        Kit { had_data: data.is_some(), face, mark_width }
     }
 }
 
-/// Spawn the panel of `rows` at the top right. `width` is the widest the panel was in this
-/// showing (the text's units); it grows to these rows and never shrinks, so the backing
-/// does not jump as the numbers change.
-pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], width: &mut f32) {
+/// The rows' values set with even-width figures, and the label column: the widest label
+/// shown, then room for the mark.
+pub(super) struct Measured {
+    values: Vec<Line>,
+    label_column: f32,
+}
+
+/// Measure `rows` and grow `width`, the widest the panel was in this showing (the text's
+/// units), to them: it never shrinks, so the backing does not jump as the numbers change.
+pub(super) fn measure(kit: &Kit, rows: &[Row], width: &mut f32) -> Measured {
+    let font = &kit.face.font;
+    let values: Vec<_> = rows.iter().map(|r| tabular(font, &r.value)).collect();
+    let widest = values.iter().map(|l| l.width).fold(0.0, f32::max);
+    let label_width = rows.iter().map(|r| font.width(r.label)).fold(0.0, f32::max);
+    let label_column = label_width + MARK_GAP + kit.mark_width;
+    if !rows.is_empty() {
+        *width = width.max(label_column + GAP + widest + PAD.0 + PAD_BRACKET);
+    }
+    Measured { values, label_column }
+}
+
+/// The frame graph's size in pixels on a view `view_height` pixels high, for a panel
+/// `width` text units wide: the panel's inner width by [`GRAPH_PITCHES`] rows.
+pub(super) fn graph_pixels(kit: &Kit, width: f32, view_height: u32) -> (u32, u32) {
+    // `u`: a unit is 1/960 of the view's height times the scale.
+    let px = view_height as f32 / 960.0 * ui_scale() * TEXT_SCALE;
+    let side = |units: f32| ((units * px).round().max(0.0) as u32).clamp(GRAPH_PX.0, GRAPH_PX.1);
+    (side(width - PAD.0 - PAD_BRACKET), side(kit.face.font.size * GRAPH_PITCHES))
+}
+
+/// Spawn the panel of `rows` at the top right, `width` wide ([`measure`]); the graph row
+/// shows `graph`.
+pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], measured: &Measured, width: f32, graph: Option<Handle<Image>>) {
     if rows.is_empty() {
         return;
     }
@@ -99,9 +132,8 @@ pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], width: &mu
     };
     let _text = units_at(ui_scale() * TEXT_SCALE);
     let font = &kit.face.font;
-    let values: Vec<_> = rows.iter().map(|r| tabular(font, &r.value)).collect();
-    let widest = values.iter().map(|l| l.width).fold(0.0, f32::max);
-    *width = width.max(kit.label_column() + GAP + widest + PAD.0 + PAD_BRACKET);
+    let Measured { values, label_column } = measured;
+    let label_column = *label_column;
     let pitch = font.size;
     let base = line_base(&kit.face);
     let node = Node {
@@ -110,19 +142,28 @@ pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], width: &mu
         flex_direction: FlexDirection::Column,
         padding: UiRect { left: u(PAD.0), right: u(PAD_BRACKET), top: u(PAD.1), bottom: u(PAD.1) },
         right: side,
-        min_width: u(*width),
+        min_width: u(width),
         ..default()
     };
     commands.spawn((PanelRoot, node, BackgroundColor(Color::BLACK.with_alpha(BACKING)), GlobalZIndex(Z), Pickable::IGNORE)).with_children(|panel| {
         bracket(panel);
-        for (row, value) in rows.iter().zip(&values) {
+        for (row, value) in rows.iter().zip(values) {
+            if row.graph {
+                // Across the inner width (the panel's column stretches its rows).
+                let node = Node { width: Val::Percent(100.0), height: u(pitch * GRAPH_PITCHES), ..default() };
+                match &graph {
+                    Some(image) => panel.spawn((node, ImageNode::new(image.clone()).with_color(amber(VALUE)))),
+                    None => panel.spawn(node),
+                };
+                continue;
+            }
             let line = Node { flex_direction: FlexDirection::Row, justify_content: JustifyContent::SpaceBetween, column_gap: u(GAP), height: u(pitch), ..default() };
             panel.spawn(line).with_children(|line| {
                 let label = if row.warn { amber(VALUE) } else { amber(LABEL) };
-                line.spawn(Node { width: u(kit.label_column()), height: u(pitch), ..default() }).with_children(|cell| {
+                line.spawn(Node { width: u(label_column), height: u(pitch), ..default() }).with_children(|cell| {
                     text(cell, kit, row.label, 0.0, base, label);
                     if row.warn {
-                        text(cell, kit, MARK, kit.label_column() - kit.mark_width, base, amber(VALUE));
+                        text(cell, kit, MARK, label_column - kit.mark_width, base, amber(VALUE));
                     }
                 });
                 line.spawn(Node { width: u(value.width), height: u(pitch), ..default() }).with_children(|cell| {

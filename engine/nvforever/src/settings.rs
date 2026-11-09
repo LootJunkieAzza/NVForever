@@ -22,7 +22,7 @@ use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
 use crate::lod::LodState;
 use crate::nav::NavState;
-use crate::perf_overlay::FpsCounter;
+use crate::perf_overlay::{FpsCounter, Low};
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
 use crate::window_mode;
@@ -437,13 +437,50 @@ fn register_display(app: &mut App) {
 /// where from.
 fn register_counter_rows(app: &mut App) {
     let row = |key: &'static str, label: &'static str, note: &'static str, get: fn(&World) -> bool, set: fn(&mut World, bool)| Setting { key, group: GROUP_PICTURE, label, note, get, set, slider: None };
-    let rows = [
+    add_setting(
+        app,
         row(
             "fps-counter-fps",
             "Counter: frame rate",
-            "The frames a second and the mean frame time of the last half second, and the 1% low: the mean of the slowest hundredth of the frames of the last 10 seconds. Measured from the time between frames.",
+            "The frames a second and the mean frame time of the last half second, and the 1% low (the mean of the slowest hundredth of the frames of the last 10 seconds) or the slowest frame of the last 10 seconds, as the row below chooses. Measured from the time between frames.",
             |w| w.resource::<FpsCounter>().rows.fps,
             |w, on| w.resource_mut::<FpsCounter>().rows.fps = on,
+        ),
+    );
+    add_choice_list(
+        app,
+        Setting {
+            key: "fps-counter-low",
+            group: GROUP_PICTURE,
+            label: "Counter: last figure",
+            note: "The frame rate row's last figure, over the last 10 seconds: 1% low, the mean of the slowest hundredth of the frames; Slowest frame, the single slowest.",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| Low::ALL.iter().map(|l| l.name().to_string()).collect(),
+            chosen: |w| w.resource::<FpsCounter>().rows.low.name().to_string(),
+            pick: set_counter_low,
+            save: |w| w.resource::<FpsCounter>().rows.low.stored().to_string(),
+            load: set_counter_low,
+            ask_keep: false,
+        },
+    );
+    let rows = [
+        row(
+            "fps-counter-graph",
+            "Counter: frame graph",
+            "The frame times of the last 5 seconds as a line under the frame rate, the newest at the right, with a faint line at a 60 Hz frame (16.7 ms); its top is the slowest frame drawn, or two 60 Hz frames when every frame was faster, so a spike reaches the top. Measured from the time between frames, drawn again twice a second.",
+            |w| w.resource::<FpsCounter>().rows.graph,
+            |w, on| w.resource_mut::<FpsCounter>().rows.graph = on,
+        ),
+        row(
+            "fps-counter-split",
+            "Counter: frame split",
+            "What a frame took on the main thread (the game's own work), on the render thread (preparing the picture, less the wait for the screen's next image) and on the graphics card (the render passes it times, from GPU timestamps), each the mean over half a second: a frame held up by the processor has a long main or render time, one held up by the graphics card a long GPU time. The GPU part needs this row and the counter on when the game starts (it takes effect at the next start), and a graphics card that offers timestamps; without them it is left out.",
+            |w| w.resource::<FpsCounter>().rows.split,
+            |w, on| w.resource_mut::<FpsCounter>().rows.split = on,
         ),
         row(
             "fps-counter-cpu",
@@ -473,10 +510,37 @@ fn register_counter_rows(app: &mut App) {
             |w| w.resource::<FpsCounter>().rows.ram,
             |w, on| w.resource_mut::<FpsCounter>().rows.ram = on,
         ),
+        row(
+            "fps-counter-loaded",
+            "Counter: loaded",
+            "What the game holds now: the cells loaded in the physics world, the placed objects with a model, the actors with a skeleton and every entity of the engine, counted twice a second while the row shows (the stress tests' counts).",
+            |w| w.resource::<FpsCounter>().rows.loaded,
+            |w, on| w.resource_mut::<FpsCounter>().rows.loaded = on,
+        ),
     ];
     for r in rows {
         add_setting(app, r);
     }
+}
+
+/// The frame rate row's last figure of this name (or INI text, `Low::parse`); false: not
+/// one.
+fn set_counter_low(world: &mut World, name: &str) -> bool {
+    let Some(low) = Low::parse(name) else { return false };
+    world.resource_mut::<FpsCounter>().rows.low = low;
+    true
+}
+
+/// `[Settings] <key>` of the INI this run reads (`SettingsFile::for_run`), for what has to
+/// be known when the app is built, before the INI is applied (`apply_stored`, PostStartup):
+/// the CPU placement (`cpu_placement.rs`), the frame split's GPU timestamps
+/// (`perf_overlay::split`). None without the INI or the key.
+pub(crate) fn stored_at_start(key: &str) -> Option<String> {
+    // Unattended: a test aid drives this run (as nvf_play's test_aid::Unattended).
+    let unattended = std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run));
+    let path = nvf_play::settings::SettingsFile::for_run(unattended).0?;
+    let text = std::fs::read_to_string(path).ok()?;
+    fnv_install::ini_get(&text, nvf_play::settings::SECTION, key)
 }
 
 /// The display sync of this name (or INI text, `DisplaySync::parse`); false: not one.
