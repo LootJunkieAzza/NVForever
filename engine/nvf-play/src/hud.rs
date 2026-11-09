@@ -867,8 +867,9 @@ fn draw(
     mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>,
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
     mut enemy: Query<&mut Visibility, (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>)>,
-    mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>)>,
+    mut bar: Query<(&mut Node, &mut BackgroundColor), (With<ConditionBar>, Without<Strip>)>,
     mut strip: Query<(&mut Strip, &mut Node), Without<ConditionBar>>,
+    (tweaks, time): (Option<Res<crate::tweaks::TweakSettings>>, Res<Time<Real>>),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -894,10 +895,20 @@ fn draw(
     for mut v in &mut enemy {
         v.set_if_neq(show(target.0.is_some()));
     }
-    let width = u(condition_width(view.weapon.condition.unwrap_or(0.0)));
-    for mut node in &mut bar {
+    let cnd = view.weapon.condition.unwrap_or(0.0);
+    let width = u(condition_width(cnd));
+    // The player's tweak: the weapon's condition bar red when low, flashing when lower
+    // [design: docs/design/tweaks.md].
+    let (red_below, flash_below) = tweaks.as_ref().map_or((0.0, 0.0), |t| (t.weapon_cnd_red_below, t.weapon_cnd_flash_below));
+    let flashing = flash_below > 0.0 && cnd < flash_below;
+    let red = (red_below > 0.0 && cnd < red_below) || (flashing && time.elapsed_secs().fract() < 0.5);
+    let colour = if red { crime_colour() } else { amber(CONDITION_BRIGHTNESS) };
+    for (mut node, mut background) in &mut bar {
         if node.width != width {
             node.width = width;
+        }
+        if background.0 != colour {
+            background.0 = colour;
         }
     }
     for (mut strip, node) in &mut strip {
@@ -917,9 +928,10 @@ fn pips(
     formats: Option<Res<CompressedImageFormatSupport>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     rows: Query<(Entity, &PipRow)>,
-    mut ticks: Query<(&Pip, &mut Visibility)>,
+    mut ticks: Query<(&Pip, &mut Visibility, Option<&mut ImageNode>, Option<&mut BackgroundColor>)>,
     mut set_for: Local<Option<(f32, f32)>>,
     mut tick: Local<Option<Option<Handle<Image>>>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if !view.shown {
         return;
@@ -955,7 +967,25 @@ fn pips(
         return;
     }
     let enemy = target.0.as_ref().map_or(0.0, |t| t.health);
-    for (pip, mut v) in &mut ticks {
+    // The player's tweak: the HP and AP bars red when low [design: docs/design/tweaks.md].
+    let (red_hp, red_ap) = tweaks.as_ref().map_or((0.0, 0.0), |t| (t.red_hp_below, t.red_ap_below));
+    let low = |value: f32, below: f32| below > 0.0 && value < below;
+    let (hp_red, ap_red) = (low(view.health, red_hp), low(view.action_points, red_ap));
+    for (pip, mut v, image, background) in &mut ticks {
+        let red = match pip.bar {
+            Bar::Health => Some(hp_red),
+            Bar::ActionPoints => Some(ap_red),
+            Bar::Enemy => None,
+        };
+        if let Some(red) = red {
+            let colour = if red { crime_colour() } else { amber(METER_BRIGHTNESS) };
+            if let Some(mut i) = image.filter(|i| i.color != colour) {
+                i.color = colour;
+            }
+            if let Some(mut b) = background.filter(|b| b.0 != colour) {
+                b.0 = colour;
+            }
+        }
         let on = match pip.bar {
             Bar::Health => pip.index < lit(view.health, PIPS),
             Bar::ActionPoints => PIPS - 1 - pip.index < lit(view.action_points, PIPS),

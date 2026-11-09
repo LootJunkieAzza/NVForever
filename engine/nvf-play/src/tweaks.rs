@@ -244,6 +244,16 @@ pub struct TweakSettings {
     /// view; the activation prompt stays.
     pub hide_crosshair_first: bool,
     pub hide_crosshair_third: bool,
+    /// `bColoredHUDBars` (`fRedHealthThreshold`, `fRedActionPointsThreshold`): the HP and
+    /// AP bars turn red below these shares; 0 never.
+    pub red_hp_below: f32,
+    pub red_ap_below: f32,
+    /// `bColorWeaponCndLabel` (`fColorThreshold`, `fFlashThreshold`): the weapon's
+    /// condition bar red below the first share, flashing red below the second; 0 never.
+    pub weapon_cnd_red_below: f32,
+    pub weapon_cnd_flash_below: f32,
+    /// `bBlackJackTotalDisplay`: the Blackjack screen shows the player's hand's total.
+    pub blackjack_total: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -382,6 +392,11 @@ impl Default for TweakSettings {
             unequip_broken_armor: false,
             hide_crosshair_first: false,
             hide_crosshair_third: false,
+            red_hp_below: 0.0,
+            red_ap_below: 0.0,
+            weapon_cnd_red_below: 0.0,
+            weapon_cnd_flash_below: 0.0,
+            blackjack_total: false,
         }
     }
 }
@@ -1105,6 +1120,11 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hide-crosshair-first", "No Crosshair in First Person", "The crosshair is not drawn in first person; the activation prompt stays. (Stewie's Tweaks bHideCrosshairInFirstPerson)", hide_crosshair_first);
         switch!(app, "hide-crosshair-third", "No Crosshair in Third Person", "The crosshair is not drawn in third person; the activation prompt stays. (Stewie's Tweaks bHideCrosshairInThirdPerson)", hide_crosshair_third);
         switch!(app, "no-skill-books-at-max", "No Skill Books at 100", "A skill book whose skill is already at 100 is not read from the Pip-Boy, so it is not wasted. (Stewie's Tweaks bNoSkillBooksAbove100)", game.no_skill_books_at_max);
+        part!(app, "red-hp-below", "Red Health Bar Below", "The HUD's health bar turns red below this share of health; 0% never. (Stewie's Tweaks bColoredHUDBars)", red_hp_below);
+        part!(app, "red-ap-below", "Red Action Point Bar Below", "The HUD's Action Point bar turns red below this share; 0% never. (Stewie's Tweaks bColoredHUDBars)", red_ap_below);
+        part!(app, "weapon-cnd-red-below", "Red Weapon Condition Below", "The HUD's weapon condition bar turns red below this condition; 0% never. (Stewie's Tweaks bColorWeaponCndLabel)", weapon_cnd_red_below);
+        part!(app, "weapon-cnd-flash-below", "Flashing Weapon Condition Below", "The HUD's weapon condition bar flashes red below this condition; 0% never. (Stewie's Tweaks bColorWeaponCndLabel)", weapon_cnd_flash_below);
+        switch!(app, "blackjack-total", "Blackjack Hand Total", "The Blackjack screen shows the total of the hand being played. (Stewie's Tweaks bBlackJackTotalDisplay)", blackjack_total);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

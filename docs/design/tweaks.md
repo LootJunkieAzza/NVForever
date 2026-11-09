@@ -440,6 +440,9 @@ unless the player binds them, so nothing changes until then.
 | Unequip Broken Armour | `bUnequipBrokenArmor` | `combat::wear_armor` takes off a piece that breaks (`set_unequip_broken_armor`, set by `tweaks::sync`); no message |
 | No Crosshair in First / Third Person | `bHideCrosshairInFirstPerson`, `bHideCrosshairInThirdPerson` | `reticle::draw` hides the arrows and bars by view; the prompt stays |
 | No Skill Books at 100 | `bNoSkillBooksAbove100` | `Game::book_refused` checked in `menu::apply_input` (the Pip-Boy); the hotkeys and EquipItem still read the book |
+| Red Health / Action Point Bar Below | `bColoredHUDBars` | `hud::pips` colours the ticks with the hostile red below each share |
+| Red / Flashing Weapon Condition Below | `bColorWeaponCndLabel` | `hud::draw` colours the condition bar (red below one share, flashing twice a second below the other) |
+| Blackjack Hand Total | `bBlackJackTotalDisplay` | `blackjack::screen::hand_line` under the status line (our words) |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -460,8 +463,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 355 |
-| to do | 248 |
+| done | 358 |
+| to do | 245 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -790,6 +793,8 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `bAddRGBSliders` | done | yes | 1 | already a row: Interface tab, hud-red / hud-green / hud-blue |
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
+| `bColoredHUDBars` | done |  | 2 | Red Health / Action Point Bar Below (two shares) |
+| `bColorWeaponCndLabel` | done |  | 2 | Red / Flashing Weapon Condition Below (the bar, the HUD has no label) |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
@@ -826,8 +831,6 @@ game's Data folder, read-only).
 | `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
 | `bArmorConditionLabel` | to do |  | 9 | no armour condition text on the HUD yet |
-| `bColoredHUDBars` | to do |  | 2 | hud::pips colour by threshold |
-| `bColorWeaponCndLabel` | to do |  | 2 | hud::draw condition bar colour |
 | `bCompanionPipColorChange` | to do |  | 1 | a companion mark kind in compass and tiles |
 | `bCompassFadeLeftSide` | to do |  |  | compass::draw alpha on both paths |
 | `bCompassLocationDistanceBasedAlpha` | to do |  |  | the compass view carries no distance |
@@ -878,6 +881,7 @@ game's Data folder, read-only).
 | `b24HourSleepWaitClock` | done |  |  | already so: the wait clock is 24-hour |
 | `bAddInventoryDropItemHotkey` | done |  |  | Q Drops Items |
 | `bAllowRebindNumkeys` | done |  |  | already so: the hotkeys and the D-pad are on the Controls tab |
+| `bBlackJackTotalDisplay` | done |  |  | Blackjack Hand Total |
 | `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
 | `bCompareWeaponStats` | done |  |  | Compare Weapons (DAM and DPS, both at full condition) |
 | `bContainerEncumbranceIndicator` | done |  |  | Weight Warning (the selected row, the whole stack) |
@@ -942,7 +946,6 @@ game's Data folder, read-only).
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bBarterQuantityMenuShowsPrice` | to do |  |  | the quantity box has no price |
 | `bBetterMapZoom` | to do |  |  | pipboy data take_input zoom around the pointer |
-| `bBlackJackTotalDisplay` | to do |  |  | blackjack screen rows |
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
 | `bCompareArmorStats` | to do |  |  | needs the worn pieces of the same slots summed |

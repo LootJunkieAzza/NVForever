@@ -75,6 +75,17 @@ fn view_key(s: &Session, now: f32, has_view: bool, view_w: f32) -> String {
     )
 }
 
+/// The player's hand's total, under the Blackjack Hand Total tweak [design: docs/design/tweaks.md]: the hand
+/// being played, while a round is on.
+fn hand_line(s: &Session) -> Option<String> {
+    if s.betting() {
+        return None;
+    }
+    let hand = s.table.hands.get(s.table.active).or(s.table.hands.last())?;
+    let (n, soft) = hand.total();
+    Some(if soft && n <= 21 { format!("Your hand: {n} (soft)") } else { format!("Your hand: {n}") })
+}
+
 /// The bet the box shows: the bet being set between rounds, the chips on the table in one.
 fn shown_bet(s: &Session) -> u32 {
     if s.betting() {
@@ -101,10 +112,12 @@ pub fn draw(
     roots: Query<Entity, With<BlackjackRoot>>,
     time: AidTime,
     (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let view_w = view_width(window.single().ok());
     let now = time.elapsed_secs();
-    let key = screen.0.as_ref().map(|s| view_key(s, now, view.is_some(), view_w));
+    let total = tweaks.is_some_and(|t| t.blackjack_total);
+    let key = screen.0.as_ref().map(|s| format!("{}:{:?}", view_key(s, now, view.is_some(), view_w), total.then(|| hand_line(s)).flatten()));
     if key == *shown {
         return;
     }
@@ -116,10 +129,11 @@ pub fn draw(
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
     let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
-    spawn(&mut commands, &mut c, s, view.as_deref(), view_w, now);
+    spawn(&mut commands, &mut c, s, view.as_deref(), view_w, now, total);
 }
 
-fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&BlackjackView>, view_w: f32, now: f32) {
+#[allow(clippy::too_many_arguments)]
+fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&BlackjackView>, view_w: f32, now: f32, total: bool) {
     let bright = amber(255.0);
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     let mut root = commands.spawn((BlackjackRoot, full.clone(), GlobalZIndex(106)));
@@ -163,6 +177,13 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
                         c.text_in(b, FontKind::Menu, &hint, HINT_GAP, y + 9.0, false, bright);
                         b.spawn((Button, BlackjackButton(cmd), at(-w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, BUTTON_H)));
                     }
+                });
+            }
+            // The player's tweak: the hand's total under the status line.
+            if let Some(hand) = total.then(|| hand_line(s)).flatten() {
+                let line = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(STATUS_Y + 36.0), width: u(0.0), height: u(36.0), ..default() };
+                m.spawn(line).with_children(|b| {
+                    c.text_in(b, FontKind::Menu, &hand, 0.0, 0.0, true, bright);
                 });
             }
             if let Some(status) = &s.status {
