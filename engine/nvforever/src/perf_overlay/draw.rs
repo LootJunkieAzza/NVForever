@@ -15,6 +15,7 @@
 
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use fnv_font::{code_of, Font, Line, Placed};
 use nvf_assets::GameData;
 use nvf_play::interface::{amber, bc_supported, face, font_units, line_base, plain_font, set_line, u, ui_scale, units_at, Face, FONT_FILES};
 
@@ -29,8 +30,10 @@ const Z: i32 = 201;
 const TEXT_SCALE: f32 = 0.6;
 
 /// The panel's padding (across, down), the room between the label column and the values,
-/// and between a label and its mark, in the text's units [design].
+/// and between a label and its mark, in the text's units [design]. The bracket's side gets
+/// [`PAD_BRACKET`] instead, so the values keep clear of its line.
 const PAD: (f32, f32) = (14.0, 6.0);
+const PAD_BRACKET: f32 = 26.0;
 const GAP: f32 = 18.0;
 const MARK_GAP: f32 = 6.0;
 /// The mark of a row that warns.
@@ -40,9 +43,9 @@ const MARK: &str = "!";
 const BACKING: f32 = 0.38;
 /// Brightnesses (0 to 255, as `amber` takes them) of the labels, the values and the
 /// bracket [design].
-const LABEL: f32 = 150.0;
+const LABEL: f32 = 185.0;
 const VALUE: f32 = 255.0;
-const BRACKET: f32 = 110.0;
+const BRACKET: f32 = 170.0;
 /// The bracket's line and the short arms it turns in with at the top and the bottom, in
 /// the text's units [design].
 const BRACKET_LINE: f32 = 2.0;
@@ -96,16 +99,16 @@ pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], width: &mu
     };
     let _text = units_at(ui_scale() * TEXT_SCALE);
     let font = &kit.face.font;
-    let values: Vec<_> = rows.iter().map(|r| font.lines(&r.value, None).into_iter().next().unwrap_or_default()).collect();
+    let values: Vec<_> = rows.iter().map(|r| tabular(font, &r.value)).collect();
     let widest = values.iter().map(|l| l.width).fold(0.0, f32::max);
-    *width = width.max(kit.label_column() + GAP + widest + 2.0 * PAD.0);
+    *width = width.max(kit.label_column() + GAP + widest + PAD.0 + PAD_BRACKET);
     let pitch = font.size;
     let base = line_base(&kit.face);
     let node = Node {
         position_type: PositionType::Absolute,
         top,
         flex_direction: FlexDirection::Column,
-        padding: UiRect::axes(u(PAD.0), u(PAD.1)),
+        padding: UiRect { left: u(PAD.0), right: u(PAD_BRACKET), top: u(PAD.1), bottom: u(PAD.1) },
         right: side,
         min_width: u(*width),
         ..default()
@@ -131,6 +134,27 @@ pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], width: &mu
             });
         }
     });
+}
+
+/// `s` set with even-width figures: each digit, and each space (the values are padded
+/// with spaces to their usual width), takes the room of the font's widest digit, its glyph
+/// centred in it. Font 7's digits are not all as wide (its `1` is narrower), so a value
+/// set as the font sets it would shift as its digits change [design: issue #1868].
+fn tabular(font: &Font, s: &str) -> Line {
+    let cell = (b'0'..=b'9').map(|c| font.glyph(c).advance()).fold(0.0, f32::max);
+    let mut line = Line::default();
+    for c in s.chars() {
+        let code = code_of(c);
+        let advance = font.glyph(code).advance();
+        if c.is_ascii_digit() || c == ' ' {
+            line.glyphs.push(Placed { code, x: line.width + (cell - advance) / 2.0 });
+            line.width += cell;
+        } else {
+            line.glyphs.push(Placed { code, x: line.width });
+            line.width += advance;
+        }
+    }
+    line
 }
 
 /// A line of text in a cell: the game's glyphs, or the stand-in's text.
@@ -163,4 +187,43 @@ fn bracket(panel: &mut ChildSpawnerCommands) {
     panel.spawn((edge(down), color));
     panel.spawn((edge(Node { top: Val::Px(0.0), ..arm.clone() }), color));
     panel.spawn((edge(Node { bottom: Val::Px(0.0), ..arm }), color));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A font whose `1` is narrower than its other digits, as font 7's.
+    fn uneven() -> Font {
+        let mut glyphs = vec![fnv_font::Glyph::default(); 256];
+        for c in b'0'..=b'9' {
+            glyphs[c as usize] = fnv_font::Glyph { width: 10.0, height: 12.0, before: 1.0, after: 1.0, ..Default::default() };
+        }
+        glyphs[b'1' as usize].width = 4.0;
+        glyphs[b' ' as usize].after = 5.0;
+        glyphs[b'.' as usize] = fnv_font::Glyph { width: 3.0, height: 3.0, before: 1.0, after: 1.0, ..Default::default() };
+        glyphs[b'm' as usize] = fnv_font::Glyph { width: 11.0, height: 8.0, before: 1.0, after: 1.0, ..Default::default() };
+        Font { size: 20.0, texture: String::new(), glyphs }
+    }
+
+    #[test]
+    fn values_of_one_pattern_are_as_wide_whatever_their_digits() {
+        let f = uneven();
+        let a = tabular(&f, " 90  11.1 ms");
+        let b = tabular(&f, " 88  20.4 ms");
+        assert_eq!(a.width, b.width);
+        // The decimal point and the unit stand at the same place in both.
+        for (ga, gb) in a.glyphs.iter().zip(&b.glyphs).filter(|(g, _)| g.code == b'.' || g.code == b'm') {
+            assert_eq!(ga.x, gb.x);
+        }
+    }
+
+    #[test]
+    fn a_narrow_digit_is_centred_in_its_cell() {
+        let f = uneven();
+        let line = tabular(&f, "71");
+        // Cells of 12: the 1 (advance 6) starts 3 into the second cell.
+        assert_eq!(line.width, 24.0);
+        assert_eq!(line.glyphs[1].x, 12.0 + 3.0);
+    }
 }

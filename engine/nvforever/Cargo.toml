@@ -19,6 +19,7 @@ fnv-util.workspace = true
 fnv-save.workspace = true
 texpresso.workspace = true
 fnv-spt.workspace = true
+fnv-font.workspace = true
 nvf-play.workspace = true
 fnv-actor.workspace = true
 fnv-sim.workspace = true
