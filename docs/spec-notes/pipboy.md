@@ -713,13 +713,30 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     (75 + 120) less a button's height, the scroll bar on the right [documented]; each
     behind a square, filled and at half strength when done [hypothesis]; those to do
     first, each part from the latest objective down [hypothesis].
+  - The right pane (the objectives here, a note's text on Misc) scrolls when longer than
+    its window, by Page Up/Down a window (400 for the objectives, 385 for a note; a
+    controller's LB/RB press those keys, `pad.rs`) [design], the wheel over it 20 a step
+    [documented for a note's text; the objectives take the same step, design; over the
+    objectives' 400 × 400 window only, elsewhere on Quests the wheel scrolls the list]
+    and, on a
+    controller, the right stick's up and down smoothly while held, a note window (385) a
+    second at a full push [observed: the original scrolls both panes with the right
+    stick, issue #1667; the speed is design, as far a second as one LB/RB page]. One
+    scroll serves both panes (`pipboy/data.rs` `scroll_pane`): it stops at the top and at
+    the end (the last line at the window's foot) and starts at the top again when
+    another quest, note or tab is chosen [design] (Up on the first row or Down on the
+    last keeps the place). The objectives' scroll bar shows the part shown and takes the
+    pointer as the tile menus' bars do: a click on an arrow steps 20 (a wheel step), on
+    the track above or below the marker a page, and the marker held follows the pointer
+    [design]; a note's arrows step 20 a click [design].
   - "Show Location" shows the World Map [design: the quest's place is not centred].
 - **Misc**: the player's notes (AddNote; `NOTE` records) by name [hypothesis]; "(6 of 6)"
   is part of the note's name [observed: `VMQ01CourierNote` FULL "Mojave Express Delivery
   Order (6 of 6)"]. A text note's text is `TNAM`, a NUL-ended string [observed; the schema
   does not read `TNAM` of `NOTE`]: font 1, broken at 400, in a window 17 left of the item
-  data, 20 down, 400 × 385, scrolled 20 a wheel step [documented]; Page Up/Down scroll a
-  window [design]; arrows at its right when it is longer [documented]. The window reaches
+  data, 20 down, 400 × 385, scrolled 20 a wheel step [documented]; Page Up/Down and the
+  right stick scroll it as the objectives (above) [design]; arrows at its right when it
+  is longer [documented]. The window reaches
   10 over the first line so its letters are not cut [design]. Our lines break exactly as
   the screenshot's [observed]. An image note shows its picture (`XNAM`) 360 square at the
   right [documented]; sound and voice notes (holotapes) play when used (a click or
