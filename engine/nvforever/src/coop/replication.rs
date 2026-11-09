@@ -466,7 +466,9 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
             g.anims.asked_all().iter().map(|(on, (group, _))| Effect::Anim { on: on.0, group: *group, flag: 0, settled: true }).collect()
         };
         for id in std::mem::take(&mut r.anims_for) {
-            if !asked.is_empty() {
+            if asked.is_empty() {
+                info!("replication: player {} is told the 0 animation groups the host's scripts last asked (none asked yet)", id + 1);
+            } else {
                 info!("replication: player {} is told the {} animation groups the host's scripts last asked", id + 1, asked.len());
                 r.effects_sent += asked.len() as u64;
                 for item in repl::pack_effects(&asked, ITEM) {

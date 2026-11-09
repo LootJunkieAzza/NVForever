@@ -1027,9 +1027,17 @@ impl Game<'_> {
 }
 
 /// `actor.StartCombat target` ([`Game::start_combat`]).
+/// A co-op random encounter's `StartCombat player` is with the player nearest the
+/// attacker (`crate::coop::COOP_ENCOUNTERS`, item 131).
 pub fn start_combat(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.start_combat(r, a.form(0)?);
+    let mut target = a.form(0)?;
+    if target == FormId::PLAYER_REF && ctx.self_ref.is_some_and(|s| g.coop_encounter(s)) {
+        if let Some((p, _)) = g.nearest_player(r) {
+            target = p;
+        }
+    }
+    g.start_combat(r, target);
     none()
 }
 

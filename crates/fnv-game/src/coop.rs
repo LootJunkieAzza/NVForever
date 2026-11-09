@@ -35,17 +35,55 @@ const SHOW_CARAVAN_MENU: u16 = 0x125A;
 /// The services a guest may also buy, as a companion's player would (owner, item 130
 /// Q1): repair (ShowRepairMenu), crafting at a vendor (ShowRecipeMenu) and a doctor's
 /// healing (ResetHealth) [observed: `schemas/script/functions.json` opcodes].
-/// Random encounters every player sets off in co-op, not only the host (owner, item 131;
-/// the first few, 2026-11-09): their scripts' `player.GetDistance` measures to the nearest
-/// player and their `OnTriggerEnter player` takes any player [design]. FalloutNV.esm
-/// scripts [observed: `fnvtool script decompile`]:
+/// Random encounters every player sets off in co-op, not only the host (owner, item 131:
+/// the first few, then "add all" 2026-11-09). In their scripts the player is any player
+/// [design]:
+/// - `player.GetDistance X` and `GetDistance player`: the nearest player's distance,
+/// - `player.GetInCell X`: whether any player is in that cell,
+/// - `StartCombat player`: the fight is with the player nearest the attacker,
+/// - `OnTriggerEnter player`, `OnHit player`, `OnDeath player`: any player's.
+///
+/// The encounter still runs once, in the host's world (a guest's game runs no world
+/// scripts), so each fires once per world. `player.HasPerk` and `player.GetItemCount` stay
+/// the host's (VERT5AlienWWScript's Wild Wasteland check). FalloutNV.esm scripts
+/// [observed: `fnvtool script decompile`, `fnvtool esm inventory`]:
 /// - 0x00168CFD VERT1GeckoAmbushScript (Goodsprings geckos, player within 3000),
 /// - 0x00168995 VERT1PrimmJackalAmbushScript (Primm jackals, within 4760),
 /// - 0x00168993 VERT2IvanpahJackalAmbushScript (Ivanpah jackals, within 5500),
 /// - 0x00156A96 VERT1CoyoteDenGSTriggerScript (Goodsprings coyote den trigger),
 /// - 0x0015F18E / 0x0015F18D VERT2ViperSLTrigger01/02Script (Vipers' ambush triggers),
-/// - 0x001024C4 FiendAmbushTriggerScript (Fiends' ambush trigger).
-pub const COOP_ENCOUNTERS: [u32; 7] = [0x0016_8CFD, 0x0016_8995, 0x0016_8993, 0x0015_6A96, 0x0015_F18E, 0x0015_F18D, 0x0010_24C4];
+/// - 0x001024C4 FiendAmbushTriggerScript (Fiends' ambush trigger),
+/// - 0x00168CFE VERT1GSRoachHuntedScript (OnDeath),
+/// - 0x00165077 VERT2NiptonCaravanScript (player within 5000 of the caravan),
+/// - 0x0016122A / 0x00164A2B / 0x0016122F VERT2ViperNipton, ViperCampNipton,
+///   ViperNiptonTrigger01,
+/// - 0x00173F94 / 0x00173F93 VERT2PrimmDenEnterTrigger, PrimmProspectorDenQuest
+///   (player.GetInCell, player within 15000),
+/// - 0x0015E8F9 / 0x0015E8FA / 0x0015E8FB VERT3BarkScorpionGulch and its Trigger01/02
+///   (GetDistance player 4000, StartCombat player),
+/// - 0x0015E8F6 / 0x0015E8F8 / 0x0015E8F7 VERT3CentaurBM and its Trigger01/02,
+/// - 0x0015E8F4 / 0x0015E8F5 VERT4AntSV and its trigger,
+/// - 0x0015675C / 0x0015675D / 0x0015675E / 0x0015675F VERT4NightStalkerDen01, its
+///   Trigger1/2 and BabyScript (OnHit player, OnDeath player, StartCombat player),
+/// - 0x00168994 VERT4BloodborneStalkerScript, 0x00166DDD VERT4WalkingBoxStalkerScript,
+/// - 0x00166DDF / 0x00166DDE VERT5SilverPeakCazador and its Trigger1,
+/// - 0x001672DE VERT5NopahFireGeckoScript,
+/// - 0x00174364 VERT5AlienWWScript (GetDistance player 6000; Wild Wasteland only).
+pub const COOP_ENCOUNTERS: [u32; 32] = [
+    0x0016_8CFD, 0x0016_8995, 0x0016_8993, 0x0015_6A96, 0x0015_F18E, 0x0015_F18D, 0x0010_24C4,
+    0x0016_8CFE,
+    0x0016_5077,
+    0x0016_122A, 0x0016_4A2B, 0x0016_122F,
+    0x0017_3F94, 0x0017_3F93,
+    0x0015_E8F9, 0x0015_E8FA, 0x0015_E8FB,
+    0x0015_E8F6, 0x0015_E8F8, 0x0015_E8F7,
+    0x0015_E8F4, 0x0015_E8F5,
+    0x0015_675C, 0x0015_675D, 0x0015_675E, 0x0015_675F,
+    0x0016_8994, 0x0016_6DDD,
+    0x0016_6DDF, 0x0016_6DDE,
+    0x0016_72DE,
+    0x0017_4364,
+];
 
 const SHOW_REPAIR_MENU: u16 = 0x117A;
 const SHOW_RECIPE_MENU: u16 = 0x1250;
@@ -477,14 +515,24 @@ impl Game<'_> {
         Some((self.world.placed.world_of(c).unwrap_or(c), s.pos))
     }
 
-    /// The distance from `t` to the nearest player, the host's own or another player's
-    /// actor (`None`: `t` is nowhere).
-    pub fn nearest_player_distance(&self, t: FormId) -> Option<f32> {
+    /// The player nearest `t`, the host's own or another player's actor, and its
+    /// distance (`None`: `t` is nowhere, or no player is in its space).
+    pub fn nearest_player(&self, t: FormId) -> Option<(FormId, f32)> {
         let (space, at) = self.space_pos(t)?;
         std::iter::once(FormId::PLAYER_REF)
             .chain(self.coop_actors.keys().copied())
-            .filter_map(|p| self.space_pos(p).filter(|(s, _)| *s == space).map(|(_, q)| (0..3).map(|i| (q[i] - at[i]).powi(2)).sum::<f32>().sqrt()))
-            .min_by(f32::total_cmp)
+            .filter_map(|p| self.space_pos(p).filter(|(s, _)| *s == space).map(|(_, q)| (p, (0..3).map(|i| (q[i] - at[i]).powi(2)).sum::<f32>().sqrt())))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    }
+
+    /// The distance from `t` to the nearest player ([`Game::nearest_player`]).
+    pub fn nearest_player_distance(&self, t: FormId) -> Option<f32> {
+        self.nearest_player(t).map(|(_, d)| d)
+    }
+
+    /// Whether `is_in` holds for any player, the host's own or another player's actor.
+    pub fn any_player(&self, mut is_in: impl FnMut(&Self, FormId) -> bool) -> bool {
+        std::iter::once(FormId::PLAYER_REF).chain(self.coop_actors.keys().copied()).collect::<Vec<_>>().into_iter().any(|p| is_in(self, p))
     }
 
     /// Whether `actor` is a story NPC: one with a line of a story quest not yet completed
@@ -634,4 +682,15 @@ fn story_speakers(data: &GameData) -> std::collections::HashMap<FormId, Vec<Form
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn each_coop_encounter_script_is_listed_once() {
+        let mut v = super::COOP_ENCOUNTERS.to_vec();
+        v.sort_unstable();
+        v.dedup();
+        assert_eq!(v.len(), super::COOP_ENCOUNTERS.len());
+    }
 }

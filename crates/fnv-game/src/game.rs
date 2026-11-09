@@ -3342,8 +3342,21 @@ impl<'a> Game<'a> {
     }
 
     /// Run a non-frame event on a reference's script, with a trace line.
-    pub fn ref_event(&mut self, r: FormId, event: u16, subject: Option<Value>, action_ref: Option<FormId>) -> bool {
+    pub fn ref_event(&mut self, r: FormId, event: u16, mut subject: Option<Value>, mut action_ref: Option<FormId>) -> bool {
         self.ext_event(event, r, subject);
+        // Another player's hit, kill or step into a co-op random encounter is the
+        // player's (`crate::coop::COOP_ENCOUNTERS`, item 131): `OnHit player`,
+        // `OnDeath player` and `OnTriggerEnter player` take it.
+        if self.coop_encounter(r) {
+            if let Some(Value::Ref(a)) = subject {
+                if self.is_coop_actor(FormId(a)) {
+                    subject = Some(Value::Ref(FormId::PLAYER_REF.0));
+                }
+            }
+            if action_ref.is_some_and(|a| self.is_coop_actor(a)) {
+                action_ref = Some(FormId::PLAYER_REF);
+            }
+        }
         if event == event::ON_LOAD {
             // An OnLoad run by the caller (a cell load, or an engine that runs it
             // itself) settles one queued by Enable: OnLoad runs once per load.
