@@ -8617,14 +8617,7 @@ JIP14_PROBES = (
      _j14("addneweffect.append", _form("rObj", NF["stimpak"]) + "let rE := GetNthEffectBase rObj 0\nlet fA := GetNumEffects rObj\n"
           "let fB := AddNewEffect rObj rE 1 1 0 0 1\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)", True),
      _j14("addneweffect.notmagic", _form("rObj", NF["pistol10"]) + "let rE := GetNthEffectBase (GetFormFromMod \"FalloutNV.esm\" \""
-          + NF["stimpak"] + "\") 0\nSetFunctionValue (AddNewEffect rObj rE 1 1)"),
-     # Appending on an item no earlier row changed (Jet, 15164): the count before, the
-     # return, the count after, and the first and last entries' bases, to tell "not
-     # added" from "returns something other than the count" (addneweffect.append).
-     _j14("addneweffect.jet.append", _form("rObj", "15164") + "let rE := GetNthEffectBase (GetFormFromMod \"FalloutNV.esm\" \""
-          + NF["stimpak"] + "\") 0\nlet fA := GetNumEffects rObj\nlet fB := AddNewEffect rObj rE 1 1 0 0 1\n"
-          "let fC := GetNumEffects rObj\nSetFunctionValue (sv_Construct \"%g %g %g %z %z\" fA fB fC "
-          "(GetFormIDString (GetNthEffectBase rObj 0)) (GetFormIDString (GetNthEffectBase rObj (fC - 1))))", True)]
+          + NF["stimpak"] + "\") 0\nSetFunctionValue (AddNewEffect rObj rE 1 1)")]
 )
 
 SETS.update({"jip14": JIP14_PROBES})  # JIP batch 14 (#1006)

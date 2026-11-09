@@ -429,7 +429,8 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // call failed"].
         "getselfasinventoryref" => match g.other.jip14.item_running {
             Some((holder, item)) => XVal::Ref(g.temp_ref(holder, item).0),
-            None => return Some(Err("GetSelfAsInventoryRef: not called from an item's script".to_string())),
+            // Worded as the VM's NoReference, which stops the script (as `nvse_jg5`).
+            None => return Some(Err(fnv_script::vm::VmError::NoReference(name.to_string()).to_string())),
         },
         // ---- animation sequences ----
         // The frequency a script set; else 1 for a sequence of the drawn model [hypothesis:
