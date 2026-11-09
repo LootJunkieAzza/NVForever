@@ -13,7 +13,13 @@ every switch. It runs when:
 - FSR 3.1 upscaling is on, in any mode (Native AA too): it reads the depth and motion FSR gets;
 - vsync is on (Vertical sync or Variable refresh): the two frames are paced by the swapchain;
 - the GPU runs the passes: Vulkan with SPIR-V passthrough and read-write storage textures in
-  the formats they use (`frame_gen::FrameGenPlugin::finish`).
+  the formats they use (`frame_gen::FrameGenPlugin::finish`);
+- the GPU reads and writes the output image without a format in the shader: Vulkan 1.3, and
+  `R16G16B16A16_SFLOAT` with `STORAGE_READ_WITHOUT_FORMAT` and `STORAGE_WRITE_WITHOUT_FORMAT`
+  in `VkFormatProperties3` (`frame_gen::storage_without_format`). AMD declares the output
+  with no format, so two passes' SPIR-V needs the `StorageImage{Read,Write}WithoutFormat`
+  capabilities [observed: their `OpCapability`s], and wgpu-hal 30 does not enable the Vulkan
+  1.0 features that would allow them otherwise.
 
 Otherwise the row is dimmed with the reason ("Needs FSR 3.1", "Needs vsync", "Not on this GPU")
 and the log says `frame generation: on but not running (...)`. While it runs, real frames are

@@ -71,8 +71,8 @@ pub struct FrameGeneration {
     pub on: bool,
 }
 
-/// Whether this device can run the passes (Vulkan SPIR-V passthrough and read-write storage
-/// in every format they use).
+/// Whether this device can run the passes (Vulkan SPIR-V passthrough, read-write storage
+/// in every format they use, and the output's storage without a format: `storage_without_format`).
 #[derive(Resource, Clone, Copy, Default)]
 pub struct FrameGenSupport(pub bool);
 
@@ -157,15 +157,46 @@ impl Plugin for FrameGenPlugin {
                     properties.allowed_usages.contains(wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING)
                         && properties.flags.contains(wgpu::TextureFormatFeatureFlags::STORAGE_READ_WRITE)
                 })
+                && storage_without_format(adapter)
         });
         app.insert_resource(FrameGenSupport(supported));
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.insert_resource(FrameGenSupport(supported));
         }
         if !supported {
-            info!("frame generation: not available on this GPU (needs Vulkan with SPIR-V passthrough and read-write storage textures)");
+            info!(
+                "frame generation: not available on this GPU (needs Vulkan 1.3 with SPIR-V passthrough, read-write storage textures, and Rgba16Float storage read and written without a format)"
+            );
         }
     }
+}
+
+/// Whether the output image may be read and written without a format in the shader. AMD
+/// declares `rw_output` with none ("app controlled format", `ffx_frameinterpolation_callbacks_glsl.h`),
+/// so the inpainting pass's SPIR-V declares `StorageImageReadWithoutFormat` and
+/// `StorageImageWriteWithoutFormat`, the interpolation pass's `StorageImageWriteWithoutFormat`
+/// [observed: their `OpCapability`s, 2026-11-09]. wgpu-hal 30 enables neither
+/// `shaderStorageImage*WithoutFormat` feature [observed: `vulkan/adapter.rs`], which leaves
+/// Vulkan 1.3: there the capabilities are valid, and the image's format must have
+/// `STORAGE_READ_WITHOUT_FORMAT` and `STORAGE_WRITE_WITHOUT_FORMAT` in `VkFormatProperties3`
+/// [documented: Vulkan spec, the SPIR-V environment appendix's capability table and the
+/// dispatch commands' `OpTypeImage` valid usage]. The output is `Rgba16Float` ([`prepare`]).
+fn storage_without_format(adapter: &wgpu::Adapter) -> bool {
+    use ash::vk;
+    // SAFETY: only reads through the hal adapter, which stays alive in the guard.
+    let Some(hal) = (unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>() }) else { return false };
+    let instance = hal.shared_instance();
+    // wgpu-hal asks the instance for Vulkan 1.3 when the loader has 1.1 or later; the device's
+    // own version caps it.
+    if instance.instance_api_version() < vk::API_VERSION_1_1 || hal.physical_device_capabilities().properties().api_version < vk::API_VERSION_1_3 {
+        return false;
+    }
+    let mut properties3 = vk::FormatProperties3::default();
+    let mut properties = vk::FormatProperties2::default().push_next(&mut properties3);
+    // SAFETY: the physical device belongs to this instance; the query is Vulkan 1.1 core and
+    // `VkFormatProperties3` 1.3 core, both checked above.
+    unsafe { instance.raw_instance().get_physical_device_format_properties2(hal.raw_physical_device(), vk::Format::R16G16B16A16_SFLOAT, &mut properties) };
+    properties3.optimal_tiling_features.contains(vk::FormatFeatureFlags2::STORAGE_READ_WITHOUT_FORMAT | vk::FormatFeatureFlags2::STORAGE_WRITE_WITHOUT_FORMAT)
 }
 
 /// Turns latency reduction on with frame generation and sets the real-frame cap.
