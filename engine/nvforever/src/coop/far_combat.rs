@@ -13,6 +13,9 @@
 //!   the player, whose place a guest's actor takes) and stands within [`SIGHT`] of a
 //!   guest in the same space starts combat with that guest's actor (`Game::start_combat`)
 //!   [engineering choice: no sight line, there is no collision there to cast it through].
+//!   One with an aggro radius that does not attack on sight (a worker ant: Aggressive,
+//!   radius 512) attacks a guest inside half of it, as `fnv_game::aggro` has it attack
+//!   without warning there; the warnings further out need detection and are not given.
 //! - **Closing in**: its weapon's reach goes to the AI that moves actors
 //!   (`Awarenesses::engage`, `crate::npc_combat::engage`), which walks it in on the
 //!   navmesh as for a drawn fighter.
@@ -143,8 +146,12 @@ pub(super) fn far_fights(
             Some(g) => Some(g),
             None => {
                 let near = guests.iter().filter(|g| g.2 == space && dist(g.3) <= SIGHT).min_by(|a, b| dist(a.3).total_cmp(&dist(b.3))).copied();
+                // One that does not attack on sight but has an aggro radius attacks a guest
+                // inside its no-warning share of it (`fnv_game::aggro`; the warnings
+                // themselves need detection, which these actors have not).
+                let aggro = |g: &fnv_game::game::Game<'_>, d: f32| g.aggro_radius(me).is_some_and(|r| f64::from(d) <= r * fnv_game::aggro::AGGRO_ATTACK_SHARE);
                 match near {
-                    Some(g) if game.would_attack(me, FormId::PLAYER_REF) => {
+                    Some(g) if game.would_attack(me, FormId::PLAYER_REF) || aggro(&*game, dist(g.3)) => {
                         game.start_combat(me, g.1);
                         Some(g)
                     }
