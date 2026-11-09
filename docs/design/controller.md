@@ -52,7 +52,9 @@ Start cannot be bound.
   controller stands in for them (`pad::menu_keys`), pressing a key only as its button
   goes down. On the pause menu LB and RB go from heading to heading of the settings
   page, LT and RT are F1 and Tab (the tab before and after), Y is F6 (the keys onto the
-  rail and back) and X Delete [design: #1953; settings-page.md §4].
+  rail and back; there the D-pad passes over Search, which is typed and says "Keyboard
+  search", and the controller works the results a keyboard found) and X Delete [design:
+  #1953; settings-page.md §4, §6].
 - Each menu's own buttons follow the original's menu files (`_xbox_button` of the button
   tiles [documented: the vanilla menu files]) and press the key NVForever's menu gives
   that control (`pad::menu_buttons`, keyed by the open menu's MenuMode code); a menu's

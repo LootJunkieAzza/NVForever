@@ -77,8 +77,9 @@ registrations nor `resolve_layout`'s interface change for it.
   lines and counts in the scroll bar, but it is never chosen: no box, no pointer, no
   value [design: #1953]. It is drawn dim in the page's font (font 7, `Shade::Dim`).
 - **What is listed** (`SettingsScope`): a tab, or the search's results or the Changed
-  list (#1953 points 5 and 6, not built yet: they list nothing and the page says "No
-  settings here.").
+  list (§6, §7). These two list rows of every tab, each under a heading saying where it
+  lives (`listing`: `Gameplay > Dialogue`, `Controls`); an empty one says "No results."
+  or "No changed settings.", an empty tab "No settings here.".
 - **What is shown** (`Visibility`, worked out each frame from the game's state): a
   colour's red, green and blue only while the colour is Custom (§5); the four
   controller rows of the Controls tab only with Controller as the input device. A hidden
@@ -108,7 +109,8 @@ registrations nor `resolve_layout`'s interface change for it.
 (`menu_buttons(PAUSE_AT)`: X Delete, LT F1, RT Tab, Y F6; LB and RB the shared Page Up and
 Page Down). A tab without headings is one section: Page Up/Down go to its first row. The
 rail's lines are Search, Changed, the tabs, then Defaults and Back (those two keep their
-place at the bottom right).
+place at the bottom right); with a controller in use the rail's keys pass over Search.
+Ctrl+F opens the search (§6).
 
 The window shows nine lines from `PauseView::scroll`: the keys keep the chosen row in it,
 and its heading too when it is the heading's first row (`follow`); a heading is never drawn
@@ -119,7 +121,8 @@ when the row is drawn in the current window.
 
 **One dispatcher** (`pause.rs` `act_on_row`, `RowAction::{Activate, Step, Clear}`) does
 what the keys, the pointer and the aids ask of a row, a registered row or a Controls row
-alike, so a search or Changed list built later acts on its rows the same way.
+alike, so the search and the Changed list act on their rows the same way, drawn by the
+same `row_line`.
 
 The Controls tab lists, as before, Input Device, the 29 controls, Invert Y, the device's
 sensitivity and with a controller Rumble, then the four controller rows. Its Defaults puts
@@ -139,13 +142,92 @@ the INI keeps the choice; the six channel keys keep the values; there is no new 
 Defaults loads the start's text (`Amber`) and so leaves Custom. A hidden slider keeps its
 key: the INI and a test aid (`pipboy-red=0.2`) set it as before.
 
-## 6. Test aids and the log
+## 6. The search (#1953 point 5)
 
-`NVF_PLAY_TEST_SETTINGS` adds `tab:<name>`, `select:<key>` and `layout`;
+**Opening and closing** [design: #1953]: the rail's Search line (a click, or Enter on it
+with the keys on the rail), or Ctrl+F anywhere on the page. A key being awaited, an open
+dropdown and the keep question keep the keys until they are done, so Ctrl+F does nothing
+then. Esc (a controller's B, or Back) closes the search, clears its text and shows what was
+listed before, with the same row chosen and the same first line; it goes no further (the
+settings page stays). Taking a tab or the Changed list closes it too.
+
+**The text** is the window's (`KeyboardInput`), read every frame in `PreUpdate`, whether
+the search is open or not, so nothing typed before it opened comes in later
+(`pause::collect_search_keys`). A pressed key's text goes in (repeats too) unless Ctrl,
+Alt or the logo key is held, or it is a control character, or the game's fonts cannot draw
+it (`fnv_util::text::encodable`, as the console); Backspace takes the last letter off.
+Ctrl+F's F is not typed: the search opens after that frame's text was read.
+
+**Who has the keys**: while the search is open the letters are its own. On the pause menu
+the search is looked at before every other key: what was typed goes into the text (and
+the keys back into it), Esc closes it; in its text Down or Enter put the keys on the
+results and every other key does nothing. W/S, A/D and Space are no keys of the page there
+(Up/Down, Left/Right and Enter are). The game's controls read no key while it is open
+(`bindings::KeyboardCapture`: `ControlInput::suppressed()` and `just_released()`), set in
+`PreUpdate` before the game's input and still on the frame the search closes.
+
+**Matching** (`settings_view::search`) [design: #1953]: a row's words are its label and
+note in the language shown and in English and its INI key (a tweak's note names its
+Stewie's Tweaks key); the Controls tab's own rows have their label, note and INI name
+(`pause::control_words`), both devices' controls, so a controller's button is found from
+the keyboard. The query is split at whitespace and lowercased (Unicode); a row is found
+when every word is somewhere in its words. No stemming, no ranking: the results are in the
+page's order (`catalogue`: tab by tab, the Controls tab's own rows first on it). An empty
+text lists every row. A row hidden where it lives is listed as the row that stands for it
+(`shown_as`: a colour's channel as its colour, a controller row as Input Device, a control
+of the other device as its row of the device in use), once.
+
+**On the results** the keys act as on the row's own tab (Enter, Left/Right, Delete, a
+click, the dropdown, the keep question, a key's rebinding), Page Up/Down go from place to
+place, and the search stays open; typing goes back to the text, a click on the search's
+line too. Defaults on the search is the page's global one.
+
+**A controller** types nothing yet: the rail's keys pass over Search, which says
+"Keyboard search". A keyboard can still open it with a controller in use, and the
+controller then works its results (D-pad, A, B).
+
+## 7. The Changed list (#1953 point 6)
+
+**What it lists** [design: #1953]: every row set away from what Defaults puts back, of
+every tab, hidden and disabled rows too, in the page's order, under where each lives:
+
+| Row | Away from its default when |
+|---|---|
+| A switch | its state differs from Defaults' (`StartStates`, or the states the page was first shown with) |
+| A slider | its value as `Slider::fit` keeps it differs (a getter's rounding is no change) |
+| A list | its state as the INI keeps it (`ChoiceList::save`) differs from the start's (`StartChoices`; taken when the page is first shown when there is none) |
+| A control's key and mouse button; its controller button | it is not the game's (`Bindings::game_defaults`), each device's its own row |
+| Invert Y, Rumble, Input Device, each sensitivity | as the game has it by default |
+
+(`settings::changed_rows`, `bindings::changed_controls`.) A disabled row counts by its
+saved state, not by the words shown in its place. A hidden row is listed as the row that
+stands for it, as on the search; the log and Defaults go by the rows themselves.
+
+**Defaults on the Changed list** puts back exactly the rows it lists, wherever they are
+drawn: the registered rows by `settings::restore` (the resolution's keep question as
+ever), twice over so a row another one held disabled (the anti-aliasing under FSR) goes
+back once that one has, the Controls rows by `bindings::restore_rows`, each set to the
+game's directly with no swap (a control's key goes back without taking another's). A row
+still disabled stays as it is, and stays listed. The page's other Defaults are as before:
+on the Controls tab its controls and registered rows, elsewhere every registered row,
+logged `pause menu: settings back to their defaults`.
+
+A row put back leaves the list; the choice goes to the row after it (else the one before).
+
+## 8. Test aids and the log
+
+`NVF_PLAY_TEST_SETTINGS` adds `tab:<name>`, `select:<key>`, `layout`, `search:<text>`
+(the search open on that text, the keys on its results) and `changed`;
 `NVF_PLAY_TEST_PAUSE_MENU` adds `heading-down`, `heading-up`, `tab-down`, `tab-up`, `rail`,
-`left`, `right`, `pad:<button>` (the key the button presses on the pause menu) and
-`inspect`; they press the keys they stand for. The existing aids keep their grammar and
-their log lines. The new lines:
+`left`, `right`, `pad:<button>` (the key the button presses on the pause menu), `search`
+(the rail's Search) and `inspect`; they press the keys they stand for. Real input, the next
+frame: `type:<text>` (each character's key pressed with its text, as the window's
+`KeyboardInput` messages before Bevy reads them, so the keys' state has the letters too
+and the search's hold on them is tested), `backspace`, `ctrl-f`; `point:<target>` (the
+pointer onto the middle of what was drawn for `search`, `search-field`, `changed`,
+`defaults`, `back`, `heading-up`, `heading-down`, `tab:<name>`, `row:<key>`, `choice:<n>`),
+`press` and `release` (the left button, before the UI looks under the pointer, as the
+Wait menu's aid). The existing aids keep their grammar and their log lines. The new lines:
 
 ```text
 settings layout: tabs Gameplay, Display, Audio, Controls, Graphics, Tweaks, Debug
@@ -157,7 +239,18 @@ pause menu: the keys on the rail (Display)
 pause menu: rail Changed
 pause menu: colour sliders HUD shown, Pip-Boy hidden
 pause menu: inspect: Display, keys on the rows, selected hud-colour, lines 1-9 of 21
+pause menu: search open
+pause menu: search "menu-pause": 1 result(s); keys menu-pause
+pause menu: the keys on the results
+pause menu: search closed
+pause menu: list Changed; selected difficulty
+pause menu: changed 3 row(s); keys difficulty,crosshair-style,god-mode
+pause menu: changed defaults; keys difficulty,crosshair-style,god-mode
+controls: padbind:Jump, rumble back to the game's
+pause menu: the pointer on heading-down
 ```
 
 Smoke scenarios: `settings-layout`, `settings-headings`, `settings-custom-sliders`,
-`settings-controller-navigation` (tools/smoke/scenarios.toml).
+`settings-controller-navigation`, `settings-search`, `settings-search-input`,
+`settings-changed`, `settings-heading-pointer`, `settings-search-language`
+(tools/smoke/scenarios.toml).
