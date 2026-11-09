@@ -1795,7 +1795,15 @@ fn draw(
         let shade = if stage.shown(f.knife) && f.page == FPage::Play { Color::NONE } else { Color::srgba(0.05, 0.03, 0.02, 0.9) };
         let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(shade), GlobalZIndex(25))).id();
         let coop = tables.as_deref().is_some_and(|t| t.on);
-        commands.entity(root).with_children(|p| draw_fillet(p, f, &stage, now, &name, coop));
+        let plain;
+        let faces = match casino.as_deref() {
+            Some(f) => f,
+            None => {
+                plain = crate::casino_hud::CasinoFaces::plain();
+                &plain
+            }
+        };
+        commands.entity(root).with_children(|p| draw_fillet(p, f, &stage, now, &name, coop, faces));
     }
 }
 
@@ -1806,14 +1814,14 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
             use crate::match_lobby::{menu_card, row};
             const HOW: &str = "301, double out. Aim with the mouse; hold the left button and let go on the green pip.";
             match d.joined {
-                Some(o) => menu_card(p, "Darts", &format!("{} is at this board.", name(o)), &[row("Space", "Throw against them"), row("Tab", "Leave")], HOW),
+                Some(o) => menu_card(p, faces, "Darts", &format!("{} is at this board.", name(o)), &[row("Space", "Throw against them"), row("Tab", "Leave")], HOW),
                 None => {
                     let mut rows = vec![row("1", if d.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), row("2", "Practice")];
                     if let Some(q) = d.asking.first() {
                         rows.push(row("3", format!("Play {}", name(*q))));
                     }
                     rows.push(row("Tab", "Leave"));
-                    menu_card(p, "Darts", "", &rows, HOW);
+                    menu_card(p, faces, "Darts", "", &rows, HOW);
                 }
             }
         }
@@ -1826,15 +1834,15 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
                 rows.push(if open { r } else { r.note(format!("{} players near the board", m.players)) });
             }
             rows.push(row("Tab", "Back"));
-            menu_card(p, "Challenge", "Who to play", &rows, "");
+            menu_card(p, faces, "Challenge", "Who to play", &rows, "");
         }
         Page::Gather => {
-            text(p, "Tab) Leave", Val::Percent(3.0), Val::Percent(88.0), 20.0, crate::interface::amber(255.0));
+            crate::casino_hud::help_line(p, faces, "Tab) Leave");
         }
         Page::Bet => {
             use crate::match_lobby::{menu_card, row};
             let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
-            menu_card(p, &format!("Bet: {} caps", d.bet), "", &rows, &format!("The bet sets the opponent's skill. A win pays {}.", darts::payout(d.bet)));
+            menu_card(p, faces, &format!("Bet: {} caps", d.bet), "", &rows, &format!("The bet sets the opponent's skill. A win pays {}.", darts::payout(d.bet)));
         }
         Page::Play if d.frame.is_some() => {
             // The board is the cabinet's; the crosshair sits where the aim meets it.
@@ -1879,7 +1887,7 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
         }
     }
     if !d.status.is_empty() && d.page != Page::Play {
-        text(p, d.status.clone(), Val::Percent(30.0), Val::Percent(70.0), 20.0, crate::interface::amber(255.0));
+        crate::casino_hud::banner(p, faces, &d.status);
     }
 }
 
@@ -1951,22 +1959,23 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
 /// [observed: TableChalk.nif LFFPrompt1..5].
 const GAP_AT: [(f32, f32); 5] = [(-8.773, 4.081), (-6.462, 8.034), (-3.565, 9.525), (-0.223, 9.366), (3.858, 4.769)];
 
-fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String, coop: bool) {
+fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String, coop: bool, faces: &crate::casino_hud::CasinoFaces) {
     match f.page {
         FPage::Busy(q) => {
-            text(p, format!("{} is at this table.\nWatch them, and take your turn when they are done.\n\nTab) Leave", name(q)), Val::Percent(30.0), Val::Percent(35.0), 24.0, crate::interface::amber(255.0));
+            use crate::match_lobby::{menu_card, row};
+            menu_card(p, faces, "Five Finger Fillet", &format!("{} is at this table.", name(q)), &[row("Tab", "Leave")], "Watch them, and take your turn when they are done.");
         }
         FPage::Offer(q) => {
             let bet = f.offer.map_or(0, |o| o.0);
             use crate::match_lobby::{menu_card, row};
             let sub = format!("{} challenges you: {bet} caps each, the winner takes {}.", name(q), bet * 2);
-            menu_card(p, "Five Finger Fillet race", &sub, &[row("Space", "Match the bet"), row("Tab", "Leave")], "You all get the same prompts at once. A finish beats a loss, then fewer mistakes, then the faster time.");
+            menu_card(p, faces, "Five Finger Fillet race", &sub, &[row("Space", "Match the bet"), row("Tab", "Leave")], "You all get the same prompts at once. A finish beats a loss, then fewer mistakes, then the faster time.");
         }
         FPage::Challenge => {
             let (bet, want, joined) = f.duel.as_ref().map_or((0, 2, 0), |d| (d.bet, u32::from(d.want), d.joining.len() as u32));
             use crate::match_lobby::{menu_card, row};
             let sub = format!("Your challenge is open: {bet} caps each, the winner takes {}.", bet * want);
-            menu_card(p, "Five Finger Fillet race", &sub, &[row("Tab", "Withdraw")], &format!("A race of {want}: {} of {want} here. Waiting for players to open this knife and match it.", joined + 1));
+            menu_card(p, faces, "Five Finger Fillet race", &sub, &[row("Tab", "Withdraw")], &format!("A race of {want}: {} of {want} here. Waiting for players to open this knife and match it.", joined + 1));
         }
         FPage::Main => {
             use crate::match_lobby::{menu_card, row};
@@ -1975,18 +1984,18 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                 rows.push(row("3", "Race other players"));
             }
             rows.push(row("Tab", "Leave"));
-            menu_card(p, "Five Finger Fillet", "", &rows, "Three rounds of 12, 18 and 24 stabs. Press the key shown at the knife. Three mistakes lose; each costs 10 health.");
+            menu_card(p, faces, "Five Finger Fillet", "", &rows, "Three rounds of 12, 18 and 24 stabs. Press the key shown at the knife. Three mistakes lose; each costs 10 health.");
         }
         FPage::Bet if f.duel_bet => {
             use crate::match_lobby::{menu_card, row};
             let rows = [row("Q", "Decrease"), row("E", "Increase"), row("R", "Racers").note(format!("{} now; up to 4, as many as are near", f.racers)), row("Space", "Challenge"), row("Tab", "Back")];
             let foot = format!("The winner takes {}. {:.0} s on each clock.", f.bet * u32::from(f.racers), fillet::time_limit(f.bet));
-            menu_card(p, &format!("Race bet: {} caps each", f.bet), &format!("Racers: {}", f.racers), &rows, &foot);
+            menu_card(p, faces, &format!("Race bet: {} caps each", f.bet), &format!("Racers: {}", f.racers), &rows, &foot);
         }
         FPage::Bet => {
             use crate::match_lobby::{menu_card, row};
             let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
-            menu_card(p, &format!("Bet: {} caps", f.bet), &format!("{:.0} s on the clock", fillet::time_limit(f.bet)), &rows, &format!("A win pays {}.", fillet::payout(f.bet)));
+            menu_card(p, faces, &format!("Bet: {} caps", f.bet), &format!("{:.0} s on the clock", fillet::time_limit(f.bet)), &rows, &format!("A win pays {}.", fillet::payout(f.bet)));
         }
         FPage::Play => {
             let Some(g) = f.game.as_ref() else { return };
@@ -2029,15 +2038,21 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                 }
             });
             }
-            let lines = format!("Round {}/{}   Stabs {}/{}   Mistakes {}/{}", g.round.max(1), fillet::ROUNDS, g.hits, fillet::required(g.round.max(1)), g.mistakes, fillet::MAX_MISTAKES);
-            text(p, lines, Val::Percent(28.0), Val::Percent(10.0), 26.0, CHALK);
+            // The count in the HUD's score panel; the clock as a bar in the HUD colour.
+            use crate::casino_hud::{help_line, score_panel, ScoreRow};
+            let mut rows = vec![
+                ScoreRow { name: format!("Round {}/{}", g.round.max(1), fillet::ROUNDS), score: format!("{}/{}", g.hits, fillet::required(g.round.max(1))), note: "stabs".into(), up: true },
+                ScoreRow { name: "Mistakes".into(), score: format!("{}/{}", g.mistakes, fillet::MAX_MISTAKES), note: String::new(), up: false },
+            ];
             if let Some(c) = g.clock {
+                rows.push(ScoreRow { name: "Time".into(), score: format!("{c:.1}"), note: "s".into(), up: false });
                 let share = (c / fillet::time_limit(g.stake)).clamp(0.0, 1.0);
-                p.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(33.0), top: Val::Percent(84.0), width: Val::Percent(34.0 * share), height: Val::Px(7.0), ..default() }, BackgroundColor(Color::WHITE)));
-                text(p, format!("TIME {c:.1}"), Val::Percent(43.0), Val::Percent(79.5), 20.0, CHALK);
+                p.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(33.0), top: Val::Percent(84.0), width: Val::Percent(34.0 * share), height: Val::Px(5.0), ..default() }, BackgroundColor(crate::interface::amber(255.0))));
             }
+            let stake = (g.stake > 0).then(|| format!("Stake: {} caps", g.stake));
+            score_panel(p, faces, &rows, stake.as_deref());
             if let Some(d) = f.duel.as_ref() {
-                draw_race(p, d, g, now, name, &f.status);
+                draw_race(p, d, g, now, name, &f.status, faces);
                 return;
             }
             let help = match g.state {
@@ -2046,32 +2061,36 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                 FState::Won | FState::Lost => format!("{} Space) Done   Tab) Leave", f.status),
                 FState::Prompt => "Press the key at the knife.   Tab) Leave".into(),
             };
-            text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, crate::interface::amber(255.0));
+            help_line(p, faces, &help);
         }
     }
     if !f.status.is_empty() && f.page != FPage::Play {
-        text(p, f.status.clone(), Val::Percent(30.0), Val::Percent(72.0), 20.0, crate::interface::amber(255.0));
+        crate::casino_hud::banner(p, faces, &f.status);
     }
 }
 
 /// A race's own lines over the table: the countdown, both times, the other racer, the
 /// result.
-fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32, name: &dyn Fn(u8) -> String, status: &str) {
+fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32, name: &dyn Fn(u8) -> String, status: &str, faces: &crate::casino_hud::CasinoFaces) {
     let foe = name(d.foe.unwrap_or(0));
     if g.state == FState::Ready {
         let left = d.go_at - now;
         let big = if !d.confirmed && left <= 0.0 { "...".to_string() } else { format!("{}", left.ceil().max(1.0) as i32) };
-        text(p, big, Val::Percent(47.0), Val::Percent(38.0), 96.0, CHALK);
+        crate::casino_hud::banner(p, faces, &big);
     } else if g.round == 1 && g.hits == 0 && g.elapsed < 0.8 {
-        text(p, "GO", Val::Percent(45.0), Val::Percent(38.0), 96.0, Color::srgb(0.3, 1.0, 0.3));
+        crate::casino_hud::banner(p, faces, "GO");
     }
-    text(p, format!("Race time {:.1} s", g.elapsed), Val::Percent(28.0), Val::Percent(19.0), 22.0, CHALK);
     let theirs = match d.foe_view.as_ref() {
         None => format!("{foe}: waiting"),
         Some(v) if v.state >= 3 => format!("{foe}: {}", if v.state == 3 { format!("done, {:.2} s, {} {}", v.duel.map_or(0.0, |x| x.seconds), v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }) } else { "out".to_string() }),
         Some(v) => format!("{foe}: round {}/3, {}/{} stabs, {} {}, {:.1} s", v.round.max(1), v.hits, v.required, v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }, v.duel.map_or(0.0, |x| x.seconds)),
     };
-    text(p, theirs, Val::Percent(28.0), Val::Percent(15.0), 22.0, crate::interface::amber(255.0));
+    // Under the score panel, in the HUD's small print: the race clock and the other racer.
+    p.spawn(Node { position_type: PositionType::Absolute, right: crate::interface::u(40.0), top: crate::interface::u(250.0), width: crate::interface::u(0.0), ..default() }).with_children(|b| {
+        let race = format!("Race time {:.1} s", g.elapsed);
+        crate::casino_hud::line(b, faces, 0, &race, -crate::casino_hud::width(faces, 0, &race), 0.0, crate::interface::amber(255.0));
+        crate::casino_hud::line(b, faces, 0, &theirs, -crate::casino_hud::width(faces, 0, &theirs), 22.0, crate::interface::amber(200.0));
+    });
     let help = match (d.result, g.state) {
         (Some(_), _) => format!("{status}   Space) Done   Tab) Leave"),
         (None, FState::Ready) => format!("A race against {foe} for {} caps each.   Tab) Forfeit", d.bet),
@@ -2079,7 +2098,7 @@ fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32,
         (None, FState::Prompt) => "Press the key at the knife.   Tab) Forfeit".to_string(),
         (None, _) => format!("Your race is done. Waiting for {foe}; leaving now forfeits."),
     };
-    text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, crate::interface::amber(255.0));
+    crate::casino_hud::help_line(p, faces, &help);
 }
 
 #[cfg(test)]

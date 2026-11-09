@@ -1476,10 +1476,6 @@ pub fn summary(tables: &Tables, name: &str, blob: &[u8]) -> Vec<String> {
 
 // ---- drawing -------------------------------------------------------------------------
 
-fn text(p: &mut ChildSpawnerCommands, s: impl Into<String>, left: Val, top: Val, size: f32, color: Color) {
-    p.spawn((Node { position_type: PositionType::Absolute, left, top, ..default() }, Text::new(s.into()), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color)));
-}
-
 /// A dot of `r` pixels at a point (% of the window).
 fn dot(p: &mut ChildSpawnerCommands, at: Vec2, r: f32, color: Color) {
     p.spawn((
@@ -1487,8 +1483,6 @@ fn dot(p: &mut ChildSpawnerCommands, at: Vec2, r: f32, color: Color) {
         BackgroundColor(color),
     ));
 }
-
-const CHALK: Color = Color::srgb(0.92, 0.92, 0.88);
 
 fn draw(
     mut commands: Commands,
@@ -1525,14 +1519,14 @@ fn draw(
             Page::Main => {
                 use crate::match_lobby::{menu_card, row};
                 match p.joined {
-                    Some(owner) => menu_card(ui, "Pool", &format!("{} has this table.", name(owner)), &[row("Space", format!("Ask {} for a game", name(owner))), row("Tab", "Leave")], ""),
+                    Some(owner) => menu_card(ui, faces, "Pool", &format!("{} has this table.", name(owner)), &[row("Space", format!("Ask {} for a game", name(owner))), row("Tab", "Leave")], ""),
                     None => {
                         let mut rows = vec![row("1", if p.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), row("2", "Practice")];
                         if let Some(x) = p.asking.first() {
                             rows.push(row("3", format!("Play {}", name(*x))));
                         }
                         rows.push(row("Tab", "Leave"));
-                        menu_card(ui, "Pool", "", &rows, "Eight-ball. Aim with the mouse; hold the left button to charge, let go to shoot.");
+                        menu_card(ui, faces, "Pool", "", &rows, "Eight-ball. Aim with the mouse; hold the left button to charge, let go to shoot.");
                     }
                 }
             }
@@ -1545,16 +1539,16 @@ fn draw(
                     rows.push(if open { r } else { r.note(format!("{} players near the table", m.players)) });
                 }
                 rows.push(row("Tab", "Back"));
-                menu_card(ui, "Challenge", "Who to play", &rows, &p.status);
+                menu_card(ui, faces, "Challenge", "Who to play", &rows, &p.status);
             }
             Page::Gather => {
-                text(ui, "Tab  Leave", Val::Percent(3.0), Val::Percent(92.0), 18.0, CHALK);
+                crate::casino_hud::help_line(ui, faces, "Tab) Leave");
             }
             Page::Bet => {
                 use crate::match_lobby::{menu_card, row};
                 let rows = [row("Q", "Less"), row("E", "More"), row("Space", "Rack them up"), row("Tab", "Back")];
                 let foot = format!("The opponent plays at {} of 10. A win pays twice the bet.", pool::difficulty(p.bet));
-                menu_card(ui, "Challenge the opponent", &format!("Bet: {} caps", p.bet), &rows, &foot);
+                menu_card(ui, faces, "Challenge the opponent", &format!("Bet: {} caps", p.bet), &rows, &foot);
             }
             Page::Play => {
                 // Who has what: the HUD-look panel while the game runs, the leaderboard at its end.
@@ -1662,8 +1656,8 @@ fn draw(
                 }
             }
         }
-        if p.page != Page::Play && !p.status.is_empty() {
-            text(ui, p.status.clone(), Val::Percent(8.0), Val::Percent(60.0), 20.0, crate::interface::amber(255.0));
+        if p.page != Page::Play && !p.status.is_empty() && p.page != Page::Challenge {
+            crate::casino_hud::banner(ui, faces, &p.status);
         }
     });
 }

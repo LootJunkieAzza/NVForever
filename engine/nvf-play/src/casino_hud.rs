@@ -36,7 +36,7 @@ pub struct CasinoHudPlugin;
 
 impl Plugin for CasinoHudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, load.run_if(not(resource_exists::<CasinoFaces>)));
+        app.add_systems(Startup, make_soft).add_systems(Update, load.run_if(not(resource_exists::<CasinoFaces>)));
     }
 }
 
@@ -66,7 +66,8 @@ fn rule(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, h: f32) {
 
 /// A box `w` by `h` from its parent's corner: fill, and the brackets.
 fn bracket_box(p: &mut ChildSpawnerCommands, w: f32, h: f32) {
-    p.spawn((Node { position_type: PositionType::Absolute, left: u(0.0), top: u(0.0), width: u(w), height: u(h), ..default() }, BackgroundColor(FILL)));
+    // The glass fades out toward the box's edges [design, owner 2026-11-09: soft edges].
+    p.spawn((Node { position_type: PositionType::Absolute, left: u(0.0), top: u(0.0), width: u(w), height: u(h), ..default() }, soft_node(FILL.alpha() * 1.3)));
     rule(p, 0.0, 0.0, w, LINE);
     rule(p, 0.0, 0.0, LINE, SIDE);
     rule(p, w - LINE, 0.0, LINE, SIDE);
@@ -196,6 +197,209 @@ pub fn help_line(p: &mut ChildSpawnerCommands, f: &CasinoFaces, lines: &str) {
     });
 }
 
+// ---- Menu pages and banners (owner 2026-11-09: every minigame menu in the HUD's look) ----
+
+/// The menu card's place: the HUD's left margin, under the score panel's line.
+const CARD_LEFT: f32 = 60.0;
+const CARD_TOP: f32 = 110.0;
+const CARD_MIN_W: f32 = 440.0;
+/// The widest a card grows (its foot always wraps at the card's width).
+const CARD_MAX_W: f32 = 700.0;
+const KEY_GAP: f32 = 14.0;
+
+/// What a card shows: its title, a line under the title, the choices, the foot.
+#[derive(Debug, Clone, Copy)]
+pub struct CardText<'a> {
+    pub title: &'a str,
+    pub sub: &'a str,
+    pub rows: &'a [crate::match_lobby::MenuRow],
+    pub foot: &'a str,
+}
+
+/// The card's size and where each part goes, interface units.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CardLayout {
+    pub w: f32,
+    pub h: f32,
+    pub key_w: f32,
+    pub title_base: f32,
+    pub sub_base: f32,
+    pub rule_y: f32,
+    pub row_bases: Vec<f32>,
+    pub foot_rule: f32,
+    pub foot_lines: Vec<String>,
+    pub foot_base: f32,
+}
+
+fn key_text(key: &str) -> String {
+    format!("{key})")
+}
+
+/// Words onto lines no wider than `width` (a word wider than that has a line to itself).
+fn wrap(face: &Face, s: &str, width: f32) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in s.split_whitespace() {
+        match lines.last_mut() {
+            Some(l) if face.font.width(&format!("{l} {word}")) <= width => {
+                l.push(' ');
+                l.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
+}
+
+/// Where everything on a menu card goes.
+pub fn card_layout(f: &CasinoFaces, c: CardText) -> CardLayout {
+    let (title, entry, small) = (&f.title, &f.faces.entry, &f.faces.small);
+    let key_w = c.rows.iter().map(|r| entry.font.width(&key_text(&r.key))).fold(0.0, f32::max);
+    let row_w = |r: &crate::match_lobby::MenuRow| key_w + KEY_GAP + entry.font.width(&r.label) + if r.note.is_empty() { 0.0 } else { KEY_GAP + small.font.width(&r.note) };
+    let inner = c.rows.iter().map(row_w).fold(title.font.width(c.title).max(small.font.width(c.sub)), f32::max);
+    let w = (inner + PAD * 2.0).clamp(CARD_MIN_W, CARD_MAX_W);
+    let mut y = PAD;
+    let title_base = y + title.font.size * 0.85;
+    y += title.font.size * 1.05;
+    let sub_base = y + small.font.size * 0.8;
+    if !c.sub.is_empty() {
+        y += small.font.size * 1.1;
+    }
+    let rule_y = y + 4.0;
+    y = rule_y + LINE + 10.0;
+    let step = entry.font.size * 1.2;
+    let row_bases = (0..c.rows.len()).map(|i| y + step * (i as f32 + 0.8)).collect();
+    y += step * c.rows.len() as f32;
+    let foot_lines = if c.foot.is_empty() { Vec::new() } else { wrap(small, c.foot, w - PAD * 2.0) };
+    let foot_rule = y + 6.0;
+    let foot_base = foot_rule + 10.0 + small.font.size * 0.8;
+    if !foot_lines.is_empty() {
+        y = foot_rule + 10.0 + small.font.size * 1.1 * foot_lines.len() as f32;
+    }
+    CardLayout { w, h: y + PAD, key_w, title_base, sub_base, rule_y, row_bases, foot_rule, foot_lines, foot_base }
+}
+
+/// A minigame's menu page: one card at the HUD's left margin in the HUD's look (the
+/// bracketed dark glass of the score panel, the HUD font and colour). The title in the
+/// leaderboard's large face, a short line under it, the choices as the HUD writes its
+/// prompts ("1) Challenge"; greyed ones dimmed, with their note), the foot in small print
+/// [design: owner 2026-11-09, every minigame menu "in line with the other UI changes"].
+pub fn menu_card(p: &mut ChildSpawnerCommands, f: &CasinoFaces, c: CardText) {
+    let l = card_layout(f, c);
+    let (entry, small) = (&f.faces.entry, &f.faces.small);
+    p.spawn(Node { position_type: PositionType::Absolute, left: u(CARD_LEFT), top: u(CARD_TOP), width: u(l.w), height: u(l.h), ..default() }).with_children(|b| {
+        bracket_box(b, l.w, l.h);
+        text(b, &f.title, c.title, PAD, l.title_base, amber(255.0));
+        if !c.sub.is_empty() {
+            text(b, small, c.sub, PAD, l.sub_base, amber(200.0));
+        }
+        rule(b, PAD, l.rule_y, l.w - PAD * 2.0, LINE);
+        for (r, base) in c.rows.iter().zip(&l.row_bases) {
+            let (key_c, label_c, note_c) = if r.on { (amber(255.0), amber(225.0), amber(165.0)) } else { (amber(105.0), amber(105.0), amber(130.0)) };
+            let k = key_text(&r.key);
+            text(b, entry, &k, PAD + l.key_w - entry.font.width(&k), *base, key_c);
+            let x = PAD + l.key_w + KEY_GAP;
+            text(b, entry, &r.label, x, *base, label_c);
+            if !r.note.is_empty() {
+                text(b, small, &r.note, x + entry.font.width(&r.label) + KEY_GAP, *base, note_c);
+            }
+        }
+        if !l.foot_lines.is_empty() {
+            rule(b, PAD, l.foot_rule, l.w - PAD * 2.0, 1.0);
+            for (i, line) in l.foot_lines.iter().enumerate() {
+                text(b, small, line, PAD, l.foot_base + small.font.size * 1.1 * i as f32, amber(175.0));
+            }
+        }
+    });
+}
+
+/// The soft backdrop's picture: dark, fading out over its edges (made here, no file).
+const SOFT: Handle<Image> = bevy::asset::uuid_handle!("5d2b7e41-93c6-4a1f-b8e0-6c4f2a9d1e37");
+/// The picture's side, and how far in from its edges it fades, in pixels.
+const SOFT_SIDE: u32 = 66;
+const SOFT_EDGE: f32 = 32.0;
+/// How far past the text the fade reaches, interface units.
+const SOFT_X: f32 = 44.0;
+const SOFT_Y: f32 = 20.0;
+const SOFT_ALPHA: f32 = 0.62;
+
+fn soft_image() -> Image {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    let n = SOFT_SIDE;
+    let ramp = |i: u32| {
+        let t = ((i.min(n - 1 - i)) as f32 / SOFT_EDGE).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let mut px = Vec::with_capacity((n * n * 4) as usize);
+    for y in 0..n {
+        for x in 0..n {
+            px.extend_from_slice(&[0, 0, 0, (ramp(x) * ramp(y) * 255.0) as u8]);
+        }
+    }
+    Image::new(Extent3d { width: n, height: n, depth_or_array_layers: 1 }, TextureDimension::D2, px, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default())
+}
+
+fn make_soft(mut images: ResMut<Assets<Image>>) {
+    let _ = images.insert(SOFT.id(), soft_image());
+}
+
+/// A soft dark backdrop under text `w` by `h` at (x, y) from the parent's corner: no box
+/// and no lines, it fades out past the text's edges, so a table's words read on a busy
+/// picture [design, owner 2026-11-09: "backdrops should have soft edges"].
+pub fn glass(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, h: f32) {
+    p.spawn((Node { position_type: PositionType::Absolute, left: u(x - SOFT_X), top: u(y - SOFT_Y), width: u(w + SOFT_X * 2.0), height: u(h + SOFT_Y * 2.0), ..default() }, soft_node(SOFT_ALPHA)));
+}
+
+/// The soft picture, its edges kept their width whatever the node's size.
+fn soft_node(alpha: f32) -> ImageNode {
+    let slicer = TextureSlicer { border: BorderRect::all(SOFT_EDGE), center_scale_mode: SliceScaleMode::Stretch, sides_scale_mode: SliceScaleMode::Stretch, max_corner_scale: 1.0 };
+    ImageNode { color: Color::srgba(1.0, 1.0, 1.0, alpha.min(1.0)), image_mode: NodeImageMode::Sliced(slicer), ..ImageNode::new(SOFT) }
+}
+
+/// How far up from the view's bottom a banner sits (above the HUD's bars).
+const BANNER_BOTTOM: f32 = 230.0;
+/// The widest a banner grows before its lines wrap.
+const BANNER_MAX_W: f32 = 900.0;
+
+/// A notice as a banner: centred low in the view, the bracketed dark glass behind it, in
+/// the HUD font; long lines wrap, several stack. For the games' notices ("Your throw", a
+/// hand's result, whose turn) [design, owner 2026-11-09].
+pub fn banner(p: &mut ChildSpawnerCommands, f: &CasinoFaces, lines: &str) {
+    let face = &f.faces.entry;
+    let lines: Vec<String> = lines.lines().filter(|l| !l.trim().is_empty()).flat_map(|l| wrap(face, l, BANNER_MAX_W)).collect();
+    if lines.is_empty() {
+        return;
+    }
+    let step = face.font.size * 1.15;
+    let w = lines.iter().map(|l| face.font.width(l)).fold(0.0, f32::max) + PAD * 4.0;
+    let h = step * lines.len() as f32 + PAD * 1.4;
+    p.spawn(Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-w / 2.0)), bottom: u(BANNER_BOTTOM), width: u(w), height: u(h), ..default() }).with_children(|b| {
+        bracket_box(b, w, h);
+        for (i, l) in lines.iter().enumerate() {
+            text(b, face, l, (w - face.font.width(l)) / 2.0, PAD * 0.7 + step * (i as f32 + 0.8), amber(255.0));
+        }
+    });
+}
+
+/// One line in the HUD font at (x, base) interface units from the parent's corner: `size`
+/// 0 the small face, 1 the HUD's, 2 the large title.
+pub fn line(p: &mut ChildSpawnerCommands, f: &CasinoFaces, size: u8, s: &str, x: f32, base: f32, color: Color) {
+    text(p, face_of(f, size), s, x, base, color);
+}
+
+/// The width of a line in one of [`line`]'s faces.
+pub fn width(f: &CasinoFaces, size: u8, s: &str) -> f32 {
+    face_of(f, size).font.width(s)
+}
+
+fn face_of(f: &CasinoFaces, size: u8) -> &Face {
+    match size {
+        0 => &f.faces.small,
+        1 => &f.faces.entry,
+        _ => &f.title,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,6 +423,26 @@ mod tests {
         // Every row's value starts after its title.
         for (t, v) in [(120.0f32, 40.0f32), (300.0, 140.0)] {
             assert!(column - v >= 20.0 + t + 16.0);
+        }
+    }
+
+    #[test]
+    fn a_card_grows_to_its_longest_line_and_wraps_its_foot() {
+        use crate::match_lobby::row;
+        let f = CasinoFaces::plain();
+        let rows = [row("1", "Challenge"), row("2", "Practice"), row("Space", "Start").enabled(false).note("needs caps")];
+        let short = card_layout(&f, CardText { title: "Darts", sub: "", rows: &rows, foot: "" });
+        assert_eq!(short.row_bases.len(), 3);
+        assert!(short.row_bases.windows(2).all(|w| w[1] > w[0]));
+        assert!(short.w >= CARD_MIN_W);
+        let foot = "Three rounds of 12, 18 and 24 stabs. Press the key shown at the knife. Three mistakes lose; each costs 10 health.";
+        let long = card_layout(&f, CardText { title: "Five Finger Fillet", sub: "", rows: &rows, foot });
+        assert!(long.foot_lines.len() > 1, "the foot wraps");
+        assert!(long.w <= CARD_MAX_W);
+        assert!(long.h > long.foot_base);
+        assert!(long.foot_lines[0].contains(' '), "the words keep their spaces");
+        for l in &long.foot_lines {
+            assert!(f.faces.small.font.width(l) <= long.w - PAD * 2.0 + 1.0, "{l:?} fits");
         }
     }
 

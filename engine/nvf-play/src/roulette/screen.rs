@@ -131,6 +131,10 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
         let lines = s.status.clone().unwrap_or_else(|| if s.phase == Phase::Betting { s.bet_lines() } else { [String::new(), String::new()] });
         let status = Node { position_type: PositionType::Absolute, left: u(STATUS.x), top: u(STATUS.y), width: u(800.0), height: u(2.0 * STATUS_STEP), ..default() };
         r.spawn(status).with_children(|b| {
+            let w = lines.iter().map(|l| c.text_width(FontKind::Menu, l)).fold(0.0, f32::max);
+            if w > 0.0 {
+                crate::casino_hud::glass(b, 0.0, 4.0, w, 2.0 * STATUS_STEP - 8.0);
+            }
             for (i, l) in lines.iter().enumerate() {
                 c.text_in(b, FontKind::Menu, l, 0.0, i as f32 * STATUS_STEP, false, bright);
             }
@@ -155,6 +159,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, 16.0, &widths);
             let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };
             m.spawn(info).with_children(|b| {
+                crate::casino_hud::glass(b, ROW_X, 2.0, info_w - ROW_X * 2.0, (rows.len() - 1) as f32 * ROW_STEP + 30.0);
                 c.image(b, "interface\\shared\\line\\fade_to_top.dds", at(0.0, 0.0, THICK, FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, FADE - THICK, THICK, INFO.y - FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, info_w - FADE, THICK), bright);
@@ -177,6 +182,10 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
             ];
             let column = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(BUTTONS_TOP), width: u(0.0), height: u(6.0 * BUTTON_H), ..default() };
             m.spawn(column).with_children(|b| {
+                let (lw, hw) = buttons.iter().fold((0.0f32, 0.0f32), |(l, h), (label, hint, _, _)| (l.max(c.text_width(FontKind::Menu, label)), h.max(c.text_width(FontKind::Menu, hint))));
+                if !buttons.is_empty() {
+                    crate::casino_hud::glass(b, -lw, 4.0, lw + HINT_GAP + hw, buttons.len() as f32 * BUTTON_H - 8.0);
+                }
                 for (i, (label, hint, cmd, on)) in buttons.into_iter().enumerate() {
                     let color = if on { bright } else { dim };
                     let y = i as f32 * BUTTON_H;

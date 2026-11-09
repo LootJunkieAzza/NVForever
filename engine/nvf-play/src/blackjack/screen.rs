@@ -150,6 +150,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, VALUE_GAP, &widths);
             let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };
             m.spawn(info).with_children(|b| {
+                crate::casino_hud::glass(b, ROW_X, ROWS_Y[0], info_w - ROW_X * 2.0, ROWS_Y[2] - ROWS_Y[0] + 30.0);
                 c.image(b, "interface\\shared\\line\\fade_to_top.dds", at(0.0, 0.0, THICK, FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, FADE - THICK, THICK, INFO.y - FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, info_w - FADE, THICK), bright);
@@ -163,7 +164,13 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
             if !s.busy(now) {
                 let column = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(BUTTONS_TOP), width: u(0.0), height: u(6.0 * BUTTON_H), ..default() };
                 m.spawn(column).with_children(|b| {
-                    for (i, button) in s.buttons().into_iter().enumerate() {
+                    let all = s.buttons();
+                    let (lw, hw) = all.iter().flatten().fold((0.0f32, 0.0f32), |(l, h), (label, hint, _)| (l.max(c.text_width(FontKind::Menu, label)), h.max(c.text_width(FontKind::Menu, hint))));
+                    let last = all.iter().rposition(Option::is_some).map_or(0.0, |i| i as f32 + 1.0);
+                    if last > 0.0 {
+                        crate::casino_hud::glass(b, -lw, 4.0, lw + HINT_GAP + hw, last * BUTTON_H - 8.0);
+                    }
+                    for (i, button) in all.into_iter().enumerate() {
                         let Some((label, hint, cmd)) = button else { continue };
                         let y = i as f32 * BUTTON_H;
                         let w = c.text_in(b, FontKind::Menu, label, 0.0, y + 9.0, true, bright);
@@ -175,6 +182,8 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
             if let Some(status) = &s.status {
                 let line = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(STATUS_Y), width: u(0.0), height: u(36.0), ..default() };
                 m.spawn(line).with_children(|b| {
+                    let w = c.text_width(FontKind::Menu, status);
+                    crate::casino_hud::glass(b, -w, 4.0, w, 30.0);
                     c.text_in(b, FontKind::Menu, status, 0.0, 0.0, true, bright);
                 });
             }

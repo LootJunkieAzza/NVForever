@@ -134,6 +134,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
             let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, 16.0, &widths);
             let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };
             m.spawn(info).with_children(|b| {
+                crate::casino_hud::glass(b, ROW_X, ROWS_Y[0], info_w - ROW_X * 2.0, ROWS_Y[2] - ROWS_Y[0] + 30.0);
                 c.image(b, "interface\\shared\\line\\fade_to_top.dds", at(0.0, 0.0, THICK, FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, FADE - THICK, THICK, INFO.y - FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, info_w - FADE, THICK), bright);
@@ -155,6 +156,10 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
             ];
             let column = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(BUTTONS_TOP), width: u(0.0), height: u(6.0 * BUTTON_H), ..default() };
             m.spawn(column).with_children(|b| {
+                let (lw, hw) = buttons.iter().fold((0.0f32, 0.0f32), |(l, h), (label, hint, _, _)| (l.max(c.text_width(FontKind::Menu, label)), h.max(c.text_width(FontKind::Menu, hint))));
+                if !buttons.is_empty() {
+                    crate::casino_hud::glass(b, -lw, 4.0, lw + HINT_GAP + hw, buttons.len() as f32 * BUTTON_H - 8.0);
+                }
                 for (i, (label, hint, cmd, on)) in buttons.into_iter().enumerate() {
                     let color = if on { bright } else { dim };
                     let y = i as f32 * BUTTON_H;
@@ -168,6 +173,8 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
             if let Some(line) = &s.status {
                 let status = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(STATUS_TOP), width: u(0.0), height: u(40.0), ..default() };
                 m.spawn(status).with_children(|b| {
+                    let w = c.text_width(FontKind::Menu, line);
+                    crate::casino_hud::glass(b, -w, 4.0, w, 30.0);
                     c.text_in(b, FontKind::Menu, line, 0.0, 0.0, true, bright);
                 });
             }

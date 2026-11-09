@@ -501,67 +501,10 @@ impl MenuRow {
     }
 }
 
-/// The card's colours: the HUD's own colour (`interface::amber`, the player's HUD colour
-/// setting) at brightnesses, on a dark glass [design: owner 2026-11-09, "match the colour
-/// of the HUD"].
-const CARD_FILL: Color = Color::srgba(0.02, 0.02, 0.02, 0.82);
-fn card_line() -> Color {
-    amber(255.0).with_alpha(0.55)
-}
-fn card_title() -> Color {
-    amber(255.0)
-}
-fn card_text() -> Color {
-    amber(220.0)
-}
-
 /// A minigame's menu page as one card on the left of the screen, the board or table in the
-/// world to its right: a title, a line under it, the choices (each with its key in a box,
-/// greyed ones dimmed with their note) and small print at the foot. Darts, pool and fillet
+/// world to its right, in the HUD's look (`casino_hud::menu_card`). Darts, pool and fillet
 /// draw every menu page with it, so they look alike [design: owner item 126, "restyle the
-/// menus"].
-pub fn menu_card(p: &mut ChildSpawnerCommands, title: &str, sub: &str, rows: &[MenuRow], foot: &str) {
-    let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
-    p.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Percent(5.0),
-            top: Val::Percent(12.0),
-            width: Val::Percent(38.0),
-            padding: UiRect::axes(Val::Px(22.0), Val::Px(16.0)),
-            border: UiRect::all(Val::Px(2.0)),
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(8.0),
-            ..default()
-        },
-        BackgroundColor(CARD_FILL),
-        BorderColor::all(card_line()),
-    ))
-    .with_children(|c| {
-        c.spawn((Text::new(title), font(34.0), TextColor(card_title())));
-        if !sub.is_empty() {
-            c.spawn((Text::new(sub), font(18.0), TextColor(card_text().with_alpha(0.85))));
-        }
-        c.spawn((Node { height: Val::Px(2.0), margin: UiRect::vertical(Val::Px(4.0)), ..default() }, BackgroundColor(card_line())));
-        for r in rows {
-            let a = if r.on { 1.0 } else { 0.35 };
-            c.spawn(Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: Val::Px(12.0), ..default() }).with_children(|l| {
-                l.spawn((
-                    Node { min_width: Val::Px(54.0), padding: UiRect::axes(Val::Px(6.0), Val::Px(1.0)), border: UiRect::all(Val::Px(1.0)), justify_content: JustifyContent::Center, ..default() },
-                    BorderColor::all(card_line().with_alpha(0.55 * a)),
-                ))
-                .with_children(|k| {
-                    k.spawn((Text::new(r.key.clone()), font(18.0), TextColor(card_title().with_alpha(a))));
-                });
-                l.spawn((Text::new(r.label.clone()), font(22.0), TextColor(card_text().with_alpha(a))));
-                if !r.note.is_empty() {
-                    l.spawn((Text::new(r.note.clone()), font(16.0), TextColor(card_text().with_alpha(0.6 * a.max(0.6)))));
-                }
-            });
-        }
-        if !foot.is_empty() {
-            c.spawn((Node { height: Val::Px(1.0), margin: UiRect::top(Val::Px(4.0)), ..default() }, BackgroundColor(card_line().with_alpha(0.3))));
-            c.spawn((Text::new(foot), font(16.0), TextColor(card_text().with_alpha(0.7))));
-        }
-    });
+/// menus"; owner 2026-11-09, the HUD's font and colour].
+pub fn menu_card(p: &mut ChildSpawnerCommands, f: &crate::casino_hud::CasinoFaces, title: &str, sub: &str, rows: &[MenuRow], foot: &str) {
+    crate::casino_hud::menu_card(p, f, crate::casino_hud::CardText { title, sub, rows, foot });
 }
