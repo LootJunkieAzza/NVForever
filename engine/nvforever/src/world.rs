@@ -1193,7 +1193,8 @@ pub fn spawn_model(
         let phase = if random_anim_start(world, base.form_id) { crate::actors::clip_phase(r) } else { 0.0 };
         stats.refs_random_start += usize::from(phase > 0.0 && rig.idle.is_some());
         let (root, drawn, nodes) = rig.spawn_nodes(commands, parent, Transform::from_matrix(Mat4::from(rt)), &path, phase);
-        commands.entity(root).insert(RefVisual(r));
+        // Its nodes by name, for what follows one (`nvf_play::RefNodes`, ui_attach.rs).
+        commands.entity(root).insert((RefVisual(r), nvf_play::RefNodes { reference: r, nodes: nodes.clone() }));
         for e in &drawn {
             commands.entity(*e).insert(RefVisual(r));
         }

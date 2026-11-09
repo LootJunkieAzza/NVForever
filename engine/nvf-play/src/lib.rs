@@ -231,6 +231,21 @@ pub struct PlayerCamera;
 #[component(immutable, on_insert = hitvol::ref_visual_inserted, on_remove = hitvol::ref_visual_removed)]
 pub struct RefVisual(pub u32);
 
+/// On the root of a reference's own node hierarchy (an animated model spawned with
+/// `nvf_assets::model::Rig::spawn_nodes`: nvforever's doors, containers, activators and
+/// scripted models, [`script_draw`]'s enabled references): the reference and its node
+/// entities by their names as the NIF spells them (the first of a repeated name), for what
+/// follows a named node (AttachUIComponent, nvforever `ui_attach.rs`). Those node entities
+/// carry no `Name` [design: #1835].
+///
+/// Immutable, so whoever indexes it by reference sees every change in its hooks.
+#[derive(Component, Clone, Debug)]
+#[component(immutable)]
+pub struct RefNodes {
+    pub reference: u32,
+    pub nodes: std::collections::HashMap<String, Entity>,
+}
+
 /// Put by nvforever on the entity of every render cell it streams in (its transform is
 /// the cell's origin in game space, under the world root). [`dropped`] spawns the
 /// references the simulation created in that cell as its children, so they come and go

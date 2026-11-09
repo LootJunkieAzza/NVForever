@@ -914,17 +914,20 @@ Implemented consumers and remaining exclusions:
   [design: `ui_more.rs`, `attach`; `tiles/mod.rs`, update] Attachments remain hidden until
   placed. Occlusion, clipping, distance scaling and offscreen behavior are not settled by
   that page. [design: `ui_more.rs`, `place_attachments`; `engine/nvforever/src/ui_attach.rs`,
-  #1835] Each frame, after the animated pose and the camera are worked out, the node (an
-  actor's skeleton node by its exact name, else a `Name`d entity under the reference's
-  drawn model) goes through the player's camera to interface units (960 to the window's
-  height, the view taken to fill the window), and the rect's `x`/`y` (its top left) are
-  put on that point, replacing what the XML wrote; the component centres itself through
-  its children. `visible` is written 1 when it comes on screen and 0 when it leaves.
-  Hidden: behind the camera, nearer than the near plane or past the far plane, the point
-  outside the view's sides, no such node, the reference not drawn (no render entity or
-  its model hidden), no active camera. A rect whose node is on screen draws whole, cut
-  only by the window's edge; there is no occlusion test and no scaling with distance. The
-  drawing shows the new place a frame behind the model.
+  #1835] Each frame, after the animated pose and the camera are worked out, the node (by
+  its exact name: an actor's skeleton node, or a node of the reference's own animated
+  model, `nvf_play::RefNodes`; statics' baked shapes and worn or held models keep none)
+  goes through the player's camera to the HUD's interface units (960 to the window's
+  height divided by NVForever's UI scale, as the HUD is drawn; the view taken to fill the
+  window), and the rect's `x`/`y` (its top left) are put on that point. The XML's own
+  `x`/`y`, expressions included, are taken off when it is attached; the component centres
+  itself through its children. `visible` is written 1 when it comes on screen and 0 when
+  it leaves. Hidden: behind the camera, nearer than the near plane or farther than the
+  camera's far distance (checked on the camera-space depth: Bevy's perspective matrix
+  has no far plane), the point outside the view's sides, no such node, no drawn model
+  that names nodes or that model hidden, no active camera. A rect whose node is on screen
+  draws whole, cut only by the window's edge; there is no occlusion test and no scaling
+  with distance. The drawing shows the new place a frame behind the model.
 - **HudBar live value bindings and conditional visibility** needs its own issue.
   [documented: [ScriptVar](https://geckwiki.com/index.php?title=HudBarSetValueScriptVar),
   [UDF](https://geckwiki.com/index.php?title=HudBarSetValueUDF),
