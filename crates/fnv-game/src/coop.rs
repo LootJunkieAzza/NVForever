@@ -515,7 +515,10 @@ impl Game<'_> {
     /// wait put in [`Game::coop_story_wait`] for the host's screen and the far players'
     /// prompts. Asked when the host's player starts a conversation and when an NPC's
     /// Dialogue package would force-greet it (`fnv_ai`); a script's StartConversation is
-    /// not held (its scene goes on). No gate for a guest's game or a game alone.
+    /// not held (its scene goes on). No gate for a guest's game or a game alone, nor
+    /// while the host chose to go on without the far players ([`Game::coop_go_alone`],
+    /// owner 2026-11-09: "If the guest is far away the host should have a prompt to
+    /// wait").
     pub fn story_gate(&mut self, actor: FormId) -> bool {
         if self.coop_guest || self.coop_actors.is_empty() {
             self.coop_story_wait = None;
@@ -523,7 +526,11 @@ impl Game<'_> {
         }
         let (actor, _) = self.talker(actor);
         let far = self.players_far_from(actor);
-        if far.is_empty() || !self.story_npc(actor) {
+        if far.is_empty() {
+            // Every player near again: the next story NPC waits for them again.
+            self.coop_go_alone = false;
+        }
+        if far.is_empty() || self.coop_go_alone || !self.story_npc(actor) {
             if self.coop_story_wait.as_ref().is_some_and(|w| w.actor == actor) {
                 self.coop_story_wait = None;
             }
@@ -575,6 +582,26 @@ fn dlc_main_quest(edid: &str) -> bool {
     edid.len() > 9 && edid.starts_with("nvdlc0") && edid.as_bytes()[6].is_ascii_digit() && &edid[7..9] == "mq"
 }
 
+/// The quests a compiled script names: the quests in its reference list (SetStage,
+/// StartQuest, a quest variable set or read). A unit without compiled data falls back on
+/// its source, the Editor ID after a SetStage or StartQuest [observed: Honest Hearts' Jed
+/// greeting, line 0x0100F195, starts NVDLC02MQ01 by its reference list; the source scan
+/// alone left Jed out, laptop run story-far 2026-11-09].
+fn unit_quests(data: &GameData, unit: &fnv_script::unit::ScriptUnit) -> Vec<FormId> {
+    if unit.has_scda {
+        return unit
+            .refs
+            .iter()
+            .copied()
+            .filter_map(|r| match r {
+                fnv_script::unit::RefSlot::Form(f) if data.is_quest(FormId(f)) => Some(FormId(f)),
+                _ => None,
+            })
+            .collect();
+    }
+    unit.source.as_deref().map(|src| quests_named(data, src)).unwrap_or_default()
+}
+
 /// The quests a script's source sets a stage of or starts (SetStage, StartQuest), by the
 /// Editor ID after the call.
 fn quests_named(data: &GameData, source: &str) -> Vec<FormId> {
@@ -598,9 +625,7 @@ fn story_speakers(data: &GameData) -> std::collections::HashMap<FormId, Vec<Form
     for info in data.infos.values() {
         let mut quests: Vec<FormId> = info.quest.into_iter().filter(|q| story_quest(data, *q)).collect();
         for u in [info.begin, info.end].into_iter().flatten() {
-            if let Some(src) = data.unit(u).unit.source.as_deref() {
-                quests.extend(quests_named(data, src).into_iter().filter(|q| story_quest(data, *q)));
-            }
+            quests.extend(unit_quests(data, &data.unit(u).unit).into_iter().filter(|q| story_quest(data, *q)));
         }
         if quests.is_empty() {
             continue;

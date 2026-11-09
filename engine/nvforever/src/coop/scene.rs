@@ -133,6 +133,9 @@ pub(super) struct Prompts {
     offered: Option<(u32, f32)>,
     /// A guest's: the owner of the box it showed, while it is open.
     open_box: Option<Option<String>>,
+    /// The host's: the box asking whether to wait for the guests left behind, while it
+    /// is open (its owner), and those guests.
+    host_box: Option<(Option<String>, Vec<u8>)>,
 }
 
 /// How often the host's screen says again whom it waits for, and how soon a guest who
@@ -161,6 +164,7 @@ pub(super) fn story_prompts(
     let Some(rt) = script.rt.as_mut() else { return };
     let g = &mut rt.game;
     if coop.is_host() {
+        host_wait_box(&mut coop, g, &mut state, loading.as_deref());
         let names: Vec<String> = match g.coop_story_wait.as_ref().filter(|w| g.time - w.at <= WAIT_FRESH) {
             Some(w) => w.far.iter().filter_map(|a| g.coop_actors.get(a).cloned()).collect(),
             None => Vec::new(),
@@ -210,7 +214,11 @@ pub(super) fn story_prompts(
         return;
     }
     let name = shown_name(g, FormId(npc)).replace(['"', '|', '%'], "");
-    let line = format!("MessageBoxEx \"The host is waiting to talk to {name}, and you are too far away.|Fast travel to the host|Not now\"");
+    let line = if npc == FormId::PLAYER_REF.0 {
+        "MessageBoxEx \"The host is waiting for you, and you are too far away.|Fast travel to the host|Not now\"".to_string()
+    } else {
+        format!("MessageBoxEx \"The host is waiting to talk to {name}, and you are too far away.|Fast travel to the host|Not now\"")
+    };
     match g.run_source(&line, Default::default()) {
         Ok(_) => {
             info!("co-op: story wait: the host waits to talk to {name}: offered a fast travel to the host");
@@ -219,6 +227,52 @@ pub(super) fn story_prompts(
         Err(e) => warn!("co-op: story wait: no box for the fast travel: {e}"),
     }
     state.offered = Some((npc, now));
+}
+
+/// The host's box after a script's move left guests behind (owner, 2026-11-09: "If the
+/// guest is far away the host should have a prompt to wait"): Wait keeps the story NPCs
+/// held for them and offers each a fast travel to the host; Go without them lets the
+/// host's story NPCs talk until every player is near again (`Game::coop_go_alone`). The
+/// move itself is not held: a script's MoveTo runs in the middle of its script, so the
+/// box comes right after it, once the host's loading screen is down.
+///
+/// Log: `co-op: story wait: the host …`.
+fn host_wait_box(coop: &mut Coop, g: &mut fnv_game::Game, state: &mut Prompts, loading: Option<&Loading>) {
+    if let Some((owner, far)) = state.host_box.clone() {
+        match g.message_box.as_ref() {
+            Some(m) if m.owner == owner => {
+                if let Some(b) = m.pressed {
+                    g.message_box = None;
+                    state.host_box = None;
+                    if b == 0 {
+                        info!("co-op: story wait: the host waits for {}", far.iter().map(|i| format!("player {}", i + 1)).collect::<Vec<_>>().join(", "));
+                        g.coop_go_alone = false;
+                        coop.repl.wait_for = far;
+                    } else {
+                        info!("co-op: story wait: the host goes on without them");
+                        g.coop_go_alone = true;
+                        coop.repl.wait_for.clear();
+                    }
+                }
+            }
+            _ => state.host_box = None,
+        }
+        return;
+    }
+    if coop.repl.left_behind.is_empty() || g.message_box.is_some() || g.in_menu() || g.loading || loading.is_some_and(|l| l.active()) {
+        return;
+    }
+    let far = std::mem::take(&mut coop.repl.left_behind);
+    let names: Vec<String> = far.iter().map(|id| coop.peers.get(id).map(|p| super::label(*id, &p.name)).unwrap_or_else(|| format!("Player {}", id + 1)).replace(['"', '|', '%'], "")).collect();
+    let verb = if names.len() == 1 { "is" } else { "are" };
+    let line = format!("MessageBoxEx \"{} {verb} far away. Wait for them?|Wait|Go without them\"", names.join(", "));
+    match g.run_source(&line, Default::default()) {
+        Ok(_) => {
+            info!("co-op: story wait: the host is asked whether to wait for {}", names.join(", "));
+            state.host_box = Some((g.message_box.as_ref().and_then(|m| m.owner.clone()), far));
+        }
+        Err(e) => warn!("co-op: story wait: no box for the host: {e}"),
+    }
 }
 
 /// A guest's fast travel to the host, beside it, as a scene's pull puts it; refused in
@@ -274,7 +328,7 @@ fn follow_mods(given: &mut HashMap<u32, f32>, host: &[(u32, f32)]) -> (Vec<u32>,
 
 /// Where a guest stands beside the host: [`BESIDE`] units to the host's right (yaw is a
 /// compass bearing: 0 north, +Y; π/2 east, +X).
-fn beside(feet: [f32; 3], yaw: f32) -> [f32; 3] {
+pub(crate) fn beside(feet: [f32; 3], yaw: f32) -> [f32; 3] {
     let right = yaw + std::f32::consts::FRAC_PI_2;
     [feet[0] + right.sin() * BESIDE, feet[1] + right.cos() * BESIDE, feet[2]]
 }
@@ -306,7 +360,17 @@ pub(super) fn share_scene(
                 Some(sim) => nvf_play::script::with_world(rt, sim, |rt| scene_view(&rt.game)),
                 None => scene_view(&rt.game),
             };
-            view.waiting = story_waiting(&rt.game, coop.peers.iter().filter_map(|(id, p)| p.actor.map(|a| (*id, a))));
+            let players: Vec<(u8, FormId)> = coop.peers.iter().filter_map(|(id, p)| p.actor.map(|a| (*id, a))).collect();
+            view.waiting = story_waiting(&rt.game, players.iter().copied());
+            // The guests the host chose to wait for after a script moved it: a wait for
+            // the host's own player until each is near it.
+            if !coop.repl.wait_for.is_empty() {
+                let far = rt.game.players_far_from(FormId::PLAYER_REF);
+                coop.repl.wait_for.retain(|id| players.iter().any(|(i, a)| i == id && far.contains(a)));
+                if view.waiting.is_none() && !coop.repl.wait_for.is_empty() {
+                    view.waiting = Some((FormId::PLAYER_REF.0, coop.repl.wait_for.clone()));
+                }
+            }
             link.set_scene(view);
         }
         return;

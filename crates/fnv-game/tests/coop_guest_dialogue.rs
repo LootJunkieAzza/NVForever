@@ -52,6 +52,12 @@ fn item_call(op: u16, item_slot: u16, count: i32) -> Vec<u8> {
 
 /// A result script of item calls: (opcode, item, count); SCRO 1 the player, then the items.
 fn result(calls: &[(u16, u32, i32)]) -> Vec<Subrecord> {
+    result_naming(calls, &[])
+}
+
+/// As [`result`], with more forms in the reference list after the items (a quest the
+/// script names, as a StartQuest or SetStage call would).
+fn result_naming(calls: &[(u16, u32, i32)], named: &[u32]) -> Vec<Subrecord> {
     let mut refs = vec![FormId::PLAYER_REF.0];
     let mut body = Vec::new();
     for &(op, item, count) in calls {
@@ -64,17 +70,23 @@ fn result(calls: &[(u16, u32, i32)]) -> Vec<Subrecord> {
         };
         body.extend(item_call(op, slot as u16, count));
     }
+    refs.extend(named.iter().filter(|n| !refs.contains(n)).copied().collect::<Vec<_>>());
     unit(0, &body, &[], &refs)
 }
 
 fn info(id: u32, flags: u16, text: &str, choices: &[u32], end: &[(u16, u32, i32)]) -> Vec<u8> {
+    info_naming(id, flags, text, choices, end, &[])
+}
+
+/// As [`info`], its end script naming the forms `named` too.
+fn info_naming(id: u32, flags: u16, text: &str, choices: &[u32], end: &[(u16, u32, i32)], named: &[u32]) -> Vec<u8> {
     let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
     let mut s = vec![sub(b"DATA", vec![0, 0, flags as u8, (flags >> 8) as u8]), sub(b"QSTI", u32b(QC))];
     s.extend([sub(b"TRDT", trdt), sub(b"NAM1", z(text)), sub(b"NAM2", z("")), sub(b"NAM3", z(""))]);
     s.extend(choices.iter().map(|t| sub(b"TCLT", u32b(*t))));
     s.extend(result(&[]));
     s.push(sub(b"NEXT", vec![]));
-    s.extend(result(end));
+    s.extend(result_naming(end, named));
     s.push(sub(b"ANAM", u32b(CASHIER)));
     record(b"INFO", 0, id, &s)
 }
@@ -98,10 +110,24 @@ fn plugin_bytes_as(vendor: bool) -> Vec<u8> {
 /// As [`plugin_bytes_as`], the lines' quest named `quest` (a story quest's Editor ID makes
 /// the cashier a story NPC, `Game::story_npc`).
 fn plugin_bytes_quest(vendor: bool, quest: &str) -> Vec<u8> {
+    plugin_bytes_starting(vendor, quest, None)
+}
+
+/// A second quest (Editor ID `starts`) that the story line's end script names, as Jed's
+/// greeting at Zion starts NVDLC02MQ01 from a line of NVDLC02DialogueCaravanMaster
+/// [observed: HonestHearts.esm INFO 0x0100F195].
+const QS: u32 = 0x901;
+
+fn plugin_bytes_starting(vendor: bool, quest: &str, starts: Option<&str>) -> Vec<u8> {
     let misc = record(b"MISC", 0, CASH, &[sub(b"EDID", z("TestCash")), sub(b"DATA", [1i32.to_le_bytes(), 0f32.to_le_bytes()].concat())]);
     let chip = record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))]);
     let suit = record(b"ARMO", 0, SUIT, &[sub(b"EDID", z("TestSuit")), sub(b"BMDT", [u32s(&[1 << 2]), vec![0; 4]].concat()), sub(b"DATA", [u32s(&[1, 100]), 1f32.to_le_bytes().to_vec()].concat())]);
-    let quest = record(b"QUST", 0, QC, &[sub(b"EDID", z(quest)), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
+    let qust = |id: u32, edid: &str| record(b"QUST", 0, id, &[sub(b"EDID", z(edid)), sub(b"DATA", [vec![1u8, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
+    let mut quest = qust(QC, quest);
+    if let Some(e) = starts {
+        quest.extend(qust(QS, e));
+    }
+    let story_named: &[u32] = if starts.is_some() { &[QS] } else { &[] };
     // The player's base form (0x7), whose reference carries the player's inventory.
     let npc = [record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player"))]), record(b"NPC_", 0, CASHIER, &[sub(b"EDID", z("Cashier"))])].concat();
     let top_level = 2u8;
@@ -118,7 +144,7 @@ fn plugin_bytes_quest(vendor: bool, quest: &str) -> Vec<u8> {
         // A line that leads to the exchange: the guest gets it too.
         topic(T_MENU, "TestMenu", topic_type::TOPIC, exchange_level, info(I_MENU, 0, "How many chips?", &[T_BUY], &[])),
         // A quest line, and a line that only hands chips out (a comp, not an exchange).
-        topic(T_STORY, "TestStory", topic_type::TOPIC, top_level, info(I_STORY, 0, "About the boss", &[], &[])),
+        topic(T_STORY, "TestStory", topic_type::TOPIC, top_level, info_naming(I_STORY, 0, "About the boss", &[], &[(ADD_ITEM, CHIP, 1)], story_named)),
         topic(T_FREE, "TestFree", topic_type::TOPIC, top_level, info(I_FREE, 0, "On the house", &[], &[(ADD_ITEM, CHIP, 50)])),
     ]
     .concat();
@@ -360,6 +386,33 @@ fn a_host_waits_for_every_player_to_talk_to_a_story_npc() {
     // Not a story quest: never held.
     let (talked, wait) = near_story("QCashier", 3000.0);
     assert!(talked && wait.is_none());
+}
+
+/// A line of an ordinary quest whose compiled end script names a story quest makes its
+/// speaker a story NPC: Jed's greeting at Zion (NVDLC02DialogueCaravanMaster) starts
+/// NVDLC02MQ01 [observed: HonestHearts.esm INFO 0x0100F195; laptop run story-far,
+/// 2026-11-09, where the host was greeted with the guest in Goodsprings].
+#[test]
+fn a_line_starting_a_story_quest_makes_a_story_npc() {
+    let f = fixture_of(plugin_bytes_starting(false, "QCashier", Some("NVDLC02MQ01")));
+    let mut g = game(&f, false);
+    let cashier = FormId(CASHIER_REF);
+    let cell = Some(FormId(CELL));
+    g.world.get(cashier).unwrap().cell = cell;
+    let other = g.world.place(FormId::PLAYER_BASE, cell, [3000.0, 0.0, 0.0], [0.0; 3], 1).unwrap();
+    g.coop_actors.insert(other, "P2".into());
+    assert!(g.story_npc(cashier));
+    assert!(g.start_dialogue(cashier, None).is_err());
+    assert_eq!(g.coop_story_wait.as_ref().map(|w| w.far.len()), Some(1));
+    // The host chose to go on without them: the talk starts.
+    g.coop_go_alone = true;
+    assert!(!g.story_gate(cashier));
+    // Every player near again: the choice is over, and the next far wait holds again.
+    g.world.get(other).unwrap().pos = [100.0, 0.0, 0.0];
+    assert!(!g.story_gate(cashier));
+    assert!(!g.coop_go_alone);
+    g.world.get(other).unwrap().pos = [3000.0, 0.0, 0.0];
+    assert!(g.story_gate(cashier));
 }
 
 /// A player alone, and a guest's own game, are never held.

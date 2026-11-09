@@ -1760,6 +1760,10 @@ fn leash(
     // script that moves the host's player (a DLC's start, MoveTo) takes the guests along
     // (`replication`'s Summon).
     let Some((interior, w, feet, yaw)) = coop.repl.summon.take() else { return };
+    // Beside the host, not on it: a guest put on the host's feet pushed the host 40 units
+    // aside, out of Jed's 250-unit greeting at Zion, and the greeting never came
+    // (laptop run story-near 2026-11-09).
+    let feet = scene::beside(feet, yaw);
     let (world, interior) = if interior != 0 { (None, Some(interior)) } else { (Some(w), None) };
     info!("co-op: summoned: to the host at {:?} {:?} {feet:?}", world, interior);
     travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: yaw.to_degrees() }));

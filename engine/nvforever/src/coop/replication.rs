@@ -84,6 +84,12 @@ pub(super) struct Repl {
     /// The host's: where its player stood at the end of the last frame, so a script's move
     /// takes along only the guests that were within sight of it ([`fnv_game::coop::STORY_NEAR`]).
     host_was: Option<(Place, [f32; 3])>,
+    /// The host's: the guests a script's move of the host left behind, for the host's
+    /// prompt (`scene::story_prompts`).
+    pub left_behind: Vec<u8>,
+    /// The host's: the guests the host chose to wait for after such a move (sent as a
+    /// story wait for the host's player itself until each is near).
+    pub wait_for: Vec<u8>,
     // The host's.
     shadows: HashMap<u8, Shadow>,
     /// References to send whole to a guest (a digest differed, or the stream started again).
@@ -423,6 +429,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                     if !near.is_empty() {
                         summons.push((summon, near));
                     }
+                    r.left_behind = far;
                     None
                 }
             })
