@@ -973,9 +973,8 @@ mod tests {
 
     #[test]
     fn the_decoded_textures_stay_within_their_budget_and_go_with_their_tiles() {
-        let mut state = State::default();
         // Room for two 32-byte textures, what nodes hold counted too.
-        state.capacity = 64;
+        let mut state = State { capacity: 64, ..State::default() };
         let texture = || Arc::new(Texels::new(vec![0; 32], 1).unwrap());
         state.frame();
         state.keep("a", texture());
@@ -1037,9 +1036,8 @@ mod tests {
         let bytes = numbered_dds();
         let read = |_: &str| Some(bytes.clone());
         let mut images = Assets::<Image>::default();
-        let mut state = State::default();
         // Room for one 16-byte texture: five bakes of five textures keep at most one.
-        state.capacity = 16;
+        let mut state = State { capacity: 16, ..State::default() };
         let mut handles = Vec::new();
         for (i, &t) in tiles.iter().enumerate() {
             let path = format!("s{i}");
@@ -1110,9 +1108,8 @@ mod tests {
         ui.load_menu(&src, "menus\\t.xml").unwrap();
         let tiles: Vec<TileId> = ["A", "B", "C", "D"].iter().map(|n| ui.find_tile(&format!("T/{n}")).unwrap()).collect();
         let mut images = Assets::<Image>::default();
-        let mut state = State::default();
         // Four 16-byte sources fill it, each named by a kept bake.
-        state.capacity = 64;
+        let mut state = State { capacity: 64, ..State::default() };
         for (i, &t) in tiles.iter().enumerate() {
             state.frame();
             let path = format!("s{i}");
