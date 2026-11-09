@@ -695,3 +695,23 @@ the layer paints, and a layer that paints nothing has no mesh. The picture is th
 screenshots differ from main by less than two runs of main differ from each other.
 [observed] The blended pass took 1.2 → 0.74 ms looking at the town and 1.7 → 0.48 ms
 looking at the ground; the frame took 10.2 → 9.7 ms and 7.6 → 6.4 ms.
+
+[observed 2026-11-08, `tools/profile/campaign.py`, `profile` builds of main at 4eede5348 and
+of this change on it, Ryzen 7 7700X, RTX 3070, Vulkan, enhanced look, with the scenes'
+residents] Frame time a frame, main → with the change:
+
+| scenes | main | with it |
+|---|---|---|
+| 1920 × 1080, the 12 `stand` scenes, mean | 8.47 ms | 7.56 ms (−10.7 %) |
+| 1920 × 1080, Novac in the morning | 10.94 ms | 8.90 ms |
+| 1920 × 1080, Jacobstown (slowest) | 11.02 ms | 9.57 ms |
+| 1920 × 1080, Hoover Dam (the only one not faster) | 7.15 ms | 7.35 ms |
+| 2560 × 1440, Goodsprings at noon, two runs | 10.98, 10.79 ms | 9.68, 9.62 ms |
+| 2560 × 1440, Goodsprings at 19:00, two runs | 10.89, 10.87 ms | 9.71, 9.63 ms |
+| 2560 × 1440, Novac at noon, two runs | 13.80, 13.83 ms | 11.43, 11.25 ms |
+
+Frames of 16 ms or more in Novac at 1440p: 13 and 16 → 0. The 1080p main runs are those made
+for the merged build jobs (#1887, the same main build); the 1440p ones were run interleaved
+with this change. Screenshots of Goodsprings (the town, the ground below the player) and Novac
+against main: bare ground differs by at most 1 of 255 in any channel; the sky and grass
+differ as much as two runs of main do (clouds drift and grass sways with time since start).
