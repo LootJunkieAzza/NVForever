@@ -2106,6 +2106,7 @@ pub(crate) fn run_scripts(
                         loading_menu = false;
                     }
                     screen.arriving = door;
+                    screen.level_view = !door;
                     travel.write(TravelRequest(t));
                 }
             }

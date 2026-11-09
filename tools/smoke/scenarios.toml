@@ -19370,3 +19370,25 @@ order = [[
   { text = "NVDLC02WhiteLegsTribalMQ01EREF enabled", label = "hosting: then E" },
 ]]
 forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "hosting: the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "hh-slideshow-to-ambush-lobby"
+source = "overnight queue items 116/117 (owner 2026-11-09, hosting: after the intro slideshow and NVDLC02MQ00 100's travel into Zion, Jed never greeted and the controls stayed locked; the owner's way on was `SetStage NVDLC02MQ01 5`). The whole way in one run: Jed's talk in Northern Passage (the owner's choices), the slideshow (HonestHearts.esm SCPT 0101082B/01010136), stage 100 moving everyone into Zion, the arrival box's force greet (SCPT 01010006, iJedConvo 1 after 2 s), Jed's Pt2 lines setting NVDLC02MQ01 5 and the controls, then the walk and the ambush [observed: owner log nvforever-20261109-024220-48712]"
+note = "Honest Hearts with FalloutNV.esm only, hosting a lobby on port 27996 with no guest; the player starts in NorthernPassageINT beside Jed, the talk aid talks to him at 12 s, and answers every conversation a script starts after that; the slideshow plays out (about 145 s). Real keyboard or mouse input reaching the window moves the player into the canyon triggers: rerun without touching the window"
+areas = ["dialogue", "scripts", "ai", "coop"]
+paths = ["crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/coop/scene.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009E7C", NVF_PLAY_TEST_TALK = "12:NVDLC02JedREF=Zion here we come|I'm ready|Yes, I'm sure;0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--cell", "NorthernPassageINT", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all", "--host", "27996"]
+run_seconds = 420
+expect = [{ re = 'co-op: hosting on UDP port 27996', label = "hosting: the lobby is open" }]
+order = [[
+  { text = "made: \"Yes, I'm sure.\"", label = "Jed's last question answered" },
+  { text = "player entered trigger NVDLC02SlideShowTriggerREF", label = "the slideshow starts" },
+  { text = "NVDLC02MQ00 stage 100 set", label = "the slideshow ends: everyone into Zion" },
+  { re = 'NVDLC02JedREF: says line 0x0100A10F .*NVDLC02JedForceGreet', label = "Jed greets (the arrival box's force greet)" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "Arrival at Zion starts without the console" },
+  { text = "player controls: all enabled", label = "the controls come back" },
+  { text = "NVDLC02MQ01 stage 10 set", label = "the ambush" },
+  { re = '0x01009E7C died', label = "Jed dies in the ambush" },
+]]
+forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
