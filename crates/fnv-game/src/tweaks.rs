@@ -191,6 +191,25 @@ pub struct Tweaks {
     pub no_caps_added_message: bool,
     /// `bSubtitlesShowActorNames`: general subtitles name the speaker.
     pub subtitle_names: bool,
+    // ---- batch 17: menus ----
+    /// `bDialogueKeepVoiceActingNotes`: spoken lines keep their {acting notes}.
+    pub keep_acting_notes: bool,
+    /// `bHideCompletedQuests`: the Pip-Boy lists only quests under way.
+    pub hide_completed_quests: bool,
+    /// `bHideMapMarkerFactionReputation`: no reputation line under map markers.
+    pub hide_marker_reputation: bool,
+    /// `bDisableShowQuestLocation`: no Show Location button on the quests page.
+    pub no_show_quest_location: bool,
+    /// `bHideRanksInTraitMenu`: no Ranks line in the trait menu.
+    pub hide_trait_ranks: bool,
+    /// `bHideQuestItemWeightAndValue`: quest items and keys show no weight or value.
+    pub hide_quest_item_figures: bool,
+    /// `bIndividialItemStats`: a stack shows one item's weight and value.
+    pub single_item_figures: bool,
+    /// `bShowAlternateAmmoTypesAvailableInMenus`: a `+` when other ammo is carried.
+    pub mark_other_ammo: bool,
+    /// `bReputationShowsFameInfamy`: reputations show their fame and infamy.
+    pub show_fame_infamy: bool,
 }
 
 impl Default for Tweaks {
@@ -269,6 +288,15 @@ impl Default for Tweaks {
             mark_unspoken: false,
             no_caps_added_message: false,
             subtitle_names: false,
+            keep_acting_notes: false,
+            hide_completed_quests: false,
+            hide_marker_reputation: false,
+            no_show_quest_location: false,
+            hide_trait_ranks: false,
+            hide_quest_item_figures: false,
+            single_item_figures: false,
+            mark_other_ammo: false,
+            show_fame_infamy: false,
         }
     }
 }

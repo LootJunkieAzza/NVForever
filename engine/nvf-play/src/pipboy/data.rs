@@ -697,7 +697,8 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
     out.quests = g
         .quests
         .iter()
-        .filter(|(q, s)| listed(g, **q, s))
+        // The player's tweak lists only quests under way [design: docs/design/tweaks.md].
+        .filter(|(q, s)| listed(g, **q, s) && !(g.tweaks.hide_completed_quests && (s.completed || s.failed)))
         .map(|(q, s)| QuestKey { seen: st.seen.get(&q.0).copied().unwrap_or(st.seen_count + 1), form: q.0, done: s.completed || s.failed })
         .collect();
     model::sort_quests(&mut out.quests);
@@ -1085,7 +1086,8 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::Map(if tab == WORLD { world_map(st, game, pointer) } else { local_map(st, game, pointer) })
         }
         QUESTS => {
-            if !l.quests.is_empty() {
+            // The player's tweak drops Show Location [design: docs/design/tweaks.md].
+            if !l.quests.is_empty() && !game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_show_quest_location) {
                 buttons.push(Button { text: super::labels::label("sShowLocation", "Show Location").into(), key: None, kind: ButtonKind::ShowLocation });
             }
             let rows = l
@@ -1285,7 +1287,9 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(projection.uv(mk.pos[0], mk.pos[1])) });
         names.push(mk.name.clone());
         forms.push(mk.form);
-        details.push(mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
+        // The player's tweak leaves the reputation line out [design: docs/design/tweaks.md].
+        let rep_off = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.hide_marker_reputation);
+        details.push(mk.reputation.as_ref().filter(|_| !rep_off).map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
     }
     let mut quests = Vec::new();
     for t in quest_targets(st, game).into_iter().filter(|t| t.interior.is_none()) {

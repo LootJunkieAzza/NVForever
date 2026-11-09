@@ -169,6 +169,18 @@ pub struct TweakSettings {
     pub no_xp_meter_in_combat: bool,
     /// `bDisableHUDCrippledLimbIndicator`: no crippled-limb figure on the HUD.
     pub no_limb_indicator: bool,
+    /// `bContainerTakeAllDoesntCloseMenu`: Take All leaves the container open.
+    pub take_all_stays: bool,
+    /// `bHideEquippedItemsInBarter`: equipped items are not offered in barter.
+    pub hide_equipped_barter: bool,
+    /// `bHideEquippedItemsInContainers`: equipped items are not listed in containers.
+    pub hide_equipped_containers: bool,
+    /// `bNoCapitaliseContainerCategories`: category titles in title case.
+    pub title_case_categories: bool,
+    /// `bDisableInventoryRightClickDrop`: a right click in the inventory does not drop.
+    pub no_right_click_drop: bool,
+    /// `bPreventNoFastTravelMessage`: an undiscovered marker refuses travel quietly.
+    pub quiet_undiscovered: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -272,6 +284,12 @@ impl Default for TweakSettings {
             sneak_label_standing: false,
             no_xp_meter_in_combat: false,
             no_limb_indicator: false,
+            take_all_stays: false,
+            hide_equipped_barter: false,
+            hide_equipped_containers: false,
+            title_case_categories: false,
+            no_right_click_drop: false,
+            quiet_undiscovered: false,
         }
     }
 }
@@ -773,6 +791,22 @@ impl Plugin for TweaksPlugin {
         switch!(app, "sneak-label-standing", "Sneak Label While Standing", "The Hidden / Detected label shows while standing too. (Stewie's Tweaks bShowSneakLabelWhileStanding)", sneak_label_standing);
         switch!(app, "no-xp-meter-combat", "No XP Meter in Combat", "Experience gained in a fight shows once it is over, all together. (Stewie's Tweaks bNoXPBarInCombat)", no_xp_meter_in_combat);
         switch!(app, "no-limb-indicator", "No Crippled Limb Figure", "The crippled-limb figure stays off the HUD. (Stewie's Tweaks bDisableHUDCrippledLimbIndicator)", no_limb_indicator);
+        // ---- batch 17: menus ----
+        switch!(app, "keep-acting-notes", "Keep Acting Notes", "Spoken lines keep their {acting notes} in the subtitles. (Stewie's Tweaks bDialogueKeepVoiceActingNotes)", game.keep_acting_notes);
+        switch!(app, "hide-completed-quests", "Hide Finished Quests", "The Pip-Boy lists only quests under way. (Stewie's Tweaks bHideCompletedQuests)", game.hide_completed_quests);
+        switch!(app, "hide-marker-reputation", "No Reputation on Map Markers", "Map markers show no reputation line. (Stewie's Tweaks bHideMapMarkerFactionReputation)", game.hide_marker_reputation);
+        switch!(app, "no-show-quest-location", "No Show Location", "The quests page has no Show Location button. (Stewie's Tweaks bDisableShowQuestLocation)", game.no_show_quest_location);
+        switch!(app, "hide-trait-ranks", "No Ranks for Traits", "The trait menu shows no Ranks line. (Stewie's Tweaks bHideRanksInTraitMenu)", game.hide_trait_ranks);
+        switch!(app, "hide-quest-item-figures", "No Figures for Quest Items", "Quest items and keys show no weight or value in the Pip-Boy. (Stewie's Tweaks bHideQuestItemWeightAndValue)", game.hide_quest_item_figures);
+        switch!(app, "single-item-figures", "One Item's Figures", "A stack shows one item's weight and value in the Pip-Boy. (Stewie's Tweaks bIndividialItemStats)", game.single_item_figures);
+        switch!(app, "mark-other-ammo", "Mark Other Ammo", "A weapon's ammo line ends with + when another ammo it takes is carried. (Stewie's Tweaks bShowAlternateAmmoTypesAvailableInMenus)", game.mark_other_ammo);
+        switch!(app, "show-fame-infamy", "Show Fame and Infamy", "Reputations show their fame and infamy. (Stewie's Tweaks bReputationShowsFameInfamy)", game.show_fame_infamy);
+        switch!(app, "take-all-stays", "Take All Stays Open", "Take All leaves the container open. (Stewie's Tweaks bContainerTakeAllDoesntCloseMenu)", take_all_stays);
+        switch!(app, "hide-equipped-barter", "Hide Worn Items in Barter", "Equipped items are not offered in barter. (Stewie's Tweaks bHideEquippedItemsInBarter)", hide_equipped_barter);
+        switch!(app, "hide-equipped-containers", "Hide Worn Items in Containers", "Equipped items are not listed on the player's side of a container. (Stewie's Tweaks bHideEquippedItemsInContainers)", hide_equipped_containers);
+        switch!(app, "title-case-categories", "Quiet Category Titles", "Container category titles in title case, not capitals. (Stewie's Tweaks bNoCapitaliseContainerCategories)", title_case_categories);
+        switch!(app, "no-right-click-drop", "No Right-Click Drop", "A right click in the Pip-Boy inventory does not drop the item. (Stewie's Tweaks bDisableInventoryRightClickDrop)", no_right_click_drop);
+        switch!(app, "quiet-undiscovered", "Quiet Undiscovered Markers", "Clicking an undiscovered map marker puts up no box. (Stewie's Tweaks bPreventNoFastTravelMessage)", quiet_undiscovered);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -847,6 +881,10 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if m.hide_misc_quest != tweaks.hide_misc_quest {
             m.hide_misc_quest = tweaks.hide_misc_quest;
+        }
+        let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
+        if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {
+            (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) = menu;
         }
     }
     if let Some(mut c) = console {

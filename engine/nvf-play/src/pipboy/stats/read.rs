@@ -297,7 +297,9 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             let scale = g.data.reputations.get(&rep).copied().unwrap_or(0.0) as f64;
             let t = forms.text(rep.0).clone();
             let title = model::reputation_title(gf::reputation_level(fame, scale), gf::reputation_level(infamy, scale));
-            standings.push(Standing { form: rep, name: t.name, title, fame, infamy, icon: t.icon });
+            // The player's tweak shows fame and infamy [design: docs/design/tweaks.md].
+            let name = if g.tweaks.show_fame_infamy { format!("{} (fame {fame:.0}, infamy {infamy:.0})", t.name) } else { t.name };
+            standings.push(Standing { form: rep, name, title, fame, infamy, icon: t.icon });
         }
         standings.sort_by(|a, b| a.name.cmp(&b.name));
         s.standings = standings;

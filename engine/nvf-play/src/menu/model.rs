@@ -720,6 +720,13 @@ pub struct MenuModel {
     pub vendor_lists_both: bool,
     /// The Pip-Boy's Misc list leaves quest items out (the tweak, set by `crate::tweaks`).
     pub hide_misc_quest: bool,
+    /// The player's menu tweaks, set by `crate::tweaks`: Take All leaves the menu open;
+    /// equipped items are left out of the player's side in barter and containers;
+    /// category titles in title case.
+    pub take_all_stays: bool,
+    pub hide_equipped_barter: bool,
+    pub hide_equipped_containers: bool,
+    pub title_case_categories: bool,
     /// The player's encumbrance, or why it is unknown.
     pub encumbrance: Result<Encumbrance, String>,
     /// Heading: the container's or merchant's name, or "Inventory".
@@ -890,6 +897,10 @@ impl MenuModel {
             no_selling: false,
             vendor_lists_both: false,
             hide_misc_quest: false,
+            take_all_stays: false,
+            hide_equipped_barter: false,
+            hide_equipped_containers: false,
+            title_case_categories: false,
             encumbrance: Err(String::new()),
             title,
             status: None,
@@ -957,6 +968,10 @@ impl MenuModel {
                 if side == Side::Container && self.steal.as_ref().is_some_and(|s| !s.worn) {
                     l.rows.retain(|r| !r.equipped);
                 }
+                // The player's tweak keeps worn things out of a container's exchange [design: docs/design/tweaks.md].
+                if side == Side::Player && self.hide_equipped_containers && matches!(self.mode, Mode::Container(_)) {
+                    l.rows.retain(|r| !r.equipped);
+                }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
                     // The player's tweak leaves quest items out of Misc [design: docs/design/tweaks.md].
                     if self.hide_misc_quest {
@@ -982,6 +997,7 @@ impl MenuModel {
     /// side put up; prices; the caps on each side and the trade's balance.
     fn refresh_trade(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
         let both_sides = self.vendor_lists_both;
+        let hide_equipped = self.hide_equipped_barter;
         let Some(t) = self.trade.as_mut() else { return Ok(()) };
         let mut own: [Vec<Row>; 2] = [Vec::new(), Vec::new()];
         let mut weights = [0.0; 2];
@@ -996,7 +1012,7 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                .filter(|r| r.item != t.caps && !r.quest)
+                .filter(|r| r.item != t.caps && !r.quest && !(side == Side::Player && hide_equipped && r.equipped))
                 .filter(|r| {
                     // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
                     let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();
@@ -1328,8 +1344,9 @@ impl MenuModel {
                     }
                 }
                 out.changed = !moved.is_empty();
-                // Taking everything closes the menu (owner, list 5 item 60).
-                out.close = out.changed;
+                // Taking everything closes the menu (owner, list 5 item 60), unless the
+                // player's tweak keeps it open [design: docs/design/tweaks.md].
+                out.close = out.changed && !self.take_all_stays;
                 let n: i64 = moved.iter().map(|m| m.1 as i64).sum();
                 out.taken.clone_from(&moved);
                 Ok(if moved.is_empty() { "Nothing to take".into() } else { format!("Took everything ({n} items)") })

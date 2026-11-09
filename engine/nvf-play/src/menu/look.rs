@@ -155,11 +155,21 @@ fn first_line(font: &Font, s: &str) -> Line {
 /// other categories is not observed].
 pub fn half_title(m: &MenuModel, side: Side) -> String {
     let c = m.category[side as usize];
+    // The player's tweak: "Weapons", not "WEAPONS" [design: docs/design/tweaks.md].
+    let title = |t: &str| if m.title_case_categories { title_case(t) } else { t.to_string() };
     match side {
-        Side::Player => c.title().into(),
+        Side::Player => title(c.title()),
         Side::Container if c == Category::All => m.title.clone(),
-        Side::Container => c.title().into(),
+        Side::Container => title(c.title()),
     }
+}
+
+/// `WEAPONS` as `Weapons`: each word's first letter kept, the rest lower case.
+fn title_case(t: &str) -> String {
+    t.split(' ').map(|w| {
+        let mut c = w.chars();
+        c.next().map_or_else(String::new, |f| f.to_string() + &c.as_str().to_lowercase())
+    }).collect::<Vec<_>>().join(" ")
 }
 
 /// A row's text: the name, and the count when there is more than one [observed].

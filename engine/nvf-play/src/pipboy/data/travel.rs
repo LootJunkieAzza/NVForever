@@ -289,6 +289,11 @@ pub fn answer(
         crippled_leg: tw.no_travel_crippled_leg && limbs.as_ref().is_some_and(|l| l.limping()),
     };
     tweak_checks(&mut checks, &tw);
+    // The player's tweak: an undiscovered marker refuses quietly [design: docs/design/tweaks.md].
+    if tw.quiet_undiscovered && refusal(&checks) == Some(Refusal::Undiscovered) {
+        info!("fast travel: to {} refused quietly (undiscovered, tweak)", FormId(marker));
+        return;
+    }
     st.popup = Some(match refusal(&checks) {
         Some(r) => {
             let text = setting_str(&sim, r.setting()).unwrap_or_else(|| r.own_text().to_string());

@@ -268,6 +268,26 @@ saves load, and the frame's sync sets them from the settings again.
 | No XP Meter in Combat | `bNoXPBarInCombat` | `xp_meter::watch` |
 | No Crippled Limb Figure | `bDisableHUDCrippledLimbIndicator` | `hud_limbs::watch` |
 
+## Seventeenth batch (2026-11-09, menus)
+
+| Row | INI key | Where |
+|---|---|---|
+| Keep Acting Notes | `bDialogueKeepVoiceActingNotes` | `dialogue` spoken line text |
+| Hide Finished Quests | `bHideCompletedQuests` | `pipboy::data::lists` |
+| No Reputation on Map Markers | `bHideMapMarkerFactionReputation` | `pipboy::data::world_map` |
+| No Show Location | `bDisableShowQuestLocation` | `pipboy::data::build` |
+| No Ranks for Traits | `bHideRanksInTraitMenu` | `chargen::lists` trait info |
+| No Figures for Quest Items | `bHideQuestItemWeightAndValue` | `pipboy::items::info_of` |
+| One Item's Figures | `bIndividialItemStats` | `pipboy::items::info_of` |
+| Mark Other Ammo | `bShowAlternateAmmoTypesAvailableInMenus` | `pipboy::items::info_of` |
+| Show Fame and Infamy | `bReputationShowsFameInfamy` | `pipboy::stats::read` standings |
+| Take All Stays Open | `bContainerTakeAllDoesntCloseMenu` | `MenuModel` Take All (`take_all_stays`) |
+| Hide Worn Items in Barter | `bHideEquippedItemsInBarter` | `MenuModel::refresh_trade` |
+| Hide Worn Items in Containers | `bHideEquippedItemsInContainers` | `MenuModel` list refresh |
+| Quiet Category Titles | `bNoCapitaliseContainerCategories` | `menu::look::half_title` |
+| No Right-Click Drop | `bDisableInventoryRightClickDrop` | `pipboy::items::on_row_click` |
+| Quiet Undiscovered Markers | `bPreventNoFastTravelMessage` | `travel::answer` |
+
 Menu tweaks that code holding the game reads (the Pip-Boy's item info, crafting, the
 level-up menu, the terminal's timers) are kept in `fnv_game::tweaks` too, so no system
 needs another parameter; the catalogue's notes say where NVForever already does what a
@@ -284,8 +304,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 223 |
-| to do | 380 |
+| done | 242 |
+| to do | 361 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -702,11 +722,30 @@ game's Data folder, read-only).
 | `bAddInventoryDropItemHotkey` | done |  |  | Q Drops Items |
 | `bAllowRebindNumkeys` | done |  |  | already so: the hotkeys and the D-pad are on the Controls tab |
 | `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
+| `bContainerTakeAllDoesntCloseMenu` | done |  |  | Take All Stays Open |
+| `bDialogueKeepVoiceActingNotes` | done |  |  | Keep Acting Notes (spoken lines; topics as before) |
+| `bDisableInventoryRightClickDrop` | done |  |  | No Right-Click Drop |
 | `bDisableLoadingScreenTips` | done |  |  | No Loading Tips |
+| `bDisableShowQuestLocation` | done |  |  | No Show Location |
+| `bHideCompletedQuests` | done |  |  | Hide Finished Quests |
+| `bHideEquippedItemsInBarter` | done |  |  | Hide Worn Items in Barter |
+| `bHideEquippedItemsInContainers` | done |  |  | Hide Worn Items in Containers |
+| `bHideMapMarkerFactionReputation` | done |  |  | No Reputation on Map Markers |
+| `bHideQuestItemWeightAndValue` | done |  |  | No Figures for Quest Items |
+| `bHideRanksInTraitMenu` | done |  |  | No Ranks for Traits |
+| `bHideUnavailableRadios` | done |  |  | already so: the Pip-Boy lists only stations in range |
+| `bIndividialItemStats` | done |  |  | One Item's Figures (the Pip-Boy; containers already show one) |
+| `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
+| `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
+| `bNoCapitaliseContainerCategories` | done |  |  | Quiet Category Titles |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
 | `bNoExitHacking` | done |  | 1 | No Leaving a Hack (the fail-on-exit option not built) |
+| `bPauseHolotapes` | done |  | 1 | already so for pausing: picking the playing holotape pauses it (reset and dialogue options not built) |
+| `bPreventNoFastTravelMessage` | done |  | 1 | Quiet Undiscovered Markers (the sound option not built) |
+| `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
+| `bShowAlternateAmmoTypesAvailableInMenus` | done |  |  | Mark Other Ammo |
 | `bBarterShowCapsChange` | to do | yes | 1 | half_figure has no settings to read; pass the tweak in |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bColorRecentlyAddedMapMarkers` | to do | yes |  | needs a per-session found set (newly_found is drained by the compass) |
@@ -727,64 +766,45 @@ game's Data folder, read-only).
 | `bBarterQuantityMenuShowsPrice` | to do |  |  | the quantity box has no price |
 | `bBetterMapZoom` | to do |  |  | pipboy data take_input zoom around the pointer |
 | `bBlackJackTotalDisplay` | to do |  |  | blackjack screen rows |
-| `bClickingActiveTabTogglesSorting` | to do |  |  |  |
-| `bCompanionsUseLocationFontOnMap` | to do |  |  |  |
-| `bCompareArmorStats` | to do |  |  |  |
-| `bCompareWeaponStats` | to do |  |  |  |
-| `bContainerEncumbranceIndicator` | to do |  |  |  |
-| `bContainerMenuStoreAllHotkey` | to do |  | 1 |  |
-| `bContainerQuantityMenuShowsWeight` | to do |  |  |  |
-| `bContainersShowEquippedAmmo` | to do |  |  |  |
-| `bContainerTakeAllDoesntCloseMenu` | to do |  |  |  |
-| `bControllerBackButtonDoesntClosePipBoy` | to do |  |  |  |
-| `bCustomHackingAnswerLength` | to do |  | 8 |  |
-| `bCustomPopupIcons` | to do |  | 17 |  |
-| `bDialogueKeepVoiceActingNotes` | to do |  |  |  |
-| `bDisableInventoryRightClickDrop` | to do |  |  |  |
-| `bDisableShowQuestLocation` | to do |  |  |  |
-| `bEmboldenTagSkills` | to do |  |  |  |
-| `bHideCompletedQuests` | to do |  |  |  |
-| `bHideCursorInMessageMenu` | to do |  |  |  |
-| `bHideEquippedItemsInBarter` | to do |  |  |  |
-| `bHideEquippedItemsInContainers` | to do |  |  |  |
-| `bHideHotkeyedItemsInBarter` | to do |  |  |  |
-| `bHideHotkeyedItemsInContainers` | to do |  |  |  |
-| `bHideHotkeyedItemsInRepairLists` | to do |  |  |  |
-| `bHideMapMarkerFactionReputation` | to do |  |  |  |
-| `bHideQuestItemWeightAndValue` | to do |  |  |  |
-| `bHideRanksInTraitMenu` | to do |  |  |  |
-| `bHideReadNotes` | to do |  |  |  |
-| `bHideReputationTabIfEmpty` | to do |  |  |  |
-| `bHideUnavailableRadios` | to do |  |  |  |
-| `bIndividialItemStats` | to do |  |  |  |
-| `bInteriorExteriorMapDoorIcon` | to do |  |  |  |
-| `bInvertContainerTitleScrollwheelDirection` | to do |  |  |  |
-| `bInvertPipboyRepairMenuSorting` | to do |  |  |  |
-| `bKarmaTitleShowsValue` | to do |  |  |  |
-| `bKeyRepeatAcceleration` | to do |  | 4 |  |
-| `bLocalMapRespawnedCellIndicator` | to do |  | 2 |  |
-| `bLockPickMenuKeyboardMovement` | to do |  | 3 |  |
-| `bMapLocationDisplayDistance` | to do |  | 3 |  |
-| `bMapMarkersShowFactionName` | to do |  | 1 |  |
-| `bMapRecenterHotkey` | to do |  | 2 |  |
+| `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
+| `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
+| `bCompareArmorStats` | to do |  |  | needs the worn pieces of the same slots summed |
+| `bCompareWeaponStats` | to do |  |  | pipboy items info_of with the equipped weapon |
+| `bContainerEncumbranceIndicator` | to do |  |  | menu look half figure in red |
+| `bContainerMenuStoreAllHotkey` | to do |  | 1 | a Store All command |
+| `bContainerQuantityMenuShowsWeight` | to do |  |  | the quantity box has no weight |
+| `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
+| `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | pipboy close_keys with the pad East button |
+| `bCustomHackingAnswerLength` | to do |  | 8 | Difficulty::word_lengths and the perk |
+| `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
+| `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
+| `bHideCursorInMessageMenu` | to do |  |  | player::grab_cursor with the message panel |
+| `bHideHotkeyedItemsInBarter` | to do |  |  | the menu model has no hotkey view |
+| `bHideHotkeyedItemsInContainers` | to do |  |  | the menu model has no hotkey view |
+| `bHideHotkeyedItemsInRepairLists` | to do |  |  | repair offer has no hotkeys |
+| `bHideReadNotes` | to do |  |  | data lists with note_read; the shown note marks itself read |
+| `bHideReputationTabIfEmpty` | to do |  |  | stats view and switch; the flag on Snapshot |
+| `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
+| `bInvertContainerTitleScrollwheelDirection` | to do |  |  | menu_mouse wheel over a title |
+| `bInvertPipboyRepairMenuSorting` | to do |  |  | repair offer sort with a bool |
+| `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
+| `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
+| `bLockPickMenuKeyboardMovement` | to do |  | 3 | lockpick keys and torque_held |
+| `bMapLocationDisplayDistance` | to do |  | 3 | world_map detail line |
+| `bMapRecenterHotkey` | to do |  | 2 | pipboy data take_input |
 | `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
-| `bMarkNotesUnread` | to do |  |  |  |
-| `bMoreDetailedStatsMenu` | to do |  | 1 |  |
-| `bNoCapitaliseContainerCategories` | to do |  |  |  |
+| `bMarkNotesUnread` | to do |  |  | a right click calling SetNoteRead 0 |
+| `bMoreDetailedStatsMenu` | to do |  | 1 | stats read value and cap |
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
-| `bNoPlaceMarkerPopup` | to do |  | 2 |  |
+| `bNoPlaceMarkerPopup` | to do |  | 2 | not built: no custom markers |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
-| `bPauseHolotapes` | to do |  | 1 |  |
-| `bPreventNoFastTravelMessage` | to do |  | 1 |  |
-| `bPreviewPerksOnLevelUp` | to do |  |  |  |
-| `bQuantityMenuRespectsCompanionCarryCap` | to do |  |  |  |
-| `bQuestTextVisibleInMenus` | to do |  |  |  |
-| `bRepairAllConfirmation` | to do |  | 2 |  |
-| `bRepairItemsPreview` | to do |  | 1 |  |
-| `bReputationShowsFameInfamy` | to do |  | 3 |  |
-| `bRightClickChangesToPreviousContainerCategory` | to do |  |  |  |
-| `bShowActiveQuestNotesShowsAllStartedQuests` | to do |  |  |  |
-| `bShowAlternateAmmoTypesAvailableInMenus` | to do |  |  |  |
+| `bPreviewPerksOnLevelUp` | to do |  |  | a count-0 perk sheet |
+| `bQuantityMenuRespectsCompanionCarryCap` | to do |  |  | asks_quantity has no world |
+| `bQuestTextVisibleInMenus` | to do |  |  | quest_messages held; check what draws over the Pip-Boy |
+| `bRepairAllConfirmation` | to do |  | 2 | a confirmation box in repair |
+| `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
+| `bRightClickChangesToPreviousContainerCategory` | to do |  |  | menu_mouse right click over a title |
+| `bShowActiveQuestNotesShowsAllStartedQuests` | to do |  |  | data lists notes_of_active |
 | `bShowBarterTotalWhenOverSellLimit` | to do |  |  |  |
 | `bShowCaravanCardsInMiscTabs` | to do |  |  |  |
 | `bShowCurrencyInContainers` | to do |  |  |  |

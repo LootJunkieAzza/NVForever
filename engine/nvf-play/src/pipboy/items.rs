@@ -227,15 +227,17 @@ fn figure(v: f32, decimals: bool) -> Option<String> {
 /// scripts' game.
 pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimState, forms: Option<&mut super::stats::read::Forms>, mut script: Option<&mut crate::script::ScriptState>) -> Info {
     use fnv_sim::forms::ItemKind;
-    let n = r.count.max(1) as f32;
+    let tweaks = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.tweaks.clone()).unwrap_or_default();
+    // The player's tweaks: one item's figures, and none for quest items and keys [design: docs/design/tweaks.md].
+    let n = if tweaks.single_item_figures { 1.0 } else { r.count.max(1) as f32 };
+    let hidden = tweaks.hide_quest_item_figures && (r.quest || r.kind == Some(ItemKind::Key));
     let mut i = Info {
-        weight: r.weight.and_then(|w| figure(w * n, true)),
-        value: r.value.and_then(|v| figure(v as f32 * n, false)),
+        weight: r.weight.filter(|_| !hidden).and_then(|w| figure(w * n, true)),
+        value: r.value.filter(|_| !hidden).and_then(|v| figure(v as f32 * n, false)),
         condition: r.condition.filter(|_| matches!(r.kind, Some(ItemKind::Weapon | ItemKind::Armor))),
         ..Info::default()
     };
     let cf = combat.map(|c| &c.forms);
-    let tweaks = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.tweaks.clone()).unwrap_or_default();
     match r.kind {
         Some(ItemKind::Weapon) => {
             if let Some(w) = cf.and_then(|f| f.weapons.get(&r.item)).map(|w| w.modded(r.mods)) {
@@ -264,7 +266,9 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                     let clip = (w.clip_size as i32).min(count).max(0);
                     // The player's tweak: rounds a shot when more than one [design: docs/design/tweaks.md].
                     let per_shot = if tweaks.show_weapon_ammo_use && w.ammo_use > 1 { format!(" x{}", w.ammo_use) } else { String::new() };
-                    i.beside = Some(format!("{name}{per_shot} ({clip}/{count})"));
+                    // The player's tweak marks other ammo carried [design: docs/design/tweaks.md].
+                    let other = if tweaks.mark_other_ammo && carried.iter().filter(|n| **n > 0).count() > 1 { "+" } else { "" };
+                    i.beside = Some(format!("{name}{per_shot} ({clip}/{count}){other}"));
                 }
             }
         }
@@ -410,9 +414,11 @@ fn on_row_click(
     mut out: MessageWriter<MenuInput>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
-    let deselect = tweaks.is_some_and(|t| t.deselect_hotkeys);
+    let deselect = tweaks.as_ref().is_some_and(|t| t.deselect_hotkeys);
+    // The player's tweak: a right click does not drop [design: docs/design/tweaks.md].
+    let no_right_drop = tweaks.as_ref().is_some_and(|t| t.no_right_click_drop);
     let Ok(r) = rows.get(click.entity) else { return };
-    if click.button == PointerButton::Secondary {
+    if click.button == PointerButton::Secondary && !no_right_drop {
         if hold.slot.is_none() {
             let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
             out.write(MenuInput(Command::Hover(Side::Player, r.0)));

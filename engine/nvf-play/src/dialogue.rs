@@ -293,7 +293,8 @@ fn response_text(g: &Game) -> Option<String> {
     let l = c.line.as_ref()?;
     let def = g.data.infos.get(&l.info)?;
     let r = *def.response_order().get(l.response)?;
-    let text = shown_text(&g.expand_codes(&def.responses[r].text));
+    // The player's tweak keeps the acting notes [design: docs/design/tweaks.md].
+    let text = if g.tweaks.keep_acting_notes { g.expand_codes(&def.responses[r].text).trim().to_string() } else { shown_text(&g.expand_codes(&def.responses[r].text)) };
     (!text.is_empty()).then_some(text)
 }
 
