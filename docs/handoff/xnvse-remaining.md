@@ -158,12 +158,18 @@ yield timer, viewmodel clip, NiLOD and save switches, UI update sounds, reputati
 marker icons, barter hiding, the queued cinematic and objective texts, TogglePipBoy, the
 engine requests, HSVtoRGB and RGBtoHSV into script variables, GetJohnnyPatch,
 GetDefaultHeapSize, IsMenuPaused; probe set jg7 written, not run yet). JohnnyGuitar 147 → 109.
+JohnnyGuitar batch 8: 31 (#1007, ext-jg8.md: the last 14 event handlers (failed quests, lost
+limbs, seen cells, processing levels, NPCs' actor values, reputations, NPC responses, sleep and
+wait, general subtitles, the crosshair, settings, keyboard selection, radio sounds, taking items
+back), the custom map marker, MD5File and SHA1File, IsBSALoaded, the DDS texture getters,
+GetPixelFromBMP, Ar_Shuffle and Ar_SortEditor, the system colours, the sleep/wait menu state,
+TuneRadioRef; probe set jg8 written, not run yet). JohnnyGuitar 109 → 78.
 JohnnyGuitar batch 9: 31 (#1007, ext-jg9.md: sounds played from files' paths with fades,
 PlaySoundFade, StopSoundLooping, PlayHolotape and StopHolotape, terminal menu items added and
 removed, the audio markers, Jump, SetAutoMove, SetPlayerMovementFlags, SetVelEx,
 GetLinearVelocity, GetRunSpeed, the karma title, the item effect line, the spread, grenade
 hold, compass hostile, sky colour and camera FOV; probe set jg9 written, not run yet).
-JohnnyGuitar 109 → 78 on its own branch (47 with batch 8).
+JohnnyGuitar 78 → 47.
 ShowOff batch 5: the last 37 (#1010, ext-showoff.md §8: the level-up and pause menus on request, live
 explosions, the shot switches, fast travel, detection and combat counts, VATS and item values, the
 player's small states; from the pages, not probed). Census after it, beside batch 4: 565 (ShowOff 71 → 34;
@@ -201,6 +207,17 @@ scene mirror's edits, their finish events, the vertices told by the engine's `ni
 the HUD bars' script-variable (a variable handed over by place, `Host::var_place`) and UDF
 sources; not probed yet, set sup7). Census after it: SUP 29 → 17 (the 17 of batch 4).
 With both JIP batch 10 and SUP batch 7 merged: JIP 142, SUP 17 [hypothesis: 378 − 36 − 12 = 330 in all; the extender_census test decides].
+JIP batch 11: 40 (#1006, jip-actors-11.md: combat allies and targets, detection values and
+ForceActorDetectionValue, packages, the actor's alpha, gravity, light, breath, movement,
+velocity, leveled list and unarmed effect, base values of a base form, kill XP, radiation at
+an NPC, ResetFallTime, active effects and effect lists, the equipped items, armour DR/DT by
+condition and GetArmourPenetrated, SetBaseFactionRank, ClearDeadActors, the hardcore stages'
+effects, SetConditionDamagePenalty; four nothing values by decision, §7; probed, set
+jip11, 22 of 28 after the fixes that follow it, jip-actors-11.md §6). Census after it: JIP 142 → 102.
+SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid references, Ar_SetFloatsFrom through
+the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
+the last save's and load's names and sizes told by the engine, the cells and map markers near the player,
+MarkScriptOnLoad, KillAll2, the caught-pickpocketing flag, TranslitText; set sup4, not probed yet). SUP 17 → 0.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

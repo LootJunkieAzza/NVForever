@@ -8121,7 +8121,7 @@ WRITING_SETS |= {"jip6", "jip7", "jip6b", "jip7b"}
 # the player, the regions and cell references at Doc Mitchell's, the deprecated
 # SetVariableFloat and the event names called as functions. Every value set is read
 # back, then set back to what was read.
-_LU3_HEAD = "ref rP\nref rObj\narray_var aR\nstring_var sOld\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\n"
+_LU3_HEAD = "ref rP\nref rObj\narray_var aR\nstring_var sOld\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nfloat fE\nfloat fF\nBegin Function { }\n"
 
 
 def _lu3(pid, body, text=True):
@@ -8129,34 +8129,42 @@ def _lu3(pid, body, text=True):
 
 
 LU3_PROBES = (
-    # The prompt of the page's example table, set and read back, set back (hypothesis:
-    # the record's XATO, else "", then "NVF Probe").
-    [_lu3("prompt", "let sOld := GetActivatorPrompt BlackjackTableGomorrah\nSetActivatorPrompt \"NVF Probe\" BlackjackTableGomorrah\n"
-          "SetFunctionValue (sv_Construct \"[%z] [%z]\" sOld (GetActivatorPrompt BlackjackTableGomorrah))\nSetActivatorPrompt $sOld BlackjackTableGomorrah"),
+    # The prompt of the page's example table, read only: the setter with $sOld to put it
+    # back did not compile in the original [observed 2026-11-09], and a literal would
+    # guess the value (hypothesis: the record's XATO, else "").
+    [_lu3("prompt", "let sOld := GetActivatorPrompt BlackjackTableGomorrah\nSetFunctionValue (sv_Construct \"[%z]\" sOld)"),
      # The page's Anim Object's idle (hypothesis: its ANIO DATA), its Editor ID.
      _lu3("anio", "let rObj := GetAnimObjectIdle RepairWall01Wrench\nSetFunctionValue (GetFormIDString rObj)"),
-     # The page's example: r 255, g 180, b 53 [documented]; set and read, set back.
+     # The page's example: r 255, g 180, b 53 [documented]; set and read, set back. The
+     # elements go into floats first: as sv_Construct's arguments they did not compile in
+     # the original [observed 2026-11-09].
      _lu3("lsct", "let aR := GetLoadScreenTypeTextRGB StandardLoadingTip\nlet fA := aR[\"r\"]\nlet fB := aR[\"g\"]\nlet fC := aR[\"b\"]\n"
           "SetLoadScreenTypeTextRGB StandardLoadingTip 59.3 181 300\nlet aR := GetLoadScreenTypeTextRGB StandardLoadingTip\n"
-          "SetFunctionValue (sv_Construct \"%g %g %g / %.1f %g %g\" fA fB fC aR[\"r\"] aR[\"g\"] aR[\"b\"])\nSetLoadScreenTypeTextRGB StandardLoadingTip fA fB fC"),
-     # A rank above the perk's ranks, a lower one, 0 (hypothesis: "3 1 0", Educated has 1
-     # rank so "1 1 0" if it is cut). Educated is put back as it was.
+          "let fD := aR[\"r\"]\nlet fE := aR[\"g\"]\nlet fF := aR[\"b\"]\nSetLoadScreenTypeTextRGB StandardLoadingTip fA fB fC\n"
+          "SetFunctionValue (sv_Construct \"%g %g %g / %.1f %g %g\" fA fB fC fD fE fF)"),
+     # A rank above the perk's ranks, then 0: "0 1 1 1" [observed 2026-11-09], cut to its one
+     # rank, 0 changes nothing. Educated is put back as it was (SetPerkRank 0 does not
+     # take it away: a player without it keeps it for the session).
      _lu3("perkrank", "let fA := PlayerREF.GetPerkRank Educated\nPlayerREF.SetPerkRank Educated 9\nlet fB := PlayerREF.GetPerkRank Educated\n"
           "PlayerREF.SetPerkRank Educated 0\nlet fC := PlayerREF.GetPerkRank Educated\nPlayerREF.SetPerkRank Educated fA\n"
           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (PlayerREF.GetPerkRank Educated))"),
      # The page's example: Fast Shot's 2nd entry from Calculate Hit Chance (8) to Calculate
-     # Weapon Range (7), read back, set back (hypothesis: "8 7 8").
+     # Weapon Range (7), read back, set back: "8 7 8" [observed 2026-11-09].
      _lu3("perkentry", "let fA := GetNthPerkEntryFunction FastShot 1\nSetNthPerkEntryFunction FastShot 1 7\nlet fB := GetNthPerkEntryFunction FastShot 1\n"
           "SetNthPerkEntryFunction FastShot 1 fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB (GetNthPerkEntryFunction FastShot 1))"),
      # Indoors: no regions (hypothesis: an empty array, 0).
      _lu3("regions", "let aR := GetPlayerRegions\nSetFunctionValue (ar_Size aR)", False),
-     # GetCellRefs against GetRefs in the player's cell, every type (hypothesis: equal).
-     _lu3("cellrefs", "let aR := GetCellRefs 0 0 0\nlet fA := ar_Size aR\nlet aR := GetRefs 0 0 0\nSetFunctionValue (sv_Construct \"%g\" (fA == (ar_Size aR)))"),
-     # SetVariableFloat on the probe plugin's quest variable iDone (the eighth set's), its
+     # GetCellRefs against GetRefs in the player's cell, every type (hypothesis: equal);
+     # the cell given, the page lists it as not optional (without it the call did not
+     # compile in the original [observed 2026-11-09]).
+     _lu3("cellrefs", "let rObj := PlayerREF.GetParentCell\nlet aR := GetCellRefs 0 0 0 rObj\nlet fA := ar_Size aR\nlet aR := GetRefs 0 0 0\n"
+          "SetFunctionValue (sv_Construct \"%g\" (fA == (ar_Size aR)))"),
+     # SetVariableFloat on a FalloutNV.esm quest's variable, nGeckosKilled of 10A214 (the
+     # eighth set's has.vanilla row; NVFExtProbe.esp is not active in the probe game), its
      # result and the value read back, set back (hypothesis: "0 7").
-     _lu3("setvar", "let rObj := GetFormFromMod \"NVFExtProbe.esp\" \"B40\"\nlet fA := GetVariable \"iDone\" rObj\nlet fB := SetVariableFloat \"iDone\" 7 rObj\n"
-          "let fC := GetVariable \"iDone\" rObj\nSetVariable \"iDone\" fA rObj\nSetFunctionValue (sv_Construct \"%g %g\" fB fC)"),
-     # The event names called as functions (hypothesis: "0 0", or they do not compile).
+     _lu3("setvar", _form("rObj", "10A214") + "let fA := GetVariable \"nGeckosKilled\" rObj\nlet fB := SetVariableFloat \"nGeckosKilled\" 7 rObj\n"
+          "let fC := GetVariable \"nGeckosKilled\" rObj\nSetVariable \"nGeckosKilled\" fA rObj\nSetFunctionValue (sv_Construct \"%g %g\" fB fC)"),
+     # The event names called as functions: "2 3" [observed 2026-11-09].
      _lu3("events", "SetFunctionValue (sv_Construct \"%g %g\" (OnCellEnter) (OnCellExit))")]
 )
 SETS.update({"lu3": LU3_PROBES})
@@ -8408,6 +8416,157 @@ SUP7_PROBES = (
 )
 SETS.update({"sup7": SUP7_PROBES})
 WRITING_SETS |= {"sup7"}
+
+
+# jip11 (reads; the one write, ForceActorDetectionValue, is put back; #1006): JIP batch 11
+# (docs/spec-notes/jip-actors-11.md) on Doc Mitchell (reference and base) and the player
+# in the probe save. The questions: GetActorLightAmount's range on an actor indoors,
+# GetActorMovementFlags of a standing actor, GetDetectionValue's value for a pair (and one
+# never measured), GetActiveEffects' elements (the magic items or their base effects),
+# GetBaseActorValueAlt on a base form, GetKillXP, GetRadiationLevelAlt on an NPC, the
+# stable and interrupt packages, list getters out of combat (no array?).
+def _j11(pid, body, text=False):
+    return (f"jip11.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j11v(pid, setup, expr, text=False):
+    return _j11(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+def _j11arr(pid, setup, expr):
+    return _j11(pid, setup + f"let aList := {expr}\nlet fA := ar_Size aList\nif fA > 0\n"
+                "let sText := sv_Construct \"%g %z\" fA (ToString aList[0])\nelse\nlet sText := sv_Construct \"%g\" fA\nendif\n"
+                "SetFunctionValue sText", True)
+
+
+_J11DOC = _form("rObj", NF["docref"])
+JIP11_PROBES = (
+    [_j11v("alpha.doc", _J11DOC, "rObj.GetActorAlpha"),
+     _j11v("gravity.doc", _J11DOC, "rObj.GetActorGravityMult"),
+     _j11v("leveled.doc", _J11DOC, "GetFormIDString (rObj.GetActorLeveledList)", True),
+     _j11v("light.doc", _J11DOC, "rObj.GetActorLightAmount"),
+     _j11v("light.player", "", "rP.GetActorLightAmount"),
+     _j11v("movement.doc", _J11DOC, "rObj.GetActorMovementFlags"),
+     _j11v("killxp.doc", _J11DOC, "rObj.GetKillXP"),
+     _j11v("rads.doc", _J11DOC, "rObj.GetRadiationLevelAlt"),
+     _j11v("rads.player", "", "rP.GetRadiationLevelAlt"),
+     _j11v("baseav.doc", _J11DOC, "rObj.GetBaseActorValueAlt Strength"),
+     _j11v("baseav.docbase", _form("rObj", NF["doc"]), "GetBaseActorValueAlt Strength rObj"),
+     _j11v("detection.doc.player", _J11DOC, "rObj.GetDetectionValue rP"),
+     _j11v("detection.player.doc", _J11DOC, "rP.GetDetectionValue rObj"),
+     _j11v("stable.doc", _J11DOC, "GetFormIDString (rObj.GetCurrentStablePackage)", True),
+     _j11v("interrupt.doc", _J11DOC, "GetFormIDString (rObj.GetInterruptPackage)", True),
+     _j11v("unreachable.doc", _J11DOC, "rObj.GetTargetUnreachable"),
+     _j11v("unarmed.docbase", _form("rObj", NF["doc"]), "GetFormIDString (GetActorUnarmedEffect rObj)", True),
+     _j11v("scoped.player", "", "rP.IsEquippedWeaponScoped"),
+     _j11v("silenced.player", "", "rP.IsEquippedWeaponSilenced"),
+     _j11v("breath.player", "", "rP.GetActorDiveBreath"),
+     _j11v("falltime.player", "", "rP.GetFallTimeRemaining")]
+    + [_j11arr("allies.doc", _J11DOC, "rObj.GetCombatAllies"),
+       _j11arr("targets.doc", _J11DOC, "rObj.GetCombatTargets"),
+       _j11arr("detected.doc", _J11DOC, "rObj.GetDetectedActors"),
+       _j11arr("effects.player", "", "rP.GetActiveEffects"),
+       _j11arr("effects.player.actor", "", "rP.GetActiveEffects 2"),
+       _j11arr("effects.player.ingestible", "", "rP.GetActiveEffects 4")]
+    + [_j11("force.detection", _J11DOC + "rP.ForceActorDetectionValue -100\nlet fA := rObj.GetDetectionValue rP\n"
+            "rP.ForceActorDetectionValue\nSetFunctionValue (sv_Construct \"%g %g\" fA (rObj.GetDetectionValue rP))", True)]
+)
+
+SETS.update({"jip11": JIP11_PROBES})  # JIP batch 11 (#1006)
+WRITING_SETS |= {"jip11"}
+
+# sup4 (writes, session only, each change put back; #1008): SUP batch 4
+# (docs/spec-notes/ext-sup4.md): random array keys, invalid references, floats from an
+# array, a UDF frames later, the last save and load, the cells and map markers near the
+# player at Doc Mitchell's, the scripts marked on load, the caught-pickpocketing flag on
+# Doc Mitchell (set back), transliteration. One step per frame.
+# The string variable is sOut: `string_var sA` did not compile in the original
+# [observed 2026-11-09, sup4 diagnostic runs; other names, sOld, did].
+def _sup4(pid, body, text=True):
+    return (f"sup4.{pid}", "ref rD\nref rNone\nref rH\narray_var aR\narray_var aIn\nfloat fA\nfloat fB\nfloat fC\nstring_var sOut\nBegin Function { }\n"
+            + _form("rD", NF["docref"]) + body, text, None, "")
+
+
+SUP4_PROBES = (
+    # A key of a five-element list in 0-4, a key of a two-key map, an empty list's
+    # (hypothesis: "1 1 -1").
+    [_sup4("randomkey", "let aR := Ar_List 10, 20, 30, 40, 50\nlet fA := Ar_GetRandomKey aR\n"
+           "let aIn := Ar_Map \"LALALA\"::1, \"TROLOLO\"::2\nlet sOut := Ar_GetRandomKeyMap aIn\nlet aR := Ar_List\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g\" ((fA >= 0) && (fA <= 4) && (fA == Floor fA)) ((sOut == \"LALALA\") || (sOut == \"TROLOLO\")) (Ar_GetRandomKey aR))"),
+     # Valid references, an empty one, the empty one inside an inner array searched with
+     # and without its dimension (hypothesis: "0 1 0 1").
+     _sup4("invalidrefs", "let aR := Ar_List PlayerREF, rD\nlet fA := Ar_HasInvalidRefs aR\nlet aR := Ar_List PlayerREF, rNone\nlet fB := Ar_HasInvalidRefs aR\n"
+           "let aIn := Ar_List rNone\nlet aR := Ar_List PlayerREF, aIn\n"
+           "SetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB (Ar_HasInvalidRefs aR) (Ar_HasInvalidRefs aR 1))"),
+     # The page's example: 3 8 5 [documented].
+     _sup4("setfloats", "let aR := Ar_List 3, 8, 5, 1\nAr_SetFloatsFrom aR fA fB fC\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
+     # A UDF two frames later writes an aux variable; read at once and two steps later
+     # (hypothesis: "0", then "1").
+     _sup4("nextframe.set", "PlayerREF.AuxVarErase \"*sup4\"\nCallFunctionNextFrame (Begin Function { }\nPlayerREF.AuxVarSetFlt \"*sup4\" 1\nEnd) 2\n"
+           "SetFunctionValue (PlayerREF.AuxVarGetFlt \"*sup4\")", False),
+     _sup4("nextframe.wait", "SetFunctionValue 0", False),
+     _sup4("nextframe.read", "SetFunctionValue (PlayerREF.AuxVarGetFlt \"*sup4\")\nPlayerREF.AuxVarErase \"*sup4\"", False),
+     # The probe game loads a save before the steps: its size, the co-save's, its name
+     # given, the last save's name before any save (hypothesis: "1 1 1 0"; NVForever
+     # writes no co-save and gives 0 for type 1 [decision]).
+     _sup4("saves", "let sOut := GetSaveName 1\nSetFunctionValue (sv_Construct \"%g %g %g %g\" ((GetLoadedSaveSize 0) > 0) ((GetLoadedSaveSize 1) > 0) "
+           "((Sv_Length sOut) > 0) ((Sv_Length (GetSaveName 0)) > 0))"),
+     # Indoors: the player's cell alone at depth 0, 2 and -1, no map markers (hypothesis:
+     # "1 1 1 0").
+     _sup4("near", "let aR := GetNearCells 0\nlet fA := Ar_Size aR\nlet aR := GetNearCells 2\nlet fB := Ar_Size aR\nlet aR := GetNearCells -1\nlet fC := Ar_Size aR\n"
+           "let aR := GetNearMapMarkers 2\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA fB fC (Ar_Size aR))"),
+     # A probe query is no script form: nothing marked (hypothesis: "0 0"; the original may
+     # refuse the call outside a script).
+     _sup4("markonload", "let fA := MarkScriptOnLoad\nSetFunctionValue (sv_Construct \"%g %g\" fA (IsScriptMarkedOnLoad GSDocMitchellScript))"),
+     # Doc Mitchell's flag read, set, read, set back (hypothesis: "0 1 1").
+     _sup4("caught", "let fA := rD.SetCaughtPCPickpocketting\nlet fB := rD.SetCaughtPCPickpocketting 1\nlet fC := rD.SetCaughtPCPickpocketting\n"
+           "rD.SetCaughtPCPickpocketting fA\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)"),
+     # The page names no return value: the text back (hypothesis: "Privet"), or nothing.
+     # The literal is "Привет" as cp1251 bytes, written with the cp1252 characters of those
+     # bytes: the probe text reaches the game as cp1252 [observed 2026-11-09: UTF-8 Cyrillic
+     # arrived as cp1252 bytes].
+     _sup4("translit", "let sOut := TranslitText \"Ïðèâåò\"\nSetFunctionValue sOut")]
+)
+SETS.update({"sup4": SUP4_PROBES})
+WRITING_SETS |= {"sup4"}
+
+
+# jg8 (reads only, nothing changed; #1007): JohnnyGuitar batch 8 (docs/spec-notes/ext-jg8.md):
+# file hashes of Data\Credits.txt, loaded archives, a world map icon's DDS header, the
+# system colours, the sleep/wait menu's state outside it, Ar_SortEditor on Stimpak
+# (15169), Caps001 (F) and the 10mm pistol (434F), Ar_Shuffle [observed: forms from
+# fnvtool esm inventory, as NF above]. The event handlers, SetCustomMapMarker,
+# ClearCustomMapMarker and TuneRadioRef change the session or need an event the probe
+# cannot cause and put back; IsRadioRefPlaying crashes the original (its page).
+
+
+def _jg8(pid, body, text=False):
+    return (f"jg8.{pid}", "ref rA\nref rB\nref rC\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\n"
+            "string_var sText\narray_var aList\narray_var aOut\nBegin Function { }\n" + body, text, None, "")
+
+
+JG8_PROBES = (
+    [_jg8("md5", 'SetFunctionValue (sv_Construct "%z|%z" (MD5File "Data\\Credits.txt") (MD5File "Data\\NoSuchFile.txt"))', True),
+     _jg8("sha1", 'SetFunctionValue (SHA1File "Data\\Credits.txt")', True),
+     _jg8("bsa", 'SetFunctionValue (sv_Construct "%g %g %g %g" (IsBSALoaded "Fallout - Meshes.bsa") '
+          '(IsBSALoaded "fallout - meshes.bsa") (IsBSALoaded "Data\\Fallout - Meshes.bsa") (IsBSALoaded "NoSuch.bsa"))', True),
+     _jg8("texture", 'let sText := "interface\\icons\\world map\\icon_map_encampment.dds"\n'
+          'SetFunctionValue (sv_Construct "%g %g %g %g" (GetTextureWidth $sText) (GetTextureHeight $sText) '
+          "(GetTextureMipMapCount $sText) (GetTextureFormat $sText))", True),
+     _jg8("colour", 'SetFunctionValue (sv_Construct "%.0f %.0f %.0f %.0f %.0f %.0f" (GetSystemColor 1) (GetSystemColor 2) '
+          "(GetSystemColor 3) (GetSystemColor 4) (GetSystemColor 5) (GetSystemColor 6))", True),
+     _jg8("colour.alt", 'GetSystemColorAlt 1 iR iG iB\nSetFunctionValue (sv_Construct "%g %g %g" iR iG iB)', True),
+     _jg8("sleepwait", "SetFunctionValue (GetSleepWaitMenuState)"),
+     _jg8("sorteditor", _form("rA", NF["stimpak"]) + _form("rB", NF["caps"]) + _form("rC", NF["pistol10"])
+          + "let aList := Ar_List rA, rB, rC\nlet aOut := Ar_SortEditor aList\n"
+          'let sText := sv_Construct "%z %z %z" (GetFormIDString aOut[0]) (GetFormIDString aOut[1]) (GetFormIDString aOut[2])\n'
+          "let aOut := Ar_SortEditor aList 1\n"
+          'SetFunctionValue (sv_Construct "%z | %z %z %z" sText (GetFormIDString aOut[0]) (GetFormIDString aOut[1]) (GetFormIDString aOut[2]))', True),
+     _jg8("shuffle", "let aOut := Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)\n"
+          'SetFunctionValue (sv_Construct "%g %g" (Ar_Size aOut) (aOut[0] + aOut[1] + aOut[2] + aOut[3] + aOut[4]))', True)]
+)
+SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
 
 
 def script(body):
