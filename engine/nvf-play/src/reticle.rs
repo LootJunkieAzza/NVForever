@@ -517,7 +517,7 @@ fn draw(
     (state, wheel, style): (Res<State<PlayState>>, Option<Res<crate::weapon_wheel::WeaponWheel>>, Option<Res<CrosshairStyle>>),
     target: Res<Target>,
     sim: Res<SimState>,
-    (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
+    (combat, hostile, bar, camera, time, dynamic, control): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>, Option<Res<crate::control::PlayerControl>>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>)>,
     (locks, bindings, creator, sights, scope, driven, kill_cam, tweaks, anim): (
@@ -629,9 +629,13 @@ fn draw(
         info!("reticle: {}", if cross { "gun cross (four bars)" } else { "arrows" });
         logged.5 = Some(cross);
     }
+    // The player's tweaks: no crosshair in first or in third person (the prompt stays)
+    // [design: docs/design/tweaks.md].
+    let third = control.as_ref().is_some_and(|c| c.third_person_view());
+    let view_hidden = tweaks.as_ref().is_some_and(|t| if third { t.hide_crosshair_third } else { t.hide_crosshair_first });
     let gap = spread.max(CROSS_REST);
     for (b, mut v, mut node, mut image) in &mut bars {
-        v.set_if_neq(show(!locks.movement && !aimed && cross));
+        v.set_if_neq(show(!view_hidden && !locks.movement && !aimed && cross));
         if image.color != colour {
             image.color = colour;
         }
@@ -641,7 +645,7 @@ fn draw(
     }
     let shift = (*spread - TIP).max(0.0);
     for (c, mut v, mut node, image) in &mut crosses {
-        v.set_if_neq(show(!locks.movement && c.filled == aimed && (c.filled || !cross)));
+        v.set_if_neq(show(!view_hidden && !locks.movement && c.filled == aimed && (c.filled || !cross)));
         if let Some(mut image) = image.filter(|i| i.color != colour) {
             image.color = colour;
         }

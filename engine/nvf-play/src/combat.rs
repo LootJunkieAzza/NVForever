@@ -1558,9 +1558,11 @@ impl Plugin for CombatPlugin {
 /// The player runs slower with a two-handed weapon drawn, by `fMove2HBigPenalty`
 /// (`crate::player::RunPace`; the owner's playtest list 5 item 61) [design: every
 /// two-handed weapon; hypothesis: the setting's role, from its name].
-fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<crate::player::RunPace>>) {
+fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<crate::player::RunPace>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let Some(mut pace) = pace else { return };
-    let two = control.weapon_out && c.weapon.and_then(|w| c.forms.weapons.get(&w)).is_some_and(WeaponStats::two_handed);
+    // The player's tweak: no slower run with a weapon drawn [design: docs/design/tweaks.md].
+    let free = tweaks.is_some_and(|t| t.no_weapon_move_penalty);
+    let two = !free && control.weapon_out && c.weapon.and_then(|w| c.forms.weapons.get(&w)).is_some_and(WeaponStats::two_handed);
     let want = if two { (1.0 - c.rules.move_2h_penalty).clamp(0.1, 1.0) } else { 1.0 };
     if pace.0 != want {
         pace.0 = want;
@@ -1581,6 +1583,14 @@ static RELOAD_SLOWS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// Whether a reload slows the one reloading.
 pub fn reload_slows() -> bool {
     RELOAD_SLOWS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The player's Unequip Broken Armor tweak, set by `crate::tweaks` each frame [design: docs/design/tweaks.md].
+static UNEQUIP_BROKEN_ARMOR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Switch the Unequip Broken Armor tweak on or off.
+pub fn set_unequip_broken_armor(on: bool) {
+    UNEQUIP_BROKEN_ARMOR.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Switch the reload's slowing on or off.
@@ -3254,6 +3264,13 @@ fn wear_armor(c: &Combat, sim: &mut SimState, stats: &mut CombatStats, target: F
         if w.broke {
             stats.armor_broken += 1;
             info!("combat: {target}'s {} ({item}) is worn to nothing", item_name(sim, item));
+            // The player's tweak: a broken piece comes off [design: docs/design/tweaks.md].
+            if UNEQUIP_BROKEN_ARMOR.load(std::sync::atomic::Ordering::Relaxed) {
+                match sim.world.unequip(target, item) {
+                    Ok(_) => info!("combat: {target}'s broken {} is taken off (tweak)", item_name(sim, item)),
+                    Err(e) => info!("combat: {target}'s broken {} stays on: {e}", item_name(sim, item)),
+                }
+            }
         }
     }
 }

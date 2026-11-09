@@ -48,6 +48,16 @@ impl Game<'_> {
         self.world.forms.item(book).and_then(|it| it.teaches)
     }
 
+    /// The player's No Skill Books Above 100 tweak: whether reading `book` is refused, as
+    /// the skill it teaches is already at the top for good [design: docs/design/tweaks.md].
+    pub fn book_refused(&mut self, book: FormId) -> bool {
+        if !self.tweaks.no_skill_books_at_max {
+            return false;
+        }
+        let Some(skill) = self.book_skill(book) else { return false };
+        fa::permanent_value(self, FormId::PLAYER_REF, skill).is_ok_and(|v| v >= SKILL_MAX)
+    }
+
     /// `actor` reads the skill book `book` (already taken from its inventory, or never
     /// held): the skill's permanent modifier rises (ModActorValue's pool, as the GECK
     /// wiki's "Permanent Pool" names skill books for), and the player's Books Read

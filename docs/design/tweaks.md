@@ -436,6 +436,10 @@ unless the player binds them, so nothing changes until then.
 | True Iron Sights key | `iToggleTrueIronSightsKey` | a new Control; `nvforever` `player_body::toggle_iron_sights` flips `PlayerBody::true_iron_sights` |
 | Experience as a Percentage | `bStatsMenuPercentageXP` | `pipboy::stats::read` fills `Snapshot::xp_percent`, the way from this level's experience to the next |
 | Repair List: Same Item First / Low Condition First | `bSortPipboyRepairMenu`, `bInvertPipboyRepairMenuSorting` | `pipboy::repair::tweak_order` on the offer and after each repair; `iSortMode` is not done |
+| No Weapon Movement Penalty | `bNoEquippedWeaponMovementPenalty` | `combat::run_pace` leaves out the two-handed slowdown |
+| Unequip Broken Armour | `bUnequipBrokenArmor` | `combat::wear_armor` takes off a piece that breaks (`set_unequip_broken_armor`, set by `tweaks::sync`); no message |
+| No Crosshair in First / Third Person | `bHideCrosshairInFirstPerson`, `bHideCrosshairInThirdPerson` | `reticle::draw` hides the arrows and bars by view; the prompt stays |
+| No Skill Books at 100 | `bNoSkillBooksAbove100` | `Game::book_refused` checked in `menu::apply_input` (the Pip-Boy); the hotkeys and EquipItem still read the book |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -456,8 +460,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 350 |
-| to do | 253 |
+| done | 355 |
+| to do | 248 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -718,6 +722,7 @@ game's Data folder, read-only).
 | `bMinBloodSplatterHealthDamage` | done |  | 1 | Blood Only on Big Hits (slider) |
 | `bMinigamesPlayXPSoundAtMaxLevel` | done |  |  | XP Sound at the Level Cap (any XP at the cap, not only minigames) |
 | `bNoDropWeaponSoundOnPlayerDeath` | done |  |  | already so: the player weapon is not put away at death |
+| `bNoEquippedWeaponMovementPenalty` | done |  |  | No Weapon Movement Penalty (the two-handed run slowdown) |
 | `bNoFoodWornOffMessage` | done |  | 1 | already so: no worn-off message is shown |
 | `bNoKnockdownInGodmode` | done |  |  | No Knockdowns in God Mode |
 | `bNoMapMarkerAddedPopup` | done |  |  | already so: NVForever shows no marker-added popup |
@@ -730,6 +735,7 @@ game's Data folder, read-only).
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
 | `bTurnSlowerWhileAiming` | done |  | 2 | Aiming Turn Speed: Across / Up and Down (two sliders) |
+| `bUnequipBrokenArmor` | done |  | 1 | Unequip Broken Armour (no message, sArmorBreakMessage not done) |
 | `bUnspokenNPCIndicator` | done |  |  | Mark Strangers |
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
 | `bBetterPickupPrompt` | to do | yes |  | the prompt shows one unit; needs the stack count and the encumbrance |
@@ -757,7 +763,6 @@ game's Data folder, read-only).
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bMoveDuringVATSPlayback` | to do |  |  | kill_cam hold_input and ControlInput::held both hold movement |
 | `bNoAutoContinueDialog` | to do |  |  | Game::update_dialogue would hold the line timer |
-| `bNoEquippedWeaponMovementPenalty` | to do |  |  | combat::run_pace slows two-handed weapons only |
 | `bNoExteriorLoadScreens` | to do |  |  | loading::begin interior-to-exterior |
 | `bNoKillcamKillSound` | to do |  |  | NVForever plays no sound when a kill camera starts |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
@@ -777,7 +782,6 @@ game's Data folder, read-only).
 | `bSwapAmmoWithWeaponHolstered` | to do |  |  | combat::fire before the not-ready return |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bTurnFurtherWhileSeated` | to do |  |  | nvforever player_body NECK_TURN; drive_body is at 16 params |
-| `bUnequipBrokenArmor` | to do |  | 1 | combat::wear_armor w.broke; a bool from its four callers |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | the D-pad is fixed to hotkeys; needs a current slot |
 
 ### HUD
@@ -794,6 +798,8 @@ game's Data folder, read-only).
 | `bDistanceBasedQuestMarkerVisibilty` | done |  | 2 | Quest Markers Within (slider in game units, one distance indoors and out) |
 | `bHideAmmoLabel` | done |  | 1 | No Ammo Counter (the total-remaining option not built) |
 | `bHideCapsAddedMessages` | done |  |  | No Caps Added Line |
+| `bHideCrosshairInFirstPerson` | done |  |  | No Crosshair in First Person (the prompt stays) |
+| `bHideCrosshairInThirdPerson` | done |  |  | No Crosshair in Third Person (the prompt stays) |
 | `bHideCrosshairWhileReloading` | done |  |  | No Crosshair While Reloading |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
 | `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
@@ -831,8 +837,6 @@ game's Data folder, read-only).
 | `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
-| `bHideCrosshairInFirstPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
-| `bHideCrosshairInThirdPerson` | to do |  |  | the crosshair and the prompt share a root in reticle.rs |
 | `bHideInvisibleUndiscoveredLocations` | to do |  |  | compass::gather marker loop; markers_of does not carry the map rule |
 | `bHideUnknownNPCNames` | to do |  | 1 | activate::find_target with extra.talked_to_pc; needs a label for the unnamed |
 | `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
@@ -1071,6 +1075,7 @@ game's Data folder, read-only).
 | `bNoFastTravelTimeChange` | done |  |  | Fast Travel Takes No Time |
 | `bNoHotkeyEquipSounds` | done |  |  | No Hotkey Sounds |
 | `bNoScrollwheelPOVChange` | done |  | 2 | already so: the wheel only zooms the third-person camera |
+| `bNoSkillBooksAbove100` | done |  |  | No Skill Books at 100 (Pip-Boy only; hotkeys and EquipItem still read it) |
 | `bNoSkipDialog` | done |  |  | No Skipping Lines |
 | `bOnlyChangeCameraHeightIfPOVKeyHeld` | done |  |  | Wheel Zoom Needs Toggle View (NVForever's wheel moves the camera distance) |
 | `bOpenPipboyToInventoryByDefault` | done |  | 1 | Pip-Boy Opens on Items (the tab option not built) |
@@ -1118,7 +1123,6 @@ game's Data folder, read-only).
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
 | `bNoAmmoCasings` | to do |  |  | NVForever gives no casings yet |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
-| `bNoSkillBooksAbove100` | to do |  |  | the refusal belongs before equip_at takes the book (Pip-Boy, hotkeys, EquipItem) |
 | `bNoTurningAnim` | to do |  |  | nvforever player_body turn_rate; drive_body at 16 params |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |

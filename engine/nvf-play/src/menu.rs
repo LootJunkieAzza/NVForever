@@ -781,6 +781,13 @@ fn apply_input(
         if matches!(cmd, Command::One) && m.mode == Mode::Inventory {
             let item = m.selected_row(m.focus).filter(|r| !r.equipped && r.folder.is_none()).map(|r| r.item);
             if let (Some(item), Some(rt)) = (item, script.as_mut().and_then(|s| s.rt.as_mut())) {
+                // The player's tweak: no skill book for a skill at 100 [design: docs/design/tweaks.md].
+                if crate::script::with_world(rt, &mut sim, |rt| rt.game.book_refused(item)) {
+                    info!("menu: {cmd:?}: refused, the book's skill is at 100 (tweak)");
+                    m.status = Some(crate::tweaks::BOOK_AT_MAX_LINE.into());
+                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                    continue;
+                }
                 if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
                     info!("menu: {cmd:?}: refused, healing in combat (tweak)");
                     m.status = Some(crate::tweaks::NO_HEALING_LINE.into());

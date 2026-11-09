@@ -340,6 +340,8 @@ pub struct Tweaks {
     pub repair_same_first: bool,
     /// `bInvertPipboyRepairMenuSorting`: lower condition parts first, high at the bottom.
     pub repair_low_first: bool,
+    /// `bNoSkillBooksAbove100`: a skill book whose skill is already at 100 is not read.
+    pub no_skill_books_at_max: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -500,6 +502,7 @@ impl Default for Tweaks {
             stats_xp_percent: false,
             repair_same_first: false,
             repair_low_first: false,
+            no_skill_books_at_max: false,
         }
     }
 }

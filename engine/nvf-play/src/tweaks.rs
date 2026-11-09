@@ -236,6 +236,14 @@ pub struct TweakSettings {
     pub vats_hip_fire: bool,
     /// `bNoPipBoyInCombat`: the Pip-Boy does not open while something fights the player.
     pub no_pipboy_in_combat: bool,
+    /// `bNoEquippedWeaponMovementPenalty`: a drawn two-handed weapon does not slow the run.
+    pub no_weapon_move_penalty: bool,
+    /// `bUnequipBrokenArmor`: the player's armour comes off when it breaks.
+    pub unequip_broken_armor: bool,
+    /// `bHideCrosshairInFirstPerson`, `bHideCrosshairInThirdPerson`: no crosshair in that
+    /// view; the activation prompt stays.
+    pub hide_crosshair_first: bool,
+    pub hide_crosshair_third: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -370,6 +378,10 @@ impl Default for TweakSettings {
             power_attack_if_blocking: false,
             vats_hip_fire: false,
             no_pipboy_in_combat: false,
+            no_weapon_move_penalty: false,
+            unequip_broken_armor: false,
+            hide_crosshair_first: false,
+            hide_crosshair_third: false,
         }
     }
 }
@@ -1088,6 +1100,11 @@ impl Plugin for TweaksPlugin {
         switch!(app, "stats-xp-percent", "Experience as a Percentage", "The Stats page shows experience as how far through the level the player is, in percent. (Stewie's Tweaks bStatsMenuPercentageXP)", game.stats_xp_percent);
         switch!(app, "repair-same-first", "Repair List: Same Item First", "In the Pip-Boy repair list, parts that are the same item come first, the rest by name. (Stewie's Tweaks bSortPipboyRepairMenu)", game.repair_same_first);
         switch!(app, "repair-low-first", "Repair List: Low Condition First", "In the Pip-Boy repair list, parts in worse condition come first and the best at the bottom. (Stewie's Tweaks bInvertPipboyRepairMenuSorting)", game.repair_low_first);
+        switch!(app, "no-weapon-move-penalty", "No Weapon Movement Penalty", "A drawn two-handed weapon does not slow the player's run. (Stewie's Tweaks bNoEquippedWeaponMovementPenalty)", no_weapon_move_penalty);
+        switch!(app, "unequip-broken-armor", "Unequip Broken Armour", "The player's armour is taken off when it breaks, staying in the inventory. (Stewie's Tweaks bUnequipBrokenArmor)", unequip_broken_armor);
+        switch!(app, "hide-crosshair-first", "No Crosshair in First Person", "The crosshair is not drawn in first person; the activation prompt stays. (Stewie's Tweaks bHideCrosshairInFirstPerson)", hide_crosshair_first);
+        switch!(app, "hide-crosshair-third", "No Crosshair in Third Person", "The crosshair is not drawn in third person; the activation prompt stays. (Stewie's Tweaks bHideCrosshairInThirdPerson)", hide_crosshair_third);
+        switch!(app, "no-skill-books-at-max", "No Skill Books at 100", "A skill book whose skill is already at 100 is not read from the Pip-Boy, so it is not wasted. (Stewie's Tweaks bNoSkillBooksAbove100)", game.no_skill_books_at_max);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1214,6 +1231,9 @@ fn keys(
     }
 }
 
+/// What the Pip-Boy says when the No Skill Books Above 100 tweak keeps a book (our words).
+pub const BOOK_AT_MAX_LINE: &str = "That skill cannot go any higher.";
+
 /// The corner message when the No Pip-Boy In Combat tweak keeps it shut (our words).
 pub const NO_PIPBOY_LINE: &str = "The Pip-Boy cannot be used in combat.";
 
@@ -1234,6 +1254,7 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
 /// Hand the game's part to the running game when it differs, and log the change.
 #[allow(clippy::too_many_arguments)]
 fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>) {
+    crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
     if let Some(mut b) = bindings {
         if b.allow_duplicates != tweaks.duplicate_binds {
             b.allow_duplicates = tweaks.duplicate_binds;
