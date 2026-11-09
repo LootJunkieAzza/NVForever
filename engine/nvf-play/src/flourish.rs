@@ -1,5 +1,17 @@
-//! Minigame highlights (item 125): a short stamp across the screen and a sound, for the
-//! big moments of a match. There are no camera moves [owner 2026-11-08].
+//! Minigame highlights (item 125): a short stamp and a sound for the big moments of a
+//! match. There are no camera moves [owner 2026-11-08].
+//!
+//! - **The stamp** [design, owner 2026-11-09: "icons too, like a little animation"]: a Vault
+//!   Boy picture in the HUD's colour, which moves in its own way for each moment, with a
+//!   ring that bursts out behind it, and the moment's name under it in the HUD's font
+//!   over a line that draws itself out. Then all of it rises a little and fades.
+//!   - bullseye: the picture pops in and kicks back as the dart lands;
+//!   - triple: three quick pulses, each with a ring;
+//!   - pool, several balls down: the 8-ball rolls in from the side and lands;
+//!   - a hand won: the picture hops twice.
+//! - **The pictures**: first the owner's own (`interface\icons\nvforever\highlight_*.dds`,
+//!   a mod, not in this repository), else the game's Vault Boy art [observed: the files
+//!   below are in Fallout - Textures2.bsa]; with neither, the words alone.
 //!
 //! - **Which moments** [owner 2026-11-08]:
 //!   - darts: a bullseye, a triple;
@@ -17,13 +29,20 @@
 //!
 //! A `flourish:` line in the log for each one.
 
+use crate::casino_hud::CasinoFaces;
+use crate::interface::{amber, at, bc_supported, set_marked, Picture, Pictures};
 use crate::minigames::DartsScreen;
 use crate::pool::PoolScreen;
 use crate::sfx::{PlaySound, Sfx};
 use crate::PlaySet;
+use bevy::asset::RenderAssetUsages;
+use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use fnv_sim::FormId;
+use nvf_assets::GameData;
 use std::collections::HashMap;
+use std::f32::consts::PI;
 
 /// A body's reaction to a card game's result (item 127): who (`None` this player, else
 /// another player's id) and whether it won the hand (blackjack, poker) or the game
@@ -56,12 +75,42 @@ impl Highlight {
         }
     }
 
-    fn color(self) -> Color {
+    /// Its pictures, first choice first (paths under `textures\`).
+    pub fn pictures(self) -> [&'static str; 2] {
         match self {
-            Highlight::Bullseye => Color::srgb(1.0, 0.42, 0.30),
-            Highlight::Triple => Color::srgb(0.55, 0.95, 0.55),
-            Highlight::MultiBall => Color::srgb(0.98, 0.82, 0.38),
-            Highlight::HandWon => Color::srgb(0.98, 0.86, 0.45),
+            Highlight::Bullseye => [r"interface\icons\nvforever\highlight_bullseye.dds", r"interface\icons\pipboyimages\perks\perk_sniper.dds"],
+            Highlight::Triple => [r"interface\icons\nvforever\highlight_triple.dds", r"interface\icons\pipboyimages\perks\perk_gunslinger.dds"],
+            Highlight::MultiBall => [r"interface\icons\nvforever\highlight_multiball.dds", r"interface\icons\pipboyimages\items\items_lucky_8_ball.dds"],
+            Highlight::HandWon => [r"interface\icons\nvforever\highlight_hand_won.dds", r"interface\icons\message icons\glow_message_vaultboy_very_happy.dds"],
+        }
+    }
+
+    /// When its rings burst, seconds after the stamp comes.
+    fn rings(self) -> &'static [f32] {
+        match self {
+            Highlight::Bullseye => &[IN],
+            Highlight::Triple => &[IN, IN + PULSE, IN + 2.0 * PULSE],
+            Highlight::MultiBall => &[ROLL],
+            Highlight::HandWon => &[0.0],
+        }
+    }
+
+    fn parse(s: &str) -> Option<Highlight> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "bullseye" => Some(Highlight::Bullseye),
+            "triple" => Some(Highlight::Triple),
+            "multiball" => Some(Highlight::MultiBall),
+            "handwon" => Some(Highlight::HandWon),
+            _ => None,
+        }
+    }
+
+    fn words(self) -> &'static str {
+        match self {
+            Highlight::Bullseye => "BULLSEYE",
+            Highlight::Triple => "TRIPLE 20",
+            Highlight::MultiBall => "3 BALLS IN ONE SHOT",
+            Highlight::HandWon => "YOU WIN THE HAND",
         }
     }
 }
@@ -74,15 +123,147 @@ pub struct Flourish {
 }
 
 const FALLBACK: &str = "UIPopUpExperienceUp";
-/// How long a stamp stays: it pops in, holds, then fades out [design].
-const POP: f32 = 0.18;
-const HOLD: f32 = 1.1;
-const FADE: f32 = 0.6;
+/// How long a stamp stays, seconds: it comes in, holds, then rises and fades [design].
+const IN: f32 = 0.35;
+const HOLD: f32 = 1.6;
+const OUT: f32 = 0.5;
+const LIFE: f32 = IN + HOLD + OUT;
+/// A triple's pulses: this far apart, each this long.
+const PULSE: f32 = 0.2;
+const PULSE_LEN: f32 = 0.16;
+/// The 8-ball's roll in.
+const ROLL: f32 = 0.55;
+/// How long a ring takes to burst out and fade.
+const RING: f32 = 0.5;
+
+/// The stamp's layout, interface units: the picture's square, the box it sits in, and
+/// how far from the view's top.
+const ICON: f32 = 170.0;
+const CARD: f32 = 640.0;
+const TOP: f32 = 120.0;
+
+/// Where every part of the stamp is at one moment.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pose {
+    /// The picture's size (1 its own), turn (degrees) and offset (interface units).
+    pub scale: f32,
+    pub turn: f32,
+    pub dx: f32,
+    pub dy: f32,
+    /// How strongly all of it is drawn.
+    pub alpha: f32,
+    /// The ring's size (times the picture's) and strength, while one bursts.
+    pub ring: Option<(f32, f32)>,
+    /// The words' size, and how much of the line under them is drawn (0 to 1).
+    pub words: f32,
+    pub rule: f32,
+}
+
+/// Rises past 1 and settles back (a "back" ease out).
+fn overshoot(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0) - 1.0;
+    let c = 1.70158;
+    1.0 + (c + 1.0) * x * x * x + c * x * x
+}
+
+fn ease_out(x: f32) -> f32 {
+    1.0 - (1.0 - x.clamp(0.0, 1.0)).powi(3)
+}
+
+/// The stamp of `kind` at `age` seconds.
+pub fn pose(kind: Highlight, age: f32) -> Pose {
+    let after = age - IN;
+    let mut scale = overshoot(age / IN);
+    let (mut turn, mut dx, mut dy) = (0.0, 0.0, 0.0);
+    match kind {
+        // Lands as a dart does: a kick back, shaking out.
+        Highlight::Bullseye => {
+            if (0.0..0.6).contains(&after) {
+                let k = (-after * 9.0).exp() * (after * 40.0).sin();
+                dx = -14.0 * k;
+                turn = 4.0 * k;
+            }
+        }
+        Highlight::Triple => {
+            for i in 0..3 {
+                let t = after - PULSE * i as f32;
+                if (0.0..PULSE_LEN).contains(&t) {
+                    let b = (t / PULSE_LEN * PI).sin();
+                    scale += 0.14 * b;
+                    turn += if i % 2 == 0 { 7.0 } else { -7.0 } * b;
+                }
+            }
+        }
+        // Rolls in from the left, turning as a ball does, then a small bounce.
+        Highlight::MultiBall => {
+            let r = ease_out(age / ROLL);
+            scale = 1.0;
+            dx = -340.0 * (1.0 - r);
+            turn = -400.0 * (1.0 - r);
+            let b = age - ROLL;
+            if (0.0..0.3).contains(&b) {
+                dy = -14.0 * (b / 0.3 * PI).sin();
+            }
+        }
+        Highlight::HandWon => {
+            if (0.0..0.7).contains(&after) {
+                let fall = 1.0 - after / 0.7;
+                let w = after / 0.35 * PI;
+                dy = -26.0 * w.sin().abs() * fall;
+                turn = 6.0 * w.sin() * fall;
+            }
+        }
+    }
+    let out = ((age - IN - HOLD) / OUT).clamp(0.0, 1.0);
+    scale *= 1.0 - 0.15 * out;
+    dy -= 30.0 * out;
+    let alpha = (age / 0.08).clamp(0.0, 1.0) * (1.0 - out);
+    let ring = kind.rings().iter().rev().map(|&t| age - t).find(|&r| r >= 0.0).filter(|&r| r < RING).map(|r| {
+        let e = r / RING;
+        (0.6 + 1.6 * ease_out(e), 0.8 * (1.0 - e))
+    });
+    let words = overshoot((age - 0.1) / 0.3).max(0.0) * (1.0 - 0.1 * out);
+    let rule = ease_out((age - 0.15) / 0.4);
+    Pose { scale, turn, dx, dy, alpha, ring, words, rule }
+}
 
 #[derive(Component)]
 struct Stamp {
     born: f32,
-    color: Color,
+    kind: Highlight,
+}
+
+/// The stamp's parts, each moved by [`animate`].
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    Icon,
+    Ring,
+    Words,
+    Glyph,
+    Rule,
+}
+
+/// What stamps are drawn with: the pictures read so far and the ring.
+#[derive(Default)]
+struct Kit {
+    pictures: Option<Pictures>,
+    icons: HashMap<Highlight, Option<Picture>>,
+    ring: Option<Handle<Image>>,
+}
+
+/// A soft ring, white on clear, `n` texels across.
+fn ring_image(n: u32) -> Image {
+    let mut px = Vec::with_capacity((n * n * 4) as usize);
+    let c = (n as f32 - 1.0) / 2.0;
+    for y in 0..n {
+        for x in 0..n {
+            let r = ((x as f32 - c).hypot(y as f32 - c)) / c;
+            // Brightest at 0.86 of the radius, gone by 0.72 and at the edge.
+            let a = (1.0 - ((r - 0.86) / 0.14).abs()).clamp(0.0, 1.0);
+            px.extend_from_slice(&[255, 255, 255, (a * a * 255.0) as u8]);
+        }
+    }
+    Image::new(Extent3d { width: n, height: n, depth_or_array_layers: 1 }, TextureDimension::D2, px, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default())
 }
 
 /// What each game showed last time, to find what is new.
@@ -172,34 +353,76 @@ fn poker_wins(time: crate::pause::AidTime, mut poker: ResMut<crate::poker::Poker
 }
 
 /// The stamps and the sounds.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn show(
     mut commands: Commands,
     time: Res<Time<Real>>,
     mut asked: MessageReader<Flourish>,
     sfx: Option<Res<Sfx>>,
+    (data, formats, casino): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>, Option<Res<CasinoFaces>>),
+    mut images: ResMut<Assets<Image>>,
+    mut kit: Local<Kit>,
     mut cache: Local<HashMap<&'static str, Option<FormId>>>,
     mut turn: Local<u32>,
     mut sounds: MessageWriter<PlaySound>,
     old: Query<Entity, With<Stamp>>,
 ) {
     let now = time.elapsed_secs();
+    let bc = bc_supported(formats.as_deref());
+    let plain;
+    let faces = match casino.as_deref() {
+        Some(c) => c,
+        None => {
+            plain = CasinoFaces::plain();
+            &plain
+        }
+    };
     for f in asked.read() {
         info!("flourish: {:?} {:?}", f.kind, f.text);
         // A new stamp takes the place of one still showing.
         for e in &old {
             commands.entity(e).despawn();
         }
-        let color = f.kind.color();
+        let data = data.as_deref();
+        let icon = match kit.icons.get(&f.kind) {
+            Some(i) => i.clone(),
+            None => {
+                let pictures = kit.pictures.get_or_insert_with(|| Pictures::load(data));
+                let i = f.kind.pictures().into_iter().find_map(|p| pictures.picture(p, data, &mut images, bc));
+                match &i {
+                    Some(_) => info!("flourish: picture for {:?}", f.kind),
+                    None => warn!("flourish: no picture for {:?}", f.kind),
+                }
+                kit.icons.insert(f.kind, i.clone());
+                i
+            }
+        };
+        let ring = kit.ring.get_or_insert_with(|| images.add(ring_image(128))).clone();
+        let title = &faces.title;
+        let words_w = title.font.width(&f.text);
+        let glow = amber(255.0).with_alpha(0.0);
+        let x0 = (CARD - ICON) / 2.0;
         commands
             .spawn((
-                Stamp { born: now, color },
-                Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), top: Val::Percent(20.0), justify_content: JustifyContent::Center, ..default() },
+                Stamp { born: now, kind: f.kind },
+                Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), top: crate::interface::u(TOP), justify_content: JustifyContent::Center, ..default() },
                 GlobalZIndex(60),
                 Pickable::IGNORE,
             ))
-            .with_children(|p| {
-                p.spawn((Text::new(f.text.clone()), TextFont { font_size: FontSize::Px(46.0), ..default() }, TextColor(color)));
+            .with_children(|root| {
+                root.spawn(Node { width: crate::interface::u(CARD), height: crate::interface::u(ICON + 90.0), ..default() }).with_children(|card| {
+                    card.spawn((at(x0, 0.0, ICON, ICON), ImageNode { color: glow, ..ImageNode::new(ring) }, UiTransform::default(), Part::Ring));
+                    if let Some((image, rect)) = icon {
+                        card.spawn((at(x0, 0.0, ICON, ICON), ImageNode { rect, color: glow, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }, UiTransform::default(), Part::Icon));
+                    }
+                    card.spawn((at(0.0, ICON + 8.0, CARD, 60.0), UiTransform::default(), Part::Words)).with_children(|w| {
+                        if let Some(line) = title.font.lines(&f.text, None).into_iter().next() {
+                            set_marked(w, title, &line, (CARD - words_w) / 2.0, 44.0, glow, Part::Glyph);
+                        }
+                    });
+                    let rw = words_w + 60.0;
+                    card.spawn((at((CARD - rw) / 2.0, ICON + 66.0, rw, 2.0), BackgroundColor(glow), UiTransform::default(), Part::Rule));
+                });
             });
         let names = f.kind.sounds();
         *turn = turn.wrapping_add(1);
@@ -216,31 +439,75 @@ fn show(
     }
 }
 
-/// The stamp pops in a little larger, settles, holds, then fades.
-fn animate(mut commands: Commands, time: Res<Time<Real>>, stamps: Query<(Entity, &Stamp, &Children)>, mut looks: Query<(&mut TextColor, &mut UiTransform)>) {
+/// Moves the stamp's parts to their [`pose`]; gone when its time is up.
+#[allow(clippy::type_complexity)]
+fn animate(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    stamps: Query<(Entity, &Stamp)>,
+    mut parts: Query<(&Part, Option<&mut UiTransform>, Option<&mut ImageNode>, Option<&mut BackgroundColor>, Option<&mut TextColor>)>,
+) {
     let now = time.elapsed_secs();
-    for (e, s, kids) in &stamps {
-        let age = now - s.born;
-        if age >= POP + HOLD + FADE {
-            commands.entity(e).despawn();
-            continue;
-        }
-        let scale = if age < POP { 1.6 - 0.6 * (age / POP) } else { 1.0 + 0.04 * (1.0 - ((age - POP) / HOLD).min(1.0)) };
-        let alpha = if age < POP + HOLD { (age / 0.08).min(1.0) } else { 1.0 - (age - POP - HOLD) / FADE };
-        for &k in kids {
-            if let Ok((mut c, mut t)) = looks.get_mut(k) {
-                c.0 = s.color.with_alpha(alpha.clamp(0.0, 1.0));
-                t.scale = Vec2::splat(scale);
+    let Some((e, s)) = stamps.iter().next() else { return };
+    let age = now - s.born;
+    if age >= LIFE {
+        commands.entity(e).despawn();
+        return;
+    }
+    let p = pose(s.kind, age);
+    let lit = |a: f32| amber(255.0).with_alpha(a.clamp(0.0, 1.0));
+    for (part, transform, image, fill, text) in &mut parts {
+        let (color, look) = match part {
+            Part::Icon => (lit(p.alpha), Some(UiTransform { translation: Val2::new(crate::interface::u(p.dx), crate::interface::u(p.dy)), scale: Vec2::splat(p.scale.max(0.0)), rotation: Rot2::degrees(p.turn) })),
+            Part::Ring => {
+                let (size, strength) = p.ring.unwrap_or((1.0, 0.0));
+                (lit(strength * p.alpha), Some(UiTransform { translation: Val2::new(crate::interface::u(0.0), crate::interface::u(p.dy)), scale: Vec2::splat(size), ..default() }))
             }
+            Part::Words => (lit(p.alpha), Some(UiTransform { translation: Val2::new(crate::interface::u(0.0), crate::interface::u(p.dy * 0.5)), scale: Vec2::splat(p.words.max(0.0)), ..default() })),
+            Part::Glyph => (lit(p.alpha), None),
+            Part::Rule => (lit(0.8 * p.alpha), Some(UiTransform { translation: Val2::new(crate::interface::u(0.0), crate::interface::u(p.dy * 0.5)), scale: Vec2::new(p.rule, 1.0), ..default() })),
+        };
+        if let (Some(mut t), Some(l)) = (transform, look) {
+            *t = l;
+        }
+        if let Some(mut i) = image {
+            i.color = color;
+        }
+        // Every node has a background colour (transparent): only the rule is drawn by it.
+        if let Some(mut b) = fill.filter(|_| *part == Part::Rule) {
+            b.0 = color;
+        }
+        if let Some(mut t) = text {
+            t.0 = color;
         }
     }
+}
+
+/// `NVF_PLAY_TEST_FLOURISH=<seconds>:<kind>[,...]` (kinds: bullseye, triple, multiball,
+/// handwon): show that highlight at each time, on the aids' clock, as a match would. A
+/// test aid to see the stamps; not a game behaviour.
+fn test_aid(time: crate::pause::AidTime, mut due: Local<Option<Vec<(f32, Highlight)>>>, mut out: MessageWriter<Flourish>) {
+    let due = due.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_FLOURISH").map(|v| aid_items(&v)).unwrap_or_default());
+    let now = time.elapsed_secs();
+    due.retain(|&(t, kind)| {
+        if t > now {
+            return true;
+        }
+        info!("test aid: flourish {kind:?} at {t}s");
+        out.write(Flourish { kind, text: kind.words().into() });
+        false
+    });
+}
+
+fn aid_items(v: &str) -> Vec<(f32, Highlight)> {
+    v.split(',').filter_map(|i| i.split_once(':')).filter_map(|(t, k)| Some((t.trim().parse().ok()?, Highlight::parse(k)?))).collect()
 }
 
 pub struct FlourishPlugin;
 
 impl Plugin for FlourishPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Seen>().add_message::<Flourish>().add_message::<HandMood>().add_systems(Update, (watch, poker_wins, show, animate).chain().after(PlaySet::Ui));
+        app.init_resource::<Seen>().add_message::<Flourish>().add_message::<HandMood>().add_systems(Update, (test_aid, watch, poker_wins, show, animate).chain().after(PlaySet::Ui));
     }
 }
 
@@ -262,6 +529,29 @@ mod tests {
         assert!(darts_highlights(&darts, 3).is_empty());
         // The outer bull (25) and a miss are not.
         assert!(darts_highlights(&[hit(25, 1), hit(0, 3)], 0).is_empty());
+    }
+
+    #[test]
+    fn a_stamp_comes_in_holds_and_goes() {
+        for kind in [Highlight::Bullseye, Highlight::Triple, Highlight::MultiBall, Highlight::HandWon] {
+            assert_eq!(pose(kind, 0.0).alpha, 0.0);
+            let held = pose(kind, IN + 1.0);
+            assert_eq!((held.alpha, held.scale, held.turn, held.rule), (1.0, 1.0, 0.0, 1.0), "{kind:?}");
+            assert!(pose(kind, LIFE).alpha <= 0.0);
+        }
+        // The pop rises past full size before it settles.
+        assert!(pose(Highlight::Bullseye, IN * 0.6).scale > 1.0);
+        // The 8-ball starts off to the left, turned.
+        let start = pose(Highlight::MultiBall, 0.01);
+        assert!(start.dx < -300.0 && start.turn < -300.0);
+        // A triple's three rings.
+        assert!(pose(Highlight::Triple, IN + 2.0 * PULSE + 0.05).ring.is_some());
+        assert!(pose(Highlight::Triple, IN + 2.0 * PULSE + RING + 0.01).ring.is_none());
+    }
+
+    #[test]
+    fn the_aid_reads_its_times_and_kinds() {
+        assert_eq!(aid_items("5:bullseye, 8.5:MultiBall,9:nope,x:triple"), [(5.0, Highlight::Bullseye), (8.5, Highlight::MultiBall)]);
     }
 
     #[test]
