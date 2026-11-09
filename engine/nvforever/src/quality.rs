@@ -158,8 +158,11 @@ pub struct QualityPresets {
     pub presets: Vec<QualityPreset>,
 }
 
+/// Preset names, each with a text: a file's contents, or why it was not read.
+pub type Named = Vec<(&'static str, String)>;
+
 /// The preset files of `dir`: (name, text) for each read, (name, why) for each not.
-pub fn read_files(dir: &Path) -> (Vec<(&'static str, String)>, Vec<(&'static str, String)>) {
+pub fn read_files(dir: &Path) -> (Named, Named) {
     let mut found = Vec::new();
     let mut missing = Vec::new();
     for (label, file) in PRESETS {
@@ -185,7 +188,7 @@ pub fn read_files(dir: &Path) -> (Vec<(&'static str, String)>, Vec<(&'static str
 /// [`build`] then says its preset sets no row.
 pub fn decode(bytes: &[u8]) -> String {
     let utf16 = |rest: &[u8], le: bool| {
-        let units: Vec<u16> = rest.chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) }).collect();
+        let units: Vec<u16> = rest.as_chunks::<2>().0.iter().map(|&pair| if le { u16::from_le_bytes(pair) } else { u16::from_be_bytes(pair) }).collect();
         String::from_utf16_lossy(&units)
     };
     match bytes {
@@ -607,7 +610,12 @@ mod tests {
         for r in ["shadow-distance", "sun-shadows", "shadow-filter"] {
             assert!(rows.contains(&r), "[Display]'s {r} is read: {rows:?}");
         }
-        assert!(problems.is_empty(), "{problems:?}");
+        // Read as the same file without the mark: the same rows and the same remarks (the
+        // low file alone has grass at 0, so its grass is said to be set by none either way).
+        let (plain, plain_problems) = build(&[("Low", LOW.into())]);
+        assert_eq!(presets[0].rows, plain[0].rows);
+        assert_eq!(problems, plain_problems);
+        assert!(!problems.iter().any(|p| p.contains("[Display]") || p.contains("sets no row")), "{problems:?}");
         let _ = std::fs::remove_dir_all(&dir);
         // UTF-16 with its mark, either end first, reads the same; code-page letters in a
         // comment cost nothing.
