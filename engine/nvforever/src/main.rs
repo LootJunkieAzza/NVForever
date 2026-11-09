@@ -16,6 +16,12 @@
 //! closes the open menu. `--play --menu` opens on the main menu (`nvf_play::main_menu`).
 
 mod activators;
+mod heap_stats;
+
+/// The system allocator, counting live heap bytes under `NVF_HEAP_STATS` (heap_stats.rs).
+#[cfg(not(test))]
+#[global_allocator]
+static HEAP: heap_stats::Counting = heap_stats::Counting;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
@@ -832,6 +838,7 @@ fn command_line() -> Vec<String> {
 }
 
 fn main() -> AppExit {
+    heap_stats::start();
     let mut line = with_default_mode(std::env::args().collect());
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
         line = with_schemas_beside(line, &dir);
@@ -900,6 +907,7 @@ fn main() -> AppExit {
     // The plugins, opened: a broken mod's plugin (and any that need it) is left out with
     // a warning, and the rest of the start uses the list without it (world.rs).
     let opened = world::open_plugins(args.data(), &args.plugins);
+    heap_stats::mark("plugins opened");
     args.plugins = opened.plugins.iter().map(|p| p.name.clone()).collect();
     // Co-op replication: the official masters' quests are the host's story.
     coop::set_story_plugins(&args.plugins, &MASTERS);
@@ -946,6 +954,7 @@ fn main() -> AppExit {
     // A damaged archive stops the start (owner 2026-10-25): the player is told which one
     // and why, and no save or world loads with its assets missing. A file inside a
     // readable archive that fails later is only that file's error.
+    heap_stats::mark("archives indexed");
     if let Some((why, text)) = damaged_archives(game.vfs.broken_archives()) {
         crash::tell_player_at_start(&text, args.handoff.is_some());
         return fail(why);
@@ -956,6 +965,7 @@ fn main() -> AppExit {
         Err(e) => return fail(e),
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
+    heap_stats::mark("world index");
 
     // The main menu stands over a new game, held until New Game is chosen.
     if args.menu {
@@ -1129,6 +1139,7 @@ fn main() -> AppExit {
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
+    heap_stats::mark("actor records");
     // The character creator's choices and sliders (nvf_play::creator), in play; it says
     // what it has once the log is up.
     let mut creator_data = actor_world
@@ -1143,6 +1154,7 @@ fn main() -> AppExit {
             c.add_named_presets(files, |name| args.plugins.iter().position(|q| q.eq_ignore_ascii_case(name)).and_then(|i| u8::try_from(i).ok()));
             nvf_play::creator::CreatorData(std::sync::Arc::new(c))
         });
+    heap_stats::mark("character creator");
     let open_doors = args.open_doors;
     // What the overlay system and the settings page go by.
     args.no_overlay |= args.frame_json.is_some() || (args.play && !args.overlay);
@@ -1184,6 +1196,7 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
+    heap_stats::mark("residents");
     // Furniture: used by the player in play mode and by --npc-sit travellers.
     let mut trips = args.npc_travel.clone();
     let furnishings = if args.play || !args.npc_sit.is_empty() || residents.is_some() {
@@ -1197,6 +1210,7 @@ fn main() -> AppExit {
     } else {
         None
     };
+    heap_stats::mark("furniture");
     let nav_state = if trips.is_empty() && !args.show_navmesh && residents.is_none() {
         None
     } else {
@@ -1205,6 +1219,7 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
+    heap_stats::mark("nav graph");
     let mut graphics = match &args.graphics_only {
         Some(keys) => match graphics::Graphics::only(keys) {
             Ok(g) => g,
@@ -1771,6 +1786,8 @@ fn main() -> AppExit {
             }
         });
     }
+    heap_stats::mark("app built");
+    app.add_systems(Last, heap_stats::log_marks_system);
     app.run()
 }
 
