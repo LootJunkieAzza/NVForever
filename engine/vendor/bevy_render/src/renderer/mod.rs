@@ -203,7 +203,9 @@ pub async fn initialize_renderer(
     #[cfg(feature = "raw_vulkan_init")]
     raw_vulkan_init_settings: raw_vulkan_init::RawVulkanInitSettings,
 ) -> RenderResources {
-    let instance_descriptor = wgpu::InstanceDescriptor {
+    // NVForever (2026-11-09): a closure, as the descriptor is made a second time when the raw
+    // Vulkan instance has no adapter for the window (below).
+    let instance_descriptor = |backends: Backends| wgpu::InstanceDescriptor {
         backends,
         flags: options.instance_flags,
         memory_budget_thresholds: options.instance_memory_budget_thresholds,
@@ -230,7 +232,7 @@ pub async fn initialize_renderer(
     };
 
     #[cfg(not(feature = "raw_vulkan_init"))]
-    let instance = Instance::new(instance_descriptor);
+    let instance = Instance::new(instance_descriptor(backends));
     #[cfg(feature = "raw_vulkan_init")]
     let mut additional_vulkan_features = raw_vulkan_init::AdditionalVulkanFeatures::default();
     // NVForever (2026-11-09): the raw Vulkan instance only when the backends include Vulkan;
@@ -239,31 +241,35 @@ pub async fn initialize_renderer(
     #[cfg(feature = "raw_vulkan_init")]
     let instance = if backends.contains(Backends::VULKAN) {
         raw_vulkan_init::create_raw_vulkan_instance(
-            instance_descriptor,
+            instance_descriptor(backends),
             &raw_vulkan_init_settings,
             &mut additional_vulkan_features,
         )
     } else {
-        Instance::new(instance_descriptor)
+        Instance::new(instance_descriptor(backends))
     };
 
-    let surface = primary_window.and_then(|wrapper| {
-        let maybe_handle = wrapper
-            .0
-            .lock()
-            .expect("Couldn't get the window handle in time for renderer initialization");
-        if let Some(wrapper) = maybe_handle.as_ref() {
-            // SAFETY: Plugins should be set up on the main thread.
-            let handle = unsafe { wrapper.get_handle() };
-            Some(
-                instance
-                    .create_surface(handle)
-                    .expect("Failed to create wgpu surface"),
-            )
-        } else {
-            None
-        }
-    });
+    // NVForever (2026-11-09): a closure over the instance, for the second instance below.
+    let create_surface = |instance: &Instance| {
+        primary_window.as_ref().and_then(|wrapper| {
+            let maybe_handle = wrapper
+                .0
+                .lock()
+                .expect("Couldn't get the window handle in time for renderer initialization");
+            if let Some(wrapper) = maybe_handle.as_ref() {
+                // SAFETY: Plugins should be set up on the main thread.
+                let handle = unsafe { wrapper.get_handle() };
+                Some(
+                    instance
+                        .create_surface(handle)
+                        .expect("Failed to create wgpu surface"),
+                )
+            } else {
+                None
+            }
+        })
+    };
+    let surface = create_surface(&instance);
 
     let force_fallback_adapter = std::env::var("WGPU_FORCE_FALLBACK_ADAPTER")
         .map_or(options.force_fallback_adapter, |v| {
@@ -311,6 +317,44 @@ pub async fn initialize_renderer(
             .await
             .ok();
     }
+
+    // NVForever (2026-11-09): the raw Vulkan instance is Vulkan only, so where Vulkan starts
+    // but has no adapter that can draw to the window, the other backends were never asked,
+    // as they are without the feature (one instance over all the backends). Ask them now:
+    // a second instance over the backends but Vulkan, its own surface, the same search.
+    #[cfg(all(feature = "raw_vulkan_init", not(target_family = "wasm")))]
+    let (instance, surface, selected_adapter) = {
+        let others = backends - Backends::VULKAN;
+        if selected_adapter.is_none() && backends.contains(Backends::VULKAN) && !others.is_empty() {
+            warn!("Vulkan has no adapter that can draw to the window; trying the other backends ({others:?})");
+            drop(surface);
+            let instance = Instance::new(instance_descriptor(others));
+            let surface = create_surface(&instance);
+            let mut found = None;
+            if let Some(name) = std::env::var("WGPU_ADAPTER_NAME")
+                .as_deref()
+                .map_or(options.adapter_name.clone(), |x| Some(x.to_lowercase()))
+            {
+                found = find_adapter_by_name(&instance, options, surface.as_ref(), &name).await;
+            }
+            if found.is_none() {
+                found = instance
+                    .request_adapter(&RequestAdapterOptions {
+                        power_preference: options.power_preference,
+                        compatible_surface: surface.as_ref(),
+                        force_fallback_adapter,
+                        apply_limit_buckets: false,
+                    })
+                    .await
+                    .ok();
+            }
+            (instance, surface, found)
+        } else {
+            (instance, surface, selected_adapter)
+        }
+    };
+    // The surface only chooses the adapter; the windows' own surfaces are made later.
+    let _ = &surface;
 
     let adapter = selected_adapter.expect(GPU_NOT_FOUND_ERROR_MESSAGE);
     let adapter_info = adapter.get_info();
