@@ -192,6 +192,11 @@ impl Clock {
         Means { main: self.main.take_mean_ms(), render: self.render.take_mean_ms(), wait: self.wait.take_mean_ms() }
     }
 
+    /// The current showing's generation.
+    fn generation(&self) -> u8 {
+        self.generation.load(Ordering::Acquire)
+    }
+
     /// When the row last started to show.
     fn began(&self) -> Option<Instant> {
         self.began.lock().ok().and_then(|b| *b)
@@ -294,29 +299,74 @@ pub fn finish(app: &mut App) {
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
         render
             .init_resource::<TakenOut>()
+            .init_resource::<RecorderShowing>()
             .add_systems(Render, gate_recorder.after(RenderSystems::ExtractCommands).before(bevy::render::diagnostic::begin_diagnostics_frame));
     }
 }
 
-/// In the render world: the recorder last taken out, kept until the next one is (by then
-/// the read-backs it had under way are long done, so dropping it cancels none).
+/// In the render world: the recorder last taken out, kept until the next one is. Dropping
+/// it discards any read-back it still had under way, which only loses measurements of
+/// frames before the row showed again [design].
 #[derive(Resource, Default)]
 struct TakenOut(Option<DiagnosticsRecorder>);
 
+/// In the render world: the showing the recorder in the world records for; none before the
+/// gate first saw one.
+#[derive(Resource, Default)]
+struct RecorderShowing(Option<u8>);
+
+/// What [`gate_recorder`] does with the recorder.
+#[derive(Debug, PartialEq, Eq)]
+enum Gate {
+    Keep,
+    TakeOut,
+    /// Put a new one in (taking out the one there, if any).
+    Renew,
+}
+
+/// The gate's decision: `wanted` whether the row shows, `present` whether a recorder is in
+/// the world, `made` whether the gate has taken one out before (Bevy has made its own),
+/// `records_for` the showing the present recorder records for, `showing` the current one.
+/// A hide and a show between two render frames leave the row shown at both, so the
+/// showing's generation, not only whether it shows, tells a new showing [design].
+fn gate(wanted: bool, present: bool, made: bool, records_for: Option<u8>, showing: u8) -> Gate {
+    match (wanted, present) {
+        (false, true) => Gate::TakeOut,
+        (true, false) if made => Gate::Renew,
+        (true, true) if records_for.is_some_and(|g| g != showing) => Gate::Renew,
+        _ => Gate::Keep,
+    }
+}
+
 /// Before the recorder begins a frame: while the row is not shown, take the recorder out
-/// of the render world (no pass records, nothing is resolved or read back); when it shows
-/// again, put a new one in, so no frame recorded before the hide is read back into the
-/// new showing. Nothing before Bevy made the first one (`RenderStartup`); after a lost
-/// device Bevy makes it again, and it is taken out again while the row is hidden.
+/// of the render world (no pass records, nothing is resolved or read back); when a new
+/// showing begins, put a new one in, so no frame recorded before it is read back into it.
+/// Nothing before Bevy made the first one (`RenderStartup`); after a lost device Bevy
+/// makes it again, and it is taken out again while the row is hidden.
 fn gate_recorder(world: &mut World) {
-    let wanted = world.resource::<SplitClock>().0.is_on();
+    let clock = world.resource::<SplitClock>().0.clone();
+    let (wanted, showing) = (clock.is_on(), clock.generation());
     let present = world.contains_resource::<DiagnosticsRecorder>();
-    if !wanted && present {
-        let recorder = world.remove_resource::<DiagnosticsRecorder>();
-        world.resource_mut::<TakenOut>().0 = recorder;
-    } else if wanted && !present && world.resource::<TakenOut>().0.is_some() {
-        let fresh = DiagnosticsRecorder::from_world(world);
-        world.insert_resource(fresh);
+    let made = world.resource::<TakenOut>().0.is_some();
+    let records_for = world.resource::<RecorderShowing>().0;
+    match gate(wanted, present, made, records_for, showing) {
+        Gate::TakeOut => {
+            let recorder = world.remove_resource::<DiagnosticsRecorder>();
+            world.resource_mut::<TakenOut>().0 = recorder;
+        }
+        Gate::Renew => {
+            if let Some(old) = world.remove_resource::<DiagnosticsRecorder>() {
+                world.resource_mut::<TakenOut>().0 = Some(old);
+            }
+            let fresh = DiagnosticsRecorder::from_world(world);
+            world.insert_resource(fresh);
+            world.resource_mut::<RecorderShowing>().0 = Some(showing);
+        }
+        Gate::Keep => {
+            if wanted && present && records_for.is_none() {
+                world.resource_mut::<RecorderShowing>().0 = Some(showing);
+            }
+        }
     }
 }
 
@@ -368,6 +418,10 @@ pub fn mean_since(measurements: impl IntoIterator<Item = (Instant, f64)>, since:
     Some((sum / f64::from(n), now.saturating_duration_since(last).as_secs_f64()))
 }
 
+/// How long after the row began to show its GPU measurements are passed over
+/// ([`SplitInputs::read`]) [design].
+const GPU_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// What a reading of the split row needs.
 #[derive(SystemParam)]
 pub struct SplitInputs<'w> {
@@ -382,7 +436,11 @@ impl SplitInputs<'_> {
     pub fn read(&self) -> Option<Split> {
         let m = self.clock.0.take();
         let now = Instant::now();
-        let since = self.clock.0.began();
+        // A measurement is stamped when it reaches the store, a few frames after its frame
+        // (the vendored `bevy_render` diagnostic `sync_diagnostics`), so those reaching it
+        // just after the showing began may be of frames before it: they are passed over
+        // [design].
+        let since = self.clock.0.began().map(|b| b + GPU_GRACE);
         let gpu_ms = self.store.as_deref().zip(since).and_then(|(store, since)| {
             gpu_frame_ms(store.iter().filter_map(|d| {
                 let (mean, age) = mean_since(d.measurements().map(|m| (m.time, m.value)), since, now)?;
@@ -420,6 +478,23 @@ impl SplitInputs<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_gate_renews_the_recorder_for_each_new_showing() {
+        // Hidden: taken out; hidden with none in: kept out.
+        assert_eq!(gate(false, true, false, Some(1), 1), Gate::TakeOut);
+        assert_eq!(gate(false, false, true, Some(1), 1), Gate::Keep);
+        // Shown again after a hide the gate saw: a new one.
+        assert_eq!(gate(true, false, true, Some(1), 2), Gate::Renew);
+        // Hidden and shown between two render frames: the gate saw it shown both times,
+        // but the showing moved on, so a new one all the same.
+        assert_eq!(gate(true, true, false, Some(1), 2), Gate::Renew);
+        // The same showing: kept; Bevy's first recorder is adopted, not renewed.
+        assert_eq!(gate(true, true, true, Some(2), 2), Gate::Keep);
+        assert_eq!(gate(true, true, false, None, 1), Gate::Keep);
+        // Shown with none in and none ever taken out (before Bevy made it): nothing to do.
+        assert_eq!(gate(true, false, false, None, 1), Gate::Keep);
+    }
 
     fn given(win: bool, flags: &[&str]) -> GivenSwitches {
         GivenSwitches { given: flags.iter().map(|f| f.to_string()).collect(), win }

@@ -858,9 +858,9 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 [[scenario]]
 name = "perf-overlay-split-write"
 source = "issue #1868: the first half of the frame split's GPU round trip (perf-overlay-split-gpu starts in the same home): the settings page's Defaults, then the frame split row turned on, which is stored in the home's NVForever.ini"
-note = "Defaults first: the home's INI may hold the row on from an earlier run, and the settings aid flips a switch"
+note = "The same paths as perf-overlay-split-gpu, so a change that selects that one selects this one, which writes the INI it reads. Defaults first: the home's INI may hold the row on from an earlier run, and the settings aid flips a switch"
 areas = ["renderer", "settings"]
-paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/settings.rs", "engine/vendor/bevy_render/src/diagnostic/*"]
 env = { NVFOREVER_HOME = "perf-overlay-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,13:fps-counter-split", NVF_PLAY_TEST_PAUSE_MENU = "12:defaults" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps"]
 run_seconds = 17
@@ -882,7 +882,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hou
 run_seconds = 14
 expect = [
   { text = "fps counter: the frame split row is on: GPU timestamps are taken for its GPU time", count = 1, label = "the INI's split row adds the GPU timestamps at the start" },
-  { text = "fps counter: GPU timestamps are taken only while the frame split shows", count = 1, label = "the overlay alone added them: the recorder follows the row" },
+  { re = 'fps counter: GPU timestamps are taken (only while the frame split shows|all the time)', count = 1, label = "the split row's timestamps are taken: only while it shows when the overlay alone added them, all the time where a measuring path or a Tracy build added them too" },
   { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms \(wait [\d.]+ ms\)(, GPU [\d.]+ ms)?$', label = "the split's first reading" },
   { re = '(fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms \(wait [\d.]+ ms\), GPU [\d.]+ ms$|fps counter: frame split without GPU time: the graphics device offers no timestamp queries$)', label = "the first split reading has its GPU time, or the device has no timestamp queries and says so" },
 ]
