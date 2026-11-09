@@ -158,6 +158,12 @@ yield timer, viewmodel clip, NiLOD and save switches, UI update sounds, reputati
 marker icons, barter hiding, the queued cinematic and objective texts, TogglePipBoy, the
 engine requests, HSVtoRGB and RGBtoHSV into script variables, GetJohnnyPatch,
 GetDefaultHeapSize, IsMenuPaused; probe set jg7 written, not run yet). JohnnyGuitar 147 → 109.
+JohnnyGuitar batch 8: 31 (#1007, ext-jg8.md: the last 14 event handlers (failed quests, lost
+limbs, seen cells, processing levels, NPCs' actor values, reputations, NPC responses, sleep and
+wait, general subtitles, the crosshair, settings, keyboard selection, radio sounds, taking items
+back), the custom map marker, MD5File and SHA1File, IsBSALoaded, the DDS texture getters,
+GetPixelFromBMP, Ar_Shuffle and Ar_SortEditor, the system colours, the sleep/wait menu state,
+TuneRadioRef; probe set jg8 written, not run yet). JohnnyGuitar 109 → 78.
 ShowOff batch 5: the last 37 (#1010, ext-showoff.md §8: the level-up and pause menus on request, live
 explosions, the shot switches, fast travel, detection and combat counts, VATS and item values, the
 player's small states; from the pages, not probed). Census after it, beside batch 4: 565 (ShowOff 71 → 34;
