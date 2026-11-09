@@ -197,6 +197,7 @@ pub fn low_of(ms: impl Iterator<Item = f32>, scratch: &mut Vec<f32>) -> Option<f
 /// moments `wall` seconds apart: 1.0 is one core's whole time [design: so a main thread
 /// held at its limit reads at least 1.0 on any machine, where the machine's share would
 /// read 6 % on 16 cores (issue #1868)]. None without time between them.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn cores_busy(cpu_before: f64, cpu_now: f64, wall: f64) -> Option<f32> {
     (wall > 0.0 && cpu_now >= cpu_before).then(|| ((cpu_now - cpu_before) / wall) as f32)
 }

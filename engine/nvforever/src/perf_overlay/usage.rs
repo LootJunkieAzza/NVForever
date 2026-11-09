@@ -118,6 +118,7 @@ impl Shared {
         self.want.store(bit(cpu, WANT_CPU) | bit(gpu, WANT_GPU) | bit(process_cpu, WANT_PROCESS_CPU) | bit(ram, WANT_RAM), Ordering::Relaxed);
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
     fn wants(&self, part: u8) -> bool {
         self.want.load(Ordering::Relaxed) & part != 0
     }
@@ -140,7 +141,9 @@ impl Shared {
         }
     }
 
-    /// Store a collection made under `generation`, tagged with it.
+    /// Store a collection made under `generation`, tagged with it (the sampler thread's,
+    /// none off Windows but in the tests).
+    #[cfg_attr(not(windows), allow(dead_code))]
     fn publish(&self, generation: u32, u: Usage) {
         let percent = |v: Option<f32>| v.map_or(NONE, |p| (p.clamp(0.0, 100.0) * 10.0).round() as u32);
         self.cpu.store(percent(u.cpu), Ordering::Relaxed);
@@ -153,6 +156,7 @@ impl Shared {
 
 /// Where the sampler's readings come from: Windows' counters on the sampler thread
 /// (`windows::Counters`), a stand-in in the tests.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub trait Source {
     /// Collect the machine's CPU counter and read it: a rate, so none until the second
     /// collection since it was last forgotten.
@@ -171,6 +175,7 @@ pub trait Source {
 
 /// The sampler's own state between collections: the generation it last collected under
 /// and the game's processor time at its last collection (seconds, and when).
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Default)]
 pub struct Baselines {
     generation: Option<u32>,
@@ -181,6 +186,7 @@ pub struct Baselines {
 /// them under the generation they were collected for; a new generation (a new showing,
 /// even one that began and ended between two turns) starts every rate afresh. False: the
 /// overlay is hidden, nothing was collected.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn step(shared: &Shared, b: &mut Baselines, src: &mut impl Source) -> bool {
     if !shared.is_on() {
         src.forget(true, true);

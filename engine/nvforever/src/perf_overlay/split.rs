@@ -98,12 +98,20 @@ impl Acc {
     /// step: the generation check, the frame and its time go in together.
     fn add(&self, generation: u8, took: Duration) -> bool {
         let us = took.as_micros().min(u128::from(US_MAX)) as u64;
-        self.0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |w| {
-                let (g, frames, sum) = unpack(w);
-                (g == generation).then(|| pack(g, frames.saturating_add(1), sum.saturating_add(us)))
-            })
-            .is_ok()
+        // A compare-and-swap loop written out: `fetch_update` is deprecated on newer
+        // toolchains in favour of `try_update`, which older ones do not have.
+        let mut w = self.0.load(Ordering::Acquire);
+        loop {
+            let (g, frames, sum) = unpack(w);
+            if g != generation {
+                return false;
+            }
+            let next = pack(g, frames.saturating_add(1), sum.saturating_add(us));
+            match self.0.compare_exchange_weak(w, next, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => return true,
+                Err(now) => w = now,
+            }
+        }
     }
 
     /// The frames and microseconds since the last take, zeroed in the same step (the
