@@ -427,6 +427,7 @@ unless the player binds them, so nothing changes until then.
 | Contact Mines (Player), (Others) | `bContactMines` | `mines::tick`: an actor that sets a mine off within `CONTACT_DISTANCE` (24 units, ours) of its axis gets no fuse |
 | Sleep Healing Min Duration (0–12 h) | `bSleepHealingMinDuration` | `aid::hour_passed` calls `Game::pass_hours_healing` with healing held until the hour; every bed counts (who owns the bed is not known there); `bMiscStatRequiresSleepDuration` is not done |
 | Barter Lowers Repair Costs (0–60 %) | `bBarterAffectsRepairCosts` | `repair::view` scales `RepairSettings::cost_mult` by `fnv_game::tweaks::barter_repair_factor` (ours; no perk modifiers) |
+| Armour Condition Penalty (x0–x2) | `bCustomArmorConditionPenalty` | `combat::target_armor` uses `CombatForms::armor_values_worn_with` and `fnv_combat::condition::armor_mult_with`; the repair menus still show DT at the original's x1 |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -447,8 +448,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 334 |
-| to do | 269 |
+| done | 335 |
+| to do | 268 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -474,6 +475,7 @@ game's Data folder, read-only).
 | `bContactMines` | done |  | 2 | Contact Mines (Player) and (Others): a mine stood on, within 24 units of the body's axis, goes off with no fuse |
 | `bCrippledLegsScaleJumpHeight` | done |  | 2 | Jumping on a Crippled Leg (one part per crippled leg) |
 | `bCripplingDoesntDisarm` | done |  |  | Crippling Never Disarms |
+| `bCustomArmorConditionPenalty` | done |  | 1 | Armour Condition Penalty (x0 to x2 on the penalty below half condition; the repair menus still show DT at x1) |
 | `bCustomSpecialPoints` | done |  | 1 | S.P.E.C.I.A.L. Points (30 to 70; a script's own total still wins) |
 | `bDisableFastTravel` | done |  |  | No Fast Travel |
 | `bDisableReloadingNonEmptyClip` | done |  | 2 | Reload Only When Empty (the energy-only and looping options not built) |
@@ -558,7 +560,6 @@ game's Data folder, read-only).
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
 | `bCritChanceIgnoresFireRate` | to do |  |  | crit_chance in fnv-combat; Rules is serialized |
-| `bCustomArmorConditionPenalty` | to do |  | 1 | the condition formula is in fnv-combat condition.rs constants |
 | `bDisarmRequiresSkill` | to do |  | 2 | disarming happens in fnv_sim World::activate without skill or game |
 | `bEncumbranceIncludesGrabbedItems` | to do |  |  | encumbered_walks plus the grabbed reference weight |
 | `bExplosionRadiusBuff` | to do |  | 3 | explosion_damage reads CombatTuning (serialized) |

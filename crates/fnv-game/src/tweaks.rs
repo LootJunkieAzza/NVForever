@@ -323,6 +323,9 @@ pub struct Tweaks {
     /// `bBarterAffectsRepairCosts`: percent of a vendor's repair price the player's
     /// Barter 100 takes off (less in proportion below; [`barter_repair_factor`]).
     pub barter_repair_discount: f32,
+    /// `bCustomArmorConditionPenalty` (`fScale`): the multiplier on how fast armour below
+    /// half condition loses its DT and DR; 1 is the original's.
+    pub armor_condition_penalty: f64,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -476,6 +479,7 @@ impl Default for Tweaks {
             contact_mines_npcs: false,
             sleep_heal_min_hours: 0,
             barter_repair_discount: 0.0,
+            armor_condition_penalty: 1.0,
         }
     }
 }

@@ -3183,7 +3183,9 @@ pub(crate) fn fire(
 /// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
 /// Each piece protects by its condition (§17).
 pub(crate) fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
-    let (dt, dr) = c.forms.armor_values_worn(&worn_armor(&c.forms, sim, target));
+    // The player's tweak: how fast worn-down armour loses its DT and DR [design: docs/design/tweaks.md].
+    let penalty = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.tweaks.armor_condition_penalty as f32);
+    let (dt, dr) = c.forms.armor_values_worn_with(&worn_armor(&c.forms, sim, target), penalty);
     // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
     // nothing until a script changes them (abilities are not applied yet).
     let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);

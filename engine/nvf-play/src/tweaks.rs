@@ -1058,6 +1058,26 @@ impl Plugin for TweaksPlugin {
         switch!(app, "contact-mines-npcs", "Contact Mines (Others)", "A mine anyone else stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bNPCs)", game.contact_mines_npcs);
         amount!(app, "sleep-heal-min-hours", "Sleep Healing Min Duration", "Hours a sleep must last before it restores Health and heals limbs; 0 heals from the first hour. (Stewie's Tweaks bSleepHealingMinDuration)", 12.0, u32, game.sleep_heal_min_hours);
         amount!(app, "barter-repair-discount", "Barter Lowers Repair Costs", "Percent of a vendor's repair price the player's Barter takes off at 100 (in proportion below); 0 changes nothing. (Stewie's Tweaks bBarterAffectsRepairCosts)", 60.0, f32, game.barter_repair_discount);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-armor-condition-penalty",
+                GROUP,
+                "Armour Condition Penalty",
+                "How fast armour below half condition loses its DT and DR (to half at x1.0, to none at x2.0); x1.0 changes nothing. (Stewie's Tweaks bCustomArmorConditionPenalty)",
+                Slider {
+                    get: |w| part(w.get_resource::<TweakSettings>().map_or(1.0, |t| t.game.armor_condition_penalty)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.armor_condition_penalty = factor(v);
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(shown_factor),
+                },
+            ),
+        );
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
