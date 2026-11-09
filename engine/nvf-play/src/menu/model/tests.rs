@@ -80,6 +80,7 @@ const KEY_B: u32 = 0x181; // KEYM "Vault Key"
 const SKILL_BOOK: u32 = 0x182; // BOOK "Big Book of Science", teaches Science
 const PLAIN_BOOK: u32 = 0x183; // BOOK "Paradise Lost", teaches nothing
 const CARD: u32 = 0x184; // CCRD "Ace of Hearts" (no DATA here)
+const VEST: u32 = 0x185; // ARMO "Leather Vest", upper body
 const CELL: u32 = 0x200;
 const BOX_REF: u32 = 0x300;
 const CAN_REF: u32 = 0x301;
@@ -140,6 +141,9 @@ fn plugin_bytes() -> Vec<u8> {
     let books = cat(&[&book(SKILL_BOOK, "TestSkillBook", "Big Book of Science", 10), &book(PLAIN_BOOK, "TestPlainBook", "Paradise Lost", -1)]);
     let [e, f] = named("TestCard", "Ace of Hearts");
     let card = record(b"CCRD", 0, CARD, &[e, f]);
+    // ARMO BMDT: biped flags (upper body), general flags; DATA: value, health, weight.
+    let [e, f] = named("TestVest", "Leather Vest");
+    let vest = record(b"ARMO", 0, VEST, &[e, f, sub(b"BMDT", cat(&[&0x4u32.to_le_bytes(), &[0u8, 0, 0, 0]])), sub(b"DATA", cat(&[&10i32.to_le_bytes(), &50i32.to_le_bytes(), &3f32.to_le_bytes()]))]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let label = CELL.to_le_bytes();
     let children = group(label, 6, &group(label, 9, &cat(&[&refr(BOX_REF, BOX), &refr(CAN_REF, CAN)])));
@@ -156,6 +160,7 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"KEYM", &keys),
         &top(b"BOOK", &books),
         &top(b"CCRD", &card),
+        &top(b"ARMO", &vest),
         &top(b"NPC_", &npc),
         &cells,
     ])
@@ -918,6 +923,55 @@ fn misc_folders_and_skill_books() {
     m.apply(&mut w, Command::SetCategory(Side::Player, Category::Misc));
     assert_eq!(m.folder, None);
     assert_eq!(count(&mut w, 0x14, KEY_A), 1);
+}
+
+/// The Pip-Boy's equip hint is bright exactly when Enter does something (#1896): it reads
+/// the game's own checks (`enter_acts`: `World::equip_check`, which `World::equip_at` runs),
+/// not what a hotkey can hold. A book that teaches nothing and a broken weapon are dim and
+/// Enter leaves them be; a weapon, armour and an aid item are bright and Enter takes them.
+#[test]
+fn the_equip_hint_is_bright_when_enter_does_something() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    assert!(f.forms.issues.is_empty(), "{:?}", f.forms.issues.to_json());
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(PLAYER, FormId(PLAIN_BOOK), 1).unwrap();
+    w.add_item(PLAYER, FormId(VEST), 1).unwrap();
+    w.add_item_extra(PLAYER, FormId(RIFLE), 1, Extra { condition: Some(0.0), ..Extra::default() }).unwrap();
+    let mut m = MenuModel::open_inventory(&mut w).unwrap();
+    m.apply(&mut w, Command::SetCategory(Side::Player, Category::All));
+    // The equip hint (shown with a controller, the first as the original's order puts it):
+    // its word and whether dim.
+    let equip_hint = |m: &MenuModel, w: &World<'_>, name: &str| -> (&'static str, bool) {
+        let r = m.list(Side::Player).rows.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("no row {name}"));
+        crate::pad::set_labels(crate::pad::Labels::Xbox);
+        let h = crate::pipboy::items::page_hints(Category::All, Some(r), ("Repair", false), false, enter_acts(w, r));
+        crate::pad::set_labels(crate::pad::Labels::Keys);
+        (h[0].word, h[0].dim)
+    };
+    let equip = crate::pipboy::labels::built_in_label("sInventoryEquip");
+    assert_eq!(equip_hint(&m, &w, "Paradise Lost"), ("Use", true));
+    assert_eq!(equip_hint(&m, &w, "Varmint Rifle"), (equip, true));
+    assert_eq!(equip_hint(&m, &w, "Pistol"), (equip, false));
+    assert_eq!(equip_hint(&m, &w, "Leather Vest"), (equip, false));
+    assert_eq!(equip_hint(&m, &w, "Aid"), ("Use", false));
+    // Enter agrees: the dim ones are refused, the bright ones taken.
+    select(&mut m, Side::Player, "Paradise Lost");
+    m.apply(&mut w, Command::One);
+    assert_eq!(count(&mut w, 0x14, PLAIN_BOOK), 1);
+    select(&mut m, Side::Player, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert!(!w.get(PLAYER).unwrap().inventory.as_ref().unwrap().is_equipped(FormId(RIFLE)));
+    for name in ["Pistol", "Leather Vest"] {
+        select(&mut m, Side::Player, name);
+        m.apply(&mut w, Command::One);
+        assert_eq!(m.status.as_deref(), Some(format!("Equipped {name}").as_str()));
+    }
+    // Worn, the hint takes it off; Enter does.
+    assert_eq!(equip_hint(&m, &w, "Pistol"), ("Unequip", false));
+    select(&mut m, Side::Player, "Aid");
+    m.apply(&mut w, Command::One);
+    assert_eq!(count(&mut w, 0x14, AID), 1);
 }
 
 #[test]

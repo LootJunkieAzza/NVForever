@@ -38,6 +38,8 @@
 
 pub mod container_menu;
 pub mod barter_menu;
+pub mod repair_cards;
+pub mod repair_services_menu;
 mod item_menu;
 pub mod dialog_menu;
 pub mod draw;
@@ -136,6 +138,9 @@ impl MenuFiles<'_, '_> {
 /// interface units [observed: hud_menus capture 2026-10-31, three window sizes]; applying them
 /// unconditionally is a follow-up.
 pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
+    if menus.repair_services {
+        return true;
+    }
     menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog || menus.inventory
 }
 
@@ -937,6 +942,8 @@ impl Plugin for TilesPlugin {
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
+            .init_resource::<repair_services_menu::RepairServicesTiles>()
+            .add_message::<crate::repair::RepairServicesInput>()
             .init_resource::<container_menu::TileWheelTitle>()
             .init_resource::<tag_menu::TagTiles>()
             .insert_resource(tag_menu::aid_from_env())
@@ -951,12 +958,14 @@ impl Plugin for TilesPlugin {
             // T15c: the container menu's state for this frame's input.
             .add_systems(Update, write_container.after(write).before(input::feed))
             .add_systems(Update, barter_menu::write_system.after(write).before(input::feed))
+            .add_systems(Update, repair_services_menu::write_system.after(write).before(input::feed))
             // [design] The trait and tag-skill lists, likewise.
             .add_systems(Update, trait_menu::write_system.after(write).before(input::feed))
             .add_systems(Update, selection_menu::write_system::<{ fnv_game::game::menus::TAG_SKILLS }>.after(write).before(input::feed))
             // T8: the pointer and keys after the engine's writes, before scripts (§4.1 step 1).
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
+            .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
             // The Pip-Boy's S.P.E.C.I.A.L.: written after the tile input and before the scripts;
             // again after its keys and decided before the frame and the tile drawing read it.
             .add_systems(Update, stats_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
@@ -1110,6 +1119,7 @@ mod tests {
         assert!(interface_screen(vanilla::TileMenus { tutorial: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { container: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { barter: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { repair_services: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { tags: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { dialog: true, ..Default::default() }));

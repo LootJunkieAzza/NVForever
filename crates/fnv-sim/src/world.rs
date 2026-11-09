@@ -101,6 +101,17 @@ enum Placing {
     Ring,
 }
 
+/// Whether putting on `it` takes `other` off ([`World::equip_at`]): a weapon replaces the
+/// equipped weapon, armour equipped armour that shares a body slot (BMDT biped flags).
+fn equip_clashes(forms: &FormStore, it: &crate::forms::Item, other: FormId) -> bool {
+    let Some(o) = forms.item(other) else { return false };
+    match (it.kind, o.kind) {
+        (ItemKind::Weapon, ItemKind::Weapon) => true,
+        (ItemKind::Armor, ItemKind::Armor) => it.slots.unwrap_or(0) & o.slots.unwrap_or(0) != 0,
+        _ => false,
+    }
+}
+
 /// The offset across the ground, from the player's position, of place `slot` around a
 /// player facing `heading` (z rotation): ring `slot / PLAYER_DROP_RING`, in it straight
 /// ahead first, then alternately right and left of it a step further round, the last one
@@ -1337,19 +1348,49 @@ impl<'a> World<'a> {
     }
 
     /// As [`World::equip`], equipping (or using) one of the units `at` names: a menu
-    /// row's.
+    /// row's. Its checks are [`World::equip_check`]'s.
     pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Pick) -> Result<Equip, SimError> {
-        let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
         let forms = self.forms;
-        let trained = self.power_armor_training;
+        let it = forms.item(item).ok_or(SimError::NotAnItem(item))?;
+        // Materialise the actor first; the checks read its state.
+        self.inventory(actor)?;
+        let consumed = self.equip_check(actor, item, at)?;
         let inv = self.inventory(actor)?;
-        // A skill book is read, and so used up like an aid item (`fnv_game::books`,
-        // docs/spec-notes/skill-books.md §2); a book that teaches nothing is not used.
-        if it.kind == ItemKind::Aid || (it.kind == ItemKind::Book && it.teaches.is_some()) {
+        if consumed {
             return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
                 1 => Ok(Equip { consumed: true, unequipped: Vec::new() }),
                 _ => Err(SimError::NotCarried { actor, item }),
             };
+        }
+        let mut unequipped = Vec::new();
+        for other in inv.equipped() {
+            if equip_clashes(forms, it, other) && inv.clear_equipped(other) {
+                unequipped.push(other);
+            }
+        }
+        let equipped = inv.set_equipped_at(item, at);
+        debug_assert!(equipped, "can_equip_at said a unit was free");
+        Ok(Equip { consumed: false, unequipped })
+    }
+
+    /// Whether [`World::equip_at`] takes `item` (one of the units `at` names) on `actor`,
+    /// changing nothing: `Ok(true)` when it is used up (an aid item, a skill book),
+    /// `Ok(false)` when it is put on, else the error `equip_at` returns. `equip_at` runs
+    /// these checks itself, so a menu's hint reading them (#1896) agrees with the action.
+    /// Only a materialised actor is read ([`World::peek`]); `equip_at` materialises it.
+    pub fn equip_check(&self, actor: FormId, item: FormId, at: Pick) -> Result<bool, SimError> {
+        let forms = self.forms;
+        let it = forms.item(item).ok_or(SimError::NotAnItem(item))?;
+        let state = self.refs.get(&actor).ok_or(SimError::UnknownRef(actor))?;
+        if state.deleted() {
+            return Err(SimError::Deleted(actor));
+        }
+        let inv = state.inventory.as_ref().ok_or(SimError::NoInventory(actor))?;
+        // A skill book is read, and so used up like an aid item (`fnv_game::books`,
+        // docs/spec-notes/skill-books.md §2); a book that teaches nothing is not used.
+        if it.kind == ItemKind::Aid || (it.kind == ItemKind::Book && it.teaches.is_some()) {
+            // Any unit `at` names is taken (`Inventory::take_at`).
+            return if inv.can_equip_at(item, at, true) { Ok(true) } else { Err(SimError::NotCarried { actor, item }) };
         }
         if !matches!(it.kind, ItemKind::Weapon | ItemKind::Armor) {
             return Err(SimError::NotEquippable(item));
@@ -1360,52 +1401,44 @@ impl<'a> World<'a> {
         if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
             return Err(SimError::Broken(item));
         }
-        if it.power_armor && actor == FormId::PLAYER_REF && !trained && !inv.is_equipped(item) {
+        if it.power_armor && actor == FormId::PLAYER_REF && !self.power_armor_training && !inv.is_equipped(item) {
             return Err(SimError::NoPowerArmorTraining(item));
         }
-        let clashes = |other: FormId| -> bool {
-            let Some(o) = forms.item(other) else { return false };
-            match (it.kind, o.kind) {
-                (ItemKind::Weapon, ItemKind::Weapon) => true,
-                (ItemKind::Armor, ItemKind::Armor) => it.slots.unwrap_or(0) & o.slots.unwrap_or(0) != 0,
-                _ => false,
-            }
-        };
-        let locks = &self.refs.get(&actor).ok_or(SimError::UnknownRef(actor))?.equip_locks;
+        let locks = &state.equip_locks;
         if locks.get(&item) == Some(&EquipLock::NoEquip) {
             return Err(SimError::EquipLocked { item, on: false });
         }
         // "EquipItem will not work if there is already an item in that slot that has
         // been equipped with the NoUnequipFlag set" [documented: GECK wiki EquipItem].
-        let inv = self.refs.get(&actor).and_then(|s| s.inventory.as_ref()).ok_or(SimError::NoInventory(actor))?;
-        if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && clashes(o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
+        if let Some(held) = inv.equipped().into_iter().find(|&o| o != item && equip_clashes(forms, it, o) && locks.get(&o) == Some(&EquipLock::NoUnequip)) {
             return Err(SimError::EquipLocked { item: held, on: true });
         }
         // Check a unit `at` names can be put on before taking anything off, so a failed
-        // equip leaves the actor dressed as it was (#1083). The clash loop below frees
-        // the equipped units of `item` itself when it clashes with itself.
-        if !inv.can_equip_at(item, at, clashes(item)) {
+        // equip leaves the actor dressed as it was (#1083). `equip_at` frees the equipped
+        // units of `item` itself when it clashes with itself.
+        if !inv.can_equip_at(item, at, equip_clashes(forms, it, item)) {
             return Err(SimError::NotCarried { actor, item });
         }
-        let inv = self.inventory(actor)?;
-        let mut unequipped = Vec::new();
-        for other in inv.equipped() {
-            if clashes(other) && inv.clear_equipped(other) {
-                unequipped.push(other);
-            }
-        }
-        let equipped = inv.set_equipped_at(item, at);
-        debug_assert!(equipped, "can_equip_at said a unit was free");
-        Ok(Equip { consumed: false, unequipped })
+        Ok(false)
     }
 
     /// Unequip `item`; returns whether it was equipped. An item a script locked on
-    /// ([`EquipLock::NoUnequip`]) stays on.
+    /// ([`EquipLock::NoUnequip`]) stays on ([`World::unequip_check`]).
     pub fn unequip(&mut self, actor: FormId, item: FormId) -> Result<bool, SimError> {
-        if self.equip_lock(actor, item) == Some(EquipLock::NoUnequip) && self.inventory(actor)?.is_equipped(item) {
+        self.inventory(actor)?;
+        self.unequip_check(actor, item)?;
+        Ok(self.inventory(actor)?.clear_equipped(item))
+    }
+
+    /// Whether [`World::unequip`] takes `item` off `actor` (or finds it off), changing
+    /// nothing: the error it returns for an item a script locked on. Only a materialised
+    /// actor is read, as [`World::equip_check`].
+    pub fn unequip_check(&self, actor: FormId, item: FormId) -> Result<(), SimError> {
+        let worn = self.refs.get(&actor).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item));
+        if worn && self.equip_lock(actor, item) == Some(EquipLock::NoUnequip) {
             return Err(SimError::EquipLocked { item, on: true });
         }
-        Ok(self.inventory(actor)?.clear_equipped(item))
+        Ok(())
     }
 
     /// The script lock on an actor's item, if any.
@@ -1678,7 +1711,8 @@ impl<'a> World<'a> {
     pub fn advance_to_hour(&mut self, hour: f64) -> Result<f64, SimError> {
         let before = self.calendar()?;
         let (c, hours) = self.fine_clock.advance_to_hour(before, hour);
-        if hours > 0.0 {
+        // A GameHour out of range can come to the hour with no time passing.
+        if c != before {
             self.store_calendar(before, c)?;
         }
         Ok(hours)
