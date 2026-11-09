@@ -105,6 +105,9 @@ pub struct StripWindow {
     columns: usize,
     offset: usize,
     image: Handle<Image>,
+    /// A SetUIAlphaMap mask over the window, its alpha times each baked texel's
+    /// (`tiles::texmod::strip`, #1833).
+    mask: Option<std::sync::Arc<crate::tiles::texmod::Texels>>,
 }
 
 impl StripWindow {
@@ -123,7 +126,29 @@ impl StripWindow {
         let mut image = Image::new(size, TextureDimension::D2, bake(&strip, offset, columns), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
         // Linear across the stretched texels, as `crate::repeat`'s [design].
         image.sampler = ImageSampler::linear();
-        Some(StripWindow { strip, columns, offset, image: images.add(image) })
+        Some(StripWindow { strip, columns, offset, image: images.add(image), mask: None })
+    }
+
+    /// The window under `mask` (none: as it is), stretched over its texels and kept for
+    /// every later bake (`tiles::texmod::masked`) [design: #1833].
+    pub fn masked(mut self, mask: Option<std::sync::Arc<crate::tiles::texmod::Texels>>, images: &mut Assets<Image>) -> StripWindow {
+        if mask.is_some() {
+            self.mask = mask;
+            let texels = self.texels_at(self.offset);
+            if let Some(mut image) = images.get_mut(&self.image) {
+                image.data = Some(texels);
+            }
+        }
+        self
+    }
+
+    /// The window's texels from the strip's texel `offset`, under the mask when it has one.
+    fn texels_at(&self, offset: usize) -> Vec<u8> {
+        let mut texels = bake(&self.strip, offset, self.columns);
+        if let Some(m) = &self.mask {
+            crate::tiles::texmod::masked(&mut texels, self.columns, &m.rgba, m.width);
+        }
+        texels
     }
 
     pub fn image(&self) -> Handle<Image> {
@@ -149,8 +174,9 @@ impl StripWindow {
             return false;
         }
         self.offset = offset;
+        let texels = self.texels_at(offset);
         if let Some(mut image) = images.get_mut(&self.image) {
-            image.data = Some(bake(&self.strip, offset, self.columns));
+            image.data = Some(texels);
         }
         true
     }
@@ -260,5 +286,27 @@ mod tests {
         assert_eq!(data(&images), bake(&strip(), 873, 345));
         assert!(!window.turn(1.0, &mut images));
         assert_eq!(images.len(), 1);
+    }
+
+    /// #1833: a mask lies over the window, the same at every heading.
+    #[test]
+    fn a_mask_lies_over_the_window_as_the_strip_turns() {
+        let mut images = Assets::<Image>::default();
+        // Opaque over the window's left half, clear over its right.
+        let mask = crate::tiles::texmod::Texels::new([255u8, 0].iter().flat_map(|&a| [0, 0, 0, a]).collect(), 2).unwrap();
+        let window = StripWindow::new(strip(), COMPASS.x, 0.0, &mut images).unwrap().masked(Some(std::sync::Arc::new(mask)), &mut images);
+        let handle = window.image();
+        let alphas = |images: &Assets<Image>| images.get(&handle).and_then(|i| i.data.clone()).unwrap().chunks(4).map(|t| t[3]).collect::<Vec<_>>();
+        let check = |a: Vec<u8>| {
+            assert_eq!(a[10], 255, "the left half is the strip's own");
+            assert_eq!(a[300], 0, "the right half is masked out");
+        };
+        check(alphas(&images));
+        let mut window = window;
+        assert!(window.turn(1.0, &mut images));
+        check(alphas(&images));
+        // No mask: the window as it was.
+        let plain = StripWindow::new(strip(), COMPASS.x, 0.0, &mut images).unwrap().masked(None, &mut images);
+        assert_eq!(images.get(&plain.image()).and_then(|i| i.data.clone()).unwrap(), bake(&strip(), 870, 345));
     }
 }

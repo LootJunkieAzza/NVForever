@@ -22849,6 +22849,23 @@ order = [["nvf texoffset set", "tiles: HUDMainMenu/NVFTex/B: texture offset", "n
 manual = "ui_texoffset_set.png: four amber-and-black strips on the left; A's light band at its left end, B's and C's moved to the middle (about 128-208 of 256 units), C fading from left to right (its left end solid, its right end faint), D as A. ui_texoffset_replaced.png: B's band back at its left end, as A's (the replaced tile has no offset); C and D unchanged."
 
 [[scenario]]
+name = "ui-texoffset-compass"
+source = "#1833 review [documented: SetUITexOffset, SetUIAlphaMap; design: tiles/texmod.rs strip, compass_strip.rs StripWindow::masked] with the HUD drawn from tiles, the compass strip takes the offset on top of the heading's scroll and the mask over its window"
+note = "The fixture home's script sets offset 0.25 (a quarter turn of the 1024-unit strip) and the hit gradient mask on HUDMainMenu/HitPoints/compass_window at game start. Same place and heading as tiles-hud-compass-north (north at the window's middle there): here the letters stand a quarter turn on and fade from left to right."
+areas = ["ui", "scripts", "hud"]
+paths = ["engine/nvf-play/src/tiles/texmod.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/nvse_itr1.rs", "tools/smoke/fixtures/ui-texoffset-compass-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-texoffset-compass-home", NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "10:ui_texoffset_compass.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12", "--size", "1280x720"]
+run_seconds = 12
+expect = [
+  { text = 'script: print "nvf compass texoffset set 1 1"', count = 1, label = "the strip tile takes both" },
+  { re = 'tiles: HUDMainMenu/HitPoints/compass_window: texture offset 0\.250, 0\.000, alpha map textures.interface.hud.hitgradientleft\.dds drawn on the compass strip', count = 1, label = "the strip moved on and masked, told once" },
+  { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the strip is still one baked window" },
+  { re = 'could not be read; the tile is drawn without it', count = 0, label = "both textures read" },
+]
+manual = "ui_texoffset_compass.png against tiles_hud_compass_north.png: the strip's letters a quarter turn (256 units) on from where they stand at heading 0, and the strip fading from solid at the window's left to faint at its right, the marks over it unchanged."
+
+[[scenario]]
 name = "pipboy-items-hints"
 source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
 areas = ["pipboy"]

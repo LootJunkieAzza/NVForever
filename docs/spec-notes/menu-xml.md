@@ -908,16 +908,25 @@ Implemented consumers and remaining exclusions:
   #1833] store offsets (wrapped into 0-1) and alpha-map paths by tile id, so a tile
   unloaded or replaced at its path drops them (`Game::itr_drop_gone_tile_textures`, each
   frame). The tile renderer bakes a picture with either into one image in its place: its
-  texels (atlas piece or own file) shifted by the offset in whole texels, wrapping inside
-  the piece, the alpha multiplied by the mask's alpha stretched over the texture area.
-  Stretched, natural, zoomed (cut to the box) and clipped pictures keep their fit; a `tile`
-  picture repeats the shifted piece and takes the mask over its whole box; radial tiles
-  stay undrawn and the compass strip keeps its own scrolling [design]. Which way the
-  offset moves (the texel at the coordinate plus the offset), that the mask is not shifted
-  and is read from its alpha, and that its path is under `textures\` as a `filename` are
-  [hypothesis: the pages could not be reread on 2026-11-09; SetUITexOffset's "without
-  changing the tile's screen position or crop window", hud.md §14.4]. A texture that
-  cannot be read leaves the tile without it, said once (smoke `ui-texoffset-alphamap`).
+  texels (atlas piece or own file) sampled shifted by the offset in whole texels, wrapping
+  inside the piece, the alpha multiplied by the mask's alpha stretched over the texture
+  area, nearest texels. The image has the picture's texels, more where the mask is more
+  detailed, up to a texel an interface unit of the drawn size (a 1 x 1 picture over a
+  panel keeps the mask's detail). Stretched, natural, zoomed (cut to the box) and clipped
+  pictures keep their fit; a `tile` picture repeats the shifted piece and takes the mask
+  over its whole box; radial tiles stay undrawn. The compass strip's texels are moved on
+  by the offset before the heading scrolls them (the two add up) and its window is baked
+  under the mask (`compass_strip::StripWindow::masked`) [design]. Textures are decoded
+  only up to `repeat::MAX_TEXELS`, read from the file's header first. An offset that
+  changes alone re-bakes the kept image in place (same nodes and handle), only when it is
+  another texel shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues
+  up to one largest image) [design: #1833 review]. Which way the offset moves (the texel
+  at the coordinate plus the offset), that the mask is not shifted and is read from its
+  alpha, and that its path is under `textures\` as a `filename` are [hypothesis: the pages
+  could not be reread on 2026-11-09; SetUITexOffset's "without changing the tile's screen
+  position or crop window", hud.md §14.4]. A texture that cannot be read (missing, too
+  large, not decoded) leaves the tile without it, said once (smoke `ui-texoffset-alphamap`,
+  `ui-texoffset-compass`).
 - **Attached components** [documented: [AttachUIComponent](https://geckwiki.com/index.php?title=AttachUIComponent)]
   require a loaded, case-sensitive model node and one parent rect under HUDMainMenu.
   [design: `ui_more.rs`, `attach`; `tiles/mod.rs`, update] Attachments remain hidden until

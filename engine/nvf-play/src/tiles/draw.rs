@@ -794,8 +794,9 @@ pub(crate) struct Drawn {
     /// loose replacement's own tiles are told from (`fnv_ui::Ui::archived_name_paths`,
     /// #975).
     vanilla: Option<(String, Option<HashSet<String>>)>,
-    /// What the texture offsets and alpha maps said in the log (`super::texmod`).
-    tex_told: super::texmod::Told,
+    /// The texture offsets' and alpha maps' textures, baked images, budget and told lines
+    /// (`super::texmod`).
+    tex: super::texmod::State,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -1126,7 +1127,10 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                let pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch));
+                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch));
+                // Marked as `paint` marks them, so a modified picture is not told as a change
+                // every frame (#1833).
+                super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
                 if name == super::dialog_menu::DIALOG_MENU && pieces != drawn.pieces {
                     info!("{}", super::dialog_menu::painted(ui, &pieces));
                 }
@@ -1391,6 +1395,8 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
     let scale = target.scale;
     // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
     super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
+    drawn.tex.frame();
+    drawn.tex.prune(&pieces, ui);
     // A camera's image is laid out at its own size whatever the UI scale (#1631).
     let _canvas = target.camera.map(|_| interface::original_units());
     if pieces == drawn.pieces && drawn.target == Some(target) {
@@ -1427,6 +1433,9 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
         keep
     });
     let mut spawn = Vec::new();
+    // Pieces whose new offset waits for the bake budget: kept as last shown, so the next
+    // frame tries again (`super::texmod::State::shift_in_place`).
+    let mut waiting = Vec::new();
     for (i, (key, piece)) in keys.iter().zip(&pieces).enumerate() {
         let (Some(slot), Some(was)) = (drawn.slots.get_mut(key), old.get(key)) else {
             spawn.push(i);
@@ -1436,7 +1445,17 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
             commands.entity(slot.node).insert(ZIndex(i as i32));
             slot.order = i;
         }
-        match change(was, piece) {
+        let mut how = change(was, piece);
+        // Only the offset changed: its image baked again in place, its nodes kept (#1833).
+        if how == Change::Spawn && super::texmod::only_offset_differs(was, piece) {
+            if let Some(shown) = drawn.tex.shift_in_place(piece, &mut kit.images) {
+                if !shown {
+                    waiting.push((i, was.tex.clone()));
+                }
+                how = change(&Piece { tex: piece.tex.clone(), ..(*was).clone() }, piece);
+            }
+        }
+        match how {
             Change::Same => {}
             Change::Spawn => spawn.push(i),
             Change::InPlace => {
@@ -1501,7 +1520,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                 _ => None,
             };
             // SetUITexOffset's offset and SetUIAlphaMap's mask, baked into the picture's
-            // place; the compass strip keeps its own scrolling (`super::texmod`, #1833).
+            // place; the compass strip's below (`super::texmod`, #1833).
             let (picture, baked) = match (&piece.tex, &piece.look, &picture, data) {
                 (Some(tex), Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) if *fit != Fit::Strip => {
                     let atlas = match source {
@@ -1514,8 +1533,9 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                         Placed::Repeat { width, height } => repeat::texels_for((piece.rect.width, piece.rect.height), (width, height), texels),
                         _ => None,
                     };
-                    let bake = super::texmod::Bake { repeats: &mut drawn.repeats, told: &mut drawn.tex_told, data, images: &mut kit.images, ui };
-                    super::texmod::apply(tex, piece, &path, picture.clone(), repeat, baked, bake)
+                    let bake = super::texmod::Bake { state: &mut drawn.tex, data, images: &mut kit.images, ui };
+                    let drawing = super::texmod::Drawing { path: &path, placed: placed(*fit, rect.is_some(), texels), repeat };
+                    super::texmod::apply(tex, piece, drawing, picture.clone(), baked, bake)
                 }
                 _ => (picture, baked),
             };
@@ -1526,7 +1546,15 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                         Source::Index(a) => Some(a.as_str()),
                         _ => None,
                     };
-                    let window = StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images));
+                    // With an offset or a mask: the strip moved on and its window masked
+                    // (`super::texmod::strip`, #1833); as it was when their texels are not read.
+                    let modded = piece.tex.as_ref().and_then(|tex| {
+                        let path = pictures.texture_path(name, atlas, rect.is_some(), data);
+                        let bake = super::texmod::Bake { state: &mut drawn.tex, data, images: &mut kit.images, ui };
+                        let (texels, mask) = super::texmod::strip(tex, piece, &path, *rect, bake)?;
+                        StripWindow::new(texels, f(piece.rect.width), heading, &mut kit.images).map(|w| w.masked(mask, &mut kit.images))
+                    });
+                    let window = modded.or_else(|| StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images)));
                     if !drawn.strip_told {
                         match &window {
                             Some(w) => info!("tiles: the compass strip baked into one window image of {} x {} texels", w.texels().0, w.texels().1),
@@ -1570,6 +1598,9 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                 }
             }
         }
+    }
+    for (i, shown) in waiting {
+        pieces[i].tex = shown;
     }
     drawn.pieces = pieces;
 }

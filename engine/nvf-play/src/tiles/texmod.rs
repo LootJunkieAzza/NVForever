@@ -7,11 +7,13 @@
 //!   (`ItrState::tex_offsets`, `ItrState::alpha_maps`), so a tile unloaded or replaced
 //!   at its path has neither [design].
 //! - How: a picture piece with either set carries a [`TexMod`] ([`mark`]); when it is
-//!   spawned its texels (the atlas piece or its own file, decoded on the CPU as
-//!   `crate::repeat` decodes them) are copied shifted by the offset in whole texels,
-//!   wrapping inside the piece, and their alpha multiplied by the mask's, into one image
-//!   that takes the picture's place [design]. Everything else about the piece stays as
-//!   it was, so the fits keep their own behaviour:
+//!   spawned its texels (the atlas piece or its own file, decoded on the CPU, at most
+//!   [`MAX_TEXELS`] by the file's header) are sampled shifted by the offset in whole
+//!   texels, wrapping inside the piece, and their alpha multiplied by the mask's, into one
+//!   image that takes the picture's place ([`compose`]) [design]. The image has the
+//!   picture's texels, more where the mask is more detailed, up to a texel an interface
+//!   unit of the size it is drawn at ([`resolution`]). Everything else about the piece
+//!   stays as it was, so the fits keep their own behaviour:
 //!   - stretched and natural pictures draw the new image where the old one stood;
 //!   - a `zoom` picture cut to its box (`draw::Placed::At`) and a clip window cut the new
 //!     image as they cut the old;
@@ -20,7 +22,10 @@
 //!     the texture]; a box too large to bake (`crate::repeat::MAX_TEXELS`) keeps Bevy's
 //!     tiling of the shifted, masked piece, so its mask repeats [design];
 //!   - radial tiles are not drawn by the tile renderer (`draw::pieces`), with or without
-//!     an offset; the compass strip (`draw::Fit::Strip`) keeps its own scrolling [design].
+//!     an offset;
+//!   - the compass strip (`draw::Fit::Strip`): its strip moved on by the offset before the
+//!     heading scrolls it, the two adding up, and the mask laid over its window, at the
+//!     window's texels ([`strip`], `crate::compass_strip`) [design].
 //! - Direction [hypothesis: no page gives it]: the tile shows the texel at its texture
 //!   coordinate plus the offset, so an offset of 0.25 moves the picture a quarter of its
 //!   width to the left. The mask is stretched over the tile's texture area and is not
@@ -30,13 +35,16 @@
 //! - A texture whose texels cannot be read (missing, or a format `fnv_dds` does not
 //!   decode) leaves the tile as it was without it, said once per texture in the log; the
 //!   first drawing of each tile's offset and mask is said once too [design].
-//! - The images are not kept: each belongs to its node, dropped with it, so an offset a
-//!   script moves every frame bakes the piece again each frame without piling images up
-//!   [design].
+//! - A scrolling offset: a piece whose offset alone changed keeps its nodes and image; the
+//!   image is baked again in place when the new offset is another texel shift, within a
+//!   budget of texels a frame ([`BAKE_BUDGET`], [`State::shift_in_place`]). Each tile's
+//!   image and told line are let go with the tile ([`State::prune`]) [design: #1833
+//!   review].
 
-use super::draw::{Look, Piece};
+use super::draw::{Look, Piece, Placed};
+use crate::compass_strip::StripTexels;
 use crate::interface::SizedPicture;
-use crate::repeat::{self, Repeats};
+use crate::repeat::{self, MAX_TEXELS};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
@@ -44,7 +52,8 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use fnv_game::nvse_itr1::{wrap, ItrState};
 use fnv_ui::{TileId, Ui};
 use nvf_assets::GameData;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// A picture tile's ITR texture state, as drawn.
 #[derive(Clone, Debug, PartialEq)]
@@ -142,30 +151,244 @@ pub(super) type Baked = (Handle<Image>, f32, f32);
 /// ([`crate::repeat::texels_for`]).
 pub(super) type Repeat = ((u32, u32), (f64, f64));
 
-/// What has been said in the log.
-#[derive(Default)]
-pub struct Told {
-    /// The tiles whose first drawing with an offset or a mask was said.
-    drawn: HashSet<TileId>,
-    /// The textures whose texels could not be read.
-    failed: HashSet<String>,
+/// The texels a drawing may bake again in place per frame, accrued while unspent up to
+/// [`MAX_TEXELS`] (one largest image): a scrolling offset on a large picture is baked
+/// again as often as this allows, every frame for a 1024 x 1024 picture, every fourth
+/// for a 2048 x 2048 one, its last image shown meanwhile. A piece's first image is always
+/// baked (it is spent from the next frames') [design: #1833 review; at most 4 MiB of
+/// texels a frame on average].
+pub const BAKE_BUDGET: i64 = 1 << 20;
+
+/// The decoded textures' bytes a drawing keeps; past it they are all let go and decoded
+/// again when next asked for [design].
+const DECODED_BUDGET: usize = 64 << 20;
+
+/// A texture's level 0 as RGBA8.
+#[derive(Debug)]
+pub struct Texels {
+    pub rgba: Vec<u8>,
+    pub width: usize,
+    pub height: usize,
 }
 
-impl Told {
-    fn failed(&mut self, path: &str, what: &str, who: &str) {
-        if self.failed.insert(path.to_string()) {
-            warn!("tiles: {who}: the {what} {path} could not be read; the tile is drawn without it (SetUITexOffset / SetUIAlphaMap)");
+impl Texels {
+    /// `rgba`, `width` texels a row; `None` for an empty picture or one not of whole rows.
+    pub fn new(rgba: Vec<u8>, width: usize) -> Option<Texels> {
+        let height = rgba.len().checked_div(width * 4)?;
+        (height > 0 && rgba.len() == width * height * 4).then_some(Texels { rgba, width, height })
+    }
+}
+
+/// The DDS `bytes`' level 0 as RGBA8 when it has at most `max` texels: the size is read
+/// from the header before anything is decoded, so an oversized texture costs no more than
+/// its file [design: #1833 review]. The error says why, for the log.
+pub fn decode(bytes: &[u8], max: u64) -> Result<Texels, String> {
+    let dds = fnv_dds::Dds::parse(bytes).map_err(|e| e.to_string())?;
+    let (w, h) = (dds.header.width, dds.header.height);
+    if w == 0 || h == 0 {
+        return Err("it has no texels".into());
+    }
+    if u64::from(w) * u64::from(h) > max {
+        return Err(format!("it is {w} x {h} texels, more than {max}"));
+    }
+    let level = dds.levels.first().and_then(|f| f.first()).ok_or("it has no level")?;
+    let rgba = fnv_dds::decode_blocks(dds.format, w, h, level).or_else(|| fnv_dds::to_rgba8(dds.format, level)).ok_or("its format is not decoded")?;
+    Texels::new(rgba, w as usize).filter(|t| t.height == h as usize).ok_or_else(|| "its texels are not whole rows".into())
+}
+
+/// The texels across and down a baked image: the source's `across` (one piece, or a
+/// `tile` box's repeats), more where the mask has more detail, up to one texel an
+/// interface unit of the size it is drawn at (`drawn`, in units), and the source's alone
+/// when that would pass [`MAX_TEXELS`] [design: #1833 review, so a small picture
+/// stretched over a panel keeps its mask's detail].
+pub fn resolution(across: (usize, usize), mask: Option<(usize, usize)>, drawn: (f64, f64)) -> (usize, usize) {
+    let Some((mw, mh)) = mask else { return across };
+    let up = |a: usize, m: usize, d: f64| {
+        let d = if d.is_finite() && d > 0.0 { d.ceil().min(MAX_TEXELS as f64) as usize } else { 0 };
+        a.max(m.min(d))
+    };
+    let out = (up(across.0, mw, drawn.0), up(across.1, mh, drawn.1));
+    if out.0 as u64 * out.1 as u64 > MAX_TEXELS {
+        across
+    } else {
+        out
+    }
+}
+
+/// The `out` texels of a baked image. Each samples, at its centre, the texel of the
+/// source's piece `cut` (left, top, width, height) that `across` texels of the piece's
+/// repeats put there (`across` the piece's own size: once; a `tile` box's: repeated),
+/// moved on `shift` texels and wrapping inside the piece; its alpha times that of the
+/// `mask` texel stretched over the image under the same centre. Nearest texels both: a
+/// mask finer than the source keeps its detail, the source's texels grow by the same
+/// factor [design]. `None` when the piece is not inside the source or a size is 0.
+pub fn compose(src: &Texels, cut: [usize; 4], shift: (usize, usize), across: (usize, usize), out: (usize, usize), mask: Option<&Texels>) -> Option<Vec<u8>> {
+    let [px, py, pw, ph] = cut;
+    if pw == 0 || ph == 0 || px + pw > src.width || py + ph > src.height || across.0 == 0 || across.1 == 0 || out.0 == 0 || out.1 == 0 {
+        return None;
+    }
+    let at = |i: usize, n: usize, m: usize| (((i as f64 + 0.5) * m as f64 / n as f64) as usize).min(m - 1);
+    let columns: Vec<(usize, usize)> = (0..out.0).map(|x| (px + (at(x, out.0, across.0) + shift.0) % pw, mask.map_or(0, |m| at(x, out.0, m.width)))).collect();
+    let mut v = Vec::with_capacity(out.0 * out.1 * 4);
+    for y in 0..out.1 {
+        let sy = py + (at(y, out.1, across.1) + shift.1) % ph;
+        let my = mask.map_or(0, |m| at(y, out.1, m.height));
+        for &(sx, mx) in &columns {
+            let i = (sy * src.width + sx) * 4;
+            let t = &src.rgba[i..i + 4];
+            let a = match mask {
+                Some(m) => ((u16::from(t[3]) * u16::from(m.rgba[(my * m.width + mx) * 4 + 3]) + 127) / 255) as u8,
+                None => t[3],
+            };
+            v.extend_from_slice(&[t[0], t[1], t[2], a]);
         }
+    }
+    Some(v)
+}
+
+/// What a baked image was made from besides the shift: the same plan with another shift
+/// is baked again in place.
+#[derive(Clone, Debug, PartialEq)]
+struct Plan {
+    path: String,
+    cut: [usize; 4],
+    across: (usize, usize),
+    out: (usize, usize),
+    /// The mask's game path, when it was read.
+    mask: Option<String>,
+}
+
+/// A tile's baked image, kept to bake it again in place when only its shift changes.
+struct Entry {
+    plan: Plan,
+    /// The mask the script named (read or not).
+    asked: Option<String>,
+    shift: (usize, usize),
+    handle: Handle<Image>,
+}
+
+/// A drawing's texture offsets and alpha maps: the textures decoded, the images baked,
+/// the bake budget and what was said in the log.
+#[derive(Default)]
+pub struct State {
+    /// The tiles whose first drawing with an offset or a mask was said.
+    told_drawn: HashSet<TileId>,
+    /// The textures that could not be read, said.
+    told_failed: HashSet<String>,
+    decoded: HashMap<String, Result<Arc<Texels>, String>>,
+    decoded_bytes: usize,
+    baked: HashMap<TileId, Entry>,
+    /// The texels left to bake again in place ([`BAKE_BUDGET`]).
+    tokens: i64,
+}
+
+impl State {
+    /// Once a frame, before the pieces are painted: the budget refilled.
+    pub fn frame(&mut self) {
+        self.tokens = (self.tokens + BAKE_BUDGET).min(MAX_TEXELS as i64);
+    }
+
+    /// Let go of what belongs to tiles no longer drawn with an offset or a mask: their
+    /// baked images (by the pieces about to be painted) and, with the tree, the told lines
+    /// of tiles no longer loaded, so neither grows with every tile ever modified [design:
+    /// #1833 review].
+    pub fn prune(&mut self, pieces: &[Piece], ui: Option<&Ui>) {
+        if !self.baked.is_empty() {
+            let keep: HashSet<TileId> = pieces.iter().filter(|p| p.tex.is_some()).map(|p| p.tile).collect();
+            self.baked.retain(|t, _| keep.contains(t));
+        }
+        if let Some(ui) = ui.filter(|_| !self.told_drawn.is_empty()) {
+            self.told_drawn.retain(|t| ui.is_live(*t));
+        }
+    }
+
+    /// Texture `path` decoded (at most [`MAX_TEXELS`]), kept; why not, for the log.
+    fn texels(&mut self, path: &str, data: &GameData) -> Result<Arc<Texels>, String> {
+        if let Some(t) = self.decoded.get(path) {
+            return t.clone();
+        }
+        if self.decoded_bytes > DECODED_BUDGET {
+            self.decoded.clear();
+            self.decoded_bytes = 0;
+        }
+        let t = data.read(path).ok_or_else(|| "it is not in the data".to_string()).and_then(|b| decode(&b, MAX_TEXELS)).map(Arc::new);
+        if let Ok(t) = &t {
+            self.decoded_bytes += t.rgba.len();
+        }
+        self.decoded.insert(path.to_string(), t.clone());
+        t
+    }
+
+    fn failed(&mut self, path: &str, what: &str, who: &str, why: &str) {
+        if self.told_failed.insert(path.to_string()) {
+            warn!("tiles: {who}: the {what} {path} could not be read; the tile is drawn without it (SetUITexOffset / SetUIAlphaMap: {why})");
+        }
+    }
+
+    fn told(&mut self, tile: TileId, line: impl FnOnce() -> String) {
+        if self.told_drawn.insert(tile) {
+            info!("{}", line());
+        }
+    }
+
+    /// `piece`, whose offset alone changed since its image was baked
+    /// ([`only_offset_differs`]), shown at its new offset by baking its kept image again in
+    /// place (the same handle, so its nodes stay): `Some(true)` when it shows it (or the
+    /// new offset is the same texel shift), `Some(false)` when the budget waits a frame
+    /// (its last image stays), `None` when nothing is kept to bake again (spawn it).
+    pub fn shift_in_place(&mut self, piece: &Piece, images: &mut Assets<Image>) -> Option<bool> {
+        let tex = piece.tex.as_ref()?;
+        let e = self.baked.get(&piece.tile)?;
+        if e.asked != tex.mask {
+            return None;
+        }
+        let plan = e.plan.clone();
+        let shift = (texel_shift(tex.offset.0, plan.cut[2]), texel_shift(tex.offset.1, plan.cut[3]));
+        if shift == e.shift {
+            return Some(true);
+        }
+        let cost = (plan.out.0 * plan.out.1) as i64;
+        if self.tokens < cost {
+            return Some(false);
+        }
+        let src = self.decoded.get(&plan.path)?.clone().ok()?;
+        let mask = match &plan.mask {
+            Some(m) => Some(self.decoded.get(m)?.clone().ok()?),
+            None => None,
+        };
+        let rgba = compose(&src, plan.cut, shift, plan.across, plan.out, mask.as_deref())?;
+        let e = self.baked.get_mut(&piece.tile)?;
+        images.get_mut(&e.handle)?.data = Some(rgba);
+        e.shift = shift;
+        self.tokens -= cost;
+        Some(true)
+    }
+}
+
+/// Whether `new` differs from `old` only by its offset, mask the same: what
+/// [`State::shift_in_place`] can answer without spawning the piece again.
+pub fn only_offset_differs(old: &Piece, new: &Piece) -> bool {
+    match (&old.tex, &new.tex) {
+        (Some(a), Some(b)) => a.mask == b.mask && a.offset != b.offset && super::draw::change(&Piece { tex: new.tex.clone(), ..old.clone() }, new) != super::draw::Change::Spawn,
+        _ => false,
     }
 }
 
 /// What is read besides the piece to bake it.
 pub(super) struct Bake<'a> {
-    pub repeats: &'a mut Repeats,
-    pub told: &'a mut Told,
+    pub state: &'a mut State,
     pub data: &'a GameData,
     pub images: &'a mut Assets<Image>,
     pub ui: Option<&'a Ui>,
+}
+
+/// Where a piece's picture comes from and how it stands in its box.
+pub(super) struct Drawing<'a> {
+    /// Its texture's game path (`interface::Pictures::texture_path`).
+    pub path: &'a str,
+    pub placed: Placed,
+    /// A `tile` picture's repeats when they are baked into one image.
+    pub repeat: Option<Repeat>,
 }
 
 fn image(texels: Vec<u8>, width: usize, height: usize, images: &mut Assets<Image>) -> Handle<Image> {
@@ -174,63 +397,98 @@ fn image(texels: Vec<u8>, width: usize, height: usize, images: &mut Assets<Image
         TextureDimension::D2,
         texels,
         TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD,
+        // Kept in the main world too, as it is baked again in place (`compass_strip`'s).
+        RenderAssetUsages::default(),
     );
     // Linear, as the baked repeats (`crate::repeat`) [design].
     image.sampler = ImageSampler::linear();
     images.add(image)
 }
 
-/// The picture and the baked repeats a piece with texture state `tex` draws, from the ones
-/// it would draw without it: `path` is the picture's texture, `repeat` the repeats' size
-/// in texels and their node in units when it is a `tile` picture baked into one image
-/// ([`crate::repeat::texels_for`]). Either stays as it was when a texture is not read.
-pub(super) fn apply(tex: &TexMod, piece: &Piece, path: &str, picture: Option<SizedPicture>, repeat: Option<Repeat>, baked: Option<Baked>, b: Bake<'_>) -> (Option<SizedPicture>, Option<Baked>) {
-    let Some((_, rect, size)) = picture.clone() else { return (picture, baked) };
-    let who = b.ui.filter(|ui| ui.is_live(piece.tile)).map_or_else(|| format!("{:?}", piece.tile), |ui| ui.path_of(piece.tile));
-    let Some((src, width)) = b.repeats.texels(path, b.data) else {
-        b.told.failed(path, "texture", &who);
-        return (picture, baked);
-    };
-    let height = src.len() / (width * 4);
-    let cut = rect.map_or([0, 0, width, height], |r| repeat::piece_texels(r).map(|v| v as usize));
-    let Some(mut texels) = shifted(src, width, cut, tex.offset) else { return (picture, baked) };
-    let (pw, ph) = (cut[2], cut[3]);
-    let mask_path = tex.mask.as_deref().map(mask_path);
-    let mask = mask_path.as_deref().and_then(|m| match b.repeats.texels(m, b.data) {
-        Some((rgba, w)) => Some((rgba.to_vec(), w)),
-        None => {
-            b.told.failed(m, "alpha map", &who);
+fn who(piece: &Piece, ui: Option<&Ui>) -> String {
+    ui.filter(|ui| ui.is_live(piece.tile)).map_or_else(|| format!("{:?}", piece.tile), |ui| ui.path_of(piece.tile))
+}
+
+/// The mask `tex` names, decoded, with its game path; none without one or when it could
+/// not be read (said once).
+fn read_mask(tex: &TexMod, who: &str, b: &mut Bake<'_>) -> Option<(String, Arc<Texels>)> {
+    let path = mask_path(tex.mask.as_deref()?);
+    match b.state.texels(&path, b.data) {
+        Ok(t) => Some((path, t)),
+        Err(why) => {
+            b.state.failed(&path, "alpha map", who, &why);
             None
         }
+    }
+}
+
+/// The picture and the baked repeats a piece with texture state `tex` draws, from the ones
+/// it would draw without it (`picture`, `baked`). Either stays as it was when its texture
+/// is not read.
+pub(super) fn apply(tex: &TexMod, piece: &Piece, d: Drawing<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, mut b: Bake<'_>) -> (Option<SizedPicture>, Option<Baked>) {
+    let Some((_, rect, size)) = picture.clone() else { return (picture, baked) };
+    let who = who(piece, b.ui);
+    let src = match b.state.texels(d.path, b.data) {
+        Ok(t) => t,
+        Err(why) => {
+            b.state.failed(d.path, "texture", &who, &why);
+            return (picture, baked);
+        }
+    };
+    let cut = rect.map_or([0, 0, src.width, src.height], |r| repeat::piece_texels(r).map(|v| v as usize));
+    let (pw, ph) = (cut[2], cut[3]);
+    let mask = read_mask(tex, &who, &mut b);
+    // The texels across the image and the size it is drawn at. Bevy's tiling (a `tile` box
+    // too large to bake) sizes its repeats by the image's texels, so it keeps the piece's.
+    let (across, out, node) = match (d.placed, d.repeat, baked.is_some()) {
+        (Placed::Repeat { .. }, Some((count, node)), true) => {
+            let across = (count.0 as usize, count.1 as usize);
+            (across, resolution(across, mask.as_ref().map(|(_, m)| (m.width, m.height)), node), Some(node))
+        }
+        (Placed::Repeat { .. }, _, _) => ((pw, ph), (pw, ph), None),
+        (Placed::At { width, height }, _, _) => ((pw, ph), resolution((pw, ph), mask.as_ref().map(|(_, m)| (m.width, m.height)), (width, height)), None),
+        _ => ((pw, ph), resolution((pw, ph), mask.as_ref().map(|(_, m)| (m.width, m.height)), (piece.rect.width, piece.rect.height)), None),
+    };
+    let shift = (texel_shift(tex.offset.0, pw), texel_shift(tex.offset.1, ph));
+    let Some(rgba) = compose(&src, cut, shift, across, out, mask.as_ref().map(|(_, m)| m.as_ref())) else { return (picture, baked) };
+    b.state.tokens = (b.state.tokens - (out.0 * out.1) as i64).max(-(MAX_TEXELS as i64));
+    b.state.told(piece.tile, || {
+        let alpha = mask.as_ref().map_or(String::new(), |(m, _)| format!(", alpha map {m}"));
+        format!("tiles: {who}: texture offset {:.3}, {:.3}{alpha} drawn ({} x {} texels)", tex.offset.0, tex.offset.1, out.0, out.1)
     });
-    if b.told.drawn.insert(piece.tile) {
-        let alpha = match (&mask, &mask_path) {
-            (Some(_), Some(m)) => format!(", alpha map {m}"),
-            _ => String::new(),
-        };
-        info!("tiles: {who}: texture offset {:.3}, {:.3}{alpha} drawn ({pw} x {ph} texels)", tex.offset.0, tex.offset.1);
+    let handle = image(rgba, out.0, out.1, b.images);
+    let plan = Plan { path: d.path.to_string(), cut, across, out, mask: mask.map(|(m, _)| m) };
+    b.state.baked.insert(piece.tile, Entry { plan, asked: tex.mask.clone(), shift, handle: handle.clone() });
+    match node {
+        Some(node) => (picture, Some((handle, node.0 as f32, node.1 as f32))),
+        // The new image is the piece alone: an atlas piece's rect becomes all of it, so
+        // the piece still reads as one (`draw::placed`); its size stays the texels'.
+        None => (Some((handle, rect.map(|_| Rect::new(0.0, 0.0, out.0 as f32, out.1 as f32)), size)), baked),
     }
-    match (repeat, baked.is_some()) {
-        // A `tile` picture: the shifted piece repeated over the box, the mask over it all.
-        (Some((out, node)), true) => {
-            let (ow, oh) = (out.0 as usize, out.1 as usize);
-            let Some(mut over) = repeat::repeat_rgba(&texels, pw, [0, 0, pw, ph], (ow, oh)) else { return (picture, baked) };
-            if let Some((m, mw)) = &mask {
-                masked(&mut over, ow, m, *mw);
-            }
-            (picture, Some((image(over, ow, oh, b.images), node.0 as f32, node.1 as f32)))
+}
+
+/// The compass strip of a piece with texture state `tex` (`draw::Fit::Strip`): its texels
+/// (texture `path`, `rect` its piece) moved on by the offset, wrapping, so the heading's
+/// scroll (`crate::compass_strip`) starts from the moved strip and the two add up; and its
+/// mask, laid over the strip's window [design: #1833 review]. `None` when its texels are
+/// not read (the strip drawn as it was).
+pub(super) fn strip(tex: &TexMod, piece: &Piece, path: &str, rect: Option<Rect>, mut b: Bake<'_>) -> Option<(StripTexels, Option<Arc<Texels>>)> {
+    let who = who(piece, b.ui);
+    let src = match b.state.texels(path, b.data) {
+        Ok(t) => t,
+        Err(why) => {
+            b.state.failed(path, "texture", &who, &why);
+            return None;
         }
-        _ => {
-            if let Some((m, mw)) = &mask {
-                masked(&mut texels, pw, m, *mw);
-            }
-            // The new image is the piece alone: an atlas piece's rect becomes all of it, so
-            // the piece still reads as one (`draw::placed`).
-            let rect = rect.map(|_| Rect::new(0.0, 0.0, pw as f32, ph as f32));
-            (Some((image(texels, pw, ph, b.images), rect, size)), baked)
-        }
-    }
+    };
+    let cut = rect.map_or([0, 0, src.width, src.height], |r| repeat::piece_texels(r).map(|v| v as usize));
+    let strip = StripTexels::new(shifted(&src.rgba, src.width, cut, tex.offset)?, cut[2])?;
+    let mask = read_mask(tex, &who, &mut b);
+    b.state.told(piece.tile, || {
+        let alpha = mask.as_ref().map_or(String::new(), |(m, _)| format!(", alpha map {m}"));
+        format!("tiles: {who}: texture offset {:.3}, {:.3}{alpha} drawn on the compass strip", tex.offset.0, tex.offset.1)
+    });
+    Some((strip, mask.map(|(_, m)| m)))
 }
 
 #[cfg(test)]
@@ -345,5 +603,146 @@ mod tests {
     fn mask_paths_read_as_a_tiles_filename() {
         assert_eq!(mask_path(r"Interface\HUD\Mask.dds"), r"textures\interface\hud\mask.dds");
         assert_eq!(mask_path(r"\Textures\Interface/m.dds"), r"textures\interface\m.dds");
+    }
+
+    /// `alphas` as a picture one texel high, white.
+    fn row(alphas: &[u8]) -> Texels {
+        Texels::new(alphas.iter().flat_map(|&a| [255, 255, 255, a]).collect(), alphas.len()).unwrap()
+    }
+
+    fn alphas(rgba: &[u8]) -> Vec<u8> {
+        rgba.chunks(4).map(|t| t[3]).collect()
+    }
+
+    #[test]
+    fn a_small_picture_keeps_a_detailed_masks_detail() {
+        // One texel stretched over a 4-unit box under a 4-texel mask: four texels, the
+        // mask's own alphas, not the one under the picture's single centre.
+        let one = row(&[255]);
+        let mask = row(&[0, 85, 170, 255]);
+        let out = resolution((1, 1), Some((4, 1)), (4.0, 1.0));
+        assert_eq!(out, (4, 1));
+        assert_eq!(alphas(&compose(&one, [0, 0, 1, 1], (0, 0), (1, 1), out, Some(&mask)).unwrap()), [0, 85, 170, 255]);
+        // Drawn 2 units wide: one texel a unit, each the mask texel under its centre.
+        let out = resolution((1, 1), Some((4, 1)), (2.0, 1.0));
+        assert_eq!(out, (2, 1));
+        assert_eq!(alphas(&compose(&one, [0, 0, 1, 1], (0, 0), (1, 1), out, Some(&mask)).unwrap()), [85, 255]);
+        // No mask, or one coarser than the picture: the picture's own texels.
+        assert_eq!(resolution((8, 2), None, (100.0, 100.0)), (8, 2));
+        assert_eq!(resolution((8, 2), Some((2, 1)), (100.0, 100.0)), (8, 2));
+        // Past the largest image: the picture's texels alone.
+        assert_eq!(resolution((1, 1), Some((4096, 4096)), (5000.0, 5000.0)), (1, 1));
+        assert_eq!(resolution((1, 1), Some((4, 4)), (f64::NAN, -1.0)), (1, 1));
+    }
+
+    #[test]
+    fn composing_shifts_repeats_and_masks_in_one_pass() {
+        let src = Texels::new(numbered(4, 2), 4).unwrap();
+        // The same as shifting the piece: once across, no mask.
+        assert_eq!(compose(&src, [2, 0, 2, 2], (1, 1), (2, 2), (2, 2), None), shifted(&src.rgba, 4, [2, 0, 2, 2], (0.5, 0.5)));
+        // A `tile` box of 5 x 1 repeats of the 2 x 1 piece, shifted one texel.
+        assert_eq!(reds(&compose(&src, [0, 0, 2, 1], (1, 0), (5, 1), (5, 1), None).unwrap()), [1, 0, 1, 0, 1]);
+        // Twice the texels across: each source texel twice.
+        assert_eq!(reds(&compose(&src, [0, 0, 2, 1], (0, 0), (2, 1), (4, 1), None).unwrap()), [0, 0, 1, 1]);
+        assert_eq!(compose(&src, [3, 0, 2, 2], (0, 0), (2, 2), (2, 2), None), None);
+        assert_eq!(compose(&src, [0, 0, 2, 2], (0, 0), (2, 2), (0, 2), None), None);
+    }
+
+    /// A 4 x 4 DXT1 texture, one block (written for the test).
+    fn dxt1_4x4() -> Vec<u8> {
+        let mut b = vec![0u8; 128 + 8];
+        b[..4].copy_from_slice(b"DDS ");
+        b[4..8].copy_from_slice(&124u32.to_le_bytes());
+        b[12..16].copy_from_slice(&4u32.to_le_bytes());
+        b[16..20].copy_from_slice(&4u32.to_le_bytes());
+        b[76..80].copy_from_slice(&32u32.to_le_bytes());
+        b[80..84].copy_from_slice(&4u32.to_le_bytes());
+        b[84..88].copy_from_slice(b"DXT1");
+        b
+    }
+
+    #[test]
+    fn a_texture_past_the_budget_is_refused_before_it_is_decoded() {
+        let t = decode(&dxt1_4x4(), 16).unwrap();
+        assert_eq!((t.width, t.height, t.rgba.len()), (4, 4, 64));
+        let err = decode(&dxt1_4x4(), 15).unwrap_err();
+        assert!(err.contains("4 x 4"), "{err}");
+        assert!(decode(b"not a texture", 16).is_err());
+    }
+
+    /// A state that baked `tile`'s 4 x 1 picture (texture "src") unshifted, under the mask
+    /// it names, and its image.
+    fn baked(tile: TileId, asked: Option<&str>, images: &mut Assets<Image>) -> (State, Handle<Image>) {
+        let mut state = State::default();
+        let src = Arc::new(Texels::new(numbered(4, 1), 4).unwrap());
+        let plan = Plan { path: "src".into(), cut: [0, 0, 4, 1], across: (4, 1), out: (4, 1), mask: None };
+        let handle = image(compose(&src, plan.cut, (0, 0), plan.across, plan.out, None).unwrap(), 4, 1, images);
+        state.decoded.insert("src".into(), Ok(src));
+        state.baked.insert(tile, Entry { plan, asked: asked.map(String::from), shift: (0, 0), handle: handle.clone() });
+        (state, handle)
+    }
+
+    #[test]
+    fn a_scrolling_offset_bakes_its_image_again_in_place_within_the_budget() {
+        let ui = Ui::new();
+        let tile = ui.screen();
+        let mut images = Assets::<Image>::default();
+        let (mut state, handle) = baked(tile, None, &mut images);
+        let at = |offset: f64| Piece { tex: Some(TexMod { offset: (offset, 0.0), mask: None }), ..picture(tile, Fit::Stretch) };
+        let data = |images: &Assets<Image>| reds(images.get(&handle).and_then(|i| i.data.as_deref()).unwrap());
+        // A new offset that rounds to the same texel: nothing baked.
+        assert_eq!(state.shift_in_place(&at(0.1), &mut images), Some(true));
+        assert_eq!(data(&images), [0, 1, 2, 3]);
+        // A new texel with no budget left: the last image stays a frame.
+        assert_eq!(state.shift_in_place(&at(0.25), &mut images), Some(false));
+        assert_eq!(data(&images), [0, 1, 2, 3]);
+        // The next frame's budget: baked again into the same image.
+        state.frame();
+        assert_eq!(state.shift_in_place(&at(0.25), &mut images), Some(true));
+        assert_eq!(data(&images), [1, 2, 3, 0]);
+        assert_eq!(images.len(), 1);
+        // Another mask, or nothing kept: spawned again.
+        let masked = Piece { tex: Some(TexMod { offset: (0.5, 0.0), mask: Some("m.dds".into()) }), ..picture(tile, Fit::Stretch) };
+        assert_eq!(state.shift_in_place(&masked, &mut images), None);
+        assert_eq!(State::default().shift_in_place(&at(0.5), &mut images), None);
+    }
+
+    #[test]
+    fn only_an_offset_change_is_answered_in_place() {
+        let ui = Ui::new();
+        let plain = picture(ui.screen(), Fit::Stretch);
+        let at = |offset: f64, mask: Option<&str>| Piece { tex: Some(TexMod { offset: (offset, 0.0), mask: mask.map(String::from) }), ..plain.clone() };
+        assert!(only_offset_differs(&at(0.25, None), &at(0.5, None)));
+        let mut moved = at(0.5, None);
+        moved.rect.left += 2.0;
+        assert!(only_offset_differs(&at(0.25, None), &moved), "moved as well: still in place");
+        assert!(!only_offset_differs(&at(0.25, None), &at(0.25, None)));
+        assert!(!only_offset_differs(&at(0.25, None), &at(0.5, Some("m.dds"))));
+        assert!(!only_offset_differs(&plain, &at(0.5, None)));
+        let mut wider = at(0.5, None);
+        wider.rect.width += 2.0;
+        assert!(!only_offset_differs(&at(0.25, None), &wider));
+    }
+
+    #[test]
+    fn what_is_kept_goes_with_the_tiles() {
+        let mut ui = Ui::new();
+        let src = fnv_ui::MemSource::default().with("menus\\t.xml", r#"<menu name="T"><image name="A"/><image name="B"/></menu>"#);
+        ui.load_menu(&src, "menus\\t.xml").unwrap();
+        let (a, b) = (ui.find_tile("T/A").unwrap(), ui.find_tile("T/B").unwrap());
+        let mut images = Assets::<Image>::default();
+        let (mut state, _) = baked(a, None, &mut images);
+        state.baked.insert(b, baked(b, None, &mut images).0.baked.remove(&b).unwrap());
+        state.told_drawn.extend([a, b]);
+        // B drawn with no offset now: its image goes; A keeps its own.
+        let pieces = [Piece { tex: Some(TexMod { offset: (0.5, 0.0), mask: None }), ..picture(a, Fit::Stretch) }, picture(b, Fit::Stretch)];
+        state.prune(&pieces, Some(&ui));
+        assert!(state.baked.contains_key(&a) && !state.baked.contains_key(&b));
+        assert_eq!(state.told_drawn.len(), 2, "both still loaded");
+        // A unloaded: its told line goes too.
+        ui.unload_tile(a);
+        state.prune(&[], Some(&ui));
+        assert!(state.baked.is_empty());
+        assert_eq!(state.told_drawn.iter().collect::<Vec<_>>(), [&b]);
     }
 }
