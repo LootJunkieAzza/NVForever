@@ -47,6 +47,17 @@
 //! under them (cut to the lines that fit), Defaults and Back at the bottom right, the
 //! version at the bottom left. The view model is `crate::settings_view`.
 //!
+//! **Where it opens** [design: #1953, the fork owner's request 2026-11-09]: Settings opens
+//! the page where it was left this run, its tab (or the Changed list), chosen row and first
+//! line ([`open_settings`]; left from the search, on what the search came from). The tab is
+//! kept across runs too, as `[UI] SettingsTab=<tab>` of `NVForever.ini`, written when it
+//! changes and read at start ([`SettingsTabStore`]; an unknown name opens the first tab;
+//! an unattended run in the player's home neither reads nor writes it). Log `pause menu:
+//! settings open on <tab>; selected <row>`, `settings page: [UI] SettingsTab=<tab> kept in
+//! <ini>` / `read from <ini>`. A rail line under the pointer is drawn bright with the
+//! highlight box's line round it, unfilled, and the focus sound plays once as the pointer
+//! comes onto it (`pause menu: hover <line>`); the keys' line keeps its filled box.
+//!
 //! The keys [design: #1953]: Up/Down (or W/S) choose a row of the tab, round its ends,
 //! passing the headings; Page Up/Page Down the first row under the heading before or after
 //! (a controller's LB/RB; "Previous heading" and "Next heading" over the rows take a click
@@ -192,7 +203,8 @@
 //! Down`: the key the controller's button presses on this menu, `crate::pad::menu_key_at`)
 //! and `inspect` (logs the tab, the chosen row, the lines shown, every shown row's key and
 //! the words drawn) [design: #1953]. These press the keys they stand for, so they go the
-//! keys' way. `search` (the rail's Search), and as real input the next frame, through the
+//! keys' way. `search` (the rail's Search), `settings` (the column's Settings, as S: the
+//! page where it was left), and as real input the next frame, through the
 //! window's messages: `type:<text>` (each character's key pressed with its text, so the
 //! keys' state has them too), `backspace`, `ctrl-f`; `point:<target>` (the pointer onto the
 //! middle of what is drawn: `search`, `search-field`, `changed`, `defaults`, `back`,
@@ -923,6 +935,12 @@ struct PauseView {
     /// The chosen row the settings page's window last followed (the wheel and the scroll
     /// bar leave the window where they put it until the choice changes).
     followed: Option<RowId>,
+    /// Where the settings page was left this run: what it listed (from the search: what
+    /// the search came from), the chosen row and the first line; it opens there again
+    /// ([`open_settings`]). Kept while the pause menu is closed.
+    last: Option<(SettingsScope, Option<RowId>, usize)>,
+    /// The rail's line under the pointer (boxed unfilled, bright).
+    rail_hover: Option<RailItem>,
     /// The wheel's movement short of a notch.
     wheel: f32,
     /// A list's open dropdown.
@@ -1016,6 +1034,8 @@ struct Drawn {
     scope: SettingsScope,
     focus: SettingsFocus,
     rail: Vec<RailItem>,
+    /// The rail's line under the pointer.
+    rail_hover: Option<RailItem>,
     /// The Controls tab's control waiting for its new key or button.
     listening: Option<crate::bindings::Control>,
     main_selected: usize,
@@ -1158,6 +1178,8 @@ impl Plugin for PausePlugin {
             .init_resource::<Listening>()
             .init_resource::<SettingsLayout>()
             .init_resource::<SearchKeys>()
+            .init_resource::<SettingsTabStore>()
+            .add_systems(Startup, read_settings_tab)
             .init_resource::<PauseInputAid>()
             .init_resource::<crate::bindings::KeyboardCapture>()
             .init_resource::<ModsEntry>()
@@ -1218,8 +1240,27 @@ fn from_middle(left: f32, top: f32, width: f32, height: f32) -> Node {
 /// `boxed`.
 #[allow(clippy::too_many_arguments)]
 fn right_entry(p: &mut ChildSpawnerCommands, face: &Face, label: &str, node: Node, width: f32, shade: Shade, boxed_on: bool, b: PauseButton, glyphs: &crate::pad::PadGlyphs) {
+    let look = if boxed_on { BoxLook::Filled } else { BoxLook::None };
+    right_entry_look(p, face, label, node, width, shade, look, b, glyphs);
+}
+
+/// How an entry is boxed: not, the highlight box filled (the keys' choice), or its line
+/// alone (under the pointer) [design: #1953; as the screen menu's page names,
+/// docs/design/screen-menu.md §3.1].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BoxLook {
+    None,
+    Filled,
+    Outline,
+}
+
+/// [`right_entry`] with its box's look.
+#[allow(clippy::too_many_arguments)]
+fn right_entry_look(p: &mut ChildSpawnerCommands, face: &Face, label: &str, node: Node, width: f32, shade: Shade, look: BoxLook, b: PauseButton, glyphs: &crate::pad::PadGlyphs) {
     let w = crate::pad::hint_width(face, label, glyphs);
-    p.spawn((Button, b, boxed(node, boxed_on))).with_children(|t| {
+    let (node, line, fill) = boxed(node, look != BoxLook::None);
+    let fill = if look == BoxLook::Outline { BackgroundColor(Color::NONE) } else { fill };
+    p.spawn((Button, b, node, line, fill)).with_children(|t| {
         crate::pad::set_hint(t, face, label, width - w - 10.0, BASE, color(shade), glyphs);
     });
 }
@@ -1610,8 +1651,18 @@ fn rail_column(root: &mut ChildSpawnerCommands, f: &Faces, d: &Drawn, glyphs: &c
     for (i, item) in lines.enumerate() {
         let name = rail_label(*item, d.device.1);
         let w = SUB_WIDTH.max(f.entry.font.width(name) + 20.0);
-        let shade = if RailItem::of(d.scope) == *item { Shade::Bright } else { Shade::Dim };
-        right_entry(root, &f.entry, name, from_right(SUB_RIGHT, OPTIONS_TOP + i as f32 * ITEM, w, ITEM), w, shade, d.focus == SettingsFocus::Rail(*item), PauseButton::Rail(*item), glyphs);
+        // The line shown and the line under the pointer bright; the keys' line boxed
+        // filled, the pointer's boxed unfilled [design: #1953].
+        let hovered = d.rail_hover == Some(*item);
+        let shade = if RailItem::of(d.scope) == *item || hovered { Shade::Bright } else { Shade::Dim };
+        let look = if d.focus == SettingsFocus::Rail(*item) {
+            BoxLook::Filled
+        } else if hovered {
+            BoxLook::Outline
+        } else {
+            BoxLook::None
+        };
+        right_entry_look(root, &f.entry, name, from_right(SUB_RIGHT, OPTIONS_TOP + i as f32 * ITEM, w, ITEM), w, shade, look, PauseButton::Rail(*item), glyphs);
     }
 }
 
@@ -2109,6 +2160,82 @@ fn open_search(view: &mut PauseView, selected: Option<RowId>) {
     view.focus = SettingsFocus::SearchText;
 }
 
+/// The settings page opened from the column (or the main menu, a script): where it was
+/// left this run, its row and first line ([`PauseView::last`]); the first time, on the tab
+/// the INI keeps (`kept`, [`SettingsTabStore`]) or the first tab [design: #1953, the fork
+/// owner's request 2026-11-09]. A remembered row no longer listed gives way to the tab's
+/// first row (`crate::settings_view::normalize`).
+fn open_settings(page: &mut Page, view: &mut PauseView, kept: Option<&'static str>) {
+    let (scope, selected, scroll) = view.last.unwrap_or((kept.map_or_else(SettingsScope::default, SettingsScope::Tab), None, 0));
+    show_scope(page, view, scope);
+    view.scroll = scroll;
+    *page = Page::Settings { selected };
+}
+
+/// Note where the settings page is ([`PauseView::last`]): on the search, what it came
+/// from (its text is not kept).
+fn remember(view: &mut PauseView, selected: Option<RowId>) {
+    view.last = Some(match view.search.from {
+        Some(from) if view.scope == SettingsScope::Search => from,
+        _ => (view.scope, selected, view.scroll),
+    });
+}
+
+/// The INI section and key the settings page's tab is kept under, beside the other UI
+/// switches (`[UI] TileMenus`, `crate::tiles::vanilla`) [design: #1953].
+pub const TAB_SECTION: &str = crate::tiles::vanilla::SECTION;
+pub const TAB_KEY: &str = "SettingsTab";
+
+/// The settings page's tab kept across runs (Continue and a save's load start NVForever
+/// again): read once at start from `[UI] SettingsTab=` of the INI the settings page uses
+/// (`crate::settings::SettingsFile`: an unattended run in the player's own home reads and
+/// writes none), written when the tab shown changes, by its English name; an unknown or
+/// missing name opens the first tab [design: #1953].
+#[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
+pub struct SettingsTabStore {
+    pub path: Option<PathBuf>,
+    pub tab: Option<String>,
+}
+
+impl SettingsTabStore {
+    /// The tab `t` shown: kept in the INI when it is not the one kept already.
+    fn keep(&mut self, t: &str) {
+        if self.tab.as_deref() == Some(t) {
+            return;
+        }
+        self.tab = Some(t.to_string());
+        let Some(path) = self.path.clone() else { return };
+        match write_tab(&path, t) {
+            Ok(()) => info!("settings page: [{TAB_SECTION}] {TAB_KEY}={t} kept in {}", path.display()),
+            Err(e) => warn!("settings page: [{TAB_SECTION}] {TAB_KEY} not kept: {e}"),
+        }
+    }
+}
+
+/// `[UI] SettingsTab=<tab>` written into the INI at `path`, its other lines kept.
+fn write_tab(path: &Path, tab: &str) -> Result<(), String> {
+    fnv_install::guard_write(path, None).map_err(|e| e.to_string())?;
+    let old = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::write(path, fnv_install::ini_set(&old, TAB_SECTION, TAB_KEY, tab)).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Read the kept tab at start (module notes).
+fn read_settings_tab(file: Option<Res<crate::settings::SettingsFile>>, mut store: ResMut<SettingsTabStore>) {
+    let Some(path) = file.and_then(|f| f.0.clone()) else { return };
+    let tab = std::fs::read_to_string(&path).ok().and_then(|t| fnv_install::ini_get(&t, TAB_SECTION, TAB_KEY)).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    if let Some(t) = &tab {
+        info!("settings page: [{TAB_SECTION}] {TAB_KEY}={t} read from {}", path.display());
+    }
+    *store = SettingsTabStore { path: Some(path), tab };
+}
+
 /// Esc, Back or the rail's Back on the search: the search closed and what was listed when
 /// it opened shown again, its first line too, the keys on its rows; the row chosen then.
 fn leave_search(view: &mut PauseView, sounds: &mut MessageWriter<crate::ui_sounds::UiSound>) -> Option<RowId> {
@@ -2352,6 +2479,7 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
         words.push(tr(empty_words(view.scope)).to_string());
     }
     info!("pause menu: inspect: words {}", words.join(" | "));
+    info!("pause menu: inspect: hovered {}", view.rail_hover.map_or("none", |r| r.name()));
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -2388,7 +2516,7 @@ fn choose(
         ResMut<SettingsLayout>,
         Option<Res<crate::ui_colour::CustomColours>>,
     ),
-    meters: Query<(&PauseButton, &RelativeCursorPosition)>,
+    (meters, pointed, mut tab_store): (Query<(&PauseButton, &RelativeCursorPosition)>, Query<(&PointerState, &PauseButton)>, Option<ResMut<SettingsTabStore>>),
 ) {
     use crate::bindings::{Bindings, Input, InputDevice};
     use crate::pad::PadInput;
@@ -2408,6 +2536,9 @@ fn choose(
         info!("pause menu: no mod page any more, back to the column");
         *page = Page::Main;
     }
+    // The tab kept in the INI, among the tabs there are now.
+    let kept_tab = tab_store.as_ref().and_then(|t| t.tab.clone()).and_then(|t| layout.refresh(settings.list()).tab_names().into_iter().find(|n| *n == t));
+    let mut log_open = false;
     if let Some(p) = request.0.take() {
         if matches!(p, Page::Load { .. }) {
             menu.list.open(menu.cfg.dir.as_deref());
@@ -2415,8 +2546,11 @@ fn choose(
         info!("pause menu: {p:?} page for another menu");
         *page = p;
         if let Page::Settings { selected } = p {
-            show_scope(&mut page, &mut view, SettingsScope::default());
-            *page = Page::Settings { selected };
+            open_settings(&mut page, &mut view, kept_tab);
+            if selected.is_some() {
+                *page = Page::Settings { selected };
+            }
+            log_open = true;
         }
     }
     if under_main && *page == Page::Main {
@@ -2773,6 +2907,24 @@ fn choose(
             _ => {}
         }
     }
+    // The rail's line under the pointer: boxed unfilled and bright, the focus sound once
+    // as the pointer comes onto it (every button looked at: a redrawn page's are new)
+    // [design: #1953; docs/design/screen-menu.md §3.1].
+    let hover = if matches!(*page, Page::Settings { .. }) && !over {
+        pointed.iter().find_map(|(s, b)| match (s, b) {
+            (PointerState::Hovered | PointerState::Pressed, PauseButton::Rail(item)) => Some(*item),
+            _ => None,
+        })
+    } else {
+        None
+    };
+    if hover != view.rail_hover {
+        if let Some(item) = hover {
+            info!("pause menu: hover {}", item.name());
+            sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Focus });
+        }
+        view.rail_hover = hover;
+    }
     if act("defaults") && matches!(*page, Page::Settings { .. }) {
         clicked = Some(PauseButton::Defaults);
     }
@@ -2882,7 +3034,10 @@ fn choose(
                     *page = Page::Main;
                 }
                 Some(l) if l.starts_with("Load") => *page = Page::Load { selected: 0 },
-                Some(l) if l.starts_with("Settings") => show_scope(&mut page, &mut view, SettingsScope::default()),
+                Some(l) if l.starts_with("Settings") => {
+                    open_settings(&mut page, &mut view, kept_tab);
+                    log_open = true;
+                }
                 _ => {}
             }
             if matches!(*page, Page::Load { .. }) {
@@ -2965,7 +3120,7 @@ fn choose(
                 take = Some(Entry::Save);
             } else if keys.just_pressed(KeyCode::KeyL) || act("load") {
                 take = Some(Entry::Load);
-            } else if keys.just_pressed(KeyCode::KeyS) {
+            } else if keys.just_pressed(KeyCode::KeyS) || act("settings") {
                 take = Some(Entry::Settings);
             } else if act("mods") && mods {
                 take = Some(Entry::Mods);
@@ -3002,7 +3157,8 @@ fn choose(
                 }
                 Some(Entry::Settings) => {
                     info!("pause menu: settings");
-                    show_scope(&mut page, &mut view, SettingsScope::default());
+                    open_settings(&mut page, &mut view, kept_tab);
+                    log_open = true;
                 }
                 Some(Entry::Mods) => {
                     info!("pause menu: mods page");
@@ -3395,6 +3551,17 @@ fn choose(
         }
     }
     if let Page::Settings { selected } = *page {
+        remember(&mut view, selected);
+        let tab = match view.last {
+            Some((SettingsScope::Tab(t), ..)) => Some(t),
+            _ => None,
+        };
+        if let (Some(t), Some(store)) = (tab, tab_store.as_mut()) {
+            store.keep(t);
+        }
+        if log_open {
+            info!("pause menu: settings open on {}; selected {}", view.scope.name(), selected.map_or_else(|| "none".to_string(), |id| id.name(list)));
+        }
         if log_tab {
             let what = if matches!(view.scope, SettingsScope::Tab(_)) { "tab" } else { "list" };
             info!("pause menu: {what} {}; selected {}", view.scope.name(), selected.map_or_else(|| "none".to_string(), |id| id.name(list)));
@@ -3613,6 +3780,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         scope: view.scope,
         focus: view.focus,
         rail,
+        rail_hover: view.rail_hover.filter(|_| matches!(page, Page::Settings { .. })),
         listening: world.get_resource::<Listening>().and_then(|l| l.0).map(|l| l.0),
         main_selected: view.main_selected,
         confirm: view.confirm,
@@ -3730,6 +3898,7 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     view.bar_dragging = false;
     view.scroll = 0;
     view.followed = None;
+    view.rail_hover = None;
     view.dropdown = None;
     view.search = SearchState::default();
     view.found = Found::default();
@@ -4240,6 +4409,128 @@ mod tests {
         assert!(note.starts_with("Stands for: Jump (Controller), V.A.T.S. (Controller)."), "{note}");
         let changed = &world.resource::<PauseView>().found.changed;
         assert_eq!(changed, &[RowId::Control(ControlRow::Binding(Control::Jump, InputDevice::Controller)), RowId::Control(ControlRow::Binding(Control::Vats, InputDevice::Controller))]);
+    }
+
+    #[test]
+    fn the_settings_page_opens_where_it_was_left_and_from_the_search_where_it_came_from() {
+        let mut view = PauseView { scope: SettingsScope::Tab("Debug"), scroll: 3, ..default() };
+        remember(&mut view, Some(RowId::Setting(2)));
+        let mut page = Page::Main;
+        view.scope = SettingsScope::default();
+        view.scroll = 0;
+        open_settings(&mut page, &mut view, Some("Graphics"));
+        assert_eq!((page, view.scope, view.scroll), (Page::Settings { selected: Some(RowId::Setting(2)) }, SettingsScope::Tab("Debug"), 3));
+        // Left from the search: the tab, row and line it came from; its text not kept.
+        view.scope = SettingsScope::Search;
+        view.search = SearchState { query: "reverb".into(), from: Some((SettingsScope::Tab("Audio"), Some(RowId::Setting(1)), 0)), ..default() };
+        remember(&mut view, None);
+        open_settings(&mut page, &mut view, None);
+        assert_eq!((page, view.scope, view.scroll), (Page::Settings { selected: Some(RowId::Setting(1)) }, SettingsScope::Tab("Audio"), 0));
+        assert_eq!(view.search, SearchState::default());
+        // The first time in a run: the INI's tab, else the first.
+        let mut fresh = PauseView::default();
+        open_settings(&mut page, &mut fresh, Some("Graphics"));
+        assert_eq!((page, fresh.scope), (Page::Settings { selected: None }, SettingsScope::Tab("Graphics")));
+        let mut fresh = PauseView::default();
+        open_settings(&mut page, &mut fresh, None);
+        assert_eq!(fresh.scope, SettingsScope::default());
+    }
+
+    #[test]
+    fn back_out_and_settings_again_shows_the_same_tab_and_row() {
+        let mut app = search_app(&SEARCHED, "", SettingsFocus::Rows);
+        let god = RowId::Setting(2);
+        {
+            let mut view = app.world_mut().resource_mut::<PauseView>();
+            view.scope = SettingsScope::Tab("Debug");
+            view.search = SearchState::default();
+        }
+        *app.world_mut().resource_mut::<Page>() = Page::Settings { selected: Some(god) };
+        app.update();
+        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "back".into())];
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Main);
+        app.world_mut().resource_mut::<PauseView>().scope = SettingsScope::default();
+        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "settings".into())];
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(god) });
+        assert_eq!(app.world().resource::<PauseView>().scope, SettingsScope::Tab("Debug"));
+    }
+
+    #[test]
+    fn the_tab_is_kept_in_the_ini_and_an_unknown_one_opens_the_first() {
+        let dir = std::env::temp_dir().join(format!("nvf-settings-tab-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "[Settings]\ngrass=0\n").unwrap();
+        let mut store = SettingsTabStore { path: Some(path.clone()), tab: None };
+        store.keep("Graphics");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("grass=0") && text.contains("[UI]") && text.contains("SettingsTab=Graphics"), "{text}");
+        // Read back at the next start.
+        let mut app = App::new();
+        app.insert_resource(crate::settings::SettingsFile(Some(path.clone()))).init_resource::<SettingsTabStore>();
+        app.world_mut().run_system_cached(read_settings_tab).unwrap();
+        assert_eq!(app.world().resource::<SettingsTabStore>().tab.as_deref(), Some("Graphics"));
+        // No INI (an unattended run in the player's home): nothing read, nothing written.
+        let mut none = SettingsTabStore::default();
+        none.keep("Debug");
+        assert_eq!(none.tab.as_deref(), Some("Debug"));
+        let _ = std::fs::remove_dir_all(&dir);
+        // The settings page opens on the kept tab; an unknown name on the first.
+        let rows = [("difficulty", "Gameplay"), ("grade", "Display"), ("god-mode", "Debug")];
+        for (kept, shown) in [("Graphics", "Graphics"), ("Nope", "Gameplay")] {
+            let mut app = search_app(&rows, "", SettingsFocus::Rows);
+            *app.world_mut().resource_mut::<Page>() = Page::Main;
+            app.insert_resource(PauseView::default()).insert_resource(SettingsTabStore { path: None, tab: Some(kept.into()) });
+            app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "settings".into())];
+            app.update();
+            assert_eq!(app.world().resource::<PauseView>().scope, SettingsScope::Tab(shown), "{kept}");
+        }
+    }
+
+    #[test]
+    fn a_rail_line_under_the_pointer_is_boxed_unfilled_and_bright() {
+        let mut app = settings_app(&[("difficulty", "Gameplay"), ("god-mode", "Debug")], Page::Settings { selected: None });
+        app.world_mut().resource_mut::<PauseView>().rail_hover = Some(RailItem::Tab("Debug"));
+        app.update();
+        let world = app.world_mut();
+        let looks: Vec<(PauseButton, Color, Color)> = world.query::<(&PauseButton, &BorderColor, &BackgroundColor)>().iter(world).map(|(b, l, f)| (*b, l.top, f.0)).collect();
+        let look = |item| looks.iter().find(|(b, ..)| *b == PauseButton::Rail(item)).map(|(_, l, f)| (*l != Color::NONE, *f != Color::NONE)).unwrap();
+        assert_eq!(look(RailItem::Tab("Debug")), (true, false), "the line, not filled");
+        assert_eq!(look(RailItem::Tab("Audio")), (false, false), "another tab: no box");
+        let texts: Vec<(String, Color)> = world.query::<(&Text, &TextColor)>().iter(world).map(|(t, c)| (t.0.clone(), c.0)).collect();
+        assert!(texts.contains(&("Debug".to_string(), color(Shade::Bright))), "{texts:?}");
+        assert!(texts.contains(&("Audio".to_string(), color(Shade::Dim))));
+        // The keys' line on the rail keeps its filled box.
+        world.resource_mut::<PauseView>().focus = SettingsFocus::Rail(RailItem::Tab("Debug"));
+        app.update();
+        let world = app.world_mut();
+        let debug = world.query::<(&PauseButton, &BorderColor, &BackgroundColor)>().iter(world).find(|(b, ..)| **b == PauseButton::Rail(RailItem::Tab("Debug"))).map(|(_, l, f)| (l.top != Color::NONE, f.0 != Color::NONE)).unwrap();
+        assert_eq!(debug, (true, true));
+    }
+
+    #[test]
+    fn the_pointer_coming_onto_a_rail_line_sounds_once() {
+        use crate::ui_sounds::{UiEvent, UiSound};
+        let mut app = search_app(&SEARCHED, "", SettingsFocus::Rows);
+        app.world_mut().resource_mut::<PauseView>().scope = SettingsScope::Tab("Gameplay");
+        app.world_mut().resource_mut::<PauseView>().search = SearchState::default();
+        let e = app.world_mut().spawn((Button, PauseButton::Rail(RailItem::Tab("Debug")), PointerState::Hovered)).id();
+        let mut reader = bevy::ecs::system::SystemState::<MessageReader<UiSound>>::new(app.world_mut());
+        let mut focus_sounds = |app: &mut App| reader.get_mut(app.world_mut()).unwrap().read().filter(|s| s.event == UiEvent::Focus).count();
+        app.update();
+        assert_eq!(app.world().resource::<PauseView>().rail_hover, Some(RailItem::Tab("Debug")));
+        assert_eq!(focus_sounds(&mut app), 1);
+        // Still there (or drawn again under it): no sound again.
+        app.update();
+        assert_eq!(focus_sounds(&mut app), 0);
+        // Off it: no hover; the tab shown is unchanged.
+        *app.world_mut().get_mut::<PointerState>(e).unwrap() = PointerState::None;
+        app.update();
+        let view = app.world().resource::<PauseView>();
+        assert_eq!((view.rail_hover, view.scope), (None, SettingsScope::Tab("Gameplay")));
     }
 
     #[test]

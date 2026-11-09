@@ -9532,6 +9532,85 @@ forbid = [
 ]
 
 [[scenario]]
+name = "settings-reopen"
+source = "#1953, the fork owner's request 2026-11-09: the settings page opens again where it was left, its tab and chosen row (from the pause menu's column, the aid's settings verb, as Settings or S)"
+note = "no home: the row and the scroll are kept for the run only, the tab in the INI only with a home (settings-tab-write)"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Debug,12:select:god-mode", NVF_PLAY_TEST_PAUSE_MENU = "13:back,14:settings,15:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "pause menu: tab Debug; selected overlay",
+  "pause menu: select god-mode: god-mode on Debug",
+  "pause menu: settings",
+  { text = "pause menu: settings open on Debug; selected god-mode", label = "Settings again opens on the tab and the row it was left on" },
+  "pause menu: inspect: Debug, keys on the rows, selected god-mode",
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'settings page: \[UI\] SettingsTab=', label = "an unattended run without a home reads and writes no INI" },
+]
+
+[[scenario]]
+name = "settings-tab-write"
+source = "#1953, the fork owner's request 2026-11-09: the settings page's tab is kept in NVForever.ini as [UI] SettingsTab=<tab> when it changes, so a new start (Continue, a save's load) opens on it; the first half of a round trip (settings-tab-read starts in the same home), run them together"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs"]
+env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:tab:Debug,12:tab:Graphics" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 17
+order = [[
+  { re = 'settings page: \[UI\] SettingsTab=Debug kept in .*NVForever\.ini', label = "each new tab is kept" },
+  { re = 'settings page: \[UI\] SettingsTab=Graphics kept in .*NVForever\.ini', label = "the last one shown is in the INI" },
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-tab-read"
+source = "#1953, the fork owner's request 2026-11-09: the second half of the tab round trip: a new start in settings-tab-write's home opens the settings page on Graphics, the tab kept in [UI] SettingsTab="
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_PAUSE_MENU = "11:settings,12:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  { re = 'settings page: \[UI\] SettingsTab=Graphics read from .*NVForever\.ini', label = "the kept tab is read at the start" },
+  { text = "pause menu: settings open on Graphics; selected grade", label = "Settings opens on it, on its first row" },
+  "pause menu: inspect: Graphics, keys on the rows, selected grade",
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'settings page: \[UI\] SettingsTab=\S+ kept in', label = "the tab did not change: nothing written" },
+]
+
+[[scenario]]
+name = "settings-rail-hover"
+source = "#1953, the fork owner's request 2026-11-09: a rail line under the pointer is boxed (unfilled) and drawn bright, with the focus sound once, so the tabs read as clickable; the pointer resting on it takes nothing"
+note = "point:<target> puts the pointer on the middle of what is drawn; inspect logs the line hovered"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/settings_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:point:tab:Debug,13:inspect,14:point:heading-down,15:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { text = "pause menu: hover Debug", count = 1, label = "the pointer coming onto Debug, once (no repeat while it rests there)" },
+]
+order = [[
+  "pause menu: tab Gameplay; selected difficulty",
+  "pause menu: the pointer on tab:Debug",
+  "pause menu: hover Debug",
+  { text = "pause menu: inspect: Gameplay, keys on the rows, selected difficulty", label = "hovering takes no tab" },
+  { text = "pause menu: inspect: hovered Debug", label = "Debug is drawn hovered" },
+  "pause menu: the pointer on heading-down",
+  { text = "pause menu: inspect: hovered none", label = "off the rail, nothing hovered" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood, every target drawn" },
+  { text = "pause menu: tab Debug", label = "the pointer resting on a tab does not show it" },
+]
+
+[[scenario]]
 name = "settings-layout"
 source = "#1953: the settings page's seven tabs, the original's four first, and each row's tab and heading from one table (engine/nvf-play/src/settings_layout.rs; docs/design/settings-page.md); an empty Tweaks tab opens on no row"
 note = "the placements checked are of rows registered in every --play run; `0 not in the table` says every row this run registers has its place"

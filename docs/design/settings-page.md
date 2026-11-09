@@ -231,13 +231,37 @@ logged `pause menu: settings back to their defaults`.
 
 A row put back leaves the list; the choice goes to the row after it (else the one before).
 
-## 8. Test aids and the log
+## 8. Where the page opens; the rail under the pointer
+
+**Where it opens** [design: #1953, the fork owner's request 2026-11-09]: Settings (the
+pause menu's column, S, the main menu's Settings, a script's ShowPauseMenu 3) opens the
+page where it was left this run: the same tab (or the Changed list), the same chosen row
+and first line (`pause::open_settings`, `PauseView::last`). Left from the search, it opens
+on what the search came from; the search's text is not kept. A remembered row no longer
+listed gives way to the tab's first row. Continue and a save's load start NVForever again,
+so the **tab** is also kept in `NVForever.ini` as `[UI] SettingsTab=<tab>` (its English
+name, beside the other UI switch, `[UI] TileMenus`), written when the tab shown changes
+and read at start (`pause::SettingsTabStore`); the first opening of a run is on that tab,
+an unknown or missing name on the first tab. As every INI line here, an unattended run
+in the player's own home reads and writes none (`settings::SettingsFile`). The Changed
+list and the search are not kept across runs.
+
+**The rail under the pointer** [design: #1953; as the screen menu's page names,
+docs/design/screen-menu.md §3.1, and the original's lists' mouse-over sound,
+list_box_template.xml `mouseoversound`]: a rail line (Search, Changed, a tab) under the
+pointer is drawn bright with the highlight box's line round it, unfilled, and the focus
+sound plays once as the pointer comes onto it (not again while it rests there). The line
+shown keeps its bright look, the keys' line on the rail its filled box; Defaults and Back
+are as before. Resting on a line takes nothing: a click does.
+
+## 9. Test aids and the log
 
 `NVF_PLAY_TEST_SETTINGS` adds `tab:<name>`, `select:<key>`, `layout`, `search:<text>`
 (the search open on that text, the keys on its results) and `changed`;
 `NVF_PLAY_TEST_PAUSE_MENU` adds `heading-down`, `heading-up`, `tab-down`, `tab-up`, `rail`,
 `left`, `right`, `pad:<button>` (the key the button presses on the pause menu), `search`
-(the rail's Search) and `inspect`; they press the keys they stand for. Real input, the next
+(the rail's Search), `settings` (the column's Settings: the page where it was left) and
+`inspect` (also the rail line hovered); they press the keys they stand for. Real input, the next
 frame: `type:<text>` (each character's key pressed with its text, as the window's
 `KeyboardInput` messages before Bevy reads them, so the keys' state has the letters too
 and the search's hold on them is tested), `backspace`, `ctrl-f`; `point:<target>` (the
@@ -265,9 +289,15 @@ pause menu: changed 3 row(s); keys difficulty,crosshair-style,god-mode
 pause menu: changed defaults; keys difficulty,crosshair-style,god-mode
 controls: padbind:Jump, rumble back to the game's
 pause menu: the pointer on heading-down
+pause menu: settings open on Debug; selected god-mode
+settings page: [UI] SettingsTab=Graphics kept in <home>/NVForever.ini
+settings page: [UI] SettingsTab=Graphics read from <home>/NVForever.ini
+pause menu: hover Debug
+pause menu: inspect: hovered Debug
 ```
 
 Smoke scenarios: `settings-layout`, `settings-headings`, `settings-scroll-headings`, `settings-custom-sliders`,
 `settings-controller-navigation`, `settings-search`, `settings-search-input`,
-`settings-changed`, `settings-heading-pointer`, `settings-search-language`
+`settings-changed`, `settings-heading-pointer`, `settings-search-language`,
+`settings-reopen`, `settings-tab-write` and `settings-tab-read` (a pair), `settings-rail-hover`
 (tools/smoke/scenarios.toml).
