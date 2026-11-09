@@ -493,8 +493,23 @@ fn make_recipe(rt: &mut crate::script::Runtime, sim: &mut SimState, recipe: &Rec
             }
         }
         let mut added = Vec::new();
+        // The player's tweak: weapons and armour come out at a condition of the
+        // player's Repair [design: docs/design/tweaks.md].
+        let condition = rt.game.tweaks.repair_scales_crafting.then(|| {
+            let repair = fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::REPAIR) as f32;
+            fnv_game::tweaks::crafted_condition(repair)
+        });
         for &(i, k) in &recipe.outputs {
-            rt.game.world.add_item(FormId::PLAYER_REF, i, (k * times) as i32).map_err(|e| format!("{e:?}"))?;
+            let worn = matches!(rt.game.data.sig(i), Some(s) if &s == b"WEAP" || &s == b"ARMO");
+            match condition.filter(|c| worn && *c < 1.0) {
+                Some(c) => {
+                    rt.game.world.add_item_at_condition(FormId::PLAYER_REF, i, (k * times) as i32, Some(c)).map_err(|e| format!("{e:?}"))?;
+                    info!("recipe menu: made at {:.0} % condition (Repair tweak)", c * 100.0);
+                }
+                None => {
+                    rt.game.world.add_item(FormId::PLAYER_REF, i, (k * times) as i32).map_err(|e| format!("{e:?}"))?;
+                }
+            }
             added.push((i, k * times));
         }
         Ok(added)

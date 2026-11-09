@@ -746,8 +746,10 @@ fn apply_input(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     (mut taken, mut stolen): (MessageWriter<crate::crime::ItemsTaken>, MessageWriter<crate::pickpocket::Pickpocketed>),
     mut held: ResMut<PromptKeys>,
+    after: Option<Res<crate::after_combat::AfterCombat>>,
 ) {
     let mut script = script.map(|s| s.into_inner());
+    let fighting = after.is_some_and(|a| a.fighting);
     // The commands left of a guard that failed ([`Command::Expect`]).
     let mut dropping = 0;
     for &MenuInput(cmd) in input.read() {
@@ -762,6 +764,18 @@ fn apply_input(
         if dropping > 0 {
             dropping -= 1;
             continue;
+        }
+        // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
+        if matches!(cmd, Command::One) && m.mode == Mode::Inventory {
+            let item = m.selected_row(m.focus).filter(|r| !r.equipped && r.folder.is_none()).map(|r| r.item);
+            if let (Some(item), Some(rt)) = (item, script.as_mut().and_then(|s| s.rt.as_mut())) {
+                if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
+                    info!("menu: {cmd:?}: refused, healing in combat (tweak)");
+                    m.status = Some(crate::tweaks::NO_HEALING_LINE.into());
+                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                    continue;
+                }
+            }
         }
         let before = crate::ui_sounds::MenuBefore::of(m);
         let asking = m.quantity.is_some();

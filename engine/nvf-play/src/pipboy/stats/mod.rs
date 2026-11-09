@@ -1117,7 +1117,9 @@ pub fn use_hints(
     mut used: MessageWriter<crate::ItemUsed>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut active: ResMut<crate::menu::ActiveMenu>,
+    after: Option<Res<crate::after_combat::AfterCombat>>,
 ) {
+    let fighting = after.is_some_and(|a| a.fighting);
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -1128,6 +1130,14 @@ pub fn use_hints(
         };
         let name = sim.name(item).unwrap_or("?").to_string();
         let count = sim.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0);
+        // The player's tweak: no healing aid in a fight [design: docs/design/tweaks.md].
+        if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+            if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
+                info!("pipboy stats: {name} not used: healing in combat (tweak)");
+                sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
+                continue;
+            }
+        }
         let Some((hp, limbs, hardcore, at_full)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
             info!("pipboy stats: {name} not used: the scripts' game is not running");
             continue;

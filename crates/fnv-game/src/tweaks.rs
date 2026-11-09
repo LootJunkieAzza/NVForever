@@ -298,6 +298,18 @@ pub struct Tweaks {
     /// `bSemiAutoQueue`: a semi-automatic pull this many seconds before the weapon is
     /// ready again is kept and fired then; 0 changes nothing.
     pub semi_auto_queue: f32,
+    /// `bRepairScalesCraftingCondition`: a weapon or armour made at a workbench comes out
+    /// at [`crafted_condition`] of the player's Repair.
+    pub repair_scales_crafting: bool,
+    /// `bNoHealingInCombat`: aid that restores health or a limb is refused in a fight.
+    pub no_healing_in_combat: bool,
+}
+
+/// The condition (a fraction) a crafted weapon or armour comes out at under the Repair
+/// Scales Crafting Condition tweak: half at Repair 0, whole at 100 [design:
+/// docs/design/tweaks.md; the tweak names no formula, this one is ours].
+pub fn crafted_condition(repair: f32) -> f32 {
+    0.5 + repair.clamp(0.0, 100.0) / 200.0
 }
 
 impl crate::game::Game<'_> {
@@ -427,6 +439,22 @@ impl Default for Tweaks {
             scale_ash_piles: false,
             reload_while_firing: false,
             semi_auto_queue: 0.0,
+            repair_scales_crafting: false,
+            no_healing_in_combat: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crafted_condition_runs_from_half_to_whole() {
+        assert_eq!(crafted_condition(0.0), 0.5);
+        assert_eq!(crafted_condition(50.0), 0.75);
+        assert_eq!(crafted_condition(100.0), 1.0);
+        assert_eq!(crafted_condition(130.0), 1.0);
+        assert_eq!(crafted_condition(-5.0), 0.5);
     }
 }

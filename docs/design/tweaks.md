@@ -416,6 +416,8 @@ unless the player binds them, so nothing changes until then.
 | Pip-Boy Buzz | `bHapticPipboy` | `rumble::rumble` on a page or tab change |
 | Reload While Firing | `bReloadWhileFiring` | `fnv_combat::attack::Cycle` (`reload_in_recovery`, set by `combat::fire`) |
 | Semi-Auto Shot Queue (0–0.5 s) | `bSemiAutoQueue` | `fnv_combat::attack::Cycle` (`semi_auto_queue`) |
+| Crafting Uses Repair | `bRepairScalesCraftingCondition` | `crafting::make_recipe`; `fnv_game::tweaks::crafted_condition` (ours: 0.5 + Repair / 200) |
+| No Healing In Combat | `bNoHealingInCombat` | `tweaks::healing_barred` in `menu::apply_input` and the Stats page's `use_hints`; a fight is `after_combat::AfterCombat::fighting`. The weapon hotkeys do not check yet |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -436,8 +438,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 323 |
-| to do | 280 |
+| done | 325 |
+| to do | 278 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -509,6 +511,7 @@ game's Data folder, read-only).
 | `bReloadingWithFullClipSwitchesAmmoType` | done |  |  | Full Reload Swaps Ammo |
 | `bReloadJamsAffectedByAgility` | done |  |  | Jams at Reload Pace |
 | `bReloadWhileFiring` | done |  |  | Reload While Firing (during the last shot's recovery) |
+| `bRepairScalesCraftingCondition` | done |  |  | Crafting Uses Repair (half condition at Repair 0, whole at 100) |
 | `bRepairsRewardXP` | done |  | 1 | Experience per Repair (slider; Pip-Boy repairs) |
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
 | `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
@@ -576,7 +579,6 @@ game's Data folder, read-only).
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
 | `bRememberBobbyPinHealth` | to do |  |  | Picking::new starts a full pin; needs a stored health |
-| `bRepairScalesCraftingCondition` | to do |  |  | crafting::make_recipe output condition |
 | `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
@@ -616,6 +618,7 @@ game's Data folder, read-only).
 | `bMaxVATSDistanceUsesWeaponRange` | done |  | 3 | already so: V.A.T.S. reach is the projectile range |
 | `bNoCompanionKillXP` | done |  | 1 | No XP for Companion Kills (also leaves their damage out of the kill share) |
 | `bNoDisarmCompanions` | done |  |  | Companions Keep Their Weapons |
+| `bNoHealingInCombat` | done |  | 1 | No Healing In Combat (Pip-Boy inventory and Stats page; the weapon hotkeys still use aid) |
 | `bNoScaleNpcDamageByCondition` | done |  |  | NPC Weapons Hit Whole |
 | `bNoSelfExplosionDamage` | done |  |  | Own Blasts Spare the Player |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
@@ -630,7 +633,6 @@ game's Data folder, read-only).
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
 | `bIgnoreCompanionsVATS` | to do |  | 1 | barred and preview_target both need a teammate filter |
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
-| `bNoHealingInCombat` | to do |  | 1 | the refusal belongs before MenuModel::apply takes the item |
 | `bNoPipBoyInCombat` | to do |  | 5 | menu::open_menus is where; needs a message for the refusal |
 | `bNoScaleNpcDamageResistanceByCondition` | to do |  |  | target_armor computed twice for NPC targets |
 | `bNoScaleNpcDamageThresholdByCondition` | to do |  |  | target_armor computed twice for NPC targets |

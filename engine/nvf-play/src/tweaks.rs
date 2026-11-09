@@ -1021,6 +1021,8 @@ impl Plugin for TweaksPlugin {
                 },
             ),
         );
+        switch!(app, "repair-scales-crafting", "Crafting Uses Repair", "Weapons and armour made at a workbench come out at a condition set by Repair: half at 0, whole at 100. (Stewie's Tweaks bRepairScalesCraftingCondition)", game.repair_scales_crafting);
+        switch!(app, "no-healing-in-combat", "No Healing In Combat", "Aid that restores health or a limb cannot be used from the Pip-Boy while something fights the player. (Stewie's Tweaks bNoHealingInCombat)", game.no_healing_in_combat);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1125,6 +1127,20 @@ fn keys(
         info!("tweaks: quit (key)");
         exit.write(AppExit::Success);
     }
+}
+
+/// What the Pip-Boy says when the No Healing In Combat tweak refuses an item (our words).
+pub const NO_HEALING_LINE: &str = "Healing items cannot be used in combat.";
+
+/// The No Healing In Combat tweak: whether using `item` now is refused, as it restores
+/// health or a limb and something fights the player (`fighting`,
+/// `crate::after_combat::AfterCombat`) [design: docs/design/tweaks.md].
+pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::SimState, item: fnv_sim::FormId, fighting: bool) -> bool {
+    if !fighting || !rt.game.tweaks.no_healing_in_combat {
+        return false;
+    }
+    let gains = crate::script::with_world(rt, sim, |rt| rt.game.aid_preview(fnv_sim::FormId::PLAYER_REF, item));
+    gains.iter().any(|&(av, amount)| amount > 0.0 && (av == fnv_game::actor_values::HEALTH || fnv_game::actor_values::LIMB_CONDITIONS.contains(&av)))
 }
 
 /// Hand the game's part to the running game when it differs, and log the change.
