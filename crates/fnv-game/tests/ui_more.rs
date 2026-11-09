@@ -246,7 +246,7 @@ fn attachments_replace_by_reference_node_and_rect_and_are_pruned_each_frame() {
     assert!(!g.ui_tree.tile(old).live);
     let replaced = g.ui_extra.attached[0].tile;
     assert_eq!(g.ui_tree.tile(replaced).get("visible").unwrap().num(), 0.0);
-    assert_eq!(g.ui_tree.tile(replaced).get("x").unwrap().num(), 99.0);
+    assert!(g.ui_tree.tile(replaced).get("x").is_none(), "the XML's x is taken off: the node places it");
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Arm"), s(xml)]);
     run_on(&mut g, "AttachUIComponent", Some(other), &[s("Head"), s(xml)]);
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Head"), s("<rect name=\"Other\"/>")]);
@@ -341,6 +341,21 @@ fn attachments_are_placed_at_their_node_and_hidden_without_it() {
     g.ui_tree.set_trait(hud, "y", Value::Num(7.0));
     place_attachments(&mut g, |_, _| Some((100.0, 100.0)));
     assert_eq!((num(&g, "x"), num(&g, "y")), (95.0, 93.0));
+
+    // Expressions in the rect's own x and y, whose source changes before the tree is worked
+    // out (as before each drawing): the placement holds.
+    let moving = r#"<rect name="Moving"><x><copy src="parent()" trait="width"/></x><y><copy src="parent()" trait="height"/></y></rect>"#;
+    run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Bip01 Head"), s(moving)]);
+    let m = g.ui_extra.attached.last().unwrap().tile;
+    assert!(g.ui_tree.tile(m).get("x").is_none() && g.ui_tree.tile(m).get("y").is_none(), "the XML's x and y are taken off");
+    place_attachments(&mut g, |_, _| Some((300.0, 200.0)));
+    for size in [111.0, 222.0] {
+        g.ui_tree.set_trait(hud, "width", Value::Num(size));
+        g.ui_tree.set_trait(hud, "height", Value::Num(size));
+        frame(&mut g, 0.0);
+        assert_eq!(float(&g, "HUDMainMenu/Moving/x"), 300.0 - 5.0, "the source changing does not move it");
+        assert_eq!(float(&g, "HUDMainMenu/Moving/y"), 200.0 - 7.0);
+    }
 
     // A reference that unloads: the attachment goes, nothing more is asked.
     g.loaded_cells.clear();
