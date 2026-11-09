@@ -298,10 +298,11 @@ struct Waiting {
 /// Reads a game file's bytes (`GameData::read`; tests pass their own).
 pub type Read<'a> = &'a dyn Fn(&str) -> Option<Vec<u8>>;
 
-/// The most texels the bake budget accrues: two largest images, the most one bake costs
-/// (the compass strip's strip and its window), so every bake can run once it has waited
-/// long enough [design: #1833 review].
-pub const TOKEN_CEILING: i64 = 2 * MAX_TEXELS as i64;
+/// The most texels the bake budget accrues: three largest images, the most one bake costs
+/// (its output and both of its textures decoded again; the compass strip's strip, its
+/// window and its source), so every bake can run once it has waited long enough
+/// [design: #1833 review].
+pub const TOKEN_CEILING: i64 = 3 * MAX_TEXELS as i64;
 
 /// The refused textures remembered ([`State`]).
 const REFUSED_KEPT: usize = 256;
@@ -525,10 +526,20 @@ impl State {
         if !self.spend(piece.tile, cost) {
             return Some(false);
         }
-        let src = self.kept(&plan.path, read)?;
-        let mask = match plan.mask.as_deref().filter(|_| !is_strip) {
-            Some(m) => Some(self.kept(m, read)?),
-            None => None,
+        // What is still cached is taken first: holding it pins it, so decoding the other
+        // texture cannot evict it and have it decoded again unpaid.
+        let mask_path = plan.mask.as_deref().filter(|_| !is_strip);
+        let mask_first = mask_path.is_some_and(|m| self.decoded.contains_key(m)) && !self.decoded.contains_key(&plan.path);
+        let (src, mask) = match mask_path {
+            Some(m) if mask_first => {
+                let mask = self.kept(m, read)?;
+                (self.kept(&plan.path, read)?, Some(mask))
+            }
+            Some(m) => {
+                let src = self.kept(&plan.path, read)?;
+                (src, Some(self.kept(m, read)?))
+            }
+            None => (self.kept(&plan.path, read)?, None),
         };
         match (&self.baked.get(&piece.tile)?.target, strip) {
             (Target::Image(handle), _) => {
@@ -1084,7 +1095,7 @@ mod tests {
             state.frame();
         }
         assert_eq!(state.tokens, TOKEN_CEILING);
-        assert!(TOKEN_CEILING >= 2 * MAX_TEXELS as i64);
+        assert!(TOKEN_CEILING >= 3 * MAX_TEXELS as i64, "output, source and mask decoded again");
     }
 
     /// `n` texels of nothing, as a decoded texture.

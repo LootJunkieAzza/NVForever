@@ -921,10 +921,11 @@ Implemented consumers and remaining exclusions:
   by `crate::repeat`'s (the tiled pictures, the compass strip), whose oversized textures
   keep Bevy's drawing. An offset that changes alone re-bakes the kept image, or moves the
   compass strip on, in place (same nodes and handle), only when it is another texel
-  shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to two
-  largest images, the most one bake costs: the compass strip pays for its strip and its
-  window; the piece waiting longest is served first, so scrolling pieces take turns; a
-  texture to decode again is part of the cost checked against that reservation).
+  shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to three
+  largest images, the most one bake costs: its output and both textures decoded again, or
+  for the compass strip its strip, its window and its source; the piece waiting longest is served first, so scrolling pieces take turns; a
+  texture to decode again is part of the cost checked against that reservation, and a
+  texture still cached is taken first so decoding the other cannot evict it).
   Decoded textures are kept within 64 MiB a drawing, every decoded texel counted, at each
   insertion and each frame's prune: those no kept bake names go first, then the least
   recently used, a kept bake decoding its texture again when it next needs it. Texels held
