@@ -3,7 +3,7 @@
 //! guards and alpha marks follow one implementation.
 
 use super::layout::{HOTRECT_FILL, OWN_ALPHA};
-use super::list::{self, Counts, Drag, RowTile, Wanted};
+use super::list::{self, Drag, ListView, RowTile, Wanted};
 use super::menus::{SizesWritten, Tiled};
 use crate::menu::look;
 use crate::menu::model::{Category, MenuModel, Mode, Row, RowGuard, RowKey, Side};
@@ -27,27 +27,12 @@ pub const SIDES: [Side; 2] = [Side::Container, Side::Player];
 
 /// [design] Check the paths and row children each adapter writes or reads.
 pub fn built(ui: &Ui, layout: &Paths, paths: Vec<String>, children: &[(&str, &str)]) -> Tiled {
-    let (menu_name, template_name, row_name) = (layout.menu, layout.template, layout.row);
     for path in &paths {
         if ui.find_tile(path).is_none() {
             return Tiled::No(format!("{path} missing"));
         }
     }
-    let Some(menu) = ui.find_tile(layout.menu) else { return Tiled::No(format!("{menu_name} missing")) };
-    let Some(template) = ui.tile(menu).templates.iter().find(|t| t.name.eq_ignore_ascii_case(layout.template)) else {
-        return Tiled::No(format!("{template_name} missing"));
-    };
-    let row = template.body.iter().find_map(|n| match n {
-        fnv_ui::xml::Node::Element(e) if e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(layout.row)) => Some(e),
-        _ => None,
-    });
-    let Some(row) = row else { return Tiled::No(format!("{template_name}/{row_name} missing")) };
-    for &(kind, name) in children {
-        if !row.elements().any(|e| e.is(kind) && e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(name))) {
-            return Tiled::No(format!("{template_name}/{row_name}/{name} missing"));
-        }
-    }
-    Tiled::Yes
+    list::template_has(ui, layout.menu, layout.template, layout.row, children)
 }
 
 /// A row as shown.
@@ -109,35 +94,6 @@ pub fn rows_shown(rows: &[Row]) -> Vec<RowShown> {
     out
 }
 
-/// A list's view: where it is scrolled, and what the last frame worked out.
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct ListView {
-    /// The scrollbar's value, whole.
-    value: f64,
-    counts: Counts,
-    /// The highlighted row's top and height before the scroll.
-    selected: Option<(f64, f64)>,
-    /// The highlighted row the scroll last followed.
-    watched: Option<RowKey>,
-    /// Its top and height, the list's height, the scroll's scale and its highest value then.
-    geometry: Option<(f64, f64, f64, f64, f64)>,
-    /// [`Snapshot::navigated`] then.
-    navigated: u32,
-    /// The `_scroll_delta` a list that fits keeps: its last overflowing one, the file's before
-    /// that (26) [observed once: 15 of 16 rows filtered read 57.2; hypothesis: that every list
-    /// keeps it so].
-    kept_delta: Option<f64>,
-    category: Category,
-    /// The file's `_scroll_delta` before any code wrote it, for a list that fits.
-    file_delta: Option<f64>,
-}
-
-impl Default for ListView {
-    fn default() -> Self {
-        ListView { value: 0.0, counts: Counts { items: 1.0, visible: 1.0, delta: None }, selected: None, watched: None, geometry: None, navigated: 0, kept_delta: None, category: Category::All, file_delta: None }
-    }
-}
-
 /// The tile menu's state: what input and the writer share.
 #[derive(Resource)]
 pub struct MenuTiles {
@@ -145,7 +101,7 @@ pub struct MenuTiles {
     pub menu: Option<TileId>,
     pub(super) rows: [Vec<RowTile<RowKey>>; 2],
     paths: &'static Paths,
-    views: [ListView; 2],
+    views: [ListView<RowKey>; 2],
     shown: Option<Snapshot>,
     written_in: Option<TileId>,
     pub sizes: SizesWritten,
@@ -238,36 +194,8 @@ pub fn settle(ui: &mut Ui, s: &Snapshot, st: &mut MenuTiles, write_sizes: &mut d
     for side in SIDES {
         let i = side as usize;
         let Some(list_tile) = ui.find_tile(st.paths.lists[i]) else { continue };
-        let heights = list::measure_rows(ui, &st.rows[i], st.paths.row_text);
-        let page = ui.tile(list_tile).get("height").map_or(0.0, Value::num);
-        let counts = list::counts(&heights, page);
-        let view = &mut st.views[i];
-        let file_delta = *view.file_delta.get_or_insert_with(|| ui.tile(list_tile).get("_scroll_delta").map_or(26.0, Value::num));
-        view.kept_delta = counts.delta.or(view.kept_delta);
-        list::write_counts(ui, list_tile, &counts, view.kept_delta.unwrap_or(file_delta));
-        view.counts = counts;
-        if view.category != s.lists[i].category {
-            view.category = s.lists[i].category;
-            view.value = 0.0;
-        }
-        let picked = s.lists[i].selected.filter(|&k| k < heights.len());
-        view.selected = picked.map(|k| (heights[..k].iter().sum(), heights[k]));
-        let key = picked.map(|k| s.lists[i].rows[k].key);
-        let scale = counts.delta.unwrap_or(file_delta);
-        let geometry = view.selected.map(|(top, height)| (top, height, page, scale, counts.most()));
-        // The keys' picks bring their row into view, the pointer's do not. So does a key's or
-        // the wheel's move that ends on the same row, and a row moved by a refresh or a new
-        // measure (rows above it came or went, a wrap, the list's height, or a wrap below it,
-        // which changes what a value moves); while none of that happens the bar and the marker
-        // move the list freely.
-        let moved = view.watched != key || view.navigated != s.navigated || view.geometry != geometry;
-        if let (true, true, Some((top, height))) = (!s.pointer_pick, moved, view.selected) {
-            view.value = list::keep_row_shown(view.value, top, height, page, scale, counts.most());
-        }
-        view.watched = key;
-        view.geometry = geometry;
-        view.navigated = s.navigated;
-        view.value = view.value.clamp(0.0, counts.most());
+        let shown = &s.lists[i];
+        list::settle_list(ui, list_tile, &st.rows[i], st.paths.row_text, &mut st.views[i], shown.selected, shown.category as u32, s.pointer_pick, s.navigated);
     }
     st.rewrite(ui);
     ui.update();
@@ -288,8 +216,7 @@ impl MenuTiles {
         for side in SIDES {
             let i = side as usize;
             let Some(list_tile) = ui.find_tile(self.paths.lists[i]) else { continue };
-            list::write_value(ui, list_tile, self.views[i].value);
-            list::write_highlight(ui, list_tile, self.views[i].selected, self.views[i].value);
+            self.views[i].rewrite(ui, list_tile);
         }
     }
 
@@ -305,28 +232,13 @@ impl MenuTiles {
     }
 
     fn stands_for(&self, ui: &Ui, tile: TileId) -> MenuTile {
-        let mut piece = None;
-        let mut at = Some(tile);
-        while let Some(t) = at {
-            for side in SIDES {
-                if let Some(index) = self.rows[side as usize].iter().position(|r| r.tile == t) {
-                    return MenuTile::Row(side, index);
-                }
-            }
-            if piece.is_none() {
-                piece = list::bar_piece(ui, t);
-            }
-            if let Some((_, what)) = self.paths.targets.iter().find(|(name, _)| ui.tile(t).name.eq_ignore_ascii_case(name)) {
-                return *what;
-            }
-            for side in SIDES {
-                if self.paths.lists[side as usize].rsplit('/').next().is_some_and(|name| ui.tile(t).name.eq_ignore_ascii_case(name)) {
-                    return piece.map_or(MenuTile::Other, |p| MenuTile::Bar(side, p));
-                }
-            }
-            at = ui.tile(t).parent;
+        let lists = SIDES.map(|side| (self.paths.lists[side as usize].rsplit('/').next().unwrap_or_default(), self.rows[side as usize].as_slice()));
+        match list::hit(ui, tile, &lists, self.paths.targets) {
+            list::Hit::Row(at, index) => MenuTile::Row(SIDES[at], index),
+            list::Hit::Bar(at, piece) => MenuTile::Bar(SIDES[at], piece),
+            list::Hit::Target(what) => what,
+            list::Hit::Other => MenuTile::Other,
         }
-        MenuTile::Other
     }
 
     /// The index of `side`'s row at `index` when the row the tree shows is still the model's
@@ -361,11 +273,7 @@ impl MenuTiles {
     /// Set a list's scroll, held in its bar's range (the bar's pieces, the marker's drag): the
     /// view's own, no command of the model's. Returns whether it moved.
     pub fn scroll_to(&mut self, side: Side, value: f64) -> bool {
-        let view = &mut self.views[side as usize];
-        let value = value.clamp(0.0, view.counts.most());
-        let moved = value != view.value;
-        view.value = value;
-        moved
+        self.views[side as usize].scroll_to(value)
     }
 
     /// Whether what `s` shows differs from what was written in `menu`, and if so that it is now.
@@ -428,7 +336,12 @@ pub(super) fn side_name(side: Side) -> &'static str {
 /// the drawing: a tile injected or a window enabled at any time is covered from that frame on.
 /// A walk of the menu's tiles, writing only what is not there yet.
 pub fn mark_tiles(ui: &mut Ui, paths: &Paths) {
-    let Some(menu) = ui.menu(paths.menu) else { return };
+    mark_menu(ui, paths.menu, &paths.lists);
+}
+
+/// [`mark_tiles`] by the menu's name and its lists' paths: for an adapter without [`Paths`].
+pub(super) fn mark_menu(ui: &mut Ui, menu_name: &str, lists: &[&str]) {
+    let Some(menu) = ui.menu(menu_name) else { return };
     fnv_ui::input::mark_clip_windows(ui, menu);
     let mut stack = vec![menu];
     while let Some(t) = stack.pop() {
@@ -441,7 +354,7 @@ pub fn mark_tiles(ui: &mut Ui, paths: &Paths) {
             ui.set_trait(t, OWN_ALPHA, Value::Num(1.0));
         }
     }
-    for list_path in paths.lists {
+    for list_path in lists {
         set(ui, &format!("{list_path}/{}", list::HIGHLIGHT), HOTRECT_FILL, Value::Num(1.0));
     }
 }
