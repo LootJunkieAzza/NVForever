@@ -155,10 +155,7 @@ than when still. [observed, the harness's fine-detail case] Every velocity facto
 0.1 gave the same result (any real motion saturates it); 0 kept more history and raised the
 error of panned detail from 0.034 to 0.043. AMD's default (1) stays.
 
-The masks' pass and the output's luminance cost about 0.07 ms of GPU time a frame: FSR's span
-(`nvf_fsr_3_1`) went from 0.24-0.29 to 0.31-0.33 ms [observed 2026-11-08, RTX 5090, 1920x1080,
-Quality, a 30 s walk in Goodsprings, `dev\tools\fg-measure.ps1`; frame rates unchanged,
-CPU-bound].
+What the masks cost: "Performance" below.
 
 See also "Mip bias, the Pip-Boy and the Strip" below, measured frame by frame in game.
 
@@ -303,10 +300,56 @@ The normals now come from the neighbouring texels as drawn, at their centres (`n
 `fsr.rs` sets `AmbientOcclusion::render_scale` while it upscales. At 1:1 the pass is
 unchanged.
 
+## Performance
+
+What FSR saves is GPU time, and only in the passes drawn at the render size: the depth
+prepass and the opaque and transparent passes. Bloom, the exposure, tonemapping, the grade
+and the UI run at the window's size after it; the ambient occlusion too, a little cheaper
+(`render_scale`). FSR itself costs about the same in every scene. NVForever's scenes are cheap
+to draw for a GPU of today, so that fixed cost takes much of the saving, and in a light scene
+all of it.
+
+[observed 2026-11-08, RTX 5090, 3840x2160 borderless, `--graphics enhanced`, clear weather;
+GPU time a frame over all top-level passes, `dev\tools\fsr-perf.ps1`]
+
+| | Off | Native AA | Quality | Balanced | Performance | Ultra Performance |
+|---|---|---|---|---|---|---|
+| Goodsprings, noon | 3.55 ms | 4.29 | 2.78 (−22%) | 2.58 (−27%) | 2.41 (−32%) | 1.94 (−45%) |
+| The Strip, 21:00 | 1.93 ms | 2.80 | 2.13 (+10%) | 1.99 (+3%) | 1.86 (−4%) | 1.66 (−14%) |
+| FSR's own span (`nvf_fsr_3_1`) | | 1.13 | 0.77 | 0.71 | 0.64 | 0.56 |
+
+Native AA is anti-aliasing, not a speed-up: it always costs more than Off. Of FSR's 0.77 ms at
+Quality, AMD's upscaler is 0.52 (`nvf_fsr_3_1/upscale`, logged with `--log-frame-times`), the
+masks and FSR's depth 0.12 (`inputs`), the alpha copy and the output's luminance 0.06
+(`alpha_and_history`), and the expanded depth for the effects after FSR 0.06
+(`depth_expand`). The masks first took twice as long: their light test sorted nine values in
+an array indexed by a variable, which went to the GPU's local memory; it keeps the two
+smallest and two largest in registers now (`inputs` 0.25 → 0.12 ms at Quality, 0.53 → 0.30 at
+Native AA, the same masks). Before the masks of 2026-11-08 the whole span was 0.67 ms at
+Quality and 0.94 at Native AA.
+
+So the frame rate rises with FSR only where the GPU sets the frame, and then by about the
+share above. Where something else sets it, it does not move:
+
+- **Vsync** (Display sync's default) holds frames to the refresh rate.
+- **Frame generation** holds the game's own frames to half the refresh rate (30 on a 60 Hz
+  screen; [frame-generation](frame-generation.md)).
+- **The CPU**: towns, crowds and battles take 6-46 ms a frame of CPU on the owner's i9-14900K
+  (docs/design/frame-rate-audit.md §5), which FSR does not touch.
+- On the machine measured here, presents were held to the 160 Hz refresh even with vsync
+  off (`--log-frame-times`): a small interior whose GPU time was 0.29 ms ran at exactly 6.25
+  ms a frame. Measure FSR by GPU time.
+
+On a GPU several times slower than this one the same shares apply where it sets the frame
+[hypothesis: the passes' costs were not measured on other GPUs]. NVForever's own passes run
+full-precision render passes over the render or window size; AMD's shaders also exist in
+FP16 variants, which this port does not compile ("Limits").
+
 ## Limits
 
 - **Backend and speed.** Vulkan only, with full-precision shader variants (no FP16). The
-  gain depends on how busy the GPU is; a CPU-bound scene gains little.
+  gain depends on how busy the GPU is; a CPU-bound scene gains nothing, and a light one can
+  cost more than it saves ("Performance").
 - **Surfaces whose picture changes by itself** have no mask of their own: animated textures
   and render-to-texture screens (the Pip-Boy's, terminals, a scope's lens). The masks' light
   term catches a change that brightens or darkens most of a 3x3 area, not detail that moves

@@ -26,7 +26,7 @@
 //! than with this frame's presence as the reactive mask (the Strip's signs, 2026-11-08).
 //! Fine detail (`Kind::Fence`) is for the opt-in diagnostics below.
 use half::f16;
-use wgpu::*;
+use wgpu::{util::DeviceExt, *};
 use wgpu_ffx::{FsrConfigureKey, FsrContext, FsrContextFlags, FsrContextInfo, FsrDispatchFlags, FsrDispatchInfo};
 
 const RENDER: u32 = 128;
@@ -199,28 +199,33 @@ fn write_f16(queue: &Queue, texture: &Texture, channels: usize, f: impl Fn(u32, 
     );
 }
 
-fn mask_pipeline(device: &Device, source: &str) -> RenderPipeline {
-    let shader = device.create_shader_module(ShaderModuleDescriptor { label: Some("fsr_reactive"), source: ShaderSource::Wgsl(source.into()) });
-    let target = Some(ColorTargetState { format: TextureFormat::R8Unorm, blend: None, write_mask: ColorWrites::ALL });
-    device.create_render_pipeline(&RenderPipelineDescriptor {
-        label: Some("fsr_reactive"),
-        layout: None,
-        vertex: VertexState { module: &shader, entry_point: Some("vertex"), compilation_options: Default::default(), buffers: &[] },
-        fragment: Some(FragmentState {
-            module: &shader,
-            entry_point: Some("fragment"),
-            compilation_options: Default::default(),
-            targets: &[target.clone(), target.clone(), target],
-        }),
-        primitive: Default::default(),
-        depth_stencil: None,
-        multisample: Default::default(),
-        multiview_mask: None,
-        cache: None,
-    })
+/// The mask shader's two passes (fsr_reactive.wgsl): presence and luminance, then the masks.
+pub(crate) struct MaskPipelines {
+    pub(crate) presence: RenderPipeline,
+    pub(crate) masks: RenderPipeline,
 }
 
-fn simulate(context: &FsrContext, device: &Device, queue: &Queue, (pipeline, luma_pipeline): (&RenderPipeline, &RenderPipeline), case: Case, masks: Masks, tuning: &[(FsrConfigureKey, f32)]) -> Score {
+pub(crate) fn mask_pipelines(device: &Device, source: &str) -> MaskPipelines {
+    let shader = device.create_shader_module(ShaderModuleDescriptor { label: Some("fsr_reactive"), source: ShaderSource::Wgsl(source.into()) });
+    let r8 = Some(ColorTargetState { format: TextureFormat::R8Unorm, blend: None, write_mask: ColorWrites::ALL });
+    let r16 = Some(ColorTargetState { format: TextureFormat::R16Float, blend: None, write_mask: ColorWrites::ALL });
+    let make = |entry: &str, targets: &[Option<ColorTargetState>]| {
+        device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some(entry),
+            layout: None,
+            vertex: VertexState { module: &shader, entry_point: Some("vertex"), compilation_options: Default::default(), buffers: &[] },
+            fragment: Some(FragmentState { module: &shader, entry_point: Some(entry), compilation_options: Default::default(), targets }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    MaskPipelines { presence: make("presence_pass", &[r8.clone(), r16]), masks: make("fragment", &[r8.clone(), r8]) }
+}
+
+fn simulate(context: &FsrContext, device: &Device, queue: &Queue, (pipeline, luma_pipeline): (&MaskPipelines, &RenderPipeline), case: Case, masks: Masks, tuning: &[(FsrConfigureKey, f32)]) -> Score {
     let sampled = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
     let storage = TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
     let attachment = TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
@@ -235,7 +240,7 @@ fn simulate(context: &FsrContext, device: &Device, queue: &Queue, (pipeline, lum
         texture(device, "ghost presence a", RENDER, TextureFormat::R8Unorm, attachment),
         texture(device, "ghost presence b", RENDER, TextureFormat::R8Unorm, attachment),
     ];
-    let history_luma = texture(device, "ghost history luma", DISPLAY, TextureFormat::R16Float, attachment);
+    let history_luma = texture(device, "ghost history luma", RENDER, TextureFormat::R16Float, attachment);
     let depth = texture(device, "ghost depth", RENDER, TextureFormat::Depth32Float, TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT);
     let output = texture(device, "ghost output", DISPLAY, TextureFormat::Rgba16Float, storage | TextureUsages::COPY_SRC);
     let dilated_depth = texture(device, "ghost dilated depth", RENDER, TextureFormat::R32Float, storage);
@@ -282,26 +287,42 @@ fn simulate(context: &FsrContext, device: &Device, queue: &Queue, (pipeline, lum
     let presence_views = [views(&presence[0]), views(&presence[1])];
     let history_luma_view = views(&history_luma);
     let output_view = views(&output);
+    let resolution_bytes: Vec<u8> = [RENDER, RENDER, DISPLAY, DISPLAY].iter().flat_map(|v| v.to_le_bytes()).collect();
+    let resolution = device.create_buffer_init(&util::BufferInitDescriptor { label: Some("ghost resolution"), contents: &resolution_bytes, usage: BufferUsages::UNIFORM });
     let luma_group = device.create_bind_group(&BindGroupDescriptor {
         label: None,
         layout: &luma_pipeline.get_bind_group_layout(0),
-        entries: &[BindGroupEntry { binding: 0, resource: BindingResource::TextureView(&output_view) }],
+        entries: &[
+            BindGroupEntry { binding: 0, resource: BindingResource::TextureView(&output_view) },
+            BindGroupEntry { binding: 1, resource: resolution.as_entire_binding() },
+            BindGroupEntry { binding: 2, resource: BindingResource::Sampler(&sampler) },
+        ],
     });
     let (reactive_view, composition_view) = (views(&reactive), views(&composition));
+    let luma_now = texture(device, "ghost luma now", RENDER, TextureFormat::R16Float, attachment);
+    let luma_now_view = views(&luma_now);
+    let presence_group = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.presence.get_bind_group_layout(0),
+        entries: &[
+            BindGroupEntry { binding: 0, resource: BindingResource::TextureView(&opaque_view) },
+            BindGroupEntry { binding: 1, resource: BindingResource::TextureView(&scene_view) },
+        ],
+    });
     let groups: Vec<BindGroup> = (0..2)
         .map(|i| {
             device.create_bind_group(&BindGroupDescriptor {
                 label: None,
-                layout: &pipeline.get_bind_group_layout(0),
+                layout: &pipeline.masks.get_bind_group_layout(0),
                 entries: &[
-                    BindGroupEntry { binding: 0, resource: BindingResource::TextureView(&opaque_view) },
-                    BindGroupEntry { binding: 1, resource: BindingResource::TextureView(&scene_view) },
                     BindGroupEntry { binding: 2, resource: BindingResource::TextureView(&mask_motion_view) },
                     // Frame parity i writes presence[i] and reads the other.
                     BindGroupEntry { binding: 3, resource: BindingResource::TextureView(&presence_views[1 - i]) },
                     BindGroupEntry { binding: 4, resource: BindingResource::TextureView(&history_luma_view) },
                     BindGroupEntry { binding: 5, resource: BindingResource::Sampler(&sampler) },
                     BindGroupEntry { binding: 6, resource: jitter_buffer.as_entire_binding() },
+                    BindGroupEntry { binding: 7, resource: BindingResource::TextureView(&presence_views[i]) },
+                    BindGroupEntry { binding: 8, resource: BindingResource::TextureView(&luma_now_view) },
                 ],
             })
         })
@@ -335,17 +356,22 @@ fn simulate(context: &FsrContext, device: &Device, queue: &Queue, (pipeline, lum
         }
         if masks != Masks::None {
             let target = |view| Some(RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: Operations { load: LoadOp::Clear(Color::BLACK), store: StoreOp::Store } });
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("ghost masks"),
-                color_attachments: &[target(&reactive_view), target(&composition_view), target(&presence_views[parity])],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &groups[parity], &[]);
-            pass.draw(0..3, 0..1);
+            for (label, targets, pipe, group) in [
+                ("ghost presence", [target(&presence_views[parity]), target(&luma_now_view)], &pipeline.presence, &presence_group),
+                ("ghost masks", [target(&reactive_view), target(&composition_view)], &pipeline.masks, &groups[parity]),
+            ] {
+                let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some(label),
+                    color_attachments: &targets,
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(pipe);
+                pass.set_bind_group(0, group, &[]);
+                pass.draw(0..3, 0..1);
+            }
         }
         let with_masks = masks != Masks::None;
         context
@@ -484,7 +510,7 @@ fn simulate(context: &FsrContext, device: &Device, queue: &Queue, (pipeline, lum
     score
 }
 
-fn sweep(context: &FsrContext, device: &Device, queue: &Queue, pipelines: (&RenderPipeline, &RenderPipeline)) {
+fn sweep(context: &FsrContext, device: &Device, queue: &Queue, pipelines: (&MaskPipelines, &RenderPipeline)) {
     let cases = [
         ("light still", Case { kind: Kind::Light, shape_velocity: [2.5, 0.0], pan: [0.0, 0.0] }),
         ("light pan", Case { kind: Kind::Light, shape_velocity: [2.5, 0.4], pan: [-0.75, 0.5] }),
@@ -521,7 +547,7 @@ pub fn run(device: &Device, queue: &Queue, mask_shader: &str, fallback_shader: &
         device: device.clone(),
         flags: FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE,
     });
-    let pipeline = mask_pipeline(device, mask_shader);
+    let pipeline = mask_pipelines(device, mask_shader);
     let luma_pipeline = crate::gpu::pipeline(device, fallback_shader, "luma", Some(TextureFormat::R16Float));
     if std::env::var("NVF_GHOST_DEBUG").is_ok() {
         DEBUG_VIEW.with(|d| d.set(true));

@@ -36,26 +36,43 @@
 // stale and the reactive mask says so. With 7 of 9 thin aliased detail (fence slats, a
 // ridge against a hill, where the jitter makes samples come and go) set it off now and then
 // and flickered more [observed, the harness's fence case].
+//
+// Two passes, so that the neighbourhoods read small textures: `presence_pass` reads each
+// pixel's two colours once and writes its presence and luminance; `fragment` makes the masks
+// from those. In one pass the 3x3 neighbourhoods re-read about 30 colour texels a pixel: 0.25
+// ms a frame at 4K Quality on an RTX 5090, a third of FSR's own time [observed 2026-11-08,
+// `--log-frame-times` sub-span `nvf_fsr_3_1/inputs`].
+
+// The first pass's inputs: the opaque-only copy and the finished frame (display-size
+// textures, the render rectangle read).
 @group(0) @binding(0) var opaque: texture_2d<f32>;
 @group(0) @binding(1) var scene: texture_2d<f32>;
+// The second pass's inputs.
 // Bevy's motion-vector prepass: current minus previous position, in UV of the render
 // rectangle (the top-left render-size part of a display-size texture).
 @group(0) @binding(2) var motion: texture_2d<f32>;
 // Last frame's presence (render size), cleared on a history reset.
 @group(0) @binding(3) var previous_presence: texture_2d<f32>;
-// The luminance of FSR's last output (display size; fsr_fallback.wgsl `luma`); 0: none.
+// The luminance of FSR's last output (render size; fsr_fallback.wgsl `luma`); 0: none.
 @group(0) @binding(4) var history_luma: texture_2d<f32>;
 @group(0) @binding(5) var linear_clamp: sampler;
 // xy: FSR's jitter this frame (render pixels, AMD's sign); zw unused.
 @group(0) @binding(6) var<uniform> jitter: vec4<f32>;
+// This frame's presence and luminance (render size), from the first pass.
+@group(0) @binding(7) var presence_now: texture_2d<f32>;
+@group(0) @binding(8) var luma_now: texture_2d<f32>;
+
+struct Pixel {
+    // This frame's presence (kept for the next frame too) and the finished frame's luminance.
+    @location(0) presence: f32,
+    @location(1) luma: f32,
+}
 
 struct Masks {
     // FSR's reactive mask: keep less history.
     @location(0) reactive: f32,
     // FSR's transparency and composition mask: clamp the history tighter.
     @location(1) composition: f32,
-    // This frame's presence, for the next frame.
-    @location(2) presence: f32,
 }
 
 // The light change (|ln| of the ratio, agreed by 8 of the 9 texels) below which the mask
@@ -72,15 +89,24 @@ const LIGHT_FLOOR: f32 = 0.05;
     return vec4<f32>(p * 2.0 - 1.0, 0.0, 1.0);
 }
 
-fn presence(at: vec2<i32>) -> f32 {
+fn luminance(c: vec3<f32>) -> f32 {
+    return dot(max(c, vec3<f32>(0.0)), vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
+// The first pass: presence and luminance of each render pixel.
+@fragment fn presence_pass(@builtin(position) p: vec4<f32>) -> Pixel {
+    let at = vec2<i32>(p.xy);
     let a = max(textureLoad(opaque, at, 0).rgb, vec3<f32>(0.0));
     let b = max(textureLoad(scene, at, 0).rgb, vec3<f32>(0.0));
     let d = abs(a - b) / max(max(a, b), vec3<f32>(0.05));
-    return clamp(max(d.r, max(d.g, d.b)), 0.0, 0.9);
+    var pixel: Pixel;
+    pixel.presence = clamp(max(d.r, max(d.g, d.b)), 0.0, 0.9);
+    pixel.luma = luminance(b);
+    return pixel;
 }
 
-fn luminance(c: vec3<f32>) -> f32 {
-    return dot(max(c, vec3<f32>(0.0)), vec3<f32>(0.2126, 0.7152, 0.0722));
+fn presence(at: vec2<i32>) -> f32 {
+    return textureLoad(presence_now, at, 0).r;
 }
 
 // The most presence last frame among the texels this pixel's history is read from: those
@@ -109,7 +135,10 @@ fn presence_before(source: vec2<f32>) -> f32 {
 // where a texel's surface point was off screen.
 fn light_change(at: vec2<i32>) -> f32 {
     let size = vec2<f32>(textureDimensions(previous_presence));
-    var r: array<f32, 9>;
+    // The two smallest and the two largest ratios, in registers: a sorted array indexed by a
+    // variable went to the GPU's local memory and was the pass's cost.
+    var low = vec2<f32>(1e30);
+    var high = vec2<f32>(-1e30);
     for (var i = 0; i < 9; i++) {
         let here = clamp(at + vec2<i32>(i % 3 - 1, i / 3 - 1), vec2<i32>(0), vec2<i32>(size) - 1);
         // The surface point this texel shows (its centre less this frame's jitter) and where
@@ -122,20 +151,12 @@ fn light_change(at: vec2<i32>) -> f32 {
         if history <= 0.0 {
             return 0.0;
         }
-        let now = luminance(textureLoad(scene, here, 0).rgb);
-        r[i] = log((now + LIGHT_FLOOR) / (history + LIGHT_FLOOR));
+        let now = textureLoad(luma_now, here, 0).r;
+        let r = log((now + LIGHT_FLOOR) / (history + LIGHT_FLOOR));
+        low = vec2<f32>(min(low.x, r), min(low.y, max(low.x, r)));
+        high = vec2<f32>(max(high.x, r), max(high.y, min(high.x, r)));
     }
-    // Insertion sort, ascending.
-    for (var i = 1; i < 9; i++) {
-        let v = r[i];
-        var j = i - 1;
-        while j >= 0 && r[j] > v {
-            r[j + 1] = r[j];
-            j--;
-        }
-        r[j + 1] = v;
-    }
-    return max(max(r[1], -r[7]), 0.0);
+    return max(max(low.y, -high.y), 0.0);
 }
 
 // The most presence last frame within a texel of `source` (render pixels): what a blended
@@ -176,6 +197,5 @@ fn presence_around(at: vec2<i32>) -> f32 {
     var masks: Masks;
     masks.reactive = max(max(appeared, went), max(light, 0.0));
     masks.composition = max(now, before);
-    masks.presence = now;
     return masks;
 }

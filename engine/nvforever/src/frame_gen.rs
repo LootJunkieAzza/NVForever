@@ -104,6 +104,12 @@ pub fn real_frame_cap(refresh_millihertz: Option<u32>) -> u32 {
     refresh_millihertz.map_or(0, |m| (m / 2000).max(15))
 }
 
+/// Generated frames presented since the start, shared by the render world (which counts them)
+/// and the main world's frame-rate counter (`fps_counter.rs`, which shows frames presented and
+/// real frames apart).
+#[derive(Resource, Clone, Default)]
+pub struct GeneratedFrames(pub std::sync::Arc<AtomicU64>);
+
 /// The cap `frame_pace::cap_rate` adds while frame generation runs (0: none).
 #[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct FrameGenCap(pub u32);
@@ -112,7 +118,9 @@ pub struct FrameGenPlugin(pub bool);
 
 impl Plugin for FrameGenPlugin {
     fn build(&self, app: &mut App) {
+        let generated = GeneratedFrames::default();
         app.insert_resource(FrameGeneration { on: self.0 })
+            .insert_resource(generated.clone())
             .init_resource::<FrameGenCap>()
             .add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace));
         if std::env::var("NVF_FRAME_GEN_GPU_TIMES").is_ok_and(|v| v.trim() == "1") {
@@ -121,6 +129,7 @@ impl Plugin for FrameGenPlugin {
         }
         let Some(render) = app.get_sub_app_mut(RenderApp) else { return };
         render
+            .insert_resource(generated)
             .init_resource::<FrameGenRenderer>()
             .init_resource::<FrameGenRequest>()
             .init_resource::<PendingReal>()
@@ -422,6 +431,7 @@ fn generate(
     renderer: Res<FrameGenRenderer>,
     pending: Res<PendingReal>,
     stats: Res<Stats>,
+    generated: Res<GeneratedFrames>,
     capture: Res<Capture>,
     device: Res<RenderDevice>,
     mut ctx: RenderContext,
@@ -480,6 +490,7 @@ fn generate(
         pending.0.lock().unwrap().push((window.entity(), fg.real.clone()));
         capture.record(device.wgpu_device(), encoder, &[("0-hudless", &fg.hudless), ("1-generated", &fg.output), ("2-real", &fg.real)]);
         stats.generated.fetch_add(1, Ordering::Relaxed);
+        generated.0.fetch_add(1, Ordering::Relaxed);
         if !fg.logged.swap(true, Ordering::Relaxed) {
             info!("frame generation active: {}x{}, generated frame presented first, the real frame second", fg.output_size.x, fg.output_size.y);
         }

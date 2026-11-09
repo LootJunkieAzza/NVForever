@@ -351,41 +351,10 @@ pub fn run(root: &Path) {
     // FSR's last output luminance: none (cleared), so the light term stays out of this check.
     let previous_luma = texture(&device, TextureFormat::R16Float, [8, 2]);
     let reactive_source = std::fs::read_to_string(root.join("fsr_reactive.wgsl")).unwrap();
-    let shader = device.create_shader_module(ShaderModuleDescriptor {
-        label: Some("fsr_reactive"),
-        source: ShaderSource::Wgsl(reactive_source.as_str().into()),
-    });
-    let r8 = Some(ColorTargetState {
-        format: TextureFormat::R8Unorm,
-        blend: None,
-        write_mask: ColorWrites::ALL,
-    });
-    let reactive_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-        label: Some("fsr_reactive"),
-        layout: None,
-        vertex: VertexState {
-            module: &shader,
-            entry_point: Some("vertex"),
-            compilation_options: Default::default(),
-            buffers: &[],
-        },
-        fragment: Some(FragmentState {
-            module: &shader,
-            entry_point: Some("fragment"),
-            compilation_options: Default::default(),
-            targets: &[r8.clone(), r8.clone(), r8],
-        }),
-        primitive: Default::default(),
-        depth_stencil: None,
-        multisample: Default::default(),
-        multiview_mask: None,
-        cache: None,
-    });
-    let opaque_view = opaque.create_view(&Default::default());
-    let scene_view = scene.create_view(&Default::default());
-    let motion_view = motion.create_view(&Default::default());
-    let previous_view = previous.create_view(&Default::default());
-    let previous_luma_view = previous_luma.create_view(&Default::default());
+    let pipelines = crate::ghosting::mask_pipelines(&device, &reactive_source);
+    let view = |t: &Texture| t.create_view(&Default::default());
+    let (opaque_view, scene_view, motion_view, previous_view, previous_luma_view) =
+        (view(&opaque), view(&scene), view(&motion), view(&previous), view(&previous_luma));
     let linear = device.create_sampler(&SamplerDescriptor {
         mag_filter: FilterMode::Linear,
         min_filter: FilterMode::Linear,
@@ -396,30 +365,29 @@ pub fn run(root: &Path) {
         contents: &[0u8; 16],
         usage: BufferUsages::UNIFORM,
     });
-    let group = device.create_bind_group(&BindGroupDescriptor {
+    // The first pass's outputs (presence, luminance) and the second's (reactive, composition).
+    let presence_out = texture(&device, TextureFormat::R8Unorm, [4, 1]);
+    let luma_out = texture(&device, TextureFormat::R16Float, [4, 1]);
+    let reactive_out = texture(&device, TextureFormat::R8Unorm, [4, 1]);
+    let composition_out = texture(&device, TextureFormat::R8Unorm, [4, 1]);
+    let (presence_view, luma_view) = (view(&presence_out), view(&luma_out));
+    let (reactive_view, composition_view) = (view(&reactive_out), view(&composition_out));
+    let texture_entry = |binding, view| BindGroupEntry {
+        binding,
+        resource: BindingResource::TextureView(view),
+    };
+    let first = device.create_bind_group(&BindGroupDescriptor {
         label: None,
-        layout: &reactive_pipeline.get_bind_group_layout(0),
+        layout: &pipelines.presence.get_bind_group_layout(0),
+        entries: &[texture_entry(0, &opaque_view), texture_entry(1, &scene_view)],
+    });
+    let second = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &pipelines.masks.get_bind_group_layout(0),
         entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::TextureView(&opaque_view),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::TextureView(&scene_view),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: BindingResource::TextureView(&motion_view),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: BindingResource::TextureView(&previous_view),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: BindingResource::TextureView(&previous_luma_view),
-            },
+            texture_entry(2, &motion_view),
+            texture_entry(3, &previous_view),
+            texture_entry(4, &previous_luma_view),
             BindGroupEntry {
                 binding: 5,
                 resource: BindingResource::Sampler(&linear),
@@ -428,43 +396,41 @@ pub fn run(root: &Path) {
                 binding: 6,
                 resource: no_jitter.as_entire_binding(),
             },
+            texture_entry(7, &presence_view),
+            texture_entry(8, &luma_view),
         ],
     });
-    let outputs = [0, 1, 2].map(|_| texture(&device, TextureFormat::R8Unorm, [4, 1]));
-    let views = outputs.each_ref().map(|t| t.create_view(&Default::default()));
     let mut encoder = device.create_command_encoder(&Default::default());
-    {
-        let attachment = |view| {
-            Some(RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: Operations {
-                    load: LoadOp::Clear(Color::BLACK),
-                    store: StoreOp::Store,
-                },
-            })
-        };
-        let attachments = [
-            attachment(&views[0]),
-            attachment(&views[1]),
-            attachment(&views[2]),
-        ];
+    let attachment = |view| {
+        Some(RenderPassColorAttachment {
+            view,
+            resolve_target: None,
+            depth_slice: None,
+            ops: Operations {
+                load: LoadOp::Clear(Color::BLACK),
+                store: StoreOp::Store,
+            },
+        })
+    };
+    for (targets, pipeline, group) in [
+        ([attachment(&presence_view), attachment(&luma_view)], &pipelines.presence, &first),
+        ([attachment(&reactive_view), attachment(&composition_view)], &pipelines.masks, &second),
+    ] {
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("fsr masks"),
-            color_attachments: &attachments,
+            color_attachments: &targets,
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(&reactive_pipeline);
-        pass.set_bind_group(0, &group, &[]);
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, group, &[]);
         pass.draw(0..3, 0..1);
     }
     queue.submit([encoder.finish()]);
     let [reactive, composition, presence] =
-        outputs.each_ref().map(|t| read(&device, &queue, t, 1));
+        [&reactive_out, &composition_out, &presence_out].map(|t| read(&device, &queue, t, 1));
     let near = |a: u8, b: i32| (a as i32 - b).abs() <= 1;
     assert_eq!(presence[0], 0);
     assert!(near(presence[1], 127) && near(presence[2], 230) && near(presence[3], 230), "presence {presence:?}");

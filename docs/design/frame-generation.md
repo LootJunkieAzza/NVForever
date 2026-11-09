@@ -94,6 +94,9 @@ Limits of this path:
 - **Vsync off** is not supported: the second present would replace the first at once.
 - **Screenshots** (`--screenshot`, F12) take the window's first image of the frame, the
   generated one.
+- **The cap on slower screens**: half the refresh rate is 30 real frames a second on a 60 Hz
+  screen, which is little to interpolate from and to aim with; frame generation suits screens
+  of 120 Hz and more.
 - **Swapchain depth**: Bevy's default (two frames queued). Three and four were tried (2026-11-07,
   the walk below): three lowered the real rate (56 fps), four gave the same as two.
 

@@ -286,7 +286,9 @@ pub(crate) struct PreparedFsr {
     /// `presence[presence_written]`, and the other is read.
     presence: [wgpu::Texture; 2],
     presence_written: AtomicUsize,
-    /// The luminance of FSR's last output (display size), for the masks' light term; cleared
+    /// This frame's luminance (render size), from the masks' first pass.
+    luma_now: wgpu::Texture,
+    /// The luminance of FSR's last output (render size), for the masks' light term; cleared
     /// when FSR did not reconstruct.
     history_luma: wgpu::Texture,
     /// FSR's jitter this frame, for the masks (render pixels, AMD's sign).
@@ -413,7 +415,8 @@ impl PreparedFsr {
             composition: texture("fsr_transparency_and_composition", render_size, wgpu::TextureFormat::R8Unorm, attachment),
             presence: [0, 1].map(|_| texture("fsr_transparency_presence", render_size, wgpu::TextureFormat::R8Unorm, attachment | wgpu::TextureUsages::COPY_DST)),
             presence_written: AtomicUsize::new(0),
-            history_luma: texture("fsr_history_luma", output_size, wgpu::TextureFormat::R16Float, attachment | wgpu::TextureUsages::COPY_DST),
+            luma_now: texture("fsr_luma", render_size, wgpu::TextureFormat::R16Float, attachment),
+            history_luma: texture("fsr_history_luma", render_size, wgpu::TextureFormat::R16Float, attachment | wgpu::TextureUsages::COPY_DST),
             mask_jitter: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("fsr_mask_jitter"), contents: &mask_jitter_bytes(jitter), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             }),
@@ -551,7 +554,11 @@ pub(crate) fn fsr_pass(
     let device = device.wgpu_device();
     let encoder = ctx.command_encoder();
     let reset = prepared.reset || !prepared.history_valid.load(Ordering::Relaxed);
+    // Sub-spans (`nvf_fsr_3_1/...`, logged with `--log-frame-times`): NVForever's own passes
+    // around AMD's, to tell their cost apart.
+    let inputs_span = diagnostics.time_span(encoder, "inputs");
     auxiliary.prepare_inputs(device, encoder, prepared, target.main_texture(), &depth.texture.texture, &motion.texture.texture, reset);
+    inputs_span.end(encoder);
     let source = target.main_texture().deref().clone();
     let destination = target.main_texture_other().deref().clone();
     let info = FsrDispatchInfo {
@@ -571,11 +578,16 @@ pub(crate) fn fsr_pass(
         view_space_to_meters_factor: 1.0 / 70.0,
         flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
     };
-    match context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info) {
+    let upscale_span = diagnostics.time_span(encoder, "upscale");
+    let dispatched = context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info);
+    upscale_span.end(encoder);
+    match dispatched {
         Ok(()) => {
+            let after_span = diagnostics.time_span(encoder, "alpha_and_history");
             auxiliary.restore_alpha(device, encoder, prepared, target);
             target.post_process_write();
             auxiliary.keep_history_luma(device, encoder, prepared, target);
+            after_span.end(encoder);
             prepared.history_valid.store(true, Ordering::Relaxed);
             if !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {
                 info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
@@ -587,14 +599,18 @@ pub(crate) fn fsr_pass(
             auxiliary.fallback(device, encoder, prepared, target);
         }
     }
+    let depth_span = diagnostics.time_span(encoder, "depth_expand");
     auxiliary.expand_depth(device, encoder, prepared, &depth.texture.texture);
+    depth_span.end(encoder);
     span.end(ctx.command_encoder());
 }
 
 struct AuxiliaryPipelines {
+    presence_layout: wgpu::BindGroupLayout,
     reactive_layout: wgpu::BindGroupLayout,
     depth_layout: wgpu::BindGroupLayout,
     fallback_layout: wgpu::BindGroupLayout,
+    presence: wgpu::RenderPipeline,
     reactive: wgpu::RenderPipeline,
     history_luma: wgpu::RenderPipeline,
     prepare_depth: wgpu::RenderPipeline,
@@ -611,12 +627,15 @@ impl AuxiliaryPipelines {
             ty: wgpu::BindingType::Texture { sample_type: if depth { wgpu::TextureSampleType::Depth } else { wgpu::TextureSampleType::Float { filterable: true } }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None,
         };
         let uniform_entry = wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None };
-        // fsr_reactive.wgsl: opaque copy, finished frame, motion, last presence, FSR's last
-        // output luminance, a linear sampler and the jitter.
+        // fsr_reactive.wgsl's first pass: the opaque copy and the finished frame; its second:
+        // motion, last presence, FSR's last output luminance, a linear sampler, the jitter,
+        // and the first pass's presence and luminance.
+        let presence_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_presence_layout"), entries: &[texture_entry(0, false), texture_entry(1, false)] });
         let reactive_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_reactive_layout"), entries: &[
-            texture_entry(0, false), texture_entry(1, false), texture_entry(2, false), texture_entry(3, false), texture_entry(4, false),
+            texture_entry(2, false), texture_entry(3, false), texture_entry(4, false),
             wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             wgpu::BindGroupLayoutEntry { binding: 6, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
+            texture_entry(7, false), texture_entry(8, false),
         ] });
         let depth_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_depth_layout"), entries: &[texture_entry(0, true), uniform_entry] });
         let fallback_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_fallback_layout"), entries: &[
@@ -640,14 +659,15 @@ impl AuxiliaryPipelines {
         };
         let mask = (wgpu::TextureFormat::R8Unorm, wgpu::ColorWrites::ALL);
         Self {
-            reactive: make_targets("fsr_reactive", include_str!("fsr_reactive.wgsl"), &reactive_layout, "fragment", &[mask, mask, mask]),
+            presence: make_targets("fsr_presence", include_str!("fsr_reactive.wgsl"), &presence_layout, "presence_pass", &[mask, (wgpu::TextureFormat::R16Float, wgpu::ColorWrites::ALL)]),
+            reactive: make_targets("fsr_reactive", include_str!("fsr_reactive.wgsl"), &reactive_layout, "fragment", &[mask, mask]),
             history_luma: make("fsr_history_luma", include_str!("fsr_fallback.wgsl"), &fallback_layout, "luma", Some((wgpu::TextureFormat::R16Float, wgpu::ColorWrites::ALL))),
             prepare_depth: make("fsr_prepare_depth", include_str!("fsr_depth.wgsl"), &depth_layout, "prepare_depth", None),
             expand_depth: make("fsr_expand_depth", include_str!("fsr_depth.wgsl"), &depth_layout, "expand_depth", None),
             fallback: make("fsr_spatial_fallback", include_str!("fsr_fallback.wgsl"), &fallback_layout, "fragment", Some((wgpu::TextureFormat::Rgba16Float, wgpu::ColorWrites::ALL))),
             alpha: make("fsr_restore_alpha", include_str!("fsr_fallback.wgsl"), &fallback_layout, "alpha", Some((wgpu::TextureFormat::Rgba16Float, wgpu::ColorWrites::ALPHA))),
             sampler: device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..default() }),
-            reactive_layout, depth_layout, fallback_layout,
+            presence_layout, reactive_layout, depth_layout, fallback_layout,
         }
     }
 
@@ -684,25 +704,33 @@ impl AuxiliaryPipelines {
         }
         let view = |texture: &wgpu::Texture| texture.create_view(&default());
         let (opaque, color, motion, previous, history) = (view(&fsr.opaque), view(color), view(motion), view(previous), view(&fsr.history_luma));
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_reactive_group"), layout: &self.reactive_layout, entries: &[
+        let (presence, luma) = (view(&fsr.presence[written]), view(&fsr.luma_now));
+        let attachment = |view| Some(wgpu::RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } });
+        let draw = |encoder: &mut wgpu::CommandEncoder, label, attachments: &[Option<wgpu::RenderPassColorAttachment>], pipeline, group| {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label), color_attachments: attachments,
+                depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, group, &[]);
+            pass.draw(0..3, 0..1);
+        };
+        // This frame's presence and luminance, then the masks from them.
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_presence_group"), layout: &self.presence_layout, entries: &[
             wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&opaque) },
             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&color) },
+        ] });
+        draw(encoder, "fsr_presence", &[attachment(&presence), attachment(&luma)], &self.presence, &group);
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_reactive_group"), layout: &self.reactive_layout, entries: &[
             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&motion) },
             wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&previous) },
             wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&history) },
             wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&self.sampler) },
             wgpu::BindGroupEntry { binding: 6, resource: fsr.mask_jitter.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&presence) },
+            wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(&luma) },
         ] });
-        let targets = [view(&fsr.reactive), view(&fsr.composition), view(&fsr.presence[written])];
-        let attachments = targets.each_ref().map(|view| Some(wgpu::RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } }));
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("fsr_reactive_mask"), color_attachments: &attachments,
-            depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
-        });
-        pass.set_pipeline(&self.reactive);
-        pass.set_bind_group(0, &group, &[]);
-        pass.draw(0..3, 0..1);
-        drop(pass);
+        draw(encoder, "fsr_reactive_mask", &[attachment(&view(&fsr.reactive)), attachment(&view(&fsr.composition))], &self.reactive, &group);
         fsr.presence_written.store(written, Ordering::Relaxed);
     }
 
