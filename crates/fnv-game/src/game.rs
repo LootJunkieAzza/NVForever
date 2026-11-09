@@ -1244,6 +1244,12 @@ pub struct Game<'a> {
     /// SUP batch 6's state: the mouse, the cursor, the debug texts, the lockpick menu …
     /// (`crate::nvse_sup6`; the engine fills and takes it).
     pub sup: crate::nvse_sup6::SupState,
+    /// Lutana batch 3's perk entry copies, face backups and the player's last cell
+    /// (`crate::nvse_lu3`). Not saved [hypothesis: the pages' session changes].
+    pub lu3: crate::nvse_lu3::Lu3State,
+    /// SUP batch 7's NIF block interpolations and HUD bar sources (`crate::nvse_sup7`).
+    /// Not saved [hypothesis: the pages say a hot reload loses the variables set].
+    pub sup7: crate::nvse_sup7::Sup7State,
     /// Sound, weather and image-space traits scripts changed (`crate::nvse_traits`).
     pub traits: crate::nvse_traits::TraitState,
     /// kNVSE's animation paths and script-played sequences (`crate::nvse_anim`).
@@ -1880,6 +1886,10 @@ pub struct GameSnapshot {
     /// ModExtraMiscStat, "Stats and their values are stored in the save"].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra_misc_stats: BTreeMap<String, f64>,
+    /// JIP's variables added at run time and the references' extra data [documented:
+    /// AddScriptVariable, SetRefExtraData, "saved with the game"] (`crate::nvse_jip10`).
+    #[serde(default, skip_serializing_if = "crate::nvse_jip10::Jip10Saved::is_empty")]
+    pub jip10: crate::nvse_jip10::Jip10Saved,
 }
 
 impl GameSnapshot {
@@ -2197,6 +2207,8 @@ impl<'a> Game<'a> {
             showoff: Default::default(),
             mod_files: Default::default(),
             sup: Default::default(),
+            lu3: Default::default(),
+            sup7: Default::default(),
             traits: Default::default(),
             anim_paths: Default::default(),
             anim_folders: Default::default(),
@@ -3276,6 +3288,10 @@ impl<'a> Game<'a> {
     fn run_blocks(&mut self, key: InstKey, script: FormId, event: u16, subject: Option<Value>, ctx: RunCtx, coded_only: bool) -> bool {
         let data = self.data;
         let Some(unit) = data.script(script) else { return false };
+        // SetScriptDisabled and SetScriptEventDisabled (`crate::nvse_jip10`).
+        if self.script_blocked(key, script, event) {
+            return false;
+        }
         let mut ran = false;
         let coded = |b: &&Block| !coded_only || b.params.as_ref().is_some_and(|p| !p.is_empty());
         for (i, b) in unit.program.blocks.iter().enumerate().filter(|(_, b)| b.event == event && coded(b)) {
@@ -3507,6 +3523,8 @@ impl<'a> Game<'a> {
         self.projectiles_tick(dt as f32);
         self.jg_event(crate::nvse_jip3::JgEvent::RenderUpdate, None);
         self.hud_tick();
+        self.lu3_tick();
+        self.sup7_tick();
         self.expire_aux_timers();
         self.input.next_frame();
         self.turned.clear();
@@ -5450,6 +5468,7 @@ impl<'a> Game<'a> {
             form_instances: self.pp.instances.iter().map(|(k, v)| (*k, v.clone())).collect(),
             object_groups: self.anims.asked_all().clone(),
             extra_misc_stats: self.jip2.misc_stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            jip10: self.jip10_saved(),
         }
     }
 
@@ -5523,6 +5542,7 @@ impl<'a> Game<'a> {
         g.pp_restore_instances(&s.form_instances);
         g.anims.restore_asked(s.object_groups.clone());
         g.jip2.misc_stats = s.extra_misc_stats.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        g.restore_jip10(&s.jip10);
         g.awareness.actors = s.awareness.clone();
         g.awareness.forced = s.forced_combat.clone();
         // A save from before `fighting` was saved cannot say which starts had run: everyone
@@ -6002,6 +6022,22 @@ impl Host for Exec<'_, '_> {
         }
     }
 
+    /// A global, another script's variable or a local of a script instance, kept for
+    /// SUP's HudBarSetValueScriptVar (`crate::nvse_sup7`); a result script's locals
+    /// have no place.
+    fn var_place(&mut self, var: &VarRef) -> Option<u32> {
+        use crate::nvse_sup7::VarPlace;
+        let p = match (var.on, var.var) {
+            (_, VarSlot::Global { global }) => VarPlace::Global(self.global_form(global).ok()?),
+            (None, VarSlot::Local { index, .. }) => match &self.locals {
+                Locals::Instance(k) => VarPlace::Var(*k, index),
+                Locals::Temp(_) => return None,
+            },
+            (Some(r), VarSlot::Local { index, .. }) => VarPlace::Var(self.remote(r).ok()?.0, index),
+        };
+        Some(self.game.add_var_place(p))
+    }
+
     fn ext_call(&mut self, name: &str, on: Option<Value>, args: &[fnv_script::vm::XVal]) -> Option<Result<fnv_script::vm::XVal, String>> {
         let on = on.and_then(|v| v.as_form()).map(FormId);
         let ctx = self.ctx;
@@ -6024,7 +6060,8 @@ impl Host for Exec<'_, '_> {
     }
 
     fn objective_text(&mut self, quest: u32, index: i32) -> Option<String> {
-        self.game.data.quests.get(&FormId(quest))?.objectives.get(&index)?.text.clone()
+        // SetObjectiveText's first (`crate::nvse_jip10`).
+        self.game.objective_text(FormId(quest), index)
     }
 
     fn calling_ref(&mut self) -> Option<u32> {

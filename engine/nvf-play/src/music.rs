@@ -604,7 +604,8 @@ fn cues(
                 by = by.or(Some(id));
             }
         }
-        cues.combat = combat.is_some();
+        // ToggleCombatMusic 0 keeps the battle music off (`fnv_game::nvse_jg7`).
+        cues.combat = combat.is_some() && !fnv_game::nvse_jg7::combat_music_off();
         cues.alert = alert || combat.is_some();
         cues.by = combat.or(by);
         for f in factions {

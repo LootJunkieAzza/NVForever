@@ -491,6 +491,11 @@ fn not_now(world: &World) -> Option<String> {
     if player_dead(world) {
         return Some(DEAD.into());
     }
+    // ToggleDisableSaves 1 (`fnv_game::nvse_jg7`): until every plugin that disabled saving
+    // enables it again or a save is loaded [documented: ToggleDisableSaves].
+    if rt.game.saves_disabled() {
+        return Some("a script disabled saving".into());
+    }
     if rt.game.dialogue.is_some() {
         return Some("in a conversation".into());
     }

@@ -215,6 +215,11 @@ pub trait Host {
     fn var_name(&mut self, _var: &VarRef) -> Option<String> {
         None
     }
+    /// A number for a variable the host can read again later, outside this run (SUP's
+    /// HudBarSetValueScriptVar); `None` when it cannot (a result script's locals).
+    fn var_place(&mut self, _var: &VarRef) -> Option<u32> {
+        None
+    }
     /// The UDF MessageBoxExAlt runs with the pressed button.
     fn box_callback(&mut self, _func: XVal) {}
     /// A message without a Message form (MessageEx; MessageBoxEx with its buttons).
@@ -2888,8 +2893,10 @@ impl Vm<'_, '_> {
         // [documented: SetBipedModelPathAlt `armor slot "format" values…`; observed:
         // gaps8, "NVF\Ground%g.nif" 7 reads NVF\Ground7.nif]: the format third.
         // RunScriptSnippet `delay "format" values…` likewise [documented].
-        if lname == "setformdescription" || lname == "messageexalt" || lname == "setbipedmodelpathalt" || lname == "runscriptsnippet" {
-            let at = if lname == "setbipedmodelpathalt" { 2 } else { 1 };
+        // [documented: SetObjectiveText `quest index "format" valuesâ€¦`, WriteStringToFile
+        // `path append "format" valuesâ€¦`, ModLogPrint `indent "format" valuesâ€¦`] likewise.
+        if matches!(lname.as_str(), "setformdescription" | "messageexalt" | "setbipedmodelpathalt" | "runscriptsnippet" | "setobjectivetext" | "writestringtofile" | "modlogprint") {
+            let at = if matches!(lname.as_str(), "setbipedmodelpathalt" | "setobjectivetext" | "writestringtofile") { 2 } else { 1 };
             let mut first = Vec::new();
             for e in c.args.iter().take(at) {
                 first.push(self.xeval(e)?);
@@ -2899,6 +2906,24 @@ impl Vm<'_, '_> {
             return match self.host.ext_call(&lname, None, &first) {
                 Some(r) => r.map_err(VmError::Host),
                 None => Ok(XVal::Num(0.0)),
+            };
+        }
+        // [documented: HudBarSetValueScriptVar `barName MyQuest.MyVariable calcMax`, the
+        // bar reading the variable later]: the variable goes to the host by its place
+        // (`Host::var_place`), as -1 - its number; anything that is no placed variable as
+        // 0, which the host refuses.
+        if lname == "hudbarsetvaluescriptvar" {
+            let mut args = Vec::with_capacity(c.args.len());
+            for (k, a) in c.args.iter().enumerate() {
+                args.push(match a {
+                    XExpr::Var { var, .. } if k == 1 => XVal::Num(self.host.var_place(var).map_or(0.0, |p| -1.0 - f64::from(p))),
+                    _ if k == 1 => XVal::Num(0.0),
+                    other => self.xeval(other)?,
+                });
+            }
+            return match self.host.ext_call(&lname, None, &args) {
+                Some(r) => r.map_err(VmError::Host),
+                None => Err(VmError::NotBuilt(format!("the extender function {name}"))),
             };
         }
         // Functions that give their results in script variables: the host answers with an
@@ -3233,6 +3258,8 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // [documented: GetMousePosition, GetMouseMovement, "output … to fPosX and fPosY
         // script variables"].
         "getmouseposition" | "getmousemovement" => &[0, 1],
+        // [documented: HSVtoRGB, RGBtoHSV, three script variables in and three out].
+        "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
         _ => return None,
     })
 }

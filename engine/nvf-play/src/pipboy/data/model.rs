@@ -153,23 +153,8 @@ pub fn pan(t: f32, size: f32, mid: f32) -> f32 {
 /// "Monument", "Military", "Office", "Town Ruins", "Urban Ruins", "Sewer Ruins", "Metro",
 /// "Vault"; observed: Vault 22 and Vault 3 are 14, Hidden Supply Cave 5, Camp McCarran 8,
 /// Hoover Dam 7].
-const ICONS: [&str; 15] = [
-    "settlement",
-    "city",
-    "settlement",
-    "encampment",
-    "natural_landmark",
-    "cave",
-    "factory",
-    "monument",
-    "military",
-    "office",
-    "ruins_town",
-    "ruins_urban",
-    "ruins_sewer",
-    "metro",
-    "vault",
-];
+/// The table is the game's (GetCustomMapMarkerIcon reads it too).
+const ICONS: [&str; 15] = fnv_game::nvse_jg7::MAP_MARKER_ICONS;
 
 /// The picture of a map marker of type `kind`: its type's icon once it counts as
 /// discovered, the "undiscovered" icon while it is only known [hypothesis: by the files'

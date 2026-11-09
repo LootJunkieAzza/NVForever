@@ -94,10 +94,15 @@ pub struct OtherState {
     /// JIP batch 9's switches and what the engine tells: the HUD cursor, volumes, fonts,
     /// colours, immortal mode, disabled interaction types (`nvse_jip9`).
     pub jip9: crate::nvse_jip9::Jip9State,
+    /// JIP batch 10's objectives, added variables, disabled scripts, extra data, map
+    /// markers (`nvse_jip10`).
+    pub jip10: crate::nvse_jip10::Jip10State,
     /// JohnnyGuitar batch 5's record changes (`nvse_jg5`).
     pub jg5: crate::nvse_jg5::Jg5State,
     /// JohnnyGuitar batch 6's state (`nvse_jg6`).
     pub jg6: crate::nvse_jg6::Jg6State,
+    /// JohnnyGuitar batch 7's switches, settings and queued texts (`nvse_jg7`).
+    pub jg7: crate::nvse_jg7::Jg7State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of
@@ -475,7 +480,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let st = g.quest_state(q);
             let cur = st.objectives.iter().find(|(_, o)| o.displayed && !o.completed).map(|(&i, _)| i);
             let targets: Vec<XVal> = cur
-                .and_then(|i| g.data.quests.get(&q)?.objectives.get(&i).map(|o| o.targets.iter().filter_map(|t| t.target).map(|t| XVal::Ref(t.0)).collect()))
+                .map(|i| g.objective_targets(q, i).into_iter().map(|t| XVal::Ref(t.0)).collect())
                 .unwrap_or_default();
             let entries = targets.into_iter().enumerate().map(|(i, v)| (XKey::Num(i as f64), v)).collect();
             XVal::Array(g.ext.new_array(ArrayKind::List, entries))
