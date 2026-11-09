@@ -218,11 +218,13 @@ fn sync(
                     let shapes = match model.rig.as_ref().filter(|rig| rig.idle.is_some() || rig.door.is_some() || !rig.groups.is_empty()) {
                         Some(rig) => {
                             let (r, drawn, nodes) = rig.spawn_nodes(&mut commands, root, Transform::IDENTITY, &d.path, 0.0);
-                            // Its nodes by name, for what follows one (`crate::RefNodes`).
-                            commands.entity(r).insert((RefVisual(id), crate::RefNodes { reference: id, nodes: nodes.clone() }));
+                            commands.entity(r).insert(RefVisual(id));
                             if !rig.groups.is_empty() {
-                                commands.entity(r).insert(ScriptDrawnRig { reference: id, path: d.path.clone(), nodes });
+                                commands.entity(r).insert(ScriptDrawnRig { reference: id, path: d.path.clone(), nodes: nodes.clone() });
                             }
+                            // Its nodes by name, for what follows one (`crate::RefNodes`): the
+                            // map spawn_nodes made, kept rather than dropped.
+                            commands.entity(r).insert(crate::RefNodes { reference: id, nodes });
                             for e in &drawn {
                                 commands.entity(*e).insert(RefVisual(id));
                             }

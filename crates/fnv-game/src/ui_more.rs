@@ -441,11 +441,17 @@ fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool 
                 }
             });
             g.ui_tree.set_trait(tile, "visible", Value::Num(0.0));
-            // The rect's place is the node's from now on ([`place_attachments`]): an `x` or
-            // `y` the XML wrote, an expression too, is taken off, so the tree's working out
-            // (before each drawing) cannot put it back over the placement [design].
-            g.ui_tree.remove_trait(tile, "x");
-            g.ui_tree.remove_trait(tile, "y");
+            // The rect's place is the node's from now on ([`place_attachments`]): the XML's
+            // `x` and `y` lose any expression, so the tree's working out (before each
+            // drawing) cannot put it back over the placement. Each stays a plain number at
+            // what it held now (a constant as written, an expression as last worked out, 0
+            // when never), so scripts read and write it before the first placement and while
+            // the node is not found [design].
+            for name in ["x", "y"] {
+                let held = g.ui_tree.tile(tile).get(name).map_or(0.0, Value::num);
+                g.ui_tree.remove_trait(tile, name);
+                g.ui_tree.set_trait(tile, name, Value::Num(if held.is_finite() { held } else { 0.0 }));
+            }
             g.ui_extra.attached.push(Attachment { reference, node: node.to_string(), tile, shown: None });
             true
         }
@@ -510,8 +516,8 @@ fn origin_of(ui: &Ui, tile: TileId) -> (f64, f64) {
 ///
 /// [documented: AttachUIComponent] The component follows the node; the page does not say
 /// which point of the rect is on the node. [design] The rect's `x` and `y` (its top left)
-/// are put at the node's point (the XML's own were taken off when it was attached, its
-/// expressions too, so the tree's working out never moves it), so a component centres
+/// are put at the node's point (they were made plain numbers when it was attached, any
+/// expression dropped, so the tree's working out never moves it), so a component centres
 /// itself on the node through its children's places; they are written only when they
 /// change, and a script's write to them lasts until the next placement. [design] `visible` is written 1 when the rect comes on screen and 0 when
 /// it leaves (and held at 0 while it is off, [`prune_attachments`]); a script that hides

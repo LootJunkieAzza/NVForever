@@ -1193,8 +1193,7 @@ pub fn spawn_model(
         let phase = if random_anim_start(world, base.form_id) { crate::actors::clip_phase(r) } else { 0.0 };
         stats.refs_random_start += usize::from(phase > 0.0 && rig.idle.is_some());
         let (root, drawn, nodes) = rig.spawn_nodes(commands, parent, Transform::from_matrix(Mat4::from(rt)), &path, phase);
-        // Its nodes by name, for what follows one (`nvf_play::RefNodes`, ui_attach.rs).
-        commands.entity(root).insert((RefVisual(r), nvf_play::RefNodes { reference: r, nodes: nodes.clone() }));
+        commands.entity(root).insert(RefVisual(r));
         for e in &drawn {
             commands.entity(*e).insert(RefVisual(r));
         }
@@ -1227,9 +1226,13 @@ pub fn spawn_model(
             commands.entity(root).insert(crate::wrecks::WreckRig { form_id: r, path: path.clone(), nodes: nodes.clone() });
         }
         if !rig.groups.is_empty() {
-            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
+            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes.clone()));
             stats.refs_group_rigs += 1;
         }
+        // Its nodes by name, for what follows one (`nvf_play::RefNodes`, ui_attach.rs): the
+        // map spawn_nodes made, kept rather than dropped here (copied only when a GroupRig
+        // took it above, as before).
+        commands.entity(root).insert(nvf_play::RefNodes { reference: r, nodes });
         stats.shapes += drawn.len();
         stats.refs_drawn += 1;
         stats.refs_animated += 1;

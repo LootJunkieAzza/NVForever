@@ -246,7 +246,7 @@ fn attachments_replace_by_reference_node_and_rect_and_are_pruned_each_frame() {
     assert!(!g.ui_tree.tile(old).live);
     let replaced = g.ui_extra.attached[0].tile;
     assert_eq!(g.ui_tree.tile(replaced).get("visible").unwrap().num(), 0.0);
-    assert!(g.ui_tree.tile(replaced).get("x").is_none(), "the XML's x is taken off: the node places it");
+    assert_eq!(g.ui_tree.tile(replaced).get("x").unwrap().num(), 99.0, "the XML's constant x stays until placed");
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Arm"), s(xml)]);
     run_on(&mut g, "AttachUIComponent", Some(other), &[s("Head"), s(xml)]);
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Head"), s("<rect name=\"Other\"/>")]);
@@ -293,6 +293,10 @@ fn attachments_are_placed_at_their_node_and_hidden_without_it() {
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Bip01 Head"), s(xml)]);
     let tile = g.ui_extra.attached[0].tile;
     let num = |g: &Game, t: &str| g.ui_tree.tile(tile).get(t).unwrap().num();
+    // Right after attaching, before any placement: x and y are there for scripts (the XML's
+    // constant x, a y it did not write made 0).
+    assert_eq!(float(&g, "HUDMainMenu/Tag/x"), 99.0);
+    assert_eq!(float(&g, "HUDMainMenu/Tag/y"), 0.0);
     frame(&mut g, 0.0);
     assert_eq!(num(&g, "visible"), 0.0, "hidden until placed");
 
@@ -347,7 +351,24 @@ fn attachments_are_placed_at_their_node_and_hidden_without_it() {
     let moving = r#"<rect name="Moving"><x><copy src="parent()" trait="width"/></x><y><copy src="parent()" trait="height"/></y></rect>"#;
     run_on(&mut g, "AttachUIComponent", Some(reference), &[s("Bip01 Head"), s(moving)]);
     let m = g.ui_extra.attached.last().unwrap().tile;
-    assert!(g.ui_tree.tile(m).get("x").is_none() && g.ui_tree.tile(m).get("y").is_none(), "the XML's x and y are taken off");
+    // Before the first placement, and while the node is not found, the expressions are gone
+    // but x and y stay numbers scripts read and write.
+    for unresolved in [false, true] {
+        if unresolved {
+            place_attachments(&mut g, |_, _| None);
+        }
+        g.ui_tree.set_trait(hud, "width", Value::Num(50.0));
+        frame(&mut g, 0.0);
+        let x = float(&g, "HUDMainMenu/Moving/x");
+        assert_ne!(x, -999.0, "x is still there");
+        assert_ne!(x, 50.0, "its expression no longer follows the source");
+        assert_ne!(float(&g, "HUDMainMenu/Moving/y"), -999.0, "y is still there");
+        assert!(g.ui_tree.set_float("HUDMainMenu/Moving/x", 12.0), "a script's SetUIFloat finds it");
+        assert_eq!(float(&g, "HUDMainMenu/Moving/x"), 12.0);
+        g.ui_tree.set_trait(hud, "width", Value::Num(60.0));
+        frame(&mut g, 0.0);
+        assert_eq!(float(&g, "HUDMainMenu/Moving/x"), 12.0, "the script's value holds");
+    }
     place_attachments(&mut g, |_, _| Some((300.0, 200.0)));
     for size in [111.0, 222.0] {
         g.ui_tree.set_trait(hud, "width", Value::Num(size));
