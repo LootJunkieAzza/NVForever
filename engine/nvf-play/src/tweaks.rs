@@ -568,7 +568,7 @@ impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, keys.in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon).in_set(crate::PlaySet::Input))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
         add_setting(
@@ -1218,6 +1218,39 @@ impl Plugin for TweaksPlugin {
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
         switch!(app, "power-armor-no-training", "Power Armor Without Training", "Power armor can be worn without Power Armor Training. (Stewie's Tweaks bPowerArmorNeedsNoTraining)", game.power_armor_needs_no_training);
+    }
+}
+
+/// The Drop Weapon key: the equipped weapon falls in front of the player as the
+/// Pip-Boy's Drop puts it (a new reference turned as the player faces, `RefChanged`)
+/// [design: docs/design/tweaks.md]. Not one that can't be dropped (a quest's).
+fn drop_weapon(input: crate::bindings::ControlInput, state: Res<State<crate::PlayState>>, mut sim: ResMut<crate::sim::SimState>, mut changed: MessageWriter<crate::RefChanged>) {
+    use fnv_sim::FormId;
+    if *state.get() != crate::PlayState::Playing || !input.just_pressed(crate::bindings::Control::DropWeapon) {
+        return;
+    }
+    let forms = sim.forms;
+    let equipped = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
+    let Some(item) = equipped.into_iter().find(|&id| forms.item(id).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Weapon)) else {
+        info!("tweaks: Drop Weapon: nothing in hand");
+        return;
+    };
+    if forms.item(item).is_some_and(|it| it.cant_drop || it.quest_item) {
+        info!("tweaks: Drop Weapon: {item} can't be dropped");
+        return;
+    }
+    match sim.world.drop_equipped(FormId::PLAYER_REF, item) {
+        Ok(refs) => {
+            let heading = sim.world.peek(FormId::PLAYER_REF).map_or(0.0, |p| p.rot[2]);
+            for id in refs {
+                if let Ok(s) = sim.world.get(id) {
+                    s.rot = [0.0, 0.0, heading];
+                }
+                info!("tweaks: Drop Weapon: {item} dropped as reference {id}");
+                changed.write(crate::RefChanged::new(id.0));
+            }
+        }
+        Err(e) => info!("tweaks: Drop Weapon: {item} not dropped: {e}"),
     }
 }
 

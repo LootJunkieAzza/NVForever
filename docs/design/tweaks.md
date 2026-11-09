@@ -460,6 +460,7 @@ unless the player binds them, so nothing changes until then.
 | Date Format | `iDateFormat` | `wait::model::DATE_STYLES` (as the game, day first, month first, year first; ours), set from `tweaks::sync` and read by the wait menu and the Pip-Boy heading |
 | Hide Unknown Names | `bHideUnknownNPCNames` | `activate::find_target`: Talk targets without `talked_to_pc` get no name; bodies (Search) keep theirs |
 | V.A.T.S. Puts the Weapon Back | `bEnteringVATSDoesntUnholsterWeapon` | `vats_mode`: `drew_weapon` when the mode draws it; `end` with nothing fired asks `put_away`, done in `read_keys` |
+| Drop Weapon key | `iDropEquippedWeaponKey` | a new unbound Control; `tweaks::drop_weapon` drops the equipped weapon as the Pip-Boy's Drop does (`World::drop_equipped`, `RefChanged`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -481,8 +482,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 380 |
-| to do | 223 |
+| done | 381 |
+| to do | 222 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1014,6 +1015,7 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `iConsoleKey` | done |  | 1 | Console Key (a choice of six keys) |
 | `iDisableCollisionKey` | done |  | 1 | a Controls key: No Collision (held) |
+| `iDropEquippedWeaponKey` | done |  | 1 | Drop Weapon key (Controls page; not a quest item or one that can't be dropped) |
 | `iExitGameKey` | done |  | 1 | a Controls key: Quit Game |
 | `iExitToMainMenuKey` | done |  | 1 | a Controls key: Main Menu |
 | `iHolsterWeaponKey` | done |  | 1 | a Controls key: Holster Weapon (unbound until set; the hold to holster stays) |
@@ -1032,7 +1034,6 @@ game's Data folder, read-only).
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
-| `iDropEquippedWeaponKey` | to do |  | 1 | World::drop_equipped from a key; check the visuals follow |
 | `iEquipLastWeaponKey` | to do |  | 4 | not built: no previous weapon recorded |
 | `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
 | `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
