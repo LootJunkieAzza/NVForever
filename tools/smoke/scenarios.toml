@@ -22533,17 +22533,39 @@ order = [["controls: input device Controller", "pipboy hints: items Weapons", "p
 
 [[scenario]]
 name = "pipboy-data-hints"
-source = "#1897 (docs/spec-notes/pipboy.md §5.3): each DATA tab shows its hints with their keys, the key inside the hint so it ends at the menus' right edge: Local Map Place Marker X) (dim, not built), World Map Travel Enter) (dim without a marker under the highlight box) and Place Marker X), Quests Set Active Enter) and Show Location X), Misc Active Notes X) and Challenges R), Radio Tune In Enter); frames pipboy_data_hints_world.png, pipboy_data_hints_misc.png in the working folder (the Misc hints inside the screen at 1280 x 720)"
+source = "#1897 (docs/spec-notes/pipboy.md §5.3): with the keyboard and mouse each DATA tab shows the original's PC hints, a column whose words end at the heading's right end with the key after them: Local Map, World Map and Radio none (their A and X hints are the controller's), Quests Show Location X), Misc Active Notes X) and Challenges R); a quest (VCG02's objective) and a note (Beagle's journal) are given first; frames pipboy_data_hints_world.png, pipboy_data_hints_misc.png in the working folder (the Misc hints inside the screen at 1280 x 720)"
+note = "the console's addnote is the one pipboy-holotape uses; the objective aid the one of the script-look scenario (VCG02 3)"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
-env = { NVFOREVER_HOME = "pipboy-data-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,20:tab=4,21.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_world.png,19.5:pipboy_data_hints_misc.png" }
+env = { NVFOREVER_HOME = "pipboy-data-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,20:tab=4,21.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_world.png,19.5:pipboy_data_hints_misc.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
 run_seconds = 24
 expect = [
-  { text = "pipboy hints: data local map: Place Marker X) (dim)", label = "Local Map: Place Marker with its key, dim (not built)" },
-  { re = 'pipboy hints: data world map: Travel Enter\)( \(dim\))?, Place Marker X\) \(dim\)', label = "World Map: Travel and Place Marker with their keys" },
-  { re = 'pipboy hints: data quests: Set Active Enter\)( \(dim\))?, Show Location X\)( \(dim\))?', label = "Quests: the make-active hint and Show Location with their keys" },
-  { re = 'pipboy hints: data misc: Active Notes X\)( \(dim\))?, Challenges R\)', label = "Misc: the notes' filter and Challenges with their keys" },
-  { re = 'pipboy hints: data radio: Tune In Enter\)( \(dim\))?', label = "Radio: the tune hint with its key" },
+  { re = 'pipboy hints: data local map: none$', label = "Local Map: no hint with the keyboard (Place Marker is the controller's)" },
+  { re = 'pipboy hints: data world map: none$', label = "World Map: no hint with the keyboard (Travel and Place Marker are the controller's)" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', label = "Quests: Show Location alone, with its key (the make-active hint is the controller's)" },
+  { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', label = "Misc: the notes' filter and Challenges with their keys" },
+  { re = 'pipboy hints: data radio: none$', label = "Radio: no hint with the keyboard (Tune is the controller's)" },
 ]
 order = [["pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc", "pipboy hints: data radio"]]
+
+[[scenario]]
+name = "pipboy-data-hints-pad"
+source = "#1897 (docs/spec-notes/pipboy.md §5.3): with Controller as the Input Device (Xbox names) each DATA tab shows the original's column, as on the issue's screenshots taken with a controller: Local Map Place Marker X) (dim, not built), World Map Travel A) (dim without a marker under the highlight box) and Place Marker X), Quests Set Active A) and Show Location X), Misc Play A) on the audio note (Stop A) once it plays), Active Notes X) and Challenges Y), Radio Tune In A); the same quest and note as pipboy-data-hints; frames pipboy_data_hints_pad_world.png, pipboy_data_hints_pad_misc.png in the working folder"
+note = "a home of its own keeps the Controller choice away from the other scenarios (as pipboy-items-hints-pad); the pause menu's settings aid picks the device before the Pip-Boy steps; no --no-voice, so the picked holotape plays and its hint turns to Stop"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVFOREVER_HOME = "pipboy-data-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,19.5:note=001618BF,21:tab=4,22.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_pad_world.png,19:pipboy_data_hints_pad_misc.png" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720"]
+run_seconds = 25
+expect = [
+  { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller before the DATA steps" },
+  { text = "hints: Xbox labels", label = "the DATA hints take the Xbox names before the Pip-Boy opens" },
+  { re = 'pipboy hints: data local map: Place Marker X\) \(dim\)$', label = "Local Map: Place Marker with its button, dim (not built)" },
+  { re = 'pipboy hints: data world map: Travel A\)( \(dim\))?, Place Marker X\) \(dim\)$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
+  { re = 'pipboy hints: data quests: Set Active A\), Show Location X\)$', label = "Quests: the make-active hint and Show Location with their buttons" },
+  { re = 'pipboy hints: data misc: Play A\), Active Notes X\), Challenges Y\)$', label = "Misc: Play on the audio note, the notes' filter and Challenges" },
+  { re = 'pipboy hints: data misc: Stop A\), Active Notes X\), Challenges Y\)$', label = "Misc: Stop while the picked audio note plays" },
+  { re = 'pipboy hints: data radio: Tune In A\)$', label = "Radio: the tune hint with its button" },
+]
+order = [["controls: input device Controller", "pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc: Play", "pipboy hints: data misc: Stop", "pipboy hints: data radio"]]
