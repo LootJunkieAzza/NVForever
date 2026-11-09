@@ -6,12 +6,11 @@ form, kill XP, radiation at an NPC, falls, active and temporary effects and effe
 the equipped items, armour DR and DT by condition and whether a hit got through, base
 faction ranks, ClearDeadActors, the hardcore stages' effects and the weapon condition
 penalty, in `crates/fnv-game/src/nvse_jip11.rs`. Sources: the GECK wiki export, each
-function's page [documented: the page named]. Not probed yet: the probe set `jip11`
-(`tools/capture/jip_probes.py`, lab `L5.ext.jip11`) asks the original what the
-[hypothesis] values below leave open.
+function's page [documented: the page named]. The probe set `jip11`
+(`tools/capture/jip_probes.py`, lab `L5.ext.jip11`) asked the original what the
+[hypothesis] values below leave open; its answers are in §6.
 
-40 functions; JIP 142 → 102 once batch 10 (#1907) is merged, 178 → 138 on main without it
-[observed: the extender_census test, 2026-11-09].
+40 functions; JIP 142 → 102 [observed: the extender_census test, 2026-11-09].
 
 List getters with nothing to give return no array, not an empty one [observed: the jip10
 probes, 2026-11-08, for JIP's list getters; hypothesis: the same here].

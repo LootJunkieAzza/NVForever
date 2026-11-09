@@ -421,7 +421,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // gaps5, Toughness/Lead Belly/Educated/Commando 1, Rad Resistance and Small Frame 5,
         // Intense Training 6].
         "getnthperkentrytype" => {
-            let e = form(args, 0).and_then(|f| g.data.perks.get(&f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
+            let e = form(args, 0).and_then(|f| g.perk_def(f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
             XVal::Num(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::EntryPoint(_)) => 1.0,
                 Some(crate::data::PerkEffect::Ability(_)) => 5.0,
@@ -433,7 +433,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // GetNthPerkEntryString, "Activate Prompt" for type 4]; "" for an entry without
         // one [observed: jip-forms perkentry.0, ""].
         "getnthperkentrystring" => {
-            let e = form(args, 0).and_then(|f| g.data.perks.get(&f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
+            let e = form(args, 0).and_then(|f| g.perk_def(f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
             XVal::Str(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::EntryPoint(d)) => d.button.clone().unwrap_or_default(),
                 _ => String::new(),
@@ -441,7 +441,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // The entry point's code [observed: gaps4, Toughness's first 56].
         "getnthperkentryfunction" => {
-            let e = form(args, 0).and_then(|f| g.data.perks.get(&f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
+            let e = form(args, 0).and_then(|f| g.perk_def(f)).and_then(|p| p.entries.get(num(args, 1, 0.0).max(0.0) as usize));
             XVal::Num(match e.map(|e| &e.effect) {
                 Some(crate::data::PerkEffect::EntryPoint(d)) => f64::from(d.point),
                 _ => -1.0,
