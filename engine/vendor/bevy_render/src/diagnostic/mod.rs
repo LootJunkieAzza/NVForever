@@ -26,6 +26,8 @@ use crate::{
 };
 
 use self::internal::{sync_diagnostics, Pass, RenderDiagnosticsMutex, WriteTimestamp};
+// NVForever recorded instant.
+pub use self::internal::RenderDiagnosticsRecorded;
 pub use self::{
     erased_render_asset_diagnostic_plugin::ErasedRenderAssetDiagnosticPlugin,
     internal::DiagnosticsRecorder, mesh_allocator_diagnostic_plugin::MeshAllocatorDiagnosticPlugin,
@@ -67,6 +69,8 @@ impl Plugin for RenderDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
         let render_diagnostics_mutex = RenderDiagnosticsMutex::default();
         app.insert_resource(render_diagnostics_mutex.clone())
+            // NVForever recorded instant.
+            .init_resource::<RenderDiagnosticsRecorded>()
             .add_systems(PreUpdate, sync_diagnostics);
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {

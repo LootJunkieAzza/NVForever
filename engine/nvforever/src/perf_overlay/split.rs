@@ -52,12 +52,12 @@ use std::time::{Duration, Instant};
 use bevy::diagnostic::DiagnosticsStore;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::diagnostic::{DiagnosticsRecorder, RenderDiagnosticsPlugin};
+use bevy::render::diagnostic::{DiagnosticsRecorder, RenderDiagnosticsPlugin, RenderDiagnosticsRecorded};
 use bevy::render::renderer::RenderDevice;
 use bevy::render::{Render, RenderApp, RenderSystems};
 use nvf_play::settings::{switch_after_ini, GivenSwitches};
 
-use super::readings::{gpu_frame_ms, Rows, Split};
+use super::readings::{gpu_frame_ms, Rows, Split, WINDOW};
 
 // One accumulator in one `AtomicU64`: the generation of the showing it counts for (8
 // bits), the frames (20 bits) and their microseconds (36 bits). A frame is added and the
@@ -265,6 +265,9 @@ pub fn build(app: &mut App, timestamps: bool) {
     app.insert_resource(clock.clone())
         .insert_resource(OverlayAddedDiagnostics(added))
         .init_resource::<MainSpan>()
+        .init_resource::<GpuFrames>()
+        // After `PreUpdate`, where Bevy puts the render diagnostics in the store.
+        .add_systems(Update, note_gpu_frame)
         .add_systems(First, main_begin.before(bevy::time::TimeSystems))
         .add_systems(Last, main_end.before(crate::frame_pace::cap_rate));
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
@@ -418,12 +421,53 @@ pub fn mean_since(measurements: impl IntoIterator<Item = (Instant, f64)>, since:
     Some((sum / f64::from(n), now.saturating_duration_since(last).as_secs_f64()))
 }
 
+/// The render diagnostics' frames put in the store while the row shows, oldest first: when
+/// each was put in (the time its measurements carry) and when it was recorded
+/// (`RenderDiagnosticsRecorded`). Kept for [`GPU_FRAMES_KEPT`].
+#[derive(Resource, Default)]
+pub struct GpuFrames(std::collections::VecDeque<(Instant, Instant)>);
+
+/// How long [`GpuFrames`] keeps a frame: twice the reading's window, so a reading finds the
+/// frames of its window however late they came [design].
+const GPU_FRAMES_KEPT: Duration = Duration::from_secs(1);
+
+impl GpuFrames {
+    /// The import time from which the store's measurements are of frames recorded at or
+    /// after `cut`; none before such a frame came.
+    pub fn imported_from(&self, cut: Instant) -> Option<Instant> {
+        self.0.iter().find(|(_, recorded)| *recorded >= cut).map(|(imported, _)| *imported)
+    }
+
+    fn note(&mut self, imported: Instant, recorded: Instant, now: Instant) {
+        if self.0.back().is_none_or(|(last, _)| *last != imported) {
+            self.0.push_back((imported, recorded));
+        }
+        while self.0.front().is_some_and(|(at, _)| now.saturating_duration_since(*at) > GPU_FRAMES_KEPT) {
+            self.0.pop_front();
+        }
+    }
+}
+
+/// Notes the frame Bevy last put in the store, while the row shows; forgets them while not.
+fn note_gpu_frame(clock: Res<SplitClock>, recorded: Option<Res<RenderDiagnosticsRecorded>>, mut frames: ResMut<GpuFrames>) {
+    if !clock.0.is_on() {
+        if !frames.0.is_empty() {
+            frames.0.clear();
+        }
+        return;
+    }
+    if let Some((imported, began)) = recorded.and_then(|r| r.0) {
+        frames.note(imported, began, Instant::now());
+    }
+}
+
 /// What a reading of the split row needs.
 #[derive(SystemParam)]
 pub struct SplitInputs<'w> {
     clock: Res<'w, SplitClock>,
     store: Option<Res<'w, DiagnosticsStore>>,
     gpu: Option<Res<'w, GpuTimes>>,
+    frames: Res<'w, GpuFrames>,
     device: Option<Res<'w, RenderDevice>>,
 }
 
@@ -432,10 +476,13 @@ impl SplitInputs<'_> {
     pub fn read(&self) -> Option<Split> {
         let m = self.clock.0.take();
         let now = Instant::now();
-        // A measurement is stamped with when its frame began recording (the vendored
-        // `bevy_render` diagnostic `sync_diagnostics`, `NVForever recorded instant`), so
-        // the frames of this showing are those stamped at or after it began.
-        let since = self.clock.0.began();
+        // The frames of this window recorded since the showing began: the store stamps a
+        // measurement when it is put in, a few frames after its frame, so the cut is found
+        // in recording time and turned into the import time it starts from (the vendored
+        // `bevy_render` diagnostic `RenderDiagnosticsRecorded`, `NVForever recorded
+        // instant`). The GPU time then covers the window main and render do [design].
+        let window = Duration::from_secs_f32(WINDOW);
+        let since = self.clock.0.began().map(|b| b.max(now.checked_sub(window).unwrap_or(b))).and_then(|cut| self.frames.imported_from(cut));
         let gpu_ms = self.store.as_deref().zip(since).and_then(|(store, since)| {
             gpu_frame_ms(store.iter().filter_map(|d| {
                 let (mean, age) = mean_since(d.measurements().map(|m| (m.time, m.value)), since, now)?;
@@ -473,6 +520,26 @@ impl SplitInputs<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gpu_frames_turn_a_recording_cut_into_an_import_time() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut f = GpuFrames::default();
+        // Frames recorded at 0, 16, 33 ms, each put in the store 50 ms later.
+        for r in [0, 16, 33] {
+            f.note(at(r + 50), at(r), at(r + 50));
+        }
+        // The same import noted twice is one frame.
+        f.note(at(83), at(33), at(83));
+        assert_eq!(f.0.len(), 3);
+        assert_eq!(f.imported_from(at(10)), Some(at(66)), "the first frame recorded at or after the cut");
+        assert_eq!(f.imported_from(at(0)), Some(at(50)));
+        assert_eq!(f.imported_from(at(40)), None, "no frame recorded since");
+        // Frames put in over a second before are forgotten.
+        f.note(at(2_000), at(1_950), at(2_000));
+        assert_eq!(f.0.len(), 1);
+    }
 
     #[test]
     fn the_gate_renews_the_recorder_for_each_new_showing() {

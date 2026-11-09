@@ -81,12 +81,13 @@ back. `nvforever/src/perf_overlay/split.rs` takes it out while the performance o
 frame split, the only reader that added the render diagnostics, is not shown. With the
 recorder there (every run that does not take it out) the systems do what upstream does.
 
-`NVForever recorded instant` (`diagnostic/internal.rs`): each frame's `FrameData` notes when
-it began recording, `RenderDiagnostics` carries that instant, and `sync_diagnostics` stamps
-the frame's measurements with it instead of the moment they reached the store (upstream:
-`Instant::now()` there, a few frames after the frame). `nvforever/src/perf_overlay/split.rs`
-reads only the measurements of frames recorded since its row began to show; without the
-instant (none recorded) the store is stamped as upstream does.
+`NVForever recorded instant` (`diagnostic/internal.rs`, `diagnostic/mod.rs`): each frame's
+`FrameData` notes when it began recording, `RenderDiagnostics` carries that instant, and
+`sync_diagnostics` keeps the last pair (the import time its measurements carry in the store,
+the frame's recording time) in a new main-world resource, `RenderDiagnosticsRecorded`. The
+store's measurements keep upstream's import time (frame telemetry exports it as such,
+docs/design/frame-telemetry.md). `nvforever/src/perf_overlay/split.rs` uses the pairs to
+read only the measurements of frames recorded in its window and since its row began to show.
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
