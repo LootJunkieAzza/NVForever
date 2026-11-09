@@ -922,6 +922,49 @@ order = [[
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
 
+[[scenario]]
+name = "settings-resume-pipelines"
+source = "[design] #1820 pipeline portion: graphics-enhanced.md section 3; resume 0.5 seconds after AA/AO edits, keeping the pause menu until fresh pipeline samples settle (loading-pipelines-start covers the start's gate)"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvf-play/src/graphics_resume.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/pipeline_gate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:11.5", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=1,11:ambient-occlusion" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--graphics", "vanilla", "--msaa", "1", "--sun-shadows"]
+run_seconds = 32
+order = [[
+  "pause menu: open",
+  "settings: ambient-occlusion on",
+  "settings: anti-aliasing TAA",
+  "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
+  { re = 'pause menu: resume after graphics change: pipelines waited [\d.]+ s, pending 0, capped false$' },
+  { re = 'pause menu: resume$' },
+]]
+expect = [
+  { re = 'pause menu: resume after graphics change:', count = 1, label = "one pipeline wait completion" },
+  { re = 'pause menu: resume$', count = 1, label = "one actual release" },
+]
+forbid = [
+  { text = "capped true", label = "the graphics-resume cap" },
+  { text = "Caught rendering error", label = "a rendering validation error" },
+  { text = "failed and will not be tried again", label = "a failed pipeline" },
+  { text = "and no longer waited for", label = "a pipeline over its retry cap" },
+]
+
+[[scenario]]
+name = "settings-resume-unchanged"
+source = "[design] #1820: an unchanged pause session resumes immediately through the timed aid without a pipeline wait; graphics-enhanced.md section 3"
+areas = ["renderer", "graphics", "settings"]
+paths = ["engine/nvf-play/src/graphics_resume.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/pipeline_gate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:11" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 13
+order = [[
+  "pause menu: open",
+  "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)",
+  { re = 'pause menu: resume$' },
+]]
+expect = [{ re = 'pause menu: resume$', count = 1, label = "one unchanged release" }]
+forbid = [{ text = "pause menu: resume after graphics change:", label = "no graphics wait for an unchanged session" }]
+
 # ------------------------------------------------------------------ navmesh and AI
 
 [[scenario]]
@@ -3920,6 +3963,29 @@ forbid = [
   { re = 'combat: FireWeapon: 0x00139520 fires', label = "its shotgun stays quiet" },
 ]
 
+[[scenario]]
+name = "grenade-bouquet-self-damage"
+source = "[design] #1819; docs/spec-notes/combat-rules.md, object destruction: Cap Damage stops the first crossing hit, then self-damage must pass it; the issue's supplied data lists bouquet 0016526B at health 20 with stages 98/95/75 percent"
+note = "In TestTraps the player moves onto plate 0016526C, the activate parent of bouquet 0016526B. Require all three stages, its stage explosion and disabled/destroyed state; a loose model or resting wreck alone is insufficient. [hypothesis] The issue's roughly 4.6 seconds follows from its data; ordered logs allow frame scheduling variation without requiring that duration."
+areas = ["traps", "scripts", "combat"]
+paths = ["crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "8:moveto:player:0x0016526C", NVF_PLAY_TEST_CONSOLE = "22:0016526B.getdestructionstage;0016526B.getdisabled;0016526B.getdestroyed;22.5:close" }
+args = ["--cell", "TestTraps", "--pos=2700,6004,8700", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  "script: activate parent 0x0016526C sets off 0x0016526B after 0.00 s",
+  "combat: 0x0016526B destruction stage -1 -> 0",
+  "combat: 0x0016526B destruction stage 0 -> 1",
+  "combat: 0x0016526B destruction stage 1 -> 2, destroyed, disabled, 1 explosion(s)",
+  "combat: explosion GrenadeFragExplosion at ",
+  "console: GetDestructionStage on 0x0016526B >> 2.00",
+  "console: GetDisabled on 0x0016526B >> 1.00",
+  "console: GetDestroyed on 0x0016526B >> 1.00",
+]]
+expect = [
+  { text = "combat: 0x0016526B destruction stage", count = 3, label = "each of the bouquet's stages is reached exactly once" },
+]
+
 # ------------------------------------------------------------------ dialogue, Pip-Boy, terminals
 
 [[scenario]]
@@ -4134,6 +4200,34 @@ order = [[
   "holotape: VMQ01BeagleJournalNote goes on",
   "test aid: pipboy Close at 27.0 s",
   "holotape: playing … response 3/6",
+]]
+
+[[scenario]]
+name = "pipboy-data-objectives-scroll"
+source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page's Quests tab a quest's objectives longer than their window scroll by Page Up/Page Down (a controller's LB/RB), held at their top"
+note = "VMQ02 started from the console at 8 s with 32 of its objectives shown (indices 1 to 113 of its data, far more than the 400-high window holds) and made the active quest, so the Quests tab opens on it. Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back from it to 0 (an empty or fitting pane, 'from 0 to 0 of 0', does not pass). The scroll bar's clicks and drag and the right stick have unit tests only: the test aids press no controller stick and the bar's place depends on the font."
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:StartQuest VMQ02;SetObjectiveDisplayed VMQ02 1 1;SetObjectiveDisplayed VMQ02 2 1;SetObjectiveDisplayed VMQ02 3 1;SetObjectiveDisplayed VMQ02 5 1;SetObjectiveDisplayed VMQ02 6 1;SetObjectiveDisplayed VMQ02 7 1;SetObjectiveDisplayed VMQ02 8 1;SetObjectiveDisplayed VMQ02 9 1;SetObjectiveDisplayed VMQ02 10 1;SetObjectiveDisplayed VMQ02 12 1;SetObjectiveDisplayed VMQ02 15 1;SetObjectiveDisplayed VMQ02 20 1;SetObjectiveDisplayed VMQ02 22 1;SetObjectiveDisplayed VMQ02 25 1;SetObjectiveDisplayed VMQ02 30 1;SetObjectiveDisplayed VMQ02 40 1;SetObjectiveDisplayed VMQ02 41 1;SetObjectiveDisplayed VMQ02 50 1;SetObjectiveDisplayed VMQ02 53 1;SetObjectiveDisplayed VMQ02 55 1;SetObjectiveDisplayed VMQ02 60 1;SetObjectiveDisplayed VMQ02 70 1;SetObjectiveDisplayed VMQ02 75 1;SetObjectiveDisplayed VMQ02 80 1;SetObjectiveDisplayed VMQ02 85 1;SetObjectiveDisplayed VMQ02 90 1;SetObjectiveDisplayed VMQ02 100 1;SetObjectiveDisplayed VMQ02 101 1;SetObjectiveDisplayed VMQ02 110 1;SetObjectiveDisplayed VMQ02 111 1;SetObjectiveDisplayed VMQ02 112 1;SetObjectiveDisplayed VMQ02 113 1;ForceActiveQuest VMQ02;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  { re = 'pipboy data: objectives scrolled from 0 to [1-9]\d* of [1-9]\d*', label = "pipboy data: Page Down scrolls the overflowing objectives down" },
+  { re = 'pipboy data: objectives scrolled from [1-9]\d* to 0 of [1-9]\d*', label = "pipboy data: Page Up scrolls the objectives back to their top" },
+]]
+
+[[scenario]]
+name = "pipboy-data-note-scroll"
+source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page's Misc tab a note's text longer than its window scrolls by Page Up/Page Down (a controller's LB/RB), held at its top"
+note = "CaravanRulesNote (a text note) is added at 8 s and is the only note, so Misc shows it. Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back to 0. It is the issue's long note, 'How To Play Caravan' [observed: issue #1667; Editor ID from fnvtool esm inventory, FalloutNV.esm], so the text overflows its 385-high window."
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote CaravanRulesNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  { re = 'pipboy data: note text scrolled from 0 to [1-9]\d* of [1-9]\d*', label = "pipboy data: Page Down scrolls the overflowing note down" },
+  { re = 'pipboy data: note text scrolled from [1-9]\d* to 0 of [1-9]\d*', label = "pipboy data: Page Up scrolls the note back to its top" },
 ]]
 
 [[scenario]]
@@ -4539,6 +4633,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "hello-shared-quest-order"
+source = "[hypothesis] #1895: Info Index places shared lines within the listing quest (docs/spec-notes/dialogue.md section 1.2); [design] crates/fnv-game/src/data.rs shared_lines preserves the Powder Ganger Random pool"
+note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM). Four approaches must choose eligible Random lines, never the later plain line. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks. [hypothesis] The approach timing allows each voice to finish; the setup needs its first runtime check."
+areas = ["dialogue", "ai", "residents"]
+paths = ["crates/fnv-game/src/data.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/tests/dialogue.rs", "crates/fnv-game/tests/dialogue_data.rs", "docs/spec-notes/dialogue.md"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F0AF8"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close;8:player.moveto 000F0AF8 0 900 0;8.5:close;15:player.moveto 000F0AF8 0 100 0;15.5:close;28:player.moveto 000F0AF8 0 900 0;28.5:close;35:player.moveto 000F0AF8 0 100 0;35.5:close;48:player.moveto 000F0AF8 0 900 0;48.5:close;55:player.moveto 000F0AF8 0 100 0;55.5:close;68:player.moveto 000F0AF8 0 900 0;68.5:close;75:player.moveto 000F0AF8 0 100 0;75.5:close" }
+run_seconds = 88
+expect = [
+  { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x(00151A7B|00151A7A|0015694C|0015694D)\b', min = 4, label = "four approaches select from the eligible Random pool" },
+]
+forbid = [
+  { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x00151A7C\b', label = "the plain line never precedes the Random pool" },
+  { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x(?!(00151A7B|00151A7A|0015694C|0015694D)\b)[0-9A-F]{8}', label = "the fixed setup selects no hello outside the four eligible lines" },
+]
+
+[[scenario]]
 name = "conversation-timer"
 source = "NPC conversation rate against the original's, docs/spec-notes/npc-behaviour-compare.md §5 (2026-10-17): one 30–60 s timer for the loaded area, not one per actor"
 note = "the player stands among Westside's citizens at 10:00; in about 90 s of play the area tries a conversation once to three times (a timer per actor tried dozens of times)"
@@ -4880,6 +4991,23 @@ expect = [
   { re = 'particles: model \S*nvfiregomorrah01\.nif: 1 system', label = "the first roof fire's own flames emit" },
   { re = 'particles: model \S*nvfiregomorrah02\.nif: 1 system', label = "the second roof fire's own flames emit" },
   { re = 'particles: add-on node 14 \S+: [1-9]', label = "their add-on fire (MPSFireSmall01) emits" },
+]
+
+[[scenario]]
+name = "particles-culled-off-screen"
+source = "docs/design/frame-rate-audit.md §5 \"Particle systems no camera sees\" (issue #1417): a particle system whose live particles lie outside every active camera is not rebuilt and its render entity is hidden; one coming into view is rebuilt and shown in the same frame. Gomorrah's roof fires (gomorrah-roof-fire's place) behind the player first, then turned to; gomorrah_cull_0.png is taken in the frame the look turns the view (the shot and the look fall due in the same frame, take_shots before goto_and_look in test_aid.rs), gomorrah_cull_1.png 0.1 s later (a later frame, so the two requests never fall due together and one is dropped), gomorrah_cull_2.png a second later"
+areas = ["particles", "effects", "profiling"]
+paths = ["engine/nvforever/src/particles.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PROFILE = "2", NVF_PLAY_TEST_LOOK = "7:340:32", NVF_PLAY_TEST_SHOTS = "7:gomorrah_cull_0.png,7.1:gomorrah_cull_1.png,8.2:gomorrah_cull_2.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-1100,5400,1030", "--heading", "160", "--hour", "21", "--no-voice", "--no-messages"]
+run_seconds = 11
+manual = "gomorrah_cull_0.png and gomorrah_cull_1.png (the turn's first frames) against gomorrah_cull_2.png and gomorrah-roof-fire's gomorrah_fire_0.png: wherever the view already faces the roof, the flames behind the main sign and on the side sign are there, the same kind of fire a second later, no frozen or missing flames"
+expect = [
+  { re = 'particles: model \S*nvfiregomorrah01\.nif: 1 system', label = "the first roof fire's own flames emit" },
+  { re = 'profile particles: .*per frame: regular [\d.]+ published, (?P<n>[\d.]+) culled', range = [0.01, 100000], label = "facing away, systems out of view are culled" },
+  { re = 'profile particles: .*per frame: regular (?P<n>[\d.]+) published', range = [0.01, 100000], label = "systems in view are still rebuilt" },
+  { re = 'test aid: screenshot .*gomorrah_cull_0\.png', label = "the turn's first frame is saved" },
+  { re = 'test aid: screenshot .*gomorrah_cull_1\.png', label = "the frame after it is saved" },
 ]
 
 [[scenario]]
@@ -8220,6 +8348,22 @@ expect = [
   { re = 'combat: explosion 40mmGrenadeExplosion at', label = "the grenades go off" },
   { re = 'combat: blast 40mmGrenadeExplosion on 0xFF[0-9A-F]{6} at \d+', label = "a blast catches the radscorpion" },
 ]
+
+[[scenario]]
+name = "grenade-ground-blast-player"
+source = "#1581 supplied reproduction: identical no-spread grenade shots at the ground intermittently missed the nearby player in 7 of 17 runs [observed: issue #1581]; the cause is a [hypothesis]; clearing impact LOS origins along the contact normal is a bounded repair [design: crates/fnv-combat/src/projectile.rs blast]"
+note = "No perks or god mode. Read Health before the shot and after the blast; the initial 200 must fall below 200. Main repeats this scenario across 20 separate launches; the historical cause remains a hypothesis until those runs."
+areas = ["combat"]
+paths = ["crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:8", NVF_PLAY_TEST_CONSOLE = "4:player.getav health;4.6:close;14:player.getav health;player.getpos x;player.getpos y;player.getpos z;14.4:close", NVF_PLAY_TEST_LOOK = "6:46:-75", NVF_PLAY_TEST_CONTROL = "7:weapon,10:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 18
+order = [[
+  { re = 'console: GetActorValue on player >> 200\.00', label = "Health starts at 200" },
+  { re = 'combat: blast 40mmGrenadeExplosion on 0x00000014 at \d+: (?P<n>[\d.]+) health damage', range = [0.1, 199], label = "the ground blast damages the player" },
+  { re = 'console: GetActorValue on player >> (?P<n>[\d.]+)', range = [0.01, 199.99], label = "subsequent Health is lower" },
+]]
+forbid = [{ re = 'combat: perks on .*blast', label = "no perk changes the blast" }]
 
 [[scenario]]
 name = "impact-decals-bullets"
@@ -13424,6 +13568,25 @@ order = [[
   { re = 'playgroup: VMS15RisingPlaneREF plays Right \(flag 1\): not drawn', label = "PlaneFloated 0: it plays Right" },
   { re = 'VMS15RisingPlaneREF enabled', label = "the detonator enables it" },
   { re = 'playgroup: VMS15RisingPlaneREF drawn \(enabled at run time\), plays Forward from 0\.\d\d s', label = "the bomber rises from the start of Forward" },
+]]
+
+[[scenario]]
+name = "scripted-npc-door-relocation"
+source = "issue #1703 [design: crates/fnv-game/src/game.rs, src/ai.rs; docs/spec-notes/doors.md section 5.2]: direct script activation of a teleport door hands the NPC's new placement to residents"
+note = "Easy Pete is held outdoors before his noon walk, given his saloon eating package, sent through the saloon's exterior door (0010636F, the door in push) at 14 s, then released. The player stays outside. Synthetic root tests cover scripted NPC GameMode, OnLoad and save selection; this run checks residents and later GetInCell. [design: existing push and package-flee setups; runtime result unverified]"
+areas = ["scripts", "ai"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/game.rs", "crates/fnv-game/src/functions/refs.rs", "crates/fnv-game/src/followers.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:call:EasyPeteRef:SetRestrained:1,2:call:EasyPeteRef:AddScriptPackage:EasyPeteEat12x2,14:call:0x0010636F:Activate:EasyPeteRef,15:call:EasyPeteRef:SetRestrained:0", NVF_PLAY_TEST_CONSOLE = "24:EasyPeteRef.GetInCell GSProspectorSaloonInterior;24.5:close;34:EasyPeteRef.GetInCell GSProspectorSaloonInterior;34.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+run_seconds = 40
+expect = [
+  { re = 'script: EasyPeteRef moved to Some\(0x[0-9A-F]{8}\) \[', count = 1, label = "one Moved destination notification for the scripted door" },
+  { re = 'console: GetInCell on EasyPeteRef >> 1\.00(?:\s|$)', count = 2, label = "the NPC remains in the destination after movement and social updates" },
+]
+order = [[
+  { re = 'script: EasyPeteRef moved to Some\(0x[0-9A-F]{8}\) \[', label = "the door move is traced" },
+  { re = 'EasyPeteRef: put at .* in GSProspectorSaloonInterior by a script \(MoveTo\): goes on from there', label = "residents consume the new placement" },
+  { re = 'console: GetInCell on EasyPeteRef >> 1\.00(?:\s|$)', label = "later destination confirmation" },
 ]]
 
 [[scenario]]
@@ -22390,6 +22553,55 @@ expect = [
 ]
 forbid = ["pipboy: warm-up start", "pipboy: warm-up asked", "pipboy: first raise held", "menu request ignored"]
 manual = "This control must ask new pipelines at the first raise; otherwise the comparison is inconclusive. Compare its first_a through first_d with the warm run for the old screen fault. Pipeline compile durations and the last screen/glare ready lines determine the faulty interval; do not infer an unmeasured duration from the shot schedule. The shader-defs line for the last screen/glare pipeline to become ready identifies the candidate variant in the blue/brown depth fight; confirm against the corresponding shots."
+[[scenario]]
+name = "tiles-repair-services"
+source = "[design] repair.md section 3.1, issue #1468: the vendor's repair services menu from its file, its rows, labels, cards, buttons and blur, the model's rules and sounds unchanged; the worn weapons of repair-services"
+note = "The points are the capture's at 1280x720, rows at x 528, y 226 and 278 in tile units [observed: private job run07_repair_services], the buttons added up from their parents [hypothesis until a run of the clicks: Repair All 1263:238, Done 1314:285]. The pointer comes onto the second row, clicks the first to choose it and again to repair it; that leaves too few caps for what is left, so a click on Repair All acts on nothing, and Done closes. The aid's keys move the selection between. All aids use the start clock. Shots: the open menu, the second row chosen, the figures after a repair."
+areas = ["ui", "repair", "menus"]
+paths = ["engine/nvf-play/src/tiles/repair_services_menu.rs", "engine/nvf-play/src/tiles/repair_cards.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/repair.rs", "crates/fnv-game/src/repair.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RepairServicesMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "10:call:player:AddItem:Caps001:150,10.2:call:player:AddItemHealthPercent:WeapNV9mmPistol:1:0.35,10.4:call:player:AddItemHealthPercent:WeapNVVarmintRifle:1:0.34,10.6:call:player:AddItem:WeapNVStraightRazor:1,11:call:RaulREF:ShowRepairMenu", NVF_PLAY_TEST_POINTER = "14:528:226,15:528:278,16:528:226:click,18:528:226:click,22:1263:238,22.5:1263:238:click,24:1314:285,24.5:1314:285:click,25:off", NVF_PLAY_TEST_REPAIR = "20:down,21:up", NVF_PLAY_TEST_SHOTS = "13:tiles_repair_open.png,15.5:tiles_repair_row.png,19:tiles_repair_repaired.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=RepairServicesMenu .*RepairServicesMenu drawn from tiles', label = "opt-in switch" },
+  { re = 'tiles: RepairServicesMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "file with code rows" },
+  { text = "RepairServicesMenu drawn by hand:", count = 0, label = "complete file" },
+  { re = 'tiles: RepairServicesMenu drawn from tiles: 2 rows, [0-2] ready; selected "(9mm Pistol|Varmint Rifle)"', label = "the two worn weapons, the razor at full condition not" },
+  { text = "tiles: RepairServicesMenu Select(0) on its tiles", count = 1, label = "a click on another row chooses it" },
+  { text = "tiles: RepairServicesMenu Repair on its tiles", count = 1, label = "a click on the selected row repairs it, once" },
+  { re = 'repair menu: repaired 9mm Pistol 35% -> \d+% for \d+ caps', label = "the model repairs on a tiled menu" },
+  { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "with the model's sound" },
+  { text = "tiles: RepairServicesMenu All on its tiles", count = 0, label = "a Repair All that cannot be paid takes no click" },
+  { text = "tiles: RepairServicesMenu Done on its tiles", count = 1, label = "Done closes it, once" },
+  "repair menu: done",
+  "repair menu: closed",
+  { re = 'tiles: RepairServicesMenu drawn from tiles: .*repair all ready false \(\d+ caps\)', label = "the total goes with Repair All" },
+  "tile menu blur: RepairServicesMenu radius 3",
+  "tile menu blur: off",
+  { text = "tiles: RepairServicesMenu Hover(1) on its tiles", label = "the pointer comes onto the second row" },
+  { text = "tiles: RecipeMenu", count = 0, label = "repair only" },
+  { text = "tiles: BarterMenu", count = 0, label = "repair only" },
+]
+order = [["repair menu: open", "tiles: RepairServicesMenu drawn from tiles:", "tiles: RepairServicesMenu Select(0) on its tiles", "tiles: RepairServicesMenu Repair on its tiles", "repair menu: repaired 9mm Pistol", "tiles: RepairServicesMenu Done on its tiles", "repair menu: done", "repair menu: closed"]]
+
+[[scenario]]
+name = "repair-services-default-drawing"
+source = "[design] repair.md section 3.1, issue #1468: with the tile switch empty the hand-built repair services menu stays the default; the same weapons, keys and shots as tiles-repair-services for the comparison"
+note = "The model's aid only, on the start clock, at 1280x720. No pointer aid."
+areas = ["ui", "repair", "menus"]
+paths = ["engine/nvf-play/src/tiles/repair_services_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/repair.rs", "crates/fnv-game/src/repair.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "10:call:player:AddItem:Caps001:150,10.2:call:player:AddItemHealthPercent:WeapNV9mmPistol:1:0.35,10.4:call:player:AddItemHealthPercent:WeapNVVarmintRifle:1:0.34,10.6:call:player:AddItem:WeapNVStraightRazor:1,11:call:RaulREF:ShowRepairMenu", NVF_PLAY_TEST_REPAIR = "20:up,21:repair,23:down,24:all,26:done", NVF_PLAY_TEST_SHOTS = "13:default_repair_open.png,22:default_repair_repaired.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { text = "tiles: RepairServicesMenu", count = 0, label = "no repair adapter runs" },
+  { text = "tile menu blur:", count = 0, label = "no tile blur" },
+  { re = 'repair menu: open, vendor RaulREF \(Repair \d+\), player caps \d+: 2 listed, [0-2] repairable', label = "the two worn weapons" },
+  { re = 'repair menu: repaired 9mm Pistol 35% -> \d+% for \d+ caps', label = "the pistol is repaired for caps" },
+  "repair menu: done",
+  "repair menu: closed",
+]
+order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
 
 
 [[scenario]]
@@ -22539,3 +22751,47 @@ expect = [
 ]
 order = [["nvf type middle", "nvf type active", "nvf type suppressed", "nvf type replaced", "nvf type removed", "nvf type final"]]
 manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box above the amber bar; ui_typewriter_final.png: the same letter fully visible with the replacement callback's pink colour. Verify the text and alpha links affect the rendered result."
+
+[[scenario]]
+name = "pipboy-items-hints"
+source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs"]
+env = { NVFOREVER_HOME = "pipboy-items-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_weapons.png,17:pipboy_items_hints_aid.png,22.5:pipboy_items_hints_mod.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
+run_seconds = 26
+expect = [
+  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Mod X\)$', label = "Weapons: Repair, then Mod, nothing else" },
+  { re = 'pipboy hints: items Apparel: (Repair|Maintain) R\)( \(dim\))?$', label = "Apparel: the repair hint alone" },
+  { re = 'pipboy hints: items Aid: Repair R\) \(dim\)$', label = "Aid: Repair alone, dim" },
+  { re = 'pipboy hints: items Misc: Repair R\) \(dim\)$', label = "Misc: Repair alone, dim" },
+  { re = 'pipboy hints: items Ammo: Repair R\) \(dim\)$', label = "Ammo: Repair alone, dim" },
+  { re = 'pipboy hints: items \w+: .*(Enter\)|Right Mouse\)|1-8\))', max = 0, label = "no equip, drop or hotkey hint with the keyboard" },
+  { text = "pipboy hints: mod menu: Mod Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Mod Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "the pistol's own Mod X) line, bright" },
+]
+order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod Enter) (dim), Exit E)"]]
+
+[[scenario]]
+name = "pipboy-items-hints-pad"
+source = "#1896 (docs/spec-notes/pipboy.md §4): with Controller as the Input Device (Xbox names) the ITEMS page shows the original's whole hint column, as on the issue's screenshots taken with a controller: Equip/Unequip/Use A), Drop X), Repair/Maintain Y), Hotkey 1-8), on Weapons Mod LB); the ones that do nothing for the selected item dim; the weapon mod menu shows Mod A) over Exit B); the same items and steps as pipboy-items-hints; frames pipboy_items_hints_pad_weapons.png, pipboy_items_hints_pad_aid.png, pipboy_items_hints_pad_mod.png in the working folder"
+note = "a home of its own keeps the Controller choice away from the other scenarios (as controller-menu-hints); the pause menu's settings aid picks the device before the Pip-Boy steps"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs"]
+env = { NVFOREVER_HOME = "pipboy-items-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_pad_weapons.png,17:pipboy_items_hints_pad_aid.png,22.5:pipboy_items_hints_pad_mod.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
+run_seconds = 26
+expect = [
+  { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller" },
+  { text = "hints: Xbox labels", label = "the hints take the Xbox names before the Pip-Boy opens" },
+  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey 1-8\), Mod LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
+  { re = 'pipboy hints: items Apparel: (Equip|Unequip) A\)( \(dim\))?, Drop X\)( \(dim\))?, (Repair|Maintain) Y\)( \(dim\))?, Hotkey 1-8\)$', label = "Apparel: the set without Mod" },
+  { re = 'pipboy hints: items Aid: Use A\), Drop X\), Repair Y\) \(dim\), Hotkey 1-8\)$', label = "Aid: Use; Repair dim" },
+  { re = 'pipboy hints: items Misc: Equip A\) \(dim\), Drop X\)( \(dim\))?, Repair Y\) \(dim\), Hotkey 1-8\) \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
+  { re = 'pipboy hints: items Ammo: Equip A\) \(dim\), Drop X\), Repair Y\) \(dim\), Hotkey 1-8\) \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
+  { text = "pipboy hints: mod menu: Mod A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Mod A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Mod LB\)(?! \(dim)', label = "the pistol's own Mod LB) line, bright" },
+]
+order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod A) (dim), Exit B)"]]

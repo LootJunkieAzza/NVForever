@@ -86,6 +86,7 @@ pub mod moved;
 pub mod music;
 pub mod pad;
 pub mod pause;
+pub mod graphics_resume;
 pub mod phys;
 pub mod phys_load;
 pub mod pickpocket;
