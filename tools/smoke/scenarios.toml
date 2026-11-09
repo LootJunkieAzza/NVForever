@@ -22698,3 +22698,47 @@ expect = [
 ]
 order = [["nvf type middle", "nvf type active", "nvf type suppressed", "nvf type replaced", "nvf type removed", "nvf type final"]]
 manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box above the amber bar; ui_typewriter_final.png: the same letter fully visible with the replacement callback's pink colour. Verify the text and alpha links affect the rendered result."
+
+[[scenario]]
+name = "pipboy-items-hints"
+source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs"]
+env = { NVFOREVER_HOME = "pipboy-items-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_weapons.png,17:pipboy_items_hints_aid.png,22.5:pipboy_items_hints_mod.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
+run_seconds = 26
+expect = [
+  { re = 'pipboy hints: items Weapons: (Repair|Maintain) R\)( \(dim\))?, Mod X\)$', label = "Weapons: Repair, then Mod, nothing else" },
+  { re = 'pipboy hints: items Apparel: (Repair|Maintain) R\)( \(dim\))?$', label = "Apparel: the repair hint alone" },
+  { re = 'pipboy hints: items Aid: Repair R\) \(dim\)$', label = "Aid: Repair alone, dim" },
+  { re = 'pipboy hints: items Misc: Repair R\) \(dim\)$', label = "Misc: Repair alone, dim" },
+  { re = 'pipboy hints: items Ammo: Repair R\) \(dim\)$', label = "Ammo: Repair alone, dim" },
+  { re = 'pipboy hints: items \w+: .*(Enter\)|Right Mouse\)|1-8\))', max = 0, label = "no equip, drop or hotkey hint with the keyboard" },
+  { text = "pipboy hints: mod menu: Mod Enter) (dim), Exit E)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Mod Enter\)(?! \(dim), Exit E\)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Mod X\)(?! \(dim)', label = "the pistol's own Mod X) line, bright" },
+]
+order = [["pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod Enter) (dim), Exit E)"]]
+
+[[scenario]]
+name = "pipboy-items-hints-pad"
+source = "#1896 (docs/spec-notes/pipboy.md §4): with Controller as the Input Device (Xbox names) the ITEMS page shows the original's whole hint column, as on the issue's screenshots taken with a controller: Equip/Unequip/Use A), Drop X), Repair/Maintain Y), Hotkey 1-8), on Weapons Mod LB); the ones that do nothing for the selected item dim; the weapon mod menu shows Mod A) over Exit B); the same items and steps as pipboy-items-hints; frames pipboy_items_hints_pad_weapons.png, pipboy_items_hints_pad_aid.png, pipboy_items_hints_pad_mod.png in the working folder"
+note = "a home of its own keeps the Controller choice away from the other scenarios (as controller-menu-hints); the pause menu's settings aid picks the device before the Pip-Boy steps"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs"]
+env = { NVFOREVER_HOME = "pipboy-items-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_pad_weapons.png,17:pipboy_items_hints_pad_aid.png,22.5:pipboy_items_hints_pad_mod.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
+run_seconds = 26
+expect = [
+  { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller" },
+  { text = "hints: Xbox labels", label = "the hints take the Xbox names before the Pip-Boy opens" },
+  { re = 'pipboy hints: items Weapons: (Equip|Unequip) A\), Drop X\), (Repair|Maintain) Y\)( \(dim\))?, Hotkey 1-8\), Mod LB\)$', label = "Weapons: Equip, Drop, Repair, Hotkey and Mod with their buttons, in the original's order" },
+  { re = 'pipboy hints: items Apparel: (Equip|Unequip) A\)( \(dim\))?, Drop X\)( \(dim\))?, (Repair|Maintain) Y\)( \(dim\))?, Hotkey 1-8\)$', label = "Apparel: the set without Mod" },
+  { re = 'pipboy hints: items Aid: Use A\), Drop X\), Repair Y\) \(dim\), Hotkey 1-8\)$', label = "Aid: Use; Repair dim" },
+  { re = 'pipboy hints: items Misc: Equip A\) \(dim\), Drop X\)( \(dim\))?, Repair Y\) \(dim\), Hotkey 1-8\) \(dim\)$', label = "Misc: Equip, Repair and Hotkey dim" },
+  { re = 'pipboy hints: items Ammo: Equip A\) \(dim\), Drop X\), Repair Y\) \(dim\), Hotkey 1-8\) \(dim\)$', label = "Ammo: Equip, Repair and Hotkey dim" },
+  { text = "pipboy hints: mod menu: Mod A) (dim), Exit B)", label = "the mod menu on the weapon's row: Mod dim, and Exit under it" },
+  { re = 'pipboy hints: mod menu: Mod A\)(?! \(dim), Exit B\)', label = "the mod menu on a mod: Mod bright" },
+  { re = 'pipboy items: 10mm Pistol Mod LB\)(?! \(dim)', label = "the pistol's own Mod LB) line, bright" },
+]
+order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod A) (dim), Exit B)"]]
