@@ -1032,8 +1032,8 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
         menus::INVENTORY => &[(North, KeyR), (LeftTrigger, KeyX), (LeftTrigger2, F1), (RightTrigger2, F3)],
         // stats_menu.xml: Stimpak A, Doctor's Bag Y, Rad-X X on the status tab; the
         // General/Reputation switch X on the General tab.
-        // The status tab's RAD view: RadAway A, Rad-X X (RadAway is not used from the
-        // page yet: its button does what its key does, nothing).
+        // [design] CND's existing West -> KeyX mapping cycles the chosen limb.
+        // The status tab's RAD view: RadAway A, Rad-X X.
         menus::STATS if at.tab == STATS_RAD => &[(South, KeyA), (West, KeyX), (LeftTrigger2, F3), (RightTrigger2, F2)],
         menus::STATS if at.tab == 0 => &[(South, KeyS), (North, KeyE), (West, KeyX), (LeftTrigger2, F3), (RightTrigger2, F2)],
         menus::STATS if at.tab == 4 => &[(West, KeyR), (LeftTrigger2, F3), (RightTrigger2, F2)],

@@ -4623,6 +4623,7 @@ dependencies = [
  "fnv-combat",
  "fnv-dds",
  "fnv-esm",
+ "fnv-font",
  "fnv-game",
  "fnv-install",
  "fnv-nav",
