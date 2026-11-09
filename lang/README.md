@@ -4,7 +4,8 @@ NVForever writes some words itself: the settings page, a few messages, the termi
 hacking log. The original game's text is not copied (LEGAL.md). The game's own text
 (items, dialogue, quests) comes from the plugins of your install, so a localized install
 already shows it in its language. Only NVForever's own words need a translation, and
-this folder holds them, one file per language (#1443).
+this folder holds them, one file per language (#1443). `ru.toml` (Russian) is the first
+(#1948).
 
 ## A language file
 
@@ -36,6 +37,22 @@ name = "Deutsch"
 When two folders have the same id, the first one wins. The language is chosen on the
 settings page (Interface, Language) and acts at once. It is kept as `language=<id>` in
 `NVForever.ini`.
+
+Until one is chosen there, the start picks the language of the game's text when its code
+page tells it and a file of it was found: Windows-1251 (a Russian install) chooses `ru`
+(#1948). The start's log says so. Windows-1250 and 1252 are each several languages, so
+they choose none and English stays.
+
+## Checked
+
+`cargo test --workspace` reads every file here: each must parse, each English line must
+still be a text NVForever writes (found in the sources), and each translation must keep
+its line's `{places}`. A line whose English is changed in the code fails the check until
+the file is updated too.
+
+What goes through these files today: the settings page (its tabs, rows, notes and ON /
+OFF), the hacking log and the terminal refusals. A choice's name in a list (Off, Auto,
+Amber …) is not yet translated, so the notes that mention one keep its English name.
 
 The game's fonts hold 256 glyphs in the install's code page (docs/spec-notes/fonts.md),
 so a translation can only use the letters that code page has: Cyrillic on a Russian
