@@ -300,6 +300,30 @@ fn deck(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     status(p, c, s, 10.0);
 }
 
+/// Everywhere a card can lie during a game, as rectangles (min, max) in the frame (y down),
+/// with `pad` round each: the six caravans as far as they can grow (the opponent's up to
+/// the top, the player's down to the bottom, faces stacked on the side), both hands at
+/// their fullest with the raised card, and both decks [design: the layout above]. The pot's
+/// money keeps out of them (owner 2026-11-09: "cash can go under everything else just
+/// stay away").
+pub fn card_zones(pad: f32) -> Vec<(Vec2, Vec2)> {
+    // Room for a few face cards stacked on a number card.
+    let faces = FACE_STEP * 3.0;
+    let mut z = Vec::new();
+    for t in 0..TRACKS {
+        let x0 = OPPONENT_X[t] - CARD.x / 2.0;
+        z.push((Vec2::new(x0, 0.0), Vec2::new(x0 + CARD.x + faces.x, OPPONENT_TOP + CARD.y + faces.y)));
+        let x0 = PLAYER_X[t] - CARD.x / 2.0;
+        z.push((Vec2::new(x0, PLAYER_TOP), Vec2::new(x0 + CARD.x + faces.x, 960.0)));
+    }
+    let last = (fnv_game::caravan::HAND - 1) as f32;
+    let (ox, oy, ostep) = OPPONENT_HAND;
+    z.push((Vec2::new(ox, oy.min(OPPONENT_DECK.1)), Vec2::new((ox + ostep * last + CARD.x).max(OPPONENT_DECK.0 + CARD.x), (oy.max(OPPONENT_DECK.1)) + CARD.y)));
+    let (hx, hy, hstep) = PLAYER_HAND;
+    z.push((Vec2::new(hx, hy - 28.0), Vec2::new((hx + hstep * last + HAND_CARD.x).max(PLAYER_DECK.0 + HAND_CARD.x), hy.max(PLAYER_DECK.1) + HAND_CARD.y)));
+    z.into_iter().map(|(a, b)| (a - Vec2::splat(pad), b + Vec2::splat(pad))).collect()
+}
+
 /// Where a caravan's card `i` lies (its top left).
 fn place(side: usize, track: usize, i: usize) -> Vec2 {
     if side == OPPONENT {
