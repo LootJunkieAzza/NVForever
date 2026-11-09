@@ -271,6 +271,9 @@ pub struct Snapshot {
     pub ap: Option<(f64, f64)>,
     /// Experience and what the next level needs.
     pub xp: Option<(f64, f64)>,
+    /// The way through this level, in percent, under the player's Stats Menu Percentage
+    /// XP tweak (shown instead of `xp`) [design: docs/design/tweaks.md].
+    pub xp_percent: Option<f64>,
     pub name: String,
     /// Each body part's condition, 0 to 1 ([`LIMBS`]).
     pub limbs: [f64; 6],

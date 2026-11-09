@@ -432,6 +432,10 @@ unless the player binds them, so nothing changes until then.
 | V.A.T.S. Ignores Companions | `bIgnoreCompanionsVATS` | `vats_mode::barred` gains `Bar::Companion` for teammates (marks and the preview); always, `bCombatOnly` is not done |
 | Frenzied Kills Earn Experience | `bFrenzyGrantsPlayerXP` | `Game::kill_earns_xp` (now `&mut`) counts a killer at Aggression 3, Frenzied [documented: GECK wiki Aggression] |
 | Free Wild Wasteland | `bFreeWildWasteland` | `chargen::TraitSheet::free`: the trait with editor ID `WildWasteland` [observed: FalloutNV.esm] does not count against `max` |
+| Pip-Boy page and tab keys (seven) | `iPipboyStatsKey`, `iPipboyItemsKey`, `iPipboyDataKey`, `iOpenLocalMapKey`, `iOpenMapKey`, `iOpenQuestsKey`, `iOpenRadioKey` | new unbound Controls; `tweaks::keys` sets `PipBoy::open_at` and asks for the inventory, `pipboy::follow_menu` opens on that page and tab |
+| True Iron Sights key | `iToggleTrueIronSightsKey` | a new Control; `nvforever` `player_body::toggle_iron_sights` flips `PlayerBody::true_iron_sights` |
+| Experience as a Percentage | `bStatsMenuPercentageXP` | `pipboy::stats::read` fills `Snapshot::xp_percent`, the way from this level's experience to the next |
+| Repair List: Same Item First / Low Condition First | `bSortPipboyRepairMenu`, `bInvertPipboyRepairMenuSorting` | `pipboy::repair::tweak_order` on the offer and after each repair; `iSortMode` is not done |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -452,8 +456,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 339 |
-| to do | 264 |
+| done | 350 |
+| to do | 253 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -887,6 +891,7 @@ game's Data folder, read-only).
 | `bHideUnavailableRadios` | done |  |  | already so: the Pip-Boy lists only stations in range |
 | `bIndividialItemStats` | done |  |  | One Item's Figures (the Pip-Boy; containers already show one) |
 | `bInvertContainerTitleScrollwheelDirection` | done |  |  | Reverse Category Wheel |
+| `bInvertPipboyRepairMenuSorting` | done |  |  | Repair List: Low Condition First |
 | `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
@@ -909,7 +914,9 @@ game's Data folder, read-only).
 | `bSortPerkMenu` | done |  | 1 | already so for one order: available, level, name (other modes not built) |
 | `bSortPipboyNotes` | done |  | 1 | already so: notes are alphabetical (by-read not built) |
 | `bSortPipboyQuests` | done |  | 2 | already so for one order (modes and active-first not built) |
+| `bSortPipboyRepairMenu` | done |  | 2 | Repair List: Same Item First (by name otherwise; iSortMode not done) |
 | `bSortRecipeMenu` | done |  | 1 | already so for one order: makeable first (modes not built) |
+| `bStatsMenuPercentageXP` | done |  |  | Experience as a Percentage (the way through the level) |
 | `bStatsMenuShowEffectTimeRemaining` | done |  | 1 | Effect Time Left (seconds) |
 | `bTabClosesPipboyFromKeyAndLimbMenus` | done |  |  | already so: Tab closes the Pip-Boy from every page |
 | `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
@@ -949,7 +956,6 @@ game's Data folder, read-only).
 | `bHideReadNotes` | to do |  |  | data lists with note_read; the shown note marks itself read |
 | `bHideReputationTabIfEmpty` | to do |  |  | stats view and switch; the flag on Snapshot |
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
-| `bInvertPipboyRepairMenuSorting` | to do |  |  | repair offer sort with a bool |
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bLockPickMenuKeyboardMovement` | to do |  | 3 | lockpick keys and torque_held |
@@ -969,9 +975,7 @@ game's Data folder, read-only).
 | `bRightClickChangesToPreviousContainerCategory` | to do |  |  | menu_mouse right click over a title |
 | `bShowBarterTotalWhenOverSellLimit` | to do |  |  | tiles barter snapshot amount; a menu bool |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
-| `bSortPipboyRepairMenu` | to do |  | 2 | repair offer sort with a bool |
 | `bStartMenuQuickLoad` | to do |  |  | save::requests in the pause menu |
-| `bStatsMenuPercentageXP` | to do |  |  | stats XP card with a Snapshot bool |
 | `bTabBackInStartMenu` | to do |  |  | pause::choose back conditions; Tab steps tabs on two pages |
 | `bTabClosesTerminals` | to do |  |  | Tab is Back; from the top menu it closes already |
 | `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
@@ -988,23 +992,24 @@ game's Data folder, read-only).
 | `iExitToMainMenuKey` | done |  | 1 | a Controls key: Main Menu |
 | `iHolsterWeaponKey` | done |  | 1 | a Controls key: Holster Weapon (unbound until set; the hold to holster stays) |
 | `iNextRadioStationKey` | done |  | 1 | already so: ] steps to the next station in the Pip-Boy |
+| `iOpenLocalMapKey` | done |  | 1 | Pip-Boy: Local Map key |
+| `iOpenMapKey` | done |  | 2 | Pip-Boy: World Map key |
+| `iOpenQuestsKey` | done |  | 1 | Pip-Boy: Quests key |
+| `iOpenRadioKey` | done |  | 1 | Pip-Boy: Radio key |
+| `iPipboyDataKey` | done |  | 1 | Pip-Boy: Data key (Controls page) |
+| `iPipboyItemsKey` | done |  | 1 | Pip-Boy: Items key (Controls page) |
+| `iPipboyStatsKey` | done |  | 1 | Pip-Boy: Stats key (Controls page) |
 | `iPrevRadioStationKey` | done |  | 1 | already so: [ steps to the previous station in the Pip-Boy |
 | `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
 | `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |
 | `iTogglePipboyLightKey` | done |  | 2 | a Controls key: Pip-Boy Light (the night vision part not built) |
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
+| `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
 | `iConsoleKey` | to do |  | 1 | console toggle Backquote; RESERVED_KEYS |
 | `iDropEquippedWeaponKey` | to do |  | 1 | World::drop_equipped from a key; check the visuals follow |
 | `iEquipLastWeaponKey` | to do |  | 4 | not built: no previous weapon recorded |
 | `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
-| `iOpenLocalMapKey` | to do |  | 1 | flashlight menu_key and Pip-Boy page and tab |
-| `iOpenMapKey` | to do |  | 2 | flashlight menu_key and Pip-Boy page and tab |
-| `iOpenQuestsKey` | to do |  | 1 | flashlight menu_key and Pip-Boy page and tab |
-| `iOpenRadioKey` | to do |  | 1 | flashlight menu_key and Pip-Boy page and tab |
-| `iPipboyDataKey` | to do |  | 1 | pipboy keys F1-F3 from a Control |
-| `iPipboyItemsKey` | to do |  | 1 | pipboy keys F1-F3 from a Control |
-| `iPipboyStatsKey` | to do |  | 1 | pipboy keys F1-F3 from a Control |
 | `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
 | `iRadioVolumeDownKey` | to do |  | 1 | a key setting the radio sound volume |
 | `iRadioVolumeUpKey` | to do |  | 1 | a key setting the radio sound volume |
@@ -1013,7 +1018,6 @@ game's Data folder, read-only).
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
 | `iToggleSightingNodeHotkey` | to do |  | 2 | a second sighting node path per weapon |
 | `iToggleSmoothCameraKey` | to do |  | 2 | not built: no look smoothing |
-| `iToggleTrueIronSightsKey` | to do |  | 1 | nvforever PlayerBody.true_iron_sights from a key |
 
 ### Cheat
 

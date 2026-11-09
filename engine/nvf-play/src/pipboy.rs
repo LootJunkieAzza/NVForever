@@ -288,6 +288,9 @@ pub struct PipBoy {
     /// Hidden rendering interval; a real opening still reports its page [design: pipboy_arm.rs].
     pub warming: Option<Warming>,
     pub warmed: bool,
+    /// A page and tab to open on, asked by a Tweaks tab key before the inventory opens
+    /// (`crate::tweaks`) [design: docs/design/tweaks.md].
+    pub open_at: Option<(Page, usize)>,
     /// [design: nvforever/player_body.rs] True until the borrowed pose is restored.
     pub pose_hidden: bool,
 }
@@ -654,6 +657,11 @@ fn follow_menu(active: Res<ActiveMenu>, mut pip: ResMut<PipBoy>, mut control: Re
             // The player's tweak always opens on the inventory [design: docs/design/tweaks.md].
             if tweaks.is_some_and(|t| t.pipboy_opens_items) {
                 pip.page = Page::Items;
+            }
+            // A Tweaks tab key asked for a page and tab [design: docs/design/tweaks.md].
+            if let Some((page, tab)) = pip.open_at.take() {
+                pip.page = page;
+                pip.tabs[page.index()] = tab;
             }
             pip.frame = frame_for(!use_pipboy.on, sim.as_deref().is_some_and(wears_pipboy));
             info!("pipboy: frame {:?}", pip.frame);

@@ -1085,6 +1085,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-pipboy-in-combat", "No Pip-Boy In Combat", "The Pip-Boy does not open while something fights the player; a corner message says so. (Stewie's Tweaks bNoPipBoyInCombat)", no_pipboy_in_combat);
         switch!(app, "frenzy-kill-xp", "Frenzied Kills Earn Experience", "A kill by a frenzied actor (Aggression Frenzied) earns the player experience. (Stewie's Tweaks bFrenzyGrantsPlayerXP)", game.frenzy_kill_xp);
         switch!(app, "free-wild-wasteland", "Free Wild Wasteland", "Wild Wasteland can be taken without using one of the trait choices. (Stewie's Tweaks bFreeWildWasteland)", game.free_wild_wasteland);
+        switch!(app, "stats-xp-percent", "Experience as a Percentage", "The Stats page shows experience as how far through the level the player is, in percent. (Stewie's Tweaks bStatsMenuPercentageXP)", game.stats_xp_percent);
+        switch!(app, "repair-same-first", "Repair List: Same Item First", "In the Pip-Boy repair list, parts that are the same item come first, the rest by name. (Stewie's Tweaks bSortPipboyRepairMenu)", game.repair_same_first);
+        switch!(app, "repair-low-first", "Repair List: Low Condition First", "In the Pip-Boy repair list, parts in worse condition come first and the best at the bottom. (Stewie's Tweaks bInvertPipboyRepairMenuSorting)", game.repair_low_first);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1152,10 +1155,30 @@ fn keys(
     noclip: Option<ResMut<crate::player::NoClip>>,
     mut to_main: MessageWriter<crate::pause::MainMenuRequest>,
     mut exit: MessageWriter<AppExit>,
+    (pip, mut inventory): (Option<ResMut<crate::pipboy::PipBoy>>, MessageWriter<crate::menu::OpenInventory>),
 ) {
     use crate::bindings::Control;
+    use crate::pipboy::Page;
     if *state.get() != crate::PlayState::Playing {
         return;
+    }
+    // The Pip-Boy page and tab keys: open on that page [design: docs/design/tweaks.md].
+    const PAGES: [(Control, Page, Option<usize>); 7] = [
+        (Control::PipBoyStats, Page::Stats, None),
+        (Control::PipBoyItems, Page::Items, None),
+        (Control::PipBoyData, Page::Data, None),
+        (Control::OpenLocalMap, Page::Data, Some(0)),
+        (Control::OpenWorldMap, Page::Data, Some(1)),
+        (Control::OpenQuests, Page::Data, Some(2)),
+        (Control::OpenRadio, Page::Data, Some(4)),
+    ];
+    if let Some(mut pip) = pip {
+        if let Some(&(_, page, tab)) = PAGES.iter().find(|(c, _, _)| input.just_pressed(*c)) {
+            let tab = tab.unwrap_or(pip.tabs[page.index()]);
+            pip.open_at = Some((page, tab));
+            inventory.write(crate::menu::OpenInventory);
+            info!("tweaks: Pip-Boy opened on {} tab {} (key)", page.title(), page.tabs()[tab]);
+        }
     }
     if input.just_pressed(Control::ToggleCrosshair) {
         tweaks.crosshair_hidden = !tweaks.crosshair_hidden;

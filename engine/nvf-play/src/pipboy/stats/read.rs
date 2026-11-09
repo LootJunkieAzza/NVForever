@@ -257,6 +257,11 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         s.hp = whole(g, av::HEALTH);
         s.ap = whole(g, av::ACTION_POINTS);
         s.xp = Some((g.player.xp, model::xp_for_level(level + 1.0, xp_base, xp_bump)));
+        // The player's tweak: the way through this level as a percentage [design: docs/design/tweaks.md].
+        if g.tweaks.stats_xp_percent {
+            let (from, to) = (model::xp_for_level(level, xp_base, xp_bump), model::xp_for_level(level + 1.0, xp_base, xp_bump));
+            s.xp_percent = Some(if to > from { ((g.player.xp - from) / (to - from) * 100.0).clamp(0.0, 100.0) } else { 100.0 });
+        }
         for (i, &code) in LIMBS.iter().enumerate() {
             if let Some((v, max)) = value(g, code).filter(|v| v.1 > 0.0) {
                 s.limbs[i] = (v / max).clamp(0.0, 1.0);

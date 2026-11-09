@@ -984,6 +984,14 @@ pub struct PlayerBodyPlugin {
     pub true_iron_sights: bool,
 }
 
+/// The Tweaks tab's key turns true iron sights on and off [design: docs/design/tweaks.md].
+fn toggle_iron_sights(input: nvf_play::bindings::ControlInput, mut body: ResMut<PlayerBody>) {
+    if !input.suppressed() && input.just_pressed(nvf_play::bindings::Control::ToggleIronSights) {
+        body.true_iron_sights = !body.true_iron_sights;
+        info!("player body: true iron sights {} (key)", if body.true_iron_sights { "on" } else { "off" });
+    }
+}
+
 impl Plugin for PlayerBodyPlugin {
     fn build(&self, app: &mut App) {
         // Furniture (`furniture.rs`) says what the body plays before it is posed.
@@ -993,6 +1001,7 @@ impl Plugin for PlayerBodyPlugin {
             .init_resource::<crate::weapon_lower::Ahead>()
             .init_resource::<WarmPose>()
             .add_systems(Update, (restore_warm_pose, crate::furniture::drive_player, ensure_body, crate::weapon_lower::sense, drive_body, drive_weapon_emitters, shade_light, draw_warm_pose).chain().in_set(nvf_play::player::BodySet))
+            .add_systems(Update, toggle_iron_sights)
             .add_systems(PostUpdate, near_shade_casters.after(bevy::light::SimulationLightSystems::CheckLightVisibility))
             .add_systems(Last, report);
     }

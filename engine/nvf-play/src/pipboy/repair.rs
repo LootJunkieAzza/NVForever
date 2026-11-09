@@ -228,6 +228,24 @@ pub fn after_repair(groups: &[(FormId, Extra, i32)], forms: &FormStore, repair_l
     offer(groups, forms, repair_list, o.item, Pick::row(Some(to), o.extra.mods), o.extra.equipped).filter(Offer::usable)
 }
 
+/// The player's repair list tweaks [design: docs/design/tweaks.md]: parts that are the item itself first
+/// (Sort Repair List), and lower condition before higher (Low Condition First).
+pub fn tweak_order(o: Option<Offer>, script: Option<&ScriptState>) -> Option<Offer> {
+    let Some(t) = script.and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.tweaks) else { return o };
+    let (same_first, low_first) = (t.repair_same_first, t.repair_low_first);
+    o.map(|mut o| {
+        if same_first || low_first {
+            let item = o.item;
+            o.parts.sort_by(|a, b| {
+                let same = (same_first && a.item != item).cmp(&(same_first && b.item != item));
+                let by = if low_first { a.condition.total_cmp(&b.condition).then(a.name.cmp(&b.name)) } else { a.name.cmp(&b.name).then(b.condition.total_cmp(&a.condition)) };
+                same.then(by)
+            });
+        }
+        o
+    })
+}
+
 /// The ITEMS page's selected row's offer, now.
 pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptState>) -> Option<Offer> {
     let m = active.0.as_ref().filter(|m| m.mode == Mode::Inventory)?;
@@ -237,7 +255,7 @@ pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptSt
     // The item's repair list, and with Jury Rigging the like items carried
     // (`fnv_game::Game::player_repair_list`, perk-entry-points.md §9).
     let list = script.and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(r.item, groups.iter().map(|g| g.0))).unwrap_or_default();
-    offer(&groups, forms, &list, r.item, r.pick(), r.equipped)
+    tweak_order(offer(&groups, forms, &list, r.item, r.pick(), r.equipped), script)
 }
 
 /// The keys of the repair list and R on the ITEMS page.
@@ -338,7 +356,7 @@ pub fn keys(
                     sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Picked });
                     let groups: Vec<(FormId, Extra, i32)> = sim.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
                     let list = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(o.item, groups.iter().map(|g| g.0))).unwrap_or_default();
-                    let after = after_repair(&groups, sim.forms, &list, o, to);
+                    let after = tweak_order(after_repair(&groups, sim.forms, &list, o, to), script.as_deref());
                     match &after {
                         Some(n) => info!("pipboy repair: stays open: {} at {}%, {} part(s) left", n.name, fnv_combat::condition::percent(n.condition), n.parts.len()),
                         None if to >= SHOWN_FULL => info!("pipboy repair: closed: {} is at full condition", o.name),

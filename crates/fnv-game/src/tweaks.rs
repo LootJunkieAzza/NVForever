@@ -332,6 +332,14 @@ pub struct Tweaks {
     pub frenzy_kill_xp: bool,
     /// `bFreeWildWasteland`: Wild Wasteland does not count against the trait limit.
     pub free_wild_wasteland: bool,
+    /// `bStatsMenuPercentageXP`: the Stats page shows experience as the way through the
+    /// level, in percent.
+    pub stats_xp_percent: bool,
+    /// `bSortPipboyRepairMenu` (`bMatchedItemFirst`): parts that are the item repaired
+    /// itself come first in the Pip-Boy repair list.
+    pub repair_same_first: bool,
+    /// `bInvertPipboyRepairMenuSorting`: lower condition parts first, high at the bottom.
+    pub repair_low_first: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -489,6 +497,9 @@ impl Default for Tweaks {
             vats_ignores_companions: false,
             frenzy_kill_xp: false,
             free_wild_wasteland: false,
+            stats_xp_percent: false,
+            repair_same_first: false,
+            repair_low_first: false,
         }
     }
 }

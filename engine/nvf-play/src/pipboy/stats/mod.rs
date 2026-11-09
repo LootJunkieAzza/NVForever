@@ -554,7 +554,7 @@ pub fn draw(
             Card::new(LVL.0, LVL.1, label("sStatsLVLAbbrev", "LVL"), snap.level.map_or("--".into(), |l| l.to_string())),
             Card::new(HP.0, HP.1, label("sStatsHP", "HP"), value(snap.hp)),
             Card::new(AP.0, AP.1, label("sStatsAP", "AP"), value(snap.ap)),
-            Card::new(XP.0, XP.1, label("sStatsXP", "XP"), value(snap.xp)),
+            Card::new(XP.0, XP.1, label("sStatsXP", "XP"), snap.xp_percent.map_or_else(|| value(snap.xp), |p| format!("{p:.0}%"))),
         ];
         frame::heading(p, &mut c, Page::Stats.title(), &cards);
         match tab {

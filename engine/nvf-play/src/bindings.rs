@@ -104,13 +104,25 @@ pub enum Control {
     ExitGame,
     /// No collision while held (iDisableCollisionKey).
     NoCollision,
+    /// The Pip-Boy opened on a page (iPipboyStatsKey, iPipboyItemsKey, iPipboyDataKey).
+    PipBoyStats,
+    PipBoyItems,
+    PipBoyData,
+    /// The Pip-Boy opened on a DATA tab (iOpenLocalMapKey, iOpenMapKey, iOpenQuestsKey,
+    /// iOpenRadioKey).
+    OpenLocalMap,
+    OpenWorldMap,
+    OpenQuests,
+    OpenRadio,
+    /// True iron sights on or off (iToggleTrueIronSightsKey).
+    ToggleIronSights,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 37] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 45] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -148,6 +160,14 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 37] = [
     (Control::ExitToMainMenu, "Exit to Main Menu", 0xFFFFFFFF),
     (Control::ExitGame, "Exit Game", 0xFFFFFFFF),
     (Control::NoCollision, "No Collision", 0xFFFFFFFF),
+    (Control::PipBoyStats, "Pip-Boy Stats", 0xFFFFFFFF),
+    (Control::PipBoyItems, "Pip-Boy Items", 0xFFFFFFFF),
+    (Control::PipBoyData, "Pip-Boy Data", 0xFFFFFFFF),
+    (Control::OpenLocalMap, "Local Map", 0xFFFFFFFF),
+    (Control::OpenWorldMap, "World Map", 0xFFFFFFFF),
+    (Control::OpenQuests, "Quests", 0xFFFFFFFF),
+    (Control::OpenRadio, "Radio", 0xFFFFFFFF),
+    (Control::ToggleIronSights, "Toggle Iron Sights", 0xFFFFFFFF),
 ];
 
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
@@ -527,6 +547,14 @@ pub fn label(c: Control) -> &'static str {
         ExitToMainMenu => "Main Menu",
         ExitGame => "Quit Game",
         NoCollision => "No Collision (held)",
+        PipBoyStats => "Pip-Boy: Stats",
+        PipBoyItems => "Pip-Boy: Items",
+        PipBoyData => "Pip-Boy: Data",
+        OpenLocalMap => "Pip-Boy: Local Map",
+        OpenWorldMap => "Pip-Boy: World Map",
+        OpenQuests => "Pip-Boy: Quests",
+        OpenRadio => "Pip-Boy: Radio",
+        ToggleIronSights => "True Iron Sights",
     }
 }
 
