@@ -1,0 +1,67 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jgnif",
+ "title": "jgnif, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nlet fA := Get3DDistanceBetweenNiNodes PlayerREF PlayerREF \"Bip01 Head\" \"Bip01 Pelvis\"\nlet fB := Get3DDistanceBetweenNiNodes PlayerREF PlayerREF \"Bip01 Head\" \"Bip01 Head\"\nSetFunctionValue (sv_Construct \"%g %g\" (fA > 0) (Round fB))\nEnd\n",
+   "label": "jgnif.between",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nlet fA := PlayerREF.Get3DDistanceToNiNode \"Bip01 Head\" (PlayerREF.GetPos X) (PlayerREF.GetPos Y) (PlayerREF.GetPos Z)\nlet fB := PlayerREF.Get3DDistanceToNiNode \"NVFNoSuchBlock\" 0 0 0\nSetFunctionValue (sv_Construct \"%g %g\" ((fA > 80) && (fA < 160)) fB)\nEnd\n",
+   "label": "jgnif.tonode",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nSetFunctionValue (PlayerREF.Get3DDistanceFromHitToNiNode \"Bip01 Head\")\nEnd\n",
+   "label": "jgnif.fromhit",
+   "field": "value"
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nlet aR := PlayerREF.GetNiBound\nlet fA := ar_Size aR\nlet fB := aR[3]\nlet aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\nSetFunctionValue (sv_Construct \"%g %g %g\" fA (fB > 0) (ar_Size aR))\nEnd\n",
+   "label": "jgnif.bound",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g %g %g %g\" (PlayerREF.GetNiPSysModifierValue \"NVFNoSuchBlock\" 14) (PlayerREF.GetParticleEmitterSpawnRate \"NVFNoSuchBlock\") (PlayerREF.GetAlphaPropertyValue \"NVFNoSuchBlock\" 0) (PlayerREF.GetStencilPropertyValue \"NVFNoSuchBlock\" 0))\nEnd\n",
+   "label": "jgnif.missing",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g %g %.0f\" (PlayerREF.GetPlayerCamFOV 0) (PlayerREF.GetPlayerCamFOV 1) (PlayerREF.GetPlayerCamFOV 2))\nEnd\n",
+   "label": "jgnif.fov",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nGetCameraTranslation fX fY fZ 0\nlet fA := ((fX - (PlayerREF.GetPos X)) ^ 2 + (fY - (PlayerREF.GetPos Y)) ^ 2) ^ 0.5\nGetCameraTranslation fX fY fZ 1\nSetFunctionValue (sv_Construct \"%g %g\" (fA < 200) (fZ > 50))\nEnd\n",
+   "label": "jgnif.camera",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nlet fA := WorldToScreen fX fY fZ 0 0 0 2 PlayerREF\nSetFunctionValue (sv_Construct \"%g %.2f %.2f\" fA fX fY)\nEnd\n",
+   "label": "jgnif.screen",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nSetFunctionValue (sv_Construct \"%g %g %g\" (PlayerREF.GetSequenceAnimGroup 0) (PlayerREF.GetSequenceAnimGroup 4) (PlayerREF.IsNiSequenceActive \"mtidle\"))\nEnd\n",
+   "label": "jgnif.sequences",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\nlet fA := PlayerREF.UpdateScenegraph 0\nlet fB := PlayerREF.Update3DAlt 32\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)\nEnd\n",
+   "label": "jgnif.refresh",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

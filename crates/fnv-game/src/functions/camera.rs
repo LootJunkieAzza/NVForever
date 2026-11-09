@@ -30,6 +30,33 @@ pub struct CameraRequests {
     pub tfc: TfcPose,
     /// A script set [`CameraRequests::tfc`] since the engine last took it.
     pub tfc_set: bool,
+    /// The player's camera as the engine placed it this frame (JohnnyGuitar's
+    /// GetCameraTranslation, WorldToScreen, GetPlayerCamFOV, `crate::nvse_jg_nif`);
+    /// `None` while no engine tells it.
+    pub view: Option<CameraView>,
+    /// JohnnyGuitar's SetCameraTranslate: the third-person camera's place relative to
+    /// the player, in the player's frame (x right, y ahead, z up), while set.
+    pub translate_override: Option<[f32; 3]>,
+    /// JohnnyGuitar's SetCameraRotate: the third-person camera's angles in degrees about
+    /// X (pitch, down positive), Y (roll) and Z (heading), each while set; and the
+    /// reference it keeps looking at.
+    pub rotate_override: [Option<f32>; 3],
+    pub rotate_track: Option<fnv_sim::FormId>,
+}
+
+/// The player's camera this frame: its place in game units, its heading (radians,
+/// clockwise from north), its pitch (radians, up positive) and roll, the vertical field
+/// of view (radians) and the width over the height, and whether it is the first-person
+/// view.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CameraView {
+    pub pos: [f32; 3],
+    pub heading: f32,
+    pub pitch: f32,
+    pub roll: f32,
+    pub fov_y: f32,
+    pub aspect: f32,
+    pub first_person: bool,
 }
 
 /// The fly camera's place: position in game units, angle X (down positive) and Z (the

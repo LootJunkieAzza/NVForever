@@ -3379,6 +3379,14 @@ pub(crate) fn crit_effect(c: &Combat, weapon: Option<FormId>) -> Option<(FormId,
 /// critical hit then gives the weapon's critical effect (`crit`: the actor effect and
 /// its On Death flag; `fnv_game::Game::apply_crit_effect`).
 #[allow(clippy::too_many_arguments)]
+/// Where a shot or a blow struck `target`, for the scripts (JohnnyGuitar's
+/// Get3DDistanceFromHitToNiNode, `fnv_game::nvse_jg_nif`).
+fn note_hit_point(script: Option<&mut ScriptState>, target: FormId, at: [f32; 3]) {
+    if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
+        rt.game.note_hit_point(target, at);
+    }
+}
+
 pub(crate) fn apply_hit(
     script: Option<&mut ScriptState>,
     sim: &mut SimState,
@@ -3817,6 +3825,7 @@ fn melee(
             if let Some(spell) = special.and_then(|m| m.spell) {
                 items.push(spell);
             }
+            note_hit_point(script.as_deref_mut(), target, hit.point);
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
             armour_lines(script.as_deref_mut(), Some(FormId::PLAYER_REF), target, &d, c.tuning.dt_floor);
             spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);
@@ -4162,6 +4171,7 @@ fn actor_attacks(
             wear_actor_weapon(&c.forms, &mut sim, &mut stats, &mut broken, script.as_deref_mut(), b.attacker, weapon, points, b.point);
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
+        note_hit_point(script.as_deref_mut(), b.target, b.point);
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, b.weapon));
         armour_lines(script.as_deref_mut(), Some(b.attacker), b.target, &d, c.tuning.dt_floor);
         // A killing blow (or one on a corpse) may dismember the part it lands on, by the
@@ -4791,6 +4801,7 @@ fn fly(
             pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
         }
         let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
+        note_hit_point(script.as_deref_mut(), target, p.point);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false, crit_effect(c, Some(id)));
         armour_lines(script.as_deref_mut(), Some(shooter), target, &d, c.tuning.dt_floor);
         spread_hit_areas(script.as_deref_mut(), &mut sim, &mut stats, target, &items, info.attacker);

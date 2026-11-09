@@ -3259,6 +3259,9 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // [documented: GetMousePosition, GetMouseMovement, "output … to fPosX and fPosY
         // script variables"].
         "getmouseposition" | "getmousemovement" => &[0, 1],
+        // [documented: GetCameraTranslation and WorldToScreen, "Stores … in xOut, yOut and
+        // zOut variables"].
+        "getcameratranslation" | "worldtoscreen" => &[0, 1, 2],
         // [documented: HSVtoRGB, RGBtoHSV, three script variables in and three out].
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
         _ => return None,
