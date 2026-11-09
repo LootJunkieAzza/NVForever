@@ -6,8 +6,9 @@
 //!   and `QuantityMenu` (`super::menus`; the prompt also follows a container menu drawn from
 //!   its tiles, `super::menus::quantity_tiled`), and since T11 `StartMenu` (the pause menu's
 //!   Mods page, `crate::pause::ModsEntry`, `super::mods`), `TraitMenu` (`super::trait_menu`), `CharGenMenu` (tag skills, `super::tag_menu`),
-//!   `StatsMenu` (the Pip-Boy's S.P.E.C.I.A.L. tab, `super::stats_menu`) and `DialogMenu`
-//!   (`super::dialog_menu`) are acted on. It is
+//!   `StatsMenu` (the Pip-Boy's S.P.E.C.I.A.L. tab, `super::stats_menu`), `DialogMenu`
+//!   (`super::dialog_menu`), `RepairServicesMenu` (`super::repair_services_menu`) and `RepairMenu`
+//!   (the Pip-Boy's repair page, `super::repair_menu`) are acted on. It is
 //!   read once at start, from the INI the settings page uses
 //!   (`crate::settings::SettingsFile`: an unattended run in the player's own home reads
 //!   none). The test aid `NVF_PLAY_TEST_TILE_MENUS=<list>` sets it instead, so a smoke
@@ -74,6 +75,12 @@ pub struct TileMenus {
     /// `DialogMenu`: the dialogue menu from its file, the hand-built drawing
     /// (`crate::dialogue_menu`) not spawned (`super::dialog_menu`).
     pub dialog: bool,
+    /// `RepairServicesMenu`: the vendor's repair menu from its file, the hand-built drawing
+    /// (`crate::repair`) not spawned (`super::repair_services_menu`).
+    pub repair_services: bool,
+    /// `RepairMenu`: the Pip-Boy's repair page from its file, in the Pip-Boy's image, the
+    /// hand-built list (`crate::pipboy::repair`) not drawn (`super::repair_menu`).
+    pub repair_menu: bool,
 }
 
 impl TileMenus {
@@ -107,6 +114,10 @@ impl TileMenus {
                 menus.tags = true;
             } else if name.eq_ignore_ascii_case(super::dialog_menu::DIALOG_MENU) {
                 menus.dialog = true;
+            } else if name.eq_ignore_ascii_case(super::repair_services_menu::REPAIR_SERVICES_MENU) {
+                menus.repair_services = true;
+            } else if name.eq_ignore_ascii_case(super::repair_menu::REPAIR_MENU) {
+                menus.repair_menu = true;
             } else {
                 other.push(name.to_string());
             }
@@ -143,12 +154,12 @@ pub(crate) fn setup(app: &mut App) {
 
 impl TileMenus {
     /// The menus the switch acts on, in its order.
-    pub const NAMES: [&str; 12] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU, super::wait_menu::SLEEP_WAIT_MENU, super::tutorial_menu::TUTORIAL_MENU, super::container_menu::CONTAINER_MENU, super::barter_menu::BARTER_MENU, super::trait_menu::TRAIT_MENU, super::tag_menu::TAG_MENU, super::mods::START_MENU, super::stats_menu::STATS_MENU, super::dialog_menu::DIALOG_MENU];
+    pub const NAMES: [&str; 14] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU, super::wait_menu::SLEEP_WAIT_MENU, super::tutorial_menu::TUTORIAL_MENU, super::container_menu::CONTAINER_MENU, super::barter_menu::BARTER_MENU, super::trait_menu::TRAIT_MENU, super::tag_menu::TAG_MENU, super::mods::START_MENU, super::stats_menu::STATS_MENU, super::dialog_menu::DIALOG_MENU, super::repair_services_menu::REPAIR_SERVICES_MENU, super::repair_menu::REPAIR_MENU];
 
     /// The start-up line's end: the menus drawn from tiles, or none, and that an item menu's
     /// prompt follows it when its own switch is off (`super::menus::quantity_tiled`).
     pub fn line(&self) -> String {
-        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.sleep_wait, self.tutorial, self.container, self.barter, self.traits, self.tags, self.start, self.stats, self.dialog]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
+        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.sleep_wait, self.tutorial, self.container, self.barter, self.traits, self.tags, self.start, self.stats, self.dialog, self.repair_services, self.repair_menu]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
         if on.is_empty() {
             "no menu drawn from tiles".into()
         } else if (self.container || self.barter) && !self.quantity {
@@ -553,6 +564,15 @@ mod tests {
         assert_eq!(TileMenus::parse(" dialogmenu "), (dialog, Vec::new()));
         assert_eq!(dialog.line(), "DialogMenu drawn from tiles");
         assert!(!TileMenus::parse("HUDMainMenu,MessageMenu").0.dialog);
+        // The vendor's repair menu, and the Pip-Boy's page, each on its own.
+        let repair = TileMenus { repair_services: true, ..TileMenus::default() };
+        assert_eq!(TileMenus::parse(" repairservicesmenu "), (repair, Vec::new()));
+        assert_eq!(repair.line(), "RepairServicesMenu drawn from tiles");
+        assert!(!TileMenus::default().repair_services);
+        let page = TileMenus { repair_menu: true, ..TileMenus::default() };
+        assert_eq!(TileMenus::parse(" repairmenu "), (page, Vec::new()));
+        assert_eq!(page.line(), "RepairMenu drawn from tiles");
+        assert!(!TileMenus::default().repair_menu);
     }
 
     #[test]

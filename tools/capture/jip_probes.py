@@ -8587,6 +8587,52 @@ JG8_PROBES = (
 SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
 
 
+
+# jip13 (reads; SetAngleEx on Doc is put back; #1006): JIP batch 13
+# (docs/spec-notes/jip-physics-13.md) on Doc Mitchell and the player in the probe save.
+# The questions: GetRigidBodyMass and GetHasPhantom on an actor, the player's ground
+# material and the object under the feet, GetRayCastMaterial, IsGrabbable on an actor,
+# an actor's collision layer and a body's velocity by node, GetObjectVelocity standing,
+# the contacts of a standing player, the reticle's node and position, SetAngleEx's
+# methods read back through GetAngle.
+def _j13(pid, body, text=False):
+    return (f"jip13.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j13v(pid, setup, expr, text=False):
+    return _j13(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+_J13DOC = _form("rObj", NF["docref"])
+JIP13_PROBES = (
+    [_j13v("mass.doc", _J13DOC, "rObj.GetRigidBodyMass"),
+     _j13v("phantom.doc", _J13DOC, "rObj.GetHasPhantom"),
+     _j13v("ground.player", "", "rP.GetGroundMaterial"),
+     _j13v("ground.doc", _J13DOC, "rObj.GetGroundMaterial"),
+     _j13v("underfeet.player", "", "GetFormIDString (rP.GetObjectUnderFeet)", True),
+     _j13v("raycast.player", "", "rP.GetRayCastMaterial"),
+     _j13v("grabbable.doc", _J13DOC, "rObj.IsGrabbable"),
+     _j13v("layer.doc.spine", _J13DOC, "rObj.GetCollisionObjLayerType \"Bip01 Spine\""),
+     _j13v("property.doc.mass", _J13DOC, "rObj.GetCollisionObjProperty \"Bip01 Spine\" 7"),
+     _j13v("angvel.doc", _J13DOC, "rObj.GetAngularVelocity \"Bip01 Spine\" Z"),
+     _j13v("velocity.player", "", "rP.GetObjectVelocity"),
+     _j13v("velocity.player.z", "", "rP.GetObjectVelocity Z"),
+     _j13v("contact.player.doc", _J13DOC, "rP.GetHasContact rObj"),
+     _j13v("contacttype.player", "", "rP.GetHasContactType 42"),
+     _j13v("reticlenode", "", "GetReticleNode", True),
+     # No rows for the output-variable getters: the original's runtime compiler refused
+     # GetLinearVelocityAlt and GetReticlePosAlt in a `let` and as statements [observed: the
+     # jip13 runs, 2026-11-09]; GetAngularVelocityAlt is left out with them [hypothesis].
+     _j13("contacts.player", "let aList := rP.GetContactRefs\nSetFunctionValue (ar_Size aList)"),
+     _j13("setangleex.doc", _J13DOC + "let fA := rObj.GetAngle Z\nrObj.SetAngleEx 0 0 (fA + 90)\nlet fB := rObj.GetAngle Z\n"
+          "rObj.SetAngleEx 0 0 fA\nlet fC := rObj.GetAngle Z\nSetFunctionValue (sv_Construct \"%.1f %.1f\" (fB - fA) (fC - fA))", True)]
+)
+
+SETS.update({"jip13": JIP13_PROBES})  # JIP batch 13 (#1006)
+WRITING_SETS |= {"jip13"}
+
+
 def script(body):
     if body.startswith(("ref ", "float ")):
         return body + "\nEnd\n"

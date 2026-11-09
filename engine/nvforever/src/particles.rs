@@ -50,10 +50,46 @@
 //!   plays none of them; and from its emitter object's node as the sequence moves it (the
 //!   REPCONN rockets' exhaust rides with the rockets). Modifiers switched on and off by
 //!   the sequences follow the one a particle was born under.
+//! - **Built only where a camera may see it** (issue #1417): emission, simulation, random
+//!   draws, lifetimes and clean-up run every frame for every system as before; only the
+//!   geometry build and the mesh write are left out for a system whose live particles'
+//!   box ([`particle_bounds`]) lies outside every active 3D camera that draws its layers
+//!   (the main camera, the water reflection camera while it is on, a scope's lens camera;
+//!   [`FrameViews`]). Its render entity is hidden meanwhile (its emitter is not touched),
+//!   so its old mesh cannot draw. When in doubt it is built and shown: no box (no finite
+//!   particle), an entity without a placement, no active camera, a camera drawing its
+//!   layers whose frustum is not set. The test uses each frustum's four sides only, not its near or far plane:
+//!   a box between a camera and its near plane counts as seen, and the reflection
+//!   camera's near plane (the water's oblique clip plane) culls nothing [design].
+//! - **When** (the first frame a system comes into view is drawn with fresh geometry):
+//!   the `Update` chain ends with [`take_basis`], which takes the main camera's right, up
+//!   and backward where the draw took them before, so a visible system's geometry is bit
+//!   for bit what it was. [`draw`] runs in `PostUpdate` in [`ParticleDrawSet`]: after the
+//!   transforms are propagated and the frusta updated (`VisibilitySystems::UpdateFrusta`,
+//!   which `reflection::update_reflection` precedes, switching its camera on or off and
+//!   placing it), before visibility propagation (so hiding or showing takes effect this
+//!   frame) and before `AssetEventSystems` (so a rebuilt mesh reaches the renderer this
+//!   frame, as when the draw ran in `Update`). The test thus sees the cameras this frame
+//!   is rendered with, and a system coming into view is rebuilt, shown and uploaded in
+//!   that same frame; the visibility of the frame before is never used. Hiding or
+//!   showing a system takes its blended draw out of or back into the renderer's sorted
+//!   list, so overlapping blended surfaces at exactly the same sort distance may draw in
+//!   another order, as with any visibility change; the vertices and their order are
+//!   unchanged [design: Bevy's sorted phases sort by distance only].
+//! - **The world camera** is found by its marker (`FlyCam`, main.rs `setup`), not as the
+//!   only 3D camera other than the reflection's. Before, the draw stopped (every system
+//!   froze where it was, shown or hidden) whenever another 3D camera existed: a 2D scope's,
+//!   a 3D scope's lens camera, a menu view's. Particles now keep animating, and keep being
+//!   culled and shown again, while a scope is up [design: an intended change, issue
+//!   #1417 review]. Without the world camera (none spawned) nothing is built, shown or
+//!   hidden.
 //! - Not built: turbulence, spawn-on-death; a mesh emitter's meshes stay where the file
 //!   puts them; gravity strength keys from the first sequence only.
 
-use bevy::camera::visibility::NoFrustumCulling;
+use bevy::asset::AssetEventSystems;
+use bevy::camera::primitives::{Aabb, Frustum};
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers, VisibilitySystems};
+use bevy::ecs::system::SystemParam;
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::mesh::{Indices, MeshVertexAttribute, VertexAttributeValues};
@@ -437,6 +473,9 @@ pub struct Particles {
     rng: SplitMix,
     pub born: u64,
     pub most_alive: usize,
+    /// The main camera's right, up and backward in game space taken this frame by
+    /// [`take_basis`] for [`draw`] (module notes, "When"); `None`: nothing is drawn.
+    basis: Option<[Vec3; 3]>,
 }
 
 impl Particles {
@@ -477,6 +516,7 @@ impl Default for Particles {
             rng: SplitMix(0x2545_f491),
             born: 0,
             most_alive: 0,
+            basis: None,
         }
     }
 }
@@ -559,8 +599,31 @@ pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Particles>().add_systems(Update, (script_drawn, script_drawn_rig, staged_addons, emit.after(crate::effect_shaders::sync_player_effects), simulate, draw).chain().after(crate::shot_fx::ShotFxSet)).add_systems(Last, report);
+        configure_draw_set(app);
+        app.init_resource::<Particles>()
+            .add_systems(Update, (script_drawn, script_drawn_rig, staged_addons, emit.after(crate::effect_shaders::sync_player_effects), simulate, take_basis).chain().after(crate::shot_fx::ShotFxSet))
+            .add_systems(PostUpdate, draw.in_set(ParticleDrawSet))
+            .add_systems(Last, report);
     }
+}
+
+/// The particle geometry builds (this module's [`draw`], `effect_particles::build`), in
+/// `PostUpdate` after this frame's frusta and before visibility propagation and the
+/// asset events (module notes, "When").
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParticleDrawSet;
+
+/// Order [`ParticleDrawSet`] (by each plugin that adds to it: the effect shaders' runs
+/// without this one too).
+pub fn configure_draw_set(app: &mut App) {
+    app.configure_sets(
+        PostUpdate,
+        ParticleDrawSet
+            .after(bevy::transform::TransformSystems::Propagate)
+            .after(VisibilitySystems::UpdateFrusta)
+            .before(VisibilitySystems::VisibilityPropagate)
+            .before(AssetEventSystems),
+    );
 }
 
 /// A reference a script enabled, drawn by nvf-play (`script_draw`): its model's own
@@ -1030,33 +1093,70 @@ fn simulate(time: Res<Time>, mut p: ResMut<Particles>) {
     p.most_alive = p.most_alive.max(alive);
 }
 
-/// One mesh per system: a square facing the camera for each particle.
+/// The world camera the particle draws face: the main camera (`FlyCam`, main.rs `setup`),
+/// never the reflection, scope or menu views' cameras beside it (module notes, "When").
+pub type WorldCamera = (With<Camera3d>, With<crate::fly::FlyCam>, Without<crate::reflection::ReflectionCamera>);
+
+/// The main camera's right, up and backward in game space, as the particle draws take
+/// them: `rotation` the camera's, `to_game` Bevy's space to the game's (the world root's
+/// inverse).
+pub fn camera_basis(rotation: Quat, to_game: &Affine3A) -> [Vec3; 3] {
+    [
+        to_game.transform_vector3(rotation * Vec3::X).normalize_or(Vec3::X),
+        to_game.transform_vector3(rotation * Vec3::Y).normalize_or(Vec3::Z),
+        to_game.transform_vector3(rotation * Vec3::Z).normalize_or(Vec3::Y),
+    ]
+}
+
+/// The basis [`draw`] builds with this frame, taken where the draw took it before it moved
+/// to `PostUpdate` (module notes, "When"): from the world camera's (`FlyCam`, main.rs
+/// `setup`) and the world root's local transforms after `simulate`; none without exactly
+/// one of each.
+fn take_basis(
+    mut p: ResMut<Particles>,
+    camera: Query<&Transform, WorldCamera>,
+    root: Query<&Transform, With<WorldRoot>>,
+) {
+    p.basis = match (camera.single(), root.single()) {
+        (Ok(cam), Ok(root)) => Some(camera_basis(cam.rotation, &root.compute_affine().inverse())),
+        _ => None,
+    };
+}
+
+/// One mesh per system: a square facing the camera for each particle, built only for a
+/// system some camera may see this frame (module notes, "Built only where a camera may
+/// see it"); the others' render entities are hidden.
 fn draw(
     mut p: ResMut<Particles>,
     mut meshes: ResMut<Assets<Mesh>>,
-    camera: Query<&Transform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
-    root: Query<&Transform, With<WorldRoot>>,
     mut visibility: Query<&mut Visibility>,
+    views: ParticleViews,
+    mut counts: Option<ResMut<crate::profile::ParticleCull>>,
 ) {
-    let (Ok(cam), Ok(root)) = (camera.single(), root.single()) else { return };
-    // The camera's right, up and backward in game space.
-    let to_game = root.compute_affine().inverse();
-    let right = to_game.transform_vector3(cam.rotation * Vec3::X).normalize_or(Vec3::X);
-    let up = to_game.transform_vector3(cam.rotation * Vec3::Y).normalize_or(Vec3::Z);
-    let back = to_game.transform_vector3(cam.rotation * Vec3::Z).normalize_or(Vec3::Y);
+    // Taken: a frame whose `take_basis` did not run draws nothing, as before.
+    let Some([right, up, back]) = p.basis.take() else { return };
+    let frame = views.frame();
     for live in p.systems.values_mut().flatten().flatten() {
-        let shown = !live.particles.is_empty();
+        let alive = !live.particles.is_empty();
+        let seen = alive && frame.may_see(particle_bounds(&live.def, &live.particles), live.entity, &views);
         if let Ok(mut v) = visibility.get_mut(live.entity) {
-            let want = if shown { Visibility::Inherited } else { Visibility::Hidden };
+            let want = if seen { Visibility::Inherited } else { Visibility::Hidden };
             if *v != want {
                 *v = want;
             }
         }
-        if !shown {
+        if !alive {
             // An emptied system keeps only the mesh's set (its last geometry, hidden).
             if live.geometry.positions.capacity() > 0 {
                 live.geometry = ParticleGeometry::default();
             }
+            continue;
+        }
+        if let Some(c) = counts.as_deref_mut() {
+            c.count(crate::profile::ParticleKind::Regular, seen);
+        }
+        if !seen {
+            // Its mesh keeps its last geometry, hidden, until a camera may see it again.
             continue;
         }
         let Some(mut mesh) = meshes.get_mut(&live.mesh) else { continue };
@@ -1064,6 +1164,109 @@ fn draw(
         let matched = live.geometry.swap_into_mesh(&mut mesh);
         debug_assert!(matched, "particles: {}: mesh layout differs from particle_mesh's; geometry inserted", live.def.name);
     }
+}
+
+/// A game-space box holding every vertex [`ParticleGeometry::rebuild`] makes of
+/// `particles`, whatever the camera's basis: a square's corners lie within its half size
+/// × √2 of the particle (the camera's right and up are orthonormal: the world root only
+/// turns, `world::game_to_bevy`), a ribbon's within its half width of each point it passes
+/// through (its sides are unit vectors × the half width); ribbons of under two points draw
+/// nothing. `None` without a vertex or with a value not finite (then drawn as before).
+fn particle_bounds(d: &ParticleSystemDef, particles: &[Particle]) -> Option<Aabb> {
+    let half = |q: &Particle| (q.radius * d.scale(q.age, q.life)).abs();
+    if d.strip.is_some() {
+        sphere_bounds(particles.iter().filter(|q| !q.trail.is_empty()).flat_map(|q| {
+            let h = half(q);
+            q.trail.iter().copied().chain([q.pos]).map(move |p| (p, h))
+        }))
+    } else {
+        sphere_bounds(particles.iter().map(|q| (q.pos, half(q) * std::f32::consts::SQRT_2)))
+    }
+}
+
+/// The box holding every sphere (centre, radius), padded so rounding cannot leave a
+/// vertex outside: a thousandth of each radius and a hundred-thousandth of its distance
+/// from the origin (far more than a float's rounding there, and under a unit at the
+/// map's edge). `None` without a sphere or when a value is not finite.
+pub fn sphere_bounds(spheres: impl IntoIterator<Item = (Vec3, f32)>) -> Option<Aabb> {
+    let (mut lo, mut hi) = (Vec3::INFINITY, Vec3::NEG_INFINITY);
+    let mut any = false;
+    for (c, r) in spheres {
+        let r = r.abs();
+        if !c.is_finite() || !r.is_finite() {
+            return None;
+        }
+        let r = r * 1.001 + (c.abs().max_element() + r) * 1e-5;
+        lo = lo.min(c - r);
+        hi = hi.max(c + r);
+        any = true;
+    }
+    any.then(|| Aabb::from_min_max(lo, hi))
+}
+
+/// What the particle builds test their boxes against: every 3D camera with its frustum
+/// and layers, and the render entities' placement and layers.
+#[derive(SystemParam)]
+pub struct ParticleViews<'w, 's> {
+    cameras: Query<'w, 's, (&'static Camera, &'static Frustum, Option<&'static RenderLayers>), With<Camera3d>>,
+    placed: Query<'w, 's, (&'static GlobalTransform, Option<&'static RenderLayers>)>,
+}
+
+impl ParticleViews<'_, '_> {
+    /// This frame's active cameras, their frusta as `VisibilitySystems::UpdateFrusta` left
+    /// them.
+    pub fn frame(&self) -> FrameViews {
+        FrameViews::new(self.cameras.iter().filter(|(c, ..)| c.is_active).map(|(_, f, l)| (*f, l.cloned().unwrap_or_default())).collect())
+    }
+}
+
+/// The active 3D cameras of a frame (frustum, layers), for the particle builds' test.
+///
+/// Every active `Camera3d` whose layers meet the particle entity's counts (layer 0 when
+/// it has none, as the particle entities are spawned) [design: main.rs `setup` layers 0,
+/// water, arms, body, decals; reflection.rs `setup_reflection` layers 0, arms, body,
+/// active only while water is reflected; scope_view.rs's lens camera layers 0, water,
+/// decals while a 3D scope is up; the menu views' cameras draw their own layers and are
+/// left out by the layer test, which errs toward drawing should one draw layer 0].
+pub struct FrameViews {
+    /// The cameras whose frusta are set.
+    views: Vec<(Frustum, RenderLayers)>,
+    /// No active camera at all: every system counts as seen.
+    unsure: bool,
+    /// The layers of the cameras whose frustum's sides are not set (a default frustum
+    /// rejects everything): a system on one of them counts as seen. Only those systems:
+    /// one camera of other layers (a menu view's) not yet set leaves the rest culled.
+    unset_layers: RenderLayers,
+    layer0: RenderLayers,
+}
+
+impl FrameViews {
+    pub fn new(views: Vec<(Frustum, RenderLayers)>) -> FrameViews {
+        // A side plane whose normal is not clearly unit length (zero, tiny or NaN) means the
+        // frustum was never set: NaN compares as None, so it counts as unset too.
+        let unset = |f: &Frustum| f.half_spaces[..4].iter().any(|h| h.normal().length_squared().partial_cmp(&0.25) != Some(std::cmp::Ordering::Greater));
+        let unsure = views.is_empty();
+        let (unset_views, views): (Vec<_>, Vec<_>) = views.into_iter().partition(|(f, _)| unset(f));
+        let unset_layers = unset_views.iter().fold(RenderLayers::none(), |all, (_, l)| all.union(l));
+        FrameViews { views, unsure, unset_layers, layer0: RenderLayers::default() }
+    }
+
+    /// Whether some camera may see `bounds` (game space) of render entity `e`, placed by
+    /// its `GlobalTransform` (the world root's turn: game space to Bevy's). True when in
+    /// doubt: no bounds, no placement, no camera, a camera drawing its layers unset.
+    pub fn may_see(&self, bounds: Option<Aabb>, e: Entity, views: &ParticleViews) -> bool {
+        let Some(b) = bounds.filter(|_| !self.unsure) else { return true };
+        let Ok((g, layers)) = views.placed.get(e) else { return true };
+        let layers = layers.unwrap_or(&self.layer0);
+        layers.intersects(&self.unset_layers) || !outside_every_view(&b, &g.affine(), layers, &self.views)
+    }
+}
+
+/// Whether no view in `views` (frustum, layers) that draws `layers` could see `bounds`
+/// placed by `world_from_game`, by Bevy's box test against each frustum's four sides
+/// (not its near or far plane: module notes). True with no such view.
+fn outside_every_view(bounds: &Aabb, world_from_game: &Affine3A, layers: &RenderLayers, views: &[(Frustum, RenderLayers)]) -> bool {
+    views.iter().filter(|(_, l)| l.intersects(layers)).all(|(f, _)| !f.intersects_obb(bounds, world_from_game, false, false))
 }
 
 /// The system's keyed material alpha (`ParticleSystemDef::alpha_keys`) at the emitter
@@ -1104,9 +1307,24 @@ fn report(mut exit: MessageReader<AppExit>, p: Res<Particles>) {
     }
 }
 
+/// The resources a `ModelCtx` reads, empty: no game data (a data folder that does not
+/// exist), for tests that run `emit` or the effect particles' births.
+#[cfg(test)]
+pub(crate) fn model_ctx_resources(world: &mut World) {
+    world.init_resource::<Assets<Mesh>>();
+    world.init_resource::<Assets<nvf_assets::NifMaterial>>();
+    world.init_resource::<Assets<Image>>();
+    world.init_resource::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>();
+    world.init_resource::<nvf_assets::ModelCache>();
+    world.init_resource::<nvf_assets::texture::TextureCache>();
+    let vfs = fnv_vfs::Vfs::open(std::path::Path::new("nvf-test-no-game-data"), &[]).expect("an empty file system");
+    world.insert_resource(nvf_assets::GameData { vfs: Arc::new(vfs), schema: Arc::new(fnv_nif::Schema::default()) });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
     use nvf_assets::particles::{Emitter, Strip};
 
     fn test_def(strip: Option<Strip>) -> ParticleSystemDef {
@@ -1412,5 +1630,575 @@ mod tests {
         assert!(g.positions.capacity() <= 32 && g.indices.capacity() <= 48, "{} {}", g.positions.capacity(), g.indices.capacity());
         let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("position type") };
         assert!(positions.capacity() <= 32);
+    }
+
+    // --- Built only where a camera may see it (issue #1417) ---
+
+    /// The game's 75° view with Bevy's reverse-z projection, near plane 5 units out.
+    fn test_projection() -> Projection {
+        Projection::Perspective(PerspectiveProjection { fov: 75f32.to_radians(), aspect_ratio: 16.0 / 9.0, near: 5.0, ..default() })
+    }
+
+    /// A camera's transform and the frustum `VisibilitySystems::UpdateFrusta` gives it.
+    fn placed_camera(t: Transform, projection: &Projection) -> (Transform, GlobalTransform, Frustum) {
+        let g = GlobalTransform::from(t);
+        (t, g, projection.compute_frustum(&g))
+    }
+
+    /// The bounds hold every vertex drawn, squares and ribbons, whatever way the camera
+    /// faces (its basis turned by the world root as the draw turns it), near the origin
+    /// and at the map's edge.
+    #[test]
+    fn particle_bounds_hold_every_vertex_for_any_camera() {
+        let to_game = crate::world::game_to_bevy().compute_affine().inverse();
+        for strip in [None, Some(Strip { max_points: 4, step: 0.1 })] {
+            let d = test_def(strip);
+            let mut wide = test_particle(Vec3::new(-3.0, 5.0, 1.0), vec![Vec3::new(-6.0, 5.0, 1.0), Vec3::new(-5.0, 9.0, 3.0)]);
+            wide.radius = 7.5;
+            let mut far = test_particle(Vec3::new(-71234.5, 60321.25, 8700.75), vec![Vec3::new(-71230.0, 60320.0, 8702.0)]);
+            far.radius = 0.3;
+            far.angle = 1.1;
+            let particles = [test_particle(Vec3::new(1.0, 2.0, 3.0), vec![Vec3::ZERO, Vec3::X]), wide, far, test_particle(Vec3::new(2.0, -1.0, 0.0), Vec::new())];
+            let b = particle_bounds(&d, &particles).expect("bounds");
+            let (lo, hi) = (Vec3::from(b.min()), Vec3::from(b.max()));
+            for k in 0..48 {
+                let rot = Quat::from_euler(EulerRot::YXZ, k as f32 * 0.61, (k as f32 * 0.37).sin() * 1.5, k as f32 * 0.11);
+                let [right, up, back] = camera_basis(rot, &to_game);
+                let mut g = ParticleGeometry::default();
+                g.rebuild(&d, &particles, right, up, back);
+                assert!(!g.positions.is_empty());
+                for p in &g.positions {
+                    let p = Vec3::from_array(*p);
+                    assert!(p.cmpge(lo).all() && p.cmple(hi).all(), "{p} outside {lo}..{hi} (strip {})", strip.is_some());
+                }
+            }
+        }
+        assert!(particle_bounds(&test_def(None), &[]).is_none());
+        // A ribbon of one point draws nothing: no bounds, drawn (nothing) as before.
+        assert!(particle_bounds(&test_def(Some(Strip { max_points: 4, step: 0.1 })), &[test_particle(Vec3::ZERO, Vec::new())]).is_none());
+        let mut lost = test_particle(Vec3::ZERO, Vec::new());
+        lost.pos.x = f32::NAN;
+        assert!(particle_bounds(&test_def(None), &[lost]).is_none(), "not finite: no bounds");
+    }
+
+    /// The camera test: a box well inside a view, behind it, past a side plane, across the
+    /// left plane, between the camera and its near plane (seen: the near plane is not
+    /// tested), straddling the camera; only views drawing the box's layers count.
+    #[test]
+    fn boxes_inside_outside_straddling_and_short_of_the_near_plane() {
+        // A camera at Bevy's origin looking down -z (game +y), 90° across both ways: at
+        // 100 units ahead the left plane is at x = -100. Near plane 5 units out.
+        let proj = Projection::Perspective(PerspectiveProjection { fov: std::f32::consts::FRAC_PI_2, aspect_ratio: 1.0, near: 5.0, ..default() });
+        let (_, _, frustum) = placed_camera(Transform::IDENTITY, &proj);
+        let views = [(frustum, RenderLayers::default())];
+        let root = crate::world::game_to_bevy().compute_affine();
+        let at = |x: f32, ahead: f32, half: f32| Aabb::from_min_max(Vec3::new(x, ahead, 0.0) - half, Vec3::new(x, ahead, 0.0) + half);
+        let layer0 = RenderLayers::default();
+        let out = |b: Aabb| outside_every_view(&b, &root, &layer0, &views);
+        assert!(!out(at(0.0, 100.0, 1.0)), "ahead");
+        assert!(!out(at(0.0, 100_000.0, 1.0)), "far ahead: no far plane");
+        assert!(out(at(0.0, -100.0, 1.0)), "behind");
+        assert!(out(at(-300.0, 100.0, 1.0)), "far left");
+        assert!(out(Aabb::from_min_max(Vec3::new(-1.0, 99.0, 149.0), Vec3::new(1.0, 101.0, 151.0))), "above the top plane");
+        assert!(!out(at(-101.0, 100.0, 3.0)), "across the left plane");
+        // Between the camera and the near plane (1-3 units out, near 5): nothing of it is
+        // drawn, but the test does not look at the near plane: seen (conservative).
+        assert!(!out(at(0.0, 2.0, 1.0)), "short of the near plane counts as seen");
+        assert!(!out(at(0.0, 0.0, 1.0)), "around the camera");
+        assert!(out(at(0.0, -3.0, 1.0)), "just behind the camera");
+        // Only views drawing the box's layers count; none at all: no camera sees it.
+        let other = [(frustum, RenderLayers::layer(5))];
+        assert!(outside_every_view(&at(0.0, 100.0, 1.0), &root, &layer0, &other));
+        assert!(!outside_every_view(&at(0.0, 100.0, 1.0), &root, &RenderLayers::from_layers(&[0, 5]), &other));
+        assert!(outside_every_view(&at(0.0, 100.0, 1.0), &root, &layer0, &[]));
+    }
+
+    /// The water reflection camera's oblique near plane (the water's clip plane) culls
+    /// nothing: a box the mirrored camera faces counts as seen on either side of it, and a
+    /// box behind the mirrored camera does not.
+    #[test]
+    fn the_reflections_oblique_near_plane_culls_nothing() {
+        // The main camera 100 units over water at Bevy height 0, looking 30° down; the
+        // reflection camera mirrored under the water, as `update_reflection` places it.
+        let main = Transform::from_xyz(0.0, 100.0, 0.0).with_rotation(Quat::from_rotation_x(-30f32.to_radians()));
+        let mirror = Mat4::from_mat3a(bevy::math::reflection_matrix(Vec3::Y));
+        let t = Transform::from_matrix(mirror * main.to_matrix());
+        let normal = (main.rotation.inverse() * Vec3::NEG_Y).normalize();
+        let Projection::Perspective(p) = test_projection() else { unreachable!() };
+        let oblique = Projection::Perspective(PerspectiveProjection { near_clip_plane: normal.extend(-1.0 - 100.0), ..p });
+        let (_, _, frustum) = placed_camera(t, &oblique);
+        let views = [(frustum, RenderLayers::default())];
+        let root = crate::world::game_to_bevy().compute_affine();
+        // Game (x, y, z) is Bevy (x, z, -y): 300 units ahead of the camera, above and
+        // below the water.
+        let box_at = |game: Vec3| Aabb::from_min_max(game - 2.0, game + 2.0);
+        let layer0 = RenderLayers::default();
+        assert!(!outside_every_view(&box_at(Vec3::new(0.0, 300.0, 20.0)), &root, &layer0, &views), "above the water, ahead");
+        assert!(!outside_every_view(&box_at(Vec3::new(0.0, 300.0, -20.0)), &root, &layer0, &views), "below the water, ahead: seen (conservative)");
+        assert!(outside_every_view(&box_at(Vec3::new(0.0, -300.0, 20.0)), &root, &layer0, &views), "behind");
+    }
+
+    /// A world holding the draw's inputs: the world root, the main camera at Bevy's origin
+    /// turned by `main`, and one system of `particles` with its render entity.
+    struct Scene {
+        world: World,
+        system: Entity,
+        mesh: Handle<Mesh>,
+        main: Entity,
+        /// The frames run `emit` too (an emitter of the system: [`Scene::emitting`]).
+        emits: bool,
+    }
+
+    /// What a test camera is: the world camera (`FlyCam`), the water reflection camera, or
+    /// another (a scope's, a menu view's).
+    #[derive(Clone, Copy, PartialEq)]
+    enum Role {
+        World,
+        Reflection,
+        Other,
+    }
+
+    /// Game space straight ahead of a camera with no turn (game +y is Bevy -z).
+    const AHEAD: Vec3 = Vec3::new(0.0, 500.0, 0.0);
+    /// A turn that faces a camera the other way.
+    fn away() -> Quat {
+        Quat::from_rotation_y(std::f32::consts::PI)
+    }
+
+    fn moving_particles() -> Vec<Particle> {
+        (0..6)
+            .map(|i| {
+                let mut q = test_particle(AHEAD + Vec3::new(i as f32 * 20.0, 0.0, 10.0), Vec::new());
+                q.vel = Vec3::new(3.0, -2.0, 5.0 + i as f32);
+                q.spin = 0.7;
+                q.life = 50.0;
+                q
+            })
+            .collect()
+    }
+
+    impl Scene {
+        fn new(particles: Vec<Particle>, strip: Option<Strip>, main: Quat) -> Scene {
+            let mut world = World::new();
+            world.init_resource::<Assets<Mesh>>();
+            world.insert_resource(Time::<()>::default());
+            let root_t = crate::world::game_to_bevy();
+            world.spawn((WorldRoot, root_t, GlobalTransform::from(root_t)));
+            let main = Scene::camera(&mut world, main, true, None, Role::World);
+            let mesh = world.resource_mut::<Assets<Mesh>>().add(particle_mesh());
+            let system = world.spawn((Visibility::Hidden, Transform::IDENTITY, GlobalTransform::from(root_t))).id();
+            let mut p = Particles::default();
+            let live = Live { def: test_def(strip), particles, geometry: ParticleGeometry::default(), mesh: mesh.clone(), entity: system, served: 0, owed: 0.0 };
+            p.systems.insert(Key { source: Source::Model("test.nif".into()), instance: None }, Some(vec![live]));
+            world.insert_resource(p);
+            Scene { world, system, mesh, main, emits: false }
+        }
+
+        /// A placed model's emitter ahead of the camera feeding the system (no particle at
+        /// first): births at 80 a second, lives of 0.1-0.4 s, so particles are born and die
+        /// all the time. `emit` finds the system already made for its key.
+        fn emitting(strip: Option<Strip>, main: Quat) -> Scene {
+            let mut s = Scene::new(Vec::new(), strip, main);
+            model_ctx_resources(&mut s.world);
+            let root = s.world.query_filtered::<Entity, With<WorldRoot>>().single(&s.world).unwrap();
+            let emitter = s.world.spawn((ModelEmitter::placed("test.nif", 0x00AB_CDEF), Transform::from_translation(AHEAD), ChildOf(root))).id();
+            let mut p = s.world.resource_mut::<Particles>();
+            let (_, mut systems) = p.systems.drain().next().unwrap();
+            for live in systems.iter_mut().flatten() {
+                let d = &mut live.def;
+                d.max = 120;
+                d.rate = 80.0;
+                d.emitter.life = 0.25;
+                d.emitter.life_variation = 0.3;
+                d.emitter.speed = 40.0;
+                d.emitter.speed_variation = 20.0;
+                d.emitter.size = Vec3::splat(10.0);
+                d.emitter.declination_variation = 0.5;
+                d.emitter.radius = 3.0;
+                d.emitter.radius_variation = 1.0;
+            }
+            p.systems.insert(Key { source: Source::Model("test.nif".into()), instance: Some(emitter) }, systems);
+            s.emits = true;
+            s
+        }
+
+        /// A 3D camera at Bevy's origin turned by `rotation`, of `role` (only the world
+        /// camera gives the draw its basis, as `take_basis` finds it).
+        fn camera(world: &mut World, rotation: Quat, active: bool, layers: Option<RenderLayers>, role: Role) -> Entity {
+            let (t, g, f) = placed_camera(Transform::from_rotation(rotation), &test_projection());
+            let mut e = world.spawn((Camera3d::default(), Camera { is_active: active, ..default() }, test_projection(), t, g, f));
+            if let Some(l) = layers {
+                e.insert(l);
+            }
+            match role {
+                Role::World => {
+                    e.insert(crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 });
+                }
+                Role::Reflection => {
+                    e.insert(crate::reflection::ReflectionCamera);
+                }
+                Role::Other => {}
+            }
+            e.id()
+        }
+
+        /// Turn camera `e` (its transform and frustum, as this frame's would be).
+        fn turn(&mut self, e: Entity, rotation: Quat) {
+            let (t, g, f) = placed_camera(Transform::from_rotation(rotation), &test_projection());
+            self.world.entity_mut(e).insert((t, g, f));
+        }
+
+        /// One frame: emit (an emitting scene), simulate (after `dt`), take the basis, draw.
+        fn frame(&mut self, dt: f32) {
+            self.world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(dt));
+            if self.emits {
+                self.world.run_system_once(emit).unwrap();
+            }
+            self.world.run_system_once(simulate).unwrap();
+            self.world.run_system_once(take_basis).unwrap();
+            self.world.run_system_once(draw).unwrap();
+        }
+
+        fn shown(&self) -> bool {
+            *self.world.get::<Visibility>(self.system).unwrap() == Visibility::Inherited
+        }
+
+        fn mesh_positions(&self) -> Vec<[f32; 3]> {
+            self.world.resource::<Assets<Mesh>>().get(&self.mesh).unwrap().attribute(Mesh::ATTRIBUTE_POSITION).unwrap().as_float3().unwrap().to_vec()
+        }
+
+        fn live(&self) -> &Live {
+            self.world.resource::<Particles>().systems.values().flatten().flatten().next().unwrap()
+        }
+
+        /// The geometry the draw before culling made of the live particles this frame,
+        /// the camera turned by `rotation`.
+        fn expected(&self, rotation: Quat) -> Vec<[f32; 3]> {
+            let to_game = crate::world::game_to_bevy().compute_affine().inverse();
+            let [right, up, back] = camera_basis(rotation, &to_game);
+            let live = self.live();
+            reference_geometry(&live.def, &live.particles, right, up, back).positions
+        }
+    }
+
+    /// A visible system is drawn exactly as before culling; turned away from, it is hidden
+    /// and its mesh left alone; turned back to, it is rebuilt and shown in that same frame.
+    #[test]
+    fn a_system_off_screen_is_hidden_and_not_rebuilt_and_back_on_screen_rebuilt_at_once() {
+        for strip in [None, Some(Strip { max_points: 4, step: 0.05 })] {
+            let mut s = Scene::new(moving_particles(), strip, Quat::IDENTITY);
+            s.frame(0.1);
+            s.frame(0.1);
+            assert!(s.shown(), "in view: shown");
+            assert_eq!(s.mesh_positions(), s.expected(Quat::IDENTITY), "in view: today's geometry, bit for bit");
+            let before = s.mesh_positions();
+            let main = s.main;
+            s.turn(main, away());
+            s.frame(0.1);
+            assert!(!s.shown(), "out of view: hidden");
+            assert_eq!(s.mesh_positions(), before, "out of view: the mesh is not rebuilt");
+            s.frame(0.1);
+            assert_eq!(s.mesh_positions(), before);
+            // Back in view: rebuilt for this frame's particles and shown in the same frame.
+            s.turn(main, Quat::IDENTITY);
+            s.frame(0.1);
+            assert!(s.shown(), "back in view: shown at once");
+            assert_eq!(s.mesh_positions(), s.expected(Quat::IDENTITY), "back in view: this frame's geometry");
+            assert_ne!(s.mesh_positions(), before);
+        }
+    }
+
+    /// The water reflection camera seeing a system keeps it drawn while the main camera
+    /// faces away; switched off, the system is hidden. A camera of other layers does not
+    /// count.
+    #[test]
+    fn reflection_only_visibility_keeps_a_system_drawn() {
+        let mut s = Scene::new(moving_particles(), None, away());
+        let reflection = Scene::camera(&mut s.world, Quat::IDENTITY, true, Some(RenderLayers::from_layers(&[0, crate::sky::ARMS_LAYER, crate::sky::BODY_LAYER])), Role::Reflection);
+        s.frame(0.1);
+        assert!(s.shown(), "the reflection sees it");
+        assert_eq!(s.mesh_positions(), s.expected(away()), "built with the main camera's basis, as before");
+        s.world.get_mut::<Camera>(reflection).unwrap().is_active = false;
+        s.frame(0.1);
+        assert!(!s.shown(), "reflection off: nothing sees it");
+        // A camera facing it that draws other layers only (a menu view's).
+        Scene::camera(&mut s.world, Quat::IDENTITY, true, Some(RenderLayers::layer(7)), Role::Other);
+        s.frame(0.1);
+        assert!(!s.shown(), "a camera of other layers does not count");
+    }
+
+    /// In doubt the system is drawn: no active camera, a camera whose frustum is not set.
+    /// Without the world camera nothing is drawn, shown or hidden.
+    #[test]
+    fn in_doubt_a_system_is_drawn_and_without_the_world_camera_left_as_it_was() {
+        let mut s = Scene::new(moving_particles(), None, away());
+        s.frame(0.1);
+        assert!(!s.shown());
+        let main = s.main;
+        s.world.entity_mut(main).insert(Frustum::default());
+        s.frame(0.1);
+        assert!(s.shown(), "a frustum not set: drawn");
+        assert_eq!(s.mesh_positions(), s.expected(away()));
+        // The main camera's frustum set again, and a camera of other layers only (a menu
+        // view's) whose frustum is not set: that one does not stop the culling.
+        s.turn(main, away());
+        let menu = Scene::camera(&mut s.world, Quat::IDENTITY, true, Some(RenderLayers::layer(7)), Role::Other);
+        s.world.entity_mut(menu).insert(Frustum::default());
+        s.frame(0.1);
+        assert!(!s.shown(), "an unset camera of other layers leaves it culled");
+        // One drawing layer 0 whose frustum is not set: drawn.
+        s.world.entity_mut(menu).insert(RenderLayers::from_layers(&[0, 7]));
+        s.frame(0.1);
+        assert!(s.shown(), "an unset camera of its layers: drawn");
+        s.world.entity_mut(menu).despawn();
+        s.world.get_mut::<Camera>(main).unwrap().is_active = false;
+        s.turn(main, away());
+        s.frame(0.1);
+        assert!(s.shown(), "no active camera: drawn");
+        // No world camera (none spawned yet): the draw stops, leaving the system as it was.
+        s.world.get_mut::<Camera>(main).unwrap().is_active = true;
+        s.world.entity_mut(main).remove::<crate::fly::FlyCam>();
+        let before = s.mesh_positions();
+        s.frame(0.1);
+        assert!(s.shown(), "no world camera: left shown");
+        assert_eq!(s.mesh_positions(), before, "no world camera: not rebuilt");
+    }
+
+    /// A scope raised beside the world camera (a 2D scope's camera on its own layer, a 3D
+    /// scope's lens camera on the world's) no longer stops the draw: a system culled when
+    /// the scope comes up is rebuilt and shown in the frame the player turns to it.
+    #[test]
+    fn a_system_culled_when_a_scope_is_raised_comes_back_when_turned_to() {
+        for lens in [false, true] {
+            let mut s = Scene::new(moving_particles(), None, away());
+            s.frame(0.1);
+            assert!(!s.shown(), "out of view: culled");
+            let before = s.mesh_positions();
+            // The scope comes up: its camera beside the world camera.
+            let scope = if lens { Scene::camera(&mut s.world, away(), true, Some(RenderLayers::from_layers(&[0, crate::reflection::WATER_LAYER])), Role::Other) } else { Scene::camera(&mut s.world, Quat::IDENTITY, true, Some(RenderLayers::layer(7)), Role::Other) };
+            s.frame(0.1);
+            assert!(!s.shown(), "scope up, still out of view: culled (lens {lens})");
+            assert_eq!(s.mesh_positions(), before);
+            // The player turns to the system with the scope up (the lens camera turns with
+            // the world camera it hangs from).
+            let main = s.main;
+            s.turn(main, Quat::IDENTITY);
+            if lens {
+                s.turn(scope, Quat::IDENTITY);
+            }
+            s.frame(0.1);
+            assert!(s.shown(), "turned to with the scope up: shown at once (lens {lens})");
+            assert_eq!(s.mesh_positions(), s.expected(Quat::IDENTITY), "this frame's geometry (lens {lens})");
+            // And it keeps animating while the scope stays up.
+            let now = s.mesh_positions();
+            s.frame(0.1);
+            assert_ne!(s.mesh_positions(), now, "keeps animating with the scope up (lens {lens})");
+        }
+    }
+
+    /// Culling changes nothing of the simulation: over many frames of an emitter giving
+    /// birth all the time and particles dying, the particles, their trails, the random
+    /// state and the counts are the same whether the camera sees the system or not.
+    #[test]
+    fn simulation_is_the_same_with_the_system_culled_or_drawn() {
+        for strip in [None, Some(Strip { max_points: 5, step: 0.03 })] {
+            let mut seen = Scene::emitting(strip, Quat::IDENTITY);
+            let mut culled = Scene::emitting(strip, away());
+            let mut most = 0;
+            for k in 0..150 {
+                let dt = 0.004 + (k % 7) as f32 * 0.003;
+                seen.frame(dt);
+                culled.frame(dt);
+                most = most.max(seen.live().particles.len());
+            }
+            assert!(seen.shown() && !culled.shown());
+            let state = |s: &Scene| {
+                let p = s.world.resource::<Particles>();
+                let l = s.live();
+                let q: Vec<_> = l.particles.iter().map(|q| (q.pos.to_array().map(f32::to_bits), q.vel.to_array().map(f32::to_bits), q.age.to_bits(), q.life.to_bits(), q.radius.to_bits(), q.angle.to_bits(), q.tex, q.trail.iter().map(|t| t.to_array().map(f32::to_bits)).collect::<Vec<_>>(), q.trail_clock.to_bits())).collect();
+                (q, p.rng.0, p.born, p.most_alive, l.served, l.owed.to_bits())
+            };
+            assert_eq!(state(&seen), state(&culled));
+            // Births and deaths both happened: far more born than ever alive at once.
+            let born = seen.world.resource::<Particles>().born;
+            assert!(born > 40 && (most as u64) < born, "born {born}, most alive {most}");
+            assert!(!seen.live().particles.is_empty());
+        }
+    }
+
+    /// With the profile aid's counts present, the draw counts each live system once a
+    /// frame: rebuilt or culled.
+    #[test]
+    fn the_profile_counts_published_and_culled_systems() {
+        let mut s = Scene::new(moving_particles(), None, Quat::IDENTITY);
+        s.world.insert_resource(crate::profile::ParticleCull::default());
+        s.frame(0.1);
+        let main = s.main;
+        s.turn(main, away());
+        s.frame(0.1);
+        s.frame(0.1);
+        assert_eq!(s.world.resource::<crate::profile::ParticleCull>().totals(), ([1, 0], [2, 0]));
+    }
+
+    // --- The real schedule: Bevy's transform, camera, visibility and asset plugins ---
+
+    /// The particle meshes' `Modified` events of this frame, read in `Last`.
+    #[derive(Resource, Default)]
+    struct ModifiedThisFrame(Vec<AssetId<Mesh>>);
+
+    fn record_modified(mut events: MessageReader<AssetEvent<Mesh>>, mut seen: ResMut<ModifiedThisFrame>) {
+        seen.0.clear();
+        seen.0.extend(events.read().filter_map(|e| match e {
+            AssetEvent::Modified { id } => Some(*id),
+            _ => None,
+        }));
+    }
+
+    /// A reflection camera to switch on this frame in `PostUpdate`, where
+    /// `reflection::update_reflection` does: after the transforms, before the frusta.
+    #[derive(Resource, Default)]
+    struct RaiseReflection(Option<Entity>);
+
+    fn raise_reflection(mut raise: ResMut<RaiseReflection>, mut cameras: Query<(&mut Camera, &mut Transform, &mut GlobalTransform)>) {
+        let Some(e) = raise.0.take() else { return };
+        if let Ok((mut c, mut t, mut g)) = cameras.get_mut(e) {
+            c.is_active = true;
+            *t = Transform::IDENTITY;
+            *g = GlobalTransform::from(*t);
+        }
+    }
+
+    /// A headless app with Bevy's own plugins and sets (no window, no GPU) and the
+    /// particle systems where the plugin puts them: `simulate` and `take_basis` in
+    /// `Update`, `draw` in `ParticleDrawSet` (`configure_draw_set`). One system ahead of
+    /// the world camera's identity turn, under the world root; the world camera faces away.
+    struct Sched {
+        app: App,
+        system: Entity,
+        mesh: Handle<Mesh>,
+        main: Entity,
+        reflection: Entity,
+    }
+
+    impl Sched {
+        fn new() -> Sched {
+            use bevy::asset::{AssetApp, AssetPlugin};
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, AssetPlugin::default(), bevy::transform::TransformPlugin, bevy::camera::CameraPlugin)).init_asset::<Mesh>()
+                // CameraPlugin's skinned-mesh bounds system reads this store (MeshPlugin adds it in the game).
+                .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+            configure_draw_set(&mut app);
+            app.init_resource::<ModifiedThisFrame>()
+                .init_resource::<RaiseReflection>()
+                .add_systems(Update, (simulate, take_basis).chain())
+                .add_systems(
+                    PostUpdate,
+                    (
+                        draw.in_set(ParticleDrawSet),
+                        raise_reflection.after(bevy::transform::TransformSystems::Propagate).before(VisibilitySystems::UpdateFrusta),
+                    ),
+                )
+                .add_systems(Last, record_modified);
+            let world = app.world_mut();
+            let root = world.spawn((WorldRoot, crate::world::game_to_bevy(), Visibility::default())).id();
+            let main = world.spawn((Camera3d::default(), Camera::default(), test_projection(), Transform::from_rotation(away()), crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 })).id();
+            let reflection = world
+                .spawn((
+                    Camera3d::default(),
+                    Camera { is_active: false, ..default() },
+                    test_projection(),
+                    Transform::from_rotation(away()),
+                    crate::reflection::ReflectionCamera,
+                    RenderLayers::from_layers(&[0, crate::sky::ARMS_LAYER, crate::sky::BODY_LAYER]),
+                ))
+                .id();
+            let mesh = world.resource_mut::<Assets<Mesh>>().add(particle_mesh());
+            let system = world.spawn((Mesh3d(mesh.clone()), Transform::IDENTITY, Visibility::Hidden, NotShadowCaster, NoFrustumCulling, ChildOf(root))).id();
+            let mut p = Particles::default();
+            let live = Live { def: test_def(None), particles: moving_particles(), geometry: ParticleGeometry::default(), mesh: mesh.clone(), entity: system, served: 0, owed: 0.0 };
+            p.systems.insert(Key { source: Source::Model("test.nif".into()), instance: None }, Some(vec![live]));
+            world.insert_resource(p);
+            let mut s = Sched { app, system, mesh, main, reflection };
+            for _ in 0..3 {
+                s.app.update();
+            }
+            s
+        }
+
+        /// Run a frame: whether the system is drawn (inherited and view visibility, as the
+        /// renderer would take it), and whether its mesh's `Modified` event came this frame.
+        fn frame(&mut self) -> (bool, bool, bool) {
+            self.app.update();
+            let w = self.app.world();
+            let inherited = w.get::<InheritedVisibility>(self.system).unwrap().get();
+            let view = w.get::<ViewVisibility>(self.system).unwrap().get();
+            (inherited, view, w.resource::<ModifiedThisFrame>().0.contains(&self.mesh.id()))
+        }
+
+        fn culled(&mut self, what: &str) {
+            assert_eq!(self.frame(), (false, false, false), "{what}: out of view, hidden, mesh not rewritten");
+        }
+
+        fn entered(&mut self, what: &str) {
+            assert_eq!(self.frame(), (true, true, true), "{what}: drawn and its mesh rewritten in the frame it comes into view");
+        }
+
+        fn set<B: Bundle>(&mut self, e: Entity, b: B) {
+            self.app.world_mut().entity_mut(e).insert(b);
+        }
+    }
+
+    /// In the real schedule a system coming into view is shown, seen by the view and its
+    /// rebuilt mesh sent to the renderer in that same frame: the camera turned, moved, its
+    /// field of view widened, the water reflection camera switched on that frame, and
+    /// turned to with a scope's camera up.
+    #[test]
+    fn real_schedule_draws_a_system_in_the_frame_it_comes_into_view() {
+        // Turned to.
+        let mut s = Sched::new();
+        s.culled("facing away");
+        s.culled("facing away");
+        let main = s.main;
+        s.set(main, Transform::IDENTITY);
+        s.entered("turned to");
+        assert_eq!(s.frame(), (true, true, true), "in view: rebuilt every frame as before");
+        s.set(main, Transform::from_rotation(away()));
+        s.culled("turned away again");
+
+        // Moved: from past the system (it behind the camera) to in front of it.
+        let mut s = Sched::new();
+        let main = s.main;
+        s.set(main, Transform::from_xyz(0.0, 0.0, -2000.0));
+        s.culled("past it");
+        s.set(main, Transform::IDENTITY);
+        s.entered("moved in front of it");
+
+        // A wider field of view: turned 40° off it, outside a 10° view, inside a 100° one.
+        let mut s = Sched::new();
+        let main = s.main;
+        let narrow = Projection::Perspective(PerspectiveProjection { fov: 10f32.to_radians(), aspect_ratio: 16.0 / 9.0, near: 5.0, ..default() });
+        let wide = Projection::Perspective(PerspectiveProjection { fov: 100f32.to_radians(), aspect_ratio: 16.0 / 9.0, near: 5.0, ..default() });
+        s.set(main, (Transform::from_rotation(Quat::from_rotation_y(40f32.to_radians())), narrow));
+        s.culled("off to the side of a narrow view");
+        s.set(main, wide);
+        s.entered("the view widened");
+
+        // The reflection camera switched on this frame (in PostUpdate, before the frusta).
+        let mut s = Sched::new();
+        s.culled("no camera faces it");
+        let reflection = s.reflection;
+        s.app.world_mut().resource_mut::<RaiseReflection>().0 = Some(reflection);
+        s.entered("the reflection camera switched on facing it");
+        s.app.world_mut().get_mut::<Camera>(reflection).unwrap().is_active = false;
+        s.culled("the reflection camera off again");
+
+        // A scope's camera up (its own layer), then turned to.
+        let mut s = Sched::new();
+        s.culled("facing away");
+        s.app.world_mut().spawn((Camera3d::default(), Camera::default(), test_projection(), Transform::IDENTITY, RenderLayers::layer(7)));
+        s.culled("a scope's camera up");
+        let main = s.main;
+        s.set(main, Transform::IDENTITY);
+        s.entered("turned to with the scope up");
     }
 }

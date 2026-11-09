@@ -823,6 +823,26 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       (barter-menu.md section 9). Synthetic tests cover the adapter and a model sale. Smoke
       `tiles-barter`, `tiles-barter-quantity`, `barter-default-drawing` includes 1280x720 shots.
 
+    - **T15, the vendor's repair menu built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RepairServicesMenu`, hand-built drawing still the default [design:
+      `tiles/repair_services_menu.rs`, repair.md §3.1]. Takes the list's groundwork from
+      `tiles/list.rs` (`settle_list`, `ListView`, `hit`, `template_has`), its card pair is
+      `tiles/repair_cards.rs` for the Pip-Boy's repair page to take later. Rules, keys, sounds
+      and refusals stay `repair.rs`'s, reached through `RepairServicesInput`. Strings are listed
+      in repair.md §3.1: settings, record names, numbers or our own words; "Cost:" is not shown.
+      Two captures of the original corrected the meters, the Repair button, Repair All and the
+      rows' dim (the same section). Synthetic tests cover the adapter. Smoke `tiles-repair-services`,
+      `repair-services-default-drawing`.
+
+    - **T15, the Pip-Boy's repair page built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RepairMenu`, hand-built list still the default [design: `tiles/repair_menu.rs`,
+      repair.md §5.1]. Painted into the Pip-Boy's image in the way of `tiles/stats_menu.rs`, with
+      one decision for the painting, the hand-built suppression and the input; takes the card
+      pairs from `tiles/repair_cards.rs`. Rules, keys and sounds stay `pipboy/repair.rs`'s,
+      reached through `RepairInput`. A capture read the page's three states, but no real repair
+      on a part. Synthetic tests cover the adapter. Smoke `tiles-pipboy-repair`,
+      `tiles-pipboy-repair-off`.
+
     - **T15, tag-skill candidate built** 2026-11-06 (issue #1519), behind
       `[UI] TileMenus=CharGenMenu` [design: `tiles/tag_menu.rs`, chargen.md §3.1].
       The preceding behavior-preserving refactor shares the trait menu's readiness,

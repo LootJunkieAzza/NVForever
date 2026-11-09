@@ -208,6 +208,14 @@ an NPC, ResetFallTime, active effects and effect lists, the equipped items, armo
 condition and GetArmourPenetrated, SetBaseFactionRank, ClearDeadActors, the hardcore stages'
 effects, SetConditionDamagePenalty; four nothing values by decision, §7; probed, set
 jip11, 22 of 28 after the fixes that follow it, jip-actors-11.md §6). Census after it: JIP 142 → 102.
+JIP batch 13: 39 (#1006, jip-physics-13.md: the collision objects' velocities, layers and
+properties through fnv_phys::script, contacts, the ground under an actor and its material,
+GetRayCastMaterial, IsGrabbable, ToggleObjectCollision, SetLocalGravityVector,
+PushActorAwayAlt and PushActorNoRagdoll, TravelToRef and MoveAwayFrom as made Travel
+packages, MoveToNode, MoveToReticle, MoveToFadeDelay, PlaceAtCell, RotateAroundPoint,
+SetAngleEx, FaceObject and Turn with the turn clip, SynchronizePosition, GetReticleNode,
+GetReticlePosAlt; not probed yet, set jip13). Census after it: JIP 102 → 63 on main, 29 with
+batch 12 (#1929).
 SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid references, Ar_SetFloatsFrom through
 the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
 the last save's and load's names and sizes told by the engine, the cells and map markers near the player,

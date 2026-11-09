@@ -3265,6 +3265,9 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "getangleex" => &[0, 1, 2],
         // [documented: GetActorVelocityAlt, "placed into the 3 specified Script Variables"].
         "getactorvelocityalt" => &[0, 1, 2],
+        // JIP batch 13 (fnv_game::nvse_jip13).
+        "getangularvelocityalt" | "getlinearvelocityalt" => &[1, 2, 3],
+        "getreticleposalt" => &[0, 1, 2],
         "getanglesbetweenpoints" => &[6, 7],
         "getpointraycastpos" => &[5, 6, 7],
         "geteditorposition" => &[0, 1, 2, 3, 4, 5],

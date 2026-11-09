@@ -3,7 +3,9 @@
 //! by it. A choice acts at once: the settings page is drawn again in it, every other
 //! menu the next time it is drawn. It is kept as `language=<id>` in NVForever.ini like
 //! every row (`crate::settings`). English is always there; the others are the languages
-//! the start found (`fnv_util::words::load`).
+//! the start found (`fnv_util::words::load`). With no `language=` kept, the start chooses
+//! the language of the game's text when its code page names one (#1948,
+//! `fnv_util::words::follow_code_page`).
 
 use crate::settings::{add_choice_list, ChoiceList, Setting};
 use bevy::prelude::*;
