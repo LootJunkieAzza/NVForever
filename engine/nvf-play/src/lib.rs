@@ -112,6 +112,8 @@ pub mod sup_screen;
 pub mod sup_shots;
 pub mod script_trigger;
 pub mod settings;
+pub mod settings_layout;
+pub mod settings_view;
 pub mod start_menu;
 pub mod sim;
 pub mod space;
