@@ -128,6 +128,12 @@ impl MarkQueue {
         self.marks.pop()
     }
 
+    /// Take mark `i` out, whichever it is (the classic style drops the attacks queued on
+    /// a target that is one no longer); `None` past the end.
+    pub fn remove(&mut self, i: usize) -> Option<Mark> {
+        (i < self.marks.len()).then(|| self.marks.remove(i))
+    }
+
     pub fn marks(&self) -> &[Mark] {
         &self.marks
     }
@@ -463,6 +469,32 @@ pub fn restored_damage(damage: f32, max: f32, rate: f32, dt: f32) -> f32 {
     (damage - max.max(0.0) * rate.max(0.0) * dt.max(0.0)).max(0.0)
 }
 
+/// The VATS settings the classic style reads (docs/design/vats-classic.md §3, §7): from
+/// the load order, the defaults below where it has none.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct ClassicTuning {
+    /// `fVATSMaxEngageDistance`: actors farther than this are not targets, units
+    /// [documented: fallout.wiki "Fallout 3 V.A.T.S.", game settings table, 5000].
+    pub max_engage: f32,
+    /// `fVATSPlayerDamageMult`: the share of a hit's damage the player takes while the
+    /// queued attacks play [documented: fallout.wiki "Fallout: New Vegas V.A.T.S.", 75 %
+    /// in New Vegas against Fallout 3's 10 %].
+    pub player_damage_mult: f32,
+}
+
+impl Default for ClassicTuning {
+    fn default() -> ClassicTuning {
+        ClassicTuning { max_engage: 5000.0, player_damage_mult: 0.75 }
+    }
+}
+
+/// The damage of a hit on the player while the classic style's queued attacks play
+/// (docs/design/vats-classic.md §7): `damage` times `fVATSPlayerDamageMult`, never less
+/// than nothing nor more than the hit.
+pub fn playback_damage(damage: f32, t: &ClassicTuning) -> f32 {
+    damage * t.player_damage_mult.clamp(0.0, 1.0)
+}
+
 /// The VATS settings the hit chance reads (docs/design/vats-mode.md §17.1): from the load
 /// order, the GECK wiki's defaults where it has none.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -626,6 +658,32 @@ mod tests {
         assert_eq!(shot_ap_cost(&weapon("Thrown (1 Hand)", None), &AP), 35.0);
         assert_eq!(shot_ap_cost(&weapon("Mine Drop (1 Hand)", None), &AP), 10.0);
         assert_eq!(shot_ap_cost(&WeaponStats::default(), &AP), 25.0, "no type: as a rifle");
+    }
+
+    #[test]
+    fn a_mark_taken_out_frees_its_ap_and_keeps_the_order() {
+        let mut q = MarkQueue::new(26.0, 1, 6);
+        for (target, part) in [(0x10, 0), (0x11, 1), (0x10, 2)] {
+            q.push(FormId(target), Some(part), 92.0).unwrap();
+        }
+        assert_eq!(q.reserved(), 78.0);
+        assert_eq!(q.remove(1).map(|m| m.target), Some(FormId(0x11)));
+        assert_eq!(q.reserved(), 52.0, "its AP is no longer held");
+        assert_eq!(q.marks().iter().map(|m| m.part).collect::<Vec<_>>(), [Some(0), Some(2)]);
+        assert_eq!(q.remove(5), None);
+        // The freed AP takes another mark.
+        assert_eq!(q.push(FormId(0x12), None, 92.0), Ok(3));
+    }
+
+    #[test]
+    fn the_player_takes_a_share_of_a_hit_while_the_attacks_play() {
+        let t = ClassicTuning::default();
+        assert_eq!(t.max_engage, 5000.0);
+        assert_eq!(playback_damage(40.0, &t), 30.0, "New Vegas: 75 %");
+        // Fallout 3's setting, and values a mod might set out of range.
+        assert_eq!(playback_damage(40.0, &ClassicTuning { player_damage_mult: 0.1, ..t }), 4.0);
+        assert_eq!(playback_damage(40.0, &ClassicTuning { player_damage_mult: 3.0, ..t }), 40.0);
+        assert_eq!(playback_damage(40.0, &ClassicTuning { player_damage_mult: -1.0, ..t }), 0.0);
     }
 
     #[test]

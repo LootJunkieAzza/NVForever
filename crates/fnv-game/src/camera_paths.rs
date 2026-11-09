@@ -271,7 +271,7 @@ impl Game<'_> {
         }
         let tree = CameraPathTree::build(&data.camera_paths);
         let was = self.vats;
-        self.vats = VatsState { mode: MODE_PLAYBACK, shot: Some(shot), outcome: Some(outcome), room: Some(room) };
+        self.vats = VatsState { mode: MODE_PLAYBACK, shot: Some(shot), outcome: Some(outcome), room: Some(room), player_damage_mult: self.vats.player_damage_mult };
         let picked = self.walk_paths(&tree, &tree.roots.clone(), shot.target, 0);
         self.vats = was;
         picked

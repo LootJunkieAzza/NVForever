@@ -3440,6 +3440,16 @@ fn hit_actor(
     let mine = info.attacker == Some(FormId::PLAYER_REF);
     let rt = script.and_then(|s| s.rt.as_mut())?;
     if target == FormId::PLAYER_REF {
+        // While the classic VATS style plays its queued attacks the player takes a share
+        // of a hit, `fVATSPlayerDamageMult` (`crate::vats_mode`, vats-classic.md §7).
+        let dealt = match rt.game.vats.player_damage_mult {
+            Some(m) => {
+                let less = fnv_combat::vats::playback_damage(dealt, &fnv_combat::vats::ClassicTuning { player_damage_mult: m, ..Default::default() });
+                info!("combat: vats playback: the player takes {less:.1} of {dealt:.1} (fVATSPlayerDamageMult {m:.2})");
+                less
+            }
+            None => dealt,
+        };
         return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback, blast).map(|r| (r, None));
     }
     // The hit's effects go on before its damage (`hit_effects`).

@@ -81,10 +81,11 @@ use crate::interface::{bc_supported, face as font_face, plain_font, set_line, Fa
 use bevy::image::CompressedImageFormatSupport;
 use nvf_assets::GameData;
 use crate::phys::PhysState;
-use crate::player::Player;
+use crate::player::{MoveIntent, Player};
 use crate::script::{with_world, ScriptState};
 use crate::sfx::{LoopSound, PlaySound, Sfx};
 use crate::sim::SimState;
+use crate::vats_classic::{self as classic, Candidate, VatsSlowdown, VatsStyle};
 use crate::{space, PlaySet, PlayState, PlayerCamera};
 
 /// The clock's speed while marking [design: the owner's "very, very slow"].
@@ -233,6 +234,9 @@ struct Keys {
     mark: bool,
     unmark: bool,
     accept: bool,
+    /// The classic style's: the target before or after (-1, 1), the part before or after.
+    target_step: i32,
+    part_step: i32,
 }
 
 /// Where a mark is and what it is on.
@@ -377,8 +381,41 @@ pub struct VatsMode {
     /// marked (§17.5), and the parts list it is built from (kept for its room).
     preview: Preview,
     preview_list: Vec<Option<u8>>,
+    /// The style this stay was entered in, and the classic style's state
+    /// (docs/design/vats-classic.md).
+    style: VatsStyle,
+    classic: ClassicState,
     pub stats: VatsStats,
 }
+
+/// The classic style's state for a stay (docs/design/vats-classic.md §3, §4).
+#[derive(Debug, Clone, Default)]
+struct ClassicState {
+    /// The clock's speed while targets are chosen (`classic::clock_scale` of the setting).
+    scale: f32,
+    /// The targets, left to right, and the one the view is on.
+    targets: Vec<Candidate>,
+    selected: Option<u32>,
+    /// The selected target's part the next attack is queued on: its place in the preview.
+    part: usize,
+    /// The part was chosen for this target (by the player or as its best).
+    part_set: Option<u32>,
+    /// The line the player looked along on entering, and the view then (heading, pitch).
+    entry_dir: [f32; 3],
+    entry_view: Option<(f32, f32)>,
+    /// The view to go back to: set on leaving without firing, taken by the next frame.
+    restore: Option<(f32, f32)>,
+    /// Real seconds when the targets were last looked for.
+    scanned_at: f64,
+}
+
+/// The classic style's targets are looked for again this often, real seconds [design:
+/// with the world stopped nothing changes; slowed, four times a second is as fresh as
+/// `PREVIEW_REBUILD`].
+const CLASSIC_SCAN: f64 = 0.25;
+/// A target must be within this angle of the line the player looked along on entering,
+/// degrees [design: about what the view shows; the original lists the targets in view].
+pub const CLASSIC_FRONT: f32 = 55.0;
 
 impl VatsMode {
     /// Marking or firing.
@@ -389,6 +426,22 @@ impl VatsMode {
     /// The mode has Use, Block and Activate for itself (§11.5).
     pub fn holds_input(&self) -> bool {
         self.phase != Phase::Off
+    }
+
+    /// The classic style is choosing targets or playing the queued attacks: the player
+    /// neither moves nor turns the view, which is the mode's (vats-classic.md §5).
+    pub fn holds_view(&self) -> bool {
+        self.style == VatsStyle::Classic && self.active()
+    }
+
+    /// The style of the stay (the last one, when the mode is off).
+    pub fn style(&self) -> VatsStyle {
+        self.style
+    }
+
+    /// The classic style's selected target (reference), while targets are chosen.
+    pub fn selected(&self) -> Option<u32> {
+        self.classic.selected.filter(|_| self.style == VatsStyle::Classic && self.phase == Phase::Marking)
     }
 
     /// The actors marked now (references).
@@ -439,6 +492,8 @@ impl VatsMode {
     /// The clock's speed the mode asks for (`script::time_multiplier` multiplies it in).
     pub fn time_scale(&self) -> f32 {
         match (self.phase, self.entered_at) {
+            // The classic style stops (or slows) the world at once (vats-classic.md §2).
+            (Phase::Marking, _) if self.style == VatsStyle::Classic => self.classic.scale,
             (Phase::Marking, Some(t)) => time_scale_at((self.now - t) as f32),
             (Phase::Firing, _) => FIRE_SCALE,
             _ => 1.0,
@@ -459,6 +514,11 @@ impl VatsMode {
     /// Concentrated Fire has raised the most.
     fn drawn(&self) -> Vec<([f32; 3], f32)> {
         let skip = if self.phase == Phase::Firing { self.started } else { 0 };
+        // The classic style shows what is queued on each part's own label while targets
+        // are chosen (`draw_previews`).
+        if self.style == VatsStyle::Classic && self.phase == Phase::Marking {
+            return Vec::new();
+        }
         let mut seen: Vec<(u32, Option<u8>)> = Vec::new();
         let mut out: Vec<([f32; 3], f32)> = Vec::new();
         for (m, s) in self.queue.marks().iter().zip(&self.spots).skip(skip).take(if self.active() { usize::MAX } else { 0 }) {
@@ -618,13 +678,24 @@ fn read_keys(
     locks: Res<ControlLocks>,
     mut vats: ResMut<VatsMode>,
     mut control: ResMut<PlayerControl>,
-    player: Res<Player>,
+    (player, mut intent): (Res<Player>, ResMut<MoveIntent>),
     mut sounds: Sounds,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
     let pressed = |c: Control| playing && input.just_pressed(c);
     let now = real.elapsed_secs_f64();
-    vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate) };
+    vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate), target_step: 0, part_step: 0 };
+    // The classic style (vats-classic.md §4, §5): the movement controls choose, left and
+    // right the target, forward and back the part; the player stands still.
+    if vats.holds_view() {
+        if vats.phase == Phase::Marking {
+            vats.keys.target_step = i32::from(pressed(Control::SlideRight)) - i32::from(pressed(Control::SlideLeft));
+            vats.keys.part_step = i32::from(pressed(Control::Back)) - i32::from(pressed(Control::Forward));
+        }
+        let mut i = *intent;
+        (i.forward, i.right, i.jump) = (0.0, 0.0, false);
+        intent.set_if_neq(i);
+    }
     // Any other action ends the mode (§11.8), here before activation, so an E with
     // nothing marked reaches what is under the crosshair.
     if let Some(c) = leaving_press(vats.phase, vats.queue.len(), pressed) {
@@ -632,8 +703,13 @@ fn read_keys(
         vats.keys = Keys::default();
         end(&mut vats, &format!("{} pressed", crate::bindings::label(c)), &mut sounds);
     }
-    // Block while marking: a tap unmarks, a hold aims (the aim waits out the tap).
-    if vats.phase == Phase::Marking {
+    // Block while marking: a tap unmarks, a hold aims (the aim waits out the tap). The
+    // classic style has no aiming: the press takes the last attack back at once.
+    if vats.phase == Phase::Marking && vats.style == VatsStyle::Classic {
+        vats.keys.unmark = pressed(Control::Block);
+        vats.block_at = None;
+        control.aiming = false;
+    } else if vats.phase == Phase::Marking {
         if pressed(Control::Block) {
             vats.block_at = Some(now);
         }
@@ -694,7 +770,7 @@ fn read_keys(
 #[allow(clippy::too_many_arguments)]
 fn update(
     (real, time): (Res<Time<Real>>, Res<Time>),
-    state: Res<State<PlayState>>,
+    (state, style, slowdown): (Res<State<PlayState>>, Res<VatsStyle>, Res<VatsSlowdown>),
     mut vats: ResMut<VatsMode>,
     (combat, anim, parts): (Option<Res<Combat>>, Res<WeaponAnim>, Res<ActorParts>),
     mut sim: ResMut<SimState>,
@@ -716,6 +792,10 @@ fn update(
     // follows it (§11.8).
     let held = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.in_menu());
     let Some(combat) = combat else { return };
+    // Left without firing, the classic style gives the view back (vats-classic.md §5).
+    if let Some((heading, pitch)) = v.classic.restore.take() {
+        (player.heading, player.pitch) = (heading, pitch);
+    }
     // What ends the mode whatever it is doing (§9.3, §11.6, §11.8).
     let stop = if !playing {
         Some("a menu opened")
@@ -747,7 +827,9 @@ fn update(
                 v.regen_mult = Some(m);
             }
             if keys.toggle {
+                (v.style, v.classic.scale) = (*style, classic::clock_scale(slowdown.0));
                 try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, playing && !dead && !held && !locks.fighting, &mut hud, &mut sounds);
+                classic_enter(v, &combat, script.as_deref_mut(), &mut sim, &mut phys, &player, &mut sounds);
             }
         }
         (_, Some(why)) => end(v, why, &mut sounds),
@@ -757,14 +839,26 @@ fn update(
                 info!("vats mode: entering cancelled");
             } else if anim.ready && control.weapon_out {
                 v.phase = Phase::Off;
+                (v.style, v.classic.scale) = (*style, classic::clock_scale(slowdown.0));
                 try_enter(v, &combat, script.as_deref_mut(), &mut sim, phys.world.params.gravity, true, &mut hud, &mut sounds);
+                classic_enter(v, &combat, script.as_deref_mut(), &mut sim, &mut phys, &player, &mut sounds);
             }
         }
         (Phase::Marking, None) => {
             follow(v, &phys);
             rechance(v, &combat, player.eye());
-            preview(v, &combat, &parts, script.as_deref_mut(), &mut sim, &mut phys, &player, &control);
-            if keys.toggle {
+            let chosen = if v.style == VatsStyle::Classic {
+                classic_frame(v, &keys, &combat, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, real.delta_secs(), &mut sounds)
+            } else {
+                None
+            };
+            // (The classic style has ended the mode when no target is left.)
+            let on = v.phase == Phase::Marking;
+            if on {
+                preview(v, &combat, &parts, script.as_deref_mut(), &mut sim, &mut phys, &player, &control, chosen);
+            }
+            if !on {
+            } else if keys.toggle {
                 end(v, "V pressed again", &mut sounds);
             } else if keys.unmark {
                 match v.queue.pop() {
@@ -794,6 +888,13 @@ fn update(
                     sounds.play(v, "UIVATSReady");
                     info!("vats mode: firing {n} marked {what}");
                 }
+            } else if keys.mark && v.style == VatsStyle::Classic {
+                // The selected target's selected part (vats-classic.md §4).
+                let on = v.classic.selected.zip(v.preview.parts.get(v.classic.part).map(|p| (p.part, p.spot.point)));
+                match on {
+                    Some((actor, (part, point))) => mark_actor(v, &combat, &parts, script.as_deref_mut(), &mut sim, &phys, &player, &mut hud, &mut sounds, actor, part, point),
+                    None => info!("vats mode: nothing selected to queue an attack on"),
+                }
             } else if keys.mark {
                 mark(v, &combat, &parts, script.as_deref_mut(), &mut sim, &mut phys, &player, &control, &mut hud, &mut sounds);
             }
@@ -817,7 +918,7 @@ fn update(
     if let Some(before) = v.reward_due.take() {
         kill_reward(v, before, script.as_deref_mut(), &mut sim);
     }
-    tell_scripts(v, script.as_deref_mut(), &player);
+    tell_scripts(v, script.as_deref_mut(), &player, combat.rules.vats_classic.player_damage_mult);
 }
 
 /// Spent AP comes back outside the mode (§7.2), faster with the Action Point Regen perks
@@ -928,6 +1029,155 @@ fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     v.spots.clear();
     v.preview = Preview::default();
     v.blow_lands = false;
+    // Left without firing, the classic style's view goes back to where it was.
+    let restore = v.classic.entry_view.filter(|_| was == Phase::Marking && v.style == VatsStyle::Classic);
+    v.classic = ClassicState { scale: v.classic.scale, restore, ..ClassicState::default() };
+}
+
+/// The classic style's targets now (vats-classic.md §3): every living actor with a hit
+/// volume within the weapon's reach and `fVATSMaxEngageDistance`, within
+/// [`CLASSIC_FRONT`] of the line the player looked along on entering, in sight and not
+/// barred ([`barred`]: dead, cloaked without Enhanced Sensors, No VATS Melee), hostile or
+/// not; left to right. With them, the place of the one nearest that line.
+fn classic_targets(v: &VatsMode, combat: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, eye: [f32; 3]) -> (Vec<Candidate>, Option<usize>) {
+    let reach = v.weapon.as_ref().map_or(REACH, |w| w.reach).min(combat.rules.vats_classic.max_engage.max(1.0));
+    let dir = v.classic.entry_dir;
+    let front = CLASSIC_FRONT.to_radians();
+    let filter = shot_filter(phys);
+    let actors: Vec<u32> = phys.world.actor_volumes().filter(|&a| a != FormId::PLAYER_REF.0).collect();
+    let mut out = Vec::new();
+    for actor in actors {
+        let Some(p) = phys.world.actor_aim_point(actor) else { continue };
+        let to = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
+        let len = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
+        if !(1.0..=reach).contains(&len) {
+            continue;
+        }
+        let (bearing, off) = classic::bearing_of(dir, to);
+        if off > front || barred(v, script.as_deref_mut(), sim, actor).is_err() || !in_sight(phys, eye, p, &filter) {
+            continue;
+        }
+        out.push(Candidate { actor, bearing, off });
+    }
+    let first = classic::order(&mut out);
+    (out, first)
+}
+
+/// After [`try_enter`] let the mode start in the classic style: its targets are looked
+/// for, the nearest the crosshair selected; with none the mode does not start
+/// (vats-classic.md §3) [design: owner 2026-11-09, V with nothing to target only plays
+/// the refusal sound].
+fn classic_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, player: &Player, sounds: &mut Sounds) {
+    if v.phase != Phase::Marking || v.style != VatsStyle::Classic {
+        return;
+    }
+    v.classic = ClassicState { scale: v.classic.scale, entry_dir: player.look_dir(), entry_view: Some((player.heading, player.pitch)), scanned_at: v.now, ..ClassicState::default() };
+    let (targets, first) = classic_targets(v, combat, script, sim, phys, player.eye());
+    let Some(first) = first else {
+        // Not a stay: nothing of it is counted or shown.
+        v.phase = Phase::Off;
+        v.entered_at = None;
+        v.queue = MarkQueue::default();
+        v.weapon = None;
+        v.classic.entry_view = None;
+        v.stats.entered = v.stats.entered.saturating_sub(1);
+        v.stats.refused += 1;
+        sounds.looping(v, false);
+        sounds.play(v, "UIVATSEnterFail");
+        info!("vats mode: refused: no target in sight (classic)");
+        return;
+    };
+    v.classic.selected = Some(targets[first].actor);
+    info!(
+        "vats mode: classic: {} targets, {:08X} selected; the clock at {:.2} while targets are chosen",
+        targets.len(),
+        targets[first].actor,
+        v.classic.scale
+    );
+    v.classic.targets = targets;
+}
+
+/// The classic style's frame while targets are chosen (vats-classic.md §3 to §5): the
+/// targets are looked for again every [`CLASSIC_SCAN`], queued attacks on a target that
+/// died or left sight are dropped (their AP was only reserved, so it is back), the
+/// movement controls move the selection, and the view turns onto the selected target in
+/// real time. The actor and part place for [`preview`]; `None` once no target is left
+/// (the mode has ended).
+#[allow(clippy::too_many_arguments)]
+fn classic_frame(
+    v: &mut VatsMode,
+    keys: &Keys,
+    combat: &Combat,
+    script: Option<&mut ScriptState>,
+    sim: &mut SimState,
+    phys: &mut PhysState,
+    player: &mut Player,
+    control: &PlayerControl,
+    real_dt: f32,
+    sounds: &mut Sounds,
+) -> Option<(u32, usize)> {
+    let eye = player.eye();
+    if v.now - v.classic.scanned_at >= CLASSIC_SCAN {
+        v.classic.scanned_at = v.now;
+        let (targets, first) = classic_targets(v, combat, script, sim, phys, eye);
+        // Queued attacks whose target is no longer one.
+        let mut i = v.queue.len();
+        while i > 0 {
+            i -= 1;
+            let m = v.queue.marks()[i];
+            if !targets.iter().any(|c| c.actor == m.target.0) {
+                v.queue.remove(i);
+                let s = v.spots.remove(i);
+                info!("vats mode: classic: the attack queued on {} {} ({}) is dropped: no longer a target; {:.0} AP reserved", s.name, m.target, s.part, v.queue.reserved());
+            }
+        }
+        // The selection stays on its actor; when that is gone it goes to the nearest in
+        // the order.
+        if !v.classic.selected.is_some_and(|a| targets.iter().any(|c| c.actor == a)) {
+            let was = v.classic.selected;
+            v.classic.selected = first.map(|i| targets[i].actor);
+            if let (Some(was), Some(now)) = (was, v.classic.selected) {
+                info!("vats mode: classic: {was:08X} is no longer a target; {now:08X} selected");
+            }
+        }
+        v.classic.targets = targets;
+        if v.classic.selected.is_none() {
+            end(v, "no target left", sounds);
+            return None;
+        }
+    }
+    let n = v.classic.targets.len();
+    let mut at = v.classic.selected.and_then(|a| v.classic.targets.iter().position(|c| c.actor == a))?;
+    if keys.target_step != 0 && n > 1 {
+        at = classic::cycle(at, n, keys.target_step);
+        v.classic.selected = Some(v.classic.targets[at].actor);
+        info!("vats mode: classic: target {} of {n}, {:08X}", at + 1, v.classic.targets[at].actor);
+        sounds.play(v, "UIVATSSelectTarget");
+    }
+    let actor = v.classic.targets[at].actor;
+    // The part: the target's best chance until the player moves it (the preview is a
+    // frame behind a new target, so it is set once the preview is this target's).
+    let parts = if v.preview.actor == Some(actor) { v.preview.parts.len() } else { 0 };
+    if parts > 0 {
+        if v.classic.part_set != Some(actor) {
+            v.classic.part_set = Some(actor);
+            v.classic.part = (0..parts).max_by(|&a, &b| v.preview.parts[a].spot.chance.total_cmp(&v.preview.parts[b].spot.chance)).unwrap_or(0);
+        }
+        if keys.part_step != 0 && parts > 1 {
+            v.classic.part = classic::cycle(v.classic.part, parts, keys.part_step);
+            let p = &v.preview.parts[v.classic.part];
+            info!("vats mode: classic: part {} ({})", p.spot.part, chance_text(p.spot.chance));
+            sounds.play(v, "UIVATSMove");
+        }
+        v.classic.part = v.classic.part.min(parts - 1);
+    }
+    // The view turns onto the target (vats-classic.md §5).
+    if let Some(p) = phys.world.actor_aim_point(actor) {
+        let (heading, pitch) = Crosshair::aim_at(control.crosshair.as_ref(), eye, p);
+        player.heading = classic::ease_angle(player.heading, heading, classic::TURN_RATE, real_dt);
+        player.pitch = classic::ease_angle(player.pitch, pitch, classic::TURN_RATE, real_dt);
+    }
+    Some((actor, v.classic.part))
 }
 
 /// The point to aim at on an actor: its part's capsule centre, the whole capsule's aim
@@ -1052,6 +1302,8 @@ struct PreviewPart {
     shown: bool,
     /// The part the crosshair is on: a click marks it.
     under: bool,
+    /// The classic style: the attacks queued on it (vats-classic.md §4).
+    queued: u32,
 }
 
 /// The actor whose parts' chances are shown before marking (§17.5).
@@ -1153,11 +1405,16 @@ fn parts_of(phys: &PhysState, parts: &ActorParts, actor: u32, out: &mut Vec<Opti
 /// its parts' spots are worked out again when the actor changes and every
 /// [`PREVIEW_REBUILD`]; their points, chances and sight every frame.
 #[allow(clippy::too_many_arguments)]
-fn preview(v: &mut VatsMode, combat: &Combat, parts: &ActorParts, mut script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, player: &Player, control: &PlayerControl) {
+fn preview(v: &mut VatsMode, combat: &Combat, parts: &ActorParts, mut script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, player: &Player, control: &PlayerControl, chosen: Option<(u32, usize)>) {
     let (from, dir) = Crosshair::ray(control.crosshair.as_ref(), player.eye(), player.look_dir());
     let reach = v.weapon.as_ref().map_or(REACH, |w| w.reach);
     let filter = shot_filter(phys);
-    let target = preview_target(phys, script.as_deref(), from, dir, reach, &filter);
+    // The classic style previews its selected target, whatever the crosshair is on
+    // (vats-classic.md §4); `chosen` is that target and the place of its selected part.
+    let target = match chosen {
+        Some((actor, _)) => Some((actor, None)),
+        None => preview_target(phys, script.as_deref(), from, dir, reach, &filter),
+    };
     let actor = target.map(|t| t.0);
     let under = target.and_then(|t| t.1);
     let mut pv = std::mem::take(&mut v.preview);
@@ -1172,7 +1429,7 @@ fn preview(v: &mut VatsMode, combat: &Combat, parts: &ActorParts, mut script: Op
             for &part in list.iter().take(MAX_PREVIEW) {
                 let Some(point) = point_of(phys, actor, part) else { continue };
                 let (spot, _) = spot_on(v, combat, parts, script.as_deref_mut(), sim, player, actor, part, point, 0);
-                pv.parts.push(PreviewPart { part, spot, shown: false, under: false });
+                pv.parts.push(PreviewPart { part, spot, shown: false, under: false, queued: 0 });
             }
             v.preview_list = list;
             if changed {
@@ -1185,16 +1442,27 @@ fn preview(v: &mut VatsMode, combat: &Combat, parts: &ActorParts, mut script: Op
     if let (Some(actor), Some(w)) = (pv.actor, v.weapon.as_ref()) {
         let eye = player.eye();
         let one = pv.parts.len() == 1;
-        for p in &mut pv.parts {
+        for (i, p) in pv.parts.iter_mut().enumerate() {
             if let Some(at) = point_of(phys, actor, p.part) {
                 p.spot.point = at;
+            }
+            let queued = v.queue.marks().iter().filter(|m| m.target.0 == actor && m.part == p.part).count() as u32;
+            if let Some((_, place)) = chosen {
+                // The classic style: the selected part is the bracketed one, a part with
+                // attacks queued keeps its label and counts them, and Concentrated Fire's
+                // bonus for the next attack shows before it is queued.
+                p.spot.earlier = queued;
+                p.spot.chance = chance_of(&p.spot, w, eye, combat.vats_cone);
+                p.under = i == place;
+                p.queued = queued;
+                p.shown = true;
+                continue;
             }
             p.spot.chance = chance_of(&p.spot, w, eye, combat.vats_cone);
             // With one capsule the whole actor is under the crosshair whenever it is.
             p.under = under.is_some_and(|u| one || u == p.part);
             // A part marked already shows its mark's label only.
-            let marked = v.queue.marks().iter().any(|m| m.target.0 == actor && m.part == p.part);
-            p.shown = !marked && in_sight(phys, from, p.spot.point, &filter);
+            p.shown = queued == 0 && in_sight(phys, from, p.spot.point, &filter);
         }
     }
     v.preview = pv;
@@ -1242,6 +1510,28 @@ fn mark(
         info!("vats mode: nothing to mark under the crosshair");
         return;
     };
+    let fallback = hit.map_or(from, |h| h.point);
+    mark_actor(v, combat, parts, script, sim, phys, player, hud, sounds, actor, part, fallback);
+}
+
+/// Mark `actor` on `part` (§6, §7.2): the crosshair's click, and the classic style's
+/// queued attack on the selected part (vats-classic.md §4). `fallback` is the mark's
+/// point when the part has no volume to give one.
+#[allow(clippy::too_many_arguments)]
+fn mark_actor(
+    v: &mut VatsMode,
+    combat: &Combat,
+    parts: &ActorParts,
+    mut script: Option<&mut ScriptState>,
+    sim: &mut SimState,
+    phys: &PhysState,
+    player: &Player,
+    hud: &mut HudMessage,
+    sounds: &mut Sounds,
+    actor: u32,
+    part: Option<u8>,
+    fallback: [f32; 3],
+) {
     match barred(v, script.as_deref_mut(), sim, actor) {
         Err(Bar::Dead) => {
             info!("vats mode: {actor:08X} is dead: not marked");
@@ -1264,7 +1554,7 @@ fn mark(
     let earlier = v.queue.marks().iter().filter(|m| m.target.0 == actor && m.part == part).count() as u32;
     match v.queue.push(FormId(actor), part, ap_now) {
         Ok(k) => {
-            let point = point_of(phys, actor, part).or(hit.map(|h| h.point)).unwrap_or(from);
+            let point = point_of(phys, actor, part).unwrap_or(fallback);
             v.stats.marks += 1;
             let (spot, names) = spot_on(v, combat, parts, script, sim, player, actor, part, point, earlier);
             let perk_text = if names.is_empty() { String::new() } else { format!(", perks {}", names.join(", ")) };
@@ -1632,7 +1922,7 @@ fn kill_reward(v: &mut VatsMode, before: f64, script: Option<&mut ScriptState>, 
 }
 
 /// GetVATSMode and GetVATSValue's view of the mode (§12).
-fn tell_scripts(v: &VatsMode, script: Option<&mut ScriptState>, player: &Player) {
+fn tell_scripts(v: &VatsMode, script: Option<&mut ScriptState>, player: &Player, damage_mult: f32) {
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
     use fnv_game::vats::{VatsShot, MODE_OFF, MODE_PLAYBACK, MODE_TARGET_SELECT};
     let mode = match v.phase {
@@ -1648,6 +1938,15 @@ fn tell_scripts(v: &VatsMode, script: Option<&mut ScriptState>, player: &Player)
     });
     if rt.game.vats.mode != mode || rt.game.vats.shot != shot {
         rt.game.set_vats(mode, shot);
+    }
+    // The classic style's playback: the player takes a share of a hit (vats-classic.md §7).
+    let share = (v.style == VatsStyle::Classic && v.phase == Phase::Firing).then_some(damage_mult);
+    if rt.game.vats.player_damage_mult != share {
+        match share {
+            Some(m) => info!("vats mode: classic: while the attacks play the player takes {:.0}% of a hit (fVATSPlayerDamageMult)", m * 100.0),
+            None => debug!("vats mode: classic: the player takes whole hits again"),
+        }
+        rt.game.vats.player_damage_mult = share;
     }
 }
 
@@ -1859,6 +2158,10 @@ fn draw_previews(
         }
         let (Some(at), Some((p, _))) = (at, next) else { continue };
         preview_text(&mut text, &p.spot.part, p.spot.chance, p.under);
+        if p.queued > 0 {
+            use std::fmt::Write;
+            let _ = write!(text, " x{}", p.queued);
+        }
         if label.shown != *text {
             let f = face_.get_or_insert_with(|| font_face(LABEL_FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
             let colour = if p.under { PREVIEW_UNDER_COLOUR } else { LABEL_COLOUR };
@@ -1904,6 +2207,7 @@ pub struct VatsModePlugin;
 
 impl Plugin for VatsModePlugin {
     fn build(&self, app: &mut App) {
+        classic::register(app);
         app.init_resource::<VatsMode>()
             .add_systems(Startup, spawn_marks)
             .add_systems(Update, read_keys.after(PlaySet::Input).after(crate::control::enforce_locks).after(crate::player::encumbered_walks).before(PlaySet::Physics))
@@ -1973,7 +2277,7 @@ mod tests {
         let head = Spot { point: [900.0, 0.0, 60.0], part: "Head".into(), base: 30.0, size: 0.4, ..Default::default() };
         let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), weapon: Some(gun.clone()), ..Default::default() };
         let previewed = chance_of(&head, &gun, [0.0; 3], Some(1.5));
-        v.preview = Preview { actor: Some(7), parts: vec![PreviewPart { part: Some(1), spot: Spot { chance: previewed, ..head.clone() }, shown: true, under: true }], built_at: 0.0 };
+        v.preview = Preview { actor: Some(7), parts: vec![PreviewPart { part: Some(1), spot: Spot { chance: previewed, ..head.clone() }, shown: true, under: true, queued: 0 }], built_at: 0.0 };
         // Marked, the part's chance is worked out again the marks' way: the same figure.
         v.queue.push(FormId(7), Some(1), f32::INFINITY).unwrap();
         v.spots.push(head);
@@ -2033,7 +2337,7 @@ mod tests {
 
     #[test]
     fn marking_nearly_stops_the_clock_and_firing_halves_it() {
-        let mut v = VatsMode { phase: Phase::Marking, entered_at: Some(0.0), now: 5.0, ..Default::default() };
+        let mut v = VatsMode { phase: Phase::Marking, entered_at: Some(0.0), now: 5.0, style: VatsStyle::DeadEye, ..Default::default() };
         assert!((v.time_scale() - MARK_SCALE).abs() < 1e-6);
         v.phase = Phase::Firing;
         assert_eq!(v.time_scale(), FIRE_SCALE);
@@ -2044,6 +2348,38 @@ mod tests {
         assert_eq!(v.time_scale(), 1.0);
         v.phase = Phase::Off;
         assert_eq!(v.time_scale(), 1.0);
+    }
+
+    #[test]
+    fn the_classic_style_stops_the_clock_at_once_and_holds_the_view() {
+        // The default slowdown, a full stop, from the first frame: no ease.
+        let mut v = VatsMode { phase: Phase::Marking, entered_at: Some(0.0), now: 0.0, style: VatsStyle::Classic, ..Default::default() };
+        v.classic.scale = classic::clock_scale(VatsSlowdown::default().0);
+        assert_eq!(v.time_scale(), 0.0);
+        assert!(v.holds_view());
+        // Half speed, the slider's other end.
+        v.classic.scale = classic::clock_scale(0.5);
+        assert_eq!(v.time_scale(), 0.5);
+        // The attacks play as Dead Eye's, the view still held.
+        v.phase = Phase::Firing;
+        assert_eq!(v.time_scale(), FIRE_SCALE);
+        assert!(v.holds_view());
+        v.phase = Phase::Off;
+        assert_eq!(v.time_scale(), 1.0);
+        assert!(!v.holds_view());
+        // Dead Eye never holds the view.
+        let d = VatsMode { phase: Phase::Marking, style: VatsStyle::DeadEye, ..Default::default() };
+        assert!(!d.holds_view());
+    }
+
+    #[test]
+    fn the_classic_style_draws_no_marks_while_targets_are_chosen() {
+        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), style: VatsStyle::Classic, ..Default::default() };
+        v.queue.push(FormId(7), Some(1), f32::INFINITY).unwrap();
+        v.spots.push(Spot { point: [7.0, 1.0, 0.0], chance: 63.0, ..Default::default() });
+        assert!(v.drawn().is_empty(), "the part's own label counts the queued attacks");
+        v.phase = Phase::Firing;
+        assert_eq!(v.drawn(), vec![([7.0, 1.0, 0.0], 63.0)], "while they play the marks show as Dead Eye's");
     }
 
     #[test]
@@ -2087,7 +2423,7 @@ mod tests {
 
     #[test]
     fn marks_on_one_part_draw_once_with_the_newest_chance() {
-        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), ..Default::default() };
+        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), style: VatsStyle::DeadEye, ..Default::default() };
         for (target, part, chance) in [(7, Some(1), 63.0), (7, Some(1), 68.0), (9, None, 40.0), (7, Some(1), 73.0), (7, Some(2), 30.0)] {
             v.queue.push(FormId(target), part, f32::INFINITY).unwrap();
             v.spots.push(Spot { point: [target as f32, part.unwrap_or(0) as f32, 0.0], chance, ..Default::default() });

@@ -377,6 +377,13 @@ impl WorldAidClock {
     }
 }
 
+/// The virtual clock is not paused and yet runs at no speed: real time is to be counted
+/// for it by the clocks that must not stop with the world ([`tick_play_clock`], nvforever's
+/// `--run-seconds`).
+pub fn stands_still(paused: bool, relative_speed: f32) -> bool {
+    !paused && relative_speed <= 0.0
+}
+
 /// The start's loading screen (`crate::loading::StartCover`) counts on neither clock: the
 /// test aids count from when it comes down, as if the run began then.
 pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, loading: Option<Res<crate::loading::Loading>>, mut clock: ResMut<PlayClock>) {
@@ -385,6 +392,12 @@ pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, l
         return;
     }
     clock.stopped += clock.frame.unwrap_or(0.0);
+    // A clock running at no speed (the classic VATS style's full stop, `crate::vats_mode`)
+    // stands still too, but nothing takes the picture: the frame's time stays the
+    // world's, none, and only the aids' clock goes on, so a timed key still comes.
+    if stands_still(virt.is_paused(), virt.relative_speed()) {
+        clock.stopped += real.delta_secs().min(0.25);
+    }
 }
 
 /// Pause the virtual clock while the picture is held ([`picture_held`]), or while the

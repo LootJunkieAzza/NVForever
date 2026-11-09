@@ -83,12 +83,16 @@ pub struct VatsState {
     /// Known only while a kill camera is chosen (`crate::camera_paths`).
     pub outcome: Option<VatsOutcome>,
     pub room: Option<CameraRoom>,
+    /// The share of a hit's damage the player takes now: `fVATSPlayerDamageMult` while
+    /// the classic style plays its queued attacks, `None` otherwise (the engine's
+    /// `vats_mode`, docs/design/vats-classic.md §7).
+    pub player_damage_mult: Option<f32>,
 }
 
 impl Game<'_> {
     /// The engine's VATS mode state and the shot leaving now (only while firing).
     pub fn set_vats(&mut self, mode: u8, shot: Option<VatsShot>) {
-        self.vats = VatsState { mode, shot: shot.filter(|_| mode == MODE_PLAYBACK), outcome: None, room: None };
+        self.vats = VatsState { mode, shot: shot.filter(|_| mode == MODE_PLAYBACK), outcome: None, room: None, player_damage_mult: self.vats.player_damage_mult };
     }
 }
 
@@ -151,7 +155,7 @@ impl Game<'_> {
     /// as it is; and Has Concentrated Fire.
     pub fn vats_hit_perks(&mut self, shot: VatsShot) -> HitPerks {
         let was = self.vats;
-        self.vats = VatsState { mode: was.mode, shot: Some(shot), outcome: None, room: None };
+        self.vats = VatsState { mode: was.mode, shot: Some(shot), outcome: None, room: None, player_damage_mult: was.player_damage_mult };
         let ops = self.entry_ops(FormId::PLAYER_REF, crate::perks::CALCULATE_TO_HIT_CHANCE, &[Some(shot.weapon), Some(shot.target)], Some(shot.target));
         let concentrated_fire = self.entry_point(FormId::PLAYER_REF, HAS_CONCENTRATED_FIRE, 0.0).0 != 0.0;
         self.vats = was;

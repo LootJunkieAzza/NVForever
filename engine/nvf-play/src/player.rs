@@ -729,7 +729,7 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
 #[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
-    (pads, time): (Query<&Gamepad>, Res<Time>),
+    (pads, time, vats): (Query<&Gamepad>, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
@@ -744,6 +744,10 @@ fn mouse_look(
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
     (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
 ) {
+    // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
+    if vats.is_some_and(|v| v.holds_view()) {
+        return;
+    }
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
     // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
     // it (`crate::kill_cam`). A script's HUD cursor has the mouse too (ToggleHUDCursor,
