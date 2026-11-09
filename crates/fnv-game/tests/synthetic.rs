@@ -3604,8 +3604,19 @@ fn extender_census() {
     let mut unbuilt: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     let mut unknown = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    // The catalogue's names the installed extenders do not register, read as text by
+    // the compiler (`fnv-script` encodings.json `compiler.not_commands`) [observed:
+    // nvse-fourth fose.*, `SetFunctionValue (GetFOSEVersion)` gives the text; lutana1
+    // misc.messagedisplaytime]: nothing to build, left out of the count (#1924).
+    let enc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{root}/crates/fnv-script/data/encodings.json")).unwrap()).unwrap();
+    let not_commands: Vec<String> = enc["compiler"]["not_commands"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).map(str::to_ascii_lowercase).collect();
+    let mut not_registered = Vec::new();
     for x in fs.iter().filter(|x| x["family"] == "extender") {
         let n = x["name"].as_str().unwrap_or_default();
+        if not_commands.contains(&n.to_ascii_lowercase()) {
+            not_registered.push(n.to_string());
+            continue;
+        }
         if n.is_empty() || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || STATEMENTS.contains(&n.to_ascii_lowercase().as_str()) || !seen.insert(n.to_ascii_lowercase()) {
             continue;
         }
@@ -3644,6 +3655,7 @@ fn extender_census() {
         out += &format!("{o} {}: {}\n", v.len(), v.join(", "));
     }
     out += &format!("not compiled with any argument count {}: {}\n", unknown.len(), unknown.join(", "));
+    out += &format!("not registered by the original, left out {}: {}\n", not_registered.len(), not_registered.join(", "));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/tmp");
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(format!("{dir}/extender-census.txt"), &out).unwrap();
