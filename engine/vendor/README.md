@@ -75,6 +75,22 @@ not `Send`).
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
 
+Window images for another thread (2026-11-08, frame generation's presenter,
+docs/design/frame-generation.md "Presentation and pacing", h9x000/NVForever#1). In
+`src/view/window/mod.rs`, each part marked by a comment starting `NVForever (2026-11-08)`:
+
+- `DeferredSwapchain`, a component on a window: `prepare_windows` takes no swapchain image
+  for it and points the window's view at a stand-in texture of the window's size instead
+  (`STAND_INS` = 3, used in turn, so a thread may still read the last two).
+- `SharedSurface` (`SurfaceData::shared`): the window's surface and its configuration behind
+  a lock, for one other thread to take images from and present (`SurfaceGuard::acquire`
+  reconfigures once on `Outdated`; `present`). `create_surfaces` reconfigures under the same
+  lock, so never while that thread holds an image (wgpu allows one per surface).
+- `SWAPCHAIN_WAITS`: the time spent in the swapchain's acquires and presents, for frame
+  generation's log line.
+
+Upstream Bevy has no way for a thread other than the render thread to present a window.
+
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
 The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md) and, added here, FSR 3.1 frame

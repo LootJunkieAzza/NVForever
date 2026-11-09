@@ -17,8 +17,8 @@ every switch. It runs when:
 
 Otherwise the row is dimmed with the reason ("Needs FSR 3.1", "Needs vsync", "Not on this GPU")
 and the log says `frame generation: on but not running (...)`. While it runs, real frames are
-capped at half the refresh rate and latency reduction is on ([latency-reduction](latency-reduction.md),
-AMD GPUs only).
+capped slightly below half the refresh rate (78 at 160 Hz) and latency reduction is on
+([latency-reduction](latency-reduction.md), AMD GPUs only).
 
 ## How it works
 
@@ -46,10 +46,12 @@ Per real frame, in the camera's render schedule (`Core3d`):
 3. After the UI, before Bevy's upscaling blit: optical flow on the HUD-less frame, then
    interpolation between the previous HUD-less frame and this one, into a display-sized
    texture. The real frame (with its HUD) is copied aside and the generated one replaces it
-   in the main texture, so Bevy's blit puts the generated frame in the window's image.
-4. In the render graph's `Finish` set, after Bevy submits the frame: the window's image is
-   presented (the generated frame), Bevy's own `prepare_windows` takes the next image, the
-   real frame is drawn into it, and Bevy's `render_system` presents it.
+   in the main texture, so Bevy's blit puts the generated frame in the window's stand-in
+   (below).
+4. In the render graph's `Finish` set, after Bevy submits the frame: the stand-in (the
+   generated frame) and the real frame are handed to the window's presenter thread
+   (`fg_presenter.rs`), which takes the window's images, copies them in and presents them,
+   paced ("Presentation and pacing").
 
 Colours are the tonemapped frame, linear in [0, 1] (the window's sRGB view encodes them).
 AMD's passes are told it is scRGB with 0 and 80 nits as black and white, which they read as
@@ -74,31 +76,66 @@ stops interpolation for four frames after a detected cut; such frames show the r
 
 ### Presentation and pacing
 
-The simplest path that works with Bevy and wgpu, without a presenter of our own: two presents
-per real frame through Bevy's window surface, in FIFO order (vsync), with the real frame rate
-capped at half the refresh rate (`frame_gen::real_frame_cap`, applied by `frame_pace::cap_rate`).
-Each image waits for a refresh, so the generated frame is shown one refresh before the real one.
+**A presenter thread** (`engine/nvforever/src/fg_presenter.rs`, 2026-11-08, h9x000/NVForever#1).
+While frame generation runs, the window's images are not Bevy's: the vendored bevy_render's
+`DeferredSwapchain` gives the frame a stand-in texture instead of a swapchain image
+(three, used in turn), and `SharedSurface` lets one other thread take and present the
+window's images (engine/vendor/README.md, "bevy_render"). After each frame is submitted the
+render thread hands the stand-in and the real frame to the presenter and goes on with the next
+frame; it waits only if the presenter is two frames behind, so nothing still to be copied is
+drawn over. The presenter waits for the frame's GPU work, copies the generated frame into a
+window image and presents it, then copies the real frame into the next one and presents it
+half a real frame later.
 
-Limits of this path:
+Why: presented one after the other from the render thread (the path before), the real frame's
+present waited in the driver until the generated frame was shown, about one refresh (4.4-6.2 ms
+at 160 Hz), and the render thread recorded nothing meanwhile. Once a frame's own work passed
+about 7 ms, work plus wait came to more than two refreshes, and the real rate fell from the cap
+to 50-58 at 160 Hz, below what the game reached without frame generation [observed 2026-11-08,
+the owner: 4K, maxed settings, 109 fps without frame generation, 58 real with it]. Taking the
+window's images later or a deeper swapchain did not help (the wait is in the present, not the
+acquire).
 
-- **Below half the refresh rate** the two presents still land on consecutive refreshes and the
-  pair then waits for the next real frame: the generated frame is shown early, not halfway, and
-  motion is uneven. AMD's `FrameInterpolationSwapchainVK` times the generated present on its own
-  thread (present-wait or timers); doing that needs a presenter of our own on raw Vulkan through
-  wgpu-hal. Not built.
-- **Latency**: the real frame is shown one refresh later than without frame generation, plus the
-  passes' time (about 0.4 ms here). Latency reduction is turned on to offset it where the driver
-  has it (AMD). NVIDIA's `VK_NV_low_latency2` is not used (needs swapchain hooks wgpu lacks).
-- **Variable refresh** keeps vsync on, so both presents are paced by the swapchain; the cap is
-  the lower of half the refresh rate and the page's cap.
+**Pacing** follows the design of AMD's `FrameInterpolationSwapchainVK` (FidelityFX SDK 1.1.4,
+MIT; read as reference, no code taken): the two presents are spaced by half the mean real frame
+time of the last 10 frames, less 0.1 x its variance and 0.1 ms, never closer than one refresh;
+the spacing counts from when the last present was issued, not from when it returned. The wait
+sleeps and spins its last millisecond. The real frame rate is capped slightly below half the
+refresh rate (`frame_gen::real_frame_cap`: 1/40 under it, at least 1 fps; 78 at 160 Hz, 71 at
+144 Hz, 59 at 120 Hz), as AMD advises, so the two presents never fall within one refresh.
+
+Limits and notes:
+
+- **Below the cap** the generated frame is still shown halfway between the real ones: the
+  spacing follows the real frame time.
+- **Latency**: the real frame is shown half a real frame after the generated one (6.3 ms at
+  78 fps), as before within 0.1 ms. The generated frame is presented when the presenter sees the
+  GPU finish the frame (polled about every 0.5 ms), where the driver showed it before: about
+  0.3-0.5 ms later at the same frame rate, and much earlier where the old path fell below the
+  cap. Latency reduction is turned on to offset it where the driver has it (AMD). NVIDIA's
+  `VK_NV_low_latency2` is not used (needs swapchain hooks wgpu lacks).
+- **wgpu holds a device-wide lock across each present**, which stops submits from every
+  thread while a present waits in the driver (1-1.6 ms each at 160 Hz with the presents 6.3 ms
+  apart). The real frame's present falls about 1 ms after the next frame's submit, so the
+  render thread is not held [observed 2026-11-08: it kept the cap].
+- **Variable refresh** keeps vsync on (FIFO relaxed); the cap is the lower of the frame
+  generation cap and the page's cap.
 - **Vsync off** is not supported: the second present would replace the first at once.
-- **Screenshots** (`--screenshot`, F12) take the window's first image of the frame, the
-  generated one.
+- **Screenshots** (`--screenshot`, F12) read the stand-in, the generated frame, as they read
+  the window's first image before.
+- **Switching it off** ends the presenter (it presents what it was handed first) before Bevy
+  takes the window's images again; switching it on starts a new one.
+- **`NVF_FG_PRESENTER=0`** presents from the render thread as before, for comparisons.
+  `NVF_TEST_RENDER_STALL_MS=<ms>` holds the render thread that long each frame (a heavy frame
+  on a fast PC) and `NVF_SWAPCHAIN_LATENCY=<n>` sets the frames the swapchain may queue:
+  measuring aids.
 - **The cap on slower screens**: half the refresh rate is 30 real frames a second on a 60 Hz
   screen, which is little to interpolate from and to aim with; frame generation suits screens
   of 120 Hz and more.
-- **Swapchain depth**: Bevy's default (two frames queued). Three and four were tried (2026-11-07,
-  the walk below): three lowered the real rate (56 fps), four gave the same as two.
+- **Swapchain depth**: Bevy's default (two frames queued). With the presenter, three gave the
+  same as two (2026-11-08, 4K: 77.7 real fps, the first present 7.2-8.0 ms after handing over
+  against 7.4-7.9); before it, three lowered the real rate (56 fps, 2026-11-07) and four gave the
+  same as two.
 
 ## Checks
 
@@ -124,9 +161,10 @@ Limits of this path:
   1280x720, FSR Quality, strafing): each generated frame differed from the real frames before
   and after it by less than they differ from each other, and about equally (7.7 and 7.7 against
   10.0; 14.3 and 13.9 against 16.6).
-- **Smoke**: `frame-generation` (generated frames presented, latency reduction on with it, no
-  validation errors) and `frame-generation-needs-fsr` (held off without FSR, starts when FSR is
-  chosen).
+- **Smoke**: `frame-generation` (generated frames presented from the presenter thread, latency
+  reduction on with it, no validation errors), `frame-generation-switch` (switched off and on
+  again on the settings page: the presenter ends and a new one presents) and
+  `frame-generation-needs-fsr` (held off without FSR, starts when FSR is chosen).
 
 ## Measurements
 
@@ -146,6 +184,28 @@ GPU, a higher resolution), which is also where this path paces worst (above). Th
 between the two presents, taken on the CPU, are short (median 0.4 ms) with a real frame's time
 between pairs: the swapchain's queue spaces them. When each is shown was not measured (that
 needs PresentMon or present timing from the driver).
+
+**The presenter** (2026-11-08, h9x000/NVForever#1): the same PC at the owner's settings (a copy
+of their `NVForever.ini`: 3840x2160 borderless, variable refresh, FSR Quality, every slider and
+effect at the top), playing at the Goodsprings skyline at noon, 45 s runs, the last 30 s
+(`dev\tools\fg-pacing.ps1`). The heavy case adds 4 ms of render-thread work a frame
+(`NVF_TEST_RENDER_STALL_MS=4`), standing in for the owner's heavier view:
+
+| | Real fps | Shown fps | Between presents, 95th percentile | Presents' time on the render thread |
+|---|---|---|---|---|
+| Off | 128-131 | 128-131 | | |
+| Off, 4 ms more | 90-91 | 90-91 | | |
+| On, from the render thread (r7's path, cap 80) | 79.3-79.6 | 159 | | 4.2-4.4 ms a frame |
+| On, from the render thread, cap 78 (`NVF_FG_PRESENTER=0`) | 77.7 | 155 | 13.5 ms | 4.4 ms a frame |
+| On, from the render thread, 4 ms more | 55.6-55.7 | 111 | | 6.3 ms a frame |
+| On, presenter (cap 78) | 77.8-78.0 | 155-156 | 6.9-7.0 ms | none |
+| On, presenter, 4 ms more | 77.6-77.9 | 155-156 | 6.9 ms | none |
+| On, presenter, walking and turning | 77.8 | 155 | 7.0 ms | none |
+
+With frame generation off the presenter path is not used: 7.47-7.49 ms a frame against r7's
+7.59-7.83 (`--log-frame-times`, GPU time 2.74 ms in both). The first version spaced the
+presents from when each returned and fell short of the cap (74-77 real fps): each present's
+0.26-0.47 ms in the driver was added to every spacing.
 
 Not tested: AMD and Intel GPUs, Linux (the code is the same Vulkan path), exclusive full screen,
 multiple windows, and how it looks to players over long sessions.

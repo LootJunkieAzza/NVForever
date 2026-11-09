@@ -150,6 +150,7 @@ mod sneaking;
 mod swimming;
 mod ssao;
 mod taa;
+mod fg_presenter;
 mod frame_gen;
 mod fsr;
 mod speech_look;
@@ -1357,6 +1358,9 @@ fn main() -> AppExit {
                     visible: args.handoff.is_none(),
                     // Measuring frame times: not held to the display's refresh.
                     present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
+                    // `NVF_SWAPCHAIN_LATENCY=<n>`: frames the swapchain may queue (images: n + 1;
+                    // Bevy's 2 otherwise), for measuring frame generation's pacing.
+                    desired_maximum_frame_latency: std::env::var("NVF_SWAPCHAIN_LATENCY").ok().and_then(|v| v.trim().parse::<u32>().ok()).and_then(std::num::NonZeroU32::new),
                     ..default()
                 }),
                 ..default()
