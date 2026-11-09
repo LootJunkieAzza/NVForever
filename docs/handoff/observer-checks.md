@@ -1264,3 +1264,18 @@ The numbers above stay put so links to them hold; each item here gives its own p
     NVForever now lists every perk the player has that is not flagged hidden [hypothesis].
     Probe: hire Boone, open STATS > Perks, look for Spotting; then `player.addperk` a perk
     flagged hidden and look again.
+
+## Added 2026-11-09 (the DLC intro slideshows, cutscene sweep)
+
+88. **Does Dead Money's intro show slide 02?** (P3; engine/nvforever/src/texture_swap.rs,
+    crates/fnv-game/src/game.rs SayTo.) The narrator's chain (SCPT 0x01010A0F) says topic
+    NVDLC01IntroSlide02 (0x01010C44) between slides 01 and 03. Its only line, INFO
+    0x01013C60 ("We all have, the legend, the curses."), has the fixed speaker NVDLC01Elijah
+    (0x01001300), while the chain's speaker is NVDLC01NarratorRef, and the other slide lines
+    use a GetIsID condition instead [observed, DeadMoney.esm]. NVForever finds no line for the
+    narrator, so the SayTo ends at once and slide 02 (its begin script's SwapTexture) never
+    shows [observed, cutscene sweep]. Slides 05 and 06 are in no chain at all [observed].
+    The first slide's swap names `nvdlc01_intromovie0`; the archive has only
+    `nvdlc01_intromovie00.dds` [observed]. Probe: start Dead Money, watch for the line and for
+    a slide between slide 01's line (INFO 0x01010AED) and "Foolishness about it lying…"
+    (INFO 0x01013C62).
