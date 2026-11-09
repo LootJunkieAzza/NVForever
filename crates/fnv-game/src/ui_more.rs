@@ -24,14 +24,28 @@ pub type MeasureRef<'a> = dyn Fn(f64, &str, f64) -> (f64, f64, f64) + 'a;
 
 /// A component AttachUIXML or AttachUIComponent made: injected into `HUDMainMenu`'s root
 /// [documented: AttachUIXML, "Internally, the components are injected into HUDMainMenu
-/// menu root"], to follow the named NiNode of the reference's model. Placing it at the
-/// node on screen is the engine's (not built: menu-xml.md §9).
+/// menu root"], to follow the named NiNode of the reference's model. The engine finds the
+/// node on screen each frame and [`place_attachments`] puts the rect there (menu-xml.md §9).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attachment {
     pub reference: FormId,
     /// The NiNode's name, case-sensitive [documented: AttachUIXML notes].
     pub node: String,
     pub tile: TileId,
+    /// What [`place_attachments`] last decided: `Some(true)` on screen, `Some(false)`
+    /// hidden, `None` not placed yet (hidden) [design].
+    pub shown: Option<bool>,
+}
+
+/// One attachment whose state [`place_attachments`] changed: shown at `at` (interface
+/// units from the view's top left), or hidden (`None`). For the engine's log.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Placement {
+    pub reference: FormId,
+    pub node: String,
+    /// The attached rect's name.
+    pub rect: String,
+    pub at: Option<(f64, f64)>,
 }
 
 /// The tile functions' session state beyond the tree (not saved).
@@ -396,7 +410,8 @@ fn read_xml(src: &dyn Source, file: &str) -> Option<String> {
 /// the reference's node; 1 on success [documented: AttachUIXML]. Without a calling
 /// reference, the HUD, or a single rect, 0. Replaces the one attached before to the same
 /// reference, node and rect name (a mod attaching per frame grows nothing), and keeps it
-/// `visible` 0 until placing at the node exists [design: the maintainer's review of #1224].
+/// `visible` 0 until [`place_attachments`] finds its node on screen [design: the
+/// maintainer's review of #1224].
 fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool {
     const HUD: &str = "HUDMainMenu";
     let Some(reference) = subject else { return false };
@@ -426,7 +441,7 @@ fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool 
                 }
             });
             g.ui_tree.set_trait(tile, "visible", Value::Num(0.0));
-            g.ui_extra.attached.push(Attachment { reference, node: node.to_string(), tile });
+            g.ui_extra.attached.push(Attachment { reference, node: node.to_string(), tile, shown: None });
             true
         }
         None => false,
@@ -435,8 +450,9 @@ fn attach(g: &mut Game, subject: Option<FormId>, node: &str, xml: &str) -> bool 
 
 /// Drops the attachments whose reference is gone (deleted, disabled, or out of the loaded
 /// cells, as `Game::present` and `Game::active_refs` judge it) each frame, and keeps the
-/// rest `visible` 0 until placing at the node exists [design: the maintainer's review of
-/// #1224].
+/// rest that [`place_attachments`] has not put on screen `visible` 0 (an expression in the
+/// rect's `visible` would show it again when its sources change) [design: the maintainer's
+/// review of #1224].
 pub fn prune_attachments(g: &mut Game) {
     let mut attached = std::mem::take(&mut g.ui_extra.attached);
     attached.retain(|a| {
@@ -444,14 +460,85 @@ pub fn prune_attachments(g: &mut Game) {
             g.ui_tree.unload_tile(a.tile);
             false
         } else {
-            // Written only when something showed it: a write a frame would stir the tree.
-            if g.ui_tree.tile(a.tile).get("visible").is_none_or(|v| v.num() != 0.0) {
-                g.ui_tree.set_trait(a.tile, "visible", Value::Num(0.0));
+            if a.shown != Some(true) {
+                hide(&mut g.ui_tree, a.tile);
             }
             true
         }
     });
     g.ui_extra.attached = attached;
+}
+
+/// `visible` 0, written only when something showed it: a write a frame would stir the tree.
+fn hide(ui: &mut Ui, tile: TileId) {
+    if ui.tile(tile).get("visible").is_none_or(|v| v.num() != 0.0) {
+        ui.set_trait(tile, "visible", Value::Num(0.0));
+    }
+}
+
+/// A trait set to the number `v` unless it holds it already (no write, so no stir).
+fn set_num(ui: &mut Ui, tile: TileId, name: &str, v: f64) {
+    if ui.tile(tile).get(name).is_none_or(|old| old.num() != v) {
+        ui.set_trait(tile, name, Value::Num(v));
+    }
+}
+
+/// Where the tiles above `tile` put its `x` 0 and `y` 0: their `x` and `y` summed, as the
+/// engine's layout adds them (`nvf-play` `tiles/layout.rs`, `place`) [design].
+fn origin_of(ui: &Ui, tile: TileId) -> (f64, f64) {
+    let (mut x, mut y) = (0.0, 0.0);
+    let mut at = ui.tile(tile).parent;
+    while let Some(id) = at {
+        let t = ui.tile(id);
+        x += t.get("x").map_or(0.0, Value::num);
+        y += t.get("y").map_or(0.0, Value::num);
+        at = t.parent;
+    }
+    (x, y)
+}
+
+/// Puts each attached rect over its node. `at(reference, node)` is the node's point on
+/// screen this frame in interface units from the view's top left (the space `screen()`
+/// and the HUD's tiles are in, 960 to the view's height), or `None` when the rect is not
+/// to be shown: no such node loaded, the reference not drawn, no camera, behind the
+/// camera or off the screen (the engine decides: `nvforever` `ui_attach.rs`).
+///
+/// [documented: AttachUIComponent] The component follows the node; the page does not say
+/// which point of the rect is on the node. [design] The rect's `x` and `y` (its top left)
+/// are put at the node's point, replacing what the XML wrote there, so a component
+/// centres itself on the node through its children's places; they are written only when
+/// they change. [design] `visible` is written 1 when the rect comes on screen and 0 when
+/// it leaves (and held at 0 while it is off, [`prune_attachments`]); a script that hides
+/// the rect while it stays on screen keeps it hidden until it next comes on screen.
+///
+/// Returns the attachments whose state changed, or that were placed for the first time,
+/// for the engine's log.
+pub fn place_attachments(g: &mut Game, mut at: impl FnMut(FormId, &str) -> Option<(f64, f64)>) -> Vec<Placement> {
+    let mut changed = Vec::new();
+    let ui = &mut g.ui_tree;
+    for a in &mut g.ui_extra.attached {
+        if !ui.tile(a.tile).live {
+            continue;
+        }
+        let point = at(a.reference, &a.node);
+        match point {
+            Some((x, y)) => {
+                let (ox, oy) = origin_of(ui, a.tile);
+                set_num(ui, a.tile, "x", x - ox);
+                set_num(ui, a.tile, "y", y - oy);
+                if a.shown != Some(true) {
+                    ui.set_trait(a.tile, "visible", Value::Num(1.0));
+                }
+            }
+            None => hide(ui, a.tile),
+        }
+        let shown = Some(point.is_some());
+        if a.shown != shown {
+            a.shown = shown;
+            changed.push(Placement { reference: a.reference, node: a.node.clone(), rect: ui.tile(a.tile).name.clone(), at: point });
+        }
+    }
+    changed
 }
 
 /// The tree was built again (`crate::ui_loading`): the changes, the cache entries and
