@@ -9700,7 +9700,7 @@ forbid = [
 name = "settings-tab-write"
 source = "#1953, the fork owner's request 2026-11-09: the settings page's tab is kept in NVForever.ini as [UI] SettingsTab=<tab> when it changes, so a new start (Continue, a save's load) opens on it; the first half of a round trip (settings-tab-read starts in the same home), run them together"
 areas = ["settings"]
-paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs", "engine/nvforever/src/quality.rs"]
 env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:tab:Debug,12:tab:Graphics" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 17
