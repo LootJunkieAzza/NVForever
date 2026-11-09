@@ -59,12 +59,21 @@ pub enum Kind {
 /// A table's row: angle (radians, local, 0 along local +y, clockwise as headings turn) and
 /// distance of its centre from the reference, game units, and how many players it holds
 /// (4, fewer where the floor in front is too narrow: the players past that keep their
-/// place).
+/// place); and the end camera's turn from the players' facing (radians, `yaw`) and its
+/// distance from their chests (`dist`), [`CAM_YAW`] and [`CAM_DISTANCE`] unless a table
+/// needs its own (a table in the way on one side).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pick {
     pub a: f32,
     pub d: f32,
     pub max: usize,
+    pub yaw: f32,
+    pub dist: f32,
+}
+
+impl Pick {
+    /// The end camera as every table has it unless picked otherwise.
+    pub const BASE: Pick = Pick { a: 0.0, d: 110.0, max: 4, yaw: CAM_YAW, dist: CAM_DISTANCE };
 }
 
 /// A picked row: (plugin file, form id's low 24 bits, kind, pick).
@@ -83,40 +92,40 @@ const DEG: f32 = std::f32::consts::PI / 180.0;
 /// looked at from the end camera with four bodies on it (night report 2026-11-09); a
 /// reference not here uses the finder.
 pub const PICKED: &[Picked] = &[
-    Picked { plugin: "Darts Minigame.esp", id: 0x000DBB, kind: Kind::Darts, pick: Pick { a: 165.0 * DEG, d: 130.0, max: 4 } },
+    Picked { plugin: "Darts Minigame.esp", id: 0x000DBB, kind: Kind::Darts, pick: Pick { a: 165.0 * DEG, d: 130.0, max: 4, ..Pick::BASE } },
     // Between diner booths and a table: room for three in front of it.
-    Picked { plugin: "Darts Minigame.esp", id: 0x0010B1, kind: Kind::Darts, pick: Pick { a: 180.0 * DEG, d: 130.0, max: 3 } },
-    Picked { plugin: "Darts Minigame.esp", id: 0x0010B2, kind: Kind::Darts, pick: Pick { a: 180.0 * DEG, d: 130.0, max: 4 } },
-    Picked { plugin: "Darts Minigame.esp", id: 0x0010B5, kind: Kind::Darts, pick: Pick { a: 180.0 * DEG, d: 130.0, max: 4 } },
-    Picked { plugin: "Darts Minigame.esp", id: 0x0010BA, kind: Kind::Darts, pick: Pick { a: 210.0 * DEG, d: 130.0, max: 4 } },
-    Picked { plugin: "Knife Minigame.esp", id: 0x000ADE, kind: Kind::Fillet, pick: Pick { a: 105.0 * DEG, d: 70.0, max: 4 } },
-    Picked { plugin: "Knife Minigame.esp", id: 0x000DC3, kind: Kind::Fillet, pick: Pick { a: 255.0 * DEG, d: 70.0, max: 4 } },
-    Picked { plugin: "Knife Minigame.esp", id: 0x000DC5, kind: Kind::Fillet, pick: Pick { a: 255.0 * DEG, d: 70.0, max: 4 } },
-    Picked { plugin: "Knife Minigame.esp", id: 0x000DC7, kind: Kind::Fillet, pick: Pick { a: 195.0 * DEG, d: 85.0, max: 4 } },
-    Picked { plugin: "Knife Minigame.esp", id: 0x000DC9, kind: Kind::Fillet, pick: Pick { a: 165.0 * DEG, d: 70.0, max: 4 } },
+    Picked { plugin: "Darts Minigame.esp", id: 0x0010B1, kind: Kind::Darts, pick: Pick { a: 180.0 * DEG, d: 130.0, max: 3, ..Pick::BASE } },
+    Picked { plugin: "Darts Minigame.esp", id: 0x0010B2, kind: Kind::Darts, pick: Pick { a: 180.0 * DEG, d: 130.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "Darts Minigame.esp", id: 0x0010B5, kind: Kind::Darts, pick: Pick { a: 180.0 * DEG, d: 130.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "Darts Minigame.esp", id: 0x0010BA, kind: Kind::Darts, pick: Pick { a: 210.0 * DEG, d: 130.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "Knife Minigame.esp", id: 0x000ADE, kind: Kind::Fillet, pick: Pick { a: 105.0 * DEG, d: 70.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "Knife Minigame.esp", id: 0x000DC3, kind: Kind::Fillet, pick: Pick { a: 255.0 * DEG, d: 70.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "Knife Minigame.esp", id: 0x000DC5, kind: Kind::Fillet, pick: Pick { a: 255.0 * DEG, d: 70.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "Knife Minigame.esp", id: 0x000DC7, kind: Kind::Fillet, pick: Pick { a: 195.0 * DEG, d: 85.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "Knife Minigame.esp", id: 0x000DC9, kind: Kind::Fillet, pick: Pick { a: 165.0 * DEG, d: 70.0, max: 4, ..Pick::BASE } },
     // A small room: the end camera's line is clear for 95 of its 150 units.
-    Picked { plugin: "FalloutNV.esm", id: 0x0E741A, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x0FBC35, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x10576B, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x10576C, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x107D7B, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x1110C7, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x11249D, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x115C43, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x115D5C, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x117942, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x117945, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x117D21, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x117D22, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x117D23, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x117D24, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x117D25, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x11C663, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x13D856, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x13D858, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x13D859, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x13D85A, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
-    Picked { plugin: "FalloutNV.esm", id: 0x1760F3, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4 } },
+    Picked { plugin: "FalloutNV.esm", id: 0x0E741A, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x0FBC35, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x10576B, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x10576C, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x107D7B, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x1110C7, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x11249D, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x115C43, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x115D5C, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x117942, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x117945, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x117D21, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x117D22, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x117D23, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x117D24, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x117D25, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x11C663, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x13D856, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x13D858, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x13D859, kind: Kind::Pool, pick: Pick { a: 180.0 * DEG, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x13D85A, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
+    Picked { plugin: "FalloutNV.esm", id: 0x1760F3, kind: Kind::Pool, pick: Pick { a: 0.0, d: 110.0, max: 4, ..Pick::BASE } },
 ];
 
 /// The offsets along the row of `n` players' spots (seat order), centred.
@@ -163,9 +172,19 @@ pub fn spots(f: Frame, pick: Pick, n: usize) -> (Vec<[f32; 2]>, f32) {
 /// The end camera for an eye facing `heading` (as `Portrait::spot`): where it stands and
 /// the chest point it looks at.
 pub fn camera_at(eye: [f32; 3], heading: f32) -> ([f32; 3], [f32; 3]) {
+    camera_for(eye, heading, Pick::BASE)
+}
+
+/// [`camera_at`] with a row's own camera turn and distance.
+pub fn camera_for(eye: [f32; 3], heading: f32, pick: Pick) -> ([f32; 3], [f32; 3]) {
     let target = [eye[0], eye[1], eye[2] - CAM_DROP];
-    let out = crate::space::look_dir(heading + CAM_YAW, CAM_PITCH);
-    ([target[0] + out[0] * CAM_DISTANCE, target[1] + out[1] * CAM_DISTANCE, target[2] + out[2] * CAM_DISTANCE], target)
+    let out = crate::space::look_dir(heading + pick.yaw, CAM_PITCH);
+    ([target[0] + out[0] * pick.dist, target[1] + out[1] * pick.dist, target[2] + out[2] * pick.dist], target)
+}
+
+/// The end camera of a row, as the player's camera takes it.
+pub fn portrait(pick: Pick) -> crate::control::Portrait {
+    crate::control::Portrait { yaw: pick.yaw, distance: pick.dist, drop: CAM_DROP, pitch: CAM_PITCH, shift: 0.0 }
 }
 
 fn filter() -> Filter {
@@ -185,12 +204,12 @@ pub enum Bad {
 /// Whether a player can stand at `xy` (on a floor near `floor`) facing `heading` with the
 /// end camera's line clear: the feet's height when so.
 pub fn check(phys: &mut PhysState, xy: [f32; 2], floor: f32, heading: f32) -> Result<f32, Bad> {
-    check_with(phys, xy, floor, heading, None)
+    check_with(phys, xy, floor, heading, Pick::BASE, None)
 }
 
 /// [`check`], with the camera's line asked clear only for `cam_min` (a small room: the end
 /// camera pulls in from a wall itself) when given.
-fn check_with(phys: &mut PhysState, xy: [f32; 2], floor: f32, heading: f32, cam_min: Option<f32>) -> Result<f32, Bad> {
+fn check_with(phys: &mut PhysState, xy: [f32; 2], floor: f32, heading: f32, pick: Pick, cam_min: Option<f32>) -> Result<f32, Bad> {
     let hit = phys.ground_below([xy[0], xy[1], floor], 60.0, 80.0).ok_or(Bad::NoFloor)?;
     let z = hit.point[2];
     if (z - floor).abs() > STEP {
@@ -208,7 +227,7 @@ fn check_with(phys: &mut PhysState, xy: [f32; 2], floor: f32, heading: f32, cam_
             }
         }
     }
-    let (cam, chest) = camera_at([xy[0], xy[1], z + EYE], heading);
+    let (cam, chest) = camera_for([xy[0], xy[1], z + EYE], heading, pick);
     let d = [cam[0] - chest[0], cam[1] - chest[1], cam[2] - chest[2]];
     let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
     let dir = [d[0] / len, d[1] / len, d[2] / len];
@@ -234,7 +253,7 @@ fn check_row_with(phys: &mut PhysState, f: Frame, pick: Pick, floor: f32, cam_mi
     let mut out = Vec::new();
     for o in all_offsets(pick.max) {
         let xy = f.to_world([centre[0] + along[0] * o, centre[1] + along[1] * o]);
-        let z = check_with(phys, xy, floor, heading, cam_min).map_err(|b| (o, b))?;
+        let z = check_with(phys, xy, floor, heading, pick, cam_min).map_err(|b| (o, b))?;
         out.push([xy[0], xy[1], z]);
     }
     Ok(out)
@@ -283,7 +302,7 @@ pub fn find(phys: &mut PhysState, f: Frame, kind: Kind, floor: f32) -> Option<Pi
         for cam_min in [None, Some(SMALL_ROOM)] {
             for &d in &ds {
                 for &a in &angles {
-                    let pick = Pick { a, d, max };
+                    let pick = Pick { a, d, max, ..Pick::BASE };
                     if check_row_with(phys, f, pick, floor, cam_min).is_ok() {
                         return Some(pick);
                     }
@@ -304,10 +323,21 @@ pub fn picked(load_order: &[String], r: u32) -> Option<&'static Picked> {
     PICKED.iter().find(|p| p.id == r & 0x00FF_FFFF && p.plugin.eq_ignore_ascii_case(file))
 }
 
-/// The row for a table: its picked one, else the finder's; `None` when no row fits.
+/// The row for a table: the live file's changes ([`live`]) over its picked one, else the
+/// finder's; `None` when no row fits.
 pub fn row(phys: &mut PhysState, load_order: &[String], r: u32, f: Frame, kind: Kind, floor: f32) -> Option<Pick> {
+    let over = live(load_order, r);
     if let Some(p) = picked(load_order, r) {
-        return Some(p.pick);
+        let p = over.map_or(p.pick, |o| o.over(p.pick));
+        if over.is_some() {
+            info!("table spots: {r:08X} with the live file: {}", show(Some(p)));
+        }
+        return Some(p);
+    }
+    if let Some(o) = over {
+        let p = o.over(Pick { a: if kind == Kind::Pool { 0.0 } else { std::f32::consts::PI }, ..Pick::BASE });
+        info!("table spots: {r:08X} from the live file: {}", show(Some(p)));
+        return Some(p);
     }
     let found = find(phys, f, kind, floor);
     match found {
@@ -315,6 +345,85 @@ pub fn row(phys: &mut PhysState, load_order: &[String], r: u32, f: Frame, kind: 
         None => info!("table spots: {r:08X} not picked and no row fits"),
     }
     found
+}
+
+/// A row's changes from the live file: any of the angle and the camera's turn (degrees),
+/// the distances and how many it holds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Over {
+    pub a: Option<f32>,
+    pub d: Option<f32>,
+    pub max: Option<usize>,
+    pub yaw: Option<f32>,
+    pub dist: Option<f32>,
+}
+
+impl Over {
+    pub fn over(self, p: Pick) -> Pick {
+        Pick {
+            a: self.a.map_or(p.a, f32::to_radians),
+            d: self.d.unwrap_or(p.d),
+            max: self.max.map_or(p.max, |m| m.clamp(1, 4)),
+            yaw: self.yaw.map_or(p.yaw, f32::to_radians),
+            dist: self.dist.unwrap_or(p.dist),
+        }
+    }
+}
+
+/// The live file: `NVF_TABLE_SPOTS_FILE=<path.json>`, an object keyed
+/// `"<plugin>:<low id hex>"` (`"Darts Minigame.esp:000DBB"`) whose values are [`Over`]s,
+/// e.g. `{"a": 165, "d": 140, "yaw": -20, "dist": 120}`. It is read again whenever it
+/// changes, so rows and cameras can be tried without a rebuild or a restart; what looks
+/// right goes into [`PICKED`] [design: owner's request 2026-11-09].
+pub const LIVE_FILE: &str = "NVF_TABLE_SPOTS_FILE";
+
+type LiveRows = std::collections::HashMap<String, Over>;
+
+static LIVE: std::sync::Mutex<Option<(std::time::SystemTime, LiveRows)>> = std::sync::Mutex::new(None);
+
+/// The live file's stamp (when it last changed), when it is set and there.
+pub fn live_stamp() -> Option<std::time::SystemTime> {
+    let path = std::env::var_os(LIVE_FILE)?;
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// The live file's key for a reference.
+pub fn live_key(load_order: &[String], r: u32) -> Option<String> {
+    Some(format!("{}:{:06X}", load_order.get((r >> 24) as usize)?, r & 0x00FF_FFFF))
+}
+
+/// The live file's rows by key (lower case).
+pub fn parse_live(text: &str) -> Result<LiveRows, String> {
+    let rows: LiveRows = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(|(k, v)| (k.to_ascii_lowercase(), v)).collect())
+}
+
+/// The live file's row for a reference, read again when the file changed.
+pub fn live(load_order: &[String], r: u32) -> Option<Over> {
+    let stamp = live_stamp()?;
+    let key = live_key(load_order, r)?.to_ascii_lowercase();
+    let mut guard = LIVE.lock().ok()?;
+    if guard.as_ref().is_none_or(|c| c.0 != stamp) {
+        let path = std::env::var_os(LIVE_FILE)?;
+        let rows = match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| parse_live(&t)) {
+            Ok(rows) => {
+                info!("table spots: live file read ({} rows)", rows.len());
+                rows
+            }
+            Err(e) => {
+                warn!("table spots: live file {}: {e}; the last good rows kept", std::path::Path::new(&path).display());
+                guard.as_ref().map(|c| c.1.clone()).unwrap_or_default()
+            }
+        };
+        *guard = Some((stamp, rows));
+    }
+    guard.as_ref()?.1.get(&key).copied()
+}
+
+/// A row for the log.
+pub fn show(p: Option<Pick>) -> String {
+    p.map_or("none".into(), |p| format!("a {:.0} d {:.0} max {} yaw {:.0} dist {:.0}", p.a.to_degrees(), p.d, p.max, p.yaw.to_degrees(), p.dist))
 }
 
 /// This player steps onto a spot (game space x, y on the floor near `floor`), facing
@@ -373,20 +482,39 @@ pub fn floor_near(phys: &mut PhysState, f: Frame, kind: Kind) -> Option<f32> {
         .min_by(f32::total_cmp)
 }
 
-/// One board or table the aid looks at: (reference, kind, frame, floor, row).
+/// One board or table the aid looks at: (reference, kind, frame, floor, row without the
+/// live file).
 type AidTable = (u32, Kind, Frame, f32, Option<Pick>);
 
-/// The test aid `NVF_PLAY_TEST_SPOTS=<start>[:<step>]`: from `start` (seconds), every
-/// board and table within reach is looked at in turn: its picked row and the finder's are
-/// logged, then this player stands on the row's first spot and three stand-ins on the
-/// others with the end camera on, `step` seconds (default 4), then on the last spot.
+/// The test aid `NVF_PLAY_TEST_SPOTS=<start>[:<step>|:hold]`.
+///
+/// - `<start>:<step>`: from `start` (seconds), every board and table within reach is looked
+///   at in turn: its picked row and the finder's are logged, then this player stands on the
+///   row's first spot and three stand-ins on the others with the end camera on, `step`
+///   seconds (default 4), then on the last spot.
+/// - `<start>:hold`: the first board or table only (`NVF_PLAY_TEST_SPOTS_ONLY=<low id hex>`
+///   picks which), shown again every time the live file ([`LIVE_FILE`]) changes: seat 0,
+///   then the last seat 3 s later, each with a screenshot 1.5 s after it stands
+///   (`<NVF_PLAY_TEST_SHOT_DIR>/spots-<id>-<edit>-seat<n>.png`). One launch tries any
+///   number of rows and cameras; windows in several cells can hold at once on one file.
 #[derive(Resource, Default)]
 struct SpotsAid {
     start: Option<f32>,
     step: f32,
+    hold: bool,
+    only: Option<u32>,
+    shot_dir: std::path::PathBuf,
     tables: Option<Vec<AidTable>>,
     stand_ins: Vec<fnv_sim::FormId>,
+    /// Cycling: the view shown last.
     shown: Option<usize>,
+    /// Holding: the live file's stamp last shown, the edits so far, and when the edit
+    /// was first shown.
+    stamp: Option<Option<std::time::SystemTime>>,
+    edit: u32,
+    since: f32,
+    /// Holding: what of this edit is done (0 seat 0, 1 its shot, 2 the last seat, 3 its shot).
+    done: u8,
 }
 
 pub struct TableSpotsPlugin;
@@ -394,10 +522,17 @@ pub struct TableSpotsPlugin;
 impl Plugin for TableSpotsPlugin {
     fn build(&self, app: &mut App) {
         let Ok(v) = std::env::var("NVF_PLAY_TEST_SPOTS") else { return };
-        let mut it = v.split(':').map(|x| x.trim().parse::<f32>());
-        let start = it.next().and_then(Result::ok);
-        let step = it.next().and_then(Result::ok).unwrap_or(4.0);
-        app.insert_resource(SpotsAid { start, step, ..default() }).add_systems(Update, spots_aid.in_set(crate::PlaySet::Ui));
+        let mut it = v.split(':').map(str::trim);
+        let start = it.next().and_then(|x| x.parse::<f32>().ok());
+        let second = it.next().unwrap_or("");
+        let hold = second.eq_ignore_ascii_case("hold");
+        let step = second.parse::<f32>().unwrap_or(4.0);
+        let only = std::env::var("NVF_PLAY_TEST_SPOTS_ONLY").ok().and_then(|x| u32::from_str_radix(x.trim().trim_start_matches("0x"), 16).ok()).map(|x| x & 0x00FF_FFFF);
+        let shot_dir = std::env::var_os("NVF_PLAY_TEST_SHOT_DIR").map_or_else(|| std::path::PathBuf::from("."), std::path::PathBuf::from);
+        if hold && std::env::var_os(LIVE_FILE).is_none() {
+            warn!("NVF_PLAY_TEST_SPOTS hold: {LIVE_FILE} is not set; the picked rows only");
+        }
+        app.insert_resource(SpotsAid { start, step, hold, only, shot_dir, ..default() }).add_systems(Update, spots_aid.in_set(crate::PlaySet::Ui));
     }
 }
 
@@ -406,14 +541,18 @@ const STAND_INS: &[&str] = &["VStreetSS6Gambler01", "VStreetSS6Traveler01", "VSt
 /// 2026-11-09: test bodies in NCR, Legion and power armor]: armor and helmet Editor IDs.
 const STAND_IN_GEAR: [[&str; 2]; 3] = [["ArmorNVCLCenturion", "HelmetNVCLCenturion"], ["ArmorPowerT51b", "ArmorPowerT51bHelmet"], ["ArmorNVNCRTrooper", "HelmetNVNCRTrooper"]];
 
-/// The aid's tables: every board and table within reach of `feet`, with the rows logged.
-fn list_tables(sim: &crate::sim::SimState, phys: &mut PhysState, lo: &[String], feet: [f32; 3]) -> Vec<AidTable> {
+/// The aid's tables: every board and table within reach of `feet` (only `only`, when
+/// given), with the rows logged.
+fn list_tables(sim: &crate::sim::SimState, phys: &mut PhysState, lo: &[String], feet: [f32; 3], only: Option<u32>) -> Vec<AidTable> {
     let mut list = Vec::new();
     // Interiors share coordinates: only this player's cell's.
     let here = sim.world.peek(fnv_sim::FormId::PLAYER_REF).and_then(|p| p.cell);
     for (id, r) in &sim.refs.refs {
         let d = ((r.pos[0] - feet[0]).powi(2) + (r.pos[1] - feet[1]).powi(2)).sqrt();
         if d > 8000.0 || (r.pos[2] - feet[2]).abs() > 1500.0 || (here.is_some() && r.cell.is_some() && r.cell != here) {
+            continue;
+        }
+        if only.is_some_and(|o| o != id.0 & 0x00FF_FFFF) {
             continue;
         }
         let Some(kind) = kind_of(sim, id.0) else { continue };
@@ -431,16 +570,15 @@ fn list_tables(sim: &crate::sim::SimState, phys: &mut PhysState, lo: &[String], 
             let why: Vec<String> = angles
                 .iter()
                 .take(5)
-                .map(|&a| match check_row(phys, f, Pick { a, d: dd, max: 4 }, floor) {
+                .map(|&a| match check_row(phys, f, Pick { a, d: dd, max: 4, ..Pick::BASE }, floor) {
                     Ok(_) => format!("{:.0}:ok", a.to_degrees()),
                     Err((o, b)) => format!("{:.0}:{o:.0}:{b:?}", a.to_degrees()),
                 })
                 .collect();
             info!("table spots: {:08X} d {dd:.0}: {}", id.0, why.join(" "));
         }
-        let show = |p: Option<Pick>| p.map_or("none".into(), |p| format!("a {:.0} d {:.0} max {}", p.a.to_degrees(), p.d, p.max));
         info!(
-            "table spots: {:08X} ({file} {:06X}) {kind:?} at ({:.0}, {:.0}, {:.0}) turned {:.0} deg, floor {floor:.0}: finder {} picked {}",
+            "table spots: {:08X} ({file} {:06X}) {kind:?} at ({:.0}, {:.0}, {:.0}) turned {:.0} deg, floor {floor:.0}: finder {} picked {} (live key \"{}\")",
             id.0,
             id.0 & 0xFF_FFFF,
             f.pos[0],
@@ -449,6 +587,7 @@ fn list_tables(sim: &crate::sim::SimState, phys: &mut PhysState, lo: &[String], 
             f.theta.to_degrees(),
             show(found),
             show(pick),
+            live_key(lo, id.0).unwrap_or_default(),
         );
         list.push((id.0, kind, f, floor, pick.or(found)));
     }
@@ -458,6 +597,7 @@ fn list_tables(sim: &crate::sim::SimState, phys: &mut PhysState, lo: &[String], 
 #[allow(clippy::too_many_arguments)]
 fn spots_aid(
     time: crate::pause::AidTime,
+    mut commands: Commands,
     mut aid: ResMut<SpotsAid>,
     mut sim: ResMut<crate::sim::SimState>,
     mut phys: Option<ResMut<PhysState>>,
@@ -473,24 +613,62 @@ fn spots_aid(
     let (Some(phys), Some(player), Some(rt)) = (phys.as_deref_mut(), player.as_deref_mut(), script.as_mut().and_then(|s| s.rt.as_mut())) else { return };
     let aid = &mut *aid;
     if aid.tables.is_none() {
-        let list = list_tables(&sim, phys, &rt.game.data.load_order, player.feet);
+        let list = list_tables(&sim, phys, &rt.game.data.load_order, player.feet, aid.only);
         info!("table spots: {} boards and tables near", list.len());
         aid.tables = Some(list);
     }
     let tables = aid.tables.as_ref().expect("listed");
-    let i = ((now - start) / aid.step) as usize;
-    if aid.shown == Some(i) {
-        return;
-    }
-    aid.shown = Some(i);
-    let (table, seat_last) = (i / 2, i % 2 == 1);
-    let Some(&(r, kind, f, floor, Some(pick))) = tables.get(table) else {
-        if table < tables.len() {
-            info!("table spots: {:08X}: no row to show", tables[table].0);
-        } else if table == tables.len() && !seat_last {
+    // What to show now: (table, the last seat); holding, the screenshots are taken here too.
+    let (table, seat_last) = if aid.hold {
+        let stamp = live_stamp();
+        if aid.stamp != Some(stamp) {
+            aid.stamp = Some(stamp);
+            aid.edit += 1;
+            aid.since = now;
+            aid.done = 0;
+        }
+        let t = now - aid.since;
+        let (due, seat_last, is_shot) = match aid.done {
+            0 => (0.0, false, false),
+            1 => (1.5, false, true),
+            2 => (3.0, true, false),
+            3 => (4.5, true, true),
+            _ => return,
+        };
+        if t < due {
+            return;
+        }
+        aid.done += 1;
+        if is_shot {
+            let Some(&(r, ..)) = tables.first() else { return };
+            let path = aid.shot_dir.join(format!("spots-{:06X}-{:02}-seat{}.png", r & 0x00FF_FFFF, aid.edit, if seat_last { 3 } else { 0 }));
+            info!("table spots: screenshot {}", path.display());
+            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
+            return;
+        }
+        (0, seat_last)
+    } else {
+        let i = ((now - start) / aid.step) as usize;
+        if aid.shown == Some(i) {
+            return;
+        }
+        aid.shown = Some(i);
+        (i / 2, i % 2 == 1)
+    };
+    let Some(&(r, kind, f, floor, base)) = tables.get(table) else {
+        if table == tables.len() && !seat_last {
             info!("table spots: all shown");
         }
         return;
+    };
+    let over = live(&rt.game.data.load_order, r);
+    let pick = match (base, over) {
+        (Some(p), o) => o.map_or(p, |o| o.over(p)),
+        (None, Some(o)) => o.over(Pick { a: if kind == Kind::Pool { 0.0 } else { std::f32::consts::PI }, ..Pick::BASE }),
+        (None, None) => {
+            info!("table spots: {r:08X}: no row to show");
+            return;
+        }
     };
     let (spots, heading) = spots(f, pick, 4);
     let me = if seat_last { spots.len() - 1 } else { 0 };
@@ -498,7 +676,7 @@ fn spots_aid(
     while aid.stand_ins.len() < 3 {
         let base = STAND_INS[aid.stand_ins.len()];
         let Some(b) = sim.world.forms.by_edid(base) else { break };
-        let at = [spots[1][0], spots[1][1], floor];
+        let at = [spots[0][0], spots[0][1], floor];
         match crate::script::with_world(rt, &mut sim, |rt| rt.game.create_at(b, cell, at, [0.0, 0.0, heading])) {
             Ok(x) => {
                 for edid in STAND_IN_GEAR[aid.stand_ins.len()] {
@@ -516,9 +694,10 @@ fn spots_aid(
             }
         }
     }
-    let others = (0..spots.len()).filter(|&k| k != me);
-    for (k, x) in others.zip(aid.stand_ins.clone()) {
-        let at = [spots[k][0], spots[k][1], floor];
+    // A row that holds fewer than four: the stand-ins past it wait out of the way.
+    let others: Vec<usize> = (0..spots.len()).filter(|&k| k != me).collect();
+    for (j, x) in aid.stand_ins.clone().into_iter().enumerate() {
+        let at = others.get(j).map_or([f.pos[0], f.pos[1], floor - 2000.0], |&k| [spots[k][0], spots[k][1], floor]);
         if let Ok(s) = sim.world.get(x) {
             s.pos = at;
             s.rot = [0.0, 0.0, heading];
@@ -528,9 +707,9 @@ fn spots_aid(
     }
     stand_player(phys, player, spots[me], floor, heading);
     if let Some(c) = control.as_deref_mut() {
-        c.portrait = Some(crate::control::Portrait { yaw: CAM_YAW, distance: CAM_DISTANCE, drop: CAM_DROP, pitch: CAM_PITCH, shift: 0.0 });
+        c.portrait = Some(portrait(pick));
     }
-    info!("table spots: showing {r:08X} {kind:?} seat {me} at {now:.1} (row a {:.0} d {:.0}, feet {:?})", pick.a.to_degrees(), pick.d, player.feet);
+    info!("table spots: showing {r:08X} {kind:?} seat {me} at {now:.1} (row {}, feet {:?})", show(Some(pick)), player.feet);
 }
 
 #[cfg(test)]
@@ -544,14 +723,14 @@ mod tests {
         assert_eq!(offsets(4), vec![-75.0, -25.0, 25.0, 75.0]);
         assert_eq!(all_offsets(4), vec![-75.0, -50.0, -25.0, 0.0, 25.0, 50.0, 75.0]);
         assert_eq!(all_offsets(2), vec![-25.0, 0.0, 25.0]);
-        assert_eq!(spots(Frame { pos: [0.0; 3], theta: 0.0 }, Pick { a: 0.0, d: 100.0, max: 2 }, 4).0.len(), 2);
+        assert_eq!(spots(Frame { pos: [0.0; 3], theta: 0.0 }, Pick { a: 0.0, d: 100.0, max: 2, ..Pick::BASE }, 4).0.len(), 2);
     }
 
     #[test]
     fn the_spots_stand_out_from_the_table_facing_away() {
         // A table at (100, 200) turned a quarter; the row straight out along local +y.
         let f = Frame { pos: [100.0, 200.0, 0.0], theta: std::f32::consts::FRAC_PI_2 };
-        let (v, heading) = spots(f, Pick { a: 0.0, d: 120.0, max: 4 }, 2);
+        let (v, heading) = spots(f, Pick { a: 0.0, d: 120.0, max: 4, ..Pick::BASE }, 2);
         // Local +y turned a quarter clockwise is world +x.
         for p in &v {
             assert!((p[0] - 220.0).abs() < 1e-3, "{p:?}");
@@ -565,6 +744,29 @@ mod tests {
     fn the_camera_is_in_front_of_the_spot() {
         let (cam, chest) = camera_at([0.0, 0.0, 100.0], 0.0);
         assert!(cam[1] > 0.9 * CAM_DISTANCE && (chest[2] - 70.0).abs() < 1e-3, "{cam:?}");
+    }
+
+    #[test]
+    fn the_live_file_changes_only_what_it_names() {
+        let rows = parse_live(r#"{"Darts Minigame.esp:000DBB": {"a": 165, "yaw": -20}, "FalloutNV.esm:0E741A": {}}"#).unwrap();
+        let o = rows["darts minigame.esp:000dbb"];
+        let base = Pick { a: 1.0, d: 130.0, max: 3, ..Pick::BASE };
+        let p = o.over(base);
+        assert!((p.a - 165f32.to_radians()).abs() < 1e-5 && (p.yaw + 20f32.to_radians()).abs() < 1e-5);
+        assert_eq!((p.d, p.max, p.dist), (130.0, 3, CAM_DISTANCE));
+        assert_eq!(rows["falloutnv.esm:0e741a"].over(base), base);
+        // A misspelt field is an error, not silently ignored.
+        assert!(parse_live(r#"{"x:1": {"angle": 3}}"#).is_err());
+        assert_eq!(live_key(&["FalloutNV.esm".into(), "Darts Minigame.esp".into()], 0x0100_0DBB).as_deref(), Some("Darts Minigame.esp:000DBB"));
+    }
+
+    #[test]
+    fn a_rows_camera_turns_with_its_yaw() {
+        let eye = [0.0, 0.0, 100.0];
+        let (a, _) = camera_for(eye, 0.0, Pick { yaw: 0.35, ..Pick::BASE });
+        let (b, _) = camera_for(eye, 0.0, Pick { yaw: -0.35, ..Pick::BASE });
+        assert!(a[0] * b[0] < 0.0 && (a[1] - b[1]).abs() < 1e-3, "{a:?} {b:?}");
+        assert_eq!(camera_for(eye, 0.0, Pick::BASE), camera_at(eye, 0.0));
     }
 
     #[test]

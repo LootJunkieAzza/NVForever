@@ -258,10 +258,10 @@ pub fn black(phase: Phase, now: f32) -> f32 {
 }
 
 /// The end view's camera (game space) and the point it looks at, for a player whose eye
-/// is at `eye` facing `heading`.
-pub fn end_camera(eye: [f32; 3], heading: f32) -> ([f32; 3], [f32; 3]) {
-    let (at, ..) = END_VIEW.spot(eye, heading);
-    (at, [eye[0], eye[1], eye[2] - END_VIEW.drop])
+/// is at `eye` facing `heading`: `view` is the table's own ([`END_VIEW`] unless picked).
+pub fn end_camera_of(view: Portrait, eye: [f32; 3], heading: f32) -> ([f32; 3], [f32; 3]) {
+    let (at, ..) = view.spot(eye, heading);
+    (at, [eye[0], eye[1], eye[2] - view.drop])
 }
 
 /// A reaction waiting for its clip or its body.
@@ -291,6 +291,15 @@ pub struct MatchEnd {
     /// stood there for this result.
     seat: (usize, usize),
     stood: bool,
+    /// This result's end camera: the table's row's own ([`nvf_play::table_spots::Pick`]),
+    /// [`END_VIEW`] until the player stands.
+    view: Option<Portrait>,
+}
+
+impl MatchEnd {
+    fn view(&self) -> Portrait {
+        self.view.unwrap_or(END_VIEW)
+    }
 }
 
 #[derive(Component)]
@@ -354,6 +363,7 @@ fn watch(
             st.from = None;
             st.seat = e.seat;
             st.stood = false;
+            st.view = None;
         }
         if st.shown != Some((e.kind, e.table, e.winner)) {
             st.shown = Some((e.kind, e.table, e.winner));
@@ -376,7 +386,7 @@ fn watch(
                 st.phase = Phase::FadeOut { since: now };
                 // The body stays drawn and the camera held while the screen darkens.
                 if let Some(c) = control.as_deref_mut().filter(|c| c.portrait.is_none()) {
-                    c.portrait = Some(END_VIEW);
+                    c.portrait = Some(st.view());
                     st.portrait = true;
                 }
             }
@@ -395,7 +405,8 @@ fn watch(
 /// The portrait flag back off, if it was set here.
 fn give_back(st: &mut MatchEnd, control: Option<&mut PlayerControl>) {
     if std::mem::take(&mut st.portrait) {
-        if let Some(c) = control.filter(|c| c.portrait == Some(END_VIEW)) {
+        let view = st.view();
+        if let Some(c) = control.filter(|c| c.portrait == Some(view)) {
             c.portrait = None;
         }
     }
@@ -435,6 +446,7 @@ fn stand(
         Kind::Pool => nvf_play::table_spots::Kind::Pool,
     };
     let Some(pick) = nvf_play::table_spots::row(phys, &lo, table, f, tkind, player.feet[2]) else { return };
+    st.view = Some(nvf_play::table_spots::portrait(pick));
     let (seat, n) = st.seat;
     let (spots, heading) = nvf_play::table_spots::spots(f, pick, n);
     // A narrow row holds fewer: the players past it keep their place.
@@ -564,7 +576,7 @@ fn camera(
     };
     let (Some(p), Ok((mut t, mut g, parented))) = (player, cams.single_mut()) else { return };
     let eye = body.as_deref().and_then(BodyView::portrait_eye).unwrap_or_else(|| p.eye());
-    let (at, look) = end_camera(eye, p.heading);
+    let (at, look) = end_camera_of(st.view(), eye, p.heading);
     let (at, look) = (space::to_bevy(at), space::to_bevy(look));
     let at = match phys.as_deref_mut() {
         Some(phys) => crate::death_cam::clear(phys, look, at),
@@ -635,7 +647,7 @@ mod tests {
     fn the_end_camera_stands_in_front_and_looks_back() {
         let eye = [100.0, 200.0, 120.0];
         for heading in [0.0f32, 1.0, 3.0, -2.0] {
-            let (at, look) = end_camera(eye, heading);
+            let (at, look) = end_camera_of(END_VIEW, eye, heading);
             let fwd = space::look_dir(heading, 0.0);
             let d = [at[0] - eye[0], at[1] - eye[1]];
             // In front of the player (along their facing), at about the view's distance.
@@ -677,7 +689,7 @@ mod tests {
         assert_eq!((ts::CAM_YAW, ts::CAM_DISTANCE, ts::CAM_DROP, ts::CAM_PITCH), (END_VIEW.yaw, END_VIEW.distance, END_VIEW.drop, END_VIEW.pitch));
         assert_eq!(END_VIEW.shift, 0.0);
         let eye = [10.0, 20.0, 130.0];
-        let (a, _) = end_camera(eye, 0.7);
+        let (a, _) = end_camera_of(END_VIEW, eye, 0.7);
         let (b, _) = ts::camera_at(eye, 0.7);
         assert!(a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3), "{a:?} {b:?}");
     }
