@@ -994,6 +994,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "sneak-criticals-head", "Sneak Criticals Head Only", "Sneak attacks are criticals only on the head. (Stewie's Tweaks bSneakCriticalsHeadshotsOnly)", game.sneak_criticals_head_only);
         switch!(app, "compare-weapons", "Compare Weapons", "A weapon's DAM and DPS in the Pip-Boy show the difference from the weapon in hand (both whole). (Stewie's Tweaks bCompareWeaponStats)", game.compare_weapons);
         switch!(app, "warn-encumbrance", "Weight Warning", "In a container, the player's weight shows red when taking the selected item would be too much to carry. (Stewie's Tweaks bContainerEncumbranceIndicator)", warn_encumbrance);
+        amount!(app, "mark-nearby-places", "Mark Nearby Places", "Map markers within this many units of the player are marked on the map; 0 changes nothing. (Stewie's Tweaks bMarkNearbyLocationsOnMap)", 10000.0, f32, game.mark_nearby_places);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

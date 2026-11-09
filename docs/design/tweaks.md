@@ -411,6 +411,7 @@ unless the player binds them, so nothing changes until then.
 | Sneak Criticals Head Only | `bSneakCriticalsHeadshotsOnly` | `combat::melee` and `combat::fly` after the body part |
 | Compare Weapons | `bCompareWeaponStats` | `pipboy::items::info_of` |
 | Weight Warning | `bContainerEncumbranceIndicator` | `menu::look` half figure (`warn_encumbrance`) |
+| Mark Nearby Places (0–10000) | `bMarkNearbyLocationsOnMap` | `compass::discover` (ShowMap's set) |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -431,8 +432,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 318 |
-| to do | 285 |
+| done | 319 |
+| to do | 284 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -474,6 +475,7 @@ game's Data folder, read-only).
 | `bLockNeedsKeyShowName` | done |  |  | Name the Key |
 | `bLockpickRememberBobbyPinAngle` | done |  |  | already so: a new pin keeps the angle |
 | `bLootUnconsciousVictims` | done |  |  | Search the Unconscious |
+| `bMarkNearbyLocationsOnMap` | done |  | 1 | Mark Nearby Places (slider, game units) |
 | `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
 | `bNoAmmoFromTakingNPCWeapon` | done |  |  | already so: taking a weapon adds only its placed ammo |
 | `bNoAPRegenWhileOverencumbered` | done |  | 2 | Action Points Back When Over-Encumbered (slider; the while-moving option not built) |
@@ -552,7 +554,6 @@ game's Data folder, read-only).
 | `bLockpickForceBonusNearSweetSpot` | to do |  | 2 | lockpick force_chance; a field on lockpick::Settings |
 | `bLuckDoesntAffectGambling` | to do |  | 1 | already so? no Luck in the gambling rules found; check the original first |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
-| `bMarkNearbyLocationsOnMap` | to do |  | 1 | compass::discover, adding to map_markers within a distance |
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
 | `bMovementPenalties` | to do |  | 11 | player::step pace chain; seven percentages to choose |
 | `bNoCompanionItemDamage` | to do |  |  | wear_weapon and wear_armor; the armour path has no game |
@@ -1011,7 +1012,7 @@ game's Data folder, read-only).
 | `bWeightlessAidItems` | done |  |  | covered by Weightless Aid (in Hardcore too) |
 | `bWeightlessItems` | done |  | 5 | Weightless Armor / Aid / Ammo / Weapons / Misc Items (five rows) |
 | `bAddSetHomeCommand` | to do |  |  | not built: a console command with a kept home |
-| `bDebugLockpickMenu` | to do |  |  | LockpickDebug from sync, kept with the env switch |
+| `bDebugLockpickMenu` | to do |  |  | the meter is a developer aid; developer escape hatches stay out of player builds (owner rule), ask first |
 | `bReallocateSkillPointsOnLevelup` | to do |  |  | earlier levels spent points are not recorded |
 
 ### Misc

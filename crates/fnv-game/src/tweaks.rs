@@ -288,6 +288,9 @@ pub struct Tweaks {
     /// `bCompareWeaponStats`: a weapon's DAM and DPS in the Pip-Boy show the difference
     /// from the weapon in hand.
     pub compare_weapons: bool,
+    /// `bMarkNearbyLocationsOnMap`/`fDistance`: map markers within this many units of
+    /// the player are marked on the map (as a ShowMap would); 0 changes nothing.
+    pub mark_nearby_places: f32,
 }
 
 impl crate::game::Game<'_> {
@@ -413,6 +416,7 @@ impl Default for Tweaks {
             subtitle_distance: 0.0,
             sneak_criticals_head_only: false,
             compare_weapons: false,
+            mark_nearby_places: 0.0,
         }
     }
 }

@@ -206,7 +206,7 @@ const SAVE_HOOK: SaveHook = SaveHook {
 
 /// Markers found since the last frame: the message, the experience, the log.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, messages: Option<ResMut<QuestMessages>>, loading_save: Option<Res<crate::save::PendingEngine>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, messages: Option<ResMut<QuestMessages>>, loading_save: Option<Res<crate::save::PendingEngine>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, (player, location): (Option<Res<Player>>, Option<Res<Location>>)) {
     let in_corner = tweaks.is_some_and(|t| t.discovered_in_corner);
     let Some(mut state) = state else { return };
     // Found before the game runs (the first frames): kept until it does, for the XP.
@@ -215,6 +215,18 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
     // what the save already holds (`DataState::restore_discovered`; #1571).
     if loading_save.is_some() {
         return;
+    }
+    // The player's tweak marks the map markers near the player on the map [design: docs/design/tweaks.md].
+    let reach = rt.game.tweaks.mark_nearby_places;
+    if let (true, Some(p), Some(loc)) = (reach > 0.0, player.as_deref(), location.as_deref()) {
+        if loc.interior.is_none() {
+            for (form, pos, _) in state.markers_of(loc.world) {
+                let near = (pos[0] - p.feet[0]).hypot(pos[1] - p.feet[1]) <= reach;
+                if near && rt.game.player.map_markers.insert(FormId(form)) {
+                    info!("compass: {} marked on the map, within {reach:.0} units (tweak)", FormId(form));
+                }
+            }
+        }
     }
     // The rules hear which markers are found (GetMapMarkerVisible), also after a load.
     if rt.game.player.found_markers.len() != state.discovered().len() {
