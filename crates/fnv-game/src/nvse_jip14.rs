@@ -47,6 +47,8 @@ pub struct Jip14State {
     pub anim_freq: BTreeMap<(FormId, String), f32>,
     /// The item whose script runs now (its holder and base), for GetSelfAsInventoryRef.
     pub item_running: Option<(FormId, FormId)>,
+    /// The drawn objects' sequence names (lower case), as the engine tells them.
+    pub sequences: BTreeMap<FormId, Vec<String>>,
 }
 
 fn num(args: &[XVal], k: usize) -> Option<f64> {
@@ -192,6 +194,18 @@ impl<'a> Game<'a> {
 
     /// SetAnimSequenceFrequency's frequency for a reference's sequence (a lower-case
     /// name or kf path), else "*"'s; `None`: its own.
+    /// The engine's word on a drawn object's sequences (`None`: no longer drawn).
+    pub fn set_sequences(&mut self, r: FormId, names: Option<Vec<String>>) {
+        match names {
+            Some(n) => {
+                self.other.jip14.sequences.insert(r, n.iter().map(|s| s.to_ascii_lowercase()).collect());
+            }
+            None => {
+                self.other.jip14.sequences.remove(&r);
+            }
+        }
+    }
+
     pub fn anim_frequency(&self, r: FormId, sequence: &str) -> Option<f32> {
         let j = &self.other.jip14.anim_freq;
         j.get(&(r, sequence.to_ascii_lowercase())).or_else(|| j.get(&(r, "*".to_string()))).copied()
@@ -251,10 +265,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // The bound on the axis [documented]; half extents as the record keeps them
         // [hypothesis: the page does not say half or whole].
+        // -1 for a reference with no primitive [observed: jip14 primitivebound.doc].
         "getprimitivebound" | "setprimitivebound" => {
             let (Some(r), Some(a)) = (subject, axis(args, 0)) else { return Some(Ok(zero)) };
             let own = g.world.placed.get(r).and_then(|p| p.primitive).map(|p| ScriptPrimitive { shape: if p.sphere { 2 } else { 1 }, bounds: p.bounds });
-            let Some(mut p) = g.other.jip14.primitives.get(&r).copied().or(own) else { return Some(Ok(zero)) };
+            let none = if name == "getprimitivebound" { -1.0 } else { 0.0 };
+            let Some(mut p) = g.other.jip14.primitives.get(&r).copied().or(own) else { return Some(Ok(XVal::Num(none))) };
             if name == "setprimitivebound" {
                 let Some(v) = num(args, 1) else { return Some(Ok(zero)) };
                 p.bounds[a] = v as f32;
@@ -409,16 +425,27 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- inventory references ----
         // From the script of an item in a container: the item as an inventory reference
         // [documented]; 0 elsewhere.
+        // Outside an item's script the call fails [observed: jip14 selfinvref, "script
+        // call failed"].
         "getselfasinventoryref" => match g.other.jip14.item_running {
             Some((holder, item)) => XVal::Ref(g.temp_ref(holder, item).0),
-            None => XVal::Ref(0),
+            None => return Some(Err("GetSelfAsInventoryRef: not called from an item's script".to_string())),
         },
         // ---- animation sequences ----
-        // The frequency a script set, else 1 [hypothesis: a sequence's own is 1 unless its
-        // file says otherwise]; the engine plays the placed objects' sequences at it.
+        // The frequency a script set; else 1 for a sequence of the drawn model [hypothesis:
+        // a sequence's own is 1 unless its file says otherwise]; -1 for a sequence the
+        // model lacks [observed: jip14 seqfreq.doc]. Kept, not yet played at [decision].
+        // [decision: only drawn objects' sequences are told by the engine; an actor's
+        // animation files are not, so an actor's unset sequence is -1]
         "getanimsequencefrequency" | "getanimseqfreq" => {
             let (Some(r), Some(s)) = (subject, text(args, 0)) else { return Some(Ok(zero)) };
-            XVal::Num(f64::from(g.anim_frequency(r, &s).unwrap_or(1.0)))
+            let lower = s.to_ascii_lowercase();
+            let has = g.other.jip14.sequences.get(&r).is_some_and(|n| n.contains(&lower));
+            XVal::Num(match g.anim_frequency(r, &s) {
+                Some(f) => f64::from(f),
+                None if has => 1.0,
+                None => -1.0,
+            })
         }
         // "*" every sequence [documented].
         "setanimsequencefrequency" | "setanimseqfreq" => {

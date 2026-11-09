@@ -129,6 +129,8 @@ fn primitives() {
     let f = fixture();
     let mut g = game(&f);
     assert_eq!(n(&mut g, "ActiRef.HasPrimitive"), 0.0);
+    // No primitive: -1 [observed: jip14 primitivebound.doc].
+    assert_eq!(n(&mut g, "NpcRef.GetPrimitiveBound X"), -1.0);
     assert_eq!(n(&mut g, "StatRef.AddPrimitive 1 10 20 30"), 0.0, "neither an activator nor a CollisionMarker");
     assert_eq!(n(&mut g, "ActiRef.AddPrimitive 3 10 20 30"), 0.0, "a plane is for collision only");
     assert_eq!(n(&mut g, "ActiRef.AddPrimitive 1 10 20 30"), 1.0);
@@ -165,13 +167,18 @@ fn requests_and_switches() {
     assert!(g.gun_wobble_off(FormId(NPC_REF)));
     g.set_vats_targets(vec![FormId(NPC_REF)]);
     assert_eq!(n(&mut g, "ar_Size GetVATSTargets"), 1.0);
-    // Sequence frequencies: "*" for every sequence.
+    // Sequence frequencies: -1 for a sequence the model lacks [observed: jip14
+    // seqfreq.doc], 1 for one it has, "*" for every sequence.
+    assert_eq!(n(&mut g, "StatRef.GetAnimSequenceFrequency \"Forward\""), -1.0);
+    g.set_sequences(FormId(STAT_REF), Some(vec!["Forward".to_string()]));
     assert_eq!(n(&mut g, "StatRef.GetAnimSequenceFrequency \"Forward\""), 1.0);
+    assert_eq!(n(&mut g, "StatRef.GetAnimSequenceFrequency \"Backward\""), -1.0);
     q(&mut g, "StatRef.SetAnimSequenceFrequency \"*\" 1.5\nStatRef.SetAnimSequenceFrequency \"Forward\" 2");
     assert_eq!(n(&mut g, "StatRef.GetAnimSequenceFrequency \"forward\""), 2.0);
     assert_eq!(n(&mut g, "StatRef.GetAnimSequenceFrequency \"Idle\""), 1.5);
-    // Outside an item's script, and a reference that is no projectile.
-    assert_eq!(n(&mut g, "GetSelfAsInventoryRef"), 0.0);
+    // Outside an item's script the call fails [observed: jip14 selfinvref]; a
+    // reference that is no projectile.
+    assert!(g.run_query(&format!("{VARS}Begin Function {{ }}\nSetFunctionValue GetSelfAsInventoryRef\nEnd\n"), RunCtx::default()).is_err());
     assert_eq!(n(&mut g, "StatRef.GetDetonationTimer"), -1.0);
     // The nothing values by decision.
     assert_eq!(n(&mut g, "StatRef.AttachExtraCamera \"Cam\" 1 \"Scene Root\""), 0.0);

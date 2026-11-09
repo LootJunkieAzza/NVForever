@@ -60,6 +60,12 @@
    "query": "ref rP\nref rObj\nref rE\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"434F\"\nlet rE := GetNthEffectBase (GetFormFromMod \"FalloutNV.esm\" \"15169\") 0\nSetFunctionValue (AddNewEffect rObj rE 1 1)\nEnd\n",
    "label": "jip14.addneweffect.notmagic",
    "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nref rE\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15164\"\nlet rE := GetNthEffectBase (GetFormFromMod \"FalloutNV.esm\" \"15169\") 0\nlet fA := GetNumEffects rObj\nlet fB := AddNewEffect rObj rE 1 1 0 0 1\nlet fC := GetNumEffects rObj\nSetFunctionValue (sv_Construct \"%g %g %g %z %z\" fA fB fC (GetFormIDString (GetNthEffectBase rObj 0)) (GetFormIDString (GetNthEffectBase rObj (fC - 1))))\nEnd\n",
+   "label": "jip14.addneweffect.jet.append",
+   "field": "value",
+   "text": true
   }
  ]
 }
