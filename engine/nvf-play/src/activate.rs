@@ -308,6 +308,10 @@ pub(crate) fn find_target(
                         // The player's tweak marks someone not yet spoken to [design: docs/design/tweaks.md].
                         let unspoken = rt.as_deref().is_some_and(|rt| rt.game.tweaks.mark_unspoken && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
                         let name = if unspoken { format!("{name} *") } else { name };
+                        // The player's tweak: no name for someone who has not spoken to the
+                        // player (a body is named still, as Search) [design: docs/design/tweaks.md].
+                        let unknown = rt.as_deref().is_some_and(|rt| rt.game.tweaks.hide_unknown_names && !rt.game.extra.get(&FormId(id)).is_some_and(|e| e.talked_to_pc));
+                        let name = if unknown { String::new() } else { name };
                         (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
                     }
                     Action::Access => (n, terminal_action(rt.as_deref_mut(), &mut sim, id)),

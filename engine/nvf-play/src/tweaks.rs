@@ -267,6 +267,8 @@ pub struct TweakSettings {
     pub tab_back_in_pause: bool,
     /// `bAllowUnsafeFastTravel`: fast travel from places flagged against it (indoors).
     pub unsafe_fast_travel: bool,
+    /// `iDateFormat`: the style of `crate::wait::model::DATE_STYLES`.
+    pub date_style: usize,
 }
 
 /// The keys the console may open on, the original's first; ones nothing else in the
@@ -425,6 +427,7 @@ impl Default for TweakSettings {
             tab_closes_terminals: false,
             tab_back_in_pause: false,
             unsafe_fast_travel: false,
+            date_style: 0,
         }
     }
 }
@@ -1186,6 +1189,26 @@ impl Plugin for TweaksPlugin {
         switch!(app, "unsafe-fast-travel", "Fast Travel From Anywhere", "Fast travel works from places flagged against it, such as interiors; leaving a scripted place this way can break it. (Stewie's Tweaks bAllowUnsafeFastTravel)", unsafe_fast_travel);
         switch!(app, "vats-burst-stops-on-kill", "V.A.T.S. Burst Stops on a Kill", "The rest of a burst in V.A.T.S. is not fired once its target is dead. (Stewie's Tweaks bVATSStopBurstIfTargetDead)", game.vats_burst_stops_on_kill);
         switch!(app, "repair-needs-weapon-skill", "Repair Needs the Weapon's Skill", "The player can repair a weapon only with Repair at least the weapon's skill requirement. (Stewie's Tweaks bRepairRequiresWeaponSkill)", game.repair_needs_weapon_skill);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-date-style",
+                GROUP,
+                "Date Format",
+                "How the Pip-Boy and the wait menu write the date. (Stewie's Tweaks iDateFormat)",
+                Slider::choice(
+                    crate::wait::model::DATE_STYLES.len(),
+                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(0, |t| t.date_style).min(crate::wait::model::DATE_STYLES.len() - 1), crate::wait::model::DATE_STYLES.len()),
+                    |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.date_style = choice_index(v, crate::wait::model::DATE_STYLES.len());
+                        }
+                    },
+                    |v| crate::wait::model::DATE_STYLES[choice_index(v, crate::wait::model::DATE_STYLES.len())].to_string(),
+                ),
+            ),
+        );
+        switch!(app, "hide-unknown-names", "Hide Unknown Names", "The activation prompt gives no name for someone who has not spoken to the player yet (bodies are still named). (Stewie's Tweaks bHideUnknownNPCNames)", game.hide_unknown_names);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1336,6 +1359,7 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
 #[allow(clippy::too_many_arguments)]
 fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
+    crate::wait::model::set_date_style(tweaks.date_style as u8);
     if let Some(mut b) = bindings {
         if b.allow_duplicates != tweaks.duplicate_binds {
             b.allow_duplicates = tweaks.duplicate_binds;

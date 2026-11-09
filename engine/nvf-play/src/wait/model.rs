@@ -226,14 +226,36 @@ impl Words {
     /// screenshot; the month is GameMonth + 1 (GameMonth 9 is October, simulation.md
     /// §5b), the year its last two digits (hypothesis)].
     pub fn date_line(&self, c: &Calendar) -> String {
-        format!(
-            "{}, {}.{}.{:02}, {}",
-            self.weekdays[weekday(c) as usize],
-            c.day as i64,
-            c.month as i64 + 1,
-            (c.year as i64).rem_euclid(100),
-            clock(minute_of_day(c))
-        )
+        let date = styled_date(c).unwrap_or_else(|| format!("{}.{}.{:02}", c.day as i64, c.month as i64 + 1, (c.year as i64).rem_euclid(100)));
+        format!("{}, {date}, {}", self.weekdays[weekday(c) as usize], clock(minute_of_day(c)))
+    }
+}
+
+/// The player's iDateFormat tweak [design: docs/design/tweaks.md]: 0 as the game writes each date, 1 day first
+/// (19.10.81), 2 month first (10.19.81), 3 year first (2281-10-19). Set by
+/// `crate::tweaks::sync`; read by the wait menu and the Pip-Boy's heading.
+static DATE_STYLE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// The names of the date styles, in their order.
+pub const DATE_STYLES: [&str; 4] = ["As the game", "Day first (19.10.81)", "Month first (10.19.81)", "Year first (2281-10-19)"];
+
+pub fn set_date_style(style: u8) {
+    DATE_STYLE.store(style, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The date in the chosen style, or `None` to write it as the game does there.
+pub fn styled_date(c: &Calendar) -> Option<String> {
+    date_in(c, DATE_STYLE.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The date in `style` ([`DATE_STYLES`]); `None` for the game's own.
+pub fn date_in(c: &Calendar, style: u8) -> Option<String> {
+    let (d, m, y) = (c.day as i64, c.month as i64 + 1, c.year as i64);
+    match style {
+        1 => Some(format!("{d}.{m}.{:02}", y.rem_euclid(100))),
+        2 => Some(format!("{m}.{d}.{:02}", y.rem_euclid(100))),
+        3 => Some(format!("{y}-{m:02}-{d:02}")),
+        _ => None,
     }
 }
 
@@ -490,6 +512,9 @@ mod tests {
         }
         assert_eq!(w.date_line(&d), "Friday, 1.11.81, 23:30");
         assert_eq!(w.date_line(&cal(31.0, 9.0, 23.5)), "Thursday, 31.10.81, 23:30");
+        // The iDateFormat tweak's styles.
+        let c = cal(19.0, 9.0, 10.5);
+        assert_eq!([0, 1, 2, 3].map(|s| date_in(&c, s)), [None, Some("19.10.81".into()), Some("10.19.81".into()), Some("2281-10-19".into())]);
         // Over the year's end: no leap days, the week goes on.
         let eve = Calendar { year: 2281.0, month: 11.0, day: 31.0, hour: 23.0, days_passed: 79.0 };
         let (a, b) = (weekday(&eve), weekday(&eve.advance(2.0)));

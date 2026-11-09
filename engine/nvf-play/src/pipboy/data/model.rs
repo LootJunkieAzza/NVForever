@@ -15,7 +15,8 @@ pub const CELL: f32 = 4096.0;
 pub fn date_time_with(c: &Calendar, twelve: bool) -> String {
     let minute = crate::wait::model::minute_of_day(c);
     let clock = if twelve { clock_12(minute) } else { crate::wait::model::clock(minute) };
-    format!("{}.{}.{:02}, {clock}", c.month as i64 + 1, c.day as i64, (c.year as i64).rem_euclid(100))
+    let date = crate::wait::model::styled_date(c).unwrap_or_else(|| format!("{}.{}.{:02}", c.month as i64 + 1, c.day as i64, (c.year as i64).rem_euclid(100)));
+    format!("{date}, {clock}")
 }
 
 /// `minute_of_day` as a 12-hour clock: 0:05 is "12:05 AM", 13:30 "1:30 PM".

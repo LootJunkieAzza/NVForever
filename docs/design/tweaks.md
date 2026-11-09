@@ -457,6 +457,8 @@ unless the player binds them, so nothing changes until then.
 | Fast Travel From Anywhere | `bAllowUnsafeFastTravel` | `pipboy::data::travel::tweak_checks` drops the place refusal (Can't Travel From Here, Can't Fast Travel) |
 | V.A.T.S. Burst Stops on a Kill | `bVATSStopBurstIfTargetDead` | `vats_mode`: a burst's later rounds are held once the mark's target is dead |
 | Repair Needs the Weapon's Skill | `bRepairRequiresWeaponSkill` | `pipboy::repair::keys` refuses to open the list for a weapon whose `skill_req` is above the player's Repair |
+| Date Format | `iDateFormat` | `wait::model::DATE_STYLES` (as the game, day first, month first, year first; ours), set from `tweaks::sync` and read by the wait menu and the Pip-Boy heading |
+| Hide Unknown Names | `bHideUnknownNPCNames` | `activate::find_target`: Talk targets without `talked_to_pc` get no name; bodies (Search) keep theirs |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -477,8 +479,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 373 |
-| to do | 230 |
+| done | 375 |
+| to do | 228 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -820,6 +822,7 @@ game's Data folder, read-only).
 | `bHideCrosshairInFirstPerson` | done |  |  | No Crosshair in First Person (the prompt stays) |
 | `bHideCrosshairInThirdPerson` | done |  |  | No Crosshair in Third Person (the prompt stays) |
 | `bHideCrosshairWhileReloading` | done |  |  | No Crosshair While Reloading |
+| `bHideUnknownNPCNames` | done |  | 1 | Hide Unknown Names (bodies are named, as bShowNameOnDeadNPCs) |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
 | `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
 | `bNoCompassPipsIfNotInDanger` | done |  |  | Compass Pips Only in Danger |
@@ -840,6 +843,7 @@ game's Data folder, read-only).
 | `bShowSneakLabelWhileStanding` | done |  |  | Sneak Label While Standing |
 | `bSubtitlesShowActorNames` | done |  |  | Subtitles Name the Speaker |
 | `bTalkWhileSneakingIfShiftIsHeld` | done |  |  | Shift to Talk While Sneaking |
+| `iDateFormat` | done |  | 1 | Date Format (four styles of ours) |
 | `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
 | `bDescriptiveMarkerAddedMessage` | to do | yes |  | NVForever shows no marker-added popup |
 | `bEnemyHealthbarShowBuffedHP` | to do | yes |  | max_health leaves out temporary modifiers; choose how bars share them |
@@ -856,7 +860,6 @@ game's Data folder, read-only).
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
 | `bHideInvisibleUndiscoveredLocations` | to do |  |  | compass::gather marker loop; markers_of does not carry the map rule |
-| `bHideUnknownNPCNames` | to do |  | 1 | activate::find_target with extra.talked_to_pc; needs a label for the unnamed |
 | `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
 | `bHUDMarkerNameIndicator` | to do |  | 7 | no such HUD text yet |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
@@ -871,7 +874,6 @@ game's Data folder, read-only).
 | `bShowQuestObjectivesOnCellChange` | to do |  | 1 | cell change detection and objectives for the active quest |
 | `bShowUsePasswordOnTerminalsWithNote` | to do |  | 1 | a labelled Action variant for the note |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
-| `iDateFormat` | to do |  | 1 | three date formatters |
 
 ### Menus
 
