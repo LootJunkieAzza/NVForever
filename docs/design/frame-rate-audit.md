@@ -604,6 +604,55 @@ Still left in the submission:
   of it is not per draw. [hypothesis] It is the bindless material slabs' resources being
   tracked for each pass (above).
 
+### Particle systems no camera sees (#1417, 2026-11-08)
+
+Every particle system with live particles rebuilt its whole mesh each frame (positions,
+normals, UVs, colours, indices) and handed it to the renderer, seen or not. A counting aid
+on a local branch measured, per frame, the systems whose mesh was written and how many of
+them lay outside every active camera [observed 2026-11-08]:
+
+| Place | Written | Outside every camera |
+|---|---|---|
+| Goodsprings, standing | 20 | 12 |
+| Primm | 8 | 3.5 |
+| Novac | 4 | 4 |
+| The Strip | 7 | 7 |
+| Running through Goodsprings | 25 | 15-18 |
+
+None of them wrote geometry identical to the frame before (ages, spin and the camera's
+turn change it), so leaving out identical writes would save nothing; leaving out the
+unseen ones is the lever.
+
+What is built now [design: `particles.rs` and `effect_particles.rs`, module notes]:
+
+- Emission, simulation, random draws, lifetimes and clean-up are unchanged. Only the
+  geometry build and the mesh write are left out for a system whose live particles' box
+  (squares within half their size × √2, ribbons within their half width of every trail
+  point, effect-shader squares the same) lies outside every active 3D camera drawing its
+  layers: the main camera, the water reflection camera while it is on, a 3D scope's lens
+  camera. The test uses each frustum's four sides only, so a box between a camera and its
+  near plane, or under the reflection's water clip plane, counts as seen.
+- Meanwhile its render entity is hidden, so its old mesh cannot draw; its emitter is not
+  touched. In doubt (no box, no placement, no active camera, a frustum not set) it is built
+  and shown.
+- The build moved from `Update` to `PostUpdate` (`particles::ParticleDrawSet`): after the
+  frusta are updated (and the reflection camera switched on or off), before visibility
+  propagation and before the asset events. A system coming into view is therefore rebuilt
+  and shown in the frame it is first drawn. The camera basis the squares face is still
+  taken in `Update` where the draw took it, so a visible system's vertices, and their
+  order, are bit for bit what they were. Hiding and showing a system takes its blended
+  draw out of and back into the renderer's sorted list, so overlapping blended surfaces at
+  exactly the same sort distance may swap order, as with any visibility change [design:
+  Bevy sorts the blended phase by distance only].
+- The world camera is found by its marker (`FlyCam`) instead of as the only 3D camera
+  beside the reflection's. The draw used to stop, every system frozen as it was, while a
+  scope's or a menu view's camera existed; particles now keep animating, and are culled
+  and shown again, with a scope up (an intended change).
+- No distance cut-off was added, and the fades and `NoFrustumCulling` stay.
+- `NVF_PLAY_TEST_PROFILE` logs `profile particles: <n> frames; per frame: regular <p>
+  published, <c> culled; effect …` (profile.rs). Smoke scenario
+  `particles-culled-off-screen`: Gomorrah's roof fires behind the player, then turned to.
+
 ## 6. CPU placement on processors with unequal L3 domains (#1842, 2026-11-08)
 
 Some processors split their L3 cache into domains of different sizes: AMD's dual-CCD X3D
