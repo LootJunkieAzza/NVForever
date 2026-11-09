@@ -1481,6 +1481,10 @@ pub struct Game<'a> {
     /// cashier ([`Game::guest_lines`]) and
     /// no script starts a conversation with it.
     pub coop_guest: bool,
+    /// A co-op replication guest's: the host's actors hostile to the players in the
+    /// host's world (`fighting one or ready to attack one`), which this game's compass marks
+    /// hostile as its own would be; this game runs none of the scripts that turned them.
+    pub coop_hostile: BTreeSet<FormId>,
     /// Co-op replication (docs/design/coop-replication.md §11 phase 4): this game is a
     /// guest's that draws the host's world and runs none of its logic (R3). Its own
     /// player's carried-item scripts and menus go on; the story's quests (those of the
@@ -2255,6 +2259,7 @@ impl<'a> Game<'a> {
             coop_story_wait: None,
             story_speakers: None,
             coop_guest: false,
+            coop_hostile: BTreeSet::new(),
             world_logic_off: false,
             story_plugins: Vec::new(),
             coop_effects: None,

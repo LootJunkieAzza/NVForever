@@ -57,8 +57,9 @@ pub enum Value {
     /// A reference the host's game created (a dynamic FormID): its base and where it
     /// was made.
     Exists { base: u32, cell: u32, pos: [f32; 3], rot: [f32; 3] },
-    /// The furniture an actor uses (0: none) and the weapon it holds (0: none).
-    Anim { furniture: u32, weapon: u32 },
+    /// The furniture an actor uses (0: none) and the weapon it holds (0: none), and
+    /// whether it is hostile to the players in the host's game (a guest's compass).
+    Anim { furniture: u32, weapon: u32, hostile: bool },
     /// An item a player dropped, lying in the host's world (queue item 135): its base,
     /// how many, and where it was made. Every player sees it and any one can take it.
     Item { base: u32, count: i32, cell: u32, pos: [f32; 3], rot: [f32; 3] },
@@ -112,9 +113,10 @@ impl Value {
                     b.extend_from_slice(&v.to_le_bytes());
                 }
             }
-            Value::Anim { furniture, weapon } => {
+            Value::Anim { furniture, weapon, hostile } => {
                 b.extend_from_slice(&furniture.to_le_bytes());
                 b.extend_from_slice(&weapon.to_le_bytes());
+                b.push(u8::from(*hostile));
             }
             Value::Item { base, count, cell, pos, rot } => {
                 b.extend_from_slice(&base.to_le_bytes());
@@ -163,7 +165,7 @@ impl Value {
                 let pos = [r.f32()?, r.f32()?, r.f32()?];
                 Value::Exists { base, cell, pos, rot: [r.f32()?, r.f32()?, r.f32()?] }
             }
-            comp::ANIM => Value::Anim { furniture: r.u32()?, weapon: r.u32()? },
+            comp::ANIM => Value::Anim { furniture: r.u32()?, weapon: r.u32()?, hostile: r.u8()? != 0 },
             comp::ITEM => {
                 let base = r.u32()?;
                 let count = r.u32()? as i32;
@@ -667,7 +669,7 @@ mod tests {
             Change { reference: 0x8, value: Value::Life { dead: true } },
             Change { reference: 0x9, value: Value::Look { base: 0x1F, level: 12, all_levels: true, rolls: 2, worn: vec![0x10, 0x11, 0x12] } },
             Change { reference: 0xFF00_0001, value: Value::Exists { base: 0x22, cell: 0x33, pos: [1.0; 3], rot: [0.5; 3] } },
-            Change { reference: 0xA, value: Value::Anim { furniture: 0x44, weapon: 0x55 } },
+            Change { reference: 0xA, value: Value::Anim { furniture: 0x44, weapon: 0x55, hostile: true } },
             Change { reference: 0xFF00_0002, value: Value::Item { base: 0x15169, count: 3, cell: 0x33, pos: [1.0, 2.0, 3.0], rot: [0.0, 0.0, 1.5] } },
         ]
     }

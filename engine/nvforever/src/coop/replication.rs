@@ -160,6 +160,7 @@ struct Slow {
     furniture: u32,
     weapon: u32,
     dead: bool,
+    hostile: bool,
 }
 
 #[derive(Default)]
@@ -602,7 +603,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         // The actors the host draws: Life and Anim each tick, Look on a sweep.
         for n in &r.host_npcs {
             let rf = FormId(n.reference);
-            let mut vals = vec![Value::Life { dead: n.has(npc_flag::DEAD) || dead(rf) }, Value::Anim { furniture: n.furniture, weapon: n.weapon }];
+            let mut vals = vec![Value::Life { dead: n.has(npc_flag::DEAD) || dead(rf) }, Value::Anim { furniture: n.furniture, weapon: n.weapon, hostile: n.hostile }];
             if sweep || shadow.of(n.reference).all(|s| s.comp() != comp::LOOK) {
                 let worn = sim.world.equipment(rf).unwrap_or_default().into_iter().map(|w| w.0).collect();
                 let level = aw.map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(n.reference));
@@ -677,6 +678,16 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                             *r.corrected.entry((c.reference, c.value.comp())).or_default() += 1;
                             if matches!(c.value.comp(), comp::PLACE | comp::ITEM) && !moved.contains(&c.reference) {
                                 moved.push(c.reference);
+                            }
+                        }
+                        // The host's verdict on whether it is hostile to the players,
+                        // for this game's compass.
+                        if let (Value::Anim { hostile, .. }, Some(g)) = (&c.value, script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game)) {
+                            let rf = FormId(c.reference);
+                            if *hostile {
+                                g.coop_hostile.insert(rf);
+                            } else {
+                                g.coop_hostile.remove(&rf);
                             }
                         }
                         match c.value {
@@ -768,6 +779,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         level: s.level,
                         all_levels: s.all_levels,
                         rolls: s.rolls,
+                        hostile: s.hostile,
                     };
                     let t = coop.npcs.entry(p.reference).or_default();
                     t.samples.push_back((now, n));
@@ -891,10 +903,12 @@ fn apply(sim: &mut nvf_play::sim::SimState, slow: &mut HashMap<u32, Slow>, c: &C
             s.dead = *dead;
             changed
         }
-        Value::Anim { furniture, weapon } => {
+        Value::Anim { furniture, weapon, hostile } => {
             let s = slow.entry(c.reference).or_default();
             let changed = (s.furniture, s.weapon) != (*furniture, *weapon);
             (s.furniture, s.weapon) = (*furniture, *weapon);
+            // The compass's hostile mark (`Game::coop_hostile`, set by `guest_side`).
+            s.hostile = *hostile;
             changed
         }
         Value::Look { base, level, all_levels, rolls, worn } => {

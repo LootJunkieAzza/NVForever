@@ -94,6 +94,10 @@ pub enum Msg {
     DuelHit { nonce: u16 },
     /// Duel, from the challenger: who won (a player id; 255 nobody).
     DuelOver { nonce: u16, winner: u8 },
+    /// Duel, from the loser to every player: its own game threw its body with this
+    /// velocity (whole game units a second, game space), so every copy of it is thrown
+    /// the same (owner 2026-11-09: "the propulsion should be sent to all players").
+    Thrown { nonce: u16, velocity: [i32; 3] },
     /// Trade: send me what you carry.
     TradeBrowse { nonce: u16 },
     /// Trade: what the sender carries (item, count), page `page` of `pages`.
@@ -123,6 +127,7 @@ impl Msg {
             | Msg::DuelFreeze { nonce, .. }
             | Msg::DuelHit { nonce }
             | Msg::DuelOver { nonce, .. }
+            | Msg::Thrown { nonce, .. }
             | Msg::TradeBrowse { nonce }
             | Msg::TradeStock { nonce, .. }
             | Msg::TradeRequest { nonce, .. }
@@ -145,6 +150,7 @@ impl Msg {
             Msg::DuelFreeze { nonce, delay_ms } => w.u8(11).u16(*nonce).u16(*delay_ms),
             Msg::DuelHit { nonce } => w.u8(12).u16(*nonce),
             Msg::DuelOver { nonce, winner } => w.u8(13).u16(*nonce).u8(*winner),
+            Msg::Thrown { nonce, velocity } => w.u8(14).u16(*nonce).u32(velocity[0] as u32).u32(velocity[1] as u32).u32(velocity[2] as u32),
             Msg::TradeBrowse { nonce } => w.u8(20).u16(*nonce),
             Msg::TradeStock { nonce, page, pages, items } => {
                 w.u8(21).u16(*nonce).u8(*page).u8(*pages).u8(items.len().min(STOCK_PAGE) as u8);
@@ -182,6 +188,7 @@ impl Msg {
             11 => Msg::DuelFreeze { nonce, delay_ms: r.u16()? },
             12 => Msg::DuelHit { nonce },
             13 => Msg::DuelOver { nonce, winner: r.u8()? },
+            14 => Msg::Thrown { nonce, velocity: [r.u32()? as i32, r.u32()? as i32, r.u32()? as i32] },
             20 => Msg::TradeBrowse { nonce },
             21 => {
                 let (page, pages, n) = (r.u8()?, r.u8()?, r.u8()? as usize);
@@ -226,6 +233,7 @@ mod tests {
             Msg::DuelFreeze { nonce: 1, delay_ms: 6_999 },
             Msg::DuelHit { nonce: 1 },
             Msg::DuelOver { nonce: 1, winner: 255 },
+            Msg::Thrown { nonce: 1, velocity: [-226, 226, 180] },
             Msg::TradeBrowse { nonce: 2 },
             Msg::TradeStock { nonce: 2, page: 0, pages: 2, items: vec![(0x0001_5169, 3), (0xF, 1)] },
             Msg::TradeRequest { nonce: 2, item: 0x0001_5169, count: 2 },

@@ -319,7 +319,7 @@ fn gather(
                     continue;
                 }
                 let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
-                let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
+                let hostile = fighting || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF);
                 let mark = if hostile { Mark::Hostile } else { Mark::Actor };
                 out.push((Near { mark, at: [at[0], at[1]], body: bodies.contains_key(&r.0).then_some(r.0) }, shown));
             }

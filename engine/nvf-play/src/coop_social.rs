@@ -164,6 +164,9 @@ pub struct Social {
     /// the knockdown's camera follows the body (`nvforever::player_knockdown`) and takes
     /// this.
     pub thrown: Option<[f32; 3]>,
+    /// Players whose own game threw their body (a lost duel), and with what velocity:
+    /// every copy of them is thrown the same (`Msg::Thrown`; `nvforever::coop`).
+    pub throws: Vec<(u8, [f32; 3])>,
     /// Attacks begun by this player as last seen (`combat::WeaponAnim::attacks`).
     attacks: Option<u32>,
     /// Caps to give back (buys the other could not honour), and sales to carry out
@@ -791,6 +794,11 @@ fn talk(real: Res<Time<Real>>, mut tables: ResMut<Tables>, mut social: ResMut<So
             Msg::Quit { nonce } if s.invites.asked.iter().any(|i| i.nonce == nonce && i.with == from) => {
                 s.invites.withdrawn(from, nonce);
             }
+            Msg::Thrown { velocity, .. } => {
+                let velocity = velocity.map(|v| v as f32);
+                info!("co-op social: player {} was thrown at ({:.0}, {:.0}, {:.0}) units/s in its own game", from + 1, velocity[0], velocity[1], velocity[2]);
+                s.throws.push((from, velocity));
+            }
             m @ (Msg::Quit { .. } | Msg::DuelReady { .. } | Msg::DuelFreeze { .. } | Msg::DuelHit { .. } | Msg::DuelOver { .. }) if s.duel.as_ref().is_some_and(|d| d.nonce == nonce && d.with == from) => {
                 let d = s.duel.as_mut().unwrap();
                 let outs = d.heard(&m, now);
@@ -940,6 +948,13 @@ fn duel_step(
             let down = crate::script::with_world(rt, &mut sim, |rt| rt.game.knock_down(FormId::PLAYER_REF, None, shove));
             s.thrown = down.then_some(shove);
             info!("co-op social: duel: this player is thrown back ({shove:?}): {}", if down { "knocked down" } else { "could not be knocked down" });
+            // Every player's copy of this body is thrown the same.
+            if down {
+                let nonce = s.duel.as_ref().map_or(0, |d| d.nonce);
+                for m in mates.mates.iter().filter(|m| Some(m.id) != mates.me) {
+                    out.push((m.id, Msg::Thrown { nonce, velocity: shove.map(|v| v.round() as i32) }));
+                }
+            }
         }
     }
     for (to, m) in out {

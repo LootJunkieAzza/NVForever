@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 127;
+pub const VERSION: u8 = 128;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -135,6 +135,11 @@ pub struct NpcState {
     /// `fnv_sim::leveled::roll_seed`), up to 127. With [`Self::level`], so a guest draws
     /// the leveled pick the host draws.
     pub rolls: u8,
+    /// Hostile to the players in the host's game: fighting one or ready to attack one
+    /// (`Game::would_attack`, the host's scripts' StartCombat and faction changes
+    /// included), for a guest's compass (Boulder City, laptop 2026-11-09). Sent in the
+    /// top bit of [`Self::level`] (levels stay under 32768).
+    pub hostile: bool,
 }
 
 impl NpcState {
@@ -2167,7 +2172,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.push(n.attacks);
                 b.extend_from_slice(&n.furniture.to_le_bytes());
                 b.extend_from_slice(&n.base.to_le_bytes());
-                b.extend_from_slice(&n.level.to_le_bytes());
+                b.extend_from_slice(&((n.level & 0x7FFF) | if n.hostile { 0x8000 } else { 0 }).to_le_bytes());
                 b.push(n.rolls.min(127) | if n.all_levels { 128 } else { 0 });
             }
         }
@@ -2462,7 +2467,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
                     return None;
                 }
                 let (flags, weapon, attacks, furniture, base, level, look) = (r.u8()?, r.u32()?, r.u8()?, r.u32()?, r.u32()?, r.u16()?, r.u8()?);
-                npcs.push(NpcState { reference, feet, heading, pitch, flags, weapon, attacks, furniture, base, level, all_levels: look & 128 != 0, rolls: look & 127 });
+                npcs.push(NpcState { reference, feet, heading, pitch, flags, weapon, attacks, furniture, base, level: level & 0x7FFF, all_levels: look & 128 != 0, rolls: look & 127, hostile: level & 0x8000 != 0 });
             }
             Msg::Npcs { seq, npcs }
         }
@@ -2722,8 +2727,8 @@ mod tests {
             Msg::Npcs {
                 seq: 12,
                 npcs: vec![
-                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255, furniture: 0, base: 0x0010_4C39, level: 12, all_levels: true, rolls: 3 },
-                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD | npc_flag::SEATED, weapon: 0, attacks: 0, furniture: 0x0010_C055, base: 0, level: 0, all_levels: false, rolls: 0 },
+                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255, furniture: 0, base: 0x0010_4C39, level: 12, all_levels: true, rolls: 3, hostile: true },
+                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD | npc_flag::SEATED, weapon: 0, attacks: 0, furniture: 0x0010_C055, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false },
                 ],
             },
             Msg::State { id: 1, seq: 7, state: state(-12.5) },
@@ -3192,7 +3197,7 @@ mod tests {
         let step = Duration::from_millis(10);
         run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
         // More than one packet's worth.
-        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0 }).collect();
+        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false }).collect();
         host.set_npcs(npcs.clone());
         let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().filter(|e| matches!(e, Event::Npcs(_))).count() >= 2);
         let mut heard: Vec<NpcState> = Vec::new();

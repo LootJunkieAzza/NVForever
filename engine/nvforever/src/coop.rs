@@ -911,6 +911,10 @@ struct Peer {
     /// its player's feet were then, and when; its puppet's ragdoll is thrown the way they
     /// go next ([`duel_falls`]).
     fall_from: Option<([f32; 3], f32)>,
+    /// When its puppet's ragdoll last got a throw ([`duel_falls`]): the loser's own
+    /// velocity (`Msg::Thrown`) arriving after this game threw it already is not a second
+    /// throw.
+    thrown_at: Option<f32>,
 }
 
 impl Peer {
@@ -1103,6 +1107,30 @@ fn duel_falls(
         info!("co-op: {} lost the duel: the puppet falls, thrown at ({:.0}, {:.0}, {:.0}) units/s", label(id, &p.name), shove[0], shove[1], shove[2]);
         p.lying_fell = true;
     }
+    // The loser's own game says how it threw the body (`Msg::Thrown`, sent to every
+    // player): every copy is thrown with that velocity. Before, the winner's game threw
+    // its copy from where it saw the two stand, and a third player's fell in place and was
+    // pushed only once the loser's feet were seen to go (FALL_TELL), so it crumbled first
+    // (owner 2026-11-09: "it seems like the loser just crumbles").
+    for (id, velocity) in std::mem::take(&mut social.throws) {
+        let Some(p) = coop.peers.get_mut(&id).filter(|p| !p.down) else { continue };
+        p.fall_from = None;
+        if p.thrown_at.is_some_and(|t| now - t < 2.0) {
+            // This game's own throw went first (the winner's): the ragdoll has it.
+            info!("co-op: {} was thrown in its own game too: its ragdoll here was already thrown", label(id, &p.name));
+            continue;
+        }
+        p.fall_shove = Some((velocity, now));
+        if !p.lying_fell && p.fell_at.is_none() {
+            let r = p.reference(id);
+            p.fell_at = Some(now);
+            p.rising = Some(revive::Rising::Start { since: now });
+            g.extra.entry(FormId(r)).or_default().dead = true;
+            hits.write(ActorHit { form_id: r, died: true, knocked_out: false, location: -1, crippled: false, part_crippled: false, torso_crippled: false, by: None, share: 1.0, guard_broken: false, weapon: None });
+            p.lying_fell = true;
+        }
+        info!("co-op: {} was thrown at ({:.0}, {:.0}, {:.0}) units/s in its own game: its puppet here is thrown the same", label(id, &p.name), velocity[0], velocity[1], velocity[2]);
+    }
     // Any other player whose own body lies knocked down (`flag::LYING`, its own
     // `player_knockdown`): a duel this game took no part in, a blast. Its puppet falls
     // here too, in place, and gets up with its body as a duel's loser does. Before, only
@@ -1152,12 +1180,14 @@ fn duel_falls(
             Some((_, mut c, _)) if !c.live => {
                 c.velocity = shove;
                 p.fall_shove = None;
-                info!("co-op: {}'s ragdoll starts thrown", label(id, &p.name));
+                p.thrown_at = Some(now);
+                info!("co-op: {}'s ragdoll starts thrown at ({:.0}, {:.0}, {:.0}) units/s", label(id, &p.name), shove[0], shove[1], shove[2]);
             }
             Some((_, _, gt)) => {
                 pushes.write(nvf_play::combat::ActorPush { form_id: r, point: nvf_play::space::to_game(gt.translation()), dv: shove });
                 p.fall_shove = None;
-                info!("co-op: {}'s ragdoll is pushed by the throw", label(id, &p.name));
+                p.thrown_at = Some(now);
+                info!("co-op: {}'s ragdoll is pushed by the throw ({:.0}, {:.0}, {:.0}) units/s", label(id, &p.name), shove[0], shove[1], shove[2]);
             }
             None if now - since > DUEL_SHOVE_WAIT => {
                 p.fall_shove = None;
@@ -2093,8 +2123,8 @@ fn share_npcs(
     fighters: Res<Fighters>,
     mut attacks: MessageReader<PlayAttack>,
     mut told: Local<usize>,
-    (sim, actor_world): (Option<Res<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>),
-    (residents, streamer, world, script): (Option<Res<Residents>>, Res<Streamer>, Option<Res<WorldData>>, Option<Res<nvf_play::script::ScriptState>>),
+    (mut sim, actor_world): (Option<ResMut<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>),
+    (residents, streamer, world, mut script): (Option<Res<Residents>>, Res<Streamer>, Option<Res<WorldData>>, Option<ResMut<nvf_play::script::ScriptState>>),
 ) {
     let coop = &mut *coop;
     let Some(link) = coop.link.as_ref().filter(|l| l.is_host()) else {
@@ -2113,6 +2143,34 @@ fn share_npcs(
     // it is first posed, `act`): a guest's own stand-in, sent as an NPC, stood frozen where
     // it was first drawn.
     let players: HashSet<u32> = coop.peers.values().filter_map(|p| p.actor).map(|r| r.0).collect();
+    // The residents simulated round a guest away from the host and not drawn (`areas`).
+    let undrawn = match (residents.as_deref(), world.as_deref()) {
+        (Some(res), Some(world)) => res.simulated_undrawn(world, &streamer),
+        _ => Vec::new(),
+    };
+    // Hostile to the players in this game: fighting one or ready to attack one, as this
+    // game's compass judges it for its own player. A guest's game runs none of the
+    // host's scripts (StartCombat, SetEnemy, a faction's turn) and has no fights of its
+    // own, so its compass shows what the host's world says (Boulder City: the Khans
+    // turned on the host and showed 0 hostile on the guest's compass, laptop 2026-11-09).
+    let mut hostile: HashSet<u32> = HashSet::new();
+    if let (Some(rt), Some(sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim.as_deref_mut()) {
+        let refs: Vec<u32> = actors.iter().map(|(v, ..)| v.0).filter(|r| !is_puppet(*r) && !players.contains(r)).chain(undrawn.iter().map(|u| u.0)).collect();
+        let others: Vec<FormId> = players.iter().map(|&p| FormId(p)).collect();
+        nvf_play::script::with_world(rt, sim, |rt| {
+            let g = &mut rt.game;
+            for r in refs {
+                let id = FormId(r);
+                if g.is_dead(id) {
+                    continue;
+                }
+                let fighting = g.awareness.get(id).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF || others.contains(&t));
+                if fighting || g.would_attack(id, FormId::PLAYER_REF) {
+                    hostile.insert(r);
+                }
+            }
+        });
+    }
     // What decides each one's look: its base, and the level and rolls its leveled picks
     // were drawn with ([`follow_looks`]).
     let rolls = actor_world.as_deref().and_then(|w| w.rolls.lock().ok().map(|r| r.clone())).unwrap_or_default();
@@ -2154,6 +2212,7 @@ fn share_npcs(
             level: level.level,
             all_levels: level.all_levels,
             rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
+            hostile: hostile.contains(&r),
         });
         // What it is drawn wearing and holding: each game rolls carried items from its
         // own random numbers (item 71), so the guests dress their copies in this.
@@ -2163,9 +2222,9 @@ fn share_npcs(
     }
     // The residents the host simulates in a guest's surroundings away from it and does
     // not draw (`areas`): where its AI has them (item 109).
-    if let (Some(res), Some(world)) = (residents.as_deref(), world.as_deref()) {
+    {
         let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
-        for (r, base, _, feet, heading, walking) in res.simulated_undrawn(world, &streamer) {
+        for (r, base, _, feet, heading, walking) in undrawn {
             let dead = game.is_some_and(|g| g.is_dead(FormId(r)));
             let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
             let mut flags = if walking { npc_flag::MOVING } else { 0 };
@@ -2188,6 +2247,7 @@ fn share_npcs(
                 level: level.level,
                 all_levels: level.all_levels,
                 rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
+                hostile: hostile.contains(&r),
             });
         }
     }
@@ -2845,8 +2905,17 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
             info!("co-op: {} is alive in the host's world: up again here", g.data.name(id));
             g.resurrect(id, false);
         }
+        // Shown already, by its own flag or its enable parent's: left as it is. One
+        // shown through its enable parent keeps its own flag as the host's does (the
+        // parent's change brings it): setting the flag here made every digest find it
+        // unlike the host's, which disabled it again and the next sample enabled it
+        // (Bitter Springs raid, laptop 2026-11-09: VBSVexillariusREF and the wave-3
+        // mongrels and legionaries, children of VBS raid markers, "sent again" every
+        // 6-9 s).
+        let shown = world.is_enabled(id).unwrap_or(false);
+        let by_parent = world.placed.get(id).is_some_and(|p| p.enable_parent.is_some());
+        let enable = !shown && !by_parent;
         let Ok(st) = world.get(id) else { continue };
-        let enable = !st.enabled;
         // Elsewhere: another interior, or another worldspace, than this player's.
         let elsewhere = st.cell.is_none_or(|c| c != cell && (player_space.is_none() || world.placed.world_of(c) != player_space));
         if elsewhere {
