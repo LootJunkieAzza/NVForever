@@ -8500,6 +8500,16 @@ WRITING_SETS |= {"sup4"}
 # cannot cause and put back; IsRadioRefPlaying crashes the original (its page).
 
 
+# The original compiles neither `$var` for a literal nor array elements as call arguments
+# [observed: probe set jg8, 2026-11-09], so the icon is spelled out and the sorted forms go
+# through ref variables.
+JG8_ICON = r"interface\icons\world map\icon_map_encampment.dds"
+
+
+def _jg8_firsts():
+    return "let rA := aOut[0]\nlet rB := aOut[1]\nlet rC := aOut[2]\n"
+
+
 def _jg8(pid, body, text=False):
     return (f"jg8.{pid}", "ref rA\nref rB\nref rC\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\n"
             "string_var sText\narray_var aList\narray_var aOut\nBegin Function { }\n" + body, text, None, "")
@@ -8510,20 +8520,22 @@ JG8_PROBES = (
      _jg8("sha1", 'SetFunctionValue (SHA1File "Data\\Credits.txt")', True),
      _jg8("bsa", 'SetFunctionValue (sv_Construct "%g %g %g %g" (IsBSALoaded "Fallout - Meshes.bsa") '
           '(IsBSALoaded "fallout - meshes.bsa") (IsBSALoaded "Data\\Fallout - Meshes.bsa") (IsBSALoaded "NoSuch.bsa"))', True),
-     _jg8("texture", 'let sText := "interface\\icons\\world map\\icon_map_encampment.dds"\n'
-          'SetFunctionValue (sv_Construct "%g %g %g %g" (GetTextureWidth $sText) (GetTextureHeight $sText) '
-          "(GetTextureMipMapCount $sText) (GetTextureFormat $sText))", True),
+     _jg8("texture", 'SetFunctionValue (sv_Construct "%g %g %g %g" ' + " ".join(
+          f'({f} "{JG8_ICON}")' for f in ("GetTextureWidth", "GetTextureHeight", "GetTextureMipMapCount", "GetTextureFormat")) + ")", True),
      _jg8("colour", 'SetFunctionValue (sv_Construct "%.0f %.0f %.0f %.0f %.0f %.0f" (GetSystemColor 1) (GetSystemColor 2) '
           "(GetSystemColor 3) (GetSystemColor 4) (GetSystemColor 5) (GetSystemColor 6))", True),
-     _jg8("colour.alt", 'GetSystemColorAlt 1 iR iG iB\nSetFunctionValue (sv_Construct "%g %g %g" iR iG iB)', True),
+     _jg8("colour.alt", 'let fA := GetSystemColorAlt 1 iR iG iB\nSetFunctionValue (sv_Construct "%g %g %g" iR iG iB)', True),
      _jg8("sleepwait", "SetFunctionValue (GetSleepWaitMenuState)"),
      _jg8("sorteditor", _form("rA", NF["stimpak"]) + _form("rB", NF["caps"]) + _form("rC", NF["pistol10"])
           + "let aList := Ar_List rA, rB, rC\nlet aOut := Ar_SortEditor aList\n"
-          'let sText := sv_Construct "%z %z %z" (GetFormIDString aOut[0]) (GetFormIDString aOut[1]) (GetFormIDString aOut[2])\n'
+          + _jg8_firsts()
+          + 'let sText := sv_Construct "%z %z %z" (GetFormIDString rA) (GetFormIDString rB) (GetFormIDString rC)\n'
           "let aOut := Ar_SortEditor aList 1\n"
-          'SetFunctionValue (sv_Construct "%z | %z %z %z" sText (GetFormIDString aOut[0]) (GetFormIDString aOut[1]) (GetFormIDString aOut[2]))', True),
+          + _jg8_firsts()
+          + 'SetFunctionValue (sv_Construct "%z | %z %z %z" sText (GetFormIDString rA) (GetFormIDString rB) (GetFormIDString rC))', True),
      _jg8("shuffle", "let aOut := Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)\n"
-          'SetFunctionValue (sv_Construct "%g %g" (Ar_Size aOut) (aOut[0] + aOut[1] + aOut[2] + aOut[3] + aOut[4]))', True)]
+          "let fA := Ar_Size aOut\nlet fB := aOut[0] + aOut[1] + aOut[2] + aOut[3] + aOut[4]\n"
+          'SetFunctionValue (sv_Construct "%g %g" fA fB)', True)]
 )
 SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
 
