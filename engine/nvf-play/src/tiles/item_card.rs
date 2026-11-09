@@ -27,7 +27,7 @@
 //! - Nothing selected: every card hidden, but `StrengthReqInfo` as the file has it, shown at
 //!   `alpha` 0 [observed: at the opening of the menu its lines show and no words].
 
-use crate::pipboy::items::Info;
+use crate::pipboy::items::{FirstStat, Info};
 use fnv_ui::{Ui, Value};
 
 /// The cards this writes, under the prefab's root [documented: item_stats_display.xml].
@@ -68,10 +68,11 @@ pub fn write(ui: &mut Ui, root: &str, info: Option<&Info>) {
         set(ui, root, "StrengthReqInfo", "alpha", Value::Num(0.0));
         return;
     };
-    let first = |name: &str| i.first.as_ref().filter(|(t, _)| *t == name).map(|(_, v)| v.as_str());
-    show(ui, root, "DAMInfo", first("DAM"));
+    // By the figure's kind, not its title: that is the load order's setting [design].
+    let first = |kind: FirstStat| i.first.as_ref().filter(|(k, _, _)| *k == kind).map(|(_, _, v)| v.as_str());
+    show(ui, root, "DAMInfo", first(FirstStat::Damage));
     set(ui, root, "DAMInfo", "alpha", Value::Num(255.0));
-    show(ui, root, "DamageThresholdInfo", first("DT"));
+    show(ui, root, "DamageThresholdInfo", first(FirstStat::Threshold));
     show(ui, root, "DPSInfo", i.dps.as_deref());
     // One card up, out of the DAM card's place (module notes).
     let high = ui.get_float(&format!("{root}/user1")).unwrap_or(0.0);
@@ -81,7 +82,7 @@ pub fn write(ui: &mut Ui, root: &str, info: Option<&Info>) {
     let strength = i.strength.map(|s| s.to_string());
     show(ui, root, "StrengthReqInfo", strength.as_deref());
     set(ui, root, "StrengthReqInfo", "alpha", Value::Num(255.0));
-    let weapon = i.dps.is_some() || i.strength.is_some() || matches!(&i.first, Some((t, _)) if *t == "DAM");
+    let weapon = i.dps.is_some() || i.strength.is_some() || matches!(&i.first, Some((FirstStat::Damage, _, _)));
     show(ui, root, "ConditionInfo", i.condition.map(|_| ""));
     set(ui, root, "ConditionInfo", "user5", Value::Num(f64::from(i.condition.unwrap_or(0.0).clamp(0.0, 1.0))));
     set(ui, root, "ConditionInfo", "user6", Value::Num(f64::from(u8::from(weapon && i.condition.is_some()))));
@@ -145,7 +146,7 @@ mod tests {
 
     fn pistol() -> Info {
         Info {
-            first: Some(("DAM", "9".into())),
+            first: Some((FirstStat::Damage, "DAM", "9".into())),
             dps: Some("34".into()),
             weight: Some("1.50".into()),
             value: Some("100".into()),
@@ -205,6 +206,22 @@ mod tests {
     }
 
     #[test]
+    fn localized_titles_still_pick_the_damage_and_threshold_cards() {
+        // A load order whose settings name the figures in other words (written for the test).
+        let mut ui = ui();
+        let weapon = Info { first: Some((FirstStat::Damage, "SCH", "9".into())), condition: Some(0.6), ..Info::default() };
+        write(&mut ui, ROOT, Some(&weapon));
+        ui.update();
+        assert_eq!(describe(&ui, ROOT), "DAMInfo 9, WeightInfo --, ValueInfo --, ConditionInfo");
+        assert_eq!(at(&ui, "ConditionInfo/user6"), 1.0, "a weapon's condition by the figure's kind");
+        let armour = Info { first: Some((FirstStat::Threshold, "SRS", "12".into())), condition: Some(0.8), ..Info::default() };
+        write(&mut ui, ROOT, Some(&armour));
+        ui.update();
+        assert_eq!(describe(&ui, ROOT), "DamageThresholdInfo 12, WeightInfo --, ValueInfo --, ConditionInfo");
+        assert_eq!(at(&ui, "ConditionInfo/user6"), 0.0, "armour");
+    }
+
+    #[test]
     fn changing_item_clears_previous_card() {
         let mut ui = ui();
         write(&mut ui, ROOT, Some(&pistol()));
@@ -216,7 +233,7 @@ mod tests {
         assert_eq!(ui.get_string(&format!("{ROOT}/AmmoInfo/_Title")).as_deref(), Some(""));
         assert_eq!(at(&ui, "ConditionInfo/user6"), 0.0);
         // Armour: DT, the class beside the condition, effects on the next row.
-        let armour = Info { first: Some(("DT", "12".into())), condition: Some(0.8), beside: Some("Heavy".into()), effects: Some("AGL -1".into()), ..Info::default() };
+        let armour = Info { first: Some((FirstStat::Threshold, "DT", "12".into())), condition: Some(0.8), beside: Some("Heavy".into()), effects: Some("AGL -1".into()), ..Info::default() };
         write(&mut ui, ROOT, Some(&armour));
         ui.update();
         assert_eq!(describe(&ui, ROOT), "DamageThresholdInfo 12, WeightInfo --, ValueInfo --, ConditionInfo, Heavy, EffectsInfo AGL -1");
