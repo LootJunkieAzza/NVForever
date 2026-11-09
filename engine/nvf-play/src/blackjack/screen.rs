@@ -7,7 +7,8 @@
 //! - The information box: 400 × 175, 10 in from the main rectangle's left and bottom, the
 //!   bracket of lines, three rows in font 7 at 20 in and 35, 80 and 125 down: "Current
 //!   Bet:", "Chips:" and "<casino> Earnings:" [observed: the owner's screenshot], each
-//!   value right-aligned 80 short of the box's width.
+//!   value right-aligned 80 short of the box's width; a long casino name or a big number
+//!   moves the values right and widens the box (`casino_hud::info_fit`).
 //! - Six buttons right-aligned 50 from the main rectangle's right, one under the other,
 //!   each its label and its key (blackjack.md §5); a button that does not apply now is not
 //!   drawn, the others keep their places [hypothesis].
@@ -85,11 +86,6 @@ fn shown_bet(s: &Session) -> u32 {
     }
 }
 
-/// Where a row's value ends (right-aligned): at [`VALUE_X`], or further right when the
-/// title would run into it.
-fn value_right(title_w: f32, value_w: f32) -> f32 {
-    VALUE_X.max(ROW_X + title_w + VALUE_GAP + value_w)
-}
 
 fn view_width(window: Option<&Window>) -> f32 {
     window.map_or(960.0 * 16.0 / 9.0, |w| 960.0 * w.width() / w.height().max(1.0))
@@ -149,19 +145,18 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
             // The information box.
-            let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(INFO.x), height: u(INFO.y), ..default() };
+            let rows = [("Current Bet:".to_string(), shown_bet(s).to_string()), ("Chips:".into(), s.chips.to_string()), (s.earnings_title(), s.earnings.to_string())];
+            let widths: Vec<(f32, f32)> = rows.iter().map(|(t, v)| (c.text_width(FontKind::Menu, t), c.text_width(FontKind::Menu, v))).collect();
+            let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, VALUE_GAP, &widths);
+            let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };
             m.spawn(info).with_children(|b| {
                 c.image(b, "interface\\shared\\line\\fade_to_top.dds", at(0.0, 0.0, THICK, FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, FADE - THICK, THICK, INFO.y - FADE), bright);
-                c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, INFO.x - FADE, THICK), bright);
-                c.image(b, "interface\\shared\\line\\fade_to_right.dds", at(INFO.x - FADE - THICK, INFO.y - THICK, FADE, THICK), bright);
-                let rows = [("Current Bet:".to_string(), shown_bet(s).to_string()), ("Chips:".into(), s.chips.to_string()), (s.earnings_title(), s.earnings.to_string())];
+                c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, info_w - FADE, THICK), bright);
+                c.image(b, "interface\\shared\\line\\fade_to_right.dds", at(info_w - FADE - THICK, INFO.y - THICK, FADE, THICK), bright);
                 for ((title, value), y) in rows.iter().zip(ROWS_Y) {
-                    let title_w = c.text_in(b, FontKind::Menu, title, ROW_X, y, false, bright);
-                    // A long casino name ("Atomic Wrangler Earnings:") pushes its value
-                    // right, clear of the title [design].
-                    let x = value_right(title_w, c.text_width(FontKind::Menu, value));
-                    c.text_in(b, FontKind::Menu, value, x, y, true, bright);
+                    c.text_in(b, FontKind::Menu, title, ROW_X, y, false, bright);
+                    c.text_in(b, FontKind::Menu, value, column, y, true, bright);
                 }
             });
             // The buttons, while the cards are down.
@@ -231,8 +226,9 @@ mod tests {
 
     #[test]
     fn a_long_title_pushes_its_value_clear() {
-        assert_eq!(value_right(100.0, 20.0), VALUE_X, "short titles keep the file's column");
-        let x = value_right(330.0, 30.0);
+        let (x, _) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, VALUE_GAP, &[(100.0, 20.0)]);
+        assert_eq!(x, VALUE_X, "short titles keep the file's column");
+        let (x, _) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, VALUE_GAP, &[(330.0, 30.0)]);
         assert!(x - 30.0 >= ROW_X + 330.0 + VALUE_GAP, "the value starts after the title");
     }
 }

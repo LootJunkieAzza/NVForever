@@ -75,6 +75,17 @@ fn bracket_box(p: &mut ChildSpawnerCommands, w: f32, h: f32) {
     rule(p, w - LINE, h - SIDE, LINE, SIDE);
 }
 
+/// The casino screens' information boxes (blackjack, roulette, slots): where the values'
+/// column ends (they are right-aligned to it) and how wide the box is, for rows of (title
+/// width, value width). The file's column and width while everything fits; else the
+/// column moves right of the longest title and value by `gap`, and the box widens by as
+/// much, keeping its margin past the column, so a long casino name and big earnings or
+/// bets never run into each other or past the box [design, owner 2026-11-09].
+pub fn info_fit(width: f32, row_x: f32, value_x: f32, gap: f32, rows: &[(f32, f32)]) -> (f32, f32) {
+    let column = rows.iter().map(|&(t, v)| row_x + t + gap + v).fold(value_x, f32::max);
+    (column, width + column - value_x)
+}
+
 /// One side's line on the score panel.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoreRow {
@@ -195,6 +206,20 @@ mod tests {
         assert_eq!(ranked(2, &[100, 40, 0]), vec![2, 1, 0]);
         // Ties keep seat order.
         assert_eq!(ranked(1, &[100, 0, 100, 100]), vec![1, 0, 2, 3]);
+    }
+
+    #[test]
+    fn big_numbers_widen_the_box_and_keep_clear_of_titles() {
+        // Short rows: the file's column and width.
+        assert_eq!(info_fit(400.0, 20.0, 340.0, 16.0, &[(120.0, 40.0), (200.0, 60.0)]), (340.0, 400.0));
+        // "Atomic Wrangler Earnings:" and a seven-digit sum.
+        let (column, w) = info_fit(400.0, 20.0, 340.0, 16.0, &[(120.0, 40.0), (300.0, 140.0)]);
+        assert_eq!(column, 20.0 + 300.0 + 16.0 + 140.0);
+        assert_eq!(w - column, 60.0, "the margin past the values stays");
+        // Every row's value starts after its title.
+        for (t, v) in [(120.0f32, 40.0f32), (300.0, 140.0)] {
+            assert!(column - v >= 20.0 + t + 16.0);
+        }
     }
 
     #[test]

@@ -145,22 +145,24 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
         r.spawn(main).with_children(|m| {
             // The information box.
-            let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(INFO.x), height: u(INFO.y), ..default() };
+            let rows = [
+                ("Current Bet:".to_string(), s.bet.to_string()),
+                ("Total Bet:".into(), s.table.total().to_string()),
+                ("Chips:".into(), s.free_chips().to_string()),
+                (format!("{} Earnings:", s.casino_name), s.earnings.to_string()),
+            ];
+            let widths: Vec<(f32, f32)> = rows.iter().map(|(t, v)| (c.text_width(FontKind::Menu, t), c.text_width(FontKind::Menu, v))).collect();
+            let (column, info_w) = crate::casino_hud::info_fit(INFO.x, ROW_X, VALUE_X, 16.0, &widths);
+            let info = Node { position_type: PositionType::Absolute, left: u(INFO_IN), bottom: u(INFO_IN), width: u(info_w), height: u(INFO.y), ..default() };
             m.spawn(info).with_children(|b| {
                 c.image(b, "interface\\shared\\line\\fade_to_top.dds", at(0.0, 0.0, THICK, FADE), bright);
                 c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, FADE - THICK, THICK, INFO.y - FADE), bright);
-                c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, INFO.x - FADE, THICK), bright);
-                c.image(b, "interface\\shared\\line\\fade_to_right.dds", at(INFO.x - FADE - THICK, INFO.y - THICK, FADE, THICK), bright);
-                let rows = [
-                    ("Current Bet:".to_string(), s.bet.to_string()),
-                    ("Total Bet:".into(), s.table.total().to_string()),
-                    ("Chips:".into(), s.free_chips().to_string()),
-                    (format!("{} Earnings:", s.casino_name), s.earnings.to_string()),
-                ];
+                c.image(b, "interface\\shared\\line\\solid.dds", at(0.0, INFO.y - THICK, info_w - FADE, THICK), bright);
+                c.image(b, "interface\\shared\\line\\fade_to_right.dds", at(info_w - FADE - THICK, INFO.y - THICK, FADE, THICK), bright);
                 for (i, (title, value)) in rows.iter().enumerate() {
                     let y = i as f32 * ROW_STEP;
                     c.text_in(b, FontKind::Menu, title, ROW_X, y, false, bright);
-                    c.text_in(b, FontKind::Menu, value, VALUE_X, y, true, bright);
+                    c.text_in(b, FontKind::Menu, value, column, y, true, bright);
                 }
             });
             let betting = s.phase == Phase::Betting && s.help.is_none();

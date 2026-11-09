@@ -111,7 +111,7 @@ impl Highlight {
         match self {
             Highlight::Bullseye => "BULLSEYE",
             Highlight::Triple => "TRIPLE 20",
-            Highlight::MultiBall => "3 BALLS IN ONE SHOT",
+            Highlight::MultiBall => "TRIPLE",
             Highlight::HandWon => "YOU WIN THE HAND",
         }
     }
@@ -293,7 +293,14 @@ pub fn darts_highlights(hits: &[fnv_game::darts::Hit], had: usize) -> Vec<Flouri
 /// `before` the last time they were still.
 pub fn pool_highlight(before: usize, now: usize) -> Option<Flourish> {
     let down = before.checked_sub(now)?;
-    (down >= 2).then(|| Flourish { kind: Highlight::MultiBall, text: format!("{down} BALLS IN ONE SHOT") })
+    (down >= 2).then(|| Flourish { kind: Highlight::MultiBall, text: multi_name(down) })
+}
+
+/// Balls down in one shot by name: "DOUBLE", "TRIPLE" … [owner 2026-11-09], past the named
+/// ones "<n>-BALL SHOT".
+pub fn multi_name(down: usize) -> String {
+    const NAMES: [&str; 6] = ["DOUBLE", "TRIPLE", "QUADRUPLE", "QUINTUPLE", "SEXTUPLE", "SEPTUPLE"];
+    NAMES.get(down.wrapping_sub(2)).map_or_else(|| format!("{down}-BALL SHOT"), |n| n.to_string())
 }
 
 /// Darts and pool: the highlights in what this screen shows.
@@ -561,7 +568,9 @@ mod tests {
     #[test]
     fn two_balls_or_more_in_one_shot() {
         assert!(pool_highlight(15, 14).is_none());
-        assert_eq!(pool_highlight(15, 13).map(|f| f.text), Some("2 BALLS IN ONE SHOT".into()));
+        assert_eq!(pool_highlight(15, 13).map(|f| f.text), Some("DOUBLE".into()));
+        assert_eq!(pool_highlight(15, 11).map(|f| f.text), Some("QUADRUPLE".into()));
+        assert_eq!(multi_name(9), "9-BALL SHOT");
         // A new rack puts balls back: nothing.
         assert!(pool_highlight(3, 15).is_none());
     }
