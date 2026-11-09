@@ -218,9 +218,13 @@ pub fn spread(sliders: &mut [Slider], faces: &[FaceGen]) {
 /// The least reach of an asymmetry slider either way, standard deviations [design].
 pub const ASYMMETRY_REACH: f64 = 2.0;
 /// The age slider's own label, and its lowest reading (years, as the control counts
-/// them [hypothesis: its offset of 29.7 is the mean age of FaceGen's sample]).
+/// them [hypothesis: its offset of 29.7 is the mean age of FaceGen's sample]). No face
+/// the creator gives reads younger than [`MIN_AGE`] [owner 2026-11-08, queue item 110:
+/// "lowest should be 18"; Randomise and some presets gave 3]: the slider's range, a
+/// random face, a starting face, a named preset, a save's look and another player's
+/// ([`Creator::adult`]).
 pub const AGE_LABEL: &str = "Age - young / old";
-pub const MIN_AGE: f64 = 16.0;
+pub const MIN_AGE: f64 = 18.0;
 
 /// The controls file [observed: `facegen\si.ctl` in `Fallout - Misc.bsa`].
 pub const CTL_PATH: &str = "facegen\\si.ctl";
@@ -523,6 +527,23 @@ fn between(rng: &mut impl RngCore, lo: f64, hi: f64) -> f64 {
     lo + (hi - lo) * (rng.next_u64() >> 11) as f64 / (1u64 << 53) as f64
 }
 
+impl Creator {
+    /// Raise `look`'s age reading to [`MIN_AGE`] when it is younger, along the age
+    /// control's own directions (as the slider moves it). The reading before, when raised.
+    pub fn adult(&self, look: &mut Look) -> Option<f64> {
+        let sex = usize::from(look.female);
+        let age = self.sliders[sex].iter().find(|s| s.label == AGE_LABEL)?;
+        let race = self.catalogue.race(look.race).and_then(|r| r.facegen[sex].as_ref());
+        let was = age.value(&look.facegen, race);
+        if was >= MIN_AGE {
+            return None;
+        }
+        look.facegen = full(&look.facegen);
+        age.set(&mut look.facegen, race, MIN_AGE);
+        Some(was)
+    }
+}
+
 /// What Randomise changes [design].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Randomise {
@@ -754,6 +775,23 @@ mod tests {
         assert_eq!(labels, vec!["Age - young / old", "Nose - short / long", "Nose - bridge shallow / deep", "Nose - tip transverse shift", "Skin Shade Dark / Light"]);
         assert_eq!(sl[3].space(), Space::Asymmetry);
         assert_eq!(sl[4].space(), Space::Skin);
+    }
+
+    #[test]
+    fn a_face_younger_than_an_adult_is_raised_to_one() {
+        let c = Creator { sliders: [sliders(&ctl()), sliders(&ctl())], ..Creator::default() };
+        let age = c.sliders[0][0].clone();
+        let mut look = Look { race: FormId(1), female: false, hair: None, hair_color: None, eyes: None, head_parts: Vec::new(), facegen: full(&FaceGen::default()) };
+        // A random blend or preset reading 3 years (queue item 110) comes back as 18 ...
+        age.set(&mut look.facegen, None, 3.0);
+        assert_eq!(c.adult(&mut look).map(f64::round), Some(3.0));
+        assert!((age.value(&look.facegen, None) - MIN_AGE).abs() < 1e-9);
+        // ... once; an adult is left alone.
+        assert_eq!(c.adult(&mut look), None);
+        age.set(&mut look.facegen, None, 40.0);
+        let before = look.clone();
+        assert_eq!(c.adult(&mut look), None);
+        assert_eq!(look, before);
     }
 
     #[test]

@@ -1337,7 +1337,7 @@ fn take_events(
     mut remote_hits: MessageWriter<RemoteHit>,
     (mut sim, mut script, mut quest_lines): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::quest_messages::QuestMessages>>),
     (mut opened, real, mut tables, mut anims_out, mut anims_in): (MessageReader<LockOpened>, Res<Time<Real>>, Option<ResMut<Tables>>, MessageReader<crate::consume_anims::SendAnim>, MessageWriter<crate::consume_anims::PeerAnim>),
-    (solo, mut knock): (Option<Res<nvf_play::save::SoloBase>>, Option<ResMut<crate::player_knockdown::PlayerKnockdown>>),
+    (solo, mut knock, creator): (Option<Res<nvf_play::save::SoloBase>>, Option<ResMut<crate::player_knockdown::PlayerKnockdown>>, Option<Res<nvf_play::creator::CreatorData>>),
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -1433,7 +1433,15 @@ fn take_events(
                 if let Some(w) = actor_world.as_deref() {
                     if let Ok(mut looks) = w.looks.lock() {
                         match &look {
-                            Some(l) => looks.insert(reference, nvf_play::creator::actor_look(l)),
+                            Some(l) => {
+                                // Another player's face is no younger than an adult either
+                                // (an older version's, queue item 110).
+                                let mut a = nvf_play::creator::actor_look(l);
+                                if let Some(was) = creator.as_deref().and_then(|c| c.0.adult(&mut a)) {
+                                    info!("co-op: player {}'s look read {was:.0} years: drawn at {}", id + 1, fnv_actor::creator::MIN_AGE);
+                                }
+                                looks.insert(reference, a)
+                            }
                             None => looks.remove(&reference),
                         };
                     }
