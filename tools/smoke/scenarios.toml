@@ -20257,7 +20257,7 @@ order = [[
 [[scenario]]
 name = "tiles-container"
 source = "[design] ui-tile-tree.md §6.2 step 3, barter-menu.md §8 (T15c, issue #1468): with [UI] TileMenus=ContainerMenu the container menu is drawn from container_menu.xml; rows come from the template and keep what they stand for, the lists scroll by the counts the capture reads, and clicks and keys go through the hand-built menu's commands: a store through the prompt (drawn from QuantityMenu's tiles with no switch of its own; cancelled, then accepted), focus, keyboard selection, the bar's arrows, page areas and marker, a heading's arrow and wheel, Take All and Exit"
-note = "positions at 1280 x 720 (screen 1706.67 x 960; CM_MainRect at 341.33, 80): left rows x 378-803, row n at y 160 + 52 n; right rows from x 938; left bar x 346-378, its arrows at y 160-176 and 509-525, the marker 6 wide at x 358-364, its area y 176-509; the left heading's left arrow at 391-408, y 90-125; Take All x 1259-1375, y 670-717; Exit x 1307-1375, y 715-762. the 20 rounds given join the start inventory's 50, so the first row reads '10mm Round (70)', and the prompt asks at 70; the box holds the mug alone until the stack goes in. The marker is 32 high with 22 items, 14.33 a value from y 176: at value 5 (after the bar's clicks) y 247.67-279.67, so the press at y 264 takes it, 136 down leaves it at value 14. Card shots: the selection walks 40mm Grenade, 9mm Pistol, Armored Vault 13 Jumpsuit, Binoculars, Bleak Venom at 22.2 s to 23 s. The aid's pointer moves no real cursor, so the wheel's hold stays on after 25 s (crate::menu::WheelHold) and no later row is hovered"
+note = "positions at 1280 x 720 (screen 1706.67 x 960; CM_MainRect at 341.33, 80): left rows x 378-803, row n at y 160 + 52 n; right rows from x 938; left bar x 346-378, its arrows at y 160-176 and 509-525, the marker 6 wide at x 358-364, its area y 176-509; the left heading's left arrow at 391-408, y 90-125; Take All x 1259-1375, y 670-717; Exit x 1307-1375, y 715-762. the 20 rounds given join the start inventory's 50, so the first row reads '10mm Round (70)', and the prompt asks at 70; the box holds the mug alone until the stack goes in. The marker is 32 high with 23 items, 13.68 a value from y 176: at value 5 (after the bar's clicks) y 244.41-276.41, so the press at y 264 takes it, 136 down leaves it at value 14. Card shots: the selection walks 40mm Grenade, 9mm Pistol, Armored Vault 13 Jumpsuit, Binoculars, Bleak Venom at 22.2 s to 23 s. The aid's pointer moves no real cursor, so the wheel's hold stays on after 25 s (crate::menu::WheelHold) and no later row is hovered"
 areas = ["ui", "menu", "items"]
 paths = [
   "engine/nvforever/src/imagespace.rs",
@@ -20299,7 +20299,7 @@ expect = [
   { text = "tiles: ContainerMenu Up on its tiles", count = 1, label = "the bar's up arrow" },
   { text = "tiles: ContainerMenu PageDown on its tiles", count = 1, label = "the bar's page area" },
   { text = "tiles: ContainerMenu PageUp on its tiles", count = 1, label = "the other page area" },
-  { text = "tiles: ContainerMenu player list scrolled to 14 of 21", count = 1, label = "the marker held and moved" },
+  { text = "tiles: ContainerMenu player list scrolled to 14 of 22", count = 1, label = "the marker held and moved" },
   { re = 'tiles: ContainerMenu \S+ list drawn at \S+, not the \S+ written', count = 0, label = "the scroll never draws the file's own count of the clicks" },
   { text = "tiles: ContainerMenu Category(Player, -1) on its tiles", count = 1, label = "the heading's arrow" },
   { re = 'tiles: ContainerMenu drawn from tiles: "AMMO" ', label = "the category changes the list and its title" },
@@ -22551,6 +22551,132 @@ expect = [
 order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
 
 [[scenario]]
+name = "tiles-pipboy-repair"
+source = "[design] repair.md section 5.1, issue #1468: the Pip-Boy's repair page from its file, in the Pip-Boy's image: the three states, a repair on a part by the pointer that the list stays open after, Cancel; the rules and sounds of pipboy-repair-repeat unchanged"
+note = "[hypothesis until a first run] The points are the canvas's, added up from the parents' places the capture read: rows at x 250, y 151 and 203; Cancel 855:148. The pointer goes onto the item (the choose text), onto the part (the figures), off the rows, then clicks the part: the Pip-Boy aid's click stands a frame on the spot before its press, so the part is chosen by then and the click uses it. One part of the two is left, so the list stays and Cancel closes it. Shots: opening, on the item, on the part, after the repair."
+areas = ["ui", "repair", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/repair_menu.rs", "engine/nvf-play/src/tiles/repair_cards.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "crates/fnv-game/src/repair.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-repair-home", NVF_PLAY_TEST_TILE_MENUS = "RepairMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,17:point=250:151,19:point=250:203,21:point=700:120,23:click=250:203,27:point=855:148,28:click=855:148,30:close", NVF_PLAY_TEST_SHOTS = "16:tiles_pipboy_repair_open.png,18:tiles_pipboy_repair_item.png,20:tiles_pipboy_repair_part.png,26.5:tiles_pipboy_repair_repaired.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 33
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=RepairMenu .*RepairMenu drawn from tiles', label = "opt-in switch" },
+  { re = 'tiles: RepairMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "file with code rows" },
+  { text = "RepairMenu drawn by hand:", count = 0, label = "complete file" },
+  { re = "tiles: RepairMenu set out for the Pip-Boy's image: \\d+ pieces, [2-9] row names", label = "painted in the Pip-Boy's image" },
+  { re = 'tiles: RepairMenu drawn from tiles: \d+ rows; item "10mm Pistol"; highlight "none"; choose false', label = "it opens off any row" },
+  { re = 'tiles: RepairMenu drawn from tiles: \d+ rows; .*; choose true', label = "the item's row shows the choose text" },
+  { re = 'tiles: RepairMenu drawn from tiles: \d+ rows; item "10mm Pistol"; highlight "10mm Pistol \(2\)"; choose false; .*\+\d+%', label = "a part shows its gains" },
+  { text = "tiles: RepairMenu Hover(1) on its tiles", label = "the pointer chooses the part" },
+  { text = "tiles: RepairMenu Click(1) on its tiles", count = 1, label = "a click on the part the pointer chose uses it, once" },
+  { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol \(2\) 30% -> \d+% \(Repair \d+\)', label = "the model repairs" },
+  { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "with the model's sound" },
+  "pipboy repair: stays open:",
+  { text = "tiles: RepairMenu Cancel on its tiles", count = 1, label = "Cancel on its tiles, once" },
+  "pipboy repair: cancel",
+  "pipboy: menu code 1035",
+  { text = "tiles: StatsMenu", count = 0, label = "repair only" },
+]
+order = [["pipboy repair: open", "tiles: RepairMenu Hover(1) on its tiles", "tiles: RepairMenu Click(1) on its tiles", "pipboy repair: 10mm Pistol", "pipboy repair: stays open:", "tiles: RepairMenu Cancel on its tiles", "pipboy repair: cancel"]]
+
+[[scenario]]
+name = "tiles-pipboy-repair-off"
+source = "[design] repair.md section 5.1, issue #1468: with the tile switch empty the hand-built repair list stays the default; the same weapons as tiles-pipboy-repair and comparison shots"
+note = "The Pip-Boy aid's keys only, at 1280x720."
+areas = ["ui", "repair", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/repair_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "crates/fnv-game/src/repair.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-repair-off-home", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,19:repair=down,25:repair=use,28:repair=cancel,30:close", NVF_PLAY_TEST_SHOTS = "16:default_pipboy_repair_open.png,20:default_pipboy_repair_part.png,26.5:default_pipboy_repair_repaired.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 33
+expect = [
+  { text = "tiles: RepairMenu", count = 0, label = "no repair page adapter runs" },
+  { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol \(2\) 30% -> \d+% \(Repair \d+\)', label = "the hand-built list repairs" },
+  "pipboy repair: stays open:",
+  "pipboy repair: cancel",
+]
+order = [["pipboy repair: open", "pipboy repair: 10mm Pistol", "pipboy repair: stays open:", "pipboy repair: cancel"]]
+
+[[scenario]]
+name = "tiles-recipe-places"
+source = "[design] crafting.md section 4, issue #1468: where the recipe menu's tiles stand at 1280x720 and that the pointer finds them, read before any click"
+note = "[observed 2026-11-07, first run at 1280x720, interface units] Rows at 600:186 and 600:238, and the bar's page area 362:480 were read from the pointer lines. [observed, the original's capture, where they were clicked by id] The arrows 400:107 and 543:107, the title 468:109, Accept 1304:693 and Exit 1321:740. Move-only: the lines name what is under each place. Accept takes the pointer only while the selected recipe can be made (its target), so Survival is set first and the pointer is back on the first row before it. No click, so nothing here changes the model but the hover."
+areas = ["ui", "crafting", "menus"]
+paths = ["engine/nvf-play/src/tiles/recipe_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/crafting.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RecipeMenu", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_POINTER = "13:600:238,14:400:107,14.5:543:107,15:468:109,16:362:480,16.5:1100:396,17:600:186,18:1304:693,19:1321:740,21:off", NVF_PLAY_TEST_RECIPE = "20:exit", NVF_PLAY_TEST_SHOTS = "12:tiles_recipe_places.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 23
+expect = [
+  { re = 'tiles: RecipeMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "the menu is drawn from its file" },
+  { text = "RecipeMenu drawn by hand:", count = 0, label = "no path missing" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ItemsRect/RM_Items_InventoryList/', label = "a row" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ItemsRect/RM_Items_LeftFilterArrow', label = "the left arrow" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ItemsRect/RM_Items_RightFilterArrow', label = "the right arrow" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ItemsRect/RM_ItemsTitle', label = "the title" },
+  { re = 'tiles: pointer over RecipeMenu/.*/lb_scrollbar/scrollbar_vert_page_down', label = "the bar's page area" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ButtonRect/RM_ButtonX', label = "Accept" },
+  { re = 'tiles: pointer over RecipeMenu/NOGLOW_BRANCH/RM_ButtonRect/RM_ButtonB', label = "Exit" },
+  { re = 'tiles: pointer over RecipeMenu/.*RM_Items_IngredientList', count = 0, label = "an ingredient row takes no pointer" },
+  "recipe menu: closed",
+]
+
+[[scenario]]
+name = "tiles-recipe"
+source = "[design] crafting.md section 4, issue #1468: the recipe menu from its file, rows, right box, card, filter, Accept and Exit use the existing model and its sounds; the hand-built prompt stands over it and no click passes it"
+note = "[observed 2026-11-07] Places as tiles-recipe-places reads them. The console sets Survival, which the first recipe needs [observed: 15 of 40 refuses it]; the script aid's SetActorValue takes no name. All aids use the start clock. Hover 1 and 0, Select 1 and 0, Accept on its button with 2 made through the prompt, Accept by the selected row whose prompt blocks a click on another row and is then cancelled, the title's filter, the left key back, the bar's page, a key's move, Exit. Shots show the open menu, a row, the prompt, the filter and the scroll."
+areas = ["ui", "crafting", "menus"]
+paths = ["engine/nvf-play/src/tiles/recipe_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/item_card.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/crafting.rs", "crates/fnv-game/src/crafting.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "RecipeMenu", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_POINTER = "13:600:238,14:600:186,15:600:238:click,16:600:186:click,17:1304:693,17.5:1304:693:click,20:600:186:click,21:600:238:click,22:468:109:click,25:362:480:click,27:1100:396:click,28:1321:740,28.5:1321:740:click,29.5:off", NVF_PLAY_TEST_RECIPE = "18:more,19:accept,21.5:cancel", NVF_PLAY_TEST_KEYS = "24:left,26:down", NVF_PLAY_TEST_SHOTS = "12:tiles_recipe_open.png,14.5:tiles_recipe_row.png,18.5:tiles_recipe_prompt.png,23:tiles_recipe_filtered.png,25.5:tiles_recipe_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 32
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=RecipeMenu .*RecipeMenu drawn from tiles', label = "opt-in switch" },
+  { re = 'tiles: RecipeMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "file with code rows" },
+  { text = "RecipeMenu drawn by hand:", count = 0, label = "complete file" },
+  { re = 'tiles: RecipeMenu drawn from tiles: \d+ rows, [1-9]\d* ready; filtered 0; selected "Antivenom \(2\)"; ingredients [1-9]\d*; figures: \S', label = "rows, the choice, its ingredients and card" },
+  { re = 'tiles: RecipeMenu drawn from tiles: \d+ rows, \d+ ready; filtered [1-9]\d*;', label = "the filter leaves recipes out" },
+  { text = "tiles: RecipeMenu Hover(1) on its tiles", count = 1, label = "the pointer comes onto a row; not under the prompt" },
+  { text = "tiles: RecipeMenu Hover(0) on its tiles", count = 1, label = "and back" },
+  { text = "tiles: RecipeMenu Select(1) on its tiles", count = 1, label = "a click on another row; no click passes the prompt" },
+  { text = "tiles: RecipeMenu Select(0) on its tiles", count = 1, label = "and back" },
+  { text = "tiles: RecipeMenu Accept on its tiles", count = 2, label = "the button, then the selected row" },
+  { re = 'recipe menu: how many\? 1 of ([2-9]|\d\d+)', count = 2, label = "the prompt, each time" },
+  "recipe menu: how many? cancelled",
+  { text = 'recipe menu: made 2 x "Antivenom"', count = 1, label = "the amount from the prompt" },
+  { text = "tiles: RecipeMenu Filter(1) on its tiles", count = 1, label = "the title steps the filter" },
+  "ui sounds: recipe category changed: UIMenuPrevNext",
+  { text = "tiles: RecipeMenu PageDown on its tiles", label = "the bar is the view's" },
+  { re = 'tiles: RecipeMenu recipes list scrolled to [1-9]', label = "the bar scrolls" },
+  { re = 'tiles: RecipeMenu \w+ list drawn at', count = 0, label = "the scroll drawn is the one written" },
+  { re = '(pointer over|clicked) RecipeMenu/.*RM_Items_IngredientList', count = 0, label = "a click on an ingredient row reaches nothing" },
+  { text = "tiles: RecipeMenu Exit on its tiles", count = 1, label = "Exit once" },
+  "recipe menu: closed",
+  "tile menu blur: RecipeMenu radius 3",
+  "tile menu blur: off",
+  { text = "tiles: ContainerMenu", count = 0, label = "recipe only" },
+  { text = "tiles: BarterMenu", count = 0, label = "recipe only" },
+  { text = "tiles: RepairServicesMenu", count = 0, label = "recipe only" },
+]
+order = [["recipe menu: open", "tiles: RecipeMenu Select(1) on its tiles", "tiles: RecipeMenu Accept on its tiles", "recipe menu: how many?", "recipe menu: made 2 x", "recipe menu: how many? cancelled", "tiles: RecipeMenu Filter(1) on its tiles", "tiles: RecipeMenu Exit on its tiles", "recipe menu: closed"]]
+
+[[scenario]]
+name = "recipe-default-drawing"
+source = "[design] crafting.md section 4: with the tile switch empty the hand-built recipe menu stays the default and no adapter runs; Accept, the prompt, the filter and Exit keep their behaviour"
+note = "The gives and size of tiles-recipe through the model's test aid, with no pointer. At 1280x720 its shots are the comparison set."
+areas = ["crafting", "menus"]
+paths = ["engine/nvf-play/src/tiles/recipe_menu.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/crafting.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_GIVE = "0002210F:10,0013B2B8:10", NVF_PLAY_TEST_CONSOLE = "5:player.setav survival 60;5.3:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:ShowRecipeMenu:CampfireRecipes", NVF_PLAY_TEST_RECIPE = "13:down,13.5:up,14:accept,15:more,16:accept,18:filter,20:exit", NVF_PLAY_TEST_SHOTS = "12:default_recipe_open.png,14.5:default_recipe_prompt.png,19:default_recipe_filtered.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { text = "tiles: RecipeMenu", count = 0, label = "no recipe adapter runs" },
+  { text = "tile menu blur:", count = 0, label = "no tile blur" },
+  { re = 'recipe menu: how many\? 1 of ([2-9]|\d\d+) \("Antivenom"\)', label = "Accept asks how many" },
+  { text = 'recipe menu: made 2 x "Antivenom"', count = 1, label = "the amount from the prompt" },
+  "ui sounds: recipe category changed: UIMenuPrevNext",
+  "recipe menu: closed",
+]
+
+[[scenario]]
 name = "tiles-stats-skills"
 source = "[design] pipboy.md section 5.1.2, issue 1513: with [UI] TileMenus=StatsMenu the Skills tab is drawn from stats_menu.xml into the Pip-Boy's image: thirteen rows from the shared template, the model's first row over the list's own scroll bar, its rows and bar through their tiles"
 note = "the points are canvas units on the page as run [hypothesis until the first run: rows 52 high from the list top as S.P.E.C.I.A.L.'s, the list's down arrow at the hand-built place, the tab by its text]; S selects at 29 s, the pointer on row 2 at 30.5 s, a click on row 4 at 32 s, the list's down arrow at 34 s, the wheel at 35 s, the Perks tab at 36 s, back by the aid. The rows are in name order, as the hand-built list's [observed: pipboy.md section 5.1]. Shots: compare tiles_skills_device with tiles_skills_off_device at the same time."
@@ -23056,3 +23182,36 @@ expect = [
   { re = 'pipboy items: 10mm Pistol Mod LB\)(?! \(dim)', label = "the pistol's own Mod LB) line, bright" },
 ]
 order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod A) (dim), Exit B)"]]
+
+[[scenario]]
+name = "pipboy-stats-rad-radaway"
+source = "[design] #1899: hand-built Status RAD owns keyboard/controller A while its RadAway hint is shown; use the carried aid item and keep the tab (engine/nvf-play/src/pipboy.rs, pipboy/stats/mod.rs; docs/spec-notes/pipboy.md 5.1)"
+areas = ["pipboy", "aid"]
+paths = ["engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVFOREVER_HOME = "pipboy-stats-rad-radaway-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:RadAway:1", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=0,26:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:sub=1", NVF_PLAY_TEST_KEYS = "24:a" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 28
+expect = [
+  "pipboy stats: Status RAD",
+  "test aid: real input Key(KeyA) pressed",
+  { re = 'pipboy stats: used RadAway on the body \(\d+ left\)', label = "the RAD action consumes RadAway" },
+  "aid: the player used RadAway",
+]
+forbid = ["pipboy stats: General", "pipboy: STATS General", "pipboy stats: RadAway not used"]
+order = [["pipboy stats: Status RAD", "test aid: real input Key(KeyA) pressed", "pipboy stats: used RadAway", "aid: the player used RadAway"]]
+
+[[scenario]]
+name = "pipboy-stats-cnd-limb-pad"
+source = "[design] #1898: controller X on hand-built Status CND cycles the Stimpak target through the existing pad key routing; the middle hint uses sSwitchLimbs (engine/nvf-play/src/pipboy/stats/mod.rs, pad.rs, test_aid.rs; docs/spec-notes/pipboy.md 5.1)"
+areas = ["pipboy", "controller"]
+paths = ["engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVFOREVER_HOME = "pipboy-stats-cnd-limb-pad-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=0,27:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:sub=0", NVF_PLAY_TEST_KEYS = "24:pad-X,25:pad-X" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 29
+expect = [
+  { text = "test aid: real input Pad(West) pressed", count = 2, label = "two controller X presses" },
+  "pipboy stats: Status CND (head chosen)",
+  "pipboy stats: Status CND (torso chosen)",
+]
+forbid = ["pipboy stats: used", "pipboy stats: Status RAD", "pipboy stats: General"]
+order = [["test aid: real input Pad(West) pressed", "pipboy stats: Status CND (head chosen)", "pipboy stats: Status CND (torso chosen)"]]

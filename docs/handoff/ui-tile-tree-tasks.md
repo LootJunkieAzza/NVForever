@@ -841,6 +841,25 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       rows' dim (the same section). Synthetic tests cover the adapter. Smoke `tiles-repair-services`,
       `repair-services-default-drawing`.
 
+    - **T15, the Pip-Boy's repair page built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RepairMenu`, hand-built list still the default [design: `tiles/repair_menu.rs`,
+      repair.md §5.1]. Painted into the Pip-Boy's image in the way of `tiles/stats_menu.rs`, with
+      one decision for the painting, the hand-built suppression and the input; takes the card
+      pairs from `tiles/repair_cards.rs`. Rules, keys and sounds stay `pipboy/repair.rs`'s,
+      reached through `RepairInput`. A capture read the page's three states, but no real repair
+      on a part. Synthetic tests cover the adapter. Smoke `tiles-pipboy-repair`,
+      `tiles-pipboy-repair-off`.
+
+    - **T15, recipe built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RecipeMenu`, hand-built drawing still the default [design:
+      `tiles/recipe_menu.rs`, crafting.md section 4]. A first refactor commit moves a list's view,
+      its settling, the tile walk and the template check into `tiles/list.rs` for menus with no
+      `MenuModel`. The rules, keys, wheel and sounds stay `crate::crafting`'s, asked through
+      `crafting::RecipeInput`; the "How many?" prompt stays hand-built over the tiles. Checked
+      against a capture of the original at 1280 x 720; what it left open, the ingredient rows'
+      traits first, is in crafting.md section 4. Smoke `tiles-recipe-places`, `tiles-recipe`,
+      `recipe-default-drawing`.
+
     - **T15, tag-skill candidate built** 2026-11-06 (issue #1519), behind
       `[UI] TileMenus=CharGenMenu` [design: `tiles/tag_menu.rs`, chargen.md §3.1].
       The preceding behavior-preserving refactor shares the trait menu's readiness,

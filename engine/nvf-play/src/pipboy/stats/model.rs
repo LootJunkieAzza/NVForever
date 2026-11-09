@@ -87,6 +87,8 @@ pub const LIMB_NAMES: [&str; 6] = ["head", "torso", "left arm", "right arm", "le
 /// The CND page's hints that use an item: the Stimpak (0) and the Doctor's Bag (1).
 pub const STIMPAK: usize = 0;
 pub const DOCTORS_BAG: usize = 1;
+/// The RAD page's RadAway hint [design: stats::use_hints].
+pub const RADAWAY: usize = 2;
 
 /// Why the CND page does not use a hint's item, or `None` when it does [design: owner's
 /// request 2026-10-23]: none carried; a Stimpak on the body at full health, or on a limb
@@ -278,8 +280,20 @@ pub struct Hints {
     /// How many the player carries.
     pub counts: [i32; 4],
     /// Drawn bright: the item would be used if chosen now ([`refusal`] on the body)
-    /// [design: owner's request 2026-10-27, the CND hints lit while usable].
+    /// [design: owner's request 2026-10-27, the CND hints lit while usable]; RadAway
+    /// whenever one is carried (#1899). Every page reads it here, the hand-built one and
+    /// the tile page alike.
     pub lit: [bool; 4],
+}
+
+impl Hints {
+    /// The hints with their texts and counts: RadAway lit when carried (A uses it,
+    /// #1899); the CND hints are lit later, once the body is known ([`refusal`]).
+    pub fn new(texts: [String; 4], counts: [i32; 4]) -> Hints {
+        let mut lit = [false; 4];
+        lit[RADAWAY] = counts[RADAWAY] > 0;
+        Hints { texts, counts, lit }
+    }
 }
 
 /// Everything the page draws, compared frame to frame to know when to draw it again.
@@ -298,6 +312,8 @@ pub struct Snapshot {
     /// Each body part's condition, 0 to 1 ([`LIMBS`]).
     pub limbs: [f64; 6],
     pub hints: Hints,
+    /// The CND limb-switch hint, from sSwitchLimbs [design: read::snapshot].
+    pub switch_limbs: String,
     pub rad_resist: Option<f64>,
     pub rads: f64,
     /// Whether Hardcore mode is on, and its three needs: dehydration, hunger, sleep deprivation.
@@ -405,7 +421,7 @@ mod tests {
         // A Doctor's Bag: when any limb is hurt.
         assert_eq!(refusal(DOCTORS_BAG, None, 1, (100.0, 100.0), &arm, false), None);
         assert_eq!(refusal(DOCTORS_BAG, None, 1, (60.0, 100.0), &whole, false).as_deref(), Some("no limb is hurt"));
-        // None carried; RadAway and Rad-X are not used from here.
+        // None carried; this CND refusal helper does not handle the RAD actions.
         assert_eq!(refusal(STIMPAK, None, 0, (10.0, 100.0), &arm, false).as_deref(), Some("none carried"));
         assert!(refusal(2, None, 5, (10.0, 100.0), &arm, false).is_some());
         // Hardcore: a Stimpak on a limb is refused, on the body it is not.
@@ -413,6 +429,13 @@ mod tests {
         assert_eq!(refusal(STIMPAK, None, 3, (60.0, 100.0), &arm, true), None);
         assert_eq!(refusal(DOCTORS_BAG, None, 1, (100.0, 100.0), &arm, true), None);
         assert_eq!(hint_text("RadAway", 0), "RadAway");
+    }
+
+    #[test]
+    fn radaway_is_lit_while_carried_and_rad_x_never() {
+        let texts: [String; 4] = Default::default();
+        assert_eq!(Hints::new(texts.clone(), [3, 1, 2, 5]).lit, [false, false, true, false], "RadAway carried: lit; Rad-X is not used from here");
+        assert_eq!(Hints::new(texts, [3, 1, 0, 5]).lit, [false; 4], "none carried: dim");
     }
 
     #[test]

@@ -235,6 +235,7 @@ model's rule (§4's "How far"): that is the maintainer's to weigh, nothing here 
   items of the same kind always [documented: GECK wiki Armor, "Repair Item List: Form list
   of items that can be used to repair this object. Can be NONE, objects can always be
   repaired by items of the same type"].
+- The page drawn from its file: §5.1.
 - The ITEMS page's hint reads "Repair R)" or, above 75 % for a weapon and 50 % for
   apparel, "Maintain R)" [observed: the owner's screenshots; documented: the help text
   "At 75% Condition or higher, a weapon does maximum damage and only needs to be
@@ -307,3 +308,81 @@ epairmenuPlayer, Repair 17]:
   vendor's menu.
 - Scripts do not see MenuMode 1035 (`fnv_game::repair::REPAIR_MENU`) while the list is
   open [not built].
+
+### 5.1 The page drawn from its file
+
+Behind `[UI] TileMenus=RepairMenu`, off by default, the repair list is drawn from
+`menus\main\repair_menu.xml`, painted into the Pip-Boy's image (issue #1468) [design:
+`engine/nvf-play/src/tiles/repair_menu.rs`, in the way of the S.P.E.C.I.A.L. page, pipboy.md
+§5.1.1; the card pairs in `tiles/repair_cards.rs`]. Off, nothing here runs and the hand-built
+list above is unchanged. The rules, keys, sounds and log lines stay
+`engine/nvf-play/src/pipboy/repair.rs`'s; a click reaches them as `RepairInput`, as the
+hand-built rows' do. The menu's code is 1035 and its tree is built the frame after the code is
+set, so the hand-built list stands for the frame the page opens in [design].
+
+**The words**, each with its source [design: LEGAL.md]:
+
+| Tile | What it shows | Source |
+| --- | --- | --- |
+| `RM_Headline_Title` | not written | the file's |
+| the skill card's `_Title` | the file's; only where the file has none | `sRepairSkill` |
+| the skill card's `_Value` | a number | the model |
+| `RM_RepairButton`, `RM_CancelButton` `button_text` | not written | the file's |
+| Cancel's `_PCButtonText` | hint | `sPCMenuHintE` (a controller's button name, `pad::game_hint`) |
+| a row's `ListItemText` | item's name and count | the record's name; "(n)" is ours |
+| the condition cards' `_Title` | the file's; only where the file has none | `sInventoryCondition` |
+| the stat cards' `_Title` | setting | `sInventoryDamage` for a weapon, `sInventoryDamageThreshold` for armour |
+| the stat cards' `_Value`, the two gains | numbers, "+" and "%" | the model |
+| `RM_ChooseItemText` | one line | ours (`repair_menu::CHOOSE_WORDS`), the original's is in its code |
+
+**What the capture said** [observed: private job run07c_repair_menu, 1280x720, read and in its
+pictures]:
+
+- The page reports 1035, and it opens from R on ITEMS; E closes it, back on the same tab.
+- Row 0 is the item: `_IsRepairItem` 1. Each row's `user0` is what the item would come to with
+  that row, `merged_condition`'s at every point read, the item as if merged with itself; `user1`
+  is 0 with the skill over 100. A row's bar is that row's own condition.
+- The brackets stand on row 0 in every state, one less high than the row; the highlight follows
+  the pointer, so both show with a part hovered.
+- Off any row, as it opens: the item's own cards alone. On row 0: those, the arrow and the choose
+  text, whose `alpha` pulses (64 to 252 at different reads). On a part: those, the arrow, the cards
+  after the repair and the gains. The item's picture stays in all three.
+- A card's meter follows the card's `user0`. Repair is hidden on a PC by the file, and row 0 does
+  not act.
+
+The model always has a row chosen, so "off any row" here is row 0 chosen with the pointer on none:
+a pointer leaving the rows chooses the item again [design].
+
+**Layout inputs and the Cancel check** [design: `tiles/repair_menu.rs::write_file_sizes`,
+`usable`; `tiles/menus.rs::write_text_sizes_of`; `fnv_ui::input::hit_candidates`]: the page
+writes each non-atlas picture's `filewidth` and `fileheight` from its file's texels and
+current numeric zoom (100 for absent, symbolic or nonpositive zoom), including hidden
+pictures. The walk covers the buttons, item icon, brackets, cards and generated rows.
+Text measurement also includes hidden text; neither measurement depends on what is painted.
+The file retains its expressions for button sizes and places. No inner-origin mark is
+added to the buttons: their text is directly under the image, unlike the STATS tabs'
+inner rects [documented: repair_menu.xml's tile outline].
+
+Cancel's shortcut label stands outside its button [observed: private job
+run07c_repair_menu, 1280x720]. The usability check probes `button_text` specifically,
+rather than the first text descendant in painting order, which can be the shortcut.
+An image's target does not extend to its children, so the external shortcut need not
+take the pointer [design: `fnv_ui::input::hit_candidates`]. Cancel's words and every
+whole visible row must still take it; an obstruction keeps the hand-built fallback
+and its warning names the tile that took the hit, or says nothing did [design].
+The fixtures use their own picture dimensions and expressions to cover a hidden
+picture sizing a button, a shortcut sorted before its words, changed files and zoom,
+and a covering target; they do not reproduce the game's layout (#1512) [design:
+`tiles/repair_menu.rs::tests`].
+The sizing fixture uses image tiles for both brackets and checks that every picture
+under test is an image: a rect with a filename is still excluded by the sizing walk.
+This also makes the atlas exclusion check exercise an image [design:
+`tiles/repair_menu.rs::write_file_sizes`, `tests::picture_sizes_cover_the_page_and_follow_file_and_zoom_changes`].
+
+**Open** [hypothesis]: a real repair on a part in the original, and what follows it (the model's
+rule stands, §5); a row the skill cannot use (none dims here); a two-line row and the brackets on
+it; a long list, the brackets moving with the scroll; the choose text's period (2 s here).
+
+**The seam with the ITEMS page**: the page's adapter (`tiles/inventory_menu.rs`, on its own branch)
+leaves ITEMS hand-built while a repair list is open, so that its body draws the list. With both
+switches on, this page takes that place; the two have to be checked together when both land.
