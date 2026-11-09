@@ -360,6 +360,10 @@ pub struct VatsMode {
     /// Whether the player aimed down the sights just before the mode began (kept while
     /// it is off), for the V.A.T.S. Hip Fire tweak.
     aimed_before: bool,
+    /// The mode drew the weapon itself, and, once it ended with nothing fired, the weapon
+    /// is to go away again (the Entering V.A.T.S. Doesn't Unholster tweak).
+    drew_weapon: bool,
+    put_away: bool,
     /// The hit rolls' generator (seeded, so a run repeats) and this stay's hits and misses.
     rng: Option<SplitMix>,
     hits: u32,
@@ -629,8 +633,14 @@ fn read_keys(
     if vats.phase == Phase::Off {
         vats.aimed_before = control.aiming;
     }
+    // The player's tweak: a weapon the mode drew goes away again when nothing was fired
+    // [design: docs/design/tweaks.md].
+    if std::mem::take(&mut vats.put_away) && tweaks.as_ref().is_some_and(|t| t.vats_keeps_holstered) && vats.phase == Phase::Off {
+        control.weapon_out = false;
+        info!("vats mode: the weapon it drew is put away again, nothing was fired (tweak)");
+    }
     // The player's tweak: entered not aiming, every shot from the hip {D}.
-    let hip_fire = tweaks.is_some_and(|t| t.vats_hip_fire) && !vats.aimed_before;
+    let hip_fire = tweaks.as_ref().is_some_and(|t| t.vats_hip_fire) && !vats.aimed_before;
     let pressed = |c: Control| playing && input.just_pressed(c);
     let now = real.elapsed_secs_f64();
     vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate) };
@@ -662,6 +672,7 @@ fn read_keys(
     }
     if vats.phase == Phase::Off && vats.keys.toggle && !control.weapon_out && !locks.fighting {
         control.weapon_out = true;
+        vats.drew_weapon = true;
         vats.phase = Phase::Drawing;
         vats.drawing_at = Some(now);
         vats.keys.toggle = false;
@@ -939,6 +950,7 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
 fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     let was = v.phase;
     v.phase = Phase::Off;
+    v.put_away = std::mem::take(&mut v.drew_weapon) && v.fired == 0;
     if was == Phase::Firing {
         v.reward_due = v.kills_at_fire.take();
     }

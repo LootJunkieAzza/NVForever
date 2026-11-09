@@ -269,6 +269,9 @@ pub struct TweakSettings {
     pub unsafe_fast_travel: bool,
     /// `iDateFormat`: the style of `crate::wait::model::DATE_STYLES`.
     pub date_style: usize,
+    /// `bEnteringVATSDoesntUnholsterWeapon`: a weapon V.A.T.S. drew goes away again when
+    /// the mode ends with nothing fired.
+    pub vats_keeps_holstered: bool,
 }
 
 /// The keys the console may open on, the original's first; ones nothing else in the
@@ -428,6 +431,7 @@ impl Default for TweakSettings {
             tab_back_in_pause: false,
             unsafe_fast_travel: false,
             date_style: 0,
+            vats_keeps_holstered: false,
         }
     }
 }
@@ -1209,6 +1213,7 @@ impl Plugin for TweaksPlugin {
             ),
         );
         switch!(app, "hide-unknown-names", "Hide Unknown Names", "The activation prompt gives no name for someone who has not spoken to the player yet (bodies are still named). (Stewie's Tweaks bHideUnknownNPCNames)", game.hide_unknown_names);
+        switch!(app, "vats-keeps-holstered", "V.A.T.S. Puts the Weapon Back", "A weapon that V.A.T.S. drew is put away again when the mode ends with nothing fired. (Stewie's Tweaks bEnteringVATSDoesntUnholsterWeapon)", vats_keeps_holstered);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

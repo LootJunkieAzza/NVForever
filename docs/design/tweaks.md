@@ -459,6 +459,8 @@ unless the player binds them, so nothing changes until then.
 | Repair Needs the Weapon's Skill | `bRepairRequiresWeaponSkill` | `pipboy::repair::keys` refuses to open the list for a weapon whose `skill_req` is above the player's Repair |
 | Date Format | `iDateFormat` | `wait::model::DATE_STYLES` (as the game, day first, month first, year first; ours), set from `tweaks::sync` and read by the wait menu and the Pip-Boy heading |
 | Hide Unknown Names | `bHideUnknownNPCNames` | `activate::find_target`: Talk targets without `talked_to_pc` get no name; bodies (Search) keep theirs |
+| V.A.T.S. Puts the Weapon Back | `bEnteringVATSDoesntUnholsterWeapon` | `vats_mode`: `drew_weapon` when the mode draws it; `end` with nothing fired asks `put_away`, done in `read_keys` |
+| (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -479,8 +481,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 375 |
-| to do | 228 |
+| done | 380 |
+| to do | 223 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -723,12 +725,14 @@ game's Data folder, read-only).
 | `bAllowWeaponHotkeysWhileFiring` | done |  |  | already so: nothing refuses hotkeys while firing |
 | `bDisableCompanionKillcam` | done |  |  | already so: only the player's VATS kills start a kill camera |
 | `bDisableExplosionInFaceIMOD` | done |  |  | No Explosion Blur |
+| `bDisableHitShader` | done |  | 1 | already so: NVForever draws no hit shader on the player |
 | `bDisableHolsteredWeaponFOVZoom` | done |  |  | already so: a holstered weapon gives no zoom |
 | `bDisableInteriorFog` | done |  | 1 | No Interior Fog (from the next interior; the threshold option not built) |
 | `bDisableTutorialMessages` | done |  |  | No Minigame Help (lockpick, blackjack, roulette, slots; Caravan not yet) |
 | `bDisableWeaponFOV` | done |  | 1 | No Iron Sight Zoom (the non-sighted option not built) |
 | `bDontSetQuestWhenCompletingObjectives` | done |  |  | No Active Quest After Completing One |
 | `bDontSetQuestWhenObjectivesAdded` | done |  |  | No Active Quest From New Objectives (both quest tweaks keep the Pip-Boy from picking one) |
+| `bEnteringVATSDoesntUnholsterWeapon` | done |  |  | V.A.T.S. Puts the Weapon Back (when it drew it and nothing was fired) |
 | `bFireWhileAiming` | done |  |  | already so: the trigger does not wait for the zoom |
 | `bHideMiscQuestItems` | done |  | 1 | Hide Quest Items in Misc (the star caps option not built) |
 | `bHoldCrouchToSneak` | done |  |  | Hold to Sneak |
@@ -748,10 +752,12 @@ game's Data folder, read-only).
 | `bNoDropWeaponSoundOnPlayerDeath` | done |  |  | already so: the player weapon is not put away at death |
 | `bNoEquippedWeaponMovementPenalty` | done |  |  | No Weapon Movement Penalty (the two-handed run slowdown) |
 | `bNoFoodWornOffMessage` | done |  | 1 | already so: no worn-off message is shown |
+| `bNoKillcamKillSound` | done |  |  | already so: NVForever plays no sound when a kill camera starts |
 | `bNoKnockdownInGodmode` | done |  |  | No Knockdowns in God Mode |
 | `bNoMapMarkerAddedPopup` | done |  |  | already so: NVForever shows no marker-added popup |
 | `bNoPipboyIdleAnims` | done |  |  | already so: only the raise clip plays |
 | `bNoReputationMessages` | done |  | 5 | Quiet Reputation (box and sound together; per-kind options not built) |
+| `bNoScreenshotPopup` | done |  | 3 | already so: NVForever shows no message after a screenshot |
 | `bPauseOnSaveLoad` | done |  |  | Pause On Load (a loaded save opens the pause menu) |
 | `bPopupMenusDontMoveCursor` | done |  |  | already so: nothing moves the pointer |
 | `bPreventBushPassthroughSounds` | done |  |  | already so: walking through plants makes no sound |
@@ -779,18 +785,14 @@ game's Data folder, read-only).
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
 | `bAllowActivateWhileAnimPlays` | to do |  |  | NVForever never refuses activating during a reload; check what the original refuses |
-| `bDisableHitShader` | to do |  | 1 | NVForever draws no hit shader yet |
-| `bEnteringVATSDoesntUnholsterWeapon` | to do |  |  | a drawn-by-VATS flag and a holster on end |
 | `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
 | `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
 | `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bMoveDuringVATSPlayback` | to do |  |  | kill_cam hold_input and ControlInput::held both hold movement |
 | `bNoExteriorLoadScreens` | to do |  |  | loading::begin interior-to-exterior |
-| `bNoKillcamKillSound` | to do |  |  | NVForever plays no sound when a kill camera starts |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
-| `bNoScreenshotPopup` | to do |  | 3 | NVForever shows no screenshot message yet |
 | `bNPCsDropWeaponHolsteredWeapon` | to do |  |  | combat::death_drops from the equipped weapon |
 | `bPickLocksEvenWithKey` | to do |  | 1 | activate::activate before activate_by_hand |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
@@ -1069,6 +1071,7 @@ game's Data folder, read-only).
 | `bCompressDuplicateConsoleMessages` | done | yes |  | Count Repeated Console Lines |
 | `bConsolePrintsIncludeTimestamp` | done | yes | 1 | Console Times (time since the game started; a wall-clock format would need a date crate) |
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
+| `bNoInteriorBlackLoadingScreen` | done | yes | 1 | already so: an interior's loading screen shows its picture, never a black one |
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
 | `bAllowDuplicateControlBinds` | done |  |  | Shared Keys |
@@ -1119,7 +1122,6 @@ game's Data folder, read-only).
 | `bMoreResponsiveControllerAiming` | to do | yes |  | the stick curve is x times |x| (player.rs); choose the new curve |
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
 | `bNoDespawnVisibleStuckProjectiles` | to do | yes |  | projectiles do not stick in NVForever yet |
-| `bNoInteriorBlackLoadingScreen` | to do | yes | 1 | unsure what to leave out: NVForever shows the picture, not black |
 | `bNoPlayerNameLimit` | to do | yes |  | the name box is laid out for 24 characters; check its drawing first |
 | `bPartialReloads` | unsure, skipped | yes |  | depends on animation file naming conventions not yet checked |
 | `bRememberConsoleHistory` | to do | yes | 1 | needs a file in the NVForever home |
