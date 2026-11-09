@@ -6,7 +6,7 @@
 //! |------|-------|------|
 //! | FPS  | frames a second and the mean frame time of the last half second, the 1 % low (or the slowest frame, a choice) of the last 10 s | the time between frames ([`readings::Frames`], the 1 % low as `stress_sample::frame_stats` takes it: [`readings::low_of`]) |
 //! | graph (off) | the last 5 s of frame times as a line | the same frame times ([`graph`]) |
-//! | SPLIT (off) | a frame's main-thread, render-thread and GPU time | the schedules' spans and GPU timestamps ([`split`]) |
+//! | SPLIT (off) | a frame's main-thread, render-thread (with its wait for the window's image) and GPU time | the schedules' spans and GPU timestamps ([`split`]) |
 //! | CPU  | the machine's use, and the game's own as cores kept busy | Windows' performance counters; the process's processor time ([`usage`]) |
 //! | GPU  | the busiest engine's use | Windows' performance counters ([`usage`]) |
 //! | VRAM | this process's GPU memory against the budget | `memory_budget.rs`'s check every 2 s (`MemoryBudget::vram_use_mb`) |
@@ -110,16 +110,19 @@ impl Overlay {
     }
 }
 
-pub struct PerfOverlayPlugin(pub bool);
+/// The overlay: shown from the start by `--fps` (the first field); the second, the
+/// command-line switches the settings page weighs against the INI
+/// (`settings::given_switches`), `None` when the run has no settings page.
+pub struct PerfOverlayPlugin(pub bool, pub Option<nvf_play::settings::GivenSwitches>);
 
 impl Plugin for PerfOverlayPlugin {
     fn build(&self, app: &mut App) {
         // In Update: the panel is drawn at the UI scale, fixed once the INI is read
         // (`nvf_play::interface::fix_ui_scale`, PostStartup).
         app.insert_resource(FpsCounter { show: self.0, ..default() }).init_resource::<Overlay>().add_systems(Update, (switch, sample, draw).chain());
-        // The GPU timestamps are a plugin, added now or not at all: from the INI as it
-        // is before the settings apply it (`split::timestamps_at_start`).
-        split::build(app, split::timestamps_at_start(self.0));
+        // The GPU timestamps are a plugin, added now or not at all: from the INI as the
+        // settings will apply it (`split::timestamps_at_start`).
+        split::build(app, split::timestamps_at_start(self.0, self.1.as_ref()));
     }
 
     fn finish(&self, app: &mut App) {
@@ -217,11 +220,14 @@ fn sample(counter: Res<FpsCounter>, time: Res<Time<Real>>, budget: Option<Res<Me
 /// to come [design].
 const SPLIT_GPU_WAIT: u32 = 10;
 
-/// `main 9.8 ms, render 4.1 ms, GPU 6.2 ms`, each part only when read.
+/// `main 5.5 ms, render 6.3 ms (wait 4.0 ms), GPU 2.4 ms`, each part only when read.
 fn split_log(s: &readings::Split) -> String {
     let mut out = format!("main {:.1} ms", s.main_ms);
     if let Some(r) = s.render_ms {
         out += &format!(", render {r:.1} ms");
+        if let Some(w) = s.wait_ms {
+            out += &format!(" (wait {w:.1} ms)");
+        }
     }
     if let Some(g) = s.gpu_ms {
         out += &format!(", GPU {g:.1} ms");
@@ -340,9 +346,10 @@ mod tests {
 
     #[test]
     fn the_split_log_says_each_part_read() {
-        let s = readings::Split { main_ms: 9.84, render_ms: Some(4.12), gpu_ms: Some(6.24) };
-        assert_eq!(split_log(&s), "main 9.8 ms, render 4.1 ms, GPU 6.2 ms");
-        assert_eq!(split_log(&readings::Split { gpu_ms: None, ..s }), "main 9.8 ms, render 4.1 ms");
+        let s = readings::Split { main_ms: 5.54, render_ms: Some(6.32), wait_ms: Some(4.04), gpu_ms: Some(2.38) };
+        assert_eq!(split_log(&s), "main 5.5 ms, render 6.3 ms (wait 4.0 ms), GPU 2.4 ms");
+        assert_eq!(split_log(&readings::Split { gpu_ms: None, ..s }), "main 5.5 ms, render 6.3 ms (wait 4.0 ms)");
+        assert_eq!(split_log(&readings::Split { render_ms: None, wait_ms: None, ..s }), "main 5.5 ms, GPU 2.4 ms");
     }
 
     #[test]

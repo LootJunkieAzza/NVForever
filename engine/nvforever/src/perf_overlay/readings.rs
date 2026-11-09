@@ -231,14 +231,16 @@ pub struct Readings {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Split {
     pub main_ms: f32,
-    /// None until the render world has run a frame for the window.
+    /// The render schedule's whole span, the wait for the window's next image included;
+    /// none until the render world has run a frame for the window.
     pub render_ms: Option<f32>,
+    /// The wait for the window's next image, a part of `render_ms` (with vsync the
+    /// display's time); none without `render_ms`.
+    pub wait_ms: Option<f32>,
     /// None without GPU timestamps (the device does not offer them, or the render
     /// diagnostics were not added at the start).
     pub gpu_ms: Option<f32>,
 }
-
-
 
 /// One row: its label, its value and whether it warns. The graph row (`graph`) has no
 /// text: the panel draws the frame graph there (`super::draw`).
@@ -290,11 +292,15 @@ pub fn fps_text(f: &FrameReading, low: Low) -> String {
     format!("{:>3.0}  {:>4.1} ms  {name} {:>4.1}", f.fps, f.mean_ms, f.last_figure(low))
 }
 
-/// `main  9.8  render  4.1  GPU  6.2 ms`: each part when read, padded as [`fps_text`].
+/// `main  5.5  render  6.3 (wait  4.0)  GPU  2.4 ms`: each part when read, padded as
+/// [`fps_text`]; the render time includes the wait in brackets.
 pub fn split_text(s: &Split) -> String {
     let mut out = format!("main {:>4.1}", s.main_ms);
     if let Some(r) = s.render_ms {
         out += &format!("  render {r:>4.1}");
+        if let Some(w) = s.wait_ms {
+            out += &format!(" (wait {w:>4.1})");
+        }
     }
     if let Some(g) = s.gpu_ms {
         out += &format!("  GPU {g:>4.1}");
@@ -500,11 +506,15 @@ mod tests {
 
     #[test]
     fn the_split_row_shows_each_time_it_has() {
-        let all = Split { main_ms: 9.84, render_ms: Some(4.12), gpu_ms: Some(6.24) };
-        assert_eq!(split_text(&all), "main  9.8  render  4.1  GPU  6.2 ms");
+        let all = Split { main_ms: 5.54, render_ms: Some(6.32), wait_ms: Some(4.04), gpu_ms: Some(2.38) };
+        assert_eq!(split_text(&all), "main  5.5  render  6.3 (wait  4.0)  GPU  2.4 ms");
         let no_gpu = Split { gpu_ms: None, ..all };
-        assert_eq!(split_text(&no_gpu), "main  9.8  render  4.1 ms");
-        let slow = Split { main_ms: 31.0, render_ms: None, gpu_ms: Some(12.0) };
+        assert_eq!(split_text(&no_gpu), "main  5.5  render  6.3 (wait  4.0) ms");
+        let no_wait = Split { wait_ms: None, ..all };
+        assert_eq!(split_text(&no_wait), "main  5.5  render  6.3  GPU  2.4 ms");
+        let long_wait = Split { main_ms: 3.1, render_ms: Some(16.6), wait_ms: Some(12.24), gpu_ms: Some(2.0) };
+        assert_eq!(split_text(&long_wait), "main  3.1  render 16.6 (wait 12.2)  GPU  2.0 ms", "with vsync the wait is most of render");
+        let slow = Split { main_ms: 31.0, render_ms: None, wait_ms: None, gpu_ms: Some(12.0) };
         assert_eq!(split_text(&slow), "main 31.0  GPU 12.0 ms");
     }
 
@@ -571,7 +581,7 @@ mod tests {
             ram_share: Some(0.62),
             vram_warn: true,
             ram_warn: false,
-            split: Some(Split { main_ms: 9.8, render_ms: Some(4.1), gpu_ms: None }),
+            split: Some(Split { main_ms: 9.8, render_ms: Some(4.1), wait_ms: Some(1.5), gpu_ms: None }),
             loaded: Some(Loaded { cells: 9, refs: 2410, actors: 12, entities: 18_240 }),
         };
         let defaults = rows(&r, &on);
@@ -584,7 +594,7 @@ mod tests {
         let all = rows(&r, &every);
         assert_eq!(all.iter().map(|r| r.label).collect::<Vec<_>>(), LABELS);
         assert_eq!(all.iter().map(|r| r.graph).collect::<Vec<_>>(), [false, true, false, false, false, false, false, false]);
-        assert_eq!(all[2].value, "main  9.8  render  4.1 ms");
+        assert_eq!(all[2].value, "main  9.8  render  4.1 (wait  1.5) ms");
         assert_eq!(all[7].value, " 9 cells   2410 refs   12 actors   18240 entities");
         // The slowest frame chosen.
         assert_eq!(rows(&r, &Rows { low: Low::Slowest, ..on })[0].value, " 60  16.7 ms  slowest 30.0");

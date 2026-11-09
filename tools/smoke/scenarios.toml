@@ -848,7 +848,7 @@ expect = [
   { text = "settings: fps-counter-graph on", label = "the frame graph row is turned on" },
   { re = 'fps counter: first graph drawn \(\d+ x \d+ pixels\)', label = "the frame graph is drawn" },
   { text = "settings: fps-counter-split on", label = "the frame split row is turned on" },
-  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms(, GPU [\d.]+ ms)?$', label = "the frame split's first reading (main and render; GPU where timestamps were taken)" },
+  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms \(wait [\d.]+ ms\)(, GPU [\d.]+ ms)?$', label = "the frame split's first reading (main, render with its wait for the window's image; GPU where timestamps were taken)" },
   { text = "settings: fps-counter-loaded on", label = "the loaded row is turned on" },
   { re = 'fps counter: first loaded reading \d+ cells, [1-9]\d* references drawn, \d+ actors, [1-9]\d* entities', label = "the loaded row's first counts, Goodsprings loaded" },
   { text = "settings: fps-counter-low Slowest frame", label = "the frame rate row's last figure is the slowest frame" },
@@ -867,24 +867,26 @@ run_seconds = 17
 expect = [
   { text = "pause menu: settings back to their defaults", label = "Defaults turns the split row off" },
   { text = "settings: fps-counter-split on", label = "the split row is turned on and stored" },
-  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms', label = "the split row reads" },
+  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms \(wait [\d.]+ ms\)', label = "the split row reads" },
 ]
 order = [["pause menu: settings back to their defaults", "settings: fps-counter-split on"]]
 
 [[scenario]]
 name = "perf-overlay-split-gpu"
 source = "issue #1868: the second half: the next start reads the split row on from the home perf-overlay-split-write kept it in, takes GPU timestamps from the start (Bevy's render diagnostics) and the split's first reading has its GPU part where the device offers timestamp queries"
-note = "The GPU part is matched as optional (a device without timestamp queries has none, and says so); the run must not say the timestamps were not taken from the start"
+note = "One line or the other: the first split reading with its GPU part, or the device without timestamp queries saying so; never the split waiting in vain for GPU times that were taken (the recorder put back in when the row shows) nor timestamps not taken from the start"
 areas = ["renderer", "settings"]
-paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/settings.rs", "engine/vendor/bevy_render/src/diagnostic/*"]
 env = { NVFOREVER_HOME = "perf-overlay-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps"]
 run_seconds = 14
 expect = [
   { text = "fps counter: the frame split row is on: GPU timestamps are taken for its GPU time", count = 1, label = "the INI's split row adds the GPU timestamps at the start" },
-  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms(, GPU [\d.]+ ms)?$', label = "the split's first reading, its GPU part where the device has timestamps" },
+  { text = "fps counter: GPU timestamps are taken only while the frame split shows", count = 1, label = "the overlay alone added them: the recorder follows the row" },
+  { re = 'fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms \(wait [\d.]+ ms\)(, GPU [\d.]+ ms)?$', label = "the split's first reading" },
+  { re = '(fps counter: first split reading main [\d.]+ ms, render [\d.]+ ms \(wait [\d.]+ ms\), GPU [\d.]+ ms$|fps counter: frame split without GPU time: the graphics device offers no timestamp queries$)', label = "the first split reading has its GPU time, or the device has no timestamp queries and says so" },
 ]
-forbid = [{ text = "GPU timestamps were not taken from the start", label = "the timestamps were added at the start" }, { text = "Caught rendering error", label = "a rendering (validation) error with the timestamps" }]
+forbid = [{ text = "GPU timestamps were not taken from the start", label = "the timestamps were added at the start" }, { text = "fps counter: frame split without GPU time: no render pass has had a GPU time yet", label = "GPU times were taken but none reached the split" }, { text = "Caught rendering error", label = "a rendering (validation) error with the timestamps" }]
 
 [[scenario]]
 name = "graphics-settings"

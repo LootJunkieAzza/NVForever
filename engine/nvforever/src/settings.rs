@@ -43,7 +43,7 @@ const GROUP_GRAPHICS: &str = "Graphics";
 /// the `--name` of each argument, without the `--size` a run taking over a load is given
 /// (the window's size then, handoff.rs). They win over the INI in a test run: a timed,
 /// measured or pictured run, whose results must be those of its switches (#1382).
-fn given_switches(args: &Args, line: &[String]) -> nvf_play::settings::GivenSwitches {
+pub(crate) fn given_switches(args: &Args, line: &[String]) -> nvf_play::settings::GivenSwitches {
     let handoff = line.iter().any(|a| a == "--handoff" || a.starts_with("--handoff="));
     let given = line
         .iter()
@@ -350,6 +350,14 @@ pub fn register(app: &mut App) {
     }
 }
 
+/// The Frame rate counter switch's note; the switch it names (`--fps`) decides with the
+/// INI whether the frame split takes GPU timestamps from the start
+/// (`perf_overlay::split::timestamps_wanted`), as `nvf_play::settings::apply_stored` reads it.
+pub(crate) const FPS_COUNTER_NOTE: &str = "On: a small panel of performance readings at the top right of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)";
+
+/// The frame split row's note (no command-line switch: the INI's state always applies).
+pub(crate) const FPS_SPLIT_NOTE: &str = "What a frame took on the main thread (the game's own work), on the render thread (preparing the picture, including the wait for the window's next image, shown in brackets: with vertical sync that wait is the display's time, not work) and on the graphics card (the render passes it times, from GPU timestamps), each the mean over half a second. A frame held up by the processor has a long main time, or a long render time beside a short wait; the GPU time is what tells a frame held up by the graphics card. The GPU part needs this row and the counter on when the game starts (it takes effect at the next start), and a graphics card that offers timestamps; without them it is left out. Unless a measuring aid also uses them, the timestamps are taken only while the row shows.";
+
 /// The field of view's least and greatest degrees on the settings page, in steps of 5.
 const FOV_MIN: f32 = 50.0;
 const FOV_MAX: f32 = 110.0;
@@ -377,7 +385,7 @@ fn register_display(app: &mut App) {
             key: "fps-counter",
             group: GROUP_PICTURE,
             label: "Frame rate counter",
-            note: "On: a small panel of performance readings at the top right of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)",
+            note: FPS_COUNTER_NOTE,
             get: |w| w.resource::<FpsCounter>().show,
             set: |w, on| w.resource_mut::<FpsCounter>().show = on,
             slider: None,
@@ -478,7 +486,7 @@ fn register_counter_rows(app: &mut App) {
         row(
             "fps-counter-split",
             "Counter: frame split",
-            "What a frame took on the main thread (the game's own work), on the render thread (preparing the picture, less the wait for the screen's next image) and on the graphics card (the render passes it times, from GPU timestamps), each the mean over half a second: a frame held up by the processor has a long main or render time, one held up by the graphics card a long GPU time. The GPU part needs this row and the counter on when the game starts (it takes effect at the next start), and a graphics card that offers timestamps; without them it is left out.",
+            FPS_SPLIT_NOTE,
             |w| w.resource::<FpsCounter>().rows.split,
             |w, on| w.resource_mut::<FpsCounter>().rows.split = on,
         ),
