@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// the engine's fixed wind blows to, 330° clockwise from north (`nvforever::tree`, the
 /// original's tumbleweeds [observed: o27_tumble 2026-11-06]) [hypothesis: the original's
 /// GetWindDirection reads that direction].
-pub const DEFAULT_WIND: f32 = -30.0;
+pub const DEFAULT_WIND: f32 = -57.29578;
 
 /// The moon phases' names in GetMoonTexture's order: full, three waning, half waning, one
 /// waning, none, one waxing, half waxing, three waxing [documented: GetMoonTexture's
@@ -129,6 +129,8 @@ pub struct Jip12State {
     /// SetBarterPriceMult's multipliers, buying and selling, for the trade open.
     pub price_mults: [Option<f32>; 2],
     pub item_menus: BTreeMap<u16, ItemMenuView>,
+    /// Each item menu's filters when it was last open, kept after it closes.
+    pub item_filters: BTreeMap<u16, [u8; 2]>,
     /// The recipe menu: its category and the recipe highlighted.
     pub recipe_menu: Option<(Option<FormId>, Option<FormId>)>,
     /// AddRecipeCondition's conditions.
@@ -237,7 +239,7 @@ impl Game<'_> {
     pub fn moon_textures(&self) -> [Option<String>; 8] {
         std::array::from_fn(|k| {
             self.other.jip12.moons.get(&(k as u8)).map(|p| {
-                let p = p.replace('/', "\\");
+                let p = p.replace('/', "\\").trim_start_matches('\\').to_string();
                 let low = p.to_ascii_lowercase();
                 match low.strip_prefix("textures\\") {
                     Some(_) => p[9..].to_string(),
@@ -329,7 +331,10 @@ impl Game<'_> {
     /// An item menu's filters and lists, each frame it is open (`None`: closed).
     pub fn set_item_menu_view(&mut self, code: u16, v: Option<ItemMenuView>) {
         match v {
-            Some(v) => self.other.jip12.item_menus.insert(code, v),
+            Some(v) => {
+                self.other.jip12.item_filters.insert(code, v.filter);
+                self.other.jip12.item_menus.insert(code, v)
+            }
             None => self.other.jip12.item_menus.remove(&code),
         };
     }
@@ -422,21 +427,25 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             g.other.jip12.set_climate = c.zip(g.player_world());
             reff(c)
         }
-        // Degrees, 0 north, 90 east, -90 west, ±180 south [documented].
+        // Degrees, 0 north, 90 east, -90 west, ±180 south [documented]; -1 radian in
+        // degrees when no script set one [observed: jip12 wind]; the set angle read back
+        // as given [observed: jip12 setwind, 400].
         "getwinddirection" => XVal::Num(f64::from(g.other.jip12.wind.unwrap_or(DEFAULT_WIND))),
         "setwinddirection" => {
             if let Some(a) = num(args, 0) {
-                let a = (a as f32 + 180.0).rem_euclid(360.0) - 180.0;
-                g.other.jip12.wind = Some(a);
+                g.other.jip12.wind = Some(a as f32);
             }
             zero
         }
-        // The phase's texture, relative to Data [documented]; the files the engine
-        // draws, `textures\sky\masser_<phase>.dds`, for a phase no script set
-        // [hypothesis: the original's default paths are those files].
+        // The phase's texture [documented]; for a phase no script set, the file the
+        // engine draws written `\Textures\Sky\Masser_<phase>.dds`, and "" for the new
+        // moon [observed: jip12 moon.0, moon.3, moon.4].
         "getmoontexture" => {
             let Some(k) = num(args, 0).filter(|k| (0.0..8.0).contains(k)).map(|k| k as u8) else { return Some(Ok(XVal::Str(String::new()))) };
-            XVal::Str(g.other.jip12.moons.get(&k).cloned().unwrap_or_else(|| format!("textures\\sky\\masser_{}.dds", MOON_FILES[k as usize])))
+            XVal::Str(g.other.jip12.moons.get(&k).cloned().unwrap_or_else(|| match k {
+                4 => String::new(),
+                _ => format!("\\Textures\\Sky\\Masser_{}.dds", MOON_FILES[k as usize]),
+            }))
         }
         "setmoontexture" => {
             if let (Some(k), Some(p)) = (num(args, 0).filter(|k| (0.0..8.0).contains(k)), text(args, 1)) {
@@ -462,10 +471,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             list(g, mods)
         }
         // Interiors (1) or exteriors (0) [documented].
+        // An array even when empty [observed: jip12 buffered.interiors, size 0].
         "getbufferedcells" => {
             let want_interiors = num(args, 0).unwrap_or(0.0) != 0.0;
-            let cells: Vec<XVal> = g.buffered_cells().into_iter().filter(|c| g.world.placed.world_of(*c).is_none() == want_interiors).map(|c| XVal::Ref(c.0)).collect();
-            list(g, cells)
+            let cells = g.buffered_cells().into_iter().filter(|c| g.world.placed.world_of(*c).is_none() == want_interiors);
+            let entries = cells.enumerate().map(|(i, c)| (XKey::Num(i as f64), XVal::Ref(c.0))).collect();
+            XVal::Array(g.ext.new_array(ArrayKind::List, entries))
         }
         "getcellbuffered" => {
             let c = form(args, 0).or_else(|| subject.and_then(|r| g.cell_of(r)));
@@ -483,9 +494,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 None => zero,
             }
         }
+        // Only a cell in memory: 0 for one far from the player [observed: jip12 extcell,
+        // WastelandNV -18 0 from the probes' start cell 0x000DEB16; hypothesis: "in memory" is the
+        // buffered and loaded cells].
         "getexteriorcell" => {
             let (Some(w), Some(x), Some(y)) = (form(args, 0), num(args, 1), num(args, 2)) else { return Some(Ok(XVal::Ref(0))) };
-            reff(g.world.placed.world_grid.get(&w).and_then(|grid| grid.get(&(x as i32, y as i32))).copied())
+            let c = g.world.placed.world_grid.get(&w).and_then(|grid| grid.get(&(x as i32, y as i32))).copied();
+            reff(c.filter(|c| g.buffered_cells().contains(c)))
         }
         "getworldspacepersistentcell" => reff(form(args, 0).and_then(|w| g.world.placed.world_persistent.get(&w).copied())),
         // 0 dark to 100 lit [documented], from the lights the engine last measured with;
@@ -592,7 +607,12 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getmenuitemfilter" => {
             let code = num(args, 0).unwrap_or(0.0) as u16;
             let side = usize::from(num(args, 1).unwrap_or(0.0) != 0.0);
-            XVal::Num(g.other.jip12.item_menus.get(&code).map_or(0.0, |m| f64::from(m.filter[side])))
+            // The menu's filter, kept after it closes; before it was ever open, 1
+            // (weapons) for the inventory [observed: jip12 filter.inventory], 0 otherwise
+            // [hypothesis].
+            let first = if code == 1002 { 1 } else { 0 };
+            let f = g.other.jip12.item_menus.get(&code).map(|m| m.filter).or_else(|| g.other.jip12.item_filters.get(&code).copied());
+            XVal::Num(f64::from(f.map_or(first, |f| f[side])))
         }
         // The open menu's rows as inventory references, keyed by their index in the
         // unfiltered list [documented]; the shown ones, or all (1); the right panel (1).

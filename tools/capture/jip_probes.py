@@ -8457,7 +8457,7 @@ JIP12_PROBES = (
      _j12v("light.player", "", "GetLightAmountAtPoint (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 64)"),
      _j12v("fasttravelled", "", "GetPCFastTravelled"),
      _j12v("loadorder", "", "GetLoadOrderChanged"),
-     _j12v("hash", "", "GetStringHash"),
+     _j12v("hash", "", "GetStringHash \"NVForever\""),
      _j12v("gmst.float", "let aList := GetGameSettings 1\n", "aList[\"fBarterBuyBase\"]"),
      _j12v("gmst.lowercase", "let aList := GetGameSettings 1\n", "aList[\"fbarterbuybase\"]"),
      _j12v("gmst.string", "let aList := GetGameSettings 2\n", "aList[\"sOk\"]", True),
@@ -8477,8 +8477,8 @@ JIP12_PROBES = (
        _j12arr("gmst.strings", "", "GetGameSettings 2"),
        _j12arr("barteritems", "", "GetBarterItems 0"),
        _j12arr("menuitems", "", "GetMenuItemListRefs")]
-    + [_j12("setclimate", "let rObj := GetCurrentClimate\nlet fA := IsFormValid (SetCurrentClimate rObj)\n"
-            "SetFunctionValue (sv_Construct \"%g %z\" fA (GetFormIDString (GetCurrentClimate)))", True),
+    + [_j12("setclimate", "let rObj := GetCurrentClimate\nSetCurrentClimate rObj\n"
+            "SetFunctionValue (sv_Construct \"%z\" (GetFormIDString (GetCurrentClimate)))", True),
        _j12("setwind", "let fA := GetWindDirection\nSetWindDirection 400\nlet fB := GetWindDirection\nSetWindDirection fA\n"
             "SetFunctionValue (sv_Construct \"%g\" fB)", True)]
 )

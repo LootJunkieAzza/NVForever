@@ -82,7 +82,7 @@
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rWS\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rWS := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetStringHash)\nEnd\n",
+   "query": "ref rP\nref rObj\nref rWS\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rWS := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nSetFunctionValue (GetStringHash \"NVForever\")\nEnd\n",
    "label": "jip12.hash",
    "field": "value"
   },
@@ -185,7 +185,7 @@
    "field": "value"
   },
   {
-   "query": "ref rP\nref rObj\nref rWS\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rWS := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet rObj := GetCurrentClimate\nlet fA := IsFormValid (SetCurrentClimate rObj)\nSetFunctionValue (sv_Construct \"%g %z\" fA (GetFormIDString (GetCurrentClimate)))\nEnd\n",
+   "query": "ref rP\nref rObj\nref rWS\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rWS := GetFormFromMod \"FalloutNV.esm\" \"000DA726\"\nlet rObj := GetCurrentClimate\nSetCurrentClimate rObj\nSetFunctionValue (sv_Construct \"%z\" (GetFormIDString (GetCurrentClimate)))\nEnd\n",
    "label": "jip12.setclimate",
    "field": "value",
    "text": true

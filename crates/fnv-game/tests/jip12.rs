@@ -163,20 +163,24 @@ fn the_sky() {
     g.player_entered(Some(FormId(ROOM)));
     assert_eq!((g.script_climate(), n(&mut g, "GetCurrentClimate")), (None, 0.0));
 
-    // The wind: our fixed direction, then a script's, the engine's angle from +x.
-    assert_eq!(n(&mut g, "GetWindDirection"), -30.0);
+    // The wind: -1 radian in degrees [observed: jip12 wind], then a script's read back
+    // as given [observed: jip12 setwind], the engine's angle from +x.
+    assert!((n(&mut g, "GetWindDirection") + 57.2958).abs() < 1e-3);
     assert_eq!(g.script_wind(), None);
     q(&mut g, "SetWindDirection 90");
     assert_eq!((n(&mut g, "GetWindDirection"), g.script_wind()), (90.0, Some(0.0)));
     q(&mut g, "SetWindDirection 270");
-    assert_eq!((n(&mut g, "GetWindDirection"), g.script_wind()), (-90.0, Some(180.0)));
+    assert_eq!((n(&mut g, "GetWindDirection"), g.script_wind()), (270.0, Some(180.0)));
 
     // The moons.
-    assert_eq!(s(&mut g, "SetFunctionValue (GetMoonTexture 3)"), "textures\\sky\\masser_one_wan.dds");
+    assert_eq!(s(&mut g, "SetFunctionValue (GetMoonTexture 3)"), "\\Textures\\Sky\\Masser_one_wan.dds");
+    assert_eq!(s(&mut g, "SetFunctionValue (GetMoonTexture 4)"), "", "the new moon [observed]");
     q(&mut g, "SetMoonTexture 3 \"textures/sky/one_wan_alt.dds\"");
     assert_eq!(s(&mut g, "SetFunctionValue (GetMoonTexture 3)"), "textures/sky/one_wan_alt.dds");
     assert_eq!(g.moon_textures()[3].as_deref(), Some("sky\\one_wan_alt.dds"));
     assert_eq!(g.moon_textures()[0], None);
+    q(&mut g, "SetMoonTexture 0 \"\\Textures\\Sky\\Full_alt.dds\"");
+    assert_eq!(g.moon_textures()[0].as_deref(), Some("Sky\\Full_alt.dds"), "a leading backslash");
 
     // Lightning: outdoors in the rain only.
     q(&mut g, "TriggerLightningFX");
@@ -195,7 +199,13 @@ fn the_sky() {
 fn cells_light_and_settings() {
     let f = fixture();
     let mut g = game(&f);
+    // Only cells in memory [observed: jip12 extcell].
+    assert_eq!(n(&mut g, "GetExteriorCell TestWorld -3 4"), 0.0);
+    g.set_buffered_cells(BTreeSet::from([FormId(EXT2)]));
     assert_eq!(n(&mut g, "GetExteriorCell TestWorld -3 4"), f64::from(EXT2));
+    g.set_buffered_cells(BTreeSet::new());
+    // An empty array, not none [observed: jip12 buffered.interiors].
+    assert_eq!(n(&mut g, "ar_Size (GetBufferedCells 1)"), 0.0);
     assert_eq!(n(&mut g, "GetExteriorCell TestWorld 9 9"), 0.0);
     assert_eq!(n(&mut g, "GetWorldspacePersistentCell TestWorld"), f64::from(PCELL));
     assert!((n(&mut g, "GetCellNorthRotation TestRoom") - 90.0).abs() < 1e-4);
@@ -289,12 +299,13 @@ fn barter_and_item_menus() {
     g.set_barter_view(None);
     assert_eq!(g.barter_price_mults(), [None, None], "the trade's multipliers go with it");
 
-    // The item menus.
+    // The item menus: before one was open, weapons for the inventory [observed].
+    assert_eq!(n(&mut g, "GetMenuItemFilter 1002"), 1.0);
     let view = ItemMenuView { filter: [3, 0], lists: [MenuList { owner: Some(FormId::PLAYER_REF), rows: vec![(0, FormId(MISC), false), (2, FormId(STAT), true)] }, MenuList::default()] };
     g.set_item_menu_view(1008, Some(view));
     assert_eq!(n(&mut g, "GetMenuItemFilter 1008"), 3.0);
     assert_eq!(n(&mut g, "GetMenuItemFilter 1008 1"), 0.0);
-    assert_eq!(n(&mut g, "GetMenuItemFilter 1002"), 0.0);
+    assert_eq!(n(&mut g, "GetMenuItemFilter 1002"), 1.0);
     assert_eq!(n(&mut g, "ar_Size GetMenuItemListRefs"), 1.0);
     assert_eq!(q(&mut g, "let aList := GetMenuItemListRefs\nlet rItem := aList[2]\nSetFunctionValue (rItem.GetBaseObject)"), XVal::Ref(STAT));
     assert_eq!(n(&mut g, "ar_Size (GetMenuItemListRefs 1)"), 2.0);
