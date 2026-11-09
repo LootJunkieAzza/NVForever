@@ -139,6 +139,17 @@ pub struct Mate {
     pub interior: Option<u32>,
     pub world: u32,
     pub feet: [f32; 3],
+    /// Its facing (radians, compass), for where a trip to it arrives.
+    pub yaw: f32,
+    /// Its reference in this world: the map's fast travel to this player asks for it
+    /// (`crate::pipboy::data::travel`).
+    pub reference: u32,
+    /// The head it chose for the map (`crate::coop_heads`), empty for the plain Vault Boy.
+    pub head: String,
+    /// In combat, or somewhere no one may fast travel to it (a conversation, a scene, fast
+    /// travel turned off): no trip to it now.
+    pub combat: bool,
+    pub no_travel: bool,
 }
 
 /// The glance's state.

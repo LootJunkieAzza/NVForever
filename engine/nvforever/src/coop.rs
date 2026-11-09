@@ -877,6 +877,9 @@ struct Peer {
     /// Its character's name, once its look brought one: then its `name`, whatever
     /// co-op name it joined with.
     character: Option<String>,
+    /// The head it chose for the others' maps (`nvf_play::coop_heads`), empty for the
+    /// plain Vault Boy.
+    head: String,
     /// On the host: its actor in this world ([`stand_ins`]).
     actor: Option<FormId>,
     /// Down, as last seen ([`downed`]); drawn anew (standing) on the next frame.
@@ -1175,6 +1178,10 @@ struct Doing<'w> {
     /// The furniture holding the player (`nvf_play::furniture`).
     seat: Option<Res<'w, nvf_play::furniture::PlayerSeat>>,
     knockdown: Option<Res<'w, crate::player_knockdown::PlayerKnockdown>>,
+    /// The battle music's test: in combat no one may fast travel to this player.
+    cues: Option<Res<'w, nvf_play::music::MusicCues>>,
+    /// The head the others see this player as on their maps (`nvf_play::coop_heads`).
+    head: Option<Res<'w, nvf_play::coop_heads::MapHead>>,
 }
 
 /// The others' Pip-Boys for this game: each puppet's check (`crate::pipboy_check`), where
@@ -1200,7 +1207,18 @@ fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetC
                 Place::Interior(c) => (Some(c), 0),
                 Place::Exterior(w) => (None, w),
             };
-            seen.push(Mate { name: label(id, &p.name), interior, world, feet: newest.feet });
+            let more = |f: u8| newest.more & f != 0;
+            seen.push(Mate {
+                name: label(id, &p.name),
+                interior,
+                world,
+                feet: newest.feet,
+                yaw: newest.yaw,
+                reference: p.reference(id),
+                head: p.head.clone(),
+                combat: more(nvf_coop::net::more_flag::COMBAT),
+                no_travel: more(nvf_coop::net::more_flag::NO_TRAVEL),
+            });
         }
     }
     if checks.0 != want {
@@ -1219,7 +1237,7 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         return;
     }
     // Behind a loading screen the place is the one being left: keep the last state sent.
-    if state.is_some_and(|s| *s.get() == PlayState::Loading) {
+    if state.as_ref().is_some_and(|s| *s.get() == PlayState::Loading) {
         return;
     }
     let mut s = PlayerState::at(place_of(&loc), player.feet, player.heading);
@@ -1250,6 +1268,16 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     if doing.phys.as_ref().and_then(|p| p.player.as_ref()).is_some_and(|c| c.swimming) {
         s.more |= nvf_coop::net::more_flag::SWIMMING;
     }
+    // Whether the others may fast travel to this player (queue item 134): not in combat,
+    // and not in a conversation, a scene holding the movement controls, or with fast
+    // travel turned off by a script.
+    if doing.cues.as_ref().is_some_and(|c| c.combat) {
+        s.more |= nvf_coop::net::more_flag::COMBAT;
+    }
+    let held = doing.script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.player.fast_travel.travel_disabled || rt.game.player.controls_disabled[0]);
+    if held || state.as_ref().is_some_and(|s| *s.get() == PlayState::Dialogue) {
+        s.more |= nvf_coop::net::more_flag::NO_TRAVEL;
+    }
     if let (Some(pip), Some(glance)) = (doing.pipboy.0.as_deref(), doing.pipboy.1.as_deref()) {
         s.pipboy = nvf_play::pipboy::glance::Check::of(pip, glance).code();
     }
@@ -1275,23 +1303,36 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
     let look = rt.and_then(|rt| rt.game.player.look.as_ref());
     // The character's own name (the name menu's), for the others to call this player by.
     let name = rt.and_then(|rt| rt.game.player.name.as_deref()).unwrap_or_default();
-    link.set_look(encode_look(look, name));
+    let head = doing.head.as_deref().map_or("", |h| h.0.as_str());
+    link.set_look(encode_look(look, name, head));
 }
 
 /// A look as it goes over the link: 0 for the player record's own; else 1, the race, sex,
 /// hair (0 for bald), hair colour (a flag and RGB), eyes (0 for the race's), the head
 /// parts, and the three FaceGen lists, each list a count and its items. After it the
 /// character's name: its length and its UTF-8 bytes (at most [`NAME_MAX`]; 0 for none).
-pub fn encode_look(look: Option<&Look>, name: &str) -> Vec<u8> {
+/// After the name, when the player chose one, the head the others draw this player as on
+/// their maps: its length and the icon's path (`nvf_play::coop_heads`, at most
+/// [`HEAD_MAX`] bytes; nothing for the plain Vault Boy).
+pub fn encode_look(look: Option<&Look>, name: &str, head: &str) -> Vec<u8> {
     let mut b = look_only(look);
-    let mut end = name.len().min(NAME_MAX);
-    while !name.is_char_boundary(end) {
-        end -= 1;
+    let push = |b: &mut Vec<u8>, s: &str, max: usize| {
+        let mut end = s.len().min(max);
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        b.push(end as u8);
+        b.extend_from_slice(&s.as_bytes()[..end]);
+    };
+    push(&mut b, name, NAME_MAX);
+    if !head.is_empty() && head.len() <= HEAD_MAX {
+        push(&mut b, head, HEAD_MAX);
     }
-    b.push(end as u8);
-    b.extend_from_slice(&name.as_bytes()[..end]);
     b
 }
+
+/// The longest map head path sent (bytes) [design: the icons' paths are under 100].
+pub const HEAD_MAX: usize = 160;
 
 /// The longest character name sent (bytes) [design: the name menu's names fit].
 pub const NAME_MAX: usize = 48;
@@ -1323,25 +1364,31 @@ fn look_only(look: Option<&Look>) -> Vec<u8> {
     b
 }
 
-/// [`encode_look`] read back, the look and the name (empty for none, and from a game
-/// that sent no name); None for one that is not a look.
-pub fn decode_look(b: &[u8]) -> Option<(Option<Look>, String)> {
+/// [`encode_look`] read back, the look, the name (empty for none, and from a game that
+/// sent no name) and the map head (empty for the plain Vault Boy); None for one that is
+/// not a look.
+pub fn decode_look(b: &[u8]) -> Option<(Option<Look>, String, String)> {
     let mut rd = Reader(b.get(1..)?);
     let look = match *b.first()? {
         0 => None,
         1 => Some(read_look(&mut rd)?),
         _ => return None,
     };
-    let name = if rd.0.is_empty() {
-        String::new()
-    } else {
-        let n = rd.u8()? as usize;
-        if rd.0.len() != n {
-            return None;
+    let text = |rd: &mut Reader| -> Option<String> {
+        if rd.0.is_empty() {
+            return Some(String::new());
         }
-        String::from_utf8_lossy(rd.0).into_owned()
+        let n = rd.u8()? as usize;
+        let s = rd.0.get(..n)?;
+        rd.0 = &rd.0[n..];
+        Some(String::from_utf8_lossy(s).into_owned())
     };
-    Some((look, name))
+    let name = text(&mut rd)?;
+    let head = text(&mut rd)?;
+    if !rd.0.is_empty() {
+        return None;
+    }
+    Some((look, name, head))
 }
 
 fn read_look(rd: &mut Reader) -> Option<Look> {
@@ -1502,7 +1549,7 @@ fn take_events(
                 coop.peers.entry(id).or_default().name = name;
             }
             Event::Look { id, look } => {
-                let Some((look, character)) = decode_look(&look) else {
+                let Some((look, character, head)) = decode_look(&look) else {
                     warn!("co-op: {} sent a look this game cannot read", label(id, &coop.peers.get(&id).map_or(String::new(), |p| p.name.clone())));
                     continue;
                 };
@@ -1522,6 +1569,10 @@ fn take_events(
                     info!("co-op: {} is called {character}", label(id, &p.name));
                     p.name = character.clone();
                     p.character = Some(character);
+                }
+                if p.head != head {
+                    info!("co-op: {} shows on the map as {}", label(id, &p.name), if head.is_empty() { "the plain Vault Boy" } else { head.as_str() });
+                    p.head = head;
                 }
                 // The link sends the look again now and then: drawn again only when it changed.
                 if p.look.as_ref() != Some(&look) {
@@ -3535,7 +3586,7 @@ mod tests {
     #[test]
     fn a_look_round_trips_and_fits_a_packet() {
         let l = Look {
-            race: FormId(0x0000_19),
+            race: FormId(0x19),
             female: true,
             hair: Some(FormId(0x0004_2A1B)),
             hair_color: Some([120, 80, 40]),
@@ -3546,14 +3597,15 @@ mod tests {
             fgts: (0..50).map(|i| -(i as f32)).collect(),
         };
         let name = "Ñ".repeat(40);
-        let b = encode_look(Some(&l), &name);
+        let head = r"interface\icons\message icons\glow_message_vaultboy_ninja.dds";
+        let b = encode_look(Some(&l), &name, head);
         assert!(b.len() <= net::LOOK_MAX, "{} bytes", b.len());
         // Cut to whole characters within NAME_MAX bytes.
-        assert_eq!(decode_look(&b), Some((Some(l.clone()), "Ñ".repeat(NAME_MAX / 2))));
-        assert_eq!(decode_look(&encode_look(None, "")), Some((None, String::new())));
-        assert_eq!(decode_look(&encode_look(None, "Cass")), Some((None, "Cass".into())));
+        assert_eq!(decode_look(&b), Some((Some(l.clone()), "Ñ".repeat(NAME_MAX / 2), head.to_string())));
+        assert_eq!(decode_look(&encode_look(None, "", "")), Some((None, String::new(), String::new())));
+        assert_eq!(decode_look(&encode_look(None, "Cass", "")), Some((None, "Cass".into(), String::new())));
         // A look from a game that sends no name.
-        assert_eq!(decode_look(&look_only(Some(&l))), Some((Some(l), String::new())));
+        assert_eq!(decode_look(&look_only(Some(&l))), Some((Some(l), String::new(), String::new())));
         assert_eq!(decode_look(&b[..b.len() - 1]), None);
         assert_eq!(decode_look(&[9]), None);
     }
