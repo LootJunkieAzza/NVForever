@@ -122,10 +122,19 @@ backend starts or which validation wgpu runs. Each part is marked by a comment s
   indirect calls without it [documented: wgpu-types 30.0.1 `instance.rs`], and release builds
   on Vulkan with the default backends keep the validation (and its GPU time) they had before.
 
-Still as upstream: when the backends include Vulkan, the instance is Vulkan-only whenever
-Vulkan starts, so a Vulkan instance with no adapter that can draw to the window stops the start
-instead of falling back to DX12. Drop this change when a Bevy release makes the feature follow
-the backends.
+- `src/renderer/mod.rs` `initialize_renderer`, after the adapter search: the raw Vulkan
+  instance is Vulkan-only, so where Vulkan starts but has no adapter that can draw to the
+  window, upstream stops ("Unable to find a GPU") without asking DX12 or GL. A second instance
+  over the backends but Vulkan is searched then, as one instance over all of them would have
+  been without the feature. [not run: no machine here has a Vulkan loader without a usable
+  Vulkan adapter; the search was run once with the first result thrown away, 2026-11-09]
+
+Still as upstream, and different from a build without the feature: the instance made from
+the raw Vulkan one takes wgpu-core's default instance flags (`Instance::from_hal`), so
+`WgpuSettings::instance_flags` and the `WGPU_VALIDATION*`/`WGPU_DEBUG` environment switches
+reach the Vulkan layer (wgpu-hal) but not wgpu-core [documented: wgpu-core 30.0.1
+`instance.rs` `from_hal_instance`]. The defaults are the same either way. Drop this change
+when a Bevy release makes the feature follow the backends.
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
