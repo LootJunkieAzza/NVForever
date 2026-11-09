@@ -38,6 +38,7 @@ pub mod coop_subtitles;
 pub mod coop_tables;
 pub mod coop_progress;
 pub mod darts_foes;
+pub mod emotes;
 pub mod minigames;
 pub mod corner_messages;
 pub mod crafting;
@@ -386,6 +387,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(console::ConsolePlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(world_marks::WorldMarksPlugin)
+            .add_plugins(emotes::EmotesPlugin)
             .add_plugins(safe_zone::SafeZonePlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)

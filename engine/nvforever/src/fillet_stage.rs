@@ -185,7 +185,7 @@ fn stage(
     if let Some(t) = staged.table.as_mut().filter(|t| t.leaving.is_some()) {
         // The exit clip over the base pose, where the table was.
         let feet = t.at(t.pose_origin + Vec3::Z * LIFT);
-        body.0 = Some(BodyClip { clip: t.clips.ready.clone(), looped: true, serial: SERIAL, pos: feet.to_array(), heading: t.yaw, lying: false, over: t.over.clone() });
+        body.0 = Some(BodyClip { clip: t.clips.ready.clone(), looped: true, serial: SERIAL, pos: feet.to_array(), heading: t.yaw, lying: false, over: t.over.clone(), under: None });
         return;
     }
     let Some(f) = f else { return };
@@ -255,7 +255,7 @@ fn stage(
     // still in the hand while it plays the table's clips, `player_body.rs`).
     control.weapon_out = false;
     let feet = t.at(t.pose_origin + Vec3::Z * LIFT);
-    body.0 = Some(BodyClip { clip: t.clips.ready.clone(), looped: true, serial: SERIAL, pos: feet.to_array(), heading: t.yaw, lying: false, over: t.over.clone() });
+    body.0 = Some(BodyClip { clip: t.clips.ready.clone(), looped: true, serial: SERIAL, pos: feet.to_array(), heading: t.yaw, lying: false, over: t.over.clone(), under: None });
     out.on = true;
 }
 

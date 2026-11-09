@@ -352,6 +352,7 @@ impl Plugin for CoopPlugin {
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
             .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, leash, scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, peer_emotes.after(social_mates))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
             .add_systems(Update, scene::story_prompts.after(scene::share_scene).before(downed))
             .init_resource::<HoldLeave>()
@@ -991,6 +992,23 @@ fn tables(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location
 }
 
 /// The other players for the interaction wheel (`nvf_play::coop_social`): who they are,
+/// What the other players here emote, for their puppets (`crate::emote_play`).
+fn peer_emotes(coop: Res<Coop>, loc: Option<Res<Location>>, out: Option<ResMut<crate::emote_play::PeerEmotes>>) {
+    let Some(mut out) = out else { return };
+    let here = loc.as_deref().map(place_of);
+    let want: Vec<(u32, nvf_coop::net::EmoteState)> = coop
+        .peers
+        .iter()
+        .filter_map(|(&id, p)| {
+            let &(_, s) = p.samples.back()?;
+            (!p.lost && Some(s.place) == here && s.emote.id != 0).then_some((p.reference(id), s.emote))
+        })
+        .collect();
+    if out.0 != want {
+        out.0 = want;
+    }
+}
+
 /// where, and whether this player is indoors.
 fn social_mates(coop: Res<Coop>, loc: Option<Res<Location>>, mut mates: ResMut<nvf_play::coop_social::SocialMates>) {
     use nvf_play::coop_social::{Mate, SocialMates};
@@ -1187,6 +1205,8 @@ struct Doing<'w> {
     cues: Option<Res<'w, nvf_play::music::MusicCues>>,
     /// The head the others see this player as on their maps (`nvf_play::coop_heads`).
     head: Option<Res<'w, nvf_play::coop_heads::MapHead>>,
+    /// The emote this player plays (`crate::emote_play`).
+    emote: Option<Res<'w, crate::emote_play::LocalEmote>>,
 }
 
 /// The others' Pip-Boys for this game: each puppet's check (`crate::pipboy_check`), where
@@ -1297,6 +1317,14 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         s.worn_len += 1;
     }
     s.furniture = doing.seat.as_deref().and_then(|seat| seat.on).unwrap_or(0);
+    // An emote: the others' puppets play it, facing where the body does (the mouse turns
+    // the camera meanwhile, not the body).
+    if let Some(e) = doing.emote.as_deref() {
+        s.emote = e.state;
+        if let Some(h) = e.heading {
+            s.yaw = h;
+        }
+    }
     if let Some(a) = doing.anim.as_deref() {
         s.attacks = a.attacks as u16;
         s.reloads = a.reloads as u16;

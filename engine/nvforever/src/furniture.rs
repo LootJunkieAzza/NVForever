@@ -732,6 +732,9 @@ pub struct BodyClip {
     /// A clip played once over it, above its priority (the fillet table's stabs,
     /// `fillet_stage.rs`); a new serial starts it again.
     pub over: Option<(Arc<Clip>, u32)>,
+    /// A clip under it for the bones it does not key (an emote over the standing idle,
+    /// `emote_play.rs`): the clip then takes every bone it keys outright.
+    pub under: Option<Arc<Clip>>,
 }
 
 #[derive(Resource, Default)]
@@ -860,9 +863,10 @@ pub fn drive_player(
             heading: frames.clip.heading,
             lying,
             over: None,
+            under: None,
         }),
         Phase::On => Some(match &u.plan.stay {
-            Some(stay) => BodyClip { clip: stay.clone(), looped: true, serial: st.serial, pos: frames.on.pos, heading: frames.on.heading, lying, over: None },
+            Some(stay) => BodyClip { clip: stay.clone(), looped: true, serial: st.serial, pos: frames.on.pos, heading: frames.on.heading, lying, over: None, under: None },
             None => BodyClip {
                 clip: u.plan.get_on.clone(),
                 looped: false,
@@ -871,6 +875,7 @@ pub fn drive_player(
                 heading: frames.clip.heading,
                 lying,
                 over: None,
+                under: None,
             },
         }),
         Phase::GettingOff if ev != Some(UseEvent::GotOff) => u.get_off.as_ref().map(|(c, _)| BodyClip {
@@ -881,6 +886,7 @@ pub fn drive_player(
             heading: frames.clip.heading,
             lying,
             over: None,
+            under: None,
         }),
         Phase::GettingOff => None,
     };

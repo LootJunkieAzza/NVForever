@@ -100,6 +100,8 @@ use std::sync::Arc;
 
 /// Layer roles ([`Animator`] tags).
 const TAG_IDLE: u32 = 0;
+/// The stance idle under an idle that covers the rest (`pose_rig`).
+const TAG_IDLE_UNDER: u32 = 1;
 const TAG_MOVE: u32 = 10; // + 0 along, + 1 sideways
 const TAG_TURN: u32 = 20;
 const TAG_JUMP: u32 = 30;
@@ -1822,6 +1824,21 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     let a = &mut rig.animator;
     a.begin();
     let covered = special.covers();
+    // Under an idle that covers the rest, the stance idle still poses the bones the idle
+    // does not key, below every priority so the idle has all the bones it does key.
+    // Without it those bones fell to the bind pose: a clip that keys no `Bip01 NonAccum`
+    // (a pick-up, an emote's wave) or the head alone sank the body to the waist (laptop
+    // run, 2026-11-09). A layer of its own, so the stance idle's usual one keeps its
+    // priority for when the idle ends.
+    if covered {
+        if let Some((c, ..)) = want.iter().find(|(_, tag, ..)| *tag == TAG_IDLE) {
+            let n = a.layers.len();
+            let i = a.want(&c.clip, TAG_IDLE_UNDER, 1.0, Mode::Loop, 0.0);
+            if a.layers.len() > n {
+                a.lift(i, -OVER_LIFT);
+            }
+        }
+    }
     for (c, tag, w, mode) in want.iter().filter(|_| !covered) {
         let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
         let l = a.want(&c.clip, *tag, *w, *mode, fade);
@@ -2026,10 +2043,19 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
     let mode = if o.looped { Mode::Loop } else { Mode::Once };
     if rig.furniture != Some(o.serial) {
         a.layers.retain(|l| l.tag >= TAG_SPECIAL);
-        a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        let i = a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        // Over a clip under it, the clip takes the bones it keys outright; the one under
+        // poses the rest (an emote's clip that keys no `Bip01 NonAccum`, or the head
+        // alone, would leave those in the bind pose: the body sank to the waist).
+        if o.under.is_some() {
+            a.lift(i, OVER_LIFT);
+        }
         rig.furniture = Some(o.serial);
     }
     a.begin();
+    if let Some(under) = &o.under {
+        a.want(under, TAG_FURNITURE - 1, 1.0, Mode::Loop, 0.0);
+    }
     a.want(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
     // A clip over it, once, above its priority (the fillet table's stabs and misses).
     match &o.over {

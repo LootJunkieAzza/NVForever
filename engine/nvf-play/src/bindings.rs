@@ -94,6 +94,9 @@ pub enum Control {
     /// Mark the point under the crosshair for every player (the fork's,
     /// `crate::world_marks`).
     Ping,
+    /// Held, the emote wheel; tapped, end the emote playing (the fork's,
+    /// `crate::emotes`).
+    Emote,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
@@ -102,8 +105,9 @@ pub enum Control {
 /// Item tapped twice so a reload is not held back waiting for a second tap], Pip-Boy
 /// Glance on G [design: the real-time Pip-Boy, 2026-11-03], Weapon Bash on X (the fork's;
 /// B42 Melee Bash's default key, DIK 45), Ping on C or the mouse's back button [design:
-/// the fork's world marks, 2026-11-06; middle mouse is Toggle POV's].
-pub const GAME_CONTROLS: [(Control, &str, u32); 32] = [
+/// the fork's world marks, 2026-11-06; middle mouse is Toggle POV's], Emote on B (DIK 48;
+/// the fork's emote wheel, queue item 137).
+pub const GAME_CONTROLS: [(Control, &str, u32); 33] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -136,6 +140,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 32] = [
     (Control::PipBoyGlance, "Pip-Boy Glance", 0x0022FFFF),
     (Control::Bash, "Weapon Bash", 0x002DFFFF),
     (Control::Ping, "Ping", 0x002E03FF),
+    (Control::Emote, "Emote", 0x0030FFFF),
 ];
 
 /// How many of [`GAME_CONTROLS`] are the game's own (the extender's control codes 0–27).
@@ -498,6 +503,7 @@ pub fn label(c: Control) -> &'static str {
         PipBoyGlance => "Pip-Boy Glance",
         Bash => "Weapon Bash",
         Ping => "Ping",
+        Emote => "Emote",
     }
 }
 
