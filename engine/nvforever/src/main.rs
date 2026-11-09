@@ -105,6 +105,8 @@ mod consume_anims;
 mod darts_arm;
 mod darts_world;
 mod pool_world;
+// After a minigame match: cheers, the end camera, the fade (match_end.rs).
+mod match_end;
 mod object_anims;
 mod outfits;
 mod own_sounds;
@@ -1565,6 +1567,9 @@ fn main() -> AppExit {
             app.add_plugins(darts_world::DartsWorldPlugin);
             // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).
             app.add_plugins(pool_world::PoolWorldPlugin);
+            // After a darts or pool match: the winner cheers, the loser is beaten, the camera
+            // in front of the player, a fade back (match_end.rs).
+            app.add_plugins(match_end::MatchEndPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).

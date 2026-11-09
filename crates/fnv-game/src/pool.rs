@@ -653,6 +653,10 @@ pub const BALL_Z: f32 = 27.566_667;
 /// Sim units in one table unit.
 pub const SIM_PER_UNIT: f32 = 4.5;
 
+/// 2v2 8-ball and 3-/4-player cutthroat, driven like [`Game`] [owner 2026-11-08].
+pub mod modes;
+pub use modes::{Mode, MultiGame, MultiNotice, MultiStart, Winner, MULTI_BYTES};
+
 #[cfg(test)]
 mod tests {
     use super::*;

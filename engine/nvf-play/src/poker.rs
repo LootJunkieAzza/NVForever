@@ -179,6 +179,8 @@ pub struct Session {
     next_hand: Option<f32>,
     /// Sounds to play (`sound`): when (aid seconds) and which record.
     pub cues: Vec<(f32, &'static str)>,
+    /// Hands won by a person at the table, to show as highlights then (item 125).
+    pub wins: Vec<(f32, String)>,
     /// Hands played and won by the player, for the summary.
     hands: u32,
     won: u32,
@@ -570,6 +572,7 @@ fn new_session(table: Table, casino: Casino, buy_in: u32, now: f32) -> Session {
         next_choice: None,
         next_hand: Some(now + 1.0),
         cues: Vec::new(),
+        wins: Vec::new(),
         hands: 0,
         won: 0,
         coop: None,
@@ -695,6 +698,22 @@ fn log_events(s: &mut Session, events: &[Event], now: f32) {
                 s.cues.push((now + 0.3, sound::COLLECT_CHIPS));
                 if *seat == PLAYER {
                     s.cues.push((now + 0.1, sound::WIN));
+                }
+                // A person's win is a highlight on every screen at the table (item 125):
+                // this player's seat, the owner's (`PLAYER`) and the other people's.
+                let mine = match &s.coop {
+                    Some(Coop::Guest(g)) => g.seat == Some(*seat),
+                    _ => *seat == PLAYER,
+                };
+                let person = mine
+                    || match &s.coop {
+                        Some(Coop::Owner { humans, .. }) => humans.iter().any(|h| h.seat == *seat && !h.left),
+                        Some(Coop::Guest(_)) => *seat == PLAYER,
+                        None => false,
+                    };
+                if person {
+                    let text = if mine { "YOU WIN THE HAND".to_string() } else { format!("{} WINS THE HAND", name(*seat).to_uppercase()) };
+                    s.wins.push((now + 0.3, text));
                 }
                 let who = if *seat == PLAYER { "You win".to_string() } else { format!("{} wins", name(*seat)) };
                 let line = format!("{who} {amount}{with}");
