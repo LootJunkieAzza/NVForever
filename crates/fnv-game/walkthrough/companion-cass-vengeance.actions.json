@@ -119,11 +119,11 @@
   },
   {
    "op": "move_player",
-   "to": "scripted:0x001618C4#0"
+   "to": "scripted:0x001618C4#1"
   },
   {
    "op": "trigger_enter",
-   "trigger": "scripted:0x001618C4#0",
+   "trigger": "scripted:0x001618C4#1",
    "actor": "player",
    "event": "enter"
   },
