@@ -3972,7 +3972,11 @@ mod tests {
         let headings: Vec<String> = world.query_filtered::<&Text, With<HeadingLine>>().iter(world).map(|t| t.0.clone()).collect();
         assert!(headings.contains(&"Gameplay > Dialogue".to_string()), "{headings:?}");
         let field: Vec<String> = world.query_filtered::<&Text, With<SearchText>>().iter(world).map(|t| t.0.clone()).collect();
-        assert_eq!(field, ["Search: pause_"]);
+        // Its start is left out when it does not fit (the test's stand-in font is wider
+        // than the game's): what is shown is the query's end and the mark.
+        assert_eq!(field.len(), 1, "{field:?}");
+        let shown = field[0].strip_prefix("Search: ").expect("the line starts with its name");
+        assert!(shown.len() > 1 && "pause_".ends_with(shown), "{field:?}");
         assert!(world.query::<&PauseButton>().iter(world).any(|b| *b == PauseButton::SearchField));
         // Nothing found: the page says so and chooses nothing.
         world.resource_mut::<PauseView>().search.query = "zzz".into();
