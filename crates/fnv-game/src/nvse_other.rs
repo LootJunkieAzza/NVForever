@@ -101,6 +101,8 @@ pub struct OtherState {
     pub jip14: crate::nvse_jip14::Jip14State,
     /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
     pub jip11: crate::nvse_jip11::Jip11State,
+    /// JIP batch 13's physics view, requests and follows (`nvse_jip13`).
+    pub jip13: crate::nvse_jip13::Jip13State,
     /// JohnnyGuitar batch 5's record changes (`nvse_jg5`).
     pub jg5: crate::nvse_jg5::Jg5State,
     /// JohnnyGuitar batch 6's state (`nvse_jg6`).

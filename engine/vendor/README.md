@@ -43,6 +43,11 @@ by a comment starting `NVForever FSR integration`:
 Without the override both do what upstream does. This is a new patch for Bevy 0.20.1, not
 the dropped 0.19.1 one below.
 
+Both FSR changes are already in Bevy's `main`, written almost the same way: bevyengine/bevy#26235
+(transmission, merged 2026-10-26) and bevyengine/bevy#26236 (cluster lookup, merged
+2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
+Bevy release that has both.
+
 Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
 that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
 queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
@@ -69,6 +74,19 @@ not `Send`).
 `profile` build] Alone it took 0.2-0.5 ms a frame off finishing the encoders' wall time
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
+
+Second change (#1887, docs/design/frame-rate-audit.md, the indirect-parameter build jobs),
+in `src/batching/gpu_preprocessing.rs`, `coalesce_batch_ranges` (comment starting
+`NVForever coalesced build jobs`): `prepare_indirect_parameters_build_jobs` merges each
+view's batch ranges that follow one another into one build job. Upstream makes one job,
+and so one compute dispatch, per range; wgpu puts a barrier between dispatches that write
+the same storage buffers, and on the GPU each one waits for the last to drain. The shader
+handles each batch index on its own, so the merged dispatch does the same work. Drop it if
+upstream merges the jobs.
+
+[observed 2026-11-08, Nsight Graphics GPU Trace, Goodsprings 12:00, 2560x1440, 4x MSAA,
+no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
+frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 

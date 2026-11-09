@@ -142,8 +142,12 @@ pub struct TileMenuBlur {
     pub container: bool,
     /// `BarterMenu` is drawn from its tiles [design: barter-menu.md section 9].
     pub barter: bool,
+    /// `RecipeMenu` is drawn from its tiles [design: crafting.md section 4].
+    pub recipe: bool,
     /// `TraitMenu` is drawn from its tiles.
     pub traits: bool,
+    /// `RepairServicesMenu` is drawn from its tiles [design: repair.md §3.1].
+    pub repair_services: bool,
     /// [design: chargen.md §3.1] CharGenMenu is drawn from its tiles.
     pub tags: bool,
 }
@@ -151,7 +155,10 @@ pub struct TileMenuBlur {
 impl TileMenuBlur {
     /// Any menu drawn from its tiles wants the world blurred.
     pub fn any(self) -> bool {
-        self.tutorial || self.container || self.barter || self.traits || self.tags
+        if self.repair_services {
+            return true;
+        }
+        self.tutorial || self.container || self.barter || self.recipe || self.traits || self.tags
     }
 }
 
@@ -234,10 +241,16 @@ pub fn hand_built_takes(menu: &str, key: &str) -> bool {
         &super::container_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::barter_menu::BARTER_MENU) {
         &super::barter_menu::HAND_BUILT_KEYS
+    } else if menu.eq_ignore_ascii_case(super::recipe_menu::RECIPE_MENU) {
+        &super::recipe_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::trait_menu::TRAIT_MENU) || menu.eq_ignore_ascii_case(super::tag_menu::TAG_MENU) {
         &super::trait_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::dialog_menu::DIALOG_MENU) {
         &super::dialog_menu::HAND_BUILT_KEYS
+    } else if menu.eq_ignore_ascii_case(super::repair_services_menu::REPAIR_SERVICES_MENU) {
+        &super::repair_services_menu::HAND_BUILT_KEYS
+    } else if menu.eq_ignore_ascii_case(super::repair_menu::REPAIR_MENU) {
+        &super::repair_menu::HAND_BUILT_KEYS
     } else {
         &[]
     };

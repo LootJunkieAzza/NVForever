@@ -40,6 +40,8 @@
 //!   canvas (`crate::pipboy::PipBoyScreen::pointer`), so its input is its own system,
 //!   `super::stats_menu::feed`, on a frame no other menu takes input; this one then leaves
 //!   the frame's one step to it.
+//! - **The Pip-Boy's repair page** (`super::repair_menu`): likewise, by its own system,
+//!   `super::repair_menu::feed`.
 //! - **The container menu** (T15c, `super::container_menu`): a row the pointer comes onto is
 //!   selected, unless the wheel holds the selection; a click on a row, a heading or its arrow,
 //!   Take All and Exit send the hand-built menu's commands (`crate::menu::MenuInput`), to
@@ -48,6 +50,11 @@
 //!   scrollbar's arrows, page areas and marker move the list's view, no
 //!   command of the model's. Under the "How many?" prompt it takes nothing. The wheel stays
 //!   `crate::menu::menu_mouse`'s, told which heading the pointer is over.
+//! - **The recipe menu** (`super::recipe_menu`): a row the pointer comes onto is selected, a
+//!   click on a row selects it or, on the selected row, accepts; the arrows and the title step
+//!   the filter; Accept and Exit act. What it asks goes to `crate::crafting`'s `keys` as
+//!   `crate::crafting::RecipeInput`. The scrollbars' arrows, page areas and markers move the
+//!   lists' views. Under the "How many?" prompt it takes nothing. The wheel stays the model's.
 //! - **The trait menu** (`super::trait_menu`): a row the pointer comes onto is chosen, a click on
 //!   a row, Reset or Done is queued for `crate::chargen`'s `input`, named by its trait; the two
 //!   bars' arrows, page areas and markers move their views. On the frame it is first ready, when
@@ -57,6 +64,11 @@
 //!   it and no pause menu; what it asks goes to `crate::dialogue::input` through
 //!   `crate::dialogue::ViewInput`, the same commands as the keys. It takes the input as drawn
 //!   the frame before, so a click is on what was on screen.
+//! - **The vendor's repair menu** (`super::repair_services_menu`): a row the pointer comes onto
+//!   is selected; a click on the selected row or Repair repairs it, on another row selects it;
+//!   Repair All and Done act. What it asks goes to `crate::repair`'s `keys` as
+//!   `crate::repair::RepairServicesInput`. The scrollbar's arrows, page areas and marker move the
+//!   list's view. The keys and the wheel stay the model's.
 //! - **Units**: the cursor's logical pixels to interface units, 960 to the view's height,
 //!   as the tile renderer draws (`super::draw`, `crate::interface::u`) [design].
 //! - **Keys**: A to Z as `_PCButton_<letter>` [documented: the vanilla files' letters;
@@ -216,6 +228,16 @@ pub(crate) struct MenuInputs<'w, 's> {
     /// T15c: the container menu's state, the writer's and this input's.
     container: ResMut<'w, super::container_menu::ContainerTiles>,
     barter: Option<ResMut<'w, super::barter_menu::BarterTiles>>,
+    /// The recipe menu's state, the model and what the tiles ask of it.
+    recipe: Option<ResMut<'w, super::recipe_menu::RecipeTiles>>,
+    recipe_model: Option<Res<'w, crate::crafting::RecipeMenu>>,
+    recipe_commands: MessageWriter<'w, crate::crafting::RecipeInput>,
+    /// The Pip-Boy's repair page's decision, and whether its list is open.
+    repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
+    repair_list: Option<Res<'w, crate::pipboy::repair::PipRepair>>,
+    /// The vendor's repair menu's state, and what the tiles ask of its model.
+    repair_services: Option<ResMut<'w, super::repair_services_menu::RepairServicesTiles>>,
+    repair_commands: MessageWriter<'w, crate::repair::RepairServicesInput>,
     /// The pointer's place last frame, to know a list moved under it from it moving.
     last_at: Local<'s, Option<(f64, f64)>>,
     hold: Option<Res<'w, crate::menu::WheelHold>>,
@@ -236,6 +258,16 @@ impl MenuInputs<'_, '_> {
         self.active.as_ref().and_then(|a| a.0.as_ref()).and_then(|m| m.quantity)
     }
 
+    /// The recipe menu's own prompt is open: it stays hand-built, and has the input.
+    fn recipe_asking(&self) -> bool {
+        self.recipe_model.as_ref().and_then(|m| m.0.as_ref()).is_some_and(|o| o.quantity.is_some())
+    }
+
+    /// The recipe menu while it takes input.
+    fn recipe_takes(&self) -> Option<fnv_ui::TileId> {
+        super::container_menu::takes_input(self.recipe.as_ref().and_then(|r| r.menu), self.recipe_asking())
+    }
+
     /// The menus drawn from tiles that take input this frame, back to front: the prompt,
     /// then the message box over it.
     fn taking(&self, menus: super::vanilla::TileMenus, game: &fnv_game::Game<'_>) -> Vec<fnv_ui::TileId> {
@@ -251,6 +283,8 @@ impl MenuInputs<'_, '_> {
         }
         out.extend(super::container_menu::takes_input(self.container.menu, self.quantity().is_some()));
         out.extend(super::container_menu::takes_input(self.barter.as_ref().and_then(|b| b.menu()), self.quantity().is_some()));
+        out.extend(self.recipe_takes());
+        out.extend(self.repair_services.as_ref().and_then(|r| r.menu));
         if self.trait_hand_built.is_empty() {
             out.extend(self.traits.as_ref().and_then(|t| t.takes()));
             out.extend(self.tags.as_ref().and_then(|t| t.takes()));
@@ -328,6 +362,84 @@ impl MenuInputs<'_, '_> {
         }
     }
 
+    /// [design] Act on a click on the vendor's repair menu's tiles (see the module doc). `None` when
+    /// the click is not for it. `row_acted`: as [`Self::follow_item_menu`]'s.
+    fn follow_repair_services(&mut self, ui: &fnv_ui::Ui, c: &fnv_ui::input::Click, at: Option<(f64, f64)>, inputs: Pressed<'_>, row_acted: &mut bool) -> Option<()> {
+        use super::repair_services_menu::{row_input, RepairServicesTile, REPAIR_SERVICES_MENU};
+        use crate::repair::RepairServicesInput as Ask;
+        use fnv_ui::input::By;
+        let st = self.repair_services.as_mut()?;
+        let what = st.clicked(ui, c.tile)?;
+        if let By::Key(k) = &c.by {
+            if !super::menus::key_click_acts(REPAIR_SERVICES_MENU, k, inputs.physical) {
+                return Some(());
+            }
+        }
+        let ask = match what {
+            RepairServicesTile::Row(index) => {
+                let at = if *row_acted { None } else { st.row_at(index) };
+                let Some(index) = at else {
+                    info!("tiles: {REPAIR_SERVICES_MENU} a click on a row no longer there is ignored");
+                    return Some(());
+                };
+                *row_acted = true;
+                row_input(st.selected(), index)
+            }
+            RepairServicesTile::Repair => Ask::Repair,
+            RepairServicesTile::RepairAll => Ask::All,
+            RepairServicesTile::Done => Ask::Done,
+            RepairServicesTile::Bar(list::BarPiece::Marker) => {
+                let menu = st.menu;
+                let list_tile = st.list_tile(ui);
+                st.drag = at.filter(|_| inputs.held && matches!(c.by, By::Pointer)).zip(menu).zip(list_tile).and_then(|(((_, y), menu), l)| list::marker_grab(ui, menu, l, y));
+                return Some(());
+            }
+            RepairServicesTile::Bar(piece) => {
+                let value = st.value();
+                if let Some(v) = st.list_tile(ui).and_then(|l| list::after_piece(ui, l, piece, value)) {
+                    info!("tiles: {REPAIR_SERVICES_MENU} {piece:?} on its tiles");
+                    st.scroll_to(v);
+                }
+                return Some(());
+            }
+            RepairServicesTile::Other => return Some(()),
+        };
+        // A repair is of the row the tree shows selected, whatever a key did this frame, and no
+        // pointer step or other row click after it this frame chooses another.
+        let selected = st.selected();
+        if ask == Ask::Repair {
+            *row_acted = true;
+        }
+        if let (Ask::Repair, Some(i)) = (ask, selected) {
+            self.repair_commands.write(Ask::Select(i));
+        }
+        info!("tiles: {REPAIR_SERVICES_MENU} {ask:?} on its tiles");
+        self.repair_commands.write(ask);
+        Some(())
+    }
+
+    /// The vendor's repair menu's pointer besides clicks: a drag on the scroll marker, the row it
+    /// came onto.
+    fn follow_repair_services_pointer(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, moved: bool, row_acted: bool) {
+        use super::repair_services_menu::{RepairServicesTile, REPAIR_SERVICES_MENU};
+        use crate::repair::RepairServicesInput as Ask;
+        let holds = self.hold.as_ref().is_some_and(|h| h.held());
+        let Some(st) = self.repair_services.as_mut() else { return };
+        if let (Some(drag), Some((_, y))) = (st.drag, at) {
+            if let Some(v) = list::value_under(ui, drag, y) {
+                st.scroll_to(v);
+            }
+        }
+        let Some((_, Some(to))) = report.over else { return };
+        let Some(RepairServicesTile::Row(index)) = st.clicked(ui, to) else { return };
+        let already = st.selected() == Some(index);
+        if !row_acted && super::container_menu::hover_selects(moved, holds, already) && st.row_at(index).is_some() {
+            let ask = Ask::Hover(index);
+            info!("tiles: {REPAIR_SERVICES_MENU} {ask:?} on its tiles");
+            self.repair_commands.write(ask);
+        }
+    }
+
     /// [design] Act on a click on the container or barter menu's tiles (see the module doc). `None` when
     /// the click is not for it, so the other menus' rules see it. `row_acted` is set by the
     /// row click that acts: the commands are applied later in the frame, so a second row
@@ -391,6 +503,79 @@ impl MenuInputs<'_, '_> {
             self.commands.write(MenuInput(cmd));
         }
         Some(())
+    }
+
+    /// [design] Act on a click on the recipe menu's tiles (see the module doc). `None` when the
+    /// click is not for it. `row_acted`: as [`Self::follow_item_menu`]'s.
+    fn follow_recipe(&mut self, ui: &fnv_ui::Ui, c: &fnv_ui::input::Click, at: Option<(f64, f64)>, inputs: Pressed<'_>, row_acted: &mut bool) -> Option<()> {
+        use super::recipe_menu::{row_input, RecipeTile, RECIPE_MENU};
+        use crate::crafting::RecipeInput;
+        use fnv_ui::input::By;
+        let asking = self.recipe_asking();
+        let st = self.recipe.as_mut()?;
+        let what = st.clicked(ui, c.tile)?;
+        if let By::Key(k) = &c.by {
+            if !super::menus::key_click_acts(RECIPE_MENU, k, inputs.physical) {
+                return Some(());
+            }
+        }
+        if asking {
+            return Some(());
+        }
+        let input = match what {
+            RecipeTile::Row(index) => {
+                let at = if *row_acted { None } else { st.row_at(index) };
+                let Some(index) = at else {
+                    info!("tiles: {RECIPE_MENU} a click on a row no longer there is ignored");
+                    return Some(());
+                };
+                *row_acted = true;
+                row_input(st.selected(), index)
+            }
+            RecipeTile::Arrow(by) => RecipeInput::Filter(by),
+            RecipeTile::Title => RecipeInput::Filter(1),
+            RecipeTile::Accept => RecipeInput::Accept,
+            RecipeTile::Exit => RecipeInput::Exit,
+            RecipeTile::Bar(list_at, list::BarPiece::Marker) => {
+                let menu = st.menu;
+                let list_tile = st.list_tile(ui, list_at);
+                st.drag = at.filter(|_| inputs.held && matches!(c.by, By::Pointer)).zip(menu).zip(list_tile).and_then(|(((_, y), menu), l)| list::marker_grab(ui, menu, l, y));
+                return Some(());
+            }
+            RecipeTile::Bar(list_at, piece) => {
+                let value = st.value(list_at);
+                if let Some(v) = st.list_tile(ui, list_at).and_then(|l| list::after_piece(ui, l, piece, value)) {
+                    info!("tiles: {RECIPE_MENU} {piece:?} on its tiles");
+                    st.scroll_to(list_at, v);
+                }
+                return Some(());
+            }
+            RecipeTile::Other => return Some(()),
+        };
+        info!("tiles: {RECIPE_MENU} {input:?} on its tiles");
+        self.recipe_commands.write(input);
+        Some(())
+    }
+
+    /// The recipe menu's pointer besides clicks: a drag on a scroll marker, the row it came onto.
+    fn follow_recipe_pointer(&mut self, ui: &fnv_ui::Ui, report: &fnv_ui::input::Report, at: Option<(f64, f64)>, moved: bool, row_acted: bool) {
+        use super::recipe_menu::{RecipeTile, RECIPE_MENU};
+        use crate::crafting::RecipeInput;
+        let holds = self.hold.as_ref().is_some_and(|h| h.held());
+        let Some(st) = self.recipe.as_mut() else { return };
+        if let (Some(drag), Some((_, y))) = (st.drag, at) {
+            if let (Some(list_at), Some(v)) = (st.list_of(ui, drag.list), list::value_under(ui, drag, y)) {
+                st.scroll_to(list_at, v);
+            }
+        }
+        let Some((_, Some(to))) = report.over else { return };
+        let Some(RecipeTile::Row(index)) = st.clicked(ui, to) else { return };
+        let already = st.selected() == Some(index);
+        if !row_acted && super::container_menu::hover_selects(moved, holds, already) && st.row_at(index).is_some() {
+            let input = RecipeInput::Hover(index);
+            info!("tiles: {RECIPE_MENU} {input:?} on its tiles");
+            self.recipe_commands.write(input);
+        }
     }
 
     /// T15c: the pointer's part besides clicks: a drag on a scroll marker, the row it came
@@ -463,10 +648,16 @@ impl MenuInputs<'_, '_> {
             if self.traits.as_mut().filter(|t| t.menu.is_some()).is_some_and(|t| super::trait_menu::follow_click(t, ui, c, at, held, physical).is_some()) {
                 continue;
             }
+            if self.follow_repair_services(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
+                continue;
+            }
             if self.tags.as_mut().filter(|t| t.menu.is_some()).is_some_and(|t| super::selection_menu::follow_click(t, ui, c, at, held, physical).is_some()) {
                 continue;
             }
             if self.follow_item_menu(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
+                continue;
+            }
+            if self.follow_recipe(ui, c, at, Pressed { held, shift, physical }, &mut row_acted).is_some() {
                 continue;
             }
             if let Some(hours) = self.follow_wait(ui, c, at, held, physical) {
@@ -522,8 +713,14 @@ impl MenuInputs<'_, '_> {
         if self.container.menu.is_some() || self.barter.as_ref().is_some_and(|b| b.menu().is_some()) {
             self.follow_item_menu_pointer(ui, report, over, at, moved, row_acted);
         }
+        if self.recipe_takes().is_some() {
+            self.follow_recipe_pointer(ui, report, at, moved, row_acted);
+        }
         if let Some(t) = self.traits.as_mut().filter(|t| t.takes().is_some()) {
             super::trait_menu::follow_pointer(t, ui, report, at, moved);
+        }
+        if self.repair_services.as_ref().is_some_and(|r| r.menu.is_some()) {
+            self.follow_repair_services_pointer(ui, report, at, moved, row_acted);
         }
         if let Some(t) = self.tags.as_mut().filter(|t| t.takes().is_some()) {
             super::selection_menu::follow_pointer(t, ui, report, at, moved);
@@ -708,8 +905,16 @@ pub(crate) fn feed(
     if let Some(b) = inputs.barter.as_mut() {
         b.view.drag = b.view.drag.filter(|d| list::drag_holds(d, barter_now, held));
     }
+    if let Some(r) = inputs.repair_services.as_mut() {
+        let now = r.menu;
+        r.drag = r.drag.filter(|d| list::drag_holds(d, now, held));
+    }
     if container_now.is_none() && barter_now.is_none() {
         inputs.wheel_title.0 = None;
+    }
+    let recipe_now = inputs.recipe_takes();
+    if let Some(r) = inputs.recipe.as_mut() {
+        r.drag = r.drag.filter(|d| list::drag_holds(d, recipe_now, held));
     }
     if let Some(t) = inputs.traits.as_mut().filter(|t| t.menu.is_some()) {
         t.hold_drag(held);
@@ -740,10 +945,18 @@ pub(crate) fn feed(
     if let Some(s) = stats.as_mut().filter(|s| s.others != others) {
         s.others = others;
     }
+    if let Some(r) = inputs.repair_page.as_mut().filter(|r| r.others != others) {
+        r.others = others;
+    }
     if taking.is_empty() {
         // The Pip-Boy's page has the frame's step (`super::stats_menu::feed`).
         let is_paused = paused.as_ref().is_some_and(|p| p.0);
         if stats.as_deref().zip(pip.as_deref()).is_some_and(|(s, p)| super::stats_menu::takes(s, *menus, p, &rt.game, is_paused).is_some()) {
+            return;
+        }
+        // Likewise the repair page's (`super::repair_menu::feed`).
+        let list_open = inputs.repair_list.as_ref().is_some_and(|r| r.is_open());
+        if inputs.repair_page.as_deref().zip(pip.as_deref()).is_some_and(|(r, p)| super::repair_menu::takes(r, *menus, p, list_open, &rt.game, is_paused).is_some()) {
             return;
         }
         // A highlight left from the last menu that took input goes (mouseover back to 0),
@@ -758,6 +971,12 @@ pub(crate) fn feed(
         }
         if let Some(b) = inputs.barter.as_ref().filter(|b| b.menu().is_some()) {
             b.view.rewrite(&mut rt.game.ui_tree);
+        }
+        if let Some(r) = inputs.recipe.as_ref().filter(|r| r.menu.is_some()) {
+            r.rewrite(&mut rt.game.ui_tree);
+        }
+        if let Some(r) = inputs.repair_services.as_ref().filter(|r| r.menu.is_some()) {
+            r.rewrite(&mut rt.game.ui_tree);
         }
         if let Some(t) = inputs.traits.as_ref().filter(|t| t.menu.is_some()) {
             t.rewrite(&mut rt.game.ui_tree);
@@ -778,7 +997,8 @@ pub(crate) fn feed(
     // The tutorial menu's triggers stand for its own keys (`crate::pad::menu_buttons`), which
     // a press of them would otherwise turn a page with twice: here and through the file.
     // [design] X stands for R in the container and A in barter (the same table).
-    let pad_menu = crate::pad::MenuAt { code: tutorial.map(|_| fnv_game::game::menus::TUTORIAL).or(inputs.container.menu.map(|_| crate::script::MENU_CONTAINER)).or(inputs.barter.as_ref().and_then(|b| b.menu()).map(|_| crate::script::MENU_BARTER)).or(inputs.traits.as_ref().and_then(|t| t.takes()).map(|_| fnv_game::game::menus::TRAITS)).or(inputs.tags.as_ref().and_then(|t| t.takes()).map(|_| fnv_game::game::menus::TAG_SKILLS)), tab: 0 };
+    let pad_menu = crate::pad::MenuAt { code: tutorial.map(|_| fnv_game::game::menus::TUTORIAL).or(inputs.container.menu.map(|_| crate::script::MENU_CONTAINER)).or(inputs.barter.as_ref().and_then(|b| b.menu()).map(|_| crate::script::MENU_BARTER)).or(inputs.recipe.as_ref().and_then(|r| r.menu).map(|_| fnv_game::crafting::RECIPE_MENU)).or(inputs.traits.as_ref().and_then(|t| t.takes()).map(|_| fnv_game::game::menus::TRAITS)).or(inputs.tags.as_ref().and_then(|t| t.takes()).map(|_| fnv_game::game::menus::TAG_SKILLS)), tab: 0 };
+    let pad_menu = crate::pad::MenuAt { code: pad_menu.code.or(inputs.repair_services.as_ref().and_then(|r| r.menu).map(|_| fnv_game::repair::REPAIR_SERVICES_MENU)), ..pad_menu };
     let physical = frame_keys(&mut input, &devices, &mut rt.game, pad_menu);
     // The dialogue menu's pointer decides on what was drawn (`super::dialog_menu`).
     if let (Some(_), [_], Some(d)) = (dialog_menu, taking.as_slice(), inputs.dialog.as_ref()) {
@@ -821,6 +1041,12 @@ pub(crate) fn feed(
     }
     if let Some(b) = inputs.barter.as_ref().filter(|b| b.menu().is_some()) {
         b.view.rewrite(&mut rt.game.ui_tree);
+    }
+    if let Some(r) = inputs.recipe.as_ref().filter(|r| r.menu.is_some()) {
+        r.rewrite(&mut rt.game.ui_tree);
+    }
+    if let Some(r) = inputs.repair_services.as_ref().filter(|r| r.menu.is_some()) {
+        r.rewrite(&mut rt.game.ui_tree);
     }
     if let Some(t) = inputs.traits.as_ref().filter(|t| t.menu.is_some()) {
         t.rewrite(&mut rt.game.ui_tree);
@@ -870,6 +1096,20 @@ mod tests {
         assert!(!stood_in(GamepadButton::West, at, &|_| false));
         // Elsewhere X stands for nothing.
         assert!(!stood_in(GamepadButton::West, crate::pad::MenuAt { code: None, tab: 0 }, &r_down));
+    }
+
+    #[test]
+    fn controller_repair_all_acts_once() {
+        // X stands for A in the vendor's repair menu: the model repairs all, so the file's
+        // `xbuttonx` does not do it again.
+        use super::super::menus::key_click_acts;
+        use super::super::repair_services_menu::REPAIR_SERVICES_MENU;
+        let at = crate::pad::at_menu(fnv_game::repair::REPAIR_SERVICES_MENU);
+        assert!(stood_in(GamepadButton::West, at, &|key| key == KeyCode::KeyA));
+        assert!(!key_click_acts(REPAIR_SERVICES_MENU, "xbuttonx", &["A", "xbuttonx"]));
+        // B stands for Esc, which closes it.
+        assert!(stood_in(GamepadButton::East, at, &|key| key == KeyCode::Escape));
+        assert!(!key_click_acts(REPAIR_SERVICES_MENU, "xbuttonb", &["xbuttonb"]));
     }
 
     #[test]
@@ -952,6 +1192,8 @@ mod tests {
             .add_message::<bevy::input::mouse::MouseWheel>()
             .add_message::<crate::menu::MenuInput>()
             .add_message::<crate::wait::WaitInput>()
+            .add_message::<crate::crafting::RecipeInput>()
+            .add_message::<crate::repair::RepairServicesInput>()
             .add_plugins(TutorialMenuPlugin)
             .add_systems(Update, (feed, keys).chain().before(crate::PlaySet::Ui));
         app

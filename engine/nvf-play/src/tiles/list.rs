@@ -11,9 +11,10 @@
 //!   text's height and the template's `_VerticalSpacing`, unless the template gave one. The
 //!   file itself moves a row up by `_current_value` × `_scroll_delta` (`list_box_template.xml`),
 //!   so nothing here or in the layout subtracts the scroll again.
-//! - **The counts** ([`counts`]): the scrollbar has `rows - (rows fitting whole from the
-//!   top) + 1` items and 1 visible, and `_scroll_delta` is what is left over by the positions
-//!   after the first; a list that fits has 1 item and keeps the file's `_scroll_delta`.
+//! - **The counts** ([`counts`]): what is left over, in rows of the average height and
+//!   rounded up, gives the positions after the first; the scrollbar has one item more and 1
+//!   visible, and `_scroll_delta` is what is left over by those positions; a list that fits
+//!   has 1 item and keeps the file's `_scroll_delta`.
 //! - **The highlight**: `_highlight_y` the selected row's place after the scroll,
 //!   `_selected_height` its height; -1 and 0 with none, which the file reads as hidden.
 //! - **The scroll**: a menu's own state ([`write_value`]). The prefab's `_current_value`
@@ -21,6 +22,7 @@
 //!   from 0, `fnv_ui`), so the value is written again on every frame after the clicks, and
 //!   `_SetInCode` poked [documented: scrollbar_vert.xml], as the wait menu's slider.
 
+use super::menus::Tiled;
 use fnv_ui::{TileId, Ui, Value};
 
 /// The scrollbar's and the row's names [documented: list_box.xml, scrollbar_vert.xml].
@@ -127,28 +129,25 @@ impl Counts {
 
 /// The counts of rows `heights` in a list `page` high [observed: three lists of the container
 /// capture, 15 rows 885 high: 10 items, delta 57.78; 16 rows 937 high: 11, 57.20, twice;
-/// lists that fit: 1 item; design: a value's rows are the ones whole from the top, as those
-/// numbers read]. A list that fits has no delta of its own here: the capture read the file's 26
+/// lists that fit: 1 item; the recipe capture, 41 rows: 37 items, delta 60.75]. The positions
+/// after the first are what overflows over the rows' average height, rounded up [hypothesis:
+/// it fits all 15 lists read, the test `the_counts_fit_the_lists_read_in_the_original` holds
+/// them; counting the rows whole from the top, as this did, fits most of them but is one short
+/// on an inventory list with one row of two lines, 8 items read]. A list that fits has no delta of its own here: the capture read the file's 26
 /// on a right list with nothing filtered and 57.2 on one with 15 of 16 rows filtered [observed];
-/// that every list keeps its last delta so is [hypothesis] from that one case (the caller's
+/// and the recipe capture's last filter, 7 rows that fit, read the 60.75 of the list before it;
+/// that every list keeps its last delta so is [hypothesis] from those two (the caller's
 /// `file_delta`, [`write_counts`]).
 pub fn counts(heights: &[f64], page: f64) -> Counts {
     let total: f64 = heights.iter().sum();
     if total <= page {
         return Counts { items: 1.0, visible: 1.0, delta: None };
     }
-    let mut fit = 0;
-    let mut y = 0.0;
-    for h in heights {
-        y += h;
-        if y > page {
-            break;
-        }
-        fit += 1;
-    }
-    // A first row taller than the list still scrolls.
-    let positions = (heights.len() - fit).max(1);
-    Counts { items: positions as f64 + 1.0, visible: 1.0, delta: Some((total - page) / positions as f64) }
+    let over = total - page;
+    // A hair under, so an exact number of rows is that number. A first row taller than the list
+    // still scrolls.
+    let positions = (over * heights.len() as f64 / total - 1e-9).ceil().max(1.0);
+    Counts { items: positions + 1.0, visible: 1.0, delta: Some(over / positions) }
 }
 
 /// The scroll to show a row whose top is `top` and height `height`, moved as little as keeps
@@ -298,6 +297,153 @@ pub fn value_under(ui: &Ui, drag: Drag, pointer_y: f64) -> Option<f64> {
     Some(((pointer_y - drag.grab - drag.top) / step + 1e-9).floor().clamp(0.0, most))
 }
 
+/// A list's view: where it is scrolled, and what the last frame worked out. `K` is what a
+/// row stands for ([`RowTile::key`]).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct ListView<K> {
+    /// The scrollbar's value, whole.
+    pub(super) value: f64,
+    pub(super) counts: Counts,
+    /// The highlighted row's top and height before the scroll.
+    selected: Option<(f64, f64)>,
+    /// The highlighted row the scroll last followed.
+    watched: Option<K>,
+    /// Its top and height, the list's height, the scroll's scale and its highest value then.
+    geometry: Option<(f64, f64, f64, f64, f64)>,
+    /// The caller's count of the keys' moves then ([`settle_list`]'s `navigated`).
+    navigated: u32,
+    /// The `_scroll_delta` a list that fits keeps: its last overflowing one, the file's before
+    /// that (26) [observed once: 15 of 16 rows filtered read 57.2; hypothesis: that every list
+    /// keeps it so].
+    kept_delta: Option<f64>,
+    /// The caller's filter of the rows then (a category): a new one starts at the top.
+    group: u32,
+    /// The file's `_scroll_delta` before any code wrote it, for a list that fits.
+    file_delta: Option<f64>,
+}
+
+impl<K> Default for ListView<K> {
+    fn default() -> Self {
+        ListView { value: 0.0, counts: Counts { items: 1.0, visible: 1.0, delta: None }, selected: None, watched: None, geometry: None, navigated: 0, kept_delta: None, group: 0, file_delta: None }
+    }
+}
+
+impl<K> ListView<K> {
+    /// Set the scroll, held in the bar's range (the bar's pieces, the marker's drag): the
+    /// view's own, no command of a model's. Returns whether it moved.
+    pub(super) fn scroll_to(&mut self, value: f64) -> bool {
+        let value = value.clamp(0.0, self.counts.most());
+        let moved = value != self.value;
+        self.value = value;
+        moved
+    }
+
+    /// The scroll and the highlight written from the view: after [`settle_list`]'s places, and
+    /// after the input's step and its clicks.
+    pub(super) fn rewrite(&self, ui: &mut Ui, list: TileId) {
+        write_value(ui, list, self.value);
+        write_highlight(ui, list, self.selected, self.value);
+    }
+}
+
+/// One list's part of a tiled frame, its texts measured and the tree worked out: the rows
+/// placed, the counts written, the scroll held in range. `selected` is the row with the
+/// highlight, `group` the list's filter (a new one starts at the top), `pointer_pick` that the
+/// pointer last moved the selection, `navigated` a count of the keys' moves. The caller then
+/// writes the view ([`ListView::rewrite`]) and works the tree out again.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn settle_list<K: PartialEq + Clone>(ui: &mut Ui, list_tile: TileId, rows: &[RowTile<K>], row_text: &str, view: &mut ListView<K>, selected: Option<usize>, group: u32, pointer_pick: bool, navigated: u32) {
+    let heights = measure_rows(ui, rows, row_text);
+    let page = ui.tile(list_tile).get("height").map_or(0.0, Value::num);
+    let counts = counts(&heights, page);
+    let file_delta = *view.file_delta.get_or_insert_with(|| ui.tile(list_tile).get("_scroll_delta").map_or(26.0, Value::num));
+    view.kept_delta = counts.delta.or(view.kept_delta);
+    write_counts(ui, list_tile, &counts, view.kept_delta.unwrap_or(file_delta));
+    view.counts = counts;
+    if view.group != group {
+        view.group = group;
+        view.value = 0.0;
+    }
+    let picked = selected.filter(|&k| k < heights.len());
+    view.selected = picked.map(|k| (heights[..k].iter().sum(), heights[k]));
+    let key = picked.map(|k| rows[k].key.clone());
+    let scale = counts.delta.unwrap_or(file_delta);
+    let geometry = view.selected.map(|(top, height)| (top, height, page, scale, counts.most()));
+    // The keys' picks bring their row into view, the pointer's do not. So does a key's or
+    // the wheel's move that ends on the same row, and a row moved by a refresh or a new
+    // measure (rows above it came or went, a wrap, the list's height, or a wrap below it,
+    // which changes what a value moves); while none of that happens the bar and the marker
+    // move the list freely.
+    let moved = view.watched != key || view.navigated != navigated || view.geometry != geometry;
+    if let (true, true, Some((top, height))) = (!pointer_pick, moved, view.selected) {
+        view.value = keep_row_shown(view.value, top, height, page, scale, counts.most());
+    }
+    view.watched = key;
+    view.geometry = geometry;
+    view.navigated = navigated;
+    view.value = view.value.clamp(0.0, counts.most());
+}
+
+/// What a tile is, for a click or the pointer: the walk up from it finds a row, a scrollbar's
+/// piece of a list, or a named target first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Hit<T> {
+    /// The list's place in `lists`, the row's in the list.
+    Row(usize, usize),
+    /// The list's place in `lists`, the piece.
+    Bar(usize, BarPiece),
+    Target(T),
+    Other,
+}
+
+/// What `tile` stands for: `lists` are each list's tile name and its rows, `targets` the tiles
+/// with a meaning of their own, by name. A row or a target holds for what is inside it too.
+pub(super) fn hit<K, T: Copy>(ui: &Ui, tile: TileId, lists: &[(&str, &[RowTile<K>])], targets: &[(&str, T)]) -> Hit<T> {
+    let mut piece = None;
+    let mut at = Some(tile);
+    while let Some(t) = at {
+        for (list, (_, rows)) in lists.iter().enumerate() {
+            if let Some(index) = rows.iter().position(|r| r.tile == t) {
+                return Hit::Row(list, index);
+            }
+        }
+        if piece.is_none() {
+            piece = bar_piece(ui, t);
+        }
+        if let Some((_, what)) = targets.iter().find(|(name, _)| ui.tile(t).name.eq_ignore_ascii_case(name)) {
+            return Hit::Target(*what);
+        }
+        for (list, (name, _)) in lists.iter().enumerate() {
+            // A one-sided menu's other list has no name; an unnamed tile is not that list.
+            if !name.is_empty() && ui.tile(t).name.eq_ignore_ascii_case(name) {
+                return piece.map_or(Hit::Other, |p| Hit::Bar(list, p));
+            }
+        }
+        at = ui.tile(t).parent;
+    }
+    Hit::Other
+}
+
+/// Whether the menu's `template` has the row `row` with `children`, each (kind, name): what an
+/// adapter checks before it makes rows from it.
+pub(super) fn template_has(ui: &Ui, menu: &str, template: &str, row: &str, children: &[(&str, &str)]) -> Tiled {
+    let Some(menu_tile) = ui.find_tile(menu) else { return Tiled::No(format!("{menu} missing")) };
+    let Some(found) = ui.tile(menu_tile).templates.iter().find(|t| t.name.eq_ignore_ascii_case(template)) else {
+        return Tiled::No(format!("{template} missing"));
+    };
+    let row_element = found.body.iter().find_map(|n| match n {
+        fnv_ui::xml::Node::Element(e) if e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(row)) => Some(e),
+        _ => None,
+    });
+    let Some(row_element) = row_element else { return Tiled::No(format!("{template}/{row} missing")) };
+    for &(kind, name) in children {
+        if !row_element.elements().any(|e| e.is(kind) && e.attr("name").is_some_and(|n| n.eq_ignore_ascii_case(name))) {
+            return Tiled::No(format!("{template}/{row}/{name} missing"));
+        }
+    }
+    Tiled::Yes
+}
+
 /// Text heights by a list's rows' strings, for a test: as many lines as `|` splits.
 #[cfg(test)]
 pub(super) fn lines_size(_: f64, text: &str, wrap: Option<f64>) -> (f64, f64) {
@@ -360,6 +506,63 @@ mod tests {
     }
 
     #[test]
+    fn a_tile_stands_for_its_row_its_bar_or_its_target() {
+        let (mut ui, list) = menu();
+        let mut rows = Vec::new();
+        sync(&mut ui, &mut rows, &[1, 2]);
+        ui.update();
+        let none: Vec<RowTile<u32>> = Vec::new();
+        let lists = [("Other", none.as_slice()), ("L", rows.as_slice())];
+        let targets = [("R", 7)];
+        let text = child(&ui, rows[1].tile, "ListItemText").unwrap();
+        assert_eq!(hit(&ui, text, &lists, &[("Absent", 7)]), Hit::Row(1, 1), "what is inside a row");
+        let bar = child(&ui, list, SCROLLBAR).unwrap();
+        let down = child(&ui, bar, DOWN).unwrap();
+        assert_eq!(hit(&ui, down, &lists, &targets), Hit::Bar(1, BarPiece::Down));
+        assert_eq!(hit(&ui, list, &lists, &targets), Hit::Other, "the list's own tile: no piece");
+        let outer = ui.find_tile("M/R").unwrap();
+        assert_eq!(hit(&ui, outer, &lists, &targets), Hit::Target(7));
+        assert_eq!(hit(&ui, outer, &lists, &[("Absent", 7)]), Hit::Other);
+    }
+
+    #[test]
+    fn the_template_check_names_what_is_missing() {
+        let (ui, _) = menu();
+        assert_eq!(template_has(&ui, "M", "T", "Row", &[("text", "ListItemText")]), Tiled::Yes);
+        assert_eq!(template_has(&ui, "Gone", "T", "Row", &[]), Tiled::No("Gone missing".into()));
+        assert_eq!(template_has(&ui, "M", "Gone", "Row", &[]), Tiled::No("Gone missing".into()));
+        assert_eq!(template_has(&ui, "M", "T", "Gone", &[]), Tiled::No("T/Gone missing".into()));
+        assert_eq!(template_has(&ui, "M", "T", "Row", &[("image", "ListItemText")]), Tiled::No("T/Row/ListItemText missing".into()));
+    }
+
+    #[test]
+    fn settling_a_list_starts_a_new_group_at_the_top() {
+        let (mut ui, list) = menu();
+        let mut rows = Vec::new();
+        sync(&mut ui, &mut rows, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        ui.update();
+        let mut view = ListView::default();
+        // Each row 10 high (no text size here), the list 300: make the rows taller so it scrolls.
+        for r in &rows {
+            let t = child(&ui, r.tile, "ListItemText").unwrap();
+            ui.set_trait(t, "height", Value::Num(60.0));
+        }
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, None, 0, false, 0);
+        assert!(view.counts.most() > 0.0);
+        assert!(view.scroll_to(1.0));
+        assert!(!view.scroll_to(1.0), "no move");
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, None, 0, false, 0);
+        assert_eq!(view.value, 1.0, "the bar's scroll is kept");
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, None, 3, false, 0);
+        assert_eq!(view.value, 0.0, "another filter: the top");
+        // The key's pick brings its row in, the pointer's leaves the list where it is.
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, Some(9), 3, true, 0);
+        assert_eq!(view.value, 0.0);
+        settle_list(&mut ui, list, &rows, "ListItemText", &mut view, Some(9), 3, false, 1);
+        assert!(view.value > 0.0);
+    }
+
+    #[test]
     fn rows_keep_identity_across_refresh() {
         let (mut ui, list) = menu();
         let mut rows = Vec::new();
@@ -415,19 +618,62 @@ mod tests {
         assert_eq!(heights, [40.0, 70.0, 40.0]);
         ui.update();
         assert_eq!(ui.tile(rows[2].tile).get("_y").map(Value::num), Some(110.0));
-        // A list 100 high: one row whole, two positions after the first, each (150 - 100) / 2.
+        // A list 100 high: 50 over rows of 50 on average, one position after the first.
         let c = counts(&heights, 100.0);
-        assert_eq!((c.items, c.delta), (3.0, Some(25.0)));
+        assert_eq!((c.items, c.delta), (2.0, Some(50.0)));
         write_counts(&mut ui, list, &c, OWN_DELTA);
         // Nothing here moves a row: what is drawn follows the value and the delta written.
         let shown = |ui: &Ui, row: TileId| ui.tile(row).get("y").map(Value::num);
         write_value(&mut ui, list, 1.0);
         ui.update();
-        assert_eq!(shown(&ui, rows[0].tile), Some(-25.0));
-        assert_eq!(shown(&ui, rows[2].tile), Some(85.0));
-        write_value(&mut ui, list, 2.0);
-        ui.update();
+        assert_eq!(shown(&ui, rows[0].tile), Some(-50.0));
         assert_eq!(shown(&ui, rows[2].tile), Some(60.0));
+    }
+
+    /// [observed: the numbers read from the original at 1280 x 720, in the private jobs named]
+    /// The rows are 52 high, 87 with two lines; where the two-line rows were not read one by
+    /// one (the recipe's filters) their number is worked back from the delta read [hypothesis].
+    /// No list here comes from a menu file's expressions, only what the running game read.
+    #[test]
+    fn the_counts_fit_the_lists_read_in_the_original() {
+        // The job, the rows, how many have two lines, the list's height, items, delta.
+        let lists: [(&str, usize, usize, f64, f64, f64); 15] = [
+            ("container capture, left", 15, 3, 365.0, 10.0, 57.78),
+            ("container capture, right", 16, 3, 365.0, 11.0, 57.20),
+            ("run07_recipe, no filter", 41, 12, 365.0, 37.0, 60.75),
+            ("run07_recipe, filter 1", 7, 1, 365.0, 2.0, 34.0),
+            ("run07_recipe, filter 2", 19, 11, 365.0, 15.0, 72.0),
+            ("run07_recipe, filter 3", 8, 0, 365.0, 2.0, 51.0),
+            ("run07_inventory, Weapons", 15, 1, 468.0, 8.0, 49.57),
+            ("run07_inventory_pipboy, Weapons", 13, 1, 468.0, 6.0, 48.60),
+            ("run07_repair_menu, Weapons", 12, 1, 468.0, 5.0, 47.75),
+            ("run07_inventory, Apparel", 8, 2, 468.0, 2.0, 18.0),
+            ("run07c_inventory, Weapons", 12, 0, 468.0, 4.0, 52.0),
+            ("run07_repair_services", 16, 0, 580.0, 6.0, 50.40),
+            ("run07b_stats, Skills", 13, 0, 468.0, 5.0, 52.0),
+            ("run07b_stats, Perks", 14, 0, 468.0, 6.0, 52.0),
+            ("run07b_stats, General", 43, 0, 542.0, 34.0, 51.33),
+        ];
+        for (job, rows, two_lines, page, items, delta) in lists {
+            let heights: Vec<f64> = (0..rows).map(|i| if i < two_lines { 87.0 } else { 52.0 }).collect();
+            let c = counts(&heights, page);
+            assert_eq!((c.items, c.visible), (items, 1.0), "{job}");
+            assert!((c.delta.unwrap() - delta).abs() < 0.005, "{job}: {:?}", c.delta);
+        }
+        // Lists that fit: 1 item, and no delta of their own (run07c_recipe, the last filter).
+        assert_eq!(counts(&[52.0; 7], 365.0), Counts { items: 1.0, visible: 1.0, delta: None });
+    }
+
+    #[test]
+    fn a_tall_row_counts_through_the_average_height() {
+        // 35 over rows of 13 on average: three positions, where the rows whole from the top
+        // would leave two. The last value still shows the list's end.
+        let c = counts(&[10.0, 10.0, 10.0, 10.0, 25.0], 30.0);
+        assert_eq!(c.items, 4.0);
+        assert!((c.delta.unwrap() * c.most() - 35.0).abs() < 1e-9);
+        // An exact number of rows is that number, and a row taller than the list scrolls.
+        assert_eq!(counts(&[20.0; 5], 60.0).items, 3.0);
+        assert_eq!(counts(&[200.0], 100.0), Counts { items: 2.0, visible: 1.0, delta: Some(100.0) });
     }
 
     #[test]

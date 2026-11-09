@@ -1064,8 +1064,8 @@ pub struct Combat {
     /// Blows that have knocked someone back so far ([`Knockback::blow`]).
     blows: u32,
     /// Explosions to set off this frame (impacts, detonations, destruction stages), with
-    /// who set each off.
-    boom: Vec<(FormId, V3, Option<Cause>)>,
+    /// who set each off and an optional impact normal for blast visibility.
+    boom: Vec<(FormId, V3, Option<Cause>, Option<V3>)>,
     /// Debris of destroyed objects for the engine to throw (nvforever `dismember.rs`).
     pub debris: Vec<ObjectDebris>,
     cycle: Option<Cycle>,
@@ -1194,7 +1194,7 @@ impl Combat {
     /// A mine goes off (`crate::mines`): its explosion at `at`, its blast the hits of
     /// `by` (the actor who put it down and that weapon), when someone did.
     pub(crate) fn mine_explodes(&mut self, explosion: FormId, at: V3, by: Option<(FormId, FormId)>) {
-        self.boom.push((explosion, at, by.map(|(actor, weapon)| Cause { actor, weapon })));
+        self.boom.push((explosion, at, by.map(|(actor, weapon)| Cause { actor, weapon }), None));
     }
 }
 
@@ -3946,7 +3946,7 @@ fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &Destruction
         if ch.explosions.is_empty() { String::new() } else { format!(", {} explosion(s)", ch.explosions.len()) }
     );
     if let Some(at) = at {
-        c.boom.extend(ch.explosions.iter().map(|&e| (e, at, cause)));
+        c.boom.extend(ch.explosions.iter().map(|&e| (e, at, cause, None)));
         // Its stages' debris, thrown by the engine (nvforever `dismember.rs`).
         c.debris.extend(ch.debris.iter().map(|&(d, n)| ObjectDebris { reference: r, at, debris: d, count: n }));
     }
@@ -4289,7 +4289,7 @@ fn fly(
                     continue;
                 }
                 CombatRequest::Explode { explosion, at } => {
-                    c.boom.push((explosion, at, None));
+                    c.boom.push((explosion, at, None, None));
                     continue;
                 }
                 CombatRequest::Dismember { actor, location, by, explode } => {
@@ -4303,8 +4303,8 @@ fn fly(
             let shooter = if actor == FormId::PLAYER_REF { Some(PLAYER) } else { Some(actor.0 as ActorId) };
             let mut n = 0;
             for f in c.flying.iter_mut().filter(|f| f.p.shooter == shooter) {
-                if let Some(ProjEvent::Explode { explosion, point }) = f.p.detonate() {
-                    c.boom.push((explosion, point, Some(Cause::of(&f.by))));
+                if let Some(ProjEvent::Explode { explosion, point, normal }) = f.p.detonate() {
+                    c.boom.push((explosion, point, Some(Cause::of(&f.by)), normal));
                     n += 1;
                 }
             }
@@ -4459,7 +4459,7 @@ fn fly(
                         }
                     }
                     // A harmless shot sets nothing off [design].
-                    ProjEvent::Explode { explosion, point } if !f.by.harmless => c.boom.push((explosion, point, Some(Cause::of(&f.by)))),
+                    ProjEvent::Explode { explosion, point, normal } if !f.by.harmless => c.boom.push((explosion, point, Some(Cause::of(&f.by)), normal)),
                     ProjEvent::Explode { .. } => {}
                     ProjEvent::Settled { point, .. } => c.settled.push(SettledMine { proj: f.proj, point, dir: f.dir, actor: f.by.actor }),
                     ProjEvent::Splash { point, dir } => {
@@ -4539,11 +4539,11 @@ fn fly(
     }));
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
-    while let Some((id, at, cause)) = c.boom.pop() {
+    while let Some((id, at, cause, normal)) = c.boom.pop() {
         n += 1;
         if n > MAX_EXPLOSIONS_PER_FRAME {
             warn!("combat: more than {MAX_EXPLOSIONS_PER_FRAME} explosions in one frame; {} left for the next", c.boom.len() + 1);
-            c.boom.push((id, at, cause));
+            c.boom.push((id, at, cause, normal));
             break;
         }
         stats.explosions += 1;
@@ -4604,7 +4604,7 @@ fn fly(
         }
         let hits = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
-            blast(&world, &c.tuning, &x, at)
+            blast(&world, &c.tuning, &x, at, normal)
         };
         let always = x.flags.iter().any(|f| f == "Knock Down - Always");
         let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
