@@ -343,8 +343,10 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
     out
 }
 
+/// Upper-case hex, as the original prints MD5File and SHA1File [observed: probe set jg8,
+/// 2026-11-09].
 fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    b.iter().map(|x| format!("{x:02X}")).collect()
 }
 
 fn u32_at(b: &[u8], at: usize) -> Option<u32> {
@@ -384,12 +386,20 @@ pub fn bmp_pixel(b: &[u8], x: i64, y: i64) -> Option<[u8; 3]> {
     Some([p[2], p[1], p[0]])
 }
 
-/// The interface colours' default, amber [observed: the engine's AMBER_RGB, the
-/// brightest text of the owner's screenshot, message-menu.md §3].
-const AMBER: [u8; 3] = [255, 182, 66];
+/// The interface colours before a script sets one: amber for the HUD, Pip-Boy and main
+/// menu, FF432A for the HUD's alternate colour, 21E779 for the terminal [observed: probe
+/// set jg8, 2026-11-09, the original's answers on the owner's install; hypothesis: they
+/// are the owner's interface colour settings, which NVForever does not read].
+fn default_colour(id: i64) -> [u8; 3] {
+    match id {
+        2 => [0xFF, 0x43, 0x2A],
+        3 => [0x21, 0xE7, 0x79],
+        _ => [255, 182, 66],
+    }
+}
 
 fn system_colour(g: &Game, id: i64) -> Option<[u8; 3]> {
-    (1..=5).contains(&id).then(|| g.other.jip9.colours.get(&(id as u8)).copied().unwrap_or(AMBER))
+    (1..=5).contains(&id).then(|| g.other.jip9.colours.get(&(id as u8)).copied().unwrap_or_else(|| default_colour(id)))
 }
 
 /// The JohnnyGuitar batch-8 functions; `None` for any other name.
@@ -472,16 +482,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             }
         }
         "clearcustommapmarker" => yes(g.other.jg8.custom_marker.take().is_some()),
-        // ---- files [documented: MD5File, SHA1File; hypothesis: lower-case hex, "" for a
-        // file that cannot be read].
+        // ---- files [documented: MD5File, SHA1File; observed: upper-case hex (probe set
+        // jg8); hypothesis: "" for a file that cannot be read].
         "md5file" => XVal::Str(text(args, 0).and_then(|p| game_file(&p)).map(|b| hex(&md5(&b))).unwrap_or_default()),
         "sha1file" => XVal::Str(text(args, 0).and_then(|p| game_file(&p)).map(|b| hex(&sha1(&b))).unwrap_or_default()),
         // `name`: an archive the game loaded, by its file name in Data, any case
-        // [documented: IsBSALoaded; the host lists them, `mod_files::Roots::archives`].
+        // [documented: IsBSALoaded; the host lists them, `mod_files::Roots::archives`;
+        // observed: a name with `Data\` before it reads 0 (probe set jg8)].
         "isbsaloaded" => {
             let n = text(args, 0).unwrap_or_default();
-            let n = n.trim_start_matches("Data\\").trim_start_matches("data\\");
-            yes(!n.is_empty() && crate::mod_files::archives().iter().any(|a| a.eq_ignore_ascii_case(n)))
+            yes(!n.is_empty() && crate::mod_files::archives().iter().any(|a| a.eq_ignore_ascii_case(&n)))
         }
         // `path`, under Data\Textures [documented: GetTexture…]; 0 without the file.
         // GetTextureFormat: 1-5 for DXT1-DXT5 [documented], 0 for another format
@@ -538,7 +548,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             list(g, keyed.into_iter().map(|(_, v)| v).collect())
         }
         // ---- the system colours: 1 HUD, 2 HUD alt, 3 terminal, 4 Pip-Boy, 5 main menu
-        // [documented], SetSystemColor's (`nvse_jip9`) else amber. GetSystemColor packs
+        // [documented], SetSystemColor's (`nvse_jip9`) else [`default_colour`]. GetSystemColor packs
         // them as 0xRRGGBB [hypothesis]; GetSystemColorAlt writes the three variables.
         "getsystemcolor" => XVal::Num(system_colour(g, num(args, 0, 0.0) as i64).map_or(0.0, |c| f64::from((u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])))),
         "getsystemcoloralt" => {
