@@ -570,7 +570,13 @@ pub fn pipboy_open(pip: Res<PipBoy>) -> bool {
 /// menu's (`crate::tiles::stats_menu::StatsTiles::modal`,
 /// `crate::tiles::repair_menu::RepairTiles::modal`).
 fn takes_keys(script: Option<Res<crate::script::ScriptState>>, tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>, repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>) -> bool {
-    !script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.menu == Some(menus::TUTORIAL)) && !tiles.is_some_and(|t| t.modal) && !repair_tiles.is_some_and(|t| t.modal)
+    !box_holds_keys(script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu), tiles.as_deref()) && !repair_tiles.is_some_and(|t| t.modal)
+}
+
+/// The rule of [`takes_keys`], by the scripts' open menu and the tiles' state: a box over the
+/// Pip-Boy holds its keys. Also read by the STATS page's own keys (`stats::prepare`).
+pub(crate) fn box_holds_keys(menu: Option<u16>, tiles: Option<&crate::tiles::stats_menu::StatsTiles>) -> bool {
+    menu == Some(menus::TUTORIAL) || tiles.is_some_and(|t| t.modal)
 }
 
 /// The menu code the Pip-Boy shows (`MenuMode`): its page's, or the repair list's or the
@@ -835,7 +841,7 @@ fn close_keys(
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, mut out: MessageWriter<PipBoyInput>) {
+fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, active: Res<ActiveMenu>, pip: Res<PipBoy>, stats: Option<Res<stats::StatsView>>, mut out: MessageWriter<PipBoyInput>) {
     use KeyCode::*;
     if prompt.held(&active) || keys.any_just_pressed([Tab, Escape]) {
         return;
@@ -845,7 +851,10 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, prompt: Res<crate::menu::PromptKeys>, a
             out.write(PipBoyInput::Page(p));
         }
     }
-    if keys.any_just_pressed([KeyA, ArrowLeft]) {
+    // [design] RAD owns keyboard A too, even with no RadAway carried. The arrows
+    // still step tabs; no other STATS view owns A/D or Left/Right (stats::keys).
+    let rad = pip.page == Page::Stats && pip.tab() == 0 && stats.is_some_and(|s| s.status == 1);
+    if keys.just_pressed(ArrowLeft) || (keys.just_pressed(KeyA) && !rad) {
         out.write(PipBoyInput::StepTab(-1));
     }
     if keys.any_just_pressed([KeyD, ArrowRight]) {

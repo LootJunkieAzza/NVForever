@@ -434,7 +434,7 @@ is the top left 85 × 92 of `head.dds`) [observed].
     at, boxed and filled when chosen [documented]. The hardcore buttons (H2O, FOD, SLP)
     under them are not built.
   - Hints at the top right, right-aligned at 900, a slot 51 high each: "(9) Stimpak S)",
-    the controller's healing mode's slot empty, "(3) Doctor's Bag E)"; on RAD "RadAway
+    the limb-switch hint, "(3) Doctor's Bag E)"; on RAD "RadAway
     A)", "Rad-X X)" [documented: places, `_PCButton_*`; observed: the words; hypothesis:
     the count is left out at 0 (the RAD screenshot has none), dim unless pointed at].
     The four items are the DOBJ list's Stimpak (place 0), Doctor's Bag (21), RadAway (3)
@@ -452,8 +452,29 @@ is the top left 85 × 92 of `head.dds`) [observed].
     doctor is required"]), a Doctor's Bag with no limb hurt, or none carried
     (`model::refusal`). The chosen or pointed-at limb's bracket is boxed. The item is
     taken, its consume sound plays and the runtime uses it as the inventory does
-    (`stats::use_hints`); what it does to the limbs: aid-items.md §3. RadAway and Rad-X
-    are not used from here (A also switches the tab; the keys are logged).
+    (`stats::use_hints`); what it does to the limbs: aid-items.md §3.
+    [design: `engine/nvf-play/src/pipboy/stats/mod.rs`, `stats/read.rs`, `pad.rs`;
+    #1898] The middle hint uses `sSwitchLimbs` through `ui_loading::game_string`,
+    with the repository's string table as fallback (NVForever's own label) [design:
+    `crates/fnv-ui/src/strings.rs`, entry `sSwitchLimbs`]. Its labels follow the other
+    hints: keyboard X, Xbox X, PlayStation Square. Pressing it or clicking its hint
+    cycles body → head → torso → left arm → right arm → left leg → right leg → body.
+    A pointer still on a limb is cleared when cycling so the chosen limb takes effect,
+    and a limb's bar redrawn under the unmoved pointer right after does not take it
+    back; other redraws leave a limb under the unmoved pointer hovered.
+    [design: `engine/nvf-play/src/pipboy.rs::keys`, `stats/mod.rs::hint_pressed`,
+    `stats/mod.rs::use_hints`; #1899] On RAD, keyboard A and controller A/Cross both
+    belong to RadAway while its hint is shown: use one carried item through the inventory's
+    `ItemUsed` path and stay on Status > RAD. With none carried the hint is dim and
+    the press uses nothing and still stays on RAD. Rad-X remains unimplemented.
+    A press that opened the page or changed its tab or frame is spent: the view's
+    keys do not act on that frame, so A stepping from S.P.E.C.I.A.L. back to a Status
+    left on RAD uses no RadAway [design: `stats/mod.rs::prepare`]. A box over the
+    Pip-Boy that holds its keys (the tutorial; with the tile pages, any menu over the
+    page) holds the view's keys and the wheel too, on every tab, by the rule the
+    Pip-Boy's own keys follow, and for the frame it closes in: A closing a tutorial over
+    Status > RAD uses no RadAway [design: `pipboy.rs::box_holds_keys`,
+    `stats/mod.rs::prepare`].
   - CND: the Vault Boy at zoom 145, head 40 down and centred, face, torso, arms and legs
     placed from it as the file gives; a bracket (`vats_*_divider.dds`, 38 high) with a
     solid bar (77 × 14 at 25 or 51, 24) at each of six body parts, the bar as long as the
@@ -530,8 +551,11 @@ is the top left 85 × 92 of `head.dds`) [observed].
   `stats::model::KARMA_TITLES`); Good and Very Good take the good column, Evil and Very
   Evil the evil one [hypothesis]. The reputation list (the other mode) is the hook for
   the reputation workstream.
-- **Keys** [design]: the arrows choose CND, RAD, EFF (S, E, A, X are the hints' keys
-  there, logged only; A also steps the tab); Up/Down and W/S select in a list, Page
+- **Keys** [design: `engine/nvf-play/src/pipboy.rs::keys`, `stats/mod.rs::keys`]:
+  Up/Down choose CND, RAD, EFF; Left/Right step tabs on every view. A/D also step
+  tabs except A on RAD, where the shown action owns the key even when unavailable.
+  The audit of CND, EFF, S.P.E.C.I.A.L., Skills, Perks and both General modes found
+  no other action using A/D or Left/Right. Up/Down and W/S select in a list, Page
   Up/Down scroll the description; the wheel scrolls the list, or the description when
   the pointer is on it; R switches General. The pointer selects the row it moves onto
   (not a row drawn under a pointer that has not moved) and clicks the buttons and arrows.
@@ -540,6 +564,11 @@ is the top left 85 × 92 of `head.dds`) [observed].
   the player something to show; each step and each selection is logged ("pipboy stats:
   Skills: Science 15 selected"), and a summary when a tab is drawn ("pipboy stats: LVL 1,
   HP 200/200, AP 80/80, XP 0/200; 7 S.P.E.C.I.A.L., 13 skills, …").
+  [design: `tools/smoke/scenarios.toml`, `engine/nvf-play/src/test_aid.rs`]
+  `pipboy-stats-rad-radaway` presses real keyboard A on RAD with RadAway carried,
+  requires its use and forbids a General-tab log. `pipboy-stats-cnd-limb-pad`
+  uses `NVF_PLAY_TEST_KEYS=24:pad-X,25:pad-X`: a synthetic controller's West button
+  reaches `pad::menu_keys` and chooses the head, then torso on CND.
 - **Open**: the game settings the page's words come from (`sStatsCrippled`,
   `sStatsNoEffects`, `sPCMenuHint*`) are not in the masters; when each face shows;
   whether the hints count 0 and when they are bright; whether worn enchantments should
