@@ -1456,7 +1456,9 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                 StripNode::Baked(w) => Some(w),
                 StripNode::Moving => None,
             });
-            if let Some(shown) = drawn.tex.shift_in_place(piece, &mut kit.images, kit.data.as_deref(), window) {
+            let data = kit.data.as_deref();
+            let read = |p: &str| data.and_then(|d| d.read(p));
+            if let Some(shown) = drawn.tex.shift_in_place(piece, &mut kit.images, Some(&read), window) {
                 if !shown {
                     waiting.push((i, was.tex.clone()));
                 }

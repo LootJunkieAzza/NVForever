@@ -293,6 +293,14 @@ struct Waiting {
     asked: u64,
 }
 
+/// Reads a game file's bytes (`GameData::read`; tests pass their own).
+pub type Read<'a> = &'a dyn Fn(&str) -> Option<Vec<u8>>;
+
+/// The most texels the bake budget accrues: two largest images, the most one bake costs
+/// (the compass strip's strip and its window), so every bake can run once it has waited
+/// long enough [design: #1833 review].
+pub const TOKEN_CEILING: i64 = 2 * MAX_TEXELS as i64;
+
 /// The refused textures remembered ([`State`]).
 const REFUSED_KEPT: usize = 256;
 
@@ -343,7 +351,7 @@ impl State {
     /// that did not ask again last frame no longer wait.
     pub fn frame(&mut self) {
         self.frame += 1;
-        self.tokens = (self.tokens + self.budget).min(MAX_TEXELS as i64);
+        self.tokens = (self.tokens + self.budget).min(TOKEN_CEILING);
         let now = self.frame;
         self.waiting.retain(|_, w| w.asked + 1 >= now);
     }
@@ -359,7 +367,7 @@ impl State {
             self.waiting.retain(|t, _| keep.contains(t));
         }
         if !self.decoded.is_empty() {
-            let unused: Vec<String> = self.decoded.keys().filter(|p| !self.held(p)).cloned().collect();
+            let unused: Vec<String> = self.decoded.keys().filter(|p| !self.pinned(p) && !self.planned(p)).cloned().collect();
             for p in unused {
                 self.release(&p);
             }
@@ -369,10 +377,27 @@ impl State {
         }
     }
 
-    /// Whether a kept bake (its source or mask) or a drawn node (a strip window's mask)
-    /// uses texture `path`.
-    fn held(&self, path: &str) -> bool {
-        self.decoded.get(path).is_some_and(|c| Arc::strong_count(&c.texels) > 1) || self.baked.values().any(|e| e.plan.path == path || e.plan.mask.as_deref() == Some(path))
+    /// Whether something besides the cache holds texture `path`'s texels: a drawn node (a
+    /// strip window's mask) or a bake under way. Only these are never let go.
+    fn pinned(&self, path: &str) -> bool {
+        self.decoded.get(path).is_some_and(|c| Arc::strong_count(&c.texels) > 1)
+    }
+
+    /// Whether a kept bake names texture `path` (its source or mask): kept while there is
+    /// room, decoded again when let go ([`State::kept`]).
+    fn planned(&self, path: &str) -> bool {
+        self.baked.values().any(|e| e.plan.path == path || e.plan.mask.as_deref() == Some(path))
+    }
+
+    /// The bytes the cache alone holds: what its capacity counts.
+    fn unpinned_bytes(&self) -> usize {
+        self.counted_bytes("")
+    }
+
+    /// [`State::unpinned_bytes`], counting texture `new` too, which its caller holds only
+    /// while it is put in.
+    fn counted_bytes(&self, new: &str) -> usize {
+        self.decoded.iter().filter(|(p, _)| p.as_str() == new || !self.pinned(p)).map(|(_, c)| c.texels.rgba.len()).sum()
     }
 
     fn release(&mut self, path: &str) {
@@ -381,14 +406,15 @@ impl State {
         }
     }
 
-    /// Put `texels` in as texture `path`, keeping within [`DECODED_BUDGET`]: the least
-    /// recently used that nothing holds go first; past it only while everything kept is
-    /// in use [design: #1833 review].
+    /// Put `texels` in as texture `path`, keeping the bytes the cache alone holds within
+    /// [`DECODED_BUDGET`]: those no kept bake names go first, then the least recently used
+    /// (a kept bake decodes its texture again when it next needs it). Texels a node holds
+    /// stay, and are not counted [design: #1833 review].
     fn keep(&mut self, path: &str, texels: Arc<Texels>) {
         self.decoded_bytes += texels.rgba.len();
         self.decoded.insert(path.to_string(), Cached { texels, used: self.frame });
-        while self.decoded_bytes > self.capacity {
-            let oldest = self.decoded.iter().filter(|(p, _)| p.as_str() != path && !self.held(p)).min_by_key(|(_, c)| c.used).map(|(p, _)| p.clone());
+        while self.counted_bytes(path) > self.capacity {
+            let oldest = self.decoded.iter().filter(|(p, _)| p.as_str() != path && !self.pinned(p)).min_by_key(|(p, c)| (self.planned(p), c.used)).map(|(p, _)| p.clone());
             match oldest {
                 Some(p) => self.release(&p),
                 None => break,
@@ -397,7 +423,7 @@ impl State {
     }
 
     /// Texture `path` decoded (at most [`MAX_TEXELS`]), kept; why not, for the log.
-    fn texels(&mut self, path: &str, data: &GameData) -> Result<Arc<Texels>, String> {
+    fn texels(&mut self, path: &str, read: Read<'_>) -> Result<Arc<Texels>, String> {
         let now = self.frame;
         if let Some(c) = self.decoded.get_mut(path) {
             c.used = now;
@@ -406,7 +432,7 @@ impl State {
         if let Some(why) = self.refused.get(path) {
             return Err(why.clone());
         }
-        match data.read(path).ok_or_else(|| "it is not in the data".to_string()).and_then(|b| decode(&b, MAX_TEXELS)) {
+        match read(path).ok_or_else(|| "it is not in the data".to_string()).and_then(|b| decode(&b, MAX_TEXELS)) {
             Ok(t) => {
                 let t = Arc::new(t);
                 self.keep(path, t.clone());
@@ -454,13 +480,13 @@ impl State {
 
     /// A kept texture, or decoded again when it was let go (its texels spent from the
     /// budget).
-    fn kept(&mut self, path: &str, data: Option<&GameData>) -> Option<Arc<Texels>> {
+    fn kept(&mut self, path: &str, read: Option<Read<'_>>) -> Option<Arc<Texels>> {
         let now = self.frame;
         if let Some(c) = self.decoded.get_mut(path) {
             c.used = now;
             return Some(c.texels.clone());
         }
-        let t = self.texels(path, data?).ok()?;
+        let t = self.texels(path, read?).ok()?;
         self.tokens -= (t.rgba.len() / 4) as i64;
         Some(t)
     }
@@ -470,8 +496,8 @@ impl State {
     /// compass strip's window, `strip`) again in place: `Some(true)` when it shows it (or
     /// the new offset is the same texel shift), `Some(false)` when the budget waits a frame
     /// (its last image stays), `None` when nothing is kept to bake again (spawn it). A
-    /// texture let go since is decoded again from `data`.
-    pub fn shift_in_place(&mut self, piece: &Piece, images: &mut Assets<Image>, data: Option<&GameData>, strip: Option<&mut StripWindow>) -> Option<bool> {
+    /// texture let go since is decoded again through `read`.
+    pub fn shift_in_place(&mut self, piece: &Piece, images: &mut Assets<Image>, read: Option<Read<'_>>, strip: Option<&mut StripWindow>) -> Option<bool> {
         let tex = piece.tex.as_ref()?;
         let e = self.baked.get(&piece.tile)?;
         if e.asked != tex.mask || (matches!(e.target, Target::Strip) && strip.is_none()) {
@@ -483,12 +509,19 @@ impl State {
             self.waiting.remove(&piece.tile);
             return Some(true);
         }
-        if !self.spend(piece.tile, (plan.out.0 * plan.out.1) as i64) {
+        // The image's texels; for the compass strip the strip moved on plus its window
+        // baked again under its mask.
+        let window = strip.as_ref().map_or(0, |w| {
+            let (columns, rows) = w.texels();
+            columns * rows
+        });
+        let cost = (plan.out.0 * plan.out.1) as i64 + if matches!(e.target, Target::Strip) { window as i64 } else { 0 };
+        if !self.spend(piece.tile, cost) {
             return Some(false);
         }
-        let src = self.kept(&plan.path, data)?;
+        let src = self.kept(&plan.path, read)?;
         let mask = match &plan.mask {
-            Some(m) => Some(self.kept(m, data)?),
+            Some(m) => Some(self.kept(m, read)?),
             None => None,
         };
         match (&self.baked.get(&piece.tile)?.target, strip) {
@@ -557,7 +590,7 @@ fn who(piece: &Piece, ui: Option<&Ui>) -> String {
 /// not be read (said once).
 fn read_mask(tex: &TexMod, who: &str, b: &mut Bake<'_>) -> Option<(String, Arc<Texels>)> {
     let path = mask_path(tex.mask.as_deref()?);
-    match b.state.texels(&path, b.data) {
+    match b.state.texels(&path, &|p| b.data.read(p)) {
         Ok(t) => Some((path, t)),
         Err(why) => {
             b.state.failed(&path, "alpha map", who, &why);
@@ -572,7 +605,7 @@ fn read_mask(tex: &TexMod, who: &str, b: &mut Bake<'_>) -> Option<(String, Arc<T
 pub(super) fn apply(tex: &TexMod, piece: &Piece, d: Drawing<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, mut b: Bake<'_>) -> (Option<SizedPicture>, Option<Baked>) {
     let Some((_, rect, size)) = picture.clone() else { return (picture, baked) };
     let who = who(piece, b.ui);
-    let src = match b.state.texels(d.path, b.data) {
+    let src = match b.state.texels(d.path, &|p| b.data.read(p)) {
         Ok(t) => t,
         Err(why) => {
             b.state.failed(d.path, "texture", &who, &why);
@@ -618,7 +651,7 @@ pub(super) fn apply(tex: &TexMod, piece: &Piece, d: Drawing<'_>, picture: Option
 /// not read (the strip drawn as it was).
 pub(super) fn strip(tex: &TexMod, piece: &Piece, path: &str, rect: Option<Rect>, mut b: Bake<'_>) -> Option<(StripTexels, Option<Arc<Texels>>)> {
     let who = who(piece, b.ui);
-    let src = match b.state.texels(path, b.data) {
+    let src = match b.state.texels(path, &|p| b.data.read(p)) {
         Ok(t) => t,
         Err(why) => {
             b.state.failed(path, "texture", &who, &why);
@@ -923,15 +956,16 @@ mod tests {
     #[test]
     fn the_decoded_textures_stay_within_their_budget_and_go_with_their_tiles() {
         let mut state = State::default();
-        state.capacity = 64;
+        // Room for one 32-byte texture besides what nodes hold (not counted).
+        state.capacity = 32;
         let texture = || Arc::new(Texels::new(vec![0; 32], 1).unwrap());
         state.frame();
         state.keep("a", texture());
         let node = state.decoded["a"].texels.clone();
         state.frame();
         state.keep("b", texture());
-        // A third past the budget: the least recently used that nothing holds goes (b; a
-        // is held by a node).
+        // A third past the budget: the least recently used that no node holds goes (b; a
+        // is held by a node and not counted).
         state.frame();
         state.keep("c", texture());
         assert!(state.decoded.contains_key("a") && !state.decoded.contains_key("b") && state.decoded.contains_key("c"));
@@ -957,5 +991,92 @@ mod tests {
         // No data to decode it again: spawned (its last image untouched meanwhile).
         assert_eq!(state.shift_in_place(&at, &mut images, None, None), None);
         assert_eq!(reds(images.get(&handle).and_then(|i| i.data.as_deref()).unwrap()), [0, 1, 2, 3]);
+    }
+
+    /// A 4 x 1 A8B8G8R8 texture whose texels' red is their number (written for the test).
+    fn numbered_dds() -> Vec<u8> {
+        let mut b = vec![0u8; 128];
+        b[..4].copy_from_slice(b"DDS ");
+        b[4..8].copy_from_slice(&124u32.to_le_bytes());
+        b[12..16].copy_from_slice(&1u32.to_le_bytes());
+        b[16..20].copy_from_slice(&4u32.to_le_bytes());
+        b[76..80].copy_from_slice(&32u32.to_le_bytes());
+        b[80..84].copy_from_slice(&0x41u32.to_le_bytes());
+        b[88..92].copy_from_slice(&32u32.to_le_bytes());
+        for (k, m) in [0xFFu32, 0xFF00, 0xFF_0000, 0xFF00_0000].iter().enumerate() {
+            b[92 + 4 * k..96 + 4 * k].copy_from_slice(&m.to_le_bytes());
+        }
+        b.extend(numbered(4, 1));
+        b
+    }
+
+    #[test]
+    fn kept_bakes_do_not_pin_their_textures_past_the_capacity() {
+        let mut ui = Ui::new();
+        let src = fnv_ui::MemSource::default().with("menus\\t.xml", r#"<menu name="T"><image name="A"/><image name="B"/><image name="C"/><image name="D"/><image name="E"/></menu>"#);
+        ui.load_menu(&src, "menus\\t.xml").unwrap();
+        let tiles: Vec<TileId> = ["A", "B", "C", "D", "E"].iter().map(|n| ui.find_tile(&format!("T/{n}")).unwrap()).collect();
+        let bytes = numbered_dds();
+        let read = |_: &str| Some(bytes.clone());
+        let mut images = Assets::<Image>::default();
+        let mut state = State::default();
+        // Room for one 16-byte texture: five bakes of five textures keep at most one.
+        state.capacity = 16;
+        let mut handles = Vec::new();
+        for (i, &t) in tiles.iter().enumerate() {
+            let path = format!("s{i}");
+            let texels = state.texels(&path, &read).unwrap();
+            let plan = Plan { path, cut: [0, 0, 4, 1], across: (4, 1), out: (4, 1), mask: None };
+            let handle = image(compose(&texels, plan.cut, (0, 0), plan.across, plan.out, None).unwrap(), 4, 1, &mut images);
+            state.baked.insert(t, Entry { plan, asked: None, shift: (0, 0), target: Target::Image(handle.clone()) });
+            handles.push(handle);
+            assert!(state.unpinned_bytes() <= 16);
+        }
+        assert_eq!(state.decoded.len(), 1);
+        // Each still moves on in place, its texture decoded again within the budget.
+        state.frame();
+        for (t, handle) in tiles.iter().zip(&handles) {
+            let at = Piece { tex: Some(TexMod { offset: (0.25, 0.0), mask: None }), ..picture(*t, Fit::Stretch) };
+            assert_eq!(state.shift_in_place(&at, &mut images, Some(&read), None), Some(true));
+            assert_eq!(reds(images.get(handle).and_then(|i| i.data.as_deref()).unwrap()), [1, 2, 3, 0]);
+            assert!(state.unpinned_bytes() <= 16 && state.decoded.len() <= 1);
+        }
+        assert_eq!(state.tokens, BAKE_BUDGET - 5 * (4 + 4), "each a bake and a decode");
+    }
+
+    #[test]
+    fn the_compass_strip_is_charged_its_strip_and_its_window() {
+        use crate::compass_strip::{bake, texel_offset};
+        use crate::hud::COMPASS;
+        let ui = Ui::new();
+        let tile = ui.screen();
+        let mut images = Assets::<Image>::default();
+        let rgba: Vec<u8> = (0..2048usize).flat_map(|i| [(i % 251) as u8, (i / 251) as u8, 0, 255]).collect();
+        let src = Arc::new(Texels::new(rgba.clone(), 1024).unwrap());
+        let mut window = StripWindow::new(StripTexels::new(rgba, 1024).unwrap(), COMPASS.x, 0.0, &mut images).unwrap();
+        let (columns, rows) = window.texels();
+        let mut state = State::default();
+        state.keep("strip", src.clone());
+        let plan = Plan { path: "strip".into(), cut: [0, 0, 1024, 2], across: (1024, 2), out: (1024, 2), mask: None };
+        state.baked.insert(tile, Entry { plan, asked: None, shift: (0, 0), target: Target::Strip });
+        let cost = (1024 * 2 + columns * rows) as i64;
+        // A refill smaller than the strip and its window: it waits a frame, then runs.
+        state.budget = 2048;
+        let at = Piece { tex: Some(TexMod { offset: (0.25, 0.0), mask: None }), ..picture(tile, Fit::Strip) };
+        state.frame();
+        assert!(cost > state.tokens);
+        assert_eq!(state.shift_in_place(&at, &mut images, None, Some(&mut window)), Some(false));
+        state.frame();
+        assert_eq!(state.shift_in_place(&at, &mut images, None, Some(&mut window)), Some(true));
+        assert_eq!(state.tokens, 4096 - cost, "both the strip and its window are paid for");
+        let moved = StripTexels::new(shifted(&src.rgba, 1024, [0, 0, 1024, 2], (0.25, 0.0)).unwrap(), 1024).unwrap();
+        assert_eq!(images.get(&window.image()).and_then(|i| i.data.clone()).unwrap(), bake(&moved, texel_offset(0.0, 1024), columns));
+        // The budget accrues to two largest images, the most one bake costs.
+        state.budget = MAX_TEXELS as i64;
+        for _ in 0..4 {
+            state.frame();
+        }
+        assert_eq!(state.tokens, TOKEN_CEILING);
+        assert!(TOKEN_CEILING >= 2 * MAX_TEXELS as i64);
     }
 }
