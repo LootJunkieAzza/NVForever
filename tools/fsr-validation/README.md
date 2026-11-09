@@ -21,9 +21,9 @@ directory and add `--offline` to the run command.
 It compiles twenty-one WESL/WGSL variants with Bevy's actual shader resolver and Naga,
 covering motion/depth prepasses, first-person depth, foliage deformation, refraction,
 water, the ambient occlusion (both its passes before FSR and after tonemapping), and the
-FSR auxiliary passes. `NVF_FSR_FP16=1` runs every FSR dispatch on AMD's half-precision
-accumulate pass (the engine's default where the GPU has 16-bit shader floats and integers;
-the run fails if this one lacks them). Vulkan GPU readback checks depth conversion,
+FSR auxiliary passes. Every FSR dispatch runs on AMD's half-precision accumulate pass where
+the GPU has 16-bit shader floats and integers, as in the engine; `NVF_FSR_FP16=0` runs full
+precision, `NVF_FSR_FP16=1` fails the run on a GPU without them. Vulkan GPU readback checks depth conversion,
 depth expansion, reactive masks, and the spatial fallback's viewport boundary.
 It also executes the vendored clustered-light shader's actual indexing functions:
 90 center/edge/corner cases verify the same light cluster at Native AA, Quality,
