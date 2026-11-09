@@ -22,12 +22,21 @@
 //! - **Loot stays per-player (owner, 2026-11-07).** Container and corpse contents are not
 //!   sent, and a loose item one player takes stays for the others (its `deleted` flag is
 //!   not replicated nor compared).
+//! - **Players' drops are shared (owner, 2026-11-09, queue item 135).** An item a player
+//!   drops (`RefState::player_drop`) has one copy, in the host's world: every player sees
+//!   it ([`Value::Item`]) and its `deleted` flag goes to all, so whoever takes it takes it
+//!   for everyone. A guest's drop goes to the host once it comes to rest
+//!   ([`Loose::Dropped`]); the host makes it and tells the guest its number
+//!   ([`Loose::Made`]), and the guest's own copy takes that number. A guest's pickup is
+//!   its own game's at once and a request to the host ([`Loose::Took`]); the host's world
+//!   decides who was first, and a guest that was not gives the item back
+//!   ([`Loose::Refused`]), so nothing is doubled. The host's save keeps them.
 //! - **Perf (item 72).** Every [`PERF_EVERY`] a `replication perf:` line on each side.
 //!
 //! Solo: every system returns at once without a lobby (R1).
 
 use super::*;
-use nvf_coop::repl::{self, comp, ActorPose, Change, Digest, Effect, Shadow, Value};
+use nvf_coop::repl::{self, comp, ActorPose, Change, Digest, Effect, Loose, Shadow, Value};
 use std::collections::BTreeSet;
 use std::time::Instant;
 use bevy::text::FontSize;
@@ -112,6 +121,16 @@ pub(super) struct Repl {
     lag_floor: Option<i64>,
     lag: Vec<f32>,
     effects_played: u64,
+    /// A guest's own dropped items (queue item 135) not yet at rest: since when, where it
+    /// was last seen and since when it has lain there; and those sent to the host.
+    drops_waiting: HashMap<u32, (f32, [f32; 3], f32)>,
+    drops_sent: BTreeSet<u32>,
+    /// A guest's copies of the players' dropped items in the host's world (base, count),
+    /// and those the host's world took away (its own pickup or another player's).
+    shared: HashMap<u32, (u32, i32)>,
+    host_took: BTreeSet<u32>,
+    /// Players' drops made, taken and refused (both sides).
+    loose: u64,
     /// The object this guest's physics moves (held, or falling after it let go), the
     /// time it was let go, and when its pose last went to the host.
     carrying: Option<(u32, Option<f32>)>,
@@ -195,8 +214,14 @@ fn world_values(world: &fnv_sim::World, r: FormId) -> Option<Vec<Value>> {
         Some(s) => (s.enabled, s.deleted),
         None => (!placed.is_some_and(|p| p.initially_disabled()), false),
     };
-    // A loose item one player took is still there for the others (per-player loot).
-    out.push(Value::Enabled { enabled, deleted: deleted && !item });
+    // A player's dropped item is made first on a guest that has not got it (module notes).
+    let shared = item && r.is_dynamic() && st.is_some_and(|s| s.player_drop);
+    if let (true, Some(s)) = (shared, st) {
+        out.push(Value::Item { base: base.0, count: s.count, cell: s.cell.map_or(0, |c| c.0), pos: s.pos, rot: s.rot });
+    }
+    // A loose item one player took is still there for the others (per-player loot), but
+    // not one a player dropped.
+    out.push(Value::Enabled { enabled, deleted: deleted && (!item || shared) });
     if !actor {
         let (cell, pos, rot, scale) = match st {
             Some(s) => (s.cell, s.pos, s.rot, s.scale),
@@ -288,7 +313,7 @@ pub(super) fn replicate(
     let moved = if host {
         host_side(coop, sim, script.as_deref_mut(), actor_world.as_deref(), now)
     } else {
-        guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), loc.as_deref(), player.as_deref(), now)
+        guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), (loc.as_deref(), player.as_deref(), phys.as_deref()), now)
     };
     // A guest's copies of the objects the host's world moves follow the host: this
     // game's physics does not write them back (`PhysState::follow_only`), or its own
@@ -430,7 +455,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
             None => Place::Interior(c.0),
         }, s.pos))
     });
-    for e in r.inbox.drain(..) {
+    for e in std::mem::take(&mut r.inbox) {
         match e {
             Event::RelReset { id } => {
                 r.rules_sent = None;
@@ -461,6 +486,8 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                             shadow.take(rf.0, v);
                         }
                     }
+                } else if let Some(l) = repl::unpack_loose(&item) {
+                    host_loose(link, r, sim, id, l);
                 } else if let Some(d) = repl::unpack_digest(&item) {
                     let shadow = r.shadows.entry(id).or_default();
                     let sent_at = r.sent_at.entry(id).or_default();
@@ -588,7 +615,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
 }
 
 #[allow(clippy::too_many_arguments)]
-fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Option<&mut nvf_play::script::ScriptState>, mut residents: Option<&mut Residents>, loc: Option<&Location>, player: Option<&Player>, now: f32) -> Vec<u32> {
+fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Option<&mut nvf_play::script::ScriptState>, mut residents: Option<&mut Residents>, (loc, player, phys): (Option<&Location>, Option<&Player>, Option<&nvf_play::phys::PhysState>), now: f32) -> Vec<u32> {
     // The references whose place changed here (their collision follows).
     let mut moved = Vec::new();
     let Some(link) = coop.link.as_ref() else { return moved };
@@ -608,9 +635,19 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         if apply(sim, &mut r.slow, &c, residents.as_deref_mut(), commands) {
                             r.corrections += 1;
                             *r.corrected.entry((c.reference, c.value.comp())).or_default() += 1;
-                            if c.value.comp() == comp::PLACE && !moved.contains(&c.reference) {
+                            if matches!(c.value.comp(), comp::PLACE | comp::ITEM) && !moved.contains(&c.reference) {
                                 moved.push(c.reference);
                             }
+                        }
+                        match c.value {
+                            // Not one this player has already taken (a digest sends it again).
+                            Value::Item { base, count, .. } if !sim.world.peek(FormId(c.reference)).is_some_and(|s| s.deleted) => {
+                                r.shared.insert(c.reference, (base, count));
+                            }
+                            Value::Enabled { deleted: true, .. } if r.shared.contains_key(&c.reference) => {
+                                r.host_took.insert(c.reference);
+                            }
+                            _ => {}
                         }
                     }
                 } else if let Some(c) = repl::unpack_carry(&item) {
@@ -630,6 +667,8 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                     if c.done {
                         info!("replication: the host put {} {rf} down at {:?}", sim.ref_name(None, rf.0).unwrap_or("?"), c.pos);
                     }
+                } else if let Some(l) = repl::unpack_loose(&item) {
+                    guest_loose(link, r, sim, l, &mut moved);
                 } else if let Some(effects) = repl::unpack_effects(&item) {
                     // Played as this game's own scripts' would be (the sound at the
                     // reference, which this game has too).
@@ -689,6 +728,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
             _ => {}
         }
     }
+    guest_drops(link, r, sim, phys, now);
     // The digest of what this game holds near its player.
     if now - r.last_digest >= DIGEST_EVERY {
         r.last_digest = now;
@@ -721,11 +761,13 @@ fn apply(sim: &mut nvf_play::sim::SimState, slow: &mut HashMap<u32, Slow>, c: &C
     match &c.value {
         Value::Enabled { enabled, deleted } => {
             let item = w.peek(rf).map(|s| s.base).or_else(|| w.placed.get(rf).map(|p| p.base)).and_then(|b| w.forms.item(b)).is_some();
+            let shared = w.peek(rf).is_some_and(|s| s.player_drop);
             let Ok(st) = w.get(rf) else { return false };
             let was = (st.enabled, st.deleted);
             let _ = w.set_enabled(rf, *enabled);
-            // A loose item this player took stays taken here (per-player loot).
-            if !item {
+            // A loose item this player took stays taken here (per-player loot); a player's
+            // dropped item is the host's world's.
+            if !item || shared {
                 let _ = w.set_deleted(rf, *deleted);
             }
             w.peek(rf).is_some_and(|s| (s.enabled, s.deleted) != was)
@@ -770,6 +812,28 @@ fn apply(sim: &mut nvf_play::sim::SimState, slow: &mut HashMap<u32, Slow>, c: &C
                 }
             }
         }
+        Value::Item { base, count, cell, pos, rot } => {
+            if let Some(had) = w.peek(rf).map(|s| s.count) {
+                let Ok(st) = w.get(rf) else { return false };
+                st.count = *count;
+                st.player_drop = true;
+                return had != *count;
+            }
+            match w.place_as(rf, FormId(*base), (*cell != 0).then_some(FormId(*cell)), *pos, *rot) {
+                Ok(_) => {
+                    if let Ok(st) = w.get(rf) {
+                        st.count = *count;
+                        st.player_drop = true;
+                    }
+                    info!("replication: a player's dropped {} x{count} {rf} lies here too", w.forms.get(FormId(*base)).and_then(|b| b.edid.clone()).unwrap_or_default());
+                    true
+                }
+                Err(e) => {
+                    warn!("replication: a player's dropped {rf} cannot be made here: {e:?}");
+                    false
+                }
+            }
+        }
         Value::Life { dead } => {
             let s = slow.entry(c.reference).or_default();
             let changed = s.dead != *dead;
@@ -795,6 +859,124 @@ fn apply(sim: &mut nvf_play::sim::SimState, slow: &mut HashMap<u32, Slow>, c: &C
             }
             dressed
         }
+    }
+}
+
+/// How long a guest's dropped item lies still (within [`DROP_STILL`] units) before it goes
+/// to the host as at rest: its body need not sleep (a dropped pistol lay still for 10 s
+/// without sleeping in the first two-window run, 2026-11-09).
+const DROP_REST: f32 = 0.5;
+const DROP_STILL: f32 = 1.0;
+
+/// The host: a guest's dropped item or pickup (queue item 135, module notes).
+fn host_loose(link: &Link, r: &mut Repl, sim: &mut nvf_play::sim::SimState, id: u8, l: Loose) {
+    match l {
+        Loose::Dropped { local, base, count, cell, pos, rot } => match sim.world.place(FormId(base), (cell != 0).then_some(FormId(cell)), pos, rot, count) {
+            Ok(made) => {
+                if let Ok(s) = sim.world.get(made) {
+                    s.player_drop = true;
+                }
+                r.loose += 1;
+                info!("replication: player {} dropped {} x{count}: made here as {made}, every player sees it", id + 1, sim.name(FormId(base)).unwrap_or("?"));
+                link.send_reliable(Some(id), repl::pack_loose(&Loose::Made { local, host: made.0 }));
+            }
+            Err(e) => warn!("replication: player {}'s dropped {base:#010X} cannot be made here: {e:?}", id + 1),
+        },
+        Loose::Took { reference } => {
+            let rf = FormId(reference);
+            let lying = sim.world.peek(rf).filter(|s| s.player_drop).map(|s| (s.base.0, s.count, !s.deleted && s.enabled));
+            r.loose += 1;
+            match lying {
+                Some((_, count, true)) => {
+                    let _ = sim.world.set_deleted(rf, true);
+                    info!("replication: player {} took {} x{count} {rf}: gone for every player", id + 1, sim.ref_name(None, reference).unwrap_or("?"));
+                }
+                Some((base, count, false)) => {
+                    info!("replication: player {} took {} {rf}, but it was already taken: it gives it back", id + 1, sim.ref_name(None, reference).unwrap_or("?"));
+                    link.send_reliable(Some(id), repl::pack_loose(&Loose::Refused { reference, base, count }));
+                }
+                None => warn!("replication: player {} took {rf}, which is no player's dropped item here", id + 1),
+            }
+        }
+        Loose::Made { .. } | Loose::Refused { .. } => {}
+    }
+}
+
+/// A guest: the host's answer about its drop or pickup.
+fn guest_loose(link: &Link, r: &mut Repl, sim: &mut nvf_play::sim::SimState, l: Loose, moved: &mut Vec<u32>) {
+    match l {
+        Loose::Made { local, host } => {
+            let (lf, hf) = (FormId(local), FormId(host));
+            r.loose += 1;
+            match sim.world.peek(lf).filter(|s| !s.deleted && s.enabled).cloned() {
+                Some(s) => {
+                    // This game's copy takes the host's number: the same item for everyone.
+                    let _ = sim.world.set_deleted(lf, true);
+                    if sim.world.peek(hf).is_none() && sim.world.place_as(hf, s.base, s.cell, s.pos, s.rot).is_ok() {
+                        if let Ok(n) = sim.world.get(hf) {
+                            n.count = s.count;
+                            n.extra = s.extra;
+                            n.player_drop = true;
+                        }
+                    }
+                    r.shared.insert(host, (s.base.0, s.count));
+                    if !moved.contains(&host) {
+                        moved.push(host);
+                    }
+                    info!("replication: this player's dropped {} {lf} is {hf} in the host's world", sim.name(s.base).unwrap_or("?"));
+                }
+                None => {
+                    // Taken back here before the host had it: taken there too.
+                    info!("replication: this player's dropped {lf} was taken back before the host made it ({hf}): taken there too");
+                    link.send_reliable(None, repl::pack_loose(&Loose::Took { reference: host }));
+                }
+            }
+        }
+        Loose::Refused { reference, base, count } => {
+            r.loose += 1;
+            let back = sim.world.remove_item(FormId::PLAYER_REF, FormId(base), count).unwrap_or(0);
+            info!("replication: another player took {} {reference:#010X} first: {back} of {count} given back", sim.name(FormId(base)).unwrap_or("?"));
+        }
+        Loose::Dropped { .. } | Loose::Took { .. } => {}
+    }
+}
+
+/// A guest: its own drops that came to rest go to the host, and its pickups of the
+/// players' dropped items are asked of it (module notes).
+fn guest_drops(link: &Link, r: &mut Repl, sim: &nvf_play::sim::SimState, phys: Option<&nvf_play::phys::PhysState>, now: f32) {
+    type Mine = (FormId, u32, i32, u32, [f32; 3], [f32; 3]);
+    let mine: Vec<Mine> = sim
+        .world
+        .created()
+        .filter(|(k, s)| k.0 >= GUEST_CREATED && s.player_drop && !s.deleted && s.enabled && !r.drops_sent.contains(&k.0))
+        .map(|(k, s)| (k, s.base.0, s.count, s.cell.map_or(0, |c| c.0), s.pos, s.rot))
+        .collect();
+    r.drops_waiting.retain(|k, _| mine.iter().any(|m| m.0 .0 == *k));
+    for (k, base, count, cell, pos, rot) in mine {
+        let (pos, rot, sleeping) = phys.and_then(|p| p.ref_pose_now(k.0)).unwrap_or((pos, rot, false));
+        let w = r.drops_waiting.entry(k.0).or_insert((now, pos, now));
+        if (w.1[0] - pos[0]).hypot(w.1[1] - pos[1]).hypot(w.1[2] - pos[2]) > DROP_STILL {
+            (w.1, w.2) = (pos, now);
+        }
+        let (since, still) = (w.0, w.2);
+        if !sleeping && now - still < DROP_REST && now - since < CARRY_FALL_MAX {
+            continue;
+        }
+        link.send_reliable(None, repl::pack_loose(&Loose::Dropped { local: k.0, base, count, cell, pos, rot }));
+        r.drops_sent.insert(k.0);
+        r.drops_waiting.remove(&k.0);
+        r.loose += 1;
+        info!("replication: this player dropped {} x{count} {k}, at rest at {pos:?}: it goes to the host", sim.name(FormId(base)).unwrap_or("?"));
+    }
+    let gone: Vec<u32> = r.shared.keys().copied().filter(|&k| sim.world.peek(FormId(k)).is_none_or(|s| s.deleted || !s.enabled)).collect();
+    for k in gone {
+        r.shared.remove(&k);
+        if r.host_took.remove(&k) {
+            continue;
+        }
+        r.loose += 1;
+        info!("replication: this player took the dropped {} {k:#010X}: asked of the host", sim.ref_name(None, k).unwrap_or("?"));
+        link.send_reliable(None, repl::pack_loose(&Loose::Took { reference: k }));
     }
 }
 
@@ -844,10 +1026,10 @@ fn perf_line(coop: &mut Coop, now: f32) {
                 t.resent
             );
         }
-        line += &format!("; desyncs {}, effects {}", r.desyncs, r.effects_sent);
+        line += &format!("; desyncs {}, effects {}, players' drops {}", r.desyncs, r.effects_sent, r.loose);
     } else if let Some(t) = traffic.first() {
         line += &format!(
-            "; from host: heard {:.2} KB/s sent {:.2} KB/s, changes {} (corrections {}), poses {:.0}/s, snapshot lag avg {:.0} ms p95 {:.0} ms (over the lowest seen), effects {}",
+            "; from host: heard {:.2} KB/s sent {:.2} KB/s, changes {} (corrections {}), poses {:.0}/s, snapshot lag avg {:.0} ms p95 {:.0} ms (over the lowest seen), effects {}, players' drops {}",
             rate(0, |t| t.heard, t),
             rate(0, |t| t.sent, t),
             r.applied,
@@ -855,7 +1037,8 @@ fn perf_line(coop: &mut Coop, now: f32) {
             r.poses_heard as f32 / span,
             average(&r.lag),
             percentile(&r.lag, 0.95),
-            r.effects_played
+            r.effects_played,
+            r.loose
         );
         if !r.corrected.is_empty() {
             let mut most: Vec<((u32, u8), u64)> = r.corrected.drain().collect();
@@ -909,6 +1092,7 @@ fn comp_name(c: u8) -> &'static str {
         comp::LOOK => "look",
         comp::EXISTS => "exists",
         comp::ANIM => "anim",
+        comp::ITEM => "item",
         _ => "?",
     }
 }

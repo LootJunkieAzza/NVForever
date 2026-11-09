@@ -164,6 +164,11 @@ pub struct RefState {
     /// there picks this reference up ([`World::dropped_beside`]).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub dropped_by: Option<FormId>,
+    /// A created item reference the player dropped (by hand, a script's drop, a weapon
+    /// lost from the player's hand): in co-op every player sees it and any one can take
+    /// it (nvforever `coop/replication.rs`, queue item 135). Saved with the reference.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub player_drop: bool,
 }
 
 /// A script's lock on an item of an actor [documented: GECK wiki EquipItem, "If
@@ -711,6 +716,7 @@ impl<'a> World<'a> {
             scale: None,
             equip_locks: BTreeMap::new(),
             dropped_by: None,
+            player_drop: false,
             outfitted: false,
         })
     }
@@ -1305,6 +1311,7 @@ impl<'a> World<'a> {
                     scale: None,
                     equip_locks: BTreeMap::new(),
                     dropped_by: None,
+                    player_drop: from == FormId::PLAYER_REF,
                 },
             );
             out.push(id);
@@ -1933,6 +1940,7 @@ impl<'a> World<'a> {
                 scale: None,
                 equip_locks: BTreeMap::new(),
                 dropped_by: None,
+                player_drop: false,
             },
         );
         Ok(id)
