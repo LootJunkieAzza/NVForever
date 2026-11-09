@@ -417,7 +417,8 @@ fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     glyphs: Res<crate::pad::PadGlyphs>,
-    (formats, switch, bindings): (Option<Res<CompressedImageFormatSupport>>, Option<Res<crate::tiles::vanilla::TileMenus>>, Option<Res<Bindings>>),
+    (formats, switch): (Option<Res<CompressedImageFormatSupport>>, Option<Res<crate::tiles::vanilla::TileMenus>>),
+    bindings: Option<Res<Bindings>>,
     mut shown: Local<Shown>,
 ) {
     let pages = pages(&script, bindings.as_deref());
