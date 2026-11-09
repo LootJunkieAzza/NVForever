@@ -418,10 +418,6 @@ pub fn mean_since(measurements: impl IntoIterator<Item = (Instant, f64)>, since:
     Some((sum / f64::from(n), now.saturating_duration_since(last).as_secs_f64()))
 }
 
-/// How long after the row began to show its GPU measurements are passed over
-/// ([`SplitInputs::read`]) [design].
-const GPU_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
-
 /// What a reading of the split row needs.
 #[derive(SystemParam)]
 pub struct SplitInputs<'w> {
@@ -436,11 +432,10 @@ impl SplitInputs<'_> {
     pub fn read(&self) -> Option<Split> {
         let m = self.clock.0.take();
         let now = Instant::now();
-        // A measurement is stamped when it reaches the store, a few frames after its frame
-        // (the vendored `bevy_render` diagnostic `sync_diagnostics`), so those reaching it
-        // just after the showing began may be of frames before it: they are passed over
-        // [design].
-        let since = self.clock.0.began().map(|b| b + GPU_GRACE);
+        // A measurement is stamped with when its frame began recording (the vendored
+        // `bevy_render` diagnostic `sync_diagnostics`, `NVForever recorded instant`), so
+        // the frames of this showing are those stamped at or after it began.
+        let since = self.clock.0.began();
         let gpu_ms = self.store.as_deref().zip(since).and_then(|(store, since)| {
             gpu_frame_ms(store.iter().filter_map(|d| {
                 let (mean, age) = mean_since(d.measurements().map(|m| (m.time, m.value)), since, now)?;

@@ -132,11 +132,18 @@ impl Plugin for PerfOverlayPlugin {
 
 /// A change of the switches: a new showing starts from the waiting text, not the last
 /// showing's reading; a hidden overlay stops the sampler, a hidden split row its spans.
-fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, clock: Res<split::SplitClock>, mut was: Local<Option<bool>>) {
+fn switch(counter: Res<FpsCounter>, mut overlay: ResMut<Overlay>, clock: Res<split::SplitClock>, mut was: Local<Option<bool>>, mut split_was: Local<bool>) {
     if !counter.is_changed() {
         return;
     }
-    clock.0.set_on(counter.show && counter.rows.split);
+    let split_on = counter.show && counter.rows.split;
+    clock.0.set_on(split_on);
+    // A new showing of the split row starts empty, not from the last showing's figures,
+    // even when the overlay itself stayed shown [design].
+    if split_on && !*split_was {
+        overlay.readings.split = None;
+    }
+    *split_was = split_on;
     if was.is_some_and(|w| w != counter.show) {
         info!("fps counter: {}", if counter.show { "on" } else { "off" });
     }
