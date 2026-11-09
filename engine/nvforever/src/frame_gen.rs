@@ -17,7 +17,8 @@
 //!   `DeferredSwapchain`, 2026-11-08): the frame is drawn into a stand-in texture, and when the
 //!   frame's commands are submitted ([`RenderGraphSystems::Finish`]) the stand-in (the generated
 //!   frame) and the real frame are handed to a presenter thread (`fg_presenter.rs`), which takes
-//!   the window's images, copies them in and presents them.
+//!   the window's images, copies them in and presents them. If that thread cannot start or
+//!   stops, the window is presented from the render thread again, as with `NVF_FG_PRESENTER=0`.
 //!
 //! **Pacing**: the presenter spaces the two presents half a real frame apart (AMD's rule, from
 //! `FrameInterpolationSwapchainVK`), and the real frame rate is capped slightly below half the
@@ -274,15 +275,15 @@ fn extract(
         refresh_millihertz: refresh.as_ref().and_then(|r| r.millihertz),
     };
     // While it is on, the windows' images are the presenter's ([`hand_to_presenter`]); when it
-    // goes off, the presenters finish what they were handed and end before Bevy takes the
-    // windows' images again.
-    let defer = request.on && *PRESENTER;
-    if !defer && !presenters.0.is_empty() {
-        presenters.0.clear();
+    // goes off, or a presenter failed, the presenters finish what they were handed and end
+    // before Bevy takes the windows' images again.
+    let defer = request.on && *PRESENTER && !presenters.failed;
+    if !defer && !presenters.running.is_empty() {
+        presenters.running.clear();
     }
     // A window that lost its surface (closed) ends its presenter, and with it the presenter's
     // hold on the surface and the window (bevy_render `SharedSurface`).
-    presenters.0.retain(|(window, _)| windows.get(*window).is_ok_and(|(_, _, surface)| surface));
+    presenters.running.retain(|(window, _)| windows.get(*window).is_ok_and(|(_, _, surface)| surface));
     for (window, deferred, _) in &windows {
         if defer && !deferred {
             commands.entity(window).insert(DeferredSwapchain::default());
@@ -295,9 +296,16 @@ fn extract(
 /// `NVF_FG_PRESENTER=0`: present from the render thread as before 2026-11-08, for comparisons.
 static PRESENTER: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| !std::env::var("NVF_FG_PRESENTER").is_ok_and(|v| v.trim() == "0"));
 
-/// The presenter of each window frame generation runs in (render-world window entity).
+/// The presenter of each window frame generation runs in.
 #[derive(Resource, Default)]
-struct Presenters(Vec<(Entity, crate::fg_presenter::Presenter)>);
+struct Presenters {
+    /// By render-world window entity.
+    running: Vec<(Entity, crate::fg_presenter::Presenter)>,
+    /// A presenter thread could not start or stopped (a panic): the windows are presented from
+    /// the render thread from then on, as with `NVF_FG_PRESENTER=0`, until the game restarts
+    /// (a thread that failed once may well fail again).
+    failed: bool,
+}
 
 /// `NVF_TEST_RENDER_STALL_MS=<ms>`: the render world spends that long on the CPU each frame,
 /// after the window's image would be taken at the start of the frame and before the frame is
@@ -578,7 +586,9 @@ fn generate(
 
 /// Each deferred window's frame to its presenter (`fg_presenter.rs`, started the first time):
 /// the stand-in, which holds the generated frame (or the only one, on a frame without), then
-/// the real frame when there is one.
+/// the real frame when there is one. A presenter whose thread could not start or has ended (a
+/// panic) is dropped and no window is deferred from the next frame ([`Presenters::failed`]);
+/// this frame is not presented.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn hand_to_presenter(
     mut presenters: ResMut<Presenters>,
@@ -598,15 +608,37 @@ fn hand_to_presenter(
         if let Some(at) = pending.iter().position(|(w, _)| *w == main) {
             frames.push(pending.remove(at).1.create_view(&default()));
         }
-        let presenter = match presenters.0.iter().position(|(e, _)| *e == entity) {
-            Some(at) => &mut presenters.0[at].1,
-            None => {
-                let started = crate::fg_presenter::Presenter::start(surface.shared(), device.wgpu_device().clone(), (**queue).clone(), stats.presents.clone(), generated.0.clone());
-                presenters.0.push((entity, started));
-                &mut presenters.0.last_mut().unwrap().1
-            }
+        let paired = frames.len() == 2;
+        let at = match presenters.running.iter().position(|(e, _)| *e == entity) {
+            Some(at) => at,
+            None => match crate::fg_presenter::Presenter::start(surface.shared(), device.wgpu_device().clone(), (**queue).clone(), stats.presents.clone(), generated.0.clone()) {
+                Ok(started) => {
+                    presenters.running.push((entity, started));
+                    presenters.running.len() - 1
+                }
+                Err(e) => {
+                    presenter_failed(&mut presenters, entity, paired, &generated, &format!("could not be started ({e})"));
+                    continue;
+                }
+            },
         };
-        presenter.send(frames, refresh);
+        let presenter = &mut presenters.running[at].1;
+        if !(presenter.running() && presenter.send(frames, refresh)) {
+            presenter_failed(&mut presenters, entity, paired, &generated, "has stopped");
+        }
+    }
+}
+
+/// A window's presenter thread could not start or has ended: the presenter is dropped (its
+/// thread joined, at once as it has ended), the frame it was to show is not shown, and from the
+/// next frame no window is deferred, so Bevy presents them (said once).
+fn presenter_failed(presenters: &mut Presenters, window: Entity, paired: bool, generated: &GeneratedFrames, why: &str) {
+    presenters.running.retain(|(e, _)| *e != window);
+    if paired {
+        generated.0.fetch_sub(1, Ordering::Relaxed);
+    }
+    if !std::mem::replace(&mut presenters.failed, true) {
+        error!("frame generation: the presenter thread {why}; the window is presented from the render thread from now on, as with NVF_FG_PRESENTER=0");
     }
 }
 
@@ -766,7 +798,7 @@ fn log_stats(mut stats: ResMut<Stats>, presenters: Res<Presenters>) {
     stats.waits = now;
     let per_frame = |nanos: u64| nanos as f64 / 1e6 / real.max(1) as f64;
     let generated_present = stats.generated_present_nanos.swap(0, Ordering::Relaxed);
-    let (paced, queued, gpu_wait, polls, skipped, dropped) = presenters.0.iter().fold((0, 0, 0, 0, 0, 0), |(p, q, g, n, s, d), (_, presenter)| {
+    let (paced, queued, gpu_wait, polls, skipped, dropped) = presenters.running.iter().fold((0, 0, 0, 0, 0, 0), |(p, q, g, n, s, d), (_, presenter)| {
         let shared = presenter.shared();
         (
             p + shared.paced_nanos.swap(0, Ordering::Relaxed),
@@ -777,7 +809,7 @@ fn log_stats(mut stats: ResMut<Stats>, presenters: Res<Presenters>) {
             d + shared.dropped.swap(0, Ordering::Relaxed),
         )
     });
-    let place = if presenters.0.is_empty() {
+    let place = if presenters.running.is_empty() {
         format!("on the render thread (the generated frame's {:.2})", per_frame(generated_present))
     } else {
         format!(

@@ -138,6 +138,9 @@ Limits and notes:
   validation error when another thread submits meanwhile
   (`wgpu-core-30.0.1/src/device/resource.rs` 5338-5351), and the render thread keeps
   submitting.
+- **A presenter thread that cannot start or stops** (a panic) is noticed when the next frame is
+  handed over: an error is logged once, the presenter is dropped and the window is presented
+  from the render thread, as with `NVF_FG_PRESENTER=0`, until the game restarts.
 - **Closing the window** ends its presenter at the next frame. The presenter keeps the window
   as long as it holds the window's surface (Bevy's `RawHandleWrapper`, as the render world does),
   so the surface is never left on a destroyed window.
@@ -160,7 +163,8 @@ Limits and notes:
 - **Unit tests** (`cargo test`): every optical-flow and frame-interpolation pass's binding table
   against its `.glsl` file's `#define`s and the callbacks header's declarations, and against the
   bindings the compiled SPIR-V declares; the `cbFI` block's std140 layout; the pyramid sizes; the
-  real-frame cap, the present-interval statistics, the switch's effect on latency reduction.
+  real-frame cap, the present-interval statistics, the switch's effect on latency reduction;
+  a presenter whose thread ended (it takes no frames and does not hold the render thread).
 - **GPU harness** (`tools/fsr-validation`, `fg.rs`; numbers from 2026-11-07, RTX 5090, Vulkan
   validation layer on, no validation messages): a textured plane sliding at a known speed, the
   generated frame against the scene drawn at the true midpoint, mean absolute error per channel:

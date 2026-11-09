@@ -34,7 +34,9 @@
 //! [documented: `wgpu-core-30.0.1/src/device/resource.rs` 5338-5351], and the render thread
 //! keeps submitting. An outdated surface's images are skipped and the surface is marked for
 //! the render thread, which reconfigures it before its next frame (bevy_render
-//! `SurfaceGuard::acquire`, `create_surfaces`).
+//! `SurfaceGuard::acquire`, `create_surfaces`). A presenter whose thread could not start or has
+//! ended (a panic) is noticed when the next frame is handed over: frame_gen drops it and the
+//! window is presented from the render thread again (`frame_gen::hand_to_presenter`).
 //!
 //! Measured against presenting from the render thread (h9x000/NVForever#1, 4K, the owner's
 //! settings): 77.7-78.0 real fps at the cap of 78 with a frame of about 8 ms and with 4 ms more
@@ -96,18 +98,8 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    fn copied(&self, index: u64) {
-        let mut copied = self.copied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if *copied < index {
-            *copied = index;
-        }
-        self.copied_changed.notify_all();
-    }
-}
-
-impl Presenter {
-    pub(crate) fn start(surface: SharedSurface, device: wgpu::Device, queue: wgpu::Queue, presents: Arc<Mutex<Vec<Instant>>>, generated_shown: Arc<AtomicU64>) -> Self {
-        let shared = Arc::new(Shared {
+    fn new(presents: Arc<Mutex<Vec<Instant>>>, generated_shown: Arc<AtomicU64>) -> Self {
+        Self {
             copied: Mutex::new(0),
             copied_changed: Condvar::new(),
             paced_nanos: AtomicU64::new(0),
@@ -118,39 +110,63 @@ impl Presenter {
             gpu_polls: AtomicU64::new(0),
             presents,
             generated_shown,
-        });
+        }
+    }
+
+    fn copied(&self, index: u64) {
+        let mut copied = self.copied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *copied < index {
+            *copied = index;
+        }
+        self.copied_changed.notify_all();
+    }
+}
+
+impl Presenter {
+    /// The window's presenter, its thread started; the error when the thread could not be.
+    pub(crate) fn start(surface: SharedSurface, device: wgpu::Device, queue: wgpu::Queue, presents: Arc<Mutex<Vec<Instant>>>, generated_shown: Arc<AtomicU64>) -> std::io::Result<Self> {
+        let shared = Arc::new(Shared::new(presents, generated_shown));
         let (jobs, received) = mpsc::channel();
         let thread_shared = shared.clone();
         let thread = std::thread::Builder::new()
             .name("nvf-frame-gen-present".into())
-            .spawn(move || run(&received, &surface, &device, &queue, &thread_shared))
-            .map_err(|e| bevy::log::error!("frame generation: no presenter thread: {e}"))
-            .ok();
+            .spawn(move || run(&received, &surface, &device, &queue, &thread_shared))?;
         bevy::log::info!("frame generation: presenting on a thread of its own, paced half a real frame apart");
-        Self { jobs: thread.is_some().then_some(jobs), thread, shared, sent: 0 }
+        Ok(Self { jobs: Some(jobs), thread: Some(thread), shared, sent: 0 })
     }
 
     pub(crate) fn shared(&self) -> &Shared {
         &self.shared
     }
 
+    /// Whether its thread is still there to present: it has not ended (a panic, as nothing else
+    /// ends it while it is handed frames).
+    pub(crate) fn running(&self) -> bool {
+        self.thread.as_ref().is_some_and(|t| !t.is_finished())
+    }
+
     /// Hand over this frame's images (each a view of a texture it may read until the frame
     /// after next), with one refresh of the monitor. Waits while the presenter is more than
-    /// `STAND_INS - 1` frames behind, so nothing it has still to copy is drawn over.
-    pub(crate) fn send(&mut self, frames: Vec<wgpu::TextureView>, refresh: Duration) {
-        let Some(jobs) = &self.jobs else { return };
+    /// `STAND_INS - 1` frames behind, so nothing it has still to copy is drawn over. `false`:
+    /// the thread has ended and the frame was not handed over (an ended thread never signals,
+    /// so the wait looks for that every 10 ms rather than running to its 250 ms limit).
+    pub(crate) fn send(&mut self, frames: Vec<wgpu::TextureView>, refresh: Duration) -> bool {
+        let Some(jobs) = &self.jobs else { return false };
         self.sent += 1;
         let needed = self.sent.saturating_sub(STAND_INS as u64 - 1);
         let started = Instant::now();
         let deadline = started + Duration::from_millis(250);
         let mut copied = self.shared.copied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while *copied < needed {
+            if !self.running() {
+                return false;
+            }
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
-            copied = self.shared.copied_changed.wait_timeout(copied, left).unwrap_or_else(std::sync::PoisonError::into_inner).0;
+            copied = self.shared.copied_changed.wait_timeout(copied, left.min(Duration::from_millis(10))).unwrap_or_else(std::sync::PoisonError::into_inner).0;
         }
         drop(copied);
         let sent = Instant::now();
-        let _ = jobs.send(Job { index: self.sent, frames, sent, held: sent - started, refresh });
+        jobs.send(Job { index: self.sent, frames, sent, held: sent - started, refresh }).is_ok()
     }
 }
 
@@ -340,6 +356,32 @@ mod tests {
         // Uneven frames: the variance takes a little more off.
         let uneven = spacing([0.010, 0.015].iter().copied()).as_secs_f64();
         assert!(uneven < 0.00625 - 0.0001 && uneven > 0.006, "{uneven}");
+    }
+
+    #[test]
+    fn a_presenter_whose_thread_ended_takes_no_frames_and_does_not_hold_the_render_thread() {
+        let (jobs, received) = mpsc::channel::<Job>();
+        let thread = std::thread::spawn(move || {
+            let _ = received.recv();
+            // Unwinds as a panic does, without the panic hook's message.
+            std::panic::resume_unwind(Box::new("the presenter's panic"));
+        });
+        let mut presenter = Presenter { jobs: Some(jobs), thread: Some(thread), shared: Arc::new(Shared::new(Default::default(), Default::default())), sent: 0 };
+        assert!(presenter.running());
+        assert!(presenter.send(Vec::new(), Duration::ZERO), "handed over while the thread runs");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while presenter.running() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(!presenter.running(), "a thread that panicked is not running");
+        // Behind (two frames handed over and not copied): the wait for the copies ends at once.
+        presenter.sent = 5;
+        let started = Instant::now();
+        assert!(!presenter.send(Vec::new(), Duration::ZERO), "nothing handed over");
+        assert!(started.elapsed() < Duration::from_millis(100), "{:?}", started.elapsed());
+        // Not behind: the closed channel says so.
+        presenter.sent = 0;
+        assert!(!presenter.send(Vec::new(), Duration::ZERO));
     }
 
     #[test]
