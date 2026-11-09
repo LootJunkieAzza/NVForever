@@ -81,6 +81,15 @@ GetAngularVelocity]; mass in kilograms [documented: GetCollisionObjProperty].
 | GetReticleNode `[range]` | the node of the collision object the crosshair's ray meets within the range [documented]; empty for none |
 | GetReticlePosAlt `x y z` | 1 and the point, else 0 [documented] |
 
+The output-variable getters have no probe rows: the original's runtime compiler refused
+GetLinearVelocityAlt and GetReticlePosAlt both in a `let` and as statements [observed: the
+jip13 runs, 2026-11-09], as with SUP's output-variable getters [hypothesis: the same cause];
+GetAngularVelocityAlt is left out with them [hypothesis: it is refused the same
+way].
+Five rows answer from the engine only (ground.player, underfeet, raycast, reticlenode,
+contacts), so the lab's candidate, which runs no engine, differs there [observed: 12 of 17
+rows match at 4f1fce74f].
+
 ## 6. Follow-ups
 
 - FaceObject and Turn: the game's angle follows the drawn turn (the AI may face the actor
