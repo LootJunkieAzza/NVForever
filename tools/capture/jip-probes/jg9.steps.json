@@ -1,0 +1,73 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "jg9",
+ "title": "jg9, runtime-compiled",
+ "start": "any save (read-only)",
+ "steps": [
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (sv_Construct \"%z|%z\" (GetPlayerKarmaTitle 0) (GetPlayerKarmaTitle 1))\nEnd\n",
+   "label": "jg9.karma",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"15169\"\nSetFunctionValue (GetItemEffectString rObj)\nEnd\n",
+   "label": "jg9.effect.stimpak",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"20423\"\nSetFunctionValue (GetItemEffectString rObj)\nEnd\n",
+   "label": "jg9.effect.leather",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (sv_Construct \"%g %g %g\" (rP.GetPlayerCamFOV 0) (rP.GetPlayerCamFOV 1) (rP.GetPlayerCamFOV 2))\nEnd\n",
+   "label": "jg9.fov",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := GetFormFromMod \"FalloutNV.esm\" \"13253C\"\nlet fA := GetTerminalMenuItemCount rObj\nlet fB := AddTerminalMenuItem rObj\nlet fC := GetTerminalMenuItemCount rObj\nlet sText := sv_Construct \"%g %g %g [%z]\" fA fB fC (GetTerminalMenuItemText rObj 1 fA)\nlet fB := RemoveTerminalMenuItem rObj fA\nSetFunctionValue (sv_Construct \"%z %g %g\" sText fB (GetTerminalMenuItemCount rObj))\nEnd\n",
+   "label": "jg9.term",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := PlaySoundFromPath \"Data\\Sound\\fx\\ui\\popup\\ui_popup_experienceup.wav\"\nlet fB := PlaySoundFromPath \"Data\\Sound\\fx\\nvf_none.wav\"\nlet fC := StopSoundFromPath \"Data\\Sound\\fx\\ui\\popup\\ui_popup_experienceup.wav\"\nSetFunctionValue (sv_Construct \"%g %g %g\" fA fB fC)\nEnd\n",
+   "label": "jg9.sound.path",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetGrenadeHoldTime)\nEnd\n",
+   "label": "jg9.grenade",
+   "field": "value"
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (sv_Construct \"%g %g\" (GetNearestCompassHostileDirection 0) (GetNearestCompassHostileDirection 1))\nEnd\n",
+   "label": "jg9.compass",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (AudioMarkerGetCurrent))\nEnd\n",
+   "label": "jg9.marker",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetCurrentSkyColor 4 iR iG iB\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA iR iG iB)\nEnd\n",
+   "label": "jg9.sky",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (sv_Construct \"%.2f %.0f\" (rP.GetCalculatedSpread) (rP.GetRunSpeed))\nEnd\n",
+   "label": "jg9.spread",
+   "field": "value",
+   "text": true
+  }
+ ]
+}

@@ -8220,6 +8220,47 @@ JG7_PROBES = (
 SETS.update({"jg7": JG7_PROBES})  # JohnnyGuitar batch 7 (#1007)
 WRITING_SETS |= {"jg7"}
 
+# jg9 (writes, session only, each change put back; #1007): JohnnyGuitar batch 9
+# (docs/spec-notes/ext-jg9.md): the karma title and tier, the item card's effect line of
+# the Stimpak (15169) and Leather Armor (20423), the camera's FOVs, a menu item added to
+# and removed from the Vault 34 terminal (13253C, as jg3), a sound file played and stopped
+# by its path (a UI sound in Fallout - Sound.bsa [observed: fnvtool bsa list]) and a path
+# that is not there, the grenade hold time, the nearest hostile compass mark, the audio
+# marker whose music plays, the sky's sunlight colour, the player's spread and run speed
+# [observed: forms from fnvtool esm inventory, as NF above]. The last five are told by
+# the engine: fnvtool, with no engine, reads 0 (the lab rows say what the original
+# answers). PlayHolotape, the moves (Jump, SetAutoMove, SetPlayerMovementFlags,
+# SetVelEx) and the audio marker setters change the game and are not probed.
+JG9 = {"stimpak": "15169", "leather": "20423", "v34": "13253C"}
+JG9_SOUND = r"Data\Sound\fx\ui\popup\ui_popup_experienceup.wav"
+
+
+def _jg9(pid, body, text=False):
+    return (f"jg9.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\n"
+            "string_var sText\nBegin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+JG9_PROBES = (
+    [_jg9("karma", 'SetFunctionValue (sv_Construct "%z|%z" (GetPlayerKarmaTitle 0) (GetPlayerKarmaTitle 1))', True),
+     *[_jg9(f"effect.{k}", _form("rObj", JG9[k]) + "SetFunctionValue (GetItemEffectString rObj)", True) for k in ("stimpak", "leather")],
+     _jg9("fov", 'SetFunctionValue (sv_Construct "%g %g %g" (rP.GetPlayerCamFOV 0) (rP.GetPlayerCamFOV 1) (rP.GetPlayerCamFOV 2))', True),
+     _jg9("term", _form("rObj", JG9["v34"])
+          + "let fA := GetTerminalMenuItemCount rObj\nlet fB := AddTerminalMenuItem rObj\nlet fC := GetTerminalMenuItemCount rObj\n"
+          + 'let sText := sv_Construct "%g %g %g [%z]" fA fB fC (GetTerminalMenuItemText rObj 1 fA)\n'
+          + "let fB := RemoveTerminalMenuItem rObj fA\n"
+          + 'SetFunctionValue (sv_Construct "%z %g %g" sText fB (GetTerminalMenuItemCount rObj))', True),
+     _jg9("sound.path", f'let fA := PlaySoundFromPath "{JG9_SOUND}"\nlet fB := PlaySoundFromPath "Data\\Sound\\fx\\nvf_none.wav"\n'
+          f'let fC := StopSoundFromPath "{JG9_SOUND}"\n'
+          'SetFunctionValue (sv_Construct "%g %g %g" fA fB fC)', True),
+     _jg9("grenade", "SetFunctionValue (GetGrenadeHoldTime)"),
+     _jg9("compass", 'SetFunctionValue (sv_Construct "%g %g" (GetNearestCompassHostileDirection 0) (GetNearestCompassHostileDirection 1))', True),
+     _jg9("marker", "SetFunctionValue (GetFormIDString (AudioMarkerGetCurrent))", True),
+     _jg9("sky", 'let fA := GetCurrentSkyColor 4 iR iG iB\nSetFunctionValue (sv_Construct "%g %g %g %g" fA iR iG iB)', True),
+     _jg9("spread", 'SetFunctionValue (sv_Construct "%.2f %.0f" (rP.GetCalculatedSpread) (rP.GetRunSpeed))', True)]
+)
+SETS.update({"jg9": JG9_PROBES})  # JohnnyGuitar batch 9 (#1007)
+WRITING_SETS |= {"jg9"}
+
 
 
 

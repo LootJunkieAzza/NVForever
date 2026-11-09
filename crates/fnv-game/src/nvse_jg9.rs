@@ -200,12 +200,13 @@ impl Game<'_> {
     }
 
     /// The sounds made for files that `keep` keeps, stopped (fading over `fade`); whether
-    /// any of them was playing.
+    /// any of them had a playing not over or stopped (also one asked for this frame)
+    /// [hypothesis: isSuccess is whether something was stopped].
     fn stop_paths(&mut self, fade: f64, keep: impl Fn(&PathSound) -> bool) -> bool {
         let ids: Vec<FormId> = self.other.jg9.path_sounds.iter().filter(|p| keep(p)).map(|p| p.id).collect();
         let mut any = false;
         for id in ids {
-            any |= self.gaps.sounds.is_playing(id, self.frame);
+            any |= self.gaps.sounds.played.iter().any(|p| p.sound == id && p.stopped.is_none());
             self.stop_faded(id, fade);
         }
         any

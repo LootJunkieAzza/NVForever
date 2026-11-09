@@ -55,12 +55,10 @@ impl Game<'_> {
     /// An actor value's short name (its AVIF's ANAM), else its name (FULL), else the
     /// rules' name for it.
     pub fn av_short_name(&self, code: u16) -> String {
-        let text = |sub: &str| {
-            let id = FormId(avif_form(code)?);
-            let v = self.data.record_field(id, sub, "")?;
-            v.as_str().or_else(|| v.get("value").and_then(|x| x.as_str())).map(str::to_string).filter(|t| !t.is_empty())
-        };
-        text("ANAM").or_else(|| text("FULL")).unwrap_or_else(|| crate::functions::AV_NAMES.get(code as usize).map_or_else(String::new, |n| n.to_string()))
+        let info = avif_form(code).and_then(|id| self.data.actor_value_infos.get(&FormId(id)));
+        let pick = |t: &str| Some(t.to_string()).filter(|t| !t.trim().is_empty());
+        info.and_then(|i| pick(&i.short_name).or_else(|| pick(&i.name)))
+            .unwrap_or_else(|| crate::functions::AV_NAMES.get(code as usize).map_or_else(String::new, |n| n.to_string()))
     }
 
     /// The changes of an enchantment or other magic item: each effect whose base effect

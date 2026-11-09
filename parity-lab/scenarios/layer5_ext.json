@@ -1346,6 +1346,20 @@
    },
    "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
    "tags": ["ext", "lu", "probes", "lu3"]
+  },
+  {
+   "id": "L5.ext.jg9",
+   "layer": 5,
+   "description": "JohnnyGuitar batch 9 (#1007; docs/spec-notes/ext-jg9.md): GetPlayerKarmaTitle, GetItemEffectString of the Stimpak and Leather Armor, GetPlayerCamFOV, a Vault 34 terminal item added and removed, PlaySoundFromPath and StopSoundFromPath, GetGrenadeHoldTime, GetNearestCompassHostileDirection, AudioMarkerGetCurrent, GetCurrentSkyColor, GetCalculatedSpread and GetRunSpeed; set jg9 of tools/capture/jip_probes.py, keyed by probe id, steps in order; each change put back. Not probed yet. Oracle and candidate as L5.ext.jip.getters.",
+   "oracle": {"golden": "jip/jg9.json"},
+   "candidate": {
+    "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+             "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm",
+             "NVFExtProbe.esp", "--schema", "{schema_dir}",
+             "--steps", "{lab_root}/../tools/capture/jip-probes/jg9.steps.json", "--start-cell", "0x000DEB16"]
+   },
+   "comparator": {"kind": "keyed", "select": "/rows", "key": "id", "fields": ["value"]},
+   "tags": ["ext", "jg", "probes", "jg9"]
   }
  ]
 }

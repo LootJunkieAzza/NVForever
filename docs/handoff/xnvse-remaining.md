@@ -158,6 +158,12 @@ yield timer, viewmodel clip, NiLOD and save switches, UI update sounds, reputati
 marker icons, barter hiding, the queued cinematic and objective texts, TogglePipBoy, the
 engine requests, HSVtoRGB and RGBtoHSV into script variables, GetJohnnyPatch,
 GetDefaultHeapSize, IsMenuPaused; probe set jg7 written, not run yet). JohnnyGuitar 147 → 109.
+JohnnyGuitar batch 9: 31 (#1007, ext-jg9.md: sounds played from files' paths with fades,
+PlaySoundFade, StopSoundLooping, PlayHolotape and StopHolotape, terminal menu items added and
+removed, the audio markers, Jump, SetAutoMove, SetPlayerMovementFlags, SetVelEx,
+GetLinearVelocity, GetRunSpeed, the karma title, the item effect line, the spread, grenade
+hold, compass hostile, sky colour and camera FOV; probe set jg9 written, not run yet).
+JohnnyGuitar 109 → 78 on its own branch (47 with batch 8).
 ShowOff batch 5: the last 37 (#1010, ext-showoff.md §8: the level-up and pause menus on request, live
 explosions, the shot switches, fast travel, detection and combat counts, VATS and item values, the
 player's small states; from the pages, not probed). Census after it, beside batch 4: 565 (ShowOff 71 → 34;
