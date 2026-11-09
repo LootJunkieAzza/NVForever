@@ -2622,6 +2622,11 @@ fn lines_out(speech: &[fnv_game::game::Speech], player: impl Fn(FormId) -> Optio
     speech
         .iter()
         .filter(|s| !s.remote)
+        // A player's voice (its set's lines and its own grunts) goes to the others by the
+        // voice table (`nvf_play::party_quips`), from the speaker's own game, once: a line
+        // here with a player as speaker (the host's, or a guest's stand-in here) would be
+        // heard twice or from the wrong body (item 106).
+        .filter(|s| s.speaker != FormId::PLAYER_REF && player(s.speaker).is_none())
         .filter_map(|s| {
             let speaker = map(s.speaker).filter(|r| !is_puppet(*r))?;
             let mut flags = 0;
@@ -3173,6 +3178,11 @@ mod tests {
         assert_eq!(other[2].target, Some(FormId(PUPPET_REF + 1)));
         assert_eq!(lines_in(&out, 1.5, Some(2)).len(), 2);
         assert!(lines_in(&out, 4.5, Some(2)).is_empty());
+        // A player's voice goes by the voice table, not here: the host's own lines and its
+        // stand-in for a guest are not sent as speakers (item 106).
+        let host_grunt = speech(FormId::PLAYER_REF.0, None, 1.0);
+        let stand_in_line = speech(stand_in.0, None, 1.0);
+        assert!(lines_out(&[host_grunt, stand_in_line], |r| (r == stand_in).then_some(1)).is_empty());
     }
 
     fn placed(id: u32, disabled: bool) -> fnv_sim::refs::PlacedRef {
