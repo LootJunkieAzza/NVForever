@@ -18,11 +18,11 @@ use crate::frame_pace::{self, DisplaySync, FramePace};
 use crate::graphics::{self, Graphics};
 use crate::grass::GrassConfig;
 use crate::foot_ik::FootIkSettings;
-use crate::fps_counter::FpsCounter;
 use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
 use crate::lod::LodState;
 use crate::nav::NavState;
+use crate::perf_overlay::{Corner, FpsCounter};
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
 use crate::window_mode;
@@ -355,8 +355,9 @@ const FOV_MIN: f32 = 50.0;
 const FOV_MAX: f32 = 110.0;
 const FOV_CHOICES: usize = 13;
 
-/// The field of view (`--fov`), the frame rate counter (`fps_counter.rs`) and how fast frames are shown (`frame_pace.rs`; not while
-/// `--log-frame-times` measures, which wants vsync off).
+/// The field of view (`--fov`), the frame rate counter (the performance overlay,
+/// `perf_overlay/`: its switch, a switch per row and its corner) and how fast frames are
+/// shown (`frame_pace.rs`; not while `--log-frame-times` measures, which wants vsync off).
 fn register_display(app: &mut App) {
     add_setting(
         app,
@@ -376,12 +377,13 @@ fn register_display(app: &mut App) {
             key: "fps-counter",
             group: GROUP_PICTURE,
             label: "Frame rate counter",
-            note: "On: the frames a second, the mean frame time and the slowest frame of the last half second are shown in the top-right corner. Not in the original. (--fps)",
+            note: "On: a small panel of performance readings in a corner of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)",
             get: |w| w.resource::<FpsCounter>().show,
             set: |w, on| w.resource_mut::<FpsCounter>().show = on,
             slider: None,
         },
     );
+    register_counter_rows(app);
     if app.world().resource::<Args>().log_frame_times.is_some() {
         return;
     }
@@ -428,6 +430,80 @@ fn register_display(app: &mut App) {
             ),
         ),
     );
+}
+
+/// The frame rate counter's rows and corner, listed under its switch (issue #1868; the
+/// defaults are the issue's, `perf_overlay::Rows`). Each note says what the row reads and
+/// where from.
+fn register_counter_rows(app: &mut App) {
+    let row = |key: &'static str, label: &'static str, note: &'static str, get: fn(&World) -> bool, set: fn(&mut World, bool)| Setting { key, group: GROUP_PICTURE, label, note, get, set, slider: None };
+    let rows = [
+        row(
+            "fps-counter-fps",
+            "Counter: frame rate",
+            "The frames a second and the mean frame time of the last half second, and the 1% low: the mean of the slowest hundredth of the frames of the last 10 seconds. Measured from the time between frames.",
+            |w| w.resource::<FpsCounter>().rows.fps,
+            |w, on| w.resource_mut::<FpsCounter>().rows.fps = on,
+        ),
+        row(
+            "fps-counter-cpu",
+            "Counter: CPU use",
+            "The whole machine's processor use, as Task Manager shows it, and the game's own as cores kept busy: 1.0 is all of one core's time, so a thread held at its limit reads at least 1.0 however many cores the machine has. From Windows' performance counters and the game's processor time, read once a second while the counter shows. Windows only.",
+            |w| w.resource::<FpsCounter>().rows.cpu,
+            |w, on| w.resource_mut::<FpsCounter>().rows.cpu = on,
+        ),
+        row(
+            "fps-counter-gpu",
+            "Counter: GPU use",
+            "The use of the graphics card's busiest engine by every program, as Task Manager shows it. From Windows' performance counters, read once a second while the counter shows. Windows only.",
+            |w| w.resource::<FpsCounter>().rows.gpu,
+            |w, on| w.resource_mut::<FpsCounter>().rows.gpu = on,
+        ),
+        row(
+            "fps-counter-vram",
+            "Counter: GPU memory",
+            "The graphics memory the game holds against the budget the driver gives it (Vulkan's memory budget, read every 2 seconds). It is the driver's figure: it counts the blocks kept empty for reuse, so it is what the game holds, not the size of what is drawn. Left out on a graphics chip that shares the machine's RAM, which has no budget of its own. Marked ! while the game keeps fewer unused models and textures because it is near the budget.",
+            |w| w.resource::<FpsCounter>().rows.vram,
+            |w, on| w.resource_mut::<FpsCounter>().rows.vram = on,
+        ),
+        row(
+            "fps-counter-ram",
+            "Counter: RAM",
+            "The game's memory in RAM (its working set, from Windows once a second while the counter shows) and the share of the machine's RAM in use (read every 2 seconds). Marked ! while the game keeps fewer unused models and textures because the machine has under a tenth of its RAM free. Windows only.",
+            |w| w.resource::<FpsCounter>().rows.ram,
+            |w, on| w.resource_mut::<FpsCounter>().rows.ram = on,
+        ),
+    ];
+    for r in rows {
+        add_setting(app, r);
+    }
+    add_choice_list(
+        app,
+        Setting {
+            key: "fps-counter-corner",
+            group: GROUP_PICTURE,
+            label: "Counter: corner",
+            note: "Where the counter is drawn: at the top right, or at the top left under the messages that come in the corner there.",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: |_| Corner::ALL.iter().map(|c| c.name().to_string()).collect(),
+            chosen: |w| w.resource::<FpsCounter>().corner.name().to_string(),
+            pick: set_counter_corner,
+            save: |w| w.resource::<FpsCounter>().corner.stored().to_string(),
+            load: set_counter_corner,
+            ask_keep: false,
+        },
+    );
+}
+
+/// The counter's corner of this name (or INI text, `Corner::parse`); false: not one.
+fn set_counter_corner(world: &mut World, name: &str) -> bool {
+    let Some(c) = Corner::parse(name) else { return false };
+    world.resource_mut::<FpsCounter>().corner = c;
+    true
 }
 
 /// The display sync of this name (or INI text, `DisplaySync::parse`); false: not one.

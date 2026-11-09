@@ -67,7 +67,6 @@ mod eye_adapt;
 mod fog;
 mod fly;
 mod foot_ik;
-mod fps_counter;
 mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
@@ -153,6 +152,7 @@ mod fsr;
 mod speech_look;
 mod stress_sample;
 mod profile;
+mod perf_overlay;
 mod occlusion;
 mod rooms;
 mod terrain;
@@ -428,8 +428,8 @@ struct Args {
     /// `[Settings] cpu-cache-placement` for this run; without either, `auto`.
     #[arg(long, value_enum)]
     cpu_cache_placement: Option<cpu_placement::Mode>,
-    /// Show the frame rate counter in the top-right corner (fps_counter.rs; a switch on the
-    /// settings page too). Once any setting is saved, NVForever.ini's Frame rate counter
+    /// Show the frame rate counter, the performance overlay (perf_overlay/; a switch on the
+    /// settings page too, its rows and corner as the settings give them). Once any setting is saved, NVForever.ini's Frame rate counter
     /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,
@@ -1342,7 +1342,7 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
-    .add_plugins(fps_counter::FpsCounterPlugin(args.fps))
+    .add_plugins(perf_overlay::PerfOverlayPlugin(args.fps))
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: 0 }))
     .add_plugins(blit_warm::BlitWarmPlugin)
