@@ -348,24 +348,38 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
       click drops (§6) [design: owner 2026-11-02, #1393].
     - The repair hint ("Repair R)" / "Maintain R)") is built (repair.md §5), and the
       repair list takes the pointer (repair.md §5).
-  - **Every tab's hints** (2026-11-08, #1896; `items.rs::page_hints`), top to bottom in the
-    original's order: the equip action ("Equip Enter)", "Unequip Enter)" on what is worn,
-    "Use Enter)" on aid and books), "Drop Right Mouse)", the repair action ("Repair R)",
-    "Maintain R)" at full condition; "Repair R)" dim on what nothing repairs: aid, misc,
-    ammo), "Hotkey 1-8)", and on Weapons "Mod X)" (dim on a weapon without mod slots)
-    [observed: the original's screenshots on issue #1896, controller connected, 1920 ×
-    1080: Equip (Use on Aid), Drop, Repair, Hot Key, then Mod on Weapons only]. With a
-    controller the keys are its buttons: A, X, Y, LB; the hotkey keeps "1-8)", no button
-    assigns hotkeys yet [design]. Dim also: the equip action when Enter would do nothing,
+  - **Every tab's hints** (2026-11-08, #1896; `items.rs::page_hints`), by the input device
+    (`crate::pad::labels`, the Controls page's Input Device; a change of device draws the
+    page again):
+    - **With a controller** the whole column, top to bottom in the original's order: the
+      equip action ("Equip A)", "Unequip A)" on what is worn, "Use A)" on aid and books),
+      "Drop X)", the repair action ("Repair Y)", "Maintain Y)" at full condition; dim on
+      what nothing repairs: aid, misc, ammo), "Hotkey 1-8)", and on Weapons "Mod LB)" (dim
+      on a weapon without mod slots) [observed: the original's screenshots on issue #1896,
+      taken with a controller connected, 1920 × 1080: Equip (Use on Aid), Drop, Repair,
+      Hot Key, then Mod on Weapons only]. The hotkey keeps "1-8)", no button assigns
+      hotkeys yet [design].
+    - **With the keyboard and mouse** only the repair action ("Repair R)" / "Maintain R)")
+      on every tab, dim where it does nothing, and "Mod X)" under it on Weapons [observed
+      2026-11-09: the original's InventoryMenu button tiles read with keyboard and mouse
+      on each ITEMS tab: `IM_EquipButton`, `IM_DropButton` and `IM_HotkeyButton` hidden
+      on every tab; `IM_RepairButton` shown on every tab, its target off where it does
+      nothing (Aid, Misc, Ammo, an item at full condition); `IM_ModButton` shown on
+      Weapons only]. Enter, the right click and the number keys still equip or use, drop
+      and assign hotkeys; only their hints are not shown. Until 2026-11-09 the keyboard
+      had the whole column too, with "Enter)", "Right Mouse)" and "1-8)".
+
+    Dim also: the equip action when Enter would do nothing,
     by the game's own checks (`menu::model::enter_acts`: `World::equip_check`, which
     `World::equip_at` runs, and `World::unequip_check`): misc and ammo, a book that
     teaches nothing, a broken weapon not worn, what a script locked; the hotkey on what a
     hotkey cannot hold (misc, ammo; weapon-wheel.md); drop on a quest item or a folder
     row; every hint on an empty tab [design]. [documented: `IM_DropButton`'s X; observed:
     the issue's report and screenshots of the original's sets per tab.] The hotkey panel
-    still hides them all. Log: one `pipboy hints: items <tab>: <hint>, …`
-    line, "(dim)" after a dim hint, whenever the set changes; the item's own `pipboy
-    items: <name> Repair R)` and `… Mod X)` lines stay.
+    still hides them all. Log: one `pipboy hints: items <tab>: <hint>, …` line of the
+    hints drawn, "(dim)" after a dim hint, whenever the set changes (with the device too);
+    the item's own `pipboy items: <name> Repair R)` and `… Mod X)` lines stay (with a
+    controller `… Repair Y)`, `… Mod LB)`).
     - **Their places** (`frame::Ctx::hint_column`): the first row at the Repair button's
       place (855, 45) [documented: `IM_RepairButton`], its text `BUTTON_TEXT_Y` lower as
       every button's; the rows 46 apart; each word right-aligned at 855, the heading's
@@ -373,21 +387,22 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
       letters 40 px under the Caps card's (43 of our units; ours 42.5), rows 42 to 43 px
       apart against the item list's 47 to 48 px rows there (0.90; 0.90 × 51 = 46), the
       words ending at the heading's right end with the button glyph beside them].
-      NVForever's keys are text, and the keyboard's are long ("Right Mouse)"): the keys
-      may reach 45 past the menus' rectangle (the lit screen ends about 49 past the
+      With the keyboard the same column holds Repair and, on Weapons, Mod under it. The
+      keys may reach 45 past the menus' rectangle (the lit screen ends about 49 past the
       heading at the first row on NVForever's 1280 × 720 frame); when the widest would
-      run further, the whole column moves left until it ends there, the words still on one
-      line [design]. The column lies inside the picture's documented box (450 to 830), as
+      run further (a long key name, as the mod menu's "Enter)"), the whole column moves
+      left until it ends there, the words still on one line [design]. The column lies inside the picture's documented box (450 to 830), as
       the original's words do; it is drawn after the picture, over it, so no picture
       hides a hint (before 2026-11-09 the 10mm Pistol's picture covered "Drop" on
-      NVForever's own frame). With the keyboard's long keys the moved column can still
-      reach the right edge of a wide picture, drawn over it in the same amber. Until
+      NVForever's own frame). Until
       2026-11-09 the order was Repair, Mod, Equip, Drop, Hotkey, 47 apart, each whole hint
       right-aligned 10 short of 855.
   - The mod menu (`item_mod.rs`): weapon-mods.md §5. Its two hints are a column as the
     page's, from (855, 75): "Mod Enter)" first, "Exit E)" 46 under it [observed: "Mod"
     over "Exit", 43 px apart, on the original's screenshot on issue #1896; documented: the
-    file lists the Mod button first]; until 2026-11-09 Exit stood over Mod, 40 apart.
+    file lists the Mod button first]; until 2026-11-09 Exit stood over Mod, 40 apart. The
+    same two rows with the keyboard and mouse [hypothesis: no reading of the original's mod
+    menu with the keyboard yet].
   - The flat image (no model's screen) shows only once the Pip-Boy is all the way up:
     before, it flashed for a frame or more on every Tab while the body took the screen
     (the owner's list 5, item 2).

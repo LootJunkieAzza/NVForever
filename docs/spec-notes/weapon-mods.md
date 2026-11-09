@@ -198,7 +198,8 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
   words right-aligned at 855 with the keys after them (with a controller "Mod A)" and
   "Exit B)"; `sInventoryMod`, `sExit`, else "Mod", "Exit"), Mod dim on the weapon's own
   row and clickable on a mod [observed: "Mod" over "Exit" on the original's screenshot on
-  issue #1896] (#1896; until 2026-11-08 "Attach Enter)" or "Remove Enter)" on a mod
+  issue #1896, taken with a controller; hypothesis: the same two with the keyboard and
+  mouse] (#1896; until 2026-11-08 "Attach Enter)" or "Remove Enter)" on a mod
   only, and until 2026-11-09 under "Exit E)").
 - On the weapon's row: its picture and the top cards (its condition, and DAM). On a mod's
   row: the mod's picture and description, the top cards for the weapon as it is (CND and

@@ -89,8 +89,8 @@ pub const HINT_KEY_ROOM: f32 = 45.0;
 /// Where a hint column's words end: at `words_right`, unless the widest key part
 /// (`key_widths`: each row's drawn width less its word's) would then run past `limit`;
 /// then the whole column moves left until that key ends at `limit`, the words still
-/// right-aligned on one line [design: the keyboard's key names ("Right Mouse)") are much
-/// longer than a controller's glyphs, which fit].
+/// right-aligned on one line [design: some keyboard key names (the mod menu's "Enter)")
+/// are longer than a controller's buttons, which fit].
 pub fn hint_words_right(words_right: f32, limit: f32, key_widths: impl IntoIterator<Item = f32>) -> f32 {
     let widest = key_widths.into_iter().fold(0.0, f32::max);
     words_right.min(limit - widest)
@@ -662,8 +662,8 @@ mod tests {
     use super::*;
 
     /// A hint column's words end at the heading's right end while every key fits in the
-    /// room past it (a controller's short keys); a longer key (the keyboard's "Right
-    /// Mouse)") moves the whole column left until it ends at the limit (#1896).
+    /// room past it (a controller's short keys); a longer key (the keyboard's "Enter)")
+    /// moves the whole column left until it ends at the limit (#1896).
     #[test]
     fn a_hint_column_moves_left_only_for_a_key_that_does_not_fit() {
         let (right, limit) = (MAIN.max.x, MAIN.max.x + HINT_KEY_ROOM);

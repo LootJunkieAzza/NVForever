@@ -80,7 +80,8 @@ const EFFECT_IN: f32 = 15.0;
 
 /// The menu's two hints in drawing order (#1896), the mod button first and the exit button
 /// under it [documented: the file lists the Mod button before `IMM_CancelButton`;
-/// observed: "Mod" over "Exit" on the original's screenshots on issue #1896]: "Mod
+/// observed: "Mod" over "Exit" on the original's screenshots on issue #1896, taken with a
+/// controller; hypothesis: the same two with the keyboard and mouse]: "Mod
 /// Enter)" (Enter, with a controller A), attaching or removing the chosen mod and dim on
 /// the weapon's own row, where it does nothing [documented: the file's Mod button names
 /// `sInventoryMod`, `fnv_ui::strings`; design: its words "Mod" as the ITEMS page's, shown
