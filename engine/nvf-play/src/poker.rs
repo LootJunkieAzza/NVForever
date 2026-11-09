@@ -181,6 +181,9 @@ pub struct Session {
     pub cues: Vec<(f32, &'static str)>,
     /// Hands won by a person at the table, to show as highlights then (item 125).
     pub wins: Vec<(f32, String)>,
+    /// The people's reactions to the last hand, when their time comes (item 127): who
+    /// (`None` this player) and whether they won it.
+    pub moods: Vec<(f32, Option<u8>, bool)>,
     /// Hands played and won by the player, for the summary.
     hands: u32,
     won: u32,
@@ -223,6 +226,16 @@ pub struct Guest {
 }
 
 impl Session {
+    /// The people at the table this screen knows, by seat: (seat, `None` for this player,
+    /// else the player's id). The owner knows every person; a guest itself and the owner.
+    pub fn people(&self) -> Vec<(usize, Option<u8>)> {
+        match &self.coop {
+            None => vec![(PLAYER, None)],
+            Some(Coop::Owner { humans, .. }) => std::iter::once((PLAYER, None)).chain(humans.iter().filter(|h| !h.left).map(|h| (h.seat, Some(h.player)))).collect(),
+            Some(Coop::Guest(g)) => g.seat.map(|s| (s, None)).into_iter().chain(std::iter::once((PLAYER, Some(g.owner)))).collect(),
+        }
+    }
+
     /// When a seat's `k`th hole card is dealt: one card each from the small blind round,
     /// then the second (aid seconds).
     pub fn card_time(&self, seat: usize, k: usize) -> f32 {
@@ -573,6 +586,7 @@ fn new_session(table: Table, casino: Casino, buy_in: u32, now: f32) -> Session {
         next_hand: Some(now + 1.0),
         cues: Vec::new(),
         wins: Vec::new(),
+        moods: Vec::new(),
         hands: 0,
         won: 0,
         coop: None,
@@ -727,6 +741,15 @@ fn log_events(s: &mut Session, events: &[Event], now: f32) {
             }
             Event::Out { seat } => info!("poker: {} is out of chips", name(*seat)),
             Event::HandOver => {
+                // Every person dealt in: the winners cheer, the others look beaten.
+                for (seat, who) in s.people() {
+                    let Some(x) = s.table.seats.get(seat) else { continue };
+                    if x.out {
+                        continue;
+                    }
+                    let won = s.table.winners.iter().any(|w| w.0 == seat);
+                    s.moods.push((now + 0.4, who, won));
+                }
                 // Beaten at the showdown.
                 if s.table.showdown && s.player().in_hand() && !s.table.winners.iter().any(|w| w.0 == PLAYER) {
                     s.cues.push((now + 0.1, sound::LOSE));

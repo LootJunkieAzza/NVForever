@@ -25,6 +25,17 @@ use bevy::prelude::*;
 use fnv_sim::FormId;
 use std::collections::HashMap;
 
+/// A body's reaction to a card game's result (item 127): who (`None` this player, else
+/// another player's id) and whether it won the hand (blackjack, poker) or the game
+/// (Caravan). The renderer plays a cheer or a beaten idle on that body
+/// (`nvforever::match_end`). Each screen finds the results in the table it already shows,
+/// so every screen at the table sends the same ones [design].
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HandMood {
+    pub who: Option<u8>,
+    pub won: bool,
+}
+
 /// A big moment of a match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Highlight {
@@ -140,12 +151,19 @@ fn watch(darts: Res<DartsScreen>, pool: Res<PoolScreen>, mut seen: ResMut<Seen>,
 }
 
 /// Poker: the hands won whose time came (`poker::Session::wins`, aid seconds).
-fn poker_wins(time: crate::pause::AidTime, mut poker: ResMut<crate::poker::PokerScreen>, mut out: MessageWriter<Flourish>) {
+fn poker_wins(time: crate::pause::AidTime, mut poker: ResMut<crate::poker::PokerScreen>, mut out: MessageWriter<Flourish>, mut moods: MessageWriter<HandMood>) {
     let Some(s) = poker.0.as_mut() else { return };
+    let now = time.elapsed_secs();
+    if !s.moods.is_empty() {
+        let (due, later): (Vec<_>, Vec<_>) = s.moods.drain(..).partition(|m| m.0 <= now);
+        s.moods = later;
+        for (_, who, won) in due {
+            moods.write(HandMood { who, won });
+        }
+    }
     if s.wins.is_empty() {
         return;
     }
-    let now = time.elapsed_secs();
     let (due, later): (Vec<_>, Vec<_>) = s.wins.drain(..).partition(|w| w.0 <= now);
     s.wins = later;
     for (_, text) in due {
@@ -222,7 +240,7 @@ pub struct FlourishPlugin;
 
 impl Plugin for FlourishPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Seen>().add_message::<Flourish>().add_systems(Update, (watch, poker_wins, show, animate).chain().after(PlaySet::Ui));
+        app.init_resource::<Seen>().add_message::<Flourish>().add_message::<HandMood>().add_systems(Update, (watch, poker_wins, show, animate).chain().after(PlaySet::Ui));
     }
 }
 

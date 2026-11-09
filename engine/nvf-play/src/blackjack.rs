@@ -131,6 +131,8 @@ pub struct Session {
     /// Hands won to show as highlights when their time comes (item 125): who (`None` this
     /// player, else another player at a shared table) and whether it was a blackjack.
     wins: Vec<(f32, Option<u8>, bool)>,
+    /// Hands lost, for the beaten idle when their time comes (item 127): whose.
+    losses: Vec<(f32, Option<u8>)>,
     /// The round took the earnings to the max: the menu closes then.
     pub banned_at: Option<f32>,
     pub leaving: Option<(f32, &'static str)>,
@@ -636,6 +638,7 @@ fn open(
         pending: None,
         sounds: Vec::new(),
         wins: Vec::new(),
+        losses: Vec::new(),
         banned_at: None,
         leaving: None,
         auto: false,
@@ -1054,21 +1057,25 @@ fn follow_others(s: &mut Session, v: &SharedView, me: u8, my_round: u32, now: f3
                     t += DEAL_GAP * rank / (n_others + 1.0);
                     o.paid = None;
                     info!("blackjack: seat {} dealt (shared round {}, bet {})", seat.player, seat.log.round, seat.log.bet);
-                    show_other(o, events, t, &mut s.shown, &mut s.reveal, &mut s.sounds, &mut s.wins);
+                    show_other(o, events, t, &mut s.shown, &mut s.reveal, &mut s.sounds, (&mut s.wins, &mut s.losses));
                 }
                 Followed::Acted { action, events } => {
                     info!("blackjack: seat {}: {}", seat.player, action.name());
                     let t = now.max(o.busy_until);
-                    show_other(o, events, t, &mut s.shown, &mut s.reveal, &mut s.sounds, &mut s.wins);
+                    show_other(o, events, t, &mut s.shown, &mut s.reveal, &mut s.sounds, (&mut s.wins, &mut s.losses));
                 }
             }
         }
     }
 }
 
+/// Hands won to show (when, whose, a blackjack) and hands lost (when, whose).
+type WinLog = Vec<(f32, Option<u8>, bool)>;
+type LossLog = Vec<(f32, Option<u8>)>;
+
 /// Another seat's events on the felt: its cards at its place, and the dealer's that this
 /// player's own hands did not draw (they were bust or settled) [design].
-fn show_other(o: &mut OtherSeat, events: Vec<Event>, mut t: f32, dealer: &mut Vec<Shown>, reveal: &mut Option<f32>, sounds: &mut Vec<(f32, UiEvent)>, wins: &mut Vec<(f32, Option<u8>, bool)>) {
+fn show_other(o: &mut OtherSeat, events: Vec<Event>, mut t: f32, dealer: &mut Vec<Shown>, reveal: &mut Option<f32>, sounds: &mut Vec<(f32, UiEvent)>, (wins, losses): (&mut WinLog, &mut LossLog)) {
     for e in events {
         match e {
             Event::Card { seat: Seat::Dealer, index, card, .. } => {
@@ -1102,6 +1109,8 @@ fn show_other(o: &mut OtherSeat, events: Vec<Event>, mut t: f32, dealer: &mut Ve
             Event::Settled { outcomes, .. } => {
                 if let Some(natural) = won(&outcomes) {
                     wins.push((t, Some(o.player), natural));
+                } else if lost(&outcomes) {
+                    losses.push((t, Some(o.player)));
                 }
                 o.paid = Some((t, outcomes.iter().map(|(_, p)| p).sum()));
                 o.collect_at = Some(t + COLLECT_SECONDS);
@@ -1158,6 +1167,8 @@ fn schedule(s: &mut Session, events: Vec<Event>, mut t: f32, stats: &mut Blackja
             Event::Settled { outcomes, dealer, net } => {
                 if let Some(natural) = won(&outcomes) {
                     s.wins.push((t, None, natural));
+                } else if lost(&outcomes) {
+                    s.losses.push((t, None));
                 }
                 let paid: u32 = outcomes.iter().map(|(_, p)| p).sum();
                 let chip = s.chip;
@@ -1210,6 +1221,11 @@ fn won(outcomes: &[(Outcome, u32)]) -> Option<bool> {
     outcomes.iter().any(|(o, _)| matches!(o, Outcome::Win | Outcome::Blackjack)).then(|| outcomes.iter().any(|(o, _)| *o == Outcome::Blackjack))
 }
 
+/// A round lost: every hand lost, bust or given up (a push is neither won nor lost).
+fn lost(outcomes: &[(Outcome, u32)]) -> bool {
+    !outcomes.is_empty() && outcomes.iter().all(|(o, _)| matches!(o, Outcome::Lose | Outcome::Bust | Outcome::Surrendered))
+}
+
 /// The highlight of a hand won (item 125): this player's (`None`) or another's.
 fn win_flourish(who: Option<u8>, natural: bool, tables: Option<&Tables>) -> Flourish {
     let what = if natural { "BLACKJACK" } else { "WINS THE HAND" };
@@ -1226,12 +1242,21 @@ fn ordinal(i: usize) -> String {
 }
 
 /// Timed sounds and lines; the end after a ban; leaving.
-fn step(time: AidTime, mut screen: ResMut<BlackjackScreen>, mut next: ResMut<NextState<PlayState>>, mut sounds: MessageWriter<UiSound>, (mut flourish, tables): (MessageWriter<Flourish>, Option<Res<Tables>>)) {
+fn step(time: AidTime, mut screen: ResMut<BlackjackScreen>, mut next: ResMut<NextState<PlayState>>, mut sounds: MessageWriter<UiSound>, (mut flourish, tables, mut moods): (MessageWriter<Flourish>, Option<Res<Tables>>, MessageWriter<crate::flourish::HandMood>)) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
     s.wins.retain(|&(t, who, natural)| {
         if t <= now {
             flourish.write(win_flourish(who, natural, tables.as_deref()));
+            moods.write(crate::flourish::HandMood { who, won: true });
+            false
+        } else {
+            true
+        }
+    });
+    s.losses.retain(|&(t, who)| {
+        if t <= now {
+            moods.write(crate::flourish::HandMood { who, won: false });
             false
         } else {
             true
@@ -1377,6 +1402,7 @@ mod tests {
             pending: None,
             sounds: Vec::new(),
             wins: Vec::new(),
+            losses: Vec::new(),
             banned_at: None,
             leaving: None,
             auto: false,

@@ -1488,13 +1488,12 @@ fn dot(p: &mut ChildSpawnerCommands, at: Vec2, r: f32, color: Color) {
     ));
 }
 
-const AMBER: Color = Color::srgb(0.98, 0.78, 0.35);
 const CHALK: Color = Color::srgb(0.92, 0.92, 0.88);
 
 fn draw(
     mut commands: Commands,
     screen: Res<PoolScreen>,
-    tables: Option<Res<Tables>>,
+    (tables, casino): (Option<Res<Tables>>, Option<Res<crate::casino_hud::CasinoFaces>>),
     time: AidTime,
     old: Query<Entity, With<PoolRoot>>,
     (windows, cams): crate::minigames::ViewQueries,
@@ -1508,6 +1507,14 @@ fn draw(
     let shade = if p.page == Page::Play && p.frame.is_some() { 0.0 } else { 0.55 };
     let root = commands.spawn((PoolRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.02, 0.02, 0.02, shade)), GlobalZIndex(25))).id();
     let proj = windows.single().ok().zip(cams.single().ok()).zip(p.frame);
+    let plain;
+    let faces = match casino.as_deref() {
+        Some(f) => f,
+        None => {
+            plain = crate::casino_hud::CasinoFaces::plain();
+            &plain
+        }
+    };
     commands.entity(root).with_children(|ui| {
         let foe_word = match p.foe {
             Foe::Player(x) if p.joined.is_none() => name(x),
@@ -1516,55 +1523,51 @@ fn draw(
         };
         match p.page {
             Page::Main => {
-                text(ui, "Pool", Val::Percent(8.0), Val::Percent(14.0), 34.0, AMBER);
-                let mut lines: Vec<String> = Vec::new();
-                if let Some(owner) = p.joined {
-                    lines.push(format!("{} has this table.", name(owner)));
-                    lines.push(format!("Space  Ask {} for a game", name(owner)));
-                } else {
-                    lines.push(if p.at_hand > 1 { "1  Challenge".into() } else { "1  Challenge the opponent".into() });
-                    lines.push("2  Practice".into());
-                    if let Some(x) = p.asking.first() {
-                        lines.push(format!("3  Play {}", name(*x)));
+                use crate::match_lobby::{menu_card, row};
+                match p.joined {
+                    Some(owner) => menu_card(ui, "Pool", &format!("{} has this table.", name(owner)), &[row("Space", format!("Ask {} for a game", name(owner))), row("Tab", "Leave")], ""),
+                    None => {
+                        let mut rows = vec![row("1", if p.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), row("2", "Practice")];
+                        if let Some(x) = p.asking.first() {
+                            rows.push(row("3", format!("Play {}", name(*x))));
+                        }
+                        rows.push(row("Tab", "Leave"));
+                        menu_card(ui, "Pool", "", &rows, "Eight-ball. Aim with the mouse; hold the left button to charge, let go to shoot.");
                     }
-                }
-                lines.push("Tab  Leave".into());
-                for (i, l) in lines.iter().enumerate() {
-                    text(ui, l.clone(), Val::Percent(8.0), Val::Percent(24.0 + 5.0 * i as f32), 22.0, CHALK);
                 }
             }
             Page::Challenge => {
-                text(ui, "Challenge", Val::Percent(8.0), Val::Percent(14.0), 34.0, AMBER);
-                text(ui, "1  The house's player (a bet)", Val::Percent(8.0), Val::Percent(24.0), 22.0, CHALK);
-                for (i, m) in crate::match_lobby::POOL_MODES.iter().enumerate() {
-                    let open = crate::match_lobby::available(*m, p.at_hand);
-                    let line = if open { format!("{}  {}", i + 2, m.label) } else { format!("{}  {}   ({} players near the table)", i + 2, m.label, m.players) };
-                    text(ui, line, Val::Percent(8.0), Val::Percent(29.0 + 5.0 * i as f32), 22.0, if open { CHALK } else { CHALK.with_alpha(0.35) });
+                use crate::match_lobby::{available, menu_card, row, POOL_MODES};
+                let mut rows = vec![row("1", "The house's player").note("a bet")];
+                for (i, m) in POOL_MODES.iter().enumerate() {
+                    let open = available(*m, p.at_hand);
+                    let r = row(&(i + 2).to_string(), m.label).enabled(open);
+                    rows.push(if open { r } else { r.note(format!("{} players near the table", m.players)) });
                 }
-                text(ui, "Tab  Back", Val::Percent(8.0), Val::Percent(52.0), 22.0, CHALK);
-                if !p.status.is_empty() {
-                    text(ui, p.status.clone(), Val::Percent(8.0), Val::Percent(60.0), 20.0, AMBER);
-                }
+                rows.push(row("Tab", "Back"));
+                menu_card(ui, "Challenge", "Who to play", &rows, &p.status);
             }
             Page::Gather => {
                 text(ui, "Tab  Leave", Val::Percent(3.0), Val::Percent(92.0), 18.0, CHALK);
             }
             Page::Bet => {
-                text(ui, "Challenge the opponent", Val::Percent(8.0), Val::Percent(14.0), 30.0, AMBER);
-                text(ui, format!("Bet: {} caps   (Q less, E more)", p.bet), Val::Percent(8.0), Val::Percent(24.0), 22.0, CHALK);
-                text(ui, format!("The opponent plays at {} of 10. A win pays twice the bet.", pool::difficulty(p.bet)), Val::Percent(8.0), Val::Percent(29.0), 18.0, CHALK);
-                text(ui, "Space  Rack them up      Tab  Back", Val::Percent(8.0), Val::Percent(36.0), 22.0, CHALK);
+                use crate::match_lobby::{menu_card, row};
+                let rows = [row("Q", "Less"), row("E", "More"), row("Space", "Rack them up"), row("Tab", "Back")];
+                let foot = format!("The opponent plays at {} of 10. A win pays twice the bet.", pool::difficulty(p.bet));
+                menu_card(ui, "Challenge the opponent", &format!("Bet: {} caps", p.bet), &rows, &foot);
             }
             Page::Play => {
-                // Who has what.
+                // Who has what: the HUD-look panel while the game runs, the leaderboard at its end.
+                use crate::casino_hud::{help_line, leaderboard, score_panel, Place, ScoreRow};
+                let mut foot = (p.stake > 0).then(|| format!("Stake: {} caps", p.stake));
                 if p.practice() {
-                    text(ui, format!("Practice: {} balls on the table", p.table.balls[1..].iter().filter(|b| b.on).count()), Val::Percent(3.0), Val::Percent(3.0), 22.0, AMBER);
+                    let rows = [ScoreRow { name: "Practice".into(), score: format!("{}", p.table.balls[1..].iter().filter(|b| b.on).count()), note: "balls on the table".into(), up: true }];
+                    score_panel(ui, faces, &rows, None);
                 } else if let Some(m) = &p.multi {
                     // A players' game of more than two: each seat, its balls, whose shot.
                     let who = |s: usize| p.players.get(s).map_or_else(|| "?".to_string(), |x| if Some(*x) == p.me { "You".to_string() } else { name(*x) });
-                    for s in 0..m.mode.players() {
-                        let up = if m.turn == s && m.winner.is_none() { "> " } else { "  " };
-                        let what = if m.mode.cutthroat() {
+                    let what = |s: usize| {
+                        if m.mode.cutthroat() {
                             if m.eliminated(s) { "out".to_string() } else { format!("{} balls left", m.balls_left(&p.table, s)) }
                         } else {
                             let team = m.team_of(s);
@@ -1573,8 +1576,18 @@ fn draw(
                                 2 => format!("team {}, stripes", team + 1),
                                 _ => format!("team {}, open table", team + 1),
                             }
-                        };
-                        text(ui, format!("{up}{} ({what})", who(s)), Val::Percent(3.0), Val::Percent(3.0 + 4.5 * s as f32), 22.0, if s == p.mine() { AMBER } else { CHALK });
+                        }
+                    };
+                    let seats = m.mode.players();
+                    if m.winner.is_some() {
+                        let mut order: Vec<usize> = (0..seats).collect();
+                        order.sort_by_key(|&s| (!m.seat_won(s), m.eliminated(s), s));
+                        let won: Vec<String> = order.iter().filter(|&&s| m.seat_won(s)).map(|&s| who(s)).collect();
+                        let places: Vec<Place> = order.iter().map(|&s| Place { name: who(s), detail: what(s) }).collect();
+                        leaderboard(ui, faces, &won.join(" & "), &places);
+                    } else {
+                        let rows: Vec<ScoreRow> = (0..seats).map(|s| ScoreRow { name: who(s), score: String::new(), note: what(s), up: m.turn == s }).collect();
+                        score_panel(ui, faces, &rows, foot.as_deref());
                     }
                 } else {
                     let mine = p.mine();
@@ -1583,17 +1596,18 @@ fn draw(
                         2 => format!("stripes, {} left", p.table.left_of(2)),
                         _ => "open table".to_string(),
                     };
-                    let up = |s: usize| if p.turn() == s && p.game.winner.is_none() { "> " } else { "  " };
-                    text(ui, format!("{}You ({})", up(mine), side(mine)), Val::Percent(3.0), Val::Percent(3.0), 22.0, AMBER);
-                    text(ui, format!("{}{} ({})", up(1 - mine), foe_word, side(1 - mine)), Val::Percent(3.0), Val::Percent(7.5), 22.0, CHALK);
-                    if p.game.winner.is_none() && p.game.shots_left > 1 {
-                        text(ui, format!("{} shots", p.game.shots_left), Val::Percent(3.0), Val::Percent(12.0), 18.0, CHALK);
-                    }
-                    if p.stake > 0 {
-                        text(ui, format!("Stake: {} caps", p.stake), Val::Percent(80.0), Val::Percent(3.0), 20.0, CHALK);
+                    let who = |s: usize| if s == mine { "You".to_string() } else { foe_word.to_string() };
+                    if let Some(w) = p.game.winner {
+                        let places = [w, 1 - w].map(|s| Place { name: who(s), detail: side(s) });
+                        leaderboard(ui, faces, &who(w), &places);
+                    } else {
+                        if p.game.shots_left > 1 {
+                            foot = Some(format!("{} shots{}", p.game.shots_left, foot.map_or_else(String::new, |f| format!("   {f}"))));
+                        }
+                        let rows = [mine, 1 - mine].map(|s| ScoreRow { name: who(s), score: String::new(), note: side(s), up: p.turn() == s });
+                        score_panel(ui, faces, &rows, foot.as_deref());
                     }
                 }
-                text(ui, p.status.clone(), Val::Percent(3.0), Val::Percent(86.0), 22.0, AMBER);
                 let help = if p.placing() {
                     "Ball in hand: move the white, click to put it down"
                 } else if p.my_shot() && p.in_hand() {
@@ -1604,7 +1618,8 @@ fn draw(
                     ""
                 };
                 let keys = if p.joined.is_some() { "Tab  Leave" } else if p.practice() { "R  Rack again   Space  White in hand   Tab  Leave" } else if p.game.winner.is_some() { "R  Menu   Tab  Leave" } else { "Tab  Leave (forfeit)" };
-                text(ui, format!("{help}{}{keys}", if help.is_empty() { "" } else { "      " }), Val::Percent(3.0), Val::Percent(92.0), 18.0, CHALK);
+                help_line(ui, faces, &format!("{}
+{help}{}{keys}", p.status, if help.is_empty() { "" } else { "      " }));
                 // The power.
                 if p.charge.is_some() {
                     let pw = p.power(now);
@@ -1648,7 +1663,7 @@ fn draw(
             }
         }
         if p.page != Page::Play && !p.status.is_empty() {
-            text(ui, p.status.clone(), Val::Percent(8.0), Val::Percent(60.0), 20.0, AMBER);
+            text(ui, p.status.clone(), Val::Percent(8.0), Val::Percent(60.0), 20.0, crate::interface::amber(255.0));
         }
     });
 }

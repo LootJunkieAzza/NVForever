@@ -5,8 +5,12 @@
 //!
 //! - **Which matches** [design]: darts at a board (`nvf_play::minigames::DartsScreen`) and
 //!   pool at a table (`nvf_play::pool::PoolScreen`), once their match has a winner. A
-//!   practice game has no one to beat and plays nothing. Blackjack, poker and Caravan are
-//!   not done: their sessions end without a single winner of two sides.
+//!   practice game has no one to beat and plays nothing. Card games ([`cards`]): each
+//!   player who won the hand (blackjack, poker) or the game (Caravan) cheers once and each
+//!   who lost looks beaten, with no end view or fade (the round goes on).
+//! - **Where they stand** ([`stand`]): a moment after the result each player steps to its
+//!   seat's spot in the row picked for the table (`nvf_play::table_spots`), facing away
+//!   from it, so the camera in front of each sees them with the table behind.
 //! - **Who reacts** ([`sides`]): side 0 is the board's or table's owner, side 1 the other
 //!   side; this player is side 1 when at another player's board (`joined`). The bodies:
 //!   this player's own third-person body (`PlayerIdles::third`, as an idle a script asked
@@ -83,7 +87,7 @@ pub const HOLD: f32 = 0.15;
 pub const FADE_IN: f32 = 0.6;
 /// How long a reaction waits for its clip to be read on a worker thread, or for its body
 /// to be drawn or (the NPC) to stop walking, seconds [engineering choice].
-const CLIP_WAIT: f32 = 0.5;
+const CLIP_WAIT: f32 = 2.0;
 const BODY_WAIT: f32 = 4.0;
 
 /// Which game a match is of.
@@ -165,6 +169,21 @@ pub struct Ended {
     pub table: u32,
     pub winner: usize,
     pub sides: Vec<(Who, usize)>,
+    /// This player's place in the row after the match (`nvf_play::table_spots`): its seat
+    /// and how many stand in the row.
+    pub seat: (usize, usize),
+}
+
+/// This player's seat in a two-sided match: its side (the owner 0, the other side 1), in a
+/// row of two when the other side has a body.
+fn two_seat(sides: &[(Who, usize)]) -> (usize, usize) {
+    let me = sides.iter().find(|(w, _)| *w == Who::Me).map_or(0, |&(_, s)| s);
+    (me.min(1), sides.len().clamp(1, 2))
+}
+
+/// This player's seat in a players' game: its place in the seat order.
+fn players_seat(players: &[u8], me: Option<u8>) -> (usize, usize) {
+    (players.iter().position(|&x| Some(x) == me).unwrap_or(0), players.len().clamp(1, 4))
 }
 
 /// The darts or pool match on the screen, once it has a winner (darts first: only one
@@ -181,9 +200,10 @@ fn ended(darts: Option<&DartsScreen>, pool: Option<&PoolScreen>, opponent: Optio
         // A players' game of three or four (item 128): each player by its own side.
         if d.players.len() > 2 {
             let s = players_sides(&d.players, d.me, |x| d.side_of(x).is_some_and(|s| s == winner));
-            return Some(Ended { kind: Kind::Darts, table: d.board, winner: 0, sides: s });
+            return Some(Ended { kind: Kind::Darts, table: d.board, winner: 0, sides: s, seat: players_seat(&d.players, d.me) });
         }
-        return Some(Ended { kind: Kind::Darts, table: d.board, winner, sides: sides(d.joined, other)? });
+        let s = sides(d.joined, other)?;
+        return Some(Ended { kind: Kind::Darts, table: d.board, winner, seat: two_seat(&s), sides: s });
     }
     let p = pool.and_then(|s| s.0.as_ref())?;
     let winner = p.game.winner?;
@@ -195,9 +215,10 @@ fn ended(darts: Option<&DartsScreen>, pool: Option<&PoolScreen>, opponent: Optio
     };
     if p.multi.is_some() || p.players.len() > 2 {
         let s = players_sides(&p.players, p.me, |x| p.seat_of(x).is_some_and(|s| p.won_by(s)));
-        return Some(Ended { kind: Kind::Pool, table: p.table_ref, winner: 0, sides: s });
+        return Some(Ended { kind: Kind::Pool, table: p.table_ref, winner: 0, sides: s, seat: players_seat(&p.players, p.me) });
     }
-    Some(Ended { kind: Kind::Pool, table: p.table_ref, winner, sides: sides(p.joined, other)? })
+    let s = sides(p.joined, other)?;
+    Some(Ended { kind: Kind::Pool, table: p.table_ref, winner, seat: two_seat(&s), sides: s })
 }
 
 /// A players' game of more than two: every player at it, side 0 when it won (alone or
@@ -249,6 +270,7 @@ struct Pending {
     who: Who,
     mood: Mood,
     since: f32,
+    passes: u32,
 }
 
 #[derive(Resource, Default)]
@@ -265,6 +287,10 @@ pub struct MatchEnd {
     from: Option<Transform>,
     /// The clips read ahead for a game under way.
     read_ahead: bool,
+    /// This player's seat in the row after the match (seat, players), and whether it was
+    /// stood there for this result.
+    seat: (usize, usize),
+    stood: bool,
 }
 
 #[derive(Component)]
@@ -276,7 +302,7 @@ impl Plugin for MatchEndPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MatchEnd>()
             .add_systems(Startup, spawn_blackout)
-            .add_systems(Update, (watch, react).chain().before(nvf_play::player::BodySet).before(crate::idles::drive))
+            .add_systems(Update, (watch, stand, cards, react).chain().before(nvf_play::player::BodySet).before(crate::idles::drive))
             .add_systems(PostUpdate, (camera, blackout).after(TransformSystems::Propagate).before(VisibilitySystems::UpdateFrusta));
     }
 }
@@ -326,10 +352,12 @@ fn watch(
             info!("match end: {:?} at {:08X} won by side {}; the end view", e.kind, e.table, e.winner);
             st.phase = Phase::Result { kind: e.kind, table: e.table, since: now };
             st.from = None;
+            st.seat = e.seat;
+            st.stood = false;
         }
         if st.shown != Some((e.kind, e.table, e.winner)) {
             st.shown = Some((e.kind, e.table, e.winner));
-            st.pending = e.sides.iter().map(|&(who, side)| Pending { who, mood: mood(e.winner, side), since: now }).collect();
+            st.pending = e.sides.iter().map(|&(who, side)| Pending { who, mood: mood(e.winner, side), since: now, passes: PASSES }).collect();
             info!("match end: {}", e.sides.iter().map(|&(who, side)| format!("{who:?} {:?}", mood(e.winner, side))).collect::<Vec<_>>().join(", "));
         }
         return;
@@ -381,6 +409,62 @@ fn stop_own(st: &mut MatchEnd, pi: Option<&mut PlayerIdles>) {
     }
 }
 
+/// This player steps to its spot in the row beside the table (`nvf_play::table_spots`),
+/// facing away from it, a moment after the result (once the game's own last placing is
+/// done: darts steps the winner up to the line) [design: owner item 127, hand-picked
+/// spots]. Every player does so on its own screen; the others see it by the usual
+/// position updates, so all screens show the same row.
+fn stand(
+    real: Res<Time<Real>>,
+    mut st: ResMut<MatchEnd>,
+    sim: Res<nvf_play::sim::SimState>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
+    mut player: Option<ResMut<Player>>,
+) {
+    let Phase::Result { kind, table, since } = st.phase else { return };
+    if st.stood || real.elapsed_secs() - since < STAND_AFTER {
+        return;
+    }
+    st.stood = true;
+    let (Some(phys), Some(player)) = (phys.as_deref_mut(), player.as_deref_mut()) else { return };
+    let Some(f) = nvf_play::table_spots::frame_of(&sim, table) else { return };
+    let lo = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data.load_order.clone()).unwrap_or_default();
+    let tkind = match kind {
+        Kind::Darts => nvf_play::table_spots::Kind::Darts,
+        Kind::Pool => nvf_play::table_spots::Kind::Pool,
+    };
+    let Some(pick) = nvf_play::table_spots::row(phys, &lo, table, f, tkind, player.feet[2]) else { return };
+    let (seat, n) = st.seat;
+    let (spots, heading) = nvf_play::table_spots::spots(f, pick, n);
+    // A narrow row holds fewer: the players past it keep their place.
+    let Some(xy) = spots.get(seat) else {
+        info!("match end: the row beside {table:08X} holds {}; seat {seat} keeps its place", spots.len());
+        return;
+    };
+    let floor = player.feet[2];
+    nvf_play::table_spots::stand_player(phys, player, *xy, floor, heading);
+    info!("match end: this player stands at seat {seat} of {n} beside {table:08X} (feet {:?})", player.feet);
+}
+
+/// Card games (item 127): each player who won the hand (blackjack, poker) or the game
+/// (Caravan) cheers once, each who lost looks beaten, on every screen at the table
+/// (`nvf_play::flourish::HandMood`). No end view: the table's own camera stays.
+fn cards(real: Res<Time<Real>>, mut st: ResMut<MatchEnd>, mut moods: MessageReader<nvf_play::flourish::HandMood>) {
+    let now = real.elapsed_secs();
+    for m in moods.read() {
+        let who = m.who.map_or(Who::Me, Who::Peer);
+        let mood = if m.won { Mood::Cheer } else { Mood::Defeat };
+        info!("match end: card result: {who:?} {mood:?}");
+        // A new hand's reaction takes the place of one still waiting for that body.
+        st.pending.retain(|p| p.who != who);
+        st.pending.push(Pending { who, mood, since: now, passes: 1 });
+    }
+}
+
+/// Seconds after the result before this player steps to its spot [design].
+const STAND_AFTER: f32 = 0.3;
+
 /// Start the reactions asked for, once their clip is read and their body is there.
 #[allow(clippy::too_many_arguments)]
 fn react(
@@ -410,7 +494,7 @@ fn react(
             warn!("match end: no clip for {:?} loads ({first}, {second})", p.mood);
             continue;
         };
-        let play = || IdlePlay::new(IdleKeys::read(clip.start, clip.stop, &clip.text_keys), Some(PASSES));
+        let play = || IdlePlay::new(IdleKeys::read(clip.start, clip.stop, &clip.text_keys), Some(p.passes));
         let reference = match p.who {
             Who::Me => {
                 let Some(pi) = pi.as_deref_mut() else { continue };
@@ -585,6 +669,27 @@ mod tests {
         let s = players_sides(&players, Some(7), |x| x == 3 || x == 7);
         let moods: Vec<_> = s.iter().map(|&(w, side)| (w, mood(0, side))).collect();
         assert_eq!(moods, vec![(Who::Peer(3), Mood::Cheer), (Who::Peer(5), Mood::Defeat), (Who::Me, Mood::Cheer), (Who::Peer(9), Mood::Defeat)]);
+    }
+
+    #[test]
+    fn the_spot_finder_uses_the_end_view() {
+        use nvf_play::table_spots as ts;
+        assert_eq!((ts::CAM_YAW, ts::CAM_DISTANCE, ts::CAM_DROP, ts::CAM_PITCH), (END_VIEW.yaw, END_VIEW.distance, END_VIEW.drop, END_VIEW.pitch));
+        assert_eq!(END_VIEW.shift, 0.0);
+        let eye = [10.0, 20.0, 130.0];
+        let (a, _) = end_camera(eye, 0.7);
+        let (b, _) = ts::camera_at(eye, 0.7);
+        assert!(a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3), "{a:?} {b:?}");
+    }
+
+    #[test]
+    fn each_player_has_its_own_seat_in_the_row() {
+        // The owner and a joined player: seats 0 and 1 of 2, on both screens.
+        assert_eq!(two_seat(&sides(None, Other::Player(2)).unwrap()), (0, 2));
+        assert_eq!(two_seat(&sides(Some(1), Other::Player(1)).unwrap()), (1, 2));
+        // Against an opponent with no body: alone in the row.
+        assert_eq!(two_seat(&sides(None, Other::Npc(None)).unwrap()), (0, 1));
+        assert_eq!(players_seat(&[3, 5, 7, 9], Some(7)), (2, 4));
     }
 
     #[test]

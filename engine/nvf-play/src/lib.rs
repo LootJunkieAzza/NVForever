@@ -92,6 +92,8 @@ pub mod challenges;
 pub mod poker;
 pub mod pool;
 pub mod flourish;
+pub mod table_spots;
+pub mod casino_hud;
 pub mod match_lobby;
 pub mod poker_tables;
 pub mod menu;
@@ -372,7 +374,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(tiles::TilesPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
-            .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, coop_downed::CoopDownedPlugin, coop_audio::CoopAudioPlugin, coop_companions::CoopCompanionsPlugin, coop_subtitles::CoopSubtitlesPlugin, minigames::MinigamesPlugin, pool::PoolPlugin, bash::BashPlugin, flourish::FlourishPlugin, match_lobby::MatchLobbyPlugin))
+            .add_plugins((coop_tables::CoopTablesPlugin, coop_social::CoopSocialPlugin, coop_downed::CoopDownedPlugin, coop_audio::CoopAudioPlugin, coop_companions::CoopCompanionsPlugin, coop_subtitles::CoopSubtitlesPlugin, minigames::MinigamesPlugin, pool::PoolPlugin, bash::BashPlugin, flourish::FlourishPlugin, match_lobby::MatchLobbyPlugin, table_spots::TableSpotsPlugin, casino_hud::CasinoHudPlugin))
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(campfire::CampfirePlugin)
             .add_plugins(credits::CreditsPlugin)

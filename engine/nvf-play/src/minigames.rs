@@ -1755,7 +1755,6 @@ fn crosshair(p: &mut ChildSpawnerCommands, left: Val, top: Val) {
     });
 }
 
-const AMBER: Color = Color::srgb(0.98, 0.78, 0.35);
 const CHALK: Color = Color::srgb(0.92, 0.92, 0.88);
 
 #[allow(clippy::too_many_arguments)]
@@ -1764,7 +1763,7 @@ fn draw(
     d: Res<DartsScreen>,
     (f, stage): (Res<FilletScreen>, Res<FilletStage>),
     time: AidTime,
-    tables: Option<Res<Tables>>,
+    (tables, casino): (Option<Res<Tables>>, Option<Res<crate::casino_hud::CasinoFaces>>),
     old: Query<Entity, With<MinigameRoot>>,
     (windows, cams): crate::minigames::ViewQueries,
 ) {
@@ -1781,7 +1780,15 @@ fn draw(
             board_on_screen(at, fr, c, w)
         });
         let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.02, 0.02, 0.02, shade)), GlobalZIndex(25))).id();
-        commands.entity(root).with_children(|p| draw_darts(p, d, now, &name, aim));
+        let plain;
+        let faces = match casino.as_deref() {
+            Some(f) => f,
+            None => {
+                plain = crate::casino_hud::CasinoFaces::plain();
+                &plain
+            }
+        };
+        commands.entity(root).with_children(|p| draw_darts(p, d, now, &name, aim, faces));
     }
     if let Some(f) = f.0.as_ref() {
         // At the table in 3D the world shows through (the mod's HUD lies over the view).
@@ -1792,61 +1799,49 @@ fn draw(
     }
 }
 
-fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String, aim: Option<Vec2>) {
+fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String, aim: Option<Vec2>, faces: &crate::casino_hud::CasinoFaces) {
     let k = BOARD_VH / darts::EDGE;
     match d.page {
         Page::Main => {
-            text(p, "Darts", Val::Percent(40.0), Val::Percent(25.0), 40.0, AMBER);
-            let lines = match d.joined {
-                Some(o) => vec![format!("{} is at this board.", name(o)), "Space) Throw against them".into(), "Tab) Leave".into()],
-                None if d.at_hand > 1 => {
-                    let mut l = vec!["1) Challenge".to_string(), "2) Practice".into()];
-                    if let Some(q) = d.asking.first() {
-                        l.push(format!("3) Play {}", name(*q)));
-                    }
-                    l.push("Tab) Leave".into());
-                    l.push(String::new());
-                    l.push("301, double out. Aim with the mouse; hold the left button and let go on the green pip.".into());
-                    l
-                }
+            use crate::match_lobby::{menu_card, row};
+            const HOW: &str = "301, double out. Aim with the mouse; hold the left button and let go on the green pip.";
+            match d.joined {
+                Some(o) => menu_card(p, "Darts", &format!("{} is at this board.", name(o)), &[row("Space", "Throw against them"), row("Tab", "Leave")], HOW),
                 None => {
-                    let mut l = vec!["1) Challenge Opponent".to_string(), "2) Practice".into()];
+                    let mut rows = vec![row("1", if d.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), row("2", "Practice")];
                     if let Some(q) = d.asking.first() {
-                        l.push(format!("3) Play {}", name(*q)));
+                        rows.push(row("3", format!("Play {}", name(*q))));
                     }
-                    l.push("Tab) Leave".into());
-                    l.push(String::new());
-                    l.push("301, double out. Aim with the mouse; hold the left button and let go on the green pip.".into());
-                    l
+                    rows.push(row("Tab", "Leave"));
+                    menu_card(p, "Darts", "", &rows, HOW);
                 }
-            };
-            for (i, l) in lines.iter().enumerate() {
-                text(p, l.clone(), Val::Percent(40.0), Val::Percent(35.0 + 5.0 * i as f32), 22.0, AMBER);
             }
         }
         Page::Challenge => {
-            text(p, "Challenge", Val::Percent(40.0), Val::Percent(25.0), 40.0, AMBER);
-            text(p, "1) The house's player (a bet)", Val::Percent(40.0), Val::Percent(35.0), 22.0, AMBER);
-            for (i, m) in crate::match_lobby::DARTS_MODES.iter().enumerate() {
-                let open = crate::match_lobby::available(*m, d.at_hand);
-                let line = if open { format!("{}) {}", i + 2, m.label) } else { format!("{}) {}   ({} players near the board)", i + 2, m.label, m.players) };
-                text(p, line, Val::Percent(40.0), Val::Percent(40.0 + 5.0 * i as f32), 22.0, if open { AMBER } else { AMBER.with_alpha(0.35) });
+            use crate::match_lobby::{available, menu_card, row, DARTS_MODES};
+            let mut rows = vec![row("1", "The house's player").note("a bet")];
+            for (i, m) in DARTS_MODES.iter().enumerate() {
+                let open = available(*m, d.at_hand);
+                let r = row(&(i + 2).to_string(), m.label).enabled(open);
+                rows.push(if open { r } else { r.note(format!("{} players near the board", m.players)) });
             }
-            text(p, "Tab) Back", Val::Percent(40.0), Val::Percent(62.0), 22.0, AMBER);
+            rows.push(row("Tab", "Back"));
+            menu_card(p, "Challenge", "Who to play", &rows, "");
         }
         Page::Gather => {
-            text(p, "Tab) Leave", Val::Percent(3.0), Val::Percent(88.0), 20.0, AMBER);
+            text(p, "Tab) Leave", Val::Percent(3.0), Val::Percent(88.0), 20.0, crate::interface::amber(255.0));
         }
         Page::Bet => {
-            text(p, format!("Bet: {} caps", d.bet), Val::Percent(40.0), Val::Percent(30.0), 32.0, AMBER);
-            text(p, format!("Q) Decrease   E) Increase   Space) Start   Tab) Back\nThe bet sets the opponent's skill. A win pays {}.", darts::payout(d.bet)), Val::Percent(30.0), Val::Percent(40.0), 20.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
+            menu_card(p, &format!("Bet: {} caps", d.bet), "", &rows, &format!("The bet sets the opponent's skill. A win pays {}.", darts::payout(d.bet)));
         }
         Page::Play if d.frame.is_some() => {
             // The board is the cabinet's; the crosshair sits where the aim meets it.
             if let (true, Some(a)) = (d.my_turn(), aim) {
                 crosshair(p, Val::Percent(a.x), Val::Percent(a.y));
             }
-            draw_bar_and_chalk(p, d, now, name);
+            draw_bar_and_chalk(p, d, now, name, faces);
         }
         Page::Play => {
             // No board in the world (its reference has no place): drawn flat.
@@ -1880,16 +1875,16 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
                     crosshair(b, Val::Vh(x * k), Val::Vh(-z * k));
                 }
             });
-            draw_bar_and_chalk(p, d, now, name);
+            draw_bar_and_chalk(p, d, now, name, faces);
         }
     }
     if !d.status.is_empty() && d.page != Page::Play {
-        text(p, d.status.clone(), Val::Percent(30.0), Val::Percent(70.0), 20.0, AMBER);
+        text(p, d.status.clone(), Val::Percent(30.0), Val::Percent(70.0), 20.0, crate::interface::amber(255.0));
     }
 }
 
 /// The timing bar, the chalk scores and the keys' help.
-fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String) {
+fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String, faces: &crate::casino_hud::CasinoFaces) {
     let side_name = |i: usize| -> String {
         // A players' match: the seat's player, or a team's two.
         if !d.players.is_empty() {
@@ -1920,15 +1915,22 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
                     b.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(at * 100.0 - 0.3), width: Val::Px(4.0), top: Val::Px(-6.0), height: Val::Px(22.0), ..default() }, BackgroundColor(Color::WHITE)));
                 });
             }
-            // The chalk scores.
-            let mut lines = Vec::new();
-            for (i, s) in d.m.sides.iter().enumerate() {
-                let up = if i == d.m.up && d.m.winner.is_none() { "> " } else { "  " };
-                let thrown: Vec<String> = s.darts.iter().map(|h: &Hit| h.label()).collect();
-                lines.push(format!("{up}{}: {}   {}", side_name(i), s.score, thrown.join(" ")));
-            }
-            if d.stake > 0 {
-                lines.push(format!("Stake: {} caps", d.stake));
+            // The scores: the HUD-look panel while the match runs, the leaderboard at its end.
+            use crate::casino_hud::{help_line, leaderboard, ranked, score_panel, Place, ScoreRow};
+            if let Some(w) = d.m.winner {
+                let keys: Vec<i64> = d.m.sides.iter().map(|s| i64::from(s.score)).collect();
+                let places: Vec<Place> = ranked(w, &keys).into_iter().map(|i| Place { name: side_name(i), detail: format!("{} left", d.m.sides[i].score) }).collect();
+                leaderboard(p, faces, &side_name(w), &places);
+            } else {
+                let rows: Vec<ScoreRow> = d
+                    .m
+                    .sides
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| ScoreRow { name: side_name(i), score: s.score.to_string(), note: s.darts.iter().map(|h: &Hit| h.label()).collect::<Vec<_>>().join(" "), up: i == d.m.up })
+                    .collect();
+                let stake = (d.stake > 0).then(|| format!("Stake: {} caps", d.stake));
+                score_panel(p, faces, &rows, stake.as_deref());
             }
             let help = if let Some(w) = d.m.winner {
                 format!("{} checked out! {}\n{}Tab) Leave", side_name(w), d.status, if d.joined.is_none() { "R) Menu   " } else { "" })
@@ -1940,11 +1942,7 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
             } else {
                 format!("Hold and release the left button to throw.   {}Tab) Leave", if d.foe == Foe::Practice { "R) Menu   " } else { "" })
             };
-            p.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(2.0), top: Val::Percent(9.0), padding: UiRect::all(Val::Px(10.0)), ..default() }, BackgroundColor(Color::srgba(0.05, 0.07, 0.05, 0.7))))
-                .with_children(|c| {
-                    c.spawn((Text::new(lines.join("\n")), TextFont { font_size: FontSize::Px(24.0), ..default() }, TextColor(CHALK)));
-                });
-            text(p, help, Val::Percent(3.0), Val::Percent(88.0), 20.0, AMBER);
+            help_line(p, faces, &help);
         }
     }
 }
@@ -1956,30 +1954,39 @@ const GAP_AT: [(f32, f32); 5] = [(-8.773, 4.081), (-6.462, 8.034), (-3.565, 9.52
 fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String, coop: bool) {
     match f.page {
         FPage::Busy(q) => {
-            text(p, format!("{} is at this table.\nWatch them, and take your turn when they are done.\n\nTab) Leave", name(q)), Val::Percent(30.0), Val::Percent(35.0), 24.0, AMBER);
+            text(p, format!("{} is at this table.\nWatch them, and take your turn when they are done.\n\nTab) Leave", name(q)), Val::Percent(30.0), Val::Percent(35.0), 24.0, crate::interface::amber(255.0));
         }
         FPage::Offer(q) => {
             let bet = f.offer.map_or(0, |o| o.0);
-            text(p, "Five Finger Fillet race", Val::Percent(34.0), Val::Percent(25.0), 40.0, AMBER);
-            text(p, format!("{} challenges you: {bet} caps each, the winner takes {}.\nYou both get the same prompts at once.\nA finish beats a loss, then fewer mistakes, then the faster time.\n\nSpace) Match the bet   Tab) Leave", name(q), bet * 2), Val::Percent(26.0), Val::Percent(36.0), 22.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let sub = format!("{} challenges you: {bet} caps each, the winner takes {}.", name(q), bet * 2);
+            menu_card(p, "Five Finger Fillet race", &sub, &[row("Space", "Match the bet"), row("Tab", "Leave")], "You all get the same prompts at once. A finish beats a loss, then fewer mistakes, then the faster time.");
         }
         FPage::Challenge => {
             let (bet, want, joined) = f.duel.as_ref().map_or((0, 2, 0), |d| (d.bet, u32::from(d.want), d.joining.len() as u32));
-            text(p, "Five Finger Fillet race", Val::Percent(34.0), Val::Percent(25.0), 40.0, AMBER);
-            text(p, format!("Your challenge is open: {bet} caps each, the winner takes {}.\nA race of {want}: {} of {want} here. Waiting for players to open this knife and match it.\n\nTab) Withdraw", bet * want, joined + 1), Val::Percent(26.0), Val::Percent(36.0), 22.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let sub = format!("Your challenge is open: {bet} caps each, the winner takes {}.", bet * want);
+            menu_card(p, "Five Finger Fillet race", &sub, &[row("Tab", "Withdraw")], &format!("A race of {want}: {} of {want} here. Waiting for players to open this knife and match it.", joined + 1));
         }
         FPage::Main => {
-            text(p, "Five Finger Fillet", Val::Percent(36.0), Val::Percent(25.0), 40.0, AMBER);
-            let race = if coop { "\n3) Race another player" } else { "" };
-            text(p, format!("1) Play for caps\n2) Practice{race}\nTab) Leave\n\nThree rounds of 12, 18 and 24 stabs.\nPress the key shown at the knife.\nThree mistakes lose; each costs 10 health."), Val::Percent(30.0), Val::Percent(35.0), 22.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let mut rows = vec![row("1", "Play for caps"), row("2", "Practice")];
+            if coop {
+                rows.push(row("3", "Race other players"));
+            }
+            rows.push(row("Tab", "Leave"));
+            menu_card(p, "Five Finger Fillet", "", &rows, "Three rounds of 12, 18 and 24 stabs. Press the key shown at the knife. Three mistakes lose; each costs 10 health.");
         }
         FPage::Bet if f.duel_bet => {
-            text(p, format!("Race bet: {} caps each   Racers: {}", f.bet, f.racers), Val::Percent(34.0), Val::Percent(30.0), 30.0, AMBER);
-            text(p, format!("Q) Decrease   E) Increase   R) Racers   Space) Challenge   Tab) Back\nThe winner takes {}. {:.0} s on each clock. Up to 4 racers, as many as are near.", f.bet * u32::from(f.racers), fillet::time_limit(f.bet)), Val::Percent(30.0), Val::Percent(40.0), 20.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("R", "Racers").note(format!("{} now; up to 4, as many as are near", f.racers)), row("Space", "Challenge"), row("Tab", "Back")];
+            let foot = format!("The winner takes {}. {:.0} s on each clock.", f.bet * u32::from(f.racers), fillet::time_limit(f.bet));
+            menu_card(p, &format!("Race bet: {} caps each", f.bet), &format!("Racers: {}", f.racers), &rows, &foot);
         }
         FPage::Bet => {
-            text(p, format!("Bet: {} caps ({:.0} s on the clock)", f.bet, fillet::time_limit(f.bet)), Val::Percent(34.0), Val::Percent(30.0), 30.0, AMBER);
-            text(p, format!("Q) Decrease   E) Increase   Space) Start   Tab) Back\nA win pays {}.", fillet::payout(f.bet)), Val::Percent(30.0), Val::Percent(40.0), 20.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
+            menu_card(p, &format!("Bet: {} caps", f.bet), &format!("{:.0} s on the clock", fillet::time_limit(f.bet)), &rows, &format!("A win pays {}.", fillet::payout(f.bet)));
         }
         FPage::Play => {
             let Some(g) = f.game.as_ref() else { return };
@@ -2039,11 +2046,11 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                 FState::Won | FState::Lost => format!("{} Space) Done   Tab) Leave", f.status),
                 FState::Prompt => "Press the key at the knife.   Tab) Leave".into(),
             };
-            text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, AMBER);
+            text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, crate::interface::amber(255.0));
         }
     }
     if !f.status.is_empty() && f.page != FPage::Play {
-        text(p, f.status.clone(), Val::Percent(30.0), Val::Percent(72.0), 20.0, AMBER);
+        text(p, f.status.clone(), Val::Percent(30.0), Val::Percent(72.0), 20.0, crate::interface::amber(255.0));
     }
 }
 
@@ -2064,7 +2071,7 @@ fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32,
         Some(v) if v.state >= 3 => format!("{foe}: {}", if v.state == 3 { format!("done, {:.2} s, {} {}", v.duel.map_or(0.0, |x| x.seconds), v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }) } else { "out".to_string() }),
         Some(v) => format!("{foe}: round {}/3, {}/{} stabs, {} {}, {:.1} s", v.round.max(1), v.hits, v.required, v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }, v.duel.map_or(0.0, |x| x.seconds)),
     };
-    text(p, theirs, Val::Percent(28.0), Val::Percent(15.0), 22.0, AMBER);
+    text(p, theirs, Val::Percent(28.0), Val::Percent(15.0), 22.0, crate::interface::amber(255.0));
     let help = match (d.result, g.state) {
         (Some(_), _) => format!("{status}   Space) Done   Tab) Leave"),
         (None, FState::Ready) => format!("A race against {foe} for {} caps each.   Tab) Forfeit", d.bet),
@@ -2072,7 +2079,7 @@ fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32,
         (None, FState::Prompt) => "Press the key at the knife.   Tab) Forfeit".to_string(),
         (None, _) => format!("Your race is done. Waiting for {foe}; leaving now forfeits."),
     };
-    text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, AMBER);
+    text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, crate::interface::amber(255.0));
 }
 
 #[cfg(test)]
