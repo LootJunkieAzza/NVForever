@@ -67,6 +67,8 @@ pub(super) struct Repl {
     /// A guest's: where the host's script moved the host's player (interior cell or 0,
     /// worldspace, feet, yaw): this guest goes there too (`coop::leash`).
     pub summon: Option<(u32, u32, [f32; 3], f32)>,
+    /// The host's: the friendly-fire rule as last sent to the guests (`None`: send it).
+    rules_sent: Option<bool>,
     // The host's.
     shadows: HashMap<u8, Shadow>,
     /// References to send whole to a guest (a digest differed, or the stream started again).
@@ -334,7 +336,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
     // The script effects the host's scripts asked for go to every guest (§7, phase 4).
     if let Some(g) = game {
         let asked = std::mem::take(g.coop_effects.get_or_insert_with(Vec::new));
-        let effects: Vec<Effect> = asked
+        let mut effects: Vec<Effect> = asked
             .into_iter()
             .filter_map(|e| match e {
                 fnv_game::sound::CoopEffect::Sound { sound, at } => Some(Effect::Sound { sound: sound.0, at_ref: at.0, pos: [0.0; 3] }),
@@ -352,6 +354,12 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 }
             })
             .collect();
+        // The lobby's rules (item 122): when they change, and again for a stream started anew.
+        if r.rules_sent != Some(coop.friendly_fire) {
+            r.rules_sent = Some(coop.friendly_fire);
+            info!("replication: the rules go to the guests: friendly fire {}", if coop.friendly_fire { "on" } else { "off" });
+            effects.push(Effect::Rules { friendly_fire: coop.friendly_fire });
+        }
         if !effects.is_empty() {
             r.effects_sent += effects.len() as u64;
             for item in repl::pack_effects(&effects, ITEM) {
@@ -362,6 +370,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
     for e in r.inbox.drain(..) {
         match e {
             Event::RelReset { id } => {
+                r.rules_sent = None;
                 r.shadows.remove(&id);
                 r.poses.remove(&id);
                 info!("replication: player {} starts again: the whole area goes to it", id + 1);
@@ -559,6 +568,12 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                                 Effect::Summon { interior, world, pos, yaw } => {
                                     info!("replication: the host's script moved it: this player goes too");
                                     r.summon = Some((interior, world, pos, yaw));
+                                }
+                                Effect::Rules { friendly_fire } => {
+                                    if coop.friendly_fire != friendly_fire {
+                                        info!("replication: the host's rules: friendly fire {}", if friendly_fire { "on" } else { "off" });
+                                    }
+                                    coop.friendly_fire = friendly_fire;
                                 }
                             }
                         }

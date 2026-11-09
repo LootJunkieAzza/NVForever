@@ -303,6 +303,9 @@ pub enum Effect {
     /// it, to this cell (an interior's, or 0 with `world` for an exterior) and place.
     /// Doors and fast travel move only the one who used them.
     Summon { interior: u32, world: u32, pos: [f32; 3], yaw: f32 },
+    /// The session's rules the host set in the lobby: whether players can hurt each
+    /// other (item 122). Sent when they change and when a guest's stream starts.
+    Rules { friendly_fire: bool },
 }
 
 pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
@@ -331,6 +334,10 @@ pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
                     rec.extend_from_slice(&v.to_le_bytes());
                 }
             }
+            Effect::Rules { friendly_fire } => {
+                rec.push(3);
+                rec.push(u8::from(*friendly_fire));
+            }
         }
         if cur.len() + rec.len() > max && cur.len() > 1 {
             out.push(std::mem::replace(&mut cur, vec![kind::EFFECTS]));
@@ -355,6 +362,7 @@ pub fn unpack_effects(item: &[u8]) -> Option<Vec<Effect>> {
             0 => Effect::Sound { sound: r.u32()?, at_ref: r.u32()?, pos: [r.f32()?, r.f32()?, r.f32()?] },
             1 => Effect::Music { music: r.u32()? },
             2 => Effect::Summon { interior: r.u32()?, world: r.u32()?, pos: [r.f32()?, r.f32()?, r.f32()?], yaw: r.f32()? },
+            3 => Effect::Rules { friendly_fire: r.u8()? != 0 },
             _ => return None,
         });
     }
@@ -606,7 +614,14 @@ mod tests {
 
     #[test]
     fn effects_round_trip() {
-        let e = vec![Effect::Sound { sound: 0x1, at_ref: 0x2, pos: [3.0, 4.0, 5.0] }, Effect::Music { music: 0x77 }];
+        let e = vec![
+            Effect::Sound { sound: 0x1, at_ref: 0x2, pos: [3.0, 4.0, 5.0] },
+            Effect::Music { music: 0x77 },
+            Effect::Summon { interior: 0, world: 0xDA726, pos: [-1.5, 2.25, 300.0], yaw: 1.25 },
+            Effect::Summon { interior: 0x1234, world: 0, pos: [0.0; 3], yaw: 0.0 },
+            Effect::Rules { friendly_fire: true },
+            Effect::Rules { friendly_fire: false },
+        ];
         let items = pack_effects(&e, 1100);
         assert_eq!(unpack_effects(&items[0]).unwrap(), e);
     }

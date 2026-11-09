@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 120;
+pub const VERSION: u8 = 121;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -445,6 +445,10 @@ pub enum Progress {
     /// Every player is down with nobody left to revive: every game loads its last shared
     /// save. Only the host's are taken.
     Reload { stamp: u32 },
+    /// A hand-out of the host's result scripts (`count` of `item`; `batch` groups one
+    /// script's): every guest takes it as its rules say (`fnv_game::coop_rewards`, items
+    /// 112 and 114). Only the host's are taken.
+    Gift { batch: u32, item: u32, count: u32 },
 }
 
 impl Progress {
@@ -2240,6 +2244,12 @@ fn encode(msg: &Msg) -> Vec<u8> {
                     b.push(2);
                     b.extend_from_slice(&stamp.to_le_bytes());
                 }
+                Progress::Gift { batch, item, count } => {
+                    b.push(3);
+                    for v in [batch, item, count] {
+                        b.extend_from_slice(&v.to_le_bytes());
+                    }
+                }
             }
         }
         Msg::Rel { epoch, frame } => {
@@ -2426,6 +2436,7 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 0 => Progress::Reward { quest: r.u32()?, xp: r.u32()?, caps: r.u32()? },
                 1 => Progress::Save { stamp: r.u32()?, kind: r.u8()? },
                 2 => Progress::Reload { stamp: r.u32()? },
+                3 => Progress::Gift { batch: r.u32()?, item: r.u32()?, count: r.u32()? },
                 _ => return None,
             };
             Msg::Progress { id, seq, what }
@@ -2596,6 +2607,7 @@ mod tests {
             Msg::Anim { id: 1, seq: 65_535, cue: AnimCue { kind: AnimCue::CONSUME, style: 2, power_armor: false, item: 0x0001_5169, edid: "Stimpak".into(), clip: "meshes\\characters\\_male\\idleanims\\b42inject\\0\\1\\stimpak\\stimpak.kf".into() } },
             Msg::Anim { id: 0, seq: 0, cue: AnimCue::default() },
             Msg::Progress { id: 0, seq: 9, what: Progress::Reward { quest: 0x0010_4C1D, xp: 250, caps: 100 } },
+            Msg::Progress { id: 0, seq: 10, what: Progress::Gift { batch: 3, item: 0x0011_A208, count: 24 } },
             Msg::Progress { id: 2, seq: 65_535, what: Progress::Save { stamp: u32::MAX, kind: Progress::SYSTEM } },
             Msg::Progress { id: 0, seq: 0, what: Progress::Reload { stamp: 7 } },
             Msg::Npcs {

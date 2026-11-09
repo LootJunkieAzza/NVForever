@@ -407,6 +407,9 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
     // A co-op guest talks only to trade, to play and to change chips at a cashier
     // (`fnv_game::Game::guest_lines`).
     if g.coop_guest {
+        if g.guest_quest_locked(r) {
+            return Action::HostOnly { host: g.coop_host_name.clone().unwrap_or_else(|| "the host".into()) };
+        }
         let now = g.time;
         let talks = match talkers.get(&id) {
             Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
@@ -646,6 +649,21 @@ pub(crate) fn activate(
     // A downed player: the revive takes E (`nvforever`'s `coop.rs`).
     if matches!(t.action, Action::Player | Action::Revive { .. }) {
         return;
+    }
+    if let Action::HostOnly { host } = &t.action {
+        info!("activate 0x{:08X} {}: the host's quest is on them: wait for {host}", t.form_id, t.name);
+        hud.show(format!("Wait for {host}"));
+        return;
+    }
+    // A co-op guest leaves quest items to the host, who carries the quest (owner, item
+    // 130): taking one says to wait for them.
+    if matches!(t.action, Action::Take { .. }) {
+        let host = script.as_deref().and_then(|s| s.rt.as_ref()).filter(|rt| rt.game.coop_guest).map(|rt| rt.game.coop_host_name.clone().unwrap_or_else(|| "the host".into()));
+        if let Some(host) = host.filter(|_| sim.base_of(t.form_id).is_some_and(|b| sim.world.is_quest_item(b))) {
+            info!("activate 0x{:08X} {}: a quest item, left to the host: wait for {host}", t.form_id, t.name);
+            hud.show(format!("Wait for {host}"));
+            return;
+        }
     }
     if t.action == Action::Name {
         info!("activate 0x{:08X} {}: nothing to do (name only)", t.form_id, t.name);

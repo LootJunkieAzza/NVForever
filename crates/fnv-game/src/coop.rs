@@ -32,6 +32,24 @@ pub struct HostQuest {
 /// ShowBarterMenu and ShowCaravanMenu (`crate::functions`).
 const SHOW_BARTER_MENU: u16 = 0x1173;
 const SHOW_CARAVAN_MENU: u16 = 0x125A;
+/// The services a guest may also buy, as a companion's player would (owner, item 130
+/// Q1): repair (ShowRepairMenu), crafting at a vendor (ShowRecipeMenu) and a doctor's
+/// healing (ResetHealth) [observed: `schemas/script/functions.json` opcodes].
+/// Random encounters every player sets off in co-op, not only the host (owner, item 131;
+/// the first few, 2026-11-09): their scripts' `player.GetDistance` measures to the nearest
+/// player and their `OnTriggerEnter player` takes any player [design]. FalloutNV.esm
+/// scripts [observed: `fnvtool script decompile`]:
+/// - 0x00168CFD VERT1GeckoAmbushScript (Goodsprings geckos, player within 3000),
+/// - 0x00168995 VERT1PrimmJackalAmbushScript (Primm jackals, within 4760),
+/// - 0x00168993 VERT2IvanpahJackalAmbushScript (Ivanpah jackals, within 5500),
+/// - 0x00156A96 VERT1CoyoteDenGSTriggerScript (Goodsprings coyote den trigger),
+/// - 0x0015F18E / 0x0015F18D VERT2ViperSLTrigger01/02Script (Vipers' ambush triggers),
+/// - 0x001024C4 FiendAmbushTriggerScript (Fiends' ambush trigger).
+pub const COOP_ENCOUNTERS: [u32; 7] = [0x0016_8CFD, 0x0016_8995, 0x0016_8993, 0x0015_6A96, 0x0015_F18E, 0x0015_F18D, 0x0010_24C4];
+
+const SHOW_REPAIR_MENU: u16 = 0x117A;
+const SHOW_RECIPE_MENU: u16 = 0x1250;
+const RESET_HEALTH: u16 = 0x1150;
 /// AddItem and RemoveItem (`crate::functions`).
 const ADD_ITEM: u16 = 0x1002;
 const REMOVE_ITEM: u16 = 0x1052;
@@ -69,7 +87,7 @@ fn guest_lines(data: &GameData) -> BTreeSet<FormId> {
     let calls = |u: crate::data::UnitId| {
         let mut n = BTreeMap::new();
         crate::intro::calls(&data.unit(u).program, &mut n);
-        n.contains_key(&SHOW_BARTER_MENU) || n.contains_key(&SHOW_CARAVAN_MENU) || exchanges_chips(data, data.unit(u))
+        [SHOW_BARTER_MENU, SHOW_CARAVAN_MENU, SHOW_REPAIR_MENU, SHOW_RECIPE_MENU, RESET_HEALTH].iter().any(|o| n.contains_key(o)) || exchanges_chips(data, data.unit(u))
     };
     let mut out: BTreeSet<FormId> = data.infos.iter().filter(|(_, d)| d.begin.into_iter().chain(d.end).any(calls)).map(|(i, _)| *i).collect();
     loop {
@@ -318,6 +336,17 @@ impl Game<'_> {
         self.guest_lines.get_or_init(|| guest_lines(self.data))
     }
 
+    /// A guest: `actor` is a target of the host's active quest's open objectives, so the
+    /// quest is on it and the guest leaves it to the host entirely ("Wait for <host>";
+    /// owner, item 130 Q1) [design: guests are the host's companions].
+    pub fn guest_quest_locked(&mut self, actor: FormId) -> bool {
+        if !self.coop_guest {
+            return false;
+        }
+        let Some(q) = self.coop_host_quest.as_ref().map(|h| h.quest) else { return false };
+        self.check_quest_targets(q).iter().any(|t| t.target == actor)
+    }
+
     /// Whether a guest's conversation with `actor` would offer anything but Goodbye.
     pub fn guest_can_talk(&mut self, actor: FormId) -> bool {
         let Some(greeting) = self.data.greeting else { return false };
@@ -433,6 +462,29 @@ impl Game<'_> {
             && r != FormId::PLAYER_REF
             && self.world.placed.get(r).is_some_and(|p| &p.sig == b"ACHR" || &p.sig == b"ACRE")
             && !self.is_teammate(r)
+    }
+
+    /// `r`'s script is one of the random encounters every player sets off ([`COOP_ENCOUNTERS`]),
+    /// with other players in the game.
+    pub fn coop_encounter(&self, r: FormId) -> bool {
+        !self.coop_actors.is_empty() && self.ref_script(r).is_some_and(|s| COOP_ENCOUNTERS.contains(&s.0))
+    }
+
+    /// Where `r` is: its cell's space (worldspace or interior) and position.
+    fn space_pos(&self, r: FormId) -> Option<(FormId, [f32; 3])> {
+        let s = self.world.peek(r)?;
+        let c = s.cell?;
+        Some((self.world.placed.world_of(c).unwrap_or(c), s.pos))
+    }
+
+    /// The distance from `t` to the nearest player, the host's own or another player's
+    /// actor (`None`: `t` is nowhere).
+    pub fn nearest_player_distance(&self, t: FormId) -> Option<f32> {
+        let (space, at) = self.space_pos(t)?;
+        std::iter::once(FormId::PLAYER_REF)
+            .chain(self.coop_actors.keys().copied())
+            .filter_map(|p| self.space_pos(p).filter(|(s, _)| *s == space).map(|(_, q)| (0..3).map(|i| (q[i] - at[i]).powi(2)).sum::<f32>().sqrt()))
+            .min_by(f32::total_cmp)
     }
 
     /// `r`, or the player for another player's actor: whom the world's actors take it

@@ -267,6 +267,12 @@ pub fn is_in_interior(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Strin
 pub fn get_distance(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let t = a.form(0)?;
+    // A co-op random encounter's `player.GetDistance`: to the nearest player (item 131).
+    if r == FormId::PLAYER_REF && ctx.self_ref.is_some_and(|s| g.coop_encounter(s)) {
+        if let Some(d) = g.nearest_player_distance(t) {
+            return Ok(Value::Num(d as f64));
+        }
+    }
     let (c1, p1, _) = place(g, r)?;
     let (c2, p2, _) = place(g, t)?;
     let space = |c: Option<FormId>| c.map(|c| g.world.placed.world_of(c).unwrap_or(c));

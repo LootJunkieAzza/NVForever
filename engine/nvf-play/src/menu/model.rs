@@ -650,6 +650,9 @@ pub struct MenuModel {
     amount: Option<i32>,
     /// The container menu is picking a living actor's pocket ([`Steal`]).
     pub steal: Option<Steal>,
+    /// A co-op guest's container menu: quest items are the host's (it carries the
+    /// quests) and are not listed (owner, items 123 and 130).
+    pub guest: bool,
     /// Inventory: the Misc folder open, if any ([`Folder`]).
     pub folder: Option<Folder>,
     /// Inventory: the player's Caravan cards, one entry a card, set by the engine from
@@ -807,6 +810,7 @@ impl MenuModel {
             quantity: None,
             amount: None,
             steal: None,
+            guest: false,
             folder: None,
             cards: Vec::new(),
             coop: false,
@@ -864,6 +868,13 @@ impl MenuModel {
                 l.rows.retain(|r| self.category[side as usize].holds_item(r.kind, forms.item(r.item)));
                 if side == Side::Container && self.steal.is_some() {
                     l.rows.retain(|r| !r.equipped);
+                }
+                if side == Side::Container && self.guest {
+                    let before = l.rows.len();
+                    l.rows.retain(|r| !r.quest);
+                    if l.rows.len() != before {
+                        bevy::log::info!("menu: {} quest item row(s) left out: the host's quests' (co-op guest)", before - l.rows.len());
+                    }
                 }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
                     self.fold(&mut l, forms);

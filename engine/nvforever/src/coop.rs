@@ -204,6 +204,11 @@ const GUN_HEIGHT: f32 = 100.0;
 const CLOCK_SLACK: f32 = 0.05;
 /// A downed player can respawn after this long (seconds).
 const RESPAWN_AFTER: f32 = 60.0;
+/// Env var (a test aid): `1` starts a session with Friendly Fire on.
+pub const FRIENDLY_FIRE_ENV: &str = "NVF_COOP_FRIENDLY_FIRE";
+/// Another player up within this distance (same place) can come and revive a downed one;
+/// farther, a downed guest loads its last save (owner, item 129 Q5) [design].
+const ALONE_NEAR: f32 = 8192.0;
 /// A puppet holds its aim this long after an attack, aimed or not (seconds).
 const AIM_AFTER_ATTACK: f32 = 1.5;
 /// Where a guest keeps its token across the restarts loads cause.
@@ -298,6 +303,8 @@ impl Plugin for CoopPlugin {
             host_place: None,
             downed_at: None,
             told_respawn: false,
+            alone_down: false,
+            friendly_fire: std::env::var(FRIENDLY_FIRE_ENV).is_ok_and(|v| v == "1"),
             revive_offer: None,
             revived_by: None,
             strays: Vec::new(),
@@ -474,6 +481,13 @@ struct Coop {
     /// can respawn.
     downed_at: Option<f32>,
     told_respawn: bool,
+    /// Down with no other player up near ([`ALONE_NEAR`]): a guest loads its last save
+    /// (`nvf_play::coop_progress`, item 129).
+    alone_down: bool,
+    /// The lobby's Friendly Fire rule (item 122): set by the host, sent to the guests
+    /// (`replication`); off, players' hits on each other (and their companions') are
+    /// dropped by the host, which passes every such hit on (duels still work).
+    pub(crate) friendly_fire: bool,
     /// The downed player this one was last told it can revive.
     revive_offer: Option<u8>,
     /// Revived by this player (name), shown on the black until it lifts.
@@ -721,6 +735,14 @@ fn lobby(
                 say("You left the lobby".into());
             }
             LobbyRequest::Leave => {}
+            LobbyRequest::FriendlyFire(on) if !coop.is_guest() => {
+                let on = *on;
+                coop.friendly_fire = on;
+                // Kept for the run a load starts (`crate::handoff`).
+                std::env::set_var(FRIENDLY_FIRE_ENV, if on { "1" } else { "0" });
+                say(format!("Friendly fire {}", if on { "on: players can hurt each other" } else { "off: players can't hurt each other" }));
+            }
+            LobbyRequest::FriendlyFire(_) => say("Only the host sets friendly fire".into()),
             LobbyRequest::Find(code) => {
                 if coop.is_host() {
                     say("Close your own lobby to join another".into());
@@ -814,7 +836,7 @@ fn lobby(
             players.push(if p.lost { format!("{n} (reconnecting)") } else { n });
         }
     }
-    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest() });
+    state.set_if_neq(LobbyState { hosting, players, joining: coop.joining.clone(), guest: coop.is_guest(), friendly_fire: coop.friendly_fire });
     // The window's title says what this game is in co-op.
     let what = match coop.link.as_ref().map(|l| (l.is_host(), l.id())) {
         None => "NVForever".to_string(),
@@ -1518,6 +1540,13 @@ fn take_events(
             Event::Hit { id, hit } if is_host => match decode_hit(&hit) {
                 Some(h) => {
                     let by = coop.peers.get(&id).and_then(|p| p.actor).unwrap_or(FormId::PLAYER_REF);
+                    // Friendly Fire off (item 122): a guest's hit on the host or on another
+                    // player hurts nobody.
+                    let on_player = h.target == FormId::PLAYER_REF || coop.peers.values().any(|p| p.actor == Some(h.target));
+                    if on_player && !coop.friendly_fire {
+                        info!("co-op: player {}'s hit on player {} dropped: friendly fire is off", id + 1, h.target);
+                        continue;
+                    }
                     info!("co-op: player {} ({by}) hit {} for {:.1}", id + 1, h.target, h.dealt);
                     remote_hits.write(RemoteHit { by, hit: h });
                 }
@@ -1820,6 +1849,12 @@ fn stand_ins(
                 info!("co-op: a hit on player {} dropped: they are dueling", id + 1);
                 continue;
             }
+            // Friendly Fire off (item 122): a player's hit, or a player's companion's, hurts
+            // no other player.
+            if !coop.friendly_fire && by.is_some_and(|b| b == FormId::PLAYER_REF || rt.game.is_coop_actor(b) || rt.game.is_teammate(b)) {
+                info!("co-op: a hit on player {} by {} dropped: friendly fire is off", id + 1, by.map_or(String::new(), |b| b.to_string()));
+                continue;
+            }
             info!("co-op: {} hit player {} for {:.1}", by.map_or("something".to_string(), |b| b.to_string()), id + 1, h.dealt);
             link.send_hit_to(id, encode_hurt(by, &h));
         }
@@ -1876,8 +1911,8 @@ fn stand_ins(
         // the world there, for the AI the host runs in its surroundings, `areas`).
         let own_cell = match place {
             Place::Interior(c) => Some(FormId(c)),
-            Place::Exterior(w) if place != here => sim.world.placed.world_grid.get(&FormId(w)).and_then(|g| g.get(&fnv_world::cell_of(feet[0], feet[1]))).copied(),
-            Place::Exterior(_) => cell,
+            // Outdoors: the grid cell under its feet (far away in the host's worldspace too).
+            Place::Exterior(w) => sim.world.placed.world_grid.get(&FormId(w)).and_then(|g| g.get(&fnv_world::cell_of(feet[0], feet[1]))).copied().or(if place == here { cell } else { None }),
         };
         if let Ok(s) = sim.world.get(r) {
             s.pos = feet;
@@ -2152,6 +2187,7 @@ fn follow_npcs(
                 g.coop_guest = false;
                 g.world_logic_off = false;
                 g.coop_host_quest = None;
+                g.coop_host_name = None;
                 g.set_remote_speech(Vec::new(), |_| false);
             }
             // What the host's world hid of this one's is back.
@@ -2248,6 +2284,10 @@ fn follow_npcs(
     // Test aid `NVF_COOP_TEST_CONSOLE_STORY=1`: the console's lines count as the host's
     // story (`fnv_game::coop_story`), to check what a guest's save keeps (queue item 81).
     g.coop_story.console_counts = std::env::var_os("NVF_COOP_TEST_CONSOLE_STORY").is_some();
+    let host_name = coop.peers.get(&0).map(|p| p.name.clone()).filter(|n| !n.is_empty());
+    if g.coop_host_name != host_name {
+        g.coop_host_name = host_name;
+    }
     if g.coop_host_quest != coop.host_quest {
         g.coop_host_quest.clone_from(&coop.host_quest);
     }
@@ -2864,6 +2904,14 @@ fn downed_body(
     let pressed = input.just_pressed(nvf_play::bindings::Control::Activate);
     // This player.
     if g.is_dead(FormId::PLAYER_REF) {
+        let feet = player.feet;
+        let alone = !coop.peers.iter().any(|(_, p)| {
+            !p.lost && p.samples.back().is_some_and(|&(_, q)| !q.has(flag::DOWN) && q.place == here && (q.feet[0] - feet[0]).hypot(q.feet[1] - feet[1]) <= ALONE_NEAR)
+        });
+        if alone != coop.alone_down {
+            coop.alone_down = alone;
+            info!("co-op: down {}", if alone { "with no other player near: a guest goes back to its last save" } else { "with another player near enough to revive" });
+        }
         let since = *coop.downed_at.get_or_insert_with(|| {
             info!("co-op: you are down: another player can revive you with a Stimpak; in {RESPAWN_AFTER:.0} seconds you can respawn");
             now
@@ -2873,7 +2921,6 @@ fn downed_body(
             return;
         }
         // Beside the nearest player up, else anyone (the host first).
-        let feet = player.feet;
         let dist = |q: &PlayerState| if q.place == here { (q.feet[0] - feet[0]).hypot(q.feet[1] - feet[1]) } else { f32::MAX / 2.0 };
         let target = coop
             .peers
@@ -2906,6 +2953,7 @@ fn downed_body(
     }
     coop.downed_at = None;
     coop.told_respawn = false;
+    coop.alone_down = false;
     // A downed player aimed at where the body lies: the crosshair's "Revive" rollover
     // (`nvf_play::coop_social::target`); Activate revives them with a Stimpak.
     let aimed = target.0.as_ref().filter(|t| matches!(t.action, nvf_play::activate::outcome::Action::Revive { .. })).map(|t| t.form_id);
@@ -2955,6 +3003,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
     };
     p.role = role;
     let me_down = !at_main_menu(main_menu.as_deref()) && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF));
+    p.alone_down = role == Role::Guest && me_down && coop.alone_down;
     p.everyone_down = role == Role::Host && nvf_play::coop_progress::everyone_down(me_down, coop.peers.values().map(|q| (q.down, q.lost)));
     let kind_in = |k: u8| match k {
         net::Progress::QUICK => fnv_save::SaveKind::Quick,
@@ -2969,6 +3018,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
                 net::Progress::Reward { quest, xp, caps } => Shared::Reward { quest, xp, caps },
                 net::Progress::Save { stamp, kind } => Shared::Save { stamp, kind: kind_in(kind) },
                 net::Progress::Reload { stamp } => Shared::Reload { stamp },
+                net::Progress::Gift { batch, item, count } => Shared::Gift { batch, item, count },
             },
         ));
     }
@@ -2977,6 +3027,7 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
     for what in out {
         link.send_progress(match what {
             Shared::Reward { quest, xp, caps } => net::Progress::Reward { quest, xp, caps },
+            Shared::Gift { batch, item, count } => net::Progress::Gift { batch, item, count },
             Shared::Save { stamp, kind } => net::Progress::Save {
                 stamp,
                 kind: match kind {
