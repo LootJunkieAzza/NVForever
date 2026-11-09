@@ -373,11 +373,13 @@ pub(crate) fn open_menus(
         }
         (None, Some(c)) if steal.is_some() => {
             let victim = FormId(c.container);
-            let rules = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| (rt.game.pickpocket_settings(), rt.game.pickpocket_skills(victim))));
-            let (rules, (thief, target)) = rules.unwrap_or((fnv_game::pickpocket::Rules::default(), (0.0, 0.0)));
+            let rules = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| crate::script::with_world(rt, &mut sim, |rt| (rt.game.pickpocket_settings(), rt.game.pickpocket_skills(victim), rt.game.pickpocket_worn(victim))));
+            let (rules, (thief, target), worn) = rules.unwrap_or((fnv_game::pickpocket::Rules::default(), (0.0, 0.0), false));
             info!("pickpocket: open on {victim}: Sneak {thief:.0} against {target:.0}");
             MenuModel::open_container(&mut sim.world, victim).and_then(|mut m| {
-                m.steal = Some(model::Steal::new(victim, rules, thief, target, u64::from(victim.0) ^ 0x5EED));
+                let mut steal = model::Steal::new(victim, rules, thief, target, u64::from(victim.0) ^ 0x5EED);
+                steal.worn = worn;
+                m.steal = Some(steal);
                 m.refresh(&mut sim.world)?;
                 Ok(m)
             })
@@ -871,6 +873,7 @@ fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     mut kit: Local<Option<look::Kit>>,
     (combat, play, mut script): DrawSources,
     mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
@@ -922,7 +925,7 @@ fn draw(
             // [design] Barter has no subtitle tile; keep the model's own refusal words.
             if matches!(m.mode, Mode::Barter(_)) {
                 if let Some(note) = note(m, &sim) {
-                    look::spawn_note(root, &note, kit, data.as_deref(), &mut images, bc);
+                    look::spawn_note(root, &note, kit, data.as_deref(), &mut images, bc, &glyphs);
                 }
             }
         });
@@ -935,7 +938,7 @@ fn draw(
         }
         let info = m.selected_row(m.focus).map(|r| crate::pipboy::items::info_of(r, combat.as_deref(), sim.bypass_change_detection(), forms.as_mut(), script.as_mut().map(|s| s.bypass_change_detection())));
         commands.spawn((MenuRoot, screen.clone(), GlobalZIndex(100))).with_children(|root| {
-            look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc);
+            look::spawn(root, m, note.as_deref(), info.as_ref(), kit, data.as_deref(), &mut images, bc, &glyphs);
         });
     }
     // Drawn from tiles, the prompt still keeps the pointer from the menu under it (a sheet
@@ -944,7 +947,7 @@ fn draw(
         (crate::tiles::menus::Modal::HandBuilt, Some(q)) => {
             let words = look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
             commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc);
+                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc, &glyphs);
             });
         }
         (crate::tiles::menus::Modal::Sheet, _) => {
