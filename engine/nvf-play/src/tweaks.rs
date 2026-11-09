@@ -202,6 +202,13 @@ pub struct TweakSettings {
     pub pipboy_opens_items: bool,
     /// `bHideCrosshairWhileReloading`: no crosshair while reloading.
     pub hide_crosshair_reloading: bool,
+    /// `bInvertCameraX`: looking left and right the other way.
+    pub invert_x: bool,
+    /// `bShowNearestUndiscoveredLocation`: the nearest place not yet found shows on the
+    /// compass at any distance.
+    pub nearest_unfound_on_compass: bool,
+    /// `bLocationDiscoveredCornerMessage`: a place found is a corner line, not a banner.
+    pub discovered_in_corner: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -321,6 +328,9 @@ impl Default for TweakSettings {
             no_weapon_hotkeys: false,
             pipboy_opens_items: false,
             hide_crosshair_reloading: false,
+            invert_x: false,
+            nearest_unfound_on_compass: false,
+            discovered_in_corner: false,
         }
     }
 }
@@ -887,6 +897,10 @@ impl Plugin for TweaksPlugin {
         );
         part!(app, "key-xp-share", "Experience for Keys", "Opening a lock with its key gives this share of picking it; 0% changes nothing. (Stewie's Tweaks bUsingKeysRewardsXP)", game.key_xp_share);
         part!(app, "password-xp-share", "Experience for Passwords", "Opening a terminal with its password gives this share of hacking it, once; 0% changes nothing. (Stewie's Tweaks bUsingNotesRewardsXP)", game.password_xp_share);
+        // ---- batch 23 ----
+        switch!(app, "invert-x", "Invert Look Left/Right", "The mouse and the stick turn the view the other way left and right. (Stewie's Tweaks bInvertCameraX)", invert_x);
+        switch!(app, "nearest-unfound", "Nearest Unfound Place", "The nearest place not yet found shows on the compass at any distance. (Stewie's Tweaks bShowNearestUndiscoveredLocation)", nearest_unfound_on_compass);
+        switch!(app, "discovered-in-corner", "Discoveries in the Corner", "A place found is a corner line, not a banner. (Stewie's Tweaks bLocationDiscoveredCornerMessage)", discovered_in_corner);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

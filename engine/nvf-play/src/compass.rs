@@ -205,7 +205,9 @@ const SAVE_HOOK: SaveHook = SaveHook {
 };
 
 /// Markers found since the last frame: the message, the experience, the log.
-pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, messages: Option<ResMut<QuestMessages>>, loading_save: Option<Res<crate::save::PendingEngine>>) {
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>, messages: Option<ResMut<QuestMessages>>, loading_save: Option<Res<crate::save::PendingEngine>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+    let in_corner = tweaks.is_some_and(|t| t.discovered_in_corner);
     let Some(mut state) = state else { return };
     // Found before the game runs (the first frames): kept until it does, for the XP.
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -230,7 +232,12 @@ pub(crate) fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResM
         // JIP's location-discover event, whose handlers see the world.
         with_world(rt, &mut sim, |rt| rt.game.challenge_marker_found(FormId(form)));
         info!("compass: discovered {name} ({}), +{gained} XP", FormId(form));
-        if let (Some(m), false) = (messages.as_deref_mut(), name.trim().is_empty()) {
+        // The player's tweak puts it in the corner instead of the banner [design: docs/design/tweaks.md].
+        if in_corner && !name.trim().is_empty() {
+            if let Some(c) = corner.as_deref_mut() {
+                c.push(format!("Discovered: {name}").into());
+            }
+        } else if let (Some(m), false) = (messages.as_deref_mut(), name.trim().is_empty()) {
             m.push(QuestNotice::Discovered(name));
         }
     }
@@ -290,6 +297,7 @@ fn gather(
     let quest_reach = tweaks.as_ref().map_or(0.0, |t| t.quest_marker_reach);
     let pips_in_danger_only = tweaks.as_ref().is_some_and(|t| t.compass_pips_in_danger_only);
     let neutral_foes = tweaks.as_ref().is_some_and(|t| t.neutral_foes_on_compass);
+    let nearest_unfound = tweaks.as_ref().is_some_and(|t| t.nearest_unfound_on_compass);
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
         return;
@@ -357,6 +365,18 @@ fn gather(
                     marks.push(mark);
                 }
                 found_near.push(Near { mark, at: [pos[0], pos[1]], body: None });
+            }
+            // The player's tweak: the nearest place not yet found shows at any distance
+            // [design: docs/design/tweaks.md].
+            if nearest_unfound {
+                let away = |pos: [f32; 3]| (pos[0] - feet[0]).hypot(pos[1] - feet[1]);
+                let nearest = st.markers_of(loc.world).into_iter().filter(|(form, _, found)| !found && sim.present(*form)).min_by(|a, b| away(a.1).total_cmp(&away(b.1)));
+                if let Some((_, pos, _)) = nearest.filter(|n| away(n.1) > range) {
+                    if on_compass(offset(heading, here, [pos[0], pos[1]])) {
+                        marks.push(Mark::Place);
+                    }
+                    found_near.push(Near { mark: Mark::Place, at: [pos[0], pos[1]], body: None });
+                }
             }
         }
     }

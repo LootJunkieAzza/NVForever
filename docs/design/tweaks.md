@@ -348,6 +348,14 @@ unless the player binds them, so nothing changes until then.
 | Experience for Keys (part) | `bUsingKeysRewardsXP` | `Game::activate` (`unlocked_with`) |
 | Experience for Passwords (part) | `bUsingNotesRewardsXP` | `terminal::still_locked` |
 
+## Twenty-third batch (2026-11-09)
+
+| Row | INI key | Where |
+|---|---|---|
+| Invert Look Left/Right | `bInvertCameraX` | `player::mouse_look` |
+| Nearest Unfound Place | `bShowNearestUndiscoveredLocation` | `compass::gather` after the marker loop |
+| Discoveries in the Corner | `bLocationDiscoveredCornerMessage` | `compass::discover` |
+
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
 
@@ -367,8 +375,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 294 |
-| to do | 309 |
+| done | 297 |
+| to do | 306 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -705,6 +713,7 @@ game's Data folder, read-only).
 | `bHideCapsAddedMessages` | done |  |  | No Caps Added Line |
 | `bHideCrosshairWhileReloading` | done |  |  | No Crosshair While Reloading |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
+| `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
 | `bNoCompassPipsIfNotInDanger` | done |  |  | Compass Pips Only in Danger |
 | `bNoCrippleCriticalMessages` | done |  | 3 | already so: no crippled or critical popups about the target are shown |
 | `bNoKarmaMessages` | done |  | 7 | Quiet Karma (messages and sounds together; no thresholds yet) |
@@ -719,6 +728,7 @@ game's Data folder, read-only).
 | `bRemoveQuestObjectiveAddedText` | done |  | 1 | No Objective List |
 | `bRemoveSneakLabel` | done |  |  | No Sneak Label (native and tile HUD) |
 | `bScopeVisibleAPHP` | done |  | 1 | already so: HP and AP stay up while scoped |
+| `bShowNearestUndiscoveredLocation` | done |  | 2 | Nearest Unfound Place (the compass; the map option not built) |
 | `bShowSneakLabelWhileStanding` | done |  |  | Sneak Label While Standing |
 | `bSubtitlesShowActorNames` | done |  |  | Subtitles Name the Speaker |
 | `iHUDMaxCompassNPCTicks` | done |  | 1 | already so: the compass has no cap on actors |
@@ -749,14 +759,12 @@ game's Data folder, read-only).
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bKeepCrosshairWhenAiming` | to do |  |  | reticle::draw is at 16 parameters; goes into a tuple |
-| `bLocationDiscoveredCornerMessage` | to do |  |  | compass::discover into CornerMessages |
 | `bMoveAmmoTypeLabel` | to do |  |  | hud::texts label position |
 | `bNoHUDHotkeyPopup` | to do |  |  | weapon_wheel step held-to-open |
 | `bPlacedMarkerHeightIndicator` | to do |  | 1 | not built: no player-placed markers |
 | `bRaceMenuAllowFemaleFacialHair` | to do |  |  | creator model female checks at four places |
 | `bRecentlyDeadNPCIndicator` | to do |  | 4 | the compass skips the dead; needs per-actor state |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
-| `bShowNearestUndiscoveredLocation` | to do |  | 2 | compass::gather after the marker loop |
 | `bShowQuestObjectivesOnCellChange` | to do |  | 1 | cell change detection and objectives for the active quest |
 | `bShowUsePasswordOnTerminalsWithNote` | to do |  | 1 | a labelled Action variant for the note |
 | `bTalkWhileSneakingIfShiftIsHeld` | to do |  |  | activate::actor_action_in needs the Shift state |
@@ -967,6 +975,7 @@ game's Data folder, read-only).
 | `bDisableWeaponHotkeys` | done |  |  | No Weapon Hotkeys (the wheel still picks) |
 | `bDontOpenDoorsAfterLockpick` | done |  |  | Picked Doors Stay Shut |
 | `bDontShowContainerAfterLockpick` | done |  |  | Picked Containers Stay Shut |
+| `bInvertCameraX` | done |  |  | Invert Look Left/Right |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
 | `bKeepSelectedConsoleRef` | done |  |  | already so: closing the console keeps the selection |
 | `bMenuFadesIgnoreTimescale` | done |  |  | already so: menu fades run on real time while the world waits |
@@ -1023,7 +1032,6 @@ game's Data folder, read-only).
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bHapticPipboy` | to do |  |  | pipboy sounds play with a rumble request |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
-| `bInvertCameraX` | to do |  |  | an invert_x on Bindings |
 | `bLethalHitsIncreaseLimbChallenges` | to do |  |  | crippling counts already; knockdown on a kill does not |
 | `bNoAmmoCasings` | to do |  |  | NVForever gives no casings yet |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
