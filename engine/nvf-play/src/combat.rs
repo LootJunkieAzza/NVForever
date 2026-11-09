@@ -3375,10 +3375,6 @@ pub(crate) fn crit_effect(c: &Combat, weapon: Option<FormId>) -> Option<(FormId,
     Some((w.crit_effect?, w.crit_on_death))
 }
 
-/// Apply `dealt` health damage through the script runtime; report and remember it. A
-/// critical hit then gives the weapon's critical effect (`crit`: the actor effect and
-/// its On Death flag; `fnv_game::Game::apply_crit_effect`).
-#[allow(clippy::too_many_arguments)]
 /// Where a shot or a blow struck `target`, for the scripts (JohnnyGuitar's
 /// Get3DDistanceFromHitToNiNode, `fnv_game::nvse_jg_nif`).
 fn note_hit_point(script: Option<&mut ScriptState>, target: FormId, at: [f32; 3]) {
@@ -3387,6 +3383,10 @@ fn note_hit_point(script: Option<&mut ScriptState>, target: FormId, at: [f32; 3]
     }
 }
 
+/// Apply `dealt` health damage through the script runtime; report and remember it. A
+/// critical hit then gives the weapon's critical effect (`crit`: the actor effect and
+/// its On Death flag; `fnv_game::Game::apply_crit_effect`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_hit(
     script: Option<&mut ScriptState>,
     sim: &mut SimState,
