@@ -311,6 +311,12 @@ pub fn prepare_windows(
             })[0]
         };
 
+        // NVForever (engine/vendor/README.md): no frame is asked of a lost device. Its
+        // surface's error goes to wgpu's fatal path, a panic on the render thread
+        // before the game's error handler could close the game (queue item 99).
+        if crate::error_handler::device_was_lost() {
+            continue;
+        }
         let surface = &surface_data.surface;
         match surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(surface_texture)

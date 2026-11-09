@@ -1229,18 +1229,13 @@ fn main() -> AppExit {
     app.set_error_handler(stray_commands::handler);
     app.add_plugins(
         DefaultPlugins
-            // No allocation may take the process past the GPU's memory budget
-            // (VK_EXT_memory_budget): wgpu refuses it as out of memory instead of the
-            // driver failing later, and the game goes on with smaller textures
-            // (memory_budget.rs, crash.rs).
-            .set(bevy::render::RenderPlugin {
-                render_creation: bevy::render::settings::WgpuSettings {
-                    instance_memory_budget_thresholds: wgpu::MemoryBudgetThresholds { for_resource_creation: Some(100), for_device_loss: None },
-                    ..default()
-                }
-                .into(),
-                ..default()
-            })
+            // No wgpu memory budget threshold (`instance_memory_budget_thresholds`, queue
+            // item 99). Its check judges an upload buffer against the small 256 MB
+            // host-visible device-local heap a card without Resizable BAR has, where
+            // gpu-allocator would have fallen back to system memory, and wgpu takes a
+            // refused upload buffer for a lost device: an RTX 4060 lost it at the main menu
+            // on every start. The texture cap and the flushes keep use under the budget
+            // (memory_budget.rs); a real out-of-memory error still goes on (crash.rs).
             .set(ImagePlugin {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,
