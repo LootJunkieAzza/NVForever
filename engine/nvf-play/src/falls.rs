@@ -114,6 +114,8 @@ pub struct Falls {
     rules: Option<FallRules>,
     /// By worldspace: whether it is flagged "Don't Allow NPC Fall Damage".
     no_npc_damage: HashMap<u32, bool>,
+    /// The player's character id ([`Falls::note_player`]).
+    player: Option<u32>,
     /// Picks the hurt leg; seeded the same each run [design: repeatable tests].
     rng: Option<ChaCha8Rng>,
     /// The hard landing's sounds, heavy and light, once looked up.
@@ -171,6 +173,20 @@ impl Falls {
         None
     }
 
+    /// The player's character id, for ResetFallTime.
+    pub fn note_player(&mut self, id: u32) {
+        self.player = Some(id);
+    }
+
+    /// ResetFallTime: the fall is measured from where the character is now
+    /// (`fnv_game::nvse_jip11`) [documented: "as if he had just started falling"].
+    pub fn reset(&mut self, actor: FormId) {
+        let id = if actor == FormId::PLAYER_REF { self.player } else { Some(actor.0) };
+        if let Some(e) = id.and_then(|id| self.open.get_mut(&id)) {
+            e.0 = e.1;
+        }
+    }
+
     /// Forget a character's fall (seated, flying, put down on something).
     pub fn forget(&mut self, id: u32) {
         self.open.remove(&id);
@@ -201,6 +217,12 @@ fn hurt(
 ) {
     // The player's tweak: no hard-landing sound for the player in god mode [design: docs/design/tweaks.md].
     let quiet_god = tweaks.as_ref().is_some_and(|t| t.god_mode_quiet_landing) && crate::combat::god_mode();
+    // ResetFallTime's actors (`fnv_game::nvse_jip11`).
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        for a in rt.game.take_fall_resets() {
+            falls.reset(a);
+        }
+    }
     for f in fell.read() {
         let rules = *falls.rules.get_or_insert_with(|| FallRules::from_world(&sim.world));
         // The player's tweak: Endurance raises the safe height [design: docs/design/tweaks.md].

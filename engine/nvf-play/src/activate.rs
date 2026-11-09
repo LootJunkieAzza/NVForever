@@ -265,7 +265,12 @@ pub(crate) fn find_target(
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
         // GetCrosshairRef: what is in activation reach; GetCrosshairRefEx: at any range.
-        rt.game.senses.crosshair_ref = hit.as_ref().and_then(|h| h.form_id).map(FormId);
+        let now = hit.as_ref().and_then(|h| h.form_id).map(FormId);
+        // JohnnyGuitar's crosshair handlers hear each reference the prompt comes onto.
+        if let Some(r) = now.filter(|_| now != rt.game.senses.crosshair_ref) {
+            rt.game.jg8_crosshair(r);
+        }
+        rt.game.senses.crosshair_ref = now;
         rt.game.senses.crosshair_far = far_ref.map(FormId);
     }
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();

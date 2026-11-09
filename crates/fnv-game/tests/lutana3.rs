@@ -206,19 +206,21 @@ fn perk_ranks_and_entries() {
     q(&mut g, "PlayerREF.SetPerkRank TestPerk 1");
     assert_eq!(n(&mut g, "PlayerREF.GetPerkRank TestPerk"), 1.0);
     q(&mut g, "PlayerREF.SetPerkRank TestPerk 0");
-    assert_eq!(n(&mut g, "PlayerREF.HasPerk TestPerk"), 0.0);
+    // 0 changes nothing [observed: lu3 perkrank].
+    assert_eq!(n(&mut g, "PlayerREF.GetPerkRank TestPerk"), 1.0);
     // An NPC holds it at that rank.
     q(&mut g, "TestNpcRef.SetPerkRank TestPerk 2");
     assert_eq!(n(&mut g, "TestNpcRef.HasPerk TestPerk"), 1.0);
-    // The entries, changed for the session.
-    q(&mut g, "SetNthPerkEntryForm TestPerk 0 TestSpellB");
-    assert_eq!(n(&mut g, "GetNthPerkEntryForm TestPerk 0"), f64::from(SPELL_B));
-    assert_eq!(n(&mut g, "GetNthPerkEntryFunction TestPerk 1"), 27.0);
-    q(&mut g, "SetNthPerkEntryFunction TestPerk 1 7");
-    assert_eq!(n(&mut g, "GetNthPerkEntryFunction TestPerk 1"), 7.0);
-    assert_eq!(s(&mut g, "GetNthPerkEntryString TestPerk 1"), "Poke");
-    q(&mut g, "SetNthPerkEntryString TestPerk 1 \"Prod\"");
-    assert_eq!(s(&mut g, "GetNthPerkEntryString TestPerk 1"), "Prod");
+    // The entries, changed for the session. Both are rank 0, priority 0: numbered in the
+    // reverse of the record's order, the entry point first [observed: lu3 perkentry].
+    q(&mut g, "SetNthPerkEntryForm TestPerk 1 TestSpellB");
+    assert_eq!(n(&mut g, "GetNthPerkEntryForm TestPerk 1"), f64::from(SPELL_B));
+    assert_eq!(n(&mut g, "GetNthPerkEntryFunction TestPerk 0"), 27.0);
+    q(&mut g, "SetNthPerkEntryFunction TestPerk 0 7");
+    assert_eq!(n(&mut g, "GetNthPerkEntryFunction TestPerk 0"), 7.0);
+    assert_eq!(s(&mut g, "GetNthPerkEntryString TestPerk 0"), "Poke");
+    q(&mut g, "SetNthPerkEntryString TestPerk 0 \"Prod\"");
+    assert_eq!(s(&mut g, "GetNthPerkEntryString TestPerk 0"), "Prod");
 }
 
 #[test]
@@ -238,8 +240,8 @@ fn world_and_deprecated() {
     q(&mut g, "BaseAddItemHealth TestJunk 2 0.5 TestChest");
     let entries = g.world.base_entries(FormId(CONT)).unwrap();
     assert_eq!(entries.iter().map(|e| (e.item, e.count, e.extra.condition)).collect::<Vec<_>>(), vec![(FormId(MISC), 2, Some(0.5))]);
-    // The event names called as functions give 0.
-    assert_eq!(n(&mut g, "OnCellEnter"), 0.0);
+    // The event names called as functions give 2 and 3 [observed: lu3 events].
+    assert_eq!(n(&mut g, "OnCellEnter") * 10.0 + n(&mut g, "OnCellExit"), 23.0);
 }
 
 #[test]

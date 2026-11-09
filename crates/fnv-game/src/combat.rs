@@ -474,8 +474,9 @@ impl Game<'_> {
     /// Effect List") [hypothesis: the group, data.rs `template_spells`].
     pub fn unarmed_effect(&self, r: FormId) -> Option<(FormId, Option<&str>)> {
         let base = base_of(self, r)?;
-        let (_, d) = self.template_source(base, r, |d| d.template_spells)?;
-        Some((d.unarmed_effect?, d.unarmed_anim.as_deref()))
+        let (src, d) = self.template_source(base, r, |d| d.template_spells)?;
+        // SetActorUnarmedEffect's first (`crate::nvse_jip11`).
+        Some((self.unarmed_override(src).or(d.unarmed_effect)?, d.unarmed_anim.as_deref()))
     }
 
     /// Whether a kill by `killer` earns the player experience: the player's, and a hired
@@ -876,6 +877,11 @@ impl Game<'_> {
         }
         if by == Some(FormId::PLAYER_REF) && !new.is_empty() {
             self.count_stat(crate::misc_stats::DISMEMBERED_LIMBS, new.len() as f64);
+        }
+        // JohnnyGuitar's limb handlers: (actor, limb) (`crate::nvse_jg8`).
+        for &(l, _) in &new {
+            let (a, limb) = (fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(f64::from(l)));
+            self.jg8_fire(crate::nvse_jg8::Ev::LimbGone, &[a.clone(), limb.clone()], vec![a, limb]);
         }
         new
     }
