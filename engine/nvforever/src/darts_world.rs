@@ -260,9 +260,10 @@ fn place(
             }
             // The opponent's next dart, in its hand at the line: the game's opponent's, or
             // the other player's (its hand is known only while its arm is raised).
-            let them = 1 - d.mine();
-            let at_line = (opp.0.as_ref().is_some_and(|o| o.board == d.board && o.at_line()) || d.joined.is_some() || matches!(d.foe, nvf_play::minigames::Foe::Player(_))) && d.m.up == them && d.m.winner.is_none();
-            let to_throw = !d.flights.iter().any(|fl| fl.2 == them) && d.m.sides.get(them).is_some_and(|s| s.darts.len() < usize::from(darts::DARTS_PER_TURN));
+            // (Up to four players: whoever's turn it is when it is not this player's hand.)
+            let theirs_up = !d.up_is_me();
+            let at_line = (opp.0.as_ref().is_some_and(|o| o.board == d.board && o.at_line()) || d.joined.is_some() || matches!(d.foe, nvf_play::minigames::Foe::Player(_))) && theirs_up && d.m.winner.is_none();
+            let to_throw = !d.flights.iter().any(|fl| fl.2 != d.mine()) && d.m.sides.get(d.m.up).is_some_and(|s| s.darts.len() < usize::from(darts::DARTS_PER_TURN));
             if let (true, true, Some(at)) = (at_line, to_throw, hands.now[1]) {
                 want.push(dart_at(&f, at, Vec3::Y));
             }

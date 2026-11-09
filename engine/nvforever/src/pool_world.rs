@@ -267,9 +267,10 @@ fn place(
     if let Some(p) = own {
         if let Some(f) = p.frame {
             let mut t = p.table.clone();
-            // The white from the hand where it goes, while it is put down.
-            if p.my_shot() && p.in_hand() {
-                match p.hand_spot() {
+            // The white from the hand: where it is moved, then where it was put down (this
+            // player's, or the other player's as they sent it).
+            if p.in_hand() && (p.my_shot() || p.remote_place.is_some()) {
+                match p.hand_white() {
                     Some(at) => {
                         t.balls[0].pos = at;
                         t.balls[0].on = true;

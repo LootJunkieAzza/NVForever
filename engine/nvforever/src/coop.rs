@@ -446,7 +446,7 @@ fn resolve(at: &str) -> Option<SocketAddr> {
 }
 
 #[derive(Resource)]
-struct Coop {
+pub(crate) struct Coop {
     /// None while no lobby is open or joined.
     link: Option<Link>,
     base: u32,
@@ -587,6 +587,12 @@ impl NpcTrack {
 }
 
 impl Coop {
+    /// The reference player `id`'s puppet is drawn with on this screen (its actor's on
+    /// the host, else [`PUPPET_REF`] + its id), for `match_end.rs`.
+    pub(crate) fn puppet_reference(&self, id: u8) -> u32 {
+        self.peers.get(&id).map_or(PUPPET_REF + id as u32, |p| p.reference(id))
+    }
+
     fn start_hosting(&mut self, port: u16) {
         let Some(link) = host_session(port) else {
             self.note = Some(format!("Cannot open UDP port {port} on this PC: is another game using it?"));
