@@ -228,6 +228,8 @@ pub struct TweakSettings {
     pub kill_cam_chance: f32,
     /// `bContainerEncumbranceIndicator`: the weight in red when taking would overload.
     pub warn_encumbrance: bool,
+    /// `bHapticPipboy`: a short controller buzz on a Pip-Boy page or tab change.
+    pub pipboy_buzz: bool,
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -358,6 +360,7 @@ impl Default for TweakSettings {
             pov_follows_weapon: false,
             kill_cam_chance: 1.0,
             warn_encumbrance: false,
+            pipboy_buzz: false,
         }
     }
 }
@@ -996,6 +999,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "warn-encumbrance", "Weight Warning", "In a container, the player's weight shows red when taking the selected item would be too much to carry. (Stewie's Tweaks bContainerEncumbranceIndicator)", warn_encumbrance);
         amount!(app, "mark-nearby-places", "Mark Nearby Places", "Map markers within this many units of the player are marked on the map; 0 changes nothing. (Stewie's Tweaks bMarkNearbyLocationsOnMap)", 10000.0, f32, game.mark_nearby_places);
         switch!(app, "scale-ash-piles", "Ash Piles Fit the Body", "An ash pile takes the size of the actor it was (between half and twice). (Stewie's Tweaks bScaleAshpileSize)", game.scale_ash_piles);
+        switch!(app, "pipboy-buzz", "Pip-Boy Buzz", "A short controller buzz on each Pip-Boy page or tab change (with rumble on). (Stewie's Tweaks bHapticPipboy)", pipboy_buzz);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

@@ -413,6 +413,7 @@ unless the player binds them, so nothing changes until then.
 | Weight Warning | `bContainerEncumbranceIndicator` | `menu::look` half figure (`warn_encumbrance`) |
 | Mark Nearby Places (0–10000) | `bMarkNearbyLocationsOnMap` | `compass::discover` (ShowMap's set) |
 | Ash Piles Fit the Body | `bScaleAshpileSize` | `Game` ash pile creation (`scale_of`) |
+| Pip-Boy Buzz | `bHapticPipboy` | `rumble::rumble` on a page or tab change |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -433,8 +434,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 320 |
-| to do | 283 |
+| done | 321 |
+| to do | 282 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1037,6 +1038,7 @@ game's Data folder, read-only).
 | `bDisarmingMinesPicksThemUp` | done |  |  | Pick Up Disarmed Mines |
 | `bDontOpenDoorsAfterLockpick` | done |  |  | Picked Doors Stay Shut |
 | `bDontShowContainerAfterLockpick` | done |  |  | Picked Containers Stay Shut |
+| `bHapticPipboy` | done |  |  | Pip-Boy Buzz (with rumble on) |
 | `bInvertCameraX` | done |  |  | Invert Look Left/Right |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
 | `bKeepSelectedConsoleRef` | done |  |  | already so: closing the console keeps the selection |
@@ -1091,7 +1093,6 @@ game's Data folder, read-only).
 | `bDisableControllerDeadzones` | to do |  | 2 | pad STICK_DEAD and Bevy axis settings |
 | `bDisableRegionBordersKeepMessage` | to do |  |  | not built: no world borders |
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
-| `bHapticPipboy` | to do |  |  | pipboy sounds play with a rumble request |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
 | `bNoAmmoCasings` | to do |  |  | NVForever gives no casings yet |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
