@@ -843,6 +843,16 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       on a part. Synthetic tests cover the adapter. Smoke `tiles-pipboy-repair`,
       `tiles-pipboy-repair-off`.
 
+    - **T15, recipe built as a candidate** 2026-11-07 (issue #1468), behind
+      `[UI] TileMenus=RecipeMenu`, hand-built drawing still the default [design:
+      `tiles/recipe_menu.rs`, crafting.md section 4]. A first refactor commit moves a list's view,
+      its settling, the tile walk and the template check into `tiles/list.rs` for menus with no
+      `MenuModel`. The rules, keys, wheel and sounds stay `crate::crafting`'s, asked through
+      `crafting::RecipeInput`; the "How many?" prompt stays hand-built over the tiles. Checked
+      against a capture of the original at 1280 x 720; what it left open, the ingredient rows'
+      traits first, is in crafting.md section 4. Smoke `tiles-recipe-places`, `tiles-recipe`,
+      `recipe-default-drawing`.
+
     - **T15, tag-skill candidate built** 2026-11-06 (issue #1519), behind
       `[UI] TileMenus=CharGenMenu` [design: `tiles/tag_menu.rs`, chargen.md §3.1].
       The preceding behavior-preserving refactor shares the trait menu's readiness,

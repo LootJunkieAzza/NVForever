@@ -420,6 +420,12 @@ impl Ui {
         self.tiles.len() - self.free.len()
     }
 
+    /// A count that goes up whenever tiles are made, unloaded or changed other than in a value:
+    /// what follows from the tree's shape alone stands while this does.
+    pub fn shape(&self) -> u64 {
+        self.shape
+    }
+
     /// A loaded tile to change (made, unloaded, renamed, its file traits or templates):
     /// the tree is worked out again at the next [`Ui::update`], every expression in it
     /// (the shape changed). Value writes go through `set_at`.
