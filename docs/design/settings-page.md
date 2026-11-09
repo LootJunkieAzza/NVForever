@@ -159,7 +159,11 @@ Alt or the logo key is held, or it is a control character, or the game's fonts c
 it (`fnv_util::text::encodable`, as the console); Backspace takes the last letter off.
 A frame's keys are taken in the order typed: text and Backspace go into the text, Enter
 moves from the text to the results, Esc closes the search and drops what came after it
-(an Enter alone on the results is theirs: it acts on the chosen row).
+(an Enter alone on the results is theirs: it acts on the chosen row). The commands that
+come as keys without text (a controller's B, A and D-pad Down, the aids' `back`, `pick`,
+`down`) are taken after that frame's text, never lost to it. A click on the pause column's
+entries from an open search closes it as Esc does, and that frame's keys reach no other
+page.
 Ctrl+F's F is not typed: the search opens after that frame's text was read.
 
 **Who has the keys**: while the search is open the letters are its own. On the pause menu

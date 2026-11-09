@@ -2839,7 +2839,15 @@ fn choose(
         return;
     }
     view.dropdown = None;
-    // A click on the column's entry of another page (the page's own entry closes it).
+    // A click on the column's entry of another page (the page's own entry closes it). From
+    // an open search the search closes first, and the frame's keys (its text) reach no
+    // other page [design: #1953].
+    let search_open = matches!(*page, Page::Settings { .. }) && view.search.from.is_some();
+    let mut swallow = false;
+    if search_open && matches!(clicked, Some(PauseButton::Column(_))) {
+        let _ = leave_search(&mut view, &mut sounds);
+        swallow = true;
+    }
     match clicked {
         Some(PauseButton::Column(i)) if !under_main && *page != Page::Main => {
             let closes = entries.get(i).is_some_and(|e| page.opened_by(e.label()));
@@ -2873,6 +2881,18 @@ fn choose(
         Some(PauseButton::Defaults) if matches!(*page, Page::Settings { .. }) => defaults(&view, layout, list, &mut commands, &mut sounds),
         _ => {}
     }
+    let no_keys = ButtonInput::<KeyCode>::default();
+    let keys: &ButtonInput<KeyCode> = if swallow {
+        // The systems after this one do not see them either.
+        commands.queue(|world: &mut World| {
+            if let Some(mut k) = world.get_resource_mut::<ButtonInput<KeyCode>>() {
+                k.clear();
+            }
+        });
+        &no_keys
+    } else {
+        &keys
+    };
     match &mut *page {
         Page::Main if view.confirm.is_some() => {
             let sel = view.confirm.unwrap_or(2);
@@ -3049,6 +3069,22 @@ fn choose(
                     sel = None;
                 }
                 handled = true;
+                // Then the commands that come as keys without text, after it: a controller's
+                // B (Esc) and A (Enter) and D-pad Down, the aids' `back`, `pick` and `down`.
+                // A key the window typed was taken in its place above.
+                let typed_has = |k: SearchKey| typed.contains(&k);
+                if view.scope == SettingsScope::Search {
+                    if (pressed.just(KeyCode::Escape) && !typed_has(SearchKey::Escape)) || act("back") {
+                        sel = leave_search(&mut view, &mut sounds);
+                        log_tab = true;
+                    } else if view.focus == SettingsFocus::SearchText
+                        && ((pressed.any([KeyCode::Enter, KeyCode::NumpadEnter]) && !typed_has(SearchKey::Enter)) || pressed.just(KeyCode::ArrowDown) || act("down") || act("pick"))
+                    {
+                        view.focus = SettingsFocus::Rows;
+                        info!("pause menu: the keys on the results");
+                        sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Focus });
+                    }
+                }
             } else if in_search && (pressed.just(KeyCode::Escape) || act("back") || clicked == Some(PauseButton::Back)) {
                 sel = leave_search(&mut view, &mut sounds);
                 log_tab = true;
@@ -4114,6 +4150,50 @@ mod tests {
         app.update();
         assert!(app.world().resource::<Lamp>().0, "the switch was flipped");
         assert_eq!(app.world().resource::<PauseView>().focus, SettingsFocus::Rows);
+    }
+
+    #[test]
+    fn a_controllers_command_in_the_frame_of_a_typed_letter_still_counts() {
+        let t = |s: &str| SearchKey::Text(s.to_string());
+        // A letter and a controller's B (Esc pressed, no text): the search closes.
+        let mut app = search_app(&SEARCHED, "pa", SettingsFocus::SearchText);
+        app.world_mut().resource_mut::<SearchKeys>().0 = vec![t("u")];
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
+        app.update();
+        back_on_debug(&app);
+        // A letter and the aid's `back`: the same.
+        let mut app = search_app(&SEARCHED, "pa", SettingsFocus::SearchText);
+        app.world_mut().resource_mut::<SearchKeys>().0 = vec![t("u")];
+        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "back".into())];
+        app.update();
+        back_on_debug(&app);
+        // Letters and a controller's A (Enter pressed, no Enter typed): the text kept, the
+        // keys on the results, nothing acted on.
+        let mut app = search_app(&SEARCHED, "pau", SettingsFocus::SearchText);
+        app.world_mut().resource_mut::<SearchKeys>().0 = vec![t("se")];
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
+        app.update();
+        let view = app.world().resource::<PauseView>();
+        assert_eq!((view.scope, view.focus, view.search.query.as_str()), (SettingsScope::Search, SettingsFocus::Rows, "pause"));
+        assert!(!app.world().resource::<Lamp>().0);
+    }
+
+    #[test]
+    fn the_columns_settings_entry_closes_an_open_search_and_takes_its_keys() {
+        // Typing N in the frame the column's Settings entry is clicked: back to the column,
+        // the search closed, and N saves nothing.
+        let mut app = search_app(&SEARCHED, "pa", SettingsFocus::SearchText);
+        app.world_mut().resource_mut::<SearchKeys>().0 = vec![SearchKey::Text("n".into())];
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyN);
+        let settings = entries(false).iter().position(|e| *e == Entry::Settings).unwrap();
+        app.world_mut().spawn((Button, PauseButton::Column(settings), PointerState::Pressed));
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Main);
+        let view = app.world().resource::<PauseView>();
+        assert_eq!((view.search.from, view.search.query.as_str(), view.scope), (None, "", SettingsScope::Tab("Debug")));
+        assert!(app.world().resource::<PauseStatus>().line.is_empty(), "no save was asked: {:?}", app.world().resource::<PauseStatus>().line);
+        assert_eq!(view.confirm, None);
+        assert!(!app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::KeyN), "the systems after it do not see N");
     }
 
     #[test]
