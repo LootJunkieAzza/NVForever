@@ -1678,7 +1678,8 @@ impl<'a> World<'a> {
     pub fn advance_to_hour(&mut self, hour: f64) -> Result<f64, SimError> {
         let before = self.calendar()?;
         let (c, hours) = self.fine_clock.advance_to_hour(before, hour);
-        if hours > 0.0 {
+        // A GameHour out of range can come to the hour with no time passing.
+        if c != before {
             self.store_calendar(before, c)?;
         }
         Ok(hours)
