@@ -362,12 +362,14 @@ pub fn go(
         let rot = [0.0, 0.0, mate.yaw];
         let travel = Travel { world, interior: mate.interior, feet, heading_deg: crate::activate::outcome::heading_deg(rot) };
         info!(
-            "fast travel: to the co-op player {} ({}): arrive beside it at {feet:?} in {}, {distance:.0} units away, {hours:.2} hours on the clock",
+            "fast travel: to the co-op player {} ({}): arrive beside it at {feet:?} {}, {hours:.2} hours on the clock",
             mate.name,
             FormId(marker),
-            match mate.interior {
-                Some(c) => format!("interior {}", FormId(c)),
-                None => format!("worldspace {}", FormId(mate.world)),
+            match (mate.interior, from) {
+                // Into an interior no walk is measured: the trip takes no time [design].
+                (Some(c), _) => format!("into interior {}", FormId(c)),
+                (None, Some(_)) => format!("in worldspace {}, {distance:.0} units away", FormId(mate.world)),
+                (None, None) => format!("in worldspace {}, from another place (no walk measured)", FormId(mate.world)),
             }
         );
         pending.0 = Some(Trip { travel, to: marker, cell, rot, hours });
