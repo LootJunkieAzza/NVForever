@@ -147,15 +147,19 @@ key: the INI and a test aid (`pipboy-red=0.2`) set it as before.
 **Opening and closing** [design: #1953]: the rail's Search line (a click, or Enter on it
 with the keys on the rail), or Ctrl+F anywhere on the page. A key being awaited, an open
 dropdown and the keep question keep the keys until they are done, so Ctrl+F does nothing
-then. Esc (a controller's B, or Back) closes the search, clears its text and shows what was
-listed before, with the same row chosen and the same first line; it goes no further (the
-settings page stays). Taking a tab or the Changed list closes it too.
+then. Esc (a controller's B), Back or the rail's Back closes the search, clears its text
+and shows what was listed before, with the same row chosen and the same first line; it
+goes no further (the settings page stays; only with the search closed does Back leave
+it). Taking a tab or the Changed list closes it too.
 
 **The text** is the window's (`KeyboardInput`), read every frame in `PreUpdate`, whether
 the search is open or not, so nothing typed before it opened comes in later
 (`pause::collect_search_keys`). A pressed key's text goes in (repeats too) unless Ctrl,
 Alt or the logo key is held, or it is a control character, or the game's fonts cannot draw
 it (`fnv_util::text::encodable`, as the console); Backspace takes the last letter off.
+A frame's keys are taken in the order typed: text and Backspace go into the text, Enter
+moves from the text to the results, Esc closes the search and drops what came after it
+(an Enter alone on the results is theirs: it acts on the chosen row).
 Ctrl+F's F is not typed: the search opens after that frame's text was read.
 
 **Who has the keys**: while the search is open the letters are its own. On the pause menu
@@ -174,8 +178,12 @@ the keyboard. The query is split at whitespace and lowercased (Unicode); a row i
 when every word is somewhere in its words. No stemming, no ranking: the results are in the
 page's order (`catalogue`: tab by tab, the Controls tab's own rows first on it). An empty
 text lists every row. A row hidden where it lives is listed as the row that stands for it
-(`shown_as`: a colour's channel as its colour, a controller row as Input Device, a control
-of the other device as its row of the device in use), once.
+(`shown_as`: a colour's channel as its colour; a controller row, a control's binding or the
+sensitivity of the device not in use, and Rumble without a controller as Input Device),
+once, in the page's order of the rows shown. Its note then begins with what it stands for
+(`stands_for`: "Stands for: Jump (Controller)."). So a result of the other device is never
+edited through the device in use: acting on it switches the device, and the row is then
+listed as itself.
 
 **On the results** the keys act as on the row's own tab (Enter, Left/Right, Delete, a
 click, the dropdown, the keep question, a key's rebinding), Page Up/Down go from place to

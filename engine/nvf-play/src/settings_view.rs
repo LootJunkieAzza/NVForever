@@ -7,8 +7,11 @@
 //! [`search`] the rows whose words hold every term of the query, [`changed`] the rows set
 //! away from their default, each in the page's order ([`catalogue`]) under a heading that
 //! says where it lives (its tab and heading, [`listing`]). A row hidden where it lives
-//! (a colour's channel, a controller's row, a control of the other device) is listed as
-//! the row that stands for it there ([`shown_as`]), once.
+//! (a colour's channel, a controller's row, a control or sensitivity of the device not in
+//! use) is listed as the row that stands for it there ([`shown_as`]), once, and the page
+//! names what it stands for ([`stands_for`]): a result of the other device is the Input
+//! Device row, so acting on it switches the device and never edits the other device's
+//! binding through the one in use [design: #1953].
 //!
 //! **A row** is a registered setting by its index in the registry (`crate::settings`,
 //! whose order stays the one the values, the INI and the test aids go by), or one of the
@@ -291,8 +294,8 @@ pub struct Found {
 pub fn project(layout: &ResolvedLayout, list: &[Setting], scope: SettingsScope, vis: Visibility, found: &Found) -> Vec<ViewEntry> {
     let tab = match scope {
         SettingsScope::Tab(tab) => tab,
-        SettingsScope::Search => return listing(layout, &shown_rows(list, &found.search, vis)),
-        SettingsScope::Changed => return listing(layout, &shown_rows(list, &found.changed, vis)),
+        SettingsScope::Search => return listing(layout, &shown_rows(layout, list, &found.search, vis)),
+        SettingsScope::Changed => return listing(layout, &shown_rows(layout, list, &found.changed, vis)),
     };
     let mut out = Vec::new();
     if tab == CONTROLS_TAB {
@@ -462,26 +465,43 @@ pub fn normalize(layout: &ResolvedLayout, list: &[Setting], scope: SettingsScope
 }
 
 /// The row that shows `id` where every row is listed with `vis` (the search, the Changed
-/// list): itself when shown, else the row that stands for it ([`parent_of`]; a control of
-/// the other device: that control's row of the device in use; Rumble without a
-/// controller: the Input Device row); `None`: neither.
+/// list): itself when shown, else the row that stands for it ([`parent_of`]; a control's
+/// binding or the sensitivity of the device not in use, and Rumble without a controller:
+/// the Input Device row, which switches the device) [design: #1953]; `None`: neither.
 pub fn shown_as(list: &[Setting], id: RowId, vis: Visibility) -> Option<RowId> {
     match id {
         RowId::Setting(i) if list.get(i).is_some_and(|s| vis.shows(s)) => Some(id),
         RowId::Setting(i) => parent_of(list, i, vis),
-        RowId::Control(ControlRow::Binding(c, _)) => Some(RowId::Control(ControlRow::Binding(c, vis.device))),
-        RowId::Control(ControlRow::Sensitivity(_)) => Some(RowId::Control(ControlRow::Sensitivity(vis.device))),
+        RowId::Control(ControlRow::Binding(_, d) | ControlRow::Sensitivity(d)) if d != vis.device => Some(RowId::Control(ControlRow::Device)),
         RowId::Control(ControlRow::Rumble) if vis.device != InputDevice::Controller => Some(RowId::Control(ControlRow::Device)),
         RowId::Control(_) => Some(id),
     }
 }
 
-/// `ids` each as it is shown ([`shown_as`]), each once, in their order.
-fn shown_rows(list: &[Setting], ids: &[RowId], vis: Visibility) -> Vec<RowId> {
+/// `ids` each as it is shown ([`shown_as`]), each once, in the page's order of the rows
+/// shown ([`catalogue`]).
+fn shown_rows(layout: &ResolvedLayout, list: &[Setting], ids: &[RowId], vis: Visibility) -> Vec<RowId> {
     let mut out: Vec<RowId> = Vec::new();
     for id in ids.iter().filter_map(|id| shown_as(list, *id, vis)) {
         if !out.contains(&id) {
             out.push(id);
+        }
+    }
+    let order = catalogue(layout);
+    out.sort_by_key(|id| order.iter().position(|o| o == id).unwrap_or(usize::MAX));
+    out
+}
+
+/// Of `ids` (the search's or the Changed list's rows), those listed as another row
+/// ([`shown_as`]), by the row that stands for them, in their order: what the page names
+/// under that row so it is plain what a choice there is about [design: #1953].
+pub fn stands_for(list: &[Setting], ids: &[RowId], vis: Visibility) -> Vec<(RowId, Vec<RowId>)> {
+    let mut out: Vec<(RowId, Vec<RowId>)> = Vec::new();
+    for &id in ids {
+        let Some(by) = shown_as(list, id, vis).filter(|by| *by != id) else { continue };
+        match out.iter_mut().find(|(b, _)| *b == by) {
+            Some((_, v)) => v.push(id),
+            None => out.push((by, vec![id])),
         }
     }
     out
@@ -832,10 +852,11 @@ mod tests {
         assert_eq!(searched(&list, "hud", vis), ["[Interface]", "hud-colour"]);
         assert_eq!(searched(&list, "hud", Visibility { colours: [true, false], ..vis }), ["[Interface]", "hud-colour", "hud-red"]);
         assert_eq!(searched(&list, "button-style", vis), ["[Controls]", "device"]);
-        // A Controls row is found by its words, a control of both devices as the one in use.
-        assert_eq!(searched(&list, "bind:jump", vis), ["[Controls]", "bind:Jump"]);
-        assert_eq!(searched(&list, "padbind:jump", vis), ["[Controls]", "bind:Jump"]);
-        assert_eq!(searched(&list, "jump", Visibility { device: InputDevice::Controller, ..vis }), ["[Controls]", "padbind:Jump"]);
+        // A Controls row is found by its words; a control of the device not in use as the
+        // Input Device row, first on the tab.
+        assert_eq!(searched(&list, "bind:jump", vis), ["[Controls]", "device", "bind:Jump"]);
+        assert_eq!(searched(&list, "padbind:jump", vis), ["[Controls]", "device"]);
+        assert_eq!(searched(&list, "jump", Visibility { device: InputDevice::Controller, ..vis }), ["[Controls]", "device", "padbind:Jump"]);
         // An empty query: every row.
         let all = search(&l, &list, " ", |_| String::new());
         assert_eq!(all.len(), list.len() + ControlRow::all().len());
@@ -863,6 +884,31 @@ mod tests {
         // LB/RB go from place to place.
         assert_eq!(step_heading(&e, Some(k("difficulty")), 1).map(|(id, _)| id), Some(k("hud-colour")));
         assert!(project(&l, &list, SettingsScope::Changed, Visibility::default(), &NONE).is_empty());
+    }
+
+    #[test]
+    fn a_change_of_the_device_not_in_use_is_listed_as_the_input_device_row() {
+        // Keyboard and mouse in use; only the controller's Jump button and the stick's
+        // sensitivity changed: the Changed list shows the Input Device row (acting on it
+        // switches the device), never the keyboard's Jump or the mouse's sensitivity.
+        let list = worded(&WORDED);
+        let l = resolve_layout(&list);
+        let pad_jump = RowId::Control(ControlRow::Binding(Control::Jump, InputDevice::Controller));
+        let stick = RowId::Control(ControlRow::Sensitivity(InputDevice::Controller));
+        let rows = changed(&l, &[], |c| RowId::Control(c) == pad_jump || RowId::Control(c) == stick);
+        assert_eq!(rows, [pad_jump, stick], "the rows themselves, for the log and Defaults");
+        let vis = Visibility::default();
+        let found = Found { search: Vec::new(), changed: rows.clone() };
+        let e = project(&l, &list, SettingsScope::Changed, vis, &found);
+        assert_eq!(names(&list, &e), ["[Controls]", "device"]);
+        assert!(!e.contains(&ViewEntry::Row(RowId::Control(ControlRow::Binding(Control::Jump, InputDevice::KeyboardMouse)))));
+        assert!(!e.contains(&ViewEntry::Row(RowId::Control(ControlRow::Sensitivity(InputDevice::KeyboardMouse)))));
+        // What the Input Device row stands for, named under it.
+        assert_eq!(stands_for(&list, &rows, vis), [(RowId::Control(ControlRow::Device), vec![pad_jump, stick])]);
+        // With the controller in use they are their own rows.
+        let pad = Visibility { device: InputDevice::Controller, ..vis };
+        assert_eq!(names(&list, &project(&l, &list, SettingsScope::Changed, pad, &found)), ["[Controls]", "padbind:Jump", "sensitivity"]);
+        assert!(stands_for(&list, &rows, pad).is_empty());
     }
 
     #[test]

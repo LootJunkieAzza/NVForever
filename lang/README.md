@@ -30,7 +30,8 @@ name = "Deutsch"
   `Search`, `Changed`, `Keyboard search`, `Previous heading`, `Next heading` and what an
   empty list says (`No settings here.`, `No results.`, `No changed settings.`). The
   search finds a row by its words in the language shown and in English, and by its INI
-  key, so a translation never hides a row from it.
+  key, so a translation never hides a row from it. `Stands for: {rows}.` begins the note
+  of a row listed for others (its `{rows}` the rows it stands for).
 
 ## Where NVForever looks
 

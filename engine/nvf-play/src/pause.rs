@@ -79,11 +79,14 @@
 //! word typed, any case (`crate::settings_view::search`), the Controls tab's own rows too
 //! by their label, note and INI name; an empty text lists every row. The results are in
 //! the page's order, under dim headings saying where each lives ("Gameplay > Dialogue");
-//! a hidden row is listed as the row that stands for it (a colour's channel as its colour,
-//! a controller's row as Input Device). Down or Enter put the keys on the results, where
-//! they act as on the row's own tab (Enter, Left/Right, a click; Page Up/Down from place
-//! to place) and the search stays open; typing again goes back to the text. Esc (or Back)
-//! closes it and shows what was listed before, the same row chosen, and goes no further.
+//! a hidden row is listed as the row that stands for it (a colour's channel as its colour;
+//! a controller's row, a binding or sensitivity of the device not in use, as Input Device,
+//! so it is never edited through the device in use), its note naming what it stands for.
+//! Down or Enter put the keys on the results, where they act as on the row's own tab
+//! (Enter, Left/Right, a click; Page Up/Down from place to place) and the search stays
+//! open; typing again goes back to the text. A frame's keys go in the order typed. Esc,
+//! Back or the rail's Back closes it and shows what was listed before, the same row
+//! chosen, and goes no further.
 //! With a controller the rail's keys pass over Search, which says "Keyboard search": a
 //! controller types nothing yet, but works the results a keyboard found.
 //!
@@ -947,11 +950,15 @@ struct SearchState {
     logged: Option<String>,
 }
 
-/// What the search's text took this frame ([`collect_search_keys`]).
+/// What the search took this frame, in the order typed ([`collect_search_keys`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SearchKey {
     Text(String),
     Backspace,
+    /// Enter: from the text to the results.
+    Enter,
+    /// Esc: the search closes.
+    Escape,
 }
 
 /// The search's keys of this frame, gathered in `PreUpdate` before the pause menu reads
@@ -1047,6 +1054,9 @@ struct Drawn {
     language: u32,
     /// On the search: its text and whether the keys are in it.
     search: Option<(String, bool)>,
+    /// On the search and the Changed list: the rows listed as another row, by that row,
+    /// their names as the page shows them (`crate::settings_view::stands_for`).
+    stand_ins: Vec<(RowId, Vec<String>)>,
 }
 
 impl Drawn {
@@ -1381,7 +1391,7 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
         }
     }
     // The chosen row's note under the rows.
-    let note = selected.map_or_else(String::new, |id| row_note(list, id, d));
+    let note = selected.map_or_else(String::new, |id| note_of(list, id, d));
     root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
     let shown = (entries.len() - first.min(entries.len())).min(OPTION_ROWS) as f32;
     note_lines(root, f, &note, left, top + shown * OPTION_ROW + 20.0);
@@ -2094,6 +2104,18 @@ fn open_search(view: &mut PauseView, selected: Option<RowId>) {
     view.focus = SettingsFocus::SearchText;
 }
 
+/// Esc, Back or the rail's Back on the search: the search closed and what was listed when
+/// it opened shown again, its first line too, the keys on its rows; the row chosen then.
+fn leave_search(view: &mut PauseView, sounds: &mut MessageWriter<crate::ui_sounds::UiSound>) -> Option<RowId> {
+    use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
+    let (scope, sel, scroll) = close_search(view).unwrap_or((SettingsScope::default(), None, 0));
+    view.scope = scope;
+    view.scroll = scroll;
+    view.focus = SettingsFocus::Rows;
+    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
+    sel
+}
+
 /// Close the search, its text cleared; what was listed when it opened (`None`: it was not
 /// open).
 fn close_search(view: &mut PauseView) -> Option<(SettingsScope, Option<RowId>, usize)> {
@@ -2131,15 +2153,18 @@ fn control_words(c: ControlRow) -> String {
     crate::settings_view::haystack(&[label, note.as_str(), key])
 }
 
-/// The search's keys among `events` (pressed, repeats too): Backspace, and the text of
-/// the others unless Ctrl, Alt or the logo key is held (`modifiers`); a control character
-/// or text the game's fonts cannot draw is left out (as the console's) [design: #1953].
+/// The search's keys among `events` (pressed, repeats too), in their order: Backspace,
+/// Enter, Esc, and the text of the others unless Ctrl, Alt or the logo key is held
+/// (`modifiers`); a control character or text the game's fonts cannot draw is left out (as
+/// the console's) [design: #1953].
 fn search_keys(events: &[KeyboardInput], modifiers: bool) -> Vec<SearchKey> {
     events
         .iter()
         .filter(|k| k.state.is_pressed())
         .filter_map(|k| match &k.logical_key {
             Key::Backspace => Some(SearchKey::Backspace),
+            Key::Enter => Some(SearchKey::Enter),
+            Key::Escape => Some(SearchKey::Escape),
             _ if modifiers => None,
             _ => k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|ch| !ch.is_control()) && fnv_util::text::encodable(t)).map(|t| SearchKey::Text(t.to_string())),
         })
@@ -2986,27 +3011,47 @@ fn choose(
             // text Down or Enter to its results; every other key in its text is its own.
             let typed = typed_in.as_ref().map_or(&[][..], |k| k.0.as_slice());
             let mut handled = false;
-            if in_search && clicked.is_none() && !typed.is_empty() {
+            // The frame's typing, in its order: text and Backspace into the text, Enter from
+            // the text to the results, Esc closes (what came after it is dropped). An Enter
+            // alone on the results is the results' own (it acts on the row).
+            let typing = view.focus == SettingsFocus::SearchText;
+            if in_search && clicked.is_none() && (typing || typed.iter().any(|k| *k != SearchKey::Enter)) && !typed.is_empty() {
+                let mut edited = false;
                 for k in typed {
                     match k {
-                        SearchKey::Text(t) => view.search.query.push_str(t),
+                        SearchKey::Text(t) => {
+                            view.search.query.push_str(t);
+                            view.focus = SettingsFocus::SearchText;
+                            edited = true;
+                        }
                         SearchKey::Backspace => {
                             view.search.query.pop();
+                            view.focus = SettingsFocus::SearchText;
+                            edited = true;
+                        }
+                        SearchKey::Enter => {
+                            if view.focus == SettingsFocus::SearchText {
+                                view.focus = SettingsFocus::Rows;
+                                info!("pause menu: the keys on the results");
+                                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Focus });
+                            }
+                        }
+                        SearchKey::Escape => {
+                            sel = leave_search(&mut view, &mut sounds);
+                            log_tab = true;
+                            edited = false;
+                            break;
                         }
                     }
                 }
-                view.focus = SettingsFocus::SearchText;
-                view.scroll = 0;
-                sel = None;
+                if edited {
+                    view.scroll = 0;
+                    sel = None;
+                }
                 handled = true;
             } else if in_search && (pressed.just(KeyCode::Escape) || act("back") || clicked == Some(PauseButton::Back)) {
-                let (scope, s, scroll) = close_search(&mut view).unwrap_or((SettingsScope::default(), None, 0));
-                view.scope = scope;
-                view.scroll = scroll;
-                view.focus = SettingsFocus::Rows;
-                sel = s;
+                sel = leave_search(&mut view, &mut sounds);
                 log_tab = true;
-                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
                 handled = true;
             } else if in_search && clicked.is_none() && view.focus == SettingsFocus::SearchText {
                 if pressed.any([KeyCode::ArrowDown, KeyCode::Enter, KeyCode::NumpadEnter]) || act("down") || act("pick") {
@@ -3106,6 +3151,11 @@ fn choose(
                 }
                 Some(RailItem::Changed) => to_scope = Some(SettingsScope::Changed),
                 Some(RailItem::Defaults) => defaults(&view, layout, list, &mut commands, &mut sounds),
+                // Back with the search open closes it, as Esc; only then does it leave.
+                Some(RailItem::Back) if view.scope == SettingsScope::Search => {
+                    sel = leave_search(&mut view, &mut sounds);
+                    log_tab = true;
+                }
                 Some(RailItem::Back) => leave = true,
                 None => {}
             }
@@ -3485,6 +3535,16 @@ fn drawn_now(world: &mut World) -> Drawn {
         (list.get(p.row).map_or("choice", |s| s.label), p.left(now), world.resource::<PauseView>().keep_selected)
     });
     let main = world.get_resource::<crate::main_menu::MainMenu>().filter(|m| m.open).map(|m| m.column());
+    let stand_ins: Vec<(RowId, Vec<String>)> = {
+        let view = world.resource::<PauseView>();
+        let ids = match view.scope {
+            SettingsScope::Search => view.found.search.as_slice(),
+            SettingsScope::Changed => view.found.changed.as_slice(),
+            SettingsScope::Tab(_) => &[],
+        };
+        let vis = Visibility::of_world(world);
+        crate::settings_view::stands_for(&list, ids, vis).into_iter().map(|(by, rows)| (by, rows.into_iter().map(|r| stand_in_name(&list, r)).collect())).collect()
+    };
     let view = world.resource::<PauseView>();
     let thumb = world.resource::<LoadList>().thumb.as_ref().map(|(i, h)| (*i, h.is_some()));
     Drawn {
@@ -3515,6 +3575,39 @@ fn drawn_now(world: &mut World) -> Drawn {
         view_w,
         language: fnv_util::words::generation(),
         search: (matches!(page, Page::Settings { .. }) && view.scope == SettingsScope::Search).then(|| (view.search.query.clone(), view.focus == SettingsFocus::SearchText)),
+        stand_ins,
+    }
+}
+
+/// The page's name for row `id` where another row stands for it: a setting's label, a
+/// control's with its device ("Jump (Controller)"), the sensitivity of its device.
+fn stand_in_name(list: &[Setting], id: RowId) -> String {
+    use crate::bindings::InputDevice;
+    match id {
+        RowId::Setting(i) => list.get(i).map_or_else(String::new, |s| tr(s.label).to_string()),
+        RowId::Control(c) => {
+            let controller = matches!(c, ControlRow::Binding(_, InputDevice::Controller) | ControlRow::Sensitivity(InputDevice::Controller) | ControlRow::Rumble);
+            let d = Drawn { device: ("", controller), ..default() };
+            let (label, _) = control_line(&d, c);
+            match c {
+                ControlRow::Binding(_, dev) => format!("{label} ({})", tr(dev.name())),
+                _ => label.to_string(),
+            }
+        }
+    }
+}
+
+/// Row `id`'s note, after the names of the rows it stands for on the search or the Changed
+/// list ("Stands for: Jump (Controller)."), so a choice there is plain [design: #1953].
+fn note_of(list: &[Setting], id: RowId, d: &Drawn) -> String {
+    let note = row_note(list, id, d);
+    match d.stand_ins.iter().find(|(by, _)| *by == id) {
+        Some((_, names)) => {
+            let names = names.join(", ");
+            let head = fnv_util::words::trf("Stands for: {rows}.", &[("rows", &names)]);
+            if note.is_empty() { head } else { format!("{head} {note}") }
+        }
+        None => note,
     }
 }
 
@@ -3812,11 +3905,12 @@ mod tests {
             key(KeyCode::Enter, Key::Enter, Some("\r"), ButtonState::Pressed),
             key(KeyCode::Backspace, Key::Backspace, Some("\u{8}"), ButtonState::Pressed),
             key(KeyCode::ArrowDown, Key::ArrowDown, None, ButtonState::Pressed),
+            key(KeyCode::Escape, Key::Escape, Some("\u{1b}"), ButtonState::Pressed),
         ];
         let t = |s: &str| SearchKey::Text(s.to_string());
-        assert_eq!(search_keys(&events, false), [t("n"), t("n"), t(" "), SearchKey::Backspace]);
-        // With Ctrl (Ctrl+F opens the search) or Alt held, only Backspace.
-        assert_eq!(search_keys(&events, true), [SearchKey::Backspace]);
+        assert_eq!(search_keys(&events, false), [t("n"), t("n"), t(" "), SearchKey::Enter, SearchKey::Backspace, SearchKey::Escape]);
+        // With Ctrl (Ctrl+F opens the search) or Alt held, no text.
+        assert_eq!(search_keys(&events, true), [SearchKey::Enter, SearchKey::Backspace, SearchKey::Escape]);
         // The aid types each character with its key, for the keys' state too.
         let typed = typed_keys("nq W-");
         assert_eq!(typed.iter().map(|k| k.key_code).collect::<Vec<_>>()[..4], [KeyCode::KeyN, KeyCode::KeyQ, KeyCode::Space, KeyCode::KeyW]);
@@ -3948,6 +4042,95 @@ mod tests {
         assert!(!world.resource::<Fsr>().0, "FSR back");
         assert_eq!(world.resource::<Reach>().0, 0.5, "the AA freed by it back too");
         assert!(world.resource::<Torch>().0, "a row not listed is left as it is");
+    }
+
+    /// An App running the pause menu's `choose` on the settings page over `rows` (key,
+    /// group), the search open on `query` from Debug's first row, its keys `focus`.
+    fn search_app(rows: &[(&'static str, &'static str)], query: &str, focus: SettingsFocus) -> App {
+        let mut app = App::new();
+        app.init_resource::<Lamp>().init_resource::<Time>().init_resource::<PlayClock>().init_resource::<PauseAid>();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>();
+        app.insert_resource(NextState::<PlayState>::default()).init_resource::<PageRequest>().init_resource::<Listening>().init_resource::<SettingsLayout>();
+        app.init_resource::<LoadList>().init_resource::<Assets<Image>>().init_resource::<crate::save::SaveConfig>().init_resource::<PauseStatus>().init_resource::<SearchKeys>();
+        app.add_message::<AppExit>().add_message::<crate::ui_sounds::UiSound>().add_message::<crate::save::SaveRequest>().add_message::<crate::save::LoadRequest>().add_message::<MainMenuRequest>();
+        for (key, group) in rows {
+            add_setting(&mut app, Setting { key, group, label: key, note: "", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
+        }
+        app.insert_resource(Paused(true)).insert_resource(Page::Settings { selected: None });
+        let god = RowId::Setting(rows.iter().position(|r| r.0 == "god-mode").unwrap());
+        let mut view = PauseView { scope: SettingsScope::Search, focus, ..default() };
+        view.search = SearchState { query: query.into(), from: Some((SettingsScope::Tab("Debug"), Some(god), 0)), ..default() };
+        app.insert_resource(view);
+        app.add_systems(Update, choose);
+        app
+    }
+
+    const SEARCHED: [(&str, &str); 3] = [("difficulty", "Gameplay"), ("menu-pause", "Gameplay"), ("god-mode", "Debug")];
+
+    /// The page back on Debug's god-mode, the search closed.
+    fn back_on_debug(app: &App) {
+        let view = app.world().resource::<PauseView>();
+        assert_eq!((view.scope, view.focus, view.search.from), (SettingsScope::Tab("Debug"), SettingsFocus::Rows, None));
+        assert!(view.search.query.is_empty());
+        assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(RowId::Setting(2)) });
+    }
+
+    #[test]
+    fn the_rails_back_closes_an_open_search_before_it_leaves_the_page() {
+        let mut app = search_app(&SEARCHED, "pause", SettingsFocus::Rail(RailItem::Back));
+        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "pick".into())];
+        app.update();
+        back_on_debug(&app);
+        // Again, with the search closed: Back leaves the settings page.
+        app.world_mut().resource_mut::<PauseView>().focus = SettingsFocus::Rail(RailItem::Back);
+        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "pick".into())];
+        app.update();
+        assert_eq!(*app.world().resource::<Page>(), Page::Main);
+    }
+
+    #[test]
+    fn text_then_esc_in_one_frame_closes_the_search_and_text_then_enter_goes_to_the_results() {
+        let t = |s: &str| SearchKey::Text(s.to_string());
+        // Typed, then Esc, in one frame: the search closes (and the page stays).
+        let mut app = search_app(&SEARCHED, "pa", SettingsFocus::SearchText);
+        app.world_mut().resource_mut::<SearchKeys>().0 = vec![t("u"), SearchKey::Escape, t("x")];
+        app.update();
+        back_on_debug(&app);
+        // Typed, then Enter: the text kept, the keys on its results, the first one chosen.
+        let mut app = search_app(&SEARCHED, "pa", SettingsFocus::SearchText);
+        app.world_mut().resource_mut::<SearchKeys>().0 = vec![t("u"), t("se"), SearchKey::Enter];
+        app.update();
+        let view = app.world().resource::<PauseView>();
+        assert_eq!((view.scope, view.focus, view.search.query.as_str()), (SettingsScope::Search, SettingsFocus::Rows, "pause"));
+        assert_eq!(*app.world().resource::<Page>(), Page::Settings { selected: Some(RowId::Setting(1)) });
+        // Enter alone on the results is the results' own: it flips the chosen switch.
+        app.world_mut().resource_mut::<SearchKeys>().0 = vec![SearchKey::Enter];
+        app.world_mut().resource_mut::<PauseAid>().actions = vec![(0.0, "pick".into())];
+        app.update();
+        app.update();
+        assert!(app.world().resource::<Lamp>().0, "the switch was flipped");
+        assert_eq!(app.world().resource::<PauseView>().focus, SettingsFocus::Rows);
+    }
+
+    #[test]
+    fn a_result_of_the_device_not_in_use_names_what_its_input_device_row_stands_for() {
+        use crate::bindings::{Bindings, Control, InputDevice};
+        let mut app = settings_app(&[("difficulty", "Gameplay")], Page::Settings { selected: None });
+        let mut b = Bindings::game_defaults();
+        b.rebind_pad(Control::Jump, crate::pad::PadInput::Button(GamepadButton::RightTrigger));
+        app.insert_resource(b);
+        app.world_mut().resource_mut::<PauseView>().scope = SettingsScope::Changed;
+        app.update();
+        let world = app.world_mut();
+        let d = world.resource::<PauseView>().drawn.clone().unwrap();
+        // Jump's and V.A.T.S.'s controller buttons changed, the keyboard in use: one Input
+        // Device row, which names them.
+        assert_eq!(d.entries.iter().filter(|e| matches!(e, ViewEntry::Row(_))).count(), 1);
+        assert_eq!(*world.resource::<Page>(), Page::Settings { selected: Some(RowId::Control(ControlRow::Device)) });
+        let note = world.query_filtered::<&Text, With<SwitchNote>>().single(world).unwrap().0.clone();
+        assert!(note.starts_with("Stands for: Jump (Controller), V.A.T.S. (Controller)."), "{note}");
+        let changed = &world.resource::<PauseView>().found.changed;
+        assert_eq!(changed, &[RowId::Control(ControlRow::Binding(Control::Jump, InputDevice::Controller)), RowId::Control(ControlRow::Binding(Control::Vats, InputDevice::Controller))]);
     }
 
     #[test]
