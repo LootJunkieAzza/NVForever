@@ -784,6 +784,13 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       compositing. Unit fixtures are synthetic; the `tiles-stats-special*` smoke scenarios check
       structure and hits on the real file, and their logs cannot prove pixels. Not closed: the
       capture list at the end of pipboy.md §5.1.1.
+    - **Pip-Boy, the STATS page built** 2026-11-07 (`pipboy-stats-tabs-1513`, part of issue #1513):
+      Status, Skills, Perks and General in the same module under the same switch (pipboy.md §5.1.2,
+      §5.1.3): a page found per tab, rows known by `model::RowKey`, lists that scroll by
+      `StatsView::top` over `tiles/list.rs`, from two runs of the original. Fixtures are synthetic;
+      `tiles-stats-skills*`, `-perks*`, `-general*`, `-status*` are for the real file. Not closed: the
+      capture list at the end of §5.1.3. Lost behind the switch: the limb's box. Left out: the rad
+      effects' row. Next: ITEMS.
     - **T15b, part 2 built** 2026-11-04 (`tutorial-menu-978`, issue #978): the tutorial menu
       from `tutorial_menu.xml` behind `[UI] TileMenus=TutorialMenu`, in the same shape
       (`tiles/tutorial_menu.rs`, tutorial-menu.md §5). Its text scrolls inside

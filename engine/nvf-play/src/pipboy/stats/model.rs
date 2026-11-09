@@ -194,10 +194,17 @@ pub fn karma_column(alignment: &str) -> usize {
 /// `sKarmicTitle<Good|Neutral|Evil><level>` where the plugins hold it (`setting`), else
 /// [`KARMA_TITLES`]. Levels above 30 take 30's title, below 1 level 1's.
 pub fn karma_title(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> String {
+    // The hand-built page reads the name unpadded, so levels below 10 take the table; left as it is [design].
+    let name = format!("sKarmicTitle{}{}", ["Good", "Neutral", "Evil"][karma_column(alignment)], level.clamp(1, 30));
+    setting(&name).filter(|s| !s.is_empty()).unwrap_or_else(|| KARMA_TITLES[level.clamp(1, 30) as usize - 1][karma_column(alignment)].to_string())
+}
+
+/// The setting alone, without the table, for a view drawn from the menu's file. Unlike [`karma_title`] it also finds the two-digit names.
+pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
     let level = level.clamp(1, 30) as usize;
-    let column = karma_column(alignment);
-    let name = format!("sKarmicTitle{}{level}", ["Good", "Neutral", "Evil"][column]);
-    setting(&name).filter(|s| !s.is_empty()).unwrap_or_else(|| KARMA_TITLES[level - 1][column].to_string())
+    // FalloutNV.esm spells levels below 10 with two digits (`sKarmicTitleNeutral01`) [documented: `fnvtool esm inventory`].
+    let column = ["Good", "Neutral", "Evil"][karma_column(alignment)];
+    [format!("sKarmicTitle{column}{level:02}"), format!("sKarmicTitle{column}{level}")].iter().find_map(|name| setting(name).filter(|s| !s.is_empty()))
 }
 
 /// The title of a reputation from the levels (0–3) of fame and infamy
@@ -213,16 +220,38 @@ pub fn reputation_title(fame: usize, infamy: usize) -> &'static str {
 /// screenshot in the private references, "pipboy stat tracking", 2026-10-14] (`fnv_game::misc_stats`).
 pub const MISC_STATS: [&str; 43] = fnv_game::misc_stats::NAMES;
 
-/// One row of a list (S.P.E.C.I.A.L., Skills, Perks, General): its name, the number at
-/// the right, the mark after it, and what the display beside the list shows of it.
+/// What a row of a list stands for, so a view that keeps tiles for its rows knows them by
+/// this and not by their words (`crate::tiles::stats_menu`) [design].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RowKey {
+    /// A row made up for a test or a view's own use.
+    #[default]
+    None,
+    /// An actor value, by its code (S.P.E.C.I.A.L., Skills).
+    Av(u16),
+    /// A perk's record (Perks).
+    Perk(FormId),
+    /// A statistic, by its place in [`MISC_STATS`] (General).
+    Stat(u8),
+    /// A reputation's record (General's other list).
+    Rep(FormId),
+    /// A line of the EFF list, by its place.
+    Effect(u16),
+}
+
+/// One row of a list (S.P.E.C.I.A.L., Skills, Perks, General): what it stands for, its name,
+/// the number at the right, the mark after it, and what the display beside the list shows of it.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Row {
+    pub key: RowKey,
     pub name: String,
     pub value: Option<String>,
     pub mark: Option<&'static str>,
     pub description: String,
     /// The picture, a path under `textures\`.
     pub icon: Option<String>,
+    /// A weapon skill's mark, beside the picture in a view drawn from the file.
+    pub badge: Option<String>,
 }
 
 /// One line of the EFF list: the source's name and its changes.
@@ -287,6 +316,9 @@ pub struct Snapshot {
     pub switch_limbs: String,
     pub rad_resist: Option<f64>,
     pub rads: f64,
+    /// Whether Hardcore mode is on, and its three needs: dehydration, hunger, sleep deprivation.
+    pub hardcore: bool,
+    pub needs: [f64; 3],
     pub effects: Vec<EffectLine>,
     pub special: Vec<Row>,
     pub skills: Vec<Row>,
@@ -296,6 +328,9 @@ pub struct Snapshot {
     pub karma: Option<(f64, &'static str, &'static str)>,
     /// The karma title for the player's level and alignment ([`karma_title`]).
     pub karma_title: Option<String>,
+    /// That title when a setting holds it ([`karma_title_setting`]): a view drawn from the menu
+    /// file writes only this, the table's words being from no data file [design: LEGAL.md].
+    pub karma_setting_title: Option<String>,
 }
 
 impl Snapshot {
@@ -306,7 +341,7 @@ impl Snapshot {
             1 => self.special.clone(),
             2 => self.skills.clone(),
             3 => self.perks.clone(),
-            4 if reputation => self.standings.iter().map(|s| Row { name: s.name.clone(), icon: s.icon.clone(), ..Row::default() }).collect(),
+            4 if reputation => self.standings.iter().map(|s| Row { key: RowKey::Rep(s.form), name: s.name.clone(), icon: s.icon.clone(), ..Row::default() }).collect(),
             4 => self.general.clone(),
             _ => Vec::new(),
         }
@@ -415,9 +450,21 @@ mod tests {
         assert_eq!(karma_title(1, "Good", |_| None), "Samaritan");
         assert_eq!(karma_title(45, "Evil", |_| None), "Devil");
         assert_eq!(karma_title(7, "Neutral", |_| None), "Vagabond of the Wastes");
+        assert_eq!(karma_title_setting(29, "Very Evil", esm).as_deref(), Some("Demon Spawn"));
+        assert_eq!(karma_title_setting(29, "Neutral", esm), None);
+        let padded = |n: &str| (n == "sKarmicTitleNeutral01").then(|| "From the plugin".to_string());
+        assert_eq!(karma_title_setting(1, "Neutral", padded).as_deref(), Some("From the plugin"));
+        assert_ne!(karma_title(1, "Neutral", padded), "From the plugin", "the hand-built page keeps the table");
         assert_eq!(reputation_title(0, 0), "Neutral");
         assert_eq!(reputation_title(3, 0), "Idolized");
         assert_eq!(reputation_title(1, 1), "Mixed");
+    }
+
+    #[test]
+    fn every_list_knows_its_rows_by_what_they_stand_for() {
+        let s = Snapshot { standings: vec![Standing { form: FormId(9), name: "A".into(), title: "T", fame: 1.0, infamy: 0.0, icon: None }], ..Snapshot::default() };
+        assert_eq!(s.rows(4, true)[0].key, RowKey::Rep(FormId(9)));
+        assert_eq!(Row::default().key, RowKey::None);
     }
 
     #[test]

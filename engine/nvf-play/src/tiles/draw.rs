@@ -988,7 +988,7 @@ pub(crate) struct View<'w, 's> {
     /// The pause menu and its page, for the Mods page (T11, `super::mods`).
     paused: Option<Res<'w, crate::pause::Paused>>,
     page: Option<Res<'w, crate::pause::Page>>,
-    /// The Pip-Boy's image and the S.P.E.C.I.A.L. page's one decision (`super::stats_menu`).
+    /// The Pip-Boy's image and the STATS tiles' one decision (`super::stats_menu`).
     screen: Option<Res<'w, crate::pipboy::PipBoyScreen>>,
     stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
     /// The Pip-Boy's repair page's one decision (`super::repair_menu`).
@@ -1027,7 +1027,7 @@ pub(crate) struct MenusDrawn {
     start: Drawn,
     sleep_wait: Drawn,
     tutorial: Drawn,
-    /// The Pip-Boy's S.P.E.C.I.A.L. page, in the Pip-Boy's image.
+    /// The Pip-Boy's STATS page, in the Pip-Boy's image.
     stats: Drawn,
     /// The Pip-Boy's repair page, in the Pip-Boy's image.
     repair_page: Drawn,
@@ -1144,7 +1144,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale * interface::ui_scale(), heading, &glyphs);
 }
 
-/// The Pip-Boy's S.P.E.C.I.A.L. page, in the Pip-Boy's image, while it is ready
+/// The Pip-Boy's STATS page, in the Pip-Boy's image, while it is ready
 /// (`super::stats_menu::StatsTiles::ready`, decided before this drawing). What was painted is
 /// published for the next frame's tile input, which acts on what the player saw. Logged when it
 /// changes: how many pieces go to the painter, and how many of them are the rows' names. That
@@ -1159,10 +1159,14 @@ fn stats_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: 
     // The one measured layout the decision checked; worked out again next frame.
     let pieces = match (menu, view.stats.as_mut()) {
         (Some((ui, menu)), Some(stats)) => {
+            // Told once its rows are there, on whichever tab first has some: Status with no effects
+            // has no code tile to count.
             if drawn.told_menu != Some(menu) {
                 let (file, code) = origins(ui, menu);
-                info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
-                drawn.told_menu = Some(menu);
+                if code > 0 {
+                    info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
+                    drawn.told_menu = Some(menu);
+                }
             }
             let pieces = std::mem::take(&mut stats.pieces);
             let names = pieces.iter().filter(|p| matches!(p.look, Look::Text { .. }) && ui.tile(p.tile).name.eq_ignore_ascii_case("ListItemText")).count();

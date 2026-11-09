@@ -83,7 +83,7 @@ const BOX_TEXT_DROP: f32 = 3.0;
 const HINT_KEYS: [&str; 4] = ["S)", "E)", "A)", "X)"];
 /// The keys themselves; with a controller the hints name the buttons that press them
 /// (`crate::pad::menu_buttons`: A, X, Y on CND; A, X on RAD) [design: #1662, #1898].
-const HINT_KEY_CODES: [KeyCode; 5] = [KeyCode::KeyS, KeyCode::KeyE, KeyCode::KeyA, KeyCode::KeyX, KeyCode::KeyX];
+pub(crate) const HINT_KEY_CODES: [KeyCode; 5] = [KeyCode::KeyS, KeyCode::KeyE, KeyCode::KeyA, KeyCode::KeyX, KeyCode::KeyX];
 const SWITCH_LIMBS: usize = 4;
 
 /// The status tab's hint `i` for the device in use.
@@ -114,7 +114,7 @@ pub(crate) const LIMB_PIECES: [(Vec2, Vec2, &str); 4] = [
 const METER_HEIGHT: f32 = 38.0;
 const BAR_Y: f32 = 24.0;
 const BAR_LENGTH: f32 = 77.0;
-const BOY_FACE: &str = "Interface\\Stats\\face_00.dds";
+pub(crate) const BOY_FACE: &str = "Interface\\Stats\\face_00.dds";
 
 /// The RAD page (`stats_radiation_container`, zoom 130).
 const RAD_ZOOM: f32 = 1.3;
@@ -124,7 +124,7 @@ const RAD_Y: f32 = 360.0;
 /// shows [observed: 1000 on the owner's screenshot; the file leaves it to the code].
 const RAD_ZERO: f32 = 186.0;
 const RAD_FULL: f32 = 482.0;
-const RAD_MAX: f64 = 1000.0;
+pub(crate) const RAD_MAX: f64 = 1000.0;
 /// The arrow (`pointer_tail.dds`): 22 × 40 zoomed, 30 down.
 const RAD_ARROW: (f32, f32, f32) = (22.0, 40.0, 30.0);
 const RAD_BRACKET: &str = "Interface\\stats\\rad_effects_bracket.dds";
@@ -213,7 +213,7 @@ pub enum Spot {
 /// pointer is over.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct StatsView {
-    /// 0 CND, 1 RAD, 2 EFF.
+    /// 0 CND, 1 RAD, 2 EFF; on the tiles in Hardcore also 3 H2O, 4 FOD, 5 SLP.
     pub status: usize,
     pub selected: [usize; 5],
     pub top: [usize; 5],
@@ -243,11 +243,18 @@ pub struct StatsView {
     /// How many rows each tab's list has, and the furthest the description scrolls.
     lens: [usize; 5],
     desc_max: usize,
+    /// Rows shown at once in each tab's list, as the view that draws it says
+    /// ([`StatsView::set_rows_shown`]) [hypothesis for General on the hand-built page: nine as
+    /// the others; the file gives its list the area's height, 542 from 100 down, which would
+    /// reach the tab line].
+    rows_shown: [usize; 5],
+    /// How many of the status page's buttons the view that draws it has.
+    status_pages: usize,
 }
 
 impl Default for StatsView {
     fn default() -> StatsView {
-        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, cycled: false, keep_limb: false, lens: [0; 5], desc_max: 0 }
+        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, cycled: false, keep_limb: false, lens: [0; 5], desc_max: 0, rows_shown: [VISIBLE; 5], status_pages: 3 }
     }
 }
 
@@ -260,7 +267,7 @@ impl StatsView {
             self.selected[tab] = row;
             self.desc = 0;
         }
-        self.top[tab] = model::keep_in_view(self.top[tab], row, visible(tab), len);
+        self.top[tab] = model::keep_in_view(self.top[tab], row, self.rows_shown[tab], len);
     }
 
     /// Move the selection by `by` rows.
@@ -272,8 +279,20 @@ impl StatsView {
 
     /// Scroll a tab's list by `by` rows (the selection stays).
     pub fn scroll(&mut self, tab: usize, by: i32) {
-        let most = self.lens[tab].saturating_sub(visible(tab));
+        let most = self.list_most(tab);
         self.top[tab] = (self.top[tab] as i32 + by).clamp(0, most as i32) as usize;
+    }
+
+    /// The furthest a tab's list scrolls: the first row shown when the last row is.
+    pub fn list_most(&self, tab: usize) -> usize {
+        self.lens[tab].saturating_sub(self.rows_shown[tab])
+    }
+
+    /// How many rows the view that draws a tab's list shows at once: each view gives its own, as
+    /// with the description's bound, and what is scrolled stays within it.
+    pub fn set_rows_shown(&mut self, tab: usize, rows: usize) {
+        self.rows_shown[tab] = rows.max(1);
+        self.top[tab] = self.top[tab].min(self.list_most(tab));
     }
 
     pub fn scroll_desc(&mut self, by: i32) {
@@ -311,6 +330,13 @@ impl StatsView {
         self.limb = if self.limb == Some(i) { None } else { Some(i) };
     }
 
+    /// How many of the status page's buttons the view that draws it has: each view gives its own,
+    /// and the page chosen stays among them.
+    pub fn set_status_pages(&mut self, pages: usize) {
+        self.status_pages = pages.max(1);
+        self.status = self.status.min(self.status_pages - 1);
+    }
+
     /// [design] Body, then the six limbs in model order, then body again.
     pub fn cycle_limb(&mut self) {
         self.limb = match self.aimed() {
@@ -337,13 +363,6 @@ fn change(view: &mut ResMut<StatsView>, f: impl FnOnce(&mut StatsView)) {
     if v != **view {
         **view = v;
     }
-}
-
-/// Rows shown at once in a tab's list [hypothesis for General: nine as the others; the
-/// file gives its list the area's height, 542 from 100 down, which would reach the tab
-/// line].
-fn visible(_tab: usize) -> usize {
-    VISIBLE
 }
 
 #[derive(SystemParam)]
@@ -611,13 +630,16 @@ pub fn figures(v: Option<(f64, f64)>) -> String {
     v.map_or("--".to_string(), |(a, b)| format!("{}/{}", model::whole(a), model::whole(b)))
 }
 
+/// The status page's buttons, for the log.
+pub(crate) const STATUS_PAGES: [&str; 6] = ["CND", "RAD", "EFF", "H2O", "FOD", "SLP"];
+
 /// One line for the log: what the tab shows selected.
 fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
     let name = Page::Stats.tabs()[tab];
     match tab {
         0 => {
             let limb = view.limb.filter(|_| view.status == 0).map_or(String::new(), |i| format!(" ({} chosen)", model::LIMB_NAMES[i]));
-            format!("{name} {}{limb}", ["CND", "RAD", "EFF"][view.status.min(2)])
+            format!("{name} {}{limb}", STATUS_PAGES[view.status.min(5)])
         }
         _ => {
             let rows = snap.rows(tab, view.reputation);
@@ -644,7 +666,7 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
         if keys.just_pressed(ArrowUp) && view.status > 0 {
             view.status -= 1;
         }
-        if keys.just_pressed(ArrowDown) && view.status < 2 {
+        if keys.just_pressed(ArrowDown) && view.status + 1 < view.status_pages {
             view.status += 1;
         }
         if view.status == 0 {
@@ -686,7 +708,7 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
 
 /// A hint's key or button: the item to use (the Stimpak on the limb aimed at), or `None`
 /// for Rad-X, which is not used from here, or the separate limb-switch hint.
-fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
+pub(crate) fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
     match hint {
         model::STIMPAK => Some(UseHint { hint, limb: view.aimed() }),
         model::DOCTORS_BAG | model::RADAWAY => Some(UseHint { hint, limb: None }),
@@ -791,6 +813,7 @@ fn status_hints(status: usize) -> &'static [(usize, usize)] {
 }
 
 fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
+    v.set_status_pages(3);
     let o = STATUS.min;
     let h = c.line_height(2) + SUB_VERBUF;
     let mut spots = Vec::new();
@@ -844,7 +867,7 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
     let head = Vec2::new(STATUS.min.x + (STATUS.width() - head_size.x) / 2.0, STATUS.min.y + HEAD_Y);
     let crippled = |i: usize| s.limbs[i] <= 0.0;
     // A crippled piece by its "_broken" picture [hypothesis: the files' names].
-    let piece = |name: &str, broken: bool| format!("Interface\\Stats\\{name}{}.dds", if broken { "_broken" } else { "" });
+    let piece = boy_picture;
     c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, z, bright());
     // The face [hypothesis: face_00, the smile on the owner's screenshot; when the
     // others (01–04, 10) show is not known], centred in the head's height and 16 lower.
@@ -1034,6 +1057,7 @@ fn arrow(p: &mut ChildSpawnerCommands, c: &mut Ctx, r: Rect, name: &str) {
 /// S.P.E.C.I.A.L., Skills, Perks: the list and the selected row's picture and
 /// description.
 fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot, tab: usize) {
+    v.set_rows_shown(tab, VISIBLE);
     let rows = s.rows(tab, false);
     let r = list_rect(tab, &rows, c.line_height(2) + ROW_SPACING);
     let mut spots = Vec::new();
@@ -1076,6 +1100,7 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
 /// General: the reputations or the statistics, the reputation's or the karma's picture
 /// beside, the switch at the top right.
 fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
+    v.set_rows_shown(4, VISIBLE);
     let rows = s.rows(4, v.reputation);
     let mut spots = Vec::new();
     let th = c.line_height(2);
@@ -1105,7 +1130,7 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         let h = 270.0 + 2.0 * th;
         let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
         centred(p, c, &format!("Karma: {word}"), mid, top, bw);
-        let path = format!("Interface\\Icons\\PipboyImages\\Karma Icons\\{picture}.dds");
+        let path = karma_picture(picture);
         c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, ICON_ZOOM, bright());
         let mut y = top + 270.0;
         if let Some(title) = &s.karma_title {
@@ -1137,6 +1162,19 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
     for (r, sp) in spots {
         spot(p, r, sp);
     }
+}
+
+/// The file of a piece of the Vault Boy, a crippled one by its "_broken" picture, as every view of
+/// the page reads it [hypothesis: the names of the head's and the others'; observed:
+/// `left_leg_broken.dds`, private job run07_stats_tabs].
+pub fn boy_picture(name: &str, broken: bool) -> String {
+    format!("Interface\\Stats\\{name}{}.dds", if broken { "_broken" } else { "" })
+}
+
+/// The file of a karma's picture ([`model::karma_alignment`]'s name), as every view of the page
+/// reads it.
+pub fn karma_picture(picture: &str) -> String {
+    format!("Interface\\Icons\\PipboyImages\\Karma Icons\\{picture}.dds")
 }
 
 /// `s` broken at `wrap`, each line centred on `mid`.
@@ -1216,13 +1254,14 @@ pub fn use_hints(
 
 // ---- test aid -------------------------------------------------------------------------
 
-/// `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...`: `sub=<0-2>` (CND, RAD, EFF),
+/// `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...`: `sub=<0-5>` (CND, RAD, EFF, H2O, FOD, SLP),
 /// `down`, `up` (the list's selection), `mode` (General's lists), `desc=down|up`; and to
 /// have something to show, `perk=<FormID hex>` (the player gains a rank of it, as
 /// AddPerk) and `fame=<FormID hex>=<points>` (fame with a reputation); on CND
 /// `limb=<0-5>` chooses a limb (`model::LIMB_NAMES`), `limb=none` the whole body, and
 /// `use=stimpak` or `use=bag` uses the hint's item as its key does; `longdesc` gives every
-/// S.P.E.C.I.A.L. row a description long enough to scroll, in words of the aid's own.
+/// S.P.E.C.I.A.L. row a description long enough to scroll, in words of the aid's own;
+/// `scroll=<n>` makes row n the first the tab's list shows, within its range.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AidStep {
     Sub(usize),
@@ -1235,6 +1274,7 @@ pub enum AidStep {
     Limb(Option<usize>),
     Use(usize),
     LongDesc,
+    Scroll(usize),
 }
 
 /// The test aid's `longdesc`: twelve lines of its own words.
@@ -1259,7 +1299,8 @@ fn parse_aid(v: &str) -> Vec<(f32, AidStep)> {
                 "use=bag" => Some(AidStep::Use(model::DOCTORS_BAG)),
                 s => match s.split_once('=') {
                     Some(("limb", n)) => n.trim().parse().ok().filter(|n| *n < 6).map(|n| AidStep::Limb(Some(n))),
-                    Some(("sub", n)) => n.trim().parse().ok().filter(|n| *n < 3).map(AidStep::Sub),
+                    Some(("sub", n)) => n.trim().parse().ok().filter(|n| *n < 6).map(AidStep::Sub),
+                    Some(("scroll", n)) => n.trim().parse().ok().map(AidStep::Scroll),
                     Some(("perk", f)) => u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok().map(AidStep::Perk),
                     Some(("fame", r)) => r.split_once('=').and_then(|(f, n)| Some(AidStep::Fame(u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok()?, n.trim().parse().ok()?))),
                     _ => None,
@@ -1284,6 +1325,7 @@ fn apply_aid(view: &mut StatsView, tab: usize, s: AidStep) {
         AidStep::Mode => view.switch(),
         AidStep::Desc(by) => view.scroll_desc(by),
         AidStep::Limb(l) => view.limb = l,
+        AidStep::Scroll(n) => view.scroll(tab, n as i32 - view.top[tab] as i32),
         AidStep::Perk(_) | AidStep::Fame(..) | AidStep::Use(_) | AidStep::LongDesc => {}
     }
 }
@@ -1300,6 +1342,7 @@ mod tests {
             vec![(2.0, AidStep::Perk(0x44CB1)), (2.5, AidStep::Fame(0x104C22, 4.0)), (3.0, AidStep::Sub(1)), (4.0, AidStep::Down), (5.0, AidStep::Desc(1)), (9.0, AidStep::Mode)]
         );
         assert_eq!(parse_aid("7:longdesc"), vec![(7.0, AidStep::LongDesc)]);
+        assert_eq!(parse_aid("8:scroll=3"), vec![(8.0, AidStep::Scroll(3))]);
         assert_eq!(long_description().lines().count(), 12);
         let s = parse_aid("1:limb=2,2:use=stimpak,3:limb=none,4:use=bag,5:limb=6");
         assert_eq!(s, vec![(1.0, AidStep::Limb(Some(2))), (2.0, AidStep::Use(0)), (3.0, AidStep::Limb(None)), (4.0, AidStep::Use(1))]);
@@ -1331,6 +1374,41 @@ mod tests {
         assert_eq!(v.desc, 1, "a shorter text pulls the scroll back");
         v.scroll_desc(-5);
         assert_eq!(v.desc, 0);
+    }
+
+    /// A view's own count of the rows it shows: the hand-built nine by default, what is
+    /// scrolled and kept in view following what a tile view says.
+    #[test]
+    fn each_view_gives_a_list_its_rows_and_the_scroll_stays_within() {
+        let mut v = StatsView { lens: [0, 7, 13, 0, 43], ..StatsView::default() };
+        assert_eq!(v.list_most(2), 4, "nine at once");
+        v.scroll(2, 9);
+        assert_eq!(v.top[2], 4);
+        v.set_rows_shown(2, 11);
+        assert_eq!((v.list_most(2), v.top[2]), (2, 2), "more shown pulls the scroll back");
+        v.select(2, 12);
+        assert_eq!(v.top[2], 2, "the last row is among the eleven");
+        v.set_rows_shown(2, 5);
+        assert_eq!(v.top[2], 2, "a new count alone moves no row into view");
+        v.select(2, 12);
+        assert_eq!(v.top[2], 8);
+        v.set_rows_shown(4, 0);
+        assert_eq!(v.list_most(4), 42, "at least one row");
+        let mut aid = StatsView { lens: [0, 7, 13, 0, 0], ..StatsView::default() };
+        apply_aid(&mut aid, 2, AidStep::Scroll(3));
+        assert_eq!(aid.top[2], 3);
+        apply_aid(&mut aid, 2, AidStep::Scroll(30));
+        assert_eq!(aid.top[2], 4, "within its range");
+    }
+
+    #[test]
+    fn each_view_gives_the_status_page_its_buttons() {
+        let mut v = StatsView { status: 2, ..StatsView::default() };
+        v.set_status_pages(6);
+        assert_eq!(v.status, 2);
+        v.status = 5;
+        v.set_status_pages(3);
+        assert_eq!(v.status, 2, "Hardcore off, or the hand-built page: among those it has");
     }
 
     #[test]
