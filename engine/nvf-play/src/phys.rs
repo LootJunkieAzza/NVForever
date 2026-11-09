@@ -1586,8 +1586,13 @@ fn travel(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut location: ResMut<Location>,
+    screen: Option<ResMut<crate::loading::Loading>>,
 ) {
     let Some(t) = msgs.read().last().copied() else { return };
+    // A script's MoveTo: looking level along the marker (`Loading::level_view`).
+    if screen.is_some_and(|mut s| std::mem::take(&mut s.level_view)) {
+        player.pitch = 0.0;
+    }
     let to = t.destination(*location);
     let space = match to.interior {
         Some(id) => Space::Interior(id),

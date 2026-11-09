@@ -172,6 +172,14 @@ pub(crate) fn move_ref(g: &mut Game, r: FormId, marker: FormId, offset: [f64; 3]
         s.pos = pos;
         if r != FormId::PLAYER_REF {
             s.rot = rot;
+        } else if marker != FormId::PLAYER_REF {
+            // The player faces the way the marker does; the engine's travel takes this
+            // heading and looks level (nvf-play `Loading::level_view`). Honest Hearts'
+            // slideshow marker faces the screen (REFR at (2804, 252, 10112), Z angle 0;
+            // screen STAT 0x01010138 at (2805, 370, 10230)) [observed: fnvtool world
+            // refs; the owner: the original's camera stays on the screen, playtest list
+            // 7 item 116]. Its X angle stays the engine's view pitch.
+            s.rot[2] = rot[2];
         }
     }
     if g.ref_script(r).is_some() {

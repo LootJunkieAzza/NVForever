@@ -32,7 +32,10 @@
 //!   (Dead Money's RemoveAllItems) is not followed: the owner's Mojave and DLC
 //!   inventories come first (morning-report designs\coop-dlc-inventory.md).
 //!
-//! Not shared: a scene's camera and the player packages its scripts give the host's
+//! - **Bodies hidden.** While a scene holds a player's movement and looking, the other
+//!   players' bodies are not drawn ([`hide_players_in_scene`], item 116).
+//!
+//! Not shared: the player packages its scripts give the host's
 //! player (the guests' copies of the host are drawn where the host is, and a guest held
 //! still needs no package).
 //!
@@ -233,6 +236,35 @@ pub(super) fn share_scene(
     info!("co-op: scene: beside the host at {:?} {feet:?}", host.place);
     travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: host.yaw.to_degrees() }));
     coop.last_leash = Some(now);
+}
+
+/// Whether a scene holds this player's view: its movement and its looking are both held
+/// (a DLC's opening slideshow, Elijah's broadcast; the host's own locks on the host, the
+/// host's shared ones on a guest).
+fn scene_holds_view(locks: [bool; 7]) -> bool {
+    locks[0] && locks[4]
+}
+
+/// While a scene holds the view, the other players' bodies are not drawn: every player
+/// watches from the scene's spot in first person (the POV lock), and a body standing on
+/// that spot would fill the screen (playtest list 7 item 116: in the original the camera
+/// stays on the slideshow's screen with no body in view [the owner, 2026-11-09]). They are
+/// drawn again when the scene lets go.
+pub(super) fn hide_players_in_scene(
+    coop: Res<Coop>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut bodies: Query<&mut Visibility, With<super::Puppet>>,
+    mut hidden: Local<bool>,
+) {
+    let held = (coop.is_host() || coop.is_guest()) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| scene_holds_view(rt.game.controls_locked()));
+    if held != *hidden {
+        *hidden = held;
+        info!("co-op: scene: the other players' bodies {}", if held { "hidden while the scene holds the view" } else { "drawn again" });
+    }
+    let want = if held { Visibility::Hidden } else { Visibility::Inherited };
+    for mut v in &mut bodies {
+        v.set_if_neq(want);
+    }
 }
 
 #[cfg(test)]
