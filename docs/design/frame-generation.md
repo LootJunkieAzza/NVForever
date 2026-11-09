@@ -48,10 +48,10 @@ Per real frame, in the camera's render schedule (`Core3d`):
    texture. The real frame (with its HUD) is copied aside and the generated one replaces it
    in the main texture, so Bevy's blit puts the generated frame in the window's stand-in
    (below).
-4. In the render graph's `Finish` set, after Bevy submits the frame: the stand-in (the
-   generated frame) and the real frame are handed to the window's presenter thread
-   (`fg_presenter.rs`), which takes the window's images, copies them in and presents them,
-   paced ("Presentation and pacing").
+4. After Bevy's `render_system` has submitted the frame (and a screenshot's copy into the
+   stand-in, which it records after the render graph): the stand-in (the generated frame) and
+   the real frame are handed to the window's presenter thread (`fg_presenter.rs`), which takes
+   the window's images, copies them in and presents them, paced ("Presentation and pacing").
 
 Colours are the tonemapped frame, linear in [0, 1] (the window's sRGB view encodes them).
 AMD's passes are told it is scRGB with 0 and 80 nits as black and white, which they read as
@@ -129,8 +129,11 @@ Limits and notes:
 - **Variable refresh** keeps vsync on (FIFO relaxed); the cap is the lower of the frame
   generation cap and the page's cap.
 - **Vsync off** is not supported: the second present would replace the first at once.
-- **Screenshots** (`--screenshot`, F12) read the stand-in, the generated frame, as they read
-  the window's first image before.
+- **Screenshots** (`--screenshot`, F12): Bevy points the camera's output at a screenshot
+  texture of its own, and after the render graph copies it to the screenshot's buffer and
+  draws it into the stand-in. On such a frame the presenter path leaves the generated frame
+  out: the real frame is drawn into the screenshot texture before that copy, so the screenshot
+  and the window both get the real frame, presented once (`frame_gen::take_for_presenters`).
 - **An outdated window surface** (a resize, alt-tab, a display mode or HDR change): the
   presenter skips its images and marks the surface; Bevy's `create_surfaces` reconfigures it on
   the render thread before the next frame, size changed or not. The presenter never configures
