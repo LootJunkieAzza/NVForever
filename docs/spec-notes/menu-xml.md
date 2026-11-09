@@ -923,11 +923,14 @@ Implemented consumers and remaining exclusions:
   compass strip on, in place (same nodes and handle), only when it is another texel
   shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to two
   largest images, the most one bake costs: the compass strip pays for its strip and its
-  window; the piece waiting longest is served first, so scrolling pieces take turns).
-  Decoded textures are kept within 64 MiB a drawing: those no kept bake names go first,
-  then the least recently used, a kept bake decoding its texture again when it next needs
-  it; only texels a node holds (a strip window's mask) stay, uncounted. Those nothing
-  names any more are released at once [design: #1833 review]. Which way the offset moves (the texel
+  window; the piece waiting longest is served first, so scrolling pieces take turns; a
+  texture to decode again is part of the cost checked against that reservation).
+  Decoded textures are kept within 64 MiB a drawing, every decoded texel counted, at each
+  insertion and each frame's prune: those no kept bake names go first, then the least
+  recently used, a kept bake decoding its texture again when it next needs it. Texels held
+  outside the cache (a strip window's mask, a bake under way) are never let go, so the
+  cache can pass 64 MiB only while they are held. Those nothing names any more are
+  released at once [design: #1833 review]. Which way the offset moves (the texel
   at the coordinate plus the offset), that the mask is not shifted and is read from its
   alpha, and that its path is under `textures\` as a `filename` are [hypothesis: the pages
   could not be reread on 2026-11-09; SetUITexOffset's "without changing the tile's screen
