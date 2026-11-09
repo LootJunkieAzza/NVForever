@@ -267,7 +267,13 @@ pub fn after_tick(rt: &mut Runtime, from: usize) {
 /// what changed.
 pub fn hour_passed(rt: &mut Runtime, sleeping: bool, hour: u32) {
     let from = rt.game.events.len();
-    let p = rt.game.pass_hours(1.0, sleeping);
+    // The player's tweak: a sleep heals only from its set hour on [design: docs/design/tweaks.md].
+    let min = rt.game.tweaks.sleep_heal_min_hours;
+    let heal = min == 0 || hour >= min;
+    if sleeping && !heal {
+        info!("sleep: hour {hour} of {min} before healing (tweak)");
+    }
+    let p = rt.game.pass_hours_healing(1.0, sleeping, heal);
     rt.aid.hours += 1;
     let needs: Vec<String> = p.needs.iter().map(|&(c, a, b)| format!("{} {} → {}", av_name(c), whole(a), whole(b))).collect();
     if !p.limbs_healed.is_empty() {

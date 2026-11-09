@@ -191,9 +191,15 @@ struct View {
 /// What `open` lists now (with the world in the runtime).
 fn view(rt: &mut crate::script::Runtime, sim: &mut SimState, combat: Option<&crate::combat::Combat>, open: &Open) -> View {
     let forms = sim.forms;
-    let settings = RepairSettings::from_settings(|n| forms.setting_f32(n));
+    let mut settings = RepairSettings::from_settings(|n| forms.setting_f32(n));
     crate::script::with_world(rt, sim, |rt| {
         let skill = fnv_game::functions::actor_value_capped(&mut rt.game, open.vendor, fnv_game::actor_values::REPAIR) as f32;
+        // The player's tweak: the player's Barter takes off part of the price [design: docs/design/tweaks.md].
+        let off = rt.game.tweaks.barter_repair_discount;
+        if off > 0.0 {
+            let barter = fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::BARTER) as f32;
+            settings.cost_mult *= fnv_game::tweaks::barter_repair_factor(off, barter);
+        }
         let caps = rt.game.world.item_count(FormId::PLAYER_REF, CAPS).unwrap_or(0);
         let groups: Vec<(FormId, Extra, i32)> = rt.game.world.inventory_mut(FormId::PLAYER_REF).map(|i| i.groups().collect()).unwrap_or_default();
         let mut rows = Vec::new();

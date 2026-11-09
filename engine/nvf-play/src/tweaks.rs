@@ -1054,6 +1054,10 @@ impl Plugin for TweaksPlugin {
             ),
         );
         amount!(app, "lockpick-force-near", "Force Lock Near the Sweet Spot", "Percent added to Force Lock with the pin on the sweet spot, less the further away, none at 90 degrees; 0 changes nothing. (Stewie's Tweaks bLockpickForceBonusNearSweetSpot)", 50.0, f32, game.lockpick_force_near_bonus);
+        switch!(app, "contact-mines-player", "Contact Mines (Player)", "A mine the player stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bPlayer)", game.contact_mines_player);
+        switch!(app, "contact-mines-npcs", "Contact Mines (Others)", "A mine anyone else stands on goes off at once, with no fuse. (Stewie's Tweaks bContactMines, bNPCs)", game.contact_mines_npcs);
+        amount!(app, "sleep-heal-min-hours", "Sleep Healing Min Duration", "Hours a sleep must last before it restores Health and heals limbs; 0 heals from the first hour. (Stewie's Tweaks bSleepHealingMinDuration)", 12.0, u32, game.sleep_heal_min_hours);
+        amount!(app, "barter-repair-discount", "Barter Lowers Repair Costs", "Percent of a vendor's repair price the player's Barter takes off at 100 (in proportion below); 0 changes nothing. (Stewie's Tweaks bBarterAffectsRepairCosts)", 60.0, f32, game.barter_repair_discount);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

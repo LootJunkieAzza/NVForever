@@ -173,6 +173,12 @@ impl Game<'_> {
     /// needs rise (Hardcore) hour by hour, a sleep lowers sleep deprivation, and stages
     /// follow. A sleep outside Hardcore restores Health and heals crippled limbs.
     pub fn pass_hours(&mut self, hours: f64, sleeping: bool) -> Passed {
+        self.pass_hours_healing(hours, sleeping, true)
+    }
+
+    /// As [`Game::pass_hours`]; `heal` false keeps a sleep from healing (the Sleep
+    /// Healing Min Duration tweak before its hours are slept, docs/design/tweaks.md).
+    pub fn pass_hours_healing(&mut self, hours: f64, sleeping: bool, heal: bool) -> Passed {
         let seconds = hours.max(0.0) * 3600.0 / self.time_scale();
         let p = FormId::PLAYER_REF;
         let started: Vec<u32> = self.effects.iter().filter(|e| e.target == p).map(|e| e.id).collect();
@@ -200,7 +206,7 @@ impl Game<'_> {
             }
         }
         self.update_need_stages();
-        let healing = sleeping && hours > 0.0 && !self.hardcore();
+        let healing = heal && sleeping && hours > 0.0 && !self.hardcore();
         let limbs_healed = if healing { self.heal_limbs(p) } else { Vec::new() };
         let health_restored = if healing { self.restore_health(p) } else { 0.0 };
         self.emit(EventKind::TimePassed { hours, seconds, sleeping });

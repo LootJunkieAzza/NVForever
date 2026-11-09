@@ -92,6 +92,10 @@ impl Mines {
 }
 
 /// A point's distance from an actor's upright body, feet to head.
+/// The Contact Mines tweak: a mine this close to an actor's upright axis (game units)
+/// is stood on, and goes off with no fuse [design: docs/design/tweaks.md]; about a body's half width, our choice.
+const CONTACT_DISTANCE: f32 = 24.0;
+
 fn body_distance(p: V3, feet: V3, height: f32) -> f32 {
     let z = p[2].clamp(feet[2], feet[2] + height.max(0.0));
     vec::len(vec::sub(p, [feet[0], feet[1], z]))
@@ -246,7 +250,9 @@ pub(crate) fn tick(
             if let Some((a, d)) = by {
                 // Without scripts there are no actor values: a middling skill [design].
                 let skill = actor_av(script.as_deref_mut(), &mut sim, a, fnv_game::actor_values::EXPLOSIVES).unwrap_or(50.0);
-                let secs = m.rules.fuse(&p, skill);
+                // The player's tweak: a mine stood on goes off at once [design: docs/design/tweaks.md].
+                let contact = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| if a == FormId::PLAYER_REF { rt.game.tweaks.contact_mines_player } else { rt.game.tweaks.contact_mines_npcs });
+                let secs = if contact && d <= CONTACT_DISTANCE { 0.0 } else { m.rules.fuse(&p, skill) };
                 info!("mines: {a} sets off mine {id} at {d:.0} units (trigger radius {radius:.0}): fuse {secs:.2} s at Explosives {skill:.0}");
                 m.burning.insert(id, Burning { fuse: Fuse::new(secs) });
             }

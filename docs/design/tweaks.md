@@ -424,6 +424,9 @@ unless the player binds them, so nothing changes until then.
 | Caught Pickpocketing Means Detected | `bPickpocketCaughtCausesDetection` | `Game::caught_detects` from `pickpocket_caught`: the pair is recorded as detected (the sneak word's `[DETECTED]` until measured again) and fed to `observe_threat` |
 | Agility Scales Jump Height (0–0.2) | `bAgilityScalesJumpHeight` | `combat::stat_speed` puts 1 + mult x (Agility − 1) in `player::StatSpeed`'s second number, a factor on the jump height (the tweak's own formula) |
 | Force Lock Near the Sweet Spot (0–50 %) | `bLockpickForceBonusNearSweetSpot` | `lockpick::Picking::force_chance` adds `Settings::force_near_bonus` × (1 − distance / 90°); the falloff is ours (the tweak's formula is not all known) |
+| Contact Mines (Player), (Others) | `bContactMines` | `mines::tick`: an actor that sets a mine off within `CONTACT_DISTANCE` (24 units, ours) of its axis gets no fuse |
+| Sleep Healing Min Duration (0–12 h) | `bSleepHealingMinDuration` | `aid::hour_passed` calls `Game::pass_hours_healing` with healing held until the hour; every bed counts (who owns the bed is not known there); `bMiscStatRequiresSleepDuration` is not done |
+| Barter Lowers Repair Costs (0–60 %) | `bBarterAffectsRepairCosts` | `repair::view` scales `RepairSettings::cost_mult` by `fnv_game::tweaks::barter_repair_factor` (ours; no perk modifiers) |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
 needs, and the "already so" notes say where NVForever does it.
@@ -444,8 +447,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 331 |
-| to do | 272 |
+| done | 334 |
+| to do | 269 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -464,9 +467,11 @@ game's Data folder, read-only).
 | `bAmmoSwapWindowMatchesReloadTime` | done |  |  | already so: an ammo swap is taken at any moment, mid-reload too |
 | `bAutoUnlockTerminals` | done |  | 2 | Skip Easy Hacks (switch + margin slider; the XP option not built) |
 | `bAutoWeaponJamWhileFiring` | done |  |  | already so: every shot rolls the jam, mid-burst too |
+| `bBarterAffectsRepairCosts` | done |  | 3 | Barter Lowers Repair Costs (our rule: a percent off at Barter 100, in proportion below; no perk modifiers) |
 | `bBarterCheckActorBuySellFlags` | done |  | 2 | Merchants Keep to Their Lists (the ammo and perk options not built) |
 | `bBillyGoatMode` | done |  | 3 | Steepest Walkable Slope (30-80 degrees; one angle for walking, jumping and auto-walk) |
 | `bCompanionsDontUseAmmo` | done |  |  | already so: NPCs carry no ammo and reload without spending any |
+| `bContactMines` | done |  | 2 | Contact Mines (Player) and (Others): a mine stood on, within 24 units of the body's axis, goes off with no fuse |
 | `bCrippledLegsScaleJumpHeight` | done |  | 2 | Jumping on a Crippled Leg (one part per crippled leg) |
 | `bCripplingDoesntDisarm` | done |  |  | Crippling Never Disarms |
 | `bCustomSpecialPoints` | done |  | 1 | S.P.E.C.I.A.L. Points (30 to 70; a script's own total still wins) |
@@ -530,6 +535,7 @@ game's Data folder, read-only).
 | `bSemiAutoQueue` | done |  | 2 | Semi-Auto Shot Queue (slider, up to 0.5 s before the weapon is ready) |
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
 | `bSkipVeryEasyLocksAtMaxSkill` | done |  | 2 | Skip Easy Locks (+ margin; full XP; use again to go through) |
+| `bSleepHealingMinDuration` | done |  | 2 | Sleep Healing Min Duration (hours; every bed, the bed's owner is not known; bMiscStatRequiresSleepDuration not done) |
 | `bSleepOnChairs` | done |  |  | Sleep on Chairs |
 | `bSlowBreathRegen` | done |  | 2 | Slow Breath Regen (seconds of breath a second at the surface; the meter already stays up until whole) |
 | `bSpeedMultScalesJumpHeight` | done |  |  | Speed Scales the Jump (the player; NPCs do not jump) |
@@ -547,11 +553,9 @@ game's Data folder, read-only).
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bAdjustableScopeZoom` | to do |  | 14 | needs a zoom level in AimZoom and the wheel (now the third-person distance) |
 | `bArmorCausesSinking` | to do |  | 4 | the physics step does not know the worn armour class |
-| `bBarterAffectsRepairCosts` | to do |  | 3 | repair::view vendor_quote; three numbers to choose |
 | `bCapSkillsBySPECIAL` | to do |  | 5 | SkillSheet needs a per-row cap read at three places |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
-| `bContactMines` | to do |  | 2 | mines::tick; needs a stood-on distance chosen |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
 | `bCritChanceIgnoresFireRate` | to do |  |  | crit_chance in fnv-combat; Rules is serialized |
 | `bCustomArmorConditionPenalty` | to do |  | 1 | the condition formula is in fnv-combat condition.rs constants |
@@ -591,7 +595,6 @@ game's Data folder, read-only).
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
 | `bScopeHoldBreath` | to do |  | 7 | scope_view has no input or AP |
-| `bSleepHealingMinDuration` | to do |  | 2 | needs::pass_hours; the bed is not known there |
 | `bSneakAttackWithoutCrouching` | to do |  |  | sneaking comes from control.sneak (melee) and the projectile; both need the switch |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | to do |  |  | not built: fThrowingStrengthPenalty is not read |

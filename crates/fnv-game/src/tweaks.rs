@@ -314,6 +314,22 @@ pub struct Tweaks {
     /// `bLockpickForceBonusNearSweetSpot`: percent added to Force Lock with the pin on the
     /// sweet spot's middle, falling to none 90 degrees away.
     pub lockpick_force_near_bonus: f32,
+    /// `bContactMines` (`bPlayer`, `bNPCs`): a mine stood on goes off with no fuse.
+    pub contact_mines_player: bool,
+    pub contact_mines_npcs: bool,
+    /// `bSleepHealingMinDuration` (`iMinDuration`): a sleep heals Health and limbs only
+    /// from this hour slept on; 0 heals from the first.
+    pub sleep_heal_min_hours: u32,
+    /// `bBarterAffectsRepairCosts`: percent of a vendor's repair price the player's
+    /// Barter 100 takes off (less in proportion below; [`barter_repair_factor`]).
+    pub barter_repair_discount: f32,
+}
+
+/// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
+/// `discount` percent off at Barter 100, in proportion below [design:
+/// docs/design/tweaks.md; the tweak's own constants are not used, this rule is ours].
+pub fn barter_repair_factor(discount: f32, barter: f32) -> f32 {
+    1.0 - discount.clamp(0.0, 100.0) / 100.0 * barter.clamp(0.0, 100.0) / 100.0
 }
 
 /// The condition (a fraction) a crafted weapon or armour comes out at under the Repair
@@ -456,6 +472,10 @@ impl Default for Tweaks {
             pickpocket_caught_detects: false,
             agility_jump_mult: 0.0,
             lockpick_force_near_bonus: 0.0,
+            contact_mines_player: false,
+            contact_mines_npcs: false,
+            sleep_heal_min_hours: 0,
+            barter_repair_discount: 0.0,
         }
     }
 }
@@ -463,6 +483,14 @@ impl Default for Tweaks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn barter_takes_its_part_off_repairs() {
+        assert_eq!(barter_repair_factor(50.0, 100.0), 0.5);
+        assert_eq!(barter_repair_factor(50.0, 50.0), 0.75);
+        assert_eq!(barter_repair_factor(0.0, 100.0), 1.0);
+        assert_eq!(barter_repair_factor(50.0, 150.0), 0.5);
+    }
 
     #[test]
     fn crafted_condition_runs_from_half_to_whole() {
