@@ -101,9 +101,12 @@ fn close(a: f64, b: f64) -> bool {
 fn a_placed_weapon_reads_its_xhlp_condition() {
     let f = fixture();
     let mut g = game(&f, World::new(&f.forms, &f.refs, SimConfig::default()));
-    // Before the reference has a state (read from the placement) and after.
+    // Before the reference has a state (read from the placement) and after; reading
+    // gives it none.
+    assert!(g.world.peek(FormId(GUN_REF)).is_none());
     let hp = on(&mut g, GUN_REF, "GetCurrentHealth");
     assert!(close(hp, 80.0), "200 x 0.4, got {hp}");
+    assert!(g.world.peek(FormId(GUN_REF)).is_none(), "a read leaves the reference without a state");
     g.world.get(FormId(GUN_REF)).unwrap();
     let hp = on(&mut g, GUN_REF, "GetCurrentHealth");
     assert!(close(hp, 80.0), "200 x 0.4 with a state, got {hp}");
