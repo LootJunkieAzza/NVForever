@@ -173,7 +173,8 @@ pub fn wind_vector(sky: &crate::sky::SkyState) -> Vec4 {
         None => now,
     };
     let strength = if sky.interior.is_some() { 0.0 } else { strength };
-    let a = WIND_DIRECTION_DEG.to_radians();
+    // A script's direction (SetWindDirection) in place of the fixed one.
+    let a = sky.script_wind.unwrap_or(WIND_DIRECTION_DEG).to_radians();
     // Game (x, y, z) is Bevy (x, z, -y).
     // Steps of 1/1000 so a weather fade touches the materials a few hundred times at most.
     Vec3::new(a.cos(), 0.0, -a.sin()).extend((strength * 1000.0).round() / 1000.0)

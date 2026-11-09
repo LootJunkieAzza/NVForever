@@ -359,8 +359,7 @@ impl Game<'_> {
     pub fn finish_text_input(&mut self, typed: String) {
         let Some(t) = self.other.jip12.text_input.take() else { return };
         if self.menu == Some(crate::game::menus::NAME) {
-            self.menu = None;
-            self.emit(crate::trace::EventKind::MenuClosed { menu: crate::game::menus::NAME });
+            self.close_menu();
         }
         crate::delayed::call_next_frame(self, t.callback, None, vec![XVal::Str(typed)]);
     }
@@ -375,8 +374,7 @@ impl Game<'_> {
     pub fn finish_quantity(&mut self, amount: Option<i32>) {
         let Some(q) = self.other.jip12.quantity.take() else { return };
         if self.menu == Some(crate::game::menus::QUANTITY) {
-            self.menu = None;
-            self.emit(crate::trace::EventKind::MenuClosed { menu: crate::game::menus::QUANTITY });
+            self.close_menu();
         }
         crate::delayed::call_next_frame(self, q.callback, None, vec![XVal::Num(f64::from(amount.unwrap_or(-1)))]);
     }

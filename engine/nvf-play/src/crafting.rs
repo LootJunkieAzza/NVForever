@@ -111,7 +111,8 @@ impl Plugin for CraftingPlugin {
         app.init_resource::<RecipeMenu>()
             .insert_resource(RecipeAid(aid))
             .add_systems(Update, (scripts_open, (keys, draw).chain().run_if(in_state(PlayState::Menu))).chain().in_set(PlaySet::Ui))
-            .add_systems(OnExit(PlayState::Menu), close);
+            .add_systems(OnExit(PlayState::Menu), close)
+            .add_systems(Update, forget_closed.in_set(PlaySet::Ui));
     }
 }
 
@@ -213,7 +214,8 @@ fn label(r: &RecipeDef) -> String {
 fn listed(rt: &mut crate::script::Runtime, category: FormId) -> Vec<&'static RecipeDef> {
     let data: &'static fnv_game::data::GameData = rt.game.data;
     let mut out: Vec<&RecipeDef> = data.recipes.values().filter(|r| r.listed_under(category)).collect();
-    out.retain(|r| rt.game.conditions_pass(&r.conditions, Some(FormId::PLAYER_REF), None, "recipe"));
+    // The record's conditions and AddRecipeCondition's (`fnv_game::nvse_jip12`).
+    out.retain(|r| rt.game.conditions_pass(&r.conditions, Some(FormId::PLAYER_REF), None, "recipe") && rt.game.recipe_conditions_pass(r.form));
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.form.0.cmp(&b.form.0)));
     out
 }
@@ -657,6 +659,17 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, words: &[String; 
     });
 }
 
+/// The recipe menu closed: the scripts' getters give nothing again.
+fn forget_closed(menu: Res<RecipeMenu>, script: Option<ResMut<ScriptState>>, mut was_open: Local<bool>) {
+    let open = menu.0.is_some();
+    if *was_open && !open {
+        if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
+            rt.game.set_recipe_menu(None);
+        }
+    }
+    *was_open = open;
+}
+
 /// Draw the menu again when what it shows changed.
 #[allow(clippy::too_many_arguments)]
 fn draw(
@@ -684,6 +697,8 @@ fn draw(
     };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     let mut v = view(rt, &mut sim, open);
+    // GetRecipeMenuCategory and GetRecipeMenuSelection (`fnv_game::nvse_jip12`).
+    rt.game.set_recipe_menu(Some((Some(open.category), v.rows.get(v.selected).map(|r| r.recipe))));
     if forms.is_none() {
         *forms = play.as_ref().map(|p| crate::pipboy::stats::read::Forms::new(p.lo, p.schema));
     }
