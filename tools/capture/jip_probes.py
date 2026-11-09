@@ -8115,6 +8115,66 @@ SETS.update({"jip6": JIP6_PROBES, "jip7": JIP7_PROBES, "jip6b": JIP6B_PROBES, "j
 WRITING_SETS |= {"jip6", "jip7", "jip6b", "jip7b"}
 
 
+# jg7 (writes, session only, each change put back; #1007): JohnnyGuitar batch 7
+# (docs/spec-notes/ext-jg7.md): the music, level-up, yield, viewmodel clip and LOD switches
+# read back, barter hiding on the caps (F) with Doc Mitchell (104C0F) as the vendor, the
+# reputation change icon on RepNVGoodsprings (104C22), the Goodsprings map marker's icon
+# (CDF51), GetJohnnyPatch, the heap size, IsMenuPaused, the load
+# screen switch and RefAddr [observed: forms from fnvtool esm inventory, as FX above].
+# ToggleDisableSaves, the queued texts, the camera and HUD shakes, TogglePipBoy,
+# ExitGameAlt and RollCredits change the screen or the game and are not probed.
+JG7 = {"caps": "F", "pistol10": "434F", "docref": "104C0F", "repgs": "104C22", "gsmarker": "CDF51"}
+
+
+def _jg7(pid, body, text=False):
+    return (f"jg7.{pid}", "ref rP\nref rObj\nref rOther\nfloat fRes\nfloat fSave\nfloat fA\nfloat fB\nfloat fC\n"
+            "float fH\nfloat fS\nfloat fV\nstring_var sText\nBegin Function { }\n"
+            + _form("rP", NF["player"]) + body, text, None, "")
+
+
+JG7_PROBES = (
+    # 1. switches read back and put back
+    [_jg7("music", "let fA := (IsCombatMusicEnabled)\nToggleCombatMusic 0\nlet fB := (IsCombatMusicEnabled)\nToggleCombatMusic 1\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fA fB (IsCombatMusicEnabled))', True),
+     _jg7("levelup", "let fA := (IsLevelUpMenuEnabled)\nToggleLevelUpMenu 0\nlet fB := (IsLevelUpMenuEnabled)\nToggleLevelUpMenu 1\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fA fB (IsLevelUpMenuEnabled))', True),
+     _jg7("yield", "let fA := (GetYieldTimer)\nSetYieldTimer 5\nlet fB := (GetYieldTimer)\nSetYieldTimer 0\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fA fB (GetYieldTimer))', True),
+     _jg7("clip", "let fSave := (GetViewmodelClipDistance)\nSetViewmodelClipDistance 2.5\nlet fA := (GetViewmodelClipDistance)\n"
+          "SetViewmodelClipDistance 0\nlet fB := (GetViewmodelClipDistance)\nSetViewmodelClipDistance fSave\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fSave fA fB)', True),
+     _jg7("lod", "let fSave := (GetNiLODLevel)\nSetNiLODLevel 2\nlet fA := (GetNiLODLevel)\nSetNiLODLevel fSave\n"
+          'SetFunctionValue (sv_Construct "%g %g %g" fSave fA (GetNiLODLevel))', True),
+     # 2. barter hiding flags: player side kept (1), both hidden (none), shown again (0); a
+     # vendor's own entry read with and without the vendor; the caps (all 0 in the first
+     # run) and the 10mm pistol (434F)
+     *[_jg7(pid, _form("rObj", JG7[key]) + _form("rOther", JG7["docref"])
+          + "let fA := IsItemBarterHiddenEx rObj\nHideItemBarterEx rObj 1 1\nlet fB := IsItemBarterHiddenEx rObj\n"
+          "HideItemBarterEx rObj 1\nlet fC := IsItemBarterHiddenEx rObj\nHideItemBarterEx rObj 0\n"
+          'let sText := sv_Construct "%g %g %g %g" fA fB fC (IsItemBarterHiddenEx rObj)\n'
+          "HideItemBarterEx rObj 1 2 rOther\nlet fA := IsItemBarterHiddenEx rObj rOther\nlet fB := IsItemBarterHiddenEx rObj\n"
+          'HideItemBarterEx rObj 0 0 rOther\nSetFunctionValue (sv_Construct "%z %g %g %g" sText fA fB (IsItemBarterHiddenEx rObj rOther))', True)
+       for pid, key in (("barter", "caps"), ("barter.pistol", "pistol10"))],
+     # 3. the reputation icon's return for tier 2 and tier 5 (session only), the map
+     # marker's icon before any SetCustomMapMarkerIcon
+     _jg7("repicon", _form("rObj", JG7["repgs"])
+          + 'let fA := SetCustomReputationChangeIcon rObj 2 "interface\\icons\\nvf.dds"\n'
+          + 'SetFunctionValue (sv_Construct "%g %g" fA (SetCustomReputationChangeIcon rObj 5 "interface\\icons\\nvf.dds"))', True),
+     _jg7("markericon", _form("rObj", JG7["gsmarker"]) + "SetFunctionValue (rObj.GetCustomMapMarkerIcon)", True),
+     # 4. HSVtoRGB and RGBtoHSV compiled at run time in none of seven forms in the original
+     # (observer run 2026-11-08), so they are not in this set (docs/spec-notes/ext-jg7.md)
+     # 5. the extender's own files, menus, the load screen switch, RefAddr
+     _jg7("patches", 'SetFunctionValue (sv_Construct "%g %g %g %g %g %g %g %g" (GetJohnnyPatch 1) (GetJohnnyPatch 2) '
+          "(GetJohnnyPatch 3) (GetJohnnyPatch 4) (GetJohnnyPatch 5) (GetJohnnyPatch 6) (GetJohnnyPatch 7) (GetJohnnyPatch 8))", True),
+     _jg7("heap", "SetFunctionValue (GetDefaultHeapSize)"),
+     _jg7("menupaused", 'SetFunctionValue (sv_Construct "%g %g %g" (IsMenuPaused) (IsMenuPaused 1002) (IsMenuPaused 1009))', True),
+     _jg7("lsonly", "SetFunctionValue (GetLocationSpecificLoadScreensOnly)"),
+     _jg7("refaddr", "SetFunctionValue ((rP.RefAddr) != 0)")]
+)
+SETS.update({"jg7": JG7_PROBES})  # JohnnyGuitar batch 7 (#1007)
+WRITING_SETS |= {"jg7"}
+
+
 
 
 # jip10 (writes, session only, each change put back; #1006): JIP batch 10

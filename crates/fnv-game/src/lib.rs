@@ -118,6 +118,7 @@ pub mod nvse_jg3;
 pub mod nvse_jg4;
 pub mod nvse_jg5;
 pub mod nvse_jg6;
+pub mod nvse_jg7;
 pub mod nvse_lutana;
 pub mod nvse_jip5;
 pub mod nvse_jip6;
