@@ -2237,12 +2237,21 @@ impl Vm<'_, '_> {
                 }
                 Ok(XVal::Array(self.store()?.new_array(kind, es)))
             }
-            // The plugins' array functions the host builds (SUP's Ar_GetRandomKey …).
+            // The plugins' own array functions are the host's (JohnnyGuitar's Ar_Shuffle,
+            // Ar_SortEditor; SUP's Ar_GetRandomKey …); one that writes script variables
+            // (SUP's Ar_SetFloatsFrom) goes as the other output functions do.
             _ => {
                 if let Some(outs) = out_params(n) {
                     return self.out_call(n, c, outs);
                 }
-                self.host_function(n, c)?.ok_or_else(|| VmError::NotBuilt(format!("the extender function {n} (task D2)")))
+                let mut args = Vec::with_capacity(nargs);
+                for k in 0..nargs {
+                    args.push(val(self, k)?);
+                }
+                match self.host.ext_call(n, None, &args) {
+                    Some(r) => r.map_err(VmError::Host),
+                    None => Err(VmError::NotBuilt(format!("the extender function {n} (task D2)"))),
+                }
             }
         }
     }
@@ -3279,6 +3288,8 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "ar_setfloatsfrom" => &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         // [documented: HSVtoRGB, RGBtoHSV, three script variables in and three out].
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
+        // [documented: GetSystemColorAlt and GetPixelFromBMP, three variables for R, G, B].
+        "getsystemcoloralt" | "getpixelfrombmp" => &[1, 2, 3],
         _ => return None,
     })
 }

@@ -965,6 +965,9 @@ pub mod menus {
     /// GetSelectedItemRef, "Pipboy DATA Menu (1023) - Quest/Note/Challenge";
     /// GetMenuTargetRef, "1023 The Map Marker on which the mouse is over"].
     pub const MAP: u16 = 1023;
+    /// The sleep/wait menu (`nvf-play` wait.rs opens it as 1012) [documented: GECK wiki
+    /// MenuMode].
+    pub const SLEEP_WAIT: u16 = 1012;
     /// The Pip-Boy's repair list (`crate::repair::REPAIR_MENU`) [documented: GECK wiki
     /// GetSelectedItemRef, "Pipboy Repair Menu (1035)"].
     pub const REPAIR: u16 = crate::repair::REPAIR_MENU;
@@ -2378,10 +2381,15 @@ impl<'a> Game<'a> {
             EventKind::ItemAdded { to: FormId::PLAYER_REF, item, count, .. } => Some((item, count)),
             _ => None,
         };
+        // JohnnyGuitar's failed-quest and reputation handlers (`crate::nvse_jg8`).
+        let jg8 = self.jg8_from_event(&kind);
         self.events.push(Event { frame: self.frame, kind });
         // Items coming to the player count towards the acquire challenges (`crate::challenges`).
         if let Some((item, count)) = acquired {
             self.challenge_acquired(item, count);
+        }
+        if let Some((ev, keys, args)) = jg8 {
+            self.jg8_fire(ev, &keys, args);
         }
     }
 
@@ -4187,6 +4195,13 @@ impl<'a> Game<'a> {
             _ => self.line_seconds(speaker, info),
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
+        // JohnnyGuitar's general subtitle handlers: (speaker, the first response's text,
+        // topic) [hypothesis: the arguments; the page gives none] (`crate::nvse_jg8`).
+        if self.jg8_listening(crate::nvse_jg8::Ev::GeneralSubtitle) {
+            let text = def.response_order().first().map(|&r| def.responses[r].text.clone()).unwrap_or_default();
+            let sp = fnv_script::vm::XVal::Ref(speaker.0);
+            self.jg8_fire(crate::nvse_jg8::Ev::GeneralSubtitle, std::slice::from_ref(&sp), vec![sp.clone(), fnv_script::vm::XVal::Str(text), fnv_script::vm::XVal::Ref(topic.0)]);
+        }
         self.cover_info(info);
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
         // [design] Mark this line before callbacks can finish it or replace it.
@@ -4479,6 +4494,9 @@ impl<'a> Game<'a> {
         // before anything in them runs (`crate::respawn`).
         self.cells_left(&left);
         let reset: Vec<FormId> = new.iter().copied().filter(|&c| self.cell_entered(c).is_some()).collect();
+        // JohnnyGuitar's seen-cell and processing-level handlers (`crate::nvse_jg8`).
+        let first_seen: Vec<FormId> = new.iter().copied().filter(|c| !self.forms.visited_cells.contains(c)).collect();
+        let levels_before = self.jg8_listening(crate::nvse_jg8::Ev::ProcessLevel).then(|| self.package_actors());
         self.forms.visited_cells.extend(new.iter().copied());
         // Their encounter zones get a level, their actors and containers theirs, before
         // anything rolls their carried items (`crate::zones`).
@@ -4526,6 +4544,7 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        self.jg8_loaded(&first_seen, levels_before);
     }
 
     /// Actors in loaded cells that never were loaded put on their outfit and take up

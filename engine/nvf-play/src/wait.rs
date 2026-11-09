@@ -557,6 +557,8 @@ fn open(
     }
     // Scripts run MenuMode 1012 from now on.
     if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+        // GetSleepWaitMenuState tells the sleep from the wait (`fnv_game::nvse_jg8`).
+        rt.game.other.jg8.sleep_menu = m.sleep;
         rt.game.open_menu(crate::script::MENU_SLEEP_WAIT);
         // The bed's own script learns that the player sleeps on it.
         if let Some(bed) = bed.filter(|_| sleep) {
