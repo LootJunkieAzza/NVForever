@@ -180,6 +180,11 @@ nothing values by the owner's decisions of 2026-11-08; not probed yet, set sup5)
 it: 560 (SUP 93 → 51).
 With both ShowOff batch 4 and SUP batch 5 merged: 526 (ShowOff 37, SUP 51) [hypothesis: 602 − 34 − 42;
 the extender_census test decides].
+Lutana batch 3: the last 24 (#1009, ext-lutana.md §10: the activator prompt, ANIO and LSCT fields and the
+loading screen's texture as session record edits, race, template and template flags, CopyFaceGenFrom
+through the appearance changes the engine draws, SetBaseForm, EquipItemData and SetEquippedData,
+SetPerkRank, the perk entry setters read by the perk effects, GetPlayerRegions, the cell enter and exit
+events, GetCellRefs, SetVariableFloat, BaseAddItemHealth; set lu3, not probed yet). LU 24 → 0.
 JIP batch 10: 36 (#1006, jip-scripts-10.md: quest objectives and their targets, the quest lists,
 SetStageAlt, perks and factions, script variables added at run time (saved), scripts and event
 blocks switched off, FakeScriptEvent, linked and enable children, the references' extra data
