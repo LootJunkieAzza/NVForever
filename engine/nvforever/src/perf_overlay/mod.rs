@@ -1,5 +1,5 @@
 //! The performance overlay (issue #1868, grown from the frame rate counter of #1087 and
-//! #1704): a small panel in a corner of the screen with a row per reading, each row a
+//! #1704): a small panel at the top right of the screen with a row per reading, each row a
 //! switch of the settings page (`settings.rs`, kept in `NVForever.ini`):
 //!
 //! | Row  | Reads | From |
@@ -11,7 +11,7 @@
 //! | RAM  | the game's working set, the machine's RAM in use | the process's memory counters ([`usage`]); `memory_budget.rs`'s check |
 //!
 //! The settings page's Frame rate counter switch and `--fps` show it (off by default);
-//! the rows and the corner (top right, or top left under the corner messages) are its own
+//! the rows are its own
 //! switches. A row with nothing to read (no GPU budget on an integrated GPU; off Windows
 //! the counters' rows) is left out, and nothing is read while the overlay is hidden. Not
 //! in the original [engineering choice, issue #1087].
@@ -46,48 +46,11 @@ use crate::memory_budget::MemoryBudget;
 pub use readings::Rows;
 use readings::{Frames, Readings};
 
-/// The corner the overlay is drawn in (a choice of the settings page).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Corner {
-    /// As the counter was drawn.
-    #[default]
-    TopRight,
-    /// Under the HUD's corner messages ([`draw`]).
-    TopLeft,
-}
-
-impl Corner {
-    pub const ALL: [Corner; 2] = [Corner::TopRight, Corner::TopLeft];
-
-    /// As the settings page names it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Corner::TopRight => "Top right",
-            Corner::TopLeft => "Top left",
-        }
-    }
-
-    /// As `NVForever.ini` keeps it.
-    pub fn stored(self) -> &'static str {
-        match self {
-            Corner::TopRight => "top-right",
-            Corner::TopLeft => "top-left",
-        }
-    }
-
-    /// From its name or its INI text, any case.
-    pub fn parse(s: &str) -> Option<Corner> {
-        let s = s.trim();
-        Corner::ALL.into_iter().find(|c| s.eq_ignore_ascii_case(c.name()) || s.eq_ignore_ascii_case(c.stored()))
-    }
-}
-
-/// Whether the overlay is shown, its rows and its corner.
+/// Whether the overlay is shown, and its rows.
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct FpsCounter {
     pub show: bool,
     pub rows: Rows,
-    pub corner: Corner,
 }
 
 /// A showing's readings, the sampler, what was logged, and whether the panel is to be
@@ -227,7 +190,7 @@ fn draw(
     let rows = readings::rows(&overlay.readings, &counter.rows);
     let Drawn { kit, width, .. } = &mut *drawn;
     if let Some(kit) = kit {
-        draw::spawn(&mut commands, kit, &rows, counter.corner, width);
+        draw::spawn(&mut commands, kit, &rows, width);
     }
 }
 
@@ -240,16 +203,5 @@ mod tests {
         assert_eq!(usage_text(None, None), "");
         assert_eq!(usage_text(Some(34.4), Some(70.6)), "  CPU 34%  GPU 71%");
         assert_eq!(usage_text(None, Some(5.0)), "  GPU 5%");
-    }
-
-    #[test]
-    fn a_corner_is_read_by_its_name_or_its_ini_text() {
-        for c in Corner::ALL {
-            assert_eq!(Corner::parse(c.name()), Some(c));
-            assert_eq!(Corner::parse(c.stored()), Some(c));
-        }
-        assert_eq!(Corner::parse(" TOP-LEFT "), Some(Corner::TopLeft));
-        assert_eq!(Corner::parse("bottom"), None);
-        assert_eq!(Corner::default(), Corner::TopRight);
     }
 }

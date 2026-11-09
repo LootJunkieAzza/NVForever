@@ -22,7 +22,7 @@ use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
 use crate::lod::LodState;
 use crate::nav::NavState;
-use crate::perf_overlay::{Corner, FpsCounter};
+use crate::perf_overlay::FpsCounter;
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
 use crate::window_mode;
@@ -356,7 +356,7 @@ const FOV_MAX: f32 = 110.0;
 const FOV_CHOICES: usize = 13;
 
 /// The field of view (`--fov`), the frame rate counter (the performance overlay,
-/// `perf_overlay/`: its switch, a switch per row and its corner) and how fast frames are
+/// `perf_overlay/`: its switch and a switch per row) and how fast frames are
 /// shown (`frame_pace.rs`; not while `--log-frame-times` measures, which wants vsync off).
 fn register_display(app: &mut App) {
     add_setting(
@@ -377,7 +377,7 @@ fn register_display(app: &mut App) {
             key: "fps-counter",
             group: GROUP_PICTURE,
             label: "Frame rate counter",
-            note: "On: a small panel of performance readings in a corner of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)",
+            note: "On: a small panel of performance readings at the top right of the screen, the Counter rows below choosing what it shows; with only its frame rate row on it is a frame rate counter. Not in the original. (--fps)",
             get: |w| w.resource::<FpsCounter>().show,
             set: |w, on| w.resource_mut::<FpsCounter>().show = on,
             slider: None,
@@ -432,7 +432,7 @@ fn register_display(app: &mut App) {
     );
 }
 
-/// The frame rate counter's rows and corner, listed under its switch (issue #1868; the
+/// The frame rate counter's rows, listed under its switch (issue #1868; the
 /// defaults are the issue's, `perf_overlay::Rows`). Each note says what the row reads and
 /// where from.
 fn register_counter_rows(app: &mut App) {
@@ -477,33 +477,6 @@ fn register_counter_rows(app: &mut App) {
     for r in rows {
         add_setting(app, r);
     }
-    add_choice_list(
-        app,
-        Setting {
-            key: "fps-counter-corner",
-            group: GROUP_PICTURE,
-            label: "Counter: corner",
-            note: "Where the counter is drawn: at the top right, or at the top left under the messages that come in the corner there.",
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
-        ChoiceList {
-            names: |_| Corner::ALL.iter().map(|c| c.name().to_string()).collect(),
-            chosen: |w| w.resource::<FpsCounter>().corner.name().to_string(),
-            pick: set_counter_corner,
-            save: |w| w.resource::<FpsCounter>().corner.stored().to_string(),
-            load: set_counter_corner,
-            ask_keep: false,
-        },
-    );
-}
-
-/// The counter's corner of this name (or INI text, `Corner::parse`); false: not one.
-fn set_counter_corner(world: &mut World, name: &str) -> bool {
-    let Some(c) = Corner::parse(name) else { return false };
-    world.resource_mut::<FpsCounter>().corner = c;
-    true
 }
 
 /// The display sync of this name (or INI text, `DisplaySync::parse`); false: not one.

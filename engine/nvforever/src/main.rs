@@ -429,7 +429,7 @@ struct Args {
     #[arg(long, value_enum)]
     cpu_cache_placement: Option<cpu_placement::Mode>,
     /// Show the frame rate counter, the performance overlay (perf_overlay/; a switch on the
-    /// settings page too, its rows and corner as the settings give them). Once any setting is saved, NVForever.ini's Frame rate counter
+    /// settings page too, its rows as the settings give them). Once any setting is saved, NVForever.ini's Frame rate counter
     /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,

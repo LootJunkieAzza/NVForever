@@ -19,7 +19,6 @@ use nvf_assets::GameData;
 use nvf_play::interface::{amber, bc_supported, face, font_units, line_base, plain_font, set_line, u, ui_scale, units_at, Face, FONT_FILES};
 
 use super::readings::{Row, LABELS};
-use super::Corner;
 
 /// Above every menu, the HUD (`nvf_play::interface::TOP_MENU_Z` is 107) and the loading
 /// screen (200, `nvf_play::loading`), so a load's frame rate can be read too.
@@ -49,13 +48,9 @@ const BRACKET: f32 = 110.0;
 const BRACKET_LINE: f32 = 2.0;
 const BRACKET_ARM: f32 = 14.0;
 
-/// Top right: from the view's top and right edge, in the HUD's units at the UI scale
+/// From the view's top and right edge, in the HUD's units at the UI scale
 /// [design].
 const EDGE: (f32, f32) = (12.0, 16.0);
-/// Top left: this far under the corner messages' area (`nvf_play::corner_messages`, whose
-/// bracket reaches [`nvf_play::corner_messages::AREA_BOTTOM`] units down), at its left
-/// edge, so a message coming does not cover the readings [design].
-const UNDER_MESSAGES: f32 = 12.0;
 
 /// The panel's root, despawned with its rows when the panel is set again.
 #[derive(Component)]
@@ -87,20 +82,17 @@ impl Kit {
     }
 }
 
-/// Spawn the panel of `rows` in `corner`. `width` is the widest the panel was in this
+/// Spawn the panel of `rows` at the top right. `width` is the widest the panel was in this
 /// showing (the text's units); it grows to these rows and never shrinks, so the backing
 /// does not jump as the numbers change.
-pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], corner: Corner, width: &mut f32) {
+pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], width: &mut f32) {
     if rows.is_empty() {
         return;
     }
     let (top, side) = {
-        // The corner in the HUD's lengths at the UI scale, as the corner messages'.
+        // In the HUD's lengths at the UI scale, as the corner messages'.
         let _hud = units_at(ui_scale());
-        match corner {
-            Corner::TopRight => (u(EDGE.0), u(EDGE.1)),
-            Corner::TopLeft => (u(nvf_play::corner_messages::AREA_BOTTOM + UNDER_MESSAGES), u(nvf_play::corner_messages::AREA_LEFT)),
-        }
+        (u(EDGE.0), u(EDGE.1))
     };
     let _text = units_at(ui_scale() * TEXT_SCALE);
     let font = &kit.face.font;
@@ -109,20 +101,17 @@ pub(super) fn spawn(commands: &mut Commands, kit: &Kit, rows: &[Row], corner: Co
     *width = width.max(kit.label_column() + GAP + widest + 2.0 * PAD.0);
     let pitch = font.size;
     let base = line_base(&kit.face);
-    let mut node = Node {
+    let node = Node {
         position_type: PositionType::Absolute,
         top,
         flex_direction: FlexDirection::Column,
         padding: UiRect::axes(u(PAD.0), u(PAD.1)),
+        right: side,
         min_width: u(*width),
         ..default()
     };
-    match corner {
-        Corner::TopRight => node.right = side,
-        Corner::TopLeft => node.left = side,
-    }
     commands.spawn((PanelRoot, node, BackgroundColor(Color::BLACK.with_alpha(BACKING)), GlobalZIndex(Z), Pickable::IGNORE)).with_children(|panel| {
-        bracket(panel, corner);
+        bracket(panel);
         for (row, value) in rows.iter().zip(&values) {
             let line = Node { flex_direction: FlexDirection::Row, justify_content: JustifyContent::SpaceBetween, column_gap: u(GAP), height: u(pitch), ..default() };
             panel.spawn(line).with_children(|line| {
@@ -166,15 +155,9 @@ fn stand_in(cell: &mut ChildSpawnerCommands, kit: &Kit, s: &str, x: f32, base: f
 
 /// The bracket on the panel's outer side: a line down its whole height, turning in at the
 /// top and the bottom.
-fn bracket(panel: &mut ChildSpawnerCommands, corner: Corner) {
+fn bracket(panel: &mut ChildSpawnerCommands) {
     let color = BackgroundColor(amber(BRACKET));
-    let edge = |mut n: Node| {
-        match corner {
-            Corner::TopRight => n.right = Val::Px(0.0),
-            Corner::TopLeft => n.left = Val::Px(0.0),
-        }
-        n
-    };
+    let edge = |n: Node| Node { right: Val::Px(0.0), ..n };
     let down = Node { position_type: PositionType::Absolute, top: Val::Px(0.0), bottom: Val::Px(0.0), width: u(BRACKET_LINE), ..default() };
     let arm = Node { position_type: PositionType::Absolute, width: u(BRACKET_ARM), height: u(BRACKET_LINE), ..default() };
     panel.spawn((edge(down), color));
