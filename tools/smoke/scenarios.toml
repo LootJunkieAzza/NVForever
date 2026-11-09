@@ -9714,14 +9714,14 @@ forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (li
 name = "settings-tab-read"
 source = "#1953, the fork owner's request 2026-11-09: the second half of the tab round trip: a new start in settings-tab-write's home opens the settings page on Graphics, the tab kept in [UI] SettingsTab="
 areas = ["settings"]
-paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/quality.rs"]
 env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_PAUSE_MENU = "11:settings,12:inspect" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 16
 order = [[
   { re = 'settings page: \[UI\] SettingsTab=Graphics read from .*NVForever\.ini', label = "the kept tab is read at the start" },
-  { text = "pause menu: settings open on Graphics; selected grade", label = "Settings opens on it, on its first row" },
-  "pause menu: inspect: Graphics, keys on the rows, selected grade",
+  { text = "pause menu: settings open on Graphics; selected quality", label = "Settings opens on it, on its first row (the Quality row, #1966)" },
+  "pause menu: inspect: Graphics, keys on the rows, selected quality",
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
@@ -10026,6 +10026,144 @@ order = [[
   { re = 'pause menu: inspect: words .*\| \[xx\] Display > \[xx\] Interface$', label = "where it lives, translated" },
 ]]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-quality-presets"
+source = "#1966: the Graphics tab's Quality row, over its own heading at the top: each preset sets the rows its file's keys map to (docs/spec-notes/quality-presets.md), each logged with its value; a change to one of them reads Custom (engine/nvforever/src/quality.rs)"
+note = "the presets are the made-up files of tools/smoke/fixtures/quality-presets (NVF_PLAY_TEST_QUALITY_PRESETS), not an install's: a slider's part is the file's number against the largest of the four, so Very High is 100% and matches today's distances"
+areas = ["settings", "renderer"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings.rs", "tools/smoke/fixtures/quality-presets/"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:layout,12:quality=Low,14:quality=Medium,15:quality=High,16:quality=Very High,18:object-distance=0.5" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { re = 'quality presets: Low, Medium, High, Very High from .*quality-presets; 9 key\(s\) set rows, 32 not used', count = 1, label = "the four made-up files are read once, at the start" },
+  { text = "settings layout: quality -> Graphics > Quality", label = "the Quality row under its own heading" },
+  { text = "settings layout: enhanced -> Graphics > Picture", label = "the Enhanced effects row under Picture" },
+]
+order = [[
+  "settings: shadow-distance 25%",
+  "settings: sun-shadows off",
+  "settings: shadow-filter Fast",
+  "settings: actor-distance 20%",
+  "settings: object-distance 40%",
+  "settings: item-distance 50%",
+  { text = "settings: grass-distance 10%", label = "0 in the file: the slider's least" },
+  "settings: water-mirror off",
+  "settings: glow off",
+  { re = 'quality presets: Low from .*quality-presets: 9 row\(s\) set', label = "Low sets its nine rows" },
+  "settings: quality Low",
+  "quality presets: the Quality row reads Low",
+  "settings: shadow-distance 50%",
+  "settings: sun-shadows on",
+  "settings: actor-distance 40%",
+  "settings: object-distance 50%",
+  "settings: item-distance 60%",
+  "settings: grass-distance 25%",
+  "settings: water-mirror on",
+  "settings: quality Medium",
+  "quality presets: the Quality row reads Medium",
+  "settings: shadow-distance 75%",
+  "settings: shadow-filter Smooth",
+  "settings: actor-distance 60%",
+  "settings: object-distance 80%",
+  "settings: item-distance 70%",
+  "settings: grass-distance 75%",
+  "settings: glow on",
+  "settings: quality High",
+  "quality presets: the Quality row reads High",
+  "settings: shadow-distance 100%",
+  "settings: actor-distance 100%",
+  "settings: object-distance 100%",
+  "settings: item-distance 100%",
+  "settings: grass-distance 100%",
+  "settings: quality Very High",
+  "quality presets: the Quality row reads Very High",
+  { text = "settings: object-distance 50%", label = "a covered row changed on its own" },
+  { text = "quality presets: the Quality row reads Custom", label = "the row reads Custom" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'quality presets: .*(is not offered|not a key|not a number|above 0 in no)', label = "every made-up file is read and every key known" },
+  { re = 'settings: (ambient-occlusion|fine-shadows|bloom|sharpen|anisotropic|light-shafts|water-reflections|anti-aliasing|fsr-upscaling) ', label = "a preset touches no enhanced effect, anti-aliasing or FSR" },
+]
+
+[[scenario]]
+name = "settings-quality-presets-missing"
+source = "#1966: without any of the preset files the Quality row is not registered, and the log says why once; the Enhanced effects row stays (engine/nvforever/src/quality.rs)"
+note = "NVF_PLAY_TEST_QUALITY_PRESETS names a folder that does not exist; the aid's quality=Low then finds no such row"
+areas = ["settings"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets-none", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:layout,12:quality=Low" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 17
+expect = [
+  { re = 'quality presets: none of low\.ini, medium\.ini, high\.ini, VeryHigh\.ini in .*quality-presets-none: the Quality row is not shown', count = 1, label = "said once" },
+  { text = "settings layout: enhanced -> Graphics > Picture", label = "the Enhanced effects row is there all the same" },
+  { re = 'settings layout: \d+ row\(s\) in 7 tab\(s\), 0 not in the table', label = "every row still has its place" },
+  { re = 'NVF_PLAY_TEST_SETTINGS: no switch "quality"', label = "there is no Quality row to take a preset" },
+]
+forbid = [
+  { text = "settings layout: quality ->", label = "no Quality row" },
+  { text = "the Quality row reads", label = "nothing to read" },
+]
+
+[[scenario]]
+name = "settings-quality-presets-part"
+source = "#1966: a missing preset file leaves that preset out of the list, said once in the log; the others still work (engine/nvforever/src/quality.rs)"
+note = "tools/smoke/fixtures/quality-presets-part holds only the made-up low.ini and high.ini"
+areas = ["settings"]
+paths = ["engine/nvforever/src/quality.rs", "tools/smoke/fixtures/quality-presets-part/"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets-part", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:quality=Medium,12:quality=Low,14:quality=High" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'quality presets: Medium is not offered: medium\.ini not found in .*quality-presets-part', count = 1, label = "Medium's file is missing, said once" },
+  { re = 'quality presets: Very High is not offered: VeryHigh\.ini not found in .*quality-presets-part', count = 1, label = "Very High's too" },
+  { re = 'quality presets: Low, High from .*quality-presets-part; ', count = 1, label = "the two found are offered" },
+  { text = "settings: quality has no such choice", count = 1, label = "Medium cannot be taken" },
+]
+order = [["settings: quality Low", "quality presets: the Quality row reads Low", "settings: quality High", "quality presets: the Quality row reads High"]]
+forbid = [{ text = "settings: quality Medium", label = "Medium is not taken" }]
+
+[[scenario]]
+name = "settings-enhanced-effects"
+source = "#1966: the Enhanced effects row under Graphics > Picture: On sets every effect --graphics enhanced turns on, Off every one off as vanilla, Custom when mixed; the Quality row reads the install's own preset files (engine/nvforever/src/quality.rs)"
+note = "test runs start with the vanilla look, so the row first reads Off; bloom flipped alone makes it Custom; Off then flips the six still on (bloom is off already)"
+areas = ["settings", "renderer"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:enhanced=On,13:bloom,15:enhanced=Off" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'quality presets: Low, Medium, High, Very High from .+; 9 key\(s\) set rows, 32 not used', count = 1, label = "the install's four preset files are read from its folder" },
+]
+order = [[
+  { text = "quality presets: the Enhanced effects row reads Off", label = "the vanilla look at the start" },
+  "settings: ambient-occlusion on",
+  "settings: fine-shadows on",
+  "settings: bloom on",
+  "settings: sharpen on",
+  "settings: anisotropic on",
+  "settings: light-shafts on",
+  "settings: water-reflections on",
+  "settings: enhanced On",
+  "quality presets: the Enhanced effects row reads On",
+  "settings: bloom off",
+  { text = "quality presets: the Enhanced effects row reads Custom", label = "one effect off: Custom" },
+  "settings: ambient-occlusion off",
+  "settings: fine-shadows off",
+  "settings: sharpen off",
+  "settings: anisotropic off",
+  "settings: light-shafts off",
+  "settings: water-reflections off",
+  "settings: enhanced Off",
+  "quality presets: the Enhanced effects row reads Off",
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'settings: (glow|eye-adaptation|neon-glow|water-mirror|shadow-filter|anti-aliasing|fsr-upscaling) ', label = "the row touches only the enhanced effects" },
+]
 
 [[scenario]]
 name = "controller-write"
