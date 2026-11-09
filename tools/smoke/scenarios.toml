@@ -23084,11 +23084,11 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 
 [[scenario]]
 name = "frame-generation"
-source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors"
+source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors; the performance overlay (--fps, its readings logged by NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**"]
-env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1" }
-args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1", NVF_FPS_LOG = "2" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen", "--fps"]
 run_seconds = 26
 expect = [
   "FSR 3.1.4: Quality, 853x480 -> 1280x720, frame generation on",
@@ -23098,6 +23098,7 @@ expect = [
   { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
   { text = "frame generation: … presents took … on the presenter thread", label = "presented from the presenter thread, not the render thread" },
   { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
+  { re = 'fps counter: FPS \d+ +\(\d+ rendered\) +[\d.]+ ms ', label = "the overlay's FPS row reads the frames shown and the rendered ones apart while generated frames are shown" },
 ]
 forbid = [
   { text = "Validation Error", label = "a Vulkan validation error" },

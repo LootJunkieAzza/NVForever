@@ -177,8 +177,10 @@ Limits and notes:
   takes the window's images again; switching it on starts a new one.
 - **`NVF_FG_PRESENTER=0`** presents from the render thread as before, for comparisons.
   `NVF_TEST_RENDER_STALL_MS=<ms>` holds the render thread that long each frame (a heavy frame
-  on a fast PC) and `NVF_SWAPCHAIN_LATENCY=<n>` sets the frames the swapchain may queue:
-  measuring aids.
+  on a fast PC), `NVF_SWAPCHAIN_LATENCY=<n>` sets the frames the swapchain may queue, and
+  `NVF_FPS_LOG=<s>` logs the performance overlay's readings as shown (with the overlay on,
+  `--fps`: the first reading of each showing, then at most every `<s>` seconds): measuring
+  aids.
 - **The cap on slower screens**: half the refresh rate is 30 real frames a second on a 60 Hz
   screen, which is little to interpolate from and to aim with; frame generation suits screens
   of 120 Hz and more.
