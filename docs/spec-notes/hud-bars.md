@@ -48,7 +48,7 @@ What NVForever chose where the pages leave it open:
 | Item and list both set | either equipped is enough | [design] |
 | Trait 25 with no item and no list, or an empty list | hidden (nothing named can be equipped) | [hypothesis: the trait's words] |
 | A value the page does not list (22 at 3, 21 at 2) | hides nothing | [design] |
-| What the conditions read | the player's state as the engine tells it: `Game::in_menu`, the movement lock of DisablePlayerControls(Alt), sneaking, IsInCombat's player answer, the aiming flag, weapon out, the camera | [design: `ui_hudbar::Situation`] |
+| What the conditions read | the player's state as the engine tells it: `Game::in_menu`, the movement lock of DisablePlayerControls(Alt), sneaking, IsInCombat's player answer, the sights up (the engine's `Combat::player_sights_up`: a ready gun with sights, Block held, no reload or jam holding the sights down; so not while blocking with a melee weapon or reloading), weapon out, the camera | [design: `ui_hudbar::Situation`, `nvse_jip2::PlayerTold::sights_up`, told by `engine/nvf-play/src/script_input.rs`] |
 
 ## 3. Vanishing and appearing
 
@@ -58,13 +58,22 @@ pixels (positive to the right); 61-64 the same for appearing, the bar coming fro
 shift to its place.
 
 - Hidden by trait 0 or 27, or by HudBarShowBar, the change is at once [hypothesis: the
-  fades are written for traits 21-26]. A bar is shown by HudBarShowBar where its
-  conditions put it, without a fade [design].
-- [design] Linear in time, by the frame's real seconds (menus too). A change that turns
-  back half way goes back from where it is at the other way's speed, without a jump; a
-  timer of 0 or less is at once. Every element's alpha is multiplied by the bar's share;
-  at 0 the bar's rect is not drawn. Vertical positive is downwards [hypothesis: the
-  interface's y].
+  fades are written for traits 21-26]. Shown again after trait 0 or 27 hid it last, it is
+  at once too; the condition that hid it last decides (hidden by 27, then held only by
+  22, it fades in) [design]. A bar is shown by HudBarShowBar where its conditions put it,
+  without a fade [design].
+- [design] Linear in time, by the frame's real seconds. A change that turns back half way
+  goes back from where it is at the other way's speed, without a jump in alpha or place:
+  the bar moves on from its shift at that moment towards the new way's end (its place, or
+  42/43's shift); from hidden it appears from 62/63's shift. A timer of 0 or less is at
+  once. Every element's alpha is multiplied by the bar's share; at 0 the bar's rect is not
+  drawn. Vertical positive is downwards [hypothesis: the interface's y].
+- [design] The fades step in `Game::tick`: on in menu mode (the Pip-Boy, a conversation;
+  game time stands still there but the frame's seconds count), waiting with the game
+  under the pause menu and a loading screen, where the engine runs no `Game::tick`
+  (`engine/nvf-play/src/script.rs`).
+- [design] During a fade only the bar's place, its being drawn and the elements' alpha are
+  written to the tiles.
 - A tree built again (a load) finishes a running change at once [design].
 
 ## 4. HudBarGetVisible

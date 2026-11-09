@@ -146,13 +146,25 @@ const PAD_BITS: [(GamepadButton, u32); 14] = [
 ];
 
 /// Tell the scripts the player's auto-move and aiming and the first connected pad
-/// (GetAutoMove, GetPCUsingScope/IronSights, the controller functions).
-fn tell_player_state(control: Option<Res<crate::control::PlayerControl>>, pads: Query<&Gamepad>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+/// (GetAutoMove, GetPCUsingScope/IronSights, the controller functions), and whether the
+/// sights are up (`Combat::player_sights_up`: not while blocking with a melee weapon or
+/// while a reload holds them down), for SUP's HUD bars' aiming condition.
+fn tell_player_state(
+    control: Option<Res<crate::control::PlayerControl>>,
+    combat: Option<Res<crate::combat::Combat>>,
+    anim: Option<Res<crate::combat::WeaponAnim>>,
+    pads: Query<&Gamepad>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let told = &mut rt.game.jip2.told;
     if let Some(c) = control {
         told.auto_move = c.auto_move;
         told.aiming = c.aiming && c.weapon_out;
+        told.sights_up = match (combat.as_deref(), anim.as_deref()) {
+            (Some(cb), Some(a)) => cb.player_sights_up(a, told.aiming),
+            _ => false,
+        };
     }
     let pad = &mut told.pad;
     match pads.iter().next() {

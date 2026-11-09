@@ -127,6 +127,12 @@ pub struct Bar {
     /// The way the last change of `presence` went: true appearing (traits 61-64), false
     /// vanishing (41-44); it picks the movement traits [design].
     pub appearing: bool,
+    /// Where the current change started: its `presence` and the bar's shift then (x, y),
+    /// so a change that turns back half way moves on from where the bar is [design].
+    pub from: [f64; 3],
+    /// The bar was last hidden by trait 0 or 27 (at once): shown again, it is at once too
+    /// [design].
+    pub instant_hide: bool,
 }
 
 /// What the visibility conditions read from the game, gathered once a frame ([`tick`])
@@ -142,8 +148,9 @@ pub struct Situation {
     pub sneaking: bool,
     /// IsInCombat's answer for the player (`awareness::is_in_combat`).
     pub combat: bool,
-    /// Aiming down the sights or the scope, as the engine tells it
-    /// (`nvse_jip2::PlayerTold::aiming`).
+    /// Aiming down the sights or the scope: the sights up as the engine tells it
+    /// (`nvse_jip2::PlayerTold::sights_up`), not while blocking with a melee weapon or
+    /// while a reload holds the sights down [design: the engine's sights-up test].
     pub aiming: bool,
     pub weapon_out: bool,
     pub first_person: bool,
@@ -160,7 +167,7 @@ impl Situation {
             movement_disabled: g.controls_locked()[0],
             sneaking: g.is_sneaking(p),
             combat: g.awareness.hunted(p),
-            aiming: g.jip2.told.aiming,
+            aiming: g.jip2.told.sights_up,
             weapon_out: g.extra.get(&p).is_some_and(|e| e.weapon_out),
             first_person: g.senses.first_person,
             equipped,
@@ -250,19 +257,38 @@ impl Bar {
     /// One frame of `dt` seconds under the conditions `h`: `presence` moves towards 1
     /// (none hides the bar) or 0. [documented: HudBarSetBarTrait] With 41 set the bar
     /// vanishes over 44's seconds, with 61 set it appears over 64's, otherwise at once.
-    /// [design] A bar hidden by HudBarShowBar, or hidden by trait 0 or 27, takes the end
-    /// value at once (nothing is drawn to fade); a timer of 0 or less is at once; a change
-    /// that turns back half way goes back from where it is, at the other way's speed (no
-    /// jump). True when `presence` changed.
+    /// [design] At once: a bar hidden by HudBarShowBar (nothing is drawn to fade), a bar
+    /// hidden by trait 0 or 27, a bar shown again after one of those hid it last, a timer
+    /// of 0 or less. A change that turns back half way goes back from where it is, at the
+    /// other way's speed, its place moving on from where it is (no jump). The fades step
+    /// by `dt` only when [`tick`] runs. True when `presence` changed.
     pub fn step_presence(&mut self, h: Hidden, dt: f64) -> bool {
         let was = self.presence;
         let target = if h.any() { 0.0 } else { 1.0 };
-        if target < self.presence {
-            self.appearing = false;
-        } else if target > self.presence {
-            self.appearing = true;
+        if h.any() {
+            self.instant_hide = h.instant;
         }
-        if !self.shown || h.instant {
+        let appearing = if target > self.presence {
+            true
+        } else if target < self.presence {
+            false
+        } else {
+            self.appearing
+        };
+        if appearing != self.appearing {
+            // Half way the change starts from the bar's shift now; at an end from the
+            // way's own start (appearing from 62/63's shift, vanishing from its place).
+            let d = if self.presence > 0.0 && self.presence < 1.0 {
+                self.offset()
+            } else if appearing {
+                self.shift(62, 63)
+            } else {
+                (0.0, 0.0)
+            };
+            self.from = [self.presence, d.0, d.1];
+            self.appearing = appearing;
+        }
+        if !self.shown || h.instant || (!h.any() && self.instant_hide) {
             self.presence = target;
         } else if target != self.presence {
             let (on, timer) = if self.appearing { (61, 64) } else { (41, 44) };
@@ -277,17 +303,55 @@ impl Bar {
         self.presence != was
     }
 
-    /// The bar's place moved by a gradual change: [documented: HudBarSetBarTrait] 42 (62)
-    /// 1 horizontally, 2 vertically, by 43's (63's) pixels, positive to the right (down,
-    /// [hypothesis: the interface's y grows downwards]); vanishing it moves away towards
-    /// the shift, appearing it comes from the shift to its place. [design] Linear in time.
-    pub fn place(&self) -> (f64, f64) {
-        let (mode, shift) = if self.appearing { (62, 63) } else { (42, 43) };
-        let d = self.bar_trait(shift) * (1.0 - self.presence);
+    /// Where the conditions `h` put the bar, at once and at rest (no change under way).
+    pub fn settle(&mut self, h: Hidden) {
+        let hidden = h.any();
+        self.presence = if hidden { 0.0 } else { 1.0 };
+        self.appearing = !hidden;
+        self.from = [self.presence, 0.0, 0.0];
+        if hidden {
+            self.instant_hide = h.instant;
+        }
+    }
+
+    /// A way's whole shift: [documented: HudBarSetBarTrait] 42 (62) 1 horizontally, 2
+    /// vertically, by 43's (63's) pixels, positive to the right (down, [hypothesis: the
+    /// interface's y grows downwards]).
+    fn shift(&self, mode: i64, by: i64) -> (f64, f64) {
+        let d = self.bar_trait(by);
         match self.code(mode) {
-            1 => (self.x + d, self.y),
-            2 => (self.x, self.y + d),
-            _ => (self.x, self.y),
+            1 => (d, 0.0),
+            2 => (0.0, d),
+            _ => (0.0, 0.0),
+        }
+    }
+
+    /// The bar's shift from its place now: vanishing it moves from where the change
+    /// started towards 42/43's shift, appearing from where it started (62/63's shift
+    /// when it starts hidden) to its place, linear in `presence` [design].
+    pub fn offset(&self) -> (f64, f64) {
+        let (end, t) = if self.appearing { ((0.0, 0.0), 1.0) } else { (self.shift(42, 43), 0.0) };
+        let p0 = self.from[0];
+        if p0 == t {
+            return end;
+        }
+        let k = ((self.presence - t) / (p0 - t)).clamp(0.0, 1.0);
+        (end.0 + (self.from[1] - end.0) * k, end.1 + (self.from[2] - end.1) * k)
+    }
+
+    /// The bar's place on the screen with its shift.
+    pub fn place(&self) -> (f64, f64) {
+        let (dx, dy) = self.offset();
+        (self.x + dx, self.y + dy)
+    }
+
+    /// An element's alpha before the bar's `presence`: type 2's Meter from the share
+    /// ([`Bar::meter`]), the others their own.
+    pub fn element_alpha(&self, k: usize) -> f64 {
+        if k == 0 && self.kind == 2 {
+            self.meter[0] + (self.meter[1] - self.meter[0]) * self.share
+        } else {
+            self.elements[k].alpha
         }
     }
 
@@ -317,7 +381,7 @@ impl Bar {
         match self.kind {
             0 => m.width = m.indent + (m.width - m.indent).max(0.0) * s,
             1 => m.height = m.indent + (m.height - m.indent).max(0.0) * s,
-            2 => m.alpha = self.meter[0] + (self.meter[1] - self.meter[0]) * s,
+            2 => m.alpha = self.element_alpha(0),
             5 => {
                 m.width = self.meter[3] + (self.meter[4] - self.meter[3]) * s;
                 m.height = self.meter[5] + (self.meter[6] - self.meter[5]) * s;
@@ -386,9 +450,11 @@ fn hidden_now(g: &Game, i: usize) -> Hidden {
 }
 
 /// Each frame (`Game::tick`): every bar's conditions read, its `presence` stepped by the
-/// frame's real seconds (`GameConfig::frame_seconds`, menus too [design: the fades are
-/// the interface's, game time stands still in menus]), and the bars that changed written
-/// again.
+/// frame's real seconds (`GameConfig::frame_seconds`), and the bars that changed written
+/// again. [design] The fades go on in menu mode (the Pip-Boy, a conversation: `Game::tick`
+/// runs there, game time standing still) and wait with the game under the pause menu and
+/// a loading screen, where the engine runs no `Game::tick`
+/// (`engine/nvf-play/src/script.rs`).
 pub fn tick(g: &mut Game) {
     if g.ui_extra.bars.list.is_empty() {
         return;
@@ -399,10 +465,31 @@ pub fn tick(g: &mut Game) {
         let b = &g.ui_extra.bars.list[i];
         let item_on = b.code(25) == 1 && item_equipped(g, b, &s);
         let h = b.hidden_by(&s, item_on);
-        if g.ui_extra.bars.list[i].step_presence(h, dt) {
+        if g.ui_extra.bars.list[i].step_presence(h, dt) && !apply_fade(g, i) {
             apply(g, i);
         }
     }
+}
+
+/// Writes what a fade changes, the bar's place, its being drawn and the elements' alpha,
+/// and nothing else [design]; false when its tiles are not in the tree.
+fn apply_fade(g: &mut Game, i: usize) -> bool {
+    let b = &g.ui_extra.bars.list[i];
+    let ui = &mut g.ui_tree;
+    let Some(rect) = ui.find_tile(&b.path()) else { return false };
+    let (x, y) = b.place();
+    ui.set_trait(rect, "x", Value::Num(x));
+    ui.set_trait(rect, "y", Value::Num(y));
+    ui.set_trait(rect, "visible", Value::from_bool(b.shown && b.presence > 0.0));
+    // By index: no copy of the children for a frame's few writes.
+    let count = ui.tile(rect).children.len();
+    for c in 0..count {
+        let t = ui.tile(rect).children[c];
+        if let Some(k) = ELEMENTS.iter().position(|n| ui.tile(t).name == *n) {
+            ui.set_trait(t, "alpha", Value::Num(b.element_alpha(k) * b.presence));
+        }
+    }
+    true
 }
 
 /// A plugin's name by its load-order index, lower case.
@@ -502,8 +589,7 @@ pub fn rebuilt(g: &mut Game) {
     for i in 0..g.ui_extra.bars.list.len() {
         // A fade under way is finished at once in the new HUD [design].
         let h = hidden_now(g, i);
-        let b = &mut g.ui_extra.bars.list[i];
-        b.presence = if h.any() { 0.0 } else { 1.0 };
+        g.ui_extra.bars.list[i].settle(h);
         apply(g, i);
     }
 }
@@ -588,6 +674,8 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
                 list: None,
                 presence: 1.0,
                 appearing: true,
+                from: [1.0, 0.0, 0.0],
+                instant_hide: false,
             };
             g.ui_extra.bars.list.push(bar);
             let i = g.ui_extra.bars.list.len() - 1;
@@ -818,7 +906,7 @@ pub(crate) fn call(g: &mut Game, lname: &str, args: &[XVal]) -> Option<Result<XV
                 let h = hidden_now(g, i);
                 let b = &mut g.ui_extra.bars.list[i];
                 b.shown = num(args, 1) != 0.0;
-                b.presence = if h.any() { 0.0 } else { 1.0 };
+                b.settle(h);
                 apply(g, i);
                 XVal::Num(1.0)
             }
@@ -877,6 +965,8 @@ mod tests {
             list: None,
             presence: 1.0,
             appearing: true,
+            from: [1.0, 0.0, 0.0],
+            instant_hide: false,
         }
     }
 
@@ -982,16 +1072,57 @@ mod tests {
     }
 
     #[test]
-    fn a_gradual_change_moves_the_bar() {
-        let mut b = bar(&[(41, 1.0), (42, 1.0), (43, 40.0), (61, 1.0), (62, 2.0), (63, -10.0)]);
+    fn a_gradual_change_moves_the_bar_without_jumps() {
+        let mut b = bar(&[(41, 1.0), (42, 1.0), (43, 40.0), (44, 1.0), (61, 1.0), (62, 2.0), (63, -10.0), (64, 1.0)]);
         assert_eq!(b.place(), (100.0, 50.0));
-        b.presence = 0.5;
-        b.appearing = false;
-        assert_eq!(b.place(), (120.0, 50.0), "vanishing to the right");
-        b.presence = 0.25;
-        b.appearing = true;
-        assert_eq!(b.place(), (100.0, 42.5), "appearing from above");
-        b.traits.insert(62, 0.0);
-        assert_eq!(b.place(), (100.0, 50.0), "no movement");
+        // Vanishing to the right: half way 20 pixels on.
+        b.step_presence(GRADUAL, 0.5);
+        assert_eq!(b.place(), (120.0, 50.0));
+        // Turned back: from (120, 50) to its place, linear, no jump to 63's line.
+        b.step_presence(NONE, 0.25);
+        assert_eq!(b.presence, 0.75);
+        assert_eq!(b.place(), (110.0, 50.0));
+        // Turned again: from (110, 50) to 43's shift, half way at presence 0.375.
+        b.step_presence(GRADUAL, 0.375);
+        assert_eq!(b.place(), (125.0, 50.0));
+        b.step_presence(GRADUAL, 5.0);
+        assert_eq!(b.place(), (140.0, 50.0));
+        // From hidden it appears from 63's shift, from above.
+        b.step_presence(NONE, 0.0);
+        assert_eq!(b.place(), (100.0, 40.0));
+        b.step_presence(NONE, 0.75);
+        assert_eq!(b.place(), (100.0, 47.5));
+        b.step_presence(NONE, 1.0);
+        assert_eq!(b.place(), (100.0, 50.0));
+    }
+
+    #[test]
+    fn shown_again_after_an_instant_veto_is_instant() {
+        let fades = [(41, 1.0), (44, 1.0), (61, 1.0), (64, 1.0)];
+        // Trait 27 (or 0) hides at once and shows at once.
+        let mut b = bar(&fades);
+        b.step_presence(INSTANT, 0.1);
+        assert_eq!(b.presence, 0.0);
+        b.step_presence(NONE, 0.1);
+        assert_eq!(b.presence, 1.0, "no fade in after an instant veto");
+        // A gradual hide fades both ways.
+        b.step_presence(GRADUAL, 0.5);
+        assert_eq!(b.presence, 0.5);
+        b.step_presence(GRADUAL, 1.0);
+        b.step_presence(NONE, 0.25);
+        assert_eq!(b.presence, 0.25, "a gradual hide fades in again");
+        // The reason that hid it last decides: instant, then only a gradual one left.
+        let mut b = bar(&fades);
+        b.step_presence(Hidden { gradual: true, instant: true }, 0.1);
+        b.step_presence(GRADUAL, 0.1);
+        b.step_presence(NONE, 0.25);
+        assert_eq!(b.presence, 0.25, "the gradual condition hid it last");
+        // Gradual, then an instant one that outlasts it.
+        let mut b = bar(&fades);
+        b.step_presence(GRADUAL, 2.0);
+        b.step_presence(Hidden { gradual: true, instant: true }, 0.1);
+        b.step_presence(INSTANT, 0.1);
+        b.step_presence(NONE, 0.1);
+        assert_eq!(b.presence, 1.0, "the instant condition hid it last");
     }
 }

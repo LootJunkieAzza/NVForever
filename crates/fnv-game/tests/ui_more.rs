@@ -865,7 +865,7 @@ fn hud_bar_conditions_follow_the_players_state() {
         (22, 1.0, Box::new(move |g, on| {
             g.senses.motion.insert(p, fnv_game::functions::senses::Motion { sneaking: on, ..Default::default() });
         })),
-        (24, 2.0, Box::new(|g, on| g.jip2.told.aiming = !on)),
+        (24, 2.0, Box::new(|g, on| g.jip2.told.sights_up = !on)),
         (26, 1.0, Box::new(move |g, on| g.extra.entry(p).or_default().weapon_out = on)),
         (26, 2.0, Box::new(move |g, on| g.extra.entry(p).or_default().weapon_out = !on)),
         (0, 1.0, Box::new(|g, on| g.menu = on.then_some(1002))),
@@ -882,6 +882,15 @@ fn hud_bar_conditions_follow_the_players_state() {
         assert_eq!(float(&g, &format!("{path}/visible")), 1.0, "trait {k} {v} drawn again");
         run(&mut g, "HudBarSetBarTrait", &[s("C"), x(*k as f64), x(0.0)]);
     }
+    // Aiming is the sights up as the engine tells it: Block held with a melee weapon, or
+    // with a gun while a reload holds the sights down, is Block held (`told.aiming`, as
+    // IsAiming reads it) without the sights up, so not aiming.
+    run(&mut g, "HudBarSetBarTrait", &[s("C"), x(24.0), x(2.0)]);
+    g.jip2.told.aiming = true;
+    g.jip2.told.sights_up = false;
+    assert_eq!(visible(&mut g, "C"), -1.0, "blocking or reloading: not aiming");
+    g.jip2.told.sights_up = true;
+    assert_eq!(visible(&mut g, "C"), 1.0, "the sights up");
 }
 
 #[test]
@@ -945,20 +954,51 @@ fn hud_bars_vanish_and_appear_gradually() {
     assert_eq!(float(&g, &format!("{path}/visible")), 1.0, "still drawn while it vanishes");
     bar_frame(&mut g, 0.25);
     assert_eq!(float(&g, &format!("{path}/x")), 120.0);
-    // Standing up half way: back from half, at the appearing speed, from above.
+    // Standing up half way: back from half, at the appearing speed, moving on from where
+    // it is (no jump to the appearing shift's line).
     g.senses.motion.insert(p, fnv_game::functions::senses::Motion::default());
     assert_eq!(visible(&mut g, "F"), 1.0);
     bar_frame(&mut g, 0.125);
     assert_eq!(float(&g, &meter), 191.25);
-    assert_eq!(float(&g, &format!("{path}/x")), 100.0);
-    assert_eq!(float(&g, &format!("{path}/y")), 17.5);
+    assert_eq!(float(&g, &format!("{path}/x")), 110.0);
+    assert_eq!(float(&g, &format!("{path}/y")), 20.0);
     bar_frame(&mut g, 1.0);
     assert_eq!(float(&g, &meter), 255.0);
+    assert_eq!(float(&g, &format!("{path}/x")), 100.0);
     assert_eq!(float(&g, &format!("{path}/y")), 20.0);
     // Gone all the way: not drawn.
     g.senses.motion.insert(p, fnv_game::functions::senses::Motion { sneaking: true, ..Default::default() });
     bar_frame(&mut g, 2.0);
     assert_eq!(float(&g, &format!("{path}/visible")), 0.0);
+    // Appearing from hidden comes from the appearing shift (63: 10 above).
+    g.senses.motion.insert(p, fnv_game::functions::senses::Motion::default());
+    bar_frame(&mut g, 0.25);
+    assert_eq!(float(&g, &format!("{path}/x")), 100.0);
+    assert_eq!(float(&g, &format!("{path}/y")), 15.0);
+    assert_eq!(float(&g, &meter), 127.5);
+    // Only the fade's traits change during it: a width set behind the bar's back stays.
+    let width = format!("{path}/Meter/width");
+    let t = g.ui_tree.find_tile(&format!("{path}/Meter")).unwrap();
+    g.ui_tree.set_trait(t, "width", Value::Num(77.0));
+    bar_frame(&mut g, 0.125);
+    assert_eq!(float(&g, &width), 77.0);
+    assert_eq!(float(&g, &format!("{path}/y")), 17.5);
+    // Hidden by a camera condition (27) and shown again: at once both ways.
+    run(&mut g, "HudBarSetBarTrait", &[s("F"), x(27.0), x(2.0)]);
+    g.senses.first_person = true;
+    bar_frame(&mut g, 0.01);
+    assert_eq!(float(&g, &format!("{path}/visible")), 0.0);
+    g.senses.first_person = false;
+    bar_frame(&mut g, 0.01);
+    assert_eq!(float(&g, &meter), 255.0, "no fade in after the camera condition");
+    assert_eq!(float(&g, &format!("{path}/visible")), 1.0);
+    // The fades go on in menu mode (the engine runs `Game::tick` there; under the pause
+    // menu it runs none and they wait).
+    g.senses.motion.insert(p, fnv_game::functions::senses::Motion { sneaking: true, ..Default::default() });
+    g.menu = Some(1002);
+    bar_frame(&mut g, 0.5);
+    assert_eq!(float(&g, &meter), 127.5);
+    g.menu = None;
     // A tree built again finishes the change at once.
     let src = files();
     let mut ui = fnv_ui::Ui::new();

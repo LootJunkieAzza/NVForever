@@ -22844,7 +22844,8 @@ expect = [
   { text = 'script: print "nvf hudbar drawn hidden 0"', count = 1, label = "the hidden bar's tile is not drawn" },
   { text = 'script: print "nvf hudbar shown 1"', count = 1 },
   { text = 'script: print "nvf hudbar drawn shown 1"', count = 1 },
-  { re = 'script: print "nvf hudbar fading (\d+(?:\.\d+)?)"', range = [1, 254], count = 1, label = "half way through the gradual vanishing" },
+  { re = 'script: print "nvf hudbar fading (\d+(?:\.\d+)?)"', range = [1, 254], label = "half way through the gradual vanishing: an alpha between" },
+  { text = 'script: print "nvf hudbar fading ', count = 1, label = "one sample of the fade" },
   { text = 'script: print "nvf hudbar faded 0"', count = 1, label = "vanished all the way" },
   { text = 'script: print "nvf hudbar manual 0"', count = 1, label = "HudBarShowBar's hiding answers 0" },
 ]
