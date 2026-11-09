@@ -9610,10 +9610,10 @@ forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (li
 [[scenario]]
 name = "settings-controller-navigation"
 source = "#1953: with a controller the settings page's LB/RB go from heading to heading, RT/LT to the tab after and before, Y puts the keys on the rail, the D-pad and A choose and take there: Changed and Defaults reached without a keyboard (engine/nvf-play/src/pad.rs menu_buttons)"
-note = "pad:<button> presses the key the button presses on the pause menu (no controller is needed); the Changed list is empty until #1953 point 6; a home of its own keeps the Controller choice away from the other scenarios (as controller-menu-hints)"
+note = "pad:<button> presses the key the button presses on the pause menu (no controller is needed); the Changed list lists the Input Device row (Controller is not the game's default), so A on it gives the keys to its rows and Y brings them back to the rail; a home of its own keeps the Controller choice away from the other scenarios (as controller-menu-hints)"
 areas = ["settings", "controller"]
-paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
-env = { NVFOREVER_HOME = "settings-controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:25", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "13:pad:RB,14:pad:LB,15:pad:RT,16:pad:Y,17:inspect,18:pad:D-Pad Up,19:pad:D-Pad Up,20:pad:A,21:pad:Y,22:pad:LT,22.5:pad:Y,23:pad:D-Pad Down,23.5:pad:A" }
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "settings-controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:25", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "13:pad:RB,14:pad:LB,15:pad:RT,16:pad:Y,17:inspect,18:pad:D-Pad Up,19:pad:D-Pad Up,20:pad:A,21:pad:Y,22:pad:LT,23:pad:D-Pad Down,23.5:pad:A" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 27
 order = [[
@@ -9630,13 +9630,153 @@ order = [[
   "pause menu: inspect: Display, keys on the rail (Display), selected resolution",
   "pause menu: rail Gameplay",
   "pause menu: rail Changed",
-  { text = "pause menu: list Changed; selected none", label = "A on the rail: the Changed list" },
-  "pause menu: the keys on the rows",
+  { text = "pause menu: list Changed; selected device", label = "A on the rail: the Changed list, on the Input Device row (set to Controller)" },
+  { text = "pause menu: the keys on the rail (Changed)", label = "Y: the keys back on the rail" },
   "pause menu: LT presses F1",
-  { text = "pause menu: tab Debug; selected overlay", label = "LT: the tab before, round to Debug" },
-  "pause menu: the keys on the rail (Debug)",
+  { text = "pause menu: tab Debug; selected overlay", label = "LT: the tab before, round to Debug, the keys staying on the rail" },
   "pause menu: rail Defaults",
   { text = "pause menu: settings back to their defaults", label = "A on Defaults: Defaults, without a keyboard" },
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-search"
+source = "#1953 point 5: the settings page's search finds a row of any tab by its INI key or by words of its note, lists it under where it lives (Gameplay > Dialogue) and acts on it as on its own tab (a switch, a list's dropdown); Esc (back) closes the search once and shows the tab it came from (engine/nvf-play/src/settings_view.rs search; docs/design/settings-page.md)"
+note = "search:<text> opens the search on that text with the keys on its results; menu-pause is the only row whose key, label or note holds menu-pause, and whose words hold both inventory and animations"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:23", NVF_PLAY_TEST_SETTINGS = "11:search:menu-pause,14:search:inventory animations,17:search:kill-camera", NVF_PLAY_TEST_PAUSE_MENU = "12:inspect,13:pick,15:inspect,18:pick,19:down,20:pick,21:back,22:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { text = "pause menu: search open", count = 1, label = "the search opens once; a second search: keeps it open" },
+  { text = "pause menu: search closed", count = 1, label = "Esc closes it once" },
+]
+order = [[
+  "pause menu: search open",
+  { text = 'pause menu: search "menu-pause": 1 result(s); keys menu-pause', label = "found by its INI key" },
+  { text = "pause menu: inspect: Search, keys on the rows, selected menu-pause, lines 1-2 of 2", label = "the result chosen, under one heading" },
+  { text = "pause menu: inspect: shown [Gameplay > Dialogue], menu-pause", label = "the heading says where it lives" },
+  { text = "settings: menu-pause on", label = "Enter on the result flips the switch" },
+  { text = 'pause menu: search "inventory animations": 1 result(s); keys menu-pause', label = "found by two words of its note" },
+  "pause menu: inspect: Search, keys on the rows, selected menu-pause",
+  'pause menu: search "kill-camera": 1 result(s); keys kill-camera',
+  { text = "pause menu: the list of 3 choice(s) open", label = "Enter on a list's result opens its dropdown" },
+  { text = "settings: kill-camera Every kill", label = "and takes the choice" },
+  "pause menu: search closed",
+  { text = "pause menu: tab Gameplay; selected difficulty", label = "back on the tab the search came from" },
+  { text = "pause menu: inspect: Gameplay, keys on the rows, selected difficulty", label = "the settings page stays open" },
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-search-input"
+source = "#1953 point 5: Ctrl+F opens the settings page's search and what is typed goes into it, the window's text messages and the keys' presses alike: N, L, S, Q, W and S save, load, quit, rebind or change nothing; Backspace takes a letter off and does not leave the page; Esc closes the search and the page stays"
+note = "ctrl-f, type:<text> and backspace go in as real input the next frame (the window's KeyboardInput messages before Bevy reads them, so ButtonInput has the letters pressed too); nothing's words hold nlsqws"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:ctrl-f,13:type:nlsqws,14:inspect,15:backspace,16:inspect,17:back,18:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  "pause menu: tab Gameplay; selected difficulty",
+  { text = "pause menu: search open", label = "Ctrl+F opens the search" },
+  { text = 'pause menu: search "nlsqws": 0 result(s); keys', label = "the letters are the search's text" },
+  { text = "pause menu: inspect: Search, keys on the search text, selected none, lines 0-0 of 0", label = "the keys stay in the text" },
+  { re = 'pause menu: inspect: words .*\| Search: nlsqws \| No results\.', label = "the line shows the text, the page says nothing was found" },
+  { text = 'pause menu: search "nlsqw": 0 result(s); keys', label = "Backspace takes the last letter off" },
+  "pause menu: inspect: Search, keys on the search text",
+  { text = "pause menu: search closed", label = "Esc closes the search" },
+  { text = "pause menu: tab Gameplay; selected difficulty", label = "back on the tab and the row it came from" },
+  { text = "pause menu: inspect: Gameplay, keys on the rows, selected difficulty", label = "Backspace and Esc did not leave the settings page" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { text = "pause menu: saving as", label = "N saves nothing" },
+  { text = "pause menu: load page", label = "L opens no load page" },
+  { text = "pause menu: quit?", label = "Q asks nothing" },
+  { text = "waits for its new", label = "no control waits for a key" },
+  { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "typing changes no setting (a row's change is logged `settings: <key> <state>`)" },
+]
+
+[[scenario]]
+name = "settings-changed"
+source = "#1953 point 6: the Changed list shows every row set away from what Defaults puts back, of every tab, under where each lives; Defaults there puts back exactly those rows and the list empties (engine/nvf-play/src/settings.rs changed_rows)"
+note = "a clean run changes no row by itself: the three set by the aid are the only ones listed"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/bindings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:god-mode,12:difficulty=0.75,13:crosshair-style=Arrows,14:changed", NVF_PLAY_TEST_PAUSE_MENU = "15:inspect,16:defaults,17:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { text = "pause menu: changed defaults; keys", count = 1, label = "one Defaults on the list" },
+]
+order = [[
+  "settings: god-mode on",
+  "settings: difficulty Hard",
+  "settings: crosshair-style Arrows",
+  { text = "pause menu: list Changed; selected difficulty", label = "the Changed list opens on its first row" },
+  { text = "pause menu: changed 3 row(s); keys difficulty,crosshair-style,god-mode", label = "exactly the three rows set, in the page's order" },
+  "pause menu: inspect: Changed, keys on the rows, selected difficulty, lines 1-6 of 6",
+  { text = "pause menu: inspect: shown [Gameplay > Game], difficulty, [Display > Interface], crosshair-style, [Debug], god-mode", label = "each under where it lives" },
+  { text = "pause menu: changed defaults; keys difficulty,crosshair-style,god-mode", label = "Defaults on the list puts back those rows" },
+  "settings: difficulty Normal",
+  "settings: crosshair-style Cross",
+  "settings: god-mode off",
+  { text = "pause menu: changed 0 row(s); keys", label = "the list empties" },
+  "pause menu: inspect: Changed, keys on the rows, selected none, lines 0-0 of 0",
+  { re = 'pause menu: inspect: words .*\| No changed settings\.$', label = "and says so" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { text = "pause menu: settings back to their defaults", label = "the Changed list's Defaults is not the page's global one" },
+]
+
+[[scenario]]
+name = "settings-heading-pointer"
+source = "#1953 points 2 and 6: a click on \"Next heading\" over the rows jumps to the next heading as Page Down does, and a click on the rail's Changed opens the Changed list, empty in a clean run"
+note = "point:<target> puts the pointer on the middle of what is drawn for it (as laid out the frame before), press and release the left button; both go through the pointer's real handling"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:point:heading-down,12.2:press,12.4:release,13:inspect,14:point:changed,14.2:press,14.4:release,15:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 21
+order = [[
+  "pause menu: tab Gameplay; selected difficulty",
+  "pause menu: the pointer on heading-down",
+  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "a click on Next heading: the first row under Saving" },
+  "pause menu: inspect: Gameplay, keys on the rows, selected autosave-travel",
+  "pause menu: the pointer on changed",
+  { text = "pause menu: list Changed; selected none", label = "a click on Changed opens the list" },
+  { text = "pause menu: changed 0 row(s); keys", label = "nothing changed in a clean run" },
+  "pause menu: inspect: Changed, keys on the rows, selected none, lines 0-0 of 0",
+  { re = 'pause menu: inspect: words .*\| No changed settings\.$', label = "the empty list says so" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood, every target drawn" },
+  { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "the clicks change no setting" },
+]
+
+[[scenario]]
+name = "settings-search-language"
+source = "#1953 points 5 and 6 with a language chosen (#1443): the rail, the search's line, the headings saying where a row lives and the empty lists' words are drawn in it, and the search still finds a row by its English INI key"
+note = "the made-up language marks its words [xx] (tools/smoke/fixtures/lang/xx.toml); the language row itself is then the one row away from its default"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/language.rs", "crates/fnv-util/src/words.rs", "tools/smoke/fixtures/lang/xx.toml"]
+env = { NVF_LANG_DIR = "{repo}/tools/smoke/fixtures/lang", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:language=Smoke Language,12:search:menu-pause,14:search:zzzz,16:changed", NVF_PLAY_TEST_PAUSE_MENU = "13:inspect,15:inspect,17:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  "language: xx",
+  "settings: language Smoke Language",
+  { text = 'pause menu: search "menu-pause": 1 result(s); keys menu-pause', label = "the English key is found under another language" },
+  { text = "pause menu: inspect: words [xx] Search | [xx] Changed | [xx] Gameplay | [xx] Display | [xx] Audio | [xx] Controls | [xx] Graphics | [xx] Tweaks | [xx] Debug | [xx] Search: menu-pause | [xx] Gameplay > [xx] Dialogue", label = "the rail, the search's line and where the row lives, translated" },
+  'pause menu: search "zzzz": 0 result(s); keys',
+  { re = 'pause menu: inspect: words .*\| \[xx\] Search: zzzz \| \[xx\] No results\.$', label = "nothing found, in the language" },
+  "pause menu: search closed",
+  { text = "pause menu: list Changed; selected language", label = "the Changed list: the language row" },
+  "pause menu: changed 1 row(s); keys language",
+  { re = 'pause menu: inspect: words .*\| \[xx\] Display > \[xx\] Interface$', label = "where it lives, translated" },
 ]]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
 
