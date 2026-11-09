@@ -207,7 +207,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         let name = id.and_then(|id| sim.name(id)).unwrap_or(edid).to_string();
         texts[i] = model::hint_text(&name, counts[i]);
     }
-    s.hints = Hints { texts, counts, lit: [false; 4] };
+    s.hints = Hints::new(texts, counts);
     // [design] As the engine's other menu words: the running game's strings, then
     // the repository's own string-table label (menu::look::quantity_words).
     s.switch_limbs = match script.as_ref().and_then(|s| s.rt.as_ref()) {

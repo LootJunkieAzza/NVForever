@@ -816,11 +816,7 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         // Dim unless pointed at or usable [observed: dim on all three screenshots;
         // hypothesis: bright with its box when pointed at; design: owner 2026-10-27, a
         // Stimpak or Doctor's Bag that would heal is lit (`Hints::lit`)].
-        let lit = match i {
-            SWITCH_LIMBS => true,
-            model::RADAWAY => s.hints.counts[i] > 0,
-            _ => s.hints.lit[i],
-        };
+        let lit = i == SWITCH_LIMBS || s.hints.lit[i];
         let colour = if hovered || lit { bright() } else { amber(DIMMED) };
         if hovered {
             c.boxed(p, r, amber(LINE), None);
