@@ -77,9 +77,9 @@ pub fn hints_line<'a>(hints: impl IntoIterator<Item = &'a Hint>) -> String {
 /// A column of hints at the top right (the ITEMS page's, the weapon mod menu's): one row
 /// under the other 46 apart, each row's word right-aligned on one line with its key just
 /// after it [observed: the original's screenshots on issue #1896, 1920 × 1080: rows 42 to
-/// 43 px apart, 0.90 of the item list's row step there (47 to 48 px), so 46 of our 51-high
-/// rows; the words end at the heading's right end, the button glyph beside them; the mod
-/// menu's two rows 43 px apart too].
+/// 43 px apart, 0.90 of the item list's row step there (47 to 48 px); the words end at the
+/// heading's right end, the button glyph beside them; the mod menu's two rows 43 px apart
+/// too] [design: 0.90 of our 51-high list rows is 46].
 pub const HINT_PITCH: f32 = 46.0;
 /// How far right of the menus' rectangle a hint's key may reach on the canvas: the lit
 /// screen ends about 49 past the heading's right end at the first hint's row and further

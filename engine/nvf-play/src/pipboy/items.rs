@@ -834,7 +834,8 @@ mod tests {
         // A quest item cannot be dropped; an empty tab dims everything.
         let quest = Row { quest: true, ..row(Some(ItemKind::Misc)) };
         let quest = page_hints(Category::Misc, Some(&quest), ("Repair", false), false, false)[1].dim;
-        let empty = page_hints(Category::Weapons, None, ("Repair", false), false, true).iter().all(|h| h.dim);
+        let empty = page_hints(Category::Weapons, None, ("Repair", false), false, true);
+        let empty = (empty.len(), empty.iter().all(|h| h.dim));
 
         // The keyboard and mouse: Repair (Maintain) on every tab, Mod under it on Weapons.
         set_labels(Labels::Keys);
@@ -856,7 +857,7 @@ mod tests {
             assert_eq!(h, &[hint("Equip A)", true), hint("Drop X)", false), hint("Repair Y)", true), hint("Hotkey 1-8)", true)]);
         }
         assert!(quest);
-        assert!(empty);
+        assert_eq!(empty, (5, true), "an empty Weapons tab: all five controller hints, all dim");
 
         assert_eq!(keys_weapons, [hint("Repair R)", false), hint("Mod X)", false)]);
         assert_eq!(keys_bare, [hint("Repair R)", true), hint("Mod X)", true)]);

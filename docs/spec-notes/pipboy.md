@@ -384,9 +384,10 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
       place (855, 45) [documented: `IM_RepairButton`], its text `BUTTON_TEXT_Y` lower as
       every button's; the rows 46 apart; each word right-aligned at 855, the heading's
       right end, its key just after it [observed: the same screenshots: the first row's
-      letters 40 px under the Caps card's (43 of our units; ours 42.5), rows 42 to 43 px
-      apart against the item list's 47 to 48 px rows there (0.90; 0.90 × 51 = 46), the
-      words ending at the heading's right end with the button glyph beside them].
+      letters 40 px under the Caps card's, rows 42 to 43 px apart against the item list's
+      47 to 48 px rows there (0.90), the words ending at the heading's right end with the
+      button glyph beside them] [design: in our units 0.90 × our 51-high list rows = 46;
+      40 px is about 43 units, our first row's letters stand 42.5 under the Caps card's].
       With the keyboard the same column holds Repair and, on Weapons, Mod under it. The
       keys may reach 45 past the menus' rectangle (the lit screen ends about 49 past the
       heading at the first row on NVForever's 1280 × 720 frame); when the widest would
