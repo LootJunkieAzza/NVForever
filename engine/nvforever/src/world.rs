@@ -836,6 +836,12 @@ impl OtherCameras {
     pub fn step(&mut self, frames: u64, other: Option<&str>) -> Option<String> {
         let ran = frames != std::mem::replace(&mut self.last, frames);
         match other {
+            // Another camera took over with no frame between: close the first one's count.
+            Some(name) if ran && self.open.as_deref().is_some_and(|o| o != name) => {
+                let line = self.open.replace(name.to_string()).map(|prev| format!("world: streaming kept running behind another 3D camera ({prev}): {} frames", self.frames));
+                self.frames = 1;
+                line
+            }
             Some(name) if ran => {
                 self.frames += 1;
                 if self.open.is_none() {
@@ -1628,6 +1634,11 @@ mod tests {
         // A camera beside the main view while streaming never runs logs nothing.
         assert_eq!(s.step(7, Some("Scope camera")), None);
         assert_eq!(s.step(7, None), None);
+        // One camera taking over from another with no frame between: each its own count.
+        assert!(s.step(8, Some("Terminal camera")).is_some());
+        assert_eq!(s.step(9, Some("Terminal camera")), None);
+        assert_eq!(s.step(10, Some("Lockpicking camera")).as_deref(), Some("world: streaming kept running behind another 3D camera (Terminal camera): 2 frames"));
+        assert_eq!(s.step(11, None).as_deref(), Some("world: streaming kept running behind another 3D camera (Lockpicking camera): 1 frames"));
     }
 
     #[test]
