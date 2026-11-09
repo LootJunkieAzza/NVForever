@@ -96,6 +96,11 @@ pub struct PhysState {
     /// Placed references whose pose [`PhysState::settle_placed`] wrote to the simulation
     /// this frame (for `crate::moved`).
     pub moved_now: Vec<u32>,
+    /// Placed references whose pose another game owns: a co-op guest's copies of what the
+    /// host's world moves (`nvforever::coop::replication`). [`PhysState::settle_placed`]
+    /// does not write them back, so this game's own simulation of them never overrides
+    /// the host's pose; their collision is built again where the host puts them.
+    pub follow_only: BTreeSet<u32>,
     /// Doors that open in place, in the world now: their keyframed bodies follow
     /// `crate::doors::Doors` ([`pose_doors`]).
     pub doors: BTreeMap<u32, PosedDoor>,
@@ -194,6 +199,7 @@ impl Default for PhysState {
             created: BTreeMap::new(),
             placed_dynamic: BTreeMap::new(),
             moved_now: Vec::new(),
+            follow_only: BTreeSet::new(),
             doors: BTreeMap::new(),
             animated: BTreeMap::new(),
             destruction_models: HashMap::new(),
@@ -1333,6 +1339,9 @@ impl PhysState {
     pub fn settle_placed(&mut self, sim: &mut World) -> Vec<u32> {
         let mut changed = Vec::new();
         for (&id, p) in self.placed_dynamic.iter_mut() {
+            if self.follow_only.contains(&id) {
+                continue;
+            }
             let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
             if b.sleeping && !p.moved {
                 continue;

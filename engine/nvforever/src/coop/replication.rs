@@ -242,7 +242,7 @@ pub(super) fn replicate(
     (mut sim, mut script, actor_world, mut residents): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<Res<ActorWorld>>, Option<ResMut<Residents>>),
     loc: Option<Res<Location>>,
     player: Option<Res<Player>>,
-    (grab, phys, mut repose): (Option<Res<nvf_play::grab::GrabState>>, Option<Res<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>),
+    (grab, mut phys, mut repose): (Option<Res<nvf_play::grab::GrabState>>, Option<ResMut<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>),
 ) {
     let started = Instant::now();
     let now = time.elapsed_secs();
@@ -256,6 +256,9 @@ pub(super) fn replicate(
         }
         if !coop.repl.shadows.is_empty() || !coop.repl.slow.is_empty() {
             coop.repl = Repl::default();
+        }
+        if let Some(p) = phys.as_deref_mut().filter(|p| !p.follow_only.is_empty()) {
+            p.follow_only.clear();
         }
         if solo_perf() {
             perf_line(coop, now);
@@ -272,6 +275,23 @@ pub(super) fn replicate(
     } else {
         guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), loc.as_deref(), player.as_deref(), now)
     };
+    // A guest's copies of the objects the host's world moves follow the host: this
+    // game's physics does not write them back (`PhysState::follow_only`), or its own
+    // simulation of a rolling object would differ from the host's and the desync
+    // detector would send it again every digest (night of 2026-11-09). What this guest
+    // carries is its own until it is put down.
+    if let Some(p) = phys.as_deref_mut() {
+        if host {
+            if !p.follow_only.is_empty() {
+                p.follow_only.clear();
+            }
+        } else {
+            p.follow_only.extend(moved.iter().copied());
+            if let Some((id, _)) = coop.repl.carrying {
+                p.follow_only.remove(&id);
+            }
+        }
+    }
     for id in moved {
         repose.write(nvf_play::RefRepose { form_id: id });
     }

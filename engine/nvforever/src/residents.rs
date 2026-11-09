@@ -656,6 +656,12 @@ struct Core {
     known: HashSet<u32>,
     /// Cells whose actors were handed over (`all`).
     cells_seen: HashSet<CellKey>,
+    /// A co-op host: the exterior cells of other worldspaces (or of this one while the
+    /// host is indoors) around guests away from it whose actors were handed over, by
+    /// worldspace and grid square ([`ResidentsCore::take_cells`]).
+    far_seen: HashSet<(u32, (i32, i32))>,
+    /// Those worldspaces' persistent references by grid square, indexed once each.
+    far_persistent: HashMap<u32, HashMap<(i32, i32), Vec<u32>>>,
     /// The game's loaded cells when actors placed elsewhere were last looked for there.
     loaded_seen: BTreeSet<FormId>,
     clock: Clock,
@@ -971,6 +977,8 @@ impl Residents {
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
+            far_seen: HashSet::new(),
+            far_persistent: HashMap::new(),
             loaded_seen: BTreeSet::new(),
             clock,
             prepared: false,
@@ -1226,12 +1234,63 @@ impl Core {
         });
     }
 
+    /// The actors of exterior cells, given by worldspace and grid square, that are not the
+    /// cells the host draws (`take_cells`): the cell's own references and the worldspace's
+    /// persistent ones standing in that square, as for the host's own cells.
+    fn take_far_cells(&mut self, world: &WorldData, refs: &RefTable, now: Vec<(u32, (i32, i32))>) {
+        let now: HashSet<(u32, (i32, i32))> = now.into_iter().collect();
+        let new: Vec<(u32, (i32, i32))> = now.difference(&self.far_seen).copied().collect();
+        self.far_seen = now;
+        let had = self.list.len();
+        for (w, g) in new {
+            let Some(ws) = world.index.worldspaces.get(&w) else { continue };
+            let persistent = self.far_persistent.entry(w).or_insert_with(|| {
+                let mut by_grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
+                let pc = ws.persistent_cell.and_then(|c| world.index.cells.get(&c));
+                for &r in pc.map_or(&[][..], |c| &c.refs) {
+                    if let Some(p) = refs.get(FormId(r)) {
+                        by_grid.entry(fnv_world::cell_of(p.pos[0], p.pos[1])).or_default().push(r);
+                    }
+                }
+                by_grid
+            });
+            let mine: Vec<u32> = persistent.get(&g).cloned().unwrap_or_default();
+            let cell = ws.grid.get(&g).and_then(|c| world.index.cells.get(c));
+            for r in cell.into_iter().flat_map(|c| c.refs.iter().copied()).chain(mine) {
+                if is_actor(refs, FormId(r)) {
+                    self.add(refs, FormId(r), None);
+                }
+            }
+        }
+        if self.list.len() > had {
+            info!("ai: {} actors of the cells around co-op guests away from the host join ({} in all)", self.list.len() - had, self.list.len());
+        }
+    }
+
     /// With `all`: hand over the actors of the cells that have loaded since last time.
     fn take_cells(&mut self, world: &WorldData, streamer: &Streamer, refs: &RefTable) {
-        let now: HashSet<CellKey> = match streamer.interior {
+        let mut now: HashSet<CellKey> = match streamer.interior {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
+        // A co-op host: the cells around each guest away from it are simulated too
+        // (`crate::coop::areas`), so their actors join as the host's own cells' do. Before
+        // (night of 2026-11-09) only the host's cells and the interiors behind their doors
+        // were taken: a guest at Primm found it empty. Exterior cells of the worldspace the
+        // host draws go by its grid (`WorldData::grid_cell`); those of any other worldspace
+        // (Freeside, the Strip, a DLC's), or of this one while the host is indoors, by
+        // [`Self::take_far_cells`].
+        let mut far = Vec::new();
+        for area in &streamer.coop_areas {
+            match area.space {
+                Space::Interior(c) => {
+                    now.insert(CellKey::Interior(c));
+                }
+                Space::World(w) if w == world.world && streamer.interior.is_none() => now.extend(area.cells.iter().map(|g| CellKey::Exterior(*g))),
+                Space::World(w) => far.extend(area.cells.iter().map(|g| (w, *g))),
+            }
+        }
+        self.take_far_cells(world, refs, far);
         let new: Vec<CellKey> = now.difference(&self.cells_seen).copied().collect();
         self.cells_seen = now;
         let before = self.list.len();
