@@ -220,6 +220,9 @@ const CND_LABEL_GAP: f32 = 11.0;
 /// original draws it left of the divider, right-justified at `AmmoTypeLabel`'s W - 236,
 /// and moves the condition row left to make room (hud.md §4; the tile HUD does that).
 const AMMO_LABEL_X: f32 = 214.0;
+/// How far below the count's baseline the ammo label goes with the Move Ammo Type Label
+/// tweak, within the panel [design: docs/design/tweaks.md].
+const AMMO_LABEL_DROP: f32 = 17.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
@@ -1013,6 +1016,7 @@ fn texts(
     name: Query<Entity, With<EnemyName>>,
     stats: Query<Entity, With<EnemyStats>>,
     sneak: Query<Entity, With<SneakText>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -1024,7 +1028,9 @@ fn texts(
     let text = ammo_text(view.weapon.ammo);
     let abbrev = view.weapon.abbrev.as_deref().unwrap_or("");
     // Both texts make the key: swapping ammo of the same count changes only the label.
-    let key = format!("{abbrev}|{text}");
+    // The player's tweak: the ammo's label under the count [design: docs/design/tweaks.md].
+    let under = tweaks.as_ref().is_some_and(|t| t.ammo_label_under);
+    let key = format!("{abbrev}|{text}|{under}");
     if shown.0.as_deref() != Some(key.as_str()) {
         if let Ok(e) = ammo.single() {
             let places = Places::new(font);
@@ -1032,7 +1038,11 @@ fn texts(
                 if let Some(line) = font.lines(&text, None).into_iter().next() {
                     set_line(p, face_, &line, places.ammo_right - line.width, LOWER_BASE, amber(255.0));
                     if let Some(label) = font.lines(abbrev, None).into_iter().next().filter(|_| !abbrev.is_empty()) {
-                        set_line(p, face_, &label, AMMO_LABEL_X, LOWER_BASE, amber(255.0));
+                        if under {
+                            set_line(p, face_, &label, places.ammo_right - label.width, LOWER_BASE + AMMO_LABEL_DROP, amber(255.0));
+                        } else {
+                            set_line(p, face_, &label, AMMO_LABEL_X, LOWER_BASE, amber(255.0));
+                        }
                     }
                 }
             });

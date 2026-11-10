@@ -462,6 +462,8 @@ unless the player binds them, so nothing changes until then.
 | V.A.T.S. Puts the Weapon Back | `bEnteringVATSDoesntUnholsterWeapon` | `vats_mode`: `drew_weapon` when the mode draws it; `end` with nothing fired asks `put_away`, done in `read_keys` |
 | Drop Weapon key | `iDropEquippedWeaponKey` | a new unbound Control; `tweaks::drop_weapon` drops the equipped weapon as the Pip-Boy's Drop does (`World::drop_equipped`, `RefChanged`) |
 | Radio Volume Up / Down keys | `iRadioVolumeUpKey`, `iRadioVolumeDownKey` | two new unbound Controls; `tweaks::radio_volume_keys` steps `SoundVolumes`' Radio level a tenth |
+| No Hotkey Wheel | `bNoHUDHotkeyPopup` | `weapon_wheel::Frame::no_hold_open`: a held hotkey never opens the wheel; let go, it is a tap |
+| Ammo Label Under the Count | `bMoveAmmoTypeLabel` | `hud::texts` puts the label right-aligned `AMMO_LABEL_DROP` below the count, inside the panel |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -483,8 +485,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 383 |
-| to do | 220 |
+| done | 385 |
+| to do | 218 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -829,8 +831,10 @@ game's Data folder, read-only).
 | `bHideUnknownNPCNames` | done |  | 1 | Hide Unknown Names (bodies are named, as bShowNameOnDeadNPCs) |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
 | `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
+| `bMoveAmmoTypeLabel` | done |  |  | Ammo Label Under the Count |
 | `bNoCompassPipsIfNotInDanger` | done |  |  | Compass Pips Only in Danger |
 | `bNoCrippleCriticalMessages` | done |  | 3 | already so: no crippled or critical popups about the target are shown |
+| `bNoHUDHotkeyPopup` | done |  |  | No Hotkey Wheel (a held hotkey is a tap) |
 | `bNoKarmaMessages` | done |  | 7 | Quiet Karma (messages and sounds together; no thresholds yet) |
 | `bNoLocationPopup` | done |  |  | No Location Banner |
 | `bNoQuestFailedPopup` | done |  | 1 | No Quest Failed Banner |
@@ -869,8 +873,6 @@ game's Data folder, read-only).
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bKeepCrosshairWhenAiming` | to do |  |  | reticle::draw is at 16 parameters; goes into a tuple |
-| `bMoveAmmoTypeLabel` | to do |  |  | hud::texts label position |
-| `bNoHUDHotkeyPopup` | to do |  |  | weapon_wheel step held-to-open |
 | `bPlacedMarkerHeightIndicator` | to do |  | 1 | not built: no player-placed markers |
 | `bRaceMenuAllowFemaleFacialHair` | to do |  |  | creator model female checks at four places |
 | `bRecentlyDeadNPCIndicator` | to do |  | 4 | the compass skips the dead; needs per-actor state |

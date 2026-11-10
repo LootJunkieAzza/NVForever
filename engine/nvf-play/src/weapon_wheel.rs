@@ -103,6 +103,9 @@ pub struct Frame {
     pub cancel: bool,
     /// The wheel may not open (a menu, VATS mode): an open one closes doing nothing.
     pub blocked: bool,
+    /// The player's No Hotkey Wheel tweak: a held key never opens the wheel; let go, it
+    /// is a tap [design: docs/design/tweaks.md].
+    pub no_hold_open: bool,
 }
 
 /// What a frame did.
@@ -186,7 +189,7 @@ impl WeaponWheel {
             if !f.down[k] {
                 self.press = None;
                 out.push(Outcome::Tap(k));
-            } else if *held >= HOLD {
+            } else if *held >= HOLD && !f.no_hold_open {
                 self.press = None;
                 self.open = Some(Open { opener: k, picked: k, pointer: Vec2::ZERO });
                 out.push(Outcome::Opened(k));
@@ -393,7 +396,8 @@ fn read(
         Some(SwapStep::CalledOff(n)) => info!("hotkeys: slot {}: the swap called off, the weapon in hand drawn again", n + 1),
         None => {}
     }
-    let mut f = Frame { dt: real.delta_secs(), ..default() };
+    // The player's tweak: holding a hotkey does not open the wheel [design: docs/design/tweaks.md].
+    let mut f = Frame { dt: real.delta_secs(), no_hold_open: tweaks.as_ref().is_some_and(|t| t.no_hotkey_wheel), ..default() };
     for (i, &c) in CONTROLS.iter().enumerate() {
         f.down[i] = input.pressed(c);
         if f.pressed.is_none() && input.just_pressed(c) {

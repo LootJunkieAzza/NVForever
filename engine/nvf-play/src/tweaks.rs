@@ -272,6 +272,10 @@ pub struct TweakSettings {
     /// `bEnteringVATSDoesntUnholsterWeapon`: a weapon V.A.T.S. drew goes away again when
     /// the mode ends with nothing fired.
     pub vats_keeps_holstered: bool,
+    /// `bNoHUDHotkeyPopup`: holding a hotkey does not open the weapon wheel.
+    pub no_hotkey_wheel: bool,
+    /// `bMoveAmmoTypeLabel`: the HUD's ammo label under the ammo count.
+    pub ammo_label_under: bool,
 }
 
 /// The keys the console may open on, the original's first; ones nothing else in the
@@ -432,6 +436,8 @@ impl Default for TweakSettings {
             unsafe_fast_travel: false,
             date_style: 0,
             vats_keeps_holstered: false,
+            no_hotkey_wheel: false,
+            ammo_label_under: false,
         }
     }
 }
@@ -1214,6 +1220,8 @@ impl Plugin for TweaksPlugin {
         );
         switch!(app, "hide-unknown-names", "Hide Unknown Names", "The activation prompt gives no name for someone who has not spoken to the player yet (bodies are still named). (Stewie's Tweaks bHideUnknownNPCNames)", game.hide_unknown_names);
         switch!(app, "vats-keeps-holstered", "V.A.T.S. Puts the Weapon Back", "A weapon that V.A.T.S. drew is put away again when the mode ends with nothing fired. (Stewie's Tweaks bEnteringVATSDoesntUnholsterWeapon)", vats_keeps_holstered);
+        switch!(app, "no-hotkey-wheel", "No Hotkey Wheel", "Holding a hotkey does not open the weapon wheel; letting go uses the slot as a tap does. (Stewie's Tweaks bNoHUDHotkeyPopup)", no_hotkey_wheel);
+        switch!(app, "ammo-label-under", "Ammo Label Under the Count", "The HUD writes the ammo type under the ammo count instead of beside it. (Stewie's Tweaks bMoveAmmoTypeLabel)", ammo_label_under);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
