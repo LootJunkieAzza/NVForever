@@ -465,6 +465,7 @@ unless the player binds them, so nothing changes until then.
 | No Hotkey Wheel | `bNoHUDHotkeyPopup` | `weapon_wheel::Frame::no_hold_open`: a held hotkey never opens the wheel; let go, it is a tap |
 | Ammo Label Under the Count | `bMoveAmmoTypeLabel` | `hud::texts` puts the label right-aligned `AMMO_LABEL_DROP` below the count, inside the panel |
 | Companion Compass Colour | `bCompanionPipColorChange` | `compass::Mark::Companion` for teammates, drawn in `tweaks::COMPANION_COLOURS` (a choice of ours in place of the tweak's RGB value) |
+| Facial Hair for Women | `bRaceMenuAllowFemaleFacialHair` | `creator::model::Model::female_beards` (set by `creator::sync`) keeps the facial hair row and its shading for a woman; a change of sex to female still clears the beard |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -486,8 +487,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 386 |
-| to do | 217 |
+| done | 387 |
+| to do | 216 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -845,6 +846,7 @@ game's Data folder, read-only).
 | `bNoXPBarInCombat` | done |  | 1 | No XP Meter in Combat (no delay option) |
 | `bNoXPMessages` | done |  | 7 | Quiet Experience (all sources at once; LEVEL UP still shows) |
 | `bPatchUnseenCellName` | done |  | 3 | Mark Unvisited Doors (a star; the rename and respawn options not built) |
+| `bRaceMenuAllowFemaleFacialHair` | done |  |  | Facial Hair for Women (creator and barber rows) |
 | `bRemoveDeadNPCCrippleCriticalMessages` | done |  |  | already so: no cripple or critical messages |
 | `bRemoveQuestObjectiveAddedText` | done |  | 1 | No Objective List |
 | `bRemoveSneakLabel` | done |  |  | No Sneak Label (native and tile HUD) |
@@ -875,7 +877,6 @@ game's Data folder, read-only).
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bKeepCrosshairWhenAiming` | to do |  |  | reticle::draw is at 16 parameters; goes into a tuple |
 | `bPlacedMarkerHeightIndicator` | to do |  | 1 | not built: no player-placed markers |
-| `bRaceMenuAllowFemaleFacialHair` | to do |  |  | creator model female checks at four places |
 | `bRecentlyDeadNPCIndicator` | to do |  | 4 | the compass skips the dead; needs per-actor state |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
 | `bShowQuestObjectivesOnCellChange` | to do |  | 1 | cell change detection and objectives for the active quest |

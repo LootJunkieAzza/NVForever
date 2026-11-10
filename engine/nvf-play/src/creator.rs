@@ -278,7 +278,7 @@ fn row_label(m: &Model, r: Row) -> Vec<String> {
     out
 }
 
-fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Option<Res<ScriptState>>, mut control: ResMut<crate::control::PlayerControl>) {
+fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Option<Res<ScriptState>>, mut control: ResMut<crate::control::PlayerControl>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let open = script.as_deref().and_then(crate::chargen::open_code) == Some(menus::RACE) && data.is_some();
     if open == st.model.is_some() {
         return;
@@ -308,7 +308,9 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         return;
     };
     let kind = rt.game.race_menu;
-    let m = Model::of_kind(data.0.clone(), start, kind);
+    let mut m = Model::of_kind(data.0.clone(), start, kind);
+    // The player's tweak: facial hair for a woman too [design: docs/design/tweaks.md].
+    m.female_beards = tweaks.as_ref().is_some_and(|t| t.female_facial_hair);
     if let Some(p) = &data.0.ctl_problem {
         warn!("creator: {p}; no sliders");
     }
@@ -318,7 +320,6 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         model::RaceMenu::Surgeon => info!("creator: as the plastic surgeon (ShowPlasticSurgeonMenu): the face, eyes and brows only"),
         model::RaceMenu::Creator => {}
     }
-    let mut m = m;
     let c = m.camera();
     let what = if kind == model::RaceMenu::Barber { "the hair" } else { "the face" };
     info!("creator: camera on opening: {:.0} units away, looking {:.0} under the eye ({what})", c.distance, c.drop);

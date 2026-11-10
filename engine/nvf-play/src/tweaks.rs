@@ -279,6 +279,8 @@ pub struct TweakSettings {
     /// `bCompanionPipColorChange`: which of [`COMPANION_COLOURS`] companions' compass
     /// pips take (0: as anyone's).
     pub companion_pip: usize,
+    /// `bRaceMenuAllowFemaleFacialHair`: the character menus offer facial hair to women.
+    pub female_facial_hair: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -454,6 +456,7 @@ impl Default for TweakSettings {
             no_hotkey_wheel: false,
             ammo_label_under: false,
             companion_pip: 0,
+            female_facial_hair: false,
         }
     }
 }
@@ -1257,6 +1260,7 @@ impl Plugin for TweaksPlugin {
                 ),
             ),
         );
+        switch!(app, "female-facial-hair", "Facial Hair for Women", "The character creator and the barber offer facial hair to a woman too. (Stewie's Tweaks bRaceMenuAllowFemaleFacialHair)", female_facial_hair);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
