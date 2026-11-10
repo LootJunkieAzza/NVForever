@@ -1264,3 +1264,18 @@ The numbers above stay put so links to them hold; each item here gives its own p
     NVForever now lists every perk the player has that is not flagged hidden [hypothesis].
     Probe: hire Boone, open STATS > Perks, look for Spotting; then `player.addperk` a perk
     flagged hidden and look again.
+
+## Added 2026-11-09 (kNVSE `_order_N` files, Another Millenia's dual pistols, queue item 150)
+
+88. **How does kNVSE take turns through `_order_N` files?** (P3;
+    docs/spec-notes/knvse-anim-folders.md §3, engine/nvforever/src/player_body.rs
+    `Rig::set_turn`.) NVForever plays the next file of a set at each attack, one turn
+    count for every set of the player [hypothesis]. Probe, with kNVSE and Another
+    Millenia's Gun Add-on: equip the Dual 9mm Police Pistols (mil_Add-On.esp 0x2A0B) and
+    - fire three shots from the hip, then two down the sights, then one from the hip:
+      which gun fires each shot (does the sights set go on from the hip set's turn, or
+      start again at order 1)?
+    - fire one shot, holster, draw, fire again: does the second shot come from the
+      other gun?
+    - empty the magazine: do the last two shots play the slide-locked clips of the right
+      gun, then the left?

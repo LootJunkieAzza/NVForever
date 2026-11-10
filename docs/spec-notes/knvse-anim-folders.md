@@ -110,14 +110,33 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   A reload with rounds still in the magazine plays the `…_Partial` file first
   [hypothesis: from the file names only; 173 such files]. The log says `plays override
   <path>` for each choice so taken.
+- **Files played in turn** (`_order_N`): "If you want variants to play in order, have the
+  file names end with _order_[NUMBER].kf" [documented: kNVSE's Nexus page, Tip 2 of the
+  folder guide; the same tip says other `_<letters>` variants are picked at random]. The
+  files of a stem ending `_order_N` are one set, ordered by N; a file of the same stem
+  without the ending, in the same folder, comes first [hypothesis: Another Millenia's
+  `Sneak1hpAttackRightDOWN.kf` beside `…DOWN_order_2.kf`, with no `_order_1`]. Each
+  attack of the player plays the set's next file, the first again after the last; the
+  turn is the player's attack count, one for every set of both rigs, so the hip and
+  down-the-sights sets keep in step [hypothesis: whether kNVSE keeps a turn per group,
+  per set or per actor is not known]. A later entry holding the stem replaces the whole
+  set [hypothesis]: the akimbo sets' last-shot folders (`…RightLast`,
+  `GetCurrentAmmoRounds == 2`, only `_order_1`; `…LeftLast`, `== 1`, only `_order_2`)
+  then play their one file at those shots. The up and down forms of an ordered file put
+  the aim's ending before `_order_N` (`1hpAttackRightUP_order_1.kf`) [observed: the
+  akimbo `_male` files]. The akimbo files move the weapon model's `ProjectileNode` and
+  `ShellCasingNode` to the gun that fires (`order_1` the right one, with `##nmBar`,
+  `order_2` the left, with `##nmBar1`) [observed: the node names in the files], and shots
+  leave from that node, so each shot leaves the gun its clip fires.
 
 ## 4. Not built (follow-ups)
 
 - NPCs' weapon clips (attacks, reloads) from the folders: only their locomotion is
   replaced.
 - `_hurt` files (143 in the Millenia and Hit packs) are left out [hypothesis: played
-  while the actor is hurt]; `_A`/`_B`/`_1`/`_2` variants of an attack are not picked at
-  random (the plain file plays; a WEAP attack animation naming the variant plays it).
+  while the actor is hurt; kNVSE's page names a `Hurt` folder for crippled legs];
+  `_A`/`_B`/`_1`/`_2` variants of an attack are not picked at random, as the page says
+  kNVSE does (the plain file plays; a WEAP attack animation naming the variant plays it).
 - The group of a file from its sequence name instead of its file name; several files of
   one group (`2haJamF.kf`, `2haJamF_a.kf`) and `chances.txt` [hypothesis: variants picked
   at random].

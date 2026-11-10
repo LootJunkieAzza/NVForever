@@ -513,9 +513,13 @@ struct Rig {
     variants: HashMap<String, Option<Arc<ClipInfo>>>,
     /// The AnimGroupOverride and SetActorAnimationPath files the game gives the player
     /// for this view (`Game::anim_overrides`), and from them, by clip stem, the file that
-    /// plays instead of the rig's own ([`override_stems`]).
+    /// plays instead of the rig's own ([`override_stems`]): one file, or the files of
+    /// kNVSE's `_order_N` set, played in turn.
     overrides: Vec<String>,
-    by_stem: HashMap<String, String>,
+    by_stem: HashMap<String, Vec<String>>,
+    /// Which file of an `_order_N` set plays next: the count of the player's attacks so
+    /// far ([`Self::set_turn`]).
+    turn: usize,
     /// A reload now would be a partial one (`WeaponAnim::partial`).
     partial: bool,
     /// Third person: the head bone and the eye in its space.
@@ -728,7 +732,8 @@ impl Rig {
     }
 
     /// The file a mod gives for clip choice `key` ([`Self::by_stem`]): the first of its
-    /// names that has one, a partial reload's `_partial` form before the plain one.
+    /// names that has one, a partial reload's `_partial` form before the plain one; of an
+    /// `_order_N` set, the one whose turn it is.
     fn override_for(&self, key: ClipKey) -> Option<String> {
         if self.by_stem.is_empty() {
             return None;
@@ -738,9 +743,25 @@ impl Rig {
             .iter()
             .find_map(|c| {
                 let stem = clip_stem(c);
-                partial.then(|| self.by_stem.get(&format!("{stem}_partial"))).flatten().or_else(|| self.by_stem.get(&stem)).cloned()
+                let set = partial.then(|| self.by_stem.get(&format!("{stem}_partial"))).flatten().or_else(|| self.by_stem.get(&stem))?;
+                set.get(self.turn % set.len().max(1)).cloned()
             })
             .map(|p| format!("meshes\\{p}"))
+    }
+
+    /// The attack count, which picks the file of an `_order_N` set that plays next: each
+    /// attack plays the next file of the set, the first again after the last
+    /// [documented: kNVSE's Nexus page, "If you want variants to play in order, have the
+    /// file names end with _order_[NUMBER].kf"; hypothesis: one turn per attack, shared
+    /// by every set of the rig, so the hip and sights sets keep in step]. The attack
+    /// clips are chosen again when it changes.
+    fn set_turn(&mut self, turn: usize) {
+        if turn != self.turn {
+            self.turn = turn;
+            if self.by_stem.values().any(|v| v.len() > 1) {
+                self.clips.retain(|k, _| !matches!(k, ClipKey::Attack(..)));
+            }
+        }
     }
 
     /// Take the game's override files for this view; the clips are chosen again when
@@ -768,7 +789,7 @@ impl Rig {
     /// The up or down form of clip `c` (`2hrattackleftup.kf` beside `2hrattackleft.kf`),
     /// if its folder has one (cached, failures too).
     fn variant(&mut self, ctx: &mut ActorCtx, c: &ClipInfo, aim: Aim) -> Option<Arc<ClipInfo>> {
-        let path = aim_variant(&c.path, aim);
+        let path = ordered_aim_variant(&c.path, aim);
         if let Some(v) = self.variants.get(&path) {
             return v.clone();
         }
@@ -1467,6 +1488,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         variants: HashMap::new(),
         overrides: Vec::new(),
         by_stem: HashMap::new(),
+        turn: 0,
         partial: false,
         head,
         eye_local,
@@ -2311,31 +2333,70 @@ fn clip_stem(file: &str) -> String {
     name.split(' ').next().unwrap_or("").to_string()
 }
 
-/// The files that replace the rig's clips, by [`clip_stem`]: a later file wins, but within
-/// one override folder a plain name (`1hpEquip.kf`) beats one with words after a space
-/// (`1hpEquip Combat.kf`) [hypothesis: the spaced ones are a mod's alternatives]. `_hurt`
-/// files are left out [hypothesis: played while hurt; not done]. Paths are under meshes.
-fn override_stems(paths: &[String]) -> HashMap<String, String> {
-    let mut out: HashMap<String, (String, String, bool)> = HashMap::new();
+/// The files that replace the rig's clips, by [`clip_stem`]: a later folder wins, but
+/// within one override folder a plain name (`1hpEquip.kf`) beats one with words after a
+/// space (`1hpEquip Combat.kf`) [hypothesis: the spaced ones are a mod's alternatives].
+/// Files ending `_order_N` make one set of the stem before that ending, played in turn by
+/// N ([`Rig::set_turn`]; documented: kNVSE's Nexus page); a file of that stem without the
+/// ending, in the same folder, comes first in the set [hypothesis: Another Millenia's
+/// `Sneak1hpAttackRightDOWN.kf` beside `Sneak1hpAttackRightDOWN_order_2.kf` stands for
+/// order 1]. A later folder with the stem replaces the whole set [hypothesis: the files
+/// come from the one folder that wins; the akimbo sets' last-shot folders hold one file
+/// of the set each, which then plays alone while its condition holds]. `_hurt` files are
+/// left out [hypothesis: played while hurt; not done]. Paths are under meshes.
+fn override_stems(paths: &[String]) -> HashMap<String, Vec<String>> {
+    // By stem: the folder, and its files (order number, path, a plain name).
+    let mut out: HashMap<String, (String, Vec<(u32, String, bool)>)> = HashMap::new();
     for p in paths {
         let p = p.replace('/', "\\");
         let name = p.rsplit('\\').next().unwrap_or("").to_ascii_lowercase();
         if !name.ends_with(".kf") {
             continue;
         }
-        let stem = clip_stem(&name);
+        let (stem, order) = order_of(&clip_stem(&name));
         if stem.is_empty() || stem.contains("_hurt") {
             continue;
         }
         let exact = !name.contains(' ');
         let lower = p.to_ascii_lowercase();
         let folder = ["\\_1stperson\\", "\\_male\\"].iter().find_map(|v| lower.find(v)).map_or(lower.clone(), |i| lower[..i].to_string());
-        if matches!(out.get(&stem), Some((_, f, true)) if *f == folder && !exact) {
-            continue;
+        let entry = out.entry(stem).or_insert_with(|| (folder.clone(), Vec::new()));
+        if entry.0 != folder {
+            *entry = (folder, Vec::new());
         }
-        out.insert(stem, (p, folder, exact));
+        let files = &mut entry.1;
+        match files.iter().position(|f| f.0 == order) {
+            Some(i) if files[i].2 && !exact => {}
+            Some(i) => files[i] = (order, p, exact),
+            None => files.push((order, p, exact)),
+        }
     }
-    out.into_iter().map(|(k, (p, ..))| (k, p)).collect()
+    out.into_iter()
+        .map(|(k, (_, mut files))| {
+            files.sort_by_key(|f| f.0);
+            (k, files.into_iter().map(|f| f.1).collect())
+        })
+        .collect()
+}
+
+/// A stem without its `_order_N` ending, and N (0 for a stem without one).
+fn order_of(stem: &str) -> (String, u32) {
+    match stem.rsplit_once("_order_").and_then(|(base, n)| Some((base, n.parse::<u32>().ok()?))) {
+        Some((base, n)) => (base.to_string(), n),
+        None => (stem.to_string(), 0),
+    }
+}
+
+/// The up or down form of clip file `path` ([`aim_variant`]), the aim's ending going
+/// before an `_order_N` one: `1hpAttackRightUP_order_1.kf` [observed: Another Millenia's
+/// akimbo `_male` files].
+fn ordered_aim_variant(path: &str, aim: Aim) -> String {
+    let stem = &path[..path.len() - if path.to_ascii_lowercase().ends_with(".kf") { 3 } else { 0 }];
+    let lower = stem.to_ascii_lowercase();
+    match lower.rfind("_order_").filter(|&i| lower[i + 7..].parse::<u32>().is_ok()) {
+        Some(i) => aim_variant(&stem[..i], aim).replacen(".kf", &format!("{}.kf", &stem[i..]), 1),
+        None => aim_variant(path, aim),
+    }
 }
 
 /// kNVSE's AnimGroupOverride folders and SetActorAnimationPath on the player's rigs
@@ -2547,6 +2608,13 @@ fn drive_body(
     m.lying = None;
     // The weapon: draw and holster, timed by the clips of the rig in view.
     let prefix = m.prefix;
+    // An `_order_N` set's next file is the next attack's: chosen before combat reads its
+    // timing, and kept while it plays (the count moves on as the attack starts, below).
+    let turn = m.attacks_seen as usize;
+    body.third.set_turn(turn);
+    if let Some(f) = body.first.as_mut() {
+        f.set_turn(turn);
+    }
     let timing_rig = match body.first.as_mut() {
         Some(f) if !third_view => f,
         _ => &mut body.third,
@@ -2993,13 +3061,49 @@ mod tests {
             "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpAttackRight.kf",
             "AnimGroupOverride\\Ani_1911\\LastShot\\_1stPerson\\1hpAttackRight last.kf",
         ]));
-        assert_eq!(m["1hpequip"], "AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpEquip.kf");
+        assert_eq!(m["1hpequip"], ["AnimGroupOverride\\Ani_1911\\_1stPerson\\1hpEquip.kf"]);
         assert!(m.contains_key("1hpreloadl_partial"));
-        assert_eq!(m["1hpreloadl"], "AnimGroupOverride\\Ani_1911\\_male\\1hpReloadL v1.6.kf");
+        assert_eq!(m["1hpreloadl"], ["AnimGroupOverride\\Ani_1911\\_male\\1hpReloadL v1.6.kf"]);
         assert!(!m.keys().any(|k| k.contains("hurt")));
         // A later folder's (the last-shot entry's) file wins, spaced or not.
-        assert_eq!(m["1hpattackright"], "AnimGroupOverride\\Ani_1911\\LastShot\\_1stPerson\\1hpAttackRight last.kf");
+        assert_eq!(m["1hpattackright"], ["AnimGroupOverride\\Ani_1911\\LastShot\\_1stPerson\\1hpAttackRight last.kf"]);
         assert_eq!(super::clip_stem("sneak1hpreloadl.kf"), "sneak1hpreloadl");
+    }
+
+    /// Another Millenia's dual pistols (`Johnsonn_9mmAkimbo`): `_order_1` and `_order_2`
+    /// files make one set, played in turn; the last-shot folders, whose conditions put
+    /// them after the plain set, hold one file of it and replace the set.
+    #[test]
+    fn order_files_make_a_set_played_in_turn() {
+        let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let base = [
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAttackRight_order_2.kf",
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAttackRight_order_1.kf",
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAim.kf",
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_male\\Sneak1hpAttackRightDOWN.kf",
+            "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_male\\Sneak1hpAttackRightDOWN_order_2.kf",
+        ];
+        let m = super::override_stems(&f(&base));
+        assert_eq!(
+            m["1hpattackright"],
+            ["AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAttackRight_order_1.kf", "AnimGroupOverride\\Johnsonn_9mmAkimbo\\_1stPerson\\1hpAttackRight_order_2.kf"]
+        );
+        assert_eq!(m["1hpaim"].len(), 1);
+        assert!(!m.keys().any(|k| k.contains("order")));
+        // A plain file of the stem leads its folder's set.
+        assert_eq!(m["sneak1hpattackrightdown"].len(), 2);
+        assert!(m["sneak1hpattackrightdown"][0].ends_with("Sneak1hpAttackRightDOWN.kf"));
+        // Two rounds left: the right gun's last-shot folder comes after and holds the set alone.
+        let mut last = base.to_vec();
+        last.push("AnimGroupOverride\\Johnsonn_9mmAkimboRightLast\\_1stPerson\\1hpAttackRight_order_1.kf");
+        let m = super::override_stems(&f(&last));
+        assert_eq!(m["1hpattackright"], ["AnimGroupOverride\\Johnsonn_9mmAkimboRightLast\\_1stPerson\\1hpAttackRight_order_1.kf"]);
+        assert_eq!(m["1hpaim"].len(), 1, "a stem the later folder lacks keeps its file");
+        assert_eq!(super::order_of("1hpattackright_order_12"), ("1hpattackright".to_string(), 12));
+        assert_eq!(super::order_of("1hpattackright_order_x"), ("1hpattackright_order_x".to_string(), 0));
+        let up = super::ordered_aim_variant("meshes\\AnimGroupOverride\\J\\_male\\1hpAttackRight_order_1.kf", Aim::Up);
+        assert_eq!(up, "meshes\\AnimGroupOverride\\J\\_male\\1hpAttackRightup_order_1.kf");
+        assert_eq!(super::ordered_aim_variant("a\\2hrattackleft.kf", Aim::Up), aim_variant("a\\2hrattackleft.kf", Aim::Up));
     }
 
     use super::*;
