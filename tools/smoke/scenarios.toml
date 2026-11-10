@@ -23916,6 +23916,6 @@ args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--
 run_seconds = 25
 expect = [
   { re = 'actor 0009A260 stuck at .*: held at 00099D27.s moving collision', label = "p4 is held at its pod's stasis field" },
-  { re = 'actor 0009A26[0-2] stuck at .*moved on along its path', max = 0, label = "and no stasis protectron behind a field is moved on through it (all three were before)" },
-  { re = 'entered trigger 0x0009A1E8', max = 0, label = "nobody leaves a pod and walks through the tripwire's beam" },
+  { re = 'actor 0009A261 stuck at .*: held at 00099D28.s moving collision', label = "p3 is held at its pod's stasis field" },
+  { re = 'actor 0009A26[01] stuck at .*moved on along its path', max = 0, label = "and neither is moved on through its field (both were before; p2 and p1, alarmed or noticing, leave through their pods' fixed walls: the alarm is #2009's, the notice the detection edge on #1977)" },
 ]

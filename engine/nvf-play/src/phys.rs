@@ -1505,7 +1505,7 @@ impl PhysState {
         true
     }
 
-    /// The reference whose keyframed collision (a door's leaf, a gate, a force field:
+    /// The reference whose keyframed collision (a gate, a force field, not a door:
     /// something an animation or a script moves away) stands on the straight way from
     /// `from` to `to`, feet to feet, seen at `height` above them; actors left out.
     pub fn keyframed_between(&mut self, from: [f32; 3], to: [f32; 3], height: f32) -> Option<u32> {
@@ -1518,8 +1518,11 @@ impl PhysState {
         let dir = [d[0] / len, d[1] / len, d[2] / len];
         let filter = Filter { no_actors: true, no_terrain: true, ..Default::default() };
         let hits = self.ray_all(a, dir, len, filter);
+        // A door's leaf is the doors' own (`crate::doors`): an actor opens it and walks
+        // through, and the open leaf's edge is skipped past like any other obstacle
+        // (Boone after his room's door, follower-boone smoke).
         hits.into_iter().find_map(|h| match h.owner {
-            fnv_phys::world::Owner::Ref { form_id, object, .. } if self.world.ref_object_keyframed(form_id, object) => Some(form_id),
+            fnv_phys::world::Owner::Ref { form_id, object, .. } if !self.doors.contains_key(&form_id) && self.world.ref_object_keyframed(form_id, object) => Some(form_id),
             _ => None,
         })
     }

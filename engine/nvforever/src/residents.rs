@@ -314,6 +314,9 @@ struct PhysMover<'a> {
     /// People in combat (`Core::aims`, from the last update): physics walks them to the
     /// end of their walks.
     fighting: &'a HashMap<FormId, [f32; 3]>,
+    /// Actors searching for a foe they lost or noticed (`fnv_ai::alert`): not moved on
+    /// past what blocks them.
+    searching: &'a HashSet<u32>,
 }
 
 /// An actor walking on with its AI off (SetActorsAI 0): where it was when the AI went
@@ -492,13 +495,24 @@ impl Mover for PhysMover<'_> {
                 // Stuck where detours did not help: moved on along the path, past what
                 // blocks it, to the first place with ground and room for it.
                 // Stuck at keyframed collision (a force field, a gate: what an animation or
-                // a script moves away): it stays where it is, pressing on, and is not moved
-                // past it or left to the walker, which would carry it through. [observed:
-                // HELIOS One's stasis protectrons stay in their pods behind the field
-                // VHELIOSStasisField*REF, one moving 12 units in 30 s, #1977 probe 3]
-                Advice::Skip if let Some(gate) = f.skip_candidate(feet, SKIP_AHEAD).and_then(|c| phys.keyframed_between(feet, c.pos, BARRIER_PROBE_HEIGHT)) => {
+                // a script moves away), or stuck while searching (a place to look, not one
+                // it must reach): it stays where it is, pressing on, and is not moved past
+                // what blocks it or left to the walker, which would carry it through.
+                // [observed: HELIOS One's stasis protectrons stay in their pods behind the
+                // field VHELIOSStasisField*REF, one moving 12 units in 30 s while it
+                // fought, #1977 probe 3; the search: design]
+                Advice::Skip
+                    if let Some(gate) = f
+                        .skip_candidate(feet, SKIP_AHEAD)
+                        .and_then(|c| phys.keyframed_between(feet, c.pos, BARRIER_PROBE_HEIGHT))
+                        .or_else(|| self.searching.contains(&id).then_some(0)) =>
+                {
                     if self.barred.insert(id, gate) != Some(gate) {
-                        info!("actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}): held at {gate:08X}'s moving collision, not moved past it", feet[0], feet[1], feet[2]);
+                        if gate == 0 {
+                            info!("actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}) while it searches: held, not moved past what blocks it", feet[0], feet[1], feet[2]);
+                        } else {
+                            info!("actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}): held at {gate:08X}'s moving collision, not moved past it", feet[0], feet[1], feet[2]);
+                        }
                     }
                     if let Some(u) = self.unstuck.get_mut(&id) {
                         u.skip_refused();
@@ -2057,7 +2071,8 @@ impl Core {
             );
         }
         let mut moved = [0usize; 6];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, barred: &mut self.barred, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims };
+        let searching: HashSet<u32> = self.ai.agents.iter().filter(|(_, a)| a.search.is_some()).map(|(f, _)| f.0).collect();
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, barred: &mut self.barred, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims, searching: &searching };
         {
             // Every high-process actor's update and the low-process ones due (package,
             // goal and walk; path searches are `nav::find_path` inside).
