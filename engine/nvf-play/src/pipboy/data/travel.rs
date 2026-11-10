@@ -397,6 +397,8 @@ pub fn depart(
             (p.cell, p.pos, p.rot) = (cell, t.travel.feet, [0.0, 0.0, t.rot[2]]);
         }
         g.player_entered(cell);
+        // GetPCFastTravelled (`fnv_game::nvse_jip12`).
+        g.note_fast_travel();
         let brought = g.bring_teammates(from);
         info!("fast travel: under way to {}; {} teammate(s) or follower(s) come along", FormId(t.to), brought.len());
     });

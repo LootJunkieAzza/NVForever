@@ -2896,6 +2896,10 @@ impl Vm<'_, '_> {
         // place (fnv_game::ui_functions).
         let format_at = match lname.as_str() {
             "addtilefromtemplate" => Some(0),
+            // [documented: ShowTextInputMenu `callback width height "title" values…`,
+            // SetTextInputString `"text" values…`] (fnv_game::nvse_jip12).
+            "settextinputstring" => Some(0),
+            "showtextinputmenu" => Some(3),
             "setuistringex" | "setuistringalt" | "injectuicomponent" | "attachuicomponent" => Some(1),
             _ => None,
         };

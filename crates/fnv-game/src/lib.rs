@@ -131,6 +131,7 @@ pub mod nvse_jip9;
 pub mod nvse_jip10;
 pub mod nvse_jip11;
 pub mod nvse_jip13;
+pub mod nvse_jip12;
 pub mod nvse_pp;
 pub mod nvse_rest;
 pub mod nvse_showoff2;

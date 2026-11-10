@@ -414,6 +414,8 @@ pub struct FormStore {
     pub globals: HashMap<FormId, f32>,
     /// GMST values by lower-case Editor ID.
     pub settings: HashMap<String, Setting>,
+    /// The GMSTs' Editor IDs as the records spell them, by lower-case Editor ID.
+    pub setting_names: HashMap<String, String>,
     /// Encounter zones (ECZN) by FormID.
     pub zones: HashMap<FormId, ZoneDef>,
     pub issues: Issues,
@@ -467,6 +469,7 @@ impl FormStore {
                     if let Setting::Raw(_) = v {
                         store.issues.note("GMST with unknown prefix or size", || edid.clone());
                     }
+                    store.setting_names.insert(edid.to_ascii_lowercase(), edid.clone());
                     store.settings.insert(edid.to_ascii_lowercase(), v);
                 }
                 Loaded::Zone(edid, z) => {

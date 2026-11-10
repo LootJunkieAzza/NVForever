@@ -225,6 +225,14 @@ bounds, particle systems' values through the scene mirror and the engine's live 
 properties read from the models, switch nodes through the block flags, the sequences playing, Update3DAlt, the
 camera's place, overrides and WorldToScreen through `nvf_play::script_camera`; set jgnif, not probed yet).
 Census after it: JohnnyGuitar 78 → 57.
+JIP batch 12: 34 (#1006, jip-world-12.md: ForceClimate and SetCurrentClimate drawn by the sky,
+the wind, the moons' textures, TriggerLightningFX, the image space modifiers on, the buffered
+cells, exterior and persistent cells, north rotations, the light at a point, fast travel and
+the load order, the game settings as a map, purged references and internal markers, the barter
+trade and its price multipliers, the item menus' filters and lists, the recipe menu and
+AddRecipeCondition, ShowQuantityMenu and ShowTextInputMenu with their engine menus,
+GetWheelDisabled; GetStringHash 0 by decision, §2; not probed yet, set jip12). Census after
+it: JIP 142 → 108 on main, 102 → 68 with batch 11 (#1915).
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,
