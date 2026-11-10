@@ -26,6 +26,9 @@ const REF_RADIO: u32 = 0x932;
 const REF_SPEAKER: u32 = 0x933;
 const EFSH: u32 = 0x940;
 const GLOB: u32 = 0x950;
+const NPC: u32 = 0x960;
+const ACTOR_ON: u32 = 0x961;
+const ACTOR_OFF: u32 = 0x962;
 
 fn edid(sig: &[u8; 4], flags: u32, fid: u32, name: &str, rest: &[fnv_esm::raw::Subrecord]) -> Vec<u8> {
     record(sig, flags, fid, &[vec![sub(b"EDID", z(name))], rest.to_vec()].concat())
@@ -51,7 +54,8 @@ fn plugin_bytes() -> Vec<u8> {
     acbs.extend(0f32.to_le_bytes());
     acbs.extend([0u8; 4]);
     let data = [100i32.to_le_bytes().to_vec(), vec![5, 5, 5, 5, 5, 5, 5]].concat();
-    let npc_player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"ACBS", acbs), sub(b"DATA", data)]);
+    let npc_player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"ACBS", acbs.clone()), sub(b"DATA", data.clone())]);
+    let npc = record(b"NPC_", 0, NPC, &[sub(b"EDID", z("TestNpc")), sub(b"ACBS", acbs), sub(b"DATA", data)]);
     let misc = edid(b"MISC", 0, MISC, "TestThing", &[]);
     // XPRM [documented: schema world.json]: bounds x y z, colour r g b, unknown, type 1 box.
     let mut xprm = Vec::new();
@@ -70,6 +74,10 @@ fn plugin_bytes() -> Vec<u8> {
     .concat();
     let room_children = group(ROOM.to_le_bytes(), 6, &group(ROOM.to_le_bytes(), 8, &room_refs));
     let room2 = edid(b"CELL", 0, ROOM2, "TestRoom2", &[sub(b"DATA", vec![1])]);
+    // Two actors in the second room, the second initially disabled (record flag 0x800).
+    let actor = |fid: u32, name: &str, flags: u32| record(b"ACHR", 0x400 | flags, fid, &[sub(b"EDID", z(name)), sub(b"NAME", le(NPC)), sub(b"DATA", vec![0; 24])]);
+    let room2_refs = [actor(ACTOR_ON, "TestActorOn", 0), actor(ACTOR_OFF, "TestActorOff", 0x800)].concat();
+    let room2_children = group(ROOM2.to_le_bytes(), 6, &group(ROOM2.to_le_bytes(), 8, &room2_refs));
     let lgtm = edid(b"LGTM", 0, LGTM, "TestTemplate", &[]);
     // TACT header flag 0x00020000: the Radio Station box (radio.md §2).
     let tact = [edid(b"TACT", 0x0002_0000, TACT_RADIO, "TestStation", &[]), edid(b"TACT", 0, TACT_SPEAKER, "TestSpeaker", &[])].concat();
@@ -78,12 +86,12 @@ fn plugin_bytes() -> Vec<u8> {
     [
         tes4(),
         top(b"GLOB", &glob),
-        top(b"NPC_", &npc_player),
+        top(b"NPC_", &[npc_player, npc].concat()),
         top(b"MISC", &misc),
         top(b"TACT", &tact),
         top(b"EFSH", &efsh),
         top(b"LGTM", &lgtm),
-        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[room, room_children, room2].concat()))),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[room, room_children, room2, room2_children].concat()))),
     ]
     .concat()
 }
@@ -288,4 +296,36 @@ fn calls_per_reference() {
     // No actors are loaded: level 0 calls nothing.
     g.run_source("set TestCount to 0\nCallPerMobileObject (begin function {ref r}\nlet TestCount := TestCount + 1\nend) 0", RunCtx::default()).unwrap();
     assert_eq!(n(&mut g, "TestCount"), 0.0);
+}
+
+#[test]
+fn disabled_actors_have_no_processing_level() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.set_loaded([FormId(ROOM2)].into_iter().collect());
+    assert_eq!(n(&mut g, "TestActorOff.GetDisabled"), 1.0);
+    // The disabled actor is left out [observed: L5.ext rerun, #2040, 16 where 20 are
+    // loaded with 4 disabled]; CallPerMobileObject calls the same one [documented].
+    assert_eq!(n(&mut g, "ar_Size (GetActorsByProcessingLevel 0)"), 1.0);
+    assert_eq!(n(&mut g, "(GetActorsByProcessingLevel 0)[0]"), f64::from(ACTOR_ON));
+    g.run_source("set TestCount to 0
+CallPerMobileObject (begin function {ref r}
+let TestCount := TestCount + 1
+end) 0", RunCtx::default()).unwrap();
+    assert_eq!(n(&mut g, "TestCount"), 1.0);
+    // Enabled, it is listed.
+    q(&mut g, "TestActorOff.Enable");
+    assert_eq!(n(&mut g, "ar_Size (GetActorsByProcessingLevel 0)"), 2.0);
+}
+
+/// Getters with nothing to report [observed: L5.ext rerun, #2040, gaps7 terrain.far and
+/// tempeffects.player].
+#[test]
+fn getters_with_nothing_found() {
+    let f = fixture();
+    let mut g = game(&f);
+    // No terrain there: -2048.
+    assert_eq!(n(&mut g, "GetTerrainHeight 900000 900000"), -2048.0);
+    // No temporary effects: no array, which ar_Size reads -1.
+    assert_eq!(n(&mut g, "ar_Size (PlayerREF.GetTempEffects)"), -1.0);
 }

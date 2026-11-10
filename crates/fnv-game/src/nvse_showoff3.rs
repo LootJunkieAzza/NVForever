@@ -303,7 +303,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                     let w = if name == "getbaseequippedweight" { it.weight? } else { rules.unit(it.weight_with_mods(e.mods)?, it.kind) };
                     (f64::from(w) >= min).then_some(f64::from(w))
                 })
-                .sum();
+                // From 0.0: a float `sum` of nothing is -0.0, which prints "-0.000"
+                // [observed: L5.ext rerun, #2040, so3.weight; the original prints 0.000].
+                .fold(0.0, |s, w| s + w);
             XVal::Num(total)
         }
         // Carry Weight with the Get Max Carry Weight perks [documented:

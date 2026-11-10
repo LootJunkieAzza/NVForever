@@ -144,6 +144,11 @@ fn equipped_items_by_slot_mask() {
     assert_eq!(n(&mut g, "player.GetBaseEquippedWeight 2"), 10.0);
     assert_eq!(n(&mut g, "player.GetBaseEquippedWeight 0 64"), 0.5);
     assert_eq!(n(&mut g, "player.GetCalculatedEquippedWeight"), 11.0, "no weight perks");
+    // Nothing that heavy: 0, not -0 (which prints "-0.000") [observed: L5.ext rerun, #2040].
+    for f in ["GetBaseEquippedWeight", "GetCalculatedEquippedWeight"] {
+        let w = n(&mut g, &format!("player.{f} 1000"));
+        assert!(w == 0.0 && w.is_sign_positive(), "{f}: {w}");
+    }
     // The vest is at 20 %.
     assert_eq!(n(&mut g, "player.GetNumBrokenEquippedItems"), 0.0);
     assert_eq!(n(&mut g, "player.GetNumBrokenEquippedItems 30"), 1.0);

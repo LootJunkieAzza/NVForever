@@ -24141,7 +24141,7 @@ order = [["controls: input device Controller", "pipboy hints: items Weapons", "p
 
 [[scenario]]
 name = "pipboy-data-hints"
-source = "#1897 (docs/spec-notes/pipboy.md §5.3): with the keyboard and mouse each DATA tab shows the original's PC hints, a column whose words end at the heading's right end with the key after them: Local Map and World Map Place Marker alone with no key (dim: not built), Radio none (its A hint is the controller's), Quests Show Location X), Misc Active Notes X) and Challenges R); a quest (VCG02's objective) and a note (Beagle's journal) are given first; frames pipboy_data_hints_world.png, pipboy_data_hints_misc.png in the working folder (the Misc hints inside the screen at 1280 x 720)"
+source = "#1897 (docs/spec-notes/pipboy.md §5.3): with the keyboard and mouse each DATA tab shows the original's PC hints, a column whose words end at the heading's right end with the key after them: Local Map and World Map Place Marker alone with no key (bright since #1954: it asks about the custom marker), Radio none (its A hint is the controller's), Quests Show Location X), Misc Active Notes X) and Challenges R); a quest (VCG02's objective) and a note (Beagle's journal) are given first; frames pipboy_data_hints_world.png, pipboy_data_hints_misc.png in the working folder (the Misc hints inside the screen at 1280 x 720)"
 note = "the console's addnote is the one pipboy-holotape uses; the objective aid the one of the script-look scenario (VCG02 3)"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
@@ -24149,8 +24149,8 @@ env = { NVFOREVER_HOME = "pipboy-data-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = 
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
 run_seconds = 24
 expect = [
-  { re = 'pipboy hints: data local map: Place Marker \(dim\)$', label = "Local Map: Place Marker alone with the keyboard, no key, dim (not built)" },
-  { re = 'pipboy hints: data world map: Place Marker \(dim\)$', label = "World Map: Place Marker alone with the keyboard (Travel is the controller's)" },
+  { re = 'pipboy hints: data local map: Place Marker$', label = "Local Map: Place Marker alone with the keyboard, no key, bright (#1954)" },
+  { re = 'pipboy hints: data world map: Place Marker$', label = "World Map: Place Marker alone with the keyboard (Travel is the controller's)" },
   { re = 'pipboy hints: data quests: Show Location X\)$', label = "Quests: Show Location alone, with its key (the make-active hint is the controller's)" },
   { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', label = "Misc: the notes' filter and Challenges with their keys" },
   { re = 'pipboy hints: data radio: none$', label = "Radio: no hint with the keyboard (Tune is the controller's)" },
@@ -24159,7 +24159,7 @@ order = [["pipboy hints: data local map", "pipboy hints: data world map", "pipbo
 
 [[scenario]]
 name = "pipboy-data-hints-pad"
-source = "#1897 (docs/spec-notes/pipboy.md §5.3): with Controller as the Input Device (Xbox names) each DATA tab shows the original's column, as on the issue's screenshots taken with a controller: Local Map Place Marker X) (dim, not built), World Map Travel A) (dim without a marker under the highlight box) and Place Marker X), Quests Set Active A) and Show Location X), Misc Play A) on the audio note (Stop A) once it plays), Active Notes X) and Challenges Y), Radio Tune In A); the same quest and note as pipboy-data-hints; frames pipboy_data_hints_pad_world.png, pipboy_data_hints_pad_misc.png in the working folder"
+source = "#1897 (docs/spec-notes/pipboy.md §5.3): with Controller as the Input Device (Xbox names) each DATA tab shows the original's column, as on the issue's screenshots taken with a controller: Local Map Place Marker X) (bright since #1954), World Map Travel A) (dim without a marker under the highlight box) and Place Marker X), Quests Set Active A) and Show Location X), Misc Play A) on the audio note (Stop A) once it plays), Active Notes X) and Challenges Y), Radio Tune In A); the same quest and note as pipboy-data-hints; frames pipboy_data_hints_pad_world.png, pipboy_data_hints_pad_misc.png in the working folder"
 note = "a home of its own keeps the Controller choice away from the other scenarios (as pipboy-items-hints-pad); the pause menu's settings aid picks the device before the Pip-Boy steps; no --no-voice, so the picked holotape plays and its hint turns to Stop"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
@@ -24169,14 +24169,76 @@ run_seconds = 25
 expect = [
   { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller before the DATA steps" },
   { text = "hints: Xbox labels", label = "the DATA hints take the Xbox names before the Pip-Boy opens" },
-  { re = 'pipboy hints: data local map: Place Marker X\) \(dim\)$', label = "Local Map: Place Marker with its button, dim (not built)" },
-  { re = 'pipboy hints: data world map: Travel A\)( \(dim\))?, Place Marker X\) \(dim\)$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
+  { re = 'pipboy hints: data local map: Place Marker X\)$', label = "Local Map: Place Marker with its button, bright (#1954)" },
+  { re = 'pipboy hints: data world map: Travel A\)( \(dim\))?, Place Marker X\)$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
   { re = 'pipboy hints: data quests: Set Active A\), Show Location X\)$', label = "Quests: the make-active hint and Show Location with their buttons" },
   { re = 'pipboy hints: data misc: Play A\), Active Notes X\), Challenges Y\)$', label = "Misc: Play on the audio note, the notes' filter and Challenges" },
   { re = 'pipboy hints: data misc: Stop A\), Active Notes X\), Challenges Y\)$', label = "Misc: Stop while the picked audio note plays" },
   { re = 'pipboy hints: data radio: Tune In A\)$', label = "Radio: the tune hint with its button" },
 ]
 order = [["controls: input device Controller", "pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc: Play", "pipboy hints: data misc: Stop", "pipboy hints: data radio"]]
+
+[[scenario]]
+name = "pipboy-custom-marker"
+source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): with the keyboard, Place Marker on the World Map asks whether to set the custom marker (two answers) and Yes places it at the highlight box; the World Map draws a dotted line from the arrow to it; the Local Map shows the same marker; Place Marker there asks with three answers (move, remove, keep): move moves it, keep leaves it, remove takes it off both maps [observed: a capture of the original's MapMenu, 2026-11-10]"
+note = "the pointer aid holds the highlight box 50 right of the map window's middle (canvas 527, 350) on both maps; placemarker is the maps' X button; key=use takes the chosen answer, key=down moves down the answers; the objective aid gives the World Map a quest marker too (its line is not required)"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data/model.rs", "engine/nvf-play/src/pipboy/test_aid.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,21.5:key=down,22:key=use,23:placemarker,23.5:key=down,24:key=use,25:tab=1,26.5:close", NVF_PLAY_TEST_SHOTS = "16.8:pipboy_custom_marker_world.png,18:pipboy_custom_marker_local.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 28
+expect = [
+  { re = 'pipboy hints: data world map: Place Marker$', label = "World Map: Place Marker bright with the keyboard" },
+  { re = 'pipboy map: Place Marker asks ".+" \(2 answers\) for \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', label = "with no marker the question has two answers" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', label = "Yes places the marker at the highlight box" },
+  { re = 'pipboy map: world map shows the custom marker at', label = "the World Map shows it" },
+  { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', label = "a dotted line runs from the arrow to the marker" },
+  { re = 'pipboy map: local map shows the custom marker at', label = "the Local Map shows the marker placed on the World Map" },
+  { re = 'pipboy map: Place Marker asks ".+" \(3 answers\)', count = 3, label = "with a marker the question has three answers" },
+  { re = 'pipboy map: custom marker moved to \(-?\d+, -?\d+\)', label = "the first answer moves it to the Local Map's highlight box" },
+  { text = "pipboy map: custom marker left where it was", label = "the third answer keeps it" },
+  { text = "pipboy map: custom marker removed", label = "the second answer removes it" },
+  { text = "pipboy map: world map shows no custom marker", label = "removed, the World Map shows none" },
+]
+order = [[
+  "pipboy map: custom marker placed at",
+  "pipboy map: dotted line to custom marker",
+  "pipboy map: local map shows the custom marker at",
+  "pipboy map: custom marker moved to",
+  "pipboy map: custom marker left where it was",
+  "pipboy map: custom marker removed",
+  "pipboy map: world map shows no custom marker",
+]]
+
+[[scenario]]
+name = "pipboy-custom-marker-save"
+source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): the first half of the marker's round trip: a marker placed on the World Map goes into a save; pipboy-custom-marker-load reads it, so run them together"
+note = "the home is shared with pipboy-custom-marker-load, which runs after this one (smoke runs launches of one NVFOREVER_HOME in order); the console saves once the Pip-Boy is down"
+areas = ["pipboy", "save"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "pipboy-marker-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:close", NVF_PLAY_TEST_CONSOLE = "20:save smoke-marker;21:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\)', label = "the marker is placed" },
+  { re = 'save: wrote .*smoke-marker\.nvfsave \(manual, ', label = "the save is written" },
+]
+order = [["pipboy map: custom marker placed at", { re = 'save: wrote .*smoke-marker\.nvfsave' }]]
+
+[[scenario]]
+name = "pipboy-custom-marker-load"
+source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): the second half of the round trip: --load the save pipboy-custom-marker-save made; the custom marker comes back and the World Map shows it with its dotted line [design: kept in NVForever's saves; the original's is not captured]"
+areas = ["pipboy", "save"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "pipboy-marker-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,15:close" }
+args = ["--play", "--load", "smoke-marker", "--no-voice"]
+run_seconds = 17
+expect = [
+  { re = 'load: engine state of .*smoke-marker\.nvfsave put back', label = "the engine state is put back" },
+  { re = 'pipboy map: custom marker back from the save at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', label = "the marker comes back from the save" },
+  { re = 'pipboy map: world map shows the custom marker at', label = "the World Map shows it" },
+  { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', label = "with its dotted line" },
+]
 
 [[scenario]]
 name = "pipboy-stats-rad-radaway"
@@ -24239,4 +24301,19 @@ run_seconds = 25
 expect = [
   { re = 'idle: VMS03PythonREF plays MrGutsyUnconscious .*looping until replaced.*\(Standing\)', label = "PYTHON holds its switched-off pose (it stood in the normal idle before)" },
   { re = 'npc combat: VMS03PythonREF', max = 0, label = "and does not fight" },
+]
+
+[[scenario]]
+name = "helios-stasis-held-at-field"
+source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay in their pods until the tripwire. In the original (#1977 probe 3) p4 fights from inside its pod, moving 12 units in 30 s against the pod's stasis field (VHELIOSStasisField4REF, keyframed collision). Ours got stuck there too, then the nav unstick's skip moved it on through the field; now a skip whose way crosses keyframed collision holds the actor where it is (engine/nvforever/src/residents.rs, PhysState::keyframed_between)"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 and p3 (0x0009A261) notice it and try to search; their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+areas = ["ai", "nav"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs", "crates/fnv-phys/src/world.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'actor 0009A260 stuck at .*: held at 00099D27.s moving collision', label = "p4 is held at its pod's stasis field" },
+  { re = 'actor 0009A261 stuck at .*: held at 00099D28.s moving collision', label = "p3 is held at its pod's stasis field" },
+  { re = 'actor 0009A26[01] stuck at .*moved on along its path', max = 0, label = "and neither is moved on through its field (both were before; p2 and p1, alarmed or noticing, leave through their pods' fixed walls: the alarm is #2009's, the notice the detection edge on #1977)" },
 ]
