@@ -132,7 +132,7 @@ pub const STAGGERED_SCHEDULE: [(u32, u32); 3] = [(1, 0), (2, 1), (4, 2)];
 pub fn held_mask(schedule: &[(u32, u32)], frame: u64, cascades: usize) -> u32 {
     (0..cascades.min(32)).fold(0, |mask, i| {
         let (n, phase) = schedule.get(i).copied().unwrap_or((1, 0));
-        if n > 1 && (frame + u64::from(phase)) % u64::from(n) != 0 { mask | 1 << i } else { mask }
+        if n > 1 && !(frame + u64::from(phase)).is_multiple_of(u64::from(n)) { mask | 1 << i } else { mask }
     })
 }
 
@@ -180,7 +180,7 @@ fn hold_cascades(
     // A new map size makes new maps: nothing to keep.
     let same_maps = !map.is_some_and(|m| m.is_changed());
     let mut mask = held_mask(schedule, *frame, count);
-    if mask != 0 && !(same_maps && same_layout(&kept, &lights.iter().map(|(e, c)| (e, c)).collect::<Vec<_>>())) {
+    if mask != 0 && !(same_maps && same_layout(&kept, &lights.iter().collect::<Vec<_>>())) {
         mask = 0;
     }
     if mask == 0 {
