@@ -318,13 +318,15 @@ fn no_arms_shade() -> bool {
 fn shade_light(
     mut commands: Commands,
     state: Res<PlayerBody>,
+    lighter: Res<crate::shadow_rate::LighterShadows>,
     sun: Query<(Entity, &DirectionalLight), (With<Sun>, Without<ArmsShade>)>,
     mut shade: Query<(Entity, &mut DirectionalLight), With<ArmsShade>>,
 ) {
     // A sun casting no shadows has no shade light either.
     let Ok((sun, sun_light)) = sun.single() else { return };
     let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
-    let on = arms_drawn && sun_light.shadow_maps_enabled && !no_arms_shade();
+    // Nor with the Lighter sun shadows switch on (shadow_rate.rs): one shadow view less.
+    let on = arms_drawn && sun_light.shadow_maps_enabled && !no_arms_shade() && !lighter.0;
     let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
     if let Ok((e, mut light)) = shade.single_mut() {
         if !on {
