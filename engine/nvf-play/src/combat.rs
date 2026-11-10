@@ -1066,6 +1066,8 @@ pub struct Combat {
     /// Explosions to set off this frame (impacts, detonations, destruction stages), with
     /// who set each off and an optional impact normal for blast visibility.
     boom: Vec<(FormId, V3, Option<Cause>, Option<V3>)>,
+    /// The explosions Meltdown gives off, for the No Self Meltdown Damage tweak [design: docs/design/tweaks.md].
+    meltdowns: HashSet<FormId>,
     /// Debris of destroyed objects for the engine to throw (nvforever `dismember.rs`).
     pub debris: Vec<ObjectDebris>,
     cycle: Option<Cycle>,
@@ -1739,6 +1741,7 @@ fn meltdown(mut c: ResMut<Combat>, mut hits: MessageReader<ActorHit>, mut script
         let Some(at) = phys.world.actor_aim_point(victim).or_else(|| sim.world.peek(FormId(victim)).map(|r| [r.pos[0], r.pos[1], r.pos[2] + 60.0])) else { continue };
         done.insert(victim);
         info!("combat: Meltdown: {} gives off {} ({by}'s kill with {})", FormId(victim), c.forms.explosions.get(&explosion).and_then(|x| x.edid.as_deref()).unwrap_or("?"), c.forms.weapons.get(&weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?"));
+        c.meltdowns.insert(explosion);
         c.mine_explodes(explosion, at, Some((by, weapon)));
     }
 }
@@ -2054,6 +2057,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         swings: Melee::default(),
         blows: 0,
         boom: Vec::new(),
+        meltdowns: HashSet::new(),
         debris: Vec::new(),
         cycle: None,
         kick: Kick::default(),
@@ -4747,6 +4751,10 @@ fn fly(
             let target = if b.actor == PLAYER { FormId::PLAYER_REF } else { FormId(b.actor as u32) };
             // The player's tweak: the player's own blast spares the player [design: docs/design/tweaks.md].
             if own_blast_spares && target == FormId::PLAYER_REF {
+                continue;
+            }
+            // The player's tweak: a Meltdown blast spares the player and the companions [design: docs/design/tweaks.md].
+            if c.meltdowns.contains(&id) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_self_meltdown && (target == FormId::PLAYER_REF || rt.game.is_teammate(target))) {
                 continue;
             }
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);

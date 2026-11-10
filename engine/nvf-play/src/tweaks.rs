@@ -1380,6 +1380,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "click-to-exit-loading", "Press to Leave Loading Screens", "A loading screen stays up once everything is in until a key or a button is pressed. (Stewie's Tweaks bClickToExitLoadScreens)", click_to_exit_loading);
         switch!(app, "radiation-radio-static", "Radiation Brings Radio Static", "Taking radiation brings static into the Pip-Boy's radio, more the faster the rads come. (Stewie's Tweaks bRadiationCausesRadioStatic)", game.radiation_radio_static);
         switch!(app, "barter-caps-change", "Barter Shows Caps After", "In a barter, each side's caps after the trade are shown beside its caps now. (Stewie's Tweaks bBarterShowCapsChange)", barter_caps_change);
+        switch!(app, "no-self-meltdown", "No Self Meltdown Damage", "Blasts given off by the Meltdown perk hurt neither the player nor the companions. (Stewie's Tweaks bNoSelfMeltdownDamage)", game.no_self_meltdown);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

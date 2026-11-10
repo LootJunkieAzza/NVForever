@@ -494,6 +494,7 @@ unless the player binds them, so nothing changes until then.
 | Press to Leave Loading Screens | `bClickToExitLoadScreens` | `loading::finish`: with `Loading::click_to_exit` the finished screen shows `PRESS_LINE` (ours) and comes down on the next key or button; every screen, `bLoadGameOnly` not done |
 | Radiation Brings Radio Static | `bRadiationCausesRadioStatic` | `radio`: the Pip-Boy station's static share is at least the player's rads a second over `RADS_FOR_FULL_STATIC` (10), at most `MAX_RAD_STATIC` (0.8); both ours |
 | Barter Shows Caps After | `bBarterShowCapsChange` | `menu::look::half_figure` writes "Caps  N (to M)" (ours) with `MenuModel::barter_caps_change`; the hand-built barter menu only, `iMode` not offered |
+| No Self Meltdown Damage | `bNoSelfMeltdownDamage` | `combat::meltdown` notes its explosions in `Combat::meltdowns`; the blast loop spares the player and teammates from them (the tweak's three options as one) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -515,8 +516,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 416 |
-| to do | 187 |
+| done | 417 |
+| to do | 186 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -700,6 +701,7 @@ game's Data folder, read-only).
 | `bNoPipBoyInCombat` | done |  | 5 | No Pip-Boy In Combat (a corner message; the AP option bAllowPipboyUsingActionPoints not done) |
 | `bNoScaleNpcDamageByCondition` | done |  |  | NPC Weapons Hit Whole |
 | `bNoSelfExplosionDamage` | done |  |  | Own Blasts Spare the Player |
+| `bNoSelfMeltdownDamage` | done |  | 3 | No Self Meltdown Damage (the player and companions; the three sub-options as one) |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
 | `bNoVATSTargetInvisible` | done |  |  | already so: cloaked actors are barred without Enhanced Sensors |
 | `bPlayerMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
@@ -714,7 +716,6 @@ game's Data folder, read-only).
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
 | `bNoScaleNpcDamageResistanceByCondition` | to do |  |  | target_armor computed twice for NPC targets |
 | `bNoScaleNpcDamageThresholdByCondition` | to do |  |  | target_armor computed twice for NPC targets |
-| `bNoSelfMeltdownDamage` | to do |  | 3 | the blast loop by the Meltdown explosion form |
 | `bNoWeaponConditionDamagePenalty` | to do |  |  | condition_mult is a free function; needs a Rules field (serialized) |
 | `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
 | `bNPCsCanSneakCritPlayer` | to do |  |  | sneak_attack is player-only |

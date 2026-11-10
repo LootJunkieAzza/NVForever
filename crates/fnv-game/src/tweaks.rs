@@ -394,6 +394,8 @@ pub struct Tweaks {
     /// `bRadiationCausesRadioStatic`: radiation taken brings static into the Pip-Boy's
     /// radio.
     pub radiation_radio_static: bool,
+    /// `bNoSelfMeltdownDamage`: Meltdown's blasts do not hurt the player or companions.
+    pub no_self_meltdown: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -576,6 +578,7 @@ impl Default for Tweaks {
             mark_notes_unread: false,
             vats_shift_ignores_friends: false,
             radiation_radio_static: false,
+            no_self_meltdown: false,
         }
     }
 }
