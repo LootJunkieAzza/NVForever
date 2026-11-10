@@ -85,6 +85,10 @@ pub(crate) struct FsrCamera {
     pub(crate) delta_ms: f32,
     loading_generation: u32,
     play_state: Option<nvf_play::PlayState>,
+    /// The Pip-Boy's screen is on its model: the one shape that marks its pixels in the
+    /// picture's alpha (`imagespace.wesl` `SCREEN_MARK`), which FSR's output has to get back
+    /// ([`AuxiliaryPipelines::restore_alpha`]).
+    screen_mark: bool,
 }
 
 /// The most the field of view may magnify or widen the view in one frame (the ratio of
@@ -239,6 +243,7 @@ fn extract(
     support: Extract<Res<FsrSupport>>,
     loading: Extract<Option<Res<nvf_play::loading::Loading>>>,
     play_state: Extract<Option<Res<State<nvf_play::PlayState>>>>,
+    pipboy_screen: Extract<Option<Res<nvf_play::pipboy::PipBoyScreen>>>,
 ) {
     let mut active = Vec::new();
     for (entity, camera, projection, transform, fsr) in &cameras {
@@ -257,6 +262,7 @@ fn extract(
             delta_ms: (time.delta_secs() * 1000.0).max(1.0),
             loading_generation: loading.as_ref().map_or(0, |loading| loading.shown),
             play_state: play_state.as_ref().map(|state| *state.get()),
+            screen_mark: pipboy_screen.as_ref().is_some_and(|screen| screen.on_model),
         });
     }
     for entity in &existing {
@@ -615,7 +621,12 @@ pub(crate) fn fsr_pass(
     match dispatched {
         Ok(()) => {
             let after_span = diagnostics.time_span(encoder, "alpha_and_history");
-            auxiliary.restore_alpha(device, encoder, prepared, target);
+            // Only while a shape marks its pixels in alpha (the Pip-Boy's screen on its
+            // model): otherwise FSR's alpha of 1 is what the post passes expect, and the
+            // display-sized pass is saved.
+            if prepared.camera.screen_mark {
+                auxiliary.restore_alpha(device, encoder, prepared, target);
+            }
             target.post_process_write();
             if *DEBUG_VIEW {
                 // The output is AMD's grid, not what FSR's history shows: a cleared history
@@ -849,7 +860,7 @@ mod tests {
 
     #[test]
     fn history_survives_motion_and_zoom_but_resets_on_cuts_and_lens_jumps() {
-        let before = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: None };
+        let before = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: None, screen_mark: false };
         let after = FsrCamera { frame: 11, translation: Vec3::X * 20.0, ..before };
         assert!(!after.cut_from(&before));
         assert!(FsrCamera { translation: Vec3::X * 401.0, ..after }.cut_from(&before));
@@ -865,7 +876,7 @@ mod tests {
     #[test]
     fn the_pip_boy_and_menus_keep_the_history_and_dialogue_and_loading_reset_it() {
         use nvf_play::PlayState::{Dialogue, Loading, Menu, Playing};
-        let playing = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: Some(Playing) };
+        let playing = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: Some(Playing), screen_mark: false };
         let next = |state| FsrCamera { frame: 11, play_state: Some(state), ..playing };
         assert!(!next(Menu).cut_from(&playing), "the Pip-Boy opens");
         assert!(!FsrCamera { play_state: Some(Playing), ..next(Menu) }.cut_from(&FsrCamera { play_state: Some(Menu), ..playing }), "and closes");
@@ -888,7 +899,7 @@ mod tests {
         use nvf_play::aim_zoom::{zoomed_fov, ZOOM_SECONDS};
         use nvf_play::free_cam::vertical_fov;
         let base = vertical_fov(75.0);
-        let start = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: base, frame: 0, delta_ms: 16.0, loading_generation: 0, play_state: None };
+        let start = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: base, frame: 0, delta_ms: 16.0, loading_generation: 0, play_state: None, screen_mark: false };
         // The 9mm pistol's iron sights (65°), a closer sight and a 20° scope, zoomed in and
         // out again a frame at a time as `aim_zoom::zoom` steps it.
         for sight_deg in [65.0, 55.0, 20.0] {

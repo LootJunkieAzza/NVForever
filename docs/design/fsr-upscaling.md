@@ -60,7 +60,10 @@ with `FsrUpscaling` (the player's camera) has its own history and textures.
   - The depth prepass is expanded to display size by nearest texels, with the first-person
     squeeze put back, for SSAO, the light shafts and the image-space blur.
   - FSR writes alpha 1, so each pixel's alpha is copied back from its nearest render texel
-    (`fsr_fallback.wgsl` `alpha`). That way the Pip-Boy screen's mark still keeps it out of
+    (`fsr_fallback.wgsl` `alpha`), while the Pip-Boy's screen is on its model
+    (`PipBoyScreen::on_model`): it is the one shape that marks its pixels in alpha, and the
+    display-sized pass is saved otherwise (2026-11-10: FSR's GPU time 1.08 → 1.03 ms at 4K
+    Native AA). That way the Pip-Boy screen's mark still keeps it out of
     the image-space grade (`imagespace.wesl` `SCREEN_MARK`). [observed 2026-11-06, the
     Pip-Boy open at Goodsprings at noon, clear weather, Native AA, 1280x720] Without the
     copy, the screen was graded with the scene: its mean luma was 0.208, against 0.158
