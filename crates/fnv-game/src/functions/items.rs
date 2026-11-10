@@ -139,6 +139,9 @@ fn remove_all_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     let mut added = Vec::new();
     let stacks = match a.opt_form(0) {
         Some(to) => {
+            if to == FormId::PLAYER_REF && !g.coop_guest && g.coop_checkpoint_holds.remove(&from) {
+                g.coop_checkpoints.push((from, -1, None, true));
+            }
             let moved = g.world.transfer_all_owned(from, to, keep_owner).map_err(|e| e.to_string())?;
             for &(item, count) in &moved {
                 g.emit(EventKind::ItemAdded { to, item, count, silent });
@@ -353,7 +356,18 @@ fn remove_all_typed_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
     if code == 0 {
         return none();
     }
-    let except = a.opt_form(4).map(|l| super::refs::list_members(g, l)).unwrap_or_default();
+    let except_list = a.opt_form(4);
+    if let Some(to) = to.filter(|_| from == FormId::PLAYER_REF && !g.coop_guest) {
+        g.coop_checkpoints.push((to, code, except_list, false));
+        g.coop_checkpoint_holds.insert(to);
+    }
+    // The checkpoint giving the player's things back by type, as the Fort's gate does
+    // (`<container>.RemoveAllTypedItems player 1 1`, SCPT 0x00164763; item 177): the
+    // guests get theirs back too.
+    if to == Some(FormId::PLAYER_REF) && !g.coop_guest && g.coop_checkpoint_holds.remove(&from) {
+        g.coop_checkpoints.push((from, -1, None, true));
+    }
+    let except = except_list.map(|l| super::refs::list_members(g, l)).unwrap_or_default();
     let forms = g.world.forms;
     let stacks: Vec<(FormId, i32)> = {
         let s = g.world.get(from).map_err(|e| e.to_string())?;

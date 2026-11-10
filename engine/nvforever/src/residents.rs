@@ -898,6 +898,11 @@ pub struct RemotePose {
     /// The furniture the host has it use (a chair, a bed, a cross), and whether it is on
     /// it already (not walking up to it): a guest sits it there too.
     pub furniture: Option<(u32, bool)>,
+    /// Where the host has it: its interior cell or the worldspace it stands in
+    /// (`nvf_coop::net::NpcState::space`; 0: not told, where it was here). It is drawn
+    /// only where that is loaded here [playtest 119 item 151: the NCR Embassy's MPs,
+    /// fighting inside on the host, were drawn over the Strip on a guest outside].
+    pub space: u32,
 }
 
 /// Standalone packages own their simulation; in play mode `SimState` owns it
@@ -2181,6 +2186,13 @@ impl Core {
         self.join(game);
         for (&id, pose) in remote {
             let Some(a) = self.ai.agents.get_mut(&FormId(id)) else { continue };
+            if pose.space != 0 {
+                let space = if game.world.placed.world_grid.contains_key(&FormId(pose.space)) { Space::World(pose.space) } else { Space::Interior(pose.space) };
+                if a.walker.space != space {
+                    info!("ai [{}] {id:#010X}: in {} in the host's world: drawn there only", clock_text(game), match space { Space::Interior(c) => game.data.name(FormId(c)), Space::World(w) => game.data.name(FormId(w)) });
+                    a.walker.space = space;
+                }
+            }
             a.walker.feet = pose.feet;
             a.walker.heading = pose.heading;
             a.walker.moving = pose.moving;

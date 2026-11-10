@@ -684,6 +684,59 @@ fn story_speakers(data: &GameData) -> std::collections::HashMap<FormId, Vec<Form
     out
 }
 
+/// A co-op guest at the host's checkpoint (playtest 119 item 149; `Game::coop_checked`):
+/// a Strip casino's weapon check took the host's player's weapons into a container, all
+/// but those in an exception list (the guard's dialogue result, `RemoveAllTypedItems`
+/// with type 40), and the door that lets the player out gives them back (the container's
+/// `RemoveAllItems player`) [observed: FalloutNV.esm INFO 0x0012793B / 0x0012793F and
+/// the Gomorrah door script SCPT 0x00127959, fnvtool decompile]. The Fort's gate takes
+/// them by several such calls (types 40 and 47, each with its own list) and gives them
+/// back by the container's `RemoveAllTypedItems player` [observed: SCPT 0x00164763]
+/// (item 177). A guest's own game runs
+/// neither, so it hands over and takes back its own as the host's player does.
+impl Game<'_> {
+    /// Hand over this player's items of form type `code` (-1: all), but those in
+    /// `except` (a form list), to checkpoint `container`; what it took, counted.
+    pub fn coop_check_in(&mut self, container: FormId, code: i32, except: Option<FormId>) -> i32 {
+        if code == 0 {
+            return 0;
+        }
+        let except = except.map(|l| crate::functions::refs::list_members(self, l)).unwrap_or_default();
+        let forms = self.world.forms;
+        let stacks: Vec<(FormId, i32)> = self.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.iter().collect()).unwrap_or_default();
+        let mut took = 0;
+        for (item, n) in stacks {
+            let Some(it) = forms.item(item) else { continue };
+            if it.non_playable_biped() || except.contains(&item) || self.world.is_quest_item(item) {
+                continue;
+            }
+            if code != -1 && forms.sig(item).as_ref().and_then(crate::functions::items::form_type_code) != Some(code) {
+                continue;
+            }
+            let Ok(inv) = self.world.inventory_mut(FormId::PLAYER_REF) else { continue };
+            let groups = fnv_sim::inventory::unequipped(inv.take(item, n));
+            let held = self.coop_checked.entry(container).or_default();
+            for (extra, c) in groups {
+                took += c;
+                held.push((item, c, extra));
+            }
+        }
+        took
+    }
+
+    /// Give this player back what checkpoint `container` holds of its; how many.
+    pub fn coop_check_out(&mut self, container: FormId) -> i32 {
+        let Some(held) = self.coop_checked.remove(&container) else { return 0 };
+        let mut gave = 0;
+        for (item, c, extra) in held {
+            if self.world.add_item_extra(FormId::PLAYER_REF, item, c, extra).is_ok() {
+                gave += c;
+            }
+        }
+        gave
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

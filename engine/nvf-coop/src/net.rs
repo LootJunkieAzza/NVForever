@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
 /// 100 above the normal co-op build's, so the two never join each other.
-pub const VERSION: u8 = 128;
+pub const VERSION: u8 = 129;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;
 /// A peer that sends nothing for this long is lost (shown frozen, still in its slot).
@@ -140,6 +140,12 @@ pub struct NpcState {
     /// included), for a guest's compass (Boulder City, laptop 2026-11-09). Sent in the
     /// top bit of [`Self::level`] (levels stay under 32768).
     pub hostile: bool,
+    /// Where it is in the host's world: its interior cell, or the worldspace of the
+    /// exterior it stands in (0: not told). A guest draws it only there [until protocol
+    /// 129 a guest put every NPC the host drew in its own place: the NCR Embassy's MPs,
+    /// drawn and killed inside on the host, hung in the air over the Strip at the
+    /// interior's coordinates on a guest outside, playtest 119 item 151].
+    pub space: u32,
 }
 
 impl NpcState {
@@ -165,8 +171,8 @@ pub mod npc_flag {
     pub const KNOCKED: u8 = 128;
 }
 
-/// NPC states in one packet (41 bytes each: under 1200 bytes in all).
-pub const NPCS_PER_PACKET: usize = 29;
+/// NPC states in one packet (45 bytes each: under 1200 bytes in all).
+pub const NPCS_PER_PACKET: usize = 26;
 /// How often the host sends its NPCs.
 pub const NPC_HZ: u32 = 10;
 /// The host sends its active quest this often, and at once when it changes.
@@ -2174,6 +2180,7 @@ fn encode(msg: &Msg) -> Vec<u8> {
                 b.extend_from_slice(&n.base.to_le_bytes());
                 b.extend_from_slice(&((n.level & 0x7FFF) | if n.hostile { 0x8000 } else { 0 }).to_le_bytes());
                 b.push(n.rolls.min(127) | if n.all_levels { 128 } else { 0 });
+                b.extend_from_slice(&n.space.to_le_bytes());
             }
         }
         Msg::Hit { id, hit } => {
@@ -2466,8 +2473,8 @@ fn decode(b: &[u8]) -> Option<Msg> {
                 if !feet.iter().chain([&heading, &pitch]).all(|v| v.is_finite()) {
                     return None;
                 }
-                let (flags, weapon, attacks, furniture, base, level, look) = (r.u8()?, r.u32()?, r.u8()?, r.u32()?, r.u32()?, r.u16()?, r.u8()?);
-                npcs.push(NpcState { reference, feet, heading, pitch, flags, weapon, attacks, furniture, base, level: level & 0x7FFF, all_levels: look & 128 != 0, rolls: look & 127, hostile: level & 0x8000 != 0 });
+                let (flags, weapon, attacks, furniture, base, level, look, space) = (r.u8()?, r.u32()?, r.u8()?, r.u32()?, r.u32()?, r.u16()?, r.u8()?, r.u32()?);
+                npcs.push(NpcState { reference, feet, heading, pitch, flags, weapon, attacks, furniture, base, level: level & 0x7FFF, all_levels: look & 128 != 0, rolls: look & 127, hostile: level & 0x8000 != 0, space });
             }
             Msg::Npcs { seq, npcs }
         }
@@ -2727,8 +2734,8 @@ mod tests {
             Msg::Npcs {
                 seq: 12,
                 npcs: vec![
-                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255, furniture: 0, base: 0x0010_4C39, level: 12, all_levels: true, rolls: 3, hostile: true },
-                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD | npc_flag::SEATED, weapon: 0, attacks: 0, furniture: 0x0010_C055, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false },
+                    NpcState { reference: 0x0010_4C3A, feet: [1.0, -2.5, 300.0], heading: 1.5, pitch: -0.2, flags: npc_flag::DRAWN | npc_flag::AIMING, weapon: 0x0E3778, attacks: 255, furniture: 0, base: 0x0010_4C39, level: 12, all_levels: true, rolls: 3, hostile: true, space: 0x0010_4C00 },
+                    NpcState { reference: 7, feet: [0.0; 3], heading: 0.0, pitch: 0.0, flags: npc_flag::DEAD | npc_flag::SEATED, weapon: 0, attacks: 0, furniture: 0x0010_C055, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space: 0 },
                 ],
             },
             Msg::State { id: 1, seq: 7, state: state(-12.5) },
@@ -3197,7 +3204,7 @@ mod tests {
         let step = Duration::from_millis(10);
         run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().any(|e| matches!(e, Event::Welcomed(_))));
         // More than one packet's worth.
-        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false }).collect();
+        let npcs: Vec<NpcState> = (0..NPCS_PER_PACKET as u32 + 5).map(|i| NpcState { reference: 0x100 + i, feet: [i as f32, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space: 0 }).collect();
         host.set_npcs(npcs.clone());
         let seen = run(&mut [&mut host, &mut a], &mut clock, step, |seen| seen[1].iter().filter(|e| matches!(e, Event::Npcs(_))).count() >= 2);
         let mut heard: Vec<NpcState> = Vec::new();

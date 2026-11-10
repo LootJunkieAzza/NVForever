@@ -259,6 +259,8 @@ enum ButtonKind {
     ShowLocation,
     NotesFilter,
     Challenges,
+    /// The Misc tab's co-op players (item 172).
+    Friends,
     /// The Map Icon box: the head the others see this player as (`crate::coop_heads`).
     MapIcon,
 }
@@ -294,6 +296,11 @@ pub struct DataState {
     note_shown: Option<u32>,
     /// The Notes tab shows the challenges instead ("Challenges", R; `crate::challenges`).
     challenges: bool,
+    /// The Misc tab lists the other co-op players instead ("Friends", F; item 172).
+    friends: bool,
+    /// A Friends row used: the trip to that player asked of `travel` once the input is
+    /// taken (its reference).
+    travel_to: Option<u32>,
     /// The point shown at each map's middle (world: the picture's 0–1; local: game x, y)
     /// and its magnification.
     centre: [Option<[f32; 2]>; 2],
@@ -552,7 +559,7 @@ pub fn draw(
     let lists = lists(st, &game);
     let pointer = screen.as_ref().and_then(|s| s.pointer);
     take_input(st, tab, &lists, &mut game, &mut input, pointer);
-    if tab == NOTES && lists.challenges.is_none() {
+    if tab == NOTES && lists.challenges.is_none() && lists.friends.is_none() {
         mark_read(st, &lists, &mut game);
     } else {
         // Left the notes: the next note shown comes up again.
@@ -576,7 +583,7 @@ impl DataState {
     /// A tab's selected row and whether Misc shows the challenges, for the scroll sound
     /// (`super::sounds`).
     pub fn selection(&self, tab: usize) -> (usize, bool) {
-        (self.sel.get(tab).copied().unwrap_or(0), self.challenges)
+        (self.sel.get(tab).copied().unwrap_or(0), self.challenges || self.friends)
     }
 
     /// The active quest, for a save (`crate::save`).
@@ -722,6 +729,21 @@ struct Lists {
     playing: Option<u32>,
     /// The Notes tab lists these instead of the notes.
     challenges: Option<Vec<crate::challenges::Row>>,
+    /// The Misc tab lists these instead: the other co-op players.
+    friends: Option<Vec<Friend>>,
+}
+
+/// A row of the Friends list (item 172): another co-op player and where it is.
+#[derive(Debug, Clone, PartialEq)]
+struct Friend {
+    name: String,
+    reference: u32,
+    place: String,
+    indoors: bool,
+    /// In an add-on's world or cell (its FormID's plugin index is not the base game's).
+    add_on: bool,
+    combat: bool,
+    no_travel: bool,
 }
 
 fn lists(st: &mut DataState, game: &Game) -> Lists {
@@ -761,6 +783,24 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
     if st.challenges {
         out.challenges = Some(crate::challenges::rows(g));
     }
+    // The Friends list is for a co-op game only; it goes when the last other player does.
+    let mates = game.mates.as_deref().map(|m| m.0.as_slice()).unwrap_or_default();
+    if st.friends && mates.is_empty() {
+        st.friends = false;
+    }
+    if st.friends {
+        let mut friends = Vec::new();
+        for m in mates {
+            let grid = if m.interior.is_some() { (0, 0) } else { ((m.feet[0] / model::CELL).floor() as i32, (m.feet[1] / model::CELL).floor() as i32) };
+            let place = match game.world.as_ref() {
+                Some(w) => st.places.entry((m.world, m.interior, grid)).or_insert_with(|| read::place_name(w.lo, w.schema, w.index, m.world, m.interior, m.feet)).clone(),
+                None => String::new(),
+            };
+            let add_on = m.interior.unwrap_or(m.world) >> 24 != 0;
+            friends.push(Friend { name: m.name.clone(), reference: m.reference, place, indoors: m.interior.is_some(), add_on, combat: m.combat, no_travel: m.no_travel });
+        }
+        out.friends = Some(friends);
+    }
     if let (Some(radio), Some(places)) = (game.radio.as_ref(), game.places.as_ref()) {
         out.stations = radio
             .pipboy_list
@@ -797,7 +837,11 @@ fn mark_read(st: &mut DataState, l: &Lists, game: &mut Game) {
 fn list_len(tab: usize, l: &Lists) -> usize {
     match tab {
         QUESTS => l.quests.len(),
-        NOTES => l.challenges.as_ref().map_or(l.notes.len(), Vec::len),
+        NOTES => match (&l.friends, &l.challenges) {
+            (Some(f), _) => f.len(),
+            (None, Some(c)) => c.len(),
+            (None, None) => l.notes.len(),
+        },
         RADIO => l.stations.len(),
         _ => 0,
     }
@@ -832,7 +876,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     }
     // The test aid's `note=`: that note selected and used, as a click on its row.
     if let Some(f) = input.aid.note.take() {
-        match l.notes.iter().position(|n| n.form == f).filter(|_| tab == NOTES && l.challenges.is_none()) {
+        match l.notes.iter().position(|n| n.form == f).filter(|_| tab == NOTES && l.challenges.is_none() && l.friends.is_none()) {
             Some(i) => {
                 st.sel[NOTES] = i;
                 st.boxed = true;
@@ -848,8 +892,12 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             st.text_first = 0.0;
         }
     }
-    if tab == NOTES && input.keys.just_pressed(KeyR) {
+    if tab == NOTES && input.keys.just_pressed(KeyR) && l.friends.is_none() {
         st.acts.push(Act::Button(ButtonKind::Challenges));
+    }
+    let coop = game.mates.as_ref().is_some_and(|m| !m.0.is_empty());
+    if tab == NOTES && input.keys.just_pressed(KeyF) && (coop || st.friends) {
+        st.acts.push(Act::Button(ButtonKind::Friends));
     }
     if tab == NOTES {
         if input.keys.just_pressed(PageDown) {
@@ -899,6 +947,11 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     st.text_first = st.text_first.clamp(0.0, st.text_max.max(0.0));
     if use_it && len > 0 {
         use_row(st, tab, st.sel[tab].min(len - 1), l, game);
+    }
+    // A Friends row used: the same ask as the World Map's head of that player (item 134),
+    // so the same refusals and the same question box (`travel::answer`).
+    if let Some(r) = st.travel_to.take() {
+        input.ask.write(FastTravelAsk(r));
     }
     if len > 0 {
         st.sel[tab] = st.sel[tab].min(len - 1);
@@ -978,6 +1031,11 @@ fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game)
                 (p.on, p.station) = (true, Some(FormId(station)));
                 info!("pipboy data: radio tuned to {name}");
             }
+        }
+        NOTES if l.friends.is_some() => {
+            let Some(f) = l.friends.as_ref().and_then(|f| f.get(i)) else { return };
+            info!("pipboy data: friends: fast travel to {} ({:08X}) asked", f.name, f.reference);
+            st.travel_to = Some(f.reference);
         }
         NOTES if l.challenges.is_none() => {
             // A Sound or Voice note plays from its start, or pauses and goes on when it
@@ -1153,6 +1211,13 @@ fn button(st: &mut DataState, k: ButtonKind, input: &mut Input, game: &Game) {
             st.text_first = 0.0;
             info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
         }
+        ButtonKind::Friends => {
+            st.friends = !st.friends;
+            st.sel[NOTES] = 0;
+            st.first[NOTES] = 0;
+            st.text_first = 0.0;
+            info!("pipboy data: {} shown", if st.friends { "friends (the co-op players)" } else { "notes" });
+        }
         ButtonKind::PlaceMarker => info!("pipboy data: {k:?} is not built"),
     }
 }
@@ -1194,6 +1259,16 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             let right = l.quests.get(st.sel[QUESTS]).map_or(Right::None, |q| Right::Objectives(objectives(game, q.form)));
             Body::List { rows, first: st.first[QUESTS], boxed: st.boxed.then_some(st.sel[QUESTS]), right }
         }
+        NOTES if l.friends.is_some() => {
+            // The other co-op players in place of the notes; F goes back [design: item 172,
+            // the owner: "a friends tab in the pip boy ... that just lists players and
+            // gives you the option to fast travel"].
+            buttons.push(Button { text: "Notes".into(), key: Some("F)"), kind: ButtonKind::Friends });
+            let list = l.friends.as_deref().unwrap_or_default();
+            let rows = list.iter().map(|f| Row { text: f.name.clone(), mark: Mark::None, done: f.combat || f.no_travel }).collect();
+            let right = list.get(st.sel[NOTES]).map_or(Right::None, |f| Right::Text { text: friend_text(f), first: st.text_first });
+            Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }
+        }
         NOTES if l.challenges.is_some() => {
             // The challenges in place of the notes; R goes back [hypothesis: the button's
             // word then].
@@ -1212,6 +1287,9 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
                 buttons.push(Button { text: text.into(), key: None, kind: ButtonKind::NotesFilter });
             }
             buttons.push(Button { text: "Challenges".into(), key: Some("R)"), kind: ButtonKind::Challenges });
+            if game.mates.as_ref().is_some_and(|m| !m.0.is_empty()) {
+                buttons.push(Button { text: "Friends".into(), key: Some("F)"), kind: ButtonKind::Friends });
+            }
             let rows = l.notes.iter().map(|n| Row { text: n.name.clone(), mark: Mark::None, done: false }).collect();
             let right = match l.notes.get(st.sel[NOTES]) {
                 Some(n) if n.kind == 1 => Right::Text { text: n.text.clone().unwrap_or_default(), first: st.text_first },
@@ -1230,6 +1308,26 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
         }
     };
     View { tab, place, when, buttons, body, popup: st.popup.clone(), heads: st.heads.clone() }
+}
+
+/// The Friends list's right side: where the player is and whether a trip to it can be
+/// made now [design: item 172; the refusal's own words are `travel::mate_refusal`'s].
+fn friend_text(f: &Friend) -> String {
+    let mut where_ = if f.place.is_empty() { "Somewhere unnamed".to_string() } else { f.place.clone() };
+    let tags: Vec<&str> = [(f.indoors, "indoors"), (f.add_on, "add-on area")].iter().filter(|t| t.0).map(|t| t.1).collect();
+    if !tags.is_empty() {
+        where_ = format!("{where_} ({})", tags.join(", "));
+    }
+    let can = if f.combat {
+        "In combat: no fast travel to them now.".to_string()
+    } else if f.no_travel {
+        "Busy (a conversation or a scene): no fast travel to them now.".to_string()
+    } else {
+        format!("Enter or click: Fast travel to {}", f.name)
+    };
+    format!("{where_}
+
+{can}")
 }
 
 fn quest_name(game: &Game, q: u32) -> String {

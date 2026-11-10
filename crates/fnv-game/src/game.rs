@@ -1485,6 +1485,19 @@ pub struct Game<'a> {
     /// host's world (`fighting one or ready to attack one`), which this game's compass marks
     /// hostile as its own would be; this game runs none of the scripts that turned them.
     pub coop_hostile: BTreeSet<FormId>,
+    /// The host's: checkpoints that took the player's items of a form type into a
+    /// container (`RemoveAllTypedItems` on the player: a Strip casino's weapon check) or
+    /// gave them back (the container's `RemoveAllItems player`), for the guests to do the
+    /// same with their own (`coop_checkpoint`): (container, type code, exception list,
+    /// given back). Taken by the engine each frame.
+    pub coop_checkpoints: Vec<(FormId, i32, Option<FormId>, bool)>,
+    /// The host's: the containers a checkpoint put the player's items in, until they are
+    /// given back.
+    pub coop_checkpoint_holds: BTreeSet<FormId>,
+    /// A guest's: what each checkpoint holds of this player's, by container, until the
+    /// host gets its own back (playtest 119 item 149: guests kept their guns in the
+    /// casinos).
+    pub coop_checked: BTreeMap<FormId, Vec<(FormId, i32, fnv_sim::inventory::Extra)>>,
     /// Co-op replication (docs/design/coop-replication.md §11 phase 4): this game is a
     /// guest's that draws the host's world and runs none of its logic (R3). Its own
     /// player's carried-item scripts and menus go on; the story's quests (those of the
@@ -2260,6 +2273,9 @@ impl<'a> Game<'a> {
             story_speakers: None,
             coop_guest: false,
             coop_hostile: BTreeSet::new(),
+            coop_checkpoints: Vec::new(),
+            coop_checkpoint_holds: BTreeSet::new(),
+            coop_checked: BTreeMap::new(),
             world_logic_off: false,
             story_plugins: Vec::new(),
             coop_effects: None,

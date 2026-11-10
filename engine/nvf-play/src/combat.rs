@@ -811,6 +811,8 @@ pub struct CombatStats {
     pub object_scripts: u32,
     pub objects_pushed: u32,
     pub explosions: u32,
+    /// Other players' explosions drawn here (co-op).
+    pub remote_explosions: u32,
     pub damage: f32,
     pub reloads: u32,
     pub dry_fires: u32,
@@ -1044,6 +1046,13 @@ pub struct Combat {
     /// Explosions to set off this frame (impacts, detonations, destruction stages), with
     /// who set each off.
     boom: Vec<(FormId, V3, Option<Cause>)>,
+    /// The explosions this game set off, for the other co-op players' games
+    /// (`coop_social` sends them; at most [`SENT_BOOMS_MAX`] wait).
+    pub sent_booms: Vec<(FormId, V3)>,
+    /// The explosions another player's game set off: drawn, heard and pushing loose
+    /// objects here, their damage that game's [playtest 119 item 162: the other players
+    /// saw and heard none of them].
+    pub remote_booms: Vec<(FormId, V3)>,
     /// Debris of destroyed objects for the engine to throw (nvforever `dismember.rs`).
     pub debris: Vec<ObjectDebris>,
     cycle: Option<Cycle>,
@@ -1967,6 +1976,8 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         melee: false,
         swings: Melee::default(),
         boom: Vec::new(),
+        sent_booms: Vec::new(),
+        remote_booms: Vec::new(),
         debris: Vec::new(),
         cycle: None,
         kick: Kick::default(),
@@ -3811,6 +3822,9 @@ const VATS_BLOW_PAST: f32 = 32.0;
 
 /// Explosions set off per frame at most (chains of destructibles) [design].
 const MAX_EXPLOSIONS_PER_FRAME: u32 = 64;
+/// This game's explosions kept for the other co-op players at most (out of co-op nobody
+/// takes them: the oldest are kept, the rest dropped).
+pub const SENT_BOOMS_MAX: usize = 32;
 /// How far above and below an explosion the ground is looked for to show the impact of
 /// its data set there, game units [design].
 const EXPLOSION_GROUND_UP: f32 = 32.0;
@@ -4389,6 +4403,9 @@ fn fly(
             break;
         }
         stats.explosions += 1;
+        if c.sent_booms.len() < SENT_BOOMS_MAX {
+            c.sent_booms.push((id, at));
+        }
         let Some(mut x) = c.forms.explosions.get(&id).cloned() else { continue };
         let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
         // Splash Damage's Adjust Explosion Radius, for the cause's blasts (the player's
@@ -4545,6 +4562,27 @@ fn fly(
                 );
             }
         }
+    }
+    // Another player's explosions: drawn and heard, loose objects pushed; no damage here
+    // (it is the game that set it off's, which tells the host its hits).
+    for (id, at) in std::mem::take(&mut c.remote_booms) {
+        let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
+        let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
+        let reach = c.forms.setting("fExplosionSplashRadius").filter(|r| *r > 0.0).unwrap_or(WATER_BLAST_REACH);
+        let water = water_thrown_up(at, phys.world.water_surface_for(at), ground.as_ref().map(|g| g.point[2]), reach);
+        let look = if water.is_some() { ExplosionLook::Hidden } else { ExplosionLook::Own };
+        effects.2.write(ExplosionFx { explosion: id, point: at, cause: None, normal: ground.as_ref().map(|g| g.normal), look });
+        if let Some(surface) = water {
+            effects.2.write(ExplosionFx { explosion: WATER_EXPLOSION, point: [at[0], at[1], surface], cause: None, normal: None, look: ExplosionLook::WaterSurface });
+        }
+        if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
+            for sound in e.sound_1.into_iter().chain(e.sound_2) {
+                effects.0.write(PlaySound { sound, at: Some(at) });
+            }
+        }
+        let pushed = phys.world.push_dynamic(at, x.radius, x.force);
+        stats.remote_explosions += 1;
+        info!("combat: another player's explosion {} at ({:.0}, {:.0}, {:.0}): drawn here, {pushed} loose object(s) pushed, its damage that game's", x.edid.as_deref().unwrap_or("?"), at[0], at[1], at[2]);
     }
     // Shots that went down into water: the water impact of the weapon's impact data set
     // on the surface, facing up (no decal on water).

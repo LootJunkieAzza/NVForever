@@ -167,6 +167,9 @@ pub struct Social {
     /// Players whose own game threw their body (a lost duel), and with what velocity:
     /// every copy of them is thrown the same (`Msg::Thrown`; `nvforever::coop`).
     pub throws: Vec<(u8, [f32; 3])>,
+    /// Explosions other players' games set off: (EXPL, point), for this game's combat to
+    /// draw ([`blasts`]).
+    pub blasts: Vec<(u32, [f32; 3])>,
     /// Attacks begun by this player as last seen (`combat::WeaponAnim::attacks`).
     attacks: Option<u32>,
     /// Caps to give back (buys the other could not honour), and sales to carry out
@@ -309,7 +312,7 @@ impl Plugin for CoopSocialPlugin {
             .add_systems(Update, input.in_set(PlaySet::Input).after(crate::weapon_wheel::read).before(crate::control::read_controls))
             .add_systems(Update, hold.after(crate::control::enforce_locks).after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, target.in_set(PlaySet::Activation).after(crate::activate::find_target).before(crate::activate::activate))
-            .add_systems(Update, (talk, duel_step, trade_step, caravan_bridge).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (talk, blasts, duel_step, trade_step, caravan_bridge).chain().in_set(PlaySet::Ui))
             .add_systems(Update, trade_screen.in_set(PlaySet::Ui).after(crate::menu::MenuSystems).after(trade_step))
             .add_systems(Last, report);
         draw::build(app);
@@ -794,6 +797,9 @@ fn talk(real: Res<Time<Real>>, mut tables: ResMut<Tables>, mut social: ResMut<So
             Msg::Quit { nonce } if s.invites.asked.iter().any(|i| i.nonce == nonce && i.with == from) => {
                 s.invites.withdrawn(from, nonce);
             }
+            Msg::Blast { explosion, point, .. } => {
+                s.blasts.push((explosion, point.map(|v| v as f32)));
+            }
             Msg::Thrown { velocity, .. } => {
                 let velocity = velocity.map(|v| v as f32);
                 info!("co-op social: player {} was thrown at ({:.0}, {:.0}, {:.0}) units/s in its own game", from + 1, velocity[0], velocity[1], velocity[2]);
@@ -959,6 +965,36 @@ fn duel_step(
     }
     for (to, m) in out {
         tables.send(to as u32, game::SOCIAL, m.encode());
+    }
+}
+
+/// Explosions between the players' games (playtest 119 item 162): the ones this game
+/// set off go to every other player; the ones heard go to this game's combat, which draws
+/// and hears them and pushes loose objects (the damage is the sender's game's).
+fn blasts(mut tables: ResMut<Tables>, mut social: ResMut<Social>, mates: Res<SocialMates>, combat: Option<ResMut<crate::combat::Combat>>, mut sent: Local<u32>) {
+    let Some(mut combat) = combat else {
+        social.blasts.clear();
+        return;
+    };
+    let mine = std::mem::take(&mut combat.sent_booms);
+    let heard = std::mem::take(&mut social.blasts);
+    let Some(me) = tables.me.filter(|_| tables.on) else { return };
+    for (explosion, point) in heard {
+        combat.remote_booms.push((FormId(explosion), point));
+    }
+    let others: Vec<u8> = mates.mates.iter().map(|m| m.id).filter(|&id| id != me).collect();
+    if others.is_empty() {
+        return;
+    }
+    for (explosion, point) in mine {
+        *sent += 1;
+        if *sent <= 20 || sent.is_power_of_two() {
+            info!("co-op social: this game's explosion {explosion} at ({:.0}, {:.0}, {:.0}) goes to {} other player(s) ({} sent)", point[0], point[1], point[2], others.len(), *sent);
+        }
+        let m = Msg::Blast { nonce: 0, explosion: explosion.0, point: point.map(|v| v.round() as i32) };
+        for &to in &others {
+            tables.send(u32::from(to), game::SOCIAL, m.encode());
+        }
     }
 }
 

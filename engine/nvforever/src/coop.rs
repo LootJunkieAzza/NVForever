@@ -312,6 +312,7 @@ impl Plugin for CoopPlugin {
             swept_at: 0.0,
             unheard: HashMap::new(),
             hidden: HashSet::new(),
+            host_disabled: HashSet::new(),
             presence: HostPresence::default(),
             presence_was: HashMap::new(),
             presence_made: None,
@@ -353,6 +354,7 @@ impl Plugin for CoopPlugin {
             .insert_resource(coop)
             .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, leash, scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .add_systems(Update, peer_emotes.after(social_mates))
+            .add_systems(Update, (replication::dismember_out.before(replication::replicate), replication::dismember_in.after(replication::replicate)))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
             .add_systems(Update, scene::story_prompts.after(scene::share_scene).before(downed))
             .init_resource::<HoldLeave>()
@@ -506,6 +508,10 @@ struct Coop {
     /// when each has not been heard of, and those it disabled ([`not_in_hosts_world`]).
     unheard: HashMap<u32, f32>,
     hidden: HashSet<FormId>,
+    /// A guest's: references the host's scripts disabled (and have not enabled since):
+    /// an NPC sample of the host's from before the disable does not show it here again
+    /// ([`place_like_host`]; item 186).
+    host_disabled: HashSet<u32>,
     /// A guest's: the host's world's presence as heard ([`follow_presence`]), and the
     /// enabled flags it changed in this world, as they were (put back on leaving).
     presence: HostPresence,
@@ -1720,8 +1726,22 @@ fn take_events(
             }
             // A guest's, as its actor's in this world (module notes).
             Event::Hit { id, hit } if is_host => match decode_hit(&hit) {
-                Some(h) => {
+                Some(mut h) => {
                     let by = coop.peers.get(&id).and_then(|p| p.actor).unwrap_or(FormId::PLAYER_REF);
+                    // A guest draws the other players as puppets (`PUPPET_REF` + their
+                    // id) and its hits on them name the puppet: here it is the player
+                    // itself, the host's player or that guest's actor [playtest 119
+                    // item 158: a guest's shots hurt no other player, friendly fire on].
+                    if is_puppet(h.target.0) {
+                        let whose = (h.target.0 - PUPPET_REF) as u8;
+                        match if whose == 0 { Some(FormId::PLAYER_REF) } else { coop.peers.get(&whose).and_then(|p| p.actor) } {
+                            Some(t) if whose != id => h.target = t,
+                            _ => {
+                                info!("co-op: player {}'s hit on puppet {} dropped: no such player here", id + 1, h.target);
+                                continue;
+                            }
+                        }
+                    }
                     // Friendly Fire off (item 122): a guest's hit on the host or on another
                     // player hurts nobody.
                     let on_player = h.target == FormId::PLAYER_REF || coop.peers.values().any(|p| p.actor == Some(h.target));
@@ -1855,9 +1875,11 @@ fn leash(
     // Beside the host, not on it: a guest put on the host's feet pushed the host 40 units
     // aside, out of Jed's 250-unit greeting at Zion, and the greeting never came
     // (laptop run story-near 2026-11-09).
-    let feet = scene::beside(feet, yaw);
+    // Each guest its own place (item 154: every guest landed on one spot at Zion).
+    let slot = coop.link.as_ref().and_then(|l| l.id()).unwrap_or(1);
+    let feet = scene::beside_slot(feet, yaw, slot);
     let (world, interior) = if interior != 0 { (None, Some(interior)) } else { (Some(w), None) };
-    info!("co-op: summoned: to the host at {:?} {:?} {feet:?}", world, interior);
+    info!("co-op: summoned: to the host at {:?} {:?} {feet:?} (guest place {slot})", world, interior);
     travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: yaw.to_degrees() }));
     coop.last_leash = Some(now);
 }
@@ -2154,6 +2176,10 @@ fn share_npcs(
     // own, so its compass shows what the host's world says (Boulder City: the Khans
     // turned on the host and showed 0 hostile on the guest's compass, laptop 2026-11-09).
     let mut hostile: HashSet<u32> = HashSet::new();
+    // The weapon a weapon use (a Use Weapon package, the UseWeapon function) has it fire:
+    // the combat AI's pose has none for it, so a guest drew its shots as punches with no
+    // gun in its hands (Boone's sniper shot at Novac, Novac runs on 9e66, 2026-11-09).
+    let mut using: HashMap<u32, FormId> = HashMap::new();
     if let (Some(rt), Some(sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim.as_deref_mut()) {
         let refs: Vec<u32> = actors.iter().map(|(v, ..)| v.0).filter(|r| !is_puppet(*r) && !players.contains(r)).chain(undrawn.iter().map(|u| u.0)).collect();
         let others: Vec<FormId> = players.iter().map(|&p| FormId(p)).collect();
@@ -2167,6 +2193,9 @@ fn share_npcs(
                 let fighting = g.awareness.get(id).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF || others.contains(&t));
                 if fighting || g.would_attack(id, FormId::PLAYER_REF) {
                     hostile.insert(r);
+                }
+                if let Some(w) = g.active_weapon_use(id).and_then(|u| u.weapon) {
+                    using.insert(r, w);
                 }
             }
         });
@@ -2205,7 +2234,8 @@ fn share_npcs(
             heading: crate::nav::tr_heading(t),
             pitch: pitch.unwrap_or(0.0),
             flags,
-            weapon: fighters.weapon(r).map_or(0, |w| w.0),
+            // Its fighting pose's weapon, else its weapon use's, else the one drawn on it.
+            weapon: fighters.weapon(r).or_else(|| using.get(&r).copied()).or_else(|| dressed.and_then(|d| d.weapon).filter(|_| hold.is_some_and(|h| h.drawn))).map_or(0, |w| w.0),
             attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
             furniture: on.map_or(0, |f| f.furniture()),
             base: sim.as_deref().and_then(|s| s.base_of(r)).map_or(0, |b| b.0),
@@ -2213,6 +2243,7 @@ fn share_npcs(
             all_levels: level.all_levels,
             rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
             hostile: hostile.contains(&r),
+            space: sim.as_deref().map_or(0, |s| space_of_ref(&s.world, FormId(r))),
         });
         // What it is drawn wearing and holding: each game rolls carried items from its
         // own random numbers (item 71), so the guests dress their copies in this.
@@ -2224,7 +2255,7 @@ fn share_npcs(
     // not draw (`areas`): where its AI has them (item 109).
     {
         let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
-        for (r, base, _, feet, heading, walking) in undrawn {
+        for (r, base, space, feet, heading, walking) in undrawn {
             let dead = game.is_some_and(|g| g.is_dead(FormId(r)));
             let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
             let mut flags = if walking { npc_flag::MOVING } else { 0 };
@@ -2248,6 +2279,9 @@ fn share_npcs(
                 all_levels: level.all_levels,
                 rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
                 hostile: hostile.contains(&r),
+                space: match space {
+                    fnv_nav::Space::Interior(c) | fnv_nav::Space::World(c) => c,
+                },
             });
         }
     }
@@ -2391,12 +2425,13 @@ fn follow_npcs(
     mut actors: Query<(Entity, &RefVisual, Option<&mut WeaponHold>, Option<&mut Locomotion>, Has<Remote>, Has<Dying>, &Transform), (With<crate::limbs::ActorRig>, Without<Puppet>)>,
     mut fighters: ResMut<Fighters>,
     actor_world: Option<Res<ActorWorld>>,
-    (mut attacks, mut hits): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>),
+    (mut attacks, mut hits, mut fired, combat): (MessageWriter<PlayAttack>, MessageWriter<ActorHit>, MessageWriter<nvf_play::combat::ShotFired>, Option<Res<nvf_play::combat::Combat>>),
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
     mut told: Local<usize>,
     (sfx, listener, mut sounds, mut sim, loc): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Option<ResMut<nvf_play::sim::SimState>>, Option<Res<Location>>),
     solo: Option<Res<nvf_play::save::SoloBase>>,
     mut knocked: Local<HashSet<u32>>,
+    mut streamed_since: Local<Option<f32>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -2459,8 +2494,22 @@ fn follow_npcs(
     // Where the host's story put the NPCs it draws here, they are here too.
     let here = loc.as_deref().map(place_of);
     let settled = coop.host_place.filter(|(p, _)| Some(*p) == here).map(|(_, since)| since);
+    // The host's disables come before its NPC samples (item 186: the Strip crowd the
+    // host's scene disabled was enabled here again from the samples sent just before, and
+    // 6 of 7 stayed standing): an NPC the host disabled is forgotten here, so the disable
+    // below reaches it, and no older sample shows it again until the host enables it.
+    for &(r, on) in &coop.presence.fresh {
+        if on {
+            coop.host_disabled.remove(&r);
+        } else {
+            coop.host_disabled.insert(r);
+            if coop.npcs.remove(&r).is_some() {
+                info!("co-op: the host disabled {}: not followed here any more", g.data.name(FormId(r)));
+            }
+        }
+    }
     if let (Some(sim), Some(since)) = (sim.as_deref_mut(), settled) {
-        for r in place_like_host(&mut sim.world, g, &coop.npcs, since + HOST_SETTLE, now) {
+        for r in place_like_host(&mut sim.world, g, &coop.npcs, &coop.host_disabled, since + HOST_SETTLE, now) {
             coop.hidden.remove(&r);
             coop.unheard.remove(&r.0);
         }
@@ -2484,18 +2533,40 @@ fn follow_npcs(
     }
     // This game's own actors near the host that the host's world does not have: hidden
     // (module notes). Only once the host's NPCs come, and the host has been here a while.
-    match (sim.as_deref_mut(), settled.filter(|s| now - s >= HIDE_AFTER), coop.host) {
-        (Some(sim), Some(_), Some(host)) if !coop.npcs.is_empty() => {
+    // Away from the host too (item 157: a guest's own save kept the Honest Hearts caravan
+    // alive at Northern Passage, dead in Zion in the host's world): round this player,
+    // once the host has streamed its actors of this place near here for a while (the
+    // undrawn residents round away guests, `share_npcs`), so the host simulates this area.
+    let mine = listener.as_deref().map(|p| p.feet);
+    let my_space = here.map_or(0, |p| match p {
+        Place::Interior(c) | Place::Exterior(c) => c,
+    });
+    let streamed_here = mine.is_some_and(|me| {
+        my_space != 0 && coop.npcs.values().filter_map(|t| t.samples.back()).any(|(_, n)| n.space == my_space && (n.feet[0] - me[0]).hypot(n.feet[1] - me[1]) <= HIDE_REACH)
+    });
+    let away = settled.is_none() && streamed_here;
+    if away {
+        streamed_since.get_or_insert(now);
+    } else {
+        *streamed_since = None;
+    }
+    let centre = match (settled.filter(|s| now - s >= HIDE_AFTER), coop.host, *streamed_since, mine) {
+        (Some(_), Some(host), _, _) => Some(host.feet),
+        (None, _, Some(since), Some(me)) if now - since >= HIDE_AFTER => Some(me),
+        _ => None,
+    };
+    match (sim.as_deref_mut(), centre) {
+        (Some(sim), Some(centre)) if !coop.npcs.is_empty() => {
             let drawn: Vec<(u32, [f32; 3])> = actors.iter().map(|(_, v, _, _, _, _, t)| (v.0, t.translation.to_array())).collect();
             let heard: HashSet<u32> = coop.npcs.keys().copied().collect();
-            let missing = not_in_hosts_world(&drawn, &heard, host.feet, HIDE_REACH);
+            let missing = not_in_hosts_world(&drawn, &heard, centre, HIDE_REACH);
             coop.unheard.retain(|r, _| missing.contains(r));
             for r in missing {
                 let since = *coop.unheard.entry(r).or_insert(now);
                 if now - since < HIDE_AFTER || !coop.hidden.insert(FormId(r)) {
                     continue;
                 }
-                info!("co-op: {} is not in the host's world here: hidden", g.data.name(FormId(r)));
+                info!("co-op: {} is not in the host's world here: hidden{}", g.data.name(FormId(r)), if away { " (away from the host)" } else { "" });
                 let _ = sim.world.set_enabled(FormId(r), false);
             }
         }
@@ -2543,7 +2614,8 @@ fn follow_npcs(
         .filter_map(|(&r, t)| {
             // Its furniture as the host has it now (a chair, a bed, a cross: module notes).
             let furniture = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0).map(|s| (s.furniture, s.has(npc_flag::SEATED)));
-            t.pose(now - NPC_DELAY).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture }))
+            let space = t.samples.back().map_or(0, |(_, s)| s.space);
+            t.pose(now - NPC_DELAY).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture, space }))
         })
         .collect();
     if poses.len().abs_diff(*told) >= 5 || (*told == 0) != poses.is_empty() {
@@ -2600,6 +2672,16 @@ fn follow_npcs(
             // Its shot, heard as the host's NPC's is there (no shot is fired here).
             if let Some(snd) = weapon.filter(|_| !melee).and_then(|w| shot_sound(sfx.as_deref(), listener.as_deref(), w, s.feet)) {
                 sounds.write(snd);
+            }
+            // And its muzzle flash at its gun's muzzle (`shot_fx`; item 176: Boone's shot
+            // at Jeannie May showed nothing on the guest). Only the flash: no shot is
+            // fired here, the host's hit comes as the host deals it.
+            let projectile = weapon.filter(|_| !melee).and_then(|w| combat.as_deref()?.forms.chain(w, None)?.projectile);
+            if let (Some(w), Some(projectile)) = (weapon, projectile) {
+                let eye = [s.feet[0], s.feet[1], s.feet[2] + 100.0];
+                let (sy, cy) = s.heading.sin_cos();
+                let (sp, cp) = s.pitch.sin_cos();
+                fired.write(nvf_play::combat::ShotFired { projectile, weapon: w, shooter: FormId(r), at: Some(eye), dir: Some([sy * cp, cy * cp, -sp]) });
             }
         }
     }
@@ -2887,13 +2969,13 @@ fn share_doors(
 /// there are forgotten only after [`NPC_FORGET`]). Actors the host's scripts made (`FF`
 /// references) are this game's own numbers here: left alone. One dead in this game but
 /// alive in the host's stands up again (`Game::resurrect`). Returns those it enabled.
-fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &HashMap<u32, NpcTrack>, after: f32, now: f32) -> Vec<FormId> {
+fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &HashMap<u32, NpcTrack>, host_disabled: &HashSet<u32>, after: f32, now: f32) -> Vec<FormId> {
     let mut enabled = Vec::new();
     let Some(cell) = world.peek(FormId::PLAYER_REF).and_then(|s| s.cell) else { return enabled };
     let player_space = world.placed.world_of(cell);
     for (&r, t) in npcs {
         let Some(&(at, s)) = t.samples.back() else { continue };
-        if at < after || now - at > 1.0 || r >= 0xFF00_0000 || s.has(npc_flag::DEAD) {
+        if at < after || now - at > 1.0 || r >= 0xFF00_0000 || s.has(npc_flag::DEAD) || host_disabled.contains(&r) {
             continue;
         }
         let id = FormId(r);
@@ -3337,6 +3419,13 @@ fn progress(mut coop: ResMut<Coop>, mut p: ResMut<nvf_play::coop_progress::CoopP
             Shared::Reload { stamp } => net::Progress::Reload { stamp },
         });
     }
+}
+
+/// Where a reference is in this game's world, as [`net::NpcState::space`] tells it: its
+/// interior cell, or the worldspace of its exterior cell; 0 when it has no cell.
+fn space_of_ref(world: &fnv_sim::World, r: FormId) -> u32 {
+    let cell = world.peek(r).and_then(|s| s.cell).or_else(|| world.placed.get(r).and_then(|p| p.cell));
+    cell.map_or(0, |c| world.placed.world_of(c).map_or(c.0, |w| w.0))
 }
 
 /// Whether `reference` is one of the other players' puppets (never one of the world's).

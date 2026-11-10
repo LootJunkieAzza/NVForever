@@ -159,7 +159,7 @@ fn opponent(
     }
     let Some(o) = o else { return };
     if let Some(r) = residents.as_deref_mut() {
-        r.hold_pose(o.actor.0, crate::residents::RemotePose { feet: o.feet, heading: o.heading, moving: o.moving, furniture: None });
+        r.hold_pose(o.actor.0, crate::residents::RemotePose { feet: o.feet, heading: o.heading, moving: o.moving, furniture: None, space: 0 });
     }
     if held.is_none() {
         info!("darts opponent: 0x{:08X} ({}) is walked by the game", o.actor.0, o.name);

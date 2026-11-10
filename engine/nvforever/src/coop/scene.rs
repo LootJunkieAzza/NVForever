@@ -80,10 +80,10 @@ pub(super) struct Shared {
     pub(super) heard: Option<(SceneView, f32)>,
     /// The control groups held here for the host, as last set.
     held: [bool; 7],
-    /// Since when the host has held this player's movement, and whether this player was
-    /// turned to face as the host since.
+    /// Since when the host has held this player's movement, and the host's place and yaw
+    /// this player was last turned to face as (since the hold began).
     moving_held_since: Option<f32>,
-    turned: bool,
+    turned: Option<(Place, f32)>,
     /// The modifiers put on this screen for the host, with the host's seconds for each as
     /// last heard.
     mods: HashMap<u32, f32>,
@@ -248,7 +248,7 @@ fn fast_travel_to_host(coop: &mut Coop, g: &fnv_game::Game, now: f32, loading: O
     if loading.is_some_and(|l| l.active()) {
         return;
     }
-    let feet = beside(host.feet, host.yaw);
+    let feet = beside_slot(host.feet, host.yaw, coop.link.as_ref().and_then(|l| l.id()).unwrap_or(1));
     let (world, interior) = match host.place {
         Place::Interior(c) => (None, Some(c)),
         Place::Exterior(w) => (Some(w), None),
@@ -285,11 +285,27 @@ fn follow_mods(given: &mut HashMap<u32, f32>, host: &[(u32, f32)]) -> (Vec<u32>,
     (on, off)
 }
 
-/// Where a guest stands beside the host: [`BESIDE`] units to the host's right (yaw is a
+/// How far the host may turn within a scene's hold before a held player is turned to face
+/// as the host again (radians; about 10 degrees, past the jitter of a head turn).
+const TURN_AGAIN: f32 = 0.17;
+
+/// The smaller angle between two yaws, in radians.
+fn angle_apart(a: f32, b: f32) -> f32 {
+    let d = (a - b).rem_euclid(std::f32::consts::TAU);
+    d.min(std::f32::consts::TAU - d)
+}
+
+/// Guest `slot`'s place beside the host (its player number, 1 and up): each its own, so
+/// guests summoned together do not land inside each other [playtest 119 item 154: every
+/// guest was summoned to one point at the Zion intro]. Slot 1 [`BESIDE`] to the right,
+/// 2 as far to the left, 3 twice as far to the right, 4 to the left, and so on (yaw is a
 /// compass bearing: 0 north, +Y; π/2 east, +X).
-pub(crate) fn beside(feet: [f32; 3], yaw: f32) -> [f32; 3] {
+pub(crate) fn beside_slot(feet: [f32; 3], yaw: f32, slot: u8) -> [f32; 3] {
+    let slot = slot.max(1);
+    let side = if slot.is_multiple_of(2) { -1.0 } else { 1.0 };
+    let reach = BESIDE * f32::from(slot.div_ceil(2));
     let right = yaw + std::f32::consts::FRAC_PI_2;
-    [feet[0] + right.sin() * BESIDE, feet[1] + right.cos() * BESIDE, feet[2]]
+    [feet[0] + right.sin() * reach * side, feet[1] + right.cos() * reach * side, feet[2]]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -400,16 +416,20 @@ pub(super) fn share_scene(
     // Beside the host while its movement is held.
     s.moving_held_since = if held[0] { s.moving_held_since.or(Some(now)) } else { None };
     if s.moving_held_since.is_none() {
-        s.turned = false;
+        s.turned = None;
     }
     let settled = s.moving_held_since.is_some_and(|t| now - t >= SETTLE);
     let (Some(host), Some(mut player), Some(loc)) = (coop.host, player, loc) else { return };
     // Looking held too (a slideshow, a speech): this player faces the way the host does,
     // once, so it sees what the host is shown.
-    if settled && held[4] && !s.turned && place_of(&loc) == host.place {
+    // Again whenever the host is moved or turned within the hold (item 153: the guest
+    // turned once at Jed's talk, then was summoned into the Honest Hearts slideshow room
+    // and kept that heading, so its view never reached the screen the host faced).
+    let turn_again = s.turned.is_none_or(|(place, yaw)| place != host.place || angle_apart(yaw, host.yaw) > TURN_AGAIN);
+    if settled && held[4] && turn_again && place_of(&loc) == host.place {
         player.heading = host.yaw;
         player.pitch = host.pitch;
-        s.turned = true;
+        s.turned = Some((host.place, host.yaw));
         info!("co-op: scene: this player faces as the host ({:.0} deg)", host.yaw.to_degrees());
     }
     if !settled || loading.is_some_and(|l| l.active()) || coop.downed_at.is_some() || coop.last_leash.is_some_and(|t| now - t < super::LEASH_EVERY) {
@@ -420,7 +440,7 @@ pub(super) fn share_scene(
     if place_of(&loc) != host.place || dx * dx + dy * dy <= NEAR * NEAR {
         return;
     }
-    let feet = beside(host.feet, host.yaw);
+    let feet = beside_slot(host.feet, host.yaw, coop.link.as_ref().and_then(|l| l.id()).unwrap_or(1));
     let (world, interior) = match host.place {
         Place::Interior(c) => (None, Some(c)),
         Place::Exterior(w) => (Some(w), None),
@@ -502,10 +522,24 @@ mod tests {
     #[test]
     fn beside_is_to_the_right() {
         // Facing north, the right is east (+X).
-        let f = beside([0.0, 0.0, 10.0], 0.0);
+        let f = beside_slot([0.0, 0.0, 10.0], 0.0, 1);
         assert!((f[0] - BESIDE).abs() < 1e-3 && f[1].abs() < 1e-3 && f[2] == 10.0);
         // Facing east, the right is south (-Y).
-        let f = beside([0.0, 0.0, 0.0], std::f32::consts::FRAC_PI_2);
+        let f = beside_slot([0.0, 0.0, 0.0], std::f32::consts::FRAC_PI_2, 1);
         assert!(f[0].abs() < 1e-3 && (f[1] + BESIDE).abs() < 1e-3);
+    }
+
+    #[test]
+    fn each_guest_has_its_own_place_beside_the_host() {
+        let spots: Vec<[f32; 3]> = (1..=4).map(|k| beside_slot([0.0, 0.0, 0.0], 0.0, k)).collect();
+        assert!((spots[0][0] - BESIDE).abs() < 1e-3);
+        assert!((spots[1][0] + BESIDE).abs() < 1e-3);
+        assert!((spots[2][0] - 2.0 * BESIDE).abs() < 1e-3);
+        assert!((spots[3][0] + 2.0 * BESIDE).abs() < 1e-3);
+        for (i, a) in spots.iter().enumerate() {
+            for b in &spots[i + 1..] {
+                assert!((a[0] - b[0]).hypot(a[1] - b[1]) >= BESIDE - 1e-3);
+            }
+        }
     }
 }

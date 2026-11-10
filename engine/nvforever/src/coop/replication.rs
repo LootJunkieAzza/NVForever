@@ -93,6 +93,9 @@ pub(super) struct Repl {
     /// wait"): sent as a story wait for the host's own player until each is near
     /// (`scene::share_scene`), while story NPCs are held (`Game::story_gate`).
     pub wait_for: Vec<u8>,
+    /// The host's: body parts gone here, for the guests ([`dismember_out`]); a guest's:
+    /// those the host sent, to take off here ([`dismember_in`]).
+    dismembered: Vec<Effect>,
     // The host's.
     shadows: HashMap<u8, Shadow>,
     /// References to send whole to a guest (a digest differed, or the stream started again).
@@ -161,6 +164,8 @@ struct Slow {
     weapon: u32,
     dead: bool,
     hostile: bool,
+    /// Its interior cell or worldspace in the host's world (`net::NpcState::space`).
+    space: u32,
 }
 
 #[derive(Default)]
@@ -453,6 +458,14 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
             info!("replication: the rules go to the guests: friendly fire {}", if coop.friendly_fire { "on" } else { "off" });
             effects.push(Effect::Rules { friendly_fire: coop.friendly_fire });
         }
+        // The host's player at a checkpoint (a casino's weapon check, item 149): every
+        // guest hands over, or gets back, its own.
+        for (container, code, except, back) in std::mem::take(&mut g.coop_checkpoints) {
+            info!("replication: a checkpoint {} the host's player's items (type {code}, container {container}, except {}): the guests do the same", if back { "gave back" } else { "took" }, except.map_or("none".to_string(), |e| e.to_string()));
+            effects.push(Effect::Checkpoint { container: container.0, code, except: except.map_or(0, |e| e.0), back });
+        }
+        // The body parts gone on the host (item 176).
+        effects.append(&mut r.dismembered);
         if !effects.is_empty() {
             r.effects_sent += effects.len() as u64;
             for item in repl::pack_effects(&effects, ITEM) {
@@ -603,7 +616,7 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         // The actors the host draws: Life and Anim each tick, Look on a sweep.
         for n in &r.host_npcs {
             let rf = FormId(n.reference);
-            let mut vals = vec![Value::Life { dead: n.has(npc_flag::DEAD) || dead(rf) }, Value::Anim { furniture: n.furniture, weapon: n.weapon, hostile: n.hostile }];
+            let mut vals = vec![Value::Life { dead: n.has(npc_flag::DEAD) || dead(rf) }, Value::Anim { furniture: n.furniture, weapon: n.weapon, hostile: n.hostile, space: n.space }];
             if sweep || shadow.of(n.reference).all(|s| s.comp() != comp::LOOK) {
                 let worn = sim.world.equipment(rf).unwrap_or_default().into_iter().map(|w| w.0).collect();
                 let level = aw.map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(n.reference));
@@ -744,6 +757,17 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                                     }
                                 }
                                 Effect::AnimReset { on } => g.anims.reset(FormId(on)),
+                                Effect::Checkpoint { container, code, except, back } => {
+                                    let c = FormId(container);
+                                    if back {
+                                        let n = g.coop_check_out(c);
+                                        info!("replication: the host's checkpoint gave its items back: this player gets back its own {n} from {c}");
+                                    } else {
+                                        let n = g.coop_check_in(c, code, (except != 0).then_some(FormId(except)));
+                                        info!("replication: the host's checkpoint took its items (type {code}): this player hands over its own {n} to {c}");
+                                    }
+                                }
+                                Effect::Dismember { .. } => r.dismembered.push(e),
                                 Effect::Rules { friendly_fire } => {
                                     if coop.friendly_fire != friendly_fire {
                                         info!("replication: the host's rules: friendly fire {}", if friendly_fire { "on" } else { "off" });
@@ -780,6 +804,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         all_levels: s.all_levels,
                         rolls: s.rolls,
                         hostile: s.hostile,
+                        space: s.space,
                     };
                     let t = coop.npcs.entry(p.reference).or_default();
                     t.samples.push_back((now, n));
@@ -903,10 +928,10 @@ fn apply(sim: &mut nvf_play::sim::SimState, slow: &mut HashMap<u32, Slow>, c: &C
             s.dead = *dead;
             changed
         }
-        Value::Anim { furniture, weapon, hostile } => {
+        Value::Anim { furniture, weapon, hostile, space } => {
             let s = slow.entry(c.reference).or_default();
-            let changed = (s.furniture, s.weapon) != (*furniture, *weapon);
-            (s.furniture, s.weapon) = (*furniture, *weapon);
+            let changed = (s.furniture, s.weapon, s.space) != (*furniture, *weapon, *space);
+            (s.furniture, s.weapon, s.space) = (*furniture, *weapon, *space);
             // The compass's hostile mark (`Game::coop_hostile`, set by `guest_side`).
             s.hostile = *hostile;
             changed
@@ -1128,6 +1153,35 @@ fn perf_line(coop: &mut Coop, now: f32) {
 /// The optional corner readout ([`HUD_ENV`]): the newest perf line, top right.
 #[derive(Component)]
 pub(super) struct ReplHud;
+
+/// The host's: every body part gone here goes to the guests (`Effect::Dismember`).
+pub(super) fn dismember_out(mut coop: ResMut<Coop>, mut gone: MessageReader<nvf_play::dismember::Dismembered>) {
+    let host = coop.link.as_ref().is_some_and(|l| l.is_host()) && coop.peers.values().any(|p| !p.lost);
+    for d in gone.read() {
+        if host {
+            info!("replication: {:#010X} lost part {} ({}): the guests see it too", d.form_id, d.part, if d.exploded { "exploded" } else { "severed" });
+            coop.repl.dismembered.push(Effect::Dismember { actor: d.form_id, data: d.data.0, part: d.part as u16, location: d.location, exploded: d.exploded, point: d.point, dir: d.dir });
+        }
+    }
+}
+
+/// A guest's: the host's gone body parts, taken off here (the game's record, read by
+/// IsLimbGone) and drawn as the host's were (`crate::dismember`).
+pub(super) fn dismember_in(mut coop: ResMut<Coop>, mut script: Option<ResMut<nvf_play::script::ScriptState>>, mut out: MessageWriter<nvf_play::dismember::Dismembered>) {
+    if coop.repl.dismembered.is_empty() || coop.link.as_ref().is_none_or(|l| l.is_host()) {
+        return;
+    }
+    let Some(g) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) else { return };
+    for e in std::mem::take(&mut coop.repl.dismembered) {
+        let Effect::Dismember { actor, data, part, location, exploded, point, dir } = e else { continue };
+        // Once: a digest may send it again.
+        if g.dismember(FormId(actor), &[(location, exploded)], None).is_empty() {
+            continue;
+        }
+        info!("replication: the host's {actor:#010X} lost part {part} ({}): taken off here too", if exploded { "exploded" } else { "severed" });
+        out.write(nvf_play::dismember::Dismembered { form_id: actor, data: FormId(data), part: usize::from(part), location, exploded, point, dir });
+    }
+}
 
 pub(super) fn hud(mut commands: Commands, mut coop: ResMut<Coop>, mut shown: Query<&mut Text, With<ReplHud>>) {
     let Some(line) = coop.repl_hud.take() else { return };

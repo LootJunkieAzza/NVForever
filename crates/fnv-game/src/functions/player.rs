@@ -164,6 +164,15 @@ pub fn disable_player_controls(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Valu
     // A left-out parameter is 0: the group is left as it is [hypothesis; §5.2 has a
     // capture that does not fit any simple rule].
     let which = controls(a, [true, true, true, true, false, false, false], false);
+    // A co-op guest runs no world scripts but what it sets off itself (a door's
+    // OnActivate): their locks would never be taken off here, where the script that does
+    // so runs only in the host's world. A guest is held only by the host's scenes
+    // (`Game::coop_host_locks`) [playtest 119 item 147: a Strip casino's door script
+    // locked a guest's controls for good].
+    if g.coop_guest {
+        tracing::info!("co-op: {} would disable this guest's controls {which:?}: not here (only the host's scenes hold a guest)", ctx.unit);
+        return none();
+    }
     let story = g.is_story_caller(ctx);
     for ((d, s), w) in g.player.controls_disabled.iter_mut().zip(g.story_locked.iter_mut()).zip(which) {
         *d |= w;

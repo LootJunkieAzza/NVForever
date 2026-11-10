@@ -59,7 +59,9 @@ pub enum Value {
     Exists { base: u32, cell: u32, pos: [f32; 3], rot: [f32; 3] },
     /// The furniture an actor uses (0: none) and the weapon it holds (0: none), and
     /// whether it is hostile to the players in the host's game (a guest's compass).
-    Anim { furniture: u32, weapon: u32, hostile: bool },
+    /// `space`: its interior cell, or the worldspace it stands in, in the host's world
+    /// (`net::NpcState::space`; 0: not told).
+    Anim { furniture: u32, weapon: u32, hostile: bool, space: u32 },
     /// An item a player dropped, lying in the host's world (queue item 135): its base,
     /// how many, and where it was made. Every player sees it and any one can take it.
     Item { base: u32, count: i32, cell: u32, pos: [f32; 3], rot: [f32; 3] },
@@ -113,10 +115,11 @@ impl Value {
                     b.extend_from_slice(&v.to_le_bytes());
                 }
             }
-            Value::Anim { furniture, weapon, hostile } => {
+            Value::Anim { furniture, weapon, hostile, space } => {
                 b.extend_from_slice(&furniture.to_le_bytes());
                 b.extend_from_slice(&weapon.to_le_bytes());
                 b.push(u8::from(*hostile));
+                b.extend_from_slice(&space.to_le_bytes());
             }
             Value::Item { base, count, cell, pos, rot } => {
                 b.extend_from_slice(&base.to_le_bytes());
@@ -165,7 +168,7 @@ impl Value {
                 let pos = [r.f32()?, r.f32()?, r.f32()?];
                 Value::Exists { base, cell, pos, rot: [r.f32()?, r.f32()?, r.f32()?] }
             }
-            comp::ANIM => Value::Anim { furniture: r.u32()?, weapon: r.u32()?, hostile: r.u8()? != 0 },
+            comp::ANIM => Value::Anim { furniture: r.u32()?, weapon: r.u32()?, hostile: r.u8()? != 0, space: r.u32()? },
             comp::ITEM => {
                 let base = r.u32()?;
                 let count = r.u32()? as i32;
@@ -405,6 +408,17 @@ pub enum Effect {
     Anim { on: u32, group: u16, flag: u8, settled: bool },
     /// A script reset reference `on`'s animation state (`Reset3DState`).
     AnimReset { on: u32 },
+    /// A checkpoint took the host's player's items of form type `code` (40: weapons) into
+    /// `container`, all but those in form list `except` (0: none) (a Strip casino's
+    /// weapon check): each guest hands over its own the same; `back`: the container gave
+    /// them back to the host's player, and each guest gets its own back (playtest 119
+    /// item 149).
+    Checkpoint { container: u32, code: i32, except: u32, back: bool },
+    /// A body part of `actor` went on the host (severed, or `exploded`): part `part` of
+    /// body part data `data`, GetHitLocation's `location`, hit at `point` going `dir`;
+    /// each guest takes it off and throws the same gore (item 176: Jeannie May's head,
+    /// KillActor, was whole on the guest).
+    Dismember { actor: u32, data: u32, part: u16, location: i32, exploded: bool, point: [f32; 3], dir: [f32; 3] },
 }
 
 pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
@@ -448,6 +462,24 @@ pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
                 rec.push(5);
                 rec.extend_from_slice(&on.to_le_bytes());
             }
+            Effect::Checkpoint { container, code, except, back } => {
+                rec.push(6);
+                rec.extend_from_slice(&container.to_le_bytes());
+                rec.extend_from_slice(&code.to_le_bytes());
+                rec.extend_from_slice(&except.to_le_bytes());
+                rec.push(u8::from(*back));
+            }
+            Effect::Dismember { actor, data, part, location, exploded, point, dir } => {
+                rec.push(7);
+                rec.extend_from_slice(&actor.to_le_bytes());
+                rec.extend_from_slice(&data.to_le_bytes());
+                rec.extend_from_slice(&part.to_le_bytes());
+                rec.extend_from_slice(&location.to_le_bytes());
+                rec.push(u8::from(*exploded));
+                for v in point.iter().chain(dir) {
+                    rec.extend_from_slice(&v.to_le_bytes());
+                }
+            }
         }
         if cur.len() + rec.len() > max && cur.len() > 1 {
             out.push(std::mem::replace(&mut cur, vec![kind::EFFECTS]));
@@ -475,6 +507,16 @@ pub fn unpack_effects(item: &[u8]) -> Option<Vec<Effect>> {
             3 => Effect::Rules { friendly_fire: r.u8()? != 0 },
             4 => Effect::Anim { on: r.u32()?, group: r.u16()?, flag: r.u8()?, settled: r.u8()? != 0 },
             5 => Effect::AnimReset { on: r.u32()? },
+            6 => Effect::Checkpoint { container: r.u32()?, code: r.u32()? as i32, except: r.u32()?, back: r.u8()? != 0 },
+            7 => Effect::Dismember {
+                actor: r.u32()?,
+                data: r.u32()?,
+                part: r.u16()?,
+                location: r.u32()? as i32,
+                exploded: r.u8()? != 0,
+                point: [r.f32()?, r.f32()?, r.f32()?],
+                dir: [r.f32()?, r.f32()?, r.f32()?],
+            },
             _ => return None,
         });
     }
@@ -669,7 +711,7 @@ mod tests {
             Change { reference: 0x8, value: Value::Life { dead: true } },
             Change { reference: 0x9, value: Value::Look { base: 0x1F, level: 12, all_levels: true, rolls: 2, worn: vec![0x10, 0x11, 0x12] } },
             Change { reference: 0xFF00_0001, value: Value::Exists { base: 0x22, cell: 0x33, pos: [1.0; 3], rot: [0.5; 3] } },
-            Change { reference: 0xA, value: Value::Anim { furniture: 0x44, weapon: 0x55, hostile: true } },
+            Change { reference: 0xA, value: Value::Anim { furniture: 0x44, weapon: 0x55, hostile: true, space: 0x0010_4C00 } },
             Change { reference: 0xFF00_0002, value: Value::Item { base: 0x15169, count: 3, cell: 0x33, pos: [1.0, 2.0, 3.0], rot: [0.0, 0.0, 1.5] } },
         ]
     }
@@ -753,6 +795,9 @@ mod tests {
             Effect::Anim { on: 0x0008_D36C, group: 0x10, flag: 1, settled: false },
             Effect::Anim { on: 0xFF00_0001, group: 0x2A, flag: 0, settled: true },
             Effect::AnimReset { on: 0x0010_4C16 },
+            Effect::Checkpoint { container: 0x0012_795C, code: 40, except: 0x0012_9876, back: false },
+            Effect::Checkpoint { container: 0x0012_795C, code: -1, except: 0, back: true },
+            Effect::Dismember { actor: 0x0008_D74C, data: 0x0001_3F0B, part: 1, location: 1, exploded: true, point: [26574.0, -33489.0, 7043.0], dir: [0.0, -1.0, 0.0] },
         ];
         let items = pack_effects(&e, 1100);
         assert_eq!(unpack_effects(&items[0]).unwrap(), e);

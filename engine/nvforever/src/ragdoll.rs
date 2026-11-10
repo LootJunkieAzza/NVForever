@@ -87,6 +87,12 @@ pub struct Ragdolls {
     templates: HashMap<String, Option<Arc<RagdollTemplate>>>,
     /// Bone poses (game space, in the ragdoll's body order) of corpses by reference.
     pub rest: HashMap<u32, Vec<Option<Iso>>>,
+    /// The [`Self::rest`] poses taken from a ragdoll still falling (its body taken away,
+    /// or the ground under it gone, before it came to rest): it goes on falling from
+    /// there when it is drawn again, not laid at rest in that pose [playtest 119 item
+    /// 145: a guest's Freeside thugs, drawn again just after they died, were set at rest
+    /// knelt upright, "after 0.0 s of physics"].
+    pub falling: HashSet<u32>,
     pub started: usize,
     pub restored: usize,
     pub rested: usize,
@@ -372,7 +378,7 @@ fn start(
             continue;
         }
         let parts = body_parts(rig, &c, limbs);
-        let asleep = stored.is_some();
+        let asleep = stored.is_some() && !ragdolls.falling.remove(&rig.reference);
         let velocity = std::mem::take(&mut c.velocity);
         let start = RagdollStart { form_id: rig.reference, ragdoll: &c.data, scale, nodes: &nodes, velocity, parts: &parts, asleep };
         // Bad ragdoll data that breaks the physics build (a panic, caught): this corpse
@@ -471,6 +477,9 @@ pub(crate) fn pose(
         if !phys.ready_at(first) {
             // The ground under it is gone: keep the pose for when it is back.
             ragdolls.rest.insert(id, rest());
+            if !phys.world.ragdoll_asleep(id) {
+                ragdolls.falling.insert(id);
+            }
             phys.world.remove_ragdoll(id);
             c.live = false;
             continue;
@@ -550,6 +559,7 @@ pub(crate) fn pose(
         if asleep {
             ragdolls.rested += 1;
             ragdolls.rest.insert(id, rest());
+            ragdolls.falling.remove(&id);
             // How high its trunk lies over its lowest bone: a corpse lying down is low, one
             // set at rest standing (#1049) about a body's height.
             let trunk = phys.world.ragdoll_center(id).unwrap_or(first);
@@ -568,6 +578,11 @@ pub(crate) fn pose(
     for id in gone {
         if let Some(nodes) = phys.world.ragdoll_nodes(id) {
             ragdolls.rest.insert(id, nodes.iter().map(|b| b.as_ref().map(iso_of)).collect());
+            if phys.world.ragdoll_asleep(id) {
+                ragdolls.falling.remove(&id);
+            } else {
+                ragdolls.falling.insert(id);
+            }
         }
         phys.world.remove_ragdoll(id);
     }

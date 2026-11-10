@@ -98,6 +98,9 @@ pub enum Msg {
     /// velocity (whole game units a second, game space), so every copy of it is thrown
     /// the same (owner 2026-11-09: "the propulsion should be sent to all players").
     Thrown { nonce: u16, velocity: [i32; 3] },
+    /// To every player: the sender's game set off this explosion (EXPL) at `point` (whole
+    /// game units), so every game draws and hears it (playtest 119 item 162).
+    Blast { nonce: u16, explosion: u32, point: [i32; 3] },
     /// Trade: send me what you carry.
     TradeBrowse { nonce: u16 },
     /// Trade: what the sender carries (item, count), page `page` of `pages`.
@@ -128,6 +131,7 @@ impl Msg {
             | Msg::DuelHit { nonce }
             | Msg::DuelOver { nonce, .. }
             | Msg::Thrown { nonce, .. }
+            | Msg::Blast { nonce, .. }
             | Msg::TradeBrowse { nonce }
             | Msg::TradeStock { nonce, .. }
             | Msg::TradeRequest { nonce, .. }
@@ -151,6 +155,7 @@ impl Msg {
             Msg::DuelHit { nonce } => w.u8(12).u16(*nonce),
             Msg::DuelOver { nonce, winner } => w.u8(13).u16(*nonce).u8(*winner),
             Msg::Thrown { nonce, velocity } => w.u8(14).u16(*nonce).u32(velocity[0] as u32).u32(velocity[1] as u32).u32(velocity[2] as u32),
+            Msg::Blast { nonce, explosion, point } => w.u8(15).u16(*nonce).u32(*explosion).u32(point[0] as u32).u32(point[1] as u32).u32(point[2] as u32),
             Msg::TradeBrowse { nonce } => w.u8(20).u16(*nonce),
             Msg::TradeStock { nonce, page, pages, items } => {
                 w.u8(21).u16(*nonce).u8(*page).u8(*pages).u8(items.len().min(STOCK_PAGE) as u8);
@@ -189,6 +194,7 @@ impl Msg {
             12 => Msg::DuelHit { nonce },
             13 => Msg::DuelOver { nonce, winner: r.u8()? },
             14 => Msg::Thrown { nonce, velocity: [r.u32()? as i32, r.u32()? as i32, r.u32()? as i32] },
+            15 => Msg::Blast { nonce, explosion: r.u32()?, point: [r.u32()? as i32, r.u32()? as i32, r.u32()? as i32] },
             20 => Msg::TradeBrowse { nonce },
             21 => {
                 let (page, pages, n) = (r.u8()?, r.u8()?, r.u8()? as usize);
@@ -234,6 +240,7 @@ mod tests {
             Msg::DuelHit { nonce: 1 },
             Msg::DuelOver { nonce: 1, winner: 255 },
             Msg::Thrown { nonce: 1, velocity: [-226, 226, 180] },
+            Msg::Blast { nonce: 0, explosion: 0x0010_E2A0, point: [-69_000, 2_446, -8_700] },
             Msg::TradeBrowse { nonce: 2 },
             Msg::TradeStock { nonce: 2, page: 0, pages: 2, items: vec![(0x0001_5169, 3), (0xF, 1)] },
             Msg::TradeRequest { nonce: 2, item: 0x0001_5169, count: 2 },
