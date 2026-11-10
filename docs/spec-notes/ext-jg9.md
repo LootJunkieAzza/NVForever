@@ -119,11 +119,18 @@ nvfairport); 4 of 11 rows matched [observed]. The golden is private.
 | sky | did not compile | `0 0 0 0` | dropped: output variables do not compile in that build (as jg8's GetSystemColorAlt) |
 | spread | `0.00 339` | `0.00 0` | GetRunSpeed is told by the engine, which fnvtool lacks; 339 against the 344 the engine measured running (`nvf-play` player.rs) is a follow-up (§8) |
 
-Asked again (the one rerun): `medicine`, `marker`, and the rows above with their new
-answers.
+The one rerun (set at 94a702c5c, 2026-11-10): all 11 rows compiled and 7 matched
+(karma, effect.leather, fov, term, sound.path, grenade, compass) [observed]. The other four:
+
+| Row | Original | fnvtool | Why |
+|---|---|---|---|
+| medicine | `17` | `15` | fnvtool's player is the plugins' default (every attribute 5: 2 + 2×5 + ⌈5×0.5⌉ = 15 [documented: GECK wiki Derived Skill Settings]); 17 fits the save's character with Intelligence 6 [hypothesis: the save's attributes were not read] |
+| effect.stimpak | `HP +40` | `HP +39` | follows from medicine: 30 × (1 + 2 × 0.17) = 40.2 against 30 × 1.30 = 39 (`aid::potency`) |
+| marker | `001676D0` | `00000000` | 001676D0 is the persistent audio marker (Audio Location 0x00166C03, radius 12000) around the save's place at the airport [observed]: the marker whose radius holds the player. The engine's music tells the current marker; fnvtool has none |
+| spread | `0.00 339` | `0.00 0` | GetRunSpeed is told by the engine (§8) |
 
 ## 8. Follow-ups (engine)
 
-GetRunSpeed's 339 for a standing player against the 344 units a second the engine measured running [observed both];
+A smoke check that AudioMarkerGetCurrent names the marker around the player at the airport (001676D0 in the original); GetRunSpeed's 339 for a standing player against the 344 units a second the engine measured running [observed both];
 Loop End points for StopSoundLooping; a node's own body for GetLinearVelocity; the voice
 channel's volume for isVoice.
