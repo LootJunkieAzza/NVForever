@@ -605,8 +605,9 @@ pub fn prepare(
         return;
     };
     let open = (pip.open() && pip.page == Page::Data).then(|| pip.tab());
-    // The list the player saw last frame was the tile page's: the wheel over it is its scroll.
-    let tiles_list = tiles.is_some_and(|t| t.shown.is_some());
+    // The list the player saw last frame was the tile page's, on a tab it draws: the wheel over
+    // it is that page's scroll.
+    let tiles_list = tiles.is_some_and(|t| t.shown.is_some()) && open.is_some_and(|tab| crate::tiles::map_menu::TILED_TABS.contains(&tab));
     step(&mut state, open, screen.as_deref(), &mut game, &mut input, &mut images, tiles_list);
 }
 
