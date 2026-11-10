@@ -584,6 +584,7 @@ pub struct Tools<'w> {
 /// Map's outline advanced and what the page shows gathered ([`step`]), for the DATA page as the
 /// Pip-Boy shows it, whatever draws it. [`draw`] then only paints the hand-built body while it is
 /// there. Off, this does nothing and [`draw`] prepares and paints as it always did.
+#[allow(clippy::too_many_arguments)]
 pub fn prepare(
     mut commands: Commands,
     switch: Option<Res<crate::tiles::vanilla::TileMenus>>,
