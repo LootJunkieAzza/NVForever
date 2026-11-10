@@ -834,6 +834,7 @@ pub(crate) struct Others<'w> {
     page: Option<Res<'w, crate::pause::Page>>,
     stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
     inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
+    map: Option<ResMut<'w, super::map_menu::MapTiles>>,
     repair: Option<Res<'w, crate::pipboy::repair::PipRepair>>,
     modding: Option<Res<'w, crate::pipboy::item_mod::PipItemMod>>,
     pip: Option<Res<'w, crate::pipboy::PipBoy>>,
@@ -848,7 +849,7 @@ pub(crate) fn feed(
     mut inputs: MenuInputs,
     others: Others,
 ) {
-    let Others { paused, page, mut stats, mut inventory, repair, modding, pip } = others;
+    let Others { paused, page, mut stats, mut inventory, mut map, repair, modding, pip } = others;
     let Some(rt) = script.rt.as_mut() else { return };
     if rt.game.ui_files.is_none() {
         return;
@@ -954,6 +955,9 @@ pub(crate) fn feed(
     if let Some(r) = inputs.repair_page.as_mut().filter(|r| r.others != others) {
         r.others = others;
     }
+    if let Some(m) = map.as_mut().filter(|m| m.others != others) {
+        m.others = others;
+    }
     if taking.is_empty() {
         // The Pip-Boy's page has the frame's step (`super::stats_menu::feed`).
         let is_paused = paused.as_ref().is_some_and(|p| p.0);
@@ -963,6 +967,10 @@ pub(crate) fn feed(
         // Likewise the ITEMS page's (`super::inventory_menu::feed`).
         let lists_closed = super::inventory_menu::lists_closed(repair.as_deref(), modding.as_deref());
         if inventory.as_deref().zip(pip.as_deref()).is_some_and(|(s, p)| super::inventory_menu::takes(s, *menus, p, &rt.game, is_paused, lists_closed, inputs.quantity().is_some()).is_some()) {
+            return;
+        }
+        // Likewise the DATA page's (`super::map_menu::feed`).
+        if map.as_deref().zip(pip.as_deref()).is_some_and(|(m, p)| super::map_menu::takes(m, *menus, p, &rt.game, is_paused).is_some()) {
             return;
         }
         // Likewise the repair page's (`super::repair_menu::feed`).
