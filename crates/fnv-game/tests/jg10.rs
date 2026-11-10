@@ -187,6 +187,8 @@ fn faces_highlights_land_and_menus() {
 player.SetPos Y 0
 player.SetPos Z 0");
     assert_eq!(fnv_game::ray::with_caster(&caster, || n(&mut g, "PlayerREF.GetLandTextureUnderFeet")), f64::from(0xABC));
+    // No land under it any more (indoors): the last one found [observed: an LTEX indoors].
+    assert_eq!(n(&mut g, "PlayerREF.GetLandTextureUnderFeet"), f64::from(0xABC));
     // [documented: RemapLand's 0/1; hypothesis: a source cell that is not there fails].
     assert_eq!(n(&mut g, "RemapLand 4096 TestFace 0 0"), 0.0);
     assert_eq!(n(&mut g, "RemapLand 4096"), 0.0, "nothing to put back");

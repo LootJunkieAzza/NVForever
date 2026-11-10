@@ -81,6 +81,9 @@ pub struct Jg10State {
     /// UpdateCrosshairPrompt and UpdateRepairMenu calls so far.
     pub prompt_refreshes: u64,
     pub repair_refreshes: u64,
+    /// The last land texture found under each reference, kept for where none lies under
+    /// it (GetLandTextureUnderFeet indoors).
+    pub last_land_texture: HashMap<FormId, u32>,
 }
 
 /// The FaceGen value lists of FaceGenGet/SetNthProperty's `Property Type`: 0 the
@@ -427,13 +430,23 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             zero
         }
         // ---- land ----
-        // The land texture (LTEX) under the reference; nothing indoors [documented]; 0
-        // where the default texture shows or no terrain lies under it [hypothesis].
+        // The land texture (LTEX) under the reference; nothing indoors [documented], but
+        // the original gave LRockCanyonRubbleDirt01 inside Doc Mitchell's house [observed:
+        // jg10.underfeet, 2026-11-09], taken as the last texture found under the reference
+        // outside [hypothesis]. 0 where the default texture shows, or with none found yet
+        // [hypothesis].
         "getlandtextureunderfeet" => {
-            let Some(p) = subject.and_then(|r| pos(g, r)) else { return Some(Ok(XVal::Ref(0))) };
+            let Some(r) = subject else { return Some(Ok(XVal::Ref(0))) };
+            let Some(p) = pos(g, r) else { return Some(Ok(XVal::Ref(0))) };
             let from = [p[0], p[1], p[2] + UNDERFOOT_UP];
             let to = [p[0], p[1], p[2] - UNDERFOOT_DOWN];
-            XVal::Ref(crate::ray::cast_hit(from, to, crate::ray::CastKind::LandTexture).and_then(|h| h.form).unwrap_or(0))
+            match crate::ray::cast_hit(from, to, crate::ray::CastKind::LandTexture).and_then(|h| h.form) {
+                Some(f) => {
+                    g.other.jg10.last_land_texture.insert(r, f);
+                    XVal::Ref(f)
+                }
+                None => XVal::Ref(g.other.jg10.last_land_texture.get(&r).copied().unwrap_or(0)),
+            }
         }
         // `land world x y`: the LAND takes the cell's landscape; `land` alone puts it back;
         // 1 done, 0 for a target that is no LAND or a source cell that does not exist

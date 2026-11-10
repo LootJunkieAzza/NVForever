@@ -34,7 +34,7 @@ DisableMuzzleFlashLights "does not persist through saves" and HighlightBodyPartA
 | HighlightBodyPartAlt `[part]` | One actor at a time; no part, or 15, is everything but the weapon [documented]. A part outside 0–15 is not taken [hypothesis]. |
 | DeactivateAllHighlightsAlt | Every highlight goes [documented]. |
 | RemoveHighlightedRef | The calling reference's highlight goes [hypothesis: the page is empty; read from its name]. |
-| GetLandTextureUnderFeet | The land texture (LTEX) under the reference; nothing indoors [documented], though the original gave a valid form indoors [observed: §4 underfeet; which form is asked again]. A cast straight down from 64 units above (`ray::CastKind::LandTexture`). The engine answers with the texture showing most where it meets the terrain, from the LAND's BTXT/ATXT layers, as footsteps choose their sound. It gives 0 where the default texture shows more [hypothesis]. |
+| GetLandTextureUnderFeet | The land texture (LTEX) under the reference; nothing indoors [documented], though the original gave LRockCanyonRubbleDirt01 (00038A28) inside Doc Mitchell's house [observed: §4 underfeet], taken as the last texture found under the reference outside [hypothesis]. A cast straight down from 64 units above (`ray::CastKind::LandTexture`). The engine answers with the texture showing most where it meets the terrain, from the LAND's BTXT/ATXT layers, as footsteps choose their sound. It gives 0 where the default texture shows more [hypothesis]. |
 | RemapLand `land world x y` / `land` | The LAND takes the cell's landscape; the form alone puts it back [documented]. Returns 1 when done. It returns 0 for a source cell that does not exist, or a reset of a LAND never remapped [hypothesis]. The game's data keeps no LAND record types, so any form of no other known type is taken as a LAND [hypothesis]. The terrain is not redrawn yet (§3). |
 | RefreshIdle `[stop]` | The actor picks its own idles again after PlayIdle; 1 stops the one playing at once [documented]. NVForever's PlayIdle holds no override past its idle, so the stop (StopIdle's) is all that is left to do [hypothesis]. |
 | ShowBarberMenuEx `flag list` | The barber menu (1036). 0 blacklists hairs and beards, 1 blacklists beards and whitelists hairs, 2 the reverse, 3 whitelists both [documented]. `Game::barber_allows` answers for the menu. A flag outside 0–3 or no list opens it unfiltered [hypothesis]. |
@@ -80,12 +80,19 @@ On the player at Doc Mitchell's (an interior), in the original game with the ext
 |---|---|---|
 | `tri`: GetNearestNavMeshTriangle at the player, size and distance under 200 | `4 1` | the engine's navmesh (§3: no answerer lent yet); the records-only lab candidate gives `0` |
 | `tri.under`: GetPointInNavMesh at the player and 100,000 units east | `4 4` | as `tri`; far off the navmesh still gives four values in the original |
-| `underfeet`: GetLandTextureUnderFeet indoors | a valid form | 0 indoors; the rerun asks which form it is |
-| `facegen`: types 0-2 index 0, FGGA index 30, type 3 in one step | crashed the game | split into one read per type (`facegen.fggs`, `.fgga`, `.fgts`), last in the set; the out-of-range reads are not asked again |
-| `facegen.set`: set FGGS 1 to 0.5, read it, put the first read back, read again | `1 0.500 0.605` | `1 0.500 0.508`, the record's FGGS 1; why the original reads 0.605 is open (not the race's default, 0.715) |
+| `underfeet`: GetLandTextureUnderFeet indoors | `00038A28`, LRockCanyonRubbleDirt01 | the last texture found under the reference outside [hypothesis]; the lab candidate has found none, `00000000` |
+| `facegen`: types 0-2 index 0, FGGA index 30, type 3 in one step | crashed the game | split into one read per type, last in the set; the out-of-range reads are not asked again |
+| `facegen.fggs`, `.fgga`, `.fgts`: index 0 of types 0, 1, 2 | `-0.228`, `0.000`, `-0.228` | `0.309`, `0.000`, `-1.245`, the record's FGGS, FGGA, FGTS; open (below) |
+| `facegen.set`: set FGGS 1 to 0.5, read it, put the first read back, read again | `1 0.500 0.605` | `1 0.500 0.508`, the record's FGGS 1; open (below) |
 | `returns`: HighlightBodyPartAlt, RemoveHighlightedRef, DeactivateAllHighlightsAlt, Add/RemoveNavmeshObstacle, UpdateCrosshairPrompt, UpdateRepairMenu, DisableMuzzleFlashLights 0 | `0 0 0 1 1 0 0 0` | the obstacle functions now return 1 |
 | `scope.remove`: the 10mm pistol, no scope | `0` | `0` |
 | `remapland`: a reset of nothing | `0` | `0` |
+
+FaceGen stays open [observed: the answers above]. The original's values are not the
+record's (Doc's FGGS starts 0.309, 0.508), not his race's defaults (CaucasianOld's male
+FGGS starts -0.204, 0.715), and types 0 and 2 both read -0.228 at index 0. So the types may
+not be FGGS/FGGA/FGTS, or the values may be ones the game works out for the loaded face
+[hypothesis]. NVForever keeps reading the record until a probe tells more.
 
 Left out, because they move actors, open menus, draw on the screen or need a poison form
 not listed here: PathToPoint, PathToRef, ShowBarberMenuEx, TriggerScreenSplatterEx,
