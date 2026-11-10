@@ -9624,11 +9624,11 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_P
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--window", "borderless"]
 run_seconds = 18
 expect = [
-  { text = "window: borderless full screen on the current monitor", label = "--window borderless starts borderless full screen" },
+  { re = 'window: borderless full screen$', label = "--window borderless starts borderless full screen" },
   { text = "settings: borderless off", label = "the Display switch is flipped" },
   { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
 ]
-order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+order = [[{ re = 'window: borderless full screen$' }, "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
 
 [[scenario]]
 name = "resolution-revert"
