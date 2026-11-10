@@ -134,6 +134,12 @@ pub fn exists(path: &str) -> bool {
     r.read.iter().any(|root| on_disk(root, path).is_some_and(|p| p.is_file()) || find_file(root, path).is_some()) || r.lookup.as_ref().is_some_and(|f| f(path) > 0)
 }
 
+/// Whether the host answers for the archives (the engine, once the game's Data is open):
+/// without, [`exists`] can say no for a file that is in an archive.
+pub fn knows_archives() -> bool {
+    roots().lookup.is_some()
+}
+
 fn roots() -> Roots {
     ROOTS.lock().ok().and_then(|g| g.clone()).unwrap_or_default()
 }

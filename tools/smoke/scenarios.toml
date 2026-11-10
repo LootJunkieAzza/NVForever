@@ -23872,6 +23872,47 @@ forbid = [
 manual = "ui_attach_on_head.png: the words NVF ATTACH TEST in white just above and left of Easy Pete's head, the view on him; ui_attach_turned_away.png: the view south, no words on screen"
 
 [[scenario]]
+name = "ui-texoffset-alphamap"
+source = "#1833 [documented: SetUITexOffset, SetUIAlphaMap] an offset shifts a tile's texture coordinates, wrapping; an alpha map's alpha masks the tile; [design: tiles/texmod.rs, nvse_itr1.rs] both kept per tile id, baked into the picture's place, dropped with the tile"
+note = "Authored for the test (the fixture home's mods layer): five 256 x 64 pictures of the HUD's 64 x 16 compass alpha map texture (white for its first 20 texels, then black, hud.md §3) in one injected rect at x 80, y 280. A as it is; B offset 1.5 (wraps to 0.5); C offset -0.5 (0.5) and masked by the HUD's hit gradient, whose alpha falls from 255 to about 26 left to right; D masked by a texture that is not there (SetUIAlphaMap returns 0 and keeps nothing [documented: SetUIAlphaMap, 0 on a texture load failure]); E masked by an authored text file in the mods layer, no image (accepted, 1; the renderer cannot decode it). At 8 s the controller unloads B and injects a new B at its path."
+areas = ["ui", "scripts", "hud"]
+paths = ["crates/fnv-game/src/nvse_itr1.rs", "crates/fnv-game/tests/nvse_itr1.rs", "engine/nvf-play/src/tiles/texmod.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/repeat.rs", "tools/smoke/fixtures/ui-texoffset-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-texoffset-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:ui_texoffset_set.png,12:ui_texoffset_replaced.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 14
+expect = [
+  { text = 'script: print "nvf texoffset injected 1"', count = 1 },
+  { text = 'script: print "nvf texoffset set 1 1 1 0 1"', count = 1, label = "both offsets and C's and E's masks accepted, D's missing mask refused" },
+  { re = 'tiles: HUDMainMenu/NVFTex/B: texture offset 0\.500, 0\.000 drawn \(\d+ x \d+ texels\)', count = 1, label = "B drawn at its wrapped offset" },
+  { re = 'tiles: HUDMainMenu/NVFTex/C: texture offset 0\.500, 0\.000, alpha map textures.interface.hud.hitgradientleft\.dds drawn', count = 1, label = "C drawn shifted and masked" },
+  { re = 'tiles: HUDMainMenu/NVFTex/D:', count = 0, label = "a refused mask is not kept: the renderer has nothing for D" },
+  { re = 'tiles: HUDMainMenu/NVFTex/E: the alpha map textures.interface.hud.mask_not_an_image_nvf\.txt could not be read; the tile is drawn without it \(SetUITexOffset / SetUIAlphaMap: not a DDS file', count = 1, label = "a mask in the mods layer that is no image: read from that layer, refused by the decoder, said once; E draws as it was" },
+  { re = 'tiles: HUDMainMenu/NVFTex/A: texture offset', count = 0, label = "A has neither" },
+  { text = 'script: print "nvf texoffset unloaded 1"', count = 1 },
+  { text = 'script: print "nvf texoffset replaced 1"', count = 1, label = "a new B at the old B's path" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(\d+ items\)', label = "the authored rect enters rendering" },
+]
+order = [["nvf texoffset set", "tiles: HUDMainMenu/NVFTex/B: texture offset", "nvf texoffset replaced"]]
+manual = "ui_texoffset_set.png: five amber-and-black strips on the left; A's light band at its left end, B's and C's moved to the middle (about 128-208 of 256 units), C fading from left to right (its left end solid, its right end faint), D and E as A. ui_texoffset_replaced.png: B's band back at its left end, as A's (the replaced tile has no offset); C, D and E unchanged."
+
+[[scenario]]
+name = "ui-texoffset-compass"
+source = "#1833 review [documented: SetUITexOffset, SetUIAlphaMap; design: tiles/texmod.rs strip, compass_strip.rs StripWindow::masked] with the HUD drawn from tiles, the compass strip takes the offset on top of the heading's scroll and the mask over its window"
+note = "The fixture home's script sets offset 0.25 (a quarter turn of the 1024-unit strip) and the hit gradient mask on HUDMainMenu/HitPoints/compass_window at game start. Same place and heading as tiles-hud-compass-north, whose N stands just right of the bracket's downward triangle: here the letters stand a quarter turn (256 units) on from there and fade from left to right."
+areas = ["ui", "scripts", "hud"]
+paths = ["engine/nvf-play/src/tiles/texmod.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/nvse_itr1.rs", "tools/smoke/fixtures/ui-texoffset-compass-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-texoffset-compass-home", NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "10:ui_texoffset_compass.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12", "--size", "1280x720"]
+run_seconds = 12
+expect = [
+  { text = 'script: print "nvf compass texoffset set 1 1"', count = 1, label = "the strip tile takes both" },
+  { re = 'tiles: HUDMainMenu/HitPoints/compass_window: texture offset 0\.250, 0\.000, alpha map textures.interface.hud.hitgradientleft\.dds drawn on the compass strip', count = 1, label = "the strip moved on and masked, told once" },
+  { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the strip is still one baked window" },
+  { re = 'could not be read; the tile is drawn without it', count = 0, label = "both textures read" },
+]
+manual = "ui_texoffset_compass.png against tiles_hud_compass_north.png: the strip's letters a quarter turn (256 units) on from where they stand at heading 0, and the strip fading from solid at the window's left to faint at its right, the marks over it unchanged."
+
+[[scenario]]
 name = "pipboy-items-hints"
 source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
 areas = ["pipboy"]
