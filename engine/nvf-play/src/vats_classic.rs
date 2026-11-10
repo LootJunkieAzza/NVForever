@@ -105,6 +105,48 @@ pub struct Candidate {
     pub off: f32,
 }
 
+/// The actors with a hit volume a look for targets passed over, by the first rule that
+/// left each out (vats-classic.md §3): what the log says when V is refused, so a
+/// tester's report can be read.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Missed {
+    /// How far the look reached, units.
+    pub reach: f32,
+    /// Further than that, and how far the nearest of them is.
+    pub far: u32,
+    pub nearest_far: f32,
+    /// More than the front's angle off the entry line.
+    pub aside: u32,
+    /// Barred: dead, cloaked, never a target, No VATS Melee.
+    pub barred: u32,
+    /// No part of it shows from the eye.
+    pub hidden: u32,
+}
+
+impl Missed {
+    /// The log's words.
+    pub fn text(&self, front_degrees: f32) -> String {
+        let mut out = Vec::new();
+        if self.far > 0 {
+            out.push(format!("{} beyond the reach of {:.0} (the nearest {:.0} away)", self.far, self.reach, self.nearest_far));
+        }
+        if self.aside > 0 {
+            out.push(format!("{} more than {front_degrees:.0} degrees off the view", self.aside));
+        }
+        if self.hidden > 0 {
+            out.push(format!("{} with no part in sight", self.hidden));
+        }
+        if self.barred > 0 {
+            out.push(format!("{} barred", self.barred));
+        }
+        if out.is_empty() {
+            format!("no actor within {:.0}", self.reach)
+        } else {
+            out.join(", ")
+        }
+    }
+}
+
 /// A target's bearing and angle off the entry line: `dir` the unit line the player looked
 /// along, `to` the line from the eye to the target (any length; game space, z up).
 pub fn bearing_of(dir: [f32; 3], to: [f32; 3]) -> (f32, f32) {
@@ -237,6 +279,14 @@ pub fn register(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refusal_names_what_was_passed_over() {
+        let none = Missed { reach: 5000.0, ..Missed::default() };
+        assert_eq!(none.text(55.0), "no actor within 5000");
+        let m = Missed { reach: 350.0, far: 2, nearest_far: 612.4, aside: 1, barred: 0, hidden: 3 };
+        assert_eq!(m.text(55.0), "2 beyond the reach of 350 (the nearest 612 away), 1 more than 55 degrees off the view, 3 with no part in sight");
+    }
 
     #[test]
     fn the_slowdown_sets_the_clock() {

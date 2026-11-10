@@ -1634,29 +1634,53 @@ fn classic_hit_camera(v: &mut VatsMode, i: usize, player: &Player) {
 /// volume within the weapon's reach and `fVATSMaxEngageDistance`, within
 /// [`CLASSIC_FRONT`] of the line the player looked along on entering, in sight and not
 /// barred ([`barred`]: dead, cloaked without Enhanced Sensors, No VATS Melee), hostile or
-/// not; left to right. With them, the place of the one nearest that line.
-fn classic_targets(v: &VatsMode, combat: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, eye: [f32; 3]) -> (Vec<Candidate>, Option<usize>) {
+/// not; left to right. With them, the place of the one nearest that line, and the actors
+/// passed over by the rule that left each out (the refusal's log line).
+///
+/// In sight is any part of it ([`actor_in_sight`]): in a fight the enemies stand behind
+/// cover, and one whose chest is behind a rock while its head and gun show is a target
+/// [design: the fork owner's tester, 2026-11-10, V did nothing in a fight until one
+/// enemy was down; hypothesis: that enemy's aim point was hidden, the one rule here that
+/// a fight changes].
+fn classic_targets(v: &VatsMode, combat: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, phys: &mut PhysState, eye: [f32; 3]) -> (Vec<Candidate>, Option<usize>, classic::Missed) {
     let reach = v.weapon.as_ref().map_or(REACH, |w| w.reach).min(combat.rules.vats_classic.max_engage.max(1.0));
     let dir = v.classic.entry_dir;
     let front = CLASSIC_FRONT.to_radians();
     let filter = shot_filter(phys);
     let actors: Vec<u32> = phys.world.actor_volumes().filter(|&a| a != FormId::PLAYER_REF.0).collect();
     let mut out = Vec::new();
+    let mut missed = classic::Missed { reach, ..Default::default() };
     for actor in actors {
         let Some(p) = phys.world.actor_aim_point(actor) else { continue };
         let to = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
         let len = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
-        if !(1.0..=reach).contains(&len) {
+        if len < 1.0 {
+            continue;
+        }
+        if len > reach {
+            missed.nearest_far = if missed.far == 0 { len } else { missed.nearest_far.min(len) };
+            missed.far += 1;
             continue;
         }
         let (bearing, off) = classic::bearing_of(dir, to);
-        if off > front || barred(v, script.as_deref_mut(), sim, actor).is_err() || !in_sight(phys, eye, p, &filter) {
-            continue;
+        if off > front {
+            missed.aside += 1;
+        } else if barred(v, script.as_deref_mut(), sim, actor).is_err() {
+            missed.barred += 1;
+        } else if !actor_in_sight(phys, eye, actor, p, &filter) {
+            missed.hidden += 1;
+        } else {
+            out.push(Candidate { actor, bearing, off });
         }
-        out.push(Candidate { actor, bearing, off });
     }
     let first = classic::order(&mut out);
-    (out, first)
+    (out, first, missed)
+}
+
+/// Whether any of `actor` shows from `eye`: its aim point (`aim`), else the middle of one
+/// of its body part capsules, the weapon in its hand among them.
+fn actor_in_sight(phys: &mut PhysState, eye: [f32; 3], actor: u32, aim: [f32; 3], filter: &Filter) -> bool {
+    in_sight(phys, eye, aim, filter) || phys.world.actor_part_centers(actor).into_iter().any(|p| in_sight(phys, eye, p, filter))
 }
 
 /// After [`try_enter`] let the mode start in the classic style: its targets are looked
@@ -1668,7 +1692,7 @@ fn classic_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptSt
         return;
     }
     v.classic = ClassicState { scale: v.classic.scale, entry_dir: player.look_dir(), entry_view: Some((player.heading, player.pitch)), scanned_at: v.now, ..ClassicState::default() };
-    let (targets, first) = classic_targets(v, combat, script, sim, phys, player.eye());
+    let (targets, first, missed) = classic_targets(v, combat, script, sim, phys, player.eye());
     let Some(first) = first else {
         // Not a stay: nothing of it is counted or shown.
         v.phase = Phase::Off;
@@ -1680,7 +1704,7 @@ fn classic_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptSt
         v.stats.refused += 1;
         sounds.looping(v, false);
         sounds.play(v, "UIVATSEnterFail");
-        info!("vats mode: refused: no target in sight (classic)");
+        info!("vats mode: refused: no target in sight (classic): {}", missed.text(CLASSIC_FRONT));
         return;
     };
     v.classic.selected = Some(targets[first].actor);
@@ -1715,7 +1739,7 @@ fn classic_frame(
     let eye = player.eye();
     if v.now - v.classic.scanned_at >= CLASSIC_SCAN {
         v.classic.scanned_at = v.now;
-        let (targets, first) = classic_targets(v, combat, script, sim, phys, eye);
+        let (targets, first, missed) = classic_targets(v, combat, script, sim, phys, eye);
         // Queued attacks whose target is no longer one.
         let mut i = v.queue.len();
         while i > 0 {
@@ -1738,6 +1762,7 @@ fn classic_frame(
         }
         v.classic.targets = targets;
         if v.classic.selected.is_none() {
+            info!("vats mode: classic: no target left: {}", missed.text(CLASSIC_FRONT));
             end(v, "no target left", sounds);
             return None;
         }
