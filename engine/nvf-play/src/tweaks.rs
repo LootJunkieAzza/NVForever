@@ -322,6 +322,8 @@ pub struct TweakSettings {
     pub remember_console_history: bool,
     /// `bUseConsoleOutputFile`: console lines are added to a file in NVForever's folder.
     pub console_output_file: bool,
+    /// `bConsoleTextShadow`: the console's scrollback darker, over a faint shadow.
+    pub console_text_shadow: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -516,6 +518,7 @@ impl Default for TweakSettings {
             horizontal_look: 1.0,
             remember_console_history: false,
             console_output_file: false,
+            console_text_shadow: false,
         }
     }
 }
@@ -1367,6 +1370,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "vats-shift-ignores-friends", "Shift Ignores Friends in V.A.T.S.", "Holding Shift, V.A.T.S. marks no one who would not fight the player. (Stewie's Tweaks bShiftIgnoresFriendlyVATS)", game.vats_shift_ignores_friends);
         switch!(app, "remember-console-history", "Remember Console History", "The console's entered lines are kept between runs, in ConsoleHistory.txt in NVForever's folder. (Stewie's Tweaks bRememberConsoleHistory)", remember_console_history);
         switch!(app, "console-output-file", "Console Output File", "Console lines are added to ConsoleOutput.txt in NVForever's folder from the start. (Stewie's Tweaks bUseConsoleOutputFile)", console_output_file);
+        switch!(app, "console-text-shadow", "Console Text Shadow", "The console's lines are a darker green over a faint shadow, easier to read on a bright view. (Stewie's Tweaks bConsoleTextShadow)", console_text_shadow);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

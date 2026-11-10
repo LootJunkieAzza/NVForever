@@ -490,6 +490,7 @@ unless the player binds them, so nothing changes until then.
 | Shift Ignores Friends in V.A.T.S. | `bShiftIgnoresFriendlyVATS` | `vats_mode::barred` bars anyone who would not fight the player while Shift is held (`SHIFT_HELD`, set in `read_keys`); `bHideFriendliesByDefault` is not done |
 | Remember Console History | `bRememberConsoleHistory` | `console::Console::remember` reads `ConsoleHistory.txt` from NVForever's folder once; each new line writes the last 100 back |
 | Console Output File | `bUseConsoleOutputFile` | `Console::auto_output` sets the output file to `ConsoleOutput.txt` in NVForever's folder once a session (never the game's folder; the name is ours) |
+| Console Text Shadow | `bConsoleTextShadow` | `console::spawn` draws the scrollback a darker green with Bevy's `TextShadow` (our shade and offset) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -511,8 +512,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 412 |
-| to do | 191 |
+| done | 413 |
+| to do | 190 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1100,6 +1101,7 @@ game's Data folder, read-only).
 |---|---|---|---|---|
 | `bCompressDuplicateConsoleMessages` | done | yes |  | Count Repeated Console Lines |
 | `bConsolePrintsIncludeTimestamp` | done | yes | 1 | Console Times (time since the game started; a wall-clock format would need a date crate) |
+| `bConsoleTextShadow` | done | yes |  | Console Text Shadow (our shade and offset) |
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
 | `bMoreResponsiveControllerAiming` | done | yes |  | More Responsive Controller Aiming (straight curve past the dead zone, ours) |
 | `bNoInteriorBlackLoadingScreen` | done | yes | 1 | already so: an interior's loading screen shows its picture, never a black one |
@@ -1148,7 +1150,6 @@ game's Data folder, read-only).
 | `bArmorSoundsPlayIn3D` | to do | yes |  | the player's foley plays at the listener (anim_sounds player_keys) |
 | `bBetterFlycam` | to do | yes | 5 | up/down and wheel speed are already there; auto-move is not |
 | `bConsoleBackground` | unsure, skipped | yes |  | needs the plugin's own menu XML |
-| `bConsoleTextShadow` | to do | yes |  | the console draws green text on a dark panel, no shadow |
 | `bCustomScreenshotFormat` | n/a | yes | 1 | NVForever writes its own screenshots |
 | `bDontAllowConsoleTillLoadingIsDone` | n/a | yes |  | the original's start-up order |
 | `bHeatbeatSoundsFade` | to do | yes | 2 | NVForever plays no heartbeat yet |

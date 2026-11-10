@@ -467,7 +467,7 @@ fn toggle(
             c.open = true;
             // Already `Menu` under the free camera: no change of state, which would close it.
             NextState::set_if_different(&mut *next, PlayState::Menu);
-            spawn(&mut commands);
+            spawn(&mut commands, tweaks.as_ref().is_some_and(|t| t.console_text_shadow));
             info!("console: open");
         }
         return;
@@ -1242,9 +1242,11 @@ fn step_along(along: &[u32], current: u32, by: i32) -> Option<u32> {
     Some(along[(i as i64 + by as i64).rem_euclid(n) as usize])
 }
 
-fn spawn(commands: &mut Commands) {
+fn spawn(commands: &mut Commands, shadow: bool) {
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
-    let green = Color::srgb(0.75, 1.0, 0.75);
+    // The player's tweak: the scrollback a darker green over a faint shadow [design: docs/design/tweaks.md].
+    let green = if shadow { Color::srgb(0.6, 0.85, 0.6) } else { Color::srgb(0.75, 1.0, 0.75) };
+    let shade = TextShadow { offset: Vec2::splat(1.5), color: Color::srgba(0.0, 0.0, 0.0, if shadow { 0.8 } else { 0.0 }) };
     commands.spawn((
         ConsoleRoot,
         PointerState::None,
@@ -1263,7 +1265,7 @@ fn spawn(commands: &mut Commands) {
         children![
             // The details of the selected reference, over the scrollback.
             (Part::Selected, Text::new(""), font(15.0), TextColor(Color::srgb(1.0, 0.95, 0.6))),
-            (Part::Scroll, Text::new(""), font(14.0), TextColor(green)),
+            (Part::Scroll, Text::new(""), font(14.0), TextColor(green), shade),
             (Part::Input, Text::new("> "), font(16.0), TextColor(Color::WHITE)),
         ],
     ));
