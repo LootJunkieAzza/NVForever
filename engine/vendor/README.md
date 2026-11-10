@@ -210,6 +210,15 @@ Changes:
   render thread at 4K, 0.09 and 0.07 after [observed, docs/design/frame-generation.md]).
   `frameinterpolation.rs`: `FrameInterpolationDispatchInfo::previous_source`, the previous
   interpolation source kept by the caller, which saves AMD's display-sized copy of it.
+  **Unused ones dropped** (2026-11-11, #2085): `kept.rs` (new) is the list both use. A kept
+  bind group holds clones of the caller's textures, and the lists only started again at
+  their caps (128 and 256), which a steady state never reaches: when the caller stopped
+  handing a texture in while the view lived on, it stayed alive with the view. In the
+  engine, switching frame generation changes the main textures' usage flags, so Bevy makes
+  two new display-sized ones while the FSR view stays [observed in the code:
+  `prepare_view_targets`, `fsr.rs` and `frame_gen.rs` `prepare`; the memory was not
+  measured]. Now each entry remembers the frame it was last used in, and one not used for
+  16 frames (calls of the view's dispatch or prepare) is dropped; the caps stay.
 - **Half precision** (2026-11-08): the upscaler's `perm.toml` compiles `FFX_HALF = [0, 1]`
   (shaderc 2026.4, Vulkan SDK 1.4.363.0, `--only fsr3upscaler`). The committed FP32 SPIR-V
   is kept byte for byte (the Half::Off arms of `fsr3upscaler/mod.rs` name the same files);

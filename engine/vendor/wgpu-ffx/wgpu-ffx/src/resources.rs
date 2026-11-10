@@ -280,7 +280,7 @@ pub(crate) struct FsrResources {
 
     // NVForever (2026-11-10): the passes' bind groups, kept from frame to frame (pass.rs
     // `FsrPass::dispatch`). Here, so a view that is dropped lets go of them.
-    pub(crate) bind_groups: std::sync::Mutex<Vec<(crate::pass::BindKey, wgpu::BindGroup)>>,
+    pub(crate) bind_groups: std::sync::Mutex<crate::kept::Kept<crate::pass::BindKey, wgpu::BindGroup>>,
 }
 
 impl FsrResources {
