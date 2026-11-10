@@ -1088,8 +1088,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     file's rule for the maps is not seen.
 
   So with the **keyboard and mouse** [documented, the rules above, and observed for the
-  maps]: Local Map and World Map "Place Marker" alone (dim in NVForever: placing is not
-  built, #1954); Radio no hint; Quests "Show Location X)" (with a quest); Misc the notes' filter
+  maps]: Local Map and World Map "Place Marker" alone (bright: it asks about the custom
+  marker, #1954, below); Radio no hint; Quests "Show Location X)" (with a quest); Misc the notes' filter
   ("Active Notes X)", "All Notes X)", with a note; "Next Challenge X)" while the
   challenges show) and "Challenges R)". With a **controller**: Local Map "Place Marker
   X)"; World Map "Travel A)", "Place Marker X)"; Quests "Set Active A)", "Show Location
@@ -1105,9 +1105,10 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   ("Travel Enter)", "Set Active Enter)", "Tune In Enter)", "Place Marker X)"), Misc "Notes
   R)" while the challenges showed, and the hints were whole boxes right-aligned 10 short
   of 855.
-  - **Dim** [design]: what does nothing now: Travel with no Travel target (below), Place
-    Marker and Next Challenge (not built; X logs `pipboy data: PlaceMarker is not built`
-    or `NextChallenge`), the make-active hint on a quest done or with none selected.
+  - **Dim** [design]: what does nothing now: Travel with no Travel target (below), Next
+    Challenge (not built; X logs `pipboy data: NextChallenge is not built`), the
+    make-active hint on a quest done or with none selected. Place Marker was dim until
+    it was built (#1954, 2026-11-10).
   - **Our counts** [design]: "has a quest" is a quest listed; "has a note" counts every
     note the player has, whatever the filter keeps (the file counts the notes list's
     entries; counting the filtered list would hide the filter's hint while it hides every
@@ -1146,8 +1147,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     up to Misc while the A hint does not show [documented: `MM_DataRect` y]: with a
     controller Quests' objectives stand one row lower than with the keyboard [observed:
     the issue's Quests screenshot, the objective under both hints].
-  - **Keys** [design, #1897]: X is each page's X button (Place Marker and, while the
-    challenges show, Next Challenge, which log that they are not built; Show Location;
+  - **Keys** [design, #1897]: X is each page's X button (Place Marker, below; while the
+    challenges show Next Challenge, which logs that it is not built; Show Location;
     the notes' filter), on the controller X (`crate::pad::menu_buttons`' map entry); R
     (the controller's Y) the challenges toggle. Enter on the World Map and the controller's
     A ask to travel to the Travel target; A presses Enter too, and the two ask once. A
@@ -1319,6 +1320,85 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     more than 6 units [design]) asks whether to travel there: fast travel,
     `fast-travel.md`. Enter, Space or the Travel hint (with a controller, its A) ask for
     the marker under the highlight box too (#1897) [design].
+- **Place Marker and the custom marker** (#1954; `data/marker.rs`, `data.rs`
+  `place_marker`, `answer_marker`, `waypoints`). From a capture of the original's
+  MapMenu with the keyboard and mouse at 1280 × 720 (tile readings and screenshots,
+  2026-11-10) [observed unless marked]:
+  - Place Marker is the maps' `MM_ButtonX` (the word alone with the keyboard, the X
+    button with a controller). Pressed (X, the controller's X, a click on the hint) it
+    opens a question box. With no custom marker it asks whether to set it, two
+    answers, yes first: yes places the marker at the highlight box's middle (the
+    marker's texture coordinates equal the box's middle within 0.001), no does
+    nothing. With a marker placed it asks with three answers, in this order: move (to
+    the highlight box's spot), remove, leave (it stays).
+  - The words are game settings by name: `sSetMarkerQuestion` (no marker yet),
+    `sMoveMarkerQuestion` (one placed), `sYes`, `sNo`, `sMoveMarker`, `sRemoveMarker`,
+    `sLeaveMarker` [documented: the GECK wiki's Complete List of GameSettings names
+    them; which setting holds which answer is matched to the box's texts]. FalloutNV.esm
+    and the add-ons define none of them [observed: fnvtool's GMST inventory of every
+    master, 2026-11-10], so an English install shows NVForever's own words, written for
+    this box (`marker::Words`; LEGAL.md) [design]; a plugin that defines a setting wins.
+    NVForever's box is the fast-travel question box (`travel::Popup`, its keys and
+    clicks: Up/Down, Enter, Y the first answer, N the last). An answer the pointer is on
+    takes the choice only once the pointer moves more than 2 units after a key moved it:
+    the box is drawn anew as its choice moves and the answer under a resting pointer was
+    entered again, which undid every Up/Down at once. The answer under the pointer is
+    followed from its pointer-over and pointer-out events, so a pointer moving on within
+    an answer takes it once the hold lets go. Enter (or Space, E, the confirm button)
+    takes the choice as it stands after the same frame's Up and Down (both boxes;
+    `data.rs::box_frame`, `choose`) [design].
+  - There is **one** custom marker, shared by both maps: placed or moved on the Local
+    Map, the World Map shows it at the matching world position, and the other way
+    round. It is the scripts' marker too: JohnnyGuitar's SetCustomMapMarker "functions
+    the same as setting the marker within the map menu in the Pip-Boy" [documented: GECK
+    wiki SetCustomMapMarker], so NVForever keeps it in the game
+    (`fnv_game::Game::custom_map_marker`, the worldspace outdoors or the interior cell,
+    and the point; docs/spec-notes/ext-jg8.md) and the Pip-Boy reads and writes that one
+    [design]. On the World Map the spot is the position under the box's middle in the
+    worldspace shown (the picture's projection undone, `model::WorldMap::position`); on
+    the Local Map the point under it in the interior or worldspace the player is in
+    (`marker::local_point`), so an interior's marker shows on that interior's Local Map
+    only [design].
+  - Drawn: a tile `glow_hud_compass_pc_marker.dds` at depth 5, over the quest markers
+    (4), as wide as the quest markers on both maps (50.59 on the World Map, 75 on the
+    Local Map in the capture). NVForever draws it as a quest marker is drawn (size, the
+    1.25 height, the 15, 5 nudge, the Local Map's clamp to the window) one step above
+    them [hypothesis: the quest markers' templates, `WorldMapQuestMarkerTemplate`,
+    `LocalMapQuestMarkerTemplate`, whose width the capture's matches].
+  - **The dotted lines** (World Map only: the capture's Local Map has no waypoint
+    nodes): each a chain of `WaypointTemplate` nodes (`waypoint_node.dds`, 0.8 of the
+    map markers' width, depth 3; 17.41 against the markers' 21.76) with a `PathLine`
+    child (`waypoint_path.dds`, tiled, depth −1, a third of the node's height, from the
+    node's middle, `(user0 − 4) × _Magnification` wide, turned about its left end by
+    `rotateangle`) [documented: map_menu.xml]. `user0` is the path's length at a
+    magnification of 1 (the capture: 27.87 for a target 0.0136 of the 2048 picture
+    away) and `rotateangle` its direction (0.377 for a target up and to the right). With
+    the active quest's target on the map one chain runs from the arrow to it; with a
+    custom marker placed too, a second chain runs from the arrow to the marker (two
+    nodes at the arrow, one at each target) [observed]. NVForever draws one line from the
+    arrow to the custom marker and one to each quest target the World Map shows, a node
+    at each end, the file repeated along the line at its 64 × 16 shape at the line's
+    height [hypothesis: the tiling; one line per target where there are several]; a
+    target nearer than 4 has none (the capture's −2.1 wide line).
+  - Not captured: whether the original keeps the marker in its saves (the capture's save
+    was made before any marker existed) [hypothesis: it does]. NVForever saves it
+    (`custom_map_marker` in the engine's part of a save, the worldspace or cell moved to
+    the current load order, dropped with a plugin no longer loaded) and puts it back into
+    the restored game before the LoadGame and PostLoadGame handlers and the Script
+    Runner's load files run, so a handler's SetCustomMapMarker or ClearCustomMapMarker
+    wins (`data.rs::restore_custom_marker`, from `crate::script`) [design]; a new game
+    starts without one (the game is made anew).
+  - The HUD compass: the original has a compass tile with the pc-marker picture, but it
+    stayed hidden at four headings with the marker about 300 units away (why is not
+    known; perhaps it hides near the player) [observed]. Not built.
+  - Log: `pipboy map: Place Marker asks "<text>" (<n> answers) for (x, y) in <space>`,
+    `pipboy map: answered "<answer>"`, `pipboy map: custom marker placed at (x, y) in
+    <space>`, `… moved to (x, y) in <space>`, `… removed`, `… left where it was`,
+    `pipboy map: no custom marker placed`; `pipboy map: <world|local> map shows the custom
+    marker at (x, y)` / `shows no custom marker` when that changes; `pipboy map: dotted
+    line to <custom marker|quest target> (n segments)` when the lines' targets or the
+    marker change; `pipboy map: custom marker back from the save at (x, y) in <space>`.
+    Test aid: `placemarker` (§7).
 - **Local Map**: the same window, markers, arrow, quest markers (kept inside the window
   [documented]) and highlight box, on an empty map at 28 game units to a unit [observed:
   fitted, the gas station's door and the saloon's door 168 px apart on the screenshot; the
@@ -1346,7 +1426,7 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   quarter of it, made again for another floor (128 up or down) or place. Indoors the
   map is 8 units to a canvas unit (outdoors 28) [design]. What the physics world has not
   loaded stays empty. Not built: which doors and markers the original shows (its
-  screenshot shows only the gas station's door), Place Marker, fog of the unexplored.
+  screenshot shows only the gas station's door), fog of the unexplored.
 - **Dragging** (both maps): the left button held down on the map and the pointer moved
   pans it [design]; the pointer's own moves are followed, not Bevy's drag events, which
   ended at once because the map's nodes are drawn again as the highlight box follows the
@@ -1364,7 +1444,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   how done ones look; the hollow square's size (ours draws smaller than the original's,
   about 9 px against 14); which doors and markers the local map shows and its zoom;
   where the World Map opens; how the original turns the arrow; the radio's waveform model;
-  Place Marker, Challenges, the audio notes' panel, the buttons' hover boxes.
+  Challenges, the audio notes' panel, the buttons' hover boxes; the custom marker's
+  compass mark and whether the original saves it (Place Marker above).
 
 ### 5.3.1 DATA from its file: what the code writes
 
@@ -1562,7 +1643,8 @@ logged "pipboy sound: <EditorID>" (the focus sound at debug level).
 `page=stats|items|data`, `tab=<0-4>`, `key=down|up|use|drop`, and for the pointer
 `point=<x>:<y>` (the pointer on that canvas point, through the model's screen),
 `point=off`, `click=<x>:<y>` and `click=stats|items|data` (a click on the device's
-button; logged "pipboy: the STATS button pressed"), `point=stats|items|data` (the pointer
+button; logged "pipboy: the STATS button pressed"), `placemarker` (the DATA maps' Place
+Marker, as X; answer with `key=down` and `key=use`), `point=stats|items|data` (the pointer
 on that button, no click; logged "test aid: the pointer on the STATS button"); screenshots with
 `NVF_PLAY_TEST_SHOTS`. A new game's add-on message boxes come first: answer them with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.05` and open after about 12 s:

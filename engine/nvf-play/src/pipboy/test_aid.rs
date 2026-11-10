@@ -25,6 +25,9 @@
 //!   answer (Yes at first), `key=down` moves to No.
 //! - `note=<note FormID>`: on the DATA page's Notes tab, select that note and use it as a
 //!   click on its row would (a holotape plays or stops, `crate::holotape`).
+//! - `placemarker`: on the DATA page's maps, Place Marker (X, a click on its hint): the
+//!   custom marker's question for the place under the highlight box (#1954); `key=use`
+//!   takes the chosen answer (the first at first), `key=down` moves down the answers.
 //! - `hotkey=<1-8>`: hold that hotkey's key on the ITEMS page (its panel shows and a
 //!   click assigns, `super::hotkey_panel`) until `hotkey=off`.
 //! - `frame=screen|device`: the Gameplay setting Use Pip-Boy off or on, as the settings
@@ -51,6 +54,7 @@ enum Step {
     Drag(Vec2),
     Travel(u32),
     Note(u32),
+    PlaceMarker,
     Repair(super::repair::RepairInput),
     Mod(super::item_mod::ModInput),
     /// Hold a hotkey's key (its slot), or let go.
@@ -81,6 +85,7 @@ fn step(s: &str) -> Option<Step> {
     Some(match s {
         "open" => Step::Open,
         "close" => Step::Close,
+        "placemarker" => Step::PlaceMarker,
         _ => match s.split_once('=')? {
             ("page", p) => Step::Page(page(p)?),
             ("point", "off") => Step::Point(None),
@@ -206,6 +211,9 @@ fn run(
             Step::Note(n) => {
                 aid.note = Some(n);
             }
+            Step::PlaceMarker => {
+                aid.place_marker = true;
+            }
             Step::Repair(r) => {
                 repair.write(r);
             }
@@ -228,7 +236,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.6:rclick=260:150, 8.7:point=off, 8.8:point=1:2, 8.85:point=items, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.6:rclick=260:150, 8.7:point=off, 8.8:point=1:2, 8.85:point=items, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.9965:placemarker, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up");
         assert_eq!(
             s,
             vec![
@@ -249,6 +257,7 @@ mod tests {
                 (8.98, Step::Mod(super::super::item_mod::ModInput::Open)),
                 (8.99, Step::Hotkey(Some(2))),
                 (8.995, Step::Hotkey(None)),
+                (8.9965, Step::PlaceMarker),
                 (8.997, Step::Frame(true)),
                 (8.998, Step::Frame(false)),
                 (9.0, Step::Close)

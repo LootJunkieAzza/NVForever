@@ -459,6 +459,9 @@ pub struct PipBoyAid {
     pub drag: Vec2,
     /// A note of the Notes list to select and use (`note=`), taken by the DATA page.
     pub note: Option<u32>,
+    /// The maps' Place Marker (`placemarker`), as X or a click on its hint, taken by the
+    /// DATA page.
+    pub place_marker: bool,
 }
 
 /// Where the test aid points.
@@ -546,6 +549,7 @@ impl Plugin for PipBoyPlugin {
             .add_systems(Update, flat_pointer.in_set(PointerSet))
             .add_systems(First, drive_pointer.in_set(PickingSystems::Input));
         test_aid::setup(app);
+        crate::save::add_save_hook(app, data::CUSTOM_MARKER_SAVE_HOOK);
         crate::settings::add_setting(
             app,
             crate::settings::Setting {

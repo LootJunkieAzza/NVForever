@@ -116,6 +116,14 @@ impl MapTransform {
         let axis = |p: f32, i: usize| self.scale * (p - self.centre[i]) + self.centre[i] + self.offset[i];
         [axis(x, 0), axis(y, 1)]
     }
+
+    /// The position whose map position is `p` ([`MapTransform::apply`] undone); a scale
+    /// of 0 (a broken record) is taken as 1.
+    pub fn undo(&self, p: [f32; 2]) -> [f32; 2] {
+        let s = if self.scale.is_finite() && self.scale != 0.0 { self.scale } else { 1.0 };
+        let axis = |m: f32, i: usize| (m - self.centre[i] - self.offset[i]) / s + self.centre[i];
+        [axis(p[0], 0), axis(p[1], 1)]
+    }
 }
 
 impl WorldMap {
@@ -127,6 +135,16 @@ impl WorldMap {
         let down = (self.nw[1] - self.se[1] + 1).max(1) as f32;
         let cells = [(x / CELL - self.nw[0] as f32) / across, ((self.nw[1] + 1) as f32 - y / CELL) / down];
         [0.5 + MAP_SPAN * (cells[0] - 0.5), 0.5 + MAP_SPAN * (cells[1] - 0.5)]
+    }
+
+    /// The position in this worldspace at texture coordinates `uv` of its root's picture:
+    /// [`WorldMap::uv`] undone (Place Marker on the World Map, #1954) [design].
+    pub fn position(&self, uv: [f32; 2]) -> [f32; 2] {
+        let across = (self.se[0] - self.nw[0] + 1).max(1) as f32;
+        let down = (self.nw[1] - self.se[1] + 1).max(1) as f32;
+        let cells = [(uv[0] - 0.5) / MAP_SPAN + 0.5, (uv[1] - 0.5) / MAP_SPAN + 0.5];
+        let map = [(cells[0] * across + self.nw[0] as f32) * CELL, ((self.nw[1] + 1) as f32 - cells[1] * down) * CELL];
+        self.transform.undo(map)
     }
 }
 
@@ -253,6 +271,20 @@ mod tests {
             let off = [(uv[0] - u) * 1024.0, (uv[1] - v) * 1024.0];
             assert!(off[0].abs() < 0.01 && off[1].abs() < 0.01, "{name}: {uv:?} is {off:?} texels from ({u}, {v})");
         }
+    }
+
+    #[test]
+    fn a_point_on_the_picture_goes_back_to_its_position() {
+        // The child worldspace's own scale and offsets, as `family_markers…` uses them.
+        let t = MapTransform { scale: 0.5, offset: [1000.0, -3.0 * CELL], centre: [200.0, -400.0] };
+        let m = WorldMap { root: 1, transform: t, texture: String::new(), usable: [2048.0; 2], nw: [-35, 35], se: [25, -25] };
+        for (x, y) in [(-70992.0, 2560.0), (74712.0, 24848.0), (0.0, 0.0)] {
+            let back = m.position(m.uv(x, y));
+            assert!((back[0] - x).abs() < 0.5 && (back[1] - y).abs() < 0.5, "({x}, {y}) came back as {back:?}");
+        }
+        // A broken record's scale of 0 is taken as 1 both ways round the undo.
+        let flat = MapTransform { scale: 0.0, ..MapTransform::default() };
+        assert_eq!(flat.undo([5.0, 6.0]), [5.0, 6.0]);
     }
 
     #[test]
