@@ -7,6 +7,7 @@
 
 use crate::bindings::{dik_key, Binding, Bindings, GAME_CONTROLS, GAME_INI_CONTROLS};
 use bevy::prelude::*;
+use fnv_sim::FormId;
 use fnv_game::script_input::MOUSE_BASE;
 
 pub struct ScriptInputPlugin;
@@ -15,7 +16,8 @@ impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
             .add_systems(PreUpdate, script_input.after(bevy::input::InputSystems))
-            .add_systems(Update, (tell_magazine, tell_player_state, mod_file_roots));
+            .add_systems(Update, (tell_magazine, tell_player_state, mod_file_roots))
+            .add_systems(Update, script_moves.after(crate::PlaySet::Input));
     }
 }
 
@@ -124,6 +126,92 @@ fn tell_magazine(mut combat: Option<ResMut<crate::combat::Combat>>, mut script: 
         }
     }
     rt.game.player_magazine = combat.and_then(|c| c.magazine_for_save()).map(|m| m.1);
+}
+
+/// The player's speed resources script_moves reads back for GetRunSpeed.
+type PlayerSpeeds<'w> = (Option<Res<'w, crate::player::MoveSpeeds>>, Option<Res<'w, crate::player::StatSpeed>>, Option<Res<'w, crate::player::PerkSpeed>>);
+
+/// What scripts ask of the player's and actors' moves (`fnv_game::nvse_jg9`: Jump,
+/// SetAutoMove, SetPlayerMovementFlags, SetVelEx), after the controls are read so this
+/// frame's moves carry them; and what those functions read back: the player's run speed,
+/// spread, grenade hold and view.
+#[allow(clippy::too_many_arguments)]
+fn script_moves(
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+    mut control: Option<ResMut<crate::control::PlayerControl>>,
+    mut intent: Option<ResMut<crate::player::MoveIntent>>,
+    mut phys: Option<ResMut<crate::phys::PhysState>>,
+    mut knocks: Option<ResMut<Messages<crate::combat::Knockback>>>,
+    combat: Option<Res<crate::combat::Combat>>,
+    speeds: PlayerSpeeds,
+) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let st = &mut rt.game.other.jg9;
+    for who in std::mem::take(&mut st.jumps) {
+        if who == FormId::PLAYER_REF {
+            if let Some(i) = intent.as_deref_mut() {
+                i.jump = true;
+            }
+        } else if let Some(b) = phys.as_deref_mut().and_then(|p| p.npcs.get_mut(&who.0)) {
+            b.jump = true;
+        }
+        info!("script moves: {who} jumps");
+    }
+    if let (Some(on), Some(c)) = (st.auto_move.take(), control.as_deref_mut()) {
+        c.auto_move = on;
+        info!("script moves: auto move {}", if on { "on" } else { "off" });
+    }
+    // The flags as the keys: forward and back, left and right, walking, running and
+    // sneaking, jumping (SetPlayerMovementFlags' page lists them).
+    if let (Some(f), Some(i)) = (st.move_flags.take(), intent.as_deref_mut()) {
+        let axis = |plus: u32, minus: u32| f32::from(u8::from(f & plus != 0)) - f32::from(u8::from(f & minus != 0));
+        i.forward = axis(1, 2);
+        i.right = axis(8, 4);
+        if f & (256 | 512) != 0 {
+            i.walk = f & 256 != 0 && f & 512 == 0;
+        }
+        i.sneak = f & 1024 != 0;
+        i.jump |= f & 4096 != 0;
+    }
+    for (who, v) in std::mem::take(&mut st.velocities) {
+        let line = set_vel_ex(who, v, phys.as_deref_mut(), knocks.as_deref_mut());
+        info!("script moves: {line}");
+    }
+    let (moves, stat, perk) = speeds;
+    if let Some(m) = moves {
+        let factor = stat.map_or(1.0, |s| s.0) * perk.map_or(1.0, |p| p.0);
+        st.run_speeds.insert(FormId::PLAYER_REF, m.run * factor);
+    }
+    if let Some(c) = combat {
+        if let Some(s) = c.player_spread {
+            st.spreads.insert(FormId::PLAYER_REF, s);
+        }
+        st.grenade_hold = c.grenade_hold;
+    }
+    st.third_person = control.as_deref().is_some_and(|c| c.pov != crate::control::Pov::First);
+}
+
+/// SetVelEx's velocity on `who`: a character goes up or down at z and is pushed along
+/// the ground at (x, y) as the console's SetVel pushes it (`crate::console::set_vel`, one
+/// push along the two axes together); a loose object's bodies take all three.
+fn set_vel_ex(who: FormId, v: [f32; 3], phys: Option<&mut crate::phys::PhysState>, knocks: Option<&mut Messages<crate::combat::Knockback>>) -> String {
+    let Some(p) = phys else { return "SetVelEx: no physics in this run".into() };
+    let id = who.0;
+    let ch = if who == FormId::PLAYER_REF { p.player.as_mut() } else { p.npcs.get_mut(&id).map(|n| &mut n.ch) };
+    let Some(ch) = ch else {
+        let n: usize = (0..3).map(|axis| p.world.set_ref_velocity(id, axis, v[axis])).max().unwrap_or(0);
+        return format!("SetVelEx: {who} at ({:.0}, {:.0}, {:.0}) units/s ({n} bodies)", v[0], v[1], v[2]);
+    };
+    if v[2] != 0.0 {
+        ch.vertical_speed = v[2];
+        ch.grounded = false;
+    }
+    let along = v[0].hypot(v[1]);
+    if let (true, Some(k)) = (along > 0.0, knocks) {
+        let dir = [v[0] / along, v[1] / along];
+        k.write(crate::combat::Knockback { form_id: id, dir, speed: along, secs: crate::console::SET_VEL_SECS, attacker: 0, blow: 0, power: false });
+    }
+    format!("SetVelEx: {who} {:.0} units/s up, pushed {along:.0} units/s along the ground", v[2])
 }
 
 /// The pad's buttons as the extender's controller functions number them

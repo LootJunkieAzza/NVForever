@@ -50,7 +50,7 @@ fn game(f: &Fixture) -> Game<'_> {
     let world = World::new(&f.forms, &f.refs, SimConfig::default());
     let mut g = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.5, ..GameConfig::default() });
     g.player_entered(Some(FormId(CELL)));
-    let node = |name: &str, parent| SceneNode { name: name.into(), parent, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None };
+    let node = |name: &str, parent| SceneNode { name: name.into(), parent, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None };
     g.scene.set_tree(P, vec![node("Scene Root", None), SceneNode { scale: 1.5, translation: [1.0, 2.0, 3.0], ..node("Bip01 Head", Some(0)) }]);
     g
 }

@@ -444,7 +444,7 @@ pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     }
     if let Ok(location) = a.int(1) {
         if location >= 0 && g.is_dead(r) && r != FormId::PLAYER_REF {
-            g.combat_requests.push(crate::combat::CombatRequest::Dismember { actor: r, location, by: a.opt_form(0) });
+            g.combat_requests.push(crate::combat::CombatRequest::Dismember { actor: r, location, by: a.opt_form(0), explode: None });
         }
     }
     none()
