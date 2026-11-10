@@ -18,7 +18,8 @@
 //!   its own [`RELOAD_DELAY`] seconds later, so the message is out before its game starts
 //!   again. A load restarts the game with its lobby (nvforever `coop`), so the guests
 //!   come back into the host's world as it was at that save. The last shared save's path
-//!   is kept in [`SHARED_ENV`] across those restarts.
+//!   is kept in [`SHARED_ENV`] across those restarts. A guest's save is its own game where
+//!   it left it, so its new run is taken beside the host ([`REJOIN_ENV`]; item 152).
 //!
 //! - **A guest down far from everyone: its own last save.** A guest whose health runs out
 //!   with no other player up near it (nobody to revive it; nvforever `coop` decides,
@@ -47,6 +48,9 @@ pub const RELOAD_DELAY: f64 = 0.5;
 pub const ALONE_HOLD: f64 = 5.0;
 /// The last shared save's path, kept across the restart a load makes.
 pub const SHARED_ENV: &str = "NVF_COOP_SHARED_SAVE";
+/// Set on a guest that loads for everyone being down: its new run goes beside the host
+/// (a guest's save is its own game where it left it; nvforever `coop::rejoin`).
+pub const REJOIN_ENV: &str = "NVF_COOP_REJOIN_HOST";
 
 /// This game's part in a co-op session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -294,6 +298,9 @@ fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, 
             Shared::Reload { .. } if p.role == Role::Guest && id == 0 => match p.saves.last.clone() {
                 Some(path) => {
                     say(&mut corner, "Everyone is down: back to the last shared save".into());
+                    // The save is this game's own spot: the new run goes beside the host
+                    // (nvforever `coop::rejoin`; item 152).
+                    std::env::set_var(REJOIN_ENV, "1");
                     load.write(LoadRequest { path });
                 }
                 None => say(&mut corner, "Everyone is down, and this game has no shared save to go back to".into()),

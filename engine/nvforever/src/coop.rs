@@ -183,6 +183,7 @@ mod leave;
 pub use leave::HoldLeave;
 mod scene;
 mod revive;
+mod rejoin;
 
 /// The port `--join` uses when the address names none (and a code without a port means).
 pub const DEFAULT_PORT: u16 = nvf_coop::code::DEFAULT_PORT;
@@ -351,7 +352,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, leash, scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, (leash, rejoin::rejoin_host).chain(), scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .add_systems(Update, peer_emotes.after(social_mates))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
             .add_systems(Update, scene::story_prompts.after(scene::share_scene).before(downed))
