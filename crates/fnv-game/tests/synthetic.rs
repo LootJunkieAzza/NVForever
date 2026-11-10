@@ -1240,6 +1240,42 @@ fn a_disabled_actor_runs_on_load_only_after_its_enable() {
     assert_eq!(loads(&h), 1.0);
 }
 
+/// An actor disabled through its enable parent runs OnLoad the frame after the parent's
+/// Enable brings it in, as after its own Enable; a child set to the opposite state comes
+/// in with the parent's Disable [documented: GECK wiki OnLoad, "when the object's 3D is
+/// loaded"; overnight queue item 141: Hoover Dam's battle Legionaries, behind enable
+/// parents, never ran OnLoad once actors lost the cell-load OnLoad].
+#[test]
+fn an_actor_behind_an_enable_parent_runs_on_load_when_the_parent_brings_it_in() {
+    use fnv_sim::refs::EnableParent;
+    for opposite in [false, true] {
+        let mut f = fixture();
+        let npc = FormId(NPC_REF);
+        let parent = FormId(ACT_REF);
+        f.refs.refs.get_mut(&npc).unwrap().enable_parent = Some(EnableParent { reference: parent, opposite, pop_in: false });
+        let mut g = game(&f);
+        g.new_game();
+        g.world.set_enabled(parent, opposite).unwrap();
+        assert!(!g.present(npc));
+        let key = InstKey::Ref { reference: npc };
+        let loads = |g: &Game| match g.var(key, 2) {
+            Value::Num(x) => x,
+            v => panic!("{v:?}"),
+        };
+        g.set_loaded([FormId(CELL)].into_iter().collect());
+        g.tick();
+        assert_eq!(loads(&g), 0.0, "absent through its parent: no OnLoad yet (opposite {opposite})");
+        let op = if opposite { 0x1022 } else { 0x1021 };
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(parent), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, &[]);
+        assert!(g.present(npc));
+        g.tick();
+        assert_eq!(loads(&g), 1.0, "OnLoad the frame after the parent's change (opposite {opposite})");
+        g.tick();
+        assert_eq!(loads(&g), 1.0);
+    }
+}
+
 #[test]
 fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     let f = fixture();
