@@ -149,6 +149,7 @@ mod sneaking;
 mod swimming;
 mod ssao;
 mod taa;
+mod frame_gen;
 mod fsr;
 mod speech_look;
 mod stress_sample;
@@ -439,6 +440,12 @@ struct Args {
     /// NVForever.ini's Latency reduction switch wins over this flag, as for every switch.
     #[arg(long)]
     latency_reduction: bool,
+    /// FSR 3.1 frame generation: a frame made between each two real frames, from optical
+    /// flow and the motion FSR gets (frame_gen.rs). Needs --fsr (any mode) and vsync; turns
+    /// latency reduction on with it. Once any setting is saved, NVForever.ini's Frame
+    /// generation switch wins over this flag, as for every switch.
+    #[arg(long)]
+    frame_generation: bool,
     /// With --play: draw the text overlay (the developer's position, loading counts and
     /// key help), which the game leaves off (owner, list 5 item 68); the settings page's
     /// Developer group turns it on and off too.
@@ -452,7 +459,7 @@ struct Args {
     /// runs (--screenshot, --timelapse, --frame-json, --run-seconds) always default to it.
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
-    /// FSR 3.1 upscaling (no frame generation). Replaces other anti-aliasing while on.
+    /// FSR 3.1 upscaling (frame generation: --frame-generation). Replaces other anti-aliasing while on.
     /// Saved Graphics settings take precedence in normal play, as for other switches.
     #[arg(long, value_enum, default_value = "off")]
     fsr: graphics::FsrMode,
@@ -1359,6 +1366,7 @@ fn main() -> AppExit {
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: 0 }))
     .add_plugins(anti_lag::AntiLagPlugin(args.latency_reduction))
+    .add_plugins(frame_gen::FrameGenPlugin(args.frame_generation))
     .add_plugins(blit_warm::BlitWarmPlugin)
     // Lights clustered on the CPU, Bevy's own fallback: its GPU clustering made about six
     // new GPU buffers a frame (10,235 in 30 s at night against 4,060 on the CPU), GPU

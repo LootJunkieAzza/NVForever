@@ -26,8 +26,12 @@
 
 mod clear_buffer;
 mod constants;
+// NVForever (2026-11-06): FSR 3.1 frame generation, ported from FidelityFX SDK 1.1.4.
+mod fg_pass;
+pub mod frameinterpolation;
 mod jitter;
 mod lanczos2;
+pub mod opticalflow;
 mod pass;
 mod rcas;
 mod resources;

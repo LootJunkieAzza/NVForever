@@ -138,16 +138,17 @@ when a Bevy release makes the feature follow the backends.
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
-The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md): a Rust/wgpu port of AMD FidelityFX
+The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md) and, added here, FSR 3.1 frame
+generation (docs/design/frame-generation.md): a Rust/wgpu port of AMD FidelityFX
 SDK 1.1.4's upscaler, [cwfitzgerald/wgpu-ffx](https://github.com/cwfitzgerald/wgpu-ffx) at
 commit `6fe7064064b396b30df97341c2ca957ca1b00884`. It is not on crates.io, so it is not a
 `[patch]`: the engine uses its `wgpu-ffx` and `wgpu-ffx-shaders-spv` crates as path
 dependencies, and `engine/Cargo.toml` excludes the workspace. Its shaders are the SDK's
 GLSL (FidelityFX-SDK commit `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`, with AMD's MIT
 notices), compiled to the SPIR-V that `wgpu-ffx-shaders-spv` embeds. `xtask/` and the
-shaders it compiles are that SPIR-V's source and stay with it: `shaders/src/fsr3upscaler`
-and what it includes (`shaders/include` with `fsr3upscaler`, `spd` for the luma pyramid
-and `fsr1` for RCAS). `LICENSE.MIT` holds both copyright
+shaders it compiles are that SPIR-V's source and stay with it: `shaders/src/fsr3upscaler`,
+`shaders/src/frameinterpolation`, `shaders/src/opticalflow` and what they include
+(`shaders/include` with those three, `spd` for the pyramids and `fsr1` for RCAS). `LICENSE.MIT` holds both copyright
 notices; `tools/release/third_party_licenses.py` takes it from the workspace root for the
 release's `THIRD-PARTY-LICENSES.txt`.
 
@@ -163,17 +164,47 @@ Changes:
   variants.
 - `wgpu-ffx/src/lib.rs`: the dispatch no longer pushes and pops a device-wide error scope,
   which raced Bevy's pipeline compilation on other threads.
+- **Frame generation** (2026-11-07, #1778), new code ported from AMD's MIT host sources of
+  FidelityFX SDK 1.1.4 (`sdk/src/components/opticalflow/ffx_opticalflow.cpp`,
+  `sdk/src/components/frameinterpolation/ffx_frameinterpolation.cpp`, and the parameters
+  `sdk/src/components/fsr3/ffx_fsr3.cpp` passes them; tag `v1.1.4` of
+  GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, MIT throughout, read as reference and not
+  vendored):
+  - `wgpu-ffx/src/opticalflow.rs` and `wgpu-ffx/src/frameinterpolation.rs`: the passes,
+    their resources, constants, order and dispatch sizes. Left out: the debug view, the async
+    (second queue) mode and the distortion-field input (a 1x1 zero field is bound, as AMD's
+    default).
+  - `wgpu-ffx/src/fg_pass.rs`: the passes bind by GLSL name. AMD's frame-interpolation
+    shaders put their sampler at binding 1000 (over wgpu's limit) and number bindings with
+    gaps; wgpu-hal's Vulkan backend numbers a layout's descriptors 0, 1, 2... and rewrites
+    only shaders it translates, so the SPIR-V's binding decorations are rewritten to that
+    dense order when each module is created. The shader sources stay unchanged.
+  - Tests compare every pass's binding table with the `#define`s of its `.glsl` file and the
+    declarations of the callbacks header, and with the bindings the compiled SPIR-V
+    declares; GPU checks against true midpoints are in `tools/fsr-validation` (`fg.rs`).
+  - Shaders: `shaders/src/{frameinterpolation,opticalflow}` and
+    `shaders/include/{frameinterpolation,opticalflow}` (46 files), each identical to the
+    v1.1.4 tag's file but for line endings (compared by git blob hash, 2026-11-07), with
+    AMD's copyright and MIT notice. Compiled with `perm.toml` configs in
+    `wgpu-ffx-shaders-spv/src/{frameinterpolation,opticalflow}` (base defines from AMD's
+    `CMakeCompile*Shaders.txt`). Not permuted: jittered motion vectors, whose define AMD's
+    list misnames so its own build never compiles that branch (it does not compile).
+- `xtask/src/compile_shaders.rs`: `--only <effect>` compiles one effect's `perm.toml`, so
+  the upscaler's committed SPIR-V is left alone (a newer `glslc` gives different bytes for
+  unchanged sources). The frame-generation SPIR-V was built with shaderc 2026.4 (Vulkan SDK
+  1.4.363.0): `cargo xtask compile-shaders --only frameinterpolation --only opticalflow`.
 - Left out: the upstream repository's Git and CI files, and the shader sources of the SDK's
-  other effects (blur, Brixelizer, CACAO, CAS, the denoiser, depth of field, FSR 2, frame
-  interpolation, optical flow, SSSR and the rest). Nothing here compiles them:
-  `cargo xtask compile-shaders` builds the effects with a `perm.toml` in
-  `wgpu-ffx-shaders-spv/src`, only FSR 3.1. Every `#include` of its shaders resolves among
-  the kept files.
+  other effects (blur, Brixelizer, CACAO, CAS, the denoiser, depth of field, FSR 2, SSSR and
+  the rest). Nothing here compiles them: `cargo xtask compile-shaders` builds the effects
+  with a `perm.toml` in `wgpu-ffx-shaders-spv/src`: the FSR 3.1 upscaler, frame
+  interpolation and optical flow. Every `#include` of their shaders resolves among the kept
+  files.
 
 The kept shader files are unchanged. To rebuild the SPIR-V, install `glslc` (Vulkan SDK or
-Shaderc) and run `cargo xtask compile-shaders` in `engine/vendor/wgpu-ffx`; `cargo xtask
-vendor` downloads the whole AMD SDK and is not needed. Not used: AMD's signed DLLs, frame
-generation, the SDK's samples and prebuilt binaries.
+Shaderc) and run `cargo xtask compile-shaders` in `engine/vendor/wgpu-ffx` (`--only <effect>`
+for one); `cargo xtask vendor` downloads the whole AMD SDK and is not needed. Not used:
+AMD's signed DLLs (FSR SDK 2.x), its frame-generation swapchain and DLLs, the SDK's samples
+and prebuilt binaries.
 
 ## Dropped
 

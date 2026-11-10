@@ -3,7 +3,8 @@
 An optional switch: the GPU driver keeps the game from preparing frames ahead of the graphics
 card, which is meant to bring input to the screen sooner [hypothesis: not yet measured on an
 AMD GPU]. It is the first half of #1778; FSR 3.1 frame generation, which adds latency that
-this offsets, comes later. Code: `engine/nvforever/src/anti_lag.rs`.
+this offsets, turns it on while it runs ([frame-generation](frame-generation.md)). Code:
+`engine/nvforever/src/anti_lag.rs`.
 
 ## Using it
 

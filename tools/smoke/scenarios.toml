@@ -22907,6 +22907,44 @@ expect = [
 ]
 forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
+[[scenario]]
+name = "frame-generation"
+source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors"
+areas = ["graphics"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/vendor/wgpu-ffx/**"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
+run_seconds = 22
+expect = [
+  "FSR 3.1.4: Quality, 853x480 -> 1280x720, frame generation on",
+  "frame generation: 853x480 -> 1280x720, a generated frame between each two real frames",
+  "frame generation active: 1280x720, generated frame presented first, the real frame second",
+  { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
+]
+forbid = [
+  { text = "Validation Error", label = "a Vulkan validation error" },
+  { text = "Caught rendering error", label = "a rendering error" },
+  { text = "frame generation: on but not running", label = "frame generation switched on but held off" },
+  { text = "the real frame is dropped", label = "a real frame without its second window image" },
+]
+
+[[scenario]]
+name = "frame-generation-needs-fsr"
+source = "#1778, docs/design/frame-generation.md: frame generation on with FSR off says it is held off, and starts when FSR is chosen on the settings page"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/fsr.rs"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:11", NVF_PLAY_TEST_SETTINGS = "9:fsr-upscaling=Quality" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--frame-generation", "--no-voice", "--no-lodgen"]
+run_seconds = 20
+expect = [
+  { text = "frame generation: on but not running (Needs FSR 3.1)", label = "held off while FSR is off" },
+  "FSR 3.1.4: Quality, 853x480 -> 1280x720, frame generation on",
+  { text = "frame generation active: 1280x720", label = "generating after FSR is chosen and the pause menu closes" },
+]
+order = [["frame generation: on but not running (Needs FSR 3.1)", "frame generation active: 1280x720"]]
+forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+
 # [design: issue #1803] Compare identical first raises with and without hidden draws.
 [[scenario]]
 name = "pipboy-first-open"
