@@ -924,6 +924,36 @@ runs of each scene, frame time in ms and the frames a second of their mean:
 
 Only the saloon is past 180 a second; the Strip and the Lucky 38 floor are within 2-4 of it.
 
+### After the table: anti-aliasing other than 4x, and the terrain's layers
+
+5. **Cut-outs test depth for equality without multisampling too.** With FXAA, SMAA, TAA or
+   no anti-aliasing, grass, leaf cards and tree billboards had kept the old main pass
+   (change 2 covers multisampled views; only NIF surfaces took change 1). Both passes test
+   the alpha at the cutoff there, so they now test for equality as well.
+6. **A quadrant's first four texture layers are drawn with its base** (terrain.rs, "One
+   draw for the base and its first layers"; terrain.wesl), where the GPU has bindless
+   textures. A ground triangle at Goodsprings carries 2.2 painted layers on average (50
+   cells: 102,400 base triangles, 224,778 painted layer triangles), each a blended copy lit
+   in full. Up to 6 layers a quadrant were seen; the first four hold 85 % of the painted
+   triangles at Goodsprings and 95 % at Novac, and the rest keep their blended draws.
+   Goodsprings, the same exe with `NVF_PLAY_TEST_TERRAIN_LAYERS=blended` and without:
+   FXAA 6.39, 6.32 → 6.17, 6.13 ms; 4x multisampling 7.72 → 7.52 ms. A screenshot folded
+   against blended differs in 0.07 % of its pixels by more than 24 of 255 and in 0.6 % by
+   more than 8. Less than the 0.56 ms the layers cost: the folded shader samples every
+   layer's two textures over the whole quadrant.
+
+Goodsprings by anti-aliasing choice (release, changes 1-5; frames a second, before change 5
+in brackets where it differs): 4x multisampling 131-134, 2x 149 (151), none 161 (144),
+FXAA 158 (142), SMAA 154 (142), TAA 155 (141).
+
+With FXAA and changes 1-6 (release, one run a scene): Goodsprings 163, Novac 130, Primm 125,
+the Strip 190, Freeside 171, the Prospector Saloon 276, the Lucky 38 floor 204.
+
+Looked at and left: a layer hidden under a later, fully opaque one (0.3 % of the layer
+triangles: opacities seldom reach 1); the swapchain's frame latency (1 to 4: 7.62-7.70 ms,
+the GPU 97-98 % busy at each); the depth-only passes reading single fields of the material
+instead of whole structs (Primm's prepass 1.74 against 1.77 ms: the driver already did).
+
 ### What is left, and why Goodsprings is not at 180
 
 At 7.7 ms Goodsprings still waits for the GPU; 180 a second is 5.56 ms. Per feature, on
@@ -944,3 +974,11 @@ missing; the pieces, largest first:
   once to one sample would serve it, soft intersections and the water, and replace the
   0.23 ms copy of the multisampled depth. That changes Bevy's prepass textures.
 - **The main thread** is at 5.4 ms outdoors once the GPU is out of the way.
+- **About 1 ms of GPU time a frame is in no encoder** (a `profile` run held by the GPU, 8x
+  multisampling: the frame 9.81 ms, the encoders 8.80 ms; the same gap at 4x and with
+  FXAA). The frame's 340 buffer uploads are 0.8 MB in all (a RenderDoc replay); batching
+  them was tried before (#1955) for about 3 % and parked. The rest is not found.
+- **Alpha-tested overdraw in the depth prepass**: Primm's view, a quarter of it a dry
+  bush, spends 1.74 ms in the prepass against Goodsprings' 0.56 ms.
+- **Shadow passes at Novac and Primm**, 0.7 ms (about 1,500 casters in the third cascade)
+  against Goodsprings' 0.25 ms.
