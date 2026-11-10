@@ -254,6 +254,44 @@ apart; `&&` against the compound assignments at the same level; short-circuit ou
 loop; hex digit case; nested and unclosed block comments; break/continue in nested loops;
 GoTo across blocks.
 
+## 11. Refused at run time (#2037)
+
+xNVSE 6.4.9's runtime compiler (the console, CompileScript, the Script Runner's files,
+nvf_capture's query steps) refuses forms that NVForever's compiler took. The owner ruled on
+2026-11-10 that NVForever refuses them too ("Yes, refuse them", #2037), so
+`fnv_script::compile::compile_runtime` adds these errors on top of `compile`. Scripts the
+editor compiled keep their bytes, and the source a plugin carries is compiled by `compile`
+with a seed (`fnv_game::source_compile`), so neither meets them [decision].
+
+- **A fractional number literal for an int parameter of a plugin function** does not
+  compile [observed: no golden row for jip.n7 karma.set (`SetBaseKarma 37.5 rBase`), jip6
+  dest.settrait.1.1.3.5 (`SetNthDestructionStageTrait rObj 1 1 3.5`), showoff3
+  so3.ease.badcode (`ApplyEasingAlt 0.5 1.5 0`) and so3.seed.range.fraction
+  (`RandSeeded 1.7 3.2`), jg3 casino.setwin.tops.frac (2.7), jg4 regn.setpriority.gs.frac
+  (20.6), sup1 roundalt.flag2 (`RoundAlt 37.66 2.7 1`) and words.7p9 (`NumberToWords
+  7.9`); the whole-number rows beside each compiled]. A fraction for a float parameter
+  compiles (so3.ease.outside, `ApplyEasingAlt 1.5 1 0`; lutana1 radius.set.base.frac), and
+  so does a float variable for an int parameter (jip6's put-back step, `… fSave`). "Int"
+  is the catalogue's kind, plus SetBaseKarma's karma, which the wiki types float
+  [observed: karma.set against karma.set.int]. A literal with nothing after the point
+  (`37.0`) is not refused [hypothesis: no row]. Functions of the base game are not checked
+  [hypothesis: no row].
+- **The result of a command registered without a return type, given to a form parameter**,
+  does not compile [observed: nvse.misc pkg.nth0.location, `GetFormIDString
+  (GetPackageLocation rG)`; nvse-seventh pkg.removeat0, `GetFormIDString (rDoc.RemovePackageAt
+  0)`; ext-jg6.md, `GetFormIDString (rP.GetCurrentFurnitureRef)`]. Through a variable it
+  compiles (jg6 furniture.player). The catalogue's return types do not tell these commands
+  apart (GetPackageLocation's page says it returns a ref), so the three are listed by name
+  (`UNTYPED_RESULTS`, compile/gen/x.rs); other form parameters than GetFormIDString's
+  [hypothesis].
+- **Not pinned, kept compiling** [decision: #2037, the owner's ruling applies only where
+  the data gives a rule]: jg8 shuffle (`Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)` then
+  `aOut[0] + aOut[1] + …`, refused both as a sum inside sv_Construct and summed with `let`;
+  an inline `ar_List` argument compiles for ShowOff's matrix functions and string `+` with
+  an element compiles (nvse.n9 files.plugins), so either Ar_Shuffle's parameter or numeric
+  element arithmetic could be the cause, ext-jg8.md) and showoff3 so3.jumping
+  (`rP.IsJumping`: not registered under that name, or no calling reference, ext-showoff.md).
+
 ## Observed in the original game (2026-10-26)
 
 [observed: <id>] = tools/capture/ext-probes, run unattended in the original game (xNVSE 6.4.9, JIP 57.30) on 2026-10-26 by tools/capture/ext_probe_run.py from the owner's private test plugin; the results file is private (`C:\fnv-private\goldens\ext\`). Where a row settles an "open" point above, the observation wins.
