@@ -403,7 +403,8 @@ impl Game<'_> {
             // SetUnconscious holds a lying actor down until it is cleared [hypothesis:
             // the thugs that fake death, SCPT 0x00118A77, push their actor down, set it
             // unconscious and clear it only when hit].
-            if !rises || self.extra.get(&r).is_some_and(|e| e.unconscious) {
+            // A Paralysis effect holds it down whatever laid it down last (#1847).
+            if !rises || self.paralysis_holds(r) || self.extra.get(&r).is_some_and(|e| e.unconscious) {
                 continue;
             }
             if k.cause == Cause::Essential && self.fight_near(r) {

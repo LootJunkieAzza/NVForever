@@ -69,6 +69,7 @@
 
 use crate::limbs::ActorRig;
 use bevy::audio::AudioSink;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use nvf_play::phys::PhysState;
 use std::collections::HashMap;
@@ -493,6 +494,33 @@ pub fn frame_stats(ms: &[f32]) -> (f32, f32, f32) {
     (mean, low, sorted[0])
 }
 
+/// What is loaded now: the physics world's cells, the placed references drawn (with a
+/// model), the actors with a rig, every entity ([`LoadedCounts`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Loaded {
+    pub cells: usize,
+    pub refs: usize,
+    pub actors: usize,
+    pub entities: usize,
+}
+
+/// The counts a stress sample's `cells`, `refs drawn`, `actors` and `entities` are, read
+/// also by the performance overlay's loaded row (`perf_overlay`). The queries only count
+/// when [`LoadedCounts::read`] is called.
+#[derive(SystemParam)]
+pub struct LoadedCounts<'w, 's> {
+    entities: Query<'w, 's, Entity>,
+    refs: Query<'w, 's, (), With<RefVisual>>,
+    actors: Query<'w, 's, (), With<ActorRig>>,
+    phys: Option<Res<'w, PhysState>>,
+}
+
+impl LoadedCounts<'_, '_> {
+    pub fn read(&self) -> Loaded {
+        Loaded { cells: self.phys.as_deref().map_or(0, |p| p.cells.len()), refs: self.refs.iter().count(), actors: self.actors.iter().count(), entities: self.entities.iter().count() }
+    }
+}
+
 /// The caches a sample counts, and the device whose allocator it reports.
 type Cached<'w> = (Option<Res<'w, nvf_assets::ModelCache>>, Option<Res<'w, nvf_assets::TextureCache>>, Option<Res<'w, bevy::render::renderer::RenderDevice>>);
 
@@ -500,8 +528,7 @@ type Cached<'w> = (Option<Res<'w, nvf_assets::ModelCache>>, Option<Res<'w, nvf_a
 fn sample(
     real: Res<Time<Real>>,
     mut s: ResMut<Samples>,
-    entities: Query<Entity>,
-    refs: Query<(), With<RefVisual>>,
+    counts: LoadedCounts,
     actors: Query<&ActorRig>,
     globals: Query<&GlobalTransform>,
     audio: Query<(), With<AudioSink>>,
@@ -541,24 +568,26 @@ fn sample(
     let frames = window.frames.len();
     let window = window.fields();
     let nan = actors.iter().filter(|r| r.nodes.first().and_then(|&e| globals.get(e).ok()).is_some_and(|g| !g.translation().is_finite())).count();
-    let (cells, bodies, ragdolls) = phys.as_deref().map_or((0, "0/0/0".to_string(), 0), |p| {
+    let loaded = counts.read();
+    let cells = loaded.cells;
+    let (bodies, ragdolls) = phys.as_deref().map_or(("0/0/0".to_string(), 0), |p| {
         let st = p.world.stats();
         let solver = format!(", bodies awake {}, contact pairs {}, manifolds {}, solver contacts {}, joints {}, solver ms {:.0}/{:.0}/{:.0}/{:.0}/{:.0}/{:.0}", st.bodies_awake, st.contact_pairs, st.manifolds, st.solver_contacts, st.joints, st.solver_us[0] as f64 / 1000.0, st.solver_us[1] as f64 / 1000.0, st.solver_us[2] as f64 / 1000.0, st.solver_us[3] as f64 / 1000.0, st.solver_us[4] as f64 / 1000.0, st.solver_us[5] as f64 / 1000.0);
-        (p.cells.len(), format!("{}/{}/{}{solver}", st.bodies_fixed, st.bodies_kinematic, st.bodies_dynamic), p.world.ragdolls().count())
+        (format!("{}/{}/{}{solver}", st.bodies_fixed, st.bodies_kinematic, st.bodies_dynamic), p.world.ragdolls().count())
     });
     let gpu = cached.2.as_deref().map_or(String::new(), gpu_memory);
     info!(
         "stress sample: t {:.1} s, frames {frames}, frame mean {mean:.2} ms, frame worst {worst:.2} ms, entities {}, refs drawn {}, meshes {}, images {}, materials {}, models cached {}, textures cached {}, audio {}, cells {cells}, bodies {bodies}, actors {}, nan actors {nan}, ragdolls {ragdolls}, projectiles {}{gpu}{window}, at {}",
         t,
-        entities.iter().count(),
-        refs.iter().count(),
+        loaded.entities,
+        loaded.refs,
         meshes.len(),
         images.len(),
         materials.len(),
         cached.0.as_deref().map_or(0, nvf_assets::ModelCache::held),
         cached.1.as_deref().map_or(0, nvf_assets::TextureCache::len),
         audio.iter().count(),
-        actors.iter().count(),
+        loaded.actors,
         combat.as_deref().map_or(0, |c| c.in_flight()),
         s.last.as_ref().map_or("", |b| b.read.place.as_str()),
     );

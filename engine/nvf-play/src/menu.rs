@@ -860,7 +860,7 @@ type DrawSources<'w> = (Option<Res<'w, crate::combat::Combat>>, Option<Res<'w, c
 
 /// [design] The item drawing reads the switch, its previous drawing choice and both
 /// item adapters' tile state.
-type DrawTiles<'w, 's> = (Option<Res<'w, crate::tiles::vanilla::TileMenus>>, Local<'s, (bool, bool)>, Option<Res<'w, crate::tiles::container_menu::ContainerTiles>>, Option<Res<'w, crate::tiles::barter_menu::BarterTiles>>);
+type DrawTiles<'w, 's> = (Option<Res<'w, crate::tiles::vanilla::TileMenus>>, Local<'s, (bool, bool)>, Option<Res<'w, crate::tiles::container_menu::ContainerTiles>>, Option<Res<'w, crate::tiles::barter_menu::BarterTiles>>, Option<Res<'w, crate::tiles::inventory_menu::InventoryTiles>>);
 
 /// Rebuild the container or barter menu's UI when the model changed (the inventory is
 /// the Pip-Boy's).
@@ -877,7 +877,7 @@ fn draw(
     mut kit: Local<Option<look::Kit>>,
     (combat, play, mut script): DrawSources,
     mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
-    (tiles, mut was_tiled, tile_menu, barter_tiles): DrawTiles,
+    (tiles, mut was_tiled, tile_menu, barter_tiles, inventory_tiles): DrawTiles,
 ) {
     // [design] With ContainerMenu or BarterMenu enabled the item menu draws from tiles
     // once its writer has the file built; a sheet takes the
@@ -888,7 +888,8 @@ fn draw(
     // file; drawn again here when that changes (the frame the prompt opens, before the tree
     // builds it, draws it by hand).
     let prompt = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
-    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game, prompt, item_tiled));
+    let inventory_tiled = inventory_tiles.is_some_and(|t| t.ready.is_some());
+    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game, prompt, item_tiled || inventory_tiled));
     if !active.is_changed() && !roots.is_empty() && (tiled, item_tiled) == *was_tiled {
         return;
     }
