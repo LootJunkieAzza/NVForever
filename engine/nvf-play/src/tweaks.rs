@@ -1272,6 +1272,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "map-marker-distance", "Map Marker Distance", "The World Map says how far the marker under the pointer is from the player. (Stewie's Tweaks bMapLocationDisplayDistance)", game.map_marker_distance);
         switch!(app, "quantity-shows-price", "Quantity Box Shows the Price", "In a barter, the \"How many?\" box says what the amount costs. (Stewie's Tweaks bBarterQuantityMenuShowsPrice)", game.quantity_shows_price);
         switch!(app, "quantity-shows-weight", "Quantity Box Shows the Weight", "In a container, the \"How many?\" box says what the amount weighs. (Stewie's Tweaks bContainerQuantityMenuShowsWeight)", game.quantity_shows_weight);
+        switch!(app, "hide-empty-reputation", "Hide an Empty Reputation List", "With no reputations yet, the Stats page's General tab shows the statistics only, with no switch to the reputations. (Stewie's Tweaks bHideReputationTabIfEmpty)", game.hide_empty_reputation);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

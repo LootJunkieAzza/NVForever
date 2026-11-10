@@ -472,6 +472,7 @@ unless the player binds them, so nothing changes until then.
 | Map Recentre Key | `bMapRecenterHotkey` | `pipboy::data::take_input`: C (our key) clears the dragged map's centre, which falls back on the player; at once, no easing |
 | Map Marker Distance | `bMapLocationDisplayDistance` | `pipboy::data::world_map` adds `model::distance_text` (metres or kilometres, our words, 70 units a metre [hypothesis]) to the marker's detail line; the travel-time modes are not done |
 | Quantity Box Shows the Price / Weight | `bBarterQuantityMenuShowsPrice`, `bContainerQuantityMenuShowsWeight` | `menu::look::quantity_line` under the amount of the hand-built "How many?" box (our words); the box drawn from the game's tiles does not show it yet |
+| Hide an Empty Reputation List | `bHideReputationTabIfEmpty` | `pipboy::stats::model::Snapshot::hide_reputation`; the hand-built General tab keeps to the statistics and draws no switch; the tiles Stats page does not hide it yet |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -493,8 +494,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 394 |
-| to do | 209 |
+| done | 395 |
+| to do | 208 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -930,6 +931,7 @@ game's Data folder, read-only).
 | `bHideQuestItemWeightAndValue` | done |  |  | No Figures for Quest Items |
 | `bHideRanksInTraitMenu` | done |  |  | No Ranks for Traits |
 | `bHideReadNotes` | done |  |  | Hide Read Notes (the note on screen stays) |
+| `bHideReputationTabIfEmpty` | done |  |  | Hide an Empty Reputation List (the hand-built Stats page; the tiles page not yet) |
 | `bHideUnavailableRadios` | done |  |  | already so: the Pip-Boy lists only stations in range |
 | `bIndividialItemStats` | done |  |  | One Item's Figures (the Pip-Boy; containers already show one) |
 | `bInvertContainerTitleScrollwheelDirection` | done |  |  | Reverse Category Wheel |
@@ -996,7 +998,6 @@ game's Data folder, read-only).
 | `bHideHotkeyedItemsInBarter` | to do |  |  | the menu model has no hotkey view |
 | `bHideHotkeyedItemsInContainers` | to do |  |  | the menu model has no hotkey view |
 | `bHideHotkeyedItemsInRepairLists` | to do |  |  | repair offer has no hotkeys |
-| `bHideReputationTabIfEmpty` | to do |  |  | stats view and switch; the flag on Snapshot |
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |

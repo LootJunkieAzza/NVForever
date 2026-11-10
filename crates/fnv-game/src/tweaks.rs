@@ -380,6 +380,9 @@ pub struct Tweaks {
     /// many?" box says what the amount costs in a barter, or weighs in a container.
     pub quantity_shows_price: bool,
     pub quantity_shows_weight: bool,
+    /// `bHideReputationTabIfEmpty`: with no reputations the Stats page's General shows
+    /// the statistics only.
+    pub hide_empty_reputation: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -557,6 +560,7 @@ impl Default for Tweaks {
             map_marker_distance: false,
             quantity_shows_price: false,
             quantity_shows_weight: false,
+            hide_empty_reputation: false,
         }
     }
 }

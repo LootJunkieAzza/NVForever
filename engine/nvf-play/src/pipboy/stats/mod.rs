@@ -1101,6 +1101,10 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
 /// beside, the switch at the top right.
 fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
     v.set_rows_shown(4, VISIBLE);
+    // The player's tweak: no reputations, no reputation list [design: docs/design/tweaks.md].
+    if s.hide_reputation {
+        v.reputation = false;
+    }
     let rows = s.rows(4, v.reputation);
     let mut spots = Vec::new();
     let th = c.line_height(2);
@@ -1139,21 +1143,23 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         }
         centred(p, c, &model::whole(karma), mid, y, bw);
     }
-    // The switch: the other list's name [hypothesis], its key after it.
-    let name = if v.reputation { label("sStatsGeneral", "General") } else { "Reputation" };
-    let size = text_box(c, name, HINT_HORBUF, HINT_VERBUF);
-    let right = GENERAL.x + GENERAL_SWITCH.x;
-    let top = GENERAL.y + GENERAL_SWITCH.y;
-    let sr = Rect::new(right - size.x, top, right, top + size.y);
-    if v.hover == Some(Spot::Switch) {
-        c.boxed(p, sr, amber(LINE), None);
+    if !s.hide_reputation {
+        // The switch: the other list's name [hypothesis], its key after it.
+        let name = if v.reputation { label("sStatsGeneral", "General") } else { "Reputation" };
+        let size = text_box(c, name, HINT_HORBUF, HINT_VERBUF);
+        let right = GENERAL.x + GENERAL_SWITCH.x;
+        let top = GENERAL.y + GENERAL_SWITCH.y;
+        let sr = Rect::new(right - size.x, top, right, top + size.y);
+        if v.hover == Some(Spot::Switch) {
+            c.boxed(p, sr, amber(LINE), None);
+        }
+        let ty = box_text_top(c, top, size.y);
+        c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, bright());
+        // R, with a controller X (`stats_menu.xml`'s, `crate::pad::menu_buttons`).
+        let key = crate::pad::hint(&[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: 4 });
+        c.text(p, 2, &key, right + HINT_KEY_GAP, ty, Align::Left, bright());
+        spots.push((sr, Spot::Switch));
     }
-    let ty = box_text_top(c, top, size.y);
-    c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, bright());
-    // R, with a controller X (`stats_menu.xml`'s, `crate::pad::menu_buttons`).
-    let key = crate::pad::hint(&[KeyCode::KeyR], crate::pad::MenuAt { code: Some(fnv_game::game::menus::STATS), tab: 4 });
-    c.text(p, 2, &key, right + HINT_KEY_GAP, ty, Align::Left, bright());
-    spots.push((sr, Spot::Switch));
     if rows.is_empty() && v.reputation {
         // [hypothesis: the words.]
         c.text(p, 2, "No reputations yet", r.min.x + r.width() / 2.0, r.min.y + (r.height() - th) / 2.0, Align::Centre, amber(DIMMED));

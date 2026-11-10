@@ -327,6 +327,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
             standings.push(Standing { form: rep, name, title, fame, infamy, icon: t.icon });
         }
         standings.sort_by(|a, b| a.name.cmp(&b.name));
+        s.hide_reputation = g.tweaks.hide_empty_reputation && standings.is_empty();
         s.standings = standings;
         if let (Some((karma, _)), [Some(ve), Some(e), Some(go), Some(vg)]) = (value(g, av::KARMA), karma_limits) {
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
