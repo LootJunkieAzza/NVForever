@@ -23961,3 +23961,19 @@ expect = [
 ]
 forbid = ["pipboy stats: used", "pipboy stats: Status RAD", "pipboy stats: General"]
 order = [["test aid: real input Pad(West) pressed", "pipboy stats: Status CND (head chosen)", "pipboy stats: Status CND (torso chosen)"]]
+
+[[scenario]]
+name = "helios-stasis-no-alarm"
+source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay on their pods until the player trips the laser. In the original (#1977 probe 3, player at (-2987,-648)) only p4 fights and the other four stay idle on ProtectronNotActive, a package that skips Fallout behaviour with Observe Combat Behavior clear; such an actor now takes no alarm (crates/fnv-game/src/combat_group.rs raise_alarms). Before, p4's alarm sent all five searching and one walked through the beam"
+note = "HELIOSOneTower, the player 295 units south of p4 (VHeliosStasisProtectron4REF 0x0009A260) behind the pods' wall; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+areas = ["ai", "combat"]
+paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'alert: LvlStasisRobot 0009A260 Normal → Alert', label = "p4 notices the player (in the original it fights, unseen)" },
+  { re = 'combat group: VHeliosStasisProtectron4REF 0x0009A260 alarms ', min = 1, label = "it still alarms the tower's other robots" },
+  { re = 'alarms VHeliosStasisProtectron\dREF', max = 0, label = "but none of the stasis protectrons on ProtectronNotActive" },
+  { re = 'entered trigger 0x0009A1E8', max = 0, label = "and nobody walks through the tripwire's beam (p2 did, 19 s in, before)" },
+]
