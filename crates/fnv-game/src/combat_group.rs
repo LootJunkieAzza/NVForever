@@ -28,6 +28,9 @@
 //! - an actor that **notices** a hostile (Normal → Alert) alarms its allies near it too,
 //!   so a camp wakes as one (the owner's list 2: "alerting their friends when they sense
 //!   an enemy presence");
+//! - an actor whose current package skips Fallout behaviour without Observe Combat
+//!   Behavior takes no alarm [observed: HELIOS One's stasis protectrons on
+//!   ProtectronNotActive stay on their pods while one of them fights, #1977];
 //! - **NPC against NPC** hits ([`Game::attacked_by_actor`]): a hit by an actor the victim
 //!   would leave alone starts a grudge as the player's hits do (`crate::provocation`),
 //!   except a stray hit between allies or friends, or between two actors both fighting
@@ -561,6 +564,14 @@ impl Game<'_> {
                     continue;
                 }
                 if self.is_dead(receiver) || !self.present(receiver) || self.awareness.state(receiver) == State::Combat {
+                    continue;
+                }
+                // A package that skips Fallout behaviour without Observe Combat Behavior
+                // keeps its actor out of its allies' fights: it takes no alarm (it still
+                // detects and fights for itself). [observed: HELIOS One's stasis
+                // protectrons on ProtectronNotActive 0x0003BEB4 stay on their pods while
+                // the fifth fights 200-500 units off, #1977 probe 3, 2026-11-10]
+                if !self.package_allows(receiver, crate::package::fallout::OBSERVE_COMBAT) {
                     continue;
                 }
                 // The foe's first starter, unless that is this receiver or its comrade; the
