@@ -814,7 +814,7 @@ pub fn explosion_rotation(world_up: bool, normal: Option<[f32; 3]>) -> Quat {
 
 /// Turn the billboards of the effect models to the camera (see the module notes).
 fn face_camera(
-    camera: Query<Entity, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<Entity, crate::fly::WorldCamera>,
     boards: Query<(Entity, &Billboard, &ChildOf)>,
     parents: Query<&ChildOf>,
     mut transforms: Query<&mut Transform>,

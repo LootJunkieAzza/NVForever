@@ -60,7 +60,6 @@ use crate::head_look::{HeadLook, NoHeadLook};
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::ragdoll::Corpse;
-use crate::reflection::ReflectionCamera;
 
 /// The `.lip` modifier channels applied to morphs (with every mouth shape).
 pub const DRIVEN_MODIFIERS: [&str; 14] = [
@@ -761,7 +760,7 @@ fn drive(
     data: Res<GameData>,
     mut meshes: ResMut<Assets<Mesh>>,
     rigs: Rigs,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
 ) {
     let st = &mut *state;
     let Some(world) = world else { return };

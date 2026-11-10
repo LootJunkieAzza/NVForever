@@ -16,7 +16,12 @@ impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
             .add_systems(PreUpdate, script_input.after(bevy::input::InputSystems))
-            .add_systems(Update, (tell_magazine, tell_player_state, mod_file_roots))
+            // The player's state the scripts read (sights up, for the HUD bars' aiming
+            // condition) is handed over after combat has updated it this frame and before
+            // the scripts run [design]. `tell_magazine` keeps its own place: it also
+            // applies the scripts' pending ammo writes, which must reach combat first.
+            .add_systems(Update, tell_player_state.after(crate::PlaySet::Activation).before(crate::PlaySet::Scripts))
+            .add_systems(Update, (tell_magazine, mod_file_roots))
             .add_systems(Update, script_moves.after(crate::PlaySet::Input));
     }
 }
@@ -234,13 +239,25 @@ const PAD_BITS: [(GamepadButton, u32); 14] = [
 ];
 
 /// Tell the scripts the player's auto-move and aiming and the first connected pad
-/// (GetAutoMove, GetPCUsingScope/IronSights, the controller functions).
-fn tell_player_state(control: Option<Res<crate::control::PlayerControl>>, pads: Query<&Gamepad>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+/// (GetAutoMove, GetPCUsingScope/IronSights, the controller functions), and whether the
+/// sights are up (`Combat::player_sights_up`: not while blocking with a melee weapon or
+/// while a reload holds them down), for SUP's HUD bars' aiming condition.
+fn tell_player_state(
+    control: Option<Res<crate::control::PlayerControl>>,
+    combat: Option<Res<crate::combat::Combat>>,
+    anim: Option<Res<crate::combat::WeaponAnim>>,
+    pads: Query<&Gamepad>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let told = &mut rt.game.jip2.told;
     if let Some(c) = control {
         told.auto_move = c.auto_move;
         told.aiming = c.aiming && c.weapon_out;
+        told.sights_up = match (combat.as_deref(), anim.as_deref()) {
+            (Some(cb), Some(a)) => cb.player_sights_up(a, told.aiming),
+            _ => false,
+        };
     }
     let pad = &mut told.pad;
     match pads.iter().next() {

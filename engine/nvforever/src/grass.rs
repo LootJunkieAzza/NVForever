@@ -258,7 +258,7 @@ fn grow_owed(
 fn cull(
     config: Res<GrassConfig>,
     mut cache: ResMut<GrassCache>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut chunks: Query<(&GrassChunk, &mut Visibility)>,
 ) {
     let Ok(cam) = camera.single() else { return };

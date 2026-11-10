@@ -37,6 +37,10 @@ pub struct PlayerTold {
     pub auto_move: bool,
     /// Block held with a gun out (aiming down the sights).
     pub aiming: bool,
+    /// The sights are up now: a gun with sights in hand, ready, Block held, and no reload
+    /// or jam holding them down (the engine's `Combat::player_sights_up`); false while a
+    /// melee weapon blocks. For SUP's HUD bars' aiming condition (`crate::ui_hudbar`).
+    pub sights_up: bool,
     pub pad: Pad,
 }
 
