@@ -75,6 +75,22 @@ not `Send`).
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
 
+Another change (#2064, docs/design/frame-rate-audit.md §10), marked `NVForever unchanged
+uploads`: `RawBufferVec::write_buffer_if_changed` (`src/render_resource/buffer_vec.rs`)
+queues nothing when the same bytes were last written into the same GPU buffer, and
+`batching/gpu_preprocessing.rs` uses it for each multi-drawn batch set's three buffers that
+only the CPU writes (`render_binned_mesh_instance_buffer`, `bin_metadata_buffer`,
+`bin_index_to_bin_metadata_index_buffer`, read-only in `allocate_uniforms.wesl` and
+`unpack_bins.wesl`). Upstream writes all three every frame: about 300 of a Goodsprings
+frame's 400 `queue.write_buffer` calls, each a copy with its own barrier before the frame's
+first pass. Test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame again.
+
+A measuring aid for the encoder spans (`NVF_PLAY_TEST_PROFILE_ENCODERS=1`, `enc:<system>`, #2060),
+in `src/diagnostic/internal.rs` (marked `NVForever encoder gaps`), adds
+`zz:wall` (the frame's first encoder to its last), `zz:gaps` (time inside that no encoder
+covers, with the four largest gaps by name) and `zz:between_frames` (the previous frame's
+last encoder to this frame's first) to the `profile gpu:` line.
+
 Second change (#1887, docs/design/frame-rate-audit.md, the indirect-parameter build jobs),
 in `src/batching/gpu_preprocessing.rs`, `coalesce_batch_ranges` (comment starting
 `NVForever coalesced build jobs`): `prepare_indirect_parameters_build_jobs` merges each
