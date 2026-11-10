@@ -569,6 +569,7 @@ pub(crate) fn fsr_pass(
 ) {
     let (target, prepared, prepass, jitter) = view.into_inner();
     let Some((context, auxiliary)) = &renderer.0 else { return };
+    let recording = crate::frame_pace::recording();
     let inputs = prepass.and_then(|prepass| prepass.depth.as_ref().zip(prepass.motion_vectors.as_ref()));
     let Some((depth, motion)) = inputs else {
         prepared.history_valid.store(false, Ordering::Relaxed);
@@ -639,6 +640,7 @@ pub(crate) fn fsr_pass(
     auxiliary.expand_depth(device, encoder, prepared, &depth.texture.texture);
     depth_span.end(encoder);
     span.end(ctx.command_encoder());
+    crate::frame_pace::recorded(crate::frame_pace::Recorded::Fsr, recording, true);
 }
 
 struct AuxiliaryPipelines {

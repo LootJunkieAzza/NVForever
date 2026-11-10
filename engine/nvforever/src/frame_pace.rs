@@ -29,6 +29,7 @@ use bevy::render::renderer::{RenderAdapter, RenderInstance};
 use bevy::render::view::ExtractedWindow;
 use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::window::{Monitor, OnMonitor, PresentMode, PrimaryMonitor, PrimaryWindow, RawHandleWrapper, VideoModeSelection, WindowMode};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// The frame-rate caps the settings page offers (0: none).
@@ -105,6 +106,81 @@ pub struct Refresh {
 
 pub struct FramePacePlugin(pub FramePace);
 
+/// `NVF_PACE_LOG=1`: every ten seconds one line with what the limiter costs in latency: the
+/// mean time from the start of a frame of the main world (its input is read just before) to
+/// the frame's hand-off to the render thread, the limiter's wait a frame and where it fell,
+/// and the CPU time the render thread spent recording FSR's and frame generation's passes.
+/// A measuring aid.
+static PACE_LOG: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var("NVF_PACE_LOG").is_ok_and(|v| v.trim() == "1"));
+
+/// CPU time recording FSR's ([`Recorded::Fsr`]) and frame generation's passes, and the frames
+/// counted, since the last line (`NVF_PACE_LOG`).
+static RECORDED: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+
+/// Whose recording [`recorded`] times.
+#[derive(Clone, Copy)]
+pub(crate) enum Recorded {
+    Fsr = 0,
+    FrameGeneration = 1,
+}
+
+/// When a pass's recording begins, with `NVF_PACE_LOG` (else `None`, and nothing is timed).
+pub(crate) fn recording() -> Option<Instant> {
+    PACE_LOG.then(Instant::now)
+}
+
+/// Add the time since `started` ([`recording`]) to `which`'s total; `frame` counts a frame.
+pub(crate) fn recorded(which: Recorded, started: Option<Instant>, frame: bool) {
+    if let Some(started) = started {
+        RECORDED[which as usize].fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        if frame {
+            RECORDED[2 + which as usize].fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// `NVF_PACE_LOG`'s sums since its last line.
+#[derive(Resource, Default)]
+pub(crate) struct PaceLog {
+    frame_start: Option<Instant>,
+    since: Option<Instant>,
+    frames: u32,
+    to_hand_off: Duration,
+    waited: Duration,
+}
+
+fn pace_log_frame_start(mut log: ResMut<PaceLog>) {
+    log.frame_start = Some(Instant::now());
+}
+
+/// Right after the frame just simulated is handed to the render thread (pipelined rendering;
+/// `anti_lag.rs` wraps that extract and calls this before it announces the next frame's
+/// input).
+pub(crate) fn after_hand_off(world: &mut World) {
+    let Some(mut log) = world.get_resource_mut::<PaceLog>() else { return };
+    let now = Instant::now();
+    if let Some(start) = log.frame_start.take() {
+        log.to_hand_off += now - start;
+        log.frames += 1;
+    }
+    let since = *log.since.get_or_insert(now);
+    if now - since < Duration::from_secs(10) || log.frames == 0 {
+        return;
+    }
+    let frames = f64::from(log.frames);
+    let [fsr, fg, fsr_frames, fg_frames] = [0, 1, 2, 3].map(|i| RECORDED[i].swap(0, Ordering::Relaxed));
+    let micros = |nanos: u64, n: u64| nanos as f64 / 1e3 / n.max(1) as f64;
+    info!(
+        "frame pace: {:.1} fps; input to hand-off {:.2} ms a frame, of it the limiter's wait {:.2} ms; recording FSR {:.0} us, frame generation {:.0} us a frame",
+        frames / (now - since).as_secs_f64(),
+        log.to_hand_off.as_secs_f64() * 1e3 / frames,
+        log.waited.as_secs_f64() * 1e3 / frames,
+        micros(fsr, fsr_frames),
+        micros(fg, fg_frames),
+    );
+    *log = PaceLog { since: Some(now), ..default() };
+}
+
 /// Apply presentation settings and observe the monitor before telemetry snapshots them.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ApplyFramePace;
@@ -112,6 +188,9 @@ pub struct ApplyFramePace;
 impl Plugin for FramePacePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.0).init_resource::<Refresh>().add_systems(Update, (apply_vsync, watch_refresh).chain().in_set(ApplyFramePace)).add_systems(Last, cap_rate);
+        if *PACE_LOG {
+            app.init_resource::<PaceLog>().add_systems(First, pace_log_frame_start.before(bevy::time::TimeSystems));
+        }
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.add_systems(Render, log_present_modes.in_set(RenderSystems::PrepareViews).before(bevy::render::view::prepare_windows));
         }
@@ -195,7 +274,7 @@ fn wait_left(last: Instant, cap: u32, now: Instant) -> Option<Duration> {
 }
 
 /// Hold the frame until a frame's time at the cap has passed since the last.
-pub(crate) fn cap_rate(pace: Res<FramePace>, refresh: Res<Refresh>, frame_generation: Option<Res<crate::frame_gen::FrameGenCap>>, mut last: Local<Option<Instant>>) {
+pub(crate) fn cap_rate(pace: Res<FramePace>, refresh: Res<Refresh>, frame_generation: Option<Res<crate::frame_gen::FrameGenCap>>, mut log: Option<ResMut<PaceLog>>, mut last: Local<Option<Instant>>) {
     // Frame generation shows each real frame twice: at most half the refresh rate of them.
     let cap = effective_cap(effective_cap(pace.cap, refresh.vrr_cap), frame_generation.map_or(0, |c| c.0));
     if cap == 0 {
@@ -211,6 +290,9 @@ pub(crate) fn cap_rate(pace: Res<FramePace>, refresh: Res<Refresh>, frame_genera
             }
             while Instant::now() < due {
                 std::hint::spin_loop();
+            }
+            if let Some(log) = log.as_mut() {
+                log.waited += left;
             }
             *last = Some(due);
             return;

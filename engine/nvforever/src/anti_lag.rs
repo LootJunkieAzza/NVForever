@@ -246,6 +246,7 @@ fn announce_input_after_hand_off(app: &mut App) -> bool {
         if let Some(hand_off) = hand_off.as_mut() {
             hand_off(main_world, extract_world);
         }
+        crate::frame_pace::after_hand_off(main_world);
         announce_input(main_world);
     });
     true

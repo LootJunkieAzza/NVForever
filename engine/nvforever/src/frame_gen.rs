@@ -533,6 +533,7 @@ fn prepare_pass(
         return;
     };
     let camera = &fsr.camera;
+    let recording = crate::frame_pace::recording();
     interpolation.prepare(
         &mut fg.interpolation.lock().unwrap(),
         ctx.command_encoder(),
@@ -549,6 +550,7 @@ fn prepare_pass(
             view_space_to_meters_factor: 1.0 / 70.0,
         },
     );
+    crate::frame_pace::recorded(crate::frame_pace::Recorded::FrameGeneration, recording, false);
     fg.prepared.store(true, Ordering::Relaxed);
 }
 
@@ -587,6 +589,7 @@ fn generate(
         return;
     };
     let reset = fsr.reset || !fg.history.load(Ordering::Relaxed);
+    let recording = crate::frame_pace::recording();
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     use bevy::render::diagnostic::RecordDiagnostics;
@@ -648,6 +651,7 @@ fn generate(
         }
     }
     span.end(ctx.command_encoder());
+    crate::frame_pace::recorded(crate::frame_pace::Recorded::FrameGeneration, recording, true);
 }
 
 /// The real frames of the windows a presenter shows (`DeferredSwapchain`), taken out of
