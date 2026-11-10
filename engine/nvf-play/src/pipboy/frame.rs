@@ -58,8 +58,11 @@ impl Hint {
         Hint { word, key, dim }
     }
 
-    /// As drawn: "Repair R)".
+    /// As drawn: "Repair R)"; the word alone when it has no key (a button only clicked).
     pub fn text(&self) -> String {
+        if self.key.is_empty() {
+            return self.word.to_string();
+        }
         format!("{} {}", self.word, self.key)
     }
 

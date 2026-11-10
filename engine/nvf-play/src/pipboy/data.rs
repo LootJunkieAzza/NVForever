@@ -1621,7 +1621,8 @@ fn x_key() -> String {
 /// - A, with a controller only: World Map Travel; Quests the make-active hint when a quest
 ///   is listed; Misc Play (Stop while that note plays) on an audio note; Radio Tune when
 ///   a station is received.
-/// - X: the maps' Place Marker with a controller only; Quests Show Location when a quest
+/// - X: the maps' Place Marker with either device (with the keyboard and mouse the word
+///   alone, a button to click [observed: the original, 2026-11-10]); Quests Show Location when a quest
 ///   is listed; Misc, when the player has a note, the notes' filter (Active Notes while
 ///   all show, All Notes while filtered) or, while the challenges show, Next Challenge.
 /// - Y: Misc's challenges toggle, with either device [documented]; the file also names the
@@ -1644,7 +1645,10 @@ fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
         _ => None,
     };
     let x = match tab {
-        LOCAL | WORLD if f.pad => Some(b(built_in_label("sPlaceMarker"), x_key(), true, ButtonKind::PlaceMarker)),
+        // Both devices: with the keyboard and mouse the word alone, a button to click [observed:
+        // the original's World Map and Local Map with no controller, `MM_ButtonX` visible and a
+        // target, "Place Marker" at the top right with no key; capture 2026-11-10].
+        LOCAL | WORLD => Some(b(built_in_label("sPlaceMarker"), if f.pad { x_key() } else { String::new() }, true, ButtonKind::PlaceMarker)),
         QUESTS if f.quests => Some(b(built_in_label("sShowLocation"), x_key(), false, ButtonKind::ShowLocation)),
         NOTES if f.notes && f.challenges => Some(b(built_in_label("sNextChallenge"), x_key(), true, ButtonKind::NextChallenge)),
         NOTES if f.notes => {
@@ -2948,7 +2952,8 @@ mod tests {
     }
 
     /// With the keyboard and mouse the original's PC set (#1897; docs/spec-notes/pipboy.md
-    /// §5.3): no A hint anywhere and no Place Marker, so the maps and Radio show none;
+    /// §5.3): no A hint anywhere, so Radio shows none; the maps Place Marker alone, dim
+    /// (not built), with no key;
     /// Quests Show Location with a quest; Misc the notes' filter with a note, and the
     /// challenges toggle always, Next Challenge (dim) in the filter's place while the
     /// challenges show.
@@ -2957,8 +2962,9 @@ mod tests {
         crate::pad::set_labels(crate::pad::Labels::Keys);
         let all = facts(false);
         let none = HintFacts::default();
-        for tab in [LOCAL, WORLD, RADIO] {
-            assert!(shown(tab, &all).is_empty(), "tab {tab}: {:?}", shown(tab, &all));
+        assert!(shown(RADIO, &all).is_empty(), "{:?}", shown(RADIO, &all));
+        for tab in [LOCAL, WORLD] {
+            assert_eq!(shown(tab, &all), [hint("Place Marker", true)], "tab {tab}");
         }
         assert_eq!(shown(QUESTS, &all), [hint("Show Location X)", false)]);
         assert_eq!(shown(NOTES, &all), [hint("Active Notes X)", false), hint("Challenges R)", false)]);

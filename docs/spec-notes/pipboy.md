@@ -1071,7 +1071,12 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     note; Radio when at least one station is known. Its title by tab: `sTravel`,
     `sMakeActiveQuest`, `sPlayAudio` (`sStopAudio` while the selected audio note plays),
     `sTune` [documented].
-  - **X**: on both maps with a controller only (`sPlaceMarker`); Quests with either
+  - **X**: on both maps (`sPlaceMarker`): the file's title for it names a controller
+    [documented], but with the keyboard and mouse the original shows it too, the word
+    alone at the top right with no key, a button that takes a click [observed: the
+    original with no controller, 2026-11-10: `MM_ButtonX` visible 1 and a target on the
+    Local Map and the World Map; a 2026-11-07 shot of the World Map shows "Place Marker"
+    there]; Quests with either
     device when the player has a quest (`sShowLocation`); Misc with either device when the
     player has a note: `sShowActiveNotes` while all notes show, `sShowAllNotes` while the
     filter is on, `sNextChallenge` while the challenges list is up [documented].
@@ -1082,8 +1087,9 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     Map "Travel A)" and "Place Marker X)"]: NVForever follows the screenshots there; the
     file's rule for the maps is not seen.
 
-  So with the **keyboard and mouse** [documented, the rules above]: Local Map, World Map
-  and Radio show no hint; Quests "Show Location X)" (with a quest); Misc the notes' filter
+  So with the **keyboard and mouse** [documented, the rules above, and observed for the
+  maps]: Local Map and World Map "Place Marker" alone (dim in NVForever: placing is not
+  built, #1954); Radio no hint; Quests "Show Location X)" (with a quest); Misc the notes' filter
   ("Active Notes X)", "All Notes X)", with a note; "Next Challenge X)" while the
   challenges show) and "Challenges R)". With a **controller**: Local Map "Place Marker
   X)"; World Map "Travel A)", "Place Marker X)"; Quests "Set Active A)", "Show Location
