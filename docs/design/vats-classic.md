@@ -1,8 +1,9 @@
 # The classic VATS style
 
-Status: being built on branch `vats` (2026-11-09). Sections say what is built and what
-is planned. The other style, "Dead Eye" (docs/design/vats-mode.md), is unchanged and
-selectable; this one is the default.
+Status: built on branch `vats` (2026-11-09 to 2026-11-11), played through by the fork
+owner; §9b lists what is planned. The other style, "Dead Eye"
+(docs/design/vats-mode.md), stays selectable and shares what §6 and §13 name; this one
+is the default.
 
 Tags as everywhere: [documented] cites a public page, [observed] the game's data files,
 [hypothesis] an inference, [design] NVForever's own choice. Combat is not a parity
@@ -32,6 +33,13 @@ Sources read 2026-11-09 (public pages only; no executable was read):
 - The rules (hit chance, AP, perks, helpers) are the ones VATS mode already has.
 - V with nothing to target does nothing but play the refusal sound.
 
+From the playtests of 2026-11-10 (each is cited where it is built): the enemy bar at the
+top with the damage in sight; the selected part lit as a HUD element, pulsing, in the
+HUD's colour; nothing of the HUD while the attacks play; no darkening or colour filter;
+the cameras' angles (§8); an attack on a dead target is not played and the mode ends
+soon after (§8.1); explosives hold the mode until they have gone off (§8.2); slow motion
+keeps the physics' pace (§8.3); the zoom's times (§5).
+
 ## 2. Time
 
 - Choosing targets, the clock runs at `1 - slowdown` (`vats_classic::clock_scale`):
@@ -53,13 +61,22 @@ Every living actor with a hit volume that is
   fallout.wiki "Fallout 3 V.A.T.S.", settings table];
 - within `CLASSIC_FRONT` (55 degrees) of the line the player looked along on entering
   [design: about what the view shows];
-- in sight from the eye (the world in the way hides it, another actor does not);
+- in sight from the eye: its aim point or the middle of any of its body part capsules,
+  the weapon in its hand among them (the world in the way hides a point, another actor
+  does not) [design: in a fight the enemies stand behind cover, and one whose chest is
+  hidden while its head and gun show is a target; a tester's report of 2026-11-10, V
+  did nothing in a fight, which was not reproduced];
 - not barred as for a Dead Eye mark: dead, cloaked without Enhanced Sensors, No VATS
-  Melee with a melee weapon.
+  Melee with a melee weapon, SetVATSTargetable 0;
+- not one VATS never targets (`Game::vats_untargetable`): on the game's
+  `BannedVATSTargets` list, a ghost, or a flying creature that does not fight (a raven)
+  [design: the fork owner 2026-11-10].
 
 Hostile or not [documented: any actor can be targeted]. They are ordered left to right
 across the entering view; the one nearest the crosshair is selected first [documented
-for the first; design for the order]. With none, V is refused (`UIVATSEnterFail`).
+for the first; design for the order]. With none, V is refused (`UIVATSEnterFail`), and
+the log says how many actors each rule passed over (`vats_classic::Missed`), so a
+report can be read from the run's log.
 
 The list is made again every 0.25 real seconds. A queued attack whose target is no
 longer in the list is dropped (its AP was only reserved). When the selected target is
@@ -94,14 +111,18 @@ design: this layout, the engine-drawn screen that stays as the fallback, §11].
 While targets are chosen and while the attacks play the player does not move and the
 mouse does not turn the view [documented: the player cannot move or dodge]. The view
 turns onto the selected target in real time (`TURN_RATE`). Left without firing, the view
-goes back to where it was on entering; after firing it stays on the last target.
+turns back to where it was on entering at the same rate, and the mouse has it again once
+it is there; after firing it stays on the last target.
 
 The field of view narrows to frame the selected target whole, at
 `dialogue_zoom::VATS_TARGET_SHARE` (0.6) of the view's height [design: no page gives a
 number]. It is the conversation zoom's machinery (`dialogue_zoom::track`): the same
 ownership of the field of view, the same depth of field, the third-person camera
-travelling to the eye. Its ease runs in real time (`VATS_IN_SECONDS`), since the world's
-clock may stand still, and it eases out when the attacks start to play or the mode ends.
+travelling to the eye. Its ease runs in real time, since the world's clock may stand
+still: 0.5 s in (`VATS_IN_SECONDS`) and 0.5 s out (`VATS_OUT_SECONDS`) when the attacks
+start to play or the mode ends [design: the fork owner 2026-11-10, first "slow down the
+VATS zoom in/out animation by 50%", from 0.25 and 0.3 s, then "the same length 0.5sec";
+the view's turn was halved with it, `TURN_RATE` 7].
 
 ## 6. What it shares with Dead Eye
 
@@ -123,23 +144,66 @@ Each queued attack plays the game's own camera shots (CAMS), chosen by its camer
 (CPTH) exactly as a kill camera's are (`Game::pick_camera_path`, vats-mode.md §19): the
 conditions run on the player with GetVATSValue answering about that attack.
 
-- Before the attack leaves: the path's shots whose Camera Action is Shoot [documented:
-  GECK wiki CameraShot, "Camera Action": when the command starts]. The firing waits for
-  them, then the round is released.
-- After it: the shots whose action is Hit. A burst's later rounds go on meanwhile; the
-  next attack waits. The last attack asks for none: if it kills, the kill camera plays
-  (its setting applies), so one hit is never shown twice.
+- As the attack leaves: the path's shots whose Camera Action is Shoot [documented:
+  GECK wiki CameraShot, "Camera Action": when the command starts]. The attack is let
+  go 0.25 s into its camera (`SHOOT_LEAD`) and is seen in it: the camera stays until
+  the attack is out whole (a burst's rounds, a throw's wind-up) and 0.45 s more
+  [observed: the fork owner's playtest 2026-11-10; let go only after its camera, the
+  camera showed the player standing]. A path with no Shoot shot gets NVForever's own
+  clocks (`kill_cam::own_shot`), so an attack is always shown.
+- After it: the shots whose action is Hit, held 2 s longer (`CLASSIC_HOLD`). A burst's
+  later rounds go on meanwhile; the next attack waits. The last attack asks for none:
+  if it kills, the kill camera plays (its setting applies), so one hit is never shown
+  twice.
 - A shot plays for its Min Time, else its Max Time, within 0.5 s and 1.2 s (Shoot) or
   1.8 s (Hit) [design: the original cuts on the attack's own events; these bounds keep a
-  queue moving]. The world's clock runs at the shot's Global time multiplier and its
-  image space modifier plays, as for a kill camera.
-- A path with no such shot leaves the view as it is. Fly shots are not played yet.
+  queue moving]. The world's clock runs at the shot's Global time multiplier; the
+  player, its weapon's cycle and the queue go at the shot's Player time multiplier
+  times that, held to 1.1 of real time [documented: GECK wiki CameraShot, "Player
+  Multiplier: how fast the player moves in comparison to the modified global time"].
+- **Where an attack's camera stands**: one of three angles, not the shot's model: both
+  in the frame (behind the attacker's shoulder), the target alone, first person
+  (`kill_cam::Angle`). Each stay starts on the next angle; within a stay the angle
+  changes only after 6 s of camera, at an attack's start, and holds the view between
+  two attacks' cameras [design: the fork owner 2026-11-10, four angles "not too fast";
+  the fourth, the player alone, was removed the same day so that a kill is always in
+  the frame]. The camera stands on the side of the line between the two that has more
+  room, in front of walls; its rays do not take actors for walls. An attack's shot's
+  image space modifier is not played (it would start again with every attack).
 - The outcome is not known before the attack lands, so the paths are asked with a hit
   that neither kills nor cripples [design]. The Hit stage knows the roll.
-- Melee queues play without attack cameras for now.
+- Fly shots are not played. Melee queues play without attack cameras.
 
-Where the camera stands, what it looks at, the walls it stays in front of, the held
-controls and the hidden HUD are the kill camera's (`kill_cam.rs`).
+The kill camera keeps the masters' shots and their models (vats-mode.md §19); the held
+controls and the hidden HUD are its own (`kill_cam.rs`). Its last shot is held 3 s
+longer in all [design: the fork owner 2026-11-10].
+
+### 8.1 A target that dies
+
+An attack still to play whose target has died is dropped (its AP was only reserved),
+and a burst under way on it is cut short; attacks queued on other targets play on. With
+none left to play the mode ends 2 real seconds later (`AFTER_KILL`), the cameras going
+on meanwhile [design: the fork owner 2026-11-10, "when the target dies, vats should
+automatically end ... currently the player character keeps shooting the dead body"].
+Dead Eye does the same. A kill by the last queued attack is the kill camera's.
+
+### 8.2 Explosives
+
+The mode stays until an explosive the queue sent has gone off: 2 s after a thrown one,
+1 s after a launched one, and no longer than 12 s; one that flies off from its mark
+(384 units past its nearest point) no longer holds it [design: the fork owner
+2026-11-10] (`VatsMode::blast_holds`, `combat::VatsBlast`). A thrown weapon's clip
+starts at the pull and the throw leaves at its `Hit` key, once.
+
+### 8.3 Slow motion and the physics
+
+The physics takes 60 steps a second of the game's clock. With the clock slowed a step
+came every few frames, and a falling corpse, its severed parts and a head's pieces moved
+in jerks. The step now follows the clock down (`phys::pace_steps`, to a fiftieth of
+full speed), so there are as many steps a real second as at full speed, whatever slows
+the clock (either style, a kill camera, the weapon wheel, a script's time multiplier)
+[design: the fork owner 2026-11-10]. A corpse's bones are drawn between its last two
+steps, as characters are (`ragdoll.rs`, `Corpse::drawn`).
 
 Nothing of the HUD is drawn from Accept until the last attack has played, with or
 without a camera: the meters, the compass, the enemy bar, the crosshair and its prompt,
@@ -177,7 +241,12 @@ Dead Eye's labels for the parts of the actor under or nearest the crosshair
 (vats-mode.md §17.5) are the same element as the classic style's: the menu file's
 bracket boxes with the chance and the condition meter [design: the fork owner
 2026-11-10]. The file is built while Dead Eye marks. Only the boxes are drawn: no
-arrows, buttons, queue list or pointer, and no part lit on the body. The HUD's enemy
+arrows, buttons, queue list or pointer. The part under the crosshair is lit on the body
+as in the classic style (§12), its lines as thin as the target is small in the view,
+since Dead Eye does not zoom onto it. While Dead Eye's shots play nothing of the HUD is
+drawn, as in the classic style. Dead Eye keeps its amber filter, its swipe and its
+firing from the eye, and has no per-attack cameras [design: the fork owner 2026-11-10,
+"leave Dead Eye as is"]. The HUD's enemy
 bar names the previewed actor, hurt or not, and stands at the top of the view while
 Dead Eye is on, as in the classic style. The part under the crosshair is named and drawn whole, the
 others fainter. Dead Eye's marks ("x" and chance) and everything else of it are
@@ -196,8 +265,12 @@ crowded scene, the top graphics settings, a slowdown under 100 %.
 ## 9b. Planned
 
 - Mines as targets. The unarmed special moves.
-- The menu file's Accept and Return buttons as click targets (§11). The lines through
-  the lit part (§12).
+- The menu file's Accept and Return buttons as click targets (§11).
+- A camera that follows the projectile (the paths' Fly shots).
+- A hidden part's chance: a part behind cover shows its usual chance, and a shot at it
+  hits the cover.
+- While a part is lit the systems that find the view with `Query::single` rest (§12);
+  at less than a full stop no cell loads until the mode is left.
 
 ## 10. Test aids and smoke
 
@@ -220,8 +293,10 @@ written into it: spec-notes/vats-menu.md.
 - **Still the engine's**: the target's name and health, which are the HUD's own enemy
   bar (its bracket, ticks and name), shown for the selected target hurt or not and
   moved to the top of the view while targets are chosen [design: the fork owner
-  2026-11-10; the original keeps it at the bottom]; the HUD's HP and AP meters; the
-  amber grade.
+  2026-11-10; the original keeps it at the bottom], with blinking ticks for what the
+  queued attacks and the selected part would take off, a weapon's explosion counted
+  (`combat::vats_hit_estimate`); the HUD's HP and AP meters. The picture is neither
+  darkened nor tinted in the classic style [design: the fork owner 2026-11-10].
 - **The switch**: on unless `[UI] VatsMenuFile=0` is in `NVForever.ini` [design: the
   fork owner's decision, the game's file first]. Upstream's convention is the other
   way round (`[UI] TileMenus=` lists the menus drawn from files, none by default); to
@@ -256,12 +331,23 @@ written into it: spec-notes/vats-menu.md.
 
 ## 12. The selected part lit on the target (2026-11-10)
 
-The part the next attack would be queued on glows in the interface's amber on the
-target's own body, and its box on the screen is drawn fainter than the others
-[observed: the owner's screenshots of the original's VATS, 2026-11-10]
-(`engine/nvforever/src/vats_highlight.rs`).
+The part the next attack would be queued on is lit on the target's own body, and its
+box on the screen is drawn fainter than the others [observed: the owner's screenshots
+of the original's VATS, 2026-11-10] (`engine/nvforever/src/vats_highlight.rs`, whose
+notes are the full account).
 
 - A part's triangles are those carried mostly by the bones of its chain, the bones the
-  hit volumes use; a bone in no chain goes with the chain above it [design].
-- Drawn as an unlit copy of those triangles on the same skin, blended over the surface. The original's
-  fine horizontal lines through the glow are not drawn yet.
+  hit volumes use; a bone in no chain goes with the chain above it [design]. The weapon
+  in the target's hand is a part too.
+- It is a HUD element, not a glow in the world: the part's shapes are drawn white (the
+  rest of the actor black) on a layer of their own into a mask by a camera at the
+  player's, and one node over the view draws from the mask a fill with fine level lines
+  and a rounded outline, both in the HUD's colour. So depth of field and bloom do not
+  touch it. Hair is in the mask through its texture's alpha.
+- It pulses with the enemy bar's ticks for the damage in sight.
+- The mask's camera lives only while a part is lit and half a second after. The world's
+  systems find the view with a query for the one 3D camera that is not the reflection's
+  (`world::stream`, `lod`, `grass`, `nav`, ...); kept for good, a second one stopped
+  them all, no cell loaded after the first lit part and a door's loading screen waited
+  out its 120 s [observed: the fork owner's playtest 2026-11-10]. While a part is lit
+  they still rest (§9b).

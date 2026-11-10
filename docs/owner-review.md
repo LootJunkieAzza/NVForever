@@ -213,6 +213,17 @@ the spec it links to.
     Slash, Mauler, Lights Out, Grand Slam: WEAP VATS/VANM) need a choice per mark, which
     VATS mode does not have, so they are not built. Wanted, and how would you pick one
     (a key cycling the mark's attack)? ([weapon-data-fields §7](spec-notes/weapon-data-fields.md))
+31a. **The classic VATS style as the default (a contribution from the fork h9x000,
+    2026-11-11).** V now starts the original's flow: the world stopped, a target and a
+    body part chosen from their chances, a queue of attacks, cameras as they play. Dead
+    Eye, your VATS mode, is one row away on the settings page ("V.A.T.S. style").
+    Decided by the fork's owner in play, for you to keep or change: Classic as the
+    default; the target screen drawn from the game's own menu file unless
+    `[UI] VatsMenuFile=0` (your convention is the other way, a name in `[UI] TileMenus=`);
+    three camera angles of NVForever's own for the attacks instead of the shots' models;
+    a queue that stops when its target dies; and the physics keeping 60 steps a real
+    second whenever the clock runs slow, in any mode. It also builds the special
+    attacks of item 31 (R queues one). ([vats-classic](design/vats-classic.md))
 32. **No message on a sneak attack critical.** Sneak attacks (your rule: always a
     critical on an unseen target) show nothing on screen; the game files have only the
     icon setting `sCriticalStrikeIcon`. Show a message or the icon?

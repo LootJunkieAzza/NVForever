@@ -972,9 +972,23 @@ against FalloutNV.esm's own tree (`fnv-game` test `camera_paths`, with game data
 VATS mode fires its marks in one run (§9), so a kill camera follows only the run's last
 mark: from the frame every mark's attack has started until 2 game seconds after the mode
 is off (a slow projectile), the last mark's actor is watched, and if it dies the kill
-camera starts. Earlier kills in the run do not cut it short. With the masters' data a
-kill camera plays on every such kill: the original's chance of one is not in our notes
-(the tree's GetRandomPercent conditions only choose between shots).
+camera starts. With the masters' data a kill camera plays on every such kill: the
+original's chance of one is not in our notes (the tree's GetRandomPercent conditions
+only choose between shots).
+
+Since 2026-11-10 (the fork owner's playtests, docs/design/vats-classic.md §8.1), in both
+styles:
+
+- A mark still to play whose actor has died is dropped, and with none left the mode ends
+  2 real seconds later. Such a kill, by an earlier mark, shows no kill camera.
+- The last mark's actor is watched while a classic attack's camera still plays, and the
+  kill camera takes over from it. A near target died inside that camera, was dead before
+  it was watched, and got no kill camera.
+- A corpse has no hit volume once its ragdoll is in the world (`hitvol.rs`). The camera
+  then holds to the ragdoll's centre, followed smoothly (0.1 s), and to the last place
+  seen when there is none. Before, it lost the target a frame after the kill and stood
+  about the attacker, with the room about the two measured as none.
+- The last shot is held 3 real seconds longer.
 
 The settings page's Kill camera row (`kill-camera` in NVForever.ini, Gameplay; owner's
 playtest requests #1035 and #1037, 2026-10-31) narrows that [design: combat is not a
