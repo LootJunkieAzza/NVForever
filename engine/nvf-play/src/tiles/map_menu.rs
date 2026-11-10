@@ -3,8 +3,9 @@
 //! #1513]. Off (the default), none of this runs and the hand-built page (`crate::pipboy::data`)
 //! prepares and draws as it always did.
 //!
-//! - **The tabs it draws** ([`TILED_TABS`]): Quests. The Local Map, the World Map, Misc and Radio
-//!   keep the whole hand-built page while they show, as STATS' tabs not yet drawn from its file do.
+//! - **The tabs it draws** ([`TILED_TABS`]): Quests and Misc (the notes or the challenges, a note's
+//!   text, picture or audio). The Local Map, the World Map and Radio keep the whole hand-built page
+//!   while they show, as STATS' tabs not yet drawn from its file do.
 //! - **The one decision** ([`MapTiles::ready`]): the switch on, DATA showing on a tab it draws, the
 //!   page prepared for that tab (`crate::pipboy::data::prepare`, before this), no question box up,
 //!   the file's tiles there ([`built`]), the tabs made and a usable measured layout ([`usable`]).
@@ -15,10 +16,11 @@
 //! - **The rules stay the hand-built page's**: what the page shows is `pipboy::data`'s prepared view
 //!   ([`crate::pipboy::data::Prepared`]); this module writes it as the file's "set in code" traits
 //!   and says what a tile stands for; the player's acts go back through `DataState`'s acts as the
-//!   hand-built nodes' do. Only the quests list's scroll is its own (`super::list`), which the
-//!   model keeps in rows, as ITEMS' list (`super::inventory_menu`).
+//!   hand-built nodes' do. Only each list's scroll is its own (`super::list`), which the model keeps
+//!   in rows, as ITEMS' list (`super::inventory_menu`).
 //! - **Exactly one presentation publishes** what the page's rules read of the drawing: how many
-//!   rows show, how far the objectives scroll and their window ([`DataState::publish_drawn`]), from
+//!   rows show, how far the right pane (the objectives, a text) scrolls and its window
+//!   ([`DataState::publish_drawn`]), from
 //!   a pass that went through only.
 //! - **The hints** are the hand-built page's set (`data::tab_buttons`, #1897 / #1952), bound to the
 //!   file's A, X and Y tiles by what each does, never by its place in the list ([`Slot::of`]).
@@ -71,9 +73,22 @@ const CHALLENGE_TYPE: &str = main_rect!("MM_Headline_ChallengeType");
 const BUTTON_RECT: &str = main_rect!("MM_ButtonRect");
 const DATA_RECT: &str = main_rect!("MM_DataRect");
 const OBJECTIVES: &str = main_rect!("MM_DataRect/MM_QuestObjectivesList");
+const NOTES_LIST: &str = main_rect!("MM_NotesList");
+const CHALLENGE_LIST: &str = main_rect!("MM_ChallengeList");
+/// A note's text, its window and its scroll bar; a note's picture; an audio note's time and meter
+/// [documented: map_menu.xml `MM_DataRect`].
+const TEXT_RECT: &str = main_rect!("MM_DataRect/MM_DataTextRect");
+const TEXT_BAR: &str = main_rect!("MM_DataRect/MM_DataTextRect/MM_TextScrollbar");
+const DATA_TEXT: &str = main_rect!("MM_DataRect/MM_DataTextRect/MM_DataText");
+const DATA_IMAGE: &str = main_rect!("MM_DataRect/MM_DataImage");
+const AUDIO_INFO: &str = main_rect!("MM_DataRect/MM_DataAudioInfo");
+const AUDIO_TIME: &str = main_rect!("MM_DataRect/MM_DataAudioInfo/MM_AudioTimeRemaining");
 /// The lists' own names, for what a click is on (`list::hit`).
 const QUESTS_NAME: &str = "MM_QuestsList";
+const NOTES_NAME: &str = "MM_NotesList";
+const CHALLENGES_NAME: &str = "MM_ChallengeList";
 const OBJECTIVES_NAME: &str = "MM_QuestObjectivesList";
+const TEXT_RECT_NAME: &str = "MM_DataTextRect";
 const ROW_TEMPLATE: &str = "MM_ListMarkerTemplate";
 const ROW: &str = "MM_ListItem";
 const ROW_TEXT: &str = "ListItemText";
@@ -82,16 +97,70 @@ const TAB_TEMPLATE: &str = "TabButtonTemplate";
 const TAB_ROW: &str = "TabButton";
 /// Inside a tab, as ITEMS' (`super::inventory_menu`) [hypothesis: the same prefab].
 const TAB_INNER: &str = "stb_text_box";
-/// `MM_DataRect`'s `_ItemType` for the objectives [documented: `MM_QuestObjectivesList`'s
-/// `visible`].
+/// `MM_DataRect`'s `_ItemType`: a note's text, its picture, an audio note, the objectives
+/// [documented: the `visible` of `MM_DataTextRect`, `MM_DataImage`, `MM_DataAudioInfo` and
+/// `MM_QuestObjectivesList`].
+const ITEM_TEXT: f64 = 1.0;
+const ITEM_IMAGE: f64 = 2.0;
+const ITEM_AUDIO: f64 = 3.0;
 const ITEM_OBJECTIVES: f64 = 4.0;
 /// A done row's `_TextAlpha`: half strength, as the hand-built page dims it (`data::DONE_ALPHA`)
 /// [design]; the template's own is 255 [documented].
 const DONE_ALPHA: f64 = 128.0;
 const FULL_ALPHA: f64 = 255.0;
 
-/// The tabs drawn from the file; the others keep the hand-built page [design, #1513].
-pub const TILED_TABS: [usize; 1] = [data::QUESTS];
+/// The tabs drawn from the file; the others keep the hand-built page [design, #1513]: the maps
+/// (their drawing and picking), and Radio, whose waveform the file has as a NIF animation
+/// (`MM_Waveform`) the tile painter does not draw.
+pub const TILED_TABS: [usize; 2] = [data::QUESTS, data::NOTES];
+
+/// The tab's list the page shows: Quests' quests, Misc's notes or its challenges [documented: the
+/// lists' `visible`; `MM_NotesList` and `MM_ChallengeList` both show on Misc, so the code hides the
+/// one not shown, design].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum ListKind {
+    #[default]
+    Quests,
+    Notes,
+    Challenges,
+}
+
+impl ListKind {
+    const ALL: [ListKind; 3] = [ListKind::Quests, ListKind::Notes, ListKind::Challenges];
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    fn path(self) -> &'static str {
+        match self {
+            ListKind::Quests => QUESTS_LIST,
+            ListKind::Notes => NOTES_LIST,
+            ListKind::Challenges => CHALLENGE_LIST,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            ListKind::Quests => QUESTS_NAME,
+            ListKind::Notes => NOTES_NAME,
+            ListKind::Challenges => CHALLENGES_NAME,
+        }
+    }
+
+    fn tab(self) -> usize {
+        if self == ListKind::Quests { data::QUESTS } else { data::NOTES }
+    }
+
+    /// For the log and the reasons: the list's rows and one of them.
+    fn words(self) -> (&'static str, &'static str) {
+        match self {
+            ListKind::Quests => ("quests", "quest"),
+            ListKind::Notes => ("notes", "note"),
+            ListKind::Challenges => ("challenges", "challenge"),
+        }
+    }
+}
 
 /// The file's three hint tiles [documented: map_menu.xml `MM_ButtonRect`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -123,23 +192,41 @@ fn button_path(name: &str) -> String {
     format!("{BUTTON_RECT}/{name}")
 }
 
-/// Every path the model writes or input reads.
-fn required_paths() -> Vec<String> {
-    let mut paths: Vec<String> = [MAP_MENU, BACKGROUND, TABLINE, TITLE, LINE, PLACE, TIME, QUESTS_LIST, BUTTON_RECT, DATA_RECT, OBJECTIVES].iter().map(|s| (*s).to_string()).collect();
-    paths.push(format!("{QUESTS_LIST}/{}", list::HIGHLIGHT));
-    for l in [QUESTS_LIST, OBJECTIVES] {
-        for piece in [list::MARKER, list::UP, list::DOWN, list::PAGE_UP, list::PAGE_DOWN] {
-            paths.push(format!("{l}/{}/{piece}", list::SCROLLBAR));
+const BAR_PIECES: [&str; 5] = [list::MARKER, list::UP, list::DOWN, list::PAGE_UP, list::PAGE_DOWN];
+
+/// Every path the model writes or input reads on tab `tab` (`None`: what every tab needs): a file
+/// short of Misc's tiles still draws Quests from the file, and the other way round.
+fn required_paths(tab: Option<usize>) -> Vec<String> {
+    let mut paths: Vec<String> = [MAP_MENU, BACKGROUND, TABLINE, TITLE, LINE, PLACE, TIME, BUTTON_RECT, DATA_RECT].iter().map(|s| (*s).to_string()).collect();
+    let lists: &[&str] = match tab {
+        Some(data::QUESTS) => &[QUESTS_LIST],
+        Some(data::NOTES) => &[NOTES_LIST, CHALLENGE_LIST],
+        _ => &[],
+    };
+    for l in lists {
+        paths.push((*l).to_string());
+        paths.push(format!("{l}/{}", list::HIGHLIGHT));
+        paths.extend(BAR_PIECES.iter().map(|piece| format!("{l}/{}/{piece}", list::SCROLLBAR)));
+    }
+    match tab {
+        Some(data::QUESTS) => {
+            paths.push(OBJECTIVES.to_string());
+            paths.extend(BAR_PIECES.iter().map(|piece| format!("{OBJECTIVES}/{}/{piece}", list::SCROLLBAR)));
         }
+        Some(data::NOTES) => {
+            paths.extend([TEXT_RECT, TEXT_BAR, DATA_TEXT, DATA_IMAGE, AUDIO_INFO, AUDIO_TIME].iter().map(|s| (*s).to_string()));
+            paths.extend(BAR_PIECES.iter().map(|piece| format!("{TEXT_BAR}/{piece}")));
+        }
+        _ => {}
     }
     paths.extend(BUTTONS.iter().map(|(name, _)| button_path(name)));
     paths
 }
 
-/// Whether the file has every tile and template the page needs; a file a mod restructured keeps
-/// the hand-built page whole. `cut`: [`CUT_AID`].
-pub fn built(ui: &Ui, cut: Option<&str>) -> Tiled {
-    let paths = required_paths();
+/// Whether the file has every tile and template the page needs on tab `tab`; a file a mod
+/// restructured keeps the hand-built page whole. `cut`: [`CUT_AID`].
+pub fn built(ui: &Ui, cut: Option<&str>, tab: Option<usize>) -> Tiled {
+    let paths = required_paths(tab);
     if let Some(cut) = cut {
         if cut.eq_ignore_ascii_case(ROW_TEMPLATE) || cut.eq_ignore_ascii_case(TAB_TEMPLATE) {
             return Tiled::No(format!("{cut} missing"));
@@ -194,11 +281,50 @@ pub(crate) struct Shown {
     pub boxed: bool,
     pub pointer_pick: bool,
     pub navigated: u32,
-    /// The selected quest's objectives (their place is their key), none without a quest selected.
-    pub objectives: Option<Vec<RowShown>>,
-    /// How far the objectives are scrolled (`text_first`).
+    /// The tab's list, and its filter (Misc's notes' filter: another one starts the list at its
+    /// top).
+    pub list: ListKind,
+    pub group: u32,
+    /// The right pane: the selected quest's objectives, a note's text, picture or audio, a
+    /// challenge's text.
+    pub pane: Pane,
+    /// How far the objectives or the text are scrolled (`text_first`, one scroll for both).
     pub pane_first: f32,
     pub hints: Vec<HintShown>,
+}
+
+/// The right pane as written (`MM_DataRect` by its `_ItemType`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Pane {
+    None,
+    /// The objectives, their place their key.
+    Objectives(Vec<RowShown>),
+    /// A text note's text or a challenge's description and state.
+    Text(String),
+    /// An image note's picture (its file).
+    Image(String),
+    /// An audio note: tenths of a second still to play and the share played, thousandths
+    /// (`data::Right::Audio`).
+    Audio { left: u32, played: u16 },
+}
+
+impl Pane {
+    fn item_type(&self) -> f64 {
+        match self {
+            Pane::None => 0.0,
+            Pane::Text(_) => ITEM_TEXT,
+            Pane::Image(_) => ITEM_IMAGE,
+            Pane::Audio { .. } => ITEM_AUDIO,
+            Pane::Objectives(_) => ITEM_OBJECTIVES,
+        }
+    }
+
+    fn objectives(&self) -> &[RowShown] {
+        match self {
+            Pane::Objectives(rows) => rows,
+            _ => &[],
+        }
+    }
 }
 
 impl Shown {
@@ -213,11 +339,21 @@ impl Shown {
         if rows.len() != p.keys.len() {
             return Err("the rows and their records differ".into());
         }
+        let list = match v.tab {
+            data::QUESTS => ListKind::Quests,
+            data::NOTES if p.challenges => ListKind::Challenges,
+            data::NOTES => ListKind::Notes,
+            _ => return Err("the tab is not drawn from the file".into()),
+        };
         let row = |key: u32, r: &data::Row| RowShown { key, text: r.text.clone(), filled: r.mark == Mark::Filled, done: r.done };
-        let (objectives, pane_first) = match right {
-            Right::Objectives { rows, first } => (Some(rows.iter().enumerate().map(|(i, r)| row(i as u32, r)).collect()), *first),
-            Right::None => (None, 0.0),
-            _ => return Err("the right pane is not the objectives".into()),
+        let (pane, pane_first) = match right {
+            Right::Objectives { rows, first } if list == ListKind::Quests => (Pane::Objectives(rows.iter().enumerate().map(|(i, r)| row(i as u32, r)).collect()), *first),
+            Right::Text { text, first } if list != ListKind::Quests => (Pane::Text(text.replace("\r\n", "\n")), *first),
+            Right::Image(file) if list == ListKind::Notes => (Pane::Image(file.clone()), 0.0),
+            &Right::Audio { left, played } if list == ListKind::Notes => (Pane::Audio { left, played }, 0.0),
+            Right::None => (Pane::None, 0.0),
+            Right::Wave { .. } => return Err("the waveform is not drawn from the file".into()),
+            _ => return Err("the right pane is not the tab's".into()),
         };
         let hints = v.buttons.iter().map(|b| HintShown { slot: Slot::of(b.kind), kind: b.kind, word: b.hint.word.to_string(), key: b.hint.key.clone(), dim: b.hint.dim }).collect();
         Ok(Shown {
@@ -230,7 +366,9 @@ impl Shown {
             boxed: boxed.is_some(),
             pointer_pick: p.pointer_pick,
             navigated: p.navigated,
-            objectives,
+            list,
+            group: u32::from(list == ListKind::Notes && p.filtered),
+            pane,
             pane_first,
             hints,
         })
@@ -267,25 +405,39 @@ fn write_row(ui: &mut Ui, tile: TileId, r: &RowShown, empty_marker: bool) {
     ui.write_changed(tile, "_TextAlpha", Value::Num(if r.done { DONE_ALPHA } else { FULL_ALPHA }));
 }
 
-/// Write what the page shows of `s`: the heading, the quests and the selected quest's objectives as
-/// template rows, and the hints. The rows' places and the scrolls are [`page`]'s, once measured.
+/// Write what the page shows of `s`: the heading, the tab's list as template rows (the other lists
+/// emptied and taking no pointer), the right pane, and the hints. The rows' places and the scrolls
+/// are [`page`]'s, once measured.
 fn write_model(ui: &mut Ui, s: &Shown, w: &mut Written) -> Result<(), String> {
     put(ui, BACKGROUND, "visible", on(false));
     put(ui, CHALLENGE_TYPE, "visible", on(false));
     put(ui, PLACE, "string", text(&s.place));
     put(ui, TIME, "string", text(&s.when));
-    // The list takes the pointer (its rows' `target`, its highlight) [documented: list_box.xml].
-    put(ui, QUESTS_LIST, "_enabled", on(true));
-    let wanted: Vec<Wanted<'_, u32>> = s.rows.iter().map(|r| Wanted { key: &r.key, name: ROW }).collect();
-    if !list::reconcile(ui, QUESTS_LIST, ROW_TEMPLATE, &mut w.rows, &wanted) {
-        return Err(format!("{ROW_TEMPLATE} made no quest's row"));
+    for kind in ListKind::ALL {
+        let ours = kind == s.list;
+        // The list shown takes the pointer (its rows' `target`, its highlight) [documented:
+        // list_box.xml]; the others none.
+        put(ui, kind.path(), "_enabled", on(ours));
+        let rows: &[RowShown] = if ours { &s.rows } else { &[] };
+        let wanted: Vec<Wanted<'_, u32>> = rows.iter().map(|r| Wanted { key: &r.key, name: ROW }).collect();
+        if !list::reconcile(ui, kind.path(), ROW_TEMPLATE, &mut w.rows[kind.index()], &wanted) {
+            return Err(format!("{ROW_TEMPLATE} made no {}'s row", kind.words().1));
+        }
+        for (row, r) in w.rows[kind.index()].iter().zip(rows) {
+            write_row(ui, row.tile, r, false);
+        }
     }
-    for (row, r) in w.rows.iter().zip(&s.rows) {
-        write_row(ui, row.tile, r, false);
-    }
-    put(ui, DATA_RECT, "visible", on(s.objectives.is_some()));
-    put(ui, DATA_RECT, "_ItemType", Value::Num(if s.objectives.is_some() { ITEM_OBJECTIVES } else { 0.0 }));
-    let objectives = s.objectives.as_deref().unwrap_or_default();
+    put(ui, DATA_RECT, "visible", on(s.pane != Pane::None));
+    put(ui, DATA_RECT, "_ItemType", Value::Num(s.pane.item_type()));
+    // A note's text, picture and audio: what their tiles show while `_ItemType` shows them, emptied
+    // otherwise [documented: `MM_DataText`'s and `MM_DataImage`'s "set in code", the audio's
+    // `_ItemStringInfo` and `_AudioFileCompletion`].
+    put(ui, DATA_TEXT, "string", text(if let Pane::Text(t) = &s.pane { t } else { "" }));
+    put(ui, DATA_IMAGE, "filename", text(if let Pane::Image(f) = &s.pane { f } else { "" }));
+    let (left, played) = if let Pane::Audio { left, played } = s.pane { (data::remaining(left), f64::from(played) / 1000.0) } else { (String::new(), 0.0) };
+    put(ui, DATA_RECT, "_ItemStringInfo", text(&left));
+    put(ui, DATA_RECT, "_AudioFileCompletion", Value::Num(played));
+    let objectives = s.pane.objectives();
     let keys: Vec<usize> = (0..objectives.len()).collect();
     let wanted: Vec<Wanted<'_, usize>> = keys.iter().map(|k| Wanted { key: k, name: ROW }).collect();
     if !list::reconcile(ui, OBJECTIVES, ROW_TEMPLATE, &mut w.objectives, &wanted) {
@@ -314,6 +466,41 @@ fn keep_hints(ui: &mut Ui, hints: &[HintShown]) {
             keep_text(ui, t, "_PCButtonText", &h.key);
             keep(ui, t, "target", if h.dim { 0.0 } else { 1.0 });
         }
+    }
+}
+
+/// The tab's lists' `visible`: the file shows both `MM_NotesList` and `MM_ChallengeList` on Misc
+/// [documented: their `visible`], so the one not shown is hidden, put right on every pass as the
+/// hints are (the file works it out again when `_CurrentTab` changes) [design].
+fn keep_lists(ui: &mut Ui, s: &Shown) {
+    for kind in ListKind::ALL.into_iter().filter(|k| k.tab() == s.tab) {
+        if let Some(t) = ui.find_tile(kind.path()) {
+            keep(ui, t, "visible", if kind == s.list { 1.0 } else { 0.0 });
+        }
+    }
+}
+
+/// A note's or challenge's text scrolled as DATA's one right pane (`data::scroll_pane`), as the
+/// objectives are ([`write_pane`]): the file moves the text by its bar's value times `_ScrollDelta`
+/// [documented: `MM_DataText`'s `y`], so that is 1 and the value the pane's scroll; the bar's count
+/// how far it can scroll and 1 [design]. Returns how far it can scroll: the text's measured height
+/// past its window's.
+fn write_text_pane(ui: &mut Ui, first: f32) -> f64 {
+    let (Some(rect), Some(words), Some(bar)) = (ui.find_tile(TEXT_RECT), ui.find_tile(DATA_TEXT), ui.find_tile(TEXT_BAR)) else { return 0.0 };
+    let most = (num(ui, words, "height") - num(ui, rect, "height")).max(0.0);
+    ui.set_trait(bar, "_ScrollDelta", Value::Num(1.0));
+    ui.set_trait(bar, "_number_of_items", Value::Num(most.ceil() + 1.0));
+    ui.set_trait(bar, "_number_of_visible_items", Value::Num(1.0));
+    list::write_bar_value(ui, bar, f64::from(first).clamp(0.0, most));
+    most
+}
+
+/// The right pane's scroll bar, while it shows one that scrolls: the objectives' or the text's.
+fn pane_bar(ui: &Ui, pane: &Pane) -> Option<TileId> {
+    match pane {
+        Pane::Objectives(_) => ui.find_tile(OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)),
+        Pane::Text(_) => ui.find_tile(TEXT_BAR),
+        _ => None,
     }
 }
 
@@ -392,16 +579,18 @@ fn write_pane(ui: &mut Ui, list_tile: TileId, heights: &[f64], first: f32) -> f6
 /// What a tile of the page stands for, by the tile or a parent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DataTile {
+    /// A row of the tab's list (the quests, the notes or the challenges).
     Row(usize),
     Tab(usize),
     Button(Slot),
-    /// A piece of the quests list's own scroll bar.
+    /// A piece of the tab's list's own scroll bar.
     ListBar(BarPiece),
-    /// A piece of the objectives' scroll bar: the right pane's.
+    /// A piece of the right pane's scroll bar: the objectives' or the text's.
     PaneBar(BarPiece),
 }
 
-/// What `tile` stands for: a tab, a quest's row, a hint, or a piece of either list's scroll bar.
+/// What `tile` stands for: a tab, a row of the tab's list, a hint, or a piece of that list's or the
+/// right pane's scroll bar.
 pub fn data_tile(ui: &Ui, w: &Written, tile: TileId) -> Option<DataTile> {
     let mut at = Some(tile);
     while let Some(t) = at {
@@ -411,10 +600,12 @@ pub fn data_tile(ui: &Ui, w: &Written, tile: TileId) -> Option<DataTile> {
         at = ui.tile(t).parent;
     }
     let none: &[RowTile<u32>] = &[];
-    match list::hit(ui, tile, &[(QUESTS_NAME, &w.rows), (OBJECTIVES_NAME, none)], &BUTTONS) {
-        list::Hit::Row(0, i) => Some(DataTile::Row(i)),
-        list::Hit::Bar(0, piece) => Some(DataTile::ListBar(piece)),
-        list::Hit::Bar(1, piece) => Some(DataTile::PaneBar(piece)),
+    let shown = w.list().index();
+    let lists = [(ListKind::Quests.name(), w.rows[0].as_slice()), (ListKind::Notes.name(), &w.rows[1]), (ListKind::Challenges.name(), &w.rows[2]), (OBJECTIVES_NAME, none), (TEXT_RECT_NAME, none)];
+    match list::hit(ui, tile, &lists, &BUTTONS) {
+        list::Hit::Row(l, i) if l == shown => Some(DataTile::Row(i)),
+        list::Hit::Bar(l, piece) if l == shown => Some(DataTile::ListBar(piece)),
+        list::Hit::Bar(3 | 4, piece) => Some(DataTile::PaneBar(piece)),
         list::Hit::Target(slot) => Some(DataTile::Button(slot)),
         _ => None,
     }
@@ -426,7 +617,8 @@ pub struct Checked {
     pub rows: usize,
     pub rows_in_clip: usize,
     pub hit_tests: usize,
-    /// The objectives' window (canvas units), from what clips their rows.
+    /// The right pane's window (canvas units) while it scrolls (the objectives, a text), from what
+    /// clips it.
     pub pane: Option<Rect>,
     /// The first tab or lit hint that did not take the pointer, and what did: warned of, not a
     /// fallback.
@@ -434,29 +626,32 @@ pub struct Checked {
 }
 
 /// Whether what is about to be painted, `pieces`, can be used, on every final pass: every tab's
-/// words among the pieces and whole; the quests' rows whose words lie whole inside the list's
-/// window, at least one when there are quests, taking the pointer at their middles; a list that
-/// scrolls has a window. The tabs but the one showing and the lit hints are asked the same, and
-/// one that does not take the pointer is told in [`Checked::missed`]: its key does the work
-/// [design]. One walk of the menu serves every hit test.
+/// words among the pieces and whole; the tab's list's rows whose words lie whole inside the list's
+/// window, at least one when it has rows, taking the pointer at their middles; a list that scrolls
+/// has a window; the right pane shows what it stands for ([`pane_shows`]). The tabs but the one
+/// showing and the lit hints are asked the same, and one that does not take the pointer is told in
+/// [`Checked::missed`]: its key does the work [design]. One walk of the menu serves every hit test.
 pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) -> Result<Checked, String> {
     let is_text = |x: &&Piece| matches!(x.look, Look::Text { .. });
     let texts: HashMap<TileId, &Piece> = pieces.iter().filter(is_text).map(|x| (x.tile, x)).collect();
-    let quests = ui.find_tile(QUESTS_LIST).ok_or("the quests list is gone")?;
-    let scrolls = list::child(ui, quests, list::SCROLLBAR).is_some_and(|b| num(ui, b, "_number_of_items") > 1.0);
+    let kind = w.list();
+    let (many, one) = kind.words();
+    let list_tile = ui.find_tile(kind.path()).ok_or_else(|| format!("the {many} list is gone"))?;
+    let scrolls = list::child(ui, list_tile, list::SCROLLBAR).is_some_and(|b| num(ui, b, "_number_of_items") > 1.0);
+    let rows = &w.rows[kind.index()];
     let mut wanted: Vec<(DataTile, (f64, f64))> = Vec::new();
-    for (i, row) in w.rows.iter().enumerate() {
+    for (i, row) in rows.iter().enumerate() {
         let Some(piece) = list::child(ui, row.tile, ROW_TEXT).and_then(|t| texts.get(&t)) else { continue };
         if scrolls && piece.clip.is_none() {
-            return Err("the quests list scrolls and has no window".into());
+            return Err(format!("the {many} list scrolls and has no window"));
         }
         if let Some(middle) = shows_whole(piece) {
             wanted.push((DataTile::Row(i), middle));
         }
     }
     let rows_in_clip = wanted.len();
-    if !w.rows.is_empty() && rows_in_clip == 0 {
-        return Err("no quest's row shows whole".into());
+    if !rows.is_empty() && rows_in_clip == 0 {
+        return Err(format!("no {one}'s row shows whole"));
     }
     let mut optional = Vec::new();
     for row in &w.tabs {
@@ -488,35 +683,87 @@ pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) 
             }
         }
     }
-    let pane = if w.shown.as_ref().is_some_and(|s| s.objectives.is_some()) { Some(objectives_window(ui)?) } else { None };
-    // A quest with objectives shows at least one of them whole in that window: the pieces are what
-    // is painted, so a list or text hidden (its own `visible` or one above it) or placed outside the
-    // window shows none, and the pane would be blank.
-    if let Some(window) = pane.filter(|_| !w.objectives.is_empty()) {
-        let inside = |p: &Piece| {
-            let r = p.rect;
-            f64::from(window.min.x) - 1.0 <= r.left && f64::from(window.min.y) - 1.0 <= r.top && r.left + r.width <= f64::from(window.max.x) + 1.0 && r.top + r.height <= f64::from(window.max.y) + 1.0
-        };
-        let shows = w.objectives.iter().filter_map(|r| list::child(ui, r.tile, ROW_TEXT)).filter_map(|t| texts.get(&t)).any(|p| shows_whole(p).is_some() && inside(p));
-        if !shows {
-            return Err("no objective shows in its window".into());
-        }
-    }
-    Ok(Checked { rows: w.rows.len(), rows_in_clip, hit_tests: wanted.len() + optional.len(), pane, missed })
+    let pane = match w.shown.as_ref() {
+        Some(s) => pane_shows(ui, w, &s.pane, pieces, &texts)?,
+        None => None,
+    };
+    Ok(Checked { rows: rows.len(), rows_in_clip, hit_tests: wanted.len() + optional.len(), pane, missed })
 }
 
-/// The objectives' window as laid out (canvas units): what the list clips its children to, read
-/// off its scroll bar, whose place is the list's and which is there with or without rows
-/// [documented: list_box.xml]; why it cannot serve otherwise: no clip (a list without its window
-/// would show rows scrolled out of it), no size, or not wholly on the canvas. The wheel over it and
-/// a page of it are its own ([`DataState::publish_drawn`]).
-fn objectives_window(ui: &Ui) -> Result<Rect, String> {
-    let bar = ui.find_tile(OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)).ok_or("the objectives' scroll bar is gone")?;
-    let item = super::layout::layout(ui, bar, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == bar).ok_or("the objectives' scroll bar is not laid out")?;
-    let c = item.clip.ok_or("the objectives have no window")?;
+/// Whether the right pane shows what it stands for among what is painted (a tile hidden, by its own
+/// `visible` or one above it, or placed outside its window shows nothing, and the pane would be
+/// blank), and its window while it scrolls: objectives with at least one of them whole inside their
+/// window; a text with some of its words inside its window; a picture painted on the canvas; an
+/// audio note's time whole [design].
+fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashMap<TileId, &Piece>) -> Result<Option<Rect>, String> {
+    let within = |window: Rect, p: &Piece, whole: bool| {
+        let r = p.rect;
+        let (l, t, rr, b) = (f64::from(window.min.x) - 1.0, f64::from(window.min.y) - 1.0, f64::from(window.max.x) + 1.0, f64::from(window.max.y) + 1.0);
+        if whole {
+            l <= r.left && t <= r.top && r.left + r.width <= rr && r.top + r.height <= b
+        } else {
+            r.left < rr && r.left + r.width > l && r.top < b && r.top + r.height > t
+        }
+    };
+    match pane {
+        Pane::None => Ok(None),
+        Pane::Objectives(_) => {
+            let bar = ui.find_tile(OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)).ok_or("the objectives' scroll bar is gone")?;
+            let window = pane_window(ui, bar, ("the objectives'", "the objectives have"))?;
+            if !w.objectives.is_empty() {
+                let shows = w.objectives.iter().filter_map(|r| list::child(ui, r.tile, ROW_TEXT)).filter_map(|t| texts.get(&t)).any(|p| shows_whole(p).is_some() && within(window, p, true));
+                if !shows {
+                    return Err("no objective shows in its window".into());
+                }
+            }
+            Ok(Some(window))
+        }
+        Pane::Text(words) => {
+            let bar = ui.find_tile(TEXT_BAR).ok_or("the text's scroll bar is gone")?;
+            let window = pane_window(ui, bar, ("the text's", "the text has"))?;
+            if !words.trim().is_empty() {
+                let shows = ui.find_tile(DATA_TEXT).and_then(|t| texts.get(&t)).is_some_and(|p| within(window, p, false));
+                if !shows {
+                    return Err("the text does not show in its window".into());
+                }
+            }
+            Ok(Some(window))
+        }
+        Pane::Image(file) => {
+            let image = ui.find_tile(DATA_IMAGE).ok_or("the picture is gone")?;
+            if !file.is_empty() && !pieces.iter().any(|p| p.tile == image && on_canvas(&p.rect)) {
+                return Err("the picture is not shown".into());
+            }
+            Ok(None)
+        }
+        Pane::Audio { .. } => {
+            let time = ui.find_tile(AUDIO_TIME).ok_or("the audio note's time is gone")?;
+            if !texts.get(&time).is_some_and(|p| shows_whole(p).is_some()) {
+                return Err("the audio note's time is not shown".into());
+            }
+            Ok(None)
+        }
+    }
+}
+
+/// Whether a painted rectangle lies wholly on the Pip-Boy's canvas.
+fn on_canvas(r: &super::layout::Rect) -> bool {
+    let canvas = (f64::from(crate::pipboy::CANVAS.x), f64::from(crate::pipboy::CANVAS.y));
+    r.width > 0.0 && r.height > 0.0 && r.left >= -1.0 && r.top >= -1.0 && r.left + r.width <= canvas.0 + 1.0 && r.top + r.height <= canvas.1 + 1.0
+}
+
+/// The right pane's window as laid out (canvas units): what clips its scroll bar `bar`, whose place
+/// is the pane's and which is there whatever it shows [documented: list_box.xml, map_menu.xml
+/// `MM_TextScrollbar`]; why it cannot serve otherwise: no clip (a pane without its window would
+/// show what is scrolled out of it), no size, or not wholly on the canvas. The wheel over it and a
+/// page of it are its own ([`DataState::publish_drawn`]). `(whose, has)`: the pane's possessive
+/// and its "has", for the reasons.
+fn pane_window(ui: &Ui, bar: TileId, (whose, has): (&str, &str)) -> Result<Rect, String> {
+    let item = super::layout::layout(ui, bar, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == bar).ok_or_else(|| format!("{whose} scroll bar is not laid out"))?;
+    let c = item.clip.ok_or_else(|| format!("{has} no window"))?;
     let canvas = (f64::from(crate::pipboy::CANVAS.x), f64::from(crate::pipboy::CANVAS.y));
     if c.width <= 0.0 || c.height <= 0.0 || c.left < 0.0 || c.top < 0.0 || c.left + c.width > canvas.0 || c.top + c.height > canvas.1 {
-        return Err("the objectives' window does not fit".into());
+        return Err(format!("{whose} window does not fit"));
     }
     Ok(Rect::new(c.left as f32, c.top as f32, (c.left + c.width) as f32, (c.top + c.height) as f32))
 }
@@ -525,23 +772,27 @@ fn objectives_window(ui: &Ui) -> Result<Rect, String> {
 #[derive(Default)]
 pub struct Written {
     menu: Option<TileId>,
-    /// The tiles [`built`] looked at, while the file is known to have them.
+    /// The tiles [`built`] looked at, while the file is known to have them, and the tab they were
+    /// for.
     checked: Vec<TileId>,
+    checked_tab: Option<usize>,
     tabs: Vec<RowTile<usize>>,
-    /// The quests' rows, by FormID, and the objectives', by place.
-    rows: Vec<RowTile<u32>>,
+    /// Each list's rows ([`ListKind::index`]), by their records' FormIDs (only the list shown has
+    /// any), and the objectives', by place.
+    rows: [Vec<RowTile<u32>>; 3],
     objectives: Vec<RowTile<usize>>,
-    /// The quests list's own scroll.
-    view: ListView<u32>,
+    /// Each list's own scroll.
+    views: [ListView<u32>; 3],
     sizes: SizesWritten,
     shown: Option<Shown>,
     /// What the last pass was asked to show, kept through a failure ([`Written::waits`]).
     asked: Option<Shown>,
     flat: Option<FlatChanges>,
-    /// How far the objectives can scroll, as last measured.
+    /// How far the right pane (the objectives, a text) can scroll, as last measured.
     pane_most: f64,
-    /// What is shown changed since the log last said so.
+    /// What is shown changed since the log last said so, and the line it said.
     tell: bool,
+    told_line: Option<String>,
     counted: Checked,
     places_told: Option<String>,
     /// Final passes in a row that failed, the tab and frame the last was for, the tree it met, and
@@ -588,11 +839,24 @@ pub struct MapTiles {
     written: Written,
 }
 
-/// The tiles of [`required_paths`], or why the page cannot be drawn.
-fn check_file(ui: &Ui, cut: Option<&str>) -> Result<Vec<TileId>, String> {
-    match built(ui, cut) {
+/// The tiles of [`required_paths`] for tab `tab`, or why the page cannot be drawn.
+fn check_file(ui: &Ui, cut: Option<&str>, tab: Option<usize>) -> Result<Vec<TileId>, String> {
+    match built(ui, cut, tab) {
         Tiled::No(reason) => Err(reason),
-        Tiled::Yes => Ok(required_paths().iter().filter_map(|p| ui.find_tile(p)).collect()),
+        Tiled::Yes => Ok(required_paths(tab).iter().filter_map(|p| ui.find_tile(p)).collect()),
+    }
+}
+
+impl Written {
+    /// The list the page shows (Quests' before anything is shown).
+    fn list(&self) -> ListKind {
+        self.shown.as_ref().map(|s| s.list).unwrap_or_default()
+    }
+
+    /// The shown list's own scroll.
+    fn view(&mut self) -> &mut ListView<u32> {
+        let k = self.list().index();
+        &mut self.views[k]
     }
 }
 
@@ -608,13 +872,16 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     }
     let w = &mut tiles.written;
     w.layout_failure = false;
-    if w.checked.is_empty() || !w.checked.iter().all(|&t| ui.is_live(t)) {
-        w.checked = check_file(ui, tiles.cut.as_deref())?;
+    let tab = new.as_ref().or(w.shown.as_ref()).map(|s| s.tab);
+    if w.checked.is_empty() || w.checked_tab != tab || !w.checked.iter().all(|&t| ui.is_live(t)) {
+        w.checked.clear();
+        w.checked = check_file(ui, tiles.cut.as_deref(), tab)?;
+        w.checked_tab = tab;
     }
     let made = ensure_tabs(ui, &mut w.tabs)?;
     let mut changed = false;
     if let Some(s) = new {
-        let rows_dead = !w.rows.iter().all(|r| ui.is_live(r.tile)) || !w.objectives.iter().all(|r| ui.is_live(r.tile));
+        let rows_dead = !w.rows.iter().flatten().all(|r| ui.is_live(r.tile)) || !w.objectives.iter().all(|r| ui.is_live(r.tile));
         if rows_dead || w.shown.as_ref() != Some(&s) {
             write_model(ui, &s, w)?;
             w.shown = Some(s);
@@ -623,13 +890,14 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         }
     }
     let Some(s) = w.shown.clone() else { return Err("nothing to show yet".into()) };
-    let quests = ui.find_tile(QUESTS_LIST).ok_or("the quests list is gone")?;
-    let objectives = ui.find_tile(OBJECTIVES).ok_or("the objectives list is gone")?;
+    let kind = s.list;
+    let list_tile = ui.find_tile(kind.path()).ok_or_else(|| format!("the {} list is gone", kind.words().0))?;
     if changed || made || late {
         write_tabs(ui, &w.tabs, s.tab);
         ui.update();
-        // After what the hints' expressions read, before their words are measured.
+        // After what the hints' and the lists' expressions read, before their words are measured.
         keep_hints(ui, &s.hints);
+        keep_lists(ui, &s);
         let texts = menus::texts(ui, menu);
         ui.update();
         for _ in 0..3 {
@@ -639,21 +907,30 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
             ui.update();
         }
         place_tabs(ui, &w.tabs);
-        list::settle_list(ui, quests, &w.rows, ROW_TEXT, &mut w.view, s.selected, s.tab as u32, s.pointer_pick, s.navigated);
-        let heights = list::measure_rows(ui, &w.objectives, ROW_TEXT);
-        w.pane_most = write_pane(ui, objectives, &heights, s.pane_first);
+        list::settle_list(ui, list_tile, &w.rows[kind.index()], ROW_TEXT, &mut w.views[kind.index()], s.selected, s.group, s.pointer_pick, s.navigated);
+        w.pane_most = match &s.pane {
+            Pane::Objectives(_) => {
+                let objectives = ui.find_tile(OBJECTIVES).ok_or("the objectives list is gone")?;
+                let heights = list::measure_rows(ui, &w.objectives, ROW_TEXT);
+                write_pane(ui, objectives, &heights, s.pane_first)
+            }
+            Pane::Text(_) => write_text_pane(ui, s.pane_first),
+            _ => 0.0,
+        };
         let title = ui.find_tile(TITLE).ok_or("the title is gone")?;
         let line = ui.find_tile(LINE).ok_or("the heading's line is gone")?;
         stats_menu::write_frame_of(ui, title, line, s.device, &mut w.flat);
-        super::item_menu::mark_menu(ui, MAP_MENU, &[QUESTS_LIST]);
+        super::item_menu::mark_menu(ui, MAP_MENU, &[QUESTS_LIST, NOTES_LIST, CHALLENGE_LIST]);
     }
     keep_hints(ui, &s.hints);
+    keep_lists(ui, &s);
     // The scrolls over the file's own count of the clicks.
-    w.view.rewrite(ui, quests);
+    let view = &w.views[kind.index()];
+    view.rewrite(ui, list_tile);
     if !s.boxed {
-        list::write_highlight(ui, quests, None, w.view.value);
+        list::write_highlight(ui, list_tile, None, view.value);
     }
-    if let Some(bar) = list::child(ui, objectives, list::SCROLLBAR) {
+    if let Some(bar) = pane_bar(ui, &s.pane) {
         list::write_bar_value(ui, bar, f64::from(s.pane_first).clamp(0.0, w.pane_most));
     }
     ui.update();
@@ -677,8 +954,14 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
             }
         }
         tiles.pieces = pieces;
+        // Told when the line changes: an audio note playing changes what is shown every frame (its
+        // time left), not the line.
         if std::mem::take(&mut w.tell) {
-            info!("{}", describe(w));
+            let line = describe(w);
+            if w.told_line.as_ref() != Some(&line) {
+                info!("{line}");
+                w.told_line = Some(line);
+            }
         }
     }
     Ok(menu)
@@ -701,11 +984,18 @@ fn describe(w: &Written) -> String {
     let Some(s) = w.shown.as_ref() else { return format!("tiles: {MAP_MENU} page written") };
     let selected = s.selected.and_then(|i| s.rows.get(i)).map_or("none", |r| r.text.as_str());
     let hints: Vec<String> = s.hints.iter().map(|h| format!("{:?} {} {}{}", h.slot, h.word, h.key, if h.dim { " (dim)" } else { "" })).collect();
+    // Quests: how many objectives; Misc: which list, and what the right pane shows.
+    let (list, pane) = match (s.list, &s.pane) {
+        (ListKind::Quests, p) => (String::new(), format!("{} objectives", p.objectives().len())),
+        (k, Pane::Text(_)) => (format!(" {}", k.words().0), "text".to_string()),
+        (k, Pane::Image(_)) => (format!(" {}", k.words().0), "picture".to_string()),
+        (k, Pane::Audio { .. }) => (format!(" {}", k.words().0), "audio".to_string()),
+        (k, _) => (format!(" {}", k.words().0), "no pane".to_string()),
+    };
     format!(
-        "tiles: {MAP_MENU} page from tiles: tab {}, {} rows, \"{selected}\" selected, {} objectives, hints: {}, {}",
+        "tiles: {MAP_MENU} page from tiles: tab {}{list}, {} rows, \"{selected}\" selected, {pane}, hints: {}, {}",
         tab_name(s.tab),
         s.rows.len(),
-        s.objectives.as_ref().map_or(0, Vec::len),
         if hints.is_empty() { "none".to_string() } else { hints.join(", ") },
         if s.device { "device" } else { "screen menu" },
     )
@@ -777,8 +1067,9 @@ fn pass(p: &mut MapPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     }
     let notches = data.take_list_notches();
     if notches != 0.0 {
-        let v = p.tiles.written.view.value;
-        p.tiles.written.view.scroll_to(v - f64::from(notches).round());
+        let view = p.tiles.written.view();
+        let v = view.value;
+        view.scroll_to(v - f64::from(notches).round());
     }
     let tree = TreeMark::of(&script.rt.as_ref()?.game.ui_tree);
     // What it would show changed since the last pass, written or not (a failure forgets what was
@@ -1049,18 +1340,19 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             }
             DataTile::ListBar(BarPiece::Marker) => {
                 pressed_marker = true;
-                let list_tile = ui.find_tile(QUESTS_LIST);
+                let list_tile = ui.find_tile(tiles.written.list().path());
                 tiles.drag = at.filter(|_| held && by_pointer).zip(list_tile).and_then(|((_, y), l)| list::marker_grab(ui, menu, l, y));
             }
             DataTile::ListBar(piece) => {
-                let value = tiles.written.view.value;
-                if let Some(v) = ui.find_tile(QUESTS_LIST).and_then(|l| list::after_piece(ui, l, piece, value)) {
-                    tiles.written.view.scroll_to(v);
+                let value = tiles.written.view().value;
+                if let Some(v) = ui.find_tile(tiles.written.list().path()).and_then(|l| list::after_piece(ui, l, piece, value)) {
+                    tiles.written.view().scroll_to(v);
                 }
             }
             DataTile::PaneBar(BarPiece::Marker) => {
                 pressed_marker = true;
-                tiles.pane_drag = at.filter(|_| held && by_pointer).and_then(|(_, y)| pane_grab(ui, menu, y));
+                let pane = tiles.written.shown.as_ref().map_or(&Pane::None, |s| &s.pane);
+                tiles.pane_drag = at.filter(|_| held && by_pointer).and_then(|(_, y)| pane_grab(ui, menu, pane, y));
             }
             DataTile::PaneBar(piece) => {
                 if let Some(part) = pane_part(piece) {
@@ -1071,7 +1363,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     }
     if let (false, Some((_, y))) = (pressed_marker, at) {
         if let Some(v) = tiles.drag.and_then(|d| list::value_under(ui, d, y)) {
-            tiles.written.view.scroll_to(v);
+            tiles.written.view().scroll_to(v);
         }
         if let Some(v) = tiles.pane_drag.and_then(|d| list::value_under(ui, d, y)) {
             data.push_act(Act::PaneTo(v as f32));
@@ -1109,11 +1401,11 @@ enum RowAct {
     Use,
 }
 
-/// The act for the row tile `i` of the list as written: by the record it stands for (its quest's
-/// FormID), which the page finds in its list as that is when it takes the act
+/// The act for the row tile `i` of the list as written: by the record it stands for (its quest's,
+/// note's or challenge's FormID), which the page finds in its list as that is when it takes the act
 /// (`data::by_record`), never by the row's place: a script may change the list in between.
 fn row_act(w: &Written, tab: usize, i: usize, what: RowAct) -> Option<Act> {
-    let key = w.rows.get(i)?.key;
+    let key = w.rows[w.list().index()].get(i)?.key;
     Some(match what {
         RowAct::Hover => Act::HoverRecord(tab, key),
         RowAct::Leave => Act::LeaveRecord(tab, key),
@@ -1121,12 +1413,17 @@ fn row_act(w: &Written, tab: usize, i: usize, what: RowAct) -> Option<Act> {
     })
 }
 
-/// A press at height `y` on the objectives' scroll bar's marker, held to drag it by the file's own
-/// bar: its marker's place over its `_step_height` is the pane's scroll (the bar's value is the
-/// pane's, [`write_pane`]) [documented: scrollbar_vert.xml's `_drag_value`].
-fn pane_grab(ui: &Ui, menu: TileId, y: f64) -> Option<list::Drag> {
-    let l = ui.find_tile(OBJECTIVES)?;
-    list::marker_grab_on(ui, menu, l, list::child(ui, l, list::SCROLLBAR)?, y)
+/// A press at height `y` on the right pane's scroll bar's marker (the objectives' or the text's),
+/// held to drag it by the file's own bar: its marker's place over its `_step_height` is the pane's
+/// scroll (the bar's value is the pane's, [`write_pane`], [`write_text_pane`]) [documented:
+/// scrollbar_vert.xml's `_drag_value`].
+fn pane_grab(ui: &Ui, menu: TileId, pane: &Pane, y: f64) -> Option<list::Drag> {
+    let owner = match pane {
+        Pane::Objectives(_) => ui.find_tile(OBJECTIVES)?,
+        Pane::Text(_) => ui.find_tile(TEXT_RECT)?,
+        _ => return None,
+    };
+    list::marker_grab_on(ui, menu, owner, pane_bar(ui, pane)?, y)
 }
 
 /// The resource, with the test aid read.
@@ -1158,7 +1455,13 @@ mod tests {
         let bar = r#"<image name="lb_scrollbar"><_step_size>1</_step_size><_jump_size>3</_jump_size><_current_value>0</_current_value>
               <hotrect name="scrollbar_vert_page_up"/><hotrect name="scrollbar_vert_page_down"/>
               <image name="scrollbar_vert_marker"/><image name="scrollbar_vert_up"/><image name="scrollbar_vert_down"/></image>"#;
-        // The objectives' bar: its marker 16 down the bar, a value every 2 units of its drag.
+        // The objectives' bar and the text's: its marker 16 down the bar, a value every 2 units of
+        // its drag.
+        let marked = |name: &str| format!(r#"<image name="{name}"><_current_value>0</_current_value><_ScrollDelta>7</_ScrollDelta><x>330</x><width>20</width><height>150</height>
+              <hotrect name="scrollbar_vert_page_up"/><hotrect name="scrollbar_vert_page_down"/>
+              <image name="scrollbar_vert_up"><width>20</width><height>10</height></image><image name="scrollbar_vert_down"/>
+              <image name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height></image></image>"#);
+        let text_bar = marked("MM_TextScrollbar");
         let pane_bar = bar.replace(r#"<image name="scrollbar_vert_marker"/>"#, r#"<image name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height></image>"#);
         let offset = r#"<_offset><copy src="child(lb_scrollbar)" trait="_current_value"/><mul src="me()" trait="_scroll_delta"/></_offset>"#;
         let button = |name: &str, y: u32| format!(r#"<image name="{name}"><y>{y}</y><width>150</width><height>30</height><target>&true;</target><text name="button_text"><string><copy src="parent()" trait="string"/></string></text></image>"#);
@@ -1177,6 +1480,14 @@ mod tests {
                 <_scroll_delta>12</_scroll_delta>{offset}
                 <hotrect name="lb_highlight_box"/>{bar}
               </hotrect>
+              <hotrect name="MM_NotesList"><y>60</y><width>380</width><height>240</height><clipwindow>&true;</clipwindow><visible>&true;</visible>
+                <_scroll_delta>12</_scroll_delta>{offset}
+                <hotrect name="lb_highlight_box"/>{bar}
+              </hotrect>
+              <hotrect name="MM_ChallengeList"><y>60</y><width>380</width><height>240</height><clipwindow>&true;</clipwindow><visible>&true;</visible>
+                <_scroll_delta>12</_scroll_delta>{offset}
+                <hotrect name="lb_highlight_box"/>{bar}
+              </hotrect>
               <text name="MM_Headline_ChallengeType"></text>
               <rect name="MM_ButtonRect"><x>600</x><y>60</y>{buttons}</rect>
               <rect name="MM_DataRect"><x>450</x><y>200</y><visible>&false;</visible>
@@ -1184,6 +1495,12 @@ mod tests {
                   <_scroll_delta>9</_scroll_delta>{offset}
                   <hotrect name="lb_highlight_box"/>{pane_bar}
                 </hotrect>
+                <hotrect name="MM_DataTextRect"><x>10</x><y>5</y><width>360</width><height>150</height><clipwindow>&true;</clipwindow>
+                  {text_bar}
+                  <text name="MM_DataText"><y><copy src="sibling(MM_TextScrollbar)" trait="_ScrollDelta"/><mul src="sibling(MM_TextScrollbar)" trait="_current_value"/><mul>-1</mul></y></text>
+                </hotrect>
+                <image name="MM_DataImage"><x>20</x><y>10</y><width>100</width><height>100</height></image>
+                <rect name="MM_DataAudioInfo"><y>170</y><text name="MM_AudioTimeRemaining"><string><copy src="MM_DataRect" trait="_ItemStringInfo"/></string></text></rect>
               </rect>
             </rect>
             <rect name="MM_Tabline"><x>40</x><y>650</y><width>900</width></rect>
@@ -1253,7 +1570,9 @@ mod tests {
             boxed: true,
             pointer_pick: false,
             navigated: 0,
-            objectives: (n > 0).then(|| (0..objectives).map(|i| RowShown { key: i as u32, text: format!("Step {i}"), filled: i == 1, done: i == 1 }).collect()),
+            list: ListKind::Quests,
+            group: 0,
+            pane: if n > 0 { Pane::Objectives((0..objectives).map(|i| RowShown { key: i as u32, text: format!("Step {i}"), filled: i == 1, done: i == 1 }).collect()) } else { Pane::None },
             pane_first: 0.0,
             hints: vec![x_hint()],
         }
@@ -1290,7 +1609,7 @@ mod tests {
         assert_eq!((at(&ui, BACKGROUND, "visible"), at(&ui, CHALLENGE_TYPE, "visible")), (0.0, 0.0));
         assert_eq!(at(&ui, QUESTS_LIST, "_enabled"), 1.0, "the list takes the pointer");
         // The quests, in the model's order, each its row's words, square and strength.
-        let rows = t.written.rows.clone();
+        let rows = t.written.rows[0].clone();
         assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), vec![100, 101, 102]);
         let text_of = |ui: &Ui, row: TileId| list::child(ui, row, ROW_TEXT).and_then(|x| ui.tile(x).get("string").map(|v| v.text().to_string()));
         assert_eq!(text_of(&ui, rows[1].tile).as_deref(), Some("Quest 1"), "the template's text copies the row's words");
@@ -1327,7 +1646,7 @@ mod tests {
     fn a_rows_tile_stays_its_quests_and_a_click_reads_where_it_stands_now() {
         let (mut ui, mut t) = (tree(), MapTiles::default());
         run(&mut ui, Some(shown(3, 0, 0)), &mut t).unwrap();
-        let tile_of = |t: &MapTiles, key: u32| t.written.rows.iter().find(|r| r.key == key).map(|r| r.tile);
+        let tile_of = |t: &MapTiles, key: u32| t.written.rows[0].iter().find(|r| r.key == key).map(|r| r.tile);
         let (first, second) = (tile_of(&t, 100).unwrap(), tile_of(&t, 101).unwrap());
         // Another order and a quest gone: the first quest's tile is kept, the gone one's unloaded.
         let mut s = shown(3, 0, 0);
@@ -1360,7 +1679,7 @@ mod tests {
         assert_eq!(data_tile(&ui, w, piece(OBJECTIVES, list::UP)), Some(DataTile::PaneBar(BarPiece::Up)));
         assert_eq!(data_tile(&ui, w, w.objectives[0].tile), None, "the objectives take no click");
         // The pointer on a row's words and on the hint finds them, as painted.
-        let row_text = list::child(&ui, w.rows[1].tile, ROW_TEXT).unwrap();
+        let row_text = list::child(&ui, w.rows[0][1].tile, ROW_TEXT).unwrap();
         let hit = fnv_ui::input::hit(&ui, &[menu], middle(&t, row_text), &fnv_ui::input::no_measure).unwrap();
         assert_eq!(data_tile(&ui, w, hit.tile), Some(DataTile::Row(1)));
         let x_text = find_named(&ui, x, "button_text").unwrap();
@@ -1410,7 +1729,7 @@ mod tests {
         let menu = ui.menu(MAP_MENU).unwrap();
         let marker = ui.find_tile(&format!("{bar}/{}", list::MARKER)).unwrap();
         let top = super::super::layout::layout(&ui, marker, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker).unwrap().rect.top;
-        let drag = pane_grab(&ui, menu, top + 3.0).expect("the marker taken");
+        let drag = pane_grab(&ui, menu, &Pane::Objectives(Vec::new()), top + 3.0).expect("the marker taken");
         assert_eq!(list::value_under(&ui, drag, top + 3.0), Some(8.0), "where it stands");
         assert_eq!(list::value_under(&ui, drag, top + 33.0), Some(23.0));
         assert_eq!(list::value_under(&ui, drag, top + 500.0), Some(80.0), "held at the end");
@@ -1424,20 +1743,20 @@ mod tests {
         let (mut ui, mut t) = (tree(), MapTiles::default());
         // Ten rows of 40 in a window of 240.
         run(&mut ui, Some(shown(10, 0, 0)), &mut t).unwrap();
-        assert!(t.written.view.counts.most() > 0.0);
+        assert!(t.written.views[0].counts.most() > 0.0);
         assert_eq!(t.written.counted.rows_in_clip, 6);
         // A key picks the last row: it is brought into view.
         let mut s = shown(10, 9, 0);
         s.navigated = 1;
         run(&mut ui, Some(s.clone()), &mut t).unwrap();
-        let most = t.written.view.counts.most();
-        assert_eq!(t.written.view.value, most, "scrolled to the end");
+        let most = t.written.views[0].counts.most();
+        assert_eq!(t.written.views[0].value, most, "scrolled to the end");
         // The pointer's pick does not move it.
-        assert!(t.written.view.scroll_to(0.0));
+        assert!(t.written.views[0].scroll_to(0.0));
         s.selected = Some(8);
         s.pointer_pick = true;
         run(&mut ui, Some(s), &mut t).unwrap();
-        assert_eq!(t.written.view.value, 0.0);
+        assert_eq!(t.written.views[0].value, 0.0);
         assert_eq!(at(&ui, &format!("{QUESTS_LIST}/{}", list::SCROLLBAR), "_current_value"), 0.0);
     }
 
@@ -1452,10 +1771,188 @@ mod tests {
         let mut s = shown(0, 0, 0);
         s.hints.clear();
         run(&mut ui, Some(s), &mut t).unwrap();
-        assert!(t.written.rows.is_empty() && t.written.objectives.is_empty());
+        assert!(t.written.rows[0].is_empty() && t.written.objectives.is_empty());
         assert_eq!(at(&ui, DATA_RECT, "visible"), 0.0);
         assert_eq!(at(&ui, &button_path("MM_ButtonX"), "visible"), 0.0);
         assert_eq!(t.written.counted.pane, None);
+    }
+
+    /// Misc with `n` rows of list `list` (the second a done one), `sel` selected and boxed, the right
+    /// pane `pane` and the keyboard's notes filter and challenges toggle.
+    fn misc(list: ListKind, n: usize, sel: usize, pane: Pane) -> Shown {
+        let hint = |slot, kind, word: &str, key: &str| HintShown { slot, kind, word: word.into(), key: key.into(), dim: false };
+        Shown {
+            tab: data::NOTES,
+            list,
+            rows: (0..n).map(|i| RowShown { key: 500 + i as u32, text: format!("Item {i}"), filled: false, done: list == ListKind::Challenges && i == 1 }).collect(),
+            selected: (n > 0).then_some(sel),
+            pane,
+            hints: vec![hint(Slot::X, ButtonKind::NotesFilter, "Fewer", "X)"), hint(Slot::Y, ButtonKind::Challenges, "Feats", "R)")],
+            ..shown(0, 0, 0)
+        }
+    }
+
+    /// A text of `lines` lines (the test measure breaks a line at `|`).
+    fn lines(lines: usize) -> String {
+        (0..lines).map(|i| format!("L{i}")).collect::<Vec<_>>().join("|")
+    }
+
+    #[test]
+    fn misc_writes_the_notes_in_their_list_and_a_text_note_in_its_scrolling_pane() {
+        let (mut ui, mut t) = (tree(), MapTiles::default());
+        // Quests first: then Misc empties the quests list and fills the notes'.
+        run(&mut ui, Some(shown(2, 0, 1)), &mut t).unwrap();
+        let mut s = misc(ListKind::Notes, 3, 1, Pane::Text(lines(8)));
+        s.pane_first = 30.0;
+        run(&mut ui, Some(s.clone()), &mut t).unwrap();
+        assert!(t.written.rows[0].is_empty() && t.written.rows[2].is_empty() && t.written.objectives.is_empty());
+        let rows = t.written.rows[1].clone();
+        assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), vec![500, 501, 502]);
+        assert_eq!(rows.iter().map(|r| ui.tile(r.tile).parent).collect::<Vec<_>>(), vec![ui.find_tile(NOTES_LIST); 3], "under the notes list");
+        assert_eq!((trait_of(&ui, rows[1].tile, "_selected"), trait_of(&ui, rows[1].tile, "_TextAlpha")), (0.0, FULL_ALPHA), "a note has no square and full strength");
+        assert_eq!((at(&ui, NOTES_LIST, "_enabled"), at(&ui, QUESTS_LIST, "_enabled"), at(&ui, CHALLENGE_LIST, "_enabled")), (1.0, 0.0, 0.0), "only the list shown takes the pointer");
+        assert_eq!((at(&ui, NOTES_LIST, "visible"), at(&ui, CHALLENGE_LIST, "visible")), (1.0, 0.0), "the challenges hidden while the notes show");
+        assert_eq!((at(&ui, NOTES_LIST, "_highlight_y"), at(&ui, NOTES_LIST, "_selected_height")), (ROW_H, ROW_H), "the selected note boxed");
+        // The text: its pane shown, its words, scrolled by the pane's own units.
+        assert_eq!((at(&ui, DATA_RECT, "visible"), at(&ui, DATA_RECT, "_ItemType")), (1.0, ITEM_TEXT));
+        assert_eq!(words(&ui, DATA_TEXT, "string"), lines(8));
+        // Eight lines of 30 in a window of 150: 90 to scroll, 30 of it scrolled.
+        assert_eq!(t.written.pane_most, 90.0);
+        assert_eq!((at(&ui, TEXT_BAR, "_ScrollDelta"), at(&ui, TEXT_BAR, "_number_of_items"), at(&ui, TEXT_BAR, "_number_of_visible_items")), (1.0, 91.0, 1.0));
+        assert_eq!((at(&ui, TEXT_BAR, "_current_value"), at(&ui, DATA_TEXT, "y")), (30.0, -30.0));
+        // The window as measured: what clips the text (the main rect's 40, the data rect's 450 and
+        // 200, the text's own 10 and 5).
+        let pane = t.written.counted.pane.expect("the text's window");
+        assert_eq!((pane.min.x, pane.min.y, pane.width(), pane.height()), (500.0, 245.0, 360.0, 150.0));
+        // The hints: the filter on X, the challenges toggle on Y.
+        assert_eq!((words(&ui, &button_path("MM_ButtonX"), "string"), words(&ui, &button_path("MM_ButtonY"), "string")), ("Fewer".to_string(), "Feats".to_string()));
+        assert_eq!(words(&ui, &button_path("MM_ButtonY"), "_PCButtonText"), "R)");
+        assert!(describe(&t.written).contains("tab misc notes, 3 rows, \"Item 1\" selected, text, hints: X Fewer X), Y Feats R)"), "{}", describe(&t.written));
+        // Further than it can go: held at its end; a page and the wheel are the pane's (data).
+        s.pane_first = 500.0;
+        run(&mut ui, Some(s), &mut t).unwrap();
+        assert_eq!(at(&ui, TEXT_BAR, "_current_value"), 90.0);
+    }
+
+    #[test]
+    fn the_challenges_take_misc_s_list_and_its_rows_stand_for_their_records() {
+        let (mut ui, mut t) = (tree(), MapTiles::default());
+        run(&mut ui, Some(misc(ListKind::Notes, 2, 0, Pane::Text("A".into()))), &mut t).unwrap();
+        let note = t.written.rows[1][0].tile;
+        run(&mut ui, Some(misc(ListKind::Challenges, 3, 2, Pane::Text("B|C".into()))), &mut t).unwrap();
+        assert!(!ui.is_live(note) && t.written.rows[1].is_empty(), "the notes' rows go with the toggle");
+        let rows = t.written.rows[2].clone();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(trait_of(&ui, rows[1].tile, "_TextAlpha"), DONE_ALPHA, "a challenge completed at half strength");
+        assert_eq!((at(&ui, CHALLENGE_LIST, "visible"), at(&ui, NOTES_LIST, "visible"), at(&ui, CHALLENGE_LIST, "_enabled")), (1.0, 0.0, 1.0));
+        assert_eq!(data_tile(&ui, &t.written, rows[2].tile), Some(DataTile::Row(2)));
+        assert_eq!(row_act(&t.written, data::NOTES, 2, RowAct::Use), Some(Act::UseRecord(data::NOTES, 502)));
+        let bar_up = ui.find_tile(&format!("{CHALLENGE_LIST}/{}/{}", list::SCROLLBAR, list::UP)).unwrap();
+        assert_eq!(data_tile(&ui, &t.written, bar_up), Some(DataTile::ListBar(BarPiece::Up)), "the list shown's own bar");
+        let notes_up = ui.find_tile(&format!("{NOTES_LIST}/{}/{}", list::SCROLLBAR, list::UP)).unwrap();
+        assert_eq!(data_tile(&ui, &t.written, notes_up), None, "not the hidden list's");
+        assert_eq!(t.written.counted.rows_in_clip, 3);
+        assert!(describe(&t.written).contains("tab misc challenges, 3 rows, \"Item 2\" selected, text"), "{}", describe(&t.written));
+        // Each list keeps its own scroll.
+        t.written.views[1].value = 4.0;
+        run(&mut ui, Some(misc(ListKind::Challenges, 3, 2, Pane::Text("B|C".into()))), &mut t).unwrap();
+        assert_eq!(t.written.views[2].value, 0.0);
+    }
+
+    #[test]
+    fn the_texts_bar_is_the_right_panes_and_its_marker_drags_by_the_files_bar() {
+        let (mut ui, mut t) = (tree(), MapTiles::default());
+        let menu = run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text(lines(20)))), &mut t).unwrap();
+        // Twenty lines of 30 in 150: 450 to scroll.
+        assert_eq!(t.written.pane_most, 450.0);
+        let piece = |name: &str| ui.find_tile(&format!("{TEXT_BAR}/{name}")).unwrap();
+        assert_eq!(data_tile(&ui, &t.written, piece(list::UP)), Some(DataTile::PaneBar(BarPiece::Up)));
+        assert_eq!(data_tile(&ui, &t.written, piece(list::PAGE_DOWN)), Some(DataTile::PaneBar(BarPiece::PageDown)));
+        assert_eq!(data_tile(&ui, &t.written, ui.find_tile(DATA_TEXT).unwrap()), None, "the text itself takes no click");
+        let marker = piece(list::MARKER);
+        let top = super::super::layout::layout(&ui, marker, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker).unwrap().rect.top;
+        let pane = t.written.shown.as_ref().unwrap().pane.clone();
+        let drag = pane_grab(&ui, menu, &pane, top + 3.0).expect("the marker taken");
+        // 16 down and 2 a value: 40 lower is (16 + 40) / 2.
+        assert_eq!(list::value_under(&ui, drag, top + 3.0), Some(8.0));
+        assert_eq!(list::value_under(&ui, drag, top + 43.0), Some(28.0));
+        assert_eq!(pane_grab(&ui, menu, &Pane::None, top), None, "no pane, no drag");
+    }
+
+    #[test]
+    fn a_picture_and_an_audio_note_show_in_their_parts_of_the_pane() {
+        let (mut ui, mut t) = (tree(), MapTiles::default());
+        run(&mut ui, Some(misc(ListKind::Notes, 2, 0, Pane::Image("pictures\\test.dds".into()))), &mut t).unwrap();
+        assert_eq!((at(&ui, DATA_RECT, "visible"), at(&ui, DATA_RECT, "_ItemType")), (1.0, ITEM_IMAGE));
+        assert_eq!((words(&ui, DATA_IMAGE, "filename"), words(&ui, DATA_TEXT, "string")), ("pictures\\test.dds".to_string(), String::new()));
+        assert_eq!(t.written.counted.pane, None, "a picture does not scroll");
+        assert!(describe(&t.written).contains(", picture, "));
+        // An audio note 30.9 s from its end, a quarter played.
+        run(&mut ui, Some(misc(ListKind::Notes, 2, 1, Pane::Audio { left: 309, played: 250 })), &mut t).unwrap();
+        assert_eq!(at(&ui, DATA_RECT, "_ItemType"), ITEM_AUDIO);
+        assert_eq!((words(&ui, DATA_RECT, "_ItemStringInfo"), at(&ui, DATA_RECT, "_AudioFileCompletion")), (data::remaining(309), 0.25));
+        assert_eq!(words(&ui, AUDIO_TIME, "string"), data::remaining(309), "the time's text reads it");
+        assert_eq!(words(&ui, DATA_IMAGE, "filename"), "", "the picture let go");
+        // No note: no pane.
+        let mut s = misc(ListKind::Notes, 0, 0, Pane::None);
+        s.hints.truncate(1);
+        run(&mut ui, Some(s), &mut t).unwrap();
+        assert_eq!(at(&ui, DATA_RECT, "visible"), 0.0);
+        assert!(describe(&t.written).contains("tab misc notes, 0 rows, \"none\" selected, no pane"), "{}", describe(&t.written));
+    }
+
+    #[test]
+    fn misc_falls_back_when_its_pane_does_not_show_and_its_tiles_are_only_misc_s() {
+        // The text's window off the canvas, or its words outside it.
+        let off = |x: String| x.replace(r#"<hotrect name="MM_DataTextRect"><x>10</x><y>5</y>"#, r#"<hotrect name="MM_DataTextRect"><x>10</x><y>900</y>"#);
+        let mut ui = tree_changed(off);
+        assert_eq!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text("A".into()))), &mut MapTiles::default()), Err("the text's window does not fit".to_string()));
+        let (mut ui, mut t) = (tree(), MapTiles::default());
+        assert!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text("A".into()))), &mut t).is_ok());
+        ui.set_trait(ui.find_tile(DATA_TEXT).unwrap(), "x", Value::Num(2000.0));
+        ui.update();
+        assert_eq!(run(&mut ui, None, &mut t), Err("the text does not show in its window".to_string()));
+        assert!(t.written.layout_failure);
+        // The picture or the audio note's time hidden.
+        let hide = |name: &'static str| move |x: String| x.replace(&format!(r#"name="{name}">"#), &format!(r#"name="{name}"><visible>&false;</visible>"#));
+        let mut ui = tree_changed(hide("MM_DataImage"));
+        assert_eq!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Image("a.dds".into()))), &mut MapTiles::default()), Err("the picture is not shown".to_string()));
+        let mut ui = tree_changed(hide("MM_AudioTimeRemaining"));
+        assert_eq!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Audio { left: 5, played: 0 })), &mut MapTiles::default()), Err("the audio note's time is not shown".to_string()));
+        // A file without Misc's text: Misc falls back, Quests is still drawn from it.
+        let mut ui = tree_changed(|x| x.replace("MM_DataTextRect", "SomethingElse"));
+        let err = run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::None)), &mut MapTiles::default()).unwrap_err();
+        assert!(err.contains("MM_DataTextRect missing"), "{err}");
+        assert!(run(&mut ui, Some(shown(2, 0, 1)), &mut MapTiles::default()).is_ok(), "Quests needs none of Misc's tiles");
+        // The test aid's cut is Misc's alone too.
+        let (mut ui, mut t) = (tree(), MapTiles { cut: Some("MM_NotesList".into()), ..Default::default() });
+        assert!(run(&mut ui, Some(shown(1, 0, 0)), &mut t).is_ok());
+        let err = run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::None)), &mut t).unwrap_err();
+        assert!(err.contains("MM_NotesList missing"), "{err}");
+    }
+
+    #[test]
+    fn the_prepared_misc_page_is_read_by_its_list_and_pane() {
+        let row = |text: &str| data::Row { text: text.into(), mark: Mark::None, done: false };
+        let view = |right| data::View {
+            tab: data::NOTES,
+            place: String::new(),
+            when: String::new(),
+            buttons: Vec::new(),
+            body: Body::List { rows: vec![row("N1")], first: 0, boxed: None, right },
+            popup: None,
+        };
+        let p = |right, challenges, filtered| Prepared { view: view(right), keys: vec![3], sel: 0, pointer_pick: false, navigated: 0, challenges, filtered };
+        let s = Shown::of(&p(Right::Text { text: "a\r\nb".into(), first: 4.0 }, false, true), true).unwrap();
+        assert_eq!((s.list, s.group, s.pane.clone(), s.pane_first), (ListKind::Notes, 1, Pane::Text("a\nb".into()), 4.0));
+        let s = Shown::of(&p(Right::Text { text: "c".into(), first: 0.0 }, true, true), true).unwrap();
+        assert_eq!((s.list, s.group), (ListKind::Challenges, 0), "the filter is the notes'");
+        assert_eq!(Shown::of(&p(Right::Image("i.dds".into()), false, false), true).map(|s| s.pane), Ok(Pane::Image("i.dds".into())));
+        assert_eq!(Shown::of(&p(Right::Audio { left: 7, played: 9 }, false, false), true).map(|s| s.pane), Ok(Pane::Audio { left: 7, played: 9 }));
+        assert_eq!(Shown::of(&p(Right::Objectives { rows: Vec::new(), first: 0.0 }, false, false), true), Err("the right pane is not the tab's".to_string()));
+        // Radio's waveform is not drawn from the file.
+        let radio = Prepared { view: data::View { tab: data::RADIO, body: Body::List { rows: vec![row("S")], first: 0, boxed: None, right: Right::Wave { on: true } }, ..view(Right::None) }, ..p(Right::None, false, false) };
+        assert!(Shown::of(&radio, true).is_err());
     }
 
     #[test]
@@ -1483,7 +1980,7 @@ mod tests {
         ui.update();
         let new = run(&mut ui, Some(shown(2, 0, 0)), &mut t).unwrap();
         assert_ne!(old, new);
-        assert!(t.written.rows.iter().all(|r| ui.is_live(r.tile)) && t.written.rows.len() == 2);
+        assert!(t.written.rows[0].iter().all(|r| ui.is_live(r.tile)) && t.written.rows[0].len() == 2);
     }
 
     #[test]
@@ -1558,7 +2055,7 @@ mod tests {
     }
 
     #[test]
-    fn only_quests_with_the_switch_on_is_eligible() {
+    fn only_quests_and_misc_with_the_switch_on_are_eligible() {
         let mut pip = PipBoy::default();
         (pip.phase, pip.page) = (crate::pipboy::Phase::Up, Page::Data);
         pip.tabs[Page::Data.index()] = data::QUESTS;
@@ -1566,7 +2063,9 @@ mod tests {
         assert!(eligible(on, &pip));
         assert!(!eligible(TileMenus::default(), &pip), "off: nothing runs");
         assert!(!eligible(TileMenus { stats: true, inventory: true, ..Default::default() }, &pip));
-        for tab in [data::LOCAL, data::WORLD, data::NOTES, data::RADIO] {
+        pip.tabs[Page::Data.index()] = data::NOTES;
+        assert!(eligible(on, &pip), "Misc is drawn from the file too");
+        for tab in [data::LOCAL, data::WORLD, data::RADIO] {
             pip.tabs[Page::Data.index()] = tab;
             assert!(!eligible(on, &pip), "tab {tab} keeps the hand-built page");
         }
@@ -1590,11 +2089,13 @@ mod tests {
             body: Body::List { rows: vec![row("Q1", Mark::Filled, false), row("Q2", Mark::None, true)], first: 0, boxed: Some(1), right: Right::Objectives { rows: vec![row("S1", Mark::Empty, false)], first: 12.0 } },
             popup: None,
         };
-        let p = Prepared { view: view.clone(), keys: vec![7, 9], sel: 5, pointer_pick: true, navigated: 3 };
+        let p = Prepared { view: view.clone(), keys: vec![7, 9], sel: 5, pointer_pick: true, navigated: 3, challenges: false, filtered: true };
         let s = Shown::of(&p, false).unwrap();
         assert_eq!(s.rows, vec![RowShown { key: 7, text: "Q1".into(), filled: true, done: false }, RowShown { key: 9, text: "Q2".into(), filled: false, done: true }]);
         assert_eq!((s.selected, s.boxed, s.pointer_pick, s.navigated, s.pane_first, s.device), (Some(1), true, true, 3, 12.0, false));
-        assert_eq!(s.objectives.as_ref().map(|o| (o.len(), o[0].filled)), Some((1, false)));
+        assert_eq!(s.pane.objectives().len(), 1);
+        assert!(!s.pane.objectives()[0].filled);
+        assert_eq!((s.list, s.group), (ListKind::Quests, 0), "the notes' filter is Misc's");
         assert_eq!(s.hints.iter().map(|h| (h.slot, h.dim)).collect::<Vec<_>>(), vec![(Slot::A, true), (Slot::X, false)]);
         // The question box, another body or rows without their records: not drawn from the file.
         let popup = Prepared { view: data::View { popup: Some(crate::pipboy::data::travel::Popup::travel(1, "Go?".into())), ..view.clone() }, ..p.clone() };
@@ -1602,6 +2103,6 @@ mod tests {
         let short = Prepared { keys: vec![7], ..p.clone() };
         assert!(Shown::of(&short, true).is_err());
         let text = Prepared { view: data::View { body: Body::List { rows: Vec::new(), first: 0, boxed: None, right: Right::Text { text: "x".into(), first: 0.0 } }, ..view }, keys: Vec::new(), ..p };
-        assert_eq!(Shown::of(&text, true), Err("the right pane is not the objectives".to_string()));
+        assert_eq!(Shown::of(&text, true), Err("the right pane is not the tab's".to_string()));
     }
 }

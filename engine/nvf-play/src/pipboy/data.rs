@@ -593,8 +593,10 @@ pub struct View {
 
 /// What the page shows as last prepared ([`step`]), with what the drawing from the file
 /// (`crate::tiles::map_menu`) needs besides: each list row's record (a quest's or note's FormID, a
-/// station's base, a challenge's place), the selected row, whether the pointer picked it and a count
-/// of the keys' moves (the tile list brings the row a key picked into view, not the pointer's).
+/// station's base, a challenge's FormID), the selected row, whether the pointer picked it and a count
+/// of the keys' moves (the tile list brings the row a key picked into view, not the pointer's);
+/// on Misc whether the challenges show instead of the notes and whether the notes' filter is on
+/// (another filter starts the list at its top).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Prepared {
     pub(crate) view: View,
@@ -602,6 +604,8 @@ pub(crate) struct Prepared {
     pub(crate) sel: usize,
     pub(crate) pointer_pick: bool,
     pub(crate) navigated: u32,
+    pub(crate) challenges: bool,
+    pub(crate) filtered: bool,
 }
 
 // ---- the system -------------------------------------------------------------------------
@@ -821,17 +825,25 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     }
     if early.is_some() {
         st.last_view = Some(view.clone());
-        st.prepared = Some(Prepared { view: view.clone(), keys: row_keys(tab, &lists), sel: st.sel[tab], pointer_pick: st.pointer_pick, navigated: st.navigated });
+        st.prepared = Some(Prepared {
+            view: view.clone(),
+            keys: row_keys(tab, &lists),
+            sel: st.sel[tab],
+            pointer_pick: st.pointer_pick,
+            navigated: st.navigated,
+            challenges: lists.challenges.is_some(),
+            filtered: st.notes_of_active,
+        });
     }
     Some(view)
 }
 
-/// What each row of tab `tab`'s list stands for: a quest's or note's FormID, a station's base, a
-/// challenge's place.
+/// What each row of tab `tab`'s list stands for: a quest's, note's or challenge's FormID, a
+/// station's base.
 fn row_keys(tab: usize, l: &Lists) -> Vec<u32> {
     match tab {
         QUESTS => l.quests.iter().map(|q| q.form).collect(),
-        NOTES if l.challenges.is_some() => (0..list_len(tab, l) as u32).collect(),
+        NOTES if l.challenges.is_some() => l.challenges.iter().flatten().map(|c| c.challenge.0).collect(),
         NOTES => l.notes.iter().map(|n| n.form).collect(),
         RADIO => l.stations.iter().map(|s| s.0).collect(),
         _ => Vec::new(),
@@ -2889,7 +2901,7 @@ fn audio_meter(p: &mut ChildSpawnerCommands, c: &mut Ctx, o: Vec2, left: u32, pl
 
 /// The time remaining as the original writes it: minutes, seconds and tenths
 /// [observed: "00:30:9 remaining" at the start of a 30.9 s note].
-fn remaining(tenths: u32) -> String {
+pub(crate) fn remaining(tenths: u32) -> String {
     format!("{:02}:{:02}:{} remaining", tenths / 600, tenths / 10 % 60, tenths % 10)
 }
 
@@ -3161,6 +3173,7 @@ mod tests {
         assert!(st.acts.is_empty());
         assert!(!st.boxed, "a new tab starts unboxed");
         assert_eq!((st.last_tab, st.prepared.as_ref().map(|p| p.view.tab)), (Some(NOTES), Some(NOTES)));
+        assert_eq!(st.prepared.as_ref().map(|p| (p.filtered, p.challenges)), Some((true, false)), "the notes' filter, for the tile list's top");
         // The hand-built drawing paints only: no body, nothing prepared or drawn by it.
         w.resource_mut::<DataState>().was_open = false;
         w.run_system_once(draw).unwrap();

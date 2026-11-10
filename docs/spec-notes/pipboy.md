@@ -1458,10 +1458,14 @@ prefabs it includes, `list_box.xml`, `list_box_template.xml`, `text_box.xml`, `t
 capture of the original's MapMenu traits was read for this slice but run08's map markers (§5.3);
 what the original writes into the traits below is not known unless tagged.
 
-**This slice draws the Quests tab only** [design, #1513]. The Local Map, the World Map, Misc and
-Radio keep the whole hand-built page while they show: the maps' drawing and picking need a shared
-viewport the file's map windows do not give yet, Misc's notes and challenges and Radio's waveform
-are later work. The page goes over to its tiles and back as the tab changes, as STATS' tabs do.
+**This slice draws Quests and Misc** [design, #1513]. The Local Map, the World Map and Radio keep
+the whole hand-built page while they show: the maps' drawing and picking need a shared viewport the
+file's map windows do not give yet, and Radio's waveform is `MM_Waveform`, an image the code gives
+a NIF animation ("set in code", which file not known), where the hand-built page draws its own trace
+of the radio's loudness (§5.3); the station list without its waveform is not drawn alone. The page
+goes over to its tiles and back as the tab changes, as STATS' tabs do; with the switch on the maps'
+hand-built page is prepared early as every tab is (below), so Place Marker's question box (#1954)
+and its hover reset work there unchanged.
 
 **The one decision**: `MapTiles::ready`, as `InventoryTiles::ready` (§5.2.1): the switch on, DATA
 showing on a tab drawn from the file, no fast-travel question up, the file's tiles there, the tabs
@@ -1511,9 +1515,19 @@ page's rules read of the drawing: how many rows fit, how far the right pane can 
 - `MM_QuestObjectivesList` under `MM_DataRect` (`list_box.xml`): 400 wide, 400 high on a PC, at the
   rect's right, `_enabled` false (no highlight box, no row a target), `target` true, its scroll bar on
   the right, shown on `_ItemType` 4.
-- Not read in this slice: the maps' windows and templates, the highlight box, `MM_DataTextRect`,
-  `MM_DataImage`, `MM_DataAudioInfo`, `MM_WaveformRect`, `MM_Headline_ChallengeType`,
-  `MM_Notes_SelectedNoteHighlight`, `MM_Challenge_SelectedHighlight`.
+- Misc's parts under `MM_DataRect`: `MM_DataTextRect` (a clip window 385 high on a PC, at -17, 20,
+  shown on `_ItemType` 1) holding `MM_TextScrollbar` (`scrollbar_vert.xml`, its `_ScrollDelta` 20,
+  one visible item) and `MM_DataText` (font 1, wrapped at the rect's width, its `y` the bar's
+  `_current_value` times `_ScrollDelta`, negated; its `string` set in code); `MM_DataImage` (360
+  square at the rect's right, its `filename` set in code, shown on `_ItemType` 2); `MM_DataAudioInfo`
+  (shown on 3) with `MM_AudioTimeRemaining` reading the rect's `_ItemStringInfo` and the meter's
+  marker placed by its `_AudioFileCompletion`. The rect's `user0` (a playing audio note) turns A's
+  title to `sStopAudio` [documented: `MM_ButtonA`'s `_Title`].
+- `MM_NotesList` and `MM_ChallengeList` both show on tab 3 (their `visible`), each with a
+  `square_filled.dds` highlight (`MM_Notes_SelectedNoteHighlight`, `MM_Challenge_SelectedHighlight`)
+  hidden until set in code; the challenges' `_enabled` is set in code too.
+- Not read in this slice: the maps' windows and templates, the highlight box, `MM_WaveformRect`,
+  `MM_Headline_ChallengeType`, the two square highlights above.
 
 **What the code writes on Quests** [design]:
 
@@ -1531,17 +1545,32 @@ page's rules read of the drawing: how many rows fit, how far the right pane can 
 | `MM_Background` | hidden in both frames | The shell's background, as §5.1.1. |
 | `MM_Headline_ChallengeType` | hidden | Misc's, not on this tab. |
 
-**Every string written, and where it comes from** [design: LEGAL.md]: the tabs as above; the place
-and the quests' names (record data, `FULL`); the date and time (figures); the objectives' texts
-(record data, SetObjectiveText's); the hints' words (the settings' texts, else NVForever's labels in
-the strings table, §5.3); their keys (`crate::pad::hint`).
+**What the code writes on Misc** [design]: the hand-built page's lists and panes (§5.3), as on
+Quests where nothing is said:
+
+| Model (`pipboy::data`) | Tile, trait | Notes |
+|---|---|---|
+| The notes (the notes' filter applied), or the challenges while Misc shows them | `MM_ListMarkerTemplate` rows under `MM_NotesList` or `MM_ChallengeList`, kept by the note's or the challenge's FormID: `string`, `_selected` 0, `_ShowEmptyMarker` 0, `_TextAlpha` 128 for a challenge completed, else 255; that list's `_enabled` 1 | The hand-built rows' words, place and dimming (no square). The list not shown has no rows, `_enabled` 0 and `visible` 0, put right on every pass (the file shows both on Misc). The quests list likewise on Misc, the notes' and challenges' on Quests. |
+| The list's scroll | each list's own (`list::ListView`), as Quests' | The notes' filter is the list's filter: another one starts the list at its top. |
+| The selected note's text, a challenge's description and state | `MM_DataRect` `_ItemType` 1; `MM_DataText/string` the text (`\r\n` as `\n`) | One scroll for the text and the objectives, as the hand-built pane's: `MM_TextScrollbar`'s `_ScrollDelta` 1, `_number_of_items` how far the text can scroll (its measured height past the rect's) plus 1, `_number_of_visible_items` 1, `_current_value` the pane's scroll, `_SetInCode`. |
+| An image note's picture | `_ItemType` 2; `MM_DataImage/filename` the note's `XNAM` | |
+| A Sound or Voice note | `_ItemType` 3; the rect's `_ItemStringInfo` the time left as the hand-built page writes it ("00:30:9 remaining"), `_AudioFileCompletion` the share played (0 to 1) | `user0` is not written: the A hint's words are the model's. |
+| No note or challenge | `MM_DataRect` `visible` 0, `_ItemType` 0 | The text and picture emptied while they do not show. |
+| The hints | X the notes' filter (Active Notes / All Notes) or Next Challenge (dim), Y Challenges, A Play or Stop with a controller | By what each does (`Slot::of`); Y's key is the hand-built page's (R, with a controller Y). |
+
+**Every string written, and where it comes from** [design: LEGAL.md]: the tabs as above; the place,
+the quests', notes' and challenges' names and the challenges' descriptions (record data); a note's text (record data, `TNAM`) and picture's file (`XNAM`); the date and time and a
+challenge's progress (figures); "Completed" and the audio's "remaining" (NVForever's own words, the
+hand-built page's); the objectives' texts (record data, SetObjectiveText's); the hints' words (the
+settings' texts, else NVForever's labels in the strings table, §5.3); their keys (`crate::pad::hint`).
 
 **Input** (`map_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written; with
 Controller chosen as the Input Device it is ignored, as on the hand-built page. It takes nothing with
 a menu over the page or another tile menu taking the frame. What a tile stands for goes where the
 hand-built page's node sends it, through `DataState`'s acts. A row's act names its record (the
-quest's FormID), and the page finds that record in its list as it is when it takes the act, a frame
-of scripts later: a quest gone meanwhile takes nothing, one moved is still the one clicked [design]:
+quest's, note's or challenge's FormID), and the page finds that record in its list as it is when it
+takes the act, a frame of scripts later: a record gone meanwhile (a note filtered out, the list
+toggled to the challenges) takes nothing, one moved is still the one clicked [design]:
 
 | What | Sends |
 |---|---|
@@ -1550,9 +1579,9 @@ of scripts later: a quest gone meanwhile takes nothing, one moved is still the o
 | A click on a row | `UseRecord(tab, form)`, taken as `Use`: selected and used (`use_row`: made the active quest) |
 | A click on a hint | `Button(kind)`: the A hints do Enter's work; Show Location shows the World Map |
 | A tab | `PipBoyInput::Tab(i)`; the pointer onto it, `TabHovered(i)` |
-| The objectives' bar: arrow, page area | `Bar(Up/Down/PageUp/PageDown)`: the right pane's, a page the window as measured |
-| The objectives' bar's marker held | `PaneTo(v)`: the pane's scroll where the file's bar puts it (`list::value_under`) |
-| The quests' bar | the tile list's own scroll, no command of the model's |
+| The objectives' or the text's bar: arrow, page area | `Bar(Up/Down/PageUp/PageDown)`: the right pane's, a page the window as measured |
+| That bar's marker held | `PaneTo(v)`: the pane's scroll where the file's bar puts it (`list::value_under`) |
+| The tab's list's bar | the tile list's own scroll, no command of the model's |
 
 The keys, the wheel and the sticks stay `pipboy::data`'s and `pipboy::keys`' (`HAND_BUILT_KEYS`): a
 file's binding acts for a script's tap, not for a physical press, and never for a controller's
@@ -1566,17 +1595,22 @@ The page is still prepared [design]. Off, the hand-built page is as it was (it d
 separate issue).
 
 **Usable**: as §5.2.1: every tab's words shown whole, the tabs but the one showing taking the pointer
-(one that does not is warned of and the page stays); the quests' rows whose words lie whole inside
-the list's window, at least one when there are quests, taking the pointer at their middles; a list
+(one that does not is warned of and the page stays); the tab's list's rows whose words lie whole
+inside the list's window, at least one when it has rows, taking the pointer at their middles; a list
 that scrolls has a window; with a quest selected, the objectives' window (what their list clips to,
 read off its scroll bar) has a size and lies wholly on the canvas, and a quest with objectives shows
 at least one of them whole inside it among what is painted (a list or text hidden, by its own
-`visible` or one above it, or placed outside the window, shows none), or the page falls back. A hint
-that shows lit and does not take the pointer is warned of and the page stays (its key still works).
+`visible` or one above it, or placed outside the window, shows none); a text shown has its window
+likewise (what clips `MM_TextScrollbar`) and some of its words painted inside it; a picture is
+painted on the canvas; an audio note's time is painted whole; or the page falls back. The right
+pane's window is published while it scrolls (the objectives, a text). A hint that shows lit and does
+not take the pointer is warned of and the page stays (its key still works).
 
-**Falls back, whole page, with the reason** [design]: another tab than Quests; the question box up;
-`MapMenu` not in the tree; a tile or template above missing (a mod's restructured file); the tabs or
-a row not made; nothing prepared yet for this tab (no failure); the layout not usable. The test aid
+**Falls back, whole page, with the reason** [design]: the maps and Radio; the question box up;
+`MapMenu` not in the tree; a tile or template above missing (a mod's restructured file), each tab
+asking for its own (a file short of Misc's text still draws Quests from the file, and the other way
+round); the tabs or a row not made; nothing prepared yet for this tab (no failure); the layout not
+usable. The test aid
 `NVF_PLAY_TEST_MAP_TILE_CUT=<name>[@<seconds>]` takes a tile or template as missing, and at its end
 builds the menu again from its file, for the recovery (with the switch on only). After three failing
 passes a missing name waits for the tree to change; a layout that is not usable is tried again
@@ -1585,14 +1619,17 @@ tree's shape changing.
 
 **Log**: `tiles: MapMenu draws <tab> from tiles` and `tiles: MapMenu leaves <tab> hand-built: <reason>`
 when that changes; `tiles: MapMenu page from tiles: tab quests, <n> rows, "<name>" selected, <m>
-objectives, hints: <…>` when what it shows changes; `MapMenu drawn by hand: <reason>` (a warning)
+objectives, hints: <…>` or `… tab misc notes|challenges, <n> rows, "<name>" selected, text|picture|audio|no
+pane, hints: <…>` when that line changes (an audio note playing changes the time left every frame,
+not the line); `MapMenu drawn by hand: <reason>` (a warning)
 for a failure; the painter's `tiles: MapMenu drawn from tiles (…)` and `set out for the Pip-Boy's
 image: …` lines.
 
 **Unit coverage given up** (#1512): the tests' fixture is written for them. It cannot prove how the
 file's expressions read what is written: `_CurrentTab` and the lists' `visible`, the tabs' insides,
 `_selected` and `_TextAlpha` in the row template, `_ItemType` and `MM_DataRect`'s `y`, the buttons'
-`_y` and their dim look, or the file's own places. The smoke scenarios `tiles-data*` check structure
+`_y` and their dim look, the text's `y` by its bar, the audio's time and meter, or the file's own
+places. The smoke scenarios `tiles-data*` check structure
 and hits on the real file; their logs cannot prove pixels, only their shots can.
 
 **Known differences behind the switch** [design]: the hints' hover box is the file's (`_box_visible`
