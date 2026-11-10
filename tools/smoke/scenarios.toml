@@ -23930,6 +23930,103 @@ expect = [
 order = [["controls: input device Controller", "pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc: Play", "pipboy hints: data misc: Stop", "pipboy hints: data radio"]]
 
 [[scenario]]
+name = "tiles-data-quests"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Quests tab is drawn from map_menu.xml into the Pip-Boy's image on the device, its quests, objectives, tabs and hints through its tiles; the maps, Misc and Radio keep the whole hand-built page; a click on a quest makes it active, a click on the Show Location hint shows the World Map (hand-built), and the page comes back from its tiles on Quests and after a reopening"
+note = "the points are canvas units on the page as run [hypothesis until the first run: the first quest's words about 200, 150 (the list at 35, 125, the rows' words 72 in and 20 down), the X hint (the first shown with the keyboard) right-justified at 905 from y 125]; VCG02's objective given at 9 s is the one quest. Shots: compare tiles_data_quests with pipboy-data-hints' and tiles-data-off's at the same time."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,16:point=200:150,17:click=200:150,18:point=off,19:click=860:145,21:tab=2,23:close,25:open,27:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_quests.png,20:tiles_data_quests_world.png,26:tiles_data_quests_reopened.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=MapMenu \(from test aid NVF_PLAY_TEST_TILE_MENUS\): MapMenu drawn from tiles', label = "the switch is read from the test aid" },
+  { text = "tiles: MapMenu draws quests from tiles", min = 2, label = "Quests is drawn from its file, and again back from the World Map" },
+  { re = 'tiles: MapMenu page from tiles: tab quests, [1-9]\d* rows, "[^"]+" selected, [1-9]\d* objectives, hints: X Show Location X\), device$', min = 1, label = "the quest, its objectives and the keyboard's one hint written, on the device" },
+  { re = 'tiles: MapMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', count = 1, label = "structure only, no pixels: the menu goes to the painter once for the run: its rows outlast the tab changes and the reopening" },
+  { re = '''tiles: MapMenu set out for the Pip-Boy's image: [1-9]\d* pieces, [1-9]\d* row names''', min = 1, label = "structure only, logs cannot prove pixels (the shots do): pieces of the file go to the painter, the quests' and objectives' names among them" },
+  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name the page needs" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "the hints' rules stay the hand-built page's (#1952)" },
+  { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the quest acted once, through its tile" },
+  { re = 'pipboy data: active quest ', min = 1, label = "the click made the quest active, the hand-built page's rule" },
+  { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the click on the Show Location hint, through its tile" },
+  { text = "pipboy: DATA World Map", min = 1, label = "Show Location shows the World Map" },
+  { text = "tiles: MapMenu leaves world map hand-built: not drawn from the file yet", min = 1, label = "the World Map keeps the whole hand-built page" },
+]
+order = [["tiles: MapMenu draws quests from tiles", "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(X) on its tiles", "pipboy: DATA World Map", "tiles: MapMenu leaves world map hand-built", "pipboy: DATA Quests", "tiles: MapMenu draws quests from tiles", "pipboy: down", "pipboy: up, page DATA tab Quests"]]
+
+[[scenario]]
+name = "tiles-data-quests-screen"
+source = "[design] pipboy.md section 5.3.1, issue 1513, the owner 2026-10-31: the same Quests tab in the screen menu: no title, the heading's line run on, the page names' header still the shell's"
+note = "the same steps as tiles-data-quests without the clicks; shots to compare with tiles-data-off-screen."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,13:page=data,14:tab=2,17:tab=3,19:tab=2,21:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "16:tiles_data_quests_screen.png,18:tiles_data_misc_screen.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { text = "pipboy: frame Screen", min = 1, label = "the screen menu" },
+  { re = 'tiles: MapMenu page from tiles: tab quests, .*, screen menu$', min = 1, label = "the screen menu's layout" },
+  { text = "tiles: MapMenu leaves misc hand-built: not drawn from the file yet", min = 1, label = "Misc keeps the whole hand-built page" },
+  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name the page needs" },
+]
+order = [["tiles: MapMenu draws quests from tiles", "tiles: MapMenu leaves misc hand-built", "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-off"
+source = "[design] pipboy.md section 5.3.1: without the switch the DATA page is the hand-built one: nothing of the tile page runs, and its quests, hints, clicks and log lines work as before"
+note = "the same steps and times as tiles-data-quests, at the hand-built places (the X hint about 860, 145 and the quest about 200, 150 there too). Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,16:point=200:150,17:click=200:150,18:point=off,19:click=860:145,21:tab=2,23:close,25:open,27:close", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_off.png,20:tiles_data_off_world.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "switch off: the Quests hint as before" },
+  { re = 'pipboy data: active quest ', min = 1, label = "switch off: the click on the quest makes it active, as before" },
+  { text = "pipboy: DATA World Map", min = 1, label = "switch off: the Show Location hint's click shows the World Map, as before" },
+]
+order = [["pipboy: DATA Quests", "pipboy: DATA World Map", "pipboy: DATA Quests", "pipboy: down", "pipboy: up, page DATA tab Quests"]]
+
+[[scenario]]
+name = "tiles-data-objectives-scroll"
+source = "[design] pipboy.md section 5.3.1, #1667: with the switch on, a quest's objectives longer than their window scroll by Page Up/Page Down as on the hand-built page: the tile page publishes how far they can scroll, the one presentation that does"
+note = "pipboy-data-objectives-scroll's quest and keys with [UI] TileMenus=MapMenu: VMQ02 with 32 objectives made the active quest at 8 s; Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back to 0."
+areas = ["pipboy", "ui"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:StartQuest VMQ02;SetObjectiveDisplayed VMQ02 1 1;SetObjectiveDisplayed VMQ02 2 1;SetObjectiveDisplayed VMQ02 3 1;SetObjectiveDisplayed VMQ02 5 1;SetObjectiveDisplayed VMQ02 6 1;SetObjectiveDisplayed VMQ02 7 1;SetObjectiveDisplayed VMQ02 8 1;SetObjectiveDisplayed VMQ02 9 1;SetObjectiveDisplayed VMQ02 10 1;SetObjectiveDisplayed VMQ02 12 1;SetObjectiveDisplayed VMQ02 15 1;SetObjectiveDisplayed VMQ02 20 1;SetObjectiveDisplayed VMQ02 22 1;SetObjectiveDisplayed VMQ02 25 1;SetObjectiveDisplayed VMQ02 30 1;SetObjectiveDisplayed VMQ02 40 1;SetObjectiveDisplayed VMQ02 41 1;SetObjectiveDisplayed VMQ02 50 1;SetObjectiveDisplayed VMQ02 53 1;SetObjectiveDisplayed VMQ02 55 1;SetObjectiveDisplayed VMQ02 60 1;SetObjectiveDisplayed VMQ02 70 1;SetObjectiveDisplayed VMQ02 75 1;SetObjectiveDisplayed VMQ02 80 1;SetObjectiveDisplayed VMQ02 85 1;SetObjectiveDisplayed VMQ02 90 1;SetObjectiveDisplayed VMQ02 100 1;SetObjectiveDisplayed VMQ02 101 1;SetObjectiveDisplayed VMQ02 110 1;SetObjectiveDisplayed VMQ02 111 1;SetObjectiveDisplayed VMQ02 112 1;SetObjectiveDisplayed VMQ02 113 1;ForceActiveQuest VMQ02;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_objectives_scrolled.png" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { text = "tiles: MapMenu draws quests from tiles", min = 1, label = "Quests drawn from its file" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback" },
+]
+order = [[
+  { text = "tiles: MapMenu draws quests from tiles" },
+  { re = 'pipboy data: objectives scrolled from 0 to [1-9]\d* of [1-9]\d*', label = "Page Down scrolls the overflowing objectives, by the tile page's measure" },
+  { re = 'pipboy data: objectives scrolled from [1-9]\d* to 0 of [1-9]\d*', label = "Page Up scrolls them back to their top" },
+]]
+
+[[scenario]]
+name = "tiles-data-missing-template"
+source = "[design] pipboy.md section 5.3.1: a file short of what the page needs keeps the whole hand-built page, says why once, and draws no tile of it; when the name is there again the page comes from its tiles"
+note = "NVF_PLAY_TEST_MAP_TILE_CUT takes the row template as missing until 20 s, so no changed game file is needed. At its end the aid builds the menu again from its file and does not reset the page's failures: the page recovers only because it tries again when the tree changes."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,24:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_MAP_TILE_CUT = "MM_ListMarkerTemplate@20", NVF_PLAY_TEST_SHOTS = "17:tiles_data_cut.png,22:tiles_data_recovered.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 27
+expect = [
+  { text = "MapMenu drawn by hand: MM_ListMarkerTemplate missing", count = 1, label = "the template cut, by hand: the reason, once" },
+  { text = "tiles: MapMenu leaves quests hand-built: MM_ListMarkerTemplate missing", min = 1, label = "the draw state's line" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', min = 1, label = "the hand-built page draws meanwhile, its hints as before" },
+  { text = "test aid: NVF_PLAY_TEST_MAP_TILE_CUT over", count = 1, label = "the aid stops" },
+  { re = 'test aid: MapMenu built again from \S', count = 1, label = "the tree changes: the menu built again from its file" },
+  { re = 'tiles: MapMenu page from tiles: tab quests', min = 1, label = "and the page comes from its tiles" },
+]
+order = [["MapMenu drawn by hand: MM_ListMarkerTemplate missing", "test aid: NVF_PLAY_TEST_MAP_TILE_CUT over", { re = 'test aid: MapMenu built again from \S' }, "tiles: MapMenu draws quests from tiles", { re = "tiles: MapMenu set out for the Pip-Boy's image: [1-9]\\d* pieces" }]]
+
+[[scenario]]
 name = "pipboy-stats-rad-radaway"
 source = "[design] #1899: hand-built Status RAD owns keyboard/controller A while its RadAway hint is shown; use the carried aid item and keep the tab (engine/nvf-play/src/pipboy.rs, pipboy/stats/mod.rs; docs/spec-notes/pipboy.md 5.1)"
 areas = ["pipboy", "aid"]

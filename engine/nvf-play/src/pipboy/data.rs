@@ -78,11 +78,11 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 
 // ---- the tabs ---------------------------------------------------------------------------
 
-const LOCAL: usize = 0;
-const WORLD: usize = 1;
-const QUESTS: usize = 2;
-const NOTES: usize = 3;
-const RADIO: usize = 4;
+pub(crate) const LOCAL: usize = 0;
+pub(crate) const WORLD: usize = 1;
+pub(crate) const QUESTS: usize = 2;
+pub(crate) const NOTES: usize = 3;
+pub(crate) const RADIO: usize = 4;
 
 // ---- the menu file's places, inside the menus' rectangle [documented: map_menu.xml] ------
 
@@ -253,7 +253,7 @@ const DOOR_ICON: &str = "interface\\icons\\local map\\icon_local_door.dds";
 
 /// What the player did on the page with the pointer, taken by [`draw`].
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Act {
+pub(crate) enum Act {
     /// The pointer came onto a row of the tab's list.
     Hover(usize, usize),
     /// The pointer left the row.
@@ -274,7 +274,7 @@ enum Act {
 /// marker held drags it (`.0`: the pane's units a unit of the bar) [design: as the
 /// tile menus' bars, `crate::tiles::list`].
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum BarPart {
+pub(crate) enum BarPart {
     Up,
     Down,
     PageUp,
@@ -283,7 +283,7 @@ enum BarPart {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ButtonKind {
+pub(crate) enum ButtonKind {
     PlaceMarker,
     ShowLocation,
     NotesFilter,
@@ -301,7 +301,7 @@ enum ButtonKind {
 
 impl ButtonKind {
     /// The A button's (`MM_ButtonA`): what Enter does on the tab.
-    fn is_a(self) -> bool {
+    pub(crate) fn is_a(self) -> bool {
         matches!(self, ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::PlayAudio | ButtonKind::Tune)
     }
 }
@@ -388,8 +388,15 @@ pub struct DataState {
     /// logged when they change from it. Kept while the page is closed.
     last_view: Option<View>,
     /// What the page shows, as last prepared while open: the hand-built body paints it with
-    /// `MapMenu` on ([`prepare`]). Kept while the page goes down.
-    prepared: Option<View>,
+    /// `MapMenu` on ([`prepare`]), the tile page writes it. Kept while the page goes down.
+    prepared: Option<Prepared>,
+    /// The pointer moved the selection last (a key: not), and the keys' moves so far: for the tile
+    /// page's list, which brings a row a key picked into view ([`Prepared`]).
+    pointer_pick: bool,
+    navigated: u32,
+    /// Wheel notches over the list while the tile page showed it, for that page's own scroll
+    /// (`crate::tiles::map_menu`); the hand-built list's is `first`.
+    list_notches: f32,
     was_open: bool,
     last_tab: Option<usize>,
     /// The doors outdoors into each interior a quest target is in (`Game::doors_into`).
@@ -431,21 +438,21 @@ pub struct DataState {
 // ---- what is shown ------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Mark {
+pub(crate) enum Mark {
     None,
     Empty,
     Filled,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Row {
-    text: String,
-    mark: Mark,
-    done: bool,
+pub(crate) struct Row {
+    pub(crate) text: String,
+    pub(crate) mark: Mark,
+    pub(crate) done: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum Right {
+pub(crate) enum Right {
     None,
     Objectives { rows: Vec<Row>, first: f32 },
     Text { text: String, first: f32 },
@@ -457,9 +464,9 @@ enum Right {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Button {
-    hint: Hint,
-    kind: ButtonKind,
+pub(crate) struct Button {
+    pub(crate) hint: Hint,
+    pub(crate) kind: ButtonKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -481,7 +488,7 @@ impl MapMark {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct MapShown {
+pub(crate) struct MapShown {
     /// The map picture and where it lies in the window.
     picture: Option<(String, Rect)>,
     /// The Local Map's outline picture and where it lies in the window.
@@ -500,7 +507,7 @@ struct MapShown {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum Body {
+pub(crate) enum Body {
     Map(MapShown),
     List { rows: Vec<Row>, first: usize, boxed: Option<usize>, right: Right },
 }
@@ -508,12 +515,25 @@ enum Body {
 /// Everything the page shows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct View {
-    tab: usize,
-    place: String,
-    when: String,
-    buttons: Vec<Button>,
-    body: Body,
-    popup: Option<Popup>,
+    pub(crate) tab: usize,
+    pub(crate) place: String,
+    pub(crate) when: String,
+    pub(crate) buttons: Vec<Button>,
+    pub(crate) body: Body,
+    pub(crate) popup: Option<Popup>,
+}
+
+/// What the page shows as last prepared ([`step`]), with what the drawing from the file
+/// (`crate::tiles::map_menu`) needs besides: each list row's record (a quest's or note's FormID, a
+/// station's base, a challenge's place), the selected row, whether the pointer picked it and a count
+/// of the keys' moves (the tile list brings the row a key picked into view, not the pointer's).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Prepared {
+    pub(crate) view: View,
+    pub(crate) keys: Vec<u32>,
+    pub(crate) sel: usize,
+    pub(crate) pointer_pick: bool,
+    pub(crate) navigated: u32,
 }
 
 // ---- the system -------------------------------------------------------------------------
@@ -573,6 +593,7 @@ pub fn prepare(
     mut game: Game,
     mut input: Input,
     mut images: ResMut<Assets<Image>>,
+    tiles: Option<Res<crate::tiles::map_menu::MapTiles>>,
 ) {
     if !prepares_early(switch.as_deref()) {
         return;
@@ -584,7 +605,9 @@ pub fn prepare(
         return;
     };
     let open = (pip.open() && pip.page == Page::Data).then(|| pip.tab());
-    step(&mut state, open, screen.as_deref(), &mut game, &mut input, &mut images);
+    // The list the player saw last frame was the tile page's: the wheel over it is its scroll.
+    let tiles_list = tiles.is_some_and(|t| t.shown.is_some());
+    step(&mut state, open, screen.as_deref(), &mut game, &mut input, &mut images, tiles_list);
 }
 
 /// Whether the page is prepared by [`prepare`], before the frame: with `MapMenu` switched on.
@@ -619,11 +642,11 @@ pub fn draw(
     let view = if prepares_early(switch.as_deref()) {
         // Prepared before the frame, for the tab the body was made for.
         match (body, st.prepared.as_ref()) {
-            (Some((_, b)), Some(v)) if v.tab == b.tab => v.clone(),
+            (Some((_, b)), Some(p)) if p.view.tab == b.tab => p.view.clone(),
             _ => return,
         }
     } else {
-        match step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images) {
+        match step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, false) {
             Some(v) => v,
             None => return,
         }
@@ -640,8 +663,10 @@ pub fn draw(
 
 /// The page's preparation, a frame's: keep track of the quests and markers, and while the page is
 /// open on tab `open` take the player's input and gather what it shows ([`View`], kept in
-/// [`DataState::prepared`] and returned). Closed (`None`), what was open is let go.
-fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, game: &mut Game, input: &mut Input, images: &mut Assets<Image>) -> Option<View> {
+/// [`DataState::prepared`] and returned). Closed (`None`), what was open is let go. `tiles_list`:
+/// the tile page showed the list last frame, so the wheel over it is that page's scroll.
+#[allow(clippy::too_many_arguments)]
+fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, game: &mut Game, input: &mut Input, images: &mut Assets<Image>, tiles_list: bool) -> Option<View> {
     st.poll += input.time.delta_secs();
     if st.poll >= POLL {
         st.poll = 0.0;
@@ -671,7 +696,7 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     // With Controller chosen the controls answer the controller only (pad.rs): the mouse
     // pointer is ignored so it cannot take the highlight box back from the stick.
     let pointer = screen.and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
-    take_input(st, tab, &lists, game, input, pointer);
+    take_input(st, tab, &lists, game, input, pointer, tiles_list);
     if tab == NOTES && lists.challenges.is_none() {
         mark_read(st, &lists, game);
     } else {
@@ -690,13 +715,53 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
         info!("pipboy hints: data {}: {}", TAB_NAMES[view.tab.min(RADIO)], if line.is_empty() { "none" } else { &line });
     }
     st.last_view = Some(view.clone());
-    st.prepared = Some(view.clone());
+    let keys = match tab {
+        QUESTS => lists.quests.iter().map(|q| q.form).collect(),
+        NOTES if lists.challenges.is_some() => (0..list_len(tab, &lists) as u32).collect(),
+        NOTES => lists.notes.iter().map(|n| n.form).collect(),
+        RADIO => lists.stations.iter().map(|s| s.0).collect(),
+        _ => Vec::new(),
+    };
+    st.prepared = Some(Prepared { view: view.clone(), keys, sel: st.sel[tab], pointer_pick: st.pointer_pick, navigated: st.navigated });
     Some(view)
 }
 
 /// Note the order quests are listed in, the markers the player finds, and where the
 /// player was last outdoors.
 impl DataState {
+    /// What the page shows as last prepared, for the drawing from the file
+    /// (`crate::tiles::map_menu`).
+    pub(crate) fn prepared(&self) -> Option<&Prepared> {
+        self.prepared.as_ref()
+    }
+
+    /// What the player did on the page drawn from the file, taken by the next preparation as the
+    /// hand-built page's nodes' acts are (`crate::tiles::map_menu::feed`).
+    pub(crate) fn push_act(&mut self, a: Act) {
+        self.acts.push(a);
+    }
+
+    /// The wheel's notches over the list since the tile page last took them.
+    pub(crate) fn take_list_notches(&mut self) -> f32 {
+        std::mem::take(&mut self.list_notches)
+    }
+
+    /// What the page drawn from the file measured, as the hand-built drawing publishes it
+    /// ([`show`]): how many rows of tab `tab`'s list show whole, how far the right pane can
+    /// scroll and its window (the wheel's, canvas units). One presentation publishes these a frame.
+    pub(crate) fn publish_drawn(&mut self, tab: usize, fit: usize, text_max: f32, pane: Option<Rect>) {
+        if let Some(f) = self.fit.get_mut(tab) {
+            *f = fit;
+        }
+        self.text_max = text_max;
+        self.pane_rect = pane;
+    }
+
+    /// How far the right pane can scroll, as last published.
+    pub(crate) fn text_max(&self) -> f32 {
+        self.text_max
+    }
+
     /// A tab's selected row and whether Misc shows the challenges, for the scroll sound
     /// (`super::sounds`).
     pub fn selection(&self, tab: usize) -> (usize, bool) {
@@ -926,7 +991,7 @@ fn list_len(tab: usize, l: &Lists) -> usize {
 }
 
 /// Keys, the wheel, the test aid's steps and what the pointer did.
-fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input: &mut Input, pointer: Option<Vec2>) {
+fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input: &mut Input, pointer: Option<Vec2>, tiles_list: bool) {
     use KeyCode::*;
     if st.popup.is_some() {
         popup_input(st, input);
@@ -996,6 +1061,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         match tab {
             LOCAL | WORLD => st.magnify[tab] = (st.magnify[tab].max(ZOOM.0) * ZOOM_STEP.powf(notches)).clamp(ZOOM.0, ZOOM.1),
             NOTES | QUESTS if wheel_on_pane(tab, pointer, st.pane_rect) => pane.notches += notches,
+            // The tile page's list scrolls itself (`crate::tiles::map_menu`).
+            _ if tiles_list => st.list_notches += notches,
             _ => {
                 let fit = st.fit[tab].max(1);
                 st.first[tab] = (st.first[tab] as f32 - notches).round().clamp(0.0, len.saturating_sub(fit) as f32) as usize;
@@ -1029,6 +1096,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             Act::Hover(t, i) if t == tab && i < len => {
                 st.sel[tab] = i;
                 st.boxed = true;
+                st.pointer_pick = true;
             }
             Act::Leave(t, i) if t == tab && i == st.sel[tab] => st.boxed = false,
             Act::Use(t, i) if t == tab && i < len => {
@@ -1161,6 +1229,8 @@ fn step_rows(st: &mut DataState, tab: usize, moves: &[i32], len: usize) {
         if len > 0 {
             st.sel[tab] = model::step(st.sel[tab], by, len);
             st.boxed = true;
+            st.pointer_pick = false;
+            st.navigated = st.navigated.wrapping_add(1);
         }
     }
 }
@@ -2297,6 +2367,13 @@ fn bar_hits(p: &mut ChildSpawnerCommands, spots: Vec<(Rect, BarPart)>) {
     }
 }
 
+/// The right pane's units a unit of its scroll bar's marker drags, for objectives that can scroll
+/// `text_max` in their window: as [`objectives_pane`]'s bar ([`bar_run`]), for the page drawn from
+/// the file, whose bar the file sizes [design].
+pub(crate) fn objectives_drag_scale(text_max: f32) -> f32 {
+    (text_max.max(0.0) + OBJECTIVES_H) / bar_run(OBJECTIVES_H)
+}
+
 /// How far objectives `total` high can scroll in their window.
 fn objectives_max(total: f32) -> f32 {
     (total - OBJECTIVES_H).max(0.0)
@@ -2602,7 +2679,7 @@ mod tests {
         let st = w.resource::<DataState>();
         assert!(st.was_open, "opened");
         assert_eq!(st.last_tab, Some(QUESTS));
-        assert_eq!(st.prepared.as_ref().map(|v| v.tab), Some(QUESTS), "what Quests shows, gathered");
+        assert_eq!(st.prepared.as_ref().map(|p| p.view.tab), Some(QUESTS), "what Quests shows, gathered");
         // Another tab: the input is taken there (Misc's filter, as its X hint's click), unboxed.
         {
             let mut st = w.resource_mut::<DataState>();
@@ -2615,7 +2692,7 @@ mod tests {
         assert!(st.notes_of_active, "the act was taken with no body");
         assert!(st.acts.is_empty());
         assert!(!st.boxed, "a new tab starts unboxed");
-        assert_eq!((st.last_tab, st.prepared.as_ref().map(|v| v.tab)), (Some(NOTES), Some(NOTES)));
+        assert_eq!((st.last_tab, st.prepared.as_ref().map(|p| p.view.tab)), (Some(NOTES), Some(NOTES)));
         // The hand-built drawing paints only: no body, nothing prepared or drawn by it.
         w.resource_mut::<DataState>().was_open = false;
         w.run_system_once(draw).unwrap();
@@ -2628,7 +2705,7 @@ mod tests {
         w.run_system_once(prepare).unwrap();
         let st = w.resource::<DataState>();
         assert!(!st.was_open && st.note_shown.is_none());
-        assert_eq!(st.prepared.as_ref().map(|v| v.tab), Some(NOTES), "kept while the page goes down");
+        assert_eq!(st.prepared.as_ref().map(|p| p.view.tab), Some(NOTES), "kept while the page goes down");
         w.resource_mut::<DataState>().boxed = true;
         w.resource_mut::<PipBoy>().phase = super::super::Phase::Up;
         w.run_system_once(prepare).unwrap();
