@@ -484,6 +484,8 @@ unless the player binds them, so nothing changes until then.
 | Compass Fades on the Left | `bCompassFadeLeftSide` | `compass::left_fade` shades the marks left of the middle down to a fifth (ours); with it on the marks are drawn again each frame; quest marks stay whole |
 | Controller Dead Zones | `bDisableControllerDeadzones` | `pad::set_dead_zones` from `tweaks::sync`; `pad::stick` reads each stick's own; Bevy's own small dead zone still comes first |
 | Trigger Dead Zones | `bControllerTriggerDeadzones` | `tweaks::trigger_dead_zones` sets LT's and RT's press points in each controller's `GamepadSettings` (released at 85% of it, ours); for every use of the triggers, not only attack |
+| More Responsive Controller Aiming | `bMoreResponsiveControllerAiming` | `player::mouse_look`: the right stick's curve is straight from the dead zone's edge (ours) in place of the square |
+| Faster Controller Camera Circling | `bFasterControllerPOVRotate` | `player::mouse_look` doubles a controller's turn while Toggle POV circles the camera (the factor is ours) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -505,8 +507,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 406 |
-| to do | 197 |
+| done | 408 |
+| to do | 195 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -724,6 +726,7 @@ game's Data folder, read-only).
 | `bDelayPostCombatLevelUp` | done | yes |  | already so: the level-up menu waits for combat to end (after_combat) |
 | `bDelayPostCombatReputationPopup` | done | yes |  | already so: the reputation box waits for combat to end |
 | `bDeselectHotkeys` | done | yes |  | Unassign Hotkeys |
+| `bFasterControllerPOVRotate` | done | yes |  | Faster Controller Camera Circling (twice as fast, ours) |
 | `bFasterEnterLockpickMenu` | done | yes |  | already so: the lockpick menu opens at once |
 | `bFasterHackingTransition` | done | yes |  | Faster Hacking Exit (0.5 s instead of 2 s) |
 | `bFasterSaveMenuClose` | done | yes |  | already so: saving leaves the pause menu open, no wait |
@@ -799,7 +802,6 @@ game's Data folder, read-only).
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
 | `bBetterPickupPrompt` | to do | yes |  | the prompt shows one unit; needs the stack count and the encumbrance |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
-| `bFasterControllerPOVRotate` | to do | yes |  | player::mouse_look orbit speed for the controller |
 | `bReloadingWithNoAmmoSwapsAmmoTypes` | to do | yes |  | combat::fire is at the system parameter limit |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
 | `bSelectUnavailableRadios` | to do | yes |  | the Pip-Boy lists only stations in range |
@@ -1095,6 +1097,7 @@ game's Data folder, read-only).
 | `bCompressDuplicateConsoleMessages` | done | yes |  | Count Repeated Console Lines |
 | `bConsolePrintsIncludeTimestamp` | done | yes | 1 | Console Times (time since the game started; a wall-clock format would need a date crate) |
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
+| `bMoreResponsiveControllerAiming` | done | yes |  | More Responsive Controller Aiming (straight curve past the dead zone, ours) |
 | `bNoInteriorBlackLoadingScreen` | done | yes | 1 | already so: an interior's loading screen shows its picture, never a black one |
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
@@ -1145,7 +1148,6 @@ game's Data folder, read-only).
 | `bHeatbeatSoundsFade` | to do | yes | 2 | NVForever plays no heartbeat yet |
 | `bImprovedWeather` | to do | yes | 1 | the renderer does not know a fast travel happened |
 | `bModConsolePrintsIncludeName` | to do | yes | 1 | console print does not know which plugin printed |
-| `bMoreResponsiveControllerAiming` | to do | yes |  | the stick curve is x times |x| (player.rs); choose the new curve |
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
 | `bNoDespawnVisibleStuckProjectiles` | to do | yes |  | projectiles do not stick in NVForever yet |
 | `bNoPlayerNameLimit` | to do | yes |  | the name box is laid out for 24 characters; check its drawing first |

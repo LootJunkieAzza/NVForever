@@ -771,7 +771,11 @@ fn mouse_look(
     // mouse).
     let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller {
         let v = crate::pad::stick(&pads, false);
-        let curve = |x: f32| x * x.abs();
+        // The player's tweak: the turn grows straight with the push past the dead zone,
+        // not with its square, so a small push turns at once [design: docs/design/tweaks.md].
+        let linear = tweaks.as_ref().is_some_and(|t| t.responsive_stick);
+        let dz = crate::pad::dead_zone(false);
+        let curve = |x: f32| if linear { x.signum() * ((x.abs() - dz) / (1.0 - dz).max(0.01)).max(0.0) } else { x * x.abs() };
         // The Controls tab's Stick Sensitivity scales the stick's look speeds.
         let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale) * bindings.stick_sensitivity;
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
@@ -808,6 +812,9 @@ fn mouse_look(
         None => delta,
     };
     if control.orbit.held {
+        // The player's tweak: a controller turns the circling camera twice as fast [design: docs/design/tweaks.md].
+        let fast = bindings.device == crate::bindings::InputDevice::Controller && tweaks.as_ref().is_some_and(|t| t.faster_pad_orbit);
+        let delta = if fast { delta * 2.0 } else { delta };
         let o = &mut control.orbit;
         let (yaw, pitch) = look_with(o.yaw, o.pitch, delta, s, inv);
         // Keep the yaw in (−π, π] so the swing back takes the short way.

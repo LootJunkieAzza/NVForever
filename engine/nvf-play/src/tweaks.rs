@@ -310,6 +310,12 @@ pub struct TweakSettings {
     pub custom_trigger_dead_zones: bool,
     pub lt_dead_zone: f32,
     pub rt_dead_zone: f32,
+    /// `bMoreResponsiveControllerAiming`: the right stick turns in a straight line with
+    /// the push past the dead zone.
+    pub responsive_stick: bool,
+    /// `bFasterControllerPOVRotate`: a controller circles the camera (Toggle POV held)
+    /// twice as fast.
+    pub faster_pad_orbit: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -499,6 +505,8 @@ impl Default for TweakSettings {
             custom_trigger_dead_zones: false,
             lt_dead_zone: 0.75,
             rt_dead_zone: 0.75,
+            responsive_stick: false,
+            faster_pad_orbit: false,
         }
     }
 }
@@ -1325,6 +1333,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "custom-trigger-dead-zones", "Trigger Dead Zones", "LT and RT count as pressed at the points below instead of three quarters down. (Stewie's Tweaks bControllerTriggerDeadzones)", custom_trigger_dead_zones);
         part!(app, "lt-dead-zone", "Left Trigger Press Point", "How far LT goes down before it counts as pressed, with Trigger Dead Zones on. (Stewie's Tweaks iDeadzoneLT)", lt_dead_zone);
         part!(app, "rt-dead-zone", "Right Trigger Press Point", "How far RT goes down before it counts as pressed, with Trigger Dead Zones on. (Stewie's Tweaks iDeadzoneRT)", rt_dead_zone);
+        switch!(app, "responsive-stick", "More Responsive Controller Aiming", "The right stick's turn grows in a straight line with the push past its dead zone instead of with its square, so small pushes answer at once. (Stewie's Tweaks bMoreResponsiveControllerAiming)", responsive_stick);
+        switch!(app, "faster-pad-orbit", "Faster Controller Camera Circling", "With a controller, the camera circles the player twice as fast while Toggle POV is held. (Stewie's Tweaks bFasterControllerPOVRotate)", faster_pad_orbit);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
