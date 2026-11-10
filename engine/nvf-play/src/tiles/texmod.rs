@@ -364,6 +364,18 @@ struct Waiting {
 /// Reads a game file's bytes (`GameData::read`; tests pass their own).
 pub type Read<'a> = &'a dyn Fn(&str) -> Option<Vec<u8>>;
 
+/// How a mask is read, first load and reload alike: as the script's check found it
+/// (`fnv_game::mod_files::read_data_file`: NVForever's mods layer, then the game's Data
+/// and archives), the test aids' broken files applied as `GameData::read` applies them
+/// (`nvf_assets::data::test_broken`); `game` (the game's own files) while that reader is
+/// not set [design: #1833 review].
+pub fn mask_bytes(path: &str, game: Read<'_>) -> Option<Vec<u8>> {
+    match fnv_game::mod_files::read_data_file(path) {
+        Some(bytes) => nvf_assets::data::test_broken(path, bytes),
+        None => game(path),
+    }
+}
+
 /// The most texels the bake budget accrues: three largest images, the most one bake costs
 /// (its output and both of its textures decoded again; the compass strip's strip, its
 /// window and its source), so every bake can run once it has waited long enough
@@ -596,14 +608,17 @@ impl State {
         // texture cannot evict it and have it decoded again unpaid.
         let mask_path = plan.mask.as_deref().filter(|_| !is_strip);
         let mask_first = mask_path.is_some_and(|m| self.decoded.contains_key(m)) && !self.decoded.contains_key(&plan.path);
+        // A mask let go is read again as it was first read ([`mask_bytes`]).
+        let mask_read = read.map(|r| move |p: &str| mask_bytes(p, r));
+        let mask_read = mask_read.as_ref().map(|f| f as Read<'_>);
         let (src, mask) = match mask_path {
             Some(m) if mask_first => {
-                let mask = self.kept(m, read)?;
+                let mask = self.kept(m, mask_read)?;
                 (self.kept(&plan.path, read)?, Some(mask))
             }
             Some(m) => {
                 let src = self.kept(&plan.path, read)?;
-                (src, Some(self.kept(m, read)?))
+                (src, Some(self.kept(m, mask_read)?))
             }
             None => (self.kept(&plan.path, read)?, None),
         };
@@ -673,9 +688,7 @@ fn who(piece: &Piece, ui: Option<&Ui>) -> String {
 /// not be read (said once).
 fn read_mask(tex: &TexMod, who: &str, b: &mut Bake<'_>) -> Option<(String, Arc<Texels>)> {
     let path = alpha_map_path(tex.mask.as_deref()?);
-    // Read as the script's check found it (`fnv_game::mod_files`): NVForever's mods layer,
-    // then the game's Data and archives; the game's own files while that reader is not set.
-    match b.state.texels(&path, &|p| fnv_game::mod_files::read_data_file(p).or_else(|| b.data.read(p))) {
+    match b.state.texels(&path, &|p| mask_bytes(p, &|q| b.data.read(q))) {
         Ok(t) => Some((path, t)),
         Err(why) => {
             b.state.failed(&path, "alpha map", who, &why);
