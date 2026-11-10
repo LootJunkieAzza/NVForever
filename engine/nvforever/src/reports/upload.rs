@@ -21,6 +21,8 @@ pub const MAX_PER_START: usize = 5;
 pub const KEEP_SENT: usize = 20;
 /// Pending files older than this are dropped unsent (§8).
 pub const MAX_AGE: Duration = Duration::from_secs(14 * 86_400);
+/// How long after the start sending begins.
+pub const SEND_AFTER: Duration = Duration::from_secs(6);
 /// One request's limit (§8).
 #[cfg_attr(not(windows), allow(dead_code))] // used only by the Windows HTTP client
 pub const TIMEOUT: Duration = Duration::from_secs(10);
@@ -156,8 +158,9 @@ pub fn sampled_in(summary: &[u8], sampling: f64) -> bool {
 /// process, whose own summary is left alone.
 pub fn spawn(active: super::Active, pending: PathBuf, sent: PathBuf, pid: u32) {
     let _ = std::thread::Builder::new().name("nvf-reports".into()).spawn(move || {
-        // After the start's heavy work, so sending never competes with it.
-        std::thread::sleep(Duration::from_secs(20));
+        // After the start's heavy work, so sending never competes with it; short, as a run
+        // that only shows the main menu before a load is handed over lives a few seconds.
+        std::thread::sleep(SEND_AFTER);
         send_all(&active, &pending, &sent, pid);
     });
 }

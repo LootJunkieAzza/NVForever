@@ -63,7 +63,9 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 # certificates), not rustls, whose ring and webpki parts are ISC/CDLA, outside deny.toml.
 # ureq and native-tls MIT/Apache-2.0, schannel MIT.
 ureq = { version = "3", default-features = false, features = ["native-tls"] }
-rfd = { version = "0.15", default-features = false }
+# `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
+# reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
+rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 # The generated-terrain bake threads' priority (lodgen.rs) and the span profile's processor time
 # (profile.rs), the machine's RAM (memory_budget.rs) and the performance overlay's CPU/GPU use
 # and working set (perf_overlay/usage.rs: performance counters, process memory counters); a

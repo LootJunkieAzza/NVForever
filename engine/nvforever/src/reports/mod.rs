@@ -5,12 +5,15 @@
 //!   `NVForever.ini` (`fnv_install::reports`). A player's start that has no answer for the
 //!   current [`CONSENT_VERSION`] shows the popup once; the answer is stored at once. Off,
 //!   whatever the INI says, in a developer or smoke run (`--data` / `NVFOREVER_DATA`), a
-//!   run a test aid drives, a load handed over from an earlier run, and with
-//!   `NVF_REPORTS=0`. `NVF_REPORTS=1` turns it on without asking (tests; such a run sends
+//!   run a test aid drives, and with `NVF_REPORTS=0`. A run a load was handed over to
+//!   (handoff.rs: loading a save starts a new process) follows the stored answer and never
+//!   asks; it is where the player plays after a load, so it collects and sends like any. `NVF_REPORTS=1` turns it on without asking (tests; such a run sends
 //!   only to `NVF_REPORTS_ENDPOINT`, never to the project's server).
 //! - **The summary** (summary.rs, collected here): written to
 //!   `<home>\reports\pending\session-<UTC time>-<pid>.json` every [`WRITE_EVERY`] and at
 //!   exit, so a crash leaves the latest copy. Only while reports are on.
+//!   A run that never reached the world (the main menu only, then a load handed over) writes
+//!   no summary.
 //! - **Sending** (upload.rs): at the next start, on a thread of its own, each earlier
 //!   session is finished (how it ended, from the run log and crash report crash.rs left;
 //!   its run log gzipped beside it) and sent.
@@ -139,12 +142,9 @@ pub fn store_choice(home: &EngineHome, on: bool) -> Result<Reports, String> {
 }
 
 /// Why reports are off for a run that may not ask or send, if one of the reasons holds.
-fn forced_off(developer_data: bool, handoff: bool) -> Option<&'static str> {
+fn forced_off(developer_data: bool) -> Option<&'static str> {
     if std::env::var("NVF_REPORTS").is_ok_and(|v| v.trim() == "0") {
         return Some("NVF_REPORTS=0");
-    }
-    if handoff {
-        return Some("a load handed over from the run before");
     }
     if std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run)) {
         return Some("a test aid drives this run");
@@ -163,7 +163,7 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
     let test_on = std::env::var("NVF_REPORTS").is_ok_and(|v| v.trim() == "1");
     let endpoint_env = std::env::var("NVF_REPORTS_ENDPOINT").ok().filter(|v| !v.trim().is_empty());
     if !test_on {
-        if let Some(why) = forced_off(developer_data, handoff) {
+        if let Some(why) = forced_off(developer_data) {
             eprintln!("reports: off ({why})");
             return None;
         }
@@ -173,6 +173,10 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
         if r.send != Some(true) || r.install_id.is_none() {
             r = store_choice(&home, true).map_err(|e| eprintln!("reports: off, the choice could not be stored: {e}")).ok()?;
         }
+    } else if (r.send.is_none() || r.consent_version.unwrap_or(0) < CONSENT_VERSION) && handoff {
+        // The run that handed the load over asked (or could not); never ask mid-load.
+        eprintln!("reports: off (not asked in a run a load was handed over to)");
+        return None;
     } else if r.send.is_none() || r.consent_version.unwrap_or(0) < CONSENT_VERSION {
         let yes = ask();
         r = match store_choice(&home, yes) {
@@ -193,7 +197,7 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
         return None;
     };
     // A test run sends only where it is told to, never to the project's server.
-    let test_run = test_on && forced_off(developer_data, handoff).is_some();
+    let test_run = test_on && forced_off(developer_data).is_some();
     let endpoint = endpoint_env.clone().or(r.endpoint).unwrap_or_else(|| upload::DEFAULT_ENDPOINT.to_string());
     let may_send = !test_run || endpoint_env.is_some();
     eprintln!("reports: on, sending to {endpoint}{}", if may_send { "" } else { " (not in this test run: no NVF_REPORTS_ENDPOINT)" });
@@ -252,7 +256,7 @@ pub struct ReportsPlugin {
     pub plugins: Vec<String>,
     pub data: PathBuf,
     pub mo2: bool,
-    /// A load handed over from an earlier run: earlier sessions are left for the next start.
+    /// A load handed over from an earlier run (kept for the log; it collects and sends as any run).
     pub handoff: bool,
 }
 
@@ -295,7 +299,10 @@ impl Plugin for ReportsPlugin {
         let Some((pending, sent)) = folders() else { return };
         let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
         let _ = HIDDEN_FOLDERS.set(folders_to_hide(&self.data, exe_dir.as_deref()));
-        if !self.handoff && active.may_send {
+        if active.may_send {
+            if self.handoff {
+                info!("reports: a load handed over to this run; earlier sessions are sent from here");
+            }
             upload::spawn(active.clone(), pending.clone(), sent, std::process::id());
         } else if !active.may_send {
             info!("reports: sending skipped in this test run (no NVF_REPORTS_ENDPOINT)");
@@ -451,6 +458,13 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
     }
     let c = &mut *c;
     c.last_write = Instant::now();
+    // Never in the world (the main menu, then a load handed to a new run): nothing to say.
+    if c.summary.places.iter().all(|p| p.histogram.iter().sum::<u64>() == 0) {
+        if exiting {
+            info!("reports: no summary for this run (it never reached the world)");
+        }
+        return;
+    }
     c.summary.duration_s = c.started.elapsed().as_secs() / 60 * 60;
     c.summary.end = if exiting { End::Clean } else { End::Unknown };
     c.summary.worldspace_time_s = c.space_time.iter().map(|(k, v)| (k.clone(), *v as u64)).collect();
