@@ -18,6 +18,14 @@ pub trait NavAsk {
     /// and its flags (bits 0-3 the height in 16-unit steps, 4 left open, 5 right open, 6
     /// the edge slot) [documented: GetCoverPointsInRadius].
     fn cover(&self, at: [f32; 3], radius: f32) -> Vec<([f32; 3], u32)>;
+    /// The centre of a loaded navmesh triangle: the one whose area holds `at` seen from
+    /// above (`under`), else the nearest; `skip_disabled` leaves out disabled
+    /// triangles and `z_limit` those further than it up or down (JohnnyGuitar's
+    /// GetPointInNavMesh and GetNearestNavMeshTriangle, `crate::nvse_jg10`). None by
+    /// default: an answerer that does not know triangles.
+    fn triangle(&self, _at: [f32; 3], _under: bool, _skip_disabled: bool, _z_limit: Option<f32>) -> Option<[f32; 3]> {
+        None
+    }
 }
 
 thread_local! {
@@ -57,6 +65,11 @@ pub fn path(from: [f32; 3], to: [f32; 3]) -> Option<Vec<[f32; 3]>> {
 /// [`NavAsk::on_navmesh`]; false without an answerer.
 pub fn on_navmesh(at: [f32; 3], near: Option<u32>) -> bool {
     ask(|n| n.on_navmesh(at, near)).unwrap_or(false)
+}
+
+/// [`NavAsk::triangle`]; none without an answerer.
+pub fn triangle(at: [f32; 3], under: bool, skip_disabled: bool, z_limit: Option<f32>) -> Option<[f32; 3]> {
+    ask(|n| n.triangle(at, under, skip_disabled, z_limit)).flatten()
 }
 
 /// [`NavAsk::cover`]; none without an answerer.

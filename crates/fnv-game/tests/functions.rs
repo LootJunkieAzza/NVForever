@@ -2004,6 +2004,17 @@ fn ignored_parameters_are_honoured() {
     call(&mut g, 0x1022, Some(ACTI_REF), &[]);
     assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 1.0);
     call(&mut g, 0x1021, Some(ACTI_REF), &[n(0.0)]);
+    // A save during a hold: the reference is disabled on load (#1985); a save outside
+    // one writes nothing for it.
+    assert!(!serde_json::to_string(&g.snapshot()).unwrap().contains("fading_out"));
+    call(&mut g, 0x1022, Some(ACTI_REF), &[n(1.0)]);
+    let held = g.snapshot();
+    assert_eq!(held.fading_out, [acti].into());
+    assert!(held.sim.refs.get(&acti).is_none_or(|r| r.enabled()), "still enabled in the save itself");
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&held).unwrap()).unwrap();
+    let mut h = Game::restore(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default(), &back).unwrap();
+    assert_eq!(call(&mut h, 0x1023, Some(ACTI_REF), &[]), 1.0, "disabled after the load");
+    call(&mut g, 0x1021, Some(ACTI_REF), &[n(0.0)]);
 
     // EquipItem's NoUnequipFlag: the inventory cannot take it off; UnequipItem can, and
     // its NoEquipFlag keeps it off until EquipItem.

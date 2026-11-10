@@ -20,7 +20,11 @@
 //! same button there ([`menu_buttons`]), as the original's menu files assign them
 //! (`_xbox_button` on each button tile, e.g. `IM_DropButton` `&xbuttonx;`) [documented:
 //! the vanilla menu files, read with `fnvtool ui tree`]; a menu's own button wins over
-//! the shared ones (on the ITEMS page LB is Mod, not Page Up).
+//! the shared ones (on the ITEMS page LB is Mod, not Page Up). The pause menu's own: X
+//! Delete, LT F1 and RT Tab (the settings page's tab before and after), Y F6 (its rail);
+//! LB and RB stay Page Up and Page Down, its headings (`crate::pause`) [design: #1953].
+//! None while a control of the Controls tab waits for its new button
+//! (`crate::pause::Listening`).
 
 use bevy::prelude::*;
 
@@ -1032,14 +1036,16 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
         menus::INVENTORY => &[(North, KeyR), (LeftTrigger, KeyX), (LeftTrigger2, F1), (RightTrigger2, F3)],
         // stats_menu.xml: Stimpak A, Doctor's Bag Y, Rad-X X on the status tab; the
         // General/Reputation switch X on the General tab.
-        // The status tab's RAD view: RadAway A, Rad-X X (RadAway is not used from the
-        // page yet: its button does what its key does, nothing).
+        // [design] CND's existing West -> KeyX mapping cycles the chosen limb.
+        // The status tab's RAD view: RadAway A, Rad-X X.
         menus::STATS if at.tab == STATS_RAD => &[(South, KeyA), (West, KeyX), (LeftTrigger2, F3), (RightTrigger2, F2)],
         menus::STATS if at.tab == 0 => &[(South, KeyS), (North, KeyE), (West, KeyX), (LeftTrigger2, F3), (RightTrigger2, F2)],
         menus::STATS if at.tab == 4 => &[(West, KeyR), (LeftTrigger2, F3), (RightTrigger2, F2)],
         menus::STATS => &[(LeftTrigger2, F3), (RightTrigger2, F2)],
-        // map_menu.xml: the Challenges toggle Y (R on the Notes tab).
-        menus::MAP => &[(North, KeyR), (LeftTrigger2, F2), (RightTrigger2, F1)],
+        // map_menu.xml: the Challenges toggle Y (R on the Notes tab); each page's X button
+        // (Place Marker, Show Location, the notes' filter; `fnv_ui::strings` names them as
+        // the file's X button titles) presses X, the DATA page's key for it [design, #1897].
+        menus::MAP => &[(North, KeyR), (West, KeyX), (LeftTrigger2, F2), (RightTrigger2, F1)],
         // recipe_menu.xml: Accept X.
         fnv_game::crafting::RECIPE_MENU => &[(West, KeyA)],
         // repair_services_menu.xml: Repair All X.
@@ -1078,8 +1084,11 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
         // Fold X; between hands Next Hand A; Leave is B (the shared Esc), the D-pad's up
         // and down the raise [design, #1662].
         // The pause menu: X is Delete (a save on the Load page, a control's binding on
-        // the Controls tab), which no other button gives [design, #1662].
-        PAUSE_MENU => &[(West, Delete)],
+        // the Controls tab), which no other button gives [design, #1662]. On the settings
+        // page LB and RB (the shared Page Up and Page Down) go from heading to heading, LT
+        // and RT are F1 and Tab, the tab before and after, Y is F6, the keys onto the rail
+        // and back [design: #1953].
+        PAUSE_MENU => &[(West, Delete), (LeftTrigger2, F1), (RightTrigger2, Tab), (North, F6)],
         POKER_MENU if at.tab == POKER_BETWEEN_HANDS => &[(South, Space)],
         POKER_MENU => &[(South, KeyE), (RightTrigger2, KeyR), (North, KeyA), (West, KeyF)],
         _ => &[],
@@ -1095,12 +1104,12 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
 pub(crate) fn menu_keys(
     pads: Query<&Gamepad>,
     bindings: Option<Res<crate::bindings::Bindings>>,
-    (state, paused, page): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Page>>),
+    (state, paused, listening): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Listening>>),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mk: ResMut<MenuKeys>,
     (script, pages): (Option<Res<crate::script::ScriptState>>, MenuPages),
 ) {
-    let waiting = page.is_some_and(|p| matches!(*p, crate::pause::Page::Controls { listening: true, .. }));
+    let waiting = listening.is_some_and(|l| l.0.is_some());
     let on = bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) && !waiting;
     let in_menu = state.is_some_and(|s| *s.get() != crate::PlayState::Playing) || paused.as_ref().is_some_and(|p| p.0);
     let mut want: Vec<KeyCode> = Vec::new();
@@ -1373,6 +1382,22 @@ mod tests {
     }
 
     #[test]
+    fn the_pause_menus_shoulders_triggers_and_y_work_the_settings_page() {
+        use GamepadButton::*;
+        // LB and RB: the shared Page Up and Page Down (the headings); LT and RT the tab before
+        // and after; Y the rail; X still Delete.
+        assert_eq!(menu_key_at(LeftTrigger, PAUSE_AT), Some(KeyCode::PageUp));
+        assert_eq!(menu_key_at(RightTrigger, PAUSE_AT), Some(KeyCode::PageDown));
+        assert_eq!(menu_key_at(LeftTrigger2, PAUSE_AT), Some(KeyCode::F1));
+        assert_eq!(menu_key_at(RightTrigger2, PAUSE_AT), Some(KeyCode::Tab));
+        assert_eq!(menu_key_at(North, PAUSE_AT), Some(KeyCode::F6));
+        assert_eq!(menu_key_at(West, PAUSE_AT), Some(KeyCode::Delete));
+        // Other menus keep theirs: the triggers are Page Up and Page Down where a menu has none.
+        assert_eq!(menu_key_at(LeftTrigger2, MenuAt::default()), Some(KeyCode::PageUp));
+        assert_eq!(menu_key_at(RightTrigger2, at_menu(fnv_game::game::menus::BARTER)), Some(KeyCode::PageDown));
+    }
+
+    #[test]
     fn hints_name_the_key_or_the_button_that_presses_it() {
         use fnv_game::game::menus;
         use KeyCode::*;
@@ -1393,6 +1418,8 @@ mod tests {
             (caravan(CARAVAN_PLAY), &[KeyR], "R", "B"),
             (HELP_AT, &[KeyE, Escape], "E", "B"),
             (MenuAt { code: Some(menus::MAP), tab: 3 }, &[KeyR], "R", "Y"),
+            (at_menu(menus::MAP), &[KeyX], "X", "X"),
+            (at_menu(menus::MAP), &[Enter], "Enter", "A"),
             (at_menu(menus::INVENTORY), &[KeyX], "X", "LB"),
             (at_menu(menus::INVENTORY), &[KeyR], "R", "Y"),
             (at_menu(menus::INVENTORY), &[KeyE, Escape], "E", "B"),

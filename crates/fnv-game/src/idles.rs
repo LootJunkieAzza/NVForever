@@ -444,6 +444,12 @@ impl<'a> Game<'a> {
 
     /// The first leaf below `node` whose way down passes, and whether a node on that
     /// way (or `gated`, said of those above) gates `kind`.
+    /// PlayIdleEx's pick under a parent idle (`crate::nvse_jip14`): its first leaf whose
+    /// conditions, and its branches', pass.
+    pub(crate) fn first_idle_leaf(&mut self, actor: FormId, parent: FormId) -> Option<FormId> {
+        self.first_leaf(actor, parent, None, true, &|_| false).map(|(leaf, _)| leaf)
+    }
+
     fn first_leaf(&mut self, actor: FormId, node: FormId, kind: Option<FidgetKind>, gated: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
         let data = self.data;
         for &child in data.idle_children.get(&Some(node)).into_iter().flatten() {

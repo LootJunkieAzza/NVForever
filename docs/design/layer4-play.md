@@ -408,7 +408,11 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
   pause menu is Continue / Save / Load / Settings / Quit in the original's look
   (`start_menu.rs`, from `start_menu.xml`), Quit asks Main Menu / Exit Game / Cancel, and
   Settings groups the switches by category (Gameplay, World, Display, Graphics, Debug,
-  Saving) as ON/OFF rows; the entries are still NVForever's own switches.
+  Saving) as ON/OFF rows; the entries are still NVForever's own switches. Since #1953
+  (2026-11-09) the page shows the rows in seven tabs, Gameplay, Display, Audio,
+  Controls, Graphics, Tweaks and Debug, under headings, from a table that only says
+  where a row is drawn (`settings_layout.rs`; the registry, its groups and its order are
+  unchanged): [settings-page.md](settings-page.md).
   - A switch is an `nvf_play::settings::Setting`: a key, a label, a note, and a `get` and
     `set` over the state its module already uses (so there is no second copy to keep in
     step). The owning module registers it (`add_setting`): nvf-play its own in its

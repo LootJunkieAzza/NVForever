@@ -477,9 +477,11 @@ fn list(rt: &crate::script::Runtime, m: &mut MenuView, terminal: FormId, items: 
 
 fn log_menu(rt: &crate::script::Runtime, m: &MenuView) {
     let data = rt.game.data;
-    let Some(t) = data.terminals.get(&m.terminal) else { return };
+    if !data.terminals.contains_key(&m.terminal) {
+        return;
+    }
     let names: Vec<String> = m.labels.iter().map(|l| format!("{l:?}")).collect();
-    info!("terminal: menu of {} ({} of {} items listed): {}", data.name(m.terminal), m.items.len(), t.items.len(), names.join(", "));
+    info!("terminal: menu of {} ({} of {} items listed): {}", data.name(m.terminal), m.items.len(), rules::item_count(&rt.game, m.terminal), names.join(", "));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -732,6 +734,22 @@ fn apply(
     let mut sound = |event| {
         sounds.write(UiSound { menu: UiMenu::Terminal, event });
     };
+    // RefreshTerminalMenu (`fnv_game::nvse_jg9`): the open menu's list is read again; with
+    // no terminal open the request is dropped.
+    if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+        if std::mem::take(&mut rt.game.other.jg9.refresh_terminal) {
+            if let Some(s) = screen.0.as_mut() {
+                if let Page::Menu(m) = &mut s.page {
+                    let (reference, t) = (s.reference, m.terminal);
+                    let items = with_world(rt, &mut sim, |rt| rules::items(&mut rt.game, reference, t));
+                    list(rt, m, t, items);
+                    m.selected = m.selected.min(m.items.len().saturating_sub(1));
+                    info!("terminal: a script redraws the menu");
+                    log_menu(rt, m);
+                }
+            }
+        }
+    }
     for &cmd in input.read() {
         let Some(s) = screen.0.as_mut() else { return };
         let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };

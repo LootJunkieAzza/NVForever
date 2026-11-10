@@ -639,7 +639,7 @@ fn cell_models(lo: &LoadOrder, schema: &EsmSchema, refs: &[u32], hide: &[String]
             continue;
         }
         let Some(path) = base.world_model_path() else { continue };
-        if is_marker(&path) || hide.iter().any(|h| path.contains(h.as_str())) {
+        if script_marker(base.form_id).unwrap_or_else(|| is_marker(&path)) || hide.iter().any(|h| path.contains(h.as_str())) {
             continue;
         }
         if seen.insert((path.clone(), base.world_alt_textures.clone())) {
@@ -1205,7 +1205,7 @@ pub fn spawn_model(
     if hide.iter().any(|h| path.contains(h.as_str())) {
         return;
     }
-    if is_marker(&path) {
+    if script_marker(base.form_id).unwrap_or_else(|| is_marker(&path)) {
         stats.refs_skipped_type += 1;
         *stats.skipped_types.entry("marker".into()).or_default() += 1;
         return;
@@ -1289,9 +1289,13 @@ pub fn spawn_model(
             commands.entity(root).insert(crate::wrecks::WreckRig { form_id: r, path: path.clone(), nodes: nodes.clone() });
         }
         if !rig.groups.is_empty() {
-            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
+            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes.clone()));
             stats.refs_group_rigs += 1;
         }
+        // Its nodes by name, for what follows one (`nvf_play::RefNodes`, ui_attach.rs): the
+        // map spawn_nodes made, kept rather than dropped here (copied only when a GroupRig
+        // took it above, as before).
+        commands.entity(root).insert(nvf_play::RefNodes { reference: r, nodes });
         stats.shapes += drawn.len();
         stats.refs_drawn += 1;
         stats.refs_animated += 1;
@@ -1574,6 +1578,28 @@ fn spawn_error_marker(commands: &mut Commands, parent: Entity, r: u32, rt: Affin
 
 fn base_type_name(b: Option<&BaseObject>) -> String {
     b.map_or("none".into(), |b| String::from_utf8_lossy(&b.sig).into_owned())
+}
+
+/// The base forms SetInternalMarker changed (`fnv_game::nvse_jip12`): drawn (false) or
+/// not (true), for the references drawn from then on. Kept here, filled by
+/// [`script_markers`], because every drawing path reads [`spawn_model`]'s marker test.
+static SCRIPT_MARKERS: std::sync::RwLock<std::collections::BTreeMap<u32, bool>> = std::sync::RwLock::new(std::collections::BTreeMap::new());
+
+fn script_marker(base: u32) -> Option<bool> {
+    SCRIPT_MARKERS.read().ok()?.get(&base).copied()
+}
+
+/// Take the scripts' marker changes from the game when they change.
+pub fn script_markers(script: Option<Res<nvf_play::script::ScriptState>>) {
+    let Some(g) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    let changes = g.internal_marker_changes();
+    let same = SCRIPT_MARKERS.read().is_ok_and(|m| m.len() == changes.len() && m.iter().all(|(k, v)| changes.get(&fnv_sim::FormId(*k)) == Some(v)));
+    if !same {
+        if let Ok(mut m) = SCRIPT_MARKERS.write() {
+            *m = changes.iter().map(|(k, v)| (k.0, *v)).collect();
+            info!("render: {} base form(s) made markers or drawn by a script (SetInternalMarker)", m.len());
+        }
+    }
 }
 
 /// Editor-only marker meshes [hypothesis: the game hides them; models named marker*].
