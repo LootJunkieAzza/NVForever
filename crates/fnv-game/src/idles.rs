@@ -43,6 +43,9 @@ pub enum IdleSource {
     /// A creature standing alerted plays a combat idle from the idle tree (the gecko's
     /// hiss; [`FidgetKind::Alerted`]).
     CombatIdle,
+    /// A creature standing still and calm plays an idle from the idle tree (a
+    /// protectron's look about; [`FidgetKind::Calm`]).
+    CalmIdle,
     /// A talking or listening gesture picked from the idle tree
     /// ([`Game::talk_gesture`]).
     Gesture,
@@ -79,6 +82,13 @@ pub enum FidgetKind {
     /// IsMoving != 1 and GetIsAlerted 1 or the combat or flee procedure; MWarning,
     /// StBWarning) [observed: FalloutNV.esm; idles.md §14].
     Alerted,
+    /// A creature standing still and calm (not alerted, not on furniture): no node gates
+    /// it, the tree's own conditions decide [observed: HELIOS One's stasis protectrons,
+    /// calm on ProtectronNotActive, play the protectron tree's CommonIdle leaves
+    /// IdleSearch, IdleLookLeft and IdleLookRight, #1977 probe 2, 2026-11-10]. The
+    /// Idle-section leaves are the standing looks' ([`Game::standing_idle`]): the engine
+    /// holds them back.
+    Calm,
 }
 
 impl FidgetKind {
@@ -92,6 +102,7 @@ impl FidgetKind {
             FidgetKind::WeaponOut => requires(conds, IS_WEAPON_OUT, 1.0),
             FidgetKind::OnFurniture => requires(conds, GET_SITTING, 3.0) || requires(conds, GET_SLEEPING, 3.0),
             FidgetKind::Alerted => names(conds, GET_IS_ALERTED, 1.0),
+            FidgetKind::Calm => true,
         }
     }
 
@@ -100,6 +111,7 @@ impl FidgetKind {
             FidgetKind::WeaponOut => IdleSource::Fidget,
             FidgetKind::OnFurniture => IdleSource::FurnitureFidget,
             FidgetKind::Alerted => IdleSource::CombatIdle,
+            FidgetKind::Calm => IdleSource::CalmIdle,
         }
     }
 }
@@ -827,6 +839,20 @@ mod tests {
         assert!(!a.gated_by(&[c(IS_WEAPON_OUT - 0x1000, Cmp::Eq, 1.0, false)]));
         assert!(!FidgetKind::WeaponOut.gated_by(&[c(alerted, Cmp::Eq, 1.0, false)]));
         assert_eq!(a.source(), IdleSource::CombatIdle);
+    }
+
+    #[test]
+    fn a_calm_creature_walks_the_whole_tree_by_its_own_conditions() {
+        use crate::cond::{Cmp, Operand, RunOn};
+        let c = |function: u16, cmp: Cmp, v: f64| Condition { cmp, or: false, run_on: RunOn::Subject, function, params: Vec::new(), rhs: Operand::Value(v) };
+        let calm = FidgetKind::Calm;
+        // The protectron's CommonIdle (IsInCombat == 0) and its leaves (GetRandomPercent,
+        // IsMoving) are no gate any kind names: every branch is a calm creature's, and
+        // the conditions met on the walk decide [observed: #1977 probe 2].
+        assert!(calm.gated_by(&[c(0x121, Cmp::Eq, 0.0)]));
+        assert!(calm.gated_by(&[]));
+        assert!(!FidgetKind::Alerted.gated_by(&[c(0x121, Cmp::Eq, 0.0)]));
+        assert_eq!(calm.source(), IdleSource::CalmIdle);
     }
 
     #[test]

@@ -85,6 +85,14 @@
 //!   or is calm again; an attack stops it as it stops any idle (`attack_anims.rs`).
 //!   People keep their drawn-weapon fidgets [design].
 //!
+//! - **Calm creatures' idles** (#2051). A creature standing still and calm (not drawing
+//!   its weapon, not on furniture, not talking or cowering) is checked as often for an
+//!   idle from its tree, the tree's own conditions deciding (`FidgetKind::Calm`): the
+//!   protectron's CommonIdle (IsInCombat 0) gives IdleSearch, IdleLookLeft and
+//!   IdleLookRight by their random rolls [observed: HELIOS One's stasis protectrons,
+//!   #1977 probe 2]. Its Idle-section leaves are left to the standing looks. It ends
+//!   when the creature moves, is alerted or dies.
+//!
 //! - **Stimpaks** (`npc_stimpaks.rs`). An NPC's stimpak idle plays on its upper body
 //!   only, and over the fight's aim and attacks: it walks and runs while it injects.
 //!
@@ -461,6 +469,7 @@ pub struct Stats {
     pub player_fidgets: u32,
     /// Creatures' combat idles started (alerted, standing).
     pub combat_idles: u32,
+    pub calm_idles: u32,
     /// Fidgets on furniture started on actors and on the player.
     pub actor_furniture_fidgets: u32,
     pub player_furniture_fidgets: u32,
@@ -707,6 +716,10 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::CombatIdle && (moving || !game.draws_weapon(FormId(v.0)))) {
             c.play.stop();
         }
+        // A calm creature's idle ends when it moves, is alerted or dies [design].
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::CalmIdle && (moving || game.draws_weapon(FormId(v.0)) || game.is_dead(FormId(v.0)))) {
+            c.play.stop();
+        }
         // A fidget on furniture ends when its actor starts getting off: it fades out over
         // the start of the getting-off clip, which starts where the body sits
         // (furniture.md §4) [design].
@@ -921,7 +934,8 @@ pub fn drive(
             let kind = if game.furniture_use(FormId(v.0)).is_some() {
                 on_furniture(game, v.0).then_some(FidgetKind::OnFurniture)?
             } else if folder.split('\\').any(|p| p == "creatures") {
-                (still && game.draws_weapon(FormId(v.0))).then_some(FidgetKind::Alerted)?
+                // Alerted: the combat idles; calm: the tree's ordinary idles (#2051).
+                still.then_some(if game.draws_weapon(FormId(v.0)) { FidgetKind::Alerted } else { FidgetKind::Calm })?
             } else {
                 (still && weapon_out(game, v.0)).then_some(FidgetKind::WeaponOut)?
             };
@@ -945,8 +959,12 @@ pub fn drive(
         *check = FIDGET_CHECK_SECONDS;
         let (clock, last, data) = (st.clock, &st.fidget_last, game.data);
         // An idle is held back for its replay delay after it started [hypothesis: the
-        // DATA replay delay is in seconds].
+        // DATA replay delay is in seconds]. A calm creature's Idle-section leaves are its
+        // standing looks (below).
         let held_back = |idle: FormId| {
+            if kind == FidgetKind::Calm && data.idles.get(&idle).is_some_and(|d| d.section == 0) {
+                return true;
+            }
             let delay = data.idles.get(&idle).map_or(0.0, |d| d.replay_delay.max(0) as f32);
             delay > 0.0 && last.get(&(actor, idle.0)).is_some_and(|t| clock - t < delay)
         };
@@ -1123,7 +1141,7 @@ pub fn drive(
             let IdleRequest { actor, idle, source } = request;
             // Counted once, when asked for (not again after waiting for its clip).
             if since.is_none() {
-                if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
+                if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak) {
                     st.stats.asked += 1;
                 }
                 match source {
@@ -1131,7 +1149,7 @@ pub fn drive(
                     IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                     IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                     IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                    IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp | IdleSource::Standing | IdleSource::Panic => {}
+                    IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::CombatIdle | IdleSource::CalmIdle | IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak | IdleSource::PickUp | IdleSource::Standing | IdleSource::Panic => {}
                 }
             }
             let name = game.data.name(actor);
@@ -1229,6 +1247,7 @@ pub fn drive(
                 IdleSource::Fidget => st.stats.actor_fidgets += 1,
                 IdleSource::FurnitureFidget => st.stats.actor_furniture_fidgets += 1,
                 IdleSource::CombatIdle => st.stats.combat_idles += 1,
+                IdleSource::CalmIdle => st.stats.calm_idles += 1,
                 IdleSource::Gesture | IdleSource::Cower | IdleSource::Stimpak => {}
                 _ => st.stats.started += 1,
             }
@@ -1328,6 +1347,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
     );
     info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
     info!("creature combat idle summary: {} combat idles started on alerted creatures", s.combat_idles);
+    info!("creature calm idle summary: {} idles from the tree started on calm creatures standing still", s.calm_idles);
     info!(
         "idle clip summary: {} idles waited for their clip to be read on a worker thread (longest {:.0} ms); {} read in the frame they started after {} ms",
         s.clip_waits,
