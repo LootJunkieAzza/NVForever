@@ -447,6 +447,12 @@ pub struct DataState {
     press: Option<(Vec2, f32)>,
     /// The question box over the map: fast travel's (`travel`) or Place Marker's.
     popup: Option<Popup>,
+    /// The pointer on the page this frame, whatever the input device (the question box's
+    /// answers take the pointer's hover with either).
+    pointer_now: Option<Vec2>,
+    /// Where the pointer was when a key last moved the question box's choice; while it
+    /// stays there the answer under it does not take the choice back ([`choose`]).
+    popup_keyed: Option<Option<Vec2>>,
     /// The player's custom map marker as the game holds it (`Game::custom_map_marker`),
     /// taken each frame; the page's own while no game runs (tests).
     custom: Option<CustomMarker>,
@@ -655,6 +661,7 @@ pub fn draw(
         .as_ref()
         .and_then(|s| s.pointer)
         .filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
+    st.pointer_now = screen.as_ref().and_then(|s| s.pointer);
     take_input(st, tab, &lists, &mut game, &mut input, pointer);
     if tab == NOTES && lists.challenges.is_none() {
         mark_read(st, &lists, &mut game);
@@ -957,6 +964,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         popup_input(st, input, game);
         return;
     }
+    st.popup_keyed = None;
     if aid_place {
         match tab {
             LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
@@ -1295,11 +1303,12 @@ fn popup_input(st: &mut DataState, input: &mut Input, game: &mut Game) {
     let acts = std::mem::take(&mut st.acts);
     let Some(p) = st.popup.as_mut() else { return };
     let mut pick = None;
+    let mut steps = Vec::new();
     if input.keys.any_just_pressed([ArrowUp, KeyW]) {
-        p.step(-1);
+        steps.push(-1);
     }
     if input.keys.any_just_pressed([ArrowDown, KeyS]) {
-        p.step(1);
+        steps.push(1);
     }
     if input.keys.any_just_pressed([Enter, NumpadEnter, Space, KeyE]) {
         pick = Some(p.selected);
@@ -1310,17 +1319,22 @@ fn popup_input(st: &mut DataState, input: &mut Input, game: &mut Game) {
     if input.keys.just_pressed(KeyN) {
         pick = Some(p.buttons.len() - 1);
     }
+    let mut one = false;
     for m in input.menu.read() {
         match m.0 {
-            Command::Up => p.step(-1),
-            Command::Down => p.step(1),
-            Command::One => pick = Some(p.selected),
+            Command::Up => steps.push(-1),
+            Command::Down => steps.push(1),
+            Command::One => one = true,
             _ => {}
         }
     }
+    let hovers: Vec<usize> = acts.iter().filter_map(|a| if let Act::PopupOver(i) = a { Some(*i) } else { None }).collect();
+    choose(p, &mut st.popup_keyed, st.pointer_now, &steps, &hovers);
+    if one {
+        pick = Some(p.selected);
+    }
     for a in acts {
         match a {
-            Act::PopupOver(i) if i < p.buttons.len() => p.selected = i,
             Act::PopupPick(i) if i < p.buttons.len() => pick = Some(i),
             _ => {}
         }
@@ -1338,6 +1352,37 @@ fn popup_input(st: &mut DataState, input: &mut Input, game: &mut Game) {
             if let Some(m) = travel {
                 input.go.write(FastTravelGo(m));
             }
+        }
+    }
+}
+
+/// How far the pointer moves before the answer under it takes the question box's choice
+/// back from the keys (canvas units) [design].
+const KEYED_STILL: f32 = 2.0;
+
+/// Move the question box's choice: the keys' `steps` (Up −1, Down +1), then the answers
+/// the pointer came onto (`hovers`). The box is drawn anew whenever its choice moves, and
+/// the answer under a pointer at rest is entered again each time, so a hover takes the
+/// choice only once the pointer has moved since a key last moved it (`keyed`: where the
+/// pointer was then) [design: as the item lists hold the wheel's selection, `crate::menu`
+/// `WHEEL_HOLD_TRAVEL`]. Before this the keys' Down was taken back at once by the answer
+/// under a resting pointer (#1954's smoke run).
+fn choose(p: &mut Popup, keyed: &mut Option<Option<Vec2>>, pointer: Option<Vec2>, steps: &[i32], hovers: &[usize]) {
+    let still = |at: Option<Vec2>| match (at, pointer) {
+        (Some(a), Some(b)) => a.distance(b) <= KEYED_STILL,
+        (None, None) => true,
+        _ => false,
+    };
+    if keyed.is_some_and(|at| !still(at)) {
+        *keyed = None;
+    }
+    for &by in steps {
+        p.step(by);
+        *keyed = Some(pointer);
+    }
+    if keyed.is_none() {
+        for &i in hovers.iter().filter(|&&i| i < p.buttons.len()) {
+            p.selected = i;
         }
     }
 }
@@ -3317,6 +3362,34 @@ mod tests {
         assert_eq!(stick_zoom(1.0, 0.0, 1.0), 1.0);
         assert_eq!(stick_zoom(4.0, 1.0, 100.0), ZOOM.1);
         assert_eq!(stick_zoom(1.0, -1.0, 100.0), ZOOM.0);
+    }
+
+    /// The keys move the question box's choice although the pointer rests on an answer:
+    /// the answer it is on, entered again as the box is drawn anew, takes the choice back
+    /// only once the pointer moves (#1954: the smoke run's Down was undone at once).
+    #[test]
+    fn the_keys_choice_holds_under_a_resting_pointer() {
+        let mut p = Popup::marker(marker::MarkerAsk::Change(CustomMarker { space: 1, pos: [0.0; 3] }), "?".into(), vec!["a".into(), "b".into(), "c".into()]);
+        let mut keyed = None;
+        let rest = Some(Vec2::new(527.0, 350.0));
+        // The pointer comes onto the first answer: it is chosen.
+        choose(&mut p, &mut keyed, rest, &[], &[0]);
+        assert_eq!((p.selected, keyed), (0, None));
+        // Down twice; the redrawn box's first answer is entered again under the pointer.
+        choose(&mut p, &mut keyed, rest, &[1], &[]);
+        choose(&mut p, &mut keyed, rest, &[], &[0]);
+        choose(&mut p, &mut keyed, rest, &[1], &[0]);
+        assert_eq!(p.selected, 2);
+        // Within the slack the pointer still rests.
+        choose(&mut p, &mut keyed, Some(Vec2::new(528.0, 351.0)), &[], &[0]);
+        assert_eq!(p.selected, 2);
+        // Moved, the answer it comes onto takes the choice.
+        choose(&mut p, &mut keyed, Some(Vec2::new(527.0, 380.0)), &[], &[1]);
+        assert_eq!((p.selected, keyed), (1, None));
+        // With no pointer at all (a controller, the aid without `point=`) the keys move it.
+        let mut keyed = None;
+        choose(&mut p, &mut keyed, None, &[-1], &[]);
+        assert_eq!((p.selected, keyed), (0, Some(None)));
     }
 
     fn near(a: Vec2, b: Vec2) -> bool {

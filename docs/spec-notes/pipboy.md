@@ -1339,7 +1339,10 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     master, 2026-11-10], so an English install shows NVForever's own words, written for
     this box (`marker::Words`; LEGAL.md) [design]; a plugin that defines a setting wins.
     NVForever's box is the fast-travel question box (`travel::Popup`, its keys and
-    clicks: Up/Down, Enter, Y the first answer, N the last).
+    clicks: Up/Down, Enter, Y the first answer, N the last). An answer the pointer is on
+    takes the choice only once the pointer moves after a key moved it: the box is drawn
+    anew as its choice moves and the answer under a resting pointer was entered again,
+    which undid every Up/Down at once (both boxes; `data.rs::choose`) [design].
   - There is **one** custom marker, shared by both maps: placed or moved on the Local
     Map, the World Map shows it at the matching world position, and the other way
     round. It is the scripts' marker too: JohnnyGuitar's SetCustomMapMarker "functions
