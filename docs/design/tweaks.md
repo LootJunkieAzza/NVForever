@@ -476,6 +476,7 @@ unless the player binds them, so nothing changes until then.
 | Quick Load From the Menus | `bStartMenuQuickLoad` | `save::requests` takes the QuickLoad key in `PlayState::Menu` too (QuickSave stays play-only) |
 | Preview Perks on Level Up | `bPreviewPerksOnLevelUp` | `levelup::model::LevelUp::preview_perks`: with no perk due, Continue still leads to the perks page, its `PerkSheet::count` 0 |
 | Last Weapon key | `iEquipLastWeaponKey` | a new unbound Control; `tweaks::last_weapon` follows the equipped weapon each frame and equips the one before, put away |
+| Pick Locks Even With the Key | `bPickLocksEvenWithKey` | `fnv_sim::World::set_player_ignores_keys`, set by `activate::shift_talks` while Shift is held: `World::activate` leaves the key unused, so the lock is picked; locks only, not terminals; the prompt still says Unlock |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -497,8 +498,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 398 |
-| to do | 205 |
+| done | 399 |
+| to do | 204 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -775,6 +776,7 @@ game's Data folder, read-only).
 | `bNoReputationMessages` | done |  | 5 | Quiet Reputation (box and sound together; per-kind options not built) |
 | `bNoScreenshotPopup` | done |  | 3 | already so: NVForever shows no message after a screenshot |
 | `bPauseOnSaveLoad` | done |  |  | Pause On Load (a loaded save opens the pause menu) |
+| `bPickLocksEvenWithKey` | done |  | 1 | Pick Locks Even With the Key (Shift held; locks, not terminals; bInvert not done) |
 | `bPopupMenusDontMoveCursor` | done |  |  | already so: nothing moves the pointer |
 | `bPreventBushPassthroughSounds` | done |  |  | already so: walking through plants makes no sound |
 | `bQuestTextVisibleWhileAiming` | done |  |  | already so: aiming hides only the reticle |
@@ -810,7 +812,6 @@ game's Data folder, read-only).
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bNPCsDropWeaponHolsteredWeapon` | to do |  |  | combat::death_drops from the equipped weapon |
-| `bPickLocksEvenWithKey` | to do |  | 1 | activate::activate before activate_by_hand |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRemoveLandingAnim` | to do |  |  | fnv_actor jump::JumpState plays the landing clip |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |

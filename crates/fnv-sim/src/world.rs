@@ -509,6 +509,10 @@ pub struct World<'a> {
     /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
     /// flag and sets it here, [`World::set_power_armor_training`]).
     power_armor_training: bool,
+    /// The player's key is not used on a lock: the engine sets it while the player's
+    /// Pick Locks Even With Key tweak and Shift are on (NVForever's tweaks,
+    /// docs/design/tweaks.md); not saved.
+    player_ignores_keys: bool,
     /// Encounter zones entered and their levels (`crate::zones`).
     pub(crate) zone_levels: BTreeMap<FormId, u16>,
     /// SetZoneRespawns: zone → whether it respawns, over its "Never Resets" flag.
@@ -571,6 +575,7 @@ impl<'a> World<'a> {
             created_inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
             power_armor_training: false,
+            player_ignores_keys: false,
             zone_levels: BTreeMap::new(),
             zone_respawns: BTreeMap::new(),
             ref_levels: BTreeMap::new(),
@@ -617,6 +622,11 @@ impl<'a> World<'a> {
     /// Power Armor Training perk runs, observed].
     pub fn set_power_armor_training(&mut self, on: bool) {
         self.power_armor_training = on;
+    }
+
+    /// Whether the player's carried key is left unused on a lock ([`World::activate`]).
+    pub fn set_player_ignores_keys(&mut self, on: bool) {
+        self.player_ignores_keys = on;
     }
 
     pub fn power_armor_training(&self) -> bool {
@@ -2095,7 +2105,8 @@ impl<'a> World<'a> {
         let mut unlocked_with = None;
         if matches!(base.data, BaseData::Door(_) | BaseData::Container(_)) {
             if let Some(l) = t.lock.filter(|l| l.locked) {
-                match l.key.filter(|&k| self.inventory(actor).is_ok_and(|inv| inv.count(k) > 0)) {
+                let skip_key = actor == FormId::PLAYER_REF && self.player_ignores_keys;
+                match l.key.filter(|&k| !skip_key && self.inventory(actor).is_ok_and(|inv| inv.count(k) > 0)) {
                     Some(k) => {
                         self.unlock(target)?;
                         unlocked_with = Some(k);

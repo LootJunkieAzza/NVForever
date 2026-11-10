@@ -383,9 +383,12 @@ fn actor_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id:
 /// picking a pocket [design: docs/design/tweaks.md]. Set each frame by [`shift_talks`].
 static SHIFT_TALKS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
-    let on = tweaks.is_some_and(|t| t.shift_talks_sneaking) && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+fn shift_talks(keys: Res<ButtonInput<KeyCode>>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, mut sim: ResMut<SimState>) {
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let on = tweaks.as_ref().is_some_and(|t| t.shift_talks_sneaking) && shift;
     SHIFT_TALKS.store(on, std::sync::atomic::Ordering::Relaxed);
+    // The player's tweak: with Shift the lock is picked though the player has its key [design: docs/design/tweaks.md].
+    sim.world.set_player_ignores_keys(tweaks.is_some_and(|t| t.pick_locks_with_key) && shift);
 }
 
 fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
