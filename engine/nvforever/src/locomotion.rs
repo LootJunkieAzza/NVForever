@@ -1206,7 +1206,7 @@ type TurnTestActors = (Without<TurnTo>, Without<WalkTest>, Without<Dying>);
 pub fn turn_test(
     mut commands: Commands,
     mut test: ResMut<TurnTest>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     actors: Query<(Entity, &GlobalTransform, &Transform, &Locomotion), TurnTestActors>,
 ) {
     let Ok(cam) = camera.single() else { return };

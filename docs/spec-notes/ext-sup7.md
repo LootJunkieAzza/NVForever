@@ -92,7 +92,9 @@ if a mod needs a posed one]. pc is not read (the drawn model only).
   such variable (a number, a result script's local) is refused [hypothesis].
 - Read each fUpdateTimer seconds (bar trait 2, 0.1 s by default) [documented: "Value will be
   updated each instance of Bar update"], the first time in the frame the source was set
-  [hypothesis]. A value that is no number is not written [design].
+  [hypothesis]. A value that is no number is not written [design]. A bar hidden by
+  HudBarShowBar is not read [documented: HudBarShowBar, "Bar value calculations will stop
+  processing"]; the rest (catch-up, failing sources, conditions): hud-bars.md.
 - calcMax 1: the value against the bar's max as HudBarSetValueFloat [documented]; 0: "raw
   value will be passed", read as the meter's share 0.00-1.00 as HudBarSetValuePercentage,
   the value text showing the raw value [hypothesis].

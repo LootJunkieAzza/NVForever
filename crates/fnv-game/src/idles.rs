@@ -412,6 +412,42 @@ impl<'a> Game<'a> {
         None
     }
 
+    /// The powered-down pose of an actor that SetUnconscious holds standing (not one
+    /// knocked out, which lies down: `crate::unconscious`), or `None`: the first idle of
+    /// its own `folder`'s tree, in chain order, that names a file, tests GetUnconscious
+    /// and whose way down passes [observed: FalloutNV.esm has one such leaf per body,
+    /// `ProtectronTurnedOff` 0x0005B344 `MTSpecialIdle_Deactivate.kf`, `MrGutsyUnconscious`
+    /// 0x00060C89 `SpecialIdle_Deactivate.kf`, `SentryBotUnconscious`,
+    /// `RobobrainUnconscious` and more, each with the one condition GetUnconscious == 1;
+    /// the protectron and Gutsy clips hold the switched-off pose between their StartLoop
+    /// and EndLoop keys. Owner 2026-11-09, with a still of the original: HELIOS One's
+    /// stasis protectrons and PYTHON stand arms down until switched on; documented: GECK
+    /// wiki SetUnconscious, unconscious actors "will not use AI behavior"]. Played as the
+    /// standing look ([`Game::standing_idle`]), looping until SetUnconscious 0 ends it.
+    pub fn unconscious_idle(&mut self, actor: FormId, folder: &str) -> Option<FormId> {
+        if !self.extra.get(&actor).is_some_and(|e| e.unconscious && e.knocked_out.is_none() && !e.dead) {
+            return None;
+        }
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
+        let off = |id: FormId| data.idles.get(&id).is_some_and(|d| d.has_file() && d.conditions.as_deref().is_some_and(|c| c.iter().any(|c| c.function == GET_UNCONSCIOUS)));
+        let roots: Vec<FormId> = data.idle_children.get(&None).into_iter().flatten().copied().filter(own).collect();
+        for root in roots {
+            let branch = data.idle_children.contains_key(&Some(root));
+            if (!branch && !off(root)) || !self.idle_allowed(actor, root) {
+                continue;
+            }
+            if !branch {
+                return Some(root);
+            }
+            if let Some((leaf, _)) = self.first_leaf(actor, root, None, true, &|i| !off(i)) {
+                return Some(leaf);
+            }
+        }
+        None
+    }
+
     /// The standing look of creature `actor` from the idle tree, or `None`: the roots of
     /// the actor's own `folder` in chain order, as for [`Game::pick_idle`], counting only
     /// idles of the Idle section (DATA section 0, the `DynamicIdle_…` files) that are not
@@ -431,6 +467,9 @@ impl<'a> Game<'a> {
     /// engine plays the pick looping and asks again now and then, so a change of state
     /// changes the look (#1542).
     pub fn standing_idle(&mut self, actor: FormId, folder: &str) -> Option<FormId> {
+        if let Some(off) = self.unconscious_idle(actor, folder) {
+            return Some(off);
+        }
         let data = self.data;
         let folder = folder.to_ascii_lowercase();
         let look = |id: FormId| data.idles.get(&id).is_some_and(|d| d.section == 0 && !d.loose && d.has_file());
@@ -627,6 +666,10 @@ pub fn talk_node(data: &crate::data::GameData, idle: FormId) -> bool {
 }
 
 const GET_CURRENT_AI_PROCEDURE: u16 = 0x108F;
+
+/// GetUnconscious's condition function index [documented: schemas/script/
+/// command_opcodes.json, GetUnconscious 4338 = 0x1000 + 242].
+const GET_UNCONSCIOUS: u16 = 242;
 const IS_TALKING: u16 = 0x108D;
 const MENU_MODE: u16 = 0x1024;
 

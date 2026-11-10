@@ -117,6 +117,7 @@ mod player_body;
 mod stealth_field;
 mod stray_commands;
 mod post;
+mod quality;
 mod particles;
 mod shot_fx;
 mod ragdoll;
@@ -1460,6 +1461,7 @@ fn main() -> AppExit {
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, sky::tell_sky_colors.after(sky::update_sky))
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, world::note_other_cameras.after(world::stream))
     .add_systems(Update, (cell_buffer::remember, cell_buffer::tell_game).chain().after(world::stream))
     .add_systems(Update, world::script_markers.before(world::stream))
     .add_systems(Update, world::draw_waiting_actors.after(world::stream))
