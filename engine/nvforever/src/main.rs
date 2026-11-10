@@ -117,6 +117,7 @@ mod player_body;
 mod stealth_field;
 mod stray_commands;
 mod post;
+mod quality;
 mod particles;
 mod shot_fx;
 mod ragdoll;
