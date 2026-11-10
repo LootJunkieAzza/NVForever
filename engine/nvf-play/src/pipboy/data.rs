@@ -182,9 +182,48 @@ const QUEST_ASPECT: f32 = 1.25;
 const QUEST_NUDGE: Vec2 = Vec2::new(15.0, 5.0);
 /// The pointer takes the highlight box to a marker this near [hypothesis].
 const SNAP: f32 = 40.0;
-/// A press and release on the World Map is a click (it asks to travel) while the pointer
-/// moved at most this far between them [design].
+/// A press and release on the World Map is a click (it asks to travel) while the mouse
+/// moved at most this far between them, in the window's pixels [design].
 const CLICK_SLOP: f32 = 6.0;
+
+/// The left button down on a map: where the mouse was in the window, how far it has gone
+/// since (window pixels), and the marker under the highlight box then.
+///
+/// The mouse is measured in the window, not on the Pip-Boy's screen: on the model the
+/// pointer is where the window's pointer meets the arm's posed screen
+/// (nvforever `pipboy_arm::follow_pointer`), and with the world running on (co-op's live
+/// Pip-Boy, `crate::menu::LiveMenu`) the arm and the view move under a still mouse. The
+/// owner's clicks on a co-op player's head then asked nothing; Enter in the box worked
+/// (overnight queue item 144; the owner's log of 2026-11-10 01:07:28-01:07:51 has the
+/// highlight leave and come back to the head every quarter second with the mouse on it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Press {
+    window: Option<Vec2>,
+    moved: f32,
+    marker: Option<u32>,
+}
+
+impl Press {
+    fn new(window: Option<Vec2>, marker: Option<u32>) -> Press {
+        Press { window, moved: 0.0, marker }
+    }
+
+    /// The mouse is at `window` now.
+    fn follow(&mut self, window: Option<Vec2>) {
+        if let (Some(from), Some(p)) = (self.window, window) {
+            self.moved = self.moved.max(p.distance(from));
+        }
+    }
+
+    /// The marker a release asks to travel to: the one under the highlight box now, else
+    /// the one under it at the press (the screen moved it off); none after a drag.
+    fn clicked(&self, now: Option<u32>) -> Option<u32> {
+        if self.moved > CLICK_SLOP {
+            return None;
+        }
+        now.or(self.marker)
+    }
+}
 /// The fast-travel question box (fast-travel.md §3) [design: by the owner's screenshot]:
 /// its width, the room round its text, its text's wrap, the room under an answer's text
 /// and the answer's frame round the widest answer (the message box's 42, message-menu.md
@@ -344,9 +383,8 @@ pub struct DataState {
     world_logged: Option<(usize, usize)>,
     /// The World Map's marker under the highlight box, when last drawn.
     cursor_marker: Option<u32>,
-    /// Where the left button went down on the World Map, and how far the pointer has
-    /// moved since (a click asks to travel, a drag does not).
-    press: Option<(Vec2, f32)>,
+    /// The left button down on a map (a click asks to travel, a drag does not).
+    press: Option<Press>,
     /// The fast-travel question box over the World Map (`travel`).
     popup: Option<Popup>,
     /// The Map Icon box over a map, while it is up.
@@ -490,6 +528,8 @@ pub struct Input<'w, 's> {
     pip_out: MessageWriter<'w, PipBoyInput>,
     time: Res<'w, Time<Real>>,
     buttons: Res<'w, ButtonInput<MouseButton>>,
+    /// The mouse in the window, for the map's click test ([`Press`]).
+    windows: Query<'w, 's, &'static Window, With<bevy::window::PrimaryWindow>>,
     aid: ResMut<'w, PipBoyAid>,
     ask: MessageWriter<'w, FastTravelAsk>,
     go: MessageWriter<'w, FastTravelGo>,
@@ -907,16 +947,15 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     // A click on the World Map (the left button let go where it went down) on a marker
     // asks to travel there (`travel`).
     if tab == WORLD || tab == LOCAL {
+        let window = input.windows.single().ok().and_then(Window::cursor_position);
         if input.buttons.just_pressed(MouseButton::Left) {
-            st.press = in_map(pointer).and(pointer).map(|p| (p, 0.0));
-        } else if let (Some((from, moved)), Some(p)) = (st.press.as_mut(), pointer) {
-            *moved = moved.max(p.distance(*from));
+            st.press = in_map(pointer).map(|_| Press::new(window, st.cursor_marker));
+        } else if let Some(p) = st.press.as_mut() {
+            p.follow(window);
         }
         if input.buttons.just_released(MouseButton::Left) {
-            if let (Some((_, moved)), Some(m)) = (st.press.take(), st.cursor_marker) {
-                if moved <= CLICK_SLOP {
-                    input.ask.write(FastTravelAsk(m));
-                }
+            if let Some(m) = st.press.take().and_then(|p| p.clicked(st.cursor_marker)) {
+                input.ask.write(FastTravelAsk(m));
             }
         }
     } else {
@@ -2245,6 +2284,29 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A click on a map is judged by the mouse in the window: the screen moving under a
+    /// still mouse (co-op's live Pip-Boy) neither spoils it nor loses the marker pressed
+    /// on; a drag asks nothing (overnight queue item 144).
+    #[test]
+    fn a_map_click_follows_the_mouse_not_the_moving_screen() {
+        let head = 0xFE00_C000;
+        // A still mouse: the marker under the box now, or at the press if it slipped off.
+        let mut p = Press::new(Some(Vec2::new(500.0, 300.0)), Some(head));
+        p.follow(Some(Vec2::new(501.0, 300.0)));
+        assert_eq!(p.clicked(Some(head)), Some(head));
+        assert_eq!(p.clicked(None), Some(head));
+        assert_eq!(p.clicked(Some(7)), Some(7));
+        // Pressed beside every marker and let go on none: nothing.
+        assert_eq!(Press::new(Some(Vec2::ZERO), None).clicked(None), None);
+        // A drag: nothing, whatever is under the box.
+        let mut d = Press::new(Some(Vec2::new(500.0, 300.0)), Some(head));
+        d.follow(Some(Vec2::new(540.0, 300.0)));
+        d.follow(Some(Vec2::new(500.0, 300.0)));
+        assert_eq!(d.clicked(Some(head)), None);
+        // No window pointer (a test aid's button press): a click.
+        assert_eq!(Press::new(None, Some(head)).clicked(None), Some(head));
+    }
 
     #[test]
     fn silence_draws_the_flat_line() {
