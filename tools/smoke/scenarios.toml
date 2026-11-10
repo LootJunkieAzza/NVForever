@@ -24062,3 +24062,17 @@ expect = [
   { re = 'alarms VHeliosStasisProtectron\dREF', max = 0, label = "but none of the stasis protectrons on ProtectronNotActive" },
   { re = 'entered trigger 0x0009A1E8', max = 0, label = "and nobody walks through the tripwire's beam (p2 did, 19 s in, before)" },
 ]
+
+[[scenario]]
+name = "helios-python-switched-off"
+source = "#1977 (owner 2026-11-09): PYTHON, the Mister Gutsy on HELIOS One's deck fixed with a Science check, stands switched off until fixed. Its OnLoad runs SetUnconscious 1; an unconscious standing actor now plays its idle tree's GetUnconscious idle (MrGutsyUnconscious 0x00060C89), held between its loop keys (crates/fnv-game/src/idles.rs unconscious_idle)"
+note = "HELIOSOneDeck: VMS03PythonREF (0x000E3621) beside the player; nothing else in the cell plays an idle"
+areas = ["idles", "creatures"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/unconscious.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneDeck", "--play", "--no-voice", "--no-messages", "--pos=600,3337,8190"]
+run_seconds = 25
+expect = [
+  { re = 'idle: VMS03PythonREF plays MrGutsyUnconscious .*looping until replaced.*\(Standing\)', label = "PYTHON holds its switched-off pose (it stood in the normal idle before)" },
+  { re = 'npc combat: VMS03PythonREF', max = 0, label = "and does not fight" },
+]
