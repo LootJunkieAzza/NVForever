@@ -128,6 +128,21 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   `ShellCasingNode` to the gun that fires (`order_1` the right one, with `##nmBar`,
   `order_2` the left, with `##nmBar1`) [observed: the node names in the files], and shots
   leave from that node, so each shot leaves the gun its clip fires.
+- **`noBlend`** (a kNVSE text key): NVForever starts a clip that has it at once instead
+  of fading it in [hypothesis: from the key's name only; kNVSE's list of its text keys
+  is on the GECK wiki, which could not be read]. The key has a time: 0.15 s in
+  `…_order_1.kf`, 0.05 s in `…_order_2.kf`, so its meaning may be narrower [observed].
+  The clips' `Hit` key is at 0.017 s, one frame in; their `ProjectileNode` sits on the
+  firing gun from 0 to 0.1 s, then moves to the other gun for the next shot [observed:
+  the tracks sampled with NVForever's clip reader]. A 0.03 s fade-in left part of the
+  node at its rest place (the right gun) when the shot left.
+- **The shot's frame**: a shot that waits for a `Hit` key never leaves in the frame of its
+  pull, even when that frame is longer than the wait (`fnv_combat::attack`): the clip
+  starts at the pull and the shot is drawn from its pose a frame later [design]. Before,
+  at about 60 frames a second, some shots left in the pull's frame from the last clip's
+  fading pose: 9 of 15 left-gun shots left part way to the right gun [observed:
+  NVForever run of 2026-11-10].
+- `respectEndKey`, also on those clips (0.25 s and 0.35 s), is not read.
 
 ## 4. Not built (follow-ups)
 

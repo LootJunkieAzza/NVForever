@@ -718,7 +718,7 @@ impl Rig {
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
-            Some(c) if from_override => info!("player {:?} rig: {key:?} plays override {}", self.view, c.path),
+            Some(c) if from_override => info!("player {:?} rig: {key:?} plays override {} ({:.3} s, shot at {:?})", self.view, c.path, c.clip.length(), c.keys.hit),
             Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Grip(..)) => info!("player {:?} rig: hand grip {}", self.view, c.path),
             Some(c) if matches!(key, ClipKey::Move(..) | ClipKey::PipBoy(_) | ClipKey::PipBoyCheck(_)) => info!("player {:?} rig: {key:?} plays {}", self.view, c.path),
@@ -1781,7 +1781,9 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             if !going {
                 // At the attack's rate: the weapon's multipliers and the Modify Attack Speed
                 // perks, as combat times the shot.
-                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                // A `noBlend` clip starts at once (`ClipKeys::no_blend`).
+                let fade = if c.keys.no_blend { 0.0 } else { ATTACK_FADE };
+                let l = rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, fade);
                 rig.animator.layers[l].rate = f.attack_rate;
                 // Its weapon parts over the stance clip's (`Layer::parts_over`), as a reload's.
                 rig.animator.layers[l].parts_over = true;
@@ -1792,7 +1794,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                     let tag = TAG_ATTACK + i as u32;
                     rig.animator.cut(tag);
                     if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
-                        let l = rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                        let l = rig.animator.restart(&v.clip, tag, w, Mode::Once, fade);
                         rig.animator.layers[l].rate = f.attack_rate;
                         rig.animator.layers[l].parts_over = true;
                     }
@@ -2346,7 +2348,8 @@ fn clip_stem(file: &str) -> String {
 /// left out [hypothesis: played while hurt; not done]. Paths are under meshes.
 fn override_stems(paths: &[String]) -> HashMap<String, Vec<String>> {
     // By stem: the folder, and its files (order number, path, a plain name).
-    let mut out: HashMap<String, (String, Vec<(u32, String, bool)>)> = HashMap::new();
+    type Files = (String, Vec<(u32, String, bool)>);
+    let mut out: HashMap<String, Files> = HashMap::new();
     for p in paths {
         let p = p.replace('/', "\\");
         let name = p.rsplit('\\').next().unwrap_or("").to_ascii_lowercase();
