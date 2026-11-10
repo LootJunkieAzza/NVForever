@@ -4615,9 +4615,26 @@ fn fly(
                 p.part = None;
             }
         }
-        // A harmless shot is seen and heard where it lands, and does nothing more.
+        // A harmless shot (a weapon use's Do No Damage) is seen and heard where it lands
+        // and does no damage, but an actor it strikes still runs its OnHit and OnHitWith
+        // blocks, with the shooter as the attacker [observed: FalloutNV.esm, the sniper's
+        // VHDLegionAssassinKillKimballPackage (PACK 0x00133EBB) is Always Hit and Do No
+        // Damage, and President Kimball dies only by his script's `OnHit` block for that
+        // sniper (VHDKimballScript, SCPT 0x0013259F), which kills him with KillActor; the
+        // assassination never happened while the hit ran no block (overnight item 171,
+        // laptop run q171-hd-kimball-visit-7)]. No damage, no reaction, no explosion
+        // [hypothesis]. A co-op guest leaves NPCs' hits to the host, as for a hit that
+        // does damage (`hit_actor`).
         if p.by.harmless {
             stats.harmless_hits += 1;
+            if let Some(a) = p.actor.filter(|_| stats.relay.is_none()) {
+                let target = if a == PLAYER { FormId::PLAYER_REF } else { FormId(a as u32) };
+                let info = HitInfo { attacker: Some(shooter), weapon: Some(id), location: 0, critical: false, limb: None };
+                let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(target, info)));
+                if ran {
+                    info!("combat: {shooter}'s harmless shot hits {target}: its hit blocks ran, no damage");
+                }
+            }
             continue;
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();

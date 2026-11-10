@@ -65,7 +65,14 @@ not done; a package's not while the actor is in combat):
   iState 5) waited for his death for ever [design; follow-up to overnight item 26,
   2026-11-07; smoke `zion-ambush`].
 - **Do No Damage**: `ActorFire::harmless` → `By::harmless`: the projectile flies, strikes,
-  shows its impact and plays its sound, but no damage, no hit events and no explosion.
+  shows its impact and plays its sound, but no damage and no explosion. An actor it
+  strikes still runs its OnHit and OnHitWith blocks, the shooter as the attacker
+  (`Game::hit_object`) [observed: FalloutNV.esm, the Hoover Dam sniper's
+  VHDLegionAssassinKillKimballPackage (PACK 0x00133EBB) is Always Hit and Do No Damage, and
+  President Kimball dies only by his script's `OnHit` block for that sniper (VHDKimballScript,
+  SCPT 0x0013259F, KillActor); until 2026-11-10 a harmless hit ran no block and the
+  assassination never happened (overnight item 171)]. The target does not react to it
+  otherwise [hypothesis]. On a co-op guest NPCs' hits stay the host's.
 - **Crouch To Reload**: `WeaponUse::crouched` while the cycle reloads; `Game::sneaks` reads it.
 - **The end**: all shots fired, or the target dead or gone: `Game::end_weapon_use` removes a
   script's use (the AI sends the actor back to its package) or meets a package's goal (its
