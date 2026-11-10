@@ -9708,7 +9708,7 @@ order = [[
 [[scenario]]
 name = "settings-scroll-headings"
 source = "#1953: the mouse wheel moves the window of a tab with headings (Gameplay) as of one without, the chosen row brought into the window (the top row once the chosen one leaves it) and the window not pulled back to the chosen row's heading; a notch up moves it back one line"
-note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, reload-slows, UsePipBoy, [Saving], the five autosave rows; the window is nine lines"
+note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, vats-style, vats-slowdown, reload-slows, UsePipBoy, [Saving], the autosave rows; the window is nine lines"
 areas = ["settings"]
 paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:inspect,14:wheel-up,15:inspect" }
@@ -11253,11 +11253,15 @@ order = [[
   { re = 'vats mode: marked .* mark 2; 52 AP reserved', label = "the second reserves 52 AP" },
   "vats mode: firing 2 marked shots",
   { re = 'vats mode: classic: while the attacks play the player takes 75% of a hit', label = "the playback damage share is on" },
+  { re = 'vats camera: attack 1 on .*, Shoot: path \w+ \(0x[0-9A-F]{8}\), shots ', label = "the first attack's camera is chosen from the game's camera paths before it leaves" },
+  { re = 'vats mode: shot 1 of 2 at .*, 26 AP spent', label = "the first shot leaves after its camera" },
+  { re = 'vats camera: attack 2 on .*, Shoot: path ', label = "the second attack's camera" },
   { re = 'vats mode: shot 2 of 2 at .*, 26 AP spent', label = "both shots are fired" },
   { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "the mode ends after both shots" },
 ]]
 expect = [
   { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent', label = "the summary: two queued, two fired, 52 AP" },
+  { text = "vats camera summary: 2 attack cameras shown", label = "an attack camera for each queued attack" },
   { re = 'vats: style Classic \(NVF_PLAY_TEST_VATS_STYLE\)', label = "the style comes from the test aid" },
 ]
 

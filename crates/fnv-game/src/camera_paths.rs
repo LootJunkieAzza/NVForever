@@ -313,6 +313,13 @@ pub fn hit_shots(path: &CameraPathDef, shots: &HashMap<FormId, CameraShotDef>) -
     }
 }
 
+/// The shots of a path's list that `action` starts, in order: what the classic VATS
+/// style plays as an attack begins (Shoot) and as it lands (Hit)
+/// (docs/design/vats-classic.md §8) [documented: GECK wiki CameraShot, "Camera Action"].
+pub fn action_shots(path: &CameraPathDef, shots: &HashMap<FormId, CameraShotDef>, action: ShotAction) -> Vec<FormId> {
+    path.shots.iter().copied().filter(|s| shots.get(s).is_some_and(|d| d.action == action)).collect()
+}
+
 fn zstring(b: &[u8]) -> String {
     // In this run's code page (fnv_util::text, #1439).
     fnv_util::text::decode_z(b)
@@ -404,5 +411,17 @@ mod tests {
         let p = CameraPathDef { shots: vec![FormId(1), FormId(2), FormId(77)], ..Default::default() };
         assert_eq!(hit_shots(&p, &shots), vec![FormId(2)]);
         assert!(hit_shots(&CameraPathDef::default(), &shots).is_empty());
+    }
+
+    #[test]
+    fn an_attacks_cameras_go_by_what_starts_them() {
+        let def = |a| CameraShotDef::from_raw(&[shot(a)], &|l| Some(l)).unwrap();
+        let shots: HashMap<FormId, CameraShotDef> = [(FormId(1), def(0)), (FormId(2), def(1)), (FormId(3), def(2)), (FormId(4), def(2))].into_iter().collect();
+        let p = CameraPathDef { shots: vec![FormId(1), FormId(2), FormId(3), FormId(4), FormId(77)], ..Default::default() };
+        assert_eq!(action_shots(&p, &shots, ShotAction::Shoot), vec![FormId(1)]);
+        assert_eq!(action_shots(&p, &shots, ShotAction::Fly), vec![FormId(2)]);
+        assert_eq!(action_shots(&p, &shots, ShotAction::Hit), vec![FormId(3), FormId(4)]);
+        // Unlike a kill camera's list, nothing stands in when no shot is started so.
+        assert!(action_shots(&p, &shots, ShotAction::Zoom).is_empty());
     }
 }

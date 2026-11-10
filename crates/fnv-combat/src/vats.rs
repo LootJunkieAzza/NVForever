@@ -314,6 +314,23 @@ impl Volley {
         None
     }
 
+    /// The mark whose first round comes next: `None` in the middle of a burst and once
+    /// every mark has started (the classic style's cameras play between marks,
+    /// docs/design/vats-classic.md §8).
+    pub fn next_mark(&self) -> Option<usize> {
+        (!self.done && self.round == 0 && self.fired < self.shots).then_some(self.fired)
+    }
+
+    /// A burst is under way: its next round is not a mark's first.
+    pub fn mid_burst(&self) -> bool {
+        !self.done && self.round > 0
+    }
+
+    /// Let the next shot leave on the next step, whatever the interval.
+    pub fn release(&mut self) {
+        self.since = f32::INFINITY;
+    }
+
     /// Every mark's every round has left.
     pub fn all_fired(&self) -> bool {
         self.fired >= self.shots && self.round == 0
@@ -658,6 +675,28 @@ mod tests {
         assert_eq!(shot_ap_cost(&weapon("Thrown (1 Hand)", None), &AP), 35.0);
         assert_eq!(shot_ap_cost(&weapon("Mine Drop (1 Hand)", None), &AP), 10.0);
         assert_eq!(shot_ap_cost(&WeaponStats::default(), &AP), 25.0, "no type: as a rifle");
+    }
+
+    #[test]
+    fn a_volley_tells_when_it_stands_between_marks() {
+        // Two marks of three rounds, 0.2 s between marks, 0.1 s between rounds.
+        let mut v = Volley::bursts(2, 3, 0.2, 0.1, 0.3);
+        assert_eq!(v.next_mark(), Some(0));
+        assert_eq!(v.step(0.0), Some(VolleyEvent::Shot { mark: 0, round: 0 }), "the first leaves at once");
+        assert!(v.mid_burst() && v.next_mark().is_none());
+        assert_eq!(v.step(0.1), Some(VolleyEvent::Shot { mark: 0, round: 1 }));
+        assert_eq!(v.step(0.1), Some(VolleyEvent::Shot { mark: 0, round: 2 }));
+        assert!(!v.mid_burst());
+        assert_eq!(v.next_mark(), Some(1));
+        // Held between marks (no step), then released: it leaves without the interval.
+        assert_eq!(v.step(0.01), None);
+        v.release();
+        assert_eq!(v.step(0.0), Some(VolleyEvent::Shot { mark: 1, round: 0 }));
+        assert_eq!(v.step(0.1), Some(VolleyEvent::Shot { mark: 1, round: 1 }));
+        assert_eq!(v.step(0.1), Some(VolleyEvent::Shot { mark: 1, round: 2 }));
+        assert!(v.next_mark().is_none() && v.all_fired());
+        assert_eq!(v.step(0.3), Some(VolleyEvent::Done));
+        assert!(v.next_mark().is_none() && !v.mid_burst());
     }
 
     #[test]

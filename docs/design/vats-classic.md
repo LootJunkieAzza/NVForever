@@ -115,14 +115,37 @@ attacks play: 0.75 without the setting [documented: fallout.wiki "Fallout: New V
 V.A.T.S.", 75 % in New Vegas, 10 % in Fallout 3]. Not while targets are chosen
 [design: owner]. Dead Eye does not apply it, as before.
 
-## 8. Planned on this branch
+## 8. The cameras while the attacks play
 
-- Playback cameras from the game's camera records, shot by shot.
+Each queued attack plays the game's own camera shots (CAMS), chosen by its camera paths
+(CPTH) exactly as a kill camera's are (`Game::pick_camera_path`, vats-mode.md §19): the
+conditions run on the player with GetVATSValue answering about that attack.
+
+- Before the attack leaves: the path's shots whose Camera Action is Shoot [documented:
+  GECK wiki CameraShot, "Camera Action": when the command starts]. The firing waits for
+  them, then the round is released.
+- After it: the shots whose action is Hit. A burst's later rounds go on meanwhile; the
+  next attack waits. The last attack asks for none: if it kills, the kill camera plays
+  (its setting applies), so one hit is never shown twice.
+- A shot plays for its Min Time, else its Max Time, within 0.5 s and 1.2 s (Shoot) or
+  1.8 s (Hit) [design: the original cuts on the attack's own events; these bounds keep a
+  queue moving]. The world's clock runs at the shot's Global time multiplier and its
+  image space modifier plays, as for a kill camera.
+- A path with no such shot leaves the view as it is. Fly shots are not played yet.
+- The outcome is not known before the attack lands, so the paths are asked with a hit
+  that neither kills nor cripples [design]. The Hit stage knows the roll.
+- Melee queues play without attack cameras for now.
+
+Where the camera stands, what it looks at, the walls it stays in front of, the held
+controls and the hidden HUD are the kill camera's (`kill_cam.rs`).
+
+## 9. Planned on this branch
+
 - The target screen driven by the game's own VATS menu file, the engine-drawn labels
   as the fallback.
 - Melee and unarmed special attacks; mines as targets.
 
-## 9. Test aids and smoke
+## 10. Test aids and smoke
 
 - `NVF_PLAY_TEST_VATS_STYLE=classic|dead-eye`, `NVF_PLAY_TEST_VATS_SLOWDOWN=0.5..1`.
 - Every Dead Eye scenario sets the first to `dead-eye`; their expectations are

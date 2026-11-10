@@ -69,7 +69,7 @@ const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'stati
 /// Every named row's tab and heading, in the order the page shows them [design: #1953's
 /// table; the colours' red, green and blue each after their colour].
 pub const SECTIONS: &[Section] = &[
-    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "vats-style", "vats-slowdown", "kill-camera", "reload-slows", "UsePipBoy"]),
+    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
     section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-sway", "head-bob", "weapon-lower", "field-of-view"]),
@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..9], ["[Game]", "difficulty", "hardcore", "vats-style", "vats-slowdown", "kill-camera", "reload-slows", "UsePipBoy", "[Saving]"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..9], ["[Game]", "difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy", "[Saving]"]);
         assert_eq!(keys(&list, &l, "Audio"), ["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls"), CONTROLLER_KEYS);
         assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"]);

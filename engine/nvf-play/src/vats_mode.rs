@@ -385,8 +385,37 @@ pub struct VatsMode {
     /// (docs/design/vats-classic.md).
     style: VatsStyle,
     classic: ClassicState,
+    /// The classic style's attack cameras (§8 there): the request `crate::kill_cam` reads
+    /// with its serial, the stage being waited for (its serial, since when in real
+    /// seconds), the mark whose Shoot stage has been asked, and whether they are given up
+    /// for this stay.
+    cam_ask: Option<(u64, CameraAsk)>,
+    cam_serial: u64,
+    cam_wait: Option<(u64, CamStage, f64)>,
+    cam_led: Option<usize>,
+    cam_off: bool,
     pub stats: VatsStats,
 }
+
+/// When one of a classic attack's cameras plays: before the attack leaves, or after.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CamStage {
+    Shoot,
+    Hit,
+}
+
+/// A camera the classic style asks `crate::kill_cam` for: for the queue's attack `mark`,
+/// as the scripts see its shot.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraAsk {
+    pub mark: usize,
+    pub stage: CamStage,
+    pub shot: fnv_game::vats::VatsShot,
+}
+
+/// The attack cameras are given up for a stay when `crate::kill_cam` has not taken a
+/// request after this many real seconds (it does not run without the script runtime).
+const CAM_PATIENCE: f64 = 1.0;
 
 /// The classic style's state for a stay (docs/design/vats-classic.md §3, §4).
 #[derive(Debug, Clone, Default)]
@@ -446,6 +475,25 @@ impl VatsMode {
         let name = self.preview.parts.first().filter(|_| self.preview.actor == Some(actor))?.spot.name.as_str();
         let share = self.preview.health.map_or(1.0, |(now, max)| if max > 0.0 { (now / max).clamp(0.0, 1.0) } else { 0.0 });
         Some((name, share))
+    }
+
+    /// The attack camera asked for now, with its serial (`crate::kill_cam` plays each
+    /// serial once).
+    pub fn camera_ask(&self) -> Option<(u64, CameraAsk)> {
+        self.cam_ask.filter(|_| self.phase == Phase::Firing)
+    }
+
+    /// Mark `i`'s shot as the scripts see it; before its roll it counts as a hit.
+    fn shot_of(&self, i: usize, player: &Player) -> Option<fnv_game::vats::VatsShot> {
+        let (m, s) = (self.queue.marks().get(i)?, self.spots.get(i)?);
+        Some(fnv_game::vats::VatsShot {
+            weapon: self.weapon.as_ref()?.id,
+            target: m.target,
+            distance: f64::from(crate::combat::distance(player.eye(), s.point)),
+            condition: s.condition,
+            success: s.landed.unwrap_or(true),
+            height: f64::from(s.point[2] - player.feet[2]),
+        })
     }
 
     /// The classic style's selected target (reference), while targets are chosen.
@@ -774,12 +822,20 @@ fn read_keys(
     }
 }
 
+/// What [`update`] reads for the classic style: the two settings and the cameras' state.
+#[derive(SystemParam)]
+struct ClassicIn<'w> {
+    style: Res<'w, VatsStyle>,
+    slowdown: Res<'w, VatsSlowdown>,
+    kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
+}
+
 /// The mode's work for the frame; before `crate::combat::fire`, which fires the shot asked
 /// for ([`VatsMode::take_shot`]).
 #[allow(clippy::too_many_arguments)]
 fn update(
     (real, time): (Res<Time<Real>>, Res<Time>),
-    (state, style, slowdown): (Res<State<PlayState>>, Res<VatsStyle>, Res<VatsSlowdown>),
+    (state, settings): (Res<State<PlayState>>, ClassicIn),
     mut vats: ResMut<VatsMode>,
     (combat, anim, parts): (Option<Res<Combat>>, Res<WeaponAnim>, Res<ActorParts>),
     mut sim: ResMut<SimState>,
@@ -791,6 +847,7 @@ fn update(
     mut hud: ResMut<HudMessage>,
     mut sounds: Sounds,
 ) {
+    let ClassicIn { style, slowdown, kill_cam } = settings;
     let v = &mut *vats;
     v.now = real.elapsed_secs_f64();
     v.shot = None;
@@ -912,9 +969,16 @@ fn update(
             follow(v, &phys);
             rechance(v, &combat, player.eye());
             let dt = time.delta_secs();
+            // The classic style's cameras hold the next attack while they play (§8 there).
+            let wait = classic_cameras(v, kill_cam.as_deref(), &player);
             match v.run.as_mut() {
-                Some(Run::Volley(vo)) => match vo.step(dt) {
-                    Some(VolleyEvent::Shot { mark, round }) => shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds),
+                Some(Run::Volley(vo)) => match (!wait).then_some(vo).and_then(|vo| vo.step(dt)) {
+                    Some(VolleyEvent::Shot { mark, round }) => {
+                        shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds);
+                        if round == 0 {
+                            classic_hit_camera(v, mark, &player);
+                        }
+                    }
                     Some(VolleyEvent::Done) => end(v, "all shots fired", &mut sounds),
                     None => {}
                 },
@@ -1038,9 +1102,58 @@ fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     v.spots.clear();
     v.preview = Preview::default();
     v.blow_lands = false;
+    (v.cam_ask, v.cam_wait, v.cam_led, v.cam_off) = (None, None, None, false);
     // Left without firing, the classic style's view goes back to where it was.
     let restore = v.classic.entry_view.filter(|_| was == Phase::Marking && v.style == VatsStyle::Classic);
     v.classic = ClassicState { scale: v.classic.scale, restore, ..ClassicState::default() };
+}
+
+/// The classic style's attack cameras, one frame (vats-classic.md §8): before a mark's
+/// first round its Shoot camera is asked of `crate::kill_cam` and waited for, then the
+/// round is released; after it, but for the last mark, its Hit camera is waited for
+/// ([`classic_hit_camera`]) while a burst's later rounds go on. Whether the firing waits
+/// this frame.
+fn classic_cameras(v: &mut VatsMode, cam: Option<&crate::kill_cam::KillCam>, player: &Player) -> bool {
+    let Some(cam) = cam.filter(|_| v.style == VatsStyle::Classic && !v.cam_off) else { return false };
+    let Some(Run::Volley(vo)) = v.run.as_ref() else { return false };
+    let (next, mid) = (vo.next_mark(), vo.mid_burst());
+    if let Some((serial, stage, since)) = v.cam_wait {
+        let pending = cam.handled() < serial;
+        if pending && v.now - since > CAM_PATIENCE {
+            info!("vats mode: classic: no camera answered in {CAM_PATIENCE:.0} s; the attacks play without cameras");
+            (v.cam_off, v.cam_wait, v.cam_ask) = (true, None, None);
+            return false;
+        }
+        if pending || cam.attack_playing() {
+            return !(stage == CamStage::Hit && mid);
+        }
+        (v.cam_wait, v.cam_ask) = (None, None);
+        if stage == CamStage::Shoot {
+            if let Some(Run::Volley(vo)) = v.run.as_mut() {
+                vo.release();
+            }
+            return false;
+        }
+    }
+    let Some(k) = next.filter(|k| v.cam_led != Some(*k)) else { return false };
+    v.cam_led = Some(k);
+    let Some(shot) = v.shot_of(k, player) else { return false };
+    v.cam_serial += 1;
+    v.cam_ask = Some((v.cam_serial, CameraAsk { mark: k, stage: CamStage::Shoot, shot }));
+    v.cam_wait = Some((v.cam_serial, CamStage::Shoot, v.now));
+    true
+}
+
+/// Mark `i`'s attack has left: its Hit camera is asked for (vats-classic.md §8), but not
+/// the last mark's, whose kill is the kill camera's.
+fn classic_hit_camera(v: &mut VatsMode, i: usize, player: &Player) {
+    if v.style != VatsStyle::Classic || v.cam_off || i + 1 >= v.queue.len() {
+        return;
+    }
+    let Some(shot) = v.shot_of(i, player) else { return };
+    v.cam_serial += 1;
+    v.cam_ask = Some((v.cam_serial, CameraAsk { mark: i, stage: CamStage::Hit, shot }));
+    v.cam_wait = Some((v.cam_serial, CamStage::Hit, v.now));
 }
 
 /// The classic style's targets now (vats-classic.md §3): every living actor with a hit

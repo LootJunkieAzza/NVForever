@@ -53,6 +53,13 @@
 //!   fire button held when it starts must be pressed again after it (the trigger needs a
 //!   fresh press, `control::read_controls`).
 //!
+//! - **The classic style's attack cameras** (docs/design/vats-classic.md §8): while the
+//!   classic style plays its queue, each attack asks for the path's shots started by Shoot
+//!   before it leaves and, but for the last attack (whose kill is this module's own
+//!   camera), by Hit after ([`VatsMode::camera_ask`]). They play as a kill camera's do, for
+//!   [`attack_length`] each, and the firing waits for them (`vats_mode::classic_cameras`).
+//!   Their lines start `vats camera:`.
+//!
 //! Log lines: `kill camera: <name> <ref> killed by the last mark: path <EDID> (<FormID>),
 //! shots <EDID>, …` when it starts (or `kill camera: <ref> killed by the last mark: no
 //! camera path chosen`), `kill camera: skipped, <n> enemies still in combat (…)` or `kill
@@ -65,10 +72,10 @@ use crate::player::MoveIntent;
 use crate::phys::PhysState;
 use crate::player::Player;
 use crate::script::ScriptState;
-use crate::vats_mode::{Phase, VatsMode};
+use crate::vats_mode::{CamStage, Phase, VatsMode};
 use crate::{space, PlayState, PlayerCamera};
 use bevy::prelude::*;
-use fnv_game::camera_paths::{self, CameraShotDef, ShotActor, FIRST_PERSON_CAMERA, POSITION_FOLLOWS_LOCATION, ROTATION_FOLLOWS_TARGET};
+use fnv_game::camera_paths::{self, CameraShotDef, ShotAction, ShotActor, FIRST_PERSON_CAMERA, POSITION_FOLLOWS_LOCATION, ROTATION_FOLLOWS_TARGET};
 use fnv_game::vats::{CameraRoom, VatsShot};
 use fnv_sim::FormId;
 use nvf_assets::camera_shot::CameraModel;
@@ -108,8 +115,42 @@ struct Playing {
     imod: Option<FormId>,
 }
 
+/// What a show is: a kill's camera, or one stage of a classic attack's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Kill,
+    Attack(CamStage),
+}
+
+impl Kind {
+    fn label(self) -> &'static str {
+        match self {
+            Kind::Kill => "kill camera",
+            Kind::Attack(_) => "vats camera",
+        }
+    }
+}
+
+/// The most real seconds a shot of an attack's camera plays before the attack leaves
+/// (Shoot) and after it (Hit) [design: the original cuts on the attack's own events, which
+/// the shots' Min and Max Time only bound; these keep a queue of several attacks moving].
+pub const ATTACK_SHOOT_MOST: f32 = 1.2;
+pub const ATTACK_HIT_MOST: f32 = 1.8;
+
+/// How long a shot of an attack's camera plays, real seconds: its Min Time when it has
+/// one, else its Max Time, within [`SHOT_LEAST`] and the stage's most.
+pub fn attack_length(def: &CameraShotDef, stage: CamStage) -> f32 {
+    let most = match stage {
+        CamStage::Shoot => ATTACK_SHOOT_MOST,
+        CamStage::Hit => ATTACK_HIT_MOST,
+    };
+    let asked = if def.min_time > 0.0 { def.min_time } else { def.max_time };
+    asked.clamp(SHOT_LEAST, most)
+}
+
 /// A kill camera under way.
 struct Show {
+    kind: Kind,
     target: FormId,
     shots: Vec<FormId>,
     next: usize,
@@ -135,6 +176,10 @@ pub struct KillCam {
     shown: u32,
     skipped: u32,
     off: u32,
+    /// The last attack-camera request seen (`VatsMode::camera_ask`'s serial), and the
+    /// attack cameras shown.
+    asked: u64,
+    attacks: u32,
 }
 
 /// When kill cameras play: the settings page's Kill camera (`kill-camera` in
@@ -195,6 +240,16 @@ impl KillCam {
     /// A kill camera has the view.
     pub fn active(&self) -> bool {
         self.show.is_some()
+    }
+
+    /// The newest attack-camera request seen: `vats_mode` waits until its own is.
+    pub fn handled(&self) -> u64 {
+        self.asked
+    }
+
+    /// An attack's camera is playing.
+    pub fn attack_playing(&self) -> bool {
+        self.show.as_ref().is_some_and(|s| matches!(s.kind, Kind::Attack(_)))
     }
 
     /// The world clock's speed it asks for (`script::time_multiplier`): the playing
@@ -366,10 +421,36 @@ fn update(
                     room.target_visible[3],
                     if outcome.dismember || outcome.explode { ", a part is gone" } else { "" }
                 );
-                cam.show = Some(Show { target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0 });
+                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0 });
                 cam.shown += 1;
             }
             None => info!("kill camera: {} killed by the last mark: no camera path chosen", shot.target),
+        }
+    }
+    // A classic attack's camera (module notes): asked once per stage by its serial.
+    if let Some((serial, ask)) = vats.camera_ask().filter(|(serial, _)| *serial != cam.asked) {
+        cam.asked = serial;
+        if cam.show.is_none() && playing && !player_dead {
+            let attacker = player_middle(&player);
+            let room = match middle(&phys, &player, ask.shot.target) {
+                Some(t) => measure_room(&mut phys, attacker, t),
+                None => CameraRoom::default(),
+            };
+            let action = match ask.stage {
+                CamStage::Shoot => ShotAction::Shoot,
+                CamStage::Hit => ShotAction::Hit,
+            };
+            let path = rt.game.pick_camera_path(ask.shot, fnv_game::vats::VatsOutcome::default(), room);
+            let shots = path.and_then(|p| rt.game.data.camera_paths.get(&p)).map(|p| camera_paths::action_shots(p, &rt.game.data.camera_shots, action)).unwrap_or_default();
+            match path.filter(|_| !shots.is_empty()) {
+                Some(p) => {
+                    let names: Vec<String> = shots.iter().map(|s| rt.game.data.name(*s)).collect();
+                    info!("vats camera: attack {} on {} {}, {:?}: path {} ({p}), shots {}", ask.mark + 1, rt.game.data.name(ask.shot.target), ask.shot.target, ask.stage, rt.game.data.name(p), names.join(", "));
+                    cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0 });
+                    cam.attacks += 1;
+                }
+                None => debug!("vats camera: attack {} on {}, {:?}: no path with such a shot, the view stays", ask.mark + 1, ask.shot.target, ask.stage),
+            }
         }
     }
     let Some(show) = cam.show.as_mut() else {
@@ -381,9 +462,12 @@ fn update(
         Some("the player died")
     } else if !playing {
         Some("a menu opened")
+    } else if matches!(show.kind, Kind::Attack(_)) && vats.phase != Phase::Firing {
+        Some("the attacks stopped")
     } else {
         None
     };
+    let label = show.kind.label();
     let dt = if virt.is_paused() { 0.0 } else { real.delta_secs() };
     show.real += dt;
     let finished = match (&mut show.playing, stop) {
@@ -418,9 +502,12 @@ fn update(
                 if let Some(m) = def.imod {
                     rt.game.apply_image_modifier(m);
                 }
-                let length = shot_length(&def);
+                let length = match show.kind {
+                    Kind::Kill => shot_length(&def),
+                    Kind::Attack(stage) => attack_length(&def, stage),
+                };
                 info!(
-                    "kill camera: shot {} of {} {}: {}, held by the {:?}, looking at the {:?}, {length:.1} s at world speed {:.2}{}",
+                    "{label}: shot {} of {} {}: {}, held by the {:?}, looking at the {:?}, {length:.1} s at world speed {:.2}{}",
                     show.next,
                     show.shots.len(),
                     rt.game.data.name(s),
@@ -438,7 +525,7 @@ fn update(
                 show.playing = Some(Playing { def, model, real: 0.0, length, origin, forward, look, first_turn, imod });
             }
             None => {
-                info!("kill camera: done ({:.1} s{}), input held {} frames", show.real, stop.map_or_else(String::new, |w| format!("; {w}")), show.held);
+                info!("{label}: done ({:.1} s{}), input held {} frames", show.real, stop.map_or_else(String::new, |w| format!("; {w}")), show.held);
                 cam.show = None;
             }
         }
@@ -520,6 +607,9 @@ fn report(mut exit: MessageReader<AppExit>, cam: Res<KillCam>) {
         return;
     }
     info!("kill camera summary: {} shown, {} skipped, {} off", cam.shown, cam.skipped, cam.off);
+    if cam.attacks > 0 {
+        info!("vats camera summary: {} attack cameras shown", cam.attacks);
+    }
 }
 
 pub struct KillCamPlugin;
@@ -625,7 +715,7 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<MoveIntent>().forward, 1.0);
         assert!(app.world().resource::<PlayerControl>().trigger);
-        app.world_mut().resource_mut::<KillCam>().show = Some(Show { target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0 });
+        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0 });
         ask(&mut app);
         app.update();
         let (i, c) = (*app.world().resource::<MoveIntent>(), *app.world().resource::<PlayerControl>());
