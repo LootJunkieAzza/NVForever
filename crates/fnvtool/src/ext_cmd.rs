@@ -127,6 +127,11 @@ pub enum ExtCmd {
         /// Also run the files of the game restart, then of a new game.
         #[arg(long)]
         run: bool,
+        /// Leave the Data folder's loose files out (only the `--root` folders' files are
+        /// read; the load order and its archives still are): a check whose result must not
+        /// depend on what the player installed.
+        #[arg(long)]
+        no_data_files: bool,
     },
     /// Write the compiled script units that have no source text (route 1 input) to a
     /// directory: each unit's bytes as `<n>.scda`, and `units.json` with its plugin, owner,
@@ -191,7 +196,7 @@ pub fn run(cmd: ExtCmd) -> anyhow::Result<Value> {
             doc["runs"] = json!(runs);
             Ok(doc)
         }
-        ExtCmd::ScriptRunner { lo, schema, functions, roots, run } => script_runner(&lo, &schema, functions, roots, run),
+        ExtCmd::ScriptRunner { lo, schema, functions, roots, run, no_data_files } => script_runner(&lo, &schema, functions, roots, run, no_data_files),
         ExtCmd::Queries { lo, schema, functions, steps, start_cell, save, trace, ini, config } => {
             // Mods' files as `script run` sees them: the Data folder (and its archives)
             // read-only, `--config` for Data\Config; nothing is written to disk.
@@ -324,12 +329,14 @@ pub(crate) fn query_input(job: &Value, start_cell: Option<&str>) -> anyhow::Resu
 /// fnv.ext.probes/1 from a run's query observations, as jip_probes.py's collector writes
 /// it from the game's capture: numbers as `%.6g`, errors listed apart.
 /// `ext script-runner`: the Script Runner files of `roots` and Data, compiled (and run).
-fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, mut roots: Vec<PathBuf>, run: bool) -> anyhow::Result<Value> {
+fn script_runner(lo: &LoadOrderArgs, schema: &Path, functions: Option<PathBuf>, mut roots: Vec<PathBuf>, run: bool, no_data_files: bool) -> anyhow::Result<Value> {
     use fnv_game::script_runner::{Moment, SrRun};
     let fp = functions.unwrap_or_else(|| schema.join("..").join("script").join("functions.json"));
     let vfs = std::sync::Arc::new(fnv_vfs::Vfs::open_for_plugins(&lo.data_dir, &lo.plugins).ok());
     let reader: fnv_game::mod_files::Reader = std::sync::Arc::new(move |p: &str| vfs.as_ref().as_ref().and_then(|v| v.read(p)).and_then(Result::ok));
-    roots.push(lo.data_dir.clone());
+    if !no_data_files {
+        roots.push(lo.data_dir.clone());
+    }
     fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: roots, config: None, write: None, lookup: None, reader: Some(reader), archives: Vec::new() });
     let ftext = std::fs::read_to_string(&fp).with_context(|| fp.display().to_string())?;
     let fjson: Value = serde_json::from_str(&ftext).with_context(|| fp.display().to_string())?;
