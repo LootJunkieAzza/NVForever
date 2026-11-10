@@ -741,6 +741,8 @@ pub struct MenuModel {
     /// The player's tweak: the barter figure shows the whole total, past what the
     /// merchant can pay [design: docs/design/tweaks.md].
     pub full_barter_total: bool,
+    /// The player's tweak: each side's caps after the trade beside its caps now.
+    pub barter_caps_change: bool,
     pub hide_equipped_barter: bool,
     pub hide_equipped_containers: bool,
     pub title_case_categories: bool,
@@ -923,6 +925,7 @@ impl MenuModel {
             take_all_stays: false,
             store_all: false,
             full_barter_total: false,
+            barter_caps_change: false,
             hide_equipped_barter: false,
             hide_equipped_containers: false,
             title_case_categories: false,

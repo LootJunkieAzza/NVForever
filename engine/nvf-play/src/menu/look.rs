@@ -196,6 +196,12 @@ pub fn row_text(r: &Row) -> String {
 /// player's weight in a container's [observed: "Caps 35877", "Wg 35/165"].
 pub fn half_figure(m: &MenuModel, side: Side) -> Option<String> {
     match (m.mode, side, &m.trade) {
+        // The player's tweak: the caps after the trade beside those now (our words) [design: docs/design/tweaks.md].
+        (Mode::Barter(_), _, Some(t)) if m.barter_caps_change && t.balance != 0 => {
+            let now = i64::from(t.purse[side as usize]);
+            let after = if side == Side::Player { now + t.paid() } else { now - t.paid() };
+            Some(format!("Caps  {now} (to {after})"))
+        }
         (Mode::Barter(_), _, Some(t)) => Some(format!("Caps  {}", t.purse[side as usize])),
         (Mode::Container(_), Side::Player, _) => {
             m.encumbrance.as_ref().ok().map(|e| format!("Wg  {:.0}/{:.0}", e.weight, e.capacity))

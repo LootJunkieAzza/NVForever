@@ -326,6 +326,8 @@ pub struct TweakSettings {
     pub console_text_shadow: bool,
     /// `bClickToExitLoadScreens`: a loading screen waits for a press once all is in.
     pub click_to_exit_loading: bool,
+    /// `bBarterShowCapsChange`: a barter shows each side's caps after the trade too.
+    pub barter_caps_change: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -522,6 +524,7 @@ impl Default for TweakSettings {
             console_output_file: false,
             console_text_shadow: false,
             click_to_exit_loading: false,
+            barter_caps_change: false,
         }
     }
 }
@@ -1376,6 +1379,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "console-text-shadow", "Console Text Shadow", "The console's lines are a darker green over a faint shadow, easier to read on a bright view. (Stewie's Tweaks bConsoleTextShadow)", console_text_shadow);
         switch!(app, "click-to-exit-loading", "Press to Leave Loading Screens", "A loading screen stays up once everything is in until a key or a button is pressed. (Stewie's Tweaks bClickToExitLoadScreens)", click_to_exit_loading);
         switch!(app, "radiation-radio-static", "Radiation Brings Radio Static", "Taking radiation brings static into the Pip-Boy's radio, more the faster the rads come. (Stewie's Tweaks bRadiationCausesRadioStatic)", game.radiation_radio_static);
+        switch!(app, "barter-caps-change", "Barter Shows Caps After", "In a barter, each side's caps after the trade are shown beside its caps now. (Stewie's Tweaks bBarterShowCapsChange)", barter_caps_change);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1670,6 +1674,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if m.full_barter_total != tweaks.full_barter_total {
             m.full_barter_total = tweaks.full_barter_total;
+        }
+        if m.barter_caps_change != tweaks.barter_caps_change {
+            m.barter_caps_change = tweaks.barter_caps_change;
         }
         let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
         if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {
