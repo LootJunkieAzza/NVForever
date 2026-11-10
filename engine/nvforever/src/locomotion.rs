@@ -484,6 +484,9 @@ pub struct Locomotion {
     under: Under,
     /// Times "moves with no movement clip" was logged for this actor (once).
     clipless_logged: u8,
+    /// The first such stretch while it lasts: its frames, time and distance (units), told
+    /// once it ends, so a one-frame step and a slide can be told apart (item 187).
+    clipless_run: Option<(u32, f32, f32)>,
 }
 
 /// [`Locomotion::layers`]' slot for the set's idle laid under a movement clip, at a
@@ -535,7 +538,7 @@ fn drives_more(idle: &BoundClip, other: &BoundClip) -> bool {
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0 }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, in_air: false, jump: Default::default(), armed: None, armed_on: false, armed_logged: Vec::new(), idle_under: false, under: Under::default(), clipless_logged: 0, clipless_run: None }
     }
 
     /// The standing set now (kNVSE's SetActorAnimationPath swaps it, anim_paths.rs).
@@ -1025,8 +1028,17 @@ pub fn drive(
             cost.clipless_frames += 1;
             if lo.clipless_logged < 1 {
                 lo.clipless_logged += 1;
+                lo.clipless_run = Some((0, 0.0, 0.0));
                 info!("actor moves with no movement clip: {} at {:.0} units/s, {:?} playing", name.map_or("actor", |n| n.as_str()), lo.velocity[0].hypot(lo.velocity[1]), lo.blend.cur.mv);
             }
+            let speed = lo.velocity[0].hypot(lo.velocity[1]);
+            if let Some(run) = lo.clipless_run.as_mut() {
+                run.0 += 1;
+                run.1 += dt;
+                run.2 += speed * dt;
+            }
+        } else if let Some((frames, time, distance)) = lo.clipless_run.take() {
+            info!("actor moved with no movement clip: {} for {frames} frame(s), {time:.2} s, {distance:.0} units", name.map_or("actor", |n| n.as_str()));
         }
         // A stimpak's upper-body idle over the fight's pose too (`npc_stimpaks.rs`).
         if let Some(i) = idle.filter(|i| i.over_pose()) {

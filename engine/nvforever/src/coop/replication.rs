@@ -96,6 +96,9 @@ pub(super) struct Repl {
     /// The host's: body parts gone here, for the guests ([`dismember_out`]); a guest's:
     /// those the host sent, to take off here ([`dismember_in`]).
     dismembered: Vec<Effect>,
+    /// A guest's: references the host enabled or disabled that this game changed too, for
+    /// their visuals and collision to follow ([`nvf_play::RefChanged`]).
+    refreshed: Vec<u32>,
     // The host's.
     shadows: HashMap<u8, Shadow>,
     /// References to send whole to a guest (a digest differed, or the stream started again).
@@ -297,7 +300,7 @@ pub(super) fn replicate(
     (mut sim, mut script, actor_world, mut residents): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<Res<ActorWorld>>, Option<ResMut<Residents>>),
     loc: Option<Res<Location>>,
     player: Option<Res<Player>>,
-    (grab, mut phys, mut repose): (Option<Res<nvf_play::grab::GrabState>>, Option<ResMut<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>),
+    (grab, mut phys, mut repose, mut changed): (Option<Res<nvf_play::grab::GrabState>>, Option<ResMut<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>, MessageWriter<nvf_play::RefChanged>),
 ) {
     let started = Instant::now();
     let now = time.elapsed_secs();
@@ -349,6 +352,13 @@ pub(super) fn replicate(
     }
     for id in moved {
         repose.write(nvf_play::RefRepose { form_id: id });
+    }
+    // The host's enables and disables of what is not an actor (the actors' drawing
+    // follows their flags itself): the wreck of the Volare! B-29, disabled on the
+    // host, stayed drawn on a guest whose world had it disabled (item 186, laptop run
+    // q171-lm-volare-plane-2).
+    for form_id in std::mem::take(&mut coop.repl.refreshed) {
+        changed.write(nvf_play::RefChanged { form_id });
     }
     let ms = started.elapsed().as_secs_f32() * 1000.0;
     coop.repl.perf.add_spent(ms);
@@ -699,6 +709,9 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                             }
                         }
                         if apply(sim, &mut r.slow, &c, residents.as_deref_mut(), commands) {
+                            if matches!(c.value, Value::Enabled { .. }) && !sim.is_actor(c.reference) {
+                                r.refreshed.push(c.reference);
+                            }
                             r.corrections += 1;
                             *r.corrected.entry((c.reference, c.value.comp())).or_default() += 1;
                             if matches!(c.value.comp(), comp::PLACE | comp::ITEM) && !moved.contains(&c.reference) {
