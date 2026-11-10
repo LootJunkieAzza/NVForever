@@ -518,7 +518,15 @@ pub(crate) fn show_actor(
     if let Some(mut lo) = lo {
         let scale = t.scale.x.max(1e-3);
         let step = t.translation.truncate() - before.0.truncate();
-        let speed = if dt > 0.0 && moving { step.length() / dt } else { 0.0 };
+        // Put there, not walked: a step longer than any frame's walk or run (a script's
+        // move, a co-op guest's jump to where the host has it, `coop::NpcTrack::pose`)
+        // has no speed, so no walk clip is asked for and no slide is measured (laptop
+        // 1110e: one "moves with no movement clip" line per actor at its enable).
+        let placed = step.length() > PLACED_STEP.max(PLACED_SPEED * dt);
+        if placed && moving {
+            info!("nav: {reference:08X} put {:.0} units on in one frame: placed, not walked", step.length());
+        }
+        let speed = if dt > 0.0 && moving && !placed { step.length() / dt } else { 0.0 };
         lo.velocity = if strafe && speed > 0.0 {
             // The step in the body's axes (x right, y forward; heading 0 faces +y).
             let (s, c) = heading.sin_cos();
@@ -533,6 +541,12 @@ pub(crate) fn show_actor(
     }
     Ok(())
 }
+
+/// A body's move in one frame longer than this (units) is a placement, not a step
+/// [design: a cazador's run, 955 units/s, observed, moves 32 units in a 30 fps frame].
+const PLACED_STEP: f32 = 48.0;
+/// ... and faster than this (units/s), so a slow frame's run is still a run.
+const PLACED_SPEED: f32 = 2000.0;
 
 /// The bodies to take away when an actor stops being drawn: the one found, or, spawned
 /// but not found yet (spawned a frame or two ago), every body of its reference there is
