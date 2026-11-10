@@ -84,7 +84,7 @@ pub fn redact(text: &str) -> std::borrow::Cow<'_, str> {
 /// (a path printed with `{:?}` doubles its backslashes: `C:\\Users\\Alex`); only where the
 /// folder name ends (at a separator or a non-name character), so `C:\Users\Al` leaves
 /// `C:\Users\Alex` alone.
-fn redact_folder<'a>(text: &'a str, folder: &str, shown: &str) -> std::borrow::Cow<'a, str> {
+pub(crate) fn redact_folder<'a>(text: &'a str, folder: &str, shown: &str) -> std::borrow::Cow<'a, str> {
     let sep = |c: u8| matches!(c, b'\\' | b'/');
     let (t, f) = (text.as_bytes(), folder.as_bytes());
     if f.is_empty() {

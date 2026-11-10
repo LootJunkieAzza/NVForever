@@ -54,6 +54,48 @@ pub struct Active {
 
 static ACTIVE: OnceLock<Option<Active>> = OnceLock::new();
 
+/// Folders hidden in everything a report sends, besides the home folder that
+/// `crash::redact` hides: the Data folder, the game folder and NVForever's own folder (a
+/// game folder outside the home can still carry a name). Set by [`ReportsPlugin`] before
+/// the upload thread starts.
+static HIDDEN_FOLDERS: OnceLock<Vec<(String, &'static str)>> = OnceLock::new();
+
+/// `text` as a report sends it: the home folder and [`HIDDEN_FOLDERS`] written as names.
+pub fn redact(text: &str) -> String {
+    redact_with(text, HIDDEN_FOLDERS.get().map_or(&[], Vec::as_slice))
+}
+
+fn redact_with(text: &str, folders: &[(String, &'static str)]) -> String {
+    let mut out = crate::crash::redact(text).into_owned();
+    for (folder, shown) in folders {
+        out = crate::crash::redact_folder(&out, folder, shown).into_owned();
+    }
+    out
+}
+
+/// The folders [`redact`] hides for this run, longest (innermost) first; a root or a drive
+/// is left out, as it would hide every path.
+fn folders_to_hide(data: &Path, exe_dir: Option<&Path>) -> Vec<(String, &'static str)> {
+    let data = std::path::absolute(data).unwrap_or_else(|_| data.to_path_buf());
+    let mut v: Vec<(String, &'static str)> = Vec::new();
+    let mut add = |p: &Path, shown: &'static str| {
+        let s = p.to_string_lossy();
+        let s = s.trim_end_matches(['\\', '/']);
+        if s.len() > 3 && !v.iter().any(|(f, _)| f.eq_ignore_ascii_case(s)) {
+            v.push((s.to_string(), shown));
+        }
+    };
+    add(&data, "<Data>");
+    if let Some(game) = data.parent() {
+        add(game, "<game>");
+    }
+    if let Some(exe) = exe_dir {
+        add(exe, "<NVForever>");
+    }
+    v.sort_by_key(|(f, _)| std::cmp::Reverse(f.len()));
+    v
+}
+
 /// This run's choice, once [`decide`] made it.
 pub fn active() -> Option<&'static Active> {
     ACTIVE.get().and_then(Option::as_ref)
@@ -251,6 +293,8 @@ impl Plugin for ReportsPlugin {
         );
         let Some(active) = active().cloned() else { return };
         let Some((pending, sent)) = folders() else { return };
+        let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+        let _ = HIDDEN_FOLDERS.set(folders_to_hide(&self.data, exe_dir.as_deref()));
         if !self.handoff && active.may_send {
             upload::spawn(active.clone(), pending.clone(), sent, std::process::id());
         } else if !active.may_send {
@@ -420,7 +464,7 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
         }
         c.summary.script_stubs = stubs.into_iter().collect();
     }
-    let bytes = c.summary.to_bytes(|t| crate::crash::redact(t).into_owned());
+    let bytes = c.summary.to_bytes(redact);
     match fnv_install::guard_write(&c.file, None).map_err(|e| e.to_string()).and_then(|()| std::fs::write(&c.file, &bytes).map_err(|e| e.to_string())) {
         Ok(()) if exiting => info!("reports: session summary written to {}", c.file.display()),
         Ok(()) => debug!("reports: session summary written to {}", c.file.display()),
@@ -456,12 +500,14 @@ pub fn finish_earlier(summary: &Path, logs: &Path) -> Option<upload::Pending> {
     }
     let panic_part = dir.join(format!("{stem}.panic.txt"));
     if let Some(c) = crash.filter(|_| v["end"] == "panic" && !panic_part.exists()) {
-        let _ = std::fs::copy(c, &panic_part);
+        if let Ok(text) = std::fs::read_to_string(c) {
+            let _ = std::fs::write(&panic_part, redact(&text));
+        }
     }
     let log_part = dir.join(format!("{stem}.log.gz"));
     if !log_part.exists() {
         if let Some(text) = find("nvforever-", ".log").and_then(|l| std::fs::read_to_string(l).ok()) {
-            let _ = std::fs::write(&log_part, upload::gzip(cut_log(&text).as_bytes()));
+            let _ = std::fs::write(&log_part, upload::gzip(cut_log(&redact(&text)).as_bytes()));
         }
     }
     let names: Vec<String> = std::fs::read_dir(dir).map(|r| r.flatten().filter_map(|e| e.file_name().into_string().ok()).collect()).unwrap_or_default();
@@ -482,6 +528,18 @@ fn cut_log(text: &str) -> std::borrow::Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reports_hide_the_game_data_and_exe_folders() {
+        let f = super::folders_to_hide(std::path::Path::new(r"D:\Games\Alex Smith\Fallout New Vegas\Data"), Some(std::path::Path::new(r"D:\Tools\NVForever")));
+        let r = |t: &str| super::redact_with(t, &f);
+        assert_eq!(r(r"loaded D:\Games\Alex Smith\Fallout New Vegas\Data\FalloutNV.esm"), r"loaded <Data>\FalloutNV.esm");
+        assert_eq!(r("ini at d:/games/alex smith/fallout new vegas/Fallout.ini"), "ini at <game>/Fallout.ini");
+        assert_eq!(r(r"exe D:\Tools\NVForever\nvforever.exe"), r"exe <NVForever>\nvforever.exe");
+        assert_eq!(r("nothing here"), "nothing here");
+        // A drive is never hidden whole.
+        assert!(super::folders_to_hide(std::path::Path::new(r"C:\Data"), None).iter().all(|(p, _)| p.len() > 3));
+    }
+
     use super::*;
 
     #[test]
