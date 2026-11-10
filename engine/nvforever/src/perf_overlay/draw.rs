@@ -42,7 +42,7 @@ const PAD_BRACKET: f32 = 26.0;
 const GAP: f32 = 18.0;
 const MARK_GAP: f32 = 6.0;
 /// The mark of a row that warns.
-const MARK: &str = "!";
+pub(super) const MARK: &str = "!";
 
 /// The backing's darkness: faint, so the world shows through [design: issue #1868, 35-40 %].
 const BACKING: f32 = 0.38;

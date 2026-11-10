@@ -352,7 +352,10 @@ share above. Where something else sets it, it does not move:
 
 - **Vsync** (Display sync's default) holds frames to the refresh rate.
 - **Frame generation** holds the game's own frames to just under half the refresh rate (29 on
-  a 60 Hz screen, 78 at 160 Hz; [frame-generation](frame-generation.md)).
+  a 60 Hz screen, 78 at 160 Hz; [frame-generation](frame-generation.md)). The frame-rate
+  counter counted only those, so turning frame generation on read as the frame rate halving;
+  the performance overlay's FPS row shows the frames shown and the rendered ones apart now
+  (`156  (78 rendered)`, `perf_overlay::readings::fps_text`).
 - **The CPU**: towns, crowds and battles take 6-46 ms a frame of CPU on the owner's i9-14900K
   (docs/design/frame-rate-audit.md §5), which FSR does not touch.
 - On the machine measured here, presents were held to the 160 Hz refresh even with vsync
