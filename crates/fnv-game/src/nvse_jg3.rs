@@ -294,7 +294,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // `terminal`: the number of its menu items [documented: GetTerminalMenuItemCount].
-        "getterminalmenuitemcount" => XVal::Num(form(args, 0).and_then(|t| g.data.terminals.get(&t)).map_or(0.0, |t| t.items.len() as f64)),
+        "getterminalmenuitemcount" => XVal::Num(form(args, 0).filter(|t| g.data.terminals.contains_key(t)).map_or(0.0, |t| crate::terminal::item_count(g, t) as f64)),
         // `terminal textID item [text]`: 1 the item's line (ITXT), 2 its result (RNAM)
         // [documented: Get/SetTerminalMenuItemText].
         "getterminalmenuitemtext" | "setterminalmenuitemtext" => {

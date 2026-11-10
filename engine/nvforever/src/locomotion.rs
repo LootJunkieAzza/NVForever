@@ -313,15 +313,19 @@ impl ClipSet {
             };
             let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
             let (bound, unbound) = clip_binding(skel, &clip);
+            // Bound tracks whose rotation adds up from cycle to cycle (the Securitron's
+            // wheel in its walk, docs/spec-notes/animation.md §9.12).
+            let adding: Vec<&str> = clip.tracks.iter().filter(|(n, t)| t.per_cycle.is_some() && bound.contains(&n.as_str())).map(|(n, _)| n.as_str()).collect();
             report.push(format!(
-                "{} {:.2}s {:.1}u/s blend {:.2}s foot {:.2} ({} tracks bound{})",
+                "{} {:.2}s {:.1}u/s blend {:.2}s foot {:.2} ({} tracks bound{}{})",
                 m.group(),
                 info.duration,
                 info.speed,
                 info.blend_time,
                 info.foot_phase,
                 bound.len(),
-                if unbound.is_empty() { String::new() } else { format!(", unbound {unbound:?}") }
+                if unbound.is_empty() { String::new() } else { format!(", unbound {unbound:?}") },
+                if adding.is_empty() { String::new() } else { format!(", rotation adding up per cycle {adding:?}") }
             ));
             set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info, path });
         }
@@ -1202,7 +1206,7 @@ type TurnTestActors = (Without<TurnTo>, Without<WalkTest>, Without<Dying>);
 pub fn turn_test(
     mut commands: Commands,
     mut test: ResMut<TurnTest>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     actors: Query<(Entity, &GlobalTransform, &Transform, &Locomotion), TurnTestActors>,
 ) {
     let Ok(cam) = camera.single() else { return };
@@ -1486,7 +1490,7 @@ mod tests {
     /// A clip one second long with one track, on the corpse's bone.
     fn death_clip(x: f32) -> Arc<BoundClip> {
         use fnv_nif::anim::{Channel, TransformTrack};
-        let track = Arc::new(TransformTrack { translation: Channel::Static(Some([x, 0.0, 0.0])), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) });
+        let track = Arc::new(TransformTrack { translation: Channel::Static(Some([x, 0.0, 0.0])), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None });
         let clip = nvf_assets::anim_play::Clip {
             name: String::new(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0, tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None, text_keys: Vec::new(), visibility: Vec::new(), emitters: Vec::new(), materials: Vec::new(), free: Vec::new(), free_visibility: Vec::new(), lights: Vec::new(),
         };

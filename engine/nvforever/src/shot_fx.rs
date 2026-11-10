@@ -449,6 +449,7 @@ fn flash(
     root: Query<Entity, With<WorldRoot>>,
     muzzles: Query<(Entity, &Muzzle, &GlobalTransform)>,
     mut told: Local<HashSet<fnv_sim::FormId>>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
 ) {
     let dt = time.delta_secs();
     for (e, mut f) in &mut flashes {
@@ -506,8 +507,10 @@ fn flash(
             let angle = crate::world::bevy_to_game(g.affine().matrix3.y_axis.into()).normalize_or_zero().angle_between(Vec3::from_array(dir).normalize_or(Vec3::Y)).to_degrees();
             info!("shot fx: {} muzzle flash at its weapon's muzzle, {off:.1} units from where the shot left, its length {angle:.0} degrees off the shot", shot.shooter);
         }
-        // The flash's light: the LIGH's colour, brightness and radius.
-        let light = p.muzzle_flash_light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
+        // The flash's light: the LIGH's colour, brightness and radius; none while a
+        // script's DisableMuzzleFlashLights turns this shooter's off (`fnv_game::nvse_jg10`).
+        let lit = script.as_deref().and_then(|s| s.rt.as_ref()).is_none_or(|rt| rt.game.muzzle_light_on(shot.shooter));
+        let light = p.muzzle_flash_light.filter(|_| lit).zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
         if let Some(l) = light.filter(|l| l.radius > 0.0) {
             let color = crate::lights::display_color(l.color.map(|b| b as f32 / 255.0));
             let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
@@ -811,7 +814,7 @@ pub fn explosion_rotation(world_up: bool, normal: Option<[f32; 3]>) -> Quat {
 
 /// Turn the billboards of the effect models to the camera (see the module notes).
 fn face_camera(
-    camera: Query<Entity, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<Entity, crate::fly::WorldCamera>,
     boards: Query<(Entity, &Billboard, &ChildOf)>,
     parents: Query<&ChildOf>,
     mut transforms: Query<&mut Transform>,

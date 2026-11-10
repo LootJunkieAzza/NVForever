@@ -236,7 +236,7 @@ pub fn sync(home: &EngineHome, game: &GameInstall) -> Result<PluginSync, Install
     if written {
         guard_write(&path, Some(game))?;
         std::fs::create_dir_all(&home.root).map_err(|e| InstallError::Io(home.root.clone(), e))?;
-        std::fs::write(&path, list.to_text()).map_err(|e| InstallError::Io(path.clone(), e))?;
+        crate::write_whole(&path, list.to_text().as_bytes())?;
     }
     let (load, missing, base_forced) = list.load_order(&present);
     Ok(PluginSync { load, added, missing, base_forced, written })
