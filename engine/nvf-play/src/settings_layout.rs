@@ -293,7 +293,7 @@ mod tests {
 
     /// Every row the registry can hold today (upstream main 9af0a4552), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 88] = [
+    const KNOWN: [(&str, &str); 89] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
