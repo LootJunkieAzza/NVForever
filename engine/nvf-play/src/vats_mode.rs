@@ -2400,6 +2400,9 @@ fn mark_object(v: &mut VatsMode, object: u32, point: [f32; 3], mut script: Optio
     }
 }
 
+/// How often a missed shot's point is drawn before it is taken as it is ([`shoot`]).
+const MISS_DRAWS: usize = 8;
+
 /// Fire round `round` of mark `i` (§9.1, §16.1, §16.3): the view snaps to it,
 /// `crate::combat` fires at it this frame (a throw on its arc); the mark's first round
 /// spends its AP.
@@ -2412,13 +2415,28 @@ fn shoot(v: &mut VatsMode, i: usize, round: u32, mut script: Option<&mut ScriptS
     let thrown = v.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Thrown);
     let aim = if hit {
         point
-    } else {
+    } else if thrown {
         let (u1, u2) = v.two();
-        if thrown {
-            throw_miss_point(point, u1, u2)
-        } else {
-            miss_point(player.eye(), point, u1, u2)
+        throw_miss_point(point, u1, u2)
+    } else {
+        // A miss misses: the wide point is drawn again while the line through it still
+        // meets the marked actor, at most [`MISS_DRAWS`] times. Wide of a dog's torso
+        // is still its legs [observed: smoke `vats-mode-miss`, a forced miss on the
+        // torso that hit "Right Legs" for 14.9].
+        let (eye, target) = (player.eye(), v.queue.marks().get(i).map(|m| m.target.0));
+        let filter = shot_filter(phys);
+        let mut aim = point;
+        for _ in 0..MISS_DRAWS {
+            let (u1, u2) = v.two();
+            aim = miss_point(eye, point, u1, u2);
+            let d = [aim[0] - eye[0], aim[1] - eye[1], aim[2] - eye[2]];
+            let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-3);
+            let met = phys.ray(eye, [d[0] / len, d[1] / len, d[2] / len], REACH, filter.clone());
+            if !met.is_some_and(|h| matches!(h.owner, Owner::Actor { form_id, .. } if Some(form_id) == target)) {
+                break;
+            }
         }
+        aim
     };
     if let Some(s) = v.spots.get_mut(i) {
         s.landed = Some(hit);

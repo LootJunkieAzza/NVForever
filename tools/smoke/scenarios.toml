@@ -11410,9 +11410,9 @@ order = [[
   { re = 'vats mode: marked .* mark 2; 52 AP reserved', label = "the second reserves 52 AP" },
   "vats mode: firing 2 marked shots",
   { re = 'vats mode: classic: while the attacks play the player takes 75% of a hit', label = "the playback damage share is on" },
-  { re = 'vats camera: attack 1 on .*, Shoot: path \w+ \(0x[0-9A-F]{8}\), shots ', label = "the first attack's camera is chosen from the game's camera paths before it leaves" },
-  { re = 'vats mode: shot 1 of 2 at .*, 26 AP spent', label = "the first shot leaves after its camera" },
-  { re = 'vats camera: attack 2 on .*, Shoot: path ', label = "the second attack's camera" },
+  { re = 'vats camera: attack 1 on .*, Shoot: angle [a-z ,]+; path \w+ \(0x[0-9A-F]{8}\), shots ', label = "the first attack's camera stands at one of the angles, its clocks chosen from the game's camera paths" },
+  { re = 'vats mode: shot 1 of 2 at .*, 26 AP spent', label = "the first shot leaves in its camera" },
+  { re = 'vats camera: attack 2 on .*, Shoot: angle [a-z ,]+; path ', label = "the second attack's camera" },
   { re = 'vats mode: shot 2 of 2 at .*, 26 AP spent', label = "both shots are fired" },
   { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "the mode ends after both shots" },
 ]]
@@ -11598,18 +11598,16 @@ order = [[
   { re = 'vats mode: off \(0 shots fired, 0 AP spent; V pressed again\)', label = "V leaves without firing" },
   { text = "ui: dropped VATSMenu", label = "and the menu goes" },
 ]]
-forbid = [
-  { text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn labels" },
-  { re = 'vats highlight: [0-9A-F]{8} part', label = "a part is lit on the body (the classic style's)" },
-]
+expect = [{ re = 'vats highlight: [0-9A-F]{8} part', label = "the part under the crosshair is lit on the body, as in the classic style (the fork owner 2026-11-10)" }]
+forbid = [{ text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn labels" }]
 
 [[scenario]]
 name = "vats-kill-cam"
 source = "ESM full audit gap 10 (2026-10-24): the masters' camera paths and shots (CPTH, CAMS) play as VATS mode's kill cameras (docs/design/vats-mode.md §19); owner's playtest requests #1034 (the HUD hidden while it plays) and #1036 (the player's input held)"
-note = "vats-mode-miss' setup (a .357 among the Goodsprings dogs on their packages, god mode) with both dogs left at 1 health (set_av) and every roll forced to hit: one mark, E; Violet, her two Fiends and the other dog are killed at 3 s (they fight the player, and the camera plays only for the last enemy, #1035); the shot kills the dog, the camera path tree picks a path whose hit shots play (each its Max Time in real seconds at its Global time multiplier), then the view is the player's again. Which path and shots is the tree's choice (GetRandomPercent varies it), so only their form is checked; a shot whose model fails to load would leave the view where it is. While it plays the HUD is hidden and comes back after it; W held from 10.4 s and a look at 10.45 s (test aids standing in for the keys and the mouse) are held by it. The world aids' clock runs at the world's speed, which VATS mode and the kill camera slow (FirstPersonCam: 0.12), so the aids sit just after the shot (10.36 s) to land within the camera whatever shot the tree picks; at 10.8/10.9 they came after a slowed 3 s camera had ended (#1666)"
+note = "vats-mode-miss' setup (a .357 among the Goodsprings dogs on their packages, god mode) with both dogs left at 1 health (set_av) and every roll forced to hit: one mark, E; Violet, her two Fiends and the other dog are killed at 3 s (they fight the player, and the camera plays only for the last enemy, #1035); the shot kills the dog, the camera path tree picks a path whose hit shots play (each its Max Time in real seconds at its Global time multiplier), then the view is the player's again. Which path and shots is the tree's choice (GetRandomPercent varies it), so only their form is checked; a shot whose model fails to load would leave the view where it is. While it plays the HUD is hidden and comes back after it; W held from 10.4 s and a look at 10.45 s (test aids standing in for the keys and the mouse) are held by it. The world aids' clock runs at the world's speed, which VATS mode and the kill camera slow (FirstPersonCam: 0.12), so the aids sit just after the shot (10.36 s) to land within the camera whatever shot the tree picks; at 10.8/10.9 they came after a slowed 3 s camera had ended (#1666). V is at 7 s since 2026-11-11 (it was 10 s): the camera's last shot is held 3 s longer now, and at 10 s Gun Runners' Arsenal's message box, some 12.7 game seconds in, opened under a 10.5 s camera and ended it"
 areas = ["combat", "vats", "hud"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "crates/fnv-game/src/camera_paths.rs", "engine/nvf-assets/src/camera_shot.rs", "engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/hud.rs", "engine/nvf-play/src/bindings.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_MOVE = "10.4:1:0,13:0:0", NVF_PLAY_TEST_LOOK = "10.45:90:0", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_MOVE = "7.4:1:0,10:0:0", NVF_PLAY_TEST_LOOK = "7.45:90:0", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 28
 order = [
@@ -11621,8 +11619,8 @@ order = [
     { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself" },
   ],
   [
+    { text = "hud: hidden: the VATS attacks play", label = "the HUD goes as the marks are fired, and stays gone under the kill camera (#1034; from the shot on since 2026-11-10)" },
     { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts" },
-    { text = "hud: hidden: the kill camera has the view", label = "the HUD goes while it plays (#1034)" },
     { re = 'test aid: look heading 90\.0 pitch 0\.0 ignored: the kill camera has the view', label = "the look is held (#1036)" },
     { re = 'kill camera: done \([\d.]+ s\), input held [1-9]\d* frames', label = "the held W is struck from the frames it plays (#1036)" },
     { text = "hud: back after the kill camera", label = "the HUD comes back after it (#1034)" },
@@ -11638,16 +11636,16 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-others-fighting"
 source = "owner's playtest request #1035: the VATS kill camera plays only when no other enemy is in combat with the player (engine/nvf-play/src/kill_cam.rs, docs/design/vats-mode.md §19)"
-note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's. A third Fiend dog (0x0013F85F, 1282 units off, out of sight) is killed at 3 s too: it heard the shot and entered combat within 10 to 80 ms of it, before or after the camera's check some 16 ms after the shot, so the line read 1 or 2 enemies by the frame's timing (2 of 4 runs alone failed, 2026-11-10)"
+note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's. A third Fiend dog (0x0013F85F, 1282 units off, out of sight) is killed at 3 s too: it heard the shot and entered combat within 10 to 80 ms of it, before or after the camera's check some 16 ms after the shot, so the line read 1 or 2 enemies by the frame's timing (2 of 4 runs alone failed, 2026-11-10). Which of the two dogs is nearer the crosshair at the click varies with where they have wandered, so both are set on the player and either may be the one marked (2026-11-11: Violetta was marked and the check named the other dog)"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/kill_cam.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013F85F,10.34:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013F85F,10.34:combat:0x0013E5BB:player,10.34:combat:0x000F573F:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 20
 order = [[
-  { re = 'vats mode: marked .*000F573F.* mark 1; ', label = "one mark, on the Fiend Guard Dog" },
+  { re = 'vats mode: marked .*(000F573F|0013E5BB).* mark 1; ', label = "one mark, on one of the two dogs (the nearer to the crosshair at the click)" },
   { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: hit', label = "the roll hits (forced)" },
-  { re = 'kill camera: skipped, 1 enemies still in combat \(.*0x0013E5BB', label = "the other dog still fights the player: no kill camera" },
+  { re = 'kill camera: skipped, 1 enemies still in combat \(.*0x(0013E5BB|000F573F)', label = "the other dog still fights the player: no kill camera" },
 ]]
 expect = [{ re = 'kill camera summary: 0 shown, 1 skipped, 0 off', label = "none shown, one skipped" }]
 forbid = [
@@ -11715,14 +11713,14 @@ forbid = [{ re = 'vats mode: the Mysterious Stranger comes', label = "the Strang
 [[scenario]]
 name = "vats-grim-reaper-nerves"
 source = "perk audit 2026-10-23 §3.1, owner 2026-10-24: Grim Reaper's Sprint gives 20 AP back after a VATS kill, Nerves of Steel speeds AP regeneration (docs/design/vats-mode.md §18.3, §18.4)"
-note = "the Goodsprings dogs set on the player (god mode); the player holds the Mysterious Stranger's .44 (MysteriousStranger44Magnum 00050F92, 9,000 damage, with .44 rounds) and has GrimReaperSprint and DLC03NervesOfSteel from 3 s; the roll is forced to hit, so both marks die (40 AP spent): 20 AP come back; then the other 20 regenerate at 1.2 x (with one mark, the first run, the 20 back left nothing to regenerate)"
+note = "the Goodsprings dogs set on the player (god mode); the player holds the Mysterious Stranger's .44 (MysteriousStranger44Magnum 00050F92, 9,000 damage, with .44 rounds) and has GrimReaperSprint and DLC03NervesOfSteel from 3 s; the roll is forced to hit, so both marks die (40 AP spent): 20 AP come back; then the other 20 regenerate at 1.2 x (with one mark, the first run, the 20 back left nothing to regenerate). Since 2026-11-11 a mark on a dead actor is dropped unspent (vats-classic.md 8.1): when both marks landed on the same dog the second was dropped and the .44's 20 AP came back whole, so the regeneration line came only in the runs that marked both dogs. The weapon is now the .357 (26 AP a shot) and the dogs have 1 health: either way more AP is spent than comes back, and the rest regenerates"
 areas = ["combat", "vats", "perks"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-game/src/vats.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:GrimReaperSprint,3:perk:DLC03NervesOfSteel", NVF_PLAY_TEST_EQUIP = "00050F92", NVF_PLAY_TEST_GIVE = "0002937E:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:combat:0x000F573F:player,3:combat:0x0013E5BB:player,3:perk:GrimReaperSprint,3:perk:DLC03NervesOfSteel", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 18
 order = [[
-  { re = 'vats mode: on \(MysteriousStranger44Magnum', label = "VATS mode with the Stranger's .44" },
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot', label = "VATS mode with the .357, 26 AP a shot" },
   { re = 'vats mode: shot 1 of 2 at .*: hit', label = "the first mark is hit (forced)" },
   { re = 'vats mode: [12] killed: the Player Kill AP Reward perks give 20 AP back \(20 restored\)', label = "Grim Reaper's Sprint gives 20 AP back" },
   { re = 'vats mode: AP regenerates at 1\.20 x', label = "Nerves of Steel: the AP comes back 1.2 x as fast" },
