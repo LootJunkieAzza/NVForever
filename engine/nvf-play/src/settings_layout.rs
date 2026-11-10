@@ -79,7 +79,11 @@ pub const SECTIONS: &[Section] = &[
         Some("Interface"),
         &["hud-colour", "hud-red", "hud-green", "hud-blue", "pipboy-colour", "pipboy-red", "pipboy-green", "pipboy-blue", "language", "dynamic-crosshair", "crosshair-style", "sneak-gauges"],
     ),
-    section("Display", Some("Performance"), &["fps-counter"]),
+    section(
+        "Display",
+        Some("Performance"),
+        &["fps-counter", "fps-counter-fps", "fps-counter-low", "fps-counter-graph", "fps-counter-split", "fps-counter-cpu", "fps-counter-gpu", "fps-counter-vram", "fps-counter-ram", "fps-counter-loaded"],
+    ),
     section("Audio", None, &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]),
     section("Controls", None, &CONTROLLER_KEYS),
     section(
@@ -293,7 +297,7 @@ mod tests {
 
     /// Every row the registry can hold today (upstream main 9af0a4552), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 89] = [
+    const KNOWN: [(&str, &str); 98] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -348,6 +352,15 @@ mod tests {
         ("field-of-view", "Display"),
         ("ui-scale", "Display"),
         ("fps-counter", "Display"),
+        ("fps-counter-fps", "Display"),
+        ("fps-counter-low", "Display"),
+        ("fps-counter-graph", "Display"),
+        ("fps-counter-split", "Display"),
+        ("fps-counter-cpu", "Display"),
+        ("fps-counter-gpu", "Display"),
+        ("fps-counter-vram", "Display"),
+        ("fps-counter-ram", "Display"),
+        ("fps-counter-loaded", "Display"),
         ("display-sync", "Display"),
         ("frame-cap", "Display"),
         ("object-distance", "Display"),
