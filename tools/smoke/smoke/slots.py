@@ -133,6 +133,33 @@ def file_is_locked(path: Path) -> bool:
     return True
 
 
+def clear_unused_shared(shared: Path) -> bool:
+    """Remove a shared `smoke.lock` (its owner file starts with `shared`) while no slot is
+    taken, under the slots' mutex as `Slots` changes it; whether it was removed. For a
+    runner that takes `smoke.lock` by `mkdir` (`runner.Locks`, `--slots 1`): slot runners
+    that died between launches leave the shared lock with no slot taken, and only a slot
+    runner giving a slot back cleared it, so such a runner first in the queue waited for
+    ever [observed: #1933, 2026-11-09, twice]."""
+    shared = Path(shared)
+    folder = shared.parent / "smoke-slots"
+    mutex = FileLock(folder / "mutex.lock")
+    if not mutex.try_lock():
+        return False  # a slot runner is changing the lock now
+    try:
+        try:
+            words = (shared / OWNER).read_text().split()
+        except OSError:
+            return False
+        if not words or words[0] != SHARED:
+            return False
+        if any(file_is_locked(folder / f"slot-{i}.lock") for i in range(1, MAX_SLOTS + 1)):
+            return False
+        shutil.rmtree(shared, ignore_errors=True)
+        return not shared.exists()
+    finally:
+        mutex.unlock()
+
+
 def is_slot_ticket(t: Path) -> bool:
     try:
         return SLOT_LABEL in t.read_text()

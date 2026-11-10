@@ -102,6 +102,7 @@ mod destroyed;
 mod npc_grenades;
 mod npc_stimpaks;
 mod use_weapon;
+mod ui_attach;
 mod provoked;
 mod weapons;
 mod lodgen;
@@ -1616,6 +1617,8 @@ fn main() -> AppExit {
             app.add_plugins(own_sounds::OwnSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
+            // AttachUIComponent's rects over their model nodes (ui_attach.rs, #1835).
+            app.add_plugins(ui_attach::UiAttachPlugin);
             // Who says a line to someone turns to them (speech_look.rs).
             app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.

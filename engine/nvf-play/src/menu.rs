@@ -747,7 +747,10 @@ fn publish_jip_menus(mut active: ResMut<ActiveMenu>, script: Option<ResMut<crate
         }
     }
     *was = code;
-    let (Some(m), Some(code)) = (active.0.as_mut(), code) else { return };
+    // Read through `as_ref`: taking the menu mutably every frame would mark it changed every
+    // frame, and the item menus and the Pip-Boy's ITEMS page redraw on a change, so a click's
+    // press and release would meet different rows. Only a script's new multipliers change it.
+    let (Some(m), Some(code)) = (active.0.as_ref(), code) else { return };
     let list = |m: &MenuModel, side: Side, owner: Option<FormId>| MenuList { owner, rows: m.list(side).rows.iter().enumerate().filter(|(_, r)| r.folder.is_none()).map(|(i, r)| (i, r.item, true)).collect() };
     let category = |side: Side| model::Category::ORDER.iter().position(|c| *c == m.category[side as usize]).unwrap_or(0) as u8;
     let other = match m.mode {
@@ -762,6 +765,7 @@ fn publish_jip_menus(mut active: ResMut<ActiveMenu>, script: Option<ResMut<crate
     rt.game.set_barter_view(Some(BarterView { merchant_caps: t.purse[Side::Container as usize], stock: t.stock, bought: units(Side::Container), sold: units(Side::Player), mult: t.mults() }));
     let set = rt.game.barter_price_mults();
     if m.trade.as_ref().is_some_and(|t| t.mult_set != set) {
+        let Some(m) = active.0.as_mut() else { return };
         if let Some(t) = m.trade.as_mut() {
             t.mult_set = set;
         }

@@ -945,7 +945,7 @@ pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<
     let added: Vec<&str> = current.iter().filter(|c| !f.header.plugins.iter().any(|p| p.name.eq_ignore_ascii_case(&c.name))).map(|c| c.name.as_str()).collect();
     let moved = remap.moved().iter().map(|(n, a, b)| format!("{n} {a:02X}->{b:02X}")).collect::<Vec<_>>();
     let mut raw = raw;
-    let report = fnv_save::remap_json(&mut raw, &remap);
+    let report = fnv_save::remap_json_with(&mut raw, &remap, &fnv_game::game::SAVE_PAIR_FIELDS);
     let mut body = body_of(raw)?;
     let gone = |id: fnv_sim::FormId| fnv_save::is_gone(id.0);
     let dropped_game = body.game.drop_gone(gone);

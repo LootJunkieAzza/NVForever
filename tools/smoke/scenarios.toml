@@ -9624,11 +9624,11 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_P
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--window", "borderless"]
 run_seconds = 18
 expect = [
-  { text = "window: borderless full screen on the current monitor", label = "--window borderless starts borderless full screen" },
+  { re = 'window: borderless full screen$', label = "--window borderless starts borderless full screen" },
   { text = "settings: borderless off", label = "the Display switch is flipped" },
   { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
 ]
-order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+order = [[{ re = 'window: borderless full screen$' }, "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
 
 [[scenario]]
 name = "resolution-revert"
@@ -23847,6 +23847,31 @@ order = [["nvf type middle", "nvf type active", "nvf type suppressed", "nvf type
 manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box above the amber bar; ui_typewriter_final.png: the same letter fully visible with the replacement callback's pink colour. Verify the text and alpha links affect the rendered result."
 
 [[scenario]]
+name = "ui-attach-component-node"
+source = "issue #1835 ([documented: AttachUIComponent] the component goes into one rect under HUDMainMenu and follows a named node of a loaded model; [design: ui_more.rs place_attachments, engine/nvforever/src/ui_attach.rs] the rect's top left on the node's point through the player's camera, in interface units; hidden behind the camera or off screen)"
+note = "Easy Pete held (SetRestrained) and put 350 units north of the player, then an authored component (a rect holding a text, written for this test) attached to his Bip01 Head at 4 s; aimnpc turns the view onto him; at 10 s the view turns south, away from him"
+areas = ["ui", "hud", "scripts"]
+paths = ["engine/nvforever/src/ui_attach.rs", "crates/fnv-game/src/ui_more.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = '2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:call:EasyPeteRef:AttachUIComponent:"Bip01 Head":"<rect name="NVFAttachTest"><text name="Label"><x>-80</x><y>-40</y><font>1</font><string>NVF ATTACH TEST</string></text></rect>"', NVF_PLAY_TEST_CONTROL = "6:aimnpc,8:aimnpc", NVF_PLAY_TEST_LOOK = "10:180:0", NVF_PLAY_TEST_SHOTS = "9:ui_attach_on_head.png,11.5:ui_attach_turned_away.png" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 13
+expect = [
+  { re = 'script: test aid calls AttachUIComponent on EasyPeteRef', label = "the component attached to Easy Pete's head" },
+  { re = 'ui: attached NVFAttachTest on [0-9A-F]{8} node "Bip01 Head" shown at \(\d+, \d+\)', label = "placed on screen at the head bone" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \([1-9]\d* items\)', label = "the attached rect's text enters rendering" },
+  { re = 'ui: attached NVFAttachTest on [0-9A-F]{8} node "Bip01 Head" hidden \((behind the camera|off the screen)\)', label = "hidden once the view turns away" },
+]
+order = [[
+  { re = 'test aid calls AttachUIComponent' },
+  { re = 'ui: attached NVFAttachTest .* shown at' },
+  { re = 'ui: attached NVFAttachTest .* hidden \((behind the camera|off the screen)\)' },
+]]
+forbid = [
+  { re = 'ui: attached NVFAttachTest .* hidden \((no such node|not drawn|no camera)\)', label = "the head bone is found on the drawn actor, by its exact name" },
+]
+manual = "ui_attach_on_head.png: the words NVF ATTACH TEST in white just above and left of Easy Pete's head, the view on him; ui_attach_turned_away.png: the view south, no words on screen"
+
+[[scenario]]
 name = "pipboy-items-hints"
 source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
 areas = ["pipboy"]
@@ -23891,6 +23916,45 @@ expect = [
 order = [["controls: input device Controller", "pipboy hints: items Weapons", "pipboy hints: items Aid", "pipboy hints: items Ammo", "pipboy hints: mod menu: Mod A) (dim), Exit B)"]]
 
 [[scenario]]
+name = "pipboy-data-hints"
+source = "#1897 (docs/spec-notes/pipboy.md §5.3): with the keyboard and mouse each DATA tab shows the original's PC hints, a column whose words end at the heading's right end with the key after them: Local Map and World Map Place Marker alone with no key (dim: not built), Radio none (its A hint is the controller's), Quests Show Location X), Misc Active Notes X) and Challenges R); a quest (VCG02's objective) and a note (Beagle's journal) are given first; frames pipboy_data_hints_world.png, pipboy_data_hints_misc.png in the working folder (the Misc hints inside the screen at 1280 x 720)"
+note = "the console's addnote is the one pipboy-holotape uses; the objective aid the one of the script-look scenario (VCG02 3)"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVFOREVER_HOME = "pipboy-data-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,20:tab=4,21.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_world.png,19.5:pipboy_data_hints_misc.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { re = 'pipboy hints: data local map: Place Marker \(dim\)$', label = "Local Map: Place Marker alone with the keyboard, no key, dim (not built)" },
+  { re = 'pipboy hints: data world map: Place Marker \(dim\)$', label = "World Map: Place Marker alone with the keyboard (Travel is the controller's)" },
+  { re = 'pipboy hints: data quests: Show Location X\)$', label = "Quests: Show Location alone, with its key (the make-active hint is the controller's)" },
+  { re = 'pipboy hints: data misc: Active Notes X\), Challenges R\)$', label = "Misc: the notes' filter and Challenges with their keys" },
+  { re = 'pipboy hints: data radio: none$', label = "Radio: no hint with the keyboard (Tune is the controller's)" },
+]
+order = [["pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc", "pipboy hints: data radio"]]
+
+[[scenario]]
+name = "pipboy-data-hints-pad"
+source = "#1897 (docs/spec-notes/pipboy.md §5.3): with Controller as the Input Device (Xbox names) each DATA tab shows the original's column, as on the issue's screenshots taken with a controller: Local Map Place Marker X) (dim, not built), World Map Travel A) (dim without a marker under the highlight box) and Place Marker X), Quests Set Active A) and Show Location X), Misc Play A) on the audio note (Stop A) once it plays), Active Notes X) and Challenges Y), Radio Tune In A); the same quest and note as pipboy-data-hints; frames pipboy_data_hints_pad_world.png, pipboy_data_hints_pad_misc.png in the working folder"
+note = "a home of its own keeps the Controller choice away from the other scenarios (as pipboy-items-hints-pad); the pause menu's settings aid picks the device before the Pip-Boy steps; no --no-voice, so the picked holotape plays and its hint turns to Stop"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVFOREVER_HOME = "pipboy-data-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,19.5:note=001618BF,21:tab=4,22.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_pad_world.png,19:pipboy_data_hints_pad_misc.png" }
+args = ["--cell", "Goodsprings", "--play", "--size", "1280x720"]
+run_seconds = 25
+expect = [
+  { text = "controls: input device Controller", label = "the pause menu's settings aid sets the Input Device to Controller before the DATA steps" },
+  { text = "hints: Xbox labels", label = "the DATA hints take the Xbox names before the Pip-Boy opens" },
+  { re = 'pipboy hints: data local map: Place Marker X\) \(dim\)$', label = "Local Map: Place Marker with its button, dim (not built)" },
+  { re = 'pipboy hints: data world map: Travel A\)( \(dim\))?, Place Marker X\) \(dim\)$', label = "World Map: Travel (dim unless a marker is under the highlight box) and Place Marker" },
+  { re = 'pipboy hints: data quests: Set Active A\), Show Location X\)$', label = "Quests: the make-active hint and Show Location with their buttons" },
+  { re = 'pipboy hints: data misc: Play A\), Active Notes X\), Challenges Y\)$', label = "Misc: Play on the audio note, the notes' filter and Challenges" },
+  { re = 'pipboy hints: data misc: Stop A\), Active Notes X\), Challenges Y\)$', label = "Misc: Stop while the picked audio note plays" },
+  { re = 'pipboy hints: data radio: Tune In A\)$', label = "Radio: the tune hint with its button" },
+]
+order = [["controls: input device Controller", "pipboy hints: data local map", "pipboy hints: data world map", "pipboy hints: data quests", "pipboy hints: data misc: Play", "pipboy hints: data misc: Stop", "pipboy hints: data radio"]]
+
+[[scenario]]
 name = "pipboy-stats-rad-radaway"
 source = "[design] #1899: hand-built Status RAD owns keyboard/controller A while its RadAway hint is shown; use the carried aid item and keep the tab (engine/nvf-play/src/pipboy.rs, pipboy/stats/mod.rs; docs/spec-notes/pipboy.md 5.1)"
 areas = ["pipboy", "aid"]
@@ -23922,3 +23986,19 @@ expect = [
 ]
 forbid = ["pipboy stats: used", "pipboy stats: Status RAD", "pipboy stats: General"]
 order = [["test aid: real input Pad(West) pressed", "pipboy stats: Status CND (head chosen)", "pipboy stats: Status CND (torso chosen)"]]
+
+[[scenario]]
+name = "helios-stasis-no-alarm"
+source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay on their pods until the player trips the laser. In the original (#1977 probe 3, player at (-2987,-648)) only p4 fights and the other four stay idle on ProtectronNotActive, a package that skips Fallout behaviour with Observe Combat Behavior clear; such an actor now takes no alarm (crates/fnv-game/src/combat_group.rs raise_alarms). Before, p4's alarm sent all five searching and one walked through the beam"
+note = "HELIOSOneTower, the player 295 units south of p4 (VHeliosStasisProtectron4REF 0x0009A260) behind the pods' wall; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+areas = ["ai", "combat"]
+paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'alert: LvlStasisRobot 0009A260 Normal → Alert', label = "p4 notices the player (in the original it fights, unseen)" },
+  { re = 'combat group: VHeliosStasisProtectron4REF 0x0009A260 alarms ', min = 1, label = "it still alarms the tower's other robots" },
+  { re = 'alarms VHeliosStasisProtectron\dREF', max = 0, label = "but none of the stasis protectrons on ProtectronNotActive" },
+  { re = 'entered trigger 0x0009A1E8', max = 0, label = "and nobody walks through the tripwire's beam (p2 did, 19 s in, before)" },
+]
