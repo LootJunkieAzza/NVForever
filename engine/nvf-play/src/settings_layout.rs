@@ -93,7 +93,9 @@ pub const SECTIONS: &[Section] = &[
             "grade",
             "sun-shadows",
             "fsr-upscaling",
+            "frame-generation",
             "anti-aliasing",
+            "latency-reduction",
             "shadow-filter",
             "ambient-occlusion",
             "fine-shadows",
@@ -293,9 +295,9 @@ mod tests {
             .collect()
     }
 
-    /// Every row the registry can hold today (upstream main 9af0a4552, with #1966's
+    /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
     /// quality and enhanced rows), by the group it registers with.
-    const KNOWN: [(&str, &str); 89] = [
+    const KNOWN: [(&str, &str); 91] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -358,7 +360,9 @@ mod tests {
         ("shadow-distance", "Display"),
         ("grass-distance", "Display"),
         ("fsr-upscaling", "Graphics"),
+        ("frame-generation", "Graphics"),
         ("anti-aliasing", "Graphics"),
+        ("latency-reduction", "Graphics"),
         ("shadow-filter", "Graphics"),
         ("ambient-occlusion", "Graphics"),
         ("fine-shadows", "Graphics"),
