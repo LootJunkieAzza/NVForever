@@ -411,7 +411,7 @@ impl HudTiles<'_> {
                         use fnv_game::ui_hud::MarkKind;
                         fnv_game::ui_hud::CompassMark {
                             kind: match kind {
-                                Mark::Actor => MarkKind::Actor,
+                                Mark::Actor | Mark::Companion => MarkKind::Actor,
                                 Mark::Hostile => MarkKind::Hostile,
                                 Mark::Place => MarkKind::Place,
                                 Mark::Found => MarkKind::Found,

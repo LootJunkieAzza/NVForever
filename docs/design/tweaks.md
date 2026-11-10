@@ -464,6 +464,7 @@ unless the player binds them, so nothing changes until then.
 | Radio Volume Up / Down keys | `iRadioVolumeUpKey`, `iRadioVolumeDownKey` | two new unbound Controls; `tweaks::radio_volume_keys` steps `SoundVolumes`' Radio level a tenth |
 | No Hotkey Wheel | `bNoHUDHotkeyPopup` | `weapon_wheel::Frame::no_hold_open`: a held hotkey never opens the wheel; let go, it is a tap |
 | Ammo Label Under the Count | `bMoveAmmoTypeLabel` | `hud::texts` puts the label right-aligned `AMMO_LABEL_DROP` below the count, inside the panel |
+| Companion Compass Colour | `bCompanionPipColorChange` | `compass::Mark::Companion` for teammates, drawn in `tweaks::COMPANION_COLOURS` (a choice of ours in place of the tweak's RGB value) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -485,8 +486,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 385 |
-| to do | 218 |
+| done | 386 |
+| to do | 217 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -817,6 +818,7 @@ game's Data folder, read-only).
 | `bHideRedCrosshairOnDistantInvisibleTargets` | done | yes |  | Invisible Foes Stay Hidden (at any distance) |
 | `bColoredHUDBars` | done |  | 2 | Red Health / Action Point Bar Below (two shares) |
 | `bColorWeaponCndLabel` | done |  | 2 | Red / Flashing Weapon Condition Below (the bar, the HUD has no label) |
+| `bCompanionPipColorChange` | done |  | 1 | Companion Compass Colour (five colours of ours instead of an RGB value) |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
@@ -858,7 +860,6 @@ game's Data folder, read-only).
 | `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
 | `bArmorConditionLabel` | to do |  | 9 | no armour condition text on the HUD yet |
-| `bCompanionPipColorChange` | to do |  | 1 | a companion mark kind in compass and tiles |
 | `bCompassFadeLeftSide` | to do |  |  | compass::draw alpha on both paths |
 | `bCompassLocationDistanceBasedAlpha` | to do |  |  | the compass view carries no distance |
 | `bCompassNPCDistanceBasedAlpha` | to do |  |  | the compass draws no alpha yet |

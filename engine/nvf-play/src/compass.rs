@@ -94,6 +94,8 @@ pub enum Mark {
     /// An actor not hostile to the player.
     Actor,
     Hostile,
+    /// A companion, under the player's Companion Pip Colour tweak [design: docs/design/tweaks.md].
+    Companion,
     /// A map marker the player has not been to, and one it has.
     Place,
     Found,
@@ -317,6 +319,7 @@ fn gather(
     let quest_reach = tweaks.as_ref().map_or(0.0, |t| t.quest_marker_reach);
     let pips_in_danger_only = tweaks.as_ref().is_some_and(|t| t.compass_pips_in_danger_only);
     let neutral_foes = tweaks.as_ref().is_some_and(|t| t.neutral_foes_on_compass);
+    let companion_pips = tweaks.as_ref().is_some_and(|t| t.companion_pip > 0);
     let nearest_unfound = tweaks.as_ref().is_some_and(|t| t.nearest_unfound_on_compass);
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
@@ -373,7 +376,13 @@ fn gather(
                 if pips_in_danger_only && crate::hud::sneak_now(g) != crate::hud::Sneak::Danger {
                     continue;
                 }
-                let mark = if hostile && !neutral_foes { Mark::Hostile } else { Mark::Actor };
+                let mark = if hostile && !neutral_foes {
+                    Mark::Hostile
+                } else if companion_pips && g.is_teammate(r) {
+                    Mark::Companion
+                } else {
+                    Mark::Actor
+                };
                 out.push((Near { mark, at: [at[0], at[1]], body: bodies.contains_key(&r.0).then_some(r.0) }, shown));
             }
             g.other.jg9.compass_hostile = nearest.map(|n| n.map(|(_, x)| direction_of(x)));
@@ -440,7 +449,7 @@ fn gather(
         *logged_quest = Some((placed, shown));
     }
     let count = |k: &[Mark]| marks.iter().filter(|m| k.contains(m)).count();
-    let counts = [count(&[Mark::Actor, Mark::Hostile]), count(&[Mark::Hostile]), count(&[Mark::Place, Mark::Found]), count(&[Mark::Found]), sneakers];
+    let counts = [count(&[Mark::Actor, Mark::Hostile, Mark::Companion]), count(&[Mark::Hostile]), count(&[Mark::Place, Mark::Found]), count(&[Mark::Found]), sneakers];
     if counts != *logged {
         let [actors, hostile, markers, found, sneakers] = counts;
         info!("compass: {actors} actors ({hostile} hostile), {markers} map markers ({found} found) on the compass, Perception {perception}, {sneakers} sneaking left off");
@@ -510,7 +519,7 @@ fn mark_left(mark: Mark, x: f32, picture: bool) -> f32 {
     let x = COMPASS_HEADING + x;
     match (mark, picture) {
         (_, false) => x - 2.0,
-        (Mark::Actor | Mark::Hostile, true) => x - TICK_MIDDLE * TICK_SIZE,
+        (Mark::Actor | Mark::Hostile | Mark::Companion, true) => x - TICK_MIDDLE * TICK_SIZE,
         _ => x - LANDMARK_MIDDLE.x * LANDMARK_SIZE,
     }
 }
@@ -531,7 +540,9 @@ fn draw(
     mut nodes: Query<&mut Node>,
     mut art: Local<Option<Art>>,
     mut spawned: Local<Spawned>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
+    let companion = crate::tweaks::companion_colour(tweaks.as_deref());
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
     let Ok(layer) = layers.single() else { return };
@@ -545,7 +556,7 @@ fn draw(
         Art { tick: read(TICK), landmark: read(LANDMARK), found: read(LANDMARK_FOUND), quest: read(QUEST) }
     });
     let image_of = |mark: Mark| match mark {
-        Mark::Actor | Mark::Hostile => &art.tick,
+        Mark::Actor | Mark::Hostile | Mark::Companion => &art.tick,
         Mark::Found => &art.found,
         Mark::Quest => &art.quest,
         Mark::Place => &art.landmark,
@@ -566,8 +577,12 @@ fn draw(
             let image = image_of(mark);
             let left = mark_left(mark, x, image.is_some());
             let (node, colour) = match mark {
-                Mark::Actor | Mark::Hostile => {
-                    let colour = if mark == Mark::Hostile { crime_colour() } else { amber(255.0) };
+                Mark::Actor | Mark::Hostile | Mark::Companion => {
+                    let colour = match mark {
+                        Mark::Hostile => crime_colour(),
+                        Mark::Companion => companion.unwrap_or_else(|| amber(255.0)),
+                        _ => amber(255.0),
+                    };
                     (at(left, TICK_TOP, TICK_SIZE, TICK_SIZE), colour)
                 }
                 // The quest marker in the map marker's box (the same 40 x 50 at y 5 in the
@@ -577,7 +592,7 @@ fn draw(
             let id = match image {
                 Some(image) => p.spawn((node, ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })).id(),
                 // Without the game's pictures: a small block.
-                None => p.spawn((at(left, if matches!(mark, Mark::Actor | Mark::Hostile) { 10.0 } else { 40.0 }, 4.0, 12.0), BackgroundColor(colour))).id(),
+                None => p.spawn((at(left, if matches!(mark, Mark::Actor | Mark::Hostile | Mark::Companion) { 10.0 } else { 40.0 }, 4.0, 12.0), BackgroundColor(colour))).id(),
             };
             out.push((mark, id));
         }

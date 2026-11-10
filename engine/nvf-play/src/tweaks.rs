@@ -276,6 +276,21 @@ pub struct TweakSettings {
     pub no_hotkey_wheel: bool,
     /// `bMoveAmmoTypeLabel`: the HUD's ammo label under the ammo count.
     pub ammo_label_under: bool,
+    /// `bCompanionPipColorChange`: which of [`COMPANION_COLOURS`] companions' compass
+    /// pips take (0: as anyone's).
+    pub companion_pip: usize,
+}
+
+/// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
+pub const COMPANION_COLOURS: [(&str, [f32; 3]); 6] = [("Off", [0.0; 3]), ("Green", [0.35, 1.0, 0.4]), ("Blue", [0.4, 0.6, 1.0]), ("Cyan", [0.3, 0.95, 1.0]), ("White", [1.0, 1.0, 1.0]), ("Yellow", [1.0, 0.95, 0.3])];
+
+/// The companion pip colour the tweak picks, if any.
+pub fn companion_colour(t: Option<&TweakSettings>) -> Option<Color> {
+    let i = t.map_or(0, |t| t.companion_pip).min(COMPANION_COLOURS.len() - 1);
+    (i > 0).then(|| {
+        let [r, g, b] = COMPANION_COLOURS[i].1;
+        Color::srgb(r, g, b)
+    })
 }
 
 /// The keys the console may open on, the original's first; ones nothing else in the
@@ -438,6 +453,7 @@ impl Default for TweakSettings {
             vats_keeps_holstered: false,
             no_hotkey_wheel: false,
             ammo_label_under: false,
+            companion_pip: 0,
         }
     }
 }
@@ -1222,6 +1238,25 @@ impl Plugin for TweaksPlugin {
         switch!(app, "vats-keeps-holstered", "V.A.T.S. Puts the Weapon Back", "A weapon that V.A.T.S. drew is put away again when the mode ends with nothing fired. (Stewie's Tweaks bEnteringVATSDoesntUnholsterWeapon)", vats_keeps_holstered);
         switch!(app, "no-hotkey-wheel", "No Hotkey Wheel", "Holding a hotkey does not open the weapon wheel; letting go uses the slot as a tap does. (Stewie's Tweaks bNoHUDHotkeyPopup)", no_hotkey_wheel);
         switch!(app, "ammo-label-under", "Ammo Label Under the Count", "The HUD writes the ammo type under the ammo count instead of beside it. (Stewie's Tweaks bMoveAmmoTypeLabel)", ammo_label_under);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-companion-pip",
+                GROUP,
+                "Companion Compass Colour",
+                "The colour of companions' marks on the compass; Off leaves them as anyone's. (Stewie's Tweaks bCompanionPipColorChange)",
+                Slider::choice(
+                    COMPANION_COLOURS.len(),
+                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(0, |t| t.companion_pip).min(COMPANION_COLOURS.len() - 1), COMPANION_COLOURS.len()),
+                    |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.companion_pip = choice_index(v, COMPANION_COLOURS.len());
+                        }
+                    },
+                    |v| COMPANION_COLOURS[choice_index(v, COMPANION_COLOURS.len())].0.to_string(),
+                ),
+            ),
+        );
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
