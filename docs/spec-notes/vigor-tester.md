@@ -156,9 +156,10 @@ to Strength by itself [observed: the captures of 2026-11-06, §5].
   share a render layer no other view has (`VIGOR_LAYER`): a view takes every light whose
   layers meet its own and there is no list per mesh, so this is what keeps the room's
   lights off the machine and the rig's off the room. The camera draws into an image the
-  size of the window, shown as a full-screen image under every other UI node. As with the
-  other menus' cameras (lockpicking, terminals), what asks for the one `Camera3d` (level
-  of detail, grass, streaming) waits while the menu is open.
+  size of the window, shown as a full-screen image under every other UI node. Level of
+  detail, grass and streaming find the main camera by its marker, not as the one
+  `Camera3d`, so they keep running behind this camera as behind the other menus'
+  (lockpicking, terminals) [design: issue #1753, docs/design/layer4-play.md §2].
 - Lit: a warm key above and to the left of the eye, a dimmer fill low to the right, a warm
   ambient light, no shadows; not scaled by `--light-scale`. Each part's colour has a tint
   (`model::shade`): boards and posters as they are, the cabinet darker, dull bulbs warm

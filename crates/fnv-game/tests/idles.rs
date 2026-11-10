@@ -53,6 +53,9 @@ const IDLE_LEAF_OWN: u32 = 0xA07;
 const IDLE_LEAF_ANY: u32 = 0xA08;
 /// A third leaf, of the Idle section (DATA section 0): a standing look.
 const IDLE_LEAF_LOOK: u32 = 0xA09;
+/// A fourth leaf, a special idle wanting GetUnconscious == 1: the switched-off pose
+/// (FalloutNV.esm's `ProtectronTurnedOff`, #1977).
+const IDLE_LEAF_OFF: u32 = 0xA0A;
 const P_FIRST: u32 = 0xB01;
 const P_SECOND: u32 = 0xB02;
 const P_PLAIN: u32 = 0xB03;
@@ -121,6 +124,7 @@ fn ctda_eq(function: u16, value: f32, or: bool) -> Subrecord {
 
 /// IsMoving and GetCurrentAIProcedure (condition function indices).
 const IS_MOVING: u16 = 25;
+const GET_UNCONSCIOUS: u16 = 242;
 const GET_CURRENT_AI_PROCEDURE: u16 = 143;
 
 /// A Travel package at the editor location with a begin idle, a change idle and an idle
@@ -162,6 +166,7 @@ fn plugin_bytes() -> Vec<u8> {
         leaf(IDLE_LEAF_OWN, "LeafOwn", IDLE_FOLDER, 0, vec![ctda(GET_IS_ID, NPC)]),
         leaf(IDLE_LEAF_ANY, "LeafAny", IDLE_FOLDER, IDLE_LEAF_OWN, vec![]),
         leaf_in(IDLE_LEAF_LOOK, "LeafLook", IDLE_FOLDER, IDLE_LEAF_ANY, vec![ctda(GET_IS_ID, NPC)], 0),
+        leaf(IDLE_LEAF_OFF, "LeafOff", IDLE_FOLDER, IDLE_LEAF_LOOK, vec![ctda_eq(GET_UNCONSCIOUS, 1.0, false)]),
         // As FalloutNV.esm's PanicExplosivePlanted: a root of the folder that wants
         // GetPlantedExplosive == 1, its power armour leaf (here: never) before the plain one.
         record(
@@ -231,6 +236,7 @@ fn call(g: &mut Game, opcode: u16, on: FormId, args: &[ArgValue]) -> Value {
 }
 
 const PLAY_IDLE: u16 = 0x1190;
+const SET_UNCONSCIOUS: u16 = 0x10F1;
 const IS_IDLE_PLAYING: u16 = 0x1070;
 const ADD_SCRIPT_PACKAGE: u16 = 0x1097;
 const REMOVE_SCRIPT_PACKAGE: u16 = 0x1098;
@@ -243,7 +249,7 @@ fn asked(g: &mut Game) -> Vec<(u32, u32, IdleSource)> {
 fn idle_records_and_package_idle_data_are_read() {
     let f = fixture();
     let d = &f.data;
-    assert_eq!(d.idles.len(), 12);
+    assert_eq!(d.idles.len(), 13);
     let wake = &d.idles[&FormId(IDLE_WAKE)];
     assert_eq!((wake.model.as_deref(), wake.loop_min, wake.loop_max, wake.has_file()), (Some("Characters\\_Male\\IdleAnims\\Wake.kf"), 255, 255, true));
     assert!(!d.idles[&FormId(IDLE_FOLDER)].has_file());
@@ -436,4 +442,21 @@ fn standing_idle_takes_only_idle_section_leaves() {
     assert_eq!(g.standing_idle(FormId(ACTOR), folder), Some(FormId(IDLE_LEAF_LOOK)), "the special idles before it are passed over");
     assert_eq!(g.standing_idle(FormId::PLAYER_REF, folder), None, "its conditions fail: no look");
     assert_eq!(g.standing_idle(FormId(ACTOR), "creatures\\dog"), None, "another folder: nothing");
+}
+
+/// SetUnconscious holds an actor standing in its tree's GetUnconscious idle, the
+/// switched-off pose, in place of any other look, until SetUnconscious 0 (#1977).
+#[test]
+fn an_unconscious_actor_stands_in_its_switched_off_idle() {
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(ACTOR);
+    let folder = "characters\\_male";
+    assert_eq!(g.unconscious_idle(actor, folder), None, "conscious: no off pose");
+    call(&mut g, SET_UNCONSCIOUS, actor, &[ArgValue::Value(Value::Num(1.0))]);
+    assert_eq!(g.unconscious_idle(actor, folder), Some(FormId(IDLE_LEAF_OFF)));
+    assert_eq!(g.standing_idle(actor, folder), Some(FormId(IDLE_LEAF_OFF)), "before the Idle-section look");
+    assert_eq!(g.unconscious_idle(actor, "creatures\\dog"), None, "another folder: nothing");
+    call(&mut g, SET_UNCONSCIOUS, actor, &[ArgValue::Value(Value::Num(0.0))]);
+    assert_eq!(g.standing_idle(actor, folder), Some(FormId(IDLE_LEAF_LOOK)), "switched on: its look again");
 }
