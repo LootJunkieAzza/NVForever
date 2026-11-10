@@ -22,10 +22,13 @@ pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         return none();
     }
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
+    let absent = if was { Vec::new() } else { g.absent_through_parent() };
     g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
     if !was {
         g.emit(EventKind::RefEnabled { reference: r, fade });
         g.note_enabled(r);
+        // Its enable children came with it.
+        g.note_parent_changed(absent);
         // The extender's OnEnable: the reference, then 0 [observed: nvse-events].
         g.dispatch_event("OnEnable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }
@@ -64,9 +67,12 @@ pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     }
     g.script_looks.fading_out.remove(&r);
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
+    let absent = if was { g.absent_through_parent() } else { Vec::new() };
     g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
     if was {
         g.emit(EventKind::RefDisabled { reference: r, fade });
+        // Its children set to the opposite state came in.
+        g.note_parent_changed(absent);
         // The extender's OnDisable: the reference, then 0 [observed: nvse-events].
         g.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
     }

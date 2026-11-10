@@ -3593,8 +3593,10 @@ impl<'a> Game<'a> {
         let ended: Vec<FormId> = self.script_looks.fading_out.iter().filter(|(_, &until)| until <= now).map(|(&r, _)| r).collect();
         for r in ended {
             self.script_looks.fading_out.remove(&r);
+            let absent = self.absent_through_parent();
             if self.world.set_enabled(r, false).is_ok() {
                 self.script_looks.disabled_after_fade.push(r);
+                self.note_parent_changed(absent);
             }
         }
         // `MoveToMarkerWithFade` moves whose fade out has ended.
@@ -4477,6 +4479,37 @@ impl<'a> Game<'a> {
         let has = self.ref_script(r).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_LOAD)) || self.handled("onload");
         if has && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) && !self.pending_onload.contains(&r) {
             self.pending_onload.push(r);
+        }
+    }
+
+    /// The scripted references of the loaded cells that are absent through an enable
+    /// parent: taken before a reference's enable state changes, and handed to
+    /// [`Game::note_parent_changed`] after, so the ones the change brought in get their
+    /// OnLoad as their own Enable gives it.
+    pub fn absent_through_parent(&self) -> Vec<FormId> {
+        let mut out = Vec::new();
+        for c in &self.loaded_cells {
+            for &r in self.data.scripted_by_cell.get(c).map(Vec::as_slice).unwrap_or_default() {
+                if self.world.placed.get(r).is_some_and(|p| p.enable_parent.is_some()) && !self.present(r) {
+                    out.push(r);
+                }
+            }
+        }
+        out
+    }
+
+    /// The references of `absent` (from [`Game::absent_through_parent`]) that a parent's
+    /// Enable or Disable brought in run OnLoad at the next frame, as their own Enable
+    /// runs it (`Game::note_enabled`) [documented: GECK wiki OnLoad, "when the object's 3D
+    /// is loaded"; a child's 3D loads with its enable parent's change]. Disabled actors
+    /// run no OnLoad at the cell load (`Game::set_loaded`), so without this an actor
+    /// behind an enable parent (Hoover Dam's battle Legionaries, VHDEastDamLegionary)
+    /// never ran its OnLoad at all (overnight queue item 141).
+    pub fn note_parent_changed(&mut self, absent: Vec<FormId>) {
+        for r in absent {
+            if self.present(r) {
+                self.note_enabled(r);
+            }
         }
     }
 
