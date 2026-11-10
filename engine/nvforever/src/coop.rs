@@ -263,6 +263,16 @@ const NPC_DELAY: f32 = 2.0 / net::NPC_HZ as f32;
 /// A guest stops following an NPC the host has not drawn for this long (seconds); it
 /// stays where it was last drawn.
 const NPC_FORGET: f32 = 3.0;
+/// Between two of the host's states of an NPC, a move longer than this (units) and
+/// faster than [`NPC_JUMP_SPEED`] (units/s) is a script's move, put there at once, not
+/// walked [design: no actor of the game runs near 2000 units/s; a sprinting player is
+/// a few hundred].
+const NPC_JUMP: f32 = 200.0;
+const NPC_JUMP_SPEED: f32 = 2000.0;
+/// States further apart in time than this (seconds, over three rounds of
+/// [`net::NPC_HZ`]) with a move of more than [`NPC_JUMP`] between them: the host did not
+/// send it meanwhile (faded out, disabled for the move), so it is put there too.
+const NPC_GAP: f32 = 0.35;
 /// The host goes on sending an NPC it stopped drawing this long (seconds), from where its
 /// AI has it, longer than a guest's [`NPC_FORGET`] would keep it ([`share_npcs`]).
 const NPC_LINGER: f32 = 5.0;
@@ -590,6 +600,14 @@ impl NpcTrack {
             Some(i) => {
                 let (ta, a) = self.samples[i - 1];
                 let (tb, b) = self.samples[i];
+                // Put there, not walked there: a script's move between two states
+                // (MoveTo, MoveToMarkerWithFade) or a trip into another space is drawn
+                // where it ends once its time comes. Blended, Kimball's fade move at the
+                // Hoover Dam slid across on a guest at 1069 units/s (item 187).
+                let gap = (0..3).map(|k| (b.feet[k] - a.feet[k]).powi(2)).sum::<f32>().sqrt();
+                if a.space != b.space || (gap > NPC_JUMP && (gap / (tb - ta).max(1e-4) > NPC_JUMP_SPEED || tb - ta > NPC_GAP)) {
+                    return Some(if t < tb { (a.feet, a.heading, false) } else { (b.feet, b.heading, false) });
+                }
                 (a, b, ((t - ta) / (tb - ta).max(1e-4)).clamp(0.0, 1.0))
             }
         };
@@ -3732,6 +3750,27 @@ mod tests {
         s.remaining = remaining;
         s.remote = false;
         s
+    }
+
+    /// A script's move of one of the host's NPCs is drawn as a jump at its time, not a
+    /// slide; a walk is blended (item 187: Kimball's MoveToMarkerWithFade slid on a
+    /// guest at 1069 units/s).
+    #[test]
+    fn an_npc_moved_by_a_script_jumps_and_a_walking_one_is_blended() {
+        let state = |x: f32, space: u32| net::NpcState { reference: 0x0012_FCD2, feet: [x, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space };
+        let track = |a: (f32, f32, u32), b: (f32, f32, u32)| NpcTrack { samples: [(a.0, state(a.1, a.2)), (b.0, state(b.1, b.2))].into(), ..NpcTrack::default() };
+        // A walk: 30 units in a round, half way at half the time.
+        let walk = track((0.0, 0.0, 7), (0.1, 30.0, 7));
+        assert!((walk.pose(0.05).unwrap().0[0] - 15.0).abs() < 0.01);
+        // A move of 1000 units in a round: where it was, then where it went.
+        let moved = track((0.0, 0.0, 7), (0.1, 1000.0, 7));
+        assert_eq!(moved.pose(0.05).unwrap().0[0], 0.0);
+        // Not sent for a while (faded out) and 1000 units on: no slide either.
+        let faded = track((0.0, 0.0, 7), (2.0, 1000.0, 7));
+        assert_eq!(faded.pose(1.0).unwrap().0[0], 0.0);
+        // Into another space: no blend across.
+        let door = track((0.0, 0.0, 7), (0.1, 10.0, 8));
+        assert_eq!(door.pose(0.05).unwrap().0[0], 0.0);
     }
 
     /// The host's lines reach a guest as the host says them: its player is the host's
