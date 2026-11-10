@@ -1510,6 +1510,12 @@ pub struct Game<'a> {
     /// (nvf-play `coop_tables::keeps_world`); [`Game::tick`] then runs the world as in
     /// game mode behind a menu or a conversation.
     pub no_pause: bool,
+    /// Co-op: the actors in a conversation with any player now (the engine sets it each
+    /// frame, nvf-play `coop_talk`; empty outside a session). Only the players' hits
+    /// hurt them meanwhile, or nobody's ([`Game::coop_talk_kill`]; `combat::talk_guard`).
+    pub coop_talking: BTreeSet<FormId>,
+    /// Co-op, the host's setting "Players can kill NPCs in conversation" (on by default).
+    pub coop_talk_kill: bool,
     /// The load-order indices whose quests are the host's story ([`Game::world_logic_off`]):
     /// the official masters. A mod's quest scripts keep running on a guest (its menus,
     /// LListAddForm edits a guest's looks read).
@@ -2285,6 +2291,8 @@ impl<'a> Game<'a> {
             coop_checked: BTreeMap::new(),
             world_logic_off: false,
             no_pause: false,
+            coop_talking: BTreeSet::new(),
+            coop_talk_kill: true,
             story_plugins: Vec::new(),
             coop_effects: None,
             coop_cells: BTreeSet::new(),

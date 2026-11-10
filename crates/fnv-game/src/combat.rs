@@ -89,6 +89,29 @@ pub struct DestructionChange {
     pub debris: Vec<(FormId, i32)>,
 }
 
+/// Whether a hit on an actor that is in a conversation with a player does no damage
+/// (co-op; owner 2026-11-10: "Players only and a setting"): a hit that is not a
+/// player's never lands (another NPC's, a creature's, a trap's, an explosion nobody
+/// owns); a player's lands unless the host's setting says nobody may kill it meanwhile.
+pub fn talk_guard(by_player: bool, players_may_kill: bool) -> bool {
+    !(by_player && players_may_kill)
+}
+
+#[cfg(test)]
+mod talk_guard_tests {
+    use super::talk_guard;
+
+    #[test]
+    fn only_players_hurt_an_actor_in_a_conversation_and_only_when_the_setting_allows() {
+        // The setting on (the default): a player's hit lands, nobody else's.
+        assert!(!talk_guard(true, true));
+        assert!(talk_guard(false, true));
+        // The setting off: nobody's.
+        assert!(talk_guard(true, false));
+        assert!(talk_guard(false, false));
+    }
+}
+
 /// What a hit did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct HitResult {
@@ -480,6 +503,20 @@ impl Game<'_> {
             let health = actor::actor_value(self, target, HEALTH).unwrap_or(0.0);
             let corpse = self.is_dead(target);
             return HitResult { health, max_health, immune: true, corpse, overkill: if corpse { damage.max(0.0) } else { 0.0 }, ..HitResult::default() };
+        }
+        // In a conversation with a player (co-op): only the players' hits land, or
+        // nobody's when the host's setting is off ([`talk_guard`]).
+        if self.coop_talking.contains(&target) {
+            let by_player = info.attacker.is_some_and(|a| a == FormId::PLAYER_REF || self.is_coop_actor(a));
+            if talk_guard(by_player, self.coop_talk_kill) {
+                let health = actor::actor_value(self, target, HEALTH).unwrap_or(max_health);
+                tracing::info!(
+                    "co-op: {target} is in a conversation with a player: the hit by {} does no damage ({})",
+                    info.attacker.map_or_else(|| "nobody".to_string(), |a| a.to_string()),
+                    if by_player { "the host's setting: players cannot kill it meanwhile" } else { "not a player's" }
+                );
+                return HitResult { health, max_health, immune: true, ..HitResult::default() };
+            }
         }
         let before = actor::actor_value(self, target, HEALTH).unwrap_or(max_health);
         let essential = self.is_essential(target);

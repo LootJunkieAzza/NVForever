@@ -1847,6 +1847,8 @@ impl Core {
                     // whose script changed her package (queue item 197). Solo the whole
                     // world stands still then, as in the original.
                     || game.dialogue.as_ref().is_some_and(|c| c.actor == r.actor)
+                    // ... and the one another player is talking to (`nvf_play::coop_talk`).
+                    || game.coop_talking.contains(&r.actor)
                     || self.staggering.contains(&r.actor.0)
             })
             .map(|r| r.actor.0)

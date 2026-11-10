@@ -49,6 +49,9 @@ pub mod game {
     /// A player's choice in a conversation, for the others' subtitles
     /// (`crate::coop_subtitles`; actions only, to everyone, table 0).
     pub const CHOICE: u8 = 12;
+    /// The actor a player is in a conversation with, 0 for none (`crate::coop_talk`;
+    /// actions only, table 0).
+    pub const TALK: u8 = 40;
     /// Music and radio on one timeline (`crate::coop_audio`): the host's clock, its
     /// stations' lines, the stations a game hears, a player's Pip-Boy station.
     pub const AUDIO: u8 = 13;
