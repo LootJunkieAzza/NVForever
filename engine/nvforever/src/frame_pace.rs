@@ -195,7 +195,7 @@ fn wait_left(last: Instant, cap: u32, now: Instant) -> Option<Duration> {
 }
 
 /// Hold the frame until a frame's time at the cap has passed since the last.
-fn cap_rate(pace: Res<FramePace>, refresh: Res<Refresh>, mut last: Local<Option<Instant>>) {
+pub(crate) fn cap_rate(pace: Res<FramePace>, refresh: Res<Refresh>, mut last: Local<Option<Instant>>) {
     let cap = effective_cap(pace.cap, refresh.vrr_cap);
     if cap == 0 {
         *last = None;

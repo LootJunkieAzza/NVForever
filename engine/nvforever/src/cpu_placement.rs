@@ -297,11 +297,7 @@ impl Placement {
 
 /// `[Settings] cpu-cache-placement` of the INI this run reads (`SettingsFile::for_run`).
 fn ini_value() -> Option<String> {
-    // Unattended: a test aid drives this run (as nvf_play's test_aid::Unattended).
-    let unattended = std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(nvf_play::drives_run));
-    let path = nvf_play::settings::SettingsFile::for_run(unattended).0?;
-    let text = std::fs::read_to_string(path).ok()?;
-    fnv_install::ini_get(&text, nvf_play::settings::SECTION, INI_KEY)
+    crate::settings::stored_at_start(INI_KEY)
 }
 
 /// Decide and apply the placement (module notes). Call before any thread pool starts.
