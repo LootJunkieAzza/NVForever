@@ -305,6 +305,11 @@ pub struct TweakSettings {
     pub custom_dead_zones: bool,
     pub left_dead_zone: f32,
     pub right_dead_zone: f32,
+    /// `bControllerTriggerDeadzones` (`iDeadzoneLT`, `iDeadzoneRT`): how far each trigger
+    /// goes down before it counts as pressed.
+    pub custom_trigger_dead_zones: bool,
+    pub lt_dead_zone: f32,
+    pub rt_dead_zone: f32,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -491,6 +496,9 @@ impl Default for TweakSettings {
             custom_dead_zones: false,
             left_dead_zone: 0.0,
             right_dead_zone: 0.0,
+            custom_trigger_dead_zones: false,
+            lt_dead_zone: 0.75,
+            rt_dead_zone: 0.75,
         }
     }
 }
@@ -628,6 +636,7 @@ impl Plugin for TweaksPlugin {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
             .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon).in_set(crate::PlaySet::Input))
+            .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
         add_setting(
@@ -1313,10 +1322,32 @@ impl Plugin for TweaksPlugin {
         switch!(app, "custom-dead-zones", "Controller Dead Zones", "The sticks use the dead zones below instead of the game's (12% of a push); 0% takes every movement. (Stewie's Tweaks bDisableControllerDeadzones)", custom_dead_zones);
         part!(app, "left-dead-zone", "Left Stick Dead Zone", "The share of a push the left stick ignores, with Controller Dead Zones on. (Stewie's Tweaks iControllerDeadzone)", left_dead_zone);
         part!(app, "right-dead-zone", "Right Stick Dead Zone", "The share of a push the right stick ignores, with Controller Dead Zones on. (Stewie's Tweaks iControllerDeadzoneRS)", right_dead_zone);
+        switch!(app, "custom-trigger-dead-zones", "Trigger Dead Zones", "LT and RT count as pressed at the points below instead of three quarters down. (Stewie's Tweaks bControllerTriggerDeadzones)", custom_trigger_dead_zones);
+        part!(app, "lt-dead-zone", "Left Trigger Press Point", "How far LT goes down before it counts as pressed, with Trigger Dead Zones on. (Stewie's Tweaks iDeadzoneLT)", lt_dead_zone);
+        part!(app, "rt-dead-zone", "Right Trigger Press Point", "How far RT goes down before it counts as pressed, with Trigger Dead Zones on. (Stewie's Tweaks iDeadzoneRT)", rt_dead_zone);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
         switch!(app, "power-armor-no-training", "Power Armor Without Training", "Power armor can be worn without Power Armor Training. (Stewie's Tweaks bPowerArmorNeedsNoTraining)", game.power_armor_needs_no_training);
+    }
+}
+
+/// The Controller Trigger Dead Zones tweak: how far LT and RT go down before they count
+/// as pressed, set on each controller's settings (Bevy's own press point, 0.75, with the
+/// tweak off); released a little under that [design: docs/design/tweaks.md].
+fn trigger_dead_zones(tweaks: Res<TweakSettings>, mut pads: Query<&mut bevy::input::gamepad::GamepadSettings>) {
+    use bevy::input::gamepad::{ButtonSettings, GamepadButton};
+    let (lt, rt) = if tweaks.custom_trigger_dead_zones { (tweaks.lt_dead_zone, tweaks.rt_dead_zone) } else { (0.75, 0.75) };
+    for mut s in &mut pads {
+        for (button, press) in [(GamepadButton::LeftTrigger2, lt), (GamepadButton::RightTrigger2, rt)] {
+            let press = press.clamp(0.02, 1.0);
+            if s.button_settings.get(&button).is_some_and(|b| (b.press_threshold() - press).abs() < 1e-4) {
+                continue;
+            }
+            if let Ok(b) = ButtonSettings::new(press, press * 0.85) {
+                s.button_settings.insert(button, b);
+            }
+        }
     }
 }
 

@@ -483,6 +483,7 @@ unless the player binds them, so nothing changes until then.
 | Barter Total Past the Merchant's Caps | `bShowBarterTotalWhenOverSellLimit` | `MenuModel::full_barter_total`: the hand-built barter figure shows `Trade::balance` instead of the capped `Trade::paid`; the tiles barter menu not yet |
 | Compass Fades on the Left | `bCompassFadeLeftSide` | `compass::left_fade` shades the marks left of the middle down to a fifth (ours); with it on the marks are drawn again each frame; quest marks stay whole |
 | Controller Dead Zones | `bDisableControllerDeadzones` | `pad::set_dead_zones` from `tweaks::sync`; `pad::stick` reads each stick's own; Bevy's own small dead zone still comes first |
+| Trigger Dead Zones | `bControllerTriggerDeadzones` | `tweaks::trigger_dead_zones` sets LT's and RT's press points in each controller's `GamepadSettings` (released at 85% of it, ours); for every use of the triggers, not only attack |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -504,8 +505,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 405 |
-| to do | 198 |
+| done | 406 |
+| to do | 197 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1101,6 +1102,7 @@ game's Data folder, read-only).
 | `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
 | `bChanceBasedKillcams` | done |  | 1 | Kill Camera Chance (slider; V.A.T.S. kill cameras, the only kind) |
 | `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
+| `bControllerTriggerDeadzones` | done |  | 2 | Trigger Dead Zones (press points per trigger, on every use of LT/RT) |
 | `bDetachedBeams` | done |  |  | Detached Beams |
 | `bDisableControllerDeadzones` | done |  | 2 | Controller Dead Zones (ours on top of Bevy's own small dead zone) |
 | `bDisableGodmodeOnLoad` | done |  |  | God Mode Off on Load |
@@ -1157,7 +1159,6 @@ game's Data folder, read-only).
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
 | `bClickToExitLoadScreens` | to do |  | 2 | loading hold_input and finish, plus a prompt |
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |
-| `bControllerTriggerDeadzones` | to do |  | 2 | Bevy GamepadSettings for the triggers |
 | `bCustomLocationDiscoveredSound` | to do |  | 1 | quest_messages sound; the cache takes static names |
 | `bDialogMenuDebugging` | n/a |  |  | a mod-author debug print |
 | `bDisableAchievements` | n/a |  |  | NVForever has no achievements |
