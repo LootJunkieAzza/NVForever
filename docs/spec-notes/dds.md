@@ -56,7 +56,9 @@ in the game is not known.
 
 ## 3. Sizes [observed: exact for all 26,907 files]
 
-- Width and height are powers of two in every file.
+- Width and height are powers of two in every file, 4096 at most [observed]. A texture
+  with a side of 0 or above 16384 is refused as a broken header (`fnv_dds::MAX_SIDE`,
+  the engine's own cap) [design: #1995]; the listing still reports the header as it is.
 - Number of levels = the stored mip count, or 1 when it is 0. 2,214 files leave the
   "mip count valid" header flag (0x20000) clear; using the stored count anyway still gives
   the exact size, so the flag can be ignored [observed].

@@ -1723,6 +1723,10 @@ pub(crate) fn start_world_aids(
     }
 }
 
+/// The run's furniture, terminal and door messages, a refused load and the save's engine part
+/// still to put back (`crate::save::PendingEngine`).
+type UsesAndLoads<'w> = (MessageWriter<'w, crate::furniture::UseFurniture>, MessageWriter<'w, crate::terminal::OpenTerminal>, Option<ResMut<'w, crate::doors::Doors>>, MessageWriter<'w, crate::save::LoadRefused>, Option<Res<'w, crate::save::PendingEngine>>);
+
 /// [`run_scripts`]'s loading screen, keys, menu files, the pause menu's page and the
 /// count of MenuMode frames under its Mods page (`crate::tiles::mods`), and the main menu
 /// still to open (`--menu`).
@@ -1760,7 +1764,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
-    (mut sit, mut terminals, mut doors, mut refused): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::terminal::OpenTerminal>, Option<ResMut<crate::doors::Doors>>, MessageWriter<crate::save::LoadRefused>),
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine): UsesAndLoads,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
@@ -1804,6 +1808,10 @@ pub(crate) fn run_scripts(
                                 doors.rest_as_restored(&sim);
                             }
                             tiles.load(&mut rt.game, &sim.world);
+                            // The game's state the engine's part of the save holds goes
+                            // back before the load's handlers run, so theirs wins: the
+                            // custom map marker (`pipboy::data`, #1954).
+                            crate::pipboy::data::restore_custom_marker(&mut rt.game, pending_engine.as_deref());
                             // The Script Runner's files after the save is in place (the
                             // restore takes the game's state, lambdas included, from the
                             // save): the game restart's, then the load's after LoadGame.

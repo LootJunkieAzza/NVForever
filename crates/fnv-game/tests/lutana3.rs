@@ -211,16 +211,18 @@ fn perk_ranks_and_entries() {
     // An NPC holds it at that rank.
     q(&mut g, "TestNpcRef.SetPerkRank TestPerk 2");
     assert_eq!(n(&mut g, "TestNpcRef.HasPerk TestPerk"), 1.0);
-    // The entries, changed for the session. Both are rank 0, priority 0: numbered in the
-    // reverse of the record's order, the entry point first [observed: lu3 perkentry].
-    q(&mut g, "SetNthPerkEntryForm TestPerk 1 TestSpellB");
-    assert_eq!(n(&mut g, "GetNthPerkEntryForm TestPerk 1"), f64::from(SPELL_B));
-    assert_eq!(n(&mut g, "GetNthPerkEntryFunction TestPerk 0"), 27.0);
-    q(&mut g, "SetNthPerkEntryFunction TestPerk 0 7");
-    assert_eq!(n(&mut g, "GetNthPerkEntryFunction TestPerk 0"), 7.0);
-    assert_eq!(s(&mut g, "GetNthPerkEntryString TestPerk 0"), "Poke");
-    q(&mut g, "SetNthPerkEntryString TestPerk 0 \"Prod\"");
-    assert_eq!(s(&mut g, "GetNthPerkEntryString TestPerk 0"), "Prod");
+    // The entries, changed for the session. Both are rank 0, priority 0: the ability
+    // before the entry point, as Built to Last's [observed: L5.ext rerun, #2040].
+    assert_eq!(n(&mut g, "GetNthPerkEntryForm TestPerk 0"), f64::from(SPELL_A));
+    assert_eq!(n(&mut g, "GetNthPerkEntryForm TestPerk 1"), 0.0);
+    q(&mut g, "SetNthPerkEntryForm TestPerk 0 TestSpellB");
+    assert_eq!(n(&mut g, "GetNthPerkEntryForm TestPerk 0"), f64::from(SPELL_B));
+    assert_eq!(n(&mut g, "GetNthPerkEntryFunction TestPerk 1"), 27.0);
+    q(&mut g, "SetNthPerkEntryFunction TestPerk 1 7");
+    assert_eq!(n(&mut g, "GetNthPerkEntryFunction TestPerk 1"), 7.0);
+    assert_eq!(s(&mut g, "GetNthPerkEntryString TestPerk 1"), "Poke");
+    q(&mut g, "SetNthPerkEntryString TestPerk 1 \"Prod\"");
+    assert_eq!(s(&mut g, "GetNthPerkEntryString TestPerk 1"), "Prod");
 }
 
 #[test]
