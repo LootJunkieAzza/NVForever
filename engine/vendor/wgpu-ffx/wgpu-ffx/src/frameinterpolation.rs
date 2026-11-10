@@ -259,6 +259,7 @@ pub struct FrameInterpolationView {
     dispatch_count: u64,
     previous_frame_id: u64,
     debug_bar: usize,
+    bind_groups: fg_pass::BindGroups,
 }
 
 /// `FfxFrameInterpolationPrepareDescription`.
@@ -301,6 +302,12 @@ pub struct FrameInterpolationDispatchInfo<'a> {
     pub min_max_luminance: [f32; 2],
     /// Must grow by one per dispatch; a gap or a step back resets.
     pub frame_id: u64,
+    // NVForever (2026-11-10): AMD keeps the interpolation source in a texture of its own, a
+    // display-sized copy every frame. A caller that keeps last frame's source itself (two
+    // textures used in turn) passes it here and saves the copy.
+    /// The previous frame's interpolation source (its `current_backbuffer_hudless`, or
+    /// `current_backbuffer` without one), kept by the caller. `None`: the view keeps a copy.
+    pub previous_source: Option<&'a wgpu::Texture>,
 }
 
 const DEBUG_BAR_COLORS: [[f32; 3]; 7] = [
@@ -440,6 +447,7 @@ impl FrameInterpolationContext {
             dispatch_count: 0,
             previous_frame_id: 0,
             debug_bar: 0,
+            bind_groups: Default::default(),
         }
     }
 
@@ -515,7 +523,7 @@ impl FrameInterpolationContext {
         fg_pass::write_slots(&self.device, encoder, &view.prepare_constants, &[bytemuck::bytes_of(&constants)]);
         self.fill(encoder, &view.reconstructed_previous_depth, self.depth_clear_value());
 
-        let v = fg_pass::view;
+        let v = fg_pass::whole;
         let size = std::mem::size_of::<Constants>() as u64;
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("FSR3 frame interpolation prepare"),
@@ -524,15 +532,13 @@ impl FrameInterpolationContext {
         self.reconstruct_and_dilate.dispatch(
             &self.device,
             &mut pass,
+            &view.bind_groups,
             &mut |name| match name {
-                "r_input_motion_vectors" => Res::View(v(info.motion_vectors)),
-                "r_input_depth" => Res::View(info.depth.create_view(&wgpu::TextureViewDescriptor {
-                    aspect: wgpu::TextureAspect::All,
-                    ..Default::default()
-                })),
-                "rw_reconstructed_depth_previous_frame" => Res::View(v(&view.reconstructed_previous_depth)),
-                "rw_dilated_motion_vectors" => Res::View(v(&view.dilated_motion_vectors)),
-                "rw_dilated_depth" => Res::View(v(&view.dilated_depth)),
+                "r_input_motion_vectors" => v(info.motion_vectors),
+                "r_input_depth" => v(info.depth),
+                "rw_reconstructed_depth_previous_frame" => v(&view.reconstructed_previous_depth),
+                "rw_dilated_motion_vectors" => v(&view.dilated_motion_vectors),
+                "rw_dilated_depth" => v(&view.dilated_depth),
                 _ => Res::Slot(&view.prepare_constants, 0, size),
             },
             [info.render_size[0].div_ceil(8), info.render_size[1].div_ceil(8), 1],
@@ -600,43 +606,44 @@ impl FrameInterpolationContext {
             Some(hudless) => (hudless, info.current_backbuffer),
             None => (info.current_backbuffer, info.current_backbuffer),
         };
-        let v = fg_pass::view;
+        let v = fg_pass::whole;
+        let previous = info.previous_source.unwrap_or(&view.previous_source);
         let size = std::mem::size_of::<Constants>() as u64;
         let pyramid_size = std::mem::size_of::<PyramidConstants>() as u64;
         // Every pass's resources, by GLSL name; `pyramid_slot` picks which pyramid's constants.
         let resolve = |name: &str, pyramid_slot: u64| -> Res<'_> {
             match name {
-                "r_previous_interpolation_source" => Res::View(v(&view.previous_source)),
-                "r_current_interpolation_source" => Res::View(v(hudless)),
-                "r_present_backbuffer" => Res::View(v(present)),
-                "r_dilated_motion_vectors" => Res::View(v(&view.dilated_motion_vectors)),
-                "r_dilated_depth" => Res::View(v(&view.dilated_depth)),
-                "r_reconstructed_depth_previous_frame" => Res::View(v(&view.reconstructed_previous_depth)),
+                "r_previous_interpolation_source" => v(previous),
+                "r_current_interpolation_source" => v(hudless),
+                "r_present_backbuffer" => v(present),
+                "r_dilated_motion_vectors" => v(&view.dilated_motion_vectors),
+                "r_dilated_depth" => v(&view.dilated_depth),
+                "r_reconstructed_depth_previous_frame" => v(&view.reconstructed_previous_depth),
                 "r_reconstructed_depth_interpolated_frame" | "rw_reconstructed_depth_interpolated_frame" => {
-                    Res::View(v(&view.reconstructed_interpolated_depth))
+                    v(&view.reconstructed_interpolated_depth)
                 }
-                "r_game_motion_vector_field_x" | "rw_game_motion_vector_field_x" => Res::View(v(&view.game_field[0])),
-                "r_game_motion_vector_field_y" | "rw_game_motion_vector_field_y" => Res::View(v(&view.game_field[1])),
+                "r_game_motion_vector_field_x" | "rw_game_motion_vector_field_x" => v(&view.game_field[0]),
+                "r_game_motion_vector_field_y" | "rw_game_motion_vector_field_y" => v(&view.game_field[1]),
                 "r_optical_flow_motion_vector_field_x" | "rw_optical_flow_motion_vector_field_x" => {
-                    Res::View(v(&view.optical_flow_field[0]))
+                    v(&view.optical_flow_field[0])
                 }
                 "r_optical_flow_motion_vector_field_y" | "rw_optical_flow_motion_vector_field_y" => {
-                    Res::View(v(&view.optical_flow_field[1]))
+                    v(&view.optical_flow_field[1])
                 }
-                "r_disocclusion_mask" | "rw_disocclusion_mask" => Res::View(v(&view.disocclusion_mask)),
-                "r_inpainting_pyramid" => Res::View(v(&view.inpainting_pyramid)),
-                "r_optical_flow" => Res::View(v(&info.optical_flow.flow_vector)),
-                "r_optical_flow_scd" => Res::View(v(&info.optical_flow.scd_output)),
-                "r_optical_flow_confidence" => Res::View(v(&view.null_uint)),
-                "r_input_distortion_field" => Res::View(v(&view.default_distortion_field)),
-                "r_output" | "rw_output" => Res::View(v(info.output)),
+                "r_disocclusion_mask" | "rw_disocclusion_mask" => v(&view.disocclusion_mask),
+                "r_inpainting_pyramid" => v(&view.inpainting_pyramid),
+                "r_optical_flow" => v(&info.optical_flow.flow_vector),
+                "r_optical_flow_scd" => v(&info.optical_flow.scd_output),
+                "r_optical_flow_confidence" => v(&view.null_uint),
+                "r_input_distortion_field" => v(&view.default_distortion_field),
+                "r_output" | "rw_output" => v(info.output),
                 "r_counters" | "rw_counters" => Res::Buffer(&view.counters),
                 "cbFI" => Res::Slot(&view.constants_buffer, 0, size),
                 "cbInpaintingPyramid" => Res::Slot(&view.pyramid_constants, pyramid_slot * fg_pass::SLOT, pyramid_size),
                 "s_LinearClamp" => Res::Sampler(&view.sampler),
                 mip if mip.starts_with("rw_inpainting_pyramid") => {
                     let level: u32 = mip.trim_start_matches("rw_inpainting_pyramid").parse().unwrap();
-                    Res::View(fg_pass::mip_view(&view.inpainting_pyramid, level))
+                    Res::Mip(&view.inpainting_pyramid, level)
                 }
                 other => panic!("frame interpolation: nothing bound for {other}"),
             }
@@ -656,21 +663,23 @@ impl FrameInterpolationContext {
             timestamp_writes: None,
         });
         let at = |slot: u64| move |name: &str| resolve(name, slot);
-        self.setup.dispatch(device, &mut pass, &mut at(0), render_groups);
+        self.setup.dispatch(device, &mut pass, &view.bind_groups, &mut at(0), render_groups);
         if execute_preparation {
-            self.reconstruct_previous_depth.dispatch(device, &mut pass, &mut at(0), render_groups);
-            self.game_motion_vector_field.dispatch(device, &mut pass, &mut at(0), render_groups);
-            self.game_vector_field_pyramid.dispatch(device, &mut pass, &mut at(0), [game_groups[0], game_groups[1], 1]);
-            self.optical_flow_vector_field.dispatch(device, &mut pass, &mut at(0), flow_groups);
-            self.disocclusion_mask.dispatch(device, &mut pass, &mut at(0), render_groups);
+            self.reconstruct_previous_depth.dispatch(device, &mut pass, &view.bind_groups, &mut at(0), render_groups);
+            self.game_motion_vector_field.dispatch(device, &mut pass, &view.bind_groups, &mut at(0), render_groups);
+            self.game_vector_field_pyramid.dispatch(device, &mut pass, &view.bind_groups, &mut at(0), [game_groups[0], game_groups[1], 1]);
+            self.optical_flow_vector_field.dispatch(device, &mut pass, &view.bind_groups, &mut at(0), flow_groups);
+            self.disocclusion_mask.dispatch(device, &mut pass, &view.bind_groups, &mut at(0), render_groups);
         }
-        self.interpolation.dispatch(device, &mut pass, &mut at(0), display_groups);
-        self.inpainting_pyramid.dispatch(device, &mut pass, &mut at(1), [pyramid_groups[0], pyramid_groups[1], 1]);
-        self.inpainting.dispatch(device, &mut pass, &mut at(0), display_groups);
+        self.interpolation.dispatch(device, &mut pass, &view.bind_groups, &mut at(0), display_groups);
+        self.inpainting_pyramid.dispatch(device, &mut pass, &view.bind_groups, &mut at(1), [pyramid_groups[0], pyramid_groups[1], 1]);
+        self.inpainting.dispatch(device, &mut pass, &view.bind_groups, &mut at(0), display_groups);
         drop(pass);
 
-        // Store the current interpolation source for the next frame.
-        encoder.copy_texture_to_texture(hudless.as_image_copy(), view.previous_source.as_image_copy(), view.previous_source.size());
+        // Store the current interpolation source for the next frame, unless the caller keeps it.
+        if info.previous_source.is_none() {
+            encoder.copy_texture_to_texture(hudless.as_image_copy(), view.previous_source.as_image_copy(), view.previous_source.size());
+        }
     }
 }
 

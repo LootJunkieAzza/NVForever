@@ -9,19 +9,24 @@
 //!   frame's depth and motion (the same inputs FSR gets);
 //! - after the post passes and before the UI: a copy of the frame without the HUD;
 //! - after the UI, before Bevy's upscaling blit: optical flow on the HUD-less frame, then the
-//!   frame halfway between the previous real frame and this one. AMD's HUD-less mode puts
-//!   this frame's HUD pixels (wherever the frame with the HUD differs from the one without)
-//!   over it, so the HUD and menus are never interpolated. The generated frame goes to the
-//!   window; the real one waits in a texture of its own.
+//!   frame halfway between the previous real frame and this one, into a texture of its own.
+//!   AMD's HUD-less mode puts this frame's HUD pixels (wherever the frame with the HUD
+//!   differs from the one without) over it, so the HUD and menus are never interpolated.
 //! - The window's images are not Bevy's while it runs (the vendored bevy_render's
 //!   `DeferredSwapchain`, 2026-11-08): the frame is drawn into a stand-in texture, and once
 //!   Bevy's `render_system` has submitted the frame's commands (and a screenshot's copy into the
-//!   stand-in) the stand-in (the generated frame) and the real frame are handed to a presenter
+//!   stand-in) the generated frame and the stand-in (the real frame) are handed to a presenter
 //!   thread (`fg_presenter.rs`), which takes the window's images, copies them in and presents
 //!   them. If that thread cannot start or stops, the window is presented from the render thread
-//!   again, as with `NVF_FG_PRESENTER=0`.
+//!   again, as with `NVF_FG_PRESENTER=0`: there the generated frame is copied into the main
+//!   texture, so Bevy's blit shows it first, and the real one waits in a texture of its own.
+//! - **Copies** (2026-11-10): one display-sized copy a real frame, the frame without the HUD.
+//!   Until then there were four: the real frame set aside, the generated one into the main
+//!   texture, and AMD's copy of the interpolation source for the next frame. The HUD-less
+//!   copies are two textures used in turn now, and the presenter reads the generated frame
+//!   where the passes wrote it (one of three used in turn).
 //! - **Screenshots**: on a frame a screenshot targets the window, the window shows the real
-//!   frame only and the screenshot is of the real frame ([`take_for_presenters`]).
+//!   frame only and the screenshot is of the real frame ([`generate`]).
 //!
 //! **Pacing**: the presenter spaces the two presents half a real frame apart (AMD's rule, from
 //! `FrameInterpolationSwapchainVK`), and the real frame rate is capped slightly below half the
@@ -52,7 +57,7 @@
 //! time of FSR (`nvf_fsr_3_1`) and frame generation (`nvf_frame_generation`) as well.
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     Mutex,
 };
 use std::time::Instant;
@@ -116,7 +121,8 @@ pub fn unavailable_reason(world: &World) -> Option<&'static str> {
 /// `0`: no cap (the refresh rate is not known).
 pub fn real_frame_cap(refresh_millihertz: Option<u32>) -> u32 {
     refresh_millihertz.map_or(0, |m| {
-        let half = m / 2000;
+        // To the nearest: Windows reports a 144 Hz mode as 143.998, whose half is 72, not 71.
+        let half = (m + 1000) / 2000;
         half.saturating_sub((half / 40).max(1)).max(15)
     })
 }
@@ -157,6 +163,7 @@ impl Plugin for FrameGenPlugin {
             .init_resource::<FrameGenRenderer>()
             .init_resource::<FrameGenRequest>()
             .init_resource::<PendingReal>()
+            .init_resource::<PendingGenerated>()
             .init_resource::<Stats>()
             .insert_resource(Capture::from_env())
             .add_systems(ExtractSchedule, extract)
@@ -170,11 +177,9 @@ impl Plugin for FrameGenPlugin {
             .add_systems(Core3d, generate.after(ui_pass).before(upscaling))
             .init_resource::<Blit>()
             .init_resource::<Presenters>()
-            .init_resource::<PresenterReals>()
             .add_systems(
                 RenderGraph,
                 (
-                    take_for_presenters,
                     // `NVF_FG_PRESENTER=0`: from the render thread, Bevy taking the second image.
                     (present_generated, prepare_windows, show_real).chain().run_if(any_pending),
                     log_stats,
@@ -355,10 +360,10 @@ struct Presenters {
     failed: bool,
 }
 
-/// The real frames [`take_for_presenters`] took this frame for [`hand_to_presenter`], by
-/// window (main-world entity).
+/// This frame's generated frames for [`hand_to_presenter`], by window (main-world entity):
+/// the windows a presenter shows.
 #[derive(Resource, Default)]
-struct PresenterReals(Vec<(Entity, wgpu::Texture)>);
+struct PendingGenerated(Mutex<Vec<(Entity, wgpu::Texture)>>);
 
 /// `NVF_TEST_RENDER_STALL_MS=<ms>`: the render world spends that long on the CPU each frame,
 /// after the window's image would be taken at the start of the frame and before the frame is
@@ -379,7 +384,8 @@ fn render_stall() {
 #[derive(Resource, Default)]
 struct FrameGenRenderer(Option<(OpticalFlowContext, FrameInterpolationContext)>);
 
-/// The frames whose real image waits for the second present: the window and the image.
+/// The frames whose real image waits for the second present, where the render thread presents
+/// (`NVF_FG_PRESENTER=0`): the window and the image.
 #[derive(Resource, Default)]
 struct PendingReal(Mutex<Vec<(Entity, wgpu::Texture)>>);
 
@@ -425,13 +431,18 @@ pub(crate) struct PreparedFrameGen {
     interpolation: Mutex<FrameInterpolationView>,
     render_size: UVec2,
     output_size: UVec2,
-    /// The frame before the UI.
-    hudless: wgpu::Texture,
-    /// The generated frame.
-    output: wgpu::Texture,
-    /// The real frame, while the generated one is presented first: one of [`STAND_INS`] used in
-    /// turn, as the presenter may still copy from the last two.
-    reals: [wgpu::Texture; STAND_INS],
+    /// The frame before the UI: this frame's (`hudless[hudless_at]`) and the frame before's,
+    /// used in turn, so the interpolation reads last frame's without a copy of its own.
+    hudless: [wgpu::Texture; 2],
+    hudless_at: AtomicUsize,
+    /// The generated frame: one of [`STAND_INS`] used in turn, as the presenter may still copy
+    /// from the last two.
+    outputs: [wgpu::Texture; STAND_INS],
+    output_next: AtomicU64,
+    /// The real frame set aside while the generated one is presented first, where the render
+    /// thread presents (`NVF_FG_PRESENTER=0`, or a presenter that failed): made the first time
+    /// that path runs.
+    reals: std::sync::OnceLock<[wgpu::Texture; STAND_INS]>,
     real_next: AtomicU64,
     frame_id: AtomicU64,
     /// Frame interpolation's prepare pass ran this frame.
@@ -445,27 +456,18 @@ pub(crate) struct PreparedFrameGen {
 
 impl PreparedFrameGen {
     fn new(renderer: &(OpticalFlowContext, FrameInterpolationContext), device: &wgpu::Device, queue: &wgpu::Queue, render_size: UVec2, output_size: UVec2, playing: bool) -> Self {
-        let texture = |label, usage| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size: wgpu::Extent3d { width: output_size.x, height: output_size.y, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba16Float,
-                usage,
-                view_formats: &[],
-            })
-        };
+        let texture = |label, usage| frame_texture(device, output_size, label, usage);
         use wgpu::TextureUsages as U;
         Self {
             optical_flow: Mutex::new(renderer.0.create_view(output_size.to_array())),
             interpolation: Mutex::new(renderer.1.create_view(queue, render_size.to_array(), output_size.to_array())),
             render_size,
             output_size,
-            hudless: texture("frame_gen_hudless", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC),
-            output: texture("frame_gen_output", U::STORAGE_BINDING | U::TEXTURE_BINDING | U::COPY_SRC),
-            reals: std::array::from_fn(|_| texture("frame_gen_real", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC)),
+            hudless: std::array::from_fn(|_| texture("frame_gen_hudless", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC)),
+            hudless_at: AtomicUsize::new(0),
+            outputs: std::array::from_fn(|_| texture("frame_gen_output", U::STORAGE_BINDING | U::TEXTURE_BINDING | U::COPY_SRC)),
+            output_next: AtomicU64::new(0),
+            reals: std::sync::OnceLock::new(),
             real_next: AtomicU64::new(0),
             frame_id: AtomicU64::new(0),
             prepared: AtomicBool::new(false),
@@ -474,6 +476,20 @@ impl PreparedFrameGen {
             logged: AtomicBool::new(false),
         }
     }
+}
+
+/// A display-sized texture in the format the frames are generated in.
+fn frame_texture(device: &wgpu::Device, size: UVec2, label: &str, usage: wgpu::TextureUsages) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d { width: size.x, height: size.y, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage,
+        view_formats: &[],
+    })
 }
 
 /// Optical flow needs at least 128x128 (its seven-level pyramid).
@@ -533,6 +549,7 @@ fn prepare_pass(
         return;
     };
     let camera = &fsr.camera;
+    let recording = crate::frame_pace::recording();
     interpolation.prepare(
         &mut fg.interpolation.lock().unwrap(),
         ctx.command_encoder(),
@@ -549,6 +566,7 @@ fn prepare_pass(
             view_space_to_meters_factor: 1.0 / 70.0,
         },
     );
+    crate::frame_pace::recorded(crate::frame_pace::Recorded::FrameGeneration, recording, false);
     fg.prepared.store(true, Ordering::Relaxed);
 }
 
@@ -558,21 +576,26 @@ fn capture_hudless(view: ViewQuery<(&ViewTarget, &PreparedFrameGen)>, mut ctx: R
     if !fg.prepared.load(Ordering::Relaxed) {
         return;
     }
-    ctx.command_encoder().copy_texture_to_texture(target.main_texture().as_image_copy(), fg.hudless.as_image_copy(), fg.hudless.size());
+    let hudless = &fg.hudless[fg.hudless_at.load(Ordering::Relaxed)];
+    ctx.command_encoder().copy_texture_to_texture(target.main_texture().as_image_copy(), hudless.as_image_copy(), hudless.size());
 }
 
-/// Optical flow and frame interpolation; the generated frame into the main texture (so
-/// Bevy's upscaling shows it first), the real one aside for [`show_real`].
+/// Optical flow and frame interpolation. Where a presenter shows the window, the generated
+/// frame stays where the passes wrote it for [`hand_to_presenter`] and the main texture keeps
+/// the real frame, which Bevy's upscaling draws into the stand-in. Where the render thread
+/// presents (`NVF_FG_PRESENTER=0`), the generated frame goes into the main texture (so Bevy's
+/// upscaling shows it first) and the real one aside for [`show_real`].
 #[allow(clippy::too_many_arguments)]
 fn generate(
     view: ViewQuery<(&ViewTarget, &PreparedFsr, &PreparedFrameGen, &ExtractedCamera)>,
     renderer: Res<FrameGenRenderer>,
     pending: Res<PendingReal>,
+    pending_generated: Res<PendingGenerated>,
     stats: Res<Stats>,
     generated: Res<GeneratedFrames>,
     capture: Res<Capture>,
     device: Res<RenderDevice>,
-    windows: Query<(MainEntity, &ExtractedWindow)>,
+    windows: Query<(MainEntity, &ExtractedWindow, Option<&DeferredSwapchain>)>,
     mut ctx: RenderContext,
 ) {
     let (target, fsr, fg, camera) = view.into_inner();
@@ -587,15 +610,22 @@ fn generate(
         return;
     };
     let reset = fsr.reset || !fg.history.load(Ordering::Relaxed);
+    let recording = crate::frame_pace::recording();
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     use bevy::render::diagnostic::RecordDiagnostics;
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_frame_generation");
     let main: &wgpu::Texture = target.main_texture();
     let encoder = ctx.command_encoder();
+    // This frame's HUD-less copy ([`capture_hudless`]) and the frame before's; the next frame
+    // writes over the older one.
+    let at = fg.hudless_at.load(Ordering::Relaxed);
+    let (hudless, previous) = (&fg.hudless[at], &fg.hudless[1 - at]);
+    fg.hudless_at.store(1 - at, Ordering::Relaxed);
+    let output = &fg.outputs[(fg.output_next.fetch_add(1, Ordering::Relaxed) % STAND_INS as u64) as usize];
     let mut of_view = fg.optical_flow.lock().unwrap();
     optical_flow.dispatch(&mut of_view, encoder, &OpticalFlowDispatchInfo {
-        color: &fg.hudless,
+        color: hudless,
         reset,
         // The tonemapped frame is linear in [0, 1] (the window's sRGB view encodes it):
         // scRGB with 80 nits as 1.0, which AMD's passes read as linear unchanged.
@@ -605,8 +635,8 @@ fn generate(
     let frame_id = fg.frame_id.fetch_add(1, Ordering::Relaxed);
     interpolation.dispatch(&mut fg.interpolation.lock().unwrap(), encoder, &FrameInterpolationDispatchInfo {
         current_backbuffer: main,
-        current_backbuffer_hudless: Some(&fg.hudless),
-        output: &fg.output,
+        current_backbuffer_hudless: Some(hudless),
+        output,
         optical_flow: &of_view,
         render_size: fsr.render_size.to_array(),
         camera_near: f32::MAX,
@@ -618,98 +648,63 @@ fn generate(
         backbuffer_transfer_function: 2,
         min_max_luminance: [0.0, 80.0],
         frame_id,
+        previous_source: Some(previous),
     });
     drop(of_view);
     fg.history.store(true, Ordering::Relaxed);
     stats.real.fetch_add(1, Ordering::Relaxed);
-    // A screenshot of the window (F12, `--screenshot`) points the camera at a texture of Bevy's
-    // own, which Bevy copies into the window's image only after the render graph (after
-    // `present_generated`). Then present once, the real frame: the screen and the file get it.
-    let to_window = windows
-        .iter()
-        .find(|(w, _)| *w == window.entity())
-        .and_then(|(_, w)| w.swap_chain_texture_view.as_ref())
-        .zip(target.out_texture())
-        .is_some_and(|(image, out)| image.id() == out.id());
-    if !reset && !to_window {
-        info!("frame generation: the camera draws into a screenshot this frame; the real frame is presented alone");
-    }
-    if !reset && to_window {
-        let real = &fg.reals[(fg.real_next.fetch_add(1, Ordering::Relaxed) % STAND_INS as u64) as usize];
-        let size = real.size();
-        encoder.copy_texture_to_texture(main.as_image_copy(), real.as_image_copy(), size);
-        encoder.copy_texture_to_texture(fg.output.as_image_copy(), main.as_image_copy(), size);
-        pending.0.lock().unwrap().push((window.entity(), real.clone()));
-        capture.record(device.wgpu_device(), encoder, &[("0-hudless", &fg.hudless), ("1-generated", &fg.output), ("2-real", real)]);
+    // Where the camera draws this frame. A presenter's window: its stand-in. A window the
+    // render thread presents: its image. Anything else is a screenshot (F12, `--screenshot`:
+    // Bevy points the camera at a texture of its own and copies it into the window's image or
+    // stand-in only after the render graph), or the frame a window is first given to a
+    // presenter while Bevy still holds an image: then the real frame is presented alone, so the
+    // screen and the file get it.
+    let out = target.out_texture();
+    let found = windows.iter().find(|(w, ..)| *w == window.entity());
+    let deferred = found.and_then(|(_, _, deferred)| deferred);
+    let to_presenter = deferred.and_then(DeferredSwapchain::stand_in).zip(out).is_some_and(|((_, stand_in), out)| stand_in.id() == out.id());
+    let to_window = deferred.is_none() && found.and_then(|(_, w, _)| w.swap_chain_texture_view.as_ref()).zip(out).is_some_and(|(image, out)| image.id() == out.id());
+    let shown = || {
         stats.generated.fetch_add(1, Ordering::Relaxed);
         generated.0.fetch_add(1, Ordering::Relaxed);
         if !fg.logged.swap(true, Ordering::Relaxed) {
             info!("frame generation active: {}x{}, generated frame presented first, the real frame second", fg.output_size.x, fg.output_size.y);
         }
+    };
+    if reset {
+        // The passes started again: this frame has no generated one.
+    } else if to_presenter {
+        // The main texture keeps the real frame, which Bevy's upscaling draws into the stand-in.
+        pending_generated.0.lock().unwrap().push((window.entity(), output.clone()));
+        capture.record(device.wgpu_device(), encoder, &[("0-hudless", hudless), ("1-generated", output), ("2-real", main)]);
+        shown();
+    } else if to_window {
+        use wgpu::TextureUsages as U;
+        let reals = fg.reals.get_or_init(|| std::array::from_fn(|_| frame_texture(device.wgpu_device(), fg.output_size, "frame_gen_real", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC)));
+        let real = &reals[(fg.real_next.fetch_add(1, Ordering::Relaxed) % STAND_INS as u64) as usize];
+        let size = real.size();
+        encoder.copy_texture_to_texture(main.as_image_copy(), real.as_image_copy(), size);
+        encoder.copy_texture_to_texture(output.as_image_copy(), main.as_image_copy(), size);
+        pending.0.lock().unwrap().push((window.entity(), real.clone()));
+        capture.record(device.wgpu_device(), encoder, &[("0-hudless", hudless), ("1-generated", output), ("2-real", real)]);
+        shown();
+    } else {
+        info!("frame generation: the camera draws into a screenshot this frame; the real frame is presented alone");
     }
     span.end(ctx.command_encoder());
-}
-
-/// The real frames of the windows a presenter shows (`DeferredSwapchain`), taken out of
-/// [`PendingReal`] for [`hand_to_presenter`] before the render-thread path of
-/// `NVF_FG_PRESENTER=0` ([`present_generated`], [`show_real`]) would show them.
-///
-/// A screenshot of the window (F12, `--screenshot`): Bevy's `prepare_screenshots` points the
-/// camera's output at a screenshot texture instead of the stand-in, and `render_system`, after
-/// the render graph, copies that texture to the screenshot's buffer and draws it into the
-/// stand-in. On such a frame the generated frame is left out: the real one is drawn over the
-/// generated one in the screenshot texture (submitted here, before that copy), so the
-/// screenshot is of the real frame and the presenter shows the stand-in, the real frame, alone.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
-fn take_for_presenters(
-    pending: Res<PendingReal>,
-    mut reals: ResMut<PresenterReals>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-    stats: Res<Stats>,
-    generated: Res<GeneratedFrames>,
-    mut blit: ResMut<Blit>,
-    windows: Query<(MainEntity, &DeferredSwapchain)>,
-    views: Query<(&ViewTarget, &ExtractedCamera), With<PreparedFrameGen>>,
-) {
-    let device = device.wgpu_device();
-    let mut pending = pending.0.lock().unwrap();
-    let mut encoder: Option<wgpu::CommandEncoder> = None;
-    for (main, deferred) in &windows {
-        let Some(at) = pending.iter().position(|(w, _)| *w == main) else { continue };
-        let (window, real) = pending.remove(at);
-        // The camera's output, when it is not this frame's stand-in: a screenshot's texture
-        // (or, on the frame a window is first deferred, the image Bevy still presents itself).
-        let stand_in = deferred.stand_in().map(|(_, view)| view.id());
-        let screenshot = views.iter().find_map(|(target, camera)| {
-            let ours = matches!(&camera.target, Some(NormalizedRenderTarget::Window(w)) if w.entity() == window);
-            target.out_texture().filter(|out| ours && Some(out.id()) != stand_in).zip(target.out_texture_view_format())
-        });
-        let Some((out, format)) = screenshot else {
-            reals.0.push((window, real));
-            continue;
-        };
-        let recording = encoder.get_or_insert_with(|| device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame_gen_screenshot_real") }));
-        blit.draw(device, recording, &real.create_view(&default()), out, format, "frame_gen_screenshot_real");
-        // Not shown: the frame-rate counter counts generated frames shown.
-        stats.generated.fetch_sub(1, Ordering::Relaxed);
-        generated.0.fetch_sub(1, Ordering::Relaxed);
-    }
-    if let Some(encoder) = encoder {
-        queue.submit([encoder.finish()]);
-    }
+    crate::frame_pace::recorded(crate::frame_pace::Recorded::FrameGeneration, recording, true);
 }
 
 /// Each deferred window's frame to its presenter (`fg_presenter.rs`, started the first time),
 /// after Bevy's `render_system` has submitted the frame and any screenshot's copy into the
-/// stand-in: the stand-in, which holds the generated frame (or the only one, on a frame
-/// without), then the real frame when there is one. A presenter whose thread could not start
+/// stand-in: the generated frame when there is one ([`generate`]), then the stand-in, which
+/// holds the real frame (the only one, on a frame without a generated one). A presenter whose thread could not start
 /// or has ended (a panic) is dropped and no window is deferred from the next frame
 /// ([`Presenters::failed`]); this frame is not presented.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn hand_to_presenter(
     mut presenters: ResMut<Presenters>,
-    mut reals: ResMut<PresenterReals>,
+    pending: Res<PendingGenerated>,
     request: Res<FrameGenRequest>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
@@ -719,15 +714,16 @@ fn hand_to_presenter(
 ) {
     let refresh = request.refresh_millihertz.filter(|m| *m > 0).map_or(std::time::Duration::ZERO, |m| std::time::Duration::from_secs_f64(1000.0 / f64::from(m)));
     // Those of windows without a stand-in this frame are dropped with it.
-    let mut reals = std::mem::take(&mut reals.0);
+    let mut generated_frames = std::mem::take(&mut *pending.0.lock().unwrap());
     for (entity, main, deferred, surface) in &windows {
         // Only a stand-in drawn this frame: a window `prepare_windows` passed over (no camera
         // draws to it, or Bevy still held an image) has last frame's, already handed over.
         let Some((_, stand_in)) = deferred.take_stand_in() else { continue };
-        let mut frames = vec![(**stand_in).clone()];
-        if let Some(at) = reals.iter().position(|(w, _)| *w == main) {
-            frames.push(reals.swap_remove(at).1.create_view(&default()));
+        let mut frames = Vec::with_capacity(2);
+        if let Some(at) = generated_frames.iter().position(|(w, _)| *w == main) {
+            frames.push(generated_frames.swap_remove(at).1.create_view(&default()));
         }
+        frames.push((**stand_in).clone());
         let paired = frames.len() == 2;
         let at = match presenters.running.iter().position(|(e, _)| *e == entity) {
             Some(at) => at,
@@ -1098,7 +1094,8 @@ mod tests {
     fn real_frames_are_capped_at_half_the_refresh_rate() {
         assert_eq!(real_frame_cap(Some(160_000)), 78);
         assert_eq!(real_frame_cap(Some(144_000)), 71);
-        assert_eq!(real_frame_cap(Some(143_998)), 70, "a 144 Hz mode as Windows reports it");
+        assert_eq!(real_frame_cap(Some(143_998)), 71, "a 144 Hz mode as Windows reports it");
+        assert_eq!(real_frame_cap(Some(59_940)), 29, "59.94 Hz");
         assert_eq!(real_frame_cap(Some(120_000)), 59);
         assert_eq!(real_frame_cap(Some(60_000)), 29);
         assert_eq!(real_frame_cap(Some(240_000)), 117);
