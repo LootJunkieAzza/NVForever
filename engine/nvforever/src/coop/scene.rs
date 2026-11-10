@@ -67,6 +67,9 @@ const SETTLE: f32 = 1.0;
 /// Farther than this from the host (game units) in the host's place, a held guest is
 /// brought beside it.
 const NEAR: f32 = 400.0;
+/// A guest further than this (units) from the host's feet while a scene holds the whole
+/// view is put on them [design].
+const ON_SPOT: f32 = 8.0;
 /// How far to the host's right a guest is put (game units).
 const BESIDE: f32 = 72.0;
 /// A modifier on the host's screen whose seconds went back by more than this started
@@ -432,10 +435,28 @@ pub(super) fn share_scene(
         s.turned = Some((host.place, host.yaw));
         info!("co-op: scene: this player faces as the host ({:.0} deg)", host.yaw.to_degrees());
     }
-    if !settled || loading.is_some_and(|l| l.active()) || coop.downed_at.is_some() || coop.last_leash.is_some_and(|t| now - t < super::LEASH_EVERY) {
+    if !settled || loading.is_some_and(|l| l.active()) || coop.downed_at.is_some() {
         return;
     }
     let (dx, dy) = (player.feet[0] - host.feet[0], player.feet[1] - host.feet[1]);
+    // The scene holds the whole view (a slideshow): watched from the host's own spot.
+    // From its place beside the host the Honest Hearts slides stood off-centre on a
+    // guest's screen, black down one side (desktop run, 2026-11-10; item 153). The
+    // players' bodies are hidden and in nobody's way meanwhile
+    // ([`hide_players_in_scene`]).
+    if scene_holds_view(held) && place_of(&loc) == host.place && dx * dx + dy * dy > ON_SPOT * ON_SPOT {
+        let (world, interior) = match host.place {
+            Place::Interior(c) => (None, Some(c)),
+            Place::Exterior(w) => (Some(w), None),
+        };
+        info!("co-op: scene: on the host's spot at {:?} {:?}: the scene holds the view", host.place, host.feet);
+        travel.write(TravelRequest(Travel { world, interior, feet: host.feet, heading_deg: host.yaw.to_degrees() }));
+        coop.last_leash = Some(now);
+        return;
+    }
+    if coop.last_leash.is_some_and(|t| now - t < super::LEASH_EVERY) {
+        return;
+    }
     // Another place is the leash's (`super::leash`).
     if place_of(&loc) != host.place || dx * dx + dy * dy <= NEAR * NEAR {
         return;
@@ -467,11 +488,23 @@ pub(super) fn hide_players_in_scene(
     script: Option<Res<nvf_play::script::ScriptState>>,
     mut bodies: Query<&mut Visibility, With<super::Puppet>>,
     mut hidden: Local<bool>,
+    mut blocks: Option<ResMut<nvf_play::blocking::ActorBlocks>>,
 ) {
     let held = (coop.is_host() || coop.is_guest()) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| scene_holds_view(rt.game.controls_locked()));
     if held != *hidden {
         *hidden = held;
         info!("co-op: scene: the other players' bodies {}", if held { "hidden while the scene holds the view" } else { "drawn again" });
+        // Nor in anybody's way: the guests stand on the host's spot meanwhile, and a
+        // body there pushed the host aside (laptop run story-near, 2026-11-09).
+        if let Some(b) = blocks.as_deref_mut() {
+            for r in coop.peers.iter().flat_map(|(&id, p)| p.references(id)) {
+                if held {
+                    b.in_nobodys_way.insert(r);
+                } else {
+                    b.in_nobodys_way.remove(&r);
+                }
+            }
+        }
     }
     let want = if held { Visibility::Hidden } else { Visibility::Inherited };
     for mut v in &mut bodies {
