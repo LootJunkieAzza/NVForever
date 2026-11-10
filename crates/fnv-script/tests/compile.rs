@@ -717,6 +717,23 @@ fn sv_functions() {
     assert_eq!(h.text(7), "0x00FF");
 }
 
+/// Without regard to case, positions are characters of the text as it is: `İ` grows and
+/// the Kelvin sign shrinks when lowered, which put a search's position in the wrong
+/// place or out of the string [#1989]. Synthetic text (charter).
+#[test]
+fn sv_searches_without_case_keep_positions_in_non_ascii_text() {
+    let h = run(
+        "string_var s\nstring_var t\nfloat f\nfloat g\nfloat n\nfloat r\nfloat q\nbegin GameMode\nlet s := \"a\u{130}b\u{212A}c\u{130}d\"\nlet t := s\nlet f := Sv_Find \"k\", s\nlet g := Sv_Find \"\u{130}d\", s\nlet n := Sv_Count \"\u{130}\", s\nlet r := Sv_Replace \"k|-\", s\nlet q := Sv_Replace \"\u{130}|I\", t\nend",
+    );
+    assert_eq!(h.0[&3], Value::Num(3.0), "the Kelvin sign is k without regard to case");
+    assert_eq!(h.0[&4], Value::Num(5.0));
+    assert_eq!(h.0[&5], Value::Num(2.0));
+    assert_eq!(h.0[&6], Value::Num(1.0));
+    assert_eq!(h.text(1), "a\u{130}b-c\u{130}d");
+    assert_eq!(h.0[&7], Value::Num(2.0));
+    assert_eq!(h.text(2), "aIb\u{212A}cId");
+}
+
 #[test]
 fn printc_and_version_reports() {
     let h = run("float v\nfloat p\nbegin GameMode\nPrintC \"v%g\", 1\nPrint \"x\" + $2\nlet v := GetNVSEVersion\nlet p := GetPluginVersion \"ShowOff xNVSE Plugin\"\nend");
