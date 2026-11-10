@@ -23847,6 +23847,31 @@ order = [["nvf type middle", "nvf type active", "nvf type suppressed", "nvf type
 manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box above the amber bar; ui_typewriter_final.png: the same letter fully visible with the replacement callback's pink colour. Verify the text and alpha links affect the rendered result."
 
 [[scenario]]
+name = "ui-attach-component-node"
+source = "issue #1835 ([documented: AttachUIComponent] the component goes into one rect under HUDMainMenu and follows a named node of a loaded model; [design: ui_more.rs place_attachments, engine/nvforever/src/ui_attach.rs] the rect's top left on the node's point through the player's camera, in interface units; hidden behind the camera or off screen)"
+note = "Easy Pete held (SetRestrained) and put 350 units north of the player, then an authored component (a rect holding a text, written for this test) attached to his Bip01 Head at 4 s; aimnpc turns the view onto him; at 10 s the view turns south, away from him"
+areas = ["ui", "hud", "scripts"]
+paths = ["engine/nvforever/src/ui_attach.rs", "crates/fnv-game/src/ui_more.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = '2.5:call:EasyPeteRef:SetRestrained:1,3:moveto:EasyPeteRef:player:0:350:0,4:call:EasyPeteRef:AttachUIComponent:"Bip01 Head":"<rect name="NVFAttachTest"><text name="Label"><x>-80</x><y>-40</y><font>1</font><string>NVF ATTACH TEST</string></text></rect>"', NVF_PLAY_TEST_CONTROL = "6:aimnpc,8:aimnpc", NVF_PLAY_TEST_LOOK = "10:180:0", NVF_PLAY_TEST_SHOTS = "9:ui_attach_on_head.png,11.5:ui_attach_turned_away.png" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 13
+expect = [
+  { re = 'script: test aid calls AttachUIComponent on EasyPeteRef', label = "the component attached to Easy Pete's head" },
+  { re = 'ui: attached NVFAttachTest on [0-9A-F]{8} node "Bip01 Head" shown at \(\d+, \d+\)', label = "placed on screen at the head bone" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \([1-9]\d* items\)', label = "the attached rect's text enters rendering" },
+  { re = 'ui: attached NVFAttachTest on [0-9A-F]{8} node "Bip01 Head" hidden \((behind the camera|off the screen)\)', label = "hidden once the view turns away" },
+]
+order = [[
+  { re = 'test aid calls AttachUIComponent' },
+  { re = 'ui: attached NVFAttachTest .* shown at' },
+  { re = 'ui: attached NVFAttachTest .* hidden \((behind the camera|off the screen)\)' },
+]]
+forbid = [
+  { re = 'ui: attached NVFAttachTest .* hidden \((no such node|not drawn|no camera)\)', label = "the head bone is found on the drawn actor, by its exact name" },
+]
+manual = "ui_attach_on_head.png: the words NVF ATTACH TEST in white just above and left of Easy Pete's head, the view on him; ui_attach_turned_away.png: the view south, no words on screen"
+
+[[scenario]]
 name = "pipboy-items-hints"
 source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
 areas = ["pipboy"]
