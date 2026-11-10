@@ -18,6 +18,15 @@
 //! [`Game::take_coop_reward`]. Item rewards stay the host's: they are for a later
 //! "synced progression" option (owner, 2026-11-04).
 //!
+//! **Script XP no completion claims** goes to the guests too (owner, queue item of
+//! 2026-11-10: Deputy Beagle's rescue line INFO 0x000E501C gave the host 25 XP and the
+//! guest nothing) [design]: XP of a result script still held for its quest when that
+//! quest has not completed within [`WAIT`] frames, and XP outside any result script once
+//! no completion can claim it (older than [`BEFORE`] frames), is due on its own as a
+//! [`QuestReward`] of [`SCRIPT_XP`]. Caps still wait for a completion (a script's caps
+//! may be a sale), and challenges' reward scripts are the host's own (not recorded,
+//! `functions::player::reward_xp`).
+//!
 //! **Hand-outs** are not rewards: the items a quest's or a dialogue line's result script
 //! gives the player along the way (Sunny Smiles' varmint rifle and its rounds, Ringo's
 //! Caravan deck) go to every player (owner, items 112 and 114) [design]. The ledger keeps
@@ -36,6 +45,14 @@ pub const BEFORE: u64 = 30;
 /// Gains this many frames after a completion are its reward too (about a second); the
 /// reward is due then.
 pub const AFTER: u64 = 60;
+
+/// XP a quest's result script gave waits this many frames (about 15 s) for that quest to
+/// complete before it goes to the guests as script XP [design: Sunny Smiles' caps came
+/// 5 s before VCG02 completed].
+pub const WAIT: u64 = 900;
+
+/// The "quest" of script XP no completion claimed (module notes).
+pub const SCRIPT_XP: FormId = FormId(0);
 
 /// Gains held for quests to complete kept at most (the oldest go first).
 const HELD_MAX: usize = 256;
@@ -102,9 +119,6 @@ impl RewardLedger {
             return;
         }
         self.recent.push_back((frame, xp, caps));
-        while self.recent.front().is_some_and(|g| g.0 + BEFORE < frame) {
-            self.recent.pop_front();
-        }
     }
 
     /// A result script gave the player `count` of `item` (not caps, not a quest item).
@@ -152,12 +166,15 @@ impl RewardLedger {
             }
             !mine
         });
-        for (f, xp, caps) in self.recent.drain(..) {
-            if f + BEFORE >= frame {
+        // Older gains stay: their XP goes as script XP (`due`).
+        self.recent.retain(|&(f, xp, caps)| {
+            let mine = f + BEFORE >= frame;
+            if mine {
                 r.xp += xp;
                 r.caps += caps;
             }
-        }
+            !mine
+        });
         self.open.push((r, frame + AFTER));
     }
 
@@ -165,6 +182,18 @@ impl RewardLedger {
     /// completed; ones with nothing to give are left out.
     pub fn due(&mut self, frame: u64) -> Vec<QuestReward> {
         let mut out = Vec::new();
+        // Script XP no completion can claim any more goes on its own (module notes);
+        // such caps are the host's.
+        let mut loose = 0.0;
+        while self.recent.front().is_some_and(|g| g.0 + BEFORE < frame) {
+            loose += self.recent.pop_front().map_or(0.0, |g| g.1);
+        }
+        for h in &mut self.held {
+            if h.0 + WAIT < frame {
+                loose += std::mem::take(&mut h.2);
+            }
+        }
+        self.held.retain(|h| h.2 > 0.0 || h.3 > 0);
         self.open.retain(|(r, until)| {
             if *until <= frame {
                 if !r.is_empty() {
@@ -175,6 +204,9 @@ impl RewardLedger {
                 true
             }
         });
+        if loose > 0.0 {
+            out.push(QuestReward { quest: SCRIPT_XP, xp: loose, caps: 0 });
+        }
         out
     }
 }
@@ -316,21 +348,42 @@ mod tests {
     #[test]
     fn a_completion_takes_the_gains_just_before_and_after() {
         let mut l = ledger();
-        // Too long before: someone else's (a challenge, an earlier line).
+        // Too long before: not this quest's; script XP of its own.
         l.gain(100, 25.0, 0);
         // A dialogue result script pays, then sets the completing stage.
         l.gain(200, 100.0, 0);
         l.gain(200, 0.0, 150);
         l.completed(201, Q1);
-        assert!(l.due(201 + AFTER - 1).is_empty(), "not due while its window is open");
+        assert_eq!(l.due(201 + AFTER - 1), [QuestReward { quest: SCRIPT_XP, xp: 25.0, caps: 0 }], "only the older script XP while the window is open");
         // The quest script pays on its next run.
         l.gain(205, 50.0, 25);
         assert_eq!(l.due(201 + AFTER), [QuestReward { quest: Q1, xp: 150.0, caps: 175 }]);
         assert!(l.due(10_000).is_empty(), "each reward once");
-        // Gains after the window are not that quest's.
+        // Gains after the window are not that quest's: script XP of their own.
         l.gain(400, 10.0, 0);
         l.completed(400 + BEFORE + 1, Q2);
-        assert!(l.due(10_000).is_empty(), "a quest that gave nothing has no reward");
+        assert_eq!(l.due(10_000), [QuestReward { quest: SCRIPT_XP, xp: 10.0, caps: 0 }], "a quest that gave nothing has no reward");
+    }
+
+    #[test]
+    fn script_xp_no_completion_claims_goes_on_its_own() {
+        let mut l = ledger();
+        // Deputy Beagle's rescue line (a line of a quest that does not complete then)
+        // gives 25 XP and 10 caps.
+        l.paying(Some(Q1));
+        l.gain(100, 25.0, 10);
+        l.paying(None);
+        assert!(l.due(100 + WAIT).is_empty(), "it waits for its quest");
+        assert_eq!(l.due(101 + WAIT), [QuestReward { quest: SCRIPT_XP, xp: 25.0, caps: 0 }]);
+        assert!(l.due(5_000).is_empty(), "once");
+        // The caps still wait for the quest's completion; the XP went already.
+        l.completed(6_000, Q1);
+        assert_eq!(l.due(6_000 + AFTER), [QuestReward { quest: Q1, xp: 0.0, caps: 10 }]);
+        // XP outside any result script (a quest script's RewardXP): once no completion
+        // can claim it.
+        l.gain(7_000, 40.0, 0);
+        assert!(l.due(7_000 + BEFORE).is_empty());
+        assert_eq!(l.due(7_001 + BEFORE), [QuestReward { quest: SCRIPT_XP, xp: 40.0, caps: 0 }]);
     }
 
     #[test]

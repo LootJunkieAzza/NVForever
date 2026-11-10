@@ -273,9 +273,12 @@ fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, 
                     continue;
                 };
                 let name = rt.game.data.name(FormId(quest));
+                let host = mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str()).to_string();
                 match rt.game.take_coop_reward(xp as f64, caps as i32) {
+                    // Script XP no completion claimed (`fnv_game::coop_rewards::SCRIPT_XP`).
+                    Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, format!("+{gained} XP, earned with {host}")),
                     // The host by its character's name (`coop_social::SocialMates`).
-                    Ok(gained) => say(&mut corner, format!("{} completed {name}: +{gained} XP{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str()), if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
+                    Ok(gained) => say(&mut corner, format!("{host} completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
                     Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
                 }
             }
@@ -327,7 +330,11 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
         p.outbox.push(Shared::Gift { batch, item: item.0, count: count.max(0) as u32 });
     }
     for r in rt.game.coop_rewards.due(rt.game.frame) {
-        info!("co-op: {} completed: {} XP and {} caps to the guests", rt.game.data.name(r.quest), r.xp, r.caps);
+        if r.quest == fnv_game::coop_rewards::SCRIPT_XP {
+            info!("co-op: {} XP from the host's scripts, no quest completed: to the guests", r.xp);
+        } else {
+            info!("co-op: {} completed: {} XP and {} caps to the guests", rt.game.data.name(r.quest), r.xp, r.caps);
+        }
         p.outbox.push(Shared::Reward { quest: r.quest.0, xp: r.xp.max(0.0) as u32, caps: r.caps.max(0) as u32 });
     }
 }

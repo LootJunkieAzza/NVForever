@@ -12,8 +12,11 @@ pub fn reward_xp(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         return none();
     }
     crate::experience::award(g, crate::experience::Source::Script, n);
-    // Part of a completed quest's reward for co-op guests (`crate::coop_rewards`).
-    g.coop_rewards.gain(g.frame, n, 0);
+    // For co-op guests: part of a completed quest's reward, or script XP of its own
+    // (`crate::coop_rewards`). A challenge's reward is the host's own.
+    if !matches!(ctx.inst, Some(crate::game::InstKey::Challenge { .. })) {
+        g.coop_rewards.gain(g.frame, n, 0);
+    }
     none()
 }
 
