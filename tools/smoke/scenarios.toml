@@ -22835,7 +22835,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 13
 expect = [
-  { re = 'script: test aid calls AttachUIComponent on Easy Pete', label = "the component attached to Easy Pete's head" },
+  { re = 'script: test aid calls AttachUIComponent on EasyPeteRef', label = "the component attached to Easy Pete's head" },
   { re = 'ui: attached NVFAttachTest on [0-9A-F]{8} node "Bip01 Head" shown at \(\d+, \d+\)', label = "placed on screen at the head bone" },
   { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \([1-9]\d* items\)', label = "the attached rect's text enters rendering" },
   { re = 'ui: attached NVFAttachTest on [0-9A-F]{8} node "Bip01 Head" hidden \((behind the camera|off the screen)\)', label = "hidden once the view turns away" },
