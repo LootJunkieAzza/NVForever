@@ -501,7 +501,7 @@ impl VatsMode {
 
 /// The test aid `NVF_PLAY_TEST_VATS_ROLL`: `hit` or `miss` makes every roll come out so
 /// (vats-mode.md §13), for checks about something other than the chance.
-fn forced_roll() -> Option<bool> {
+pub(crate) fn forced_roll() -> Option<bool> {
     static FORCED: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
     *FORCED.get_or_init(|| match std::env::var("NVF_PLAY_TEST_VATS_ROLL").ok()?.trim() {
         "hit" => Some(true),
@@ -564,7 +564,7 @@ pub const BAND_WIDTH: f32 = 0.22;
 
 /// The player's Action Points: (current, maximum, damage); `None` without the script
 /// runtime. The maximum counts the temporary modifiers, as the HUD's bar does.
-fn player_ap(script: Option<&mut ScriptState>, sim: &mut SimState) -> Option<(f32, f32, f32)> {
+pub(crate) fn player_ap(script: Option<&mut ScriptState>, sim: &mut SimState) -> Option<(f32, f32, f32)> {
     let rt = script.and_then(|s| s.rt.as_mut())?;
     with_world(rt, sim, |rt| {
         let [base, modifier, damage] = fnv_game::functions::actor_value_parts(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS).ok()?;
@@ -611,11 +611,14 @@ fn read_keys(
     locks: Res<ControlLocks>,
     mut vats: ResMut<VatsMode>,
     mut control: ResMut<PlayerControl>,
-    player: Res<Player>,
+    (player, lock): (Res<Player>, Option<Res<crate::rt_vats::RtVats>>),
     mut sounds: Sounds,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
-    let pressed = |c: Control| playing && input.just_pressed(c);
+    // In a co-op game V is the real-time lock's (`crate::rt_vats`): this mode slows the
+    // clock, which one player cannot do to the others.
+    let rt_on = lock.is_some_and(|l| l.active());
+    let pressed = |c: Control| playing && input.just_pressed(c) && !(rt_on && c == Control::Vats);
     let now = real.elapsed_secs_f64();
     vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate) };
     // Any other action ends the mode (§11.8), here before activation, so an E with
@@ -695,7 +698,7 @@ fn update(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     control: Res<PlayerControl>,
-    locks: Res<ControlLocks>,
+    (locks, lock): (Res<ControlLocks>, Option<Res<crate::rt_vats::RtVats>>),
     mut hud: ResMut<HudMessage>,
     mut sounds: Sounds,
 ) {
@@ -732,6 +735,8 @@ fn update(
         None
     };
     match (v.phase, stop) {
+        // (No Action Points come back while the real-time lock is held, `crate::rt_vats`.)
+        (Phase::Off, _) if lock.as_deref().is_some_and(|l| l.holds_regen()) => {}
         (Phase::Off, _) => {
             if let Some(m) = regenerate(script.as_deref_mut(), &mut sim, combat.rules.ap_restore_rate, time.delta_secs()) {
                 if v.regen_mult != Some(m) && (v.regen_mult.is_some() || m != 1.0) {
@@ -922,7 +927,7 @@ fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
 
 /// The point to aim at on an actor: its part's capsule centre, the whole capsule's aim
 /// point without parts.
-fn point_of(phys: &PhysState, actor: u32, part: Option<u8>) -> Option<[f32; 3]> {
+pub(crate) fn point_of(phys: &PhysState, actor: u32, part: Option<u8>) -> Option<[f32; 3]> {
     match part {
         Some(p) => phys.world.actor_part_center(actor, p).or_else(|| phys.world.actor_aim_point(actor)),
         None => phys.world.actor_aim_point(actor),

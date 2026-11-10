@@ -949,7 +949,16 @@ pub struct ControlInput<'w, 's> {
     pub kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
     /// The real-time Pip-Boy's hold on the controls ([`ControlHold`]).
     pub hold: Option<Res<'w, ControlHold>>,
+    /// The keys the real-time VATS lock has taken ([`FreedKeys`]).
+    pub freed: Option<Res<'w, FreedKeys>>,
 }
+
+/// Keys taken from the game's own controls for now: while the real-time VATS lock is
+/// held (`crate::rt_vats`) its keys act for the lock only, so the controls bound to them
+/// (Grab on Z, Toggle POV on F, the fork's Weapon Bash on X and Ping on C) read as not
+/// pressed. Keyboard only.
+#[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
+pub struct FreedKeys(pub Vec<KeyCode>);
 
 /// What the real-time Pip-Boy holds back from the game's controls (`crate::pipboy::glance`):
 /// all of them while the full Pip-Boy is open with the world running on in co-op
@@ -988,6 +997,7 @@ impl ControlInput<'_, '_> {
     pub fn held(&self, c: Control) -> bool {
         (self.kill_cam.as_ref().is_some_and(|k| k.active()) && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad))
             || self.hold.as_ref().is_some_and(|h| h.holds(c, self.controller()))
+            || (!self.controller() && self.freed.as_ref().is_some_and(|f| self.bindings.get(c).key.is_some_and(|k| f.0.contains(&k))))
     }
 
     /// A controller works the controls.

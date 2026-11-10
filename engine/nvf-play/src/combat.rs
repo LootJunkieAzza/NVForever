@@ -1019,6 +1019,41 @@ fn instant(p: &Projectile) -> bool {
 const AIM_REACH: f32 = 100_000.0;
 
 /// The player's combat state.
+/// What the real-time VATS lock (`crate::rt_vats`, docs/spec-notes/realtime-vats.md) asks
+/// of the player's shots and hits, set by it each frame, and what they did, for it to
+/// read the next: the lock and combat meet here, so combat's systems need no more
+/// parameters.
+#[derive(Debug, Clone, Default)]
+pub struct LockLink {
+    /// The locked actor.
+    pub target: Option<FormId>,
+    /// Where a shot at it is aimed (the aimed limb's point) and its chance to hit,
+    /// percent: a gun's shot is rolled on the chance and leaves straight at the point, or
+    /// wide of it on a miss.
+    pub aim: Option<(V3, f32)>,
+    /// The player's hits are critical only through the lock's meter (`bNoNaturalCrits`).
+    pub no_crits: bool,
+    /// The damage multiplier of the armed critical: the player's next hit on the target
+    /// takes it.
+    pub crit_armed: Option<f32>,
+    /// The critical taken this frame: the other projectiles of the same shot (a
+    /// shotgun's pellets) landing with it are critical too [hypothesis].
+    pub crit_now: Option<f32>,
+    /// What happened since the lock last looked.
+    pub events: Vec<LockEvent>,
+}
+
+/// What the player's shots and hits did under a lock ([`LockLink::events`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LockEvent {
+    /// A shot left for the locked target: its chance (percent), the roll (0 to 100) and
+    /// whether it hit.
+    Shot { chance: f32, rolled: f32, hit: bool },
+    /// A hit landed on the locked target for `dealt`; `critical` is the multiplier of the
+    /// lock's critical when it was one.
+    Hit { dealt: f32, critical: Option<f32> },
+}
+
 #[derive(Resource)]
 pub struct Combat {
     pub forms: CombatForms,
@@ -1114,6 +1149,9 @@ pub struct Combat {
     /// (docs/design/vats-mode.md §17.2): the spread with the sights up, no bloom, before
     /// `fVATSSpreadMult`; kept from the last frame a gun was ready, `None` without one.
     pub vats_cone: Option<f32>,
+    /// The real-time VATS lock (`crate::rt_vats`): what it asks of the player's shots and
+    /// hits, and what they did.
+    pub lock: LockLink,
     /// The weapon and factor of the last Modify Throwing Velocity line (one a change).
     throw_logged: Option<(FormId, u32)>,
     /// The spread perks last logged, with their weapon ([`spread_perks`]).
@@ -2011,6 +2049,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         crosshair_cone: None,
         player_spread: None,
         vats_cone: None,
+        lock: LockLink::default(),
         player_blocked_at: None,
         special_swing: None,
         throw_logged: None,
@@ -2844,10 +2883,26 @@ pub(crate) fn fire(
                 if !by.is_empty() {
                     debug!("combat: perks on the player's spread: {formula:.2} -> {actor_spread:.2} ({})", by.join(", "));
                 }
+                // A gun's shot under the real-time VATS lock (`crate::rt_vats`): rolled on the
+                // aimed limb's chance, it leaves straight at the limb, or wide of it on a miss
+                // (realtime-vats.md §4).
+                let lock_shot = c.lock.aim.filter(|_| vats_shot.is_none() && !c.self_ammo).map(|(point, chance)| {
+                    let rolled = c.rng.next_f32() * 100.0;
+                    let hit = crate::vats_mode::forced_roll().unwrap_or(rolled < chance);
+                    let (u1, u2) = (c.rng.next_f32(), c.rng.next_f32());
+                    c.lock.events.push(LockEvent::Shot { chance, rolled, hit });
+                    if hit {
+                        point
+                    } else {
+                        fnv_combat::vats::miss_point(player.eye(), point, u1, u2)
+                    }
+                });
+                // The point a marked or locked shot goes straight at.
+                let straight = vats_shot.or(lock_shot);
                 // A VATS mode shot has no spread but its crippled limbs' (crippled-limbs.md §3).
                 let cone = if c.no_spread {
                     0.0
-                } else if vats_shot.is_some() {
+                } else if straight.is_some() {
                     spread::half_angle(spread::deviation_deg(spread::crippled_spread(&c.rules, &c.tuning, &w, &stance), 0.0))
                 } else {
                     spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects)
@@ -2880,8 +2935,8 @@ pub(crate) fn fire(
                     let world = view(&mut phys, script.as_deref(), Some(&sim));
                     let aim = match control.crosshair.as_ref() {
                         // VATS mode: from the eye straight at the mark (100 % accuracy).
-                        _ if vats_shot.is_some() => {
-                            let d = vec::sub(vats_shot.unwrap_or(eye), eye);
+                        _ if straight.is_some() => {
+                            let d = vec::sub(straight.unwrap_or(eye), eye);
                             if vec::len(d) > 1e-3 {
                                 vec::normalize(d)
                             } else {
@@ -3733,6 +3788,7 @@ fn melee(
             let dt_v = bash_blow.as_ref().map_or(dt_v, |(_, b)| fnv_combat::bash::pierced_dt(dt_v, b.piercing));
             let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, vats_mark.is_some());
             a.sneaking = sneak_attack(script.as_deref(), FormId::PLAYER_REF, control.sneak, target);
+            a.no_crits = c.lock.no_crits;
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
             let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
@@ -4674,6 +4730,8 @@ fn fly(
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, &w, p.by.vats);
         a.sneaking = p.actor.is_some_and(|t| sneak_attack(script.as_deref(), shooter, p.by.sneaking, FormId(t as u32)));
+        // Under real-time VATS the player's hits are critical through its meter only.
+        a.no_crits = shooter == FormId::PLAYER_REF && c.lock.no_crits;
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
         let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: item_condition(&sim, shooter, id), ammo_effects: &ammo_effects, part, power: 1.0 };
@@ -4742,7 +4800,19 @@ fn fly(
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
         let resist = target_resist(script.as_deref_mut(), &mut sim, target, &w);
         let nerve = companion_nerve(script.as_deref_mut(), &mut sim, target);
-        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, nerve, ..Target::default() }, &ap, &tp, roll);
+        let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, resist, nerve, ..Target::default() }, &ap, &tp, roll);
+        // The player's hit on the target of the real-time VATS lock (`crate::rt_vats`): the
+        // armed critical multiplies what it deals, and with it the same shot's other
+        // projectiles landing this frame; the lock hears of every hit (realtime-vats.md §6).
+        if shooter == FormId::PLAYER_REF && c.lock.target == Some(target) && !d.miss {
+            let mult = c.lock.crit_armed.take().or(c.lock.crit_now);
+            c.lock.crit_now = mult;
+            if let Some(m) = mult {
+                d.dealt *= m;
+                d.critical = true;
+            }
+            c.lock.events.push(LockEvent::Hit { dealt: d.dealt, critical: mult });
+        }
         log_hit_perks(shooter, Some(target), &ap, &tp, &d);
         // Without body parts the whole capsule counts as the torso (location 0).
         let location = bp.as_ref().map_or(0, BodyPart::location);
