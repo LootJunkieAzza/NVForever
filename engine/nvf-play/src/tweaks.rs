@@ -284,6 +284,8 @@ pub struct TweakSettings {
     /// `bContainerMenuStoreAllHotkey`: Shift with Take All puts everything listed on the
     /// player's side in the container.
     pub store_all: bool,
+    /// `bStartMenuQuickLoad`: the QuickLoad key works in the main and pause menus.
+    pub quick_load_in_menus: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -461,6 +463,7 @@ impl Default for TweakSettings {
             companion_pip: 0,
             female_facial_hair: false,
             store_all: false,
+            quick_load_in_menus: false,
         }
     }
 }
@@ -1273,6 +1276,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "quantity-shows-price", "Quantity Box Shows the Price", "In a barter, the \"How many?\" box says what the amount costs. (Stewie's Tweaks bBarterQuantityMenuShowsPrice)", game.quantity_shows_price);
         switch!(app, "quantity-shows-weight", "Quantity Box Shows the Weight", "In a container, the \"How many?\" box says what the amount weighs. (Stewie's Tweaks bContainerQuantityMenuShowsWeight)", game.quantity_shows_weight);
         switch!(app, "hide-empty-reputation", "Hide an Empty Reputation List", "With no reputations yet, the Stats page's General tab shows the statistics only, with no switch to the reputations. (Stewie's Tweaks bHideReputationTabIfEmpty)", game.hide_empty_reputation);
+        switch!(app, "quick-load-in-menus", "Quick Load From the Menus", "The QuickLoad key loads the quicksave from the main and pause menus too. (Stewie's Tweaks bStartMenuQuickLoad)", quick_load_in_menus);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

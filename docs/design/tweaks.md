@@ -473,6 +473,7 @@ unless the player binds them, so nothing changes until then.
 | Map Marker Distance | `bMapLocationDisplayDistance` | `pipboy::data::world_map` adds `model::distance_text` (metres or kilometres, our words, 70 units a metre [hypothesis]) to the marker's detail line; the travel-time modes are not done |
 | Quantity Box Shows the Price / Weight | `bBarterQuantityMenuShowsPrice`, `bContainerQuantityMenuShowsWeight` | `menu::look::quantity_line` under the amount of the hand-built "How many?" box (our words); the box drawn from the game's tiles does not show it yet |
 | Hide an Empty Reputation List | `bHideReputationTabIfEmpty` | `pipboy::stats::model::Snapshot::hide_reputation`; the hand-built General tab keeps to the statistics and draws no switch; the tiles Stats page does not hide it yet |
+| Quick Load From the Menus | `bStartMenuQuickLoad` | `save::requests` takes the QuickLoad key in `PlayState::Menu` too (QuickSave stays play-only) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -494,8 +495,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 395 |
-| to do | 208 |
+| done | 396 |
+| to do | 207 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -963,6 +964,7 @@ game's Data folder, read-only).
 | `bSortPipboyQuests` | done |  | 2 | already so for one order (modes and active-first not built) |
 | `bSortPipboyRepairMenu` | done |  | 2 | Repair List: Same Item First (by name otherwise; iSortMode not done) |
 | `bSortRecipeMenu` | done |  | 1 | already so for one order: makeable first (modes not built) |
+| `bStartMenuQuickLoad` | done |  |  | Quick Load From the Menus |
 | `bStatsMenuPercentageXP` | done |  |  | Experience as a Percentage (the way through the level) |
 | `bStatsMenuShowEffectTimeRemaining` | done |  | 1 | Effect Time Left (seconds) |
 | `bTabBackInStartMenu` | done |  |  | Tab Goes Back in the Pause Menu (where Tab steps no tabs) |
@@ -1015,7 +1017,6 @@ game's Data folder, read-only).
 | `bRightClickChangesToPreviousContainerCategory` | to do |  |  | menu_mouse right click over a title |
 | `bShowBarterTotalWhenOverSellLimit` | to do |  |  | tiles barter snapshot amount; a menu bool |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
-| `bStartMenuQuickLoad` | to do |  |  | save::requests in the pause menu |
 | `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
 | `bTerminalGreyReadNotes` | to do |  |  | no record of entries read |
 | `bTimescaleAffectsMinigames` | to do |  |  | each minigame steps on AidTime |

@@ -395,12 +395,15 @@ impl Plugin for SavePlugin {
 const GROUP: &str = "Saving";
 
 /// The QuickSave and QuickLoad keys and the [`SaveRequest`]s.
-fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, mut asked: MessageReader<SaveRequest>, mut queue: ResMut<SaveQueue>, cfg: Res<SaveConfig>, mut load: MessageWriter<LoadRequest>, mut log: ResMut<SaveLog>) {
+#[allow(clippy::too_many_arguments)]
+fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, mut asked: MessageReader<SaveRequest>, mut queue: ResMut<SaveQueue>, cfg: Res<SaveConfig>, mut load: MessageWriter<LoadRequest>, mut log: ResMut<SaveLog>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     queue.0.extend(asked.read().cloned());
-    if *state.get() != PlayState::Playing {
+    // The player's tweak: QuickLoad works in the main and pause menus too [design: docs/design/tweaks.md].
+    let menu_load = tweaks.is_some_and(|t| t.quick_load_in_menus) && *state.get() == PlayState::Menu;
+    if *state.get() != PlayState::Playing && !menu_load {
         return;
     }
-    if input.just_pressed(crate::bindings::Control::QuickSave) {
+    if !menu_load && input.just_pressed(crate::bindings::Control::QuickSave) {
         info!("save: QuickSave key");
         queue.0.push(SaveRequest { name: fnv_save::QUICK_NAME.into(), kind: SaveKind::Quick });
     }
