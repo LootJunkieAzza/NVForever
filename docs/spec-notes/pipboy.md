@@ -267,7 +267,9 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   brighten, 200 ms. The hold is rolled first at 0.08, then the shudder at 0.20 [documented:
   `Fallout_default.ini` `[InterfaceFX]`]. The page itself is drawn at once as before, under the
   wash [design]. It is the screen material's (`ScreenLook` put on the menus' copy by
-  `pipboy_arm.rs`; `nif_material.wesl` `pipboy_picture`), so it covers whichever painter drew the
+  `pipboy_arm.rs` `upload_look`, in the same frame as the change, after it is decided;
+  `nif_material.wesl` `pipboy_picture`, which reads every tap inside the canvas, wrapped while
+  it rolls and half a texel in from its edges), so it covers whichever painter drew the
   page; the flat image where the model is missing and the screen menu have none [design].
   Logged `pipboy: page change transition <plain|shudder|vertical hold> (<ms> ms)` and `pipboy:
   tab change transition brighten (200 ms)`; the test aid's `glitch=` forces the kind as the
@@ -286,6 +288,18 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   original's Status, 2.06, is softer than this tent makes it)], and adds a triangular
   noise of 1.35 display levels' reach, new every frame (`SCREEN_NOISE`; about 0.6 levels once
   rounded) [design], on the model only.
+- **Brightness of the drawn picture** [observed: S.P.E.C.I.A.L. and Status at 1280 x 720, the
+  original's private job pipboy_fx_still against NVForever's scenario pipboy-screen-text]: the
+  original's text peaks at 1.31 times its lines' brightness (heading line 128 red, names 168);
+  drawn at the menu files' 255, NVForever's peaked at 1.57 (129 and 202). The same holds for
+  the pictures the text's brightness tints: the S.P.E.C.I.A.L. Vault Boy reads 191 red at its
+  99th percentile and 80.7 on average in the original, 212 and 96.2 at 255; the Status page's
+  bright parts 114 at the 95th percentile, 169 at 255; the bars sit at the screen's red ceiling
+  (about 205 to 212) either way. NVForever draws the hand-built pages' text (and so their
+  pictures) at 213 (`frame.rs` `TEXT`): names 167, Vault Boy 190 and 85.5, Status 144, lines
+  unchanged [observed: the same scenario]. Why the original's drawn picture comes out dimmer is
+  [hypothesis]; the dimmed text (128) is not measured. The tile-drawn pages take their file's
+  brightness and are not dimmed (open).
 - **Background**: `Interface\Shared\Background\pipboy.dds` over the whole canvas at
   brightness 90 [documented: inventory_menu.xml]; `ScreenGlare.dds` and this picture are
   512 × 512 DXT1, alpha 1 throughout [observed].

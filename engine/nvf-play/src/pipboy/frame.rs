@@ -26,7 +26,15 @@ pub const THICK: f32 = 2.0;
 /// 1.57, so its letters read heavier [observed: S.P.E.C.I.A.L. at 1280 x 720, the original's
 /// heading line 128 and names 168 red (private job pipboy_fx_still), NVForever's 129 and
 /// 202 (scenario pipboy-screen-text); hypothesis: why the original's text comes out dimmer;
-/// the dimmed text is not measured and keeps 128].
+/// the dimmed text is not measured and keeps 128]. `TEXT` tints the hand-built pages'
+/// pictures too (the Vault Boy, icons, bars, map markers), and the dimming holds for them:
+/// at 213 the S.P.E.C.I.A.L. Vault Boy reads 190 red at its 99th percentile and 85.5 on
+/// average against the original's 191 and 80.7 (212 and 96.2 at 255), the Status page's
+/// bright parts 144 at the 95th percentile against 114 (169 at 255), and the bars stay at the
+/// screen's red ceiling, about 205 to 212, in all three [observed: private job
+/// pipboy_fx_still; scenario pipboy-screen-text]. So it is the device's drawn picture as a
+/// whole that the original shows dimmer. The tile-drawn pages take their menu file's
+/// brightness and are not dimmed (open).
 pub const LINE: f32 = 200.0;
 pub const TEXT: f32 = 213.0;
 pub const DIMMED: f32 = 128.0;
