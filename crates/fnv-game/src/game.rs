@@ -327,6 +327,10 @@ pub struct RefExtra {
     /// for GetCurrentAIProcedure. Not saved.
     #[serde(skip)]
     pub ai_phase: Option<crate::ai::AiPhase>,
+    /// Where the last hit on the reference struck, in the world, as the engine tells it
+    /// (`Game::note_hit_point`; JohnnyGuitar's Get3DDistanceFromHitToNiNode).
+    #[serde(skip)]
+    pub hit_point: Option<[f32; 3]>,
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,
@@ -1511,7 +1515,7 @@ pub struct Game<'a> {
     pub loaded_cells: BTreeSet<FormId>,
     /// Scripted references a script moved (they may have left their authored cell).
     pub moved: BTreeSet<FormId>,
-    /// References other than the player that a script put somewhere (MoveTo) since the
+    /// References other than the player that a script put somewhere (MoveTo or a door) since the
     /// layer that moves actors last took them ([`Game::take_teleported`]): it has to
     /// start them again from where they are now. Not saved.
     pub teleported: BTreeSet<FormId>,
@@ -3298,7 +3302,15 @@ impl<'a> Game<'a> {
     /// Run every block of `event` in the instance's script that accepts `subject`.
     /// Returns whether a block ran.
     pub fn run_event(&mut self, key: InstKey, script: FormId, event: u16, subject: Option<Value>, ctx: RunCtx) -> bool {
-        self.run_blocks(key, script, event, subject, ctx, false)
+        // GetSelfAsInventoryRef (`crate::nvse_jip14`): the item whose script runs.
+        let item = match key {
+            InstKey::Item { holder, item } => Some((holder, item)),
+            _ => None,
+        };
+        let before = std::mem::replace(&mut self.other.jip14.item_running, item);
+        let ran = self.run_blocks(key, script, event, subject, ctx, false);
+        self.other.jip14.item_running = before;
+        ran
     }
 
     /// [`Game::run_event`]; with `coded_only`, only the blocks with a parameter run (the
@@ -3584,6 +3596,7 @@ impl<'a> Game<'a> {
         }
         // `MoveToMarkerWithFade` moves whose fade out has ended.
         crate::functions::refs::finish_fade_moves(self);
+        self.jip13_tick();
         // Without an engine taking them (a headless run) the lists are kept short.
         if self.script_looks.disabled_after_fade.len() > 256 {
             self.script_looks.disabled_after_fade.drain(..128);
@@ -4705,6 +4718,7 @@ impl<'a> Game<'a> {
                     tracing::info!("script: {} teammate(s) or follower(s) come along through the door", brought.len());
                 }
             }
+            Outcome::Teleported { cell, pos, .. } => self.note_relocated(actor, cell, pos),
             // A placed mine disarmed by the player gives its XP (`crate::experience`).
             Outcome::Disarmed { .. } if actor == FormId::PLAYER_REF => {
                 self.count_stat(crate::misc_stats::MINES_DISARMED, 1.0);
@@ -4921,7 +4935,11 @@ impl<'a> Game<'a> {
     /// with their value changes as applied.
     pub fn apply_magic_item_with(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool, mods: &crate::aid::Mods) -> Vec<crate::aid::Applied> {
         let data = self.data;
-        let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
+        // With AddNewEffect's entries after the record's (`crate::nvse_jip14`).
+        let items = self.applied_effects(source);
+        if items.is_empty() {
+            return Vec::new();
+        }
         let mut started: Vec<crate::aid::Applied> = Vec::new();
         // The effects that took, kept here: one of duration 0 has finished by the hit check
         // and is a hit all the same [observed: gaps2, a used stimpak raises OnMagicEffectHit

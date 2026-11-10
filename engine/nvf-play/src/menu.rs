@@ -199,6 +199,7 @@ impl Plugin for MenuPlugin {
                     keep_menu_state,
                     sync_cards,
                     publish_menu_picks,
+                    publish_jip_menus,
                     (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
                     draw,
                 )
@@ -729,6 +730,48 @@ fn publish_menu_picks(
     }
 }
 
+/// Tell the scripts' game the open item menu's filters, lists and trade, and take back a
+/// script's barter price multipliers (`fnv_game::nvse_jip12`: GetMenuItemFilter,
+/// GetMenuItemListRefs, GetBarterGoldAlt, GetBarterItems, Get/SetBarterPriceMult). The
+/// lists are the rows shown: NVForever's lists hold only the rows the category lets
+/// through, keyed by their place among them [decision: the original's keys count the
+/// filtered rows too].
+fn publish_jip_menus(mut active: ResMut<ActiveMenu>, script: Option<ResMut<crate::script::ScriptState>>, mut sim: ResMut<SimState>, mut was: Local<Option<u16>>) {
+    use fnv_game::nvse_jip12::{BarterView, ItemMenuView, MenuList};
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    let code = active.0.as_ref().map(|m| crate::script::menu_code(m.mode));
+    if let Some(old) = was.filter(|&w| Some(w) != code) {
+        rt.game.set_item_menu_view(old, None);
+        if old == crate::script::MENU_BARTER {
+            rt.game.set_barter_view(None);
+        }
+    }
+    *was = code;
+    let (Some(m), Some(code)) = (active.0.as_mut(), code) else { return };
+    let list = |m: &MenuModel, side: Side, owner: Option<FormId>| MenuList { owner, rows: m.list(side).rows.iter().enumerate().filter(|(_, r)| r.folder.is_none()).map(|(i, r)| (i, r.item, true)).collect() };
+    let category = |side: Side| model::Category::ORDER.iter().position(|c| *c == m.category[side as usize]).unwrap_or(0) as u8;
+    let other = match m.mode {
+        Mode::Container(c) => Some(c),
+        Mode::Barter(_) => m.trade.as_ref().map(|t| t.stock),
+        Mode::Inventory => None,
+    };
+    let view = ItemMenuView { filter: [category(Side::Player), category(Side::Container)], lists: [list(m, Side::Player, Some(FormId::PLAYER_REF)), list(m, Side::Container, other)] };
+    rt.game.set_item_menu_view(code, Some(view));
+    let Some(t) = m.trade.as_ref() else { return };
+    let units = |side: Side| t.offered[side as usize].keys().map(|u| u.0).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    rt.game.set_barter_view(Some(BarterView { merchant_caps: t.purse[Side::Container as usize], stock: t.stock, bought: units(Side::Container), sold: units(Side::Player), mult: t.mults() }));
+    let set = rt.game.barter_price_mults();
+    if m.trade.as_ref().is_some_and(|t| t.mult_set != set) {
+        if let Some(t) = m.trade.as_mut() {
+            t.mult_set = set;
+        }
+        info!("barter: a script set the price multipliers to {set:?}");
+        if let Err(e) = crate::script::with_world(rt, &mut sim, |rt| m.refresh(&mut rt.game.world)) {
+            warn!("barter: the trade cannot be listed again: {e}");
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_input(
     mut input: MessageReader<MenuInput>,
@@ -860,7 +903,7 @@ type DrawSources<'w> = (Option<Res<'w, crate::combat::Combat>>, Option<Res<'w, c
 
 /// [design] The item drawing reads the switch, its previous drawing choice and both
 /// item adapters' tile state.
-type DrawTiles<'w, 's> = (Option<Res<'w, crate::tiles::vanilla::TileMenus>>, Local<'s, (bool, bool)>, Option<Res<'w, crate::tiles::container_menu::ContainerTiles>>, Option<Res<'w, crate::tiles::barter_menu::BarterTiles>>);
+type DrawTiles<'w, 's> = (Option<Res<'w, crate::tiles::vanilla::TileMenus>>, Local<'s, (bool, bool)>, Option<Res<'w, crate::tiles::container_menu::ContainerTiles>>, Option<Res<'w, crate::tiles::barter_menu::BarterTiles>>, Option<Res<'w, crate::tiles::inventory_menu::InventoryTiles>>);
 
 /// Rebuild the container or barter menu's UI when the model changed (the inventory is
 /// the Pip-Boy's).
@@ -877,7 +920,7 @@ fn draw(
     mut kit: Local<Option<look::Kit>>,
     (combat, play, mut script): DrawSources,
     mut forms: Local<Option<crate::pipboy::stats::read::Forms>>,
-    (tiles, mut was_tiled, tile_menu, barter_tiles): DrawTiles,
+    (tiles, mut was_tiled, tile_menu, barter_tiles, inventory_tiles): DrawTiles,
 ) {
     // [design] With ContainerMenu or BarterMenu enabled the item menu draws from tiles
     // once its writer has the file built; a sheet takes the
@@ -888,7 +931,8 @@ fn draw(
     // file; drawn again here when that changes (the frame the prompt opens, before the tree
     // builds it, draws it by hand).
     let prompt = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
-    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game, prompt, item_tiled));
+    let inventory_tiled = inventory_tiles.is_some_and(|t| t.ready.is_some());
+    let tiled = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| crate::tiles::menus::quantity_tiled(tiles.as_ref().is_some_and(|t| t.quantity), &rt.game, prompt, item_tiled || inventory_tiled));
     if !active.is_changed() && !roots.is_empty() && (tiled, item_tiled) == *was_tiled {
         return;
     }

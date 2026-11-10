@@ -27,6 +27,24 @@ pub struct SceneNode {
     /// specular R G B, emissive R G B, glossiness, alpha, emissive mult [documented: the
     /// pages' value IDs 0-8]; `None` for a node or a shape without one.
     pub material: Option<[f32; 9]>,
+    /// What else the engine tells of the node for JohnnyGuitar's NIF functions
+    /// (`crate::nvse_jg_nif`); `None` when it told nothing more.
+    pub info: Option<Box<NodeInfo>>,
+}
+
+/// A node's drawn bound, particle system and render properties, as the engine tells them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NodeInfo {
+    /// The bounding sphere of the node and what is under it, in the world: centre X Y Z
+    /// and radius (GetNiBound).
+    pub bound: Option<[f32; 4]>,
+    /// A particle system's values by GetNiPSysModifierValue's IDs 0-19, then its spawn
+    /// rate (20).
+    pub emitter: Option<[f32; 21]>,
+    /// A shape's NiAlphaProperty: flags, threshold.
+    pub alpha: Option<[f32; 2]>,
+    /// A shape's NiStencilProperty: flags, reference, mask.
+    pub stencil: Option<[f32; 3]>,
 }
 
 /// A change a script made, for the engine to apply to the drawn nodes.
@@ -44,6 +62,9 @@ pub enum SceneEdit {
     Attach { r: FormId, target: String, model: String },
     /// One NiMaterialProperty value of a shape (`id` 0-8, as in [`SceneNode::material`]).
     Material { r: FormId, node: String, id: usize, v: f32 },
+    /// A particle system's value by GetNiPSysModifierValue's IDs, 20 the spawn rate
+    /// (`crate::nvse_jg_nif`).
+    Particle { r: FormId, node: String, id: usize, v: f32 },
 }
 
 /// The mirror and the queued changes.
@@ -56,6 +77,10 @@ pub struct SceneMirror {
     /// reference and lower-case name, and what the engine told of them.
     vert_wanted: HashSet<(FormId, String)>,
     verts: HashMap<(FormId, String), Vec<[f32; 3]>>,
+    /// The alpha and stencil property values scripts set (JohnnyGuitar's
+    /// Set…PropertyValue), laid over each tree the engine tells: reference, node, alpha
+    /// (else stencil), item, value.
+    prop_sets: Vec<(FormId, String, bool, usize, f32)>,
 }
 
 impl SceneMirror {
@@ -65,8 +90,30 @@ impl SceneMirror {
     }
 
     /// The engine tells a watched reference's tree (parents before children).
-    pub fn set_tree(&mut self, r: FormId, nodes: Vec<SceneNode>) {
+    pub fn set_tree(&mut self, r: FormId, mut nodes: Vec<SceneNode>) {
+        for (pr, node, alpha, item, v) in &self.prop_sets {
+            if *pr == r {
+                if let Some(i) = find(&nodes, node) {
+                    lay_prop(&mut nodes[i], *alpha, *item, *v);
+                }
+            }
+        }
         self.trees.insert(r, nodes);
+    }
+
+    /// A shape's alpha (`alpha`) or stencil property value for the session's reads,
+    /// kept over the trees the engine tells next; false without the node or that
+    /// property on it.
+    pub fn set_prop(&mut self, r: FormId, node: &str, alpha: bool, item: usize, v: f32) -> bool {
+        let Some(t) = self.tree(r) else { return false };
+        let Some(i) = find(t, node) else { return false };
+        if !lay_prop(&mut t[i], alpha, item, v) {
+            return false;
+        }
+        let name = t[i].name.clone();
+        self.prop_sets.retain(|(pr, n, a, k, _)| !(*pr == r && n.eq_ignore_ascii_case(&name) && *a == alpha && *k == item));
+        self.prop_sets.push((r, name, alpha, item, v));
+        true
     }
 
     /// The reference's 3D is gone.
@@ -89,6 +136,19 @@ impl SceneMirror {
     pub fn node_now(&mut self, r: FormId, node: &str) -> Option<SceneNode> {
         let t = self.tree(r)?;
         find(t, node).map(|i| t[i].clone())
+    }
+
+    /// A particle system's value for the engine (`SceneEdit::Particle`), shown in the
+    /// mirror at once; false without the node or a particle system there.
+    pub fn set_particle(&mut self, r: FormId, node: &str, id: usize, v: f32) -> bool {
+        let Some(t) = self.tree(r) else { return false };
+        let Some(i) = find(t, node) else { return false };
+        let Some(e) = t[i].info.as_mut().and_then(|n| n.emitter.as_mut()) else { return false };
+        let Some(slot) = e.get_mut(id) else { return false };
+        *slot = v;
+        let node = t[i].name.clone();
+        self.edits.push(SceneEdit::Particle { r, node, id, v });
+        true
     }
 
     /// A translation, rotation or scale for the engine, shown in the mirror at once as
@@ -160,6 +220,20 @@ impl Game<'_> {
     }
 }
 
+/// Puts an alpha or stencil property value on a node; false when it has no such property
+/// or item.
+fn lay_prop(n: &mut SceneNode, alpha: bool, item: usize, v: f32) -> bool {
+    let Some(info) = n.info.as_deref_mut() else { return false };
+    let slot = if alpha { info.alpha.as_mut().map(|a| a.as_mut_slice()) } else { info.stencil.as_mut().map(|s| s.as_mut_slice()) };
+    match slot.and_then(|s| s.get_mut(item)) {
+        Some(x) => {
+            *x = v;
+            true
+        }
+        None => false,
+    }
+}
+
 /// The node of that name: exactly, else without regard to case [observed:
 /// "bip01 head|…" still inserted; ModelHasBlock is exact].
 fn find(t: &[SceneNode], name: &str) -> Option<usize> {
@@ -223,9 +297,9 @@ fn outputs(g: &mut Game, ret: f64, vals: &[f64]) -> XVal {
     XVal::Array(g.ext.new_array(ArrayKind::List, entries))
 }
 
-type Mat = [[f32; 3]; 3];
+pub(crate) type Mat = [[f32; 3]; 3];
 
-fn mul(a: &Mat, b: &Mat) -> Mat {
+pub(crate) fn mul(a: &Mat, b: &Mat) -> Mat {
     let mut o = [[0.0; 3]; 3];
     for (i, row) in o.iter_mut().enumerate() {
         for (j, c) in row.iter_mut().enumerate() {
@@ -235,13 +309,13 @@ fn mul(a: &Mat, b: &Mat) -> Mat {
     o
 }
 
-fn apply(m: &Mat, v: [f32; 3]) -> [f32; 3] {
+pub(crate) fn apply(m: &Mat, v: [f32; 3]) -> [f32; 3] {
     [0, 1, 2].map(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2])
 }
 
 /// The rotation of X Y Z angles (radians) taken about the fixed axes in that order,
 /// Rz·Ry·Rx: the mirror's convention (`SceneNode::rotation`, the engine's `EulerRot::ZYX`).
-fn rotation(a: [f32; 3]) -> Mat {
+pub(crate) fn rotation(a: [f32; 3]) -> Mat {
     let (sx, cx) = a[0].sin_cos();
     let (sy, cy) = a[1].sin_cos();
     let (sz, cz) = a[2].sin_cos();
@@ -252,7 +326,7 @@ fn rotation(a: [f32; 3]) -> Mat {
 }
 
 /// [`rotation`]'s angles back, in degrees.
-fn extrinsic_angles(m: &Mat) -> [f32; 3] {
+pub(crate) fn extrinsic_angles(m: &Mat) -> [f32; 3] {
     let y = (-m[2][0]).clamp(-1.0, 1.0).asin();
     [m[2][1].atan2(m[2][2]), y, m[1][0].atan2(m[0][0])].map(f32::to_degrees)
 }
@@ -267,7 +341,7 @@ fn intrinsic_angles(m: &Mat) -> [f32; 3] {
 /// A node's translation and rotation: as its parent holds it, or (`world`) in the world,
 /// through the nodes above it and the reference's own position and angles. `None`
 /// without the tree or the node.
-fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
+pub(crate) fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32; 3], Mat)> {
     let t = g.scene.tree(r)?.clone();
     let mut i = find(&t, node)?;
     let local = |n: &SceneNode| (n.translation, rotation(n.rotation.map(f32::to_radians)), n.scale);
@@ -286,6 +360,25 @@ fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Option<([f32;
     let rr = rotation(ra);
     let p = apply(&rr, pos);
     Some(([p[0] + rp[0], p[1] + rp[1], p[2] + rp[2]], mul(&rr, &rot)))
+}
+
+/// A node's place in the world (the reference's own place, and the nodes above it), for
+/// JohnnyGuitar's distances (`crate::nvse_jg_nif`); `None` without the tree or the node.
+pub(crate) fn node_world(g: &mut Game, r: FormId, node: &str) -> Option<[f32; 3]> {
+    node_place(g, r, node, true).map(|(p, _)| p)
+}
+
+/// The mirror's node of that name and its children, for JohnnyGuitar's NIF functions.
+pub(crate) fn node_and_children(g: &mut Game, r: FormId, node: &str) -> Option<(SceneNode, Vec<String>)> {
+    let t = g.scene.tree(r)?;
+    let i = find(t, node)?;
+    let kids = t.iter().enumerate().filter(|(k, n)| n.parent == Some(i) && *k != i).map(|(_, n)| n.name.clone()).collect();
+    Some((t[i].clone(), kids))
+}
+
+/// The name of the reference's root node in the mirror (the first without a parent).
+pub(crate) fn root_name(g: &mut Game, r: FormId) -> Option<String> {
+    g.scene.tree(r)?.iter().find(|n| n.parent.is_none()).map(|n| n.name.clone())
 }
 
 /// The model file of a base form (MODL), under meshes.
@@ -448,7 +541,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
                     Some(n) => (true, n.to_string()),
                     None => (false, what.to_string()),
                 };
-                let node = SceneNode { name: nm.clone(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None };
+                let node = SceneNode { name: nm.clone(), parent: if as_parent { t[i].parent } else { Some(i) }, translation: [0.0; 3], rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: None };
                 t.push(node);
                 if as_parent {
                     let new = t.len() - 1;

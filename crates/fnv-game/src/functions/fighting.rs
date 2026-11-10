@@ -231,7 +231,7 @@ pub fn get_armor_rating(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Str
 pub fn fire_weapon(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
     let weapon = a.form(0)?;
-    g.combat_requests.push(crate::combat::CombatRequest::Fire { from, weapon });
+    g.combat_requests.push(crate::combat::CombatRequest::Fire { from, weapon, muzzle: None });
     none()
 }
 

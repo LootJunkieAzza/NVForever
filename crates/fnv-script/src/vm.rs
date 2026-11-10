@@ -2896,6 +2896,10 @@ impl Vm<'_, '_> {
         // place (fnv_game::ui_functions).
         let format_at = match lname.as_str() {
             "addtilefromtemplate" => Some(0),
+            // [documented: ShowTextInputMenu `callback width height "title" values…`,
+            // SetTextInputString `"text" values…`] (fnv_game::nvse_jip12).
+            "settextinputstring" => Some(0),
+            "showtextinputmenu" => Some(3),
             "setuistringex" | "setuistringalt" | "injectuicomponent" | "attachuicomponent" => Some(1),
             _ => None,
         };
@@ -3265,6 +3269,9 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "getangleex" => &[0, 1, 2],
         // [documented: GetActorVelocityAlt, "placed into the 3 specified Script Variables"].
         "getactorvelocityalt" => &[0, 1, 2],
+        // JIP batch 13 (fnv_game::nvse_jip13).
+        "getangularvelocityalt" | "getlinearvelocityalt" => &[1, 2, 3],
+        "getreticleposalt" => &[0, 1, 2],
         "getanglesbetweenpoints" => &[6, 7],
         "getpointraycastpos" => &[5, 6, 7],
         "geteditorposition" => &[0, 1, 2, 3, 4, 5],
@@ -3285,6 +3292,9 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // [documented: GetMousePosition, GetMouseMovement, "output … to fPosX and fPosY
         // script variables"].
         "getmouseposition" | "getmousemovement" => &[0, 1],
+        // [documented: GetCameraTranslation and WorldToScreen, "Stores … in xOut, yOut and
+        // zOut variables"].
+        "getcameratranslation" | "worldtoscreen" => &[0, 1, 2],
         // [documented: Ar_SetFloatsFrom, "Sets float variables from variables in array (up
         // to 10)"].
         "ar_setfloatsfrom" => &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -3292,6 +3302,8 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
         // [documented: GetSystemColorAlt and GetPixelFromBMP, three variables for R, G, B].
         "getsystemcoloralt" | "getpixelfrombmp" => &[1, 2, 3],
+        // [documented: GetLinearVelocity and GetCurrentSkyColor, three script variables].
+        "getlinearvelocity" | "getcurrentskycolor" => &[1, 2, 3],
         _ => return None,
     })
 }

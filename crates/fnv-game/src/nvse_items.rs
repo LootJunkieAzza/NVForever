@@ -322,7 +322,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
 
 impl Game<'_> {
     /// A reference's position and rotation (radians).
-    pub(crate) fn ref_pos_rot(&mut self, r: FormId) -> Option<([f32; 3], [f32; 3])> {
+    pub fn ref_pos_rot(&mut self, r: FormId) -> Option<([f32; 3], [f32; 3])> {
         self.world.get(r).ok().map(|s| (s.pos, s.rot))
     }
 

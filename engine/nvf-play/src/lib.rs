@@ -49,6 +49,7 @@ pub mod file_bytes;
 pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
+pub mod script_camera;
 pub mod game_start;
 pub mod furniture;
 pub mod grab;
@@ -86,6 +87,7 @@ pub mod moved;
 pub mod music;
 pub mod pad;
 pub mod pause;
+pub mod graphics_resume;
 pub mod phys;
 pub mod phys_load;
 pub mod pickpocket;
@@ -108,10 +110,14 @@ pub mod script_switches;
 pub mod script_draw;
 pub mod script_events;
 pub mod script_hud;
+pub mod jip_physics;
+pub mod script_quantity;
 pub mod sup_screen;
 pub mod sup_shots;
 pub mod script_trigger;
 pub mod settings;
+pub mod settings_layout;
+pub mod settings_view;
 pub mod start_menu;
 pub mod sim;
 pub mod space;
@@ -375,6 +381,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(console::ConsolePlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
+            .add_plugins(script_camera::ScriptCameraPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
@@ -383,6 +390,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(screen_splatter::ScreenSplatterPlugin)
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
+            .add_plugins(jip_physics::JipPhysicsPlugin)
+            .add_plugins(script_quantity::ScriptQuantityPlugin)
             .add_plugins(mines::MinesPlugin)
             .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)

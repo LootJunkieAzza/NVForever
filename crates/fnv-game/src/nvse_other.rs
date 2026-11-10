@@ -97,8 +97,14 @@ pub struct OtherState {
     /// JIP batch 10's objectives, added variables, disabled scripts, extra data, map
     /// markers (`nvse_jip10`).
     pub jip10: crate::nvse_jip10::Jip10State,
+    /// JIP batch 14's effects, primitives, models, VATS, fuses and frequencies (`nvse_jip14`).
+    pub jip14: crate::nvse_jip14::Jip14State,
     /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
     pub jip11: crate::nvse_jip11::Jip11State,
+    /// JIP batch 13's physics view, requests and follows (`nvse_jip13`).
+    pub jip13: crate::nvse_jip13::Jip13State,
+    /// JIP batch 12's sky, world, barter and menu state (`nvse_jip12`).
+    pub jip12: crate::nvse_jip12::Jip12State,
     /// JohnnyGuitar batch 5's record changes (`nvse_jg5`).
     pub jg5: crate::nvse_jg5::Jg5State,
     /// JohnnyGuitar batch 6's state (`nvse_jg6`).
@@ -107,6 +113,10 @@ pub struct OtherState {
     pub jg7: crate::nvse_jg7::Jg7State,
     /// JohnnyGuitar batch 8's handlers, custom map marker and radio tuning (`nvse_jg8`).
     pub jg8: crate::nvse_jg8::Jg8State,
+    /// JohnnyGuitar batch 9's sounds from files and scripted holotapes (`nvse_jg9`).
+    pub jg9: crate::nvse_jg9::Jg9State,
+    /// JohnnyGuitar batch 10's requests and switches for the engine (`nvse_jg10`).
+    pub jg10: crate::nvse_jg10::Jg10State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of

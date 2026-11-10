@@ -8228,6 +8228,52 @@ JG7_PROBES = (
 SETS.update({"jg7": JG7_PROBES})  # JohnnyGuitar batch 7 (#1007)
 WRITING_SETS |= {"jg7"}
 
+# jg9 (writes, session only, each change put back; #1007): JohnnyGuitar batch 9
+# (docs/spec-notes/ext-jg9.md): the karma title and tier, the item card's effect line of
+# the Stimpak (15169) and Leather Armor (20423), the camera's FOVs, a menu item added to
+# and removed from the Vault 34 terminal (13253C, as jg3), a sound file played and stopped
+# by its path (a UI sound in Fallout - Sound.bsa [observed: fnvtool bsa list]) and a path
+# that is not there, the grenade hold time, the nearest hostile compass mark, the audio
+# marker whose music plays, the sky's sunlight colour, the player's spread and run speed
+# [observed: forms from fnvtool esm inventory, as NF above]. The last five are told by
+# the engine: fnvtool, with no engine, reads 0 (the lab rows say what the original
+# answers). PlayHolotape, the moves (Jump, SetAutoMove, SetPlayerMovementFlags,
+# SetVelEx) and the audio marker setters change the game and are not probed.
+# Rerun of 2026-11-10: the marker through a ref variable and the sky colour dropped (the
+# original, JohnnyGuitar 528, compiled neither: a call as GetFormIDString's parameter, and
+# output variables as in jg8's GetSystemColorAlt), the player's Medicine beside the
+# Stimpak's line (its potency follows the skill, and the save's character is not
+# fnvtool's).
+JG9 = {"stimpak": "15169", "leather": "20423", "v34": "13253C"}
+JG9_SOUND = r"Data\Sound\fx\ui\popup\ui_popup_experienceup.wav"
+
+
+def _jg9(pid, body, text=False):
+    return (f"jg9.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\n"
+            "string_var sText\nBegin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+JG9_PROBES = (
+    [_jg9("karma", 'SetFunctionValue (sv_Construct "%z|%z" (GetPlayerKarmaTitle 0) (GetPlayerKarmaTitle 1))', True),
+     *[_jg9(f"effect.{k}", _form("rObj", JG9[k]) + "SetFunctionValue (GetItemEffectString rObj)", True) for k in ("stimpak", "leather")],
+     _jg9("medicine", 'SetFunctionValue (sv_Construct "%.0f" (rP.GetAV Medicine))', True),
+     _jg9("fov", 'SetFunctionValue (sv_Construct "%g %g %g" (rP.GetPlayerCamFOV 0) (rP.GetPlayerCamFOV 1) (rP.GetPlayerCamFOV 2))', True),
+     _jg9("term", _form("rObj", JG9["v34"])
+          + "let fA := GetTerminalMenuItemCount rObj\nlet fB := AddTerminalMenuItem rObj\nlet fC := GetTerminalMenuItemCount rObj\n"
+          + 'let sText := sv_Construct "%g %g %g [%z]" fA fB fC (GetTerminalMenuItemText rObj 1 fA)\n'
+          + "let fB := RemoveTerminalMenuItem rObj fA\n"
+          + 'SetFunctionValue (sv_Construct "%z %g %g" sText fB (GetTerminalMenuItemCount rObj))', True),
+     _jg9("sound.path", f'let fA := PlaySoundFromPath "{JG9_SOUND}"\nlet fB := PlaySoundFromPath "Data\\Sound\\fx\\nvf_none.wav"\n'
+          f'let fC := StopSoundFromPath "{JG9_SOUND}"\n'
+          'SetFunctionValue (sv_Construct "%g %g %g" fA fB fC)', True),
+     _jg9("grenade", "SetFunctionValue (GetGrenadeHoldTime)"),
+     _jg9("compass", 'SetFunctionValue (sv_Construct "%g %g" (GetNearestCompassHostileDirection 0) (GetNearestCompassHostileDirection 1))', True),
+     _jg9("marker", "let rObj := AudioMarkerGetCurrent\nSetFunctionValue (GetFormIDString rObj)", True),
+     _jg9("spread", 'SetFunctionValue (sv_Construct "%.2f %.0f" (rP.GetCalculatedSpread) (rP.GetRunSpeed))', True)]
+)
+SETS.update({"jg9": JG9_PROBES})  # JohnnyGuitar batch 9 (#1007)
+WRITING_SETS |= {"jg9"}
+
 
 
 
@@ -8375,6 +8421,52 @@ SUP7_PROBES = (
 )
 SETS.update({"sup7": SUP7_PROBES})
 WRITING_SETS |= {"sup7"}
+
+
+# jgnif (read-only but for UpdateScenegraph and Update3DAlt 32, which change nothing kept;
+# #1007): JohnnyGuitar's NIF, particle and camera functions (docs/spec-notes/
+# ext-jg-nif-camera.md) on the player at Doc Mitchell's. Distances are rounded to whole
+# units; the camera's place is compared with the player's. The getters into variables
+# (GetCameraTranslation, WorldToScreen) may be refused by the runtime compiler, as SUP's
+# were (ext-sup6.md §1). One step per frame.
+def _jgnif(pid, body, text=True):
+    return (f"jgnif.{pid}", "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\n" + body, text, None, "")
+
+
+JGNIF_PROBES = (
+    # Head to pelvis on the player, the same node to itself (hypothesis: "1 0": more than
+    # 0 apart, 0 to itself).
+    [_jgnif("between", "let fA := Get3DDistanceBetweenNiNodes PlayerREF PlayerREF \"Bip01 Head\" \"Bip01 Pelvis\"\n"
+            "let fB := Get3DDistanceBetweenNiNodes PlayerREF PlayerREF \"Bip01 Head\" \"Bip01 Head\"\nSetFunctionValue (sv_Construct \"%g %g\" (fA > 0) (Round fB))"),
+     # The head's distance to the player's own place, about the eye's height, and to a
+     # missing block (hypothesis: "1 0").
+     _jgnif("tonode", "let fA := PlayerREF.Get3DDistanceToNiNode \"Bip01 Head\" (PlayerREF.GetPos X) (PlayerREF.GetPos Y) (PlayerREF.GetPos Z)\n"
+            "let fB := PlayerREF.Get3DDistanceToNiNode \"NVFNoSuchBlock\" 0 0 0\nSetFunctionValue (sv_Construct \"%g %g\" ((fA > 80) && (fA < 160)) fB)"),
+     # No hit in this session yet (hypothesis: 0).
+     _jgnif("fromhit", "SetFunctionValue (PlayerREF.Get3DDistanceFromHitToNiNode \"Bip01 Head\")", False),
+     # The root's bound: four numbers, a radius above 0 (hypothesis: "4 1"); a missing
+     # block's (hypothesis: an empty array, 0).
+     _jgnif("bound", "let aR := PlayerREF.GetNiBound\nlet fA := ar_Size aR\nlet fB := aR[3]\nlet aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\n"
+            "SetFunctionValue (sv_Construct \"%g %g %g\" fA (fB > 0) (ar_Size aR))"),
+     # No particle system or alpha property on a missing block (hypothesis: "0 0 0 0").
+     _jgnif("missing", "SetFunctionValue (sv_Construct \"%g %g %g %g\" (PlayerREF.GetNiPSysModifierValue \"NVFNoSuchBlock\" 14) "
+            "(PlayerREF.GetParticleEmitterSpawnRate \"NVFNoSuchBlock\") (PlayerREF.GetAlphaPropertyValue \"NVFNoSuchBlock\" 0) "
+            "(PlayerREF.GetStencilPropertyValue \"NVFNoSuchBlock\" 0))"),
+     # The camera's place against the player's: in first person within 200 units, the
+     # local place's height above the feet (hypothesis: "1 1").
+     _jgnif("camera", "GetCameraTranslation fX fY fZ 0\nlet fA := ((fX - (PlayerREF.GetPos X)) ^ 2 + (fY - (PlayerREF.GetPos Y)) ^ 2) ^ 0.5\n"
+            "GetCameraTranslation fX fY fZ 1\nSetFunctionValue (sv_Construct \"%g %g\" (fA < 200) (fZ > 50))"),
+     # WorldToScreen into variables did not compile in the original [observed: jgnif.screen,
+     # 2026-11-09], so it is not asked.
+     # The sequence slots standing still, an idle sequence by name (hypothesis: the idle
+     # group's code for slot 0, -1 for slot 4; "1" or "0" for mtidle).
+     _jgnif("sequences", "SetFunctionValue (sv_Construct \"%g %g %g\" (PlayerREF.GetSequenceAnimGroup 0) (PlayerREF.GetSequenceAnimGroup 4) "
+            "(PlayerREF.IsNiSequenceActive \"mtidle\"))"),
+     # The refreshes' results (hypothesis: "0 0").
+     _jgnif("refresh", "let fA := PlayerREF.UpdateScenegraph 0\nlet fB := PlayerREF.Update3DAlt 32\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)")]
+)
+SETS.update({"jgnif": JGNIF_PROBES})
+WRITING_SETS |= {"jgnif"}
 
 
 # jip11 (reads; the one write, ForceActorDetectionValue, is put back; #1006): JIP batch 11
@@ -8538,6 +8630,205 @@ JG8_PROBES = (
           'SetFunctionValue (sv_Construct "%g %g" fA fB)', True)]
 )
 SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
+
+
+# jg10 (writes and puts back; #1007): JohnnyGuitar batch 10 (docs/spec-notes/ext-jg10.md)
+# on the player in Doc Mitchell's house (an interior): navmesh triangles at and far from
+# the player, the land texture underfoot indoors, Doc Mitchell's (base 104C0C) FaceGen
+# values by type and one set and put back, the return values of the calls that change
+# nothing lasting (a highlight taken off again, an obstacle added and removed, the
+# refreshes, DisableMuzzleFlashLights 0), RemoveScopeModelPath on the 10mm pistol (no
+# scope) and RemapLand's reset of a LAND never remapped. PathToPoint, PathToRef,
+# ShowBarberMenuEx, TriggerScreenSplatterEx, ApplyWeaponPoison (no poison form known
+# here), EjectCasing and the scope picture are left out: they move actors, open menus or
+# draw on the screen.
+def _jg10(pid, body, text=False):
+    return (f"jg10.{pid}", "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\n"
+            "Begin Function { }\n" + body, text, None, "")
+
+
+JG10_PROBES = (
+    [_jg10("tri", "let fA := PlayerREF.GetPos X\nlet fB := PlayerREF.GetPos Y\nlet fC := PlayerREF.GetPos Z\n"
+           "let aOut := GetNearestNavMeshTriangle fA fB fC 1\nlet fD := Ar_Size aOut\n"
+           'SetFunctionValue (sv_Construct "%g %g" fD (aOut[3] < 200))', True),
+     _jg10("tri.under", "let fA := PlayerREF.GetPos X\nlet fB := PlayerREF.GetPos Y\nlet fC := PlayerREF.GetPos Z\n"
+           "let aOut := GetPointInNavMesh fA fB fC 1\nlet fD := Ar_Size aOut\n"
+           "let aOut := GetPointInNavMesh (fA + 100000) fB fC 1\n"
+           'SetFunctionValue (sv_Construct "%g %g" fD (Ar_Size aOut))', True),
+     # Indoors the original gave a valid form [observed, 2026-11-09]: which one.
+     _jg10("underfeet", "let rA := PlayerREF.GetLandTextureUnderFeet\nSetFunctionValue (GetFormIDString rA)", True),
+     _jg10("facegen.set", _form("rA", NF["doc"])
+           + "let fA := FaceGenGetNthProperty rA 0 1\nlet fB := FaceGenSetNthProperty rA 0 1 0.5\n"
+           "let fC := FaceGenGetNthProperty rA 0 1\nFaceGenSetNthProperty rA 0 1 fA\n"
+           'SetFunctionValue (sv_Construct "%g %.3f %.3f" fB fC (FaceGenGetNthProperty rA 0 1))', True),
+     _jg10("returns", _form("rA", NF["docref"])
+           + "let fA := rA.HighlightBodyPartAlt 1\nlet fB := rA.RemoveHighlightedRef\nlet fC := PlayerREF.DeactivateAllHighlightsAlt\n"
+           "let fD := rA.AddNavmeshObstacle\n"
+           'SetFunctionValue (sv_Construct "%g %g %g %g %g %g %g %g" fA fB fC fD (rA.RemoveNavmeshobstacle) '
+           "(UpdateCrosshairPrompt) (UpdateRepairMenu) (DisableMuzzleFlashLights 0))", True),
+     _jg10("scope.remove", _form("rA", NF["pistol10"]) + "SetFunctionValue (RemoveScopeModelPath rA)"),
+     _jg10("remapland", "SetFunctionValue (RemapLand 1)"),
+     # One FaceGen read per type, last: the first try asked types 0-2, FGGA's 30th and a
+     # type 3 in one step and crashed the original [observed, 2026-11-09]; out-of-range
+     # reads are not asked again. Doc's record: FGGS 0.309, FGGA 0, FGTS -1.245 [observed: the ESM; ext-jg10.md §4].
+     _jg10("facegen.fggs", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 0 0))', True),
+     _jg10("facegen.fgga", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 1 0))', True),
+     _jg10("facegen.fgts", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 2 0))', True)]
+)
+SETS.update({"jg10": JG10_PROBES})  # JohnnyGuitar batch 10 (#1007)
+WRITING_SETS |= {"jg10"}
+
+# jip13 (reads; SetAngleEx on Doc is put back; #1006): JIP batch 13
+# (docs/spec-notes/jip-physics-13.md) on Doc Mitchell and the player in the probe save.
+# The questions: GetRigidBodyMass and GetHasPhantom on an actor, the player's ground
+# material and the object under the feet, GetRayCastMaterial, IsGrabbable on an actor,
+# an actor's collision layer and a body's velocity by node, GetObjectVelocity standing,
+# the contacts of a standing player, the reticle's node and position, SetAngleEx's
+# methods read back through GetAngle.
+def _j13(pid, body, text=False):
+    return (f"jip13.{pid}", "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nfloat fD\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j13v(pid, setup, expr, text=False):
+    return _j13(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+_J13DOC = _form("rObj", NF["docref"])
+JIP13_PROBES = (
+    [_j13v("mass.doc", _J13DOC, "rObj.GetRigidBodyMass"),
+     _j13v("phantom.doc", _J13DOC, "rObj.GetHasPhantom"),
+     _j13v("ground.player", "", "rP.GetGroundMaterial"),
+     _j13v("ground.doc", _J13DOC, "rObj.GetGroundMaterial"),
+     _j13v("underfeet.player", "", "GetFormIDString (rP.GetObjectUnderFeet)", True),
+     _j13v("raycast.player", "", "rP.GetRayCastMaterial"),
+     _j13v("grabbable.doc", _J13DOC, "rObj.IsGrabbable"),
+     _j13v("layer.doc.spine", _J13DOC, "rObj.GetCollisionObjLayerType \"Bip01 Spine\""),
+     _j13v("property.doc.mass", _J13DOC, "rObj.GetCollisionObjProperty \"Bip01 Spine\" 7"),
+     _j13v("angvel.doc", _J13DOC, "rObj.GetAngularVelocity \"Bip01 Spine\" Z"),
+     _j13v("velocity.player", "", "rP.GetObjectVelocity"),
+     _j13v("velocity.player.z", "", "rP.GetObjectVelocity Z"),
+     _j13v("contact.player.doc", _J13DOC, "rP.GetHasContact rObj"),
+     _j13v("contacttype.player", "", "rP.GetHasContactType 42"),
+     _j13v("reticlenode", "", "GetReticleNode", True),
+     # No rows for the output-variable getters: the original's runtime compiler refused
+     # GetLinearVelocityAlt and GetReticlePosAlt in a `let` and as statements [observed: the
+     # jip13 runs, 2026-11-09]; GetAngularVelocityAlt is left out with them [hypothesis].
+     _j13("contacts.player", "let aList := rP.GetContactRefs\nSetFunctionValue (ar_Size aList)"),
+     _j13("setangleex.doc", _J13DOC + "let fA := rObj.GetAngle Z\nrObj.SetAngleEx 0 0 (fA + 90)\nlet fB := rObj.GetAngle Z\n"
+          "rObj.SetAngleEx 0 0 fA\nlet fC := rObj.GetAngle Z\nSetFunctionValue (sv_Construct \"%.1f %.1f\" (fB - fA) (fC - fA))", True)]
+)
+
+SETS.update({"jip13": JIP13_PROBES})  # JIP batch 13 (#1006)
+WRITING_SETS |= {"jip13"}
+
+
+# jip12 (reads; SetCurrentClimate and SetWindDirection are put back; #1006): JIP batch 12
+# (docs/spec-notes/jip-world-12.md) in the probe save. The questions: GetWindDirection's
+# value with no script's, the moon textures' paths, GetCurrentClimate after
+# SetCurrentClimate and ForceClimate, the buffered cells, GetExteriorCell and the
+# persistent cell of WastelandNV (000DA726), GetCellNorthRotation, GetLightAmountAtPoint
+# at the player, GetGameSettings' keys and kinds, GetStringHash with no argument, the
+# barter, menu and recipe getters with no menu open, GetWheelDisabled, TogglePurgeOnUnload
+# on a placed reference.
+_J12_WORLD = "000DA726"
+# The world is held in rWS: every step declaring `ref rW` failed to compile in the original
+# [observed: the jip12 run, 2026-11-09; hypothesis: the name is the cause].
+
+
+def _j12(pid, body, text=False):
+    return (f"jip12.{pid}", "ref rP\nref rObj\nref rWS\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + _form("rWS", _J12_WORLD) + body, text, None, "")
+
+
+def _j12v(pid, setup, expr, text=False):
+    return _j12(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+def _j12arr(pid, setup, expr):
+    return _j12(pid, setup + f"let aList := {expr}\nlet fA := ar_Size aList\nSetFunctionValue fA")
+
+
+_J12DOC = _form("rObj", NF["docref"])
+JIP12_PROBES = (
+    [_j12v("wind", "", "GetWindDirection"),
+     _j12v("moon.0", "", "GetMoonTexture 0", True),
+     _j12v("moon.3", "", "GetMoonTexture 3", True),
+     _j12v("moon.4", "", "GetMoonTexture 4", True),
+     _j12v("climate", "", "GetFormIDString (GetCurrentClimate)", True),
+     _j12v("extcell", "", "GetFormIDString (GetExteriorCell rWS -18 0)", True),
+     _j12v("extcell.none", "", "GetFormIDString (GetExteriorCell rWS 900 900)", True),
+     _j12v("persistent", "", "GetFormIDString (GetWorldspacePersistentCell rWS)", True),
+     _j12v("buffered.player", "", "rP.GetCellBuffered"),
+     _j12v("buffered.doc", _J12DOC, "rObj.GetCellBuffered"),
+     _j12v("north.doccell", _J12DOC, "GetCellNorthRotation (rObj.GetParentCell)"),
+     _j12v("light.player", "", "GetLightAmountAtPoint (rP.GetPos X) (rP.GetPos Y) ((rP.GetPos Z) + 64)"),
+     _j12v("fasttravelled", "", "GetPCFastTravelled"),
+     _j12v("loadorder", "", "GetLoadOrderChanged"),
+     _j12v("hash", "", "GetStringHash \"NVForever\""),
+     _j12v("gmst.float", "let aList := GetGameSettings 1\n", "aList[\"fBarterBuyBase\"]"),
+     _j12v("gmst.lowercase", "let aList := GetGameSettings 1\n", "aList[\"fbarterbuybase\"]"),
+     _j12v("gmst.string", "let aList := GetGameSettings 2\n", "aList[\"sOk\"]", True),
+     _j12v("purge.doc", _J12DOC, "rObj.TogglePurgeOnUnload"),
+     _j12v("marker.docbase", _form("rObj", NF["doc"]), "SetInternalMarker rObj"),
+     _j12v("bartergold", "", "GetBarterGoldAlt"),
+     _j12v("pricemult.buy", "", "GetBarterPriceMult 0"),
+     _j12v("pricemult.sell", "", "GetBarterPriceMult 1"),
+     _j12v("filter.inventory", "", "GetMenuItemFilter 1002"),
+     _j12v("recipe.category", "", "GetFormIDString (GetRecipeMenuCategory)", True),
+     _j12v("recipe.selection", "", "GetFormIDString (GetRecipeMenuSelection)", True),
+     _j12v("wheel.doc", _J12DOC, "rObj.GetWheelDisabled")]
+    + [_j12arr("buffered.exteriors", "", "GetBufferedCells 0"),
+       _j12arr("buffered.interiors", "", "GetBufferedCells 1"),
+       _j12arr("imods", "", "GetActiveIMODs"),
+       _j12arr("gmst.numbers", "", "GetGameSettings 1"),
+       _j12arr("gmst.strings", "", "GetGameSettings 2"),
+       _j12arr("barteritems", "", "GetBarterItems 0"),
+       _j12arr("menuitems", "", "GetMenuItemListRefs")]
+    + [_j12("setclimate", "let rObj := GetCurrentClimate\nSetCurrentClimate rObj\n"
+            "SetFunctionValue (sv_Construct \"%z\" (GetFormIDString (GetCurrentClimate)))", True),
+       _j12("setwind", "let fA := GetWindDirection\nSetWindDirection 400\nlet fB := GetWindDirection\nSetWindDirection fA\n"
+            "SetFunctionValue (sv_Construct \"%g\" fB)", True)]
+)
+
+SETS.update({"jip12": JIP12_PROBES})  # JIP batch 12 (#1006)
+WRITING_SETS |= {"jip12"}
+# jip14 (one write, AddNewEffect on the stimpak for the session; #1006): JIP batch 14
+# (docs/spec-notes/jip-last-14.md) in the probe save. The questions: AddNewEffect's count
+# and where the entry lands, primitives on an actor, GetSelfAsInventoryRef outside an
+# item's script, GetDetonationTimer on what is no projectile, the sequence frequency of
+# a sequence never set, GetBlockTextureSet on a shape, GetVATSTargets out of VATS, the
+# extra camera's answer.
+def _j14(pid, body, text=False):
+    return (f"jip14.{pid}", "ref rP\nref rObj\nref rE\nfloat fA\nfloat fB\nstring_var sText\narray_var aList\n"
+            "Begin Function { }\n" + _form("rP", NF["player"]) + body, text, None, "")
+
+
+def _j14v(pid, setup, expr, text=False):
+    return _j14(pid, setup + f"SetFunctionValue ({expr})", text)
+
+
+_J14DOC = _form("rObj", NF["docref"])
+JIP14_PROBES = (
+    [_j14v("hasprimitive.doc", _J14DOC, "rObj.HasPrimitive"),
+     _j14v("primitivebound.doc", _J14DOC, "rObj.GetPrimitiveBound X"),
+     _j14v("selfinvref", "", "GetSelfAsInventoryRef"),
+     _j14v("detonation.player", "", "rP.GetDetonationTimer"),
+     _j14v("seqfreq.doc", _J14DOC, "rObj.GetAnimSequenceFrequency \"NoSuchSequence\""),
+     _j14v("extracamera.doc", _J14DOC, "rObj.AttachExtraCamera \"NVFProbeCam\" 1 \"Bip01 Head\""),
+     _j14("textureset.player", "let aList := rP.GetBlockTextureSet \"NoSuchBlock\"\nSetFunctionValue (ar_Size aList)"),
+     _j14("vatstargets", "let aList := GetVATSTargets\nSetFunctionValue (ar_Size aList)"),
+     _j14("addneweffect.stimpak", _form("rObj", NF["stimpak"]) + "let rE := GetNthEffectBase rObj 0\nlet fA := GetNumEffects rObj\n"
+          "let fB := AddNewEffect rObj rE 1 1\nSetFunctionValue (sv_Construct \"%g %g %g %z\" fA fB (GetNumEffects rObj) "
+          "(GetFormIDString (GetNthEffectBase rObj 0)))", True),
+     _j14("addneweffect.append", _form("rObj", NF["stimpak"]) + "let rE := GetNthEffectBase rObj 0\nlet fA := GetNumEffects rObj\n"
+          "let fB := AddNewEffect rObj rE 1 1 0 0 1\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)", True),
+     _j14("addneweffect.notmagic", _form("rObj", NF["pistol10"]) + "let rE := GetNthEffectBase (GetFormFromMod \"FalloutNV.esm\" \""
+          + NF["stimpak"] + "\") 0\nSetFunctionValue (AddNewEffect rObj rE 1 1)")]
+)
+
+SETS.update({"jip14": JIP14_PROBES})  # JIP batch 14 (#1006)
+WRITING_SETS |= {"jip14"}
 
 
 def script(body):
