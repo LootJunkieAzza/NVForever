@@ -373,6 +373,9 @@ pub struct Tweaks {
     pub lockpick_move_keys: bool,
     /// `bMapRecenterHotkey`: C centres the Pip-Boy's maps on the player again.
     pub map_recentre_key: bool,
+    /// `bMapLocationDisplayDistance`: the World Map says how far the marker under the
+    /// pointer is.
+    pub map_marker_distance: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -547,6 +550,7 @@ impl Default for Tweaks {
             terminal_password_prompt: false,
             lockpick_move_keys: false,
             map_recentre_key: false,
+            map_marker_distance: false,
         }
     }
 }

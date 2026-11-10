@@ -470,6 +470,7 @@ unless the player binds them, so nothing changes until then.
 | Lockpicking With the Movement Keys | `bLockPickMenuKeyboardMovement` | `lockpick::keys` moves the pin with the strafe keys (Shift twice as fast, Ctrl half: ours); `torque_held` takes Forward, Back and Jump |
 | Store All | `bContainerMenuStoreAllHotkey` | `menu::model::Command::StoreAll`, sent for Shift with Take All while `MenuModel::store_all`; the player's listed rows go in, worn and quest items stay |
 | Map Recentre Key | `bMapRecenterHotkey` | `pipboy::data::take_input`: C (our key) clears the dragged map's centre, which falls back on the player; at once, no easing |
+| Map Marker Distance | `bMapLocationDisplayDistance` | `pipboy::data::world_map` adds `model::distance_text` (metres or kilometres, our words, 70 units a metre [hypothesis]) to the marker's detail line; the travel-time modes are not done |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -491,8 +492,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 391 |
-| to do | 212 |
+| done | 392 |
+| to do | 211 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -933,6 +934,7 @@ game's Data folder, read-only).
 | `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
 | `bLockPickMenuKeyboardMovement` | done |  | 3 | Lockpicking With the Movement Keys (Shift x2, Ctrl x0.5: ours) |
+| `bMapLocationDisplayDistance` | done |  | 3 | Map Marker Distance (metres or kilometres; the travel-time modes not done) |
 | `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
 | `bMapRecenterHotkey` | done |  | 2 | Map Recentre Key (C, at once; no easing) |
 | `bNoCapitaliseContainerCategories` | done |  |  | Quiet Category Titles |
@@ -997,7 +999,6 @@ game's Data folder, read-only).
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
-| `bMapLocationDisplayDistance` | to do |  | 3 | world_map detail line |
 | `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
 | `bMarkNotesUnread` | to do |  |  | a right click calling SetNoteRead 0 |
 | `bMoreDetailedStatsMenu` | to do |  | 1 | stats read value and cap |

@@ -19,6 +19,21 @@ pub fn date_time_with(c: &Calendar, twelve: bool) -> String {
     format!("{date}, {clock}")
 }
 
+/// Game units in a metre, for the map's distance line [hypothesis: the scale commonly
+/// given for Gamebryo games, 1 unit about 1.43 cm].
+pub const UNITS_PER_METRE: f32 = 70.0;
+
+/// A distance in game units as the World Map's tweak line writes it: metres under a
+/// kilometre, else kilometres to a tenth ("350 m away", "2.4 km away"; our words) [design: docs/design/tweaks.md].
+pub fn distance_text(units: f32) -> String {
+    let m = units / UNITS_PER_METRE;
+    if m < 1000.0 {
+        format!("{:.0} m away", (m / 10.0).round() * 10.0)
+    } else {
+        format!("{:.1} km away", m / 1000.0)
+    }
+}
+
 /// `minute_of_day` as a 12-hour clock: 0:05 is "12:05 AM", 13:30 "1:30 PM".
 pub fn clock_12(minute_of_day: u32) -> String {
     let h = minute_of_day / 60 % 24;
@@ -197,6 +212,8 @@ mod tests {
         let c = Calendar { year: 2282.0, month: 0.0, day: 3.0, hour: 21.05, days_passed: 0.0 };
         assert_eq!(date_time_with(&c, false), "1.3.82, 21:03");
         assert_eq!(date_time_with(&c, true), "1.3.82, 9:03 PM", "the 12-hour tweak");
+        assert_eq!(distance_text(70.0 * 347.0), "350 m away");
+        assert_eq!(distance_text(70.0 * 2400.0), "2.4 km away");
         assert_eq!(clock_12(5), "12:05 AM");
     }
 

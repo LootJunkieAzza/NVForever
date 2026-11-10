@@ -1464,6 +1464,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let mut names = Vec::new();
     let mut forms = Vec::new();
     let mut details = Vec::new();
+    let show_distance = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_marker_distance);
     let mut total = 0;
     let mut drawn_other = 0;
     let all = markers(st, game).cloned().unwrap_or_default();
@@ -1477,7 +1478,13 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         forms.push(mk.form);
         // The player's tweak leaves the reputation line out [design: docs/design/tweaks.md].
         let rep_off = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.hide_marker_reputation);
-        details.push(mk.reputation.as_ref().filter(|_| !rep_off).map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
+        let rep = mk.reputation.as_ref().filter(|_| !rep_off).map(|(rep, name)| model::reputation_line(name, standing(game, *rep)));
+        // The player's tweak: how far the marker is, on the same line [design: docs/design/tweaks.md].
+        let far = player.filter(|_| show_distance && mk.world == world).map(|(p, _)| model::distance_text(((mk.pos[0] - p[0]).powi(2) + (mk.pos[1] - p[1]).powi(2)).sqrt()));
+        details.push(match (rep, far) {
+            (Some(r), Some(d)) => Some(format!("{r}, {d}")),
+            (r, d) => r.or(d),
+        });
     }
     let mut quests = Vec::new();
     for t in quest_targets(st, game).into_iter().filter(|t| t.interior.is_none()) {
