@@ -383,6 +383,9 @@ pub struct Tweaks {
     /// `bHideReputationTabIfEmpty`: with no reputations the Stats page's General shows
     /// the statistics only.
     pub hide_empty_reputation: bool,
+    /// `bPreviewPerksOnLevelUp`: the level-up menu shows the perks page even with no perk
+    /// to take.
+    pub preview_perks: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -561,6 +564,7 @@ impl Default for Tweaks {
             quantity_shows_price: false,
             quantity_shows_weight: false,
             hide_empty_reputation: false,
+            preview_perks: false,
         }
     }
 }

@@ -474,6 +474,7 @@ unless the player binds them, so nothing changes until then.
 | Quantity Box Shows the Price / Weight | `bBarterQuantityMenuShowsPrice`, `bContainerQuantityMenuShowsWeight` | `menu::look::quantity_line` under the amount of the hand-built "How many?" box (our words); the box drawn from the game's tiles does not show it yet |
 | Hide an Empty Reputation List | `bHideReputationTabIfEmpty` | `pipboy::stats::model::Snapshot::hide_reputation`; the hand-built General tab keeps to the statistics and draws no switch; the tiles Stats page does not hide it yet |
 | Quick Load From the Menus | `bStartMenuQuickLoad` | `save::requests` takes the QuickLoad key in `PlayState::Menu` too (QuickSave stays play-only) |
+| Preview Perks on Level Up | `bPreviewPerksOnLevelUp` | `levelup::model::LevelUp::preview_perks`: with no perk due, Continue still leads to the perks page, its `PerkSheet::count` 0 |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -495,8 +496,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 396 |
-| to do | 207 |
+| done | 397 |
+| to do | 206 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -948,6 +949,7 @@ game's Data folder, read-only).
 | `bNoExitHacking` | done |  | 1 | No Leaving a Hack (the fail-on-exit option not built) |
 | `bPauseHolotapes` | done |  | 1 | already so for pausing: picking the playing holotape pauses it (reset and dialogue options not built) |
 | `bPreventNoFastTravelMessage` | done |  | 1 | Quiet Undiscovered Markers (the sound option not built) |
+| `bPreviewPerksOnLevelUp` | done |  |  | Preview Perks on Level Up (the page with none to take) |
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
 | `bShowActiveQuestNotesShowsAllStartedQuests` | done |  |  | Notes of Every Quest |
@@ -1009,7 +1011,6 @@ game's Data folder, read-only).
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoPlaceMarkerPopup` | to do |  | 2 | not built: no custom markers |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
-| `bPreviewPerksOnLevelUp` | to do |  |  | a count-0 perk sheet |
 | `bQuantityMenuRespectsCompanionCarryCap` | to do |  |  | asks_quantity has no world |
 | `bQuestTextVisibleInMenus` | to do |  |  | quest_messages held; check what draws over the Pip-Boy |
 | `bRepairAllConfirmation` | to do |  | 2 | a confirmation box in repair |

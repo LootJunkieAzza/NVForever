@@ -1277,6 +1277,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "quantity-shows-weight", "Quantity Box Shows the Weight", "In a container, the \"How many?\" box says what the amount weighs. (Stewie's Tweaks bContainerQuantityMenuShowsWeight)", game.quantity_shows_weight);
         switch!(app, "hide-empty-reputation", "Hide an Empty Reputation List", "With no reputations yet, the Stats page's General tab shows the statistics only, with no switch to the reputations. (Stewie's Tweaks bHideReputationTabIfEmpty)", game.hide_empty_reputation);
         switch!(app, "quick-load-in-menus", "Quick Load From the Menus", "The QuickLoad key loads the quicksave from the main and pause menus too. (Stewie's Tweaks bStartMenuQuickLoad)", quick_load_in_menus);
+        switch!(app, "preview-perks", "Preview Perks on Level Up", "A level-up without a perk still shows the perks page, to look at with none to take. (Stewie's Tweaks bPreviewPerksOnLevelUp)", game.preview_perks);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
