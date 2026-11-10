@@ -1760,7 +1760,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
-    (mut sit, mut terminals, mut doors, mut refused): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::terminal::OpenTerminal>, Option<ResMut<crate::doors::Doors>>, MessageWriter<crate::save::LoadRefused>),
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::terminal::OpenTerminal>, Option<ResMut<crate::doors::Doors>>, MessageWriter<crate::save::LoadRefused>, Option<Res<crate::save::PendingEngine>>),
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
@@ -1804,6 +1804,10 @@ pub(crate) fn run_scripts(
                                 doors.rest_as_restored(&sim);
                             }
                             tiles.load(&mut rt.game, &sim.world);
+                            // The game's state the engine's part of the save holds goes
+                            // back before the load's handlers run, so theirs wins: the
+                            // custom map marker (`pipboy::data`, #1954).
+                            crate::pipboy::data::restore_custom_marker(&mut rt.game, pending_engine.as_deref());
                             // The Script Runner's files after the save is in place (the
                             // restore takes the game's state, lambdas included, from the
                             // save): the game restart's, then the load's after LoadGame.

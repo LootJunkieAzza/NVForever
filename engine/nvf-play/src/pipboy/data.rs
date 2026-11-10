@@ -291,6 +291,7 @@ enum Act {
     Button(ButtonKind),
     /// The pointer came onto an answer of the question box, or clicked it.
     PopupOver(usize),
+    PopupOut(usize),
     PopupPick(usize),
     /// A part of the right pane's scroll bar was clicked (the marker: pressed).
     Bar(BarPart),
@@ -450,9 +451,12 @@ pub struct DataState {
     /// The pointer on the page this frame, whatever the input device (the question box's
     /// answers take the pointer's hover with either).
     pointer_now: Option<Vec2>,
-    /// Where the pointer was when a key last moved the question box's choice; while it
-    /// stays there the answer under it does not take the choice back ([`choose`]).
-    popup_keyed: Option<Option<Vec2>>,
+    /// The question box's pointer state: the answer under the pointer and where the
+    /// pointer was when a key last moved the choice ([`BoxHold`], [`choose`]).
+    popup_hold: BoxHold,
+    /// The World Map's waypoints as last worked out, by what they depend on
+    /// ([`cached_waypoints`]).
+    waypoints_cache: Option<(WaypointKey, Waypoints)>,
     /// The player's custom map marker as the game holds it (`Game::custom_map_marker`),
     /// taken each frame; the page's own while no game runs (tests).
     custom: Option<CustomMarker>,
@@ -770,20 +774,10 @@ pub const CUSTOM_MARKER_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook
         };
         serde_json::to_value(m?).ok()
     },
-    load: |w, v| {
-        let m: Option<CustomMarker> = serde_json::from_value(v.clone()).ok();
-        if let Some(rt) = w.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
-            rt.game.other.jg8.custom_marker = m.map(CustomMarker::to_game);
-        }
-        if !w.contains_resource::<DataState>() {
-            w.init_resource::<DataState>();
-        }
-        w.resource_mut::<DataState>().custom = m;
-        match m {
-            Some(c) => info!("pipboy map: custom marker back from the save at ({:.0}, {:.0}) in {}", c.pos[0], c.pos[1], FormId(c.space)),
-            None => info!("pipboy map: the save's custom marker was in a plugin no longer loaded"),
-        }
-    },
+    // Put back earlier, into the restored game before its LoadGame handlers and load-time
+    // files run (`restore_custom_marker`, from `crate::script`); here, after them, it would
+    // undo what they did. The page takes it from the game on its next frame.
+    load: |_, _| {},
     // The worldspace or cell by FormID: moved to the current load order; one of a plugin no
     // longer loaded takes the marker away.
     remap: Some(|v, r| match v.get("space").and_then(serde_json::Value::as_u64).and_then(|n| r.map(n as u32)) {
@@ -791,6 +785,32 @@ pub const CUSTOM_MARKER_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook
         None => *v = serde_json::Value::Null,
     }),
 };
+
+/// The save's custom marker (its `custom_map_marker` part) in the current load order:
+/// the worldspace or cell remapped, none when its plugin is no longer loaded.
+pub(crate) fn marker_from_save(v: &serde_json::Value, remap: Option<&fnv_save::PluginRemap>) -> Option<CustomMarker> {
+    let mut v = v.clone();
+    if let (Some(f), Some(r)) = (CUSTOM_MARKER_SAVE_HOOK.remap, remap) {
+        f(&mut v, r);
+    }
+    serde_json::from_value(v).ok()
+}
+
+/// Put the save's custom marker into the game just restored from it (`crate::script`,
+/// before the LoadGame and PostLoadGame handlers and the Script Runner's load files), so
+/// a handler's SetCustomMapMarker or ClearCustomMapMarker wins over the save [design: a
+/// load's handlers see the loaded game]. A save without one leaves the restored game's
+/// none.
+pub(crate) fn restore_custom_marker(game: &mut fnv_game::Game, pending: Option<&crate::save::PendingEngine>) {
+    let Some(p) = pending else { return };
+    let Some(v) = p.0.extra.get(CUSTOM_MARKER_SAVE_HOOK.key) else { return };
+    let m = marker_from_save(v, p.2.as_ref().map(|o| &o.remap));
+    game.other.jg8.custom_marker = m.map(CustomMarker::to_game);
+    match m {
+        Some(c) => info!("pipboy map: custom marker back from the save at ({:.0}, {:.0}) in {}", c.pos[0], c.pos[1], FormId(c.space)),
+        None => info!("pipboy map: the save's custom marker was in a plugin no longer loaded"),
+    }
+}
 
 fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
@@ -964,7 +984,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         popup_input(st, input, game);
         return;
     }
-    st.popup_keyed = None;
+    st.popup_hold = BoxHold::default();
     if aid_place {
         match tab {
             LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
@@ -1302,44 +1322,37 @@ fn popup_input(st: &mut DataState, input: &mut Input, game: &mut Game) {
     input.aid.drag = Vec2::ZERO;
     let acts = std::mem::take(&mut st.acts);
     let Some(p) = st.popup.as_mut() else { return };
-    let mut pick = None;
-    let mut steps = Vec::new();
+    let mut b = BoxInput::default();
     if input.keys.any_just_pressed([ArrowUp, KeyW]) {
-        steps.push(-1);
+        b.steps.push(-1);
     }
     if input.keys.any_just_pressed([ArrowDown, KeyS]) {
-        steps.push(1);
+        b.steps.push(1);
     }
-    if input.keys.any_just_pressed([Enter, NumpadEnter, Space, KeyE]) {
-        pick = Some(p.selected);
-    }
+    b.confirm = input.keys.any_just_pressed([Enter, NumpadEnter, Space, KeyE]);
     if input.keys.just_pressed(KeyY) {
-        pick = Some(0);
+        b.answer = Some(0);
     }
     if input.keys.just_pressed(KeyN) {
-        pick = Some(p.buttons.len() - 1);
+        b.answer = Some(p.buttons.len().saturating_sub(1));
     }
-    let mut one = false;
     for m in input.menu.read() {
         match m.0 {
-            Command::Up => steps.push(-1),
-            Command::Down => steps.push(1),
-            Command::One => one = true,
+            Command::Up => b.steps.push(-1),
+            Command::Down => b.steps.push(1),
+            Command::One => b.confirm = true,
             _ => {}
         }
-    }
-    let hovers: Vec<usize> = acts.iter().filter_map(|a| if let Act::PopupOver(i) = a { Some(*i) } else { None }).collect();
-    choose(p, &mut st.popup_keyed, st.pointer_now, &steps, &hovers);
-    if one {
-        pick = Some(p.selected);
     }
     for a in acts {
         match a {
-            Act::PopupPick(i) if i < p.buttons.len() => pick = Some(i),
+            Act::PopupOver(i) => b.pointer.push((i, true)),
+            Act::PopupOut(i) => b.pointer.push((i, false)),
+            Act::PopupPick(i) => b.answer = Some(i),
             _ => {}
         }
     }
-    let Some(i) = pick else { return };
+    let Some(i) = box_frame(p, &mut st.popup_hold, st.pointer_now, &b) else { return };
     let (ask, word, travel) = (p.ask.clone(), p.buttons[i].clone(), p.take(i));
     st.popup = None;
     match ask {
@@ -1360,28 +1373,66 @@ fn popup_input(st: &mut DataState, input: &mut Input, game: &mut Game) {
 /// back from the keys (canvas units) [design].
 const KEYED_STILL: f32 = 2.0;
 
-/// Move the question box's choice: the keys' `steps` (Up −1, Down +1), then the answers
-/// the pointer came onto (`hovers`). The box is drawn anew whenever its choice moves, and
-/// the answer under a pointer at rest is entered again each time, so a hover takes the
-/// choice only once the pointer has moved since a key last moved it (`keyed`: where the
-/// pointer was then) [design: as the item lists hold the wheel's selection, `crate::menu`
-/// `WHEEL_HOLD_TRAVEL`]. Before this the keys' Down was taken back at once by the answer
-/// under a resting pointer (#1954's smoke run).
-fn choose(p: &mut Popup, keyed: &mut Option<Option<Vec2>>, pointer: Option<Vec2>, steps: &[i32], hovers: &[usize]) {
+/// The question box's pointer state, kept while the box is up.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct BoxHold {
+    /// Where the pointer was when a key last moved the choice (`None`: no key holds it).
+    keyed: Option<Option<Vec2>>,
+    /// The answer the pointer is on (its last PointerOver not followed by its PointerOut).
+    hover: Option<usize>,
+}
+
+/// What the question box was given in a frame.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct BoxInput {
+    /// Up −1, Down +1, in order.
+    steps: Vec<i32>,
+    /// Enter, Space, E or the menus' confirm: take the choice.
+    confirm: bool,
+    /// An answer taken outright: Y the first, N the last, a click on one.
+    answer: Option<usize>,
+    /// The pointer onto (`true`) or off an answer, in order.
+    pointer: Vec<(usize, bool)>,
+}
+
+/// Move the question box's choice for the frame (`choose`), then the answer taken, if
+/// any: one taken outright, else the choice as it stands after the frame's Up and Down
+/// (Down and Enter in one frame take the answer below) [design].
+fn box_frame(p: &mut Popup, hold: &mut BoxHold, pointer: Option<Vec2>, b: &BoxInput) -> Option<usize> {
+    choose(p, hold, pointer, b);
+    b.answer.filter(|&i| i < p.buttons.len()).or(b.confirm.then_some(p.selected))
+}
+
+/// Move the question box's choice: the answer under the pointer is followed from its
+/// PointerOver and PointerOut events, the keys' `steps` move the choice, and the answer
+/// under the pointer takes it unless a key moved it since the pointer last moved. The box
+/// is drawn anew whenever its choice moves, and the answer under a pointer at rest is
+/// entered again each time, so without that hold the keys' Down was taken back at once
+/// (#1954's smoke run); once the pointer moves past [`KEYED_STILL`] the answer it is on
+/// takes the choice, whether or not a fresh PointerOver came [design: as the item lists
+/// hold the wheel's selection, `crate::menu` `WHEEL_HOLD_TRAVEL`].
+fn choose(p: &mut Popup, hold: &mut BoxHold, pointer: Option<Vec2>, b: &BoxInput) {
+    for &(i, onto) in &b.pointer {
+        if onto {
+            hold.hover = Some(i);
+        } else if hold.hover == Some(i) {
+            hold.hover = None;
+        }
+    }
     let still = |at: Option<Vec2>| match (at, pointer) {
         (Some(a), Some(b)) => a.distance(b) <= KEYED_STILL,
         (None, None) => true,
         _ => false,
     };
-    if keyed.is_some_and(|at| !still(at)) {
-        *keyed = None;
+    if hold.keyed.is_some_and(|at| !still(at)) {
+        hold.keyed = None;
     }
-    for &by in steps {
+    for &by in &b.steps {
         p.step(by);
-        *keyed = Some(pointer);
+        hold.keyed = Some(pointer);
     }
-    if keyed.is_none() {
-        for &i in hovers.iter().filter(|&&i| i < p.buttons.len()) {
+    if hold.keyed.is_none() {
+        if let Some(i) = hold.hover.filter(|&i| i < p.buttons.len()) {
             p.selected = i;
         }
     }
@@ -1860,7 +1911,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let spot = m.position(uv);
     st.spot[WORLD] = spot.iter().all(|v| v.is_finite()).then(|| CustomMarker { space: world, pos: [spot[0], spot[1], player.map_or(0.0, |(p, _)| p[2])] });
     let arrow = player.map(|(p, _)| on_map(m.uv(p[0], p[1])));
-    let (nodes, lines) = waypoints(arrow, custom.map(|c| c.1), &targets, mag);
+    let (nodes, lines) = cached_waypoints(&mut st.waypoints_cache, arrow, custom.map(|c| c.1), &targets, mag);
     let kinds: Vec<LineTo> = lines.iter().map(|l| l.0).collect();
     if st.lines_logged.as_ref() != Some(&(kinds.clone(), st.custom)) {
         for (to, pieces) in &lines {
@@ -2072,6 +2123,22 @@ fn waypoints(arrow: Option<Vec2>, custom: Option<Vec2>, quests: &[Vec2], mag: f3
     (nodes, lines)
 }
 
+/// What the World Map's waypoints depend on: the arrow, the custom marker, the quest
+/// targets (window units) and the magnification.
+type WaypointKey = (Option<Vec2>, Option<Vec2>, Vec<Vec2>, f32);
+/// The World Map's waypoint nodes and dotted lines ([`waypoints`]).
+type Waypoints = (Vec<Vec2>, Vec<(LineTo, Vec<Piece>)>);
+
+/// [`waypoints`], worked out again only when what they depend on moved (the World Map is
+/// gathered every frame while it is open) [design].
+fn cached_waypoints(cache: &mut Option<(WaypointKey, Waypoints)>, arrow: Option<Vec2>, custom: Option<Vec2>, quests: &[Vec2], mag: f32) -> Waypoints {
+    let fresh = cache.as_ref().is_none_or(|(k, _)| k.0 != arrow || k.1 != custom || k.2 != quests || k.3 != mag);
+    if fresh {
+        *cache = Some(((arrow, custom, quests.to_vec(), mag), waypoints(arrow, custom, quests, mag)));
+    }
+    cache.as_ref().map(|c| c.1.clone()).unwrap_or_default()
+}
+
 /// Log where map `tab` shows the custom marker (`shown`: the one shown there, if any)
 /// whenever that changes.
 fn log_custom(st: &mut DataState, tab: usize, shown: Option<CustomMarker>) {
@@ -2186,6 +2253,12 @@ struct PopupHit(usize);
 fn on_popup_over(e: On<PointerOver>, hits: Query<&PopupHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
         s.acts.push(Act::PopupOver(h.0));
+    }
+}
+
+fn on_popup_out(e: On<PointerOut>, hits: Query<&PopupHit>, state: Option<ResMut<DataState>>) {
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::PopupOut(h.0));
     }
 }
 
@@ -2307,7 +2380,7 @@ fn popup(p: &mut ChildSpawnerCommands, c: &mut Ctx, q: &Popup) {
         // The text stands at the bottom of its row, as the message box's buttons do
         // (message-menu.md section 2: a row is the text and 20, the text at its bottom).
         c.text(p, 2, b, mid.x, y + POPUP_ROW_PAD, Align::Centre, amber(TEXT));
-        p.spawn((at(frame.min.x, frame.min.y, frame.width(), frame.height()), PopupHit(i), Pickable::default())).observe(on_popup_over).observe(on_popup_click);
+        p.spawn((at(frame.min.x, frame.min.y, frame.width(), frame.height()), PopupHit(i), Pickable::default())).observe(on_popup_over).observe(on_popup_out).observe(on_popup_click);
     }
 }
 
@@ -3367,29 +3440,89 @@ mod tests {
     /// The keys move the question box's choice although the pointer rests on an answer:
     /// the answer it is on, entered again as the box is drawn anew, takes the choice back
     /// only once the pointer moves (#1954: the smoke run's Down was undone at once).
+    fn three() -> Popup {
+        Popup::marker(marker::MarkerAsk::Change(CustomMarker { space: 1, pos: [0.0; 3] }), "?".into(), vec!["a".into(), "b".into(), "c".into()])
+    }
+
+    fn moves(steps: &[i32], pointer: &[(usize, bool)]) -> BoxInput {
+        BoxInput { steps: steps.to_vec(), pointer: pointer.to_vec(), ..BoxInput::default() }
+    }
+
     #[test]
     fn the_keys_choice_holds_under_a_resting_pointer() {
-        let mut p = Popup::marker(marker::MarkerAsk::Change(CustomMarker { space: 1, pos: [0.0; 3] }), "?".into(), vec!["a".into(), "b".into(), "c".into()]);
-        let mut keyed = None;
+        let mut p = three();
+        let mut hold = BoxHold::default();
         let rest = Some(Vec2::new(527.0, 350.0));
         // The pointer comes onto the first answer: it is chosen.
-        choose(&mut p, &mut keyed, rest, &[], &[0]);
-        assert_eq!((p.selected, keyed), (0, None));
+        choose(&mut p, &mut hold, rest, &moves(&[], &[(0, true)]));
+        assert_eq!((p.selected, hold.keyed, hold.hover), (0, None, Some(0)));
         // Down twice; the redrawn box's first answer is entered again under the pointer.
-        choose(&mut p, &mut keyed, rest, &[1], &[]);
-        choose(&mut p, &mut keyed, rest, &[], &[0]);
-        choose(&mut p, &mut keyed, rest, &[1], &[0]);
+        choose(&mut p, &mut hold, rest, &moves(&[1], &[]));
+        choose(&mut p, &mut hold, rest, &moves(&[], &[(0, true)]));
+        choose(&mut p, &mut hold, rest, &moves(&[1], &[(0, true)]));
         assert_eq!(p.selected, 2);
         // Within the slack the pointer still rests.
-        choose(&mut p, &mut keyed, Some(Vec2::new(528.0, 351.0)), &[], &[0]);
+        choose(&mut p, &mut hold, Some(Vec2::new(528.0, 351.0)), &moves(&[], &[(0, true)]));
         assert_eq!(p.selected, 2);
         // Moved, the answer it comes onto takes the choice.
-        choose(&mut p, &mut keyed, Some(Vec2::new(527.0, 380.0)), &[], &[1]);
-        assert_eq!((p.selected, keyed), (1, None));
+        choose(&mut p, &mut hold, Some(Vec2::new(527.0, 380.0)), &moves(&[], &[(0, false), (1, true)]));
+        assert_eq!((p.selected, hold.keyed), (1, None));
         // With no pointer at all (a controller, the aid without `point=`) the keys move it.
-        let mut keyed = None;
-        choose(&mut p, &mut keyed, None, &[-1], &[]);
-        assert_eq!((p.selected, keyed), (0, Some(None)));
+        let mut hold = BoxHold::default();
+        choose(&mut p, &mut hold, None, &moves(&[-1], &[]));
+        assert_eq!((p.selected, hold.keyed), (0, Some(None)));
+    }
+
+    /// The review's case: the pointer moves on within the answer whose PointerOver came
+    /// while a key held the choice (or entered within the slack): no fresh PointerOver
+    /// comes, yet once it has moved that answer takes the choice.
+    #[test]
+    fn the_answer_under_a_moving_pointer_takes_the_choice_without_a_fresh_hover() {
+        let mut p = three();
+        let mut hold = BoxHold::default();
+        let at = Vec2::new(500.0, 350.0);
+        choose(&mut p, &mut hold, Some(at), &moves(&[1, 1], &[]));
+        assert_eq!(p.selected, 2);
+        // Onto the second answer within the slack: held.
+        choose(&mut p, &mut hold, Some(at + Vec2::new(1.0, 1.0)), &moves(&[], &[(1, true)]));
+        assert_eq!(p.selected, 2);
+        // On within it, no event: it takes the choice.
+        choose(&mut p, &mut hold, Some(at + Vec2::new(20.0, 1.0)), &moves(&[], &[]));
+        assert_eq!(p.selected, 1);
+        // Off every answer: the choice stays where it was.
+        choose(&mut p, &mut hold, Some(at + Vec2::new(300.0, 1.0)), &moves(&[], &[(1, false)]));
+        assert_eq!((p.selected, hold.hover), (1, None));
+    }
+
+    /// Down and Enter in one frame take the answer below (fast travel's No, not Yes);
+    /// Y, N or a click take theirs whatever the choice.
+    #[test]
+    fn the_confirm_takes_the_choice_after_the_frames_moves() {
+        let mut p = Popup::travel(7, "Travel?".into());
+        let mut hold = BoxHold::default();
+        let b = BoxInput { steps: vec![1], confirm: true, ..BoxInput::default() };
+        assert_eq!(box_frame(&mut p, &mut hold, None, &b), Some(1));
+        assert_eq!(p.take(1), None);
+        let mut p = three();
+        let b = BoxInput { steps: vec![1], confirm: true, answer: Some(0), ..BoxInput::default() };
+        assert_eq!(box_frame(&mut p, &mut BoxHold::default(), None, &b), Some(0));
+        let b = BoxInput { answer: Some(9), ..BoxInput::default() };
+        assert_eq!(box_frame(&mut p, &mut BoxHold::default(), None, &b), None);
+    }
+
+    #[test]
+    fn the_waypoints_are_worked_out_again_only_when_they_move() {
+        let mut cache = None;
+        let a = cached_waypoints(&mut cache, Some(Vec2::ZERO), Some(Vec2::new(100.0, 0.0)), &[], 1.0);
+        assert_eq!(a.1.len(), 1);
+        // A stale cache entry stands in for the same inputs.
+        if let Some((_, w)) = cache.as_mut() {
+            w.0.clear();
+        }
+        assert!(cached_waypoints(&mut cache, Some(Vec2::ZERO), Some(Vec2::new(100.0, 0.0)), &[], 1.0).0.is_empty());
+        // Zoomed, or the marker moved: worked out again.
+        assert_eq!(cached_waypoints(&mut cache, Some(Vec2::ZERO), Some(Vec2::new(100.0, 0.0)), &[], 2.0).0.len(), 2);
+        assert_eq!(cached_waypoints(&mut cache, Some(Vec2::ZERO), None, &[Vec2::ONE * 50.0], 2.0).1[0].0, LineTo::Quest);
     }
 
     fn near(a: Vec2, b: Vec2) -> bool {
@@ -3505,13 +3638,20 @@ mod tests {
         let mut w = World::new();
         w.insert_resource(DataState { custom: Some(m), ..DataState::default() });
         let v = (CUSTOM_MARKER_SAVE_HOOK.save)(&w).expect("saved");
-        let mut back = World::new();
-        (CUSTOM_MARKER_SAVE_HOOK.load)(&mut back, &v);
-        assert_eq!(back.resource::<DataState>().custom, Some(m));
-        // None placed: nothing saved. A marker whose plugin is gone (null) loads as none.
+        assert_eq!(marker_from_save(&v, None), Some(m));
+        // None placed: nothing saved; a part that does not read is none.
         w.resource_mut::<DataState>().custom = None;
         assert!((CUSTOM_MARKER_SAVE_HOOK.save)(&w).is_none());
-        (CUSTOM_MARKER_SAVE_HOOK.load)(&mut back, &serde_json::Value::Null);
-        assert_eq!(back.resource::<DataState>().custom, None);
+        assert_eq!(marker_from_save(&serde_json::Value::Null, None), None);
+        // Another load order: a plugin moved takes its marker along, one gone drops it.
+        let entry = |name: &str| fnv_save::PluginEntry { name: name.into(), size: 0 };
+        let saved = [entry("FalloutNV.esm"), entry("Mod.esp")];
+        let moved = fnv_save::PluginRemap::from_names(&saved, &["FalloutNV.esm".into(), "Other.esp".into(), "Mod.esp".into()]);
+        let in_mod = CustomMarker { space: 0x0100_0123, ..m };
+        let v = serde_json::to_value(in_mod).unwrap();
+        assert_eq!(marker_from_save(&v, Some(&moved)).map(|c| c.space), Some(0x0200_0123));
+        let gone = fnv_save::PluginRemap::from_names(&saved, &["FalloutNV.esm".into()]);
+        assert_eq!(marker_from_save(&v, Some(&gone)), None);
+        assert_eq!(marker_from_save(&serde_json::to_value(m).unwrap(), Some(&gone)), Some(m));
     }
 }

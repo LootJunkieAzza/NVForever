@@ -1340,9 +1340,13 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     this box (`marker::Words`; LEGAL.md) [design]; a plugin that defines a setting wins.
     NVForever's box is the fast-travel question box (`travel::Popup`, its keys and
     clicks: Up/Down, Enter, Y the first answer, N the last). An answer the pointer is on
-    takes the choice only once the pointer moves after a key moved it: the box is drawn
-    anew as its choice moves and the answer under a resting pointer was entered again,
-    which undid every Up/Down at once (both boxes; `data.rs::choose`) [design].
+    takes the choice only once the pointer moves more than 2 units after a key moved it:
+    the box is drawn anew as its choice moves and the answer under a resting pointer was
+    entered again, which undid every Up/Down at once. The answer under the pointer is
+    followed from its pointer-over and pointer-out events, so a pointer moving on within
+    an answer takes it once the hold lets go. Enter (or Space, E, the confirm button)
+    takes the choice as it stands after the same frame's Up and Down (both boxes;
+    `data.rs::box_frame`, `choose`) [design].
   - There is **one** custom marker, shared by both maps: placed or moved on the Local
     Map, the World Map shows it at the matching world position, and the other way
     round. It is the scripts' marker too: JohnnyGuitar's SetCustomMapMarker "functions
@@ -1379,7 +1383,10 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   - Not captured: whether the original keeps the marker in its saves (the capture's save
     was made before any marker existed) [hypothesis: it does]. NVForever saves it
     (`custom_map_marker` in the engine's part of a save, the worldspace or cell moved to
-    the current load order, dropped with a plugin no longer loaded) [design]; a new game
+    the current load order, dropped with a plugin no longer loaded) and puts it back into
+    the restored game before the LoadGame and PostLoadGame handlers and the Script
+    Runner's load files run, so a handler's SetCustomMapMarker or ClearCustomMapMarker
+    wins (`data.rs::restore_custom_marker`, from `crate::script`) [design]; a new game
     starts without one (the game is made anew).
   - The HUD compass: the original has a compass tile with the pc-marker picture, but it
     stayed hidden at four headings with the marker about 300 units away (why is not
