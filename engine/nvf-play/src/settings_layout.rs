@@ -89,6 +89,7 @@ pub const SECTIONS: &[Section] = &[
             "grade",
             "sun-shadows",
             "fsr-upscaling",
+            "frame-generation",
             "anti-aliasing",
             "latency-reduction",
             "shadow-filter",
