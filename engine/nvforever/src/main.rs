@@ -162,6 +162,7 @@ mod terrain;
 mod texture_swap;
 mod effect_particles;
 mod effect_shaders;
+mod vats_highlight;
 mod tree;
 mod treelod;
 mod underwater;
@@ -1552,6 +1553,7 @@ fn main() -> AppExit {
         app.add_plugins(texture_swap::TextureSwapPlugin);
         // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
         app.add_plugins(effect_shaders::EffectShadersPlugin);
+        app.add_plugins(vats_highlight::VatsHighlightPlugin);
         // How many refracting meshes are in view, for the log (refraction.rs).
         app.add_plugins(refraction::RefractionPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).

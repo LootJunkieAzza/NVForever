@@ -109,6 +109,11 @@ impl MenuFiles<'_, '_> {
         info!("ui: game strings: {} read, {} without text", report.game_strings, report.game_strings_unresolved);
     }
 
+    /// The pointer's place in the window, logical pixels; none while it is outside.
+    pub(crate) fn pointer(&self) -> Option<(f32, f32)> {
+        self.windows.single().ok().and_then(|w| w.cursor_position()).map(|p| (p.x, p.y))
+    }
+
     /// The window's size, logical pixels.
     pub(crate) fn window_size(&self) -> Option<(f32, f32)> {
         self.windows.single().ok().map(|w| (w.width(), w.height()))
@@ -124,7 +129,11 @@ impl MenuFiles<'_, '_> {
             // Also while the classic VATS screen is the game's file (`vats_menu`), which
             // places its pieces by `screen()` as those menus do.
             let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m)) || game.ui_vats;
-            write_screen(&mut game.ui_tree, window.width(), window.height(), units);
+            if game.ui_vats {
+                write_screen_scaled(&mut game.ui_tree, window.width(), window.height(), crate::interface::menu_scale());
+            } else {
+                write_screen(&mut game.ui_tree, window.width(), window.height(), units);
+            }
         }
         let report = ui_loading::sync(game, self.paused.as_ref().is_some_and(|p| p.0), self.main_menu.as_ref().is_some_and(|m| m.open));
         for line in report.changes {
@@ -172,6 +181,20 @@ pub fn write_screen(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, 
         ui.set_trait(id, "width", Value::Num(f64::from(window_width)));
         ui.set_trait(id, "height", Value::Num(f64::from(window_height)));
     }
+}
+
+/// [`write_screen`] in interface units for a view drawn at `scale` (the UI scale, at most
+/// 100 %: `crate::interface::menu_scale`, #1631) in the window's own frame, as the HUD is: the view is
+/// 960 / scale units high, so a file that places its pieces by `screen()` keeps them at
+/// the window's edges at any scale. Written while the VATS target screen is up
+/// (`vats_menu`), which is drawn so.
+pub fn write_screen_scaled(ui: &mut fnv_ui::Ui, window_width: f32, window_height: f32, scale: f32) {
+    let id = ui.screen();
+    let s = if scale.is_finite() && scale > 0.0 { f64::from(scale) } else { 1.0 };
+    let (width, height) = screen_size(window_width, window_height);
+    ui.set_trait(id, "width", Value::Num(width / s));
+    ui.set_trait(id, "height", Value::Num(height / s));
+    ui.set_trait(id, "resolutionconverter", Value::Num(resolution_converter(window_height) / s));
 }
 
 /// `screen()`'s width and height for a window in interface units: 960 high and

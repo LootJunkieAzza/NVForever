@@ -1141,6 +1141,18 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         // At the menus' scale (#1631, the UI scale at most 100%): the units `scale × it` logical pixels, in a frame
         // kept at the menu's anchor.
         let anchor = menu_anchor(name == super::dialog_menu::DIALOG_MENU);
+        if name == super::vats_menu::VATS_MENU {
+            // The VATS target screen is a piece of the HUD: its arrows, buttons and queue
+            // keep to the view's edges and its boxes stand on the target, so it takes the
+            // UI scale in the view's own frame, as the HUD does, with `screen()` written
+            // for the scaled view (`super::write_screen_scaled`). Above 100 % it stays at
+            // the original's size, as the menus do: the file sets its buttons and its
+            // queue out for a view 960 units high, and in a lower one they run into each
+            // other (seen at 150 %).
+            let _units = interface::units_at(interface::menu_scale());
+            paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z), heading, ui, &mut kit, &mut nodes, &glyphs);
+            continue;
+        }
         paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;

@@ -1573,7 +1573,7 @@ fn time_multiplier(
     sound: Option<ResMut<crate::audio_out::SoundSpeed>>,
     mut clock: ResMut<Time<Virtual>>,
     mut player_scale: ResMut<PlayerTimeScale>,
-    mut told: Local<Option<f32>>,
+    (mut told, mut told_turbo): (Local<Option<f32>>, Local<Option<f32>>),
 ) {
     let Some(rt) = script.rt.as_mut() else { return };
     let asked = rt.game.ui.time_multiplier.unwrap_or(1.0) as f32;
@@ -1583,13 +1583,17 @@ fn time_multiplier(
     }
     // Turbo slows the world but for the player (docs/spec-notes/magic-archetypes.md §2).
     let turbo = rt.game.turbo_time_scale() as f32;
-    let exempt = 1.0 / turbo.max(0.01);
-    if (player_scale.0 - exempt).abs() > 1e-6 {
+    if (told_turbo.replace(turbo).unwrap_or(1.0) - turbo).abs() > 1e-6 {
         if turbo < 1.0 {
             info!("magic: Turbo on: the world runs at {turbo:.2}, the player at full speed");
         } else {
             info!("magic: Turbo off");
         }
+    }
+    // A VATS camera shot's Player time multiplier: the player against the world it slows
+    // (`kill_cam::KillCam::player_scale`).
+    let exempt = 1.0 / turbo.max(0.01) * kill_cam.as_deref().and_then(|k| k.player_scale()).unwrap_or(1.0);
+    if (player_scale.0 - exempt).abs() > 1e-6 {
         player_scale.0 = exempt;
     }
     // A kill camera's shot sets the world's speed in place of VATS mode's (vats-mode.md §19).
@@ -1607,7 +1611,9 @@ fn time_multiplier(
 
 /// How much faster than the game's clock the player moves and animates (1 for the same):
 /// Turbo slows the world's clock and the player keeps its own speed by this factor, the
-/// clock's inverse (`fnv_game::magic_archetypes`, docs/spec-notes/magic-archetypes.md §2).
+/// clock's inverse (`fnv_game::magic_archetypes`, docs/spec-notes/magic-archetypes.md §2);
+/// a VATS camera shot's Player time multiplier multiplies in while the shot plays
+/// (`crate::kill_cam`).
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct PlayerTimeScale(pub f32);
 

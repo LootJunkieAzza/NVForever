@@ -789,10 +789,10 @@ cone   = the VATS actor spread (below) and the weapon's Min Spread, in degrees, 
   line (`PREVIEW_CONE`), in the weapon's reach and in sight [design: one actor, not
   every one in view, so the labels stay readable; the one the next click would land on
   or near]. Each part its hit volume has a capsule for (the weapon it holds too) draws
-  "head 41%" (the BPTD part name in small letters, "weapon" for the held weapon) centred
+  "Head 41%" (the BPTD part name as the data spells it, "Weapon" for the held weapon) centred
   on the part's capsule centre (`PhysWorld::actor_part_center`); an actor with a single
   capsule draws its chance alone at its aim point. The part the crosshair is on is drawn
-  in brackets, "[head 41%]", and brighter (the amber lifted 75 % to white against the
+  in brackets, "[Head 41%]", and brighter (the amber lifted 75 % to white against the
   marks' 25 %), so the player sees which part a click marks [design: NVForever's own
   wording and look]. Same font as the marks' labels, the marks' amber, the same size on
   the screen at any range; a label that would overlap one drawn before it moves down a

@@ -51,6 +51,15 @@ impl VatsStyle {
 
 /// The least the slider slows the world: half speed [design: owner 2026-11-09, "from 50%
 /// time slow to 100% time slow - full stop"].
+/// How dark the picture is while the classic style chooses targets, as a part of its own
+/// brightness; the selected target is kept in its own light (nvforever `vats_highlight`)
+/// [design: the fork owner 2026-11-10, "try removing the color filter when using vats,
+/// instead darken the game a bit but not the selected NPC"; the number by eye].
+/// Tried at 0.6 and taken back the same day ("disable the darkening when using vats
+/// completely"): 1 leaves the picture as it is, and the selected target gets no light of
+/// its own then.
+pub const DARKEN: f32 = 1.0;
+
 pub const SLOWDOWN_MIN: f32 = 0.5;
 /// The slider's step [design: owner 2026-11-09].
 pub const SLOWDOWN_STEP: f32 = 0.05;

@@ -163,6 +163,39 @@ impl Game<'_> {
     }
 }
 
+/// The form list of actors VATS never targets [observed: FalloutNV.esm, FLST
+/// `BannedVATSTargets`, eight creatures: Mr. House's and Yes Man's screens and Festus].
+pub const BANNED_TARGETS: &str = "BannedVATSTargets";
+
+impl Game<'_> {
+    /// Why VATS does not target `r`, if it does not (the engine's `vats_mode`, both
+    /// styles):
+    /// - it or its base is on the game's own list ([`BANNED_TARGETS`]) [hypothesis: the
+    ///   list's role, from its name and members];
+    /// - it is a ghost (hits pass through it, `Game::is_ghost`) [design];
+    /// - it is a flying creature whose Aggression is Unaggressive, a raven: it does not
+    ///   fight [design: the fork owner 2026-11-10, "only true living NPCs can be attacked,
+    ///   some npc like birds that cannot attack back should not be targetable"; observed:
+    ///   NVCrRaven, Flies, Unaggressive, Helps Nobody; a bloatfly flies and is Aggressive].
+    pub fn vats_untargetable(&mut self, r: FormId) -> Option<&'static str> {
+        let base = base_of(self, r);
+        if let Some(list) = self.data.by_edid(BANNED_TARGETS) {
+            let members = list_members(self, list);
+            if members.contains(&r) || base.is_some_and(|b| members.contains(&b)) {
+                return Some("on the game's BannedVATSTargets list");
+            }
+        }
+        if self.is_ghost(r) {
+            return Some("a ghost");
+        }
+        let flies = self.stats_def(r).is_some_and(|d| d.flies);
+        if flies && crate::functions::actor_value(self, r, crate::actor_values::AGGRESSION).unwrap_or(0.0) < 1.0 {
+            return Some("an unaggressive flying creature");
+        }
+        None
+    }
+}
+
 pub fn get_vats_mode(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     Ok(Value::Num(g.vats.mode as f64))
 }

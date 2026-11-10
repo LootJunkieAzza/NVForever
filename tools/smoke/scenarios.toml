@@ -11308,7 +11308,7 @@ name = "vats-classic-menu-file"
 source = "fork owner 2026-11-10: the classic style's target screen drawn from the game's own VATS menu file, the engine-drawn screen as the fallback (docs/design/vats-classic.md §11, docs/spec-notes/vats-menu.md)"
 note = "vats-classic-queue's run read for the screen: V builds VATSMenu from menus\\vats_menu.xml on the frame the targets are found (VATS is no menu to the runtime, so nothing else builds it), the tile renderer draws it, the model writes a box per body part with the selected one, then a row per queued attack; E plays the queue and the menu is dropped. The file never falls back to the engine-drawn screen"
 areas = ["combat", "vats", "ui"]
-paths = ["engine/nvf-play/src/tiles/vats_menu.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/ui_loading.rs"]
+paths = ["engine/nvf-play/src/tiles/vats_menu.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/ui_loading.rs", "engine/nvforever/src/vats_highlight.rs", "engine/nvf-play/src/hud_target.rs", "engine/nvf-play/src/hud.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:v,11:s,11.5:mouse-left,12:mouse-left,12.5:e", NVF_PLAY_TEST_VATS_STYLE = "classic" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 20
@@ -11324,6 +11324,10 @@ order = [[
 ]]
 expect = [
   { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent', label = "the mode's rules are unchanged: two queued, two fired, 52 AP" },
+  { re = 'vats highlight: [0-9A-F]{8} part \w+: [1-9]\d* triangles on [1-9]\d* shapes', label = "the selected part is lit on the target's body" },
+  { text = "vats highlight: off", label = "and no longer once the attacks play" },
+  { re = 'hud: hidden: (the VATS attacks play|the kill camera has the view)', label = "nothing of the HUD is drawn while the attacks play" },
+  { re = 'hud: enemy health .* 0x[0-9A-F]{8} 100 %', label = "the HUD's enemy bar shows the selected target at full health" },
 ]
 forbid = [{ text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn screen" }]
 
@@ -11419,7 +11423,28 @@ order = [[
   { re = 'vats mode: marked Fiend Guard Dog 000F573F .* mark 1; .* AP left; (\d+)% to hit \(base .*; previewed \1%', label = "the mark's chance is the figure the preview showed for that part" },
   { re = 'vats mode: off \(0 shots fired, 0 AP spent; V pressed again\)', label = "V leaves without firing" },
 ]]
-manual = "vats_preview.png: amber 'part NN%' labels on the dog's head, torso and legs before any mark; the one under the crosshair in brackets and brighter"
+manual = "vats_preview.png: the game's VATS boxes (bracket, condition meter, 'NN%') on the dog's head, torso and legs before any mark; the one under the crosshair named and brighter (2026-11-10; before: amber 'part NN%' labels, the one under the crosshair in brackets)"
+
+[[scenario]]
+name = "vats-mode-preview-menu-file"
+source = "fork owner 2026-11-10: Dead Eye's body part labels are the same element as the classic style's, the game's VATS menu file's boxes with the chance and the condition meter (docs/design/vats-classic.md §13)"
+note = "vats-mode-preview's run read for the screen: V at 10 s builds VATSMenu for Dead Eye, aimvats turns the crosshair on the dog and the file's boxes show its parts, the one under the crosshair named; no arrows, buttons or pointer (those are the classic style's); V again leaves and the menu is dropped"
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/tiles/vats_menu.rs", "engine/nvf-play/src/vats_mode.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.36:mouse-left,10.4:v", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot', label = "V enters VATS mode with the .357" },
+  { re = 'ui: built VATSMenu \(menus\\vats_menu\.xml, \d+ tiles\)', label = "the game's VATS menu file is built for Dead Eye too" },
+  { re = 'tiles: VATSMenu drawn from tiles for Dead Eye: [1-9]\d* parts, under the crosshair ".+" \d+', label = "the dog's parts are the file's boxes, the one under the crosshair named" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; V pressed again\)', label = "V leaves without firing" },
+  { text = "ui: dropped VATSMenu", label = "and the menu goes" },
+]]
+forbid = [
+  { text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn labels" },
+  { re = 'vats highlight: [0-9A-F]{8} part', label = "a part is lit on the body (the classic style's)" },
+]
 
 [[scenario]]
 name = "vats-kill-cam"

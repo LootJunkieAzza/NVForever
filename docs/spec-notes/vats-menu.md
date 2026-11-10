@@ -17,8 +17,11 @@ design: `docs/design/vats-classic.md` §11.
   (83 tiles, no warnings) [observed: 2026-11-10].
 - **The engine's own screenshots** of the file drawn by the tile renderer, 1280 x 800
   [observed: 2026-11-10, kept privately].
-- No capture or screenshot of the original's VATS screen was at hand. What the
-  original's code writes into the file is therefore not known: every such value below is
+- **The owner's three screenshots** of the original's VATS screen, given 2026-11-10
+  (kept privately): a Goodsprings settler in profile at 1280 x 720 with the head
+  selected, and Sunny Smiles facing the camera at 1364 x 768 with the pointer on her
+  torso. Every "[observed: screenshots]" below is read on them.
+- What the original's code writes into the file is otherwise not known: such values are
   `[design]` or `[hypothesis]`. The first-person memory of how the game plays is not a
   source.
 
@@ -82,10 +85,12 @@ In `tiles/vats_menu.rs`, `write`; each choice is tagged there.
 | menu `alpha` | 255 at once | design (no fade: the clock stops at once) |
 | part box `x`, `y` | the part's point on the view, interface units | design |
 | part box `justify` | head: up; torso: down; others: the side of the target's middle the part is on | hypothesis (the pictures' names) |
-| part box `string` | the chance in whole percent, no sign | design |
-| `_LimbName`, `_LimbNameVisible` | the part's name from the body part data; shown for the selected part | design |
+| part box `string` | the chance in whole percent with its sign ("41%") | observed: screenshots |
+| `_LimbName`, `_LimbNameVisible` | the part's name from the body part data; shown for the selected part | observed: screenshots ("Head", "Torso" over the selected part only) |
 | `_MeterPercent` | the part's condition, 0 to 1 | hypothesis (the meter's range is documented, what fills it is not) |
-| part box `alpha` | 255 selected, 180 the others | design |
+| part box `alpha` | 215 selected, 255 the others | observed: screenshots (the selected part's box and name are fainter; it is lit on the body); the number is by eye |
+| Select `visible`, `_PCButtonText` | shown with the left button's hint while the pointer is on a part | observed: screenshots ("Select LMB)" only with the pointer on a part); the hint's word is NVForever's |
+| arrows' `mouseover` | 1 while the pointer is on one | documented (the file switches the picture by it) |
 | row `string`, `listindex` | the queued part's name, the attack's place in the queue | design / documented (`listindex`) |
 | row `height`, list `height`, `_scroll_delta` | the text's height; six rows | documented (the prefabs' comments) |
 | list `childcount` | its live children | hypothesis (the tree does not keep it) |
@@ -99,11 +104,25 @@ text is marked as outside the row's crop, because this renderer passes a rect's 
 down and crops a `clips` tile's children, and the file's rows would otherwise hide
 their own words.
 
-## 5. Observer checks
+## 5. What the screenshots show beyond the table [observed: screenshots]
 
-1. The original's screen at 1280 x 720 with a target selected: where each bracket sits
-   against its part, which bracket each part gets, whether the chance has a percent
-   sign, when a part's name shows.
-2. What the three empty boxes hold in the original (the HUD's own meters moved there?).
-3. Whether the arrows cycle targets and what a click on a part's box does.
-4. The queue's rows: their words, and whether the divider shows from the first row.
+- The target's name and health bar are the HUD's enemy bar at the bottom middle, shown
+  at full health. NVForever shows the same bar and moves it to the top [design: the
+  fork owner].
+- The selected part is covered on the body in the interface's amber with fine
+  horizontal lines (vats-classic.md §12).
+- No crosshair, no arms or weapon of the player's in the picture.
+- The hints read "E)", "RMB)", "LMB)"; NVForever's own words are "[E]", "[RMB]",
+  "[LMB]".
+- With Select shown the column reads Select, Return, Accept; the file's own places
+  give Select, Accept, Return, which is what NVForever draws [hypothesis: the
+  original's code moves them].
+- Limb boxes far from the body: an arm's box stands well off to the side (Sunny
+  Smiles's right arm at 0%), not on the limb.
+
+## 6. Observer checks
+
+1. What the three empty boxes hold in the original.
+2. Whether the arrows cycle targets and what a click on a part's box does.
+3. The queue's rows: their words, and whether the divider shows from the first row.
+4. Where the original places each part's box against its part.

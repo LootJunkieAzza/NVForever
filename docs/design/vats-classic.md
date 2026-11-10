@@ -141,6 +141,11 @@ conditions run on the player with GetVATSValue answering about that attack.
 Where the camera stands, what it looks at, the walls it stays in front of, the held
 controls and the hidden HUD are the kill camera's (`kill_cam.rs`).
 
+Nothing of the HUD is drawn from Accept until the last attack has played, with or
+without a camera: the meters, the compass, the enemy bar, the crosshair and its prompt,
+the corner messages, the quest notices and the queue's marks [design: the fork owner
+2026-11-10] (`VatsMode::playing_back`).
+
 ## 9. Special attacks
 
 A melee weapon's special attack is its record's own (WEAP `VATS`: the effect it puts on
@@ -166,6 +171,19 @@ one has zeros]. So the AP is the special attack's whole cost, not an addition.
   which are not in the weapon records read here; the record's Silent and Mod Required
   fields are read by the schema and not used.
 
+## 13. Dead Eye's parts on the same screen (2026-11-10)
+
+Dead Eye's labels for the parts of the actor under or nearest the crosshair
+(vats-mode.md §17.5) are the same element as the classic style's: the menu file's
+bracket boxes with the chance and the condition meter [design: the fork owner
+2026-11-10]. The file is built while Dead Eye marks. Only the boxes are drawn: no
+arrows, buttons, queue list or pointer, and no part lit on the body. The HUD's enemy
+bar names the previewed actor, hurt or not, and stands at the top of the view while
+Dead Eye is on, as in the classic style. The part under the crosshair is named and drawn whole, the
+others fainter. Dead Eye's marks ("x" and chance) and everything else of it are
+unchanged. With `[UI] VatsMenuFile=0` or without the file its amber labels are drawn
+as before.
+
 ## 9a. Frame time (2026-11-10)
 
 The chances are worked out every frame. Measured on the owner's machine at the
@@ -178,7 +196,8 @@ crowded scene, the top graphics settings, a slowdown under 100 %.
 ## 9b. Planned
 
 - Mines as targets. The unarmed special moves.
-- The menu file's arrows and buttons as click targets (§11).
+- The menu file's Accept and Return buttons as click targets (§11). The lines through
+  the lit part (§12).
 
 ## 10. Test aids and smoke
 
@@ -198,8 +217,11 @@ written into it: spec-notes/vats-menu.md.
   and its condition meter, the selected part named; the arrows at the view's edges;
   Accept (dim until an attack is queued), Return and the special attack button with
   their key hints; the queue's list of queued attacks with its divider.
-- **Still the engine's**: the target's name over its health at the top (the file leaves
-  that box empty for code), the HUD's own HP and AP meters, the amber grade.
+- **Still the engine's**: the target's name and health, which are the HUD's own enemy
+  bar (its bracket, ticks and name), shown for the selected target hurt or not and
+  moved to the top of the view while targets are chosen [design: the fork owner
+  2026-11-10; the original keeps it at the bottom]; the HUD's HP and AP meters; the
+  amber grade.
 - **The switch**: on unless `[UI] VatsMenuFile=0` is in `NVForever.ini` [design: the
   fork owner's decision, the game's file first]. Upstream's convention is the other
   way round (`[UI] TileMenus=` lists the menus drawn from files, none by default); to
@@ -210,7 +232,36 @@ written into it: spec-notes/vats-menu.md.
   frame the screen comes up (`Game::ui_vats`) and dropped on the frame it goes. While
   it is up `screen()` is in interface units and its `cropx` and `cropy` are 15; a mod's
   HUD tiles that read `screen()` see those values for that time.
-- **Input** stays the keys of §4. The arrows and buttons are drawn and not clicked: the
-  pointer is the view's in play.
+- **The pointer** is shown while targets are chosen. Coming onto a part's box, or
+  within 45 units of the part's point on the target, selects that part; the file's
+  Select button shows then, with the left button's hint. A click queues an attack on
+  the selected part; a click on one of the two arrows changes the target instead. The
+  keys of §4 go on working, and the pointer selects only when it moves. The buttons
+  (Accept, Return) are not clicked yet.
+- **The player's arms and weapon** are not drawn in first person while targets are
+  chosen.
+- **The UI scale** (the settings page's "UI scale", 50 to 150 %): the screen is drawn
+  in the view's own frame as the HUD is, with `screen()` written for a view 960 / scale
+  units high, so the arrows, the buttons and the queue keep to the window's edges and
+  the boxes stay on the target. It shrinks with the scale and, like the menus, does
+  not grow above 100 %: the file sets its buttons and queue out for a view 960 units
+  high, and at 150 % they ran into each other [observed: the engine's screenshot]. The
+  enemy bar is the HUD's and takes the whole scale; the engine-drawn labels and marks
+  (the fallback, Dead Eye's marks) do too.
+- **The two arrows** stand halfway down the view, on one line at the left and right
+  edges, at any UI scale [design: the fork owner 2026-11-10; the file, and the
+  original on the owner's screenshots, put them a quarter of the way down].
 - **The right mouse button's hint** is NVForever's "[RMB]" (it was "[Right Click]"): the
   file gives a hint its button's width as room, and "Return" is short.
+
+## 12. The selected part lit on the target (2026-11-10)
+
+The part the next attack would be queued on glows in the interface's amber on the
+target's own body, and its box on the screen is drawn fainter than the others
+[observed: the owner's screenshots of the original's VATS, 2026-11-10]
+(`engine/nvforever/src/vats_highlight.rs`).
+
+- A part's triangles are those carried mostly by the bones of its chain, the bones the
+  hit volumes use; a bone in no chain goes with the chain above it [design].
+- Drawn as an unlit copy of those triangles on the same skin, blended over the surface. The original's
+  fine horizontal lines through the glow are not drawn yet.
