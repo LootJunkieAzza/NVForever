@@ -356,6 +356,7 @@ mod tests {
         ("grass-distance", "Display"),
         ("fsr-upscaling", "Graphics"),
         ("anti-aliasing", "Graphics"),
+        ("latency-reduction", "Graphics"),
         ("shadow-filter", "Graphics"),
         ("ambient-occlusion", "Graphics"),
         ("fine-shadows", "Graphics"),
