@@ -30,6 +30,12 @@
 //!   made from the physics world's collision ([`outline`]; the original's picture of the
 //!   place from above is not drawn). Indoors the map is drawn closer
 //!   ([`outline::INTERIOR_SCALE`]).
+//! - **Place Marker** (#1954, [`marker`]): the maps' X button (X, the controller's X, a
+//!   click on its hint) asks, in the same question box, whether to set the player's one
+//!   custom marker at the highlight box, or to move, remove or keep the one placed. Both
+//!   maps show it (the game keeps it, `fnv_game::Game::custom_map_marker`, so scripts'
+//!   SetCustomMapMarker shows too, and it is saved), and the World Map draws dotted lines
+//!   from the player's arrow to it and to the active quest's targets.
 //! - Both maps pan while the left button is held on them and the pointer moves (the
 //!   pointer's own movement, not Bevy's drag: the map's nodes are drawn again as the
 //!   highlight box follows the pointer, which ended a drag at once).
@@ -48,6 +54,7 @@
 //! when it changed. The page's state is [`DataState`], made on first use (the Pip-Boy's
 //! plugin knows only [`draw`]).
 
+pub mod marker;
 mod model;
 mod outline;
 pub(crate) mod read;
@@ -69,9 +76,10 @@ use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use fnv_sim::FormId;
+use marker::{CustomMarker, LineTo, Piece};
 use model::{ObjectiveLine, QuestKey, WorldMap};
 use outline::Outline;
-use travel::{FastTravelAsk, FastTravelGo, Popup};
+use travel::{Ask, FastTravelAsk, FastTravelGo, Popup};
 use nvf_assets::GameData;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -247,6 +255,25 @@ const AUDIO_METER_CROP: f32 = 2.0;
 const AUDIO_MARKER: f32 = 8.0;
 /// How often the page looks at the quests and the markers while the game runs, seconds.
 const POLL: f32 = 0.25;
+
+/// The custom marker's picture, drawn as a quest marker is (its size, place and the Local
+/// Map's clamp) one depth above them [observed: the original's MapMenu, 2026-11-10: a
+/// tile `glow_hud_compass_pc_marker.dds` at depth 5, as wide as the quest markers on both
+/// maps (50.59 on the World Map, 75 on the Local Map); hypothesis: the quest markers'
+/// template].
+const PC_MARKER_FILE: &str = "glow_hud_compass_pc_marker.dds";
+/// The World Map's waypoint nodes and the dotted line's picture [documented: map_menu.xml
+/// `WaypointTemplate`, `PathLineTemplate`].
+const NODE_FILE: &str = "Interface\\Worldmap\\waypoint_node.dds";
+const PATH_FILE: &str = "Interface\\Worldmap\\waypoint_path.dds";
+/// A node is 0.8 of the map markers' width, the line a third of the node's height
+/// [documented: `WaypointTemplate` width `user0` × 0.8; `PathLineTemplate` height; observed:
+/// 17.41 to the markers' 21.76 in the capture].
+const NODE: f32 = MARKER * 0.8;
+const PATH_H: f32 = NODE / 3.0;
+/// One repeat of the line's picture along it: the file's 64 × 16 kept in shape at the
+/// line's height [hypothesis: the template tiles the file (`tile`) at the menu's scale].
+const PATH_TILE: f32 = PATH_H * 4.0;
 const DOOR_ICON: &str = "interface\\icons\\local map\\icon_local_door.dds";
 
 // ---- state --------------------------------------------------------------------------------
@@ -418,8 +445,19 @@ pub struct DataState {
     /// Where the left button went down on the World Map, and how far the pointer has
     /// moved since (a click asks to travel, a drag does not).
     press: Option<(Vec2, f32)>,
-    /// The fast-travel question box over the World Map (`travel`).
+    /// The question box over the map: fast travel's (`travel`) or Place Marker's.
     popup: Option<Popup>,
+    /// The player's custom map marker as the game holds it (`Game::custom_map_marker`),
+    /// taken each frame; the page's own while no game runs (tests).
+    custom: Option<CustomMarker>,
+    /// The place under each map's highlight box when last drawn: where Place Marker puts
+    /// the marker.
+    spot: [Option<CustomMarker>; 2],
+    /// Where each map showed the custom marker when last logged (whole units; `None`:
+    /// not shown).
+    custom_logged: [Option<Option<(i32, i32)>>; 2],
+    /// What the World Map's dotted lines led to, and the custom marker, when last logged.
+    lines_logged: Option<(Vec<LineTo>, Option<CustomMarker>)>,
 }
 
 // ---- what is shown ------------------------------------------------------------------------
@@ -485,6 +523,11 @@ struct MapShown {
     player: Option<(Vec2, f32)>,
     /// The active quest's markers (their top left in the window).
     quests: Vec<Vec2>,
+    /// The custom marker (its top left, as a quest marker's).
+    custom: Option<Vec2>,
+    /// The World Map's waypoint nodes (their middles) and its dotted lines.
+    nodes: Vec<Vec2>,
+    lines: Vec<(LineTo, Vec<Piece>)>,
     /// The highlight box's middle and the name it shows.
     cursor: Vec2,
     label: Option<String>,
@@ -601,6 +644,11 @@ pub fn draw(
         opened(st, &game);
     }
     let lists = lists(st, &game);
+    // The custom marker is the game's (scripts set it too, and the save keeps it); the
+    // page keeps its own only while no game runs.
+    if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
+        st.custom = rt.game.custom_map_marker().map(CustomMarker::from_game);
+    }
     // With Controller chosen the controls answer the controller only (pad.rs): the mouse
     // pointer is ignored so it cannot take the highlight box back from the stick.
     let pointer = screen
@@ -701,6 +749,41 @@ impl DataState {
         self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, self.discovered.contains(&m.form))).collect()
     }
 }
+
+/// The custom map marker in a save (#1954), under `custom_map_marker`: the game's marker
+/// (the one Place Marker and SetCustomMapMarker set), the page's own while no game runs;
+/// nothing without one, so a save without it loads with none (a new game has none)
+/// [design: the original very likely keeps it, docs/spec-notes/pipboy.md §5.3].
+pub const CUSTOM_MARKER_SAVE_HOOK: crate::save::SaveHook = crate::save::SaveHook {
+    key: "custom_map_marker",
+    save: |w| {
+        let m = match w.get_resource::<ScriptState>().and_then(|s| s.rt.as_ref()) {
+            Some(rt) => rt.game.custom_map_marker().map(CustomMarker::from_game),
+            None => w.get_resource::<DataState>()?.custom,
+        };
+        serde_json::to_value(m?).ok()
+    },
+    load: |w, v| {
+        let m: Option<CustomMarker> = serde_json::from_value(v.clone()).ok();
+        if let Some(rt) = w.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+            rt.game.other.jg8.custom_marker = m.map(CustomMarker::to_game);
+        }
+        if !w.contains_resource::<DataState>() {
+            w.init_resource::<DataState>();
+        }
+        w.resource_mut::<DataState>().custom = m;
+        match m {
+            Some(c) => info!("pipboy map: custom marker back from the save at ({:.0}, {:.0}) in {}", c.pos[0], c.pos[1], FormId(c.space)),
+            None => info!("pipboy map: the save's custom marker was in a plugin no longer loaded"),
+        }
+    },
+    // The worldspace or cell by FormID: moved to the current load order; one of a plugin no
+    // longer loaded takes the marker away.
+    remap: Some(|v, r| match v.get("space").and_then(serde_json::Value::as_u64).and_then(|n| r.map(n as u32)) {
+        Some(n) => v["space"] = serde_json::Value::from(n),
+        None => *v = serde_json::Value::Null,
+    }),
+};
 
 fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
@@ -868,9 +951,17 @@ fn list_len(tab: usize, l: &Lists) -> usize {
 /// Keys, the wheel, the test aid's steps and what the pointer did.
 fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input: &mut Input, pointer: Option<Vec2>) {
     use KeyCode::*;
+    // The test aid's `placemarker`: the maps' X button, as X or a click on its hint does.
+    let aid_place = std::mem::take(&mut input.aid.place_marker);
     if st.popup.is_some() {
-        popup_input(st, input);
+        popup_input(st, input, game);
         return;
+    }
+    if aid_place {
+        match tab {
+            LOCAL | WORLD => st.acts.push(Act::Button(ButtonKind::PlaceMarker)),
+            _ => info!("pipboy data: placemarker is for the maps; tab {} shown", TAB_NAMES[tab.min(RADIO)]),
+        }
     }
     let len = list_len(tab, l);
     let mut moves: Vec<i32> = Vec::new();
@@ -977,7 +1068,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             }
             // The A button's hints do what Enter does on the tab.
             Act::Button(k) if k.is_a() => use_it = true,
-            Act::Button(k) => button(st, k, input),
+            Act::Button(k) => button(st, tab, k, input),
             Act::Bar(b) if tab == QUESTS || tab == NOTES => bar_act(st, b, pointer, &mut pane),
             _ => {}
         }
@@ -1195,7 +1286,7 @@ fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game)
 /// The question box's keys and clicks (fast-travel.md §3): Up and Down (W, S) move the
 /// choice, Enter, Space or E take it, Y and N answer; the pointer chooses the answer it
 /// is on and a click takes it. Nothing else on the page moves meanwhile.
-fn popup_input(st: &mut DataState, input: &mut Input) {
+fn popup_input(st: &mut DataState, input: &mut Input, game: &mut Game) {
     use KeyCode::*;
     input.wheel.clear();
     st.press = None;
@@ -1235,14 +1326,55 @@ fn popup_input(st: &mut DataState, input: &mut Input) {
         }
     }
     let Some(i) = pick else { return };
-    info!("fast travel: answered {:?}", p.buttons[i]);
-    if let Some(m) = p.take(i) {
-        input.go.write(FastTravelGo(m));
-    }
+    let (ask, word, travel) = (p.ask.clone(), p.buttons[i].clone(), p.take(i));
     st.popup = None;
+    match ask {
+        Ask::Marker(ask) => {
+            info!("pipboy map: answered {word:?}");
+            answer_marker(st, game, marker::answer(ask, i));
+        }
+        Ask::Travel(_) | Ask::Refused => {
+            info!("fast travel: answered {word:?}");
+            if let Some(m) = travel {
+                input.go.write(FastTravelGo(m));
+            }
+        }
+    }
 }
 
-fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
+/// Place Marker: ask about the place under the highlight box ([`marker::ask`]) in the
+/// question box, its words from the load order's settings, else NVForever's own
+/// ([`marker::Words`]).
+fn place_marker(st: &mut DataState, tab: usize) {
+    let Some(at) = st.spot.get(tab).copied().flatten() else {
+        info!("pipboy map: Place Marker: no place under the highlight box");
+        return;
+    };
+    let ask = marker::ask(st.custom, at);
+    let (text, buttons) = marker::Words::of(ask, |(name, ours)| super::labels::label(name, ours).to_string());
+    info!("pipboy map: Place Marker asks {text:?} ({} answers) for ({:.0}, {:.0}) in {}", buttons.len(), at.pos[0], at.pos[1], FormId(at.space));
+    st.popup = Some(Popup::marker(ask, text, buttons));
+}
+
+/// Do what the answer to Place Marker's question says, on the game's marker (the one
+/// scripts and the save see) and the page's copy.
+fn answer_marker(st: &mut DataState, game: &mut Game, a: marker::MarkerAnswer) {
+    use marker::MarkerAnswer::*;
+    let after = marker::apply(st.custom, a);
+    st.custom = after;
+    if let Some(rt) = game.script.as_mut().and_then(|s| s.rt.as_mut()) {
+        rt.game.other.jg8.custom_marker = after.map(CustomMarker::to_game);
+    }
+    match a {
+        Placed(m) => info!("pipboy map: custom marker placed at ({:.0}, {:.0}) in {}", m.pos[0], m.pos[1], FormId(m.space)),
+        Moved(m) => info!("pipboy map: custom marker moved to ({:.0}, {:.0}) in {}", m.pos[0], m.pos[1], FormId(m.space)),
+        Removed => info!("pipboy map: custom marker removed"),
+        Left => info!("pipboy map: custom marker left where it was"),
+        Declined => info!("pipboy map: no custom marker placed"),
+    }
+}
+
+fn button(st: &mut DataState, tab: usize, k: ButtonKind, input: &mut Input) {
     match k {
         ButtonKind::NotesFilter => {
             st.notes_of_active = !st.notes_of_active;
@@ -1259,7 +1391,8 @@ fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
             st.text_first = 0.0;
             info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
         }
-        ButtonKind::PlaceMarker | ButtonKind::NextChallenge => info!("pipboy data: {k:?} is not built"),
+        ButtonKind::PlaceMarker => place_marker(st, tab),
+        ButtonKind::NextChallenge => info!("pipboy data: {k:?} is not built"),
         // Taken as Enter in `take_input`.
         ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::PlayAudio | ButtonKind::Tune => {}
     }
@@ -1415,8 +1548,9 @@ fn x_key() -> String {
 /// The words are the settings' texts, else NVForever's labels for them in the game
 /// strings table (`fnv_ui::strings`, `labels::built_in_label`); `sChallengeToggle` has no
 /// label there and keeps NVForever's "Challenges". A hint that does nothing now is dim
-/// [design]: Travel with no Travel target ([`travel_target`]), Place Marker and Next
-/// Challenge (not built), the make-active hint on a quest done or with none selected.
+/// [design]: Travel with no Travel target ([`travel_target`]), Next Challenge (not
+/// built), the make-active hint on a quest done or with none selected. Place Marker is
+/// bright: it asks about the custom marker (#1954).
 fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
     use super::labels::{built_in_label, label};
     let b = |word, key, dim, kind| Button { hint: Hint::new(word, key, dim), kind };
@@ -1431,7 +1565,7 @@ fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
         // Both devices: with the keyboard and mouse the word alone, a button to click [observed:
         // the original's World Map and Local Map with no controller, `MM_ButtonX` visible and a
         // target, "Place Marker" at the top right with no key; capture 2026-11-10].
-        LOCAL | WORLD => Some(b(built_in_label("sPlaceMarker"), if f.pad { x_key() } else { String::new() }, true, ButtonKind::PlaceMarker)),
+        LOCAL | WORLD => Some(b(built_in_label("sPlaceMarker"), if f.pad { x_key() } else { String::new() }, false, ButtonKind::PlaceMarker)),
         QUESTS if f.quests => Some(b(built_in_label("sShowLocation"), x_key(), false, ButtonKind::ShowLocation)),
         NOTES if f.notes && f.challenges => Some(b(built_in_label("sNextChallenge"), x_key(), true, ButtonKind::NextChallenge)),
         NOTES if f.notes => {
@@ -1649,10 +1783,19 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         details.push(mk.reputation.as_ref().map(|(rep, name)| model::reputation_line(name, standing(game, *rep))));
     }
     let mut quests = Vec::new();
+    let mut targets = Vec::new();
     for t in quest_targets(st, game).into_iter().filter(|t| t.interior.is_none()) {
         let Some(projection) = map_for(st, game, t.world).filter(|p| p.root == m.root) else { continue };
-        quests.push(quest_corner(on_map(projection.uv(t.pos[0], t.pos[1]))));
+        let at = on_map(projection.uv(t.pos[0], t.pos[1]));
+        targets.push(at);
+        quests.push(quest_corner(at));
     }
+    // The custom marker, placed in any worldspace of this map's family.
+    let custom = st.custom.and_then(|c| {
+        let projection = map_for(st, game, c.space).filter(|p| p.root == m.root)?;
+        Some((c, on_map(projection.uv(c.pos[0], c.pos[1]))))
+    });
+    log_custom(st, WORLD, custom.map(|c| c.0));
     let drawn_found = marks.iter().filter(|mk| matches!(mk.icon, Some((_, true)))).count();
     let logged = (world, total, marks.len(), drawn_found, drawn_other);
     if st.world_logged != Some(logged) {
@@ -1666,12 +1809,32 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     }
     st.cursor_marker = under.map(|i| forms[i]);
     st.travel_marker = travel_target(st.travel_marker, st.cursor_marker, aiming, &forms);
+    // Place Marker's place: the position under the highlight box's middle, in this
+    // worldspace (on a marker, the marker's) [observed: the original puts it there].
+    let uv = [(cursor.x - left.x) / size.x, (cursor.y - left.y) / size.y];
+    let spot = m.position(uv);
+    st.spot[WORLD] = spot.iter().all(|v| v.is_finite()).then(|| CustomMarker { space: world, pos: [spot[0], spot[1], player.map_or(0.0, |(p, _)| p[2])] });
+    let arrow = player.map(|(p, _)| on_map(m.uv(p[0], p[1])));
+    let (nodes, lines) = waypoints(arrow, custom.map(|c| c.1), &targets, mag);
+    let kinds: Vec<LineTo> = lines.iter().map(|l| l.0).collect();
+    if st.lines_logged.as_ref() != Some(&(kinds.clone(), st.custom)) {
+        for (to, pieces) in &lines {
+            info!("pipboy map: dotted line to {} ({} segments)", to.name(), pieces.len());
+        }
+        if lines.is_empty() && st.lines_logged.is_some() {
+            info!("pipboy map: no dotted line");
+        }
+        st.lines_logged = Some((kinds, st.custom));
+    }
     MapShown {
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
         outline: None,
         marks,
-        player: player.map(|(p, h)| (on_map(m.uv(p[0], p[1])), h)),
+        player: arrow.zip(player).map(|(a, (_, h))| (a, h)),
         quests,
+        custom: custom.map(|c| quest_corner(c.1)),
+        nodes,
+        lines,
         cursor,
         label,
         detail,
@@ -1687,7 +1850,7 @@ fn standing(game: &Game, rep: u32) -> Option<&'static str> {
 }
 
 fn empty_map() -> MapShown {
-    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), cursor: MAP_MID, label: None, detail: None }
+    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Vec::new(), lines: Vec::new(), cursor: MAP_MID, label: None, detail: None }
 }
 
 /// The local map's scale, game units to a canvas unit at a magnification of 1: outdoors
@@ -1815,22 +1978,70 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     }
     // Quest markers stay inside the window [documented: map_menu.xml
     // LocalMapQuestMarkerTemplate, clamped to the view rectangle].
-    let (w, h) = (QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT);
     let quests = quest_targets(st, game)
         .into_iter()
         .filter(|t| t.interior == loc.interior && (t.interior.is_some() || t.world == loc.world))
-        .map(|t| {
-            let c = quest_corner(on_map(t.pos[0], t.pos[1]));
-            Vec2::new(c.x.clamp(0.0, MAP.width() - w), c.y.clamp(0.0, MAP.height() - 0.75 * h))
-        })
+        .map(|t| local_quest_corner(on_map(t.pos[0], t.pos[1])))
         .collect();
     let (cursor, label, _) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
-    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, cursor, label, detail: None }
+    // Place Marker's place: the point under the highlight box's middle, in this interior
+    // or worldspace; the custom marker shows when it is in the space shown, clamped
+    // inside the window as the quest markers are [hypothesis: their template]. No dotted
+    // line here [observed: the original's Local Map has no waypoint nodes].
+    let space = loc.interior.unwrap_or(loc.world);
+    let spot = marker::local_point(centre, MAP_MID, mag, scale, cursor);
+    st.spot[LOCAL] = Some(CustomMarker { space, pos: [spot[0], spot[1], feet[2]] });
+    let custom = st.custom.filter(|c| c.space == space);
+    log_custom(st, LOCAL, custom);
+    let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
+    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Vec::new(), lines: Vec::new(), cursor, label, detail: None }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
 fn quest_corner(at: Vec2) -> Vec2 {
     at - Vec2::new(QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT) / 2.0 + QUEST_NUDGE
+}
+
+/// A Local Map quest marker's top left, kept inside the window [documented: map_menu.xml
+/// LocalMapQuestMarkerTemplate, clamped to the view rectangle].
+fn local_quest_corner(at: Vec2) -> Vec2 {
+    let (w, h) = (QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT);
+    let c = quest_corner(at);
+    Vec2::new(c.x.clamp(0.0, MAP.width() - w), c.y.clamp(0.0, MAP.height() - 0.75 * h))
+}
+
+/// The World Map's waypoint nodes and dotted lines (#1954): with the player's arrow
+/// shown, a line from it to the custom marker and one to each quest target shown, each
+/// with a node at both ends [observed: the original's World Map with a marker placed
+/// shows two chains from the arrow's place, one to the marker and one to the quest
+/// target; hypothesis: one line to each of several targets]. `mag`: the map's
+/// magnification.
+fn waypoints(arrow: Option<Vec2>, custom: Option<Vec2>, quests: &[Vec2], mag: f32) -> (Vec<Vec2>, Vec<(LineTo, Vec<Piece>)>) {
+    let Some(from) = arrow else { return (Vec::new(), Vec::new()) };
+    let ends: Vec<(LineTo, Vec2)> = custom.map(|c| (LineTo::Marker, c)).into_iter().chain(quests.iter().map(|&q| (LineTo::Quest, q))).collect();
+    if ends.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let nodes = std::iter::once(from).chain(ends.iter().map(|e| e.1)).collect();
+    let lines = ends.iter().map(|&(to, at)| (to, marker::dotted_line(from, at, mag, PATH_TILE))).collect();
+    (nodes, lines)
+}
+
+/// Log where map `tab` shows the custom marker (`shown`: the one shown there, if any)
+/// whenever that changes.
+fn log_custom(st: &mut DataState, tab: usize, shown: Option<CustomMarker>) {
+    let key = shown.map(|c| (c.pos[0].round() as i32, c.pos[1].round() as i32));
+    if st.custom_logged[tab] == Some(key) {
+        return;
+    }
+    let first = st.custom_logged[tab].is_none();
+    st.custom_logged[tab] = Some(key);
+    let map = if tab == WORLD { "world map" } else { "local map" };
+    match (shown, first) {
+        (Some(c), _) => info!("pipboy map: {map} shows the custom marker at ({:.0}, {:.0})", c.pos[0], c.pos[1]),
+        (None, false) => info!("pipboy map: {map} shows no custom marker"),
+        (None, true) => {}
+    }
 }
 
 /// Where a quest target is: in an interior (`interior`), or outdoors in `world`.
@@ -2450,8 +2661,19 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         for mk in m.marks.iter().filter(|mk| !mk.highlighted) {
             marker(p, c, mk);
         }
+        // The dotted lines under their nodes (depths -1 and 3 [documented]), the custom
+        // marker over the quest markers (5 [observed: the original's MapMenu]).
+        for piece in m.lines.iter().flat_map(|l| &l.1) {
+            path_piece(p, c, piece);
+        }
+        for n in &m.nodes {
+            c.image(p, NODE_FILE, at(n.x - NODE / 2.0, n.y - NODE / 2.0, NODE, NODE), amber(TEXT));
+        }
         for q in &m.quests {
             c.image(p, QUEST_FILE, at(q.x, q.y, QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT), amber(TEXT));
+        }
+        if let Some(q) = m.custom {
+            c.image(p, PC_MARKER_FILE, at(q.x, q.y, QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT), amber(TEXT));
         }
         if let Some((spot, heading)) = m.player {
             if let Some((image, rect)) = c.picture(CURSOR_FILE) {
@@ -2469,6 +2691,23 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         highlight(p, c, m.cursor, m.label.as_deref(), m.detail.as_deref());
         p.spawn((at(0.0, 0.0, MAP.width(), MAP.height()), MapHit, Pickable::default()));
     });
+}
+
+/// A piece of a dotted line ([`marker::dotted_line`]): the line's picture over its length,
+/// the last piece showing only its share of the file, turned along the line about its
+/// middle.
+fn path_piece(p: &mut ChildSpawnerCommands, c: &mut Ctx, piece: &Piece) {
+    let Some((image, rect)) = c.picture(PATH_FILE) else { return };
+    let rect = match rect {
+        Some(r) => Some(Rect::new(r.min.x, r.min.y, r.min.x + r.width() * piece.share, r.max.y)),
+        None => c.picture_size(PATH_FILE).map(|s| Rect::new(0.0, 0.0, s.x * piece.share, s.y)),
+    };
+    p.spawn((
+        at(piece.middle.x - piece.len / 2.0, piece.middle.y - PATH_H / 2.0, piece.len, PATH_H),
+        ImageNode { rect, color: amber(TEXT), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) },
+        UiTransform::from_rotation(Rot2::radians(piece.angle)),
+        Pickable::IGNORE,
+    ));
 }
 
 /// The highlight box round `centre`: four corners of two arms each with fading tips, the
@@ -2569,8 +2808,8 @@ mod tests {
     }
 
     /// With the keyboard and mouse the original's PC set (#1897; docs/spec-notes/pipboy.md
-    /// §5.3): no A hint anywhere, so Radio shows none; the maps Place Marker alone, dim
-    /// (not built), with no key;
+    /// §5.3): no A hint anywhere, so Radio shows none; the maps Place Marker alone, bright
+    /// (it asks about the custom marker, #1954), with no key;
     /// Quests Show Location with a quest; Misc the notes' filter with a note, and the
     /// challenges toggle always, Next Challenge (dim) in the filter's place while the
     /// challenges show.
@@ -2581,7 +2820,7 @@ mod tests {
         let none = HintFacts::default();
         assert!(shown(RADIO, &all).is_empty(), "{:?}", shown(RADIO, &all));
         for tab in [LOCAL, WORLD] {
-            assert_eq!(shown(tab, &all), [hint("Place Marker", true)], "tab {tab}");
+            assert_eq!(shown(tab, &all), [hint("Place Marker", false)], "tab {tab}");
         }
         assert_eq!(shown(QUESTS, &all), [hint("Show Location X)", false)]);
         assert_eq!(shown(NOTES, &all), [hint("Active Notes X)", false), hint("Challenges R)", false)]);
@@ -2622,9 +2861,9 @@ mod tests {
         ];
         crate::pad::set_labels(crate::pad::Labels::Keys);
         let want: [Vec<(String, bool)>; 13] = [
-            vec![hint("Place Marker X)", true)],
-            vec![hint("Travel A)", false), hint("Place Marker X)", true)],
-            vec![hint("Travel A)", true), hint("Place Marker X)", true)],
+            vec![hint("Place Marker X)", false)],
+            vec![hint("Travel A)", false), hint("Place Marker X)", false)],
+            vec![hint("Travel A)", true), hint("Place Marker X)", false)],
             vec![hint("Set Active A)", false), hint("Show Location X)", false)],
             vec![hint("Set Active A)", true), hint("Show Location X)", false)],
             vec![],
@@ -2730,7 +2969,7 @@ mod tests {
         let mut c = Ctx::new(&mut kit, None, &mut images, None, &glyphs);
         let buttons = tab_buttons(WORLD, &facts(true));
         crate::pad::set_labels(crate::pad::Labels::Keys);
-        let map = MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), cursor: MAP_MID, label: None, detail: None };
+        let map = empty_map();
         let view = View { tab: WORLD, place: String::new(), when: String::new(), buttons, body: Body::Map(map), popup: Some(Popup::travel(7, "Travel?".into())) };
         let mut st = DataState::default();
         let mut world = World::new();
@@ -3078,5 +3317,128 @@ mod tests {
         assert_eq!(stick_zoom(1.0, 0.0, 1.0), 1.0);
         assert_eq!(stick_zoom(4.0, 1.0, 100.0), ZOOM.1);
         assert_eq!(stick_zoom(1.0, -1.0, 100.0), ZOOM.0);
+    }
+
+    fn near(a: Vec2, b: Vec2) -> bool {
+        a.distance(b) < 0.01
+    }
+
+    /// The question Place Marker puts up, and its answers.
+    fn asked(st: &DataState) -> (marker::MarkerAsk, usize) {
+        match st.popup.as_ref().map(|p| (&p.ask, p.buttons.len())) {
+            Some((Ask::Marker(a), n)) => (*a, n),
+            other => panic!("no marker question: {other:?}"),
+        }
+    }
+
+    /// #1954: one custom marker, placed at the World Map's highlight box, shown on the Local
+    /// Map at the matching place, moved from the Local Map, kept, removed; the World Map
+    /// draws a dotted line from the arrow to it, the Local Map none.
+    #[test]
+    fn one_custom_marker_is_shared_by_both_maps() {
+        use bevy::ecs::system::SystemState;
+        let map = WorldMap { root: 1, transform: model::MapTransform::default(), texture: "root.dds".into(), usable: [2048.0; 2], nw: [-2, 3], se: [1, 2] };
+        let mut st = DataState { maps: [(1, Some(map))].into_iter().collect(), markers: Some(Vec::new()), ..DataState::default() };
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: None });
+        // The player at the picture's middle ([0.5, 0.5]).
+        let feet = [0.0, 3.0 * model::CELL, 100.0];
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet, body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let mut game = state.get_mut(&mut world).unwrap();
+        // The World Map opens on the player; the highlight box 50 right of the middle.
+        let off = Vec2::new(50.0, 0.0);
+        st.cursor[WORLD] = Some(MAP_MID + off);
+        let shown = world_map(&mut st, &game, None, false);
+        assert_eq!((shown.custom, shown.nodes.len(), shown.lines.len()), (None, 0, 0));
+        place_marker(&mut st, WORLD);
+        let (ask, answers) = asked(&st);
+        assert!(matches!(ask, marker::MarkerAsk::Set(_)));
+        assert_eq!(answers, 2);
+        st.popup = None;
+        answer_marker(&mut st, &mut game, marker::answer(ask, 0));
+        let placed = st.custom.expect("placed");
+        // 50 of the 2048 picture: 0.797 of it spans the 4 cells across.
+        let x = 50.0 / 2048.0 / model::MAP_SPAN * 4.0 * model::CELL;
+        assert!((placed.pos[0] - x).abs() < 0.5 && (placed.pos[1] - feet[1]).abs() < 0.5, "{placed:?}");
+        assert_eq!((placed.space, placed.pos[2]), (1, 100.0));
+        let shown = world_map(&mut st, &game, None, false);
+        assert!(near(shown.custom.unwrap(), quest_corner(MAP_MID + off)), "{:?}", shown.custom);
+        // A line from the arrow to the marker (50 less 4 long), a node at each end.
+        assert_eq!(shown.nodes.len(), 2);
+        assert_eq!(shown.lines.len(), 1);
+        assert_eq!(shown.lines[0].0, LineTo::Marker);
+        let long: f32 = shown.lines[0].1.iter().map(|p| p.len).sum();
+        assert!((long - 46.0).abs() < 0.01, "{long}");
+        // The Local Map shows the same marker x / 28 right of its middle, and no line.
+        let local = local_map(&mut st, &game, None);
+        assert!(near(local.custom.unwrap(), local_quest_corner(MAP_MID + Vec2::new(x / LOCAL_SCALE, 0.0))), "{:?}", local.custom);
+        assert!(local.lines.is_empty() && local.nodes.is_empty());
+        // Moved from the Local Map: 100 left of its middle is 2800 west of the player.
+        st.cursor[LOCAL] = Some(MAP_MID - Vec2::new(100.0, 0.0));
+        local_map(&mut st, &game, None);
+        place_marker(&mut st, LOCAL);
+        let (ask, answers) = asked(&st);
+        assert_eq!(answers, 3);
+        answer_marker(&mut st, &mut game, marker::answer(ask, 0));
+        let moved = st.custom.unwrap();
+        assert!((moved.pos[0] + 2800.0).abs() < 0.01 && (moved.pos[1] - feet[1]).abs() < 0.01, "{moved:?}");
+        // The World Map shows it there.
+        let shown = world_map(&mut st, &game, None, false);
+        let left = -2800.0 / (4.0 * model::CELL) * model::MAP_SPAN * 2048.0;
+        assert!(near(shown.custom.unwrap(), quest_corner(MAP_MID + Vec2::new(left, 0.0))), "{:?}", shown.custom);
+        // Keep leaves it; remove takes it away from both maps.
+        place_marker(&mut st, WORLD);
+        let (ask, _) = asked(&st);
+        answer_marker(&mut st, &mut game, marker::answer(ask, 2));
+        assert_eq!(st.custom, Some(moved));
+        answer_marker(&mut st, &mut game, marker::answer(ask, 1));
+        assert_eq!(st.custom, None);
+        assert_eq!(world_map(&mut st, &game, None, false).custom, None);
+        assert_eq!(local_map(&mut st, &game, None).custom, None);
+    }
+
+    /// A marker indoors shows on that interior's Local Map only, never on the World Map.
+    #[test]
+    fn a_marker_indoors_stays_in_its_cell() {
+        use bevy::ecs::system::SystemState;
+        let mut st = DataState { markers: Some(Vec::new()), custom: Some(CustomMarker { space: 0x77, pos: [0.0; 3] }), ..DataState::default() };
+        st.maps.insert(0x77, None);
+        let mut world = World::new();
+        world.insert_resource(Location { world: 1, interior: Some(0x77) });
+        world.insert_resource(Player { heading: 0.0, pitch: 0.0, eye_height: 0.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None });
+        let mut state = SystemState::<Game>::new(&mut world);
+        let game = state.get_mut(&mut world).unwrap();
+        assert!(local_map(&mut st, &game, None).custom.is_some());
+        assert_eq!(st.spot[LOCAL].map(|s| s.space), Some(0x77));
+        world.resource_mut::<Location>().interior = Some(0x78);
+        let game = state.get_mut(&mut world).unwrap();
+        assert!(local_map(&mut st, &game, None).custom.is_none());
+    }
+
+    #[test]
+    fn the_dotted_lines_lead_to_the_marker_and_the_quest_targets() {
+        assert_eq!(waypoints(None, Some(Vec2::ONE), &[], 1.0), (Vec::new(), Vec::new()));
+        assert_eq!(waypoints(Some(Vec2::ZERO), None, &[], 1.0), (Vec::new(), Vec::new()));
+        let (nodes, lines) = waypoints(Some(Vec2::ZERO), Some(Vec2::new(100.0, 0.0)), &[Vec2::new(0.0, 60.0)], 1.0);
+        assert_eq!(nodes, [Vec2::ZERO, Vec2::new(100.0, 0.0), Vec2::new(0.0, 60.0)]);
+        assert_eq!(lines.iter().map(|l| l.0).collect::<Vec<_>>(), [LineTo::Marker, LineTo::Quest]);
+        assert!(lines.iter().all(|l| !l.1.is_empty()));
+    }
+
+    #[test]
+    fn the_save_keeps_the_custom_marker() {
+        let m = CustomMarker { space: 0x000D_A726, pos: [-70000.0, 2560.0, 8700.0] };
+        let mut w = World::new();
+        w.insert_resource(DataState { custom: Some(m), ..DataState::default() });
+        let v = (CUSTOM_MARKER_SAVE_HOOK.save)(&w).expect("saved");
+        let mut back = World::new();
+        (CUSTOM_MARKER_SAVE_HOOK.load)(&mut back, &v);
+        assert_eq!(back.resource::<DataState>().custom, Some(m));
+        // None placed: nothing saved. A marker whose plugin is gone (null) loads as none.
+        w.resource_mut::<DataState>().custom = None;
+        assert!((CUSTOM_MARKER_SAVE_HOOK.save)(&w).is_none());
+        (CUSTOM_MARKER_SAVE_HOOK.load)(&mut back, &serde_json::Value::Null);
+        assert_eq!(back.resource::<DataState>().custom, None);
     }
 }
