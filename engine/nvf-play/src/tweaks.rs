@@ -316,6 +316,8 @@ pub struct TweakSettings {
     /// `bFasterControllerPOVRotate`: a controller circles the camera (Toggle POV held)
     /// twice as fast.
     pub faster_pad_orbit: bool,
+    /// `bSeparateHorizontalSensitivity`: a factor on the look's left and right speed only.
+    pub horizontal_look: f64,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -507,6 +509,7 @@ impl Default for TweakSettings {
             rt_dead_zone: 0.75,
             responsive_stick: false,
             faster_pad_orbit: false,
+            horizontal_look: 1.0,
         }
     }
 }
@@ -1335,6 +1338,27 @@ impl Plugin for TweaksPlugin {
         part!(app, "rt-dead-zone", "Right Trigger Press Point", "How far RT goes down before it counts as pressed, with Trigger Dead Zones on. (Stewie's Tweaks iDeadzoneRT)", rt_dead_zone);
         switch!(app, "responsive-stick", "More Responsive Controller Aiming", "The right stick's turn grows in a straight line with the push past its dead zone instead of with its square, so small pushes answer at once. (Stewie's Tweaks bMoreResponsiveControllerAiming)", responsive_stick);
         switch!(app, "faster-pad-orbit", "Faster Controller Camera Circling", "With a controller, the camera circles the player twice as fast while Toggle POV is held. (Stewie's Tweaks bFasterControllerPOVRotate)", faster_pad_orbit);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-horizontal-look",
+                GROUP,
+                "Horizontal Look Speed",
+                "Left and right look speed apart from up and down, on top of the sensitivity; x1.0 changes nothing. (Stewie's Tweaks bSeparateHorizontalSensitivity)",
+                Slider {
+                    get: |w| part(w.get_resource::<TweakSettings>().map_or(1.0, |t| t.horizontal_look)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.horizontal_look = factor(v);
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(shown_factor),
+                },
+            ),
+        );
+        switch!(app, "vats-shift-ignores-friends", "Shift Ignores Friends in V.A.T.S.", "Holding Shift, V.A.T.S. marks no one who would not fight the player. (Stewie's Tweaks bShiftIgnoresFriendlyVATS)", game.vats_shift_ignores_friends);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

@@ -611,6 +611,10 @@ impl Sounds<'_> {
     }
 }
 
+/// Shift is held (for the Shift Ignores Friendly V.A.T.S. tweak, read by [`barred`])
+/// [design: docs/design/tweaks.md].
+static SHIFT_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The keys the mode takes (after the frame's input, test aids and script locks), and
 /// what it holds back from the rest of the game (§11.5): the trigger, reloading and Ammo
 /// Swap while it is on. Aiming down the sights is the player's while marking (a tap of
@@ -630,6 +634,7 @@ fn read_keys(
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
+    SHIFT_HELD.store(input.keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]), std::sync::atomic::Ordering::Relaxed);
     if vats.phase == Phase::Off {
         vats.aimed_before = control.aiming;
     }
@@ -1020,6 +1025,14 @@ fn barred(v: &VatsMode, mut script: Option<&mut ScriptState>, sim: &mut SimState
     // The player's tweak: companions are not targets [design: docs/design/tweaks.md].
     if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.vats_ignores_companions && rt.game.is_teammate(FormId(actor))) {
         return Err(Bar::Companion);
+    }
+    // The player's tweak: with Shift held, no one who would not fight the player [design: docs/design/tweaks.md].
+    if SHIFT_HELD.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.vats_shift_ignores_friends) {
+            if !crate::script::with_world(rt, sim, |rt| rt.game.would_attack(FormId(actor), FormId::PLAYER_REF)) {
+                return Err(Bar::Companion);
+            }
+        }
     }
     // A cloaked actor (Invisibility or Chameleon at least 1: a Stealth Boy, a Nightkin's
     // cloak) is not marked unless the player has Enhanced Sensors, whose entry point 69 Has

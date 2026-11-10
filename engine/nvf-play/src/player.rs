@@ -804,6 +804,8 @@ fn mouse_look(
     // A conversation's zoom: the picture moves as far as it does unzoomed.
     let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
     let inv = bindings.invert_y;
+    // The player's tweak: left and right at their own speed [design: docs/design/tweaks.md].
+    let delta = Vec2::new(delta.x * tweaks.as_ref().map_or(1.0, |t| t.horizontal_look as f32), delta.y);
     // The player's tweak turns the other way left and right [design: docs/design/tweaks.md].
     let delta = if tweaks.as_ref().is_some_and(|t| t.invert_x) { Vec2::new(-delta.x, delta.y) } else { delta };
     // The player's tweak turns slower while aiming [design: docs/design/tweaks.md].

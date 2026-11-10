@@ -486,6 +486,8 @@ unless the player binds them, so nothing changes until then.
 | Trigger Dead Zones | `bControllerTriggerDeadzones` | `tweaks::trigger_dead_zones` sets LT's and RT's press points in each controller's `GamepadSettings` (released at 85% of it, ours); for every use of the triggers, not only attack |
 | More Responsive Controller Aiming | `bMoreResponsiveControllerAiming` | `player::mouse_look`: the right stick's curve is straight from the dead zone's edge (ours) in place of the square |
 | Faster Controller Camera Circling | `bFasterControllerPOVRotate` | `player::mouse_look` doubles a controller's turn while Toggle POV circles the camera (the factor is ours) |
+| Horizontal Look Speed (x0–x2) | `bSeparateHorizontalSensitivity` | `player::mouse_look` scales the look's left and right by `TweakSettings::horizontal_look` (a Tweaks tab slider in place of a second sensitivity slider) |
+| Shift Ignores Friends in V.A.T.S. | `bShiftIgnoresFriendlyVATS` | `vats_mode::barred` bars anyone who would not fight the player while Shift is held (`SHIFT_HELD`, set in `read_keys`); `bHideFriendliesByDefault` is not done |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -507,8 +509,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 408 |
-| to do | 195 |
+| done | 410 |
+| to do | 193 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -741,6 +743,7 @@ game's Data folder, read-only).
 | `bQueueWeaponHolsteringWhileAnimsPlay` | done | yes |  | already so: a holster is never dropped (it waits for a draw, else starts at once) |
 | `bScaleMusicVolumeDuringDialogue` | done | yes | 1 | Music While Talking (slider) |
 | `bScaleRadioSongVolumeDuringDialogue` | done | yes | 1 | Radio While Talking (slider) |
+| `bShiftIgnoresFriendlyVATS` | done | yes | 1 | Shift Ignores Friends in V.A.T.S. (bHideFriendliesByDefault not done) |
 | `bSkipIntroVideo` | done | yes |  | already so: the intro plays only after New Game and any key skips it |
 | `bVatsExitKey` | done | yes | 1 | Skip Kill Camera (right click; Tab is the Pip-Boy key here) |
 | `bAllowFiringWhileLanding` | done |  |  | already so: firing waits only for the weapon to be ready |
@@ -805,7 +808,6 @@ game's Data folder, read-only).
 | `bReloadingWithNoAmmoSwapsAmmoTypes` | to do | yes |  | combat::fire is at the system parameter limit |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
 | `bSelectUnavailableRadios` | to do | yes |  | the Pip-Boy lists only stations in range |
-| `bShiftIgnoresFriendlyVATS` | to do | yes | 1 | friendlies are targetable; a Shift filter belongs in vats_mode::barred |
 | `bShiftScreenshotHidesMenus` | to do | yes |  | the capture is asynchronous; MenusHidden must be held a frame or two |
 | `bSkipDeathcamHotkey` | to do | yes | 2 | the death camera (nvforever death_cam) has no end but a load yet |
 | `bActivatingDoesntStandUp` | to do |  |  | activate and nvforever furniture drive_player |
@@ -916,6 +918,7 @@ game's Data folder, read-only).
 | `bMapRemembersPosition` | done | yes | 1 | Map Remembers Its Place (in the session; the save-persistent option not built) |
 | `bNumberedComputerHotkeys` | done | yes | 1 | Number Keys on Terminals (1-9, 0 the tenth; the number prefix option not built) |
 | `bNumberedDialogHotkeys` | done | yes | 2 | already so for 1-9 (the 0 key and number prefixes not built) |
+| `bSeparateHorizontalSensitivity` | done | yes |  | Horizontal Look Speed (a factor on left and right, on the Tweaks tab) |
 | `bShowBookEffects` | done | yes | 1 | Skill Book Effects |
 | `bShowWeaponAmmoUseInMenus` | done | yes |  | Rounds per Shot |
 | `bSkipSkillMenuIfNoPointsToAssign` | done | yes |  | Perks First When No Points |
@@ -999,7 +1002,6 @@ game's Data folder, read-only).
 | `bRememberPipboyScrollPositions` | to do | yes |  | the inventory is a new MenuModel on each opening |
 | `bRemoveDownloadsButton` | n/a | yes |  | NVForever has no Downloads button |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
-| `bSeparateHorizontalSensitivity` | to do | yes |  | one mouse sensitivity; mouse_look is at 15 parameters |
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
 | `bSortEquipableAmmo` | to do | yes |  | rows sort by name (menu/model.rs sort_rows) |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |

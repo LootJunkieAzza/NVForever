@@ -388,6 +388,9 @@ pub struct Tweaks {
     pub preview_perks: bool,
     /// `bMarkNotesUnread`: a right click on a note in the Pip-Boy marks it unread.
     pub mark_notes_unread: bool,
+    /// `bShiftIgnoresFriendlyVATS`: with Shift held V.A.T.S. marks no one who would not
+    /// fight the player.
+    pub vats_shift_ignores_friends: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -568,6 +571,7 @@ impl Default for Tweaks {
             hide_empty_reputation: false,
             preview_perks: false,
             mark_notes_unread: false,
+            vats_shift_ignores_friends: false,
         }
     }
 }
