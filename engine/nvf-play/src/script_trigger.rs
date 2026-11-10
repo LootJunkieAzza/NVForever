@@ -102,6 +102,11 @@ fn lookup(play: &PlayWorld, rt: &Runtime, r: FormId, pose: Pose) -> Lookup {
     let Some(placed) = rt.game.world.placed.get(r) else { return Lookup::Shapes(Vec::new()) };
     let (pos, rot, scale) = pose;
     let rot = ref_rotation(rot);
+    // AddPrimitive's and SetPrimitiveBound's (`fnv_game::nvse_jip14`) before the record's.
+    if let Some((sphere, b)) = rt.game.script_primitive(r) {
+        let kind = if sphere { TriggerKind::Sphere { radius: b[0].abs() } } else { TriggerKind::Box { half_extents: b.map(f32::abs) } };
+        return Lookup::Shapes(vec![TriggerShape { pos, rot, scale, kind }]);
+    }
     if let Some(p) = fnv_phys::primitive::primitive(play.lo, play.schema, r.0) {
         let kind = match p.kind {
             fnv_phys::primitive::PrimitiveKind::Box => TriggerKind::Box { half_extents: p.bounds.map(f32::abs) },

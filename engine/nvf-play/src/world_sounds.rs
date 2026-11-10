@@ -834,10 +834,12 @@ fn objects(
             held.push(r);
             continue;
         }
-        let at = match r.at {
-            None => None,
-            Some(FormId::PLAYER_REF) => eye,
-            Some(at) => ref_pos(&sim, at.0),
+        // PlaySound3DNode's node (`fnv_game::nvse_jip14`), else the reference.
+        let at = match (r.point, r.at) {
+            (Some(p), _) => Some(p),
+            (None, None) => None,
+            (None, Some(FormId::PLAYER_REF)) => eye,
+            (None, Some(at)) => ref_pos(&sim, at.0),
         };
         if r.at.is_some() {
             ws.stats.script_3d += 1;

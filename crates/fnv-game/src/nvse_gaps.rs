@@ -297,10 +297,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // The item's effects in record order [observed: gaps2, the stimpak 4, the first
         // RestoreHealth, past the end 0].
         // Less RemoveNthEffect's (`crate::nvse_jip11`).
-        "getnumeffects" => XVal::Num(form(args, 0).map_or(0, |f| g.effect_indices(f).len()) as f64),
+        // AddNewEffect's entries too (`crate::nvse_jip14`).
+        "getnumeffects" => XVal::Num(form(args, 0).map_or(0, |f| {
+            let (a, b) = g.added_effect_counts(f);
+            g.effect_indices(f).len() + a + b
+        }) as f64),
         "getntheffectbase" => {
-            let i = num(args, 1, 0.0);
+            let n = num(args, 1, 0.0);
             let f = form(args, 0).unwrap_or(FormId(0));
+            let i = match (n >= 0.0).then(|| g.added_effect_at(f, n as usize)).flatten() {
+                Some(Ok(added)) => return Some(Ok(XVal::Ref(added.0))),
+                Some(Err(own)) => own as f64,
+                None => -1.0,
+            };
             let e = g.data.effect_items.get(&f).and_then(|l| if i >= 0.0 { l.get(i as usize) } else { None });
             match e {
                 Some(e) => XVal::Ref(g.gaps.effect_bases.get(&(f, i as usize)).copied().unwrap_or(e.effect).0),
@@ -1220,7 +1229,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let seconds = num(args, 0, 2.0) as f32;
             let (text, icon, sound) = split_styled(&text(args, 1));
             if let Some(s) = sound.and_then(|s| g.data.by_edid(&s)) {
-                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true, id: 0 });
+                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true, id: 0, point: None });
             }
             g.emit(crate::trace::EventKind::NoteShown { text, icon, seconds });
             zero

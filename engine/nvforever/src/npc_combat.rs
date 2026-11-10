@@ -2587,6 +2587,9 @@ pub(crate) fn fight(
                                 let actor_spread = spread::actor_spread(&c.rules, &c.tuning, ws, &st);
                                 g.other.jg9.spreads.insert(me, actor_spread);
                                 let cone = spread::cone_deg(actor_spread, 0.0, ws, &[]) + settling(fighter.firing_for);
+                                // SetNoGunWobble (`fnv_game::nvse_jip14`): no actor spread.
+                                let wobble = if g.gun_wobble_off(me) { 0.0 } else { 1.0 };
+                                let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st) * wobble, 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
                                 f.stats.shots += 1;

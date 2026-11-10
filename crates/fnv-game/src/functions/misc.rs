@@ -669,7 +669,7 @@ pub struct TextureSwaps {
 
 impl TextureSwaps {
     /// Draw `texture` on `on`'s shape `shape` (the last call per shape kept).
-    fn swap(&mut self, on: fnv_sim::FormId, shape: String, texture: String) {
+    pub(crate) fn swap(&mut self, on: fnv_sim::FormId, shape: String, texture: String) {
         let swaps = self.by_ref.entry(on).or_default();
         swaps.retain(|(s, _)| *s != shape);
         swaps.push((shape, texture));

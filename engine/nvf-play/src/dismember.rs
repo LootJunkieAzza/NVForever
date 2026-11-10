@@ -138,9 +138,15 @@ pub fn resolve(
 
 /// KillActor's limb (`CombatRequest::Dismember`): the part at that location that can go,
 /// its fate by its flags.
-pub fn scripted_check(c: &Combat, parts: &ActorParts, sim: &SimState, actor: FormId, location: i32, by: Option<FormId>) -> Option<Check> {
+pub fn scripted_check(c: &Combat, parts: &ActorParts, sim: &SimState, actor: FormId, location: i32, by: Option<FormId>, explode: Option<bool>) -> Option<Check> {
     let data = c.forms.body_parts.get(&parts.data_of(actor.0)?)?;
     let (part, fate) = dismember::scripted(data, location)?;
+    // DismemberLimb's choice (`fnv_game::nvse_jip14`): severed, or exploded.
+    let fate = match explode {
+        Some(true) => dismember::Fate::Explode,
+        Some(false) => dismember::Fate::Sever,
+        None => fate,
+    };
     let point = sim.world.peek(actor).map_or([0.0; 3], |s| [s.pos[0], s.pos[1], s.pos[2] + 40.0]);
     Some(Check { target: actor, part, on_hit: OnHit::Normal, crippled: true, corpse: true, overkill: 0.0, max_health: 0.0, by, point, dir: [0.0, 0.0, 1.0], scripted: Some(fate) })
 }

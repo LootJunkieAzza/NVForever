@@ -2178,7 +2178,7 @@ fn dismembered_parts_are_kept_and_read_by_scripts() {
     call(&mut g, KILL_ACTOR, &[]);
     assert!(g.combat_requests.is_empty());
     call(&mut g, KILL_ACTOR, &[ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0)), ArgValue::Value(Value::Num(3.0))]);
-    assert_eq!(g.combat_requests, vec![CombatRequest::Dismember { actor: npc, location: 3, by: Some(FormId::PLAYER_REF) }]);
+    assert_eq!(g.combat_requests, vec![CombatRequest::Dismember { actor: npc, location: 3, by: Some(FormId::PLAYER_REF), explode: None }]);
     // #1846: ResurrectActor 1 does not update the body; ResurrectActor 0 brings it back whole.
     g.resurrect(npc, true);
     assert_eq!(g.limbs_gone(npc), vec![(1, true), (13, false)], "animate 1 keeps them gone");

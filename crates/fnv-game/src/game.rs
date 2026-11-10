@@ -3302,7 +3302,15 @@ impl<'a> Game<'a> {
     /// Run every block of `event` in the instance's script that accepts `subject`.
     /// Returns whether a block ran.
     pub fn run_event(&mut self, key: InstKey, script: FormId, event: u16, subject: Option<Value>, ctx: RunCtx) -> bool {
-        self.run_blocks(key, script, event, subject, ctx, false)
+        // GetSelfAsInventoryRef (`crate::nvse_jip14`): the item whose script runs.
+        let item = match key {
+            InstKey::Item { holder, item } => Some((holder, item)),
+            _ => None,
+        };
+        let before = std::mem::replace(&mut self.other.jip14.item_running, item);
+        let ran = self.run_blocks(key, script, event, subject, ctx, false);
+        self.other.jip14.item_running = before;
+        ran
     }
 
     /// [`Game::run_event`]; with `coded_only`, only the blocks with a parameter run (the
@@ -4927,7 +4935,11 @@ impl<'a> Game<'a> {
     /// with their value changes as applied.
     pub fn apply_magic_item_with(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool, mods: &crate::aid::Mods) -> Vec<crate::aid::Applied> {
         let data = self.data;
-        let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
+        // With AddNewEffect's entries after the record's (`crate::nvse_jip14`).
+        let items = self.applied_effects(source);
+        if items.is_empty() {
+            return Vec::new();
+        }
         let mut started: Vec<crate::aid::Applied> = Vec::new();
         // The effects that took, kept here: one of duration 0 has finished by the hit check
         // and is a hit all the same [observed: gaps2, a used stimpak raises OnMagicEffectHit

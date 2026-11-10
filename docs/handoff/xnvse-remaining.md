@@ -222,6 +222,12 @@ packages, MoveToNode, MoveToReticle, MoveToFadeDelay, PlaceAtCell, RotateAroundP
 SetAngleEx, FaceObject and Turn with the turn clip, SynchronizePosition, GetReticleNode,
 GetReticlePosAlt; not probed yet, set jip13). Census after it: JIP 102 → 63 on main, 29 with
 batch 12 (#1929).
+JIP batch 14, the last: 29 (#1006, jip-last-14.md: AddNewEffect, IsSpellTargetList, the
+primitives, AuxVarGetFltCond, DismemberLimb, FireWeaponEx, PlayIdleEx, PlaySound3DNode,
+SetNoGunWobble, SetVATSTargetable and GetVATSTargets, SetRefrModelPath, SwapTextureEx,
+GetBlockTextureSet, the detonation timers, SetProjectileRefWeapon, GetSelfAsInventoryRef,
+the sequence frequencies; six nothing values by decision, §6; not probed yet, set jip14).
+Census after it: JIP 102 → 73 on main, 0 with batches 12 (#1929) and 13 (#1931).
 SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid references, Ar_SetFloatsFrom through
 the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
 the last save's and load's names and sizes told by the engine, the cells and map markers near the player,

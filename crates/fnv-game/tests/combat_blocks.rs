@@ -348,7 +348,7 @@ fn knockouts_causes_of_death_armour_shots_and_styles() {
     assert_eq!(ask(&mut g, FormId::PLAYER_REF, GET_ARMOR_RATING, &[]), 0.0);
     // FireWeapon asks the engine for a shot.
     ask(&mut g, GUARD_REF, FIRE_WEAPON, &[form(FormId(0x123))]);
-    assert_eq!(g.combat_requests, vec![CombatRequest::Fire { from: GUARD_REF, weapon: FormId(0x123) }]);
+    assert_eq!(g.combat_requests, vec![CombatRequest::Fire { from: GUARD_REF, weapon: FormId(0x123), muzzle: None }]);
     // SetCombatStyle refuses a form that is not a combat style.
     ask(&mut g, RAIDER_REF, SET_COMBAT_STYLE, &[form(FormId(SCRIPT))]);
     assert!(g.extra.get(&RAIDER_REF).is_none_or(|e| e.combat_style.is_none()));
