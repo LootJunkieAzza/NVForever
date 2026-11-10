@@ -2943,15 +2943,26 @@ pub fn shared_shadow_pass<const IS_LATE: bool>(
 /// Renders the shadow maps that are associated with a specific view.
 ///
 /// At present, these consist of the directional light shadows.
-/// NVForever held shadow maps (2026-11-10, engine/vendor/README.md). While this render-world
-/// resource is `true`, the shadow maps of directional lights are not drawn this frame: the
-/// shadow pass skips their views ([`per_view_shadow_pass`]), and so do the compute passes
-/// that prepare those views' draws (gpu_preprocess.rs `gather_shadow_cascades_for_view`).
-/// The maps keep what the last drawn frame left in them, so whoever sets it must also give
-/// the lights the cascades of that frame (the game: nvforever shadow_rate.rs). Point and
-/// spot lights' maps are drawn as ever. Bevy inserts none; without it nothing changes.
+/// NVForever held shadow maps (2026-11-10, engine/vendor/README.md). The cascades of
+/// directional lights whose bit is set in this render-world resource (bit `i` for cascade
+/// index `i`) are not drawn this frame: the shadow pass skips their views
+/// ([`per_view_shadow_pass`]), and so do the compute passes that prepare those views' draws
+/// (gpu_preprocess.rs `gather_shadow_cascades_for_view`). Their maps keep what the last
+/// frame that drew them left in them, so whoever sets it must also give the lights those
+/// cascades as that frame had them (the game: nvforever shadow_rate.rs). Point and spot
+/// lights' maps are drawn as ever. Bevy inserts none; without it nothing changes.
 #[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub struct HoldDirectionalShadowMaps(pub bool);
+pub struct HoldDirectionalShadowMaps(pub u32);
+
+impl HoldDirectionalShadowMaps {
+    /// Every cascade held.
+    pub const ALL: Self = Self(u32::MAX);
+
+    /// Whether cascade `index`'s map is kept from an earlier frame.
+    pub fn holds(&self, index: usize) -> bool {
+        index < 32 && self.0 & (1 << index) != 0
+    }
+}
 
 impl bevy_render::extract_resource::ExtractResource<RenderApp> for HoldDirectionalShadowMaps {
     type Source = HoldDirectionalShadowMaps;
@@ -2988,14 +2999,11 @@ pub fn per_view_shadow_pass<const IS_LATE: bool>(
     let diagnostics = diagnostics.as_deref();
     let time_span = diagnostics.time_span(ctx.command_encoder(), "per_view_shadow_pass");
 
-    let hold_directional = hold_directional.is_some_and(|hold| hold.0);
+    let hold_directional = hold_directional.map_or(HoldDirectionalShadowMaps(0), |hold| *hold);
     for view_light_entity in view_lights.lights.iter().copied() {
-        // NVForever held shadow maps: a directional light's map keeps last frame's picture.
-        if hold_directional
-            && matches!(
-                light_entities.get(view_light_entity),
-                Ok(LightEntity::Directional { .. })
-            )
+        // NVForever held shadow maps: a held cascade's map keeps an earlier frame's picture.
+        if let Ok(LightEntity::Directional { cascade_index, .. }) = light_entities.get(view_light_entity)
+            && hold_directional.holds(*cascade_index)
         {
             continue;
         }
