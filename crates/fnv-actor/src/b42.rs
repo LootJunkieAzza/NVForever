@@ -617,6 +617,34 @@ pub fn style_of(edid: &str, equip_type: i64) -> Style {
     }
 }
 
+/// The game's animated object (ANIO, by Editor ID) held while an aid item's third-person
+/// game idle ([`Style::clips`]) plays, as the game holds it on actors playing that idle:
+/// a beer bottle for alcohol, a Nuka-Cola bottle for other drinks, the stimpak for
+/// injections, a cigarette for tobacco [observed: FalloutNV.esm ANIO `aoDrinkingStandingA`
+/// `aoBeerBottle.NIF` → IDLE `BeerDrinkingStanding`, `aoDrinkingStandingB`
+/// `aoDrinkingNukaBottle.NIF` → `SodaDrinkingStanding` (both `DrinkingStandingA.kf`),
+/// `AnimStempax` `Stempax.NIF` → `3rdPSpecialIdleStimpak`, `aoLooseSmokingStanding`
+/// `aoCigarette.NIF` → `LooseSmokingStanding`]. Food has no standing idle of its own in
+/// the game: it takes the generic food of the seated eating idles (`aoChairEatingGenericFood`
+/// `aoGenericFood.NIF` → `SitChairEatB`) [design], whatever its ETYP. Chems that are neither (Jet, pills)
+/// hold nothing [design].
+pub fn anim_object(edid: &str, equip_type: i64) -> Option<&'static str> {
+    let e = edid.to_ascii_lowercase();
+    let has = |ws: &[&str]| ws.iter().any(|w| e.contains(w));
+    match style_of(edid, equip_type) {
+        Style::Drink if equip_type == ETYP_ALCOHOL || has(&["beer", "whiskey", "scotch", "vodka", "wine", "moonshine", "tequila", "absinthe", "rum", "brew"]) => Some("aoDrinkingStandingA"),
+        Style::Drink => Some("aoDrinkingStandingB"),
+        Style::Inject if equip_type == ETYP_STIMPAK || has(&["stim"]) => Some("AnimStempax"),
+        Style::Smoke if has(&["cig", "smok", "tobacco", "pipe"]) => Some("aoLooseSmokingStanding"),
+        Style::Eat if equip_type != ETYP_CHEMS => Some("aoChairEatingGenericFood"),
+        _ => None,
+    }
+}
+
+/// ETYP Chems [documented: xEdit wbEquipTypeEnum]. Food is told from chems this way, not
+/// by ETYP Food (12): Cram is ETYP 0 [observed: FalloutNV.esm].
+const ETYP_CHEMS: i64 = 10;
+
 /// Parse `Config\B42Inject.ini` into `o` (keys `Hardcore`, `InjectInPA`).
 pub fn read_ini(text: &str, o: &mut Options) {
     for line in text.lines() {
@@ -1032,6 +1060,14 @@ mod tests {
         assert_eq!(style_of("BrahminSteak", 12), Style::Eat);
         assert_eq!(style_of("Buffout", 10), Style::Eat);
         assert_eq!(style_of("SSBottleFull", 12), Style::Drink);
+        assert_eq!(anim_object("NukaCola", 12), Some("aoDrinkingStandingB"));
+        assert_eq!(anim_object("Beer", 13), Some("aoDrinkingStandingA"));
+        assert_eq!(anim_object("Stimpak", 11), Some("AnimStempax"));
+        assert_eq!(anim_object("AidCigarette", 10), Some("aoLooseSmokingStanding"));
+        assert_eq!(anim_object("Cram", 12), Some("aoChairEatingGenericFood"));
+        assert_eq!(anim_object("Cram", 0), Some("aoChairEatingGenericFood"));
+        assert_eq!(anim_object("Jet", 10), None);
+        assert_eq!(anim_object("Buffout", 10), None);
         assert!(!Style::Eat.clips().iter().any(|c| c.contains("eatidle")), "EatIdle bends the body over");
         for s in [Style::Eat, Style::Drink, Style::Inject, Style::Smoke, Style::Skin, Style::Craft, Style::Handle] {
             assert_eq!(Style::from_code(s.code()), s);

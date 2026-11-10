@@ -452,7 +452,7 @@ fn resolve(at: &str) -> Option<SocketAddr> {
 }
 
 #[derive(Resource)]
-struct Coop {
+pub(crate) struct Coop {
     /// None while no lobby is open or joined.
     link: Option<Link>,
     base: u32,
@@ -600,6 +600,12 @@ impl NpcTrack {
 }
 
 impl Coop {
+    /// The reference player `id`'s puppet is drawn with on this screen (its actor's on
+    /// the host, else [`PUPPET_REF`] + its id), for `match_end.rs`.
+    pub(crate) fn puppet_reference(&self, id: u8) -> u32 {
+        self.peers.get(&id).map_or(PUPPET_REF + id as u32, |p| p.reference(id))
+    }
+
     fn start_hosting(&mut self, port: u16) {
         let Some(link) = host_session(port) else {
             self.note = Some(format!("Cannot open UDP port {port} on this PC: is another game using it?"));
@@ -1567,7 +1573,7 @@ fn take_events(
     mut remote_hits: MessageWriter<RemoteHit>,
     (mut sim, mut script, mut quest_lines): (Option<ResMut<nvf_play::sim::SimState>>, Option<ResMut<nvf_play::script::ScriptState>>, Option<ResMut<nvf_play::quest_messages::QuestMessages>>),
     (mut opened, real, mut tables, mut anims_out, mut anims_in): (MessageReader<LockOpened>, Res<Time<Real>>, Option<ResMut<Tables>>, MessageReader<crate::consume_anims::SendAnim>, MessageWriter<crate::consume_anims::PeerAnim>),
-    (solo, mut knock): (Option<Res<nvf_play::save::SoloBase>>, Option<ResMut<crate::player_knockdown::PlayerKnockdown>>),
+    (solo, mut knock, creator): (Option<Res<nvf_play::save::SoloBase>>, Option<ResMut<crate::player_knockdown::PlayerKnockdown>>, Option<Res<nvf_play::creator::CreatorData>>),
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -1663,7 +1669,15 @@ fn take_events(
                 if let Some(w) = actor_world.as_deref() {
                     if let Ok(mut looks) = w.looks.lock() {
                         match &look {
-                            Some(l) => looks.insert(reference, nvf_play::creator::actor_look(l)),
+                            Some(l) => {
+                                // Another player's face is no younger than an adult either
+                                // (an older version's, queue item 110).
+                                let mut a = nvf_play::creator::actor_look(l);
+                                if let Some(was) = creator.as_deref().and_then(|c| c.0.adult(&mut a)) {
+                                    info!("co-op: player {}'s look read {was:.0} years: drawn at {}", id + 1, fnv_actor::creator::MIN_AGE);
+                                }
+                                looks.insert(reference, a)
+                            }
                             None => looks.remove(&reference),
                         };
                     }
@@ -3139,6 +3153,11 @@ fn lines_out(speech: &[fnv_game::game::Speech], player: impl Fn(FormId) -> Optio
     speech
         .iter()
         .filter(|s| !s.remote)
+        // A player's voice (its set's lines and its own grunts) goes to the others by the
+        // voice table (`nvf_play::party_quips`), from the speaker's own game, once: a line
+        // here with a player as speaker (the host's, or a guest's stand-in here) would be
+        // heard twice or from the wrong body (item 106).
+        .filter(|s| s.speaker != FormId::PLAYER_REF && player(s.speaker).is_none())
         .filter_map(|s| {
             let speaker = map(s.speaker).filter(|r| !is_puppet(*r))?;
             let mut flags = 0;
@@ -3726,6 +3745,11 @@ mod tests {
         assert_eq!(other[2].target, Some(FormId(PUPPET_REF + 1)));
         assert_eq!(lines_in(&out, 1.5, Some(2)).len(), 2);
         assert!(lines_in(&out, 4.5, Some(2)).is_empty());
+        // A player's voice goes by the voice table, not here: the host's own lines and its
+        // stand-in for a guest are not sent as speakers (item 106).
+        let host_grunt = speech(FormId::PLAYER_REF.0, None, 1.0);
+        let stand_in_line = speech(stand_in.0, None, 1.0);
+        assert!(lines_out(&[host_grunt, stand_in_line], |r| (r == stand_in).then_some(1)).is_empty());
     }
 
     fn placed(id: u32, disabled: bool) -> fnv_sim::refs::PlacedRef {

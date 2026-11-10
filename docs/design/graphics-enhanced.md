@@ -340,6 +340,22 @@ enhanced "Bloom" (§3.3), when on, stands in for it.
 Engineering choices made by eye against the original's frames; not used to explain
 differences in the parity frames.
 
+### 3.12 Fuller fire (`fuller-fire`; on in both presets)
+
+An NVForever addition, not the original's look: the owner, with the campfires lit (queue
+item 103, 2026-11-09), asked for "more 3d fire in general". The world's fires burn as the
+particles of add-on nodes 14 and 0 (`MPS\MPSFireSmall01.NIF`, `MPS\MPSFireMed01.NIF`);
+about five camera-facing flame squares per fire, which read as a flat sprite. An add-on
+node whose model's file name begins `mpsfire` also emits systems made from the game's own
+(`fuller_fire.rs`): its flames again, twice the births, three times the cap, half again
+the life, from a core 0.6 the size, at 0.6 the colour; embers (the sparks at 0.08 the size, 3.5 times the
+life, half the pull up, spread at least 0.5 rad); and ADDN 35's smoke
+(`MPS\MPSSmokeSmall01.NIF`) from 48 units above, half the births and opacity, 0.6 the
+life. All values are [design], set by eye on the campfire shots of 2026-11-09. The file's
+own systems are unchanged; the log names the added ones `fuller fire: …`. On in
+`vanilla` too, as the owner plays it; `--graphics-only no-fuller-fire` or the settings
+switch "Fuller fire" gives the fires of the data alone, for comparing with the original.
+
 ## 4. Tried and dropped
 
 - **Bevy `ContactShadows`** on the sun (16 steps, 40 units, thickness 12): the right effect on

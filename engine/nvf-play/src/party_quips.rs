@@ -6,6 +6,10 @@
 //!   (`QuipState::out`); each is sent to everyone as a table action
 //!   (`coop_tables::game::VOICE`, table 0): the voice set's id and the INFO. Log:
 //!   `party quip: sent <set> <info>`.
+//! - **The player's own lines** (item 106, 2026-11-09): a combat line the player says that
+//!   is not its voice set's (the GenericPlayer hit, power-attack and death grunts) is sent
+//!   too ([`OWN_LINE`], with the voice type it is said in), once per event: when a set line
+//!   went out for the event, that is what the others hear. Log: `party quip: sent own line`.
 //! - **Hearing.** A quip from another player is checked against its set (the line must
 //!   be one of the set's, resolved here as there: the same load order and sets) and
 //!   played from that player's character, at its mouth, by distance and side like any
@@ -93,6 +97,27 @@ pub fn read_quip(blob: &[u8]) -> Option<(String, u32)> {
     Some((r.str()?, r.u32()?))
 }
 
+/// The set id of a player's own line (a grunt, not a voice set's line; item 106): the blob
+/// is a quip's with the voice type the line is said in after it (0: the speaker's
+/// record's). A game from before item 106 reads it as a set it does not have, warns once
+/// and plays nothing.
+pub const OWN_LINE: &str = "@own";
+
+/// The blob of a player's own line.
+pub fn own_line_blob(info: u32, voice_type: u32) -> Vec<u8> {
+    let mut w = W::default();
+    w.str(OWN_LINE).u32(info).u32(voice_type);
+    w.0
+}
+
+/// The voice type of an own line's blob (after the quip part).
+pub fn read_own_voice_type(blob: &[u8]) -> Option<u32> {
+    let mut r = R(blob);
+    r.str()?;
+    r.u32()?;
+    r.u32()
+}
+
 /// Whether someone at `from` facing `yaw` (compass radians) with its eye at `eye` looks
 /// at `at` within [`AIM_CONE`], nearer than [`REACT_RANGE`].
 pub fn aims_at(eye: [f32; 3], yaw: f32, at: [f32; 3]) -> bool {
@@ -116,7 +141,16 @@ fn send(mates: Option<Res<SocialMates>>, mut tables: Option<ResMut<Tables>>, mut
         info!("party quip: {}", if coop { "the other players hear this player's voice" } else { "no other players: quips are this player's own" });
     }
     let out = std::mem::take(&mut g.quip.out);
-    let (Some(tables), Some(v)) = (tables.as_deref_mut(), g.player_voice.as_ref()) else { return };
+    let own = std::mem::take(&mut g.quip.own_out);
+    let Some(tables) = tables.as_deref_mut() else { return };
+    // The player's own lines (grunts): heard by the others from this player's character
+    // too, in the voice it says them in here (item 106).
+    for (info, vt) in own {
+        tables.send(0, game::VOICE, own_line_blob(info.0, vt.map_or(0, |v| v.0)));
+        party.sent += 1;
+        info!("party quip: sent own line {} (voice type {})", g.data.name(info), vt.map_or_else(|| "the record's".to_string(), |v| g.data.name(v)));
+    }
+    let Some(v) = g.player_voice.as_ref() else { return };
     for info in out {
         tables.send(0, game::VOICE, quip_blob(&v.id, info.0));
         party.sent += 1;
@@ -151,17 +185,25 @@ fn hear(
         let Some((set, info)) = read_quip(&blob) else { continue };
         let info = FormId(info);
         let name = mates.as_deref().and_then(|m| m.get(from)).map_or_else(|| tables.name(from), |m| m.name.clone());
-        if !switches.party {
+        if !switches.party && set != OWN_LINE {
             info!("party quip: {name} said {set} {} [Party Quips is off: not heard]", g.data.name(info));
             continue;
         }
-        let Some(v) = party.voice(&sets, g.data, &set) else { continue };
-        if !v.lines.contains(&info) {
-            warn!("party quip: {name}: {} is not a line of {set} here", g.data.name(info));
-            continue;
-        }
-        let (base, rate) = (v.base, v.rate);
-        let path = bank.file(info.0, 0, base.0).or_else(|| g.data.voice_files.get(&info).filter(|p| bank.vfs().exists(p)).cloned());
+        // A player's own line (a grunt, item 106): in the voice type it was said in, else
+        // the Player record's; not held back by the Party Quips switch.
+        let (path, rate, own) = if set == OWN_LINE {
+            let vt = read_own_voice_type(&blob).filter(|&v| v != 0);
+            let path = vt.and_then(|v| bank.file_for_voice(info.0, 0, v)).or_else(|| bank.file(info.0, 0, FormId::PLAYER_BASE.0));
+            (path, 1.0f32, true)
+        } else {
+            let Some(v) = party.voice(&sets, g.data, &set) else { continue };
+            if !v.lines.contains(&info) {
+                warn!("party quip: {name}: {} is not a line of {set} here", g.data.name(info));
+                continue;
+            }
+            let (base, rate) = (v.base, v.rate);
+            (bank.file(info.0, 0, base.0).or_else(|| g.data.voice_files.get(&info).filter(|p| bank.vfs().exists(p)).cloned()), rate, false)
+        };
         let text = line_text(g, play.as_deref(), info);
         let mate = mates.as_deref().and_then(|m| m.get(from));
         let heard = match (mate, player.as_deref()) {
@@ -182,8 +224,11 @@ fn hear(
             continue;
         };
         let seconds = path.as_deref().and_then(|p| bank.seconds(p)).unwrap_or(2.0) / f64::from(rate);
-        g.quip.hold_until = g.quip.hold_until.max(g.time + seconds + GROUP_COOLDOWN);
-        if !text.is_empty() {
+        // A grunt holds back nobody's quips and shows no subtitle.
+        if !own {
+            g.quip.hold_until = g.quip.hold_until.max(g.time + seconds + GROUP_COOLDOWN);
+        }
+        if !text.is_empty() && !own {
             hud.party_lines.push((name.clone(), text.clone(), now + Duration::from_secs_f64(seconds.max(1.5))));
         }
         party.heard += 1;
@@ -311,6 +356,11 @@ mod tests {
     fn a_quip_reads_back() {
         assert_eq!(read_quip(&quip_blob("nexus.willow", 0xFE00_0012)), Some(("nexus.willow".to_string(), 0xFE00_0012)));
         assert_eq!(read_quip(&[1]), None);
+        // A player's own line: read as a quip of the set "@own", then its voice type.
+        let own = own_line_blob(0x0004_1E64, 0x0001_2345);
+        assert_eq!(read_quip(&own), Some((OWN_LINE.to_string(), 0x0004_1E64)));
+        assert_eq!(read_own_voice_type(&own), Some(0x0001_2345));
+        assert_eq!(read_own_voice_type(&quip_blob("nexus.willow", 1)), None);
     }
 
     #[test]

@@ -291,6 +291,34 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
   remains possible for the blended shapes.
 
+  Blended shapes that test (2026-11-09, queue item 107, the tumbleweed). Below threshold
+  64 the test was not applied at all, and a lit blended shape whose shader sets
+  ZBuffer_Write wrote depth from alpha 1/255. The tumbleweed (`clutter	umbleweednv.nif`,
+  0x12ED, threshold 50, ZBuffer_Write) has a DXT3 texture that is 84% clear, 3.1% opaque
+  and 12.9% between, its twigs fading out over alpha 1-50 [observed]: its faint texels
+  wrote depth over the twigs behind them, so the sky showed through the bush, with dark
+  specks around the twigs [observed: owner's screenshot, 2026-11-08]. Survey
+  [observed, `crates/fnv-nif/examples/blend_test_lit_survey.rs` over `Fallout -
+  Meshes.bsa` and `Update.bsa`]: 108 visible shapes blend SRC_ALPHA / INV_SRC_ALPHA and
+  test with a threshold of 1-63; 38 unlit with vertex alpha (left as they were, see
+  "Vertex alpha and the test"), 70 lit without, 68 of those writing depth (decals,
+  posters, signs, garden plants, glasses, glass shards, Mr. House's beard, money, the
+  tumbleweed). Now [documented: nif.xml AlphaFlags for the test; design for the rest]:
+  - a lit, depth-writing blended shape whose alpha is its texture's drops what its test
+    drops: fragments at or below the threshold neither draw nor write depth
+    (`nif_spawn::blended_test_cut`);
+  - such a shape whose texture is a cut-out mask (the rule of the FSR blended cut-outs,
+    `texture::AlphaShares::is_mask`) with at least 1% opaque texels is drawn as a solid
+    cut-out at its test threshold (`nif_spawn::solid_cutout`): 38 of the 68 shapes (the
+    tumbleweed, pinto and jalapeño plants, money, the Sierra Madre posters, signs, the
+    quarry lattices). Blended, crossing twigs of one mesh hide each other in draw order;
+    a cut-out has no order. At the threshold (not half way) the outline holds over the
+    mip levels: the tumbleweed's texels above 50 are 13% of its top level and 19-22% of
+    levels 2-4, while those above 128 fall from 9% to 2% [observed]. The glass shards'
+    mask has no opaque texel and stays blended.
+  Whether the original draws these blended with their test, as read here, or turns the
+  tested alpha into coverage (`bTransparencyMultisampling`) is open (observer check).
+
   Soft edges. The owner's game runs with `iMultiSample=8` and
   `bTransparencyMultisampling=1` [observed: `FalloutPrefs.ini`, 2026-10-10], and in its
   screenshots the cut-out edges of plants are smooth where a per-pixel alpha test gives

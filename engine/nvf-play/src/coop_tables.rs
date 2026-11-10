@@ -118,6 +118,12 @@ impl Tables {
     }
 
     /// A near player whose view is of `table` at `game`, and the view (the first found).
+    /// Every nearby player at `table` playing `game`, with its view (a table with three or
+    /// four players has the owner and its joined players all there).
+    pub fn near_at_all(&self, table: u32, game: u8) -> impl Iterator<Item = (u8, &[u8])> + '_ {
+        self.near.iter().filter_map(move |p| self.view(*p).filter(|v| v.0 == table && v.1 == game).map(|v| (*p, v.2)))
+    }
+
     pub fn near_at(&self, table: u32, game: u8) -> Option<(u8, &[u8])> {
         self.near.iter().find_map(|p| self.view(*p).filter(|v| v.0 == table && v.1 == game).map(|v| (*p, v.2)))
     }
@@ -546,6 +552,14 @@ pub struct DartsView {
     /// The game's opponent at the board (its reference; 0 for none), so watchers put its
     /// weapon away as the thrower's game does.
     pub foe: u32,
+    /// A players' match (items 126, 128): the players by seat (the owner first), whether
+    /// they play as two teams (seats 0 and 2 against 1 and 3), and who throws now (255:
+    /// nobody). Empty for a match against the game's opponent or practice.
+    pub players: Vec<u8>,
+    pub teams: bool,
+    pub thrower: u8,
+    /// A match being gathered at the board ([`crate::match_lobby`]).
+    pub lobby: Option<crate::match_lobby::LobbyView>,
 }
 
 fn hit_code(w: &mut W, h: fnv_game::darts::Hit) {
@@ -580,6 +594,23 @@ impl DartsView {
             w.u8(*age).f32(*x).f32(*z);
         }
         w.u32(self.foe);
+        // The players' match and the lobby: a trailing part, left out when neither is on.
+        if !self.players.is_empty() || self.lobby.is_some() {
+            w.u8(self.players.len().min(4) as u8);
+            for p in self.players.iter().take(4) {
+                w.u8(*p);
+            }
+            w.u8(u8::from(self.teams)).u8(self.thrower);
+            match &self.lobby {
+                Some(l) => {
+                    w.u8(1);
+                    l.write(&mut w);
+                }
+                None => {
+                    w.u8(0);
+                }
+            }
+        }
         w.0
     }
 
@@ -592,7 +623,7 @@ impl DartsView {
         let winner = Some(r.u8()?).filter(|w| *w != 255);
         let aim = (r.f32()?, r.f32()?);
         let n = r.u8()? as usize;
-        if n > 2 {
+        if n > 4 {
             return None;
         }
         let mut sides = Vec::new();
@@ -618,7 +649,19 @@ impl DartsView {
             flights.push((r.u8()?, r.f32()?, r.f32()?));
         }
         let foe = r.u32()?;
-        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0, draw, released, flights, foe })
+        let (mut players, mut teams, mut thrower, mut lobby) = (Vec::new(), false, 255, None);
+        if !r.done() {
+            let np = r.u8()? as usize;
+            for _ in 0..np.min(4) {
+                players.push(r.u8()?);
+            }
+            teams = r.u8()? != 0;
+            thrower = r.u8()?;
+            if r.u8()? != 0 {
+                lobby = Some(crate::match_lobby::LobbyView::read(&mut r)?);
+            }
+        }
+        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0, draw, released, flights, foe, players, teams, thrower, lobby })
     }
 }
 
@@ -632,6 +675,8 @@ pub enum DartsAction {
     Throw(f32, f32),
     /// The turn handed over.
     Next,
+    /// The answer to the board's invitation to a players' match (`match_lobby`).
+    Answer(bool),
 }
 
 impl DartsAction {
@@ -642,6 +687,7 @@ impl DartsAction {
             DartsAction::Leave => w.u8(1),
             DartsAction::Throw(x, z) => w.u8(2).f32(x).f32(z),
             DartsAction::Next => w.u8(3),
+            DartsAction::Answer(yes) => w.u8(4).u8(u8::from(yes)),
         };
         w.0
     }
@@ -653,6 +699,7 @@ impl DartsAction {
             1 => DartsAction::Leave,
             2 => DartsAction::Throw(r.f32()?, r.f32()?),
             3 => DartsAction::Next,
+            4 => DartsAction::Answer(r.u8()? != 0),
             _ => return None,
         };
         r.done().then_some(a)
@@ -689,6 +736,31 @@ pub struct DuelView {
     pub foe: Option<u8>,
     /// Seconds raced (in the rounds).
     pub seconds: f32,
+    /// A race of up to four (item 128): the racers it is for, this one counted, and all
+    /// the other racers once it runs ([`NOBODY`] for an empty place).
+    pub want: u8,
+    pub rivals: [u8; 3],
+}
+
+impl DuelView {
+    /// The other racers of a race under way.
+    pub fn rivals(&self) -> impl Iterator<Item = u8> + '_ {
+        self.rivals.iter().copied().filter(|r| *r != NOBODY)
+    }
+
+    /// Whether it races `p`.
+    pub fn races(&self, p: u8) -> bool {
+        self.foe == Some(p) || self.rivals().any(|r| r == p)
+    }
+}
+
+/// The places of [`DuelView::rivals`], from a list.
+pub fn rival_places(list: &[u8]) -> [u8; 3] {
+    let mut out = [NOBODY; 3];
+    for (o, r) in out.iter_mut().zip(list) {
+        *o = *r;
+    }
+    out
 }
 
 /// A player's move at another's fillet table: match its open challenge (the bet and the
@@ -723,7 +795,14 @@ impl FilletView {
         w.u32(self.stake).u8(self.round).u32(self.hits).u32(self.required).u8(self.mistakes).u8(self.gap).u8(self.key).f32(self.clock.unwrap_or(-1.0)).u8(self.state);
         match self.duel {
             None => w.u8(0),
-            Some(d) => w.u8(1).u32(d.bet).u32(d.seed as u32).u32((d.seed >> 32) as u32).u8(d.foe.unwrap_or(NOBODY)).f32(d.seconds),
+            Some(d) => {
+                w.u8(1).u32(d.bet).u32(d.seed as u32).u32((d.seed >> 32) as u32).u8(d.foe.unwrap_or(NOBODY)).f32(d.seconds);
+                // A race of more than two: a trailing part.
+                if d.want > 2 || d.rivals().count() > 1 {
+                    w.u8(d.want).u8(d.rivals[0]).u8(d.rivals[1]).u8(d.rivals[2]);
+                }
+                &mut w
+            }
         };
         w.0
     }
@@ -742,9 +821,17 @@ impl FilletView {
             state: r.u8()?,
             duel: match r.u8()? {
                 0 => None,
-                _ => Some(DuelView { bet: r.u32()?, seed: r.u32()? as u64 | (r.u32()? as u64) << 32, foe: Some(r.u8()?).filter(|f| *f != NOBODY), seconds: r.f32()? }),
+                _ => Some(DuelView { bet: r.u32()?, seed: r.u32()? as u64 | (r.u32()? as u64) << 32, foe: Some(r.u8()?).filter(|f| *f != NOBODY), seconds: r.f32()?, want: 2, rivals: [NOBODY; 3] }),
             },
         };
+        let mut v = v;
+        if let (Some(d), false) = (v.duel.as_mut(), r.done()) {
+            d.want = r.u8()?;
+            d.rivals = [r.u8()?, r.u8()?, r.u8()?];
+            if let (NOBODY, Some(f)) = (d.rivals[0], d.foe) {
+                d.rivals[0] = f;
+            }
+        }
         r.done().then_some(v)
     }
 }
@@ -1063,16 +1150,39 @@ mod tests {
             released: 2,
             flights: vec![(12, -1.5, 3.25)],
             foe: 0x0015_D787,
+            players: Vec::new(),
+            teams: false,
+            thrower: 255,
+            lobby: None,
         };
         assert_eq!(DartsView::decode(&d.encode()), Some(d.clone()));
+        // Four players in two teams, and a lobby.
+        let four = DartsView {
+            sides: vec![(1, 301, Vec::new()), (2, 280, Vec::new())],
+            players: vec![1, 2, 3, 4],
+            teams: true,
+            thrower: 3,
+            lobby: Some(crate::match_lobby::LobbyView { mode: 3, seats: vec![(2, crate::match_lobby::Seat::Here)] }),
+            ..d.clone()
+        };
+        assert_eq!(DartsView::decode(&four.encode()), Some(four.clone()));
+        let ffa = DartsView { sides: vec![(1, 301, Vec::new()), (2, 301, Vec::new()), (3, 301, Vec::new()), (4, 301, Vec::new())], players: vec![1, 2, 3, 4], teams: false, thrower: 2, lobby: None, ..d.clone() };
+        assert_eq!(DartsView::decode(&ffa.encode()), Some(ffa));
+        for yes in [true, false] {
+            assert_eq!(DartsAction::decode(&DartsAction::Answer(yes).encode()), Some(DartsAction::Answer(yes)));
+        }
         let f = FilletView { stake: 20, round: 2, hits: 5, required: 18, mistakes: 1, gap: 3, key: 2, clock: Some(41.5), state: 1, duel: None };
         assert_eq!(FilletView::decode(&f.encode()), Some(f.clone()));
         // A race: open, then under way; the seed's high half survives.
-        let open = FilletView { duel: Some(DuelView { bet: 40, seed: 0x1234_5678_9ABC_DEF0, foe: None, seconds: 0.0 }), ..f.clone() };
+        let open = FilletView { duel: Some(DuelView { bet: 40, seed: 0x1234_5678_9ABC_DEF0, foe: None, seconds: 0.0, want: 2, rivals: [NOBODY; 3] }), ..f.clone() };
         assert_eq!(FilletView::decode(&open.encode()), Some(open.clone()));
         let mut tables = Tables::default();
         tables.names.insert(2, "Bo".into());
         assert!(summary(&tables, "Ann", game::FILLET, &open.encode())[0].contains("challenges anyone"));
+        // A race of four: its racers go along.
+        let four = FilletView { duel: Some(DuelView { foe: Some(2), seconds: 3.0, want: 4, rivals: rival_places(&[2, 3, 4]), ..open.duel.unwrap() }), ..f.clone() };
+        assert_eq!(FilletView::decode(&four.encode()), Some(four.clone()));
+        assert!(four.duel.unwrap().races(4) && !four.duel.unwrap().races(5));
         let racing = FilletView { duel: Some(DuelView { foe: Some(2), seconds: 12.25, ..open.duel.unwrap() }), ..f.clone() };
         assert_eq!(FilletView::decode(&racing.encode()), Some(racing.clone()));
         let line = &summary(&tables, "Ann", game::FILLET, &racing.encode())[0];

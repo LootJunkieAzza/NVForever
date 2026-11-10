@@ -8452,6 +8452,22 @@ expect = [
 manual = "creator_open.png … creator_hair_tab.png in the run's folder: the panel on the left, the player framed on the right, creator_open.png on the face (todo 6); after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders; hair_tab: the Hair tab with no Region row, a scrollbar at the right of the rows"
 
 [[scenario]]
+name = "creator-adult-age"
+source = "queue item 110 (owner 2026-11-08): \"age can go down to 3 when randomizing or with some presets! not good! lowest should be 18\""
+note = "Randomise 30 times, every Preset entry of the male list (60 steps cycle through it), the female list the same, Randomise 20 more: the creator logs the age each look reads (`creator: age N`) and raises one under 18 (fnv_actor::creator::MIN_AGE, Creator::adult). Before the fix Randomise and some presets read as low as 3."
+areas = ["chargen", "menus", "actors"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-actor/src/creator.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9.0:random,9.3:random,9.6:random,9.9:random,10.2:random,10.5:random,10.8:random,11.1:random,11.4:random,11.7:random,12.0:random,12.3:random,12.6:random,12.9:random,13.2:random,13.5:random,13.8:random,14.1:random,14.4:random,14.7:random,15.0:random,15.3:random,15.6:random,15.9:random,16.2:random,16.5:random,16.8:random,17.1:random,17.4:random,17.7:random,18.5:next:Preset,18.8:next:Preset,19.1:next:Preset,19.4:next:Preset,19.7:next:Preset,20.0:next:Preset,20.3:next:Preset,20.6:next:Preset,20.9:next:Preset,21.2:next:Preset,21.5:next:Preset,21.8:next:Preset,22.1:next:Preset,22.4:next:Preset,22.7:next:Preset,23.0:next:Preset,23.3:next:Preset,23.6:next:Preset,23.9:next:Preset,24.2:next:Preset,24.5:next:Preset,24.8:next:Preset,25.1:next:Preset,25.4:next:Preset,25.7:next:Preset,26.0:next:Preset,26.3:next:Preset,26.6:next:Preset,26.9:next:Preset,27.2:next:Preset,27.5:next:Preset,27.8:next:Preset,28.1:next:Preset,28.4:next:Preset,28.7:next:Preset,29.0:next:Preset,29.3:next:Preset,29.6:next:Preset,29.9:next:Preset,30.2:next:Preset,30.5:next:Preset,30.8:next:Preset,31.1:next:Preset,31.4:next:Preset,31.7:next:Preset,32.0:next:Preset,32.3:next:Preset,32.6:next:Preset,32.9:next:Preset,33.2:next:Preset,33.5:next:Preset,33.8:next:Preset,34.1:next:Preset,34.4:next:Preset,34.7:next:Preset,35.0:next:Preset,35.3:next:Preset,35.6:next:Preset,35.9:next:Preset,36.2:next:Preset,36.5:next:Sex,37.0:next:Preset,37.3:next:Preset,37.6:next:Preset,37.9:next:Preset,38.2:next:Preset,38.5:next:Preset,38.8:next:Preset,39.1:next:Preset,39.4:next:Preset,39.7:next:Preset,40.0:next:Preset,40.3:next:Preset,40.6:next:Preset,40.9:next:Preset,41.2:next:Preset,41.5:next:Preset,41.8:next:Preset,42.1:next:Preset,42.4:next:Preset,42.7:next:Preset,43.0:next:Preset,43.3:next:Preset,43.6:next:Preset,43.9:next:Preset,44.2:next:Preset,44.5:next:Preset,44.8:next:Preset,45.1:next:Preset,45.4:next:Preset,45.7:next:Preset,46.0:next:Preset,46.3:next:Preset,46.6:next:Preset,46.9:next:Preset,47.2:next:Preset,47.5:next:Preset,47.8:next:Preset,48.1:next:Preset,48.4:next:Preset,48.7:next:Preset,49.0:next:Preset,49.3:next:Preset,49.6:next:Preset,49.9:next:Preset,50.2:next:Preset,50.5:next:Preset,50.8:next:Preset,51.1:next:Preset,51.4:next:Preset,51.7:next:Preset,52.0:next:Preset,52.3:next:Preset,52.6:next:Preset,52.9:next:Preset,53.2:next:Preset,53.5:next:Preset,53.8:next:Preset,54.1:next:Preset,54.4:next:Preset,54.7:next:Preset,55.0:random,55.3:random,55.6:random,55.9:random,56.2:random,56.5:random,56.8:random,57.1:random,57.4:random,57.7:random,58.0:random,58.3:random,58.6:random,58.9:random,59.2:random,59.5:random,59.8:random,60.1:random,60.4:random,60.7:random,61.5:done" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 80
+expect = [
+  { re = 'creator: age (1[89]|[2-9][0-9])$', min = 100, label = "every look reads 18 or more" },
+  { re = 'creator: age ([0-9]|1[0-7])$', count = 0, label = "no look younger than 18 (queue item 110)" },
+  { text = "creator: randomised", min = 50, label = "Randomise ran" },
+  { text = "creator: done (test aid NVF_PLAY_TEST_CREATOR)", label = "Done" },
+]
+
+[[scenario]]
 name = "actor-creator"
 kind = "tool"
 source = "docs/spec-notes/character-creator.md §2, §7: what the creator offers, from the masters and the FaceGen controls file si.ctl"
@@ -12407,6 +12423,20 @@ manual = "fire_barrel_light.png against the owner's frames of the original (kept
 expect = [
   { re = 'particles: add-on node 14 \S+mpsfiresmall01\.nif: [1-9]', label = "the barrel's flames are drawn" },
   { re = 'test aid: screenshot .*fire_barrel_light\.png', label = "the frame is saved" },
+]
+
+[[scenario]]
+name = "fuller-fire"
+source = "owner 2026-11-09 (after queue item 103): \"I still want more 3d fire in general\". A fire add-on node (file name mpsfire*) also emits systems made from the game's own: a denser flame body, embers, and ADDN 35's smoke above it (engine/nvforever/src/fuller_fire.rs, docs/design/graphics-enhanced.md §3.12). The Abandoned Shack's fire barrel burns ADDN 14"
+areas = ["effects"]
+paths = ["engine/nvforever/src/fuller_fire.rs", "engine/nvforever/src/particles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "2:2000:2063:6642", NVF_PLAY_TEST_LOOK = "2.5:90:-15", NVF_PLAY_TEST_SHOTS = "7:fuller_fire.png" }
+args = ["--cell", "GSAbandonedShack", "--play", "--no-voice", "--no-messages", "--hour", "21", "--size", "1280x720"]
+run_seconds = 10
+manual = "fuller_fire.png: the barrel's flames fuller than the data's alone, embers rising over them"
+expect = [
+  { re = 'particles: add-on node 14: 3 system\(s\) of the fuller fire', label = "the barrel's fire gains its three systems" },
+  { re = 'particles: born in add-on node 14: .*fuller fire: pFlames02 body [1-9].*fuller fire: pSparks embers [1-9]', label = "the added flames and embers are born" },
 ]
 
 [[scenario]]
@@ -18920,6 +18950,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "player-voice-followschalk"
+source = "owner 2026-11-08 evening (overnight item 119): Follows-Chalk as a player voice, a bit deeper and slower"
+note = "combat-voice with the player given Follows-Chalk's voice set (NVF_PLAY_TEST_VOICE=vanilla.followschalk; Honest Hearts' NVDLC02MaleUniqueFollowsChalk lines, rate 0.90: about 1.8 semitones down and 0.90x speed): the fight-start remark and his combat lines play in his voice at speed 0.90"
+areas = ["combat", "dialogue", "audio"]
+paths = ["engine/nvf-play/src/player_voice.rs"]
+requires = ["NVF_VOICE_SETS"]
+env = { NVF_PLAY_TEST_VOICE = "vanilla.followschalk", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'player voices: \d+ sets: .*vanilla\.followschalk', label = "the set is read" },
+  { re = 'player voice: Follows-Chalk \(vanilla\.followschalk\): \d+ lines in use', label = "the player has Follows-Chalk's voice" },
+  { re = 'voice: playing \S+nvdlc02maleuniquefollowschalk.\S+ \([\d.]+ s\) \S+ line \S+ response \d+ at speed 0\.90', label = "his lines play in his voice, deeper and slower" },
+]
+
+[[scenario]]
 name = "player-voice-fight-remarks"
 source = "owner 2026-11-06 late playtest (overnight item 64): almost no player voice chatter, none solo"
 note = "combat-voice solo with Cook's voice set (NVF_PLAY_TEST_VOICE=nexus.cook; all six of his lines are fight start/end or AvoidThreat lines, which the player never said before): as the dogs attack, the player says one of his NormalToCombat lines from his carried files (Game::player_fight_lines); triggers that say nothing are logged with why"
@@ -19299,6 +19345,7 @@ order = [[
   { text = "NVDLC02MQ01 stage 5 set", label = "Jed's Pt2 line starts Arrival at Zion (iJedSequence 2)" },
   { text = "player controls: all enabled", label = "the controls come back" },
 ]]
+forbid = [{ re = 'story guard: .*the guard sets it', label = "the scene went on without the story guard" }]
 
 [[scenario]]
 name = "zion-arrival-lobby"
@@ -19389,7 +19436,24 @@ order = [[
   { text = "NVDLC02MQ01 stage 10 set", label = "the ambush" },
   { re = '0x01009E7C died', label = "Jed dies in the ambush" },
 ]]
-forbid = [{ re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
+forbid = [{ re = 'story guard: .*the guard sets it', label = "the scene went on without the story guard" }, { re = 'player entered trigger 0x0101(1180|0145)', label = "the player stayed put (no real input reached the window)" }]
+
+[[scenario]]
+name = "hh-arrival-guard"
+source = "owner-review item 46 (owner 2026-11-09, item 117): after the HH intro slideshow, Jed never greeted and the controls stayed locked until `SetStage NVDLC02MQ01 5`. NVForever's story guard (crates/fnv-game/src/story_guards.rs, not in the original) asks Jed to choose his package again 8 s after NVDLC02MQ00 stage 100, and sets NVDLC02MQ01 stage 5 (HonestHearts.esm QUST 0x01008893: EnablePlayerControls, the arrival box's state, the EVPs) after 30 s of game time with no line said"
+note = "Honest Hearts with FalloutNV.esm only; the player starts at NVDLC02StartMarker; the console disables Jed (0x01009E7C) at 2 s, so his greeting cannot come, and sets Happy Trails 100 at 3 s (the arrival); the talk aid answers any conversation a script starts"
+areas = ["scripts", "dialogue"]
+paths = ["crates/fnv-game/src/story_guards.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "01009406", NVF_PLAY_TEST_CONSOLE = "2:01009E7C.disable;2.3:close;3:setstage NVDLC02MQ00 100;3.5:close", NVF_PLAY_TEST_TALK = "0:*;0:*;0:*;0:*;0:*;0:*" }
+args = ["--play", "--world", "NVDLC02ZionCanyon", "--plugins", "FalloutNV.esm", "HonestHearts.esm", "--hour", "8", "--no-voice", "--npc-packages", "all"]
+run_seconds = 75
+order = [[
+  { text = "NVDLC02MQ00 stage 100 set", label = "the arrival" },
+  { re = "story guard: Honest Hearts' arrival .*NVDLC02JedREF chooses its package again", label = "8 s on: the guard asks Jed to choose again" },
+  { re = "story guard: Honest Hearts' arrival .*the guard sets it", label = "30 s on: the guard sets the stage" },
+  { text = "NVDLC02MQ01 stage 5 set", label = "Arrival at Zion starts from the guard" },
+  { text = "player controls: all enabled", label = "stage 5 gives the controls back" },
+]]
 
 [[scenario]]
 name = "dlc-intro-slides-dm"
@@ -19439,4 +19503,60 @@ expect = [
   { re = 'emotes: pushups exit \(test aid\)', label = "the push-ups get up" },
   { text = "emotes: wheel: slot 3 plays sit", label = "the wheel's slot 3 plays Sit" },
   { re = 'emotes: sit exit \(asked\)', label = "Emote tapped ends the sit" },
+]
+
+[[scenario]]
+name = "fort-raft-sleep"
+source = "co-op quest run q-fort-raft-2p-light (runs-quests-5, 2026-11-09) and its host-only run: after Lucullus's raft line the screen stayed black and the Fort's gate guard never disarmed the player. The raft's script (FalloutNV.esm vCCmovetothefortSCRIPT, SCPT 0x001672C8) moves the player to the Fort's landing and calls SetPCSleepHours 3 in one GameMode block; the sleep menu opened in the frame the travel's loading screen came up, the load came down to Playing with the sleep still open, and its hours, which pass in the menu state only, never passed (scripts held in MenuMode 1012). engine/nvf-play/src/wait.rs back_to_menu puts the menu state back"
+note = "the player starts at the Cottonwood Cove barge marker (0x00139B67); the console enables Lucullus (placed disabled) at 4 s; VMQ02 started and set to 1 at 6 s (Vulpes's stand-in); Lucullus's raft line INFO 0x00133030 at 8 s starts vCCmovetothefort; the gate guard's line INFO 0x00139B57 at 30 s starts FortEquipmentConfiscationQuest, which stores the player's weapons in NVCCPlayerStorage (the varmint rifle given at the start)"
+areas = ["scripts", "menus", "quests"]
+paths = ["engine/nvf-play/src/wait.rs", "engine/nvf-play/src/loading.rs", "crates/fnv-game/src/rest.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GIVE = "0007EA24:1,00004240:50", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_CONSOLE = "4:VCCLucullusREF.enable;4.5:close", NVF_PLAY_TEST_SCRIPT = "6:start:VMQ02,6.5:stage:VMQ02:1,8:info:0x00133030:VCCLucullusREF,30:info:0x00139B57:FortLegionaryEntranceGreeterRef", NVF_PLAY_TEST_TALK = "0:*=leave" }
+args = ["--play", "--world", "WastelandNV", "--pos=67946,-91758,-2250", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FortLegionaryEntranceGreeterRef"]
+run_seconds = 50
+order = [[
+  { text = "wait menu: sleeping 3 hour(s) (a script's SetPCSleepHours)", label = "the raft's script asks for 3 hours of sleep" },
+  { re = 'loading screen up: .* for worldspace 000DA726', label = "and moves the player to the Fort in the same frame" },
+  { text = "wait menu: open while the game plays (a travel came in the frame it opened): back to the menu", label = "the sleep left open under the load goes back to the menu state" },
+  { re = 'sleep: hour 3 of 3 passed', label = "its three hours pass" },
+  { text = "wait menu: 3 hour(s) passed; closed", label = "and it closes" },
+]]
+expect = [
+  { text = "VMQ02 stage 2 set", label = "the Fort's arrival trigger" },
+]
+
+[[scenario]]
+name = "novac-boone-revenge"
+source = "co-op quest runs q-novac-lure-2p-nest and its host-only run (2026-11-09): Boone took his Use Weapon package VNovacBooneRevengeJeannieMay in the dinosaur's mouth and drew his rifle, but never fired (use weapon summary: 0 uses). FalloutNV.esm: the trigger SniperVictimTriggerREF (SCPT 0x000CD08C) gives CraigBooneREF the package once the player, wearing HatNCRBoonesBeret, and the accused (VFreeformNovac.nAccusedIndex 1: Jeannie May) are in it; the package is Use Weapon with no location, WeapBooneSniperRifle at JeannieMayCrawfordREF, always hit, 1 volley of 1 shot (fnvtool ai show). The kill is not the shot's damage (52 base, 39 on her torso against 140 health): her script SCPT 0x0008E236 has an OnHit block for CraigBooneREF that runs KillActor CraigBooneREF 1 2 (the decompiled script text, scratch nv-all)"
+note = "the run starts at 20:57 so Boone walks to the nest by his own patrol (as boone-night-nest); at 190 s nAccusedIndex 1, at 192 s Jeannie May moved into the trigger and restrained (in the game she follows the player there), at 196 s the player, beret on, walks in. Only Boone and Jeannie May run packages"
+areas = ["ai", "combat", "scripts"]
+paths = ["engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GIVE = "000B7F53:1", NVF_PLAY_TEST_EQUIP = "000B7F53", NVF_PLAY_TEST_SCRIPT = "190:var:VFreeformNovac:naccusedindex:1", NVF_PLAY_TEST_CONSOLE = "192:JeannieMayCrawfordREF.moveto SniperVictimTriggerREF;192.3:JeannieMayCrawfordREF.setrestrained 1;192.6:close", NVF_PLAY_TEST_GOTO = "196:26560:-33440:7130" }
+args = ["--play", "--world", "WastelandNV", "--pos=24300,-31700,7050", "--heading", "140", "--hour", "20.95", "--no-voice", "--no-messages", "--npc-packages", "CraigBooneREF,JeannieMayCrawfordREF"]
+run_seconds = 240
+order = [[
+  { re = 'CraigBooneREF: walks to \(25415, -32822, 8082\) in WastelandNV \(patrol point 0x000CB0EF\)', label = "Boone goes to the dinosaur's mouth on his night patrol" },
+  { text = "JeannieMayCrawfordREF entered trigger SniperVictimTriggerREF", label = "Jeannie May in the spot" },
+  { text = "player entered trigger SniperVictimTriggerREF", label = "the player, wearing the beret, joins her" },
+  { text = "CraigBooneREF: package VNovacBooneRevengeJeannieMay", label = "Boone gets his revenge package" },
+  { re = 'use weapon: CraigBooneREF 0x00096BCE uses WeapBooneSniperRifle on JeannieMayCrawfordREF \(its package VNovacBooneRevengeJeannieMay\)', label = "and uses his rifle on her" },
+  { re = 'combat: hit 0x0008D74C on ', label = "his shot hits her" },
+  { re = 'dismember: Jeannie May Crawford 0x0008D74C: .*\(KillActor\)', label = "and her OnHit-by-Boone block kills her (KillActor CraigBooneREF 1 2: her head)" },
+]]
+expect = [
+  { re = 'script: OnHit of FalloutNV.esm\|SCPT 0x0008E236 ran on Some\(0x0008D74C\)', label = "her script's OnHit block runs" },
+  { re = 'script: OnDeath of FalloutNV.esm\|SCPT 0x0008E236 ran on Some\(0x0008D74C\)', label = "and her OnDeath" },
+]
+
+[[scenario]]
+name = "created-fire-light"
+source = "Overnight queue 2026-11-09 item 103: a light a script places (PlaceAtMe of a LIGH, as Burning Campfire Redone's fires place SAGCampFire420) sheds its light with its flicker (nvf-play dropped.rs DroppedLight, nvforever lights.rs dropped_lights); before, created lights drew nothing. Here the vanilla flickering FireBrightOrange is placed at the player at night outside Goodsprings"
+areas = ["lights", "scripts"]
+paths = ["engine/nvf-play/src/dropped.rs", "engine/nvforever/src/lights.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "8:player.PlaceAtMe FireBrightOrange 1;8.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--hour", "23", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: light 0x[0-9A-F]{8}, no model', label = "the created light has a root to hang from although it has no model" },
+  { re = 'lights: created light 0xFF[0-9A-F]{6} \(base 0x[0-9A-F]{8}\) lit', label = "it sheds the light of its base" },
 ]

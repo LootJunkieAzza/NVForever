@@ -44,6 +44,7 @@ mod decals;
 mod dismember;
 mod knockouts;
 mod pose_watch;
+mod actor_twins;
 mod player_knockdown;
 mod detection;
 mod dialogue_look;
@@ -65,6 +66,7 @@ mod frame_telemetry;
 mod blit_warm;
 mod handoff;
 mod furniture;
+mod fuller_fire;
 mod fillet_stage;
 mod graphics;
 mod grass;
@@ -107,6 +109,8 @@ mod emote_play;
 mod darts_arm;
 mod darts_world;
 mod pool_world;
+// After a minigame match: cheers, the end camera, the fade (match_end.rs).
+mod match_end;
 mod object_anims;
 mod outfits;
 mod own_sounds;
@@ -1512,6 +1516,7 @@ fn main() -> AppExit {
             app.add_plugins(decals::DecalsPlugin);
             app.add_plugins(knockouts::KnockoutsPlugin);
             app.add_plugins(pose_watch::PoseWatchPlugin);
+            app.add_plugins(actor_twins::ActorTwinsPlugin);
             // Co-op (private fork): idle until a lobby is opened or joined.
             app.add_plugins(coop::CoopPlugin(coop::Config { host: args.host, join: args.join.clone(), name: args.coop_name.clone(), base: args.coop_base }));
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
@@ -1572,6 +1577,9 @@ fn main() -> AppExit {
             app.add_plugins(darts_world::DartsWorldPlugin);
             // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).
             app.add_plugins(pool_world::PoolWorldPlugin);
+            // After a darts or pool match: the winner cheers, the loser is beaten, the camera
+            // in front of the player, a fade back (match_end.rs).
+            app.add_plugins(match_end::MatchEndPlugin);
             // Creatures fight with their body weapons and switch between them (body_weapons.rs).
             app.add_plugins(body_weapons::BodyWeaponsPlugin);
             // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).

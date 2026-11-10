@@ -912,8 +912,10 @@ impl BlendPlayer {
             for (j, (i, track, p)) in bc.tracks.iter().enumerate() {
                 let b = self.rest_of(*i);
                 let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
+                let mut is_root = false;
                 if let Some((rj, per_cycle, start_z)) = bc.root_track {
                     if rj == j {
+                        is_root = true;
                         match bc.carried {
                             // Its travel is the actor's: all of it out of the pose.
                             Some(at) => (t.x, t.y) = (at.x, at.y),
@@ -923,7 +925,12 @@ impl BlendPlayer {
                     }
                 }
                 let r = track.rotation_at(time).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
-                let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
+                // The accumulation root keeps its own scale: Animated Greetings'
+                // `AG_ChinFlick.kf` gives `Bip01` a scale of 10, which grew a puppet to ten
+                // times its size (laptop run 140b, 2026-11-09); the player's body, which
+                // holds `Bip01` at the identity, never showed it [hypothesis: the game
+                // ignores the root's scale too, as the clip plays normally in it].
+                let s = if is_root { b.scale.x } else { track.scale.sample(time).map_or(b.scale.x, |[s]| s) };
                 self.add(*i, Contrib { t, r, s, w, p: *p });
                 sampled += 1;
             }
@@ -1680,6 +1687,21 @@ mod tests {
         // A track whose node the skeleton lacks is dropped; the idle drives no root.
         assert_eq!((idle.tracks.len(), idle.root, idle.root_track), (1, Some(1), None));
         assert_eq!(walk.time_at(0.25), 0.25);
+    }
+
+    #[test]
+    fn the_accumulation_root_keeps_its_own_scale() {
+        // AG_ChinFlick.kf: Bip01 at a scale of 10, the other bones at none.
+        let (mut player, ix) = player();
+        let root = Arc::new(TransformTrack { translation: Channel::Static(Some([0.0; 3])), rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])), euler: None, scale: Channel::Static(Some([10.0])) });
+        let other = Arc::new(TransformTrack { translation: Channel::Static(Some([9.0, 0.0, 0.0])), rotation: Channel::Static(None), euler: None, scale: Channel::Static(Some([1.5])) });
+        let c = clip(1.0, vec![("Bip01", root), ("Other", other)]);
+        player.layers[0] = Some(Layer { clip: Arc::new(BoundClip::bind(c, &ix)), phase: 0.5, weight: 1.0 });
+        let mut out = Vec::new();
+        player.sample(&mut out);
+        let scale = |i: usize| out.iter().find(|(n, _)| *n == i).unwrap().1.scale.x;
+        assert_eq!(scale(1), 1.0, "the root's scale is its bind pose's");
+        assert_eq!(scale(3), 1.5, "other bones take the clip's");
     }
 
     #[test]

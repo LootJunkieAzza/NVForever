@@ -149,7 +149,20 @@ pub enum Page {
     Main,
     Bet,
     Play,
+    /// The Challenge page: the house's player, or a players' match by mode (item 126).
+    Challenge,
+    /// A players' match being gathered: waiting for all players (`match_lobby`).
+    Gather,
 }
+
+/// The side of a dart in the air thrown by another player's hand (its side + this):
+/// told apart from this player's own on every screen (items 128) [design].
+pub const REMOTE: usize = 4;
+
+/// Where each seat of a players' match waits for its turn, local: back from the line and
+/// to the left, out of the view (the owner's seat first) [design: to be hand-picked per
+/// board, item 127].
+pub const WAITS: [[f32; 3]; 4] = [WAIT, [WAIT[0] - 30.0, WAIT[1] + 12.0, 0.0], [WAIT[0], WAIT[1] - 30.0, 0.0], [WAIT[0] - 30.0, WAIT[1] - 18.0, 0.0]];
 
 /// Who the other darts side is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,6 +230,21 @@ pub struct Darts {
     /// At another player's board: how far the owner's dart is drawn back (0..1), as its
     /// view says, for its body's arm on this screen (`darts_arm.rs`).
     pub remote_draw: f32,
+    /// A players' match (items 126, 128): the players by seat, the owner first; two teams
+    /// (seats 0 and 2 against 1 and 3); this player's side and id; at another player's
+    /// board, who throws now as its view says (255: nobody).
+    pub players: Vec<u8>,
+    pub teams: bool,
+    pub side: usize,
+    pub me: Option<u8>,
+    pub remote_thrower: u8,
+    /// The players' match this board gathers (its owner), or the one the owner's board
+    /// gathers (a joined player), and whether this player told it it came.
+    pub gather: Option<crate::match_lobby::Gather>,
+    pub lobby: Option<crate::match_lobby::LobbyView>,
+    pub arrived: bool,
+    /// Players near the board, this one counted (the Challenge page greys the modes).
+    pub at_hand: usize,
     last_impact: u32,
     rng: ChaCha8Rng,
 }
@@ -224,11 +252,35 @@ pub struct Darts {
 impl Darts {
     /// The side this game throws for.
     pub fn mine(&self) -> usize {
-        usize::from(self.joined.is_some())
+        self.side
+    }
+
+    /// The player who throws for the side up now, in a players' match.
+    pub fn thrower(&self) -> Option<u8> {
+        if self.joined.is_some() {
+            return Some(self.remote_thrower).filter(|p| *p != 255);
+        }
+        thrower_of(&self.players, self.teams, &self.m)
+    }
+
+    /// The side up throws by this player's hand (in a team, its own turn of the two).
+    pub fn up_is_me(&self) -> bool {
+        self.m.up == self.mine() && (!self.teams || self.thrower() == self.me)
+    }
+
+    /// This player's seat in a players' match (0 otherwise).
+    pub fn seat(&self) -> usize {
+        self.me.and_then(|me| self.players.iter().position(|p| *p == me)).unwrap_or(self.side)
+    }
+
+    /// The side a player throws for in this board's players' match.
+    pub fn side_of(&self, p: u8) -> Option<usize> {
+        let seat = self.players.iter().position(|q| *q == p)?;
+        Some(if self.teams { seat % 2 } else { seat })
     }
 
     pub fn my_turn(&self) -> bool {
-        self.page == Page::Play && self.m.up == self.mine() && self.m.winner.is_none() && !self.m.turn_over
+        self.page == Page::Play && self.up_is_me() && self.m.winner.is_none() && !self.m.turn_over
     }
 
     pub fn sway_aim(&self, now: f32) -> (f32, f32) {
@@ -269,6 +321,15 @@ pub struct Duel {
     pub ended: bool,
     /// How this racer did against the other, once both are done (or the other left).
     pub result: Option<Ordering>,
+    /// A race of up to four (item 128): the racers it is for (this one counted); the
+    /// challenger's matchers so far; all the other racers once it runs; what each of them
+    /// shows and when it was last seen.
+    pub want: u8,
+    pub joining: Vec<u8>,
+    pub rivals: Vec<u8>,
+    pub views: Vec<(u8, FilletView, f32)>,
+    /// What this racer won (caps), once settled.
+    pub won: u32,
 }
 
 pub struct Fillet {
@@ -294,6 +355,8 @@ pub struct Fillet {
     pub duel: Option<Duel>,
     /// The open challenge on [`FPage::Offer`]: its bet and seed.
     pub offer: Option<(u32, u64)>,
+    /// The racers of this player's next race challenge (2 to 4, item 128).
+    pub racers: u8,
     rng: ChaCha8Rng,
 }
 
@@ -398,7 +461,7 @@ fn open(
         let rng = ChaCha8Rng::seed_from_u64(seed(a.reference, now));
         if base == board {
             let special = script.as_mut().and_then(|s| s.rt.as_mut()).map_or((5, 5), |rt| darts::player_special(&mut rt.game));
-            let joined = tables.and_then(|t| t.near_at(a.reference, game::DARTS).and_then(|(p, b)| DartsView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
+            let joined = tables.and_then(|t| t.near_at_all(a.reference, game::DARTS).find_map(|(p, b)| DartsView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
             info!("darts: open at 0x{:08X} (Perception {}, Agility {}){}", a.reference, special.0, special.1, joined.map(|p| format!(", {}'s board", tables.map(|t| t.name(p)).unwrap_or_default())).unwrap_or_default());
             let frame = sim.world.peek(FormId(a.reference)).map(|r| (r.pos, r.rot)).or_else(|| sim.refs.get(FormId(a.reference)).map(|r| (r.pos, r.rot))).map(|(pos, rot)| {
                 BoardFrame::of(pos, rot, sim.refs.get(FormId(a.reference)).and_then(|r| r.scale))
@@ -438,6 +501,15 @@ fn open(
                 foe_name: None,
                 foe_release: None,
                 remote_draw: 0.0,
+                players: Vec::new(),
+                teams: false,
+                side: usize::from(joined.is_some()),
+                me: tables.and_then(|t| t.me),
+                remote_thrower: 255,
+                gather: None,
+                lobby: None,
+                arrived: false,
+                at_hand: 1,
                 last_impact: 9,
                 rng,
             });
@@ -463,6 +535,7 @@ fn open(
                 duel_bet: false,
                 duel: None,
                 offer: offer.map(|o| (o.1, o.2)),
+                racers: 2,
                 rng,
             });
         }
@@ -473,7 +546,14 @@ fn open(
 /// A fillet race begins (the bet already paid): the countdown, the same prompts as the
 /// other racer's (the shared seed).
 fn start_race(f: &mut Fillet, bet: u32, seed: u64, foe: u8, now: f32) {
-    f.duel = Some(Duel { bet, seed, foe: Some(foe), go_at: now + COUNTDOWN, confirmed: false, foe_seen: now, foe_view: None, next_round_at: None, ended: false, result: None });
+    start_race_of(f, bet, seed, &[foe], 2, now);
+}
+
+/// A race against `rivals` (the challenger's matchers, or the challenger for a matcher,
+/// who learns the others from its view), `want` racers in all.
+fn start_race_of(f: &mut Fillet, bet: u32, seed: u64, rivals: &[u8], want: u8, now: f32) {
+    let foe = rivals[0];
+    f.duel = Some(Duel { bet, seed, foe: Some(foe), go_at: now + COUNTDOWN, confirmed: false, foe_seen: now, foe_view: None, next_round_at: None, ended: false, result: None, want, joining: Vec::new(), rivals: rivals.to_vec(), views: Vec::new(), won: 0 });
     f.game = Some(fillet::Game::new(bet, Key::W));
     f.rng = ChaCha8Rng::seed_from_u64(seed);
     f.settled = true;
@@ -483,9 +563,30 @@ fn start_race(f: &mut Fillet, bet: u32, seed: u64, foe: u8, now: f32) {
     info!("fillet: a race against player {foe} for {bet} caps");
 }
 
+/// A players' match against `others` (the players by seat after this one).
+fn start_players(d: &mut Darts, others: &[u8], teams: bool, now: f32) {
+    let Some(first) = others.first().copied() else { return };
+    d.players = std::iter::once(d.me.unwrap_or(0)).chain(others.iter().copied()).collect();
+    d.teams = teams && d.players.len() == 4;
+    d.gather = None;
+    d.stake = 0;
+    info!("darts: a players' match: seats {:?}{}", d.players, if d.teams { ", two teams" } else { "" });
+    start_match(d, Foe::Player(first), now);
+}
+
 fn start_match(d: &mut Darts, foe: Foe, now: f32) {
     d.foe = foe;
-    d.m = Match::new(if foe == Foe::Practice { 1 } else { 2 });
+    if !matches!(foe, Foe::Player(_)) {
+        d.players.clear();
+        d.teams = false;
+    }
+    let sides = match foe {
+        Foe::Practice => 1,
+        Foe::Player(_) if d.teams => 2,
+        Foe::Player(_) => d.players.len().max(2),
+        Foe::Opponent => 2,
+    };
+    d.m = Match::new(sides);
     // Test aid `NVF_PLAY_TEST_DARTS_START=n`: every side starts on n instead of 301, to
     // reach a checkout or a bust in a short run.
     if let Some(n) = std::env::var("NVF_PLAY_TEST_DARTS_START").ok().and_then(|v| v.trim().parse().ok()) {
@@ -525,7 +626,12 @@ fn darts_keys(
     };
     if keys.any_just_pressed([KeyCode::Tab, KeyCode::Escape]) {
         match d.page {
-            Page::Bet => d.page = Page::Main,
+            Page::Bet | Page::Challenge => d.page = Page::Main,
+            Page::Gather if d.joined.is_none() => {
+                info!("darts: the players' match called off");
+                d.gather = None;
+                d.page = Page::Main;
+            }
             _ => {
                 if let Some(owner) = d.joined {
                     send(&mut tables, d.board, DartsAction::Leave);
@@ -549,7 +655,9 @@ fn darts_keys(
                 return;
             }
             if keys.just_pressed(KeyCode::Digit1) {
-                d.page = Page::Bet;
+                // In co-op the Challenge page (the house's player, or a players' match);
+                // alone, the bet page as before.
+                d.page = if tables.as_deref().is_some_and(|t| t.on) { Page::Challenge } else { Page::Bet };
             } else if keys.just_pressed(KeyCode::Digit2) {
                 d.stake = 0;
                 start_match(d, Foe::Practice, now);
@@ -562,6 +670,24 @@ fn darts_keys(
                 }
             }
         }
+        Page::Challenge => {
+            if keys.just_pressed(KeyCode::Digit1) {
+                d.page = Page::Bet;
+                return;
+            }
+            let picked = [KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5].iter().position(|k| keys.just_pressed(*k));
+            let Some(mode) = picked.and_then(|i| crate::match_lobby::DARTS_MODES.get(i).copied()) else { return };
+            if !crate::match_lobby::available(mode, d.at_hand) {
+                d.status = format!("{} needs {} players near the board.", mode.label, mode.players);
+                return;
+            }
+            let asked: Vec<u8> = tables.as_deref().map(|t| t.near.clone()).unwrap_or_default();
+            info!("darts: a players' match ({}) asked of {:?}", mode.label, asked);
+            d.gather = Some(crate::match_lobby::Gather::new(mode, &asked, now));
+            d.page = Page::Gather;
+            d.status.clear();
+        }
+        Page::Gather => {}
         Page::Bet => {
             if keys.just_pressed(KeyCode::KeyQ) {
                 d.bet = darts::step_bet(d.bet, false);
@@ -591,7 +717,7 @@ fn darts_keys(
                 d.stake = 0;
                 return;
             }
-            if keys.just_pressed(KeyCode::Space) && d.m.turn_over && d.m.up == d.mine() && d.flights.is_empty() {
+            if keys.just_pressed(KeyCode::Space) && d.m.turn_over && d.up_is_me() && d.flights.is_empty() {
                 if d.joined.is_some() {
                     send(&mut tables, d.board, DartsAction::Next);
                 } else if d.m.next_turn() {
@@ -668,14 +794,14 @@ fn board_on_screen(at: (f32, f32), frame: BoardFrame, (cam, gt): (&Camera, &Glob
 /// Whether this player stands at the line now: their side is up (in practice and on the
 /// menus always), else they wait back from it for the other side's turn.
 pub fn stands_up(d: &Darts) -> bool {
-    d.page != Page::Play || d.m.up == d.mine() || d.m.winner.is_some()
+    d.page != Page::Play || d.up_is_me() || d.m.winner.is_some()
 }
 
 /// Whether the view is this player's own eyes: in a game, at the line on their own turn
 /// (third person behind the line on the menus, the other side's turn and after the match)
 /// [design: owner 2026-11-05].
 pub fn first_person(d: &Darts) -> bool {
-    d.page == Page::Play && d.stands_up == Some(true) && d.m.up == d.mine() && d.m.winner.is_none()
+    d.page == Page::Play && d.stands_up == Some(true) && d.up_is_me() && d.m.winner.is_none()
 }
 
 /// The player steps up to the line on their turn, facing the board, and back to wait on
@@ -686,7 +812,7 @@ fn darts_stand(mut screen: ResMut<DartsScreen>, mut phys: Option<ResMut<crate::p
     let Some(f) = d.frame else { return };
     let up = stands_up(d);
     // On their own turn at [`OWN_UP`], where the first-person view is square to the board.
-    let own = up && d.page == Page::Play && d.m.up == d.mine() && d.m.winner.is_none();
+    let own = up && d.page == Page::Play && d.up_is_me() && d.m.winner.is_none();
     if d.stands_up == Some(up) && d.stands_own == own {
         return;
     }
@@ -696,7 +822,7 @@ fn darts_stand(mut screen: ResMut<DartsScreen>, mut phys: Option<ResMut<crate::p
     // from where the player stood). Not the arrival rule: it stands the player on top of
     // the opponent when it is still at the line (playtest 2026-11-05, "floating after
     // the first turn"); the floor's search passes through actors.
-    let mut spot = f.to_world(if own { OWN_UP } else if up { UP } else { WAIT });
+    let mut spot = f.to_world(if own { OWN_UP } else if up { UP } else { WAITS[d.seat().min(3)] });
     let floor = d.came_from.map_or(player.feet[2], |c| c[2]);
     spot[2] = floor;
     phys.place_player(spot, 60.0, 200.0);
@@ -824,6 +950,7 @@ fn darts_step(
     mut files: MessageWriter<PlayFile>,
     mut next: ResMut<NextState<PlayState>>,
     mut opp: ResMut<DartsOpponent>,
+    mut waiting: ResMut<crate::match_lobby::WaitingScreen>,
 ) {
     let Some(d) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
@@ -835,7 +962,32 @@ fn darts_step(
         match view {
             Some(v) => {
                 d.joined_heard = now;
-                let in_it = v.sides.get(1).is_some_and(|s| Some(s.0) == me);
+                // This player's seat: in a players' match by the view's players, in a match
+                // of two by the second side.
+                let seat = me.and_then(|me| v.players.iter().position(|p| *p == me));
+                let in_it = seat.is_some() || v.players.is_empty() && v.sides.get(1).is_some_and(|s| Some(s.0) == me);
+                d.lobby = v.lobby.clone();
+                d.players = v.players.clone();
+                d.teams = v.teams;
+                d.remote_thrower = v.thrower;
+                if let Some(s) = seat {
+                    d.side = if v.teams { s % 2 } else { s };
+                }
+                // Asked to a players' match here and said yes: this player came.
+                let mine_seat = me.and_then(|me| v.lobby.as_ref().and_then(|l| l.seat(me)));
+                if !in_it && matches!(mine_seat, Some(crate::match_lobby::Seat::Yes | crate::match_lobby::Seat::Here)) {
+                    if !d.arrived {
+                        d.arrived = true;
+                        if let Some(t) = tables.as_deref_mut() {
+                            t.send(d.board, game::DARTS, DartsAction::Join.encode());
+                        }
+                        info!("darts: came for the players' match at {owner}'s board");
+                    }
+                    d.page = Page::Gather;
+                } else if !in_it && d.page == Page::Gather {
+                    d.page = Page::Main;
+                    d.arrived = false;
+                }
                 if in_it {
                     if d.page != Page::Play {
                         d.page = Page::Play;
@@ -850,32 +1002,33 @@ fn darts_step(
                         bust: false,
                         winner: v.winner.map(usize::from),
                     };
-                    if d.m.up != was_up {
+                    if d.m.up != was_up || d.up_is_me() != (was_up == d.mine()) {
                         d.turn_since = now;
                         d.stuck.clear();
-                        if d.m.up == 1 {
+                        if d.up_is_me() {
                             files.write(PlayFile(HAND.into()));
                         }
                     }
-                    if d.m.up != 1 {
+                    let theirs_up = !d.up_is_me();
+                    if theirs_up {
                         d.stuck = v.stuck.clone();
                     }
                     // The owner's darts in the air (on its turn; on this player's the
                     // view's flights are this player's own, sent back). Each keeps the
                     // time it was first seen, so its flight and the hand it left stay put.
-                    let theirs: Vec<(f32, (f32, f32))> = if v.up == 0 { v.flights.iter().map(|(age, x, z)| (now - f32::from(*age) / 100.0, (*x, *z))).collect() } else { Vec::new() };
+                    let theirs: Vec<(f32, (f32, f32))> = if theirs_up { v.flights.iter().map(|(age, x, z)| (now - f32::from(*age) / 100.0, (*x, *z))).collect() } else { Vec::new() };
                     let before = d.flights.len();
-                    d.flights.retain(|f| f.2 == 1 || theirs.iter().any(|t| t.1 == f.1));
+                    d.flights.retain(|f| f.2 < REMOTE || theirs.iter().any(|t| t.1 == f.1));
                     let landed = before - d.flights.len();
                     for (since, land) in theirs {
-                        if !d.flights.iter().any(|f| f.2 == 0 && f.1 == land) {
-                            d.flights.push((since, land, 0));
+                        if !d.flights.iter().any(|f| f.2 >= REMOTE && f.1 == land) {
+                            d.flights.push((since, land, usize::from(v.up) + REMOTE));
                         }
                     }
                     for _ in 0..landed {
                         impact(d, &mut files);
                     }
-                    d.remote_draw = if v.up == 0 { f32::from(v.draw) / 255.0 } else { 0.0 };
+                    d.remote_draw = if theirs_up { f32::from(v.draw) / 255.0 } else { 0.0 };
                 } else if d.page == Page::Play {
                     d.page = Page::Main;
                     d.status = "The match is over.".into();
@@ -891,16 +1044,29 @@ fn darts_step(
         // The others at this board: asking for a match, throwing in it.
         for (from, board, blob) in t.take_actions(game::DARTS) {
             let Some(a) = DartsAction::decode(&blob).filter(|_| board == d.board) else { continue };
-            let theirs = d.foe == Foe::Player(from) && d.page == Page::Play;
+            let side = d.side_of(from).filter(|_| d.page == Page::Play && matches!(d.foe, Foe::Player(_)));
+            let theirs = side.is_some();
+            let throws_now = side == Some(d.m.up) && d.thrower() == Some(from);
             match a {
+                DartsAction::Answer(yes) => {
+                    if let Some(g) = d.gather.as_mut() {
+                        g.answer(from, yes, now);
+                        info!("darts: {} {} the players' match", t.name(from), if yes { "joins" } else { "declines" });
+                    }
+                }
+                DartsAction::Join if d.gather.is_some() => {
+                    if let Some(g) = d.gather.as_mut() {
+                        g.arrive(from);
+                        info!("darts: {} is at the board", t.name(from));
+                    }
+                }
                 DartsAction::Join => {
                     if !d.asking.contains(&from) {
                         d.asking.push(from);
                     }
                     if d.page != Page::Play || d.foe == Foe::Practice {
                         info!("darts: {} throws against this board", t.name(from));
-                        d.stake = 0;
-                        start_match(d, Foe::Player(from), now);
+                        start_players(d, &[from], false, now);
                         files.write(PlayFile(HAND.into()));
                     } else {
                         d.status = format!("{} wants a match (press 3 after this one).", t.name(from));
@@ -908,13 +1074,16 @@ fn darts_step(
                 }
                 DartsAction::Leave => {
                     d.asking.retain(|p| *p != from);
+                    if let Some(g) = d.gather.as_mut() {
+                        g.leave(from);
+                    }
                     if theirs {
                         d.status = format!("{} left the match.", t.name(from));
                         d.page = Page::Main;
                     }
                 }
-                DartsAction::Throw(x, z) if theirs && d.m.up == 1 && !d.m.turn_over => d.flights.push((now, (x, z), 1)),
-                DartsAction::Next if theirs && d.m.up == 1 && d.m.turn_over && d.m.next_turn() => {
+                DartsAction::Throw(x, z) if throws_now && !d.m.turn_over => d.flights.push((now, (x, z), d.m.up + REMOTE)),
+                DartsAction::Next if throws_now && d.m.turn_over && d.m.next_turn() => {
                     d.stuck.clear();
                     d.turn_since = now;
                     files.write(PlayFile(HAND.into()));
@@ -922,6 +1091,38 @@ fn darts_step(
                 _ => {}
             }
         }
+    }
+    // The players' match being gathered: called off, or everyone is here.
+    if d.joined.is_none() {
+        if let Some(g) = d.gather.as_ref() {
+            if let Some(off) = g.off(now) {
+                d.status = match off {
+                    crate::match_lobby::Off::TooFew => "Not enough players said yes.".into(),
+                    crate::match_lobby::Off::NotCome => "Not everyone came to the board.".into(),
+                };
+                info!("darts: the players' match is off ({off:?})");
+                d.gather = None;
+                d.page = Page::Main;
+            } else if let Some(others) = g.ready() {
+                let teams = g.mode.teams;
+                start_players(d, &others, teams, now);
+                files.write(PlayFile(HAND.into()));
+            }
+        }
+    }
+    if let Some(t) = tables.as_deref() {
+        d.at_hand = 1 + t.near.iter().filter(|p| t.at_table(**p).is_none_or(|g| g == game::DARTS)).count();
+    }
+    // "Waiting for all players..." while the match gathers (the owner's, or the one this
+    // player came for).
+    let name = |p: u8| tables.as_deref().map_or_else(|| format!("Player {p}"), |t| t.name(p));
+    let want = match (d.page, d.gather.as_ref(), d.lobby.as_ref()) {
+        (Page::Gather, Some(g), _) => Some((game::DARTS, g.view().still_to_come(&name))),
+        (Page::Gather, None, Some(l)) => Some((game::DARTS, l.still_to_come(&name))),
+        _ => None,
+    };
+    if waiting.0 != want {
+        waiting.0 = want;
     }
     // Darts landing.
     let mut i = 0;
@@ -1070,6 +1271,13 @@ fn fillet_keys(
             }
         }
         FPage::Bet => {
+            // A race: R picks the racers, 2 to 4, as many as are near the knife.
+            let near = 1 + tables.as_deref().map_or(0, |t| t.near.len());
+            if f.duel_bet && keys.just_pressed(KeyCode::KeyR) {
+                let modes = crate::match_lobby::FILLET_MODES;
+                let next = modes.iter().cycle().skip_while(|m| m.players != f.racers).skip(1).take(modes.len()).find(|m| crate::match_lobby::available(**m, near));
+                f.racers = next.map_or(2, |m| m.players);
+            }
             if keys.just_pressed(KeyCode::KeyQ) {
                 f.bet = fillet::step_bet(f.bet, false);
             } else if keys.just_pressed(KeyCode::KeyE) {
@@ -1081,8 +1289,8 @@ fn fillet_keys(
                     return;
                 }
                 if f.duel_bet {
-                    // The bet is paid when someone matches it.
-                    f.duel = Some(Duel { bet: f.bet, seed: f.rng.next_u64(), foe: None, go_at: 0.0, confirmed: false, foe_seen: now, foe_view: None, next_round_at: None, ended: false, result: None });
+                    // The bet is paid when the race is full.
+                    f.duel = Some(Duel { bet: f.bet, seed: f.rng.next_u64(), foe: None, go_at: 0.0, confirmed: false, foe_seen: now, foe_view: None, next_round_at: None, ended: false, result: None, want: f.racers, joining: Vec::new(), rivals: Vec::new(), views: Vec::new(), won: 0 });
                     f.page = FPage::Challenge;
                     f.status.clear();
                     info!("fillet: a race challenge for {} caps", f.bet);
@@ -1212,22 +1420,53 @@ fn fillet_step(
             if *table != knife || Some((bet, seed)) != open || f.page != FPage::Challenge {
                 continue;
             }
+            let full = match f.duel.as_mut() {
+                Some(d) => {
+                    if !d.joining.contains(from) {
+                        d.joining.push(*from);
+                    }
+                    info!("fillet: player {from} matched the race ({} of {})", d.joining.len() + 1, d.want);
+                    (d.joining.len() + 1 >= usize::from(d.want)).then(|| (d.joining.clone(), d.want))
+                }
+                None => None,
+            };
+            let Some((rivals, want)) = full else { continue };
             let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { continue };
             if caps(rt, &mut sim) < bet {
                 f.status = "You don't have the caps for your own bet any more.".into();
                 continue;
             }
             give_caps(rt, &mut sim, -(bet as i64));
-            start_race(f, bet, seed, *from, now);
+            start_race_of(f, bet, seed, &rivals, want, now);
         }
     }
     if let (Some(d), Some(g)) = (f.duel.as_mut(), f.game.as_mut()) {
         let foe = d.foe.unwrap_or(0);
         let name = tables.map_or_else(|| format!("Player {foe}"), |t| t.name(foe));
-        if let Some(v) = at_knife(foe).filter(|v| v.duel.is_some_and(|x| x.foe == Some(me) && x.seed == d.seed)) {
+        if let Some(v) = at_knife(foe).filter(|v| v.duel.is_some_and(|x| x.races(me) && x.seed == d.seed)) {
             d.confirmed = true;
             d.foe_seen = now;
+            // A matcher learns the other racers from the challenger's view.
+            if let Some(x) = v.duel {
+                d.want = d.want.max(x.want);
+                for r in x.rivals().filter(|r| *r != me) {
+                    if !d.rivals.contains(&r) {
+                        d.rivals.push(r);
+                    }
+                }
+            }
             d.foe_view = Some(v);
+        }
+        // A matcher whose challenger still gathers its racers waits (its countdown
+        // starts once the race is full).
+        if !d.confirmed && at_knife(foe).and_then(|v| v.duel).is_some_and(|x| x.seed == d.seed && x.foe.is_none()) {
+            d.go_at = now + COUNTDOWN;
+        }
+        for &r in &d.rivals {
+            if let Some(v) = at_knife(r).filter(|v| v.duel.is_some_and(|x| x.races(me) && x.seed == d.seed)) {
+                d.views.retain(|x| x.0 != r);
+                d.views.push((r, v, now));
+            }
         }
         g.tick(dt);
         if g.state == FState::Ready && now >= d.go_at && d.confirmed {
@@ -1247,7 +1486,28 @@ fn fillet_step(
             }
             info!("fillet: race done ({:?}, {} mistakes, {:.2} s)", g.state, g.mistakes, g.elapsed);
         }
-        if d.result.is_none() {
+        if d.result.is_none() && d.rivals.len() > 1 {
+            // A race of more than two: once this racer and every other is done (or gone).
+            let finish = |v: &FilletView| (v.state >= 3).then(|| Finish { won: v.state == 3, mistakes: v.mistakes, seconds: v.duel.map_or(0.0, |x| x.seconds) });
+            let others: Vec<Option<Option<Finish>>> = d.rivals.iter().map(|r| match d.views.iter().find(|x| x.0 == *r) {
+                Some((_, v, seen)) if now - seen <= OWNER_GONE => finish(v).map(Some),
+                _ if now - d.go_at > OWNER_GONE => Some(None),
+                _ => None,
+            }).collect();
+            if let (Some(a), true) = (g.finish(), others.iter().all(|o| o.is_some())) {
+                // Against each: a finish compared, one gone counted as beaten.
+                let vs: Vec<Ordering> = others.iter().map(|o| o.as_ref().and_then(|x| x.as_ref()).map_or(Ordering::Greater, |b| fillet::race(&a, b))).collect();
+                let won = race_share(d.bet, &vs);
+                d.result = Some(if won > d.bet { Ordering::Greater } else if won == d.bet { Ordering::Equal } else { Ordering::Less });
+                d.won = won;
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    give_caps(rt, &mut sim, won as i64);
+                }
+                f.status = if won > 0 { format!("You: {}. You win {won} caps.", race_end(&a)) } else { format!("You: {}. Beaten.", race_end(&a)) };
+                info!("fillet: a race of {}: {:?}, {won} caps", d.rivals.len() + 1, vs);
+            }
+        }
+        if d.result.is_none() && d.rivals.len() <= 1 {
             let mine = g.finish();
             let theirs = d.foe_view.as_ref().filter(|v| v.state >= 3).map(|v| Finish { won: v.state == 3, mistakes: v.mistakes, seconds: v.duel.map_or(0.0, |x| x.seconds) });
             let bet = d.bet;
@@ -1343,6 +1603,31 @@ fn impact(d: &mut Darts, files: &mut MessageWriter<PlayFile>) {
     files.write(PlayFile(format!("sound\\fx\\minigames\\darts\\impact{pick}.wav")));
 }
 
+/// A race's winnings for this racer (item 128): the pot (every racer's bet) to the best
+/// finish, shared by those tied with it; `vs` how this racer did against each other one.
+/// For two racers it is `fillet::race_payout`.
+pub fn race_share(bet: u32, vs: &[Ordering]) -> u32 {
+    if vs.contains(&Ordering::Less) {
+        return 0;
+    }
+    let tied = vs.iter().filter(|o| **o == Ordering::Equal).count() as u32;
+    bet * (vs.len() as u32 + 1) / (tied + 1)
+}
+
+/// Who throws for the side up in a players' match: the seat's player, or in two teams the
+/// side's two by turns (seats 0 and 2 for side 0, 1 and 3 for side 1).
+pub fn thrower_of(players: &[u8], teams: bool, m: &Match) -> Option<u8> {
+    if players.is_empty() {
+        return None;
+    }
+    if teams {
+        let turns = m.sides.get(m.up).map_or(1, |s| s.turns.max(1)) as usize;
+        players.get(m.up + 2 * ((turns - 1) % 2)).copied()
+    } else {
+        players.get(m.up).copied()
+    }
+}
+
 /// What this game's table shows the others.
 /// `foe`: the game's opponent at the board, if one plays.
 pub fn darts_view(d: &Darts, me: u8, now: f32, foe: Option<u32>) -> Option<DartsView> {
@@ -1351,7 +1636,7 @@ pub fn darts_view(d: &Darts, me: u8, now: f32, foe: Option<u32>) -> Option<Darts
     }
     let who = |i: usize| match (i, d.foe) {
         (0, _) => me,
-        (_, Foe::Player(p)) => p,
+        (_, Foe::Player(p)) => d.players.get(i).copied().unwrap_or(p),
         _ => DARTS_AI,
     };
     Some(DartsView {
@@ -1365,9 +1650,13 @@ pub fn darts_view(d: &Darts, me: u8, now: f32, foe: Option<u32>) -> Option<Darts
         stuck: d.stuck.clone(),
         open_seat: d.page != Page::Play || d.foe == Foe::Practice,
         draw: (arm_draw(d, now) * 255.0).round() as u8,
-        released: (d.m.sides.get(d.m.up).map_or(0, |s| s.darts.len()) + d.flights.iter().filter(|f| f.2 == d.m.up).count()) as u8,
+        released: (d.m.sides.get(d.m.up).map_or(0, |s| s.darts.len()) + d.flights.iter().filter(|f| f.2 % REMOTE == d.m.up).count()) as u8,
         foe: foe.unwrap_or(0),
         flights: d.flights.iter().map(|(since, (x, z), _)| (((now - since) * 100.0).clamp(0.0, 255.0) as u8, *x, *z)).collect(),
+        players: if d.page == Page::Play { d.players.clone() } else { Vec::new() },
+        teams: d.teams,
+        thrower: d.thrower().unwrap_or(255),
+        lobby: d.gather.as_ref().map(|g| g.view()),
     })
 }
 
@@ -1375,7 +1664,7 @@ pub fn darts_view(d: &Darts, me: u8, now: f32, foe: Option<u32>) -> Option<Darts
 /// the button is held, the opponent's before it lets go [design: `darts_arm.rs` poses
 /// the arm by it].
 pub fn arm_draw(d: &Darts, now: f32) -> f32 {
-    let x = if d.m.up == d.mine() {
+    let x = if d.up_is_me() {
         d.press.map_or(0.0, |p| (now - p.since) / DRAW_SECONDS)
     } else if d.joined.is_some() {
         d.remote_draw
@@ -1399,7 +1688,7 @@ pub fn fillet_view(f: &Fillet) -> Option<FilletView> {
         return None;
     }
     let g = f.game.as_ref();
-    let duel = f.duel.as_ref().map(|d| DuelView { bet: d.bet, seed: d.seed, foe: d.foe, seconds: g.map_or(0.0, |g| g.elapsed) });
+    let duel = f.duel.as_ref().map(|d| DuelView { bet: d.bet, seed: d.seed, foe: d.foe, seconds: g.map_or(0.0, |g| g.elapsed), want: d.want, rivals: crate::coop_tables::rival_places(&d.rivals) });
     Some(FilletView {
         stake: g.map_or(0, |g| g.stake),
         round: g.map_or(0, |g| g.round),
@@ -1466,7 +1755,6 @@ fn crosshair(p: &mut ChildSpawnerCommands, left: Val, top: Val) {
     });
 }
 
-const AMBER: Color = Color::srgb(0.98, 0.78, 0.35);
 const CHALK: Color = Color::srgb(0.92, 0.92, 0.88);
 
 #[allow(clippy::too_many_arguments)]
@@ -1475,7 +1763,7 @@ fn draw(
     d: Res<DartsScreen>,
     (f, stage): (Res<FilletScreen>, Res<FilletStage>),
     time: AidTime,
-    tables: Option<Res<Tables>>,
+    (tables, casino): (Option<Res<Tables>>, Option<Res<crate::casino_hud::CasinoFaces>>),
     old: Query<Entity, With<MinigameRoot>>,
     (windows, cams): crate::minigames::ViewQueries,
 ) {
@@ -1492,49 +1780,76 @@ fn draw(
             board_on_screen(at, fr, c, w)
         });
         let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.02, 0.02, 0.02, shade)), GlobalZIndex(25))).id();
-        commands.entity(root).with_children(|p| draw_darts(p, d, now, &name, aim));
+        let plain;
+        let faces = match casino.as_deref() {
+            Some(f) => f,
+            None => {
+                plain = crate::casino_hud::CasinoFaces::plain();
+                &plain
+            }
+        };
+        commands.entity(root).with_children(|p| draw_darts(p, d, now, &name, aim, faces));
     }
     if let Some(f) = f.0.as_ref() {
         // At the table in 3D the world shows through (the mod's HUD lies over the view).
         let shade = if stage.shown(f.knife) && f.page == FPage::Play { Color::NONE } else { Color::srgba(0.05, 0.03, 0.02, 0.9) };
         let root = commands.spawn((MinigameRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(shade), GlobalZIndex(25))).id();
         let coop = tables.as_deref().is_some_and(|t| t.on);
-        commands.entity(root).with_children(|p| draw_fillet(p, f, &stage, now, &name, coop));
+        let plain;
+        let faces = match casino.as_deref() {
+            Some(f) => f,
+            None => {
+                plain = crate::casino_hud::CasinoFaces::plain();
+                &plain
+            }
+        };
+        commands.entity(root).with_children(|p| draw_fillet(p, f, &stage, now, &name, coop, faces));
     }
 }
 
-fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String, aim: Option<Vec2>) {
+fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String, aim: Option<Vec2>, faces: &crate::casino_hud::CasinoFaces) {
     let k = BOARD_VH / darts::EDGE;
     match d.page {
         Page::Main => {
-            text(p, "Darts", Val::Percent(40.0), Val::Percent(25.0), 40.0, AMBER);
-            let lines = match d.joined {
-                Some(o) => vec![format!("{} is at this board.", name(o)), "Space) Throw against them".into(), "Tab) Leave".into()],
+            use crate::match_lobby::{menu_card, row};
+            const HOW: &str = "301, double out. Aim with the mouse; hold the left button and let go on the green pip.";
+            match d.joined {
+                Some(o) => menu_card(p, faces, "Darts", &format!("{} is at this board.", name(o)), &[row("Space", "Throw against them"), row("Tab", "Leave")], HOW),
                 None => {
-                    let mut l = vec!["1) Challenge Opponent".to_string(), "2) Practice".into()];
+                    let mut rows = vec![row("1", if d.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), row("2", "Practice")];
                     if let Some(q) = d.asking.first() {
-                        l.push(format!("3) Play {}", name(*q)));
+                        rows.push(row("3", format!("Play {}", name(*q))));
                     }
-                    l.push("Tab) Leave".into());
-                    l.push(String::new());
-                    l.push("301, double out. Aim with the mouse; hold the left button and let go on the green pip.".into());
-                    l
+                    rows.push(row("Tab", "Leave"));
+                    menu_card(p, faces, "Darts", "", &rows, HOW);
                 }
-            };
-            for (i, l) in lines.iter().enumerate() {
-                text(p, l.clone(), Val::Percent(40.0), Val::Percent(35.0 + 5.0 * i as f32), 22.0, AMBER);
             }
         }
+        Page::Challenge => {
+            use crate::match_lobby::{available, menu_card, row, DARTS_MODES};
+            let mut rows = vec![row("1", "The house's player").note("a bet")];
+            for (i, m) in DARTS_MODES.iter().enumerate() {
+                let open = available(*m, d.at_hand);
+                let r = row(&(i + 2).to_string(), m.label).enabled(open);
+                rows.push(if open { r } else { r.note(format!("{} players near the board", m.players)) });
+            }
+            rows.push(row("Tab", "Back"));
+            menu_card(p, faces, "Challenge", "Who to play", &rows, "");
+        }
+        Page::Gather => {
+            crate::casino_hud::help_line(p, faces, "Tab) Leave");
+        }
         Page::Bet => {
-            text(p, format!("Bet: {} caps", d.bet), Val::Percent(40.0), Val::Percent(30.0), 32.0, AMBER);
-            text(p, format!("Q) Decrease   E) Increase   Space) Start   Tab) Back\nThe bet sets the opponent's skill. A win pays {}.", darts::payout(d.bet)), Val::Percent(30.0), Val::Percent(40.0), 20.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
+            menu_card(p, faces, &format!("Bet: {} caps", d.bet), "", &rows, &format!("The bet sets the opponent's skill. A win pays {}.", darts::payout(d.bet)));
         }
         Page::Play if d.frame.is_some() => {
             // The board is the cabinet's; the crosshair sits where the aim meets it.
             if let (true, Some(a)) = (d.my_turn(), aim) {
                 crosshair(p, Val::Percent(a.x), Val::Percent(a.y));
             }
-            draw_bar_and_chalk(p, d, now, name);
+            draw_bar_and_chalk(p, d, now, name, faces);
         }
         Page::Play => {
             // No board in the world (its reference has no place): drawn flat.
@@ -1568,17 +1883,26 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
                     crosshair(b, Val::Vh(x * k), Val::Vh(-z * k));
                 }
             });
-            draw_bar_and_chalk(p, d, now, name);
+            draw_bar_and_chalk(p, d, now, name, faces);
         }
     }
     if !d.status.is_empty() && d.page != Page::Play {
-        text(p, d.status.clone(), Val::Percent(30.0), Val::Percent(70.0), 20.0, AMBER);
+        crate::casino_hud::banner(p, faces, &d.status);
     }
 }
 
 /// The timing bar, the chalk scores and the keys' help.
-fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String) {
+fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u8) -> String, faces: &crate::casino_hud::CasinoFaces) {
     let side_name = |i: usize| -> String {
+        // A players' match: the seat's player, or a team's two.
+        if !d.players.is_empty() {
+            let who = |p: u8| if Some(p) == d.me { "You".to_string() } else { name(p) };
+            return match (d.teams, d.players.get(i), d.players.get(i + 2)) {
+                (true, Some(a), Some(b)) => format!("{} & {}", who(*a), who(*b)),
+                (_, Some(a), _) => who(*a),
+                _ => "?".into(),
+            };
+        }
         if i == d.mine() {
             "You".into()
         } else {
@@ -1599,30 +1923,34 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
                     b.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(at * 100.0 - 0.3), width: Val::Px(4.0), top: Val::Px(-6.0), height: Val::Px(22.0), ..default() }, BackgroundColor(Color::WHITE)));
                 });
             }
-            // The chalk scores.
-            let mut lines = Vec::new();
-            for (i, s) in d.m.sides.iter().enumerate() {
-                let up = if i == d.m.up && d.m.winner.is_none() { "> " } else { "  " };
-                let thrown: Vec<String> = s.darts.iter().map(|h: &Hit| h.label()).collect();
-                lines.push(format!("{up}{}: {}   {}", side_name(i), s.score, thrown.join(" ")));
-            }
-            if d.stake > 0 {
-                lines.push(format!("Stake: {} caps", d.stake));
+            // The scores: the HUD-look panel while the match runs, the leaderboard at its end.
+            use crate::casino_hud::{help_line, leaderboard, ranked, score_panel, Place, ScoreRow};
+            if let Some(w) = d.m.winner {
+                let keys: Vec<i64> = d.m.sides.iter().map(|s| i64::from(s.score)).collect();
+                let places: Vec<Place> = ranked(w, &keys).into_iter().map(|i| Place { name: side_name(i), detail: format!("{} left", d.m.sides[i].score) }).collect();
+                leaderboard(p, faces, &side_name(w), &places);
+            } else {
+                let rows: Vec<ScoreRow> = d
+                    .m
+                    .sides
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| ScoreRow { name: side_name(i), score: s.score.to_string(), note: s.darts.iter().map(|h: &Hit| h.label()).collect::<Vec<_>>().join(" "), up: i == d.m.up })
+                    .collect();
+                let stake = (d.stake > 0).then(|| format!("Stake: {} caps", d.stake));
+                score_panel(p, faces, &rows, stake.as_deref());
             }
             let help = if let Some(w) = d.m.winner {
                 format!("{} checked out! {}\n{}Tab) Leave", side_name(w), d.status, if d.joined.is_none() { "R) Menu   " } else { "" })
-            } else if d.m.turn_over && d.m.up == d.mine() {
+            } else if d.m.turn_over && d.up_is_me() {
                 format!("{}Space) {}   Tab) Leave", if d.m.bust { "BUST. " } else { "" }, if d.m.sides.len() > 1 { "Hand over" } else { "Next turn" })
-            } else if d.m.up != d.mine() {
-                format!("{}'s turn.   Tab) Leave", side_name(d.m.up))
+            } else if !d.up_is_me() {
+                let up = d.thrower().filter(|_| d.teams).map_or_else(|| side_name(d.m.up), |p| if Some(p) == d.me { "Your".into() } else { name(p) });
+                format!("{up}'s turn.   Tab) Leave")
             } else {
                 format!("Hold and release the left button to throw.   {}Tab) Leave", if d.foe == Foe::Practice { "R) Menu   " } else { "" })
             };
-            p.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(2.0), top: Val::Percent(9.0), padding: UiRect::all(Val::Px(10.0)), ..default() }, BackgroundColor(Color::srgba(0.05, 0.07, 0.05, 0.7))))
-                .with_children(|c| {
-                    c.spawn((Text::new(lines.join("\n")), TextFont { font_size: FontSize::Px(24.0), ..default() }, TextColor(CHALK)));
-                });
-            text(p, help, Val::Percent(3.0), Val::Percent(88.0), 20.0, AMBER);
+            help_line(p, faces, &help);
         }
     }
 }
@@ -1631,33 +1959,43 @@ fn draw_bar_and_chalk(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &
 /// [observed: TableChalk.nif LFFPrompt1..5].
 const GAP_AT: [(f32, f32); 5] = [(-8.773, 4.081), (-6.462, 8.034), (-3.565, 9.525), (-0.223, 9.366), (3.858, 4.769)];
 
-fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String, coop: bool) {
+fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, now: f32, name: &dyn Fn(u8) -> String, coop: bool, faces: &crate::casino_hud::CasinoFaces) {
     match f.page {
         FPage::Busy(q) => {
-            text(p, format!("{} is at this table.\nWatch them, and take your turn when they are done.\n\nTab) Leave", name(q)), Val::Percent(30.0), Val::Percent(35.0), 24.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            menu_card(p, faces, "Five Finger Fillet", &format!("{} is at this table.", name(q)), &[row("Tab", "Leave")], "Watch them, and take your turn when they are done.");
         }
         FPage::Offer(q) => {
             let bet = f.offer.map_or(0, |o| o.0);
-            text(p, "Five Finger Fillet race", Val::Percent(34.0), Val::Percent(25.0), 40.0, AMBER);
-            text(p, format!("{} challenges you: {bet} caps each, the winner takes {}.\nYou both get the same prompts at once.\nA finish beats a loss, then fewer mistakes, then the faster time.\n\nSpace) Match the bet   Tab) Leave", name(q), bet * 2), Val::Percent(26.0), Val::Percent(36.0), 22.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let sub = format!("{} challenges you: {bet} caps each, the winner takes {}.", name(q), bet * 2);
+            menu_card(p, faces, "Five Finger Fillet race", &sub, &[row("Space", "Match the bet"), row("Tab", "Leave")], "You all get the same prompts at once. A finish beats a loss, then fewer mistakes, then the faster time.");
         }
         FPage::Challenge => {
-            let bet = f.duel.as_ref().map_or(0, |d| d.bet);
-            text(p, "Five Finger Fillet race", Val::Percent(34.0), Val::Percent(25.0), 40.0, AMBER);
-            text(p, format!("Your challenge is open: {bet} caps each, the winner takes {}.\nWaiting for another player to open this knife and match it.\n\nTab) Withdraw", bet * 2), Val::Percent(26.0), Val::Percent(36.0), 22.0, AMBER);
+            let (bet, want, joined) = f.duel.as_ref().map_or((0, 2, 0), |d| (d.bet, u32::from(d.want), d.joining.len() as u32));
+            use crate::match_lobby::{menu_card, row};
+            let sub = format!("Your challenge is open: {bet} caps each, the winner takes {}.", bet * want);
+            menu_card(p, faces, "Five Finger Fillet race", &sub, &[row("Tab", "Withdraw")], &format!("A race of {want}: {} of {want} here. Waiting for players to open this knife and match it.", joined + 1));
         }
         FPage::Main => {
-            text(p, "Five Finger Fillet", Val::Percent(36.0), Val::Percent(25.0), 40.0, AMBER);
-            let race = if coop { "\n3) Race another player" } else { "" };
-            text(p, format!("1) Play for caps\n2) Practice{race}\nTab) Leave\n\nThree rounds of 12, 18 and 24 stabs.\nPress the key shown at the knife.\nThree mistakes lose; each costs 10 health."), Val::Percent(30.0), Val::Percent(35.0), 22.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let mut rows = vec![row("1", "Play for caps"), row("2", "Practice")];
+            if coop {
+                rows.push(row("3", "Race other players"));
+            }
+            rows.push(row("Tab", "Leave"));
+            menu_card(p, faces, "Five Finger Fillet", "", &rows, "Three rounds of 12, 18 and 24 stabs. Press the key shown at the knife. Three mistakes lose; each costs 10 health.");
         }
         FPage::Bet if f.duel_bet => {
-            text(p, format!("Race bet: {} caps each", f.bet), Val::Percent(34.0), Val::Percent(30.0), 30.0, AMBER);
-            text(p, format!("Q) Decrease   E) Increase   Space) Challenge   Tab) Back\nThe winner takes {}. {:.0} s on each clock.", f.bet * 2, fillet::time_limit(f.bet)), Val::Percent(30.0), Val::Percent(40.0), 20.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("R", "Racers").note(format!("{} now; up to 4, as many as are near", f.racers)), row("Space", "Challenge"), row("Tab", "Back")];
+            let foot = format!("The winner takes {}. {:.0} s on each clock.", f.bet * u32::from(f.racers), fillet::time_limit(f.bet));
+            menu_card(p, faces, &format!("Race bet: {} caps each", f.bet), &format!("Racers: {}", f.racers), &rows, &foot);
         }
         FPage::Bet => {
-            text(p, format!("Bet: {} caps ({:.0} s on the clock)", f.bet, fillet::time_limit(f.bet)), Val::Percent(34.0), Val::Percent(30.0), 30.0, AMBER);
-            text(p, format!("Q) Decrease   E) Increase   Space) Start   Tab) Back\nA win pays {}.", fillet::payout(f.bet)), Val::Percent(30.0), Val::Percent(40.0), 20.0, AMBER);
+            use crate::match_lobby::{menu_card, row};
+            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
+            menu_card(p, faces, &format!("Bet: {} caps", f.bet), &format!("{:.0} s on the clock", fillet::time_limit(f.bet)), &rows, &format!("A win pays {}.", fillet::payout(f.bet)));
         }
         FPage::Play => {
             let Some(g) = f.game.as_ref() else { return };
@@ -1700,15 +2038,21 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                 }
             });
             }
-            let lines = format!("Round {}/{}   Stabs {}/{}   Mistakes {}/{}", g.round.max(1), fillet::ROUNDS, g.hits, fillet::required(g.round.max(1)), g.mistakes, fillet::MAX_MISTAKES);
-            text(p, lines, Val::Percent(28.0), Val::Percent(10.0), 26.0, CHALK);
+            // The count in the HUD's score panel; the clock as a bar in the HUD colour.
+            use crate::casino_hud::{help_line, score_panel, ScoreRow};
+            let mut rows = vec![
+                ScoreRow { name: format!("Round {}/{}", g.round.max(1), fillet::ROUNDS), score: format!("{}/{}", g.hits, fillet::required(g.round.max(1))), note: "stabs".into(), up: true },
+                ScoreRow { name: "Mistakes".into(), score: format!("{}/{}", g.mistakes, fillet::MAX_MISTAKES), note: String::new(), up: false },
+            ];
             if let Some(c) = g.clock {
+                rows.push(ScoreRow { name: "Time".into(), score: format!("{c:.1}"), note: "s".into(), up: false });
                 let share = (c / fillet::time_limit(g.stake)).clamp(0.0, 1.0);
-                p.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(33.0), top: Val::Percent(84.0), width: Val::Percent(34.0 * share), height: Val::Px(7.0), ..default() }, BackgroundColor(Color::WHITE)));
-                text(p, format!("TIME {c:.1}"), Val::Percent(43.0), Val::Percent(79.5), 20.0, CHALK);
+                p.spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(33.0), top: Val::Percent(84.0), width: Val::Percent(34.0 * share), height: Val::Px(5.0), ..default() }, BackgroundColor(crate::interface::amber(255.0))));
             }
+            let stake = (g.stake > 0).then(|| format!("Stake: {} caps", g.stake));
+            score_panel(p, faces, &rows, stake.as_deref());
             if let Some(d) = f.duel.as_ref() {
-                draw_race(p, d, g, now, name, &f.status);
+                draw_race(p, d, g, now, name, &f.status, faces);
                 return;
             }
             let help = match g.state {
@@ -1717,32 +2061,36 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
                 FState::Won | FState::Lost => format!("{} Space) Done   Tab) Leave", f.status),
                 FState::Prompt => "Press the key at the knife.   Tab) Leave".into(),
             };
-            text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, AMBER);
+            help_line(p, faces, &help);
         }
     }
     if !f.status.is_empty() && f.page != FPage::Play {
-        text(p, f.status.clone(), Val::Percent(30.0), Val::Percent(72.0), 20.0, AMBER);
+        crate::casino_hud::banner(p, faces, &f.status);
     }
 }
 
 /// A race's own lines over the table: the countdown, both times, the other racer, the
 /// result.
-fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32, name: &dyn Fn(u8) -> String, status: &str) {
+fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32, name: &dyn Fn(u8) -> String, status: &str, faces: &crate::casino_hud::CasinoFaces) {
     let foe = name(d.foe.unwrap_or(0));
     if g.state == FState::Ready {
         let left = d.go_at - now;
         let big = if !d.confirmed && left <= 0.0 { "...".to_string() } else { format!("{}", left.ceil().max(1.0) as i32) };
-        text(p, big, Val::Percent(47.0), Val::Percent(38.0), 96.0, CHALK);
+        crate::casino_hud::banner(p, faces, &big);
     } else if g.round == 1 && g.hits == 0 && g.elapsed < 0.8 {
-        text(p, "GO", Val::Percent(45.0), Val::Percent(38.0), 96.0, Color::srgb(0.3, 1.0, 0.3));
+        crate::casino_hud::banner(p, faces, "GO");
     }
-    text(p, format!("Race time {:.1} s", g.elapsed), Val::Percent(28.0), Val::Percent(19.0), 22.0, CHALK);
     let theirs = match d.foe_view.as_ref() {
         None => format!("{foe}: waiting"),
         Some(v) if v.state >= 3 => format!("{foe}: {}", if v.state == 3 { format!("done, {:.2} s, {} {}", v.duel.map_or(0.0, |x| x.seconds), v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }) } else { "out".to_string() }),
         Some(v) => format!("{foe}: round {}/3, {}/{} stabs, {} {}, {:.1} s", v.round.max(1), v.hits, v.required, v.mistakes, if v.mistakes == 1 { "mistake" } else { "mistakes" }, v.duel.map_or(0.0, |x| x.seconds)),
     };
-    text(p, theirs, Val::Percent(28.0), Val::Percent(15.0), 22.0, AMBER);
+    // Under the score panel, in the HUD's small print: the race clock and the other racer.
+    p.spawn(Node { position_type: PositionType::Absolute, right: crate::interface::u(40.0), top: crate::interface::u(250.0), width: crate::interface::u(0.0), ..default() }).with_children(|b| {
+        let race = format!("Race time {:.1} s", g.elapsed);
+        crate::casino_hud::line(b, faces, 0, &race, -crate::casino_hud::width(faces, 0, &race), 0.0, crate::interface::amber(255.0));
+        crate::casino_hud::line(b, faces, 0, &theirs, -crate::casino_hud::width(faces, 0, &theirs), 22.0, crate::interface::amber(200.0));
+    });
     let help = match (d.result, g.state) {
         (Some(_), _) => format!("{status}   Space) Done   Tab) Leave"),
         (None, FState::Ready) => format!("A race against {foe} for {} caps each.   Tab) Forfeit", d.bet),
@@ -1750,5 +2098,53 @@ fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32,
         (None, FState::Prompt) => "Press the key at the knife.   Tab) Forfeit".to_string(),
         (None, _) => format!("Your race is done. Waiting for {foe}; leaving now forfeits."),
     };
-    text(p, help, Val::Percent(28.0), Val::Percent(90.0), 20.0, AMBER);
+    crate::casino_hud::help_line(p, faces, &help);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn turn(m: &mut Match) {
+        m.turn_over = true;
+        assert!(m.next_turn());
+    }
+
+    #[test]
+    fn a_race_of_four_pays_the_pot_to_the_best() {
+        use Ordering::*;
+        assert_eq!(race_share(10, &[Greater, Greater, Greater]), 40);
+        assert_eq!(race_share(10, &[Equal, Greater, Greater]), 20);
+        assert_eq!(race_share(10, &[Greater, Less, Greater]), 0);
+        // Two racers: as the race payout.
+        for o in [Greater, Equal, Less] {
+            assert_eq!(race_share(10, &[o]), fillet::race_payout(10, o));
+        }
+    }
+
+    #[test]
+    fn four_players_throw_in_seat_order() {
+        let p = [10, 11, 12, 13];
+        let mut m = Match::new(4);
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            seen.push(thrower_of(&p, false, &m).unwrap());
+            turn(&mut m);
+        }
+        assert_eq!(seen, [10, 11, 12, 13, 10]);
+    }
+
+    #[test]
+    fn two_teams_take_turns_within_a_team() {
+        // Seats 0 and 2 against 1 and 3: A1, B1, A2, B2, A1.
+        let p = [10, 11, 12, 13];
+        let mut m = Match::new(2);
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            seen.push(thrower_of(&p, true, &m).unwrap());
+            turn(&mut m);
+        }
+        assert_eq!(seen, [10, 11, 12, 13, 10]);
+        assert_eq!(thrower_of(&[], false, &m), None);
+    }
 }

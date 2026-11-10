@@ -192,8 +192,20 @@ fn button(p: &mut ChildSpawnerCommands, c: &mut Ctx, label: &str, key: &str, rig
     }
 }
 
+/// One soft backdrop under a column of buttons (labels and keys, their tops) [design, owner
+/// 2026-11-09].
+fn buttons_backdrop(p: &mut ChildSpawnerCommands, c: &mut Ctx, rows: &[(&str, &str, f32)]) {
+    let (Some(first), Some(last)) = (rows.first(), rows.last()) else { return };
+    let lw = rows.iter().map(|r| c.text_width(FontKind::Menu, r.0)).fold(0.0, f32::max);
+    let kw = rows.iter().map(|r| c.text_width(FontKind::Menu, r.1)).fold(0.0, f32::max);
+    let left = BUTTONS_RIGHT - HINT_GAP - 34.0 - lw;
+    crate::casino_hud::glass(p, left, first.2, BUTTONS_RIGHT - 34.0 + kw - left, last.2 - first.2 + 34.0);
+}
+
 fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, top: f32) {
     if let Some(line) = &s.status {
+        let w = c.text_width(FontKind::Menu, line);
+        crate::casino_hud::glass(p, BUTTONS_RIGHT - w, top + 2.0, w, 32.0);
         c.text_in(p, FontKind::Menu, line, BUTTONS_RIGHT, top, true, amber(255.0));
     }
 }
@@ -216,10 +228,13 @@ fn bet(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     let b = amber(255.0);
     bracket(p, c, 40.0, 750.0, 545.0, 170.0);
     let rows = [(s.opponent_name.clone(), s.bet.bid), ("Current Ante:".into(), s.bet.ante), ("Total Funds:".into(), s.bet.funds)];
+    crate::casino_hud::glass(p, BET_X.0, BET_ROWS[0] + 2.0, BET_X.1 - BET_X.0, BET_ROWS[2] - BET_ROWS[0] + 32.0);
     for ((title, value), y) in rows.iter().zip(BET_ROWS) {
         c.text_in(p, FontKind::Menu, title, BET_X.0, y, false, b);
         c.text_in(p, FontKind::Menu, &value.to_string(), BET_X.1, y, true, b);
     }
+    let rows: Vec<(&str, &str, f32)> = s.buttons().into_iter().zip(BET_BUTTONS).map(|((l, k, _, _), t)| (l, k, t)).collect();
+    buttons_backdrop(p, c, &rows);
     for ((label, key, cmd, on), top) in s.buttons().into_iter().zip(BET_BUTTONS) {
         button(p, c, label, key, BUTTONS_RIGHT, top, cmd, on);
     }
@@ -283,6 +298,30 @@ fn deck(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     button(p, c, "Remove", "A)", 1330.0, 862.0, CaravanInput::Remove, here.is_some_and(|f| s.in_deck(f)));
     button(p, c, "Play Caravan", "F)", BUTTONS_RIGHT, 862.0, CaravanInput::PlayDeck, s.deck.len() >= fnv_game::caravan::MIN_DECK);
     status(p, c, s, 10.0);
+}
+
+/// Everywhere a card can lie during a game, as rectangles (min, max) in the frame (y down),
+/// with `pad` round each: the six caravans as far as they can grow (the opponent's up to
+/// the top, the player's down to the bottom, faces stacked on the side), both hands at
+/// their fullest with the raised card, and both decks [design: the layout above]. The pot's
+/// money keeps out of them (owner 2026-11-09: "cash can go under everything else just
+/// stay away").
+pub fn card_zones(pad: f32) -> Vec<(Vec2, Vec2)> {
+    // Room for a few face cards stacked on a number card.
+    let faces = FACE_STEP * 3.0;
+    let mut z = Vec::new();
+    for t in 0..TRACKS {
+        let x0 = OPPONENT_X[t] - CARD.x / 2.0;
+        z.push((Vec2::new(x0, 0.0), Vec2::new(x0 + CARD.x + faces.x, OPPONENT_TOP + CARD.y + faces.y)));
+        let x0 = PLAYER_X[t] - CARD.x / 2.0;
+        z.push((Vec2::new(x0, PLAYER_TOP), Vec2::new(x0 + CARD.x + faces.x, 960.0)));
+    }
+    let last = (fnv_game::caravan::HAND - 1) as f32;
+    let (ox, oy, ostep) = OPPONENT_HAND;
+    z.push((Vec2::new(ox, oy.min(OPPONENT_DECK.1)), Vec2::new((ox + ostep * last + CARD.x).max(OPPONENT_DECK.0 + CARD.x), (oy.max(OPPONENT_DECK.1)) + CARD.y)));
+    let (hx, hy, hstep) = PLAYER_HAND;
+    z.push((Vec2::new(hx, hy - 28.0), Vec2::new((hx + hstep * last + HAND_CARD.x).max(PLAYER_DECK.0 + HAND_CARD.x), hy.max(PLAYER_DECK.1) + HAND_CARD.y)));
+    z.into_iter().map(|(a, b)| (a - Vec2::splat(pad), b + Vec2::splat(pad))).collect()
 }
 
 /// Where a caravan's card `i` lies (its top left).
@@ -475,13 +514,19 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
     }
     // The top right rows.
     let rows = [("Ante Pot:", s.bet.pot().to_string()), ("Net Total:", s.record.net().to_string()), ("Win/Loss:", format!("{}/{}", s.record.won, s.record.lost))];
+    crate::casino_hud::glass(p, INFO_X.0, INFO_Y[0] + 2.0, INFO_X.1 - INFO_X.0, INFO_Y[2] - INFO_Y[0] + 32.0);
     for ((title, value), y) in rows.iter().zip(INFO_Y) {
         c.text_in(p, FontKind::Menu, title, INFO_X.0, y, false, b);
         c.text_in(p, FontKind::Menu, value, INFO_X.1, y, true, b);
     }
     if g.phase != Phase::Over && !mine && s.help.is_none() {
-        c.text_in(p, FontKind::Menu, &format!("{} is thinking…", s.opponent_name), BUTTONS_RIGHT, 660.0, true, amber(180.0));
+        let thinking = format!("{} is thinking…", s.opponent_name);
+        let w = c.text_width(FontKind::Menu, &thinking);
+        crate::casino_hud::glass(p, BUTTONS_RIGHT - w, 662.0, w, 32.0);
+        c.text_in(p, FontKind::Menu, &thinking, BUTTONS_RIGHT, 660.0, true, amber(180.0));
     }
+    let rows: Vec<(&str, &str, f32)> = s.buttons().into_iter().zip(PLAY_BUTTONS).map(|((l, k, _, _), t)| (l, k, t)).collect();
+    buttons_backdrop(p, c, &rows);
     for ((label, key, cmd, on), top) in s.buttons().into_iter().zip(PLAY_BUTTONS) {
         button(p, c, label, key, BUTTONS_RIGHT, top, cmd, on);
     }
@@ -491,6 +536,7 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
 fn results(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     sign(p, c, dim);
     let b = amber(255.0);
+    crate::casino_hud::glass(p, 235.0, 235.0, 570.0, 333.0 + 45.0 * 3.0 - 235.0 + 32.0);
     c.text_in(p, FontKind::Menu, "Press Any Button to Continue", 436.0, 233.0, false, b);
     let r = &s.record;
     let rows = [

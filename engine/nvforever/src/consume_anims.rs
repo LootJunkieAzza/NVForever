@@ -509,7 +509,7 @@ fn own(
     (mut held, mut used): (ResMut<nvf_play::ConsumeAnims>, MessageReader<nvf_play::ItemUsed>),
     (script, sim, body, mut pi): (Option<Res<nvf_play::script::ScriptState>>, Res<nvf_play::sim::SimState>, Res<PlayerBody>, ResMut<PlayerIdles>),
     now: Now,
-    (mut parts, mut models, world): (ResMut<ActorParts>, ModelCtx, Res<WorldData>),
+    (mut parts, mut models, world, objects): (ResMut<ActorParts>, ModelCtx, Res<WorldData>, Res<crate::anim_objects::AnimObjects>),
     (mut sfx, mut sounds, mut send): (Option<ResMut<Sfx>>, MessageWriter<PlaySound>, MessageWriter<SendAnim>),
     mut transforms: Query<&mut Transform>,
     (mut hold, mut next): (ResMut<nvf_play::activate::HeldActivation>, ResMut<nvf_play::activate::ActivateNext>),
@@ -617,7 +617,18 @@ fn own(
                 }
                 info!("consume anim: {} plays {path} ({:?} person, {:.1} s)", p.edid, view, clip.length());
                 let is_bash = path.starts_with(b42::BASH_ROOT);
-                st.own = Some(Playing { item: p.item, view, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: now.feet(), activate: p.activate, fire: false, gave: false, grip: p.grip, bash: is_bash, strike: false });
+                // A game idle in its place: the object the game holds with it.
+                let held = if fallback && view == View::Third {
+                    let equip_type = data.ingestibles.get(&p.item).map_or(0, |d| d.equip_type);
+                    let rig = body.animators().first().map(|(_, a)| (a.skel.clone(), a.nodes.clone()));
+                    rig.and_then(|(skel, nodes)| game_object(&mut commands, &mut ctx, &objects, &p.edid, equip_type, &skel, &nodes, Some(RenderLayers::layer(crate::sky::BODY_LAYER))))
+                } else {
+                    None
+                };
+                if held.is_some() {
+                    st.stats.attached += 1;
+                }
+                st.own = Some(Playing { item: p.item, view, serial, clip, at: None, model: None, held, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: now.feet(), activate: p.activate, fire: false, gave: false, grip: p.grip, bash: is_bash, strike: false });
             }
             (Some(path), None) => warn!("consume anim: {}: {path} does not load", p.edid),
             (None, _) => {
@@ -855,6 +866,41 @@ fn attach(commands: &mut Commands, ctx: &mut ActorCtx, clip: &Clip, t: f32, skel
     Some(Held { entities, point: point_track.map(|tr| (point, tr)), moved })
 }
 
+/// The game's animated object for an aid item played with a game idle in place of a
+/// mod's clip (`b42::anim_object`): its model under the bone its `Prn` names, rigid,
+/// as `anim_objects.rs` draws the objects of an actor's idle. Log: `consume anim: holds
+/// <model> on <bone> (<ANIO>)`.
+#[allow(clippy::too_many_arguments)]
+fn game_object(commands: &mut Commands, ctx: &mut ActorCtx, objects: &crate::anim_objects::AnimObjects, edid: &str, equip_type: i64, skel: &nvf_assets::actor::PreparedSkeleton, nodes: &[Entity], layer: Option<RenderLayers>) -> Option<Held> {
+    let name = b42::anim_object(edid, equip_type)?;
+    let Some(model) = objects.model_by_edid(name).map(str::to_string) else {
+        warn!("consume anim: no animated object {name} for {edid}");
+        return None;
+    };
+    let part = ctx.part(&model).or_else(|| {
+        warn!("consume anim: {model} does not load");
+        None
+    })?;
+    let bone = part.attach_bone().to_string();
+    let Some(b) = skel.by_name.get(&bone).copied() else {
+        warn!("consume anim: no {bone} for {model}");
+        return None;
+    };
+    let at = *nodes.get(b)?;
+    let point = commands.spawn((Transform::IDENTITY, Visibility::default())).id();
+    commands.entity(at).add_child(point);
+    for s in part.shapes.iter().filter(|s| !s.cap) {
+        let local = nvf_assets::actor::rigid_local(skel, b, &part.root, &s.transform);
+        let x = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(local)))).id();
+        if let Some(l) = &layer {
+            commands.entity(x).insert(l.clone());
+        }
+        commands.entity(point).add_child(x);
+    }
+    info!("consume anim: holds {model} on {bone} ({name})");
+    Some(Held { entities: vec![point], point: None, moved: Vec::new() })
+}
+
 fn detach(commands: &mut Commands, pl: &mut Playing) {
     if let Some(h) = pl.held.take() {
         // The first is the attach point: its children go with it.
@@ -1044,6 +1090,7 @@ fn puppets(
     world: Res<WorldData>,
     script: Option<Res<nvf_play::script::ScriptState>>,
     mut transforms: Query<&mut Transform, Without<ActorRig>>,
+    objects: Res<crate::anim_objects::AnimObjects>,
 ) {
     let st = &mut *st;
     let dt = time.delta_secs();
@@ -1091,6 +1138,13 @@ fn puppets(
         if let Some(mut old) = st.puppets.remove(reference) {
             detach(&mut commands, &mut old);
         }
+        // A game idle in place of the mod's clip: the object the game holds with it.
+        let held = if own.as_deref() != Some(path.as_str()) && cue.kind == AnimCue::CONSUME {
+            let equip_type = data.and_then(|d| d.ingestibles.get(&FormId(cue.item))).map_or(0, |d| d.equip_type);
+            game_object(&mut commands, &mut ctx, &objects, &cue.edid, equip_type, &rig.skel, &rig.nodes, None)
+        } else {
+            None
+        };
         let keyed = own.is_some() && clip.text_keys.iter().any(|(_, k)| b42::cues(k).contains(&Cue::ItemSound));
         // The item's sound where the puppet is, unless the clip keys it.
         if cue.kind == AnimCue::CONSUME && !keyed {
@@ -1101,7 +1155,7 @@ fn puppets(
         }
         st.stats.puppets += 1;
         info!("consume anim: puppet {reference:08X} plays {path} for {}", cue.edid);
-        st.puppets.insert(*reference, Playing { item: FormId(cue.item), view: View::Third, serial, clip, at: None, model: None, held: None, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: [0.0; 3], activate: None, fire: false, gave: false, grip, bash: false, strike: false });
+        st.puppets.insert(*reference, Playing { item: FormId(cue.item), view: View::Third, serial, clip, at: None, model: None, held, recent: Vec::new(), keyed_sound: keyed, age: 0.0, feet: [0.0; 3], activate: None, fire: false, gave: false, grip, bash: false, strike: false });
     }
     let mut gone = Vec::new();
     for (reference, pl) in st.puppets.iter_mut() {

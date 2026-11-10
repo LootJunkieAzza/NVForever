@@ -209,6 +209,22 @@ pub struct AddonNode {
     pub index: i32,
 }
 
+/// On the root of a created reference whose base is a light (LIGH): nvforever's lights
+/// (`lights::dropped_lights`) give it the light a placed reference of that base sheds,
+/// flicker included. Before 2026-11-09 created lights shed none, so the fires Burning
+/// Campfire Redone places (each `PlaceAtMe`s a `SAGCampFire420` light) lit nothing
+/// (owner's queue item 103).
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DroppedLight {
+    pub reference: u32,
+    pub base: u32,
+}
+
+/// Whether base form `base` is a light (LIGH).
+pub fn is_light(d: &crate::PlayData, base: FormId) -> bool {
+    fnv_world::placed::base_object(d.lo, d.schema, base.0).is_some_and(|b| &b.sig == b"LIGH")
+}
+
 /// Bring the drawn created references in line with the simulation ([`plan`]).
 #[allow(clippy::too_many_arguments)]
 fn sync_drawn(
@@ -257,6 +273,16 @@ fn sync_drawn(
         let w = wanted[&id];
         let (cell_e, origin) = loaded[&w.cell];
         let Some((base, mods)) = sim.world.peek(FormId(id)).map(|s| (s.base, s.extra.mods)) else { continue };
+        let light = is_light(&d, base);
+        let t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * w.affine()));
+        // A created light with no model (a script's `PlaceAtMe` of a LIGH): a root that
+        // only holds its light ([`DroppedLight`]).
+        if light && model_path(&d, base, mods).is_none() {
+            let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), DroppedLight { reference: id, base: base.0 }, t, Visibility::default(), ChildOf(cell_e))).id();
+            info!("dropped reference 0x{id:08X} drawn: light {base}, no model, in {:?} at ({:.1}, {:.1}, {:.1})", w.cell, w.pos[0], w.pos[1], w.pos[2]);
+            drawn.0.insert(id, DrawnRef { root, cell_entity: cell_e, at: w });
+            continue;
+        }
         let Some(path) = model_path(&d, base, mods) else {
             warn_once!("dropped reference 0x{id:08X}: base {base} has no model to draw");
             continue;
@@ -266,11 +292,13 @@ fn sync_drawn(
             warn_once!("dropped reference 0x{id:08X}: model {path} could not be loaded");
             continue;
         };
-        let t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * w.affine()));
         // `ChildOf` on the new entity (not a command on the cell): if render streaming
         // despawns the cell this frame, the relationship is dropped with a warning and
         // the next frame despawns the root, instead of a command failing on the cell.
         let root = commands.spawn((Name::new(format!("Dropped {id:08X}")), DroppedRoot(id), t, Visibility::default(), ChildOf(cell_e))).id();
+        if light {
+            commands.entity(root).insert(DroppedLight { reference: id, base: base.0 });
+        }
         // Animated: its own node hierarchy, as render streaming does, for a door, an idle,
         // or (without one) script groups. Not for an idle of nothing but parts the
         // holder's clips move (a gun's slide), which an item on the ground keeps still

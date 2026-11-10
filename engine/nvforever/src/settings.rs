@@ -531,7 +531,7 @@ fn register_graphics(app: &mut App) {
         add_setting(app, s);
     }
     nvf_play::settings::set_disabled_status(app, "anti-aliasing", |w| graphics::fsr_active(w).then_some("Off (FSR active)"));
-    let switches: [Switch; 11] = [
+    let switches: [Switch; 12] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -611,6 +611,13 @@ fn register_graphics(app: &mut App) {
             "On: water mirrors the world above it, as in the original; the scene is drawn a second time for it while water is on screen. Off: water reflects the sky, and what is on the screen with screen-space reflections. (--graphics-only no-water-mirror turns it off)",
             |w| w.resource::<Graphics>().water_mirror,
             |w, on| w.resource_mut::<Graphics>().water_mirror = on,
+        ),
+        (
+            "fuller-fire",
+            "Fuller fire",
+            "On: the world's fires burn with more body, embers rising above them and a wisp of smoke, an NVForever addition made from the game's own fire and smoke. Off: the fires as the game's data has them. (--graphics-only no-fuller-fire turns it off)",
+            |w| w.resource::<Graphics>().fuller_fire,
+            |w, on| w.resource_mut::<Graphics>().fuller_fire = on,
         ),
     ];
     for (key, label, note, get, set) in switches {
