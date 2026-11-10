@@ -91,8 +91,9 @@ FSR 3.1.4 reads two masks [observed, in its shaders: `ffx_fsr3upscaler_prepare_r
   thin features and its luma-instability allowance), without cutting the accumulation.
 
 The port has no `GenerateReactive` step, so `fsr.rs` makes both masks itself
-(`fsr_reactive.wgsl`, two passes: `presence_pass` writes each pixel's presence (R8) and
-luminance (R16F), `fragment` the two masks (R8 each) from those):
+(`fsr_reactive.wgsl`, two passes: `presence_pass` writes each pixel's presence (R8) and its
+light change (R16F: this frame's luminance against FSR's last output at the same surface
+point), `fragment` the two masks (R8 each) from those):
 
 - The main texture is copied after the opaque pass (`capture_opaque`).
 - **Presence**: that copy against the finished frame, relative to the brighter of the two,
@@ -349,6 +350,16 @@ an array indexed by a variable, which went to the GPU's local memory; it keeps t
 smallest and two largest in registers now (`inputs` 0.25 → 0.12 ms at Quality, 0.53 → 0.30 at
 Native AA, the same masks). Before the masks of 2026-11-08 the whole span was 0.67 ms at
 Quality and 0.94 at Native AA.
+
+[observed 2026-11-10, the same PC, the owner's settings: 3840x2160 borderless, Native AA,
+standing at the Goodsprings skyline, vsync off; two builds run in turn twice, each reading
+the same to 0.001 ms] `inputs` 0.266 → 0.195 ms and the whole span 1.00 → 0.93 ms (1.08 before
+the alpha pass was left out, "After FSR" above): the light change of a texel is worked out
+once, in the first pass, where the second pass read motion, history and luminance again for
+each of a pixel's nine neighbours, and the second pass takes its 3x3 neighbourhoods four
+texels at a read (`textureGather`): about 15 reads a pixel where there were 51. The masks are
+the same: all of `tools/fsr-validation`'s results, the ghosting cases among them, are
+unchanged to the digits it prints.
 
 So the frame rate rises with FSR only where the GPU sets the frame, and then by about the
 share above. Where something else sets it, it does not move:

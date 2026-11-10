@@ -199,7 +199,7 @@ fn write_f16(queue: &Queue, texture: &Texture, channels: usize, f: impl Fn(u32, 
     );
 }
 
-/// The mask shader's two passes (fsr_reactive.wgsl): presence and luminance, then the masks.
+/// The mask shader's two passes (fsr_reactive.wgsl): presence and light change, then the masks.
 pub(crate) struct MaskPipelines {
     pub(crate) presence: RenderPipeline,
     pub(crate) masks: RenderPipeline,
@@ -307,6 +307,10 @@ fn simulate(context: &FsrContext, device: &Device, queue: &Queue, (pipeline, lum
         entries: &[
             BindGroupEntry { binding: 0, resource: BindingResource::TextureView(&opaque_view) },
             BindGroupEntry { binding: 1, resource: BindingResource::TextureView(&scene_view) },
+            BindGroupEntry { binding: 2, resource: BindingResource::TextureView(&mask_motion_view) },
+            BindGroupEntry { binding: 4, resource: BindingResource::TextureView(&history_luma_view) },
+            BindGroupEntry { binding: 5, resource: BindingResource::Sampler(&sampler) },
+            BindGroupEntry { binding: 6, resource: jitter_buffer.as_entire_binding() },
         ],
     });
     let groups: Vec<BindGroup> = (0..2)
@@ -318,9 +322,7 @@ fn simulate(context: &FsrContext, device: &Device, queue: &Queue, (pipeline, lum
                     BindGroupEntry { binding: 2, resource: BindingResource::TextureView(&mask_motion_view) },
                     // Frame parity i writes presence[i] and reads the other.
                     BindGroupEntry { binding: 3, resource: BindingResource::TextureView(&presence_views[1 - i]) },
-                    BindGroupEntry { binding: 4, resource: BindingResource::TextureView(&history_luma_view) },
                     BindGroupEntry { binding: 5, resource: BindingResource::Sampler(&sampler) },
-                    BindGroupEntry { binding: 6, resource: jitter_buffer.as_entire_binding() },
                     BindGroupEntry { binding: 7, resource: BindingResource::TextureView(&presence_views[i]) },
                     BindGroupEntry { binding: 8, resource: BindingResource::TextureView(&luma_now_view) },
                 ],
