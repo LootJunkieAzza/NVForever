@@ -261,6 +261,8 @@ pub struct RefTable {
     pub cell_world: HashMap<FormId, FormId>,
     /// Each worldspace's exterior cells by grid coordinate.
     pub world_grid: HashMap<FormId, BTreeMap<(i32, i32), FormId>>,
+    /// Each worldspace's persistent cell (the WRLD group's cell of persistent references).
+    pub world_persistent: HashMap<FormId, FormId>,
     /// Merchant containers (XMRC targets) -> the actor references whose stock they hold.
     pub merchant_containers: BTreeMap<FormId, Vec<FormId>>,
     /// Activate parents -> their activate children with each child's delay (XAPR read
@@ -334,6 +336,9 @@ impl RefTable {
             }
             t.world_grid.insert(FormId(*w), ws.grid.iter().map(|(g, c)| (*g, FormId(*c))).collect());
             persistent_cells.extend(ws.persistent_cell.map(FormId));
+            if let Some(c) = ws.persistent_cell {
+                t.world_persistent.insert(FormId(*w), FormId(c));
+            }
         }
         for (pr, deleted, issues) in loaded {
             t.issues.merge(issues);

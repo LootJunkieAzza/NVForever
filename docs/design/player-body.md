@@ -143,8 +143,9 @@ tuned by eye]:
   units at each footfall and swings 0.5 across once a stride, at the movement clip's
   phase, growing with the ground speed to a run's; sneaking 60 %, down the sights 25 %,
   none in the air, under the Pip-Boy or while an idle drives the view. The arms' own bob
-  (§1.4a) comes on top. A switch of the settings page's Display group (`head-bob`,
-  `--no-head-bob`), on by default.
+  (§1.4a) comes on top. A switch registered in the settings page's Display group and
+  shown under Gameplay › Camera (`head-bob`, `--no-head-bob`; settings-page.md), on by
+  default.
 - Third person: the pivot's height above the feet is the head's through two
   first-order lags of 0.25 s: a run's stride bob is cut to about an eighth, a crouch
   still lowers the camera (90 % in a second); a change over 40 units in a frame goes

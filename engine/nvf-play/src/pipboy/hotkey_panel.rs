@@ -24,7 +24,7 @@
 //! Log lines: `pipboy hotkeys: key <n> held`, `pipboy hotkeys: let go`,
 //! `hotkeys: slot <n> holds <name> (<form>)`.
 
-use super::frame::{Align, Ctx, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Kit, LINE, MAIN, TEXT, THICK};
 use crate::bindings::Bindings;
 use crate::hotkeys::{Hotkeys, Refused, Slot, AMMO_SWAP, SLOTS};
 use crate::interface::{amber, at};
@@ -193,16 +193,65 @@ pub fn draw(p: &mut ChildSpawnerCommands, c: &mut Ctx, hotkeys: &Hotkeys, hold: 
         let h = c.line_height(TEXT_FONT);
         c.text(p, TEXT_FONT, &(slot + 1).to_string(), b.x + BOX, b.y + BOX - h + INSET, Align::Left, bright);
     }
-    let said = hold.said.clone().or_else(|| {
+    if let Some(s) = panel_line(hotkeys, hold, sim) {
+        c.text(p, TEXT_FONT, &s, o.x + TEXT_AT.x, o.y + TEXT_AT.y, Align::Centre, bright);
+    }
+}
+
+/// Marks the panel drawn over the ITEMS page while that page is drawn from its file.
+#[derive(Component)]
+pub struct PanelOverTiles;
+
+/// The panel over the ITEMS page drawn from its file (`crate::tiles::inventory_menu`), which has no
+/// hand-built body to hold it: the same panel at the same place, the owner's [design: the file's own
+/// wheel was not captured and is not drawn]. In the Pip-Boy's image, at the page's level.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_over_tiles(
+    mut commands: Commands,
+    screen: Option<Res<super::PipBoyScreen>>,
+    tiles: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
+    roots: Query<Entity, With<PanelOverTiles>>,
+    (hold, hotkeys, active): (Res<HotkeyHold>, Res<Hotkeys>, Res<crate::menu::ActiveMenu>),
+    (sim, combat): (Res<SimState>, Option<Res<crate::combat::Combat>>),
+    mut kit: ResMut<Kit>,
+    data: Option<Res<nvf_assets::GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
+) {
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
+    let slot = hold.slot.filter(|_| tiles.is_some_and(|t| t.ready.is_some()));
+    let (Some(slot), Some(screen)) = (slot, screen) else {
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        return;
+    };
+    if !roots.is_empty() && !hold.is_changed() && !hotkeys.is_changed() && !active.is_changed() {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    info!("pipboy hotkeys: panel drawn, key {} chosen{}", slot + 1, hold.said.as_ref().map_or_else(String::new, |s| format!(", says {s:?}")));
+    let pointed = active.0.as_ref().and_then(|m| m.selected_row(crate::menu::model::Side::Player));
+    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
+    let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y) };
+    commands
+        .spawn((PanelOverTiles, root, UiTargetCamera(screen.camera), GlobalZIndex(crate::tiles::draw::PIPBOY_TILES_Z), Pickable::IGNORE, Name::new("Hotkey panel over the page")))
+        .with_children(|p| draw(p, &mut c, &hotkeys, &hold, pointed, &sim, combat.as_deref()));
+}
+
+/// The line under the panel: what the last click did, else what the held slot holds.
+pub fn panel_line(hotkeys: &Hotkeys, hold: &HotkeyHold, sim: &SimState) -> Option<String> {
+    hold.said.clone().or_else(|| {
         let slot = hold.slot?;
         if slot == AMMO_SWAP {
             return Some("Ammo Swap".into());
         }
         Some(hotkeys.0[slot].map_or_else(|| "Empty".into(), |s| sim.name(FormId(s.item)).unwrap_or("?").to_string()))
-    });
-    if let Some(s) = said {
-        c.text(p, TEXT_FONT, &s, o.x + TEXT_AT.x, o.y + TEXT_AT.y, Align::Centre, bright);
-    }
+    })
 }
 
 #[cfg(test)]

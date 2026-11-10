@@ -489,7 +489,7 @@ fn choose(
             info!("main menu: closed, the intro film plays");
         }
         Entry::Load => request.0 = Some(Page::Load { selected: 0 }),
-        Entry::Settings => request.0 = Some(Page::Settings { selected: 0 }),
+        Entry::Settings => request.0 = Some(Page::Settings { selected: None }),
         Entry::Quit => {
             exit.write(AppExit::Success);
         }

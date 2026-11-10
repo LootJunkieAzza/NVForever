@@ -1,0 +1,17 @@
+[path]
+subdirectory = "opticalflow"
+prefix = "ffx_opticalflow_"
+suffix = "_pass"
+
+# Base defines from AMD's CMakeCompileOpticalflowShaders.txt (SDK 1.1.4).
+[base]
+FFX_GPU = 1
+FFX_GLSL = 1
+
+[permutations]
+# Shaders currently require u16 support to use f16
+FFX_HALF = [0]
+# No way for subgroup size control currently.
+FFX_WAVE64 = [0]
+
+FFX_OPTICALFLOW_OPTION_HDR_COLOR_INPUT = [0, 1]

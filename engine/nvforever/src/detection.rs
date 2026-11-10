@@ -911,6 +911,20 @@ fn measure(
         state.stats.pip_light_on += 1;
         state.stats.pip_light_most = state.stats.pip_light_most.max(light.first().copied().unwrap_or(0.0));
     }
+    // GetLightAmountAtPoint (`fnv_game::nvse_jip12`): this round's lights and base light,
+    // for a point measured as [`light_at`] measures an actor (in the sun outdoors while
+    // it is up).
+    {
+        use fnv_world::sky::ColorType;
+        let bytes = |c: [f32; 3]| strength(c) / 255.0;
+        let s = sky.as_deref();
+        let outdoors = s.filter(|s| s.interior.is_none()).map(|s| {
+            let shade = bytes(s.color_bytes(ColorType::Ambient));
+            (if sun.is_some() { bytes(s.color_bytes(ColorType::Sunlight)) } else { shade }, shade)
+        });
+        let interior = s.and_then(|s| s.interior.as_ref()).map_or(0.5, |c| bytes(c.ambient.map(f32::from)));
+        rt.game.set_light_field(fnv_game::nvse_jip12::LightField { outdoors, interior, lights: lights.clone() });
+    }
 
     // Every detector against every target within reach.
     let shots = std::mem::take(&mut state.shots);

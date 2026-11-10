@@ -1015,6 +1015,53 @@ pub fn reset(world: &mut World) {
     store(world);
 }
 
+/// The Controls tab's rows away from the game's defaults ([`Bindings::game_defaults`]),
+/// of both devices, in the order of `crate::settings_view::ControlRow::all`: the Changed
+/// list's Controls rows [design: #1953 point 6]. A control's key and mouse button and its
+/// controller button are each their own row; the sensitivities are compared as the sliders
+/// show them (to a ten-thousandth of the game's).
+pub fn changed_controls(b: &Bindings) -> Vec<crate::settings_view::ControlRow> {
+    use crate::settings_view::ControlRow as R;
+    let d = Bindings::game_defaults();
+    let same = |row: R| match row {
+        R::Device => b.device == d.device,
+        R::Binding(c, InputDevice::KeyboardMouse) => b.get(c) == d.get(c),
+        R::Binding(c, InputDevice::Controller) => b.pad(c) == d.pad(c),
+        R::Invert => b.invert_y == d.invert_y,
+        R::Sensitivity(InputDevice::KeyboardMouse) => ((b.mouse_sensitivity - d.mouse_sensitivity) / MOUSE_SENSITIVITY).abs() <= 1e-4,
+        R::Sensitivity(InputDevice::Controller) => (b.stick_sensitivity - d.stick_sensitivity).abs() <= 1e-4,
+        R::Rumble => b.rumble == d.rumble,
+    };
+    R::all().into_iter().filter(|r| !same(*r)).collect()
+}
+
+/// Put exactly `rows` of the Controls tab back as the game has them by default (the
+/// Changed list's Defaults), each set directly, with no swap: a control's key goes back
+/// without moving another control's, every other row is left as it is [design: #1953].
+/// Logged and kept in the INI once.
+pub fn restore_rows(world: &mut World, rows: &[crate::settings_view::ControlRow]) {
+    use crate::settings_view::ControlRow as R;
+    if rows.is_empty() {
+        return;
+    }
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let d = Bindings::game_defaults();
+    for row in rows {
+        match *row {
+            R::Device => b.device = d.device,
+            R::Binding(c, InputDevice::KeyboardMouse) => b.set(c, d.get(c)),
+            R::Binding(c, InputDevice::Controller) => b.set_pad(c, d.pad(c)),
+            R::Invert => b.invert_y = d.invert_y,
+            R::Sensitivity(InputDevice::KeyboardMouse) => b.mouse_sensitivity = d.mouse_sensitivity,
+            R::Sensitivity(InputDevice::Controller) => b.stick_sensitivity = d.stick_sensitivity,
+            R::Rumble => b.rumble = d.rumble,
+        }
+    }
+    let names: Vec<String> = rows.iter().map(|r| r.name()).collect();
+    info!("controls: {} back to the game's", names.join(", "));
+    store(world);
+}
+
 /// Write `[Controls]` to the INI, keeping its other lines.
 fn store(world: &World) {
     let Some(path) = world.get_resource::<crate::settings::SettingsFile>().and_then(|f| f.0.clone()) else { return };
@@ -1037,9 +1084,17 @@ fn write(path: &Path, b: &Bindings) -> Result<(), String> {
     std::fs::write(path, with_controls(&old, b)).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// A text field has the keyboard this frame (the settings page's search while it is open,
+/// `crate::pause`): no control reads as pressed or released, so a letter typed there
+/// moves, fires or saves nothing [design: #1953]. Set each frame in `PreUpdate`, before
+/// the game's input, and still on the frame the field closes.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyboardCapture(pub bool);
+
 /// The controls' state this frame, from the keyboard and mouse or the controller as
 /// [`InputDevice`] says. While the console's free camera flies (`crate::free_cam`) its
-/// keys are the camera's: no control reads as pressed.
+/// keys are the camera's: no control reads as pressed; while a text field has the keys
+/// ([`KeyboardCapture`]) none reads as pressed or released.
 #[derive(SystemParam)]
 pub struct ControlInput<'w, 's> {
     pub keys: Res<'w, ButtonInput<KeyCode>>,
@@ -1052,6 +1107,8 @@ pub struct ControlInput<'w, 's> {
     pub blocked: Option<Res<'w, crate::script_input::ScriptBlocked>>,
     /// A playing kill camera holds the gameplay controls (`crate::kill_cam`).
     pub kill_cam: Option<Res<'w, crate::kill_cam::KillCam>>,
+    /// A text field has the keyboard ([`KeyboardCapture`]).
+    pub capture: Option<Res<'w, KeyboardCapture>>,
 }
 
 /// How a controller input is asked about.
@@ -1063,9 +1120,14 @@ enum Ask {
 }
 
 impl ControlInput<'_, '_> {
-    /// The free camera has the keys.
+    /// The free camera or a text field has the keys.
     pub fn suppressed(&self) -> bool {
-        self.free_cam.as_ref().is_some_and(|f| f.active)
+        self.free_cam.as_ref().is_some_and(|f| f.active) || self.captured()
+    }
+
+    /// A text field has the keyboard ([`KeyboardCapture`]).
+    pub fn captured(&self) -> bool {
+        self.capture.as_ref().is_some_and(|c| c.0)
     }
 
     /// A playing kill camera holds `c`: every control but those that open a menu or
@@ -1134,7 +1196,7 @@ impl ControlInput<'_, '_> {
 
     /// Released this frame, and neither of its inputs is still down.
     pub fn just_released(&self, c: Control) -> bool {
-        if self.held(c) {
+        if self.held(c) || self.captured() {
             return false;
         }
         if self.controller() {
@@ -1374,5 +1436,58 @@ Rumble=1"), "{text}");
         let c = sys.get(app.world()).expect("resources");
         assert!(c.pressed(Control::TogglePov) && c.just_pressed(Control::TogglePov));
         assert!(!c.pressed(Control::Use));
+    }
+
+    #[test]
+    fn a_text_field_holding_the_keys_hides_them_from_the_controls() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>().init_resource::<ButtonInput<MouseButton>>().init_resource::<Bindings>().init_resource::<KeyboardCapture>();
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyW);
+        let mut sys = bevy::ecs::system::SystemState::<ControlInput>::new(app.world_mut());
+        assert!(sys.get(app.world()).unwrap().just_pressed(Control::Forward));
+        app.world_mut().resource_mut::<KeyboardCapture>().0 = true;
+        let c = sys.get(app.world()).unwrap();
+        assert!(c.suppressed() && !c.pressed(Control::Forward) && !c.just_pressed(Control::Forward));
+        // Let go while the field holds the keys (the frame it closes too): no release either.
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().release(KeyCode::KeyW);
+        assert!(!sys.get(app.world()).unwrap().just_released(Control::Forward));
+        app.world_mut().resource_mut::<KeyboardCapture>().0 = false;
+        assert!(sys.get(app.world()).unwrap().just_released(Control::Forward));
+    }
+
+    #[test]
+    fn the_changed_controls_go_back_one_by_one_without_a_swap() {
+        use crate::settings_view::ControlRow as R;
+        let mut app = App::new();
+        app.init_resource::<Bindings>();
+        let world = app.world_mut();
+        assert!(changed_controls(world.resource::<Bindings>()).is_empty());
+        // Jump to W (Forward gets Space), the controller's Jump to RB, the stick slower, no rumble.
+        let mut b = world.resource_mut::<Bindings>();
+        b.rebind(Control::Jump, Input::Key(KeyCode::KeyW));
+        b.rebind_pad(Control::Jump, PadInput::Button(GamepadButton::RightTrigger));
+        b.stick_sensitivity = 0.5;
+        b.rumble = false;
+        let changed = changed_controls(world.resource::<Bindings>());
+        assert_eq!(
+            changed,
+            [
+                R::Binding(Control::Forward, InputDevice::KeyboardMouse),
+                R::Binding(Control::Jump, InputDevice::KeyboardMouse),
+                R::Binding(Control::Jump, InputDevice::Controller),
+                R::Binding(Control::Vats, InputDevice::Controller),
+                R::Sensitivity(InputDevice::Controller),
+                R::Rumble,
+            ]
+        );
+        // Jump's key alone back: Forward keeps Space (no swap), everything else as it was.
+        restore_rows(world, &[R::Binding(Control::Jump, InputDevice::KeyboardMouse), R::Rumble]);
+        let b = world.resource::<Bindings>();
+        assert_eq!(b.get(Control::Jump).key, Some(KeyCode::Space));
+        assert_eq!(b.get(Control::Forward).key, Some(KeyCode::Space), "Forward is not given W back");
+        assert!(b.rumble);
+        assert_eq!(changed_controls(b), [R::Binding(Control::Forward, InputDevice::KeyboardMouse), R::Binding(Control::Jump, InputDevice::Controller), R::Binding(Control::Vats, InputDevice::Controller), R::Sensitivity(InputDevice::Controller)]);
+        restore_rows(world, &changed_controls(world.resource::<Bindings>()));
+        assert!(changed_controls(world.resource::<Bindings>()).is_empty());
     }
 }

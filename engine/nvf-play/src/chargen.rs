@@ -257,6 +257,15 @@ pub struct ChargenSet;
 
 fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    // SetTextInputString on a script's text input menu (`fnv_game::nvse_jip12`).
+    if matches!(&st.open, Some(OpenMenu::Name(n)) if n.script.is_some()) {
+        if let Some(t) = with_game(&mut script, &mut sim, |g| g.take_text_input_string()).flatten() {
+            if let Some(OpenMenu::Name(m)) = st.open.as_mut() {
+                m.set_text(&t);
+            }
+            st.dirty = true;
+        }
+    }
     let code = open_code(&script).filter(|&c| has_own_menu(c) && c != menus::LOVE_TESTER);
     if st.open.as_ref().map(OpenMenu::code) == code {
         return;
@@ -270,7 +279,11 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
     st.generation = st.generation.wrapping_add(1);
     let Some(code) = code else { return };
     st.open = with_game(&mut script, &mut sim, |g| {
-        if code == menus::NAME {
+        if let Some(t) = g.text_input().filter(|_| code == menus::NAME) {
+            let m = NameMenu::script(t, Some(g));
+            info!("script: text input menu open, \"{}\" ({} to {} characters)", m.prompt, t.min, t.max);
+            OpenMenu::Name(m)
+        } else if code == menus::NAME {
             let m = NameMenu::open(rules::name_offered(g), Some(g));
             info!("chargen: name menu open, offering \"{}\"", m.text);
             OpenMenu::Name(m)
@@ -341,11 +354,15 @@ fn input(
     let mut hover_ok = None;
     let mut hover_button = Vec::new();
     match st.open.as_ref() {
-        Some(OpenMenu::Name(_)) => {
+        Some(OpenMenu::Name(m)) => {
+            // A script's menu takes Enter as Done only when it says so [documented:
+            // SetTextInputExtendedProps switch 2; decision: a new line is not typed].
+            let enter_done = m.script.as_ref().is_none_or(|s| s.enter_closes);
             for k in typed.iter().filter(|k| k.state.is_pressed()) {
                 match &k.logical_key {
                     Key::Backspace => ops.push((Op::Backspace, "key")),
-                    Key::Enter => ops.push((Op::Done, "Enter")),
+                    Key::Enter if enter_done => ops.push((Op::Done, "Enter")),
+                    Key::Enter => {}
                     _ => {
                         if let Some(t) = k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()) && fnv_util::text::encodable(t)) {
                             ops.push((Op::Type(t.to_string()), "key"));
@@ -494,6 +511,24 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
     let open = st.open.as_mut()?;
     let code = open.code();
     match open {
+        OpenMenu::Name(m) if m.script.is_some() => {
+            let changed = match op {
+                Op::Type(t) => m.type_text(&t),
+                Op::Backspace => m.backspace(),
+                Op::Clear => !std::mem::take(&mut m.text).is_empty(),
+                Op::Done if m.can_finish() => {
+                    let text = m.text.clone();
+                    if with_game(script, sim, |g| g.finish_text_input(text.clone())).is_some() {
+                        info!("script: text input menu done ({how}): \"{text}\"");
+                        st.answered = true;
+                    }
+                    false
+                }
+                _ => false,
+            };
+            st.dirty |= changed;
+            None
+        }
         OpenMenu::Name(m) => {
             let changed = match op {
                 Op::Type(t) => m.type_text(&t),

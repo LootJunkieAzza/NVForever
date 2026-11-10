@@ -976,6 +976,53 @@ with `minefrag.nif` under `Weapon`.
 - The plasma (0x433D), pulse (0x433E) and powder charge (0x109A0B) mines are also
   "Land Mine" and get the same; they were not compared with the game.
 
+### 9.12 Rotation that adds up: `BSRotAccumTransfInterpolator` [observed unless tagged]
+
+Sources: `fnvtool nif stats` over every mesh archive of the base game and the add-ons
+(block types per file), `fnvtool nif decode` of the files named below.
+
+- The block is an NiTransformInterpolator with no fields of its own [documented:
+  nif.xml, schemas/nif/anim.json]. 21 `.kf` files in `Fallout - Meshes.bsa` use it, none
+  in `Update.bsa` or the add-on archives: 17 of Anchorage's chimera tank (no creature
+  of FalloutNV.esm uses that skeleton, actors.md §8.11's table), the first-person
+  `_1stperson\2hmattackspin.kf` and `2hmattackspin2.kf` and the third-person
+  `_male\idleanims\vats2hmattackpower_attackspin.kf` (node `##SawBlade`), and the
+  Securitron's walk `creatures\nvsecuritron\locomotion\mtforward.kf` (node `Bip01
+  Wheel`). Until 2026-11-09 NVForever played none of them [design:
+  `fnv_nif::anim::transform_track` had no case for the type, so its tracks became
+  `TrackData::Other` and were skipped], so a walking Securitron's wheel stood still
+  (Victor's, seen in a playthrough of NVForever).
+- **The Securitron's wheel.** `mtforward.kf` (Forward, 2.67 s, loops) keys `Bip01 Wheel`
+  with 81 quaternion keys a frame apart. Each key is the first key followed by a turn
+  about the node's own X axis (`conj(first) · key` is a pure X turn at every key), 8.2–8.3°
+  a frame, 661° backwards over the cycle; so the last key is 59° on from the first, not
+  back where it started. The run (`mtfastforward.kf`), `mtbackward.kf`, the turns and every
+  limping clip key the wheel with ordinary interpolators (B-spline, or 81 plain
+  quaternion keys sweeping 773° in the limping walk and run), interpolators NVForever
+  already played [design].
+  At the walk's ground speed (120.2 units a second, actors.md §8.10) 661° in 2.67 s is a
+  wheel about 28 units in radius rolling without slipping.
+- **The saw blade.** The three `attackspin` clips are played once (cycle type 2, clamp)
+  and key `##SawBlade` with Euler XYZ keys: Z from 0 to −53.8 radians (about 8.5 turns)
+  over the first person's 1.53 s clips. Euler angles are interpolated angle by angle, so
+  the turns come out whole within the one play.
+- **What NVForever does** [design, `crates/fnv-nif/src/anim.rs`,
+  `engine/nvf-assets/src/anim_play.rs`, `anim_blend.rs`; hypothesis for the adding up:
+  from the name and from the wheel's keys, whose last key is where a further cycle would
+  go on from without a seam; not compared with the original]: it reads the block as an NiTransformInterpolator and
+  keeps the turn one cycle makes, `conj(first key) · last key`
+  (`fnv_nif::anim::TransformTrack::per_cycle`). A looping clip that has played `n`
+  whole cycles gives the keyed rotation followed by that turn `n` times
+  (`TransformTrack::rotation_after`), so the wheel keeps rolling instead of jumping back
+  59° every 2.67 s. Actors and creatures (`anim_play::BlendPlayer`) count a slot's cycles
+  from its phase wrapping (a clip moved to another slot, as the walk is when it fades
+  out, keeps its count; a clip new to every slot counts from none); the player's body
+  (`anim_blend::Animator`) counts them from a looping layer's time; clamped clips count
+  none, which is all the saw blade needs.
+- Not handled [design]: `BSTreadTransfInterpolator` (the Ripper's chain in `1hmidle.kf` and
+  `sneak1hmidle.kf`, Liberty Prime's `1gtequip.kf`), whose formula is not known
+  (nif-engine-gap-audit.md §3.4).
+
 ### 9.5 The first-person rig [observed unless tagged]
 
 - `meshes\characters\_1stperson\skeleton.nif` is the only non-`.kf` file of its folder

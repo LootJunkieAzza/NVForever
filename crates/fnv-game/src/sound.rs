@@ -19,7 +19,7 @@ use serde::Serialize;
 pub const MAX_PENDING: usize = 256;
 
 /// A sound a script asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct SoundRequest {
     /// The SOUN.
     pub sound: FormId,
@@ -32,6 +32,10 @@ pub struct SoundRequest {
     pub system: bool,
     /// Its id in the sound functions' list (`crate::nvse_sound`), for the engine's answer.
     pub id: u32,
+    /// Where the sound is, in place of the reference's place (PlaySound3DNode's node,
+    /// `crate::nvse_jip14`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub point: Option<[f32; 3]>,
 }
 
 impl Game<'_> {
@@ -51,7 +55,7 @@ impl Game<'_> {
 pub fn play_sound(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let sound = a.form(0)?;
     let system = a.num_or(1, 0.0) != 0.0;
-    g.ask_sound(SoundRequest { sound, at: None, system, id: 0 });
+    g.ask_sound(SoundRequest { sound, at: None, system, id: 0, point: None });
     none()
 }
 
@@ -81,6 +85,6 @@ pub fn play_music(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn play_sound_3d(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let sound = a.form(0)?;
     let at = ctx.subject()?;
-    g.ask_sound(SoundRequest { sound, at: Some(at), system: false, id: 0 });
+    g.ask_sound(SoundRequest { sound, at: Some(at), system: false, id: 0, point: None });
     none()
 }

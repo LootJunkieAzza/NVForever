@@ -873,6 +873,11 @@ fn apply_engine(world: &mut World) {
         }
         info!("save: god mode off after the load (tweak)");
     }
+    // GetLoadOrderChanged (`fnv_game::nvse_jip12`): the save's plugins moved or are gone
+    // [hypothesis: plugins only added after the save's own do not count].
+    if let Some(rt) = world.get_resource_mut::<ScriptState>().and_then(|s| s.into_inner().rt.as_mut()) {
+        rt.game.set_load_order_changed(order.is_some());
+    }
     world.insert_resource(CoopEngineState(e.coop.clone()));
     if let Some(mut c) = world.get_resource_mut::<crate::control::PlayerControl>() {
         c.pov = if e.third_person { crate::control::Pov::Third } else { crate::control::Pov::First };

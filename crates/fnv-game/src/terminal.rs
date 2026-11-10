@@ -226,15 +226,37 @@ pub fn xp(g: &Game, difficulty: Difficulty) -> f64 {
 /// The items of terminal `base` listed now, by index: those whose conditions hold, run
 /// on the terminal reference with the player as target [hypothesis, hacking.md §6].
 pub fn items(g: &mut Game, reference: FormId, base: FormId) -> Vec<usize> {
-    let Some(t) = g.data.terminals.get(&base) else { return Vec::new() };
+    if !g.data.terminals.contains_key(&base) {
+        return Vec::new();
+    }
     let mut out = Vec::new();
-    for (i, item) in t.items.iter().enumerate() {
+    for i in 0..item_count(g, base) {
+        let Some(item) = item(g, base, i) else { continue };
         let label = format!("terminal 0x{:08X} item {i}", base.0);
         if g.conditions_pass(&item.conditions, Some(reference), Some(FormId::PLAYER_REF), &label) {
             out.push(i);
         }
     }
     out
+}
+
+/// What stands at each menu position of terminal `base` for the session: the record's
+/// item by its index, or `None` for an item a script added (AddTerminalMenuItem,
+/// `crate::nvse_jg9`). Without a script's change, the record's items in order.
+pub fn slots(g: &Game, base: FormId) -> Vec<Option<usize>> {
+    match g.other.jg9.terminal_slots.get(&base) {
+        Some(s) => s.clone(),
+        None => (0..g.data.terminals.get(&base).map_or(0, |t| t.items.len())).map(Some).collect(),
+    }
+}
+
+/// How many menu items terminal `base` has now (its record's, with a script's added and
+/// removed ones).
+pub fn item_count(g: &Game, base: FormId) -> usize {
+    match g.other.jg9.terminal_slots.get(&base) {
+        Some(s) => s.len(),
+        None => g.data.terminals.get(&base).map_or(0, |t| t.items.len()),
+    }
 }
 
 /// A script's changes to a menu item for the session (JohnnyGuitar's
@@ -251,7 +273,14 @@ pub struct ItemEdit {
 /// Item `item` of terminal `base` as it stands now: the record's, with a script's changes
 /// ([`ItemEdit`]).
 pub fn item(g: &Game, base: FormId, item: usize) -> Option<crate::data::TerminalItem> {
-    let mut it = g.data.terminals.get(&base)?.items.get(item)?.clone();
+    let t = g.data.terminals.get(&base)?;
+    let mut it = match g.other.jg9.terminal_slots.get(&base) {
+        Some(s) => match *s.get(item)? {
+            Some(k) => t.items.get(k)?.clone(),
+            None => crate::data::TerminalItem::default(),
+        },
+        None => t.items.get(item)?.clone(),
+    };
     if let Some(e) = g.other.terminal_items.get(&(base, item)) {
         if let Some(t) = &e.text {
             it.text = t.clone();

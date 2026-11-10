@@ -267,7 +267,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         // The name, S.P.E.C.I.A.L., tag-skill, trait and level-up menus draw themselves,
         // and the race menu with the creator's data (`crate::creator`).
         // The tutorial menu draws itself (`crate::tutorial_menu`).
-        Some(code) if crate::script::is_script_menu(code) && code != menus::TUTORIAL && !crate::chargen::has_own_menu(code) && !crate::levelup::draws(code) && !crate::creator::draws(code, creator) => {
+        Some(code) if crate::script::is_script_menu(code) && code != menus::TUTORIAL && !crate::chargen::has_own_menu(code) && !crate::levelup::draws(code) && !crate::script_quantity::draws(code) && !crate::creator::draws(code, creator) => {
             Some(menu_panel(code))
         }
         _ => None,
@@ -409,7 +409,7 @@ pub fn menu_keys(
     }
     let clicked = clicks.iter().find(|(i, _)| **i == PointerState::Pressed).map(|(_, b)| b.0).or(tile_click);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
-    if code == menus::TUTORIAL || crate::chargen::has_own_menu(code) || crate::levelup::draws(code) || crate::creator::draws(code, creator.is_some()) {
+    if code == menus::TUTORIAL || crate::chargen::has_own_menu(code) || crate::levelup::draws(code) || crate::script_quantity::draws(code) || crate::creator::draws(code, creator.is_some()) {
         return;
     }
     if code != MENU_MESSAGE {

@@ -115,7 +115,8 @@ impl Plugin for CraftingPlugin {
             .add_message::<RecipeInput>()
             .insert_resource(RecipeAid(aid))
             .add_systems(Update, (scripts_open, (keys, draw).chain().run_if(in_state(PlayState::Menu))).chain().in_set(PlaySet::Ui))
-            .add_systems(OnExit(PlayState::Menu), close);
+            .add_systems(OnExit(PlayState::Menu), close)
+            .add_systems(Update, forget_closed.in_set(PlaySet::Ui));
     }
 }
 
@@ -241,7 +242,8 @@ fn label(r: &RecipeDef) -> String {
 fn listed(rt: &mut crate::script::Runtime, category: FormId) -> Vec<&'static RecipeDef> {
     let data: &'static fnv_game::data::GameData = rt.game.data;
     let mut out: Vec<&RecipeDef> = data.recipes.values().filter(|r| r.listed_under(category)).collect();
-    out.retain(|r| rt.game.conditions_pass(&r.conditions, Some(FormId::PLAYER_REF), None, "recipe"));
+    // The record's conditions and AddRecipeCondition's (`fnv_game::nvse_jip12`).
+    out.retain(|r| rt.game.conditions_pass(&r.conditions, Some(FormId::PLAYER_REF), None, "recipe") && rt.game.recipe_conditions_pass(r.form));
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.form.0.cmp(&b.form.0)));
     out
 }
@@ -750,6 +752,17 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View, words: &[String; 
     });
 }
 
+/// The recipe menu closed: the scripts' getters give nothing again.
+fn forget_closed(menu: Res<RecipeMenu>, script: Option<ResMut<ScriptState>>, mut was_open: Local<bool>) {
+    let open = menu.0.is_some();
+    if *was_open && !open {
+        if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
+            rt.game.set_recipe_menu(None);
+        }
+    }
+    *was_open = open;
+}
+
 /// The "How many?" prompt over the menu (module notes): the amount and the most.
 #[allow(clippy::too_many_arguments)]
 fn spawn_prompt(root: &mut ChildSpawnerCommands, (amount, most): (i32, i32), words: &[String; 2], kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
@@ -805,6 +818,10 @@ fn draw(
         return;
     };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    // GetRecipeMenuCategory and GetRecipeMenuSelection (`fnv_game::nvse_jip12`), before
+    // the tiled sheet may return.
+    let shown = view(rt, &mut sim, open);
+    rt.game.set_recipe_menu(Some((Some(open.category), shown.rows.get(shown.selected).map(|r| r.recipe))));
     // Drawn from its tiles: only a sheet taking the pointer, and the prompt, which stays
     // hand-built (`crate::tiles::menus::quantity_tiled`). Its `drawn` is the tile writer's.
     if tiles.is_some_and(|t| t.menu.is_some()) {

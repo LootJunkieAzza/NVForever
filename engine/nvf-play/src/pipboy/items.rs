@@ -144,11 +144,21 @@ pub fn hint_rows(l: crate::pad::Labels) -> (usize, usize) {
 /// The scroll bar: 32 wide, arrows 32 × 16 [documented: list_box.xml, the DATA lists].
 const SCROLLBAR: f32 = 32.0;
 
+/// Which figure the first card holds, apart from the words of its title: since #1902 the
+/// title is the load order's setting (`sInventoryDamage`, `sInventoryDamageThreshold`),
+/// localized, so code that places or reads the card goes by this, never by the title
+/// [design].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FirstStat {
+    Damage,
+    Threshold,
+}
+
 /// What the figures show of an item.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Info {
-    /// The first card: ("DAM", damage) of a weapon, ("DT", threshold) of armour.
-    pub first: Option<(&'static str, String)>,
+    /// The first card: a weapon's damage or armour's threshold, with its title and figure.
+    pub first: Option<(FirstStat, &'static str, String)>,
     pub weight: Option<String>,
     pub value: Option<String>,
     /// A weapon's Strength requirement, over the value.
@@ -228,7 +238,7 @@ pub fn tiles_in(i: &Info, size: Vec2) -> Vec<Tile> {
     let col = |n: f32| n * (w + 10.0);
     let tile = |x: f32, y: f32, width: f32, title: &str, value: String| Tile { rect: Rect::new(x, y, x + width, y + h), title: title.into(), value, meter: None };
     let mut out = Vec::new();
-    if let Some((title, v)) = &i.first {
+    if let Some((_, title, v)) = &i.first {
         out.push(tile(0.0, 0.0, w, title, v.clone()));
     }
     out.push(tile(col(1.0), 0.0, w, label("sInventoryWeightUpper", "WG"), i.weight.clone().unwrap_or_else(|| "--".into())));
@@ -285,7 +295,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                 let w = &w;
                 // Binoculars and the like are weapons without damage: no DAM or STR
                 // [hypothesis].
-                i.first = (w.base_damage > 0).then(|| (label("sInventoryDamage", "DAM"), w.base_damage.to_string()));
+                i.first = (w.base_damage > 0).then(|| (FirstStat::Damage, label("sInventoryDamage", "DAM"), w.base_damage.to_string()));
                 i.strength = (w.strength_req > 0).then_some(w.strength_req);
                 i.badge = w.skill.as_deref().and_then(skill_badge).map(str::to_string);
                 i.skill_req = i.badge.is_some().then_some(w.skill_req);
@@ -298,7 +308,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
                     if let Some(cur) = held.filter(|&e| e != r.item).and_then(|e| cf.and_then(|f| f.weapons.get(&e))) {
                         let dam = i64::from(w.base_damage) - i64::from(cur.base_damage);
                         let dps = weapon_dps(w, 1.0) - weapon_dps(cur, 1.0);
-                        if let Some((_, v)) = i.first.as_mut() {
+                        if let Some((_, _, v)) = i.first.as_mut() {
                             *v = format!("{v} ({dam:+})");
                         }
                         if let Some(v) = i.dps.as_mut() {
@@ -329,7 +339,7 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
         }
         Some(ItemKind::Armor) => {
             if let Some(a) = cf.and_then(|f| f.armor.get(&r.item)) {
-                i.first = Some((label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
+                i.first = Some((FirstStat::Threshold, label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
             }
             i.beside = sim.forms.item(r.item).map(|it| format!("{:?}", it.armor_class));
         }
@@ -561,7 +571,7 @@ pub fn draw(
     // screenshots; hypothesis: the figure is the one combat uses].
     let hp = forms.as_mut().and_then(|f| super::stats::read::player_hp(f, sim, script.as_deref_mut()));
     let dt = combat.as_deref().map(|c| crate::combat::target_armor(c, script.as_deref_mut(), sim, FormId::PLAYER_REF).0);
-    let (hp, dt) = (hp_text(hp), dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}")));
+    let (hp, dt) = (hp_text(hp), dt_text(dt));
     let offer = super::repair::current(&active, sim, script.as_deref());
     // The tab's hints for the selected row (the hotkey panel hides them).
     let tab = TABS[pip.tab().min(TABS.len() - 1)];
@@ -585,12 +595,8 @@ pub fn draw(
         info!("pipboy items: heading HP {hp}, DT {dt}; rows {first}.. of {} drawn", heights.len());
     }
     commands.entity(body).despawn_children().with_children(|p| {
-        let wg = match &m.encumbrance {
-            Ok(e) => format!("{:.0}/{:.0}", e.weight, e.capacity),
-            Err(_) => "--".into(),
-        };
         let cards = [
-            Card::new(WG.0, WG.1, label("sInventoryWeight", "Wg"), wg),
+            Card::new(WG.0, WG.1, label("sInventoryWeight", "Wg"), wg_text(m)),
             Card::new(HP.0, HP.1, label("sHitPointsShort", "HP"), hp),
             Card::new(DT.0, DT.1, label("sInventoryDamageThreshold", "DT"), dt),
             Card::new(CAPS.0, CAPS.1, label("sInventoryCaps", "Caps"), caps.to_string()),
@@ -723,8 +729,21 @@ fn item_info(p: &mut ChildSpawnerCommands, c: &mut Ctx, icon: Option<&str>, i: &
 }
 
 /// The HP card's figure: health out of its whole, "--" unread.
-fn hp_text(hp: Option<(f64, f64)>) -> String {
+pub(crate) fn hp_text(hp: Option<(f64, f64)>) -> String {
     hp.map_or_else(|| "--".to_string(), |(v, max)| format!("{}/{}", super::stats::model::whole(v), super::stats::model::whole(max)))
+}
+
+/// The DT card's figure: one decimal, "--" unread.
+pub(crate) fn dt_text(dt: Option<f32>) -> String {
+    dt.map_or_else(|| "--".to_string(), |v| format!("{v:.1}"))
+}
+
+/// The Wg card's figure: carried weight out of what the player can carry, "--" unread.
+pub(crate) fn wg_text(m: &MenuModel) -> String {
+    match &m.encumbrance {
+        Ok(e) => format!("{:.0}/{:.0}", e.weight, e.capacity),
+        Err(_) => "--".into(),
+    }
 }
 
 /// Each row's height as drawn: a name broken over more lines makes its row taller.
@@ -975,7 +994,7 @@ mod tests {
         let (w, h) = (INFO.width() / 3.0, INFO.height() / 3.0);
         // A weapon: DAM, WG, VAL; STR over VAL; CND and the ammunition.
         let weapon = Info {
-            first: Some(("DAM", "72".into())),
+            first: Some((FirstStat::Damage, "DAM", "72".into())),
             weight: Some("5.50".into()),
             value: Some("299".into()),
             strength: Some(3),

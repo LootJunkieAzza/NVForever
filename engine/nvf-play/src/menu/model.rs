@@ -627,6 +627,9 @@ pub struct Trade {
     /// The merchant's items held back at the last refresh, with the category it does not
     /// sell them under, in row order.
     pub withheld: Vec<(FormId, &'static str)>,
+    /// A script's price multipliers, buying and selling (SetBarterPriceMult,
+    /// `fnv_game::nvse_jip12`), in place of the rules'.
+    pub mult_set: [Option<f32>; 2],
 }
 
 /// Whether the merchant sells an item: `None` when it does, else the name of the service
@@ -665,12 +668,18 @@ impl Trade {
         self.balance.min(i64::from(self.purse[Side::Container as usize]))
     }
 
-    /// What one unit of value is worth when it comes from `from`.
+    /// What one unit of value is worth when it comes from `from`: a script's multiplier,
+    /// else the rules'.
     fn mult(&self, from: Side) -> f32 {
         match from {
-            Side::Player => self.prices.selling(self.skill, self.discount),
-            Side::Container => self.prices.buying(self.skill, self.discount),
+            Side::Player => self.mult_set[1].unwrap_or_else(|| self.prices.selling(self.skill, self.discount)),
+            Side::Container => self.mult_set[0].unwrap_or_else(|| self.prices.buying(self.skill, self.discount)),
         }
+    }
+
+    /// The multipliers in use, buying and selling (GetBarterPriceMult).
+    pub fn mults(&self) -> [f32; 2] {
+        [self.mult(Side::Container), self.mult(Side::Player)]
     }
 
     /// What holds a side's items.
@@ -873,6 +882,7 @@ impl MenuModel {
             balance: 0,
             sells: None,
             withheld: Vec::new(),
+            mult_set: [None; 2],
         });
         m.focus = Side::Player;
         m.refresh(world)?;

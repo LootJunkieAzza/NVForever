@@ -819,6 +819,11 @@ fn objects(
             rt.game.gaps.sounds.heard(id, seconds);
         }
         script_sounds.stops.append(&mut rt.game.gaps.sounds.stops);
+        // Sounds made for files and the fades (`fnv_game::nvse_jg9`), before the plays.
+        let jg9 = &mut rt.game.other.jg9;
+        script_sounds.paths.append(&mut jg9.new_paths);
+        script_sounds.fades_in.append(&mut jg9.fades_in);
+        script_sounds.fades_out.append(&mut jg9.fades_out);
         ws.held.append(&mut rt.game.sound_requests);
     }
     let in_game = *state.get() == PlayState::Playing;
@@ -829,10 +834,12 @@ fn objects(
             held.push(r);
             continue;
         }
-        let at = match r.at {
-            None => None,
-            Some(FormId::PLAYER_REF) => eye,
-            Some(at) => ref_pos(&sim, at.0),
+        // PlaySound3DNode's node (`fnv_game::nvse_jip14`), else the reference.
+        let at = match (r.point, r.at) {
+            (Some(p), _) => Some(p),
+            (None, None) => None,
+            (None, Some(FormId::PLAYER_REF)) => eye,
+            (None, Some(at)) => ref_pos(&sim, at.0),
         };
         if r.at.is_some() {
             ws.stats.script_3d += 1;

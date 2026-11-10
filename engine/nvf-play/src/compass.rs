@@ -111,6 +111,14 @@ pub fn offset(heading: f32, from: [f32; 2], to: [f32; 2]) -> f32 {
     d * STRIP.x / 360.0
 }
 
+/// One of eight directions (0 front, 1 front right … 4 back … 7 front left) for a mark
+/// `x` compass units right of the heading point (GetNearestCompassHostileDirection,
+/// `fnv_game::nvse_jg9`) [hypothesis: eight equal sectors about the heading].
+pub fn direction_of(x: f32) -> u8 {
+    let degrees = x * 360.0 / STRIP.x;
+    ((degrees / 45.0).round() as i32).rem_euclid(8) as u8
+}
+
 /// The visible distance either side of the heading point
 /// [observed: hud.md §14.5 for actor ticks and one place mark;
 /// hypothesis: the same for quest marks].
@@ -334,6 +342,9 @@ fn gather(
             perception = fnv_game::functions::actor_value_capped(g, FormId::PLAYER_REF, fnv_game::actor_values::PERCEPTION) as f32;
             let range = actor_range(g);
             let mut out = Vec::new();
+            // The nearest hostile mark's distance and offset, of all and of those not
+            // invisible (Invisibility or Chameleon).
+            let mut nearest: [Option<(f32, f32)>; 2] = [None; 2];
             for (r, at) in actors_near(g, &bodies) {
                 let d = ((at[0] - feet[0]).powi(2) + (at[1] - feet[1]).powi(2) + (at[2] - feet[2]).powi(2)).sqrt();
                 if d > range || g.is_dead(r) || !g.present(r) {
@@ -346,6 +357,15 @@ fn gather(
                 }
                 let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
                 let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
+                if hostile {
+                    let x = offset(heading, here, [at[0], at[1]]);
+                    let unseen = ["Invisibility", "Chameleon"].iter().filter_map(|n| fnv_game::functions::av_by_name(n)).any(|c| fnv_game::functions::actor_value_capped(g, r, c) > 0.0);
+                    for k in [0, 1] {
+                        if (k == 0 || !unseen) && nearest[k].is_none_or(|(nd, _)| d < nd) {
+                            nearest[k] = Some((d, x));
+                        }
+                    }
+                }
                 if hostile && hide_foes {
                     continue;
                 }
@@ -356,6 +376,7 @@ fn gather(
                 let mark = if hostile && !neutral_foes { Mark::Hostile } else { Mark::Actor };
                 out.push((Near { mark, at: [at[0], at[1]], body: bodies.contains_key(&r.0).then_some(r.0) }, shown));
             }
+            g.other.jg9.compass_hostile = nearest.map(|n| n.map(|(_, x)| direction_of(x)));
             out
         });
         for (n, shown) in found {
