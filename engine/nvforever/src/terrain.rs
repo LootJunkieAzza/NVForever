@@ -16,13 +16,37 @@
 //!
 //! Measured [observed, world.md §3 "Texture repeat"]: textures repeat every 256 world
 //! units ([`TerrainSettings::tile`]) with u = x / 256 and v = y / 256, v growing northwards.
+//!
+//! # One draw for the base and its first layers
+//!
+//! Each blended layer is a second lighting of the ground under it: at Goodsprings a
+//! ground triangle carries 2.2 painted layers on average, so the ground was lit 3.2 times
+//! [observed 2026-11-10: 50 cells, 102,400 base triangles, 224,778 painted layer
+//! triangles; docs/design/frame-rate-audit.md §9]. Where the GPU has bindless textures
+//! ([`TerrainMaterials::folds`]), a quadrant's first [`FOLDED_LAYERS`] layers are folded
+//! into its base instead: one opaque mesh ([`folded_mesh`]) that carries the layers'
+//! opacities at each vertex, with a [`TerrainMaterial`] holding their textures, whose
+//! shader (terrain.wesl) blends the surface colour and the normal in the layers' order
+//! and lights the result once. A quadrant's later layers (up to 6 were seen; the first
+//! four hold 85 % of the painted triangles at Goodsprings, 95 % at Novac) keep their
+//! blended draws over it, in the same order as before.
+//!
+//! What differs in the picture: the layers' *surfaces* are blended and then lit, where
+//! their *lit colours* were blended. The two agree where a layer is fully opaque or
+//! absent; in between, the bumps of two normal maps are mixed before the light falls on
+//! them [engineering choice: the interim technique above was to be replaced by this].
+//! Without bindless textures (a material would need eight more textures than such a GPU
+//! can bind beside the standard ones) every layer keeps its blended draw.
 
 use crate::world::WorldData;
 use fnv_esm::{LoadOrder, Schema as EsmSchema};
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline};
 use bevy::prelude::*;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
+use bevy::shader::ShaderRef;
 use fnv_world::land::{land_texture, load_land, Land, LandParts, Layer, DEFAULT_DIFFUSE, DEFAULT_NORMAL, QUAD_SIDE, SIDE, SPACING};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::nif_material::sort_first;
@@ -43,6 +67,11 @@ pub struct TerrainCache {
     normals: HashMap<String, String>,
     base: HashMap<Option<String>, Handle<NifMaterial>>,
     layer: HashMap<(String, usize), Handle<NifMaterial>>,
+    /// Base texture and folded layer textures → the material of a folded quadrant.
+    folded: HashMap<(Option<String>, Vec<String>), Handle<TerrainMaterial>>,
+    /// Quadrants drawn with their first layers folded in, and the layers folded.
+    pub folded_quadrants: usize,
+    pub folded_layers: usize,
     pub quadrants_without_base: usize,
     pub layers: usize,
 }
@@ -58,11 +87,107 @@ impl TerrainCache {
     }
 }
 
+/// The layers of a quadrant folded into its base's draw (module notes, "One draw for the
+/// base and its first layers").
+pub const FOLDED_LAYERS: usize = 4;
+
+/// The landscape material of a quadrant whose first layers are folded into the base:
+/// the base's StandardMaterial with the layers' textures (terrain.wesl).
+pub type TerrainMaterial = ExtendedMaterial<StandardMaterial, TerrainLayers>;
+
+const SHADER: &str = "embedded://nvforever/terrain.wesl";
+
+/// The folded layers' textures, in the layers' order, and how many there are. The values
+/// and texture indices sit in bindless tables beside StandardMaterial's, as NifSurface's
+/// do (nvf_assets nif_material.rs "Bindless"), so quadrants still draw in one batch.
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+#[data(50, TerrainLayersUniform, binding_array(101))]
+#[bindless(limit(512), index_table(range(50..59), binding(100)))]
+pub struct TerrainLayers {
+    /// Layers held (at most [`FOLDED_LAYERS`]).
+    pub count: u32,
+    #[texture(51)]
+    pub diffuse0: Option<Handle<Image>>,
+    #[texture(52)]
+    pub normal0: Option<Handle<Image>>,
+    #[texture(53)]
+    pub diffuse1: Option<Handle<Image>>,
+    #[texture(54)]
+    pub normal1: Option<Handle<Image>>,
+    #[texture(55)]
+    pub diffuse2: Option<Handle<Image>>,
+    #[texture(56)]
+    pub normal2: Option<Handle<Image>>,
+    #[texture(57)]
+    pub diffuse3: Option<Handle<Image>>,
+    #[texture(58)]
+    pub normal3: Option<Handle<Image>>,
+}
+
+/// What terrain.wesl reads of a [`TerrainLayers`]: x the layer count, y a bit for each
+/// layer that has a normal map.
+#[derive(Clone, Default, ShaderType)]
+pub struct TerrainLayersUniform {
+    pub counts: UVec4,
+}
+
+impl From<&TerrainLayers> for TerrainLayersUniform {
+    fn from(l: &TerrainLayers) -> Self {
+        let normals = [&l.normal0, &l.normal1, &l.normal2, &l.normal3];
+        let bits = normals.iter().enumerate().filter(|(_, n)| n.is_some()).fold(0u32, |b, (i, _)| b | 1 << i);
+        TerrainLayersUniform { counts: UVec4::new(l.count.min(FOLDED_LAYERS as u32), bits, 0, 0) }
+    }
+}
+
+impl MaterialExtension for TerrainLayers {
+    fn fragment_shader() -> ShaderRef {
+        SHADER.into()
+    }
+    fn specialize(
+        _: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _: &MeshVertexBufferLayoutRef,
+        key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        // Land fades in and out with its cell (fade.rs), and is opaque.
+        nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        nvf_assets::depth_equal(descriptor, key.mesh_key);
+        Ok(())
+    }
+}
+
+pub struct TerrainPlugin;
+
+impl Plugin for TerrainPlugin {
+    fn build(&self, app: &mut App) {
+        bevy::asset::embedded_asset!(app, "terrain.wesl");
+        app.add_plugins(MaterialPlugin::<TerrainMaterial>::default());
+    }
+}
+
 /// Terrain settings and caches; GPU assets come from the shared [`ModelCtx`].
 #[derive(SystemParam)]
 pub struct TerrainMaterials<'w> {
     pub settings: Res<'w, TerrainSettings>,
     pub cache: ResMut<'w, TerrainCache>,
+    pub folded: ResMut<'w, Assets<TerrainMaterial>>,
+    device: Option<Res<'w, bevy::render::renderer::RenderDevice>>,
+}
+
+impl TerrainMaterials<'_> {
+    /// Whether quadrants fold their first layers into the base (module notes): the GPU
+    /// keeps materials' textures in bindless tables. Test aid `NVF_PLAY_TEST_TERRAIN_LAYERS=blended`:
+    /// every layer keeps its blended draw, for comparing the two.
+    pub fn folds(&self) -> bool {
+        static BLENDED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *BLENDED.get_or_init(|| std::env::var("NVF_PLAY_TEST_TERRAIN_LAYERS").is_ok_and(|v| v == "blended")) {
+            return false;
+        }
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        let folds = self.device.as_ref().is_some_and(|d| bevy::render::material_bind_groups::material_uses_bindless_resources::<TerrainMaterial>(d));
+        ONCE.call_once(|| info!("terrain: the first {FOLDED_LAYERS} texture layers of a quadrant are {} (render device {})", if folds { "folded into its base's draw" } else { "blended over it, as every layer" }, if self.device.is_some() { "known" } else { "not known" }));
+        folds
+    }
 }
 
 /// Terrain state plus the shared asset context, for one spawn.
@@ -122,6 +247,30 @@ impl TerrainCtx<'_, '_, '_> {
         let h = self.assets.materials.add(nif_material(m));
         self.tm.cache.base.insert(tex, h.clone());
         h
+    }
+
+    /// The material of a quadrant with `layers` (diffuse paths, in order) folded into the
+    /// base `tex`. `None` when a layer's diffuse texture is not found: the quadrant then
+    /// keeps its blended layers, which leave such a layer out.
+    fn folded_material(&mut self, tex: Option<String>, layers: &[String]) -> Option<Handle<TerrainMaterial>> {
+        let key = (tex.clone(), layers.to_vec());
+        if let Some(h) = self.tm.cache.folded.get(&key) {
+            return Some(h.clone());
+        }
+        let mut textures = Vec::with_capacity(layers.len());
+        for l in layers {
+            let diffuse = self.image(l, true)?;
+            let normal = self.tm.cache.normals.get(l).cloned().and_then(|n| self.image(&n, false));
+            textures.push((diffuse, normal));
+        }
+        let mut textures = textures.into_iter();
+        let mut next = || textures.next().map_or((None, None), |(d, n)| (Some(d), n));
+        let ((diffuse0, normal0), (diffuse1, normal1), (diffuse2, normal2), (diffuse3, normal3)) = (next(), next(), next(), next());
+        let extension = TerrainLayers { count: layers.len() as u32, diffuse0, normal0, diffuse1, normal1, diffuse2, normal2, diffuse3, normal3 };
+        let base = self.surface(tex.as_deref());
+        let h = self.tm.folded.add(TerrainMaterial { base, extension });
+        self.tm.cache.folded.insert(key, h.clone());
+        Some(h)
     }
 
     fn layer_material(&mut self, tex: String, rank: usize) -> Option<Handle<NifMaterial>> {
@@ -257,6 +406,30 @@ fn across(q: u8, side: usize) -> (Option<usize>, u8) {
     }
 }
 
+/// The base mesh of quadrant `q` with the opacities of its first layers (`alphas`, at most
+/// [`FOLDED_LAYERS`], in the layers' order) at each vertex, where terrain.wesl reads them:
+/// the first in the vertex colour's alpha, the second and third in the second texture
+/// coordinate, the fourth in the size of the tangent's last number past 1 (its sign stays
+/// [`TANGENT_SIGN`]).
+fn folded_mesh(land: &Land, q: u8, alphas: &[&[f32]], cell_origin: Vec2, tile: f32) -> Option<Mesh> {
+    use bevy::mesh::VertexAttributeValues;
+    let mut mesh = quadrant_mesh(land, q, None, cell_origin, tile)?;
+    let at = |k: usize, v: usize| alphas.get(k).map_or(0.0, |a| a[v]);
+    let n = QUAD_SIDE * QUAD_SIDE;
+    if let Some(VertexAttributeValues::Float32x4(col)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) {
+        for (v, c) in col.iter_mut().enumerate() {
+            c[3] = at(0, v);
+        }
+    }
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, (0..n).map(|v| [at(1, v), at(2, v)]).collect::<Vec<_>>());
+    if let Some(VertexAttributeValues::Float32x4(tan)) = mesh.attribute_mut(Mesh::ATTRIBUTE_TANGENT) {
+        for (v, t) in tan.iter_mut().enumerate() {
+            t[3] = TANGENT_SIGN * (1.0 + at(3, v));
+        }
+    }
+    Some(mesh)
+}
+
 /// A layer's opacity over the 17 × 17 grid.
 fn alpha_grid(l: &Layer) -> Vec<f32> {
     let mut alpha = vec![0.0f32; QUAD_SIDE * QUAD_SIDE];
@@ -340,6 +513,13 @@ pub fn stitch_layers(own: &[Layer], neighbours: &[Option<Vec<Layer>>; 4]) -> Vec
     out
 }
 
+/// A quadrant's layers over its base, in drawing order, with their index in `layers`.
+fn quadrant_layers(layers: &[Layer], q: u8) -> Vec<(usize, &Layer)> {
+    let mut layers: Vec<_> = layers.iter().enumerate().filter(|(_, l)| !l.base && l.quadrant == q).collect();
+    layers.sort_by_key(|(_, l)| l.layer);
+    layers
+}
+
 /// A cell's landscape, read and its quadrant meshes built (on a worker thread when it is
 /// read ahead, world.rs): the base mesh of each quadrant, `(quadrant, None)`, and the
 /// blended mesh of each drawn layer, `(quadrant, Some(index in layers))`.
@@ -349,6 +529,9 @@ pub struct TerrainPrep {
     /// The layers drawn: the land's, stitched to the neighbours' ([`stitch_layers`]).
     layers: Vec<Layer>,
     meshes: HashMap<(u8, Option<usize>), Mesh>,
+    /// Each quadrant's base with its first [`FOLDED_LAYERS`] layers folded in
+    /// ([`folded_mesh`]); none for a quadrant without layers.
+    folded: HashMap<u8, Mesh>,
 }
 
 /// Read LAND `land_id` of grid square `grid` and build its meshes (`tile`: world units per
@@ -363,17 +546,26 @@ pub fn prepare_terrain(lo: &LoadOrder, schema: &EsmSchema, land_id: u32, grid: (
     let layers = stitch_layers(&land.layers, &around);
     let origin = Vec2::new(grid.0 as f32 * fnv_world::CELL_SIZE, grid.1 as f32 * fnv_world::CELL_SIZE);
     let mut meshes = HashMap::new();
+    let mut folded = HashMap::new();
     for q in 0..4u8 {
         if let Some(mesh) = quadrant_mesh(&land, q, None, origin, tile) {
             meshes.insert((q, None), mesh);
         }
-        for (i, l) in layers.iter().enumerate().filter(|(_, l)| !l.base && l.quadrant == q) {
-            if let Some(mesh) = quadrant_mesh(&land, q, Some(&alpha_grid(l)), origin, tile) {
-                meshes.insert((q, Some(i)), mesh);
+        let quad = quadrant_layers(&layers, q);
+        let alphas: Vec<Vec<f32>> = quad.iter().map(|(_, l)| alpha_grid(l)).collect();
+        for ((i, _), alpha) in quad.iter().zip(&alphas) {
+            if let Some(mesh) = quadrant_mesh(&land, q, Some(alpha), origin, tile) {
+                meshes.insert((q, Some(*i)), mesh);
+            }
+        }
+        if !alphas.is_empty() {
+            let first: Vec<&[f32]> = alphas.iter().take(FOLDED_LAYERS).map(Vec::as_slice).collect();
+            if let Some(mesh) = folded_mesh(&land, q, &first, origin, tile) {
+                folded.insert(q, mesh);
             }
         }
     }
-    Some(TerrainPrep { land, layers, meshes })
+    Some(TerrainPrep { land, layers, meshes, folded })
 }
 
 /// A mesh of a cell's land (its base or a texture layer over it).
@@ -383,21 +575,39 @@ pub struct LandMesh;
 /// Spawn a cell's terrain from its prepared landscape ([`prepare_terrain`]); returns the
 /// landscape (for the grass).
 pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, prep: TerrainPrep, tm: &mut TerrainCtx) -> Land {
-    let TerrainPrep { land, layers: drawn, mut meshes } = prep;
+    let TerrainPrep { land, layers: drawn, mut meshes, mut folded } = prep;
+    let folds = tm.tm.folds();
     for q in 0..4u8 {
         let base = drawn.iter().rev().find(|l| l.base && l.quadrant == q);
         if base.is_none() {
             tm.tm.cache.quadrants_without_base += 1;
         }
         let tex = tm.texture_of(world, base.and_then(|b| b.texture));
-        let mat = tm.base_material(tex);
-        if let Some(mesh) = meshes.remove(&(q, None)) {
+        let layers = quadrant_layers(&drawn, q);
+        // The first layers folded into the base's draw (module notes), when each of them
+        // has a texture; otherwise the base alone and every layer blended over it.
+        let mut blended_from = 0;
+        let folded_mat = match folded.remove(&q).filter(|_| folds) {
+            Some(mesh) => {
+                let first: Option<Vec<String>> = layers.iter().take(FOLDED_LAYERS).map(|(_, l)| tm.texture_of(world, l.texture)).collect();
+                first.and_then(|first: Vec<String>| Some((mesh, tm.folded_material(tex.clone(), &first)?, first.len())))
+            }
+            None => None,
+        };
+        if let Some((mesh, mat, n)) = folded_mat {
             let mesh = tm.assets.meshes.add(mesh);
             commands.entity(cell).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::IDENTITY, LandMesh));
+            tm.tm.cache.folded_quadrants += 1;
+            tm.tm.cache.folded_layers += n;
+            blended_from = n;
+        } else {
+            let mat = tm.base_material(tex);
+            if let Some(mesh) = meshes.remove(&(q, None)) {
+                let mesh = tm.assets.meshes.add(mesh);
+                commands.entity(cell).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::IDENTITY, LandMesh));
+            }
         }
-        let mut layers: Vec<_> = drawn.iter().enumerate().filter(|(_, l)| !l.base && l.quadrant == q).collect();
-        layers.sort_by_key(|(_, l)| l.layer);
-        for (rank, (i, l)) in layers.into_iter().enumerate() {
+        for (rank, (i, l)) in layers.into_iter().enumerate().skip(blended_from) {
             let Some(tex) = tm.texture_of(world, l.texture) else { continue };
             let Some(mat) = tm.layer_material(tex, rank) else { continue };
             if let Some(mesh) = meshes.remove(&(q, Some(i))) {
@@ -448,6 +658,55 @@ mod tests {
             assert_eq!(a[3], b[3]);
             assert!(ta.dot(Vec3::from_array(*n)).abs() < 1e-3 && (ta.length() - 1.0).abs() < 1e-4);
         }
+    }
+
+    #[test]
+    fn a_folded_mesh_carries_four_layers_opacities_and_keeps_the_base() {
+        let land = sloped_land();
+        let n = QUAD_SIDE * QUAD_SIDE;
+        let v = 5 * QUAD_SIDE + 7;
+        let layer = |o: f32| {
+            let mut a = vec![0.0; n];
+            a[v] = o;
+            a
+        };
+        let alphas = [layer(0.2), layer(0.4), layer(0.6), layer(0.8)];
+        let refs: Vec<&[f32]> = alphas.iter().map(Vec::as_slice).collect();
+        let base = quadrant_mesh(&land, 0, None, Vec2::ZERO, 256.0).unwrap();
+        let folded = folded_mesh(&land, 0, &refs, Vec2::ZERO, 256.0).unwrap();
+        // The base's own geometry: every triangle, the same positions, normals and texture
+        // coordinates, so the depth prepass and the shadows see the same ground.
+        assert_eq!(triangles(&folded), triangles(&base));
+        for a in [Mesh::ATTRIBUTE_POSITION, Mesh::ATTRIBUTE_NORMAL, Mesh::ATTRIBUTE_UV_0] {
+            assert_eq!(folded.attribute(a).unwrap().get_bytes(), base.attribute(a).unwrap().get_bytes());
+        }
+        let Some(VertexAttributeValues::Float32x4(col)) = folded.attribute(Mesh::ATTRIBUTE_COLOR) else { panic!() };
+        let Some(VertexAttributeValues::Float32x2(uv_b)) = folded.attribute(Mesh::ATTRIBUTE_UV_1) else { panic!() };
+        let Some(VertexAttributeValues::Float32x4(tan)) = folded.attribute(Mesh::ATTRIBUTE_TANGENT) else { panic!() };
+        let Some(VertexAttributeValues::Float32x4(base_tan)) = base.attribute(Mesh::ATTRIBUTE_TANGENT) else { panic!() };
+        // As terrain.wesl reads them back.
+        let read = |i: usize| [col[i][3], uv_b[i][0], uv_b[i][1], tan[i][3].abs() - 1.0];
+        let close = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
+        assert!(close(read(v), [0.2, 0.4, 0.6, 0.8]), "{:?}", read(v));
+        assert!(close(read(0), [0.0; 4]), "{:?}", read(0));
+        // The tangent's direction and handedness are the base's.
+        for (t, b) in tan.iter().zip(base_tan) {
+            assert_eq!(t[..3], b[..3]);
+            assert_eq!(t[3].signum(), b[3].signum());
+        }
+        // Fewer layers: the others' opacities are 0.
+        let two = folded_mesh(&land, 0, &refs[..2], Vec2::ZERO, 256.0).unwrap();
+        let Some(VertexAttributeValues::Float32x2(uv_b)) = two.attribute(Mesh::ATTRIBUTE_UV_1) else { panic!() };
+        let Some(VertexAttributeValues::Float32x4(tan)) = two.attribute(Mesh::ATTRIBUTE_TANGENT) else { panic!() };
+        assert_eq!((uv_b[v], tan[v][3]), ([0.4, 0.0], TANGENT_SIGN));
+    }
+
+    #[test]
+    fn the_shader_is_told_how_many_layers_and_which_have_normal_maps() {
+        let image = Handle::<Image>::default();
+        let layers = TerrainLayers { count: 3, diffuse0: Some(image.clone()), normal0: Some(image.clone()), diffuse1: Some(image.clone()), diffuse2: Some(image.clone()), normal2: Some(image), ..default() };
+        assert_eq!(TerrainLayersUniform::from(&layers).counts, UVec4::new(3, 0b101, 0, 0));
+        assert_eq!(TerrainLayersUniform::from(&TerrainLayers { count: 9, ..default() }).counts.x, FOLDED_LAYERS as u32);
     }
 
     fn triangles(mesh: &Mesh) -> Vec<[u32; 3]> {
