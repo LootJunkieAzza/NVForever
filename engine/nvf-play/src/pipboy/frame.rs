@@ -21,9 +21,14 @@ pub const MAIN: Rect = Rect { min: Vec2::new(50.0, 50.0), max: Vec2::new(905.0, 
 /// Every line is 2 thick on a PC.
 pub const THICK: f32 = 2.0;
 /// Lines are drawn at brightness 200, text at 255, a dimmed text at 128; a box's fill at
-/// brightness 128 and alpha 32.
+/// brightness 128 and alpha 32. The text is drawn at 213, not the file's 255: on the device
+/// the original's text peaks at 1.31 times its lines' brightness where 255 gave NVForever's
+/// 1.57, so its letters read heavier [observed: S.P.E.C.I.A.L. at 1280 x 720, the original's
+/// heading line 128 and names 168 red (private job pipboy_fx_still), NVForever's 129 and
+/// 202 (scenario pipboy-screen-text); hypothesis: why the original's text comes out dimmer;
+/// the dimmed text is not measured and keeps 128].
 pub const LINE: f32 = 200.0;
-pub const TEXT: f32 = 255.0;
+pub const TEXT: f32 = 213.0;
 pub const DIMMED: f32 = 128.0;
 pub const FILL: (f32, f32) = (128.0, 32.0);
 /// A vertical fade line is 60 long.
