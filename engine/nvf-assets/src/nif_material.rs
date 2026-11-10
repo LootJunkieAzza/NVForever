@@ -254,6 +254,10 @@ pub fn first_person_squeeze(z: f32) -> f32 {
 pub fn soft_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
     if !prepass_coverage(descriptor, mesh_key, FADE_PREPASS_SHADER, None) {
         alpha_to_coverage_edges(descriptor, mesh_key);
+        // Without multisampling both passes test the alpha at the cutoff, so the main
+        // pass can still test depth for equality (not with alpha to coverage: its edge
+        // lies outside what the prepass wrote, and `depth_equal` leaves it alone).
+        depth_equal(descriptor, mesh_key);
     }
 }
 
@@ -1189,15 +1193,23 @@ mod tests {
             assert!(main.multisample.alpha_to_coverage_enabled, "{key:?}");
             assert_eq!(depth_state(&main), UPSTREAM_DEPTH, "{key:?}");
         }
-        // Without multisampling there is no soft edge, and nothing here changes the pipeline.
+        // Without multisampling and without a prepass nothing here changes the pipeline.
         let mut main = main_pipeline(1, None);
-        soft_edges(&mut main, key);
+        soft_edges(&mut main, MeshPipelineKey::MAY_DISCARD);
         assert!(!has(&main, "SOFT_EDGES") && !has(&main, "PREPASS_COVERAGE"));
         assert_eq!(depth_state(&main), UPSTREAM_DEPTH);
         // An opaque shape has no edge.
         let mut main = main_pipeline(4, None);
         soft_edges(&mut main, MeshPipelineKey::DEPTH_PREPASS);
         assert!(!has(&main, "SOFT_EDGES") && !has(&main, "PREPASS_COVERAGE"));
+        // Without multisampling but with a prepass, both passes test at the cutoff and the
+        // main pass tests depth for equality (FXAA, SMAA, TAA, no anti-aliasing).
+        for key in [key, key | MeshPipelineKey::MOTION_VECTOR_PREPASS] {
+            let mut main = main_pipeline(1, None);
+            soft_edges(&mut main, key);
+            assert!(!has(&main, "SOFT_EDGES") && !has(&main, "PREPASS_COVERAGE"), "{key:?}");
+            assert_eq!(depth_state(&main), EQUAL_DEPTH, "{key:?}");
+        }
     }
 
     /// coverage.wesl `sample_mask`, in Rust.

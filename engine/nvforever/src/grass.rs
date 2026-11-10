@@ -94,6 +94,9 @@ impl MaterialExtension for GrassSway {
                 descriptor.multisample.alpha_to_coverage_enabled = true;
             }
         }
+        // Without multisampling both passes test the alpha at the cutoff: the main pass
+        // tests depth for equality with the prepass (left alone with alpha to coverage).
+        nvf_assets::depth_equal(descriptor, key.mesh_key);
         Ok(())
     }
 }
