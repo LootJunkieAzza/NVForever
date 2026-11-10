@@ -83,6 +83,7 @@ use travel::{Ask, FastTravelAsk, FastTravelGo, Popup};
 use nvf_assets::GameData;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::sync::Arc;
 
 // ---- the tabs ---------------------------------------------------------------------------
 
@@ -535,9 +536,10 @@ struct MapShown {
     quests: Vec<Vec2>,
     /// The custom marker (its top left, as a quest marker's).
     custom: Option<Vec2>,
-    /// The World Map's waypoint nodes (their middles) and its dotted lines.
-    nodes: Vec<Vec2>,
-    lines: Vec<(LineTo, Vec<Piece>)>,
+    /// The World Map's waypoint nodes (their middles) and its dotted lines, shared with the
+    /// cache they come from ([`cached_waypoints`]).
+    nodes: Arc<Vec<Vec2>>,
+    lines: Arc<Vec<(LineTo, Vec<Piece>)>>,
     /// The highlight box's middle and the name it shows.
     cursor: Vec2,
     label: Option<String>,
@@ -689,6 +691,12 @@ pub fn draw(
     }
     let mut c = Ctx::new(&mut tools.kit, tools.data.as_deref(), &mut tools.images, tools.formats.as_deref(), &tools.glyphs);
     st.button_rects = (view.tab, button_boxes(&c, &view.buttons));
+    // The question box's answers are spawned anew with the page: the answer the pointer was
+    // on is gone with its entity (no PointerOut comes from it), so it is forgotten until
+    // the new answers' PointerOver ([`BoxHold::rebuilt`]).
+    if view.popup.is_some() {
+        st.popup_hold.rebuilt();
+    }
     commands.entity(body).despawn_children().with_children(|p| show(p, &mut c, st, &view));
     st.shown = Some(view);
 }
@@ -1378,8 +1386,20 @@ const KEYED_STILL: f32 = 2.0;
 struct BoxHold {
     /// Where the pointer was when a key last moved the choice (`None`: no key holds it).
     keyed: Option<Option<Vec2>>,
-    /// The answer the pointer is on (its last PointerOver not followed by its PointerOut).
+    /// The answer the pointer is on (its last PointerOver not followed by its PointerOut),
+    /// of the answers drawn now.
     hover: Option<usize>,
+}
+
+impl BoxHold {
+    /// The box's answers were spawned again: the answer entity the pointer was on is
+    /// despawned and its PointerOut never comes, so the hover is dropped; a pointer still on
+    /// an answer enters the new one, and its PointerOver sets it again. Without this a
+    /// pointer moved off onto blank space after a redraw kept the old answer's hover, and
+    /// once the keys' hold let go that stale answer took the choice back [design].
+    fn rebuilt(&mut self) {
+        self.hover = None;
+    }
 }
 
 /// What the question box was given in a frame.
@@ -1914,7 +1934,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     let (nodes, lines) = cached_waypoints(&mut st.waypoints_cache, arrow, custom.map(|c| c.1), &targets, mag);
     let kinds: Vec<LineTo> = lines.iter().map(|l| l.0).collect();
     if st.lines_logged.as_ref() != Some(&(kinds.clone(), st.custom)) {
-        for (to, pieces) in &lines {
+        for (to, pieces) in lines.iter() {
             info!("pipboy map: dotted line to {} ({} segments)", to.name(), pieces.len());
         }
         if lines.is_empty() && st.lines_logged.is_some() {
@@ -1946,7 +1966,7 @@ fn standing(game: &Game, rep: u32) -> Option<&'static str> {
 }
 
 fn empty_map() -> MapShown {
-    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Vec::new(), lines: Vec::new(), cursor: MAP_MID, label: None, detail: None }
+    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), custom: None, nodes: Arc::default(), lines: Arc::default(), cursor: MAP_MID, label: None, detail: None }
 }
 
 /// The local map's scale, game units to a canvas unit at a magnification of 1: outdoors
@@ -2090,7 +2110,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let custom = st.custom.filter(|c| c.space == space);
     log_custom(st, LOCAL, custom);
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Vec::new(), lines: Vec::new(), cursor, label, detail: None }
+    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -2126,15 +2146,17 @@ fn waypoints(arrow: Option<Vec2>, custom: Option<Vec2>, quests: &[Vec2], mag: f3
 /// What the World Map's waypoints depend on: the arrow, the custom marker, the quest
 /// targets (window units) and the magnification.
 type WaypointKey = (Option<Vec2>, Option<Vec2>, Vec<Vec2>, f32);
-/// The World Map's waypoint nodes and dotted lines ([`waypoints`]).
-type Waypoints = (Vec<Vec2>, Vec<(LineTo, Vec<Piece>)>);
+/// The World Map's waypoint nodes and dotted lines ([`waypoints`]), shared so that a frame
+/// whose waypoints did not move copies no vectors.
+type Waypoints = (Arc<Vec<Vec2>>, Arc<Vec<(LineTo, Vec<Piece>)>>);
 
 /// [`waypoints`], worked out again only when what they depend on moved (the World Map is
 /// gathered every frame while it is open) [design].
 fn cached_waypoints(cache: &mut Option<(WaypointKey, Waypoints)>, arrow: Option<Vec2>, custom: Option<Vec2>, quests: &[Vec2], mag: f32) -> Waypoints {
     let fresh = cache.as_ref().is_none_or(|(k, _)| k.0 != arrow || k.1 != custom || k.2 != quests || k.3 != mag);
     if fresh {
-        *cache = Some(((arrow, custom, quests.to_vec(), mag), waypoints(arrow, custom, quests, mag)));
+        let (nodes, lines) = waypoints(arrow, custom, quests, mag);
+        *cache = Some(((arrow, custom, quests.to_vec(), mag), (Arc::new(nodes), Arc::new(lines))));
     }
     cache.as_ref().map(|c| c.1.clone()).unwrap_or_default()
 }
@@ -2784,7 +2806,7 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         for piece in m.lines.iter().flat_map(|l| &l.1) {
             path_piece(p, c, piece);
         }
-        for n in &m.nodes {
+        for n in m.nodes.iter() {
             c.image(p, NODE_FILE, at(n.x - NODE / 2.0, n.y - NODE / 2.0, NODE, NODE), amber(TEXT));
         }
         for q in &m.quests {
@@ -3494,6 +3516,28 @@ mod tests {
         assert_eq!((p.selected, hold.hover), (1, None));
     }
 
+    /// The review's sequence: the pointer on the first answer, Down (the box is drawn
+    /// anew, the answer the pointer was on despawned with no PointerOut), the pointer
+    /// moved onto blank space before the new answers were picked: the choice stays the
+    /// keys' one.
+    #[test]
+    fn a_hover_does_not_outlive_its_redrawn_answer() {
+        let mut p = three();
+        let mut hold = BoxHold::default();
+        let at = Vec2::new(527.0, 350.0);
+        choose(&mut p, &mut hold, Some(at), &moves(&[], &[(0, true)]));
+        assert_eq!(p.selected, 0);
+        choose(&mut p, &mut hold, Some(at), &moves(&[1], &[]));
+        assert_eq!(p.selected, 1);
+        hold.rebuilt();
+        choose(&mut p, &mut hold, Some(at + Vec2::new(0.0, 200.0)), &moves(&[], &[]));
+        assert_eq!((p.selected, hold.keyed, hold.hover), (1, None, None));
+        // A pointer still on an answer after a redraw enters the new one and has it again.
+        hold.rebuilt();
+        choose(&mut p, &mut hold, Some(at + Vec2::new(0.0, 230.0)), &moves(&[], &[(2, true)]));
+        assert_eq!(p.selected, 2);
+    }
+
     /// Down and Enter in one frame take the answer below (fast travel's No, not Yes);
     /// Y, N or a click take theirs whatever the choice.
     #[test]
@@ -3517,9 +3561,12 @@ mod tests {
         assert_eq!(a.1.len(), 1);
         // A stale cache entry stands in for the same inputs.
         if let Some((_, w)) = cache.as_mut() {
-            w.0.clear();
+            w.0 = Arc::default();
         }
         assert!(cached_waypoints(&mut cache, Some(Vec2::ZERO), Some(Vec2::new(100.0, 0.0)), &[], 1.0).0.is_empty());
+        // Unmoved, the frame shares the cached vectors.
+        let b = cached_waypoints(&mut cache, Some(Vec2::ZERO), Some(Vec2::new(100.0, 0.0)), &[], 1.0);
+        assert!(Arc::ptr_eq(&b.1, &cache.as_ref().unwrap().1 .1));
         // Zoomed, or the marker moved: worked out again.
         assert_eq!(cached_waypoints(&mut cache, Some(Vec2::ZERO), Some(Vec2::new(100.0, 0.0)), &[], 2.0).0.len(), 2);
         assert_eq!(cached_waypoints(&mut cache, Some(Vec2::ZERO), None, &[Vec2::ONE * 50.0], 2.0).1[0].0, LineTo::Quest);
