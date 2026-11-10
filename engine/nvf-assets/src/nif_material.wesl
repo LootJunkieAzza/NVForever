@@ -83,7 +83,7 @@ import bevy_pbr::{
     render::shadow_sampling::sample_shadow_map,
 };
 
-import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, normal_map_texel};
+import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_material, holes_alpha, facegen_size, facegen_texel, base_color_texel, base_color_texel_level, base_color_size, normal_map_texel};
 
 // Main-pass geometry uses the render viewport, which can be smaller than the
 // display attachment when FSR is enabled. Transmission remains a full-size texture.
@@ -155,19 +155,29 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
 // PIPBOY_SCREEN (NifSurface::pipboy_a, pipboy_b; nvf-play pipboy/transition.rs and
 // pipboy/device_screen.rs): the menus' picture at `uv` (texture coordinates; `dx`, `dy` their
 // change across one view pixel), in linear light. Rolled up by a.x of the canvas, wrapping
-// inside it (a.w its share of the texture's height); softened by a 3 x 3 tent of taps b.x view
-// pixels apart; its display values scaled by 1 - a.y with a.z added; and triangular noise of
-// reach b.y added to them, new on every frame, at the view pixel `pixel`.
+// inside it (a.w and b.z its share of the texture's height and width); softened by a 3 x 3
+// tent of taps b.x view pixels apart; its display values scaled by 1 - a.y with a.z added; and
+// triangular noise of reach b.y added to them, new on every frame, at the view pixel `pixel`.
+// Every tap is read inside the canvas: wrapped up and down while it rolls, then held half a
+// texel inside its edges, so the filter never reads the image beyond it (the undercoat, or the
+// far side of the texture, which the sampler repeats).
 @if(PIPBOY_SCREEN) fn pipboy_picture(instance_index: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, a: vec4<f32>, b: vec4<f32>, pixel: vec2<f32>) -> vec3<f32> {
+    let canvas = vec2(select(1.0, b.z, b.z > 0.0), select(1.0, a.w, a.w > 0.0));
+    let half = 0.5 / vec2<f32>(max(base_color_size(instance_index), vec2(1u)));
+    let rolling = a.x != 0.0;
     var at = uv;
-    if a.x != 0.0 && a.w > 0.0 {
-        at.y = fract(uv.y / a.w + a.x) * a.w;
+    if rolling {
+        at.y = fract(uv.y / canvas.y + a.x) * canvas.y;
     }
     var sum = vec3(0.0);
     for (var j = -1; j <= 1; j += 1) {
         for (var i = -1; i <= 1; i += 1) {
             let w = f32((2 - abs(i)) * (2 - abs(j)));
-            let p = at + (f32(i) * dx + f32(j) * dy) * b.x;
+            var p = at + (f32(i) * dx + f32(j) * dy) * b.x;
+            if rolling {
+                p.y = fract(p.y / canvas.y) * canvas.y;
+            }
+            p = clamp(p, half, max(canvas - half, half));
             sum += w * base_color_texel_level(instance_index, p, 0.0).rgb;
         }
     }

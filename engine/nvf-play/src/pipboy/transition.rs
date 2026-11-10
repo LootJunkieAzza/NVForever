@@ -220,7 +220,7 @@ impl ScreenLook {
 
     /// As the material takes it (nvf_assets `NifSurface::pipboy_a`, `pipboy_b`).
     pub fn surface(&self) -> (Vec4, Vec4) {
-        (Vec4::new(self.roll, 1.0 - self.gain, self.add, CANVAS.y / TARGET.y as f32), Vec4::new(self.soften, self.noise, 0.0, 0.0))
+        (Vec4::new(self.roll, 1.0 - self.gain, self.add, CANVAS.y / TARGET.y as f32), Vec4::new(self.soften, self.noise, CANVAS.x / TARGET.x as f32, 0.0))
     }
 }
 
@@ -411,7 +411,7 @@ mod tests {
         assert_eq!((rest.roll, rest.gain, rest.add), (0.0, 1.0, 0.0));
         let (a, b) = rest.surface();
         assert_eq!(a, Vec4::new(0.0, 0.0, 0.0, 0.8));
-        assert_eq!(b, Vec4::new(TEXT_SOFTEN, SCREEN_NOISE, 0.0, 0.0));
+        assert_eq!(b, Vec4::new(TEXT_SOFTEN, SCREEN_NOISE, 0.8, 0.0), "the canvas's width share for the taps' bounds");
         // The shudder moves the picture down by rolling it back (negative roll); the
         // hold rolls it up.
         assert!(ScreenLook::during(Kind::Shudder, 95.0).roll < 0.0);

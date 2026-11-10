@@ -336,7 +336,8 @@ pub struct NifSurface {
     pub pipboy_a: Vec4,
     /// The Pip-Boy's screen, the static part: x the softening's reach in the view's pixels
     /// (0 none), y the noise's reach in display values (0–1, triangular, new every frame; 0
-    /// none); z, w unused.
+    /// none), z the canvas's share of the texture's width (the taps are read inside the
+    /// canvas, `pipboy_a`'s w its height); w unused.
     pub pipboy_b: Vec4,
     /// A blended shape that draws the same as a cut-out (`nif_spawn::blended_cutout`): its
     /// alpha is a texture's cut-out mask and nothing else. Where [`BlendedCutouts`] is on
