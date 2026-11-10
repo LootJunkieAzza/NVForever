@@ -349,12 +349,31 @@ const REPAY: f64 = 0.01;
 /// frames after it catch up that much each; a schedule more than a frame's time behind is
 /// moved up to a frame's time behind.
 fn next_frame(clock: Option<(Instant, Instant)>, cap: u32, now: Instant) -> (Instant, (Instant, Instant)) {
-    let Some((schedule, last)) = clock else { return (now, (now, now)) };
+    let Some((schedule, _)) = clock else { return (now, (now, now)) };
     let period = Duration::from_secs_f64(1.0 / f64::from(cap.max(1)));
     let due = schedule + period;
-    let start = due.max(last + period.mul_f64(1.0 - REPAY)).max(now);
+    let start = earliest(clock, cap).map_or(now, |earliest| earliest.max(now));
     let schedule = if start.duration_since(due) > period { start - period } else { due };
     (start, (schedule, start))
+}
+
+/// The earliest the next capped frame may go on, whenever it is done: the schedule's next
+/// step, or a frame's time less [`REPAY`] after the last frame if that is later. `None`: the
+/// clock has not started.
+fn earliest(clock: Option<(Instant, Instant)>, cap: u32) -> Option<Instant> {
+    let (schedule, last) = clock?;
+    let period = Duration::from_secs_f64(1.0 / f64::from(cap.max(1)));
+    Some((schedule + period).max(last + period.mul_f64(1.0 - REPAY)))
+}
+
+/// When a frame held back `hold` for frame generation's presenter goes on, and what the
+/// hold adds to its wait. The hold counts from `earliest`, the time the frame could go on at
+/// the soonest ([`earliest`]): a frame that is late by more than the hold has given the
+/// presenter that time already and is not held at all, and one late by less waits only the
+/// rest.
+fn held_back(earliest: Instant, now: Instant, hold: Duration) -> (Instant, Duration) {
+    let start = (earliest + hold).max(now);
+    (start, start.saturating_duration_since(earliest.max(now)))
 }
 
 /// Hold the frame until its time at the cap ([`next_frame`]).
@@ -378,10 +397,10 @@ fn wait_for_cap(world: &mut World) {
     let mut held = if *LAG_FEEDBACK { catch_up(lag) } else { Duration::ZERO };
     if !held.is_zero() {
         // What it really adds: a frame already later than that is not held at all.
-        let before = start.max(now);
-        start += held;
-        held = start.saturating_duration_since(before);
-        next = (start.max(now), start.max(now));
+        (start, held) = held_back(earliest(clock.0, cap).unwrap_or(now), now, held);
+    }
+    if !held.is_zero() {
+        next = (start, start);
         HELD_FOR_PRESENTER_NANOS.fetch_add(held.as_nanos() as u64, Ordering::Relaxed);
     }
     clock.0 = Some(next);
@@ -486,6 +505,23 @@ mod tests {
         assert_eq!(catch_up(ms(1.0)), Duration::ZERO, "the presenter's own polling and pacing");
         assert_eq!(catch_up(ms(3.0)), ms(1.0));
         assert_eq!(catch_up(ms(12.0)), ms(1.5), "at most a millisecond and a half a frame");
+    }
+
+    #[test]
+    fn a_late_frame_is_held_back_only_by_what_its_lateness_did_not_give_the_presenter() {
+        let t = Instant::now();
+        let us = |n: u64| Duration::from_micros(n);
+        // Done early: the whole hold comes after the frame's time at the cap.
+        assert_eq!(held_back(t + us(20_000), t + us(5_000), us(1_500)), (t + us(21_500), us(1_500)));
+        // Half a millisecond late: the rest of the hold.
+        assert_eq!(held_back(t + us(20_000), t + us(20_500), us(1_500)), (t + us(21_500), us(1_000)));
+        // Later than the hold: it goes on at once.
+        assert_eq!(held_back(t + us(20_000), t + us(23_000), us(1_500)), (t + us(23_000), Duration::ZERO));
+        // The earliest a frame may go on is the schedule's next step, or after a late frame
+        // 1% of a frame's time less than a frame's time after it.
+        assert_eq!(earliest(None, 50), None);
+        assert_eq!(earliest(Some((t, t)), 50), Some(t + us(20_000)));
+        assert_eq!(earliest(Some((t, t + us(3_000))), 50), Some(t + us(3_000 + 19_800)));
     }
 
     #[test]
