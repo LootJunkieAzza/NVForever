@@ -89,6 +89,10 @@ const PHYSICS_RETRY: f32 = 8.0;
 /// a brahmin's length, the longest of the common actors].
 const SKIP_AHEAD: f32 = 160.0;
 
+/// Height above the feet at which the way to a skip's spot is checked for keyframed
+/// collision, game units [design: below a protectron's waist, above a step].
+const BARRIER_PROBE_HEIGHT: f32 = 50.0;
+
 /// How far on along its path a stuck actor may be put down, from the first choice to the
 /// nearest place that still helps (0: back onto the path, for feet off it), the first
 /// that has ground and room for it [design, docs/design/navmesh.md §4: the same length of
@@ -294,6 +298,8 @@ struct PhysMover<'a> {
     /// The ledge each actor last went over (its path's leg and the hop's take-off point):
     /// counted and logged once.
     hopped: &'a mut HashMap<u32, (usize, usize)>,
+    /// The keyframed barrier (a force field, a gate) each actor stands held at: logged once.
+    barred: &'a mut HashMap<u32, u32>,
     now: f32,
     /// Actors moved by physics in this update; times physics gave up; stuck actors moved
     /// on along their paths; jumps up a ledge, drops off one and jumps over an obstacle
@@ -485,6 +491,20 @@ impl Mover for PhysMover<'_> {
                 }
                 // Stuck where detours did not help: moved on along the path, past what
                 // blocks it, to the first place with ground and room for it.
+                // Stuck at keyframed collision (a force field, a gate: what an animation or
+                // a script moves away): it stays where it is, pressing on, and is not moved
+                // past it or left to the walker, which would carry it through. [observed:
+                // HELIOS One's stasis protectrons stay in their pods behind the field
+                // VHELIOSStasisField*REF, one moving 12 units in 30 s, #1977 probe 3]
+                Advice::Skip if let Some(gate) = f.skip_candidate(feet, SKIP_AHEAD).and_then(|c| phys.keyframed_between(feet, c.pos, BARRIER_PROBE_HEIGHT)) => {
+                    if self.barred.insert(id, gate) != Some(gate) {
+                        info!("actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}): held at {gate:08X}'s moving collision, not moved past it", feet[0], feet[1], feet[2]);
+                    }
+                    if let Some(u) = self.unstuck.get_mut(&id) {
+                        u.skip_refused();
+                    }
+                    (WalkEvent::Moved, [0.0, 0.0])
+                }
                 Advice::Skip if f.skip_candidate(feet, SKIP_AHEAD).is_some() => match skip_spot(phys, nav, &f, id, walker.space, feet) {
                     Ok((c, to)) => {
                         info!(
@@ -869,6 +889,7 @@ struct Core {
     unstuck: HashMap<u32, Unstuck>,
     skip_until: HashMap<u32, f32>,
     hopped: HashMap<u32, (usize, usize)>,
+    barred: HashMap<u32, u32>,
     coasting: HashMap<u32, Coasting>,
     skip_refusals: SkipRefusals,
     /// Updates in which an actor was moved by physics; times physics gave up; the most
@@ -1138,6 +1159,7 @@ impl Residents {
             unstuck: HashMap::new(),
             skip_until: HashMap::new(),
             hopped: HashMap::new(),
+            barred: HashMap::new(),
             coasting: HashMap::new(),
             skip_refusals: SkipRefusals::default(),
             physics: [0; 4],
@@ -2035,7 +2057,7 @@ impl Core {
             );
         }
         let mut moved = [0usize; 6];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims };
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, hopped: &mut self.hopped, barred: &mut self.barred, now, stats: &mut moved, held: &held, refusals: &mut self.skip_refusals, coasting: &mut self.coasting, fighting: &self.aims };
         {
             // Every high-process actor's update and the low-process ones due (package,
             // goal and walk; path searches are `nav::find_path` inside).

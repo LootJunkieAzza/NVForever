@@ -1505,6 +1505,25 @@ impl PhysState {
         true
     }
 
+    /// The reference whose keyframed collision (a door's leaf, a gate, a force field:
+    /// something an animation or a script moves away) stands on the straight way from
+    /// `from` to `to`, feet to feet, seen at `height` above them; actors left out.
+    pub fn keyframed_between(&mut self, from: [f32; 3], to: [f32; 3], height: f32) -> Option<u32> {
+        let a = [from[0], from[1], from[2] + height];
+        let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if len < 1e-3 {
+            return None;
+        }
+        let dir = [d[0] / len, d[1] / len, d[2] / len];
+        let filter = Filter { no_actors: true, no_terrain: true, ..Default::default() };
+        let hits = self.ray_all(a, dir, len, filter);
+        hits.into_iter().find_map(|h| match h.owner {
+            fnv_phys::world::Owner::Ref { form_id, object, .. } if self.world.ref_object_keyframed(form_id, object) => Some(form_id),
+            _ => None,
+        })
+    }
+
     /// Feet where actor `id`'s character could be put down near `at`, a place on the
     /// navmesh ([`PhysWorld::character_spot`]): collision loaded around it, ground on that
     /// level, and room for the body, which the player and other characters take up.

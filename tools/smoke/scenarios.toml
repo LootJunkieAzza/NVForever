@@ -23904,3 +23904,18 @@ expect = [
 ]
 forbid = ["pipboy stats: used", "pipboy stats: Status RAD", "pipboy stats: General"]
 order = [["test aid: real input Pad(West) pressed", "pipboy stats: Status CND (head chosen)", "pipboy stats: Status CND (torso chosen)"]]
+
+[[scenario]]
+name = "helios-stasis-held-at-field"
+source = "#1977 (owner 2026-11-09): HELIOS One's stasis protectrons stay in their pods until the tripwire. In the original (#1977 probe 3) p4 fights from inside its pod, moving 12 units in 30 s against the pod's stasis field (VHELIOSStasisField4REF, keyframed collision). Ours got stuck there too, then the nav unstick's skip moved it on through the field; now a skip whose way crosses keyframed collision holds the actor where it is (engine/nvforever/src/residents.rs, PhysState::keyframed_between)"
+note = "HELIOSOneTower, the player 295 units south of p4 (0x0009A260) behind the pods' wall: p4 and p3 (0x0009A261) notice it and try to search; their fields are 0x00099D27 and 0x00099D28; the tripwire VHeliosTrapLaserTripwire 0x0009A1E8 north-east of the pods"
+areas = ["ai", "nav"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/phys.rs", "crates/fnv-phys/src/world.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'actor 0009A260 stuck at .*: held at 00099D27.s moving collision', label = "p4 is held at its pod's stasis field" },
+  { re = 'actor 0009A26[0-2] stuck at .*moved on along its path', max = 0, label = "and no stasis protectron behind a field is moved on through it (all three were before)" },
+  { re = 'entered trigger 0x0009A1E8', max = 0, label = "nobody leaves a pod and walks through the tripwire's beam" },
+]
