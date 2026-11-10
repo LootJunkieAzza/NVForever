@@ -126,6 +126,10 @@ struct StartHold {
 pub struct Loading {
     /// The player's tweak: no tip text or band (`crate::tweaks`).
     pub hide_tips: bool,
+    /// The player's Click to Exit Load Screens tweak: a finished screen stays up, saying
+    /// so, until a key or a button is pressed [design: docs/design/tweaks.md].
+    pub click_to_exit: bool,
+    waiting_click: bool,
     trip: Option<Trip>,
     /// The start of the run, held until the world can be played ([`StartCover`]).
     start: Option<StartHold>,
@@ -562,10 +566,13 @@ fn settled(ready: &mut Option<(f64, u32)>, ok: bool, now: f64) -> bool {
     *frames >= SETTLE_FRAMES && now - *since >= SETTLE_SECS
 }
 
+/// What a finished loading screen says under the Click to Exit tweak (our words) [design: docs/design/tweaks.md].
+const PRESS_LINE: &str = "Press any key to continue";
+
 /// Everything is in: take the screen down and let the game go on. A travel's screen waits
 /// for the destination's cells (drawn and in physics) and its actors; the start's
 /// ([`StartCover`]) for those and the scripts too (made, and a save put back).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn finish(
     mut commands: Commands,
     mut loading: ResMut<Loading>,
@@ -575,7 +582,23 @@ fn finish(
     mut clock: ResMut<Time<Virtual>>,
     mut next: ResMut<NextState<PlayState>>,
     roots: Query<Entity, With<LoadingRoot>>,
+    (keys, mouse): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<ButtonInput<MouseButton>>>),
 ) {
+    // The player's tweak: the screen waits for a press once all is in [design: docs/design/tweaks.md].
+    if loading.waiting_click {
+        let pressed = keys.is_some_and(|k| k.get_just_pressed().next().is_some()) || mouse.is_some_and(|m| m.get_just_pressed().next().is_some());
+        if !pressed {
+            return;
+        }
+        loading.waiting_click = false;
+        info!("loading screen: taken down on a press (tweak)");
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        clock.unpause();
+        next.set(PlayState::Playing);
+        return;
+    }
     let now = real.elapsed_secs_f64();
     let starting = loading.start.is_some();
     if loading.trip.as_ref().is_some_and(|t| t.sent) {
@@ -619,6 +642,19 @@ fn finish(
         return;
     }
     (loading.pipelines_since, loading.pipelines_capped) = (None, false);
+    if loading.click_to_exit {
+        loading.waiting_click = true;
+        for e in &roots {
+            commands.entity(e).with_children(|p| {
+                let node = Node { position_type: PositionType::Absolute, bottom: Val::Percent(6.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() };
+                p.spawn(node).with_children(|n| {
+                    n.spawn((Text::new(PRESS_LINE), TextFont { font_size: FontSize::Px(22.0), ..default() }, TextColor(Color::srgb(1.0, 0.75, 0.3))));
+                });
+            });
+        }
+        info!("loading screen: all is in, waiting for a press (tweak)");
+        return;
+    }
     for e in &roots {
         commands.entity(e).despawn();
     }

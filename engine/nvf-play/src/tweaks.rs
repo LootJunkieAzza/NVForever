@@ -324,6 +324,8 @@ pub struct TweakSettings {
     pub console_output_file: bool,
     /// `bConsoleTextShadow`: the console's scrollback darker, over a faint shadow.
     pub console_text_shadow: bool,
+    /// `bClickToExitLoadScreens`: a loading screen waits for a press once all is in.
+    pub click_to_exit_loading: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -519,6 +521,7 @@ impl Default for TweakSettings {
             remember_console_history: false,
             console_output_file: false,
             console_text_shadow: false,
+            click_to_exit_loading: false,
         }
     }
 }
@@ -1371,6 +1374,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "remember-console-history", "Remember Console History", "The console's entered lines are kept between runs, in ConsoleHistory.txt in NVForever's folder. (Stewie's Tweaks bRememberConsoleHistory)", remember_console_history);
         switch!(app, "console-output-file", "Console Output File", "Console lines are added to ConsoleOutput.txt in NVForever's folder from the start. (Stewie's Tweaks bUseConsoleOutputFile)", console_output_file);
         switch!(app, "console-text-shadow", "Console Text Shadow", "The console's lines are a darker green over a faint shadow, easier to read on a bright view. (Stewie's Tweaks bConsoleTextShadow)", console_text_shadow);
+        switch!(app, "click-to-exit-loading", "Press to Leave Loading Screens", "A loading screen stays up once everything is in until a key or a button is pressed. (Stewie's Tweaks bClickToExitLoadScreens)", click_to_exit_loading);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1635,6 +1639,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
     if let Some(mut l) = loading {
         if l.hide_tips != tweaks.no_loading_tips {
             l.hide_tips = tweaks.no_loading_tips;
+        }
+        if l.click_to_exit != tweaks.click_to_exit_loading {
+            l.click_to_exit = tweaks.click_to_exit_loading;
         }
     }
     let hidden = crate::quest_messages::Hidden { failed: tweaks.no_quest_failed_popup, discovered: tweaks.no_location_popup, objectives: tweaks.no_objective_popup };

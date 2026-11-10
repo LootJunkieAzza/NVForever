@@ -491,6 +491,7 @@ unless the player binds them, so nothing changes until then.
 | Remember Console History | `bRememberConsoleHistory` | `console::Console::remember` reads `ConsoleHistory.txt` from NVForever's folder once; each new line writes the last 100 back |
 | Console Output File | `bUseConsoleOutputFile` | `Console::auto_output` sets the output file to `ConsoleOutput.txt` in NVForever's folder once a session (never the game's folder; the name is ours) |
 | Console Text Shadow | `bConsoleTextShadow` | `console::spawn` draws the scrollback a darker green with Bevy's `TextShadow` (our shade and offset) |
+| Press to Leave Loading Screens | `bClickToExitLoadScreens` | `loading::finish`: with `Loading::click_to_exit` the finished screen shows `PRESS_LINE` (ours) and comes down on the next key or button; every screen, `bLoadGameOnly` not done |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -512,8 +513,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 413 |
-| to do | 190 |
+| done | 414 |
+| to do | 189 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1111,6 +1112,7 @@ game's Data folder, read-only).
 | `bAllowDuplicateControlBinds` | done |  |  | Shared Keys |
 | `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
 | `bChanceBasedKillcams` | done |  | 1 | Kill Camera Chance (slider; V.A.T.S. kill cameras, the only kind) |
+| `bClickToExitLoadScreens` | done |  | 2 | Press to Leave Loading Screens (every screen; bHideWheel and bLoadGameOnly not done; our prompt words) |
 | `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
 | `bControllerTriggerDeadzones` | done |  | 2 | Trigger Dead Zones (press points per trigger, on every use of LT/RT) |
 | `bDetachedBeams` | done |  |  | Detached Beams |
@@ -1165,7 +1167,6 @@ game's Data folder, read-only).
 | `bAlternateLevelupSounds` | to do |  | 4 | xp level_up sound; the sound cache takes static names |
 | `bAnimDebugging` | n/a |  |  | a mod-author debug print |
 | `bAutoReadNotes` | unsure, skipped |  | 3 | needs another mod (Book Menu Restored) |
-| `bClickToExitLoadScreens` | to do |  | 2 | loading hold_input and finish, plus a prompt |
 | `bContinueGameHotkey` | n/a |  |  | a mod-author debug key |
 | `bCustomLocationDiscoveredSound` | to do |  | 1 | quest_messages sound; the cache takes static names |
 | `bDialogMenuDebugging` | n/a |  |  | a mod-author debug print |
