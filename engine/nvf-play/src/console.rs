@@ -128,6 +128,12 @@ pub struct Console {
     pub timestamps: bool,
     /// The last line printed and how many times running, for `compress_repeats`.
     repeat: Option<(String, u32)>,
+    /// The player's Remember Console History tweak: the history is read once from
+    /// [`HISTORY_FILE`] in NVForever's folder and written back as lines are entered [design: docs/design/tweaks.md].
+    pub remember_history: bool,
+    history_loaded: bool,
+    /// The player's Console Output File tweak has set the file this session.
+    pub auto_output_done: bool,
 }
 
 /// When the console's clock starts: the first line printed (the game's start, near
@@ -300,6 +306,58 @@ pub fn batch_lines(name: &str, roots: &[std::path::PathBuf]) -> Result<(std::pat
 /// Most statements `rbat` records [documented: GECK wiki Rbat, "up to 20 console
 /// commands"]; the ones after are not recorded [hypothesis].
 pub const RBAT_MAX: usize = 20;
+
+/// The console history's file in NVForever's folder, and the most lines it keeps
+/// (ours) [design: docs/design/tweaks.md].
+pub const HISTORY_FILE: &str = "ConsoleHistory.txt";
+const HISTORY_KEPT: usize = 100;
+/// The file the Console Output File tweak adds console lines to (ours).
+pub const AUTO_OUTPUT_FILE: &str = "ConsoleOutput.txt";
+
+impl Console {
+    /// The Remember Console History tweak on or off; on, the saved history comes back
+    /// the first time.
+    pub fn remember(&mut self, on: bool) {
+        self.remember_history = on;
+        if !on || self.history_loaded {
+            return;
+        }
+        self.history_loaded = true;
+        let Ok(path) = own_file(HISTORY_FILE, fnv_install::EngineHome::default_root().as_deref()) else { return };
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            let saved: Vec<String> = text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
+            info!("console: {} history lines read from {}", saved.len(), path.display());
+            let mut both = saved;
+            both.append(&mut self.history);
+            self.history = both;
+        }
+    }
+
+    /// Write the history's last lines to [`HISTORY_FILE`].
+    fn save_history(&self) {
+        let Ok(path) = own_file(HISTORY_FILE, fnv_install::EngineHome::default_root().as_deref()) else { return };
+        let from = self.history.len().saturating_sub(HISTORY_KEPT);
+        let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+        if let Err(e) = std::fs::write(&path, self.history[from..].join("
+")) {
+            warn!("console: history not written to {}: {e}", path.display());
+        }
+    }
+
+    /// The Console Output File tweak: the output file is set once a session, unless one
+    /// is set already.
+    pub fn auto_output(&mut self) {
+        self.auto_output_done = true;
+        if self.out_file.is_some() {
+            return;
+        }
+        if let Ok(path) = own_file(AUTO_OUTPUT_FILE, fnv_install::EngineHome::default_root().as_deref()) {
+            let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+            info!("console: lines are added to {} (tweak)", path.display());
+            self.out_file = Some(path);
+        }
+    }
+}
 
 /// A file `rbat` or `SetConsoleOuputFile` writes: a plain name in NVForever's own folder
 /// (`Documents\My Games\NVForever`), never a path, so nothing is written elsewhere (the
@@ -529,6 +587,9 @@ fn typing(
         c.recall = None;
         if c.history.last() != Some(&line) {
             c.history.push(line.clone());
+            if c.remember_history {
+                c.save_history();
+            }
         }
         let parts = statements(&line);
         if parts.len() > 1 {

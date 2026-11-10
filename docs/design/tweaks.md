@@ -488,6 +488,8 @@ unless the player binds them, so nothing changes until then.
 | Faster Controller Camera Circling | `bFasterControllerPOVRotate` | `player::mouse_look` doubles a controller's turn while Toggle POV circles the camera (the factor is ours) |
 | Horizontal Look Speed (x0–x2) | `bSeparateHorizontalSensitivity` | `player::mouse_look` scales the look's left and right by `TweakSettings::horizontal_look` (a Tweaks tab slider in place of a second sensitivity slider) |
 | Shift Ignores Friends in V.A.T.S. | `bShiftIgnoresFriendlyVATS` | `vats_mode::barred` bars anyone who would not fight the player while Shift is held (`SHIFT_HELD`, set in `read_keys`); `bHideFriendliesByDefault` is not done |
+| Remember Console History | `bRememberConsoleHistory` | `console::Console::remember` reads `ConsoleHistory.txt` from NVForever's folder once; each new line writes the last 100 back |
+| Console Output File | `bUseConsoleOutputFile` | `Console::auto_output` sets the output file to `ConsoleOutput.txt` in NVForever's folder once a session (never the game's folder; the name is ours) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -509,8 +511,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 410 |
-| to do | 193 |
+| done | 412 |
+| to do | 191 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1103,6 +1105,7 @@ game's Data folder, read-only).
 | `bNoInteriorBlackLoadingScreen` | done | yes | 1 | already so: an interior's loading screen shows its picture, never a black one |
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
+| `bRememberConsoleHistory` | done | yes | 1 | Remember Console History (ConsoleHistory.txt in NVForever's folder, last 100 lines) |
 | `bAllowDuplicateControlBinds` | done |  |  | Shared Keys |
 | `bAutoContinueGame` | done |  |  | Continue at Start (once per start of the program; Shift held stays on the menu) |
 | `bChanceBasedKillcams` | done |  | 1 | Kill Camera Chance (slider; V.A.T.S. kill cameras, the only kind) |
@@ -1139,6 +1142,7 @@ game's Data folder, read-only).
 | `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
 | `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
+| `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
 | `bArmorPreventsBloodDecals` | to do | yes |  | the impact is sent before DT is worked out |
 | `bArmorSoundsPlayIn3D` | to do | yes |  | the player's foley plays at the listener (anim_sounds player_keys) |
@@ -1154,7 +1158,6 @@ game's Data folder, read-only).
 | `bNoDespawnVisibleStuckProjectiles` | to do | yes |  | projectiles do not stick in NVForever yet |
 | `bNoPlayerNameLimit` | to do | yes |  | the name box is laid out for 24 characters; check its drawing first |
 | `bPartialReloads` | unsure, skipped | yes |  | depends on animation file naming conventions not yet checked |
-| `bRememberConsoleHistory` | to do | yes | 1 | needs a file in the NVForever home |
 | `bUseAnimVariants` | unsure, skipped | yes | 3 | depends on animation file naming conventions not yet checked |
 | `bVATSStopFollowingDeadTargets` | to do | yes |  | needs the kill camera shot's start frame kept |
 | `bWeaponImpactEffects` | to do | yes |  | hits on the hand weapon use the flesh impact; holstered weapons have no hit part |
@@ -1184,7 +1187,6 @@ game's Data folder, read-only).
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
 | `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |
-| `bUseConsoleOutputFile` | to do |  | 1 | console out_file from sync; a file name to choose |
 | `bUseFallout3AudioDistortion` | unsure, skipped |  |  | needs the original sequel's filter described first |
 | `bUseHitLocationInCinematicKillcams` | to do |  |  | not built: no cinematic kill camera outside V.A.T.S. |
 | `bVanityCamReturnsToFirstPerson` | to do |  |  | not built: no vanity camera |

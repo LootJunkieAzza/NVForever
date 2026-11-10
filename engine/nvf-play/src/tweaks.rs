@@ -318,6 +318,10 @@ pub struct TweakSettings {
     pub faster_pad_orbit: bool,
     /// `bSeparateHorizontalSensitivity`: a factor on the look's left and right speed only.
     pub horizontal_look: f64,
+    /// `bRememberConsoleHistory`: the console's history is kept in NVForever's folder.
+    pub remember_console_history: bool,
+    /// `bUseConsoleOutputFile`: console lines are added to a file in NVForever's folder.
+    pub console_output_file: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -510,6 +514,8 @@ impl Default for TweakSettings {
             responsive_stick: false,
             faster_pad_orbit: false,
             horizontal_look: 1.0,
+            remember_console_history: false,
+            console_output_file: false,
         }
     }
 }
@@ -1359,6 +1365,8 @@ impl Plugin for TweaksPlugin {
             ),
         );
         switch!(app, "vats-shift-ignores-friends", "Shift Ignores Friends in V.A.T.S.", "Holding Shift, V.A.T.S. marks no one who would not fight the player. (Stewie's Tweaks bShiftIgnoresFriendlyVATS)", game.vats_shift_ignores_friends);
+        switch!(app, "remember-console-history", "Remember Console History", "The console's entered lines are kept between runs, in ConsoleHistory.txt in NVForever's folder. (Stewie's Tweaks bRememberConsoleHistory)", remember_console_history);
+        switch!(app, "console-output-file", "Console Output File", "Console lines are added to ConsoleOutput.txt in NVForever's folder from the start. (Stewie's Tweaks bUseConsoleOutputFile)", console_output_file);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1660,6 +1668,12 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         if (c.compress_repeats, c.timestamps) != (tweaks.console_compress_repeats, tweaks.console_timestamps) {
             c.compress_repeats = tweaks.console_compress_repeats;
             c.timestamps = tweaks.console_timestamps;
+        }
+        if c.remember_history != tweaks.remember_console_history {
+            c.remember(tweaks.remember_console_history);
+        }
+        if tweaks.console_output_file && !c.auto_output_done {
+            c.auto_output();
         }
     }
     if let Some(mut q) = quests {
