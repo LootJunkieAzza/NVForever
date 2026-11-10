@@ -209,6 +209,10 @@ impl EngineHome {
     pub fn logs(&self) -> PathBuf {
         self.root.join("logs")
     }
+    /// Where F12 saves its shots (`nvforever-NNN.png`, [`first_unused`]) [#1987].
+    pub fn screenshots(&self) -> PathBuf {
+        self.root.join("screenshots")
+    }
     pub fn cache(&self) -> PathBuf {
         self.cache_root.clone()
     }
@@ -282,6 +286,32 @@ impl fmt::Display for Violation {
     }
 }
 
+/// The original game's load-order folder, `%LOCALAPPDATA%\FalloutNV` (its `plugins.txt`
+/// [observed]). NVForever's own list has the same file name, so a home pointed here
+/// would write over the original's [#1987]. NVForever reads MO2's copy there
+/// (`mo2::plugins_file`) and never writes it.
+pub fn original_load_order_dir() -> Option<PathBuf> {
+    if cfg!(windows) {
+        directories::BaseDirs::new().map(|d| d.data_local_dir().join("FalloutNV"))
+    } else {
+        None
+    }
+}
+
+/// The original game's folders outside its install: its user folder and its load order's.
+fn original_dirs() -> impl Iterator<Item = PathBuf> {
+    [original_user_dir(), original_load_order_dir()].into_iter().flatten()
+}
+
+/// The first `<dir>\<stem>NNN.<ext>` (from 001) that does not exist yet: a screenshot that
+/// keeps the earlier runs' [#1987].
+pub fn first_unused(dir: &Path, stem: &str, ext: &str) -> PathBuf {
+    (1u32..)
+        .map(|n| dir.join(format!("{stem}{n:03}.{ext}")))
+        .find(|p| !p.exists())
+        .expect("a free number")
+}
+
 /// All the ways the two installs could interact. Empty = cleanly separated.
 pub fn check_separation(home: &EngineHome, game: &GameInstall, exe: Option<&Path>) -> Vec<Violation> {
     let mut v = Vec::new();
@@ -307,7 +337,7 @@ pub fn check_separation(home: &EngineHome, game: &GameInstall, exe: Option<&Path
             )));
         }
     }
-    if let Some(u) = original_user_dir() {
+    for u in original_dirs() {
         if is_within(&home.root, &u) || is_within(&u, &home.root) {
             v.push(Violation(format!(
                 "NVForever home {} overlaps the original game's user folder {}",
@@ -360,7 +390,7 @@ pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), Instal
             });
         }
     }
-    if let Some(u) = original_user_dir() {
+    for u in original_dirs() {
         if is_within(path, &u) {
             return Err(InstallError::WriteDenied {
                 path: path.to_path_buf(),
@@ -642,6 +672,32 @@ mod tests {
         assert!(matches!(guard_write(&inside, None), Err(InstallError::WriteDenied { .. })));
         assert!(matches!(guard_write(&root.join("game").join("shot.png"), None), Err(InstallError::WriteDenied { .. })));
         assert!(guard_write(&root.join("elsewhere").join("trace.jsonl"), None).is_ok());
+    }
+
+    /// The original's load-order folder is guarded as its user folder is, and a home
+    /// there is reported (Windows, where the folder is known) [#1987]. Nothing is written.
+    #[test]
+    fn the_originals_load_order_folder_is_guarded() {
+        let Some(lo) = original_load_order_dir() else { return };
+        assert!(matches!(guard_write(&lo.join("plugins.txt"), None), Err(InstallError::WriteDenied { .. })));
+        let root = tmp("loadorder");
+        let g = fake_game(&root.join("game"));
+        assert_eq!(check_separation(&EngineHome::new(lo.clone()), &g, None).len(), 1);
+        assert_eq!(check_separation(&EngineHome::new(lo.join("NVForever")), &g, None).len(), 1);
+        // NVForever's own folder beside it is fine.
+        let own = lo.parent().unwrap().join("NVForever-guard-test");
+        assert!(guard_write(&own.join("plugins.txt"), None).is_ok());
+    }
+
+    /// Screenshots take the first number not used yet, so a run keeps the last run's.
+    #[test]
+    fn a_screenshot_takes_the_first_free_number() {
+        let d = tmp("shots");
+        assert_eq!(first_unused(&d, "nvforever-", "png"), d.join("nvforever-001.png"));
+        std::fs::write(d.join("nvforever-001.png"), b"").unwrap();
+        std::fs::write(d.join("nvforever-002.png"), b"").unwrap();
+        assert_eq!(first_unused(&d, "nvforever-", "png"), d.join("nvforever-003.png"));
+        assert_eq!(EngineHome::new(&d).screenshots(), d.join("screenshots"));
     }
 
     /// A copy whose names differ in case from the game's (`data/falloutnv.esm`,
