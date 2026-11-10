@@ -879,6 +879,55 @@ end");
     assert_eq!(h.text(8), "B");
 }
 
+/// A host whose user-defined functions all answer 0 at once, to count the calls.
+struct Answers(Locals, u32);
+
+impl Host for Answers {
+    fn var_kind(&mut self, var: &fnv_script::VarRef) -> fnv_script::vm::VarKind {
+        self.0.var_kind(var)
+    }
+    fn ext(&mut self) -> Option<&mut fnv_script::vm::ExtStore> {
+        self.0.ext()
+    }
+    fn get_var(&mut self, var: &fnv_script::VarRef) -> Result<Value, String> {
+        self.0.get_var(var)
+    }
+    fn set_var(&mut self, var: &fnv_script::VarRef, value: Value) -> Result<(), String> {
+        self.0.set_var(var, value)
+    }
+    fn ref_value(&mut self, r: fnv_script::RefIndex) -> Result<Value, String> {
+        self.0.ref_value(r)
+    }
+    fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String> {
+        self.0.call(opcode, on, args)
+    }
+    fn call_function(&mut self, _f: &fnv_script::vm::XVal, _on: Option<Value>, _args: Vec<fnv_script::vm::XVal>) -> Result<fnv_script::vm::XVal, String> {
+        self.1 += 1;
+        Ok(fnv_script::vm::XVal::Num(0.0))
+    }
+}
+
+/// The array functions that call a function per element count a step per call, so the
+/// budget stops a long array as it stops a loop; Ar_Resize and IntToBin's width are
+/// capped as Ar_Init and the format fields are [#1991].
+#[test]
+fn array_calls_count_steps_and_sizes_are_capped() {
+    let t = table();
+    let src = "array_var a\nfloat n\nbegin GameMode\nlet a := Ar_Range 1, 1000\nlet n := Ar_Any a, 1\nend";
+    let (c, p) = build(src);
+    let mut h = Answers(host_for(&c), 0);
+    let r = Vm::new(&t, &mut h, RunOpts { strict: true, max_steps: 100 }).run(&p.blocks[0].body);
+    assert!(r.is_err(), "the budget stops the calls");
+    assert!(h.1 < 100, "{} calls on a budget of 100 steps", h.1);
+    let mut h = Answers(host_for(&c), 0);
+    Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body).expect("runs within the default budget");
+    assert_eq!(h.1, 1000);
+
+    let h = run("array_var a\nfloat n\nstring_var s\nbegin GameMode\nlet a := Ar_List 1\nAr_Resize a, 1000000000000\nlet n := Ar_Size a\nlet s := IntToBin 5, 1000000000\nend");
+    assert_eq!(h.0[&2], Value::Num(1_000_000.0));
+    assert_eq!(h.text(3).len(), 512);
+}
+
 #[test]
 fn a_variable_named_like_an_extender_function_is_refused() {
     // [observed: `ref rK`, ReleaseKey's alias, does not compile in the original].
@@ -1259,4 +1308,78 @@ End
 ", &t, &World, None);
     let bad: Vec<&str> = c.errors().map(|d| d.detail.as_str()).collect();
     assert_eq!(bad, ["NoSuchThing"]);
+}
+
+/// A probe step's body as a function script, with the locals the probes declare.
+fn probe(body: &str) -> String {
+    format!("ref rObj\nref rBase\nref rG\nref rP\nfloat fSave\nBegin Function {{ }}\n{body}\nEnd\n")
+}
+
+fn runtime_errors(body: &str) -> Vec<&'static str> {
+    let c = fnv_script::compile::compile_runtime(&probe(body), &table(), &World);
+    c.errors().map(|d| d.kind).collect()
+}
+
+fn editor_errors(body: &str) -> Vec<&'static str> {
+    let c = compile(&probe(body), &table(), &World, None);
+    c.errors().map(|d| d.kind).collect()
+}
+
+#[test]
+fn runtime_refuses_a_fraction_for_an_int_parameter() {
+    // [observed: L5.ext rerun 2026-11-10, #2037] each of these did not compile in the
+    // original's runtime compiler (no row in the golden).
+    for body in [
+        "SetBaseKarma 37.5 rBase",                                  // jip.n7 karma.set
+        "SetNthDestructionStageTrait rObj 1 1 3.5",                 // jip6 dest.settrait.1.1.3.5
+        "SetFunctionValue (sv_Construct \"%g\" (ApplyEasingAlt 0.5 1.5 0))", // showoff3 so3.ease.badcode
+        "SetFunctionValue (RandSeeded 1.7 3.2)",                    // showoff3 so3.seed.range.fraction
+        "SetCasinoWinnings rObj 2.7",                               // jg3 casino.setwin.tops.frac
+        "SetRegionWeatherPriority rObj 20.6",                       // jg4 regn.setpriority.gs.frac
+        "SetFunctionValue (RoundAlt 37.66 2.7 1)",                  // sup1 roundalt.flag2
+        "SetFunctionValue (NumberToWords 7.9)",                     // sup1 words.7p9
+        "SetFunctionValue (NumberToWords -7.9)",
+    ] {
+        let mut kinds = runtime_errors(body);
+        kinds.dedup();
+        assert_eq!(kinds, ["fraction_for_int_parameter"], "{body}");
+        // The editor's compile (the plugins' source) keeps taking it.
+        assert_eq!(editor_errors(body), Vec::<&str>::new(), "{body}");
+    }
+}
+
+#[test]
+fn runtime_keeps_whole_numbers_floats_and_variables() {
+    // [observed: L5.ext rerun 2026-11-10] these compiled in the original: the rows beside
+    // the refused ones, and fractions for float parameters.
+    for body in [
+        "SetBaseKarma 37 rBase",                                    // jip.n7 karma.set.int
+        "rBase.SetBaseKarma -12",                                   // jip.n7 karma.set.ref
+        "SetNthDestructionStageTrait rObj 1 0 -5",                  // jip6 dest.settrait.1.0.-5
+        "SetNthDestructionStageTrait rObj 1 1 fSave",               // jip6's put-back step
+        "SetFunctionValue (sv_Construct \"%g\" (ApplyEasingAlt 1.5 1 0))", // showoff3 so3.ease.outside
+        "SetFunctionValue (RandSeeded 0 1000000000)",               // showoff3 so3.seed.range.wide
+        "SetFunctionValue (RoundAlt 37.66 1 1)",                    // sup1 roundalt.*
+        "SetFunctionValue (NumberToWords -15)",                     // sup1 words.m15
+    ] {
+        assert_eq!(runtime_errors(body), Vec::<&str>::new(), "{body}");
+    }
+}
+
+#[test]
+fn runtime_refuses_an_untyped_result_for_a_form_parameter() {
+    // [observed: nvse.misc pkg.nth0.location, nvse-seventh pkg.removeat0, ext-jg6.md's
+    // GetCurrentFurnitureRef] refused under GetFormIDString in the original.
+    for body in [
+        "SetFunctionValue (GetFormIDString (GetPackageLocation rG))",
+        "SetFunctionValue (GetFormIDString (rObj.RemovePackageAt 0))",
+        "SetFunctionValue (GetFormIDString (rP.GetCurrentFurnitureRef))",
+    ] {
+        assert_eq!(runtime_errors(body), ["untyped_result_for_form"], "{body}");
+        assert_eq!(editor_errors(body), Vec::<&str>::new(), "{body}");
+    }
+    // Through a variable it compiles there [observed: jg6 furniture.player].
+    assert_eq!(runtime_errors("set rObj to rP.GetCurrentFurnitureRef\nSetFunctionValue (GetFormIDString rObj)"), Vec::<&str>::new());
+    // A typed form getter under GetFormIDString compiles [observed: nvse.misc pkg.nth0].
+    assert_eq!(runtime_errors("SetFunctionValue (GetFormIDString (rObj.GetNthPackage 0))"), Vec::<&str>::new());
 }

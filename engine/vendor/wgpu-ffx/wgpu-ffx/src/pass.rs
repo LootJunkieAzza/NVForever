@@ -93,34 +93,86 @@ impl FsrPass {
         x: u32,
         y: u32,
     ) {
-        let resources_list = self.kind.resources(flags);
-        let resources: Vec<_> = resources_list
-            .into_iter()
-            .map(|access| resources.to_view(info, access, frame_kind))
-            .collect();
+        // NVForever (2026-11-10): the bind group is kept from frame to frame. A pass's
+        // resources depend only on the frame's parity and the textures the caller hands in,
+        // which alternate between a few sets; making the bind group and its texture views
+        // again for every pass of every frame cost the render thread time for nothing.
+        let key = BindKey::new(self.kind, frame_kind, info);
+        let mut kept = resources
+            .bind_groups
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let at = kept.iter().position(|(k, _)| *k == key).unwrap_or_else(|| {
+            let resources_list = self.kind.resources(flags);
+            let views: Vec<_> = resources_list
+                .into_iter()
+                .map(|access| resources.to_view(info, access, frame_kind))
+                .collect();
 
-        let bind_group_entries: Vec<_> = resources
-            .iter()
-            .enumerate()
-            .map(|(i, owned_resource)| wgpu::BindGroupEntry {
-                binding: i as u32,
-                resource: owned_resource.into(),
-            })
-            .collect();
+            let bind_group_entries: Vec<_> = views
+                .iter()
+                .enumerate()
+                .map(|(i, owned_resource)| wgpu::BindGroupEntry {
+                    binding: i as u32,
+                    resource: owned_resource.into(),
+                })
+                .collect();
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(&format!("{} Bind Group", self.kind.label())),
-            layout: &self.bgl,
-            entries: &bind_group_entries,
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("{} Bind Group", self.kind.label())),
+                layout: &self.bgl,
+                entries: &bind_group_entries,
+            });
+            if kept.len() >= KEPT_BIND_GROUPS {
+                kept.clear();
+            }
+            kept.push((key, bind_group));
+            kept.len() - 1
         });
 
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_bind_group(0, &kept[at].1, &[]);
         pass.dispatch_workgroups(x, y, 1);
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+/// More sets than the passes alternate between (ten passes, two parities, the caller's
+/// textures in turn): past this the list starts again, so a caller that hands over new
+/// textures every frame does not grow it without end.
+const KEPT_BIND_GROUPS: usize = 128;
+
+/// What a kept bind group was made for: the pass, the frame's parity and every resource the
+/// caller hands in (the view's own are fixed while the view lasts).
+#[derive(PartialEq, Eq)]
+pub(crate) struct BindKey {
+    pass: FsrPassKind,
+    frame: FrameKind,
+    textures: [Option<wgpu::Texture>; 9],
+    reconstructed_previous_depth: wgpu::Buffer,
+}
+
+impl BindKey {
+    fn new(pass: FsrPassKind, frame: FrameKind, info: &FsrDispatchInfo) -> Self {
+        Self {
+            pass,
+            frame,
+            textures: [
+                Some(info.color.clone()),
+                Some(info.depth.clone()),
+                Some(info.motion_vectors.clone()),
+                info.exposure.clone(),
+                info.reactive_mask.clone(),
+                info.transparency_and_composition.clone(),
+                Some(info.output.clone()),
+                Some(info.dilated_depth.clone()),
+                Some(info.dilated_motion_vectors.clone()),
+            ],
+            reconstructed_previous_depth: info.reconstructed_previous_depth.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FsrPassKind {
     /// A pass which prepares game inputs for later passes
     PrepareInputs,

@@ -378,7 +378,7 @@ pub fn run(root: &Path) {
         motion.size(),
     );
     // FSR's last output luminance: none (cleared), so the light term stays out of this check.
-    let previous_luma = texture(&device, TextureFormat::R16Float, [8, 2]);
+    let previous_luma = texture(&device, TextureFormat::R16Float, [4, 1]);
     let reactive_source = std::fs::read_to_string(root.join("fsr_reactive.wgsl")).unwrap();
     let pipelines = crate::ghosting::mask_pipelines(&device, &reactive_source);
     let view = |t: &Texture| t.create_view(&Default::default());
@@ -394,7 +394,7 @@ pub fn run(root: &Path) {
         contents: &[0u8; 16],
         usage: BufferUsages::UNIFORM,
     });
-    // The first pass's outputs (presence, luminance) and the second's (reactive, composition).
+    // The first pass's outputs (presence, light change) and the second's (reactive, composition).
     let presence_out = texture(&device, TextureFormat::R8Unorm, [4, 1]);
     let luma_out = texture(&device, TextureFormat::R16Float, [4, 1]);
     let reactive_out = texture(&device, TextureFormat::R8Unorm, [4, 1]);
@@ -408,14 +408,10 @@ pub fn run(root: &Path) {
     let first = device.create_bind_group(&BindGroupDescriptor {
         label: None,
         layout: &pipelines.presence.get_bind_group_layout(0),
-        entries: &[texture_entry(0, &opaque_view), texture_entry(1, &scene_view)],
-    });
-    let second = device.create_bind_group(&BindGroupDescriptor {
-        label: None,
-        layout: &pipelines.masks.get_bind_group_layout(0),
         entries: &[
+            texture_entry(0, &opaque_view),
+            texture_entry(1, &scene_view),
             texture_entry(2, &motion_view),
-            texture_entry(3, &previous_view),
             texture_entry(4, &previous_luma_view),
             BindGroupEntry {
                 binding: 5,
@@ -424,6 +420,18 @@ pub fn run(root: &Path) {
             BindGroupEntry {
                 binding: 6,
                 resource: no_jitter.as_entire_binding(),
+            },
+        ],
+    });
+    let second = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &pipelines.masks.get_bind_group_layout(0),
+        entries: &[
+            texture_entry(2, &motion_view),
+            texture_entry(3, &previous_view),
+            BindGroupEntry {
+                binding: 5,
+                resource: BindingResource::Sampler(&linear),
             },
             texture_entry(7, &presence_view),
             texture_entry(8, &luma_view),

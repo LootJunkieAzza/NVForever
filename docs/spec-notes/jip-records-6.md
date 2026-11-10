@@ -87,5 +87,5 @@ L5.ext.jip6, L5.ext.jip6b). The values the tables above now tag [observed] come 
 Equal after the fixes: jip6 90 of 92, jip6b 32 of 37. Left:
 - the model damage stage's out-of-range values (above: five rows, no rule found);
 - `SetNthDestructionStageTrait rObj 1 1 3.5` did not compile in the game ("script did not
-  compile"), while ours runs it: a fractional literal for this argument is refused by the
-  game's compiler [observed], not modelled in ours.
+  compile"): a fractional literal for this argument is refused by the game's compiler
+  [observed], and by NVForever's runtime compile since #2037 (ext-syntax.md §11).

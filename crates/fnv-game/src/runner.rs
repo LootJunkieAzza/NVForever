@@ -481,6 +481,14 @@ pub enum Action {
     },
 }
 
+/// Close the container menu a step opened (`Game::close_menu`, which opens a message box
+/// a script queued meanwhile); another menu on top since stays.
+fn close_container(g: &mut Game) {
+    if g.menu == Some(CONTAINER_MENU) {
+        g.close_menu();
+    }
+}
+
 /// [`Action::SaveLoad`]: the save's size in bytes.
 fn save_and_load(g: &mut Game) -> Result<usize, String> {
     let snap = g.snapshot();
@@ -562,7 +570,7 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
         // order when several do).
         // `scripted:<script>#<n>`: the n-th (1-based) of them.
         let (script, n) = match script.split_once('#') {
-            Some((s, n)) => (s, n.parse::<usize>().map_err(|_| format!("bad index in {s:?}"))?),
+            Some((s, n)) => (s, n.parse::<usize>().ok().filter(|&n| n > 0).ok_or_else(|| format!("bad index in {s:?} (1-based)"))?),
             None => (script, 1),
         };
         let sc = resolve(g, script)?;
@@ -572,7 +580,7 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
             .refs
             .values()
             .filter(|p| g.data.script_of_base(p.base) == Some(sc))
-            .nth(n.saturating_sub(1))
+            .nth(n - 1)
             .map(|p| p.id)
             .ok_or_else(|| format!("no placed reference number {n} runs {script}"));
     }
@@ -1414,13 +1422,13 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             }
             // The menu is open for `frames` frames counting the opening one; the value
             // is read in its last frame, then the menu closes (CloseAllMenus).
-            g.menu = Some(CONTAINER_MENU);
+            g.open_menu(CONTAINER_MENU);
             for _ in 1..*frames {
                 frame(g);
             }
             let v0 = g.var(key, idx).num();
             frame(g);
-            g.menu = None;
+            close_container(g);
             let mut drop = None;
             for _ in 0..*after {
                 frame(g);
@@ -1901,9 +1909,9 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             if !opened_since(g, since) {
                 return Err(format!("activating {} opened no container menu", g.data.name(via)));
             }
-            g.menu = Some(CONTAINER_MENU);
+            g.open_menu(CONTAINER_MENU);
             g.frames(*frames);
-            g.menu = None;
+            close_container(g);
         }
         Action::DamageAv { of, av, value } | Action::RestoreAv { of, av, value } => {
             let who = actor_or_player(g, of)?;
@@ -2363,15 +2371,13 @@ fn run_as(
                     Ok(())
                 }
                 Ok(None) => Ok(()),
-                Err(e) => {
-                    // A labelled action that fails still answers, with its error.
-                    if let Some(l) = action_label(a) {
-                        observations.push(json!({"label": l, "step": i, "errors": {"action": e.clone()}}));
-                    }
-                    Err(e)
-                }
+                Err(e) => Err(e),
             },
         };
+        // A labelled action that fails still answers, with its error.
+        if let (Err(e), Some(l)) = (&res, action_label(a)) {
+            observations.push(json!({"label": l, "step": i, "errors": {"action": e.clone()}}));
+        }
         let wait = match a {
             Action::WaitFrames { frames } => *frames,
             Action::AdvanceSeconds { seconds } => (seconds / input.frame_seconds).round().max(0.0) as u64,
@@ -2473,6 +2479,8 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleItems { label, .. }
         | Action::MenuGap { label, .. }
         | Action::IsCurrentPackage { label, .. } => Some(label.clone()),
+        Action::Terminal { label, .. } | Action::Consume { label, .. } | Action::PlayNote { label, .. } | Action::SaveLoad { label, .. } => label.clone(),
+        Action::GetQuest { label, .. } | Action::SampleVar { label, .. } => label.clone(),
         _ => None,
     }
 }

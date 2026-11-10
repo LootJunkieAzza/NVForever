@@ -239,6 +239,8 @@ pub fn hand_built_takes(menu: &str, key: &str) -> bool {
         &super::stats_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::inventory_menu::INVENTORY_MENU) {
         &super::inventory_menu::HAND_BUILT_KEYS
+    } else if menu.eq_ignore_ascii_case(super::map_menu::MAP_MENU) {
+        &super::map_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::container_menu::CONTAINER_MENU) {
         &super::container_menu::HAND_BUILT_KEYS
     } else if menu.eq_ignore_ascii_case(super::barter_menu::BARTER_MENU) {

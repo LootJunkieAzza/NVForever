@@ -85,6 +85,10 @@ pub(crate) struct FsrCamera {
     pub(crate) delta_ms: f32,
     loading_generation: u32,
     play_state: Option<nvf_play::PlayState>,
+    /// The Pip-Boy's screen is on its model: the one shape that marks its pixels in the
+    /// picture's alpha (`imagespace.wesl` `SCREEN_MARK`), which FSR's output has to get back
+    /// ([`AuxiliaryPipelines::restore_alpha`]).
+    screen_mark: bool,
 }
 
 /// The most the field of view may magnify or widen the view in one frame (the ratio of
@@ -239,6 +243,7 @@ fn extract(
     support: Extract<Res<FsrSupport>>,
     loading: Extract<Option<Res<nvf_play::loading::Loading>>>,
     play_state: Extract<Option<Res<State<nvf_play::PlayState>>>>,
+    pipboy_screen: Extract<Option<Res<nvf_play::pipboy::PipBoyScreen>>>,
 ) {
     let mut active = Vec::new();
     for (entity, camera, projection, transform, fsr) in &cameras {
@@ -257,6 +262,7 @@ fn extract(
             delta_ms: (time.delta_secs() * 1000.0).max(1.0),
             loading_generation: loading.as_ref().map_or(0, |loading| loading.shown),
             play_state: play_state.as_ref().map(|state| *state.get()),
+            screen_mark: pipboy_screen.as_ref().is_some_and(|screen| screen.on_model),
         });
     }
     for entity in &existing {
@@ -291,8 +297,9 @@ pub(crate) struct PreparedFsr {
     /// `presence[presence_written]`, and the other is read.
     presence: [wgpu::Texture; 2],
     presence_written: AtomicUsize,
-    /// This frame's luminance (render size), from the masks' first pass.
-    luma_now: wgpu::Texture,
+    /// This frame's light change (render size): each texel's luminance against FSR's last
+    /// output at the same surface point, from the masks' first pass.
+    light_change: wgpu::Texture,
     /// The luminance of FSR's last output (render size), for the masks' light term; cleared
     /// when FSR did not reconstruct.
     history_luma: wgpu::Texture,
@@ -441,7 +448,7 @@ impl PreparedFsr {
             composition: texture("fsr_transparency_and_composition", render_size, wgpu::TextureFormat::R8Unorm, attachment),
             presence: [0, 1].map(|_| texture("fsr_transparency_presence", render_size, wgpu::TextureFormat::R8Unorm, attachment | wgpu::TextureUsages::COPY_DST)),
             presence_written: AtomicUsize::new(0),
-            luma_now: texture("fsr_luma", render_size, wgpu::TextureFormat::R16Float, attachment),
+            light_change: texture("fsr_light_change", render_size, wgpu::TextureFormat::R16Float, attachment),
             history_luma: texture("fsr_history_luma", render_size, wgpu::TextureFormat::R16Float, attachment | wgpu::TextureUsages::COPY_DST),
             mask_jitter: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("fsr_mask_jitter"), contents: &mask_jitter_bytes(jitter), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -569,6 +576,7 @@ pub(crate) fn fsr_pass(
 ) {
     let (target, prepared, prepass, jitter) = view.into_inner();
     let Some((context, auxiliary)) = &renderer.0 else { return };
+    let recording = crate::frame_pace::recording();
     let inputs = prepass.and_then(|prepass| prepass.depth.as_ref().zip(prepass.motion_vectors.as_ref()));
     let Some((depth, motion)) = inputs else {
         prepared.history_valid.store(false, Ordering::Relaxed);
@@ -614,7 +622,12 @@ pub(crate) fn fsr_pass(
     match dispatched {
         Ok(()) => {
             let after_span = diagnostics.time_span(encoder, "alpha_and_history");
-            auxiliary.restore_alpha(device, encoder, prepared, target);
+            // Only while a shape marks its pixels in alpha (the Pip-Boy's screen on its
+            // model): otherwise FSR's alpha of 1 is what the post passes expect, and the
+            // display-sized pass is saved.
+            if prepared.camera.screen_mark {
+                auxiliary.restore_alpha(device, encoder, prepared, target);
+            }
             target.post_process_write();
             if *DEBUG_VIEW {
                 // The output is AMD's grid, not what FSR's history shows: a cleared history
@@ -639,6 +652,7 @@ pub(crate) fn fsr_pass(
     auxiliary.expand_depth(device, encoder, prepared, &depth.texture.texture);
     depth_span.end(encoder);
     span.end(ctx.command_encoder());
+    crate::frame_pace::recorded(crate::frame_pace::Recorded::Fsr, recording, true);
 }
 
 struct AuxiliaryPipelines {
@@ -663,15 +677,16 @@ impl AuxiliaryPipelines {
             ty: wgpu::BindingType::Texture { sample_type: if depth { wgpu::TextureSampleType::Depth } else { wgpu::TextureSampleType::Float { filterable: true } }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None,
         };
         let uniform_entry = wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None };
-        // fsr_reactive.wgsl's first pass: the opaque copy and the finished frame; its second:
-        // motion, last presence, FSR's last output luminance, a linear sampler, the jitter,
-        // and the first pass's presence and luminance.
-        let presence_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_presence_layout"), entries: &[texture_entry(0, false), texture_entry(1, false)] });
-        let reactive_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_reactive_layout"), entries: &[
-            texture_entry(2, false), texture_entry(3, false), texture_entry(4, false),
-            wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+        // fsr_reactive.wgsl's first pass: the opaque copy and the finished frame, motion, FSR's
+        // last output luminance, a linear sampler and the jitter; its second: motion, last
+        // presence, the sampler, and the first pass's presence and light change.
+        let sampler_entry = wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None };
+        let presence_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_presence_layout"), entries: &[
+            texture_entry(0, false), texture_entry(1, false), texture_entry(2, false), texture_entry(4, false), sampler_entry,
             wgpu::BindGroupLayoutEntry { binding: 6, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            texture_entry(7, false), texture_entry(8, false),
+        ] });
+        let reactive_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_reactive_layout"), entries: &[
+            texture_entry(2, false), texture_entry(3, false), sampler_entry, texture_entry(7, false), texture_entry(8, false),
         ] });
         let depth_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_depth_layout"), entries: &[texture_entry(0, true), uniform_entry] });
         let fallback_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_fallback_layout"), entries: &[
@@ -740,7 +755,7 @@ impl AuxiliaryPipelines {
         }
         let view = |texture: &wgpu::Texture| texture.create_view(&default());
         let (opaque, color, motion, previous, history) = (view(&fsr.opaque), view(color), view(motion), view(previous), view(&fsr.history_luma));
-        let (presence, luma) = (view(&fsr.presence[written]), view(&fsr.luma_now));
+        let (presence, change) = (view(&fsr.presence[written]), view(&fsr.light_change));
         let attachment = |view| Some(wgpu::RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } });
         let draw = |encoder: &mut wgpu::CommandEncoder, label, attachments: &[Option<wgpu::RenderPassColorAttachment>], pipeline, group| {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -751,20 +766,22 @@ impl AuxiliaryPipelines {
             pass.set_bind_group(0, group, &[]);
             pass.draw(0..3, 0..1);
         };
-        // This frame's presence and luminance, then the masks from them.
+        // This frame's presence and light change, then the masks from them.
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_presence_group"), layout: &self.presence_layout, entries: &[
             wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&opaque) },
             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&color) },
-        ] });
-        draw(encoder, "fsr_presence", &[attachment(&presence), attachment(&luma)], &self.presence, &group);
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_reactive_group"), layout: &self.reactive_layout, entries: &[
             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&motion) },
-            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&previous) },
             wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&history) },
             wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&self.sampler) },
             wgpu::BindGroupEntry { binding: 6, resource: fsr.mask_jitter.as_entire_binding() },
+        ] });
+        draw(encoder, "fsr_presence", &[attachment(&presence), attachment(&change)], &self.presence, &group);
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_reactive_group"), layout: &self.reactive_layout, entries: &[
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&motion) },
+            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&previous) },
+            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&self.sampler) },
             wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&presence) },
-            wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(&luma) },
+            wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(&change) },
         ] });
         draw(encoder, "fsr_reactive_mask", &[attachment(&view(&fsr.reactive)), attachment(&view(&fsr.composition))], &self.reactive, &group);
         fsr.presence_written.store(written, Ordering::Relaxed);
@@ -847,7 +864,7 @@ mod tests {
 
     #[test]
     fn history_survives_motion_and_zoom_but_resets_on_cuts_and_lens_jumps() {
-        let before = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: None };
+        let before = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: None, screen_mark: false };
         let after = FsrCamera { frame: 11, translation: Vec3::X * 20.0, ..before };
         assert!(!after.cut_from(&before));
         assert!(FsrCamera { translation: Vec3::X * 401.0, ..after }.cut_from(&before));
@@ -863,7 +880,7 @@ mod tests {
     #[test]
     fn the_pip_boy_and_menus_keep_the_history_and_dialogue_and_loading_reset_it() {
         use nvf_play::PlayState::{Dialogue, Loading, Menu, Playing};
-        let playing = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: Some(Playing) };
+        let playing = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: Some(Playing), screen_mark: false };
         let next = |state| FsrCamera { frame: 11, play_state: Some(state), ..playing };
         assert!(!next(Menu).cut_from(&playing), "the Pip-Boy opens");
         assert!(!FsrCamera { play_state: Some(Playing), ..next(Menu) }.cut_from(&FsrCamera { play_state: Some(Menu), ..playing }), "and closes");
@@ -886,7 +903,7 @@ mod tests {
         use nvf_play::aim_zoom::{zoomed_fov, ZOOM_SECONDS};
         use nvf_play::free_cam::vertical_fov;
         let base = vertical_fov(75.0);
-        let start = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: base, frame: 0, delta_ms: 16.0, loading_generation: 0, play_state: None };
+        let start = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: base, frame: 0, delta_ms: 16.0, loading_generation: 0, play_state: None, screen_mark: false };
         // The 9mm pistol's iron sights (65°), a closer sight and a 20° scope, zoomed in and
         // out again a frame at a time as `aim_zoom::zoom` steps it.
         for sight_deg in [65.0, 55.0, 20.0] {

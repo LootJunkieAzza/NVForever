@@ -2790,7 +2790,7 @@ impl<'a> Game<'a> {
     /// with the compiler's warnings. The console's lines and the Script Runner's files
     /// (`crate::script_runner`).
     pub(crate) fn compile_statements(&mut self, src: &str, plugin: &str, sig: &str) -> Result<(&'a Compiled, Vec<String>), String> {
-        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        let c = fnv_script::compile::compile_runtime(src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
             // The console's own line needs no number.
             return Err(match sig {
@@ -2831,7 +2831,7 @@ impl<'a> Game<'a> {
     /// extender's and JIP's stores, handlers and the game itself keep what it changed.
     pub fn run_query(&mut self, src: &str, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::XVal;
-        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        let c = fnv_script::compile::compile_runtime(src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
             // The error is the capture's own text; what the compiler said goes to the trace.
             let what = format!("query: {}: {}", e.kind.replace('_', " "), e.detail);
@@ -2933,7 +2933,7 @@ impl<'a> Game<'a> {
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what: format!("{what}: no compiled-script ID left") });
             return None;
         }
-        let c = fnv_script::compile::compile(&src, &self.data.table, &GameEnv { g: self }, None);
+        let c = fnv_script::compile::compile_runtime(&src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
             let what = format!("{what}: {}: {}", e.kind.replace('_', " "), e.detail);
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });

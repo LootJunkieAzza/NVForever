@@ -77,6 +77,14 @@ audio to play files by path.
   `sorteditor` (array elements as GetFormIDString's argument: through ref variables
   first), `shuffle` (a sum of elements inside sv_Construct: summed with `let` first).
   Their answers wait for the rerun.
+- `shuffle` did not compile in the rerun either (2026-11-10, #2033): `let aOut :=
+  Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)` then `let fB := aOut[0] + aOut[1] + …`. The data does
+  not say which part is refused: an inline `ar_List` argument compiles for ShowOff's matrix
+  functions, string `+` with an element compiles (nvse.n9 files.plugins), and numeric
+  element arithmetic and Ar_Shuffle's argument appear in no other probe. NVForever keeps
+  compiling it [decision: #2037, the owner's 2026-11-10 ruling to refuse what the original
+  refuses needs a rule the data gives; ext-syntax.md §11]. A probe that splits the two
+  (Ar_Shuffle on a variable; an element sum without Ar_Shuffle) would settle it.
 
 ## 5. Probe questions (set jg8)
 
