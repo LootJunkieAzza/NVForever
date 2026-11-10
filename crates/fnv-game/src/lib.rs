@@ -107,6 +107,7 @@ pub mod nvse_sup3;
 pub mod nvse_sup6;
 pub mod nvse_sup5;
 pub mod nvse_sup7;
+pub mod nvse_jg_nif;
 pub mod nvse_sup4;
 pub mod image_files;
 pub mod xls;

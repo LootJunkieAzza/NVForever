@@ -8377,6 +8377,52 @@ SETS.update({"sup7": SUP7_PROBES})
 WRITING_SETS |= {"sup7"}
 
 
+# jgnif (read-only but for UpdateScenegraph and Update3DAlt 32, which change nothing kept;
+# #1007): JohnnyGuitar's NIF, particle and camera functions (docs/spec-notes/
+# ext-jg-nif-camera.md) on the player at Doc Mitchell's. Distances are rounded to whole
+# units; the camera's place is compared with the player's. The getters into variables
+# (GetCameraTranslation, WorldToScreen) may be refused by the runtime compiler, as SUP's
+# were (ext-sup6.md §1). One step per frame.
+def _jgnif(pid, body, text=True):
+    return (f"jgnif.{pid}", "float fA\nfloat fB\nfloat fC\nfloat fX\nfloat fY\nfloat fZ\narray_var aR\nBegin Function { }\n" + body, text, None, "")
+
+
+JGNIF_PROBES = (
+    # Head to pelvis on the player, the same node to itself (hypothesis: "1 0": more than
+    # 0 apart, 0 to itself).
+    [_jgnif("between", "let fA := Get3DDistanceBetweenNiNodes PlayerREF PlayerREF \"Bip01 Head\" \"Bip01 Pelvis\"\n"
+            "let fB := Get3DDistanceBetweenNiNodes PlayerREF PlayerREF \"Bip01 Head\" \"Bip01 Head\"\nSetFunctionValue (sv_Construct \"%g %g\" (fA > 0) (Round fB))"),
+     # The head's distance to the player's own place, about the eye's height, and to a
+     # missing block (hypothesis: "1 0").
+     _jgnif("tonode", "let fA := PlayerREF.Get3DDistanceToNiNode \"Bip01 Head\" (PlayerREF.GetPos X) (PlayerREF.GetPos Y) (PlayerREF.GetPos Z)\n"
+            "let fB := PlayerREF.Get3DDistanceToNiNode \"NVFNoSuchBlock\" 0 0 0\nSetFunctionValue (sv_Construct \"%g %g\" ((fA > 80) && (fA < 160)) fB)"),
+     # No hit in this session yet (hypothesis: 0).
+     _jgnif("fromhit", "SetFunctionValue (PlayerREF.Get3DDistanceFromHitToNiNode \"Bip01 Head\")", False),
+     # The root's bound: four numbers, a radius above 0 (hypothesis: "4 1"); a missing
+     # block's (hypothesis: an empty array, 0).
+     _jgnif("bound", "let aR := PlayerREF.GetNiBound\nlet fA := ar_Size aR\nlet fB := aR[3]\nlet aR := PlayerREF.GetNiBound \"NVFNoSuchBlock\"\n"
+            "SetFunctionValue (sv_Construct \"%g %g %g\" fA (fB > 0) (ar_Size aR))"),
+     # No particle system or alpha property on a missing block (hypothesis: "0 0 0 0").
+     _jgnif("missing", "SetFunctionValue (sv_Construct \"%g %g %g %g\" (PlayerREF.GetNiPSysModifierValue \"NVFNoSuchBlock\" 14) "
+            "(PlayerREF.GetParticleEmitterSpawnRate \"NVFNoSuchBlock\") (PlayerREF.GetAlphaPropertyValue \"NVFNoSuchBlock\" 0) "
+            "(PlayerREF.GetStencilPropertyValue \"NVFNoSuchBlock\" 0))"),
+     # The camera's place against the player's: in first person within 200 units, the
+     # local place's height above the feet (hypothesis: "1 1").
+     _jgnif("camera", "GetCameraTranslation fX fY fZ 0\nlet fA := ((fX - (PlayerREF.GetPos X)) ^ 2 + (fY - (PlayerREF.GetPos Y)) ^ 2) ^ 0.5\n"
+            "GetCameraTranslation fX fY fZ 1\nSetFunctionValue (sv_Construct \"%g %g\" (fA < 200) (fZ > 50))"),
+     # WorldToScreen into variables did not compile in the original [observed: jgnif.screen,
+     # 2026-11-09], so it is not asked.
+     # The sequence slots standing still, an idle sequence by name (hypothesis: the idle
+     # group's code for slot 0, -1 for slot 4; "1" or "0" for mtidle).
+     _jgnif("sequences", "SetFunctionValue (sv_Construct \"%g %g %g\" (PlayerREF.GetSequenceAnimGroup 0) (PlayerREF.GetSequenceAnimGroup 4) "
+            "(PlayerREF.IsNiSequenceActive \"mtidle\"))"),
+     # The refreshes' results (hypothesis: "0 0").
+     _jgnif("refresh", "let fA := PlayerREF.UpdateScenegraph 0\nlet fB := PlayerREF.Update3DAlt 32\nSetFunctionValue (sv_Construct \"%g %g\" fA fB)")]
+)
+SETS.update({"jgnif": JGNIF_PROBES})
+WRITING_SETS |= {"jgnif"}
+
+
 # jip11 (reads; the one write, ForceActorDetectionValue, is put back; #1006): JIP batch 11
 # (docs/spec-notes/jip-actors-11.md) on Doc Mitchell (reference and base) and the player
 # in the probe save. The questions: GetActorLightAmount's range on an actor indoors,

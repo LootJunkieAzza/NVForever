@@ -220,6 +220,11 @@ SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid referen
 the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
 the last save's and load's names and sizes told by the engine, the cells and map markers near the player,
 MarkScriptOnLoad, KillAll2, the caught-pickpocketing flag, TranslitText; set sup4, not probed yet). SUP 17 → 0.
+JohnnyGuitar NIF and camera slice: 21 (#1007, ext-jg-nif-camera.md: distances to drawn nodes and the hit point,
+bounds, particle systems' values through the scene mirror and the engine's live systems, alpha and stencil
+properties read from the models, switch nodes through the block flags, the sequences playing, Update3DAlt, the
+camera's place, overrides and WorldToScreen through `nvf_play::script_camera`; set jgnif, not probed yet).
+Census after it: JohnnyGuitar 78 → 57.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

@@ -327,6 +327,10 @@ pub struct RefExtra {
     /// for GetCurrentAIProcedure. Not saved.
     #[serde(skip)]
     pub ai_phase: Option<crate::ai::AiPhase>,
+    /// Where the last hit on the reference struck, in the world, as the engine tells it
+    /// (`Game::note_hit_point`; JohnnyGuitar's Get3DDistanceFromHitToNiNode).
+    #[serde(skip)]
+    pub hit_point: Option<[f32; 3]>,
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,

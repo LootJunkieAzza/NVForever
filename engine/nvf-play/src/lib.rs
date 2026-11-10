@@ -49,6 +49,7 @@ pub mod file_bytes;
 pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
+pub mod script_camera;
 pub mod game_start;
 pub mod furniture;
 pub mod grab;
@@ -379,6 +380,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(console::ConsolePlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
+            .add_plugins(script_camera::ScriptCameraPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)

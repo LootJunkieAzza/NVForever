@@ -3288,6 +3288,9 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // [documented: GetMousePosition, GetMouseMovement, "output … to fPosX and fPosY
         // script variables"].
         "getmouseposition" | "getmousemovement" => &[0, 1],
+        // [documented: GetCameraTranslation and WorldToScreen, "Stores … in xOut, yOut and
+        // zOut variables"].
+        "getcameratranslation" | "worldtoscreen" => &[0, 1, 2],
         // [documented: Ar_SetFloatsFrom, "Sets float variables from variables in array (up
         // to 10)"].
         "ar_setfloatsfrom" => &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
