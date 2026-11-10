@@ -371,7 +371,14 @@ impl Gen<'_> {
                 let on = match head {
                     Some(h) => match self.reference(h) {
                         Some(r) => Some(Box::new(XExpr::Ref { r: RefIndex(r) })),
-                        None => return self.xerr("unresolved_name", h.to_string()),
+                        // `GetSelf.Function`: the call on what a function of no arguments
+                        // returns [documented: Chained dot syntax, "GetSelf is a function
+                        // that returns a reference"; observed: the projectile set's
+                        // proj.reg rows compile in the original, #2036].
+                        None => match self.xfunction(h) {
+                            Some(hf) => Some(Box::new(XExpr::Call { call: XCall { on: None, func: hf.func, args: Vec::new() } })),
+                            None => return self.xerr("unresolved_name", h.to_string()),
+                        },
                     },
                     None => None,
                 };
