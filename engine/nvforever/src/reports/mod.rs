@@ -443,8 +443,15 @@ pub fn finish_earlier(summary: &Path, logs: &Path) -> Option<upload::Pending> {
     let find = |prefix: &str, ext: &str| names.iter().filter(|n| n.starts_with(prefix) && n.ends_with(&format!("-{pid}{ext}"))).max().map(|n| logs.join(n));
     let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(summary).ok()?).ok()?;
     let crash = find("crash-", ".txt");
-    if v["end"] == "unknown" {
-        v["end"] = serde_json::Value::from(if crash.is_some() { "panic" } else { "native" });
+    // A crash report makes it a panic even when the game went on and exited normally (a
+    // panic on a thread of its own does not stop the game, crash.rs).
+    let end = match (&crash, v["end"].as_str()) {
+        (Some(_), _) => Some("panic"),
+        (None, Some("unknown")) => Some("native"),
+        _ => None,
+    };
+    if let Some(end) = end.filter(|e| v["end"] != *e) {
+        v["end"] = serde_json::Value::from(end);
         std::fs::write(summary, v.to_string()).ok()?;
     }
     let panic_part = dir.join(format!("{stem}.panic.txt"));
