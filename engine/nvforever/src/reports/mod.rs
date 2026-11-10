@@ -258,7 +258,24 @@ pub struct ReportsPlugin {
     pub mo2: bool,
     /// A load handed over from an earlier run (kept for the log; it collects and sends as any run).
     pub handoff: bool,
+    /// What this run's start loads: `save_load` (`--load`) or `new_game`; it names the start's
+    /// loading screen in the summary's `loads`.
+    pub start_kind: &'static str,
 }
+
+/// The official plugins whose quests make the quest catalogue (the base game and its add-ons).
+pub const OFFICIAL_PLUGINS: [&str; 10] = [
+    "FalloutNV.esm",
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "CaravanPack.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm",
+];
 
 #[derive(Resource)]
 struct Collector {
@@ -270,6 +287,9 @@ struct Collector {
     cells_seen: std::collections::HashSet<u32>,
     last_space: Option<(String, Instant)>,
     space_time: std::collections::HashMap<String, f32>,
+    start_kind: &'static str,
+    /// A loading screen up now: (real seconds when it went up, kind).
+    load: Option<(f64, &'static str)>,
 }
 
 impl Plugin for ReportsPlugin {
@@ -320,9 +340,11 @@ impl Plugin for ReportsPlugin {
                 cells_seen: Default::default(),
                 last_space: None,
                 space_time: Default::default(),
+                start_kind: self.start_kind,
+                load: None,
             })
             .add_systems(Startup, (read_gpu, read_window))
-            .add_systems(Update, collect)
+            .add_systems(Update, (collect, track_loads))
             .add_systems(Last, write_summary);
     }
 }
@@ -450,6 +472,87 @@ fn collect(
     }
 }
 
+/// Loading screens, timed on the real clock from when one goes up to when it goes down
+/// (nvf_play::loading: the screen pauses the game clock; `finish` lowers it in `Last`, so
+/// this sees it the next frame, a frame's time late at most). The kind: the start's
+/// (`new_game` or `save_load`, from the command line; a save loaded in play hands over to a
+/// new run, which starts with it), `fast_travel` (FastTravelLanding), `door` (a load door's
+/// arrival) or `other` (a script or the console moving the player). A run's own cover before
+/// it hands a load over is never timed: the run ends under it.
+fn track_loads(
+    real: Res<Time<Real>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
+    fast: Option<Res<nvf_play::save::FastTravelLanding>>,
+    mut c: ResMut<Collector>,
+) {
+    let Some(loading) = loading else { return };
+    let now = real.elapsed_secs_f64();
+    let fast = fast.is_some_and(|f| f.0);
+    match (loading.active(), c.load) {
+        (true, None) => {
+            let kind = if loading.starting() {
+                c.start_kind
+            } else if !loading.travelling() {
+                return;
+            } else if fast {
+                "fast_travel"
+            } else if loading.arriving {
+                "door"
+            } else {
+                "other"
+            };
+            c.load = Some((now, kind));
+        }
+        (true, Some((t, kind))) => {
+            // Fast travel's flag may be set after the screen went up.
+            if fast && matches!(kind, "door" | "other") {
+                c.load = Some((t, "fast_travel"));
+            }
+        }
+        (false, Some((t, kind))) => {
+            c.load = None;
+            let ms = ((now - t) * 1000.0) as f32;
+            match c.summary.loads.iter_mut().find(|(k, _)| k == kind) {
+                Some((_, l)) => l.times_ms.push(ms),
+                None => c.summary.loads.push((kind.to_string(), summary::Loads { times_ms: vec![ms] })),
+            }
+        }
+        (false, None) => {}
+    }
+}
+
+/// A quest's plugin and its form ID within that plugin (top byte 00), when the plugin is one
+/// of [`OFFICIAL_PLUGINS`].
+fn official_quest(load_order: &[String], form: u32) -> Option<(String, String)> {
+    let plugin = load_order.get((form >> 24) as usize)?;
+    let official = OFFICIAL_PLUGINS.iter().find(|p| p.eq_ignore_ascii_case(plugin))?;
+    Some((format!("00{:06X}", form & 0x00FF_FFFF), official.to_string()))
+}
+
+/// The quest catalogue and the completed quests, from the running game (module notes; the
+/// Pip-Boy lists a quest with a name and objectives, nvf-play pipboy/data.rs `listed`).
+fn read_quests(g: &fnv_game::game::Game, s: &mut Summary) {
+    let order = &g.data.load_order;
+    if s.quest_catalog.is_empty() {
+        s.quest_catalog = g
+            .data
+            .quests
+            .iter()
+            .filter(|(_, d)| d.name.as_deref().is_some_and(|n| !n.trim().is_empty()) && !d.objectives.is_empty())
+            .filter_map(|(id, d)| official_quest(order, id.0).map(|(f, p)| (f, p, d.edid.clone(), d.name.clone())))
+            .collect();
+    }
+    let listed: std::collections::HashSet<(&str, &str)> = s.quest_catalog.iter().map(|(f, p, _, _)| (f.as_str(), p.as_str())).collect();
+    let completed: Vec<(String, String)> = g
+        .quests
+        .iter()
+        .filter(|(_, st)| st.completed && !st.failed)
+        .filter_map(|(id, _)| official_quest(order, id.0))
+        .filter(|(f, p)| listed.contains(&(f.as_str(), p.as_str())))
+        .collect();
+    s.quests_completed = completed;
+}
+
 /// Rewrite the summary every [`WRITE_EVERY`], and at exit as a clean end.
 fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::script::ScriptState>>, mut c: ResMut<Collector>) {
     let exiting = exit.read().next().is_some();
@@ -477,6 +580,7 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
             *stubs.entry(name).or_default() += n;
         }
         c.summary.script_stubs = stubs.into_iter().collect();
+        read_quests(g, &mut c.summary);
     }
     let bytes = c.summary.to_bytes(redact);
     match fnv_install::guard_write(&c.file, None).map_err(|e| e.to_string()).and_then(|()| std::fs::write(&c.file, &bytes).map_err(|e| e.to_string())) {
@@ -560,6 +664,16 @@ mod tests {
     fn only_changed_settings_are_reported_never_paths() {
         let ini = "[Game]\nPath=C:\\Games\\FNV\n[Settings]\nmenu-pause=1\nsend-reports=1\n; x=1\n[Text]\nCodePage=1251\n[Reports]\nInstallId=abc\nEndpoint=https://x\n";
         assert_eq!(settings_rows(ini), vec![("Settings.menu-pause".to_string(), "1".to_string()), ("Text.CodePage".to_string(), "1251".to_string())]);
+    }
+
+    #[test]
+    fn quests_are_named_by_plugin_whatever_the_load_order() {
+        let order: Vec<String> = ["FalloutNV.esm", "SomeMod.esp", "deadmoney.esm"].map(String::from).to_vec();
+        assert_eq!(official_quest(&order, 0x0010_4C1C), Some(("00104C1C".to_string(), "FalloutNV.esm".to_string())));
+        // DeadMoney.esm at index 2 here: the ID is within the plugin, the name as the list spells it.
+        assert_eq!(official_quest(&order, 0x0200_0ABC), Some(("00000ABC".to_string(), "DeadMoney.esm".to_string())));
+        assert_eq!(official_quest(&order, 0x0100_0001), None, "a mod's quest");
+        assert_eq!(official_quest(&order, 0x0700_0001), None, "past the load order");
     }
 
     #[test]

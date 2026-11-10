@@ -132,6 +132,12 @@ pub struct Summary {
     pub warnings: Vec<(String, u64, String)>,
     /// Unimplemented script functions called: (name, count).
     pub script_stubs: Vec<(String, u64)>,
+    /// Player-facing quests of the official plugins: (form ID within its plugin as 8 hex
+    /// digits with a 00 top byte, plugin, editor ID, name). The same for every player of a
+    /// build, so the server needs it once; the first thing cut when the summary is too large.
+    pub quest_catalog: Vec<(String, String, Option<String>, Option<String>)>,
+    /// Quests of the catalogue completed (not failed) in the player's game: (form ID, plugin).
+    pub quests_completed: Vec<(String, String)>,
 }
 
 /// A log line's group: its text with numbers and form IDs stripped (§3.1 `warnings`).
@@ -248,6 +254,22 @@ impl Summary {
         warnings.truncate(MAX_WARNING_GROUPS);
         o.insert("warnings".into(), Value::Array(warnings.iter().map(|(g, n, e)| json!({ "group": g, "count": n, "example": e })).collect()));
         o.insert("script_stubs".into(), Value::Array(self.script_stubs.iter().map(|(n, c)| json!({ "name": n, "count": c })).collect()));
+        if !self.quest_catalog.is_empty() || !self.quests_completed.is_empty() {
+            let catalog: Vec<Value> = self
+                .quest_catalog
+                .iter()
+                .map(|(id, plugin, edid, name)| {
+                    let mut q = Map::new();
+                    q.insert("form_id".into(), json!(id));
+                    q.insert("plugin".into(), json!(plugin));
+                    put(&mut q, "editor_id", edid.clone().map(Value::from));
+                    put(&mut q, "name", name.clone().map(Value::from));
+                    Value::Object(q)
+                })
+                .collect();
+            let completed: Vec<Value> = self.quests_completed.iter().map(|(id, plugin)| json!({ "form_id": id, "plugin": plugin })).collect();
+            o.insert("quests".into(), json!({ "catalog": catalog, "completed": completed }));
+        }
         v
     }
 
@@ -257,7 +279,12 @@ impl Summary {
         let mut v = self.to_json();
         let text = |v: &Value| redact(&v.to_string()).into_bytes();
         let mut out = text(&v);
-        let cuts: [fn(&mut Value); 3] = [
+        let cuts: [fn(&mut Value); 4] = [
+            |v| {
+                if let Some(q) = v.get_mut("quests").and_then(Value::as_object_mut) {
+                    q.remove("catalog");
+                }
+            },
             |v| {
                 if let Some(w) = v["warnings"].as_array_mut() {
                     w.iter_mut().for_each(|w| _ = w.as_object_mut().map(|o| o.remove("example")));
