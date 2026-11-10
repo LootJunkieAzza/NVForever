@@ -512,6 +512,16 @@ struct Art {
     quest: Option<Handle<Image>>,
 }
 
+/// The Compass Fade Left Side tweak's shade of a mark `x` right of the heading point:
+/// whole from the middle rightwards, down to a fifth at the left end (ours) [design: docs/design/tweaks.md].
+fn left_fade(x: f32) -> f32 {
+    if x >= 0.0 {
+        1.0
+    } else {
+        (1.0 + x / COMPASS_VISIBLE).clamp(0.2, 1.0)
+    }
+}
+
 /// A mark's node's left edge in the compass window for a mark `x` right of the heading
 /// point: the tick's bar's middle, the triangle's middle on the bearing; without the
 /// game's pictures a 4-unit block's middle.
@@ -563,7 +573,10 @@ fn draw(
     };
     // The same kinds in the same order: the nodes move, every frame while the player
     // turns, without being spawned again (T12d) [design].
-    if !fresh && spawned.0.len() == view.0.len() && spawned.0.iter().zip(&view.0).all(|(a, b)| a.0 == b.0) {
+    // The player's tweak: marks fade toward the compass's left end; drawn again each
+    // frame for their shade [design: docs/design/tweaks.md].
+    let fade_left = tweaks.as_ref().is_some_and(|t| t.compass_fade_left);
+    if !fade_left && !fresh && spawned.0.len() == view.0.len() && spawned.0.iter().zip(&view.0).all(|(a, b)| a.0 == b.0) {
         for (&(mark, entity), &(_, x)) in spawned.0.iter().zip(&view.0) {
             if let Ok(mut node) = nodes.get_mut(entity) {
                 node.left = u(mark_left(mark, x, image_of(mark).is_some()));
@@ -589,6 +602,7 @@ fn draw(
                 // HUD file) [hypothesis: its picture is laid out as the landmark's].
                 Mark::Place | Mark::Found | Mark::Quest => (at(left, LANDMARK_Y - LANDMARK_MIDDLE.y * LANDMARK_SIZE, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0)),
             };
+            let colour = if fade_left && mark != Mark::Quest { colour.with_alpha(left_fade(x)) } else { colour };
             let id = match image {
                 Some(image) => p.spawn((node, ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })).id(),
                 // Without the game's pictures: a small block.

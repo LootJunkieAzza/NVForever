@@ -481,6 +481,7 @@ unless the player binds them, so nothing changes until then.
 | Right Click for the Previous Category | `bRightClickChangesToPreviousContainerCategory` | `menu::menu_mouse` sends `Command::Category(side, -1)` for a right click on a list heading; container and barter, not the recipe menu |
 | Mark Notes Unread | `bMarkNotesUnread` | `pipboy::data::take_input`: a right click on the notes list calls `Game::mark_note_unread` for the selected note |
 | Barter Total Past the Merchant's Caps | `bShowBarterTotalWhenOverSellLimit` | `MenuModel::full_barter_total`: the hand-built barter figure shows `Trade::balance` instead of the capped `Trade::paid`; the tiles barter menu not yet |
+| Compass Fades on the Left | `bCompassFadeLeftSide` | `compass::left_fade` shades the marks left of the middle down to a fifth (ours); with it on the marks are drawn again each frame; quest marks stay whole |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -502,8 +503,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 403 |
-| to do | 200 |
+| done | 404 |
+| to do | 199 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -835,6 +836,7 @@ game's Data folder, read-only).
 | `bColoredHUDBars` | done |  | 2 | Red Health / Action Point Bar Below (two shares) |
 | `bColorWeaponCndLabel` | done |  | 2 | Red / Flashing Weapon Condition Below (the bar, the HUD has no label) |
 | `bCompanionPipColorChange` | done |  | 1 | Companion Compass Colour (five colours of ours instead of an RGB value) |
+| `bCompassFadeLeftSide` | done |  |  | Compass Fades on the Left (down to a fifth at the left end, ours; quest marks stay whole) |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
 | `bDisableCompassEdgeAlpha` | done |  |  | already so: the marks are not faded at the edge |
@@ -878,7 +880,6 @@ game's Data folder, read-only).
 | `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
 | `bArmorConditionLabel` | to do |  | 9 | no armour condition text on the HUD yet |
-| `bCompassFadeLeftSide` | to do |  |  | compass::draw alpha on both paths |
 | `bCompassLocationDistanceBasedAlpha` | to do |  |  | the compass view carries no distance |
 | `bCompassNPCDistanceBasedAlpha` | to do |  |  | the compass draws no alpha yet |
 | `bCompassQuestHeightIndicator` | to do |  |  | the compass marks are 2D; needs art |

@@ -298,6 +298,8 @@ pub struct TweakSettings {
     /// `bShowBarterTotalWhenOverSellLimit`: the barter figure shows the whole total when
     /// it is more than the merchant's caps.
     pub full_barter_total: bool,
+    /// `bCompassFadeLeftSide`: compass marks fade toward the left end.
+    pub compass_fade_left: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -480,6 +482,7 @@ impl Default for TweakSettings {
             smooth_look: false,
             right_click_previous_category: false,
             full_barter_total: false,
+            compass_fade_left: false,
         }
     }
 }
@@ -1298,6 +1301,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "right-click-previous-category", "Right Click for the Previous Category", "In a container or a barter, a right click on a list's heading steps back to the previous category. (Stewie's Tweaks bRightClickChangesToPreviousContainerCategory)", right_click_previous_category);
         switch!(app, "mark-notes-unread", "Mark Notes Unread", "A right click on a note in the Pip-Boy marks it unread again. (Stewie's Tweaks bMarkNotesUnread)", game.mark_notes_unread);
         switch!(app, "full-barter-total", "Barter Total Past the Merchant's Caps", "The barter figure shows the whole total even when it is more than the merchant's caps (the merchant still pays only what it has). (Stewie's Tweaks bShowBarterTotalWhenOverSellLimit)", full_barter_total);
+        switch!(app, "compass-fade-left", "Compass Fades on the Left", "Marks on the compass fade toward its left end (quest marks stay whole), for a compass seen from its middle. (Stewie's Tweaks bCompassFadeLeftSide)", compass_fade_left);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
