@@ -954,6 +954,52 @@ triangles: opacities seldom reach 1); the swapchain's frame latency (1 to 4: 7.6
 the GPU 97-98 % busy at each); the depth-only passes reading single fields of the material
 instead of whole structs (Primm's prepass 1.74 against 1.77 ms: the driver already did).
 
+### Sun shadows, and Goodsprings at 180 with SMAA
+
+What the sun's shadows cost at Goodsprings with SMAA (release, 6.3 ms a frame): off
+5.06 ms. No single part of them explains it:
+
+| Tried, one at a time | Frame (ms) |
+|---|---|
+| as they are (3 cascades, Gaussian filter, reach 8,000 x 1.5) | 6.23-6.40 |
+| hardware 2x2 filter | 6.20 |
+| reach x 1 instead of x 1.5 | 6.30 |
+| shadow distance halved | 6.16 |
+| `--shadow-thin` 0.02, 0.05, 0.1 | 6.28, 6.28, 6.12 |
+| the maps drawn but never sampled (a shader edit for the measurement) | 6.08-6.21 |
+| no shade light for the first-person arms | 6.21 |
+| 2 cascades; 1 cascade | 6.24; 6.09 |
+| trees cast no shadow (leaves only cast: 6.39; bark only: 6.29) | 6.21 |
+| off | 5.06-5.08 |
+
+So the cost is not the filter, the reach or the map size, and no one view or kind of
+caster: sampling is about 0.2 ms, each view about 0.13, the trees 0.19, and the rest goes
+only with the last view.
+
+7. **Lighter sun shadows, a settings switch, off by default** (nvforever shadow_rate.rs;
+   key `lighter-shadows`, Graphics tab). With it on: the sun's shadow maps are drawn
+   every other frame and kept in between, with the cascades of the frame that drew them
+   (a patched bevy_pbr, engine/vendor/README.md "held shadow maps"); 2 cascades instead of
+   3; trees cast within 3,000 units of the camera only; no shade light for the arms.
+   Goodsprings with SMAA: held maps alone 6.40 → 6.03 ms (two pairs); the whole switch
+   6.41 → 5.67 ms (two pairs). What it costs in the picture: shadows a little coarser at
+   mid distance, the shadow of a moving thing at half the frame rate, no tree shadows
+   beyond about 43 m, and on a fast turn the edge of the view can lie outside a held
+   cascade for a frame. A screenshot with the switch on against off differs in 0.6 % of
+   its pixels by more than 24 of 255 (shadow edges).
+8. **Every layer of a quadrant is folded into its base** where the texture repeat divides
+   the cell (change 6 folded four): the texture coordinate is the fragment's place in its
+   mesh over the repeat, which terrain.wesl works out, and its vertex slot carries the
+   fifth and sixth opacities. The two layers left blended had cost 0.18 ms; a screenshot
+   folded against blended differs in 0.25 % of its pixels by more than 24 of 255.
+
+Goodsprings at 12:00 with SMAA, the switch on and changes 1-8 (release): 5.51, 5.55 ms
+(181.6, 180.2 a second) in two runs, and 5.49-5.56 ms in the undisturbed 5-second windows
+of five more made while the machine was in use (two of those runs had a 0.9 s stall at
+their start and one was held at 60 a second for part of it; they are left out). With the
+switch off: 6.23 ms (160). That is at the 5.56 ms of 180 a second with nothing to spare.
+The smoke scenario `lighter-sun-shadows` was added for the switch and has not been run.
+
 ### What is left, and why Goodsprings is not at 180
 
 At 7.7 ms Goodsprings still waits for the GPU; 180 a second is 5.56 ms. Per feature, on

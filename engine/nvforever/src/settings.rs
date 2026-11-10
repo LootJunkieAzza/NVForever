@@ -260,6 +260,18 @@ pub fn register(app: &mut App) {
     add_setting(
         app,
         Setting {
+            key: "lighter-shadows",
+            group: GROUP_GRAPHICS,
+            label: "Lighter sun shadows",
+            note: "On: the sun's shadow maps are drawn every other frame, in two cascades instead of three, trees cast shadows only near you and the first-person arms take the world's shadows. Saves frame time outdoors; shadows of moving things update at half the frame rate. Off by default.",
+            get: |w| w.resource::<crate::shadow_rate::LighterShadows>().0,
+            set: crate::shadow_rate::set_lighter,
+            slider: None,
+        },
+    );
+    add_setting(
+        app,
+        Setting {
             key: "grass",
             group: GROUP_PICTURE,
             label: "Grass",

@@ -926,6 +926,28 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
 
 [[scenario]]
+name = "lighter-sun-shadows"
+source = "docs/design/frame-rate-audit.md §9 (nvforever shadow_rate.rs): the settings page's Lighter sun shadows switch goes on and off while the game runs: two cascades, the sun's shadow maps kept on alternate frames, three cascades again, without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/shadow_rate.rs", "engine/nvforever/src/sky.rs", "engine/nvforever/src/player_body.rs",
+  "engine/nvforever/src/tree.rs", "engine/vendor/bevy_pbr/src/render/light.rs", "engine/vendor/bevy_pbr/src/render/gpu_preprocess.rs",
+  "engine/nvf-play/src/settings_layout.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,17:19", NVF_PLAY_TEST_SETTINGS = "11:lighter-shadows,18:lighter-shadows" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  "sun shadows: lighter (maps drawn every other frame, trees cast near the camera only, no arms shade light), 2 cascades",
+  "sun shadows: a frame kept the shadow maps of the frame before",
+  "sun shadows: drawn every frame, 3 cascades",
+]]
+forbid = [
+  { text = "Caught rendering error", label = "a rendering (validation) error while the shadow maps are kept or the cascades change" },
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+]
+
+[[scenario]]
 name = "settings-resume-pipelines"
 source = "[design] #1820 pipeline portion: graphics-enhanced.md section 3; resume 0.5 seconds after AA/AO edits, keeping the pause menu until fresh pipeline samples settle (loading-pipelines-start covers the start's gate)"
 areas = ["renderer", "graphics", "settings"]
