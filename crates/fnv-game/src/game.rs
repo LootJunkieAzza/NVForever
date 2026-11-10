@@ -3709,6 +3709,12 @@ impl<'a> Game<'a> {
         self.rotations.clear();
         // The conversation's own lines go on in real time while it pauses the game;
         // another menu on top of it (a message box) holds it.
+        // Its actor dead ends it even behind a menu (the barter menu over a merchant's
+        // conversation): in co-op another player or an NPC can kill it meanwhile (queue
+        // item 195); solo nothing dies behind a menu.
+        if self.menu.is_some() && self.dialogue.as_ref().is_some_and(|c| self.extra.get(&c.actor).is_some_and(|e| e.dead)) {
+            self.update_dialogue(0.0);
+        }
         if self.menu.is_none() {
             self.update_dialogue(dt);
             if world_logic {

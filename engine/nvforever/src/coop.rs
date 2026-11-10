@@ -2709,7 +2709,9 @@ fn follow_npcs(
         .iter()
         .filter_map(|(&r, t)| {
             // Its furniture as the host has it now (a chair, a bed, a cross: module notes).
-            let furniture = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0).map(|s| (s.furniture, s.has(npc_flag::SEATED)));
+            // Not a dead one's: Chet, killed on the host, sat down on his chair again on a
+            // guest (desktop run for item 195).
+            let furniture = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0 && !s.has(npc_flag::DEAD)).map(|s| (s.furniture, s.has(npc_flag::SEATED)));
             let space = t.samples.back().map_or(0, |(_, s)| s.space);
             // Faster than it runs (with room for a run's speed-ups) is a jump; Kimball's
             // and the Legion sniper's enables and first states at the Hoover Dam were

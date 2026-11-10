@@ -1486,8 +1486,13 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, init_combat)
             .add_systems(
                 Update,
-                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, (crate::bash::tick, melee).chain(), actor_attacks, (fly, remote_hits).chain(), crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(crate::coop_tables::world_goes_on).run_if(resource_exists::<Combat>),
+                (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, (crate::bash::tick, melee).chain(), actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(crate::coop_tables::world_goes_on).run_if(resource_exists::<Combat>),
             )
+            // Another player's hits land while this player talks, too: the world stands
+            // still behind a conversation, and a guest's hit that came then was dropped,
+            // so nobody could kill an NPC the host was talking to (queue item 195). Its
+            // death ends the conversation (`fnv_game::Game::update_dialogue`).
+            .add_systems(Update, remote_hits.in_set(PlaySet::Activation).after(fly).before(crate::dismember::resolve).run_if(remote_hits_land).run_if(resource_exists::<Combat>))
             .add_systems(Update, (draw_marks, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
@@ -3256,6 +3261,12 @@ fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, s
 pub(crate) fn crit_effect(c: &Combat, weapon: Option<FormId>) -> Option<(FormId, bool)> {
     let w = c.forms.weapons.get(&weapon?)?;
     Some((w.crit_effect?, w.crit_on_death))
+}
+
+/// When [`remote_hits`] runs: while the world goes on, and behind this player's own
+/// conversation.
+fn remote_hits_land(state: Res<State<crate::PlayState>>, keep: Option<Res<crate::coop_tables::KeepWorld>>) -> bool {
+    *state.get() == crate::PlayState::Dialogue || crate::coop_tables::world_runs(state.get(), &keep.map_or(crate::coop_tables::KeepWorld(false), |k| *k))
 }
 
 /// Hits from another game ([`RemoteHit`]: a co-op guest's on this host's actors), applied

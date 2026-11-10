@@ -525,8 +525,18 @@ fn close_menu(
     }
 }
 
-fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut fresh: ResMut<FreshMenu>, mut out: MessageWriter<MenuInput>) {
+fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut fresh: ResMut<FreshMenu>, mut out: MessageWriter<MenuInput>, script: Option<Res<crate::script::ScriptState>>) {
     use KeyCode::*;
+    // The merchant died behind the barter menu (in co-op another player or an NPC can
+    // kill it meanwhile; solo the world stands still behind the menu): the menu closes
+    // at once, as Exit does (queue item 195).
+    if let Some(Mode::Barter(r)) = active.0.as_ref().map(|m| m.mode) {
+        if crate::combat::is_dead(script.as_deref(), r.0) {
+            info!("menu: the merchant {r} died: the barter menu closes");
+            out.write(MenuInput(Command::Close));
+            return;
+        }
+    }
     // The press that opened the menu is not one of its keys (see [`FreshMenu`]).
     if std::mem::take(&mut fresh.0) {
         return;
