@@ -210,6 +210,14 @@ struct PersonPace(f32);
 /// person's own outfitting change what it wears [design].
 const PERSON_PACE_EVERY: f32 = 1.0;
 
+/// The run speeds given, for GetRunSpeed (`fnv_game::nvse_jg9`).
+fn tell_run_speeds(script: Option<&mut ScriptState>, given: &[(FormId, ActorSpeeds)]) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    for (id, s) in given {
+        rt.game.other.jg9.run_speeds.insert(*id, s.calm.run);
+    }
+}
+
 /// Drawn people walk and run at the people's speeds × [`person_pace`].
 fn people_speeds(
     time: Res<Time>,
@@ -253,6 +261,7 @@ fn people_speeds(
             given.push((id, ActorSpeeds { calm: s, alert: s, turn_rate: None, spot_turn_start: None }));
         }
     }
+    tell_run_speeds(script.as_deref_mut(), &given);
     for (id, s) in given {
         res.set_speeds(id, s);
         stats.people += 1;
@@ -317,6 +326,7 @@ fn give_speeds(
             given.push((id, ActorSpeeds { calm, alert, turn_rate: Some(turn), spot_turn_start: Some(CREATURE_SPOT_TURN_START) }));
         }
     }
+    tell_run_speeds(script.as_deref_mut(), &given);
     for (id, s) in given {
         res.set_speeds(id, s);
         stats.paced += 1;

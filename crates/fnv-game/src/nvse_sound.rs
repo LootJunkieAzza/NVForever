@@ -93,6 +93,11 @@ impl SoundState {
     fn playing(&self, p: &Played, frame: u64) -> bool {
         p.frame + 1 < frame && p.stopped.is_none_or(|f| f == frame) && p.until.is_none_or(|u| self.clock < u)
     }
+
+    /// Whether any playing of `sound` counts as playing in `frame` ([`SoundState::playing`]).
+    pub fn is_playing(&self, sound: FormId, frame: u64) -> bool {
+        self.played.iter().any(|p| p.sound == sound && self.playing(p, frame))
+    }
 }
 
 fn form(args: &[XVal], k: usize) -> Option<FormId> {

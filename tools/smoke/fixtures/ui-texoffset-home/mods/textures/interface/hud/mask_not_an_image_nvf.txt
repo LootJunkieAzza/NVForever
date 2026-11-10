@@ -1,0 +1,1 @@
+NVForever smoke fixture: authored text, not a DDS image (#1833).

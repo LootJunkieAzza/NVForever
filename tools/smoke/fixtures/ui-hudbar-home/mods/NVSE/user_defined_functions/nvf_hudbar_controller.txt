@@ -1,0 +1,44 @@
+; Steps through the bound value and the visibility conditions on GetSessionTime.
+float phase
+float now
+Begin Function { }
+let phase := GetUIFloat "HUDMainMenu/NVFHudBarProbe/_phase"
+let now := GetSessionTime
+if phase == 0 && now > 2
+  PrintC "nvf hudbar made %g", (HudBarCreate "NVFBound" 60 420 0)
+  HudBarSetSize "NVFBound" 0 300 12
+  HudBarShowBar "NVFBound" 1
+  PrintC "nvf hudbar udf %g", (HudBarSetValueUDF "NVFBound" (CompileScript "nvf_hudbar_value.txt") 0)
+  SetUIFloat "HUDMainMenu/NVFHudBarProbe/_phase" 1
+elseif phase == 1 && now > 3
+  SetUIFloat "HUDMainMenu/NVFHudBarProbe/_w1" (GetUIFloat "HUDMainMenu/NVFHudBar1/Meter/width")
+  PrintC "nvf hudbar bound %g", ((GetUIFloat "HUDMainMenu/NVFHudBarProbe/_w1") > 0)
+  SetUIFloat "HUDMainMenu/NVFHudBarProbe/_phase" 2
+elseif phase == 2 && now > 4
+  PrintC "nvf hudbar follows %g", ((GetUIFloat "HUDMainMenu/NVFHudBar1/Meter/width") > (GetUIFloat "HUDMainMenu/NVFHudBarProbe/_w1"))
+  ; Shown only in combat; the player is not fighting.
+  HudBarSetBarTrait "NVFBound" 23 2
+  PrintC "nvf hudbar hidden %g", (HudBarGetVisible "NVFBound" 10)
+  SetUIFloat "HUDMainMenu/NVFHudBarProbe/_phase" 3
+elseif phase == 3 && now > 4.5
+  PrintC "nvf hudbar drawn hidden %g", (GetUIFloat "HUDMainMenu/NVFHudBar1/visible")
+  HudBarSetBarTrait "NVFBound" 23 0
+  PrintC "nvf hudbar shown %g", (HudBarGetVisible "NVFBound" 10)
+  SetUIFloat "HUDMainMenu/NVFHudBarProbe/_phase" 4
+elseif phase == 4 && now > 5
+  PrintC "nvf hudbar drawn shown %g", (GetUIFloat "HUDMainMenu/NVFHudBar1/visible")
+  ; Now it vanishes over 2 seconds.
+  HudBarSetBarTrait "NVFBound" 41 1
+  HudBarSetBarTrait "NVFBound" 44 2
+  HudBarSetBarTrait "NVFBound" 23 2
+  SetUIFloat "HUDMainMenu/NVFHudBarProbe/_phase" 5
+elseif phase == 5 && now > 6
+  PrintC "nvf hudbar fading %g", (GetUIFloat "HUDMainMenu/NVFHudBar1/Meter/alpha")
+  SetUIFloat "HUDMainMenu/NVFHudBarProbe/_phase" 6
+elseif phase == 6 && now > 8
+  PrintC "nvf hudbar faded %g", (GetUIFloat "HUDMainMenu/NVFHudBar1/visible")
+  HudBarShowBar "NVFBound" 0
+  PrintC "nvf hudbar manual %g", (HudBarGetVisible "NVFBound" 10)
+  RemoveTileScript "HUDMainMenu/NVFHudBarProbe/_controller"
+endif
+End
