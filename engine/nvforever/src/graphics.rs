@@ -424,9 +424,6 @@ impl Plugin for GraphicsPlugin {
                 }
                 if acc.0 >= ft.every {
                     info!("frame time: {:.2} ms mean, {:.1} ms slowest over {} frames; graphics: {}; sun shadows {}; sun at heading {:.0}, elevation {:.0}", acc.1 * 1e3 / acc.3.max(1) as f32, acc.2 * 1e3, acc.3, g.describe(), if sky.shadows { format!("to {:.0} in {} cascades", sky.shadow_distance, sky.shadow_cascades) } else { "off".into() }, sky.sun_heading(), sky.sun_elevation());
-                    if crate::heap_stats::on() {
-                        info!("heap: {} MB live, peak {} MB since the last line", crate::heap_stats::live_mb(), crate::heap_stats::take_peak_mb());
-                    }
                     // The GPU's time in the passes that cost the most (ms, about the last
                     // second's average).
                     let mut passes: Vec<(String, f64)> = store

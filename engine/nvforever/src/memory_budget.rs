@@ -31,10 +31,7 @@
 //!   share of it free and the free RAM), leaving out their largest mip levels
 //!   (nvf_assets `texture.rs`). It follows the use every 2 s, and behind a loading screen
 //!   it is read as the screen comes up and every [`LOAD_READ_SECS`], only tightening.
-//!   A window under [`SMALL_WINDOW_PX`] (the 640x360 test windows) caps it by its own
-//!   size as well ([`window_cap_for`]); a player's window is not capped.
-//! - **Cell loads**: as the screen comes up, on a GPU budget under [`ROOMY_VRAM_MB`] or
-//!   with over half the budget in use ([`flush_at_load`]), the caches
+//! - **Cell loads**: as the screen comes up, with over half the budget in use, the caches
 //!   let go of everything nothing uses ([`flush_now`]) a few frames later, once the old
 //!   place is gone and before the new one uploads; again whenever the use passes
 //!   [`GPU_PRESSURE`] under the screen. Logged: `memory budget: cell load: …` and
@@ -94,10 +91,8 @@ pub struct MemoryBudget {
     /// The limits the budgets give, when not pressed.
     pub base: KeepLimits,
     pub pressed: bool,
-    /// The world textures' side cap in force ([`side_cap_for`], at most [`Self::window_cap`]).
+    /// The world textures' side cap in force ([`side_cap_for`]).
     pub side_cap: u32,
-    /// The cap a small window allows ([`window_cap_for`]); 0 until the window is read.
-    pub window_cap: u32,
     /// Out-of-memory errors the game went on from ([`out_of_memory`]): each halves the
     /// side cap once more; real seconds of the last one.
     pub oom_steps: u32,
@@ -121,24 +116,13 @@ struct LoadWatch {
     peak_mb: u64,
 }
 
-impl MemoryBudget {
-    /// `cap`, no more than the window allows once it was read.
-    pub fn within_window(&self, cap: u32) -> u32 {
-        if self.window_cap > 0 {
-            cap.min(self.window_cap)
-        } else {
-            cap
-        }
-    }
-}
-
 pub struct MemoryBudgetPlugin;
 
 impl Plugin for MemoryBudgetPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MemoryBudget>()
             .add_systems(Startup, read_budgets)
-            .add_systems(Update, (watch_window, watch_use, watch_loads, test_oom, reload_after_oom).chain());
+            .add_systems(Update, (watch_use, watch_loads, test_oom, reload_after_oom).chain());
         if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
             render_app.add_systems(bevy::render::ExtractSchedule, sync_mesh_slabs);
         }
@@ -323,13 +307,7 @@ fn integrated(adapter: Option<&RenderAdapterInfo>) -> bool {
 }
 
 /// Read the budgets, log them and set the keep limits.
-fn read_budgets(
-    mut commands: Commands,
-    device: Option<Res<RenderDevice>>,
-    adapter: Option<Res<RenderAdapterInfo>>,
-    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    mut budget: ResMut<MemoryBudget>,
-) {
+fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapter: Option<Res<RenderAdapterInfo>>, mut budget: ResMut<MemoryBudget>) {
     let ram = read_ram();
     let aid_ram = aid_mb("NVF_PLAY_TEST_RAM_MB");
     let ram_mb = capped(ram.map(|r| r.0), aid_ram);
@@ -360,12 +338,8 @@ fn read_budgets(
         info!("memory budget: GPU heaps: {layout}");
     }
     let used = vram.as_ref().map_or(0, |(_, u)| *u);
-    let window_cap = window.single().map_or(nvf_assets::texture::MAX_TEXTURE_SIDE, |w| window_cap_for(w.physical_width(), w.physical_height()));
-    let side_cap = vram_mb.map_or(nvf_assets::texture::MAX_TEXTURE_SIDE, |b| side_cap_for(b, used, ram.map(|r| r.1), 0)).min(window_cap);
+    let side_cap = vram_mb.map_or(nvf_assets::texture::MAX_TEXTURE_SIDE, |b| side_cap_for(b, used, ram.map(|r| r.1), 0));
     nvf_assets::texture::set_side_cap(side_cap);
-    if window_cap < nvf_assets::texture::MAX_TEXTURE_SIDE {
-        info!("memory budget: a small window: world textures at most {window_cap} px");
-    }
     if let Some(b) = vram_mb {
         let keep = keep_empty_blocks_for(b);
         gpu_allocator::vulkan::set_keep_empty_general_blocks(keep);
@@ -374,7 +348,7 @@ fn read_budgets(
             slab_max_for(b) / MB
         );
     }
-    *budget = MemoryBudget { vram_mb, aid_vram, aid_ram, base, pressed: false, side_cap, window_cap, ..Default::default() };
+    *budget = MemoryBudget { vram_mb, aid_vram, aid_ram, base, pressed: false, side_cap, ..Default::default() };
     commands.insert_resource(base);
 }
 
@@ -400,40 +374,6 @@ pub fn side_cap_for(budget_mb: u64, used_mb: u64, ram_free_mb: Option<u64>, oom_
     halvings += u32::from(ram_free_mb.is_some_and(|r| r < 1024));
     halvings += oom_steps;
     (base >> halvings.min(16)).max(256)
-}
-
-/// Windows narrower than this (their longer side, px) cap world textures by their size
-/// [design: the test windows are 640x360 to 960x540; a player's window is wider].
-pub const SMALL_WINDOW_PX: u32 = 1280;
-
-/// The side cap (px) a window of `w`x`h` physical pixels allows: none (the largest side)
-/// from [`SMALL_WINDOW_PX`], else the window's longer side rounded up to a power of two,
-/// no less than 512. A texture is sampled at its full size only when more than its side in
-/// texels crosses the window; at 640x360 that takes a texture tiled over twice the
-/// window's width [design: the laptop's two test windows, 2026-11-09, ran out of RAM with
-/// 2048 px textures in 640x360 windows].
-pub fn window_cap_for(w: u32, h: u32) -> u32 {
-    let side = w.max(h);
-    if side == 0 || side >= SMALL_WINDOW_PX {
-        nvf_assets::texture::MAX_TEXTURE_SIDE
-    } else {
-        side.next_power_of_two().max(512)
-    }
-}
-
-/// Follow the window's size: a resize to or from a small window changes the cap for the
-/// textures made from then on.
-fn watch_window(window: Query<&Window, (With<bevy::window::PrimaryWindow>, Changed<Window>)>, mut budget: ResMut<MemoryBudget>) {
-    let Ok(w) = window.single() else { return };
-    let cap = window_cap_for(w.physical_width(), w.physical_height());
-    if cap == budget.window_cap {
-        return;
-    }
-    budget.window_cap = cap;
-    // Without a GPU budget nothing else sets the cap: the window's alone. With one, a
-    // smaller window tightens it now, and a larger one lets the next reading loosen it.
-    let side = if budget.vram_mb.is_none() { nvf_assets::texture::MAX_TEXTURE_SIDE } else { budget.side_cap };
-    set_cap(&mut budget, side, "the window's size");
 }
 
 /// The largest mesh slab (bytes): Bevy's 512 MiB from [`ROOMY_VRAM_MB`], else a 32nd of
@@ -471,7 +411,6 @@ fn sync_mesh_slabs(budget: bevy::render::Extract<Res<MemoryBudget>>, mut setting
 
 /// Use the side cap for these readings; log a change.
 fn set_cap(budget: &mut MemoryBudget, cap: u32, why: &str) {
-    let cap = budget.within_window(cap);
     if cap == budget.side_cap {
         return;
     }
@@ -483,20 +422,9 @@ fn set_cap(budget: &mut MemoryBudget, cap: u32, why: &str) {
 /// Seconds between readings of the GPU's use behind a loading screen.
 const LOAD_READ_SECS: f64 = 0.25;
 /// Behind a loading screen the caches are flushed when the process uses over this share of
-/// the GPU budget at the start (always under [`ROOMY_VRAM_MB`], [`flush_at_load`]), or over
-/// [`GPU_PRESSURE`]'s at any reading (at most once a second) [design].
+/// the GPU budget at the start, or over [`GPU_PRESSURE`]'s at any reading (at most once a
+/// second) [design].
 const FLUSH_AT_LOAD: f64 = 0.5;
-
-/// Whether the caches are flushed behind a loading screen that comes up with `used` of
-/// `budget` MB in use: on a GPU under [`ROOMY_VRAM_MB`] always, else over
-/// [`FLUSH_AT_LOAD`] of it. Under the screen the old place is gone, so what it alone used
-/// waits for a return there; kept, it sat beside the new place's uploads [design: the
-/// laptop, 2026-11-09, q-fort-raft-2p: a 130,000-unit script move with 1145 of 3367 MB in
-/// use flushed nothing and peaked at 1657 MB, two windows on one 4 GB card, and the
-/// watchdog stopped the run at 1.75 GB of RAM free].
-pub fn flush_at_load(budget_mb: u64, used_mb: u64) -> bool {
-    budget_mb < ROOMY_VRAM_MB || used_mb as f64 > budget_mb as f64 * FLUSH_AT_LOAD
-}
 
 /// Behind a loading screen (module notes, "cell loads"): read the GPU's use as the screen
 /// comes up and every [`LOAD_READ_SECS`], tighten the side cap as it fills, and flush the
@@ -533,8 +461,7 @@ fn watch_loads(
             let (gpu, ram_free) = read();
             let (vb, used) = gpu.unwrap_or((b, 0));
             let cap = side_cap_for(vb, used, ram_free, budget.oom_steps);
-            let cap = budget.within_window(cap);
-            let flush = flush_at_load(vb, used);
+            let flush = used as f64 > vb as f64 * FLUSH_AT_LOAD;
             info!(
                 "memory budget: cell load: GPU uses {used} of {vb} MB ({} MB free), RAM {} MB free; world textures at most {cap} px{}",
                 vb.saturating_sub(used),
@@ -772,32 +699,6 @@ fn watch_use(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn loads_flush_the_caches_on_a_small_gpu() {
-        assert!(flush_at_load(3367, 1145), "the laptop's card, a third in use: flushed");
-        assert!(flush_at_load(2048, 100), "a 2 GB card");
-        assert!(!flush_at_load(7000, 1145), "a roomy card with room: kept for a return");
-        assert!(flush_at_load(7000, 4000), "a roomy card over half in use");
-    }
-
-    #[test]
-    fn small_windows_cap_world_textures_by_their_size() {
-        let none = nvf_assets::texture::MAX_TEXTURE_SIDE;
-        assert_eq!(window_cap_for(640, 360), 1024, "the laptop's test windows");
-        assert_eq!(window_cap_for(960, 540), 1024);
-        assert_eq!(window_cap_for(1024, 768), 1024);
-        assert_eq!(window_cap_for(1100, 600), 2048);
-        assert_eq!(window_cap_for(320, 200), 512, "never under 512");
-        assert_eq!(window_cap_for(1280, 720), none, "a player's window: no cap");
-        assert_eq!(window_cap_for(1920, 1080), none);
-        assert_eq!(window_cap_for(0, 0), none, "not read");
-        let mut b = MemoryBudget::default();
-        assert_eq!(b.within_window(2048), 2048, "before the window is read");
-        b.window_cap = 1024;
-        assert_eq!(b.within_window(2048), 1024);
-        assert_eq!(b.within_window(512), 512, "the budget's tighter cap stays");
-    }
 
     #[test]
     fn the_texture_cap_follows_the_budget_and_its_use() {
