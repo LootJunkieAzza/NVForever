@@ -479,6 +479,7 @@ unless the player binds them, so nothing changes until then.
 | Pick Locks Even With the Key | `bPickLocksEvenWithKey` | `fnv_sim::World::set_player_ignores_keys`, set by `activate::shift_talks` while Shift is held: `World::activate` leaves the key unused, so the lock is picked; locks only, not terminals; the prompt still says Unlock |
 | Smooth Camera key | `iToggleSmoothCameraKey` | a new unbound Control flips `TweakSettings::smooth_look`; `player::mouse_look` eases the look at `SMOOTH_LOOK_RATE` (ours), never while aiming |
 | Right Click for the Previous Category | `bRightClickChangesToPreviousContainerCategory` | `menu::menu_mouse` sends `Command::Category(side, -1)` for a right click on a list heading; container and barter, not the recipe menu |
+| Mark Notes Unread | `bMarkNotesUnread` | `pipboy::data::take_input`: a right click on the notes list calls `Game::mark_note_unread` for the selected note |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -500,8 +501,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 401 |
-| to do | 202 |
+| done | 402 |
+| to do | 201 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -948,6 +949,7 @@ game's Data folder, read-only).
 | `bMapLocationDisplayDistance` | done |  | 3 | Map Marker Distance (metres or kilometres; the travel-time modes not done) |
 | `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
 | `bMapRecenterHotkey` | done |  | 2 | Map Recentre Key (C, at once; no easing) |
+| `bMarkNotesUnread` | done |  |  | Mark Notes Unread (right click on the Pip-Boy notes list) |
 | `bNoCapitaliseContainerCategories` | done |  |  | Quiet Category Titles |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
 | `bNoExitHacking` | done |  | 1 | No Leaving a Hack (the fail-on-exit option not built) |
@@ -1011,7 +1013,6 @@ game's Data folder, read-only).
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
-| `bMarkNotesUnread` | to do |  |  | a right click calling SetNoteRead 0 |
 | `bMoreDetailedStatsMenu` | to do |  | 1 | stats read value and cap |
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoPlaceMarkerPopup` | to do |  | 2 | not built: no custom markers |

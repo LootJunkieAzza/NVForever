@@ -386,6 +386,8 @@ pub struct Tweaks {
     /// `bPreviewPerksOnLevelUp`: the level-up menu shows the perks page even with no perk
     /// to take.
     pub preview_perks: bool,
+    /// `bMarkNotesUnread`: a right click on a note in the Pip-Boy marks it unread.
+    pub mark_notes_unread: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -565,6 +567,7 @@ impl Default for Tweaks {
             quantity_shows_weight: false,
             hide_empty_reputation: false,
             preview_perks: false,
+            mark_notes_unread: false,
         }
     }
 }
