@@ -146,6 +146,7 @@ pub mod sneak_gauges;
 pub mod ui_colour;
 pub mod ui_sounds;
 pub mod stress;
+pub mod rt_vats;
 pub mod vats_mode;
 pub mod kill_cam;
 pub mod weapon_wheel;
@@ -411,6 +412,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin)
+            .add_plugins(rt_vats::RtVatsPlugin)
             .add_plugins(kill_cam::KillCamPlugin)
             .add_plugins(weapon_wheel::WeaponWheelPlugin)
             .add_plugins(grab::GrabPlugin)

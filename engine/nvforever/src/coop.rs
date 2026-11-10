@@ -1316,11 +1316,17 @@ struct Doing<'w> {
 /// the others are for the glance's map (`nvf_play::pipboy::glance::CoopMates`), and
 /// whether the full Pip-Boy may leave the world running (`nvf_play::menu::LiveMenu`: in a
 /// session).
-fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetChecks>, mut mates: ResMut<nvf_play::pipboy::glance::CoopMates>, mut live: ResMut<nvf_play::menu::LiveMenu>) {
+fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetChecks>, mut mates: ResMut<nvf_play::pipboy::glance::CoopMates>, mut live: ResMut<nvf_play::menu::LiveMenu>, mut lock: ResMut<nvf_play::rt_vats::RtVats>) {
     use nvf_play::pipboy::glance::{Check, Mate};
     let in_session = coop.link.is_some();
     if live.allowed != in_session {
         live.allowed = in_session;
+    }
+    // In a session the VATS key is the real-time lock's, for the host and every guest
+    // (`nvf_play::rt_vats`): the clock is everyone's.
+    if lock.allowed != in_session {
+        lock.allowed = in_session;
+        info!("realtime vats: {}", if in_session { "on (a co-op session: V locks on instead of slowing time)" } else { "off (no session: V is VATS mode)" });
     }
     let mut want = std::collections::HashMap::new();
     let mut seen = Vec::new();
