@@ -90,6 +90,7 @@ pub const SECTIONS: &[Section] = &[
             "sun-shadows",
             "fsr-upscaling",
             "anti-aliasing",
+            "latency-reduction",
             "shadow-filter",
             "ambient-occlusion",
             "fine-shadows",
