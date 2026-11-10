@@ -3302,6 +3302,8 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
         // [documented: GetSystemColorAlt and GetPixelFromBMP, three variables for R, G, B].
         "getsystemcoloralt" | "getpixelfrombmp" => &[1, 2, 3],
+        // [documented: GetLinearVelocity and GetCurrentSkyColor, three script variables].
+        "getlinearvelocity" | "getcurrentskycolor" => &[1, 2, 3],
         _ => return None,
     })
 }

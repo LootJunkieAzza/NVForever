@@ -1120,6 +1120,11 @@ pub struct Combat {
     /// The player's spread (PSp, spread units, after "Calculate Gun Spread" perks) at the
     /// same time: a scope's sway (docs/spec-notes/weapon-scopes.md §5).
     pub player_spread: Option<f32>,
+    /// Seconds the player has held a thrown weapon's trigger (GetGrenadeHoldTime,
+    /// `fnv_game::nvse_jg9`): from the press while it is held, kept after it until the
+    /// next press; and whether it is held now.
+    pub grenade_hold: f32,
+    grenade_held: bool,
     /// When (`time`) the player's block last stopped a blow: Scribe Counter's window
     /// (perk-entry-points.md §11).
     player_blocked_at: Option<f32>,
@@ -2051,6 +2056,8 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         load_ammo: None,
         crosshair_cone: None,
         player_spread: None,
+        grenade_hold: 0.0,
+        grenade_held: false,
         vats_cone: None,
         player_blocked_at: None,
         special_swing: None,
@@ -2829,6 +2836,14 @@ pub(crate) fn fire(
     let carried = total.saturating_sub(cycle.magazine);
     let was_winding = matches!(cycle.phase, fnv_combat::attack::Phase::WindUp { .. });
     cycle.regen_frozen = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.showoff.ammo_regen_frozen);
+    if c.self_ammo && control.trigger {
+        if !c.grenade_held {
+            (c.grenade_hold, c.grenade_held) = (0.0, true);
+        }
+        c.grenade_hold += dt;
+    } else {
+        c.grenade_held = false;
+    }
     let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt, carried });
     // A pull whose shot waits for the clip's `Hit` key: the clip starts now (`wind_ups`).
     if !was_winding && cycle.timing.fire_delay > 0.0 && matches!(cycle.phase, fnv_combat::attack::Phase::WindUp { .. }) {

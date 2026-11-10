@@ -164,6 +164,12 @@ wait, general subtitles, the crosshair, settings, keyboard selection, radio soun
 back), the custom map marker, MD5File and SHA1File, IsBSALoaded, the DDS texture getters,
 GetPixelFromBMP, Ar_Shuffle and Ar_SortEditor, the system colours, the sleep/wait menu state,
 TuneRadioRef; probe set jg8 written, not run yet). JohnnyGuitar 109 → 78.
+JohnnyGuitar batch 9: 31 (#1007, ext-jg9.md: sounds played from files' paths with fades,
+PlaySoundFade, StopSoundLooping, PlayHolotape and StopHolotape, terminal menu items added and
+removed, the audio markers, Jump, SetAutoMove, SetPlayerMovementFlags, SetVelEx,
+GetLinearVelocity, GetRunSpeed, the karma title, the item effect line, the spread, grenade
+hold, compass hostile, sky colour and camera FOV; probe set jg9 written, not run yet).
+JohnnyGuitar 78 → 47.
 ShowOff batch 5: the last 37 (#1010, ext-showoff.md §8: the level-up and pause menus on request, live
 explosions, the shot switches, fast travel, detection and combat counts, VATS and item values, the
 player's small states; from the pages, not probed). Census after it, beside batch 4: 565 (ShowOff 71 → 34;

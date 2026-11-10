@@ -819,6 +819,11 @@ fn objects(
             rt.game.gaps.sounds.heard(id, seconds);
         }
         script_sounds.stops.append(&mut rt.game.gaps.sounds.stops);
+        // Sounds made for files and the fades (`fnv_game::nvse_jg9`), before the plays.
+        let jg9 = &mut rt.game.other.jg9;
+        script_sounds.paths.append(&mut jg9.new_paths);
+        script_sounds.fades_in.append(&mut jg9.fades_in);
+        script_sounds.fades_out.append(&mut jg9.fades_out);
         ws.held.append(&mut rt.game.sound_requests);
     }
     let in_game = *state.get() == PlayState::Playing;
