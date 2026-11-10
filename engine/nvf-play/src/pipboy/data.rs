@@ -878,6 +878,11 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     if tab == NOTES && input.keys.just_pressed(KeyR) {
         st.acts.push(Act::Button(ButtonKind::Challenges));
     }
+    // The player's tweak: C puts a map back on the player [design: docs/design/tweaks.md].
+    let recentre = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_recentre_key);
+    if recentre && (tab == LOCAL || tab == WORLD) && input.keys.just_pressed(KeyC) && st.centre[tab].take().is_some() {
+        info!("pipboy data: map centred on the player again (C, tweak)");
+    }
     // The right pane (a note's text, a quest's objectives) scrolls by Page Up/Down (a
     // controller's LB/RB), the wheel over it and the right stick ([`scroll_pane`]).
     let mut pane = PaneMoves { dt: input.time.delta_secs(), ..default() };

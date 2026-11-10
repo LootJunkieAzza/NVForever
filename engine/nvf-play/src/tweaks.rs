@@ -1268,6 +1268,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "terminal-password-prompt", "Show Use Password", "A locked terminal whose password note the player holds says so in its prompt until first opened. (Stewie's Tweaks bShowUsePasswordOnTerminalsWithNote)", game.terminal_password_prompt);
         switch!(app, "lockpick-move-keys", "Lockpicking With the Movement Keys", "Picking a lock, the strafe keys move the pin (Shift faster, Ctrl slower) and Forward, Back or Jump turn the screwdriver. (Stewie's Tweaks bLockPickMenuKeyboardMovement)", game.lockpick_move_keys);
         switch!(app, "store-all", "Store All", "In a container, Shift with Take All puts everything listed on the player's side in it, but what is worn or a quest's. (Stewie's Tweaks bContainerMenuStoreAllHotkey)", store_all);
+        switch!(app, "map-recentre-key", "Map Recentre Key", "C puts the Pip-Boy's local or world map back on the player after it was dragged. (Stewie's Tweaks bMapRecenterHotkey)", game.map_recentre_key);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

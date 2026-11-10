@@ -371,6 +371,8 @@ pub struct Tweaks {
     /// `bLockPickMenuKeyboardMovement`: in lockpicking the strafe keys move the pin and
     /// Forward, Back and Jump turn the screwdriver.
     pub lockpick_move_keys: bool,
+    /// `bMapRecenterHotkey`: C centres the Pip-Boy's maps on the player again.
+    pub map_recentre_key: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -544,6 +546,7 @@ impl Default for Tweaks {
             hide_unknown_names: false,
             terminal_password_prompt: false,
             lockpick_move_keys: false,
+            map_recentre_key: false,
         }
     }
 }
