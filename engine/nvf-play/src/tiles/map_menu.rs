@@ -487,12 +487,20 @@ fn keep_lists(ui: &mut Ui, s: &Shown) {
 /// past its window's.
 fn write_text_pane(ui: &mut Ui, first: f32) -> f64 {
     let (Some(rect), Some(words), Some(bar)) = (ui.find_tile(TEXT_RECT), ui.find_tile(DATA_TEXT), ui.find_tile(TEXT_BAR)) else { return 0.0 };
-    let most = (num(ui, words, "height") - num(ui, rect, "height")).max(0.0);
+    // The window the text is seen through: what clips it (its rect, and any clip above that is
+    // smaller), as readiness and a page of it read it; the rect's height without a clip.
+    let window = text_clip(ui, words).map_or_else(|| num(ui, rect, "height"), |c| c.height);
+    let most = (num(ui, words, "height") - window).max(0.0);
     ui.set_trait(bar, "_ScrollDelta", Value::Num(1.0));
     ui.set_trait(bar, "_number_of_items", Value::Num(most.ceil() + 1.0));
     ui.set_trait(bar, "_number_of_visible_items", Value::Num(1.0));
     list::write_bar_value(ui, bar, f64::from(first).clamp(0.0, most));
     most
+}
+
+/// What clips the text `words` as laid out (canvas units).
+fn text_clip(ui: &Ui, words: TileId) -> Option<super::layout::Rect> {
+    super::layout::layout(ui, words, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == words)?.clip
 }
 
 /// The right pane's scroll bar, while it shows one that scrolls: the objectives' or the text's.
@@ -744,7 +752,9 @@ fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashM
         }
         Pane::Image(file) => {
             let image = ui.find_tile(DATA_IMAGE).ok_or("the picture is gone")?;
-            if !file.is_empty() && !pieces.iter().any(|p| p.tile == image && on_canvas(&p.rect)) {
+            // Painted whole: on the canvas and inside what clips it (a clip above that cuts it off,
+            // even wholly, leaves a piece on the canvas).
+            if !file.is_empty() && !pieces.iter().any(|p| p.tile == image && on_canvas(&p.rect) && shows_whole(p).is_some()) {
                 return Err("the picture is not shown".into());
             }
             Ok(None)
@@ -794,8 +804,9 @@ pub struct Written {
     /// any), and the objectives', by place.
     rows: [Vec<RowTile<u32>>; 3],
     objectives: Vec<RowTile<usize>>,
-    /// Each list's own scroll.
+    /// Each list's own scroll, and the list Misc showed last (the notes or the challenges).
     views: [ListView<u32>; 3],
+    misc_list: Option<ListKind>,
     sizes: SizesWritten,
     shown: Option<Shown>,
     /// What the last pass was asked to show, kept through a failure ([`Written::waits`]).
@@ -904,6 +915,15 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     }
     let Some(s) = w.shown.clone() else { return Err("nothing to show yet".into()) };
     let kind = s.list;
+    // Misc toggled between the notes and the challenges: the model starts the list it shows at its
+    // first row (`data::button`), so that list starts at its top too, whatever its own scroll was
+    // when it last showed [design].
+    if kind != ListKind::Quests && w.misc_list != Some(kind) {
+        if w.misc_list.is_some() {
+            w.views[kind.index()].restart();
+        }
+        w.misc_list = Some(kind);
+    }
     let list_tile = ui.find_tile(kind.path()).ok_or_else(|| format!("the {} list is gone", kind.words().0))?;
     if changed || made || late {
         write_tabs(ui, &w.tabs, s.tab);
@@ -920,6 +940,8 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
             ui.update();
         }
         place_tabs(ui, &w.tabs);
+        // The clip windows on before the panes read what clips them.
+        super::item_menu::mark_menu(ui, MAP_MENU, &[QUESTS_LIST, NOTES_LIST, CHALLENGE_LIST]);
         list::settle_list(ui, list_tile, &w.rows[kind.index()], ROW_TEXT, &mut w.views[kind.index()], s.selected, s.group, s.pointer_pick, s.navigated);
         w.pane_most = match &s.pane {
             Pane::Objectives(_) => {
@@ -933,7 +955,6 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         let title = ui.find_tile(TITLE).ok_or("the title is gone")?;
         let line = ui.find_tile(LINE).ok_or("the heading's line is gone")?;
         stats_menu::write_frame_of(ui, title, line, s.device, &mut w.flat);
-        super::item_menu::mark_menu(ui, MAP_MENU, &[QUESTS_LIST, NOTES_LIST, CHALLENGE_LIST]);
     }
     keep_hints(ui, &s.hints);
     keep_lists(ui, &s);
@@ -1939,6 +1960,57 @@ mod tests {
         assert!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text("A".into()))), &mut t).is_ok());
         // An empty text asks for nothing.
         assert!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text(String::new()))), &mut MapTiles::default()).is_ok());
+    }
+
+    /// The review's case: the notes scrolled down with their first row selected, the challenges
+    /// toggled on and off: the model shows the first note again, so the notes start at their top,
+    /// not where they were scrolled (with that row out of sight). Coming back from Quests to the
+    /// same list keeps its scroll.
+    #[test]
+    fn a_toggle_starts_the_list_it_shows_at_its_top() {
+        let (mut ui, mut t) = (tree(), MapTiles::default());
+        let mut notes = misc(ListKind::Notes, 10, 0, Pane::None);
+        notes.pointer_pick = true;
+        run(&mut ui, Some(notes.clone()), &mut t).unwrap();
+        assert!(t.written.views[1].counts.most() >= 3.0, "ten rows overflow the window");
+        assert!(t.written.views[1].scroll_to(3.0));
+        run(&mut ui, None, &mut t).unwrap();
+        assert_eq!(t.written.views[1].value, 3.0, "the bar's scroll holds while nothing changes");
+        // Quests and back: the same list, its scroll kept.
+        run(&mut ui, Some(shown(2, 0, 0)), &mut t).unwrap();
+        run(&mut ui, Some(notes.clone()), &mut t).unwrap();
+        assert_eq!(t.written.views[1].value, 3.0, "back from another tab, the notes as they were");
+        // The challenges and back: the notes at their top.
+        run(&mut ui, Some(misc(ListKind::Challenges, 2, 0, Pane::None)), &mut t).unwrap();
+        run(&mut ui, Some(notes), &mut t).unwrap();
+        assert_eq!(t.written.views[1].value, 0.0, "the first note in sight again");
+        assert_eq!(at(&ui, &format!("{NOTES_LIST}/{}", list::SCROLLBAR), "_current_value"), 0.0);
+    }
+
+    /// The review's case: a clip above the text smaller than its rect. The text scrolls by what is
+    /// seen of it (so its end can be reached) and asks for its bar by that; a picture cut by such a
+    /// clip is not painted whole.
+    #[test]
+    fn the_text_scrolls_by_its_effective_window_and_a_clipped_picture_falls_back() {
+        // The data rect clips its children to 95 high: the text's 150 (5 down) is seen 90 high.
+        let clipped = |x: String| x.replace(r#"<rect name="MM_DataRect"><x>450</x><y>200</y>"#, r#"<rect name="MM_DataRect"><x>450</x><y>200</y><width>400</width><height>95</height><clips>&true;</clips>"#);
+        let (mut ui, mut t) = (tree_changed(clipped), MapTiles::default());
+        // Four lines of 30 fit the rect's 150 but not the 90 seen: 30 to scroll, and the bar shows.
+        run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text(lines(4)))), &mut t).unwrap();
+        assert_eq!(t.written.pane_most, 30.0);
+        assert_eq!(at(&ui, TEXT_BAR, "_number_of_items"), 31.0);
+        let pane = t.written.counted.pane.expect("the window seen");
+        assert_eq!((pane.min.y, pane.height()), (245.0, 90.0));
+        let mut s = misc(ListKind::Notes, 1, 0, Pane::Text(lines(4)));
+        s.pane_first = 30.0;
+        run(&mut ui, Some(s), &mut t).unwrap();
+        assert_eq!(at(&ui, DATA_TEXT, "y"), -30.0, "its end reached");
+        // The picture, 100 high at 10 down, cut at 95: not whole.
+        assert_eq!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Image("a.dds".into()))), &mut t), Err("the picture is not shown".to_string()));
+        // Wholly outside the clip, it is still a piece on the canvas: not shown either.
+        let away = |x: String| clipped(x).replace(r#"<image name="MM_DataImage"><x>20</x><y>10</y>"#, r#"<image name="MM_DataImage"><x>20</x><y>200</y>"#);
+        let mut ui = tree_changed(away);
+        assert_eq!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Image("a.dds".into()))), &mut MapTiles::default()), Err("the picture is not shown".to_string()));
     }
 
     #[test]

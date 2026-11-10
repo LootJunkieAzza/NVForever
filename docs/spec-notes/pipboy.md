@@ -1551,8 +1551,8 @@ Quests where nothing is said:
 | Model (`pipboy::data`) | Tile, trait | Notes |
 |---|---|---|
 | The notes (the notes' filter applied), or the challenges while Misc shows them | `MM_ListMarkerTemplate` rows under `MM_NotesList` or `MM_ChallengeList`, kept by the note's or the challenge's FormID: `string`, `_selected` 0, `_ShowEmptyMarker` 0, `_TextAlpha` 128 for a challenge completed, else 255; that list's `_enabled` 1 | The hand-built rows' words, place and dimming (no square). The list not shown has no rows, `_enabled` 0 and `visible` 0, put right on every pass (the file shows both on Misc). The quests list likewise on Misc, the notes' and challenges' on Quests. |
-| The list's scroll | each list's own (`list::ListView`), as Quests' | The notes' filter is the list's filter: another one starts the list at its top. |
-| The selected note's text, a challenge's description and state | `MM_DataRect` `_ItemType` 1; `MM_DataText/string` the text (`\r\n` as `\n`) | One scroll for the text and the objectives, as the hand-built pane's: `MM_TextScrollbar`'s `_ScrollDelta` 1, `_number_of_items` how far the text can scroll (its measured height past the rect's) plus 1, `_number_of_visible_items` 1, `_current_value` the pane's scroll, `_SetInCode`. |
+| The list's scroll | each list's own (`list::ListView`), as Quests' | The notes' filter is the list's filter: another one starts the list at its top. So does the toggle between the notes and the challenges, as the model starts the list it shows at its first row; back from another tab a list keeps its scroll. |
+| The selected note's text, a challenge's description and state | `MM_DataRect` `_ItemType` 1; `MM_DataText/string` the text (`\r\n` as `\n`) | One scroll for the text and the objectives, as the hand-built pane's: `MM_TextScrollbar`'s `_ScrollDelta` 1, `_number_of_items` how far the text can scroll (its measured height past the window it is seen through: what clips it, the rect or a smaller clip above it) plus 1, `_number_of_visible_items` 1, `_current_value` the pane's scroll, `_SetInCode`. |
 | An image note's picture | `_ItemType` 2; `MM_DataImage/filename` the note's `XNAM` | |
 | A Sound or Voice note | `_ItemType` 3; the rect's `_ItemStringInfo` the time left as the hand-built page writes it ("00:30:9 remaining"), `_AudioFileCompletion` the share played (0 to 1) | `user0` is not written: the A hint's words are the model's. |
 | No note or challenge | `MM_DataRect` `visible` 0, `_ItemType` 0 | The text and picture emptied while they do not show. |
@@ -1604,7 +1604,7 @@ at least one of them whole inside it among what is painted (a list or text hidde
 likewise (what clips `MM_DataText` itself: its rect and its bar are hotrects, which lay out no box,
 and the bar shows only while the text scrolls [documented: scrollbar_vert.xml's `visible`]) and
 some of its words painted inside it, and a text that scrolls shows its bar's marker; a picture is
-painted on the canvas; an audio note's time is painted whole; or the page falls back. The right
+painted whole on the canvas and inside what clips it; an audio note's time is painted whole; or the page falls back. The right
 pane's window is published while it scrolls (the objectives, a text). A hint that shows lit and does
 not take the pointer at its word is warned of and the page stays (its key still works); its key's
 text (`PCShortcutLabel`) stands beside the hint's box [documented: text_box.xml] and is not asked.
