@@ -301,6 +301,15 @@ pub struct SkyState {
     /// A lightning flash's light now (linear RGB, added to the ambient light and the
     /// sky's glow; `crate::weather_fx`).
     flash: [f32; 3],
+    /// The scripts' wind (SetWindDirection, `fnv_game::nvse_jip12`): degrees from the
+    /// game's +x toward +y; `None` leaves `crate::tree`'s fixed direction.
+    pub script_wind: Option<f32>,
+    /// The scripts' moon textures by phase (SetMoonTexture), under `textures\`; `None`
+    /// leaves the phase's own.
+    pub moon_textures: [Option<String>; 8],
+    /// A script asked for a lightning flash (TriggerLightningFX); `crate::weather_fx`
+    /// draws it.
+    pub lightning_request: bool,
 }
 
 /// An overriding weather region of the worldspace and its weathers.
@@ -413,7 +422,7 @@ impl SkyState {
     }
 
     /// [`SkyState::new`] with climate `clim_id`.
-    fn with_climate(world: &WorldData, clim_id: u32, pinned: Option<&str>, start: Option<&str>, hour: f32, seed: u64) -> Result<SkyState, String> {
+    pub fn with_climate(world: &WorldData, clim_id: u32, pinned: Option<&str>, start: Option<&str>, hour: f32, seed: u64) -> Result<SkyState, String> {
         let clim = climate(world.lo, world.schema, clim_id).ok_or("climate unreadable")?;
         let most_likely = || default_weather(&clim, |g| global_value(world.lo, world.schema, g)).ok_or("climate lists no weather");
         let wid = match (pinned, start) {
@@ -494,6 +503,9 @@ impl SkyState {
             live_globals: HashMap::new(),
             resume: start.map(|_| wid),
             flash: [0.0; 3],
+            script_wind: None,
+            moon_textures: Default::default(),
+            lightning_request: false,
         })
     }
 
@@ -770,6 +782,13 @@ impl SkyState {
             }
             self.changed = true;
         }
+    }
+
+    /// Every colour type now as stored (0..255), for GetCurrentSkyColor
+    /// (`fnv_game::nvse_jg9`).
+    pub fn all_color_bytes(&self) -> [[f32; 3]; 10] {
+        use fnv_world::sky::ColorType::*;
+        [SkyUpper, Fog, Unused, Ambient, Sunlight, Sun, Stars, SkyLower, Horizon, EffectLighting].map(|t| self.color_bytes(t))
     }
 
     /// A weather colour at the current hour, blended across a weather fade.
@@ -1353,9 +1372,14 @@ pub fn setup_sky(
         }
     }
     if sky.climate.has_moon() {
+        // A script's texture for a phase in place of the phase's own (SetMoonTexture).
         let phases = MOON_PHASES
             .iter()
-            .map(|p| textures.get(&format!("sky\\masser_{p}.dds"), true, &data, &mut images, None))
+            .zip(&sky.moon_textures)
+            .map(|(p, set)| match set {
+                Some(t) => textures.get(t, true, &data, &mut images, None),
+                None => textures.get(&format!("sky\\masser_{p}.dds"), true, &data, &mut images, None),
+            })
             .collect();
         commands.spawn((
             Name::new("Moon disc"),
@@ -1770,6 +1794,13 @@ pub fn interior_clip(sky: Res<SkyState>, mut cam: Query<&mut Projection, With<Fl
     }
 }
 
+/// The sky's colours now, for GetCurrentSkyColor (`fnv_game::nvse_jg9`); none in an
+/// interior, which shows no sky.
+pub fn tell_sky_colors(sky: Res<SkyState>, mut script: Option<ResMut<nvf_play::script::ScriptState>>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    rt.game.other.jg9.sky_colors = sky.interior.is_none().then(|| sky.all_color_bytes());
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn update_sky(
     mut sky: ResMut<SkyState>,
@@ -2016,6 +2047,9 @@ mod tests {
             live_globals: HashMap::new(),
             resume: Some(SAVED),
             flash: [0.0; 3],
+            script_wind: None,
+            moon_textures: Default::default(),
+            lightning_request: false,
         };
         sky.place(Some(None));
         assert_eq!((sky.rolls, sky.pick), (0, SAVED), "the first look keeps the saved weather");
@@ -2078,6 +2112,9 @@ mod tests {
             live_globals: HashMap::new(),
             resume: Some(HELD),
             flash: [0.0; 3],
+            script_wind: None,
+            moon_textures: Default::default(),
+            lightning_request: false,
         }
     }
 

@@ -164,6 +164,12 @@ wait, general subtitles, the crosshair, settings, keyboard selection, radio soun
 back), the custom map marker, MD5File and SHA1File, IsBSALoaded, the DDS texture getters,
 GetPixelFromBMP, Ar_Shuffle and Ar_SortEditor, the system colours, the sleep/wait menu state,
 TuneRadioRef; probe set jg8 written, not run yet). JohnnyGuitar 109 → 78.
+JohnnyGuitar batch 9: 31 (#1007, ext-jg9.md: sounds played from files' paths with fades,
+PlaySoundFade, StopSoundLooping, PlayHolotape and StopHolotape, terminal menu items added and
+removed, the audio markers, Jump, SetAutoMove, SetPlayerMovementFlags, SetVelEx,
+GetLinearVelocity, GetRunSpeed, the karma title, the item effect line, the spread, grenade
+hold, compass hostile, sky colour and camera FOV; probe set jg9 written, not run yet).
+JohnnyGuitar 78 → 47.
 ShowOff batch 5: the last 37 (#1010, ext-showoff.md §8: the level-up and pause menus on request, live
 explosions, the shot switches, fast travel, detection and combat counts, VATS and item values, the
 player's small states; from the pages, not probed). Census after it, beside batch 4: 565 (ShowOff 71 → 34;
@@ -216,10 +222,35 @@ packages, MoveToNode, MoveToReticle, MoveToFadeDelay, PlaceAtCell, RotateAroundP
 SetAngleEx, FaceObject and Turn with the turn clip, SynchronizePosition, GetReticleNode,
 GetReticlePosAlt; not probed yet, set jip13). Census after it: JIP 102 → 63 on main, 29 with
 batch 12 (#1929).
+JIP batch 14, the last: 29 (#1006, jip-last-14.md: AddNewEffect, IsSpellTargetList, the
+primitives, AuxVarGetFltCond, DismemberLimb, FireWeaponEx, PlayIdleEx, PlaySound3DNode,
+SetNoGunWobble, SetVATSTargetable and GetVATSTargets, SetRefrModelPath, SwapTextureEx,
+GetBlockTextureSet, the detonation timers, SetProjectileRefWeapon, GetSelfAsInventoryRef,
+the sequence frequencies; six nothing values by decision, §6; not probed yet, set jip14).
+Census after it: JIP 102 → 73 on main, 0 with batches 12 (#1929) and 13 (#1931).
 SUP batch 4: the last 17 (#1008, ext-sup4.md: random array keys, invalid references, Ar_SetFloatsFrom through
 the VM's output variables, CallFunctionNextFrame (kept across a load with removeOnLoad 0), the compass targets,
 the last save's and load's names and sizes told by the engine, the cells and map markers near the player,
 MarkScriptOnLoad, KillAll2, the caught-pickpocketing flag, TranslitText; set sup4, not probed yet). SUP 17 → 0.
+JohnnyGuitar NIF and camera slice: 21 (#1007, ext-jg-nif-camera.md: distances to drawn nodes and the hit point,
+bounds, particle systems' values through the scene mirror and the engine's live systems, alpha and stencil
+properties read from the models, switch nodes through the block flags, the sequences playing, Update3DAlt, the
+camera's place, overrides and WorldToScreen through `nvf_play::script_camera`; set jgnif, not probed yet).
+Census after it: JohnnyGuitar 78 → 57.
+JIP batch 12: 34 (#1006, jip-world-12.md: ForceClimate and SetCurrentClimate drawn by the sky,
+the wind, the moons' textures, TriggerLightningFX, the image space modifiers on, the buffered
+cells, exterior and persistent cells, north rotations, the light at a point, fast travel and
+the load order, the game settings as a map, purged references and internal markers, the barter
+trade and its price multipliers, the item menus' filters and lists, the recipe menu and
+AddRecipeCondition, ShowQuantityMenu and ShowTextInputMenu with their engine menus,
+GetWheelDisabled; GetStringHash 0 by decision, §2; not probed yet, set jip12). Census after
+it: JIP 142 → 108 on main, 102 → 68 with batch 11 (#1915).
+JohnnyGuitar batch 10: the last 26 (#1007, ext-jg10.md: navmesh obstacles, triangles through `nav_ask` and paths,
+weapon poisons (GetEquippedWeaponPoison reads them), EjectCasing, DisableMuzzleFlashLights, the scope picture and
+RemoveScopeModelPath, FaceGen values by type, body part highlights, GetLandTextureUnderFeet through the engine's
+land-texture cast, RemapLand, RefreshIdle, ShowBarberMenuEx, TriggerScreenSplatterEx, the prompt and repair menu
+refreshes; engine follow-ups in §3 of the note; set jg10, not probed yet). Census after it: JohnnyGuitar 78 → 52
+on main, 0 with #1928 and #1930.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

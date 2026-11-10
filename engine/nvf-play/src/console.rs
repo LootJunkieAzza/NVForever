@@ -590,7 +590,7 @@ fn typing(
                     Err(e) => c.print(e),
                 }
             }
-            "save" => match fnv_save::check_name(rest) {
+            "save" => match fnv_save::check_manual_name(rest) {
                 Ok(n) => {
                     saves.write(crate::save::SaveRequest { name: n.to_string(), kind: fnv_save::SaveKind::Manual });
                 }
@@ -766,7 +766,7 @@ fn replies(
                         close(&mut c, &mut next, &mut commands, &roots);
                     }
                 }
-                ConsoleRequest::Save(name) => match fnv_save::check_name(&name) {
+                ConsoleRequest::Save(name) => match fnv_save::check_manual_name(&name) {
                     Ok(n) => {
                         saves.write(crate::save::SaveRequest { name: n.to_string(), kind: fnv_save::SaveKind::Manual });
                     }
