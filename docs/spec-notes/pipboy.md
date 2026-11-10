@@ -1439,7 +1439,7 @@ page's rules read of the drawing: how many rows fit, how far the right pane can 
 | The selection, boxed | the list's `_highlight_y`, `_selected_height` while boxed; -1 and 0 otherwise | As the hand-built box: under the pointer or after Up/Down, none when a tab comes up. |
 | The list's scroll | `lb_scrollbar` counts by `list::counts`, `_current_value`, `_SetInCode` | The tile page's own scroll, as ITEMS' (§5.2.1): the keys bring the selected row into view, the pointer's pick does not; the wheel over the page (not over the objectives) moves it a notch a value; the bar's arrows, page areas and marker move it. |
 | The selected quest's objectives (`objectives`) | `MM_DataRect`: `visible` 1 while a quest is selected, `_ItemType` 4; `MM_ListMarkerTemplate` rows under `MM_QuestObjectivesList`, by place: `string`, `_ShowEmptyMarker` 1, `_selected` (done), `_TextAlpha` 128 when done | The hand-built pane's squares and dimming. |
-| The right pane's scroll (`text_first`, one scroll for both panes, §5.3) | `MM_QuestObjectivesList`: `_scroll_delta` 1; its `lb_scrollbar`'s `_number_of_items` (how far it can scroll, plus 1), `_number_of_visible_items` 1, `_current_value` the pane's scroll, `_SetInCode` | So the rows move by exactly the units the hand-built pane does: Page Up/Down a window, the wheel over it 20 a notch, the right stick, the bar's clicks (an arrow a notch, a page area a page, the marker held dragging) [design]. |
+| The right pane's scroll (`text_first`, one scroll for both panes, §5.3) | `MM_QuestObjectivesList`: `_scroll_delta` 1; its `lb_scrollbar`'s `_number_of_items` (how far it can scroll, plus 1), `_number_of_visible_items` 1, `_current_value` the pane's scroll, `_SetInCode` | So the rows move by exactly the units the hand-built pane does: Page Up/Down a window, the wheel over it 20 a notch, the right stick, the bar's clicks (an arrow a notch, a page area a page of the window as measured, the marker held dragging by the file's own bar: its marker's place over its `_step_height` is the pane's scroll) [design]. |
 | The hints (`tab_buttons`, #1897 / #1952) | `MM_ButtonA` (Set Active), `MM_ButtonX` (Show Location), `MM_ButtonY` (none on Quests): `visible`, `string` (the hint's word), `_PCButtonText` (its key, "X)", with a controller its button), `target` (lit: 1, dim: 0) | The hand-built page's rules, not the file's expressions: A with a controller only, X with either device when a quest is listed, no Y on Quests. Bound by what each hint does (`ButtonKind`), never by its place in the list. Put right on every pass: the file works `visible` and `string` out by expressions, again whenever what they read changes (the tab, a list's rows). |
 | `MM_Background` | hidden in both frames | The shell's background, as §5.1.1. |
 | `MM_Headline_ChallengeType` | hidden | Misc's, not on this tab. |
@@ -1452,33 +1452,47 @@ the strings table, §5.3); their keys (`crate::pad::hint`).
 **Input** (`map_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written; with
 Controller chosen as the Input Device it is ignored, as on the hand-built page. It takes nothing with
 a menu over the page or another tile menu taking the frame. What a tile stands for goes where the
-hand-built page's node sends it, through `DataState`'s acts:
+hand-built page's node sends it, through `DataState`'s acts. A row's act names its record (the
+quest's FormID), and the page finds that record in its list as it is when it takes the act, a frame
+of scripts later: a quest gone meanwhile takes nothing, one moved is still the one clicked [design]:
 
 | What | Sends |
 |---|---|
-| The pointer moves onto a quest's row | `Hover(tab, i)`: selected and boxed |
-| The pointer leaves the selected row | `Leave(tab, i)`: no longer boxed |
-| A click on a row | `Use(tab, i)`: selected and used (`use_row`: made the active quest) |
+| The pointer moves onto a quest's row | `HoverRecord(tab, form)`, taken as `Hover`: selected and boxed |
+| The pointer leaves the selected row | `LeaveRecord(tab, form)`, taken as `Leave`: no longer boxed |
+| A click on a row | `UseRecord(tab, form)`, taken as `Use`: selected and used (`use_row`: made the active quest) |
 | A click on a hint | `Button(kind)`: the A hints do Enter's work; Show Location shows the World Map |
 | A tab | `PipBoyInput::Tab(i)`; the pointer onto it, `TabHovered(i)` |
-| The objectives' bar: arrow, page area, marker | `Bar(Up/Down/PageUp/PageDown/Marker)`: the right pane's |
+| The objectives' bar: arrow, page area | `Bar(Up/Down/PageUp/PageDown)`: the right pane's, a page the window as measured |
+| The objectives' bar's marker held | `PaneTo(v)`: the pane's scroll where the file's bar puts it (`list::value_under`) |
 | The quests' bar | the tile list's own scroll, no command of the model's |
 
 The keys, the wheel and the sticks stay `pipboy::data`'s and `pipboy::keys`' (`HAND_BUILT_KEYS`): a
 file's binding acts for a script's tap, not for a physical press, and never for a controller's
 button (the file's X and Y would act twice with the page's own X and R).
 
+**A menu over the page** (a message box, the tutorial menu; `MapTiles::over_data`, set before the
+scripts, so it holds through the frame that menu closes in) holds the DATA page's own input on every
+tab while the switch is on: its keys, the wheel, the test aid's steps and the pointer's acts that
+frame are the menu's, so Enter answering a message box does not also make the selected quest active.
+The page is still prepared [design]. Off, the hand-built page is as it was (it does not hold them; a
+separate issue).
+
 **Usable**: as §5.2.1: every tab's words shown whole, the tabs but the one showing taking the pointer
 (one that does not is warned of and the page stays); the quests' rows whose words lie whole inside
 the list's window, at least one when there are quests, taking the pointer at their middles; a list
-that scrolls has a window. A hint that shows lit and does not take the pointer is warned of and the
-page stays (its key still works).
+that scrolls has a window; with a quest selected, the objectives' window (what their list clips to,
+read off its scroll bar) has a size and lies wholly on the canvas, or the page falls back. A hint
+that shows lit and does not take the pointer is warned of and the page stays (its key still works).
 
 **Falls back, whole page, with the reason** [design]: another tab than Quests; the question box up;
 `MapMenu` not in the tree; a tile or template above missing (a mod's restructured file); the tabs or
 a row not made; nothing prepared yet for this tab (no failure); the layout not usable. The test aid
 `NVF_PLAY_TEST_MAP_TILE_CUT=<name>[@<seconds>]` takes a tile or template as missing, and at its end
-builds the menu again from its file, for the recovery.
+builds the menu again from its file, for the recovery (with the switch on only). After three failing
+passes a missing name waits for the tree to change; a layout that is not usable is tried again
+about every half second besides, as a place, `visible` or `target` can be put right without the
+tree's shape changing.
 
 **Log**: `tiles: MapMenu draws <tab> from tiles` and `tiles: MapMenu leaves <tab> hand-built: <reason>`
 when that changes; `tiles: MapMenu page from tiles: tab quests, <n> rows, "<name>" selected, <m>
@@ -1495,7 +1509,9 @@ and hits on the real file; their logs cannot prove pixels, only their shots can.
 **Known differences behind the switch** [design]: the hints' hover box is the file's (`_box_visible`
 on mouseover), which the hand-built page does not draw; the file's own hint rules are not used.
 **Not known**: what the original writes into `_TextAlpha`, `_ShowEmptyMarker` and the objectives'
-scroll; the original's objectives scroll by rows (`list_box.xml`), ours by DATA's continuous pane.
+scroll; whether the original's objectives scroll by rows, as a `list_box.xml` list's rows move by
+`_current_value` × `_scroll_delta` [hypothesis: the file's expressions alone do not say what the
+original's code writes there]; ours move by DATA's continuous pane.
 
 ## 6. Keys and pointer [hypothesis unless marked]
 

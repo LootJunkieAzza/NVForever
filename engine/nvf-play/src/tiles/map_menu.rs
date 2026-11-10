@@ -488,8 +488,24 @@ pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) 
             }
         }
     }
-    let pane = w.objectives.iter().find_map(|r| list::child(ui, r.tile, ROW_TEXT).and_then(|t| texts.get(&t)).and_then(|p| p.clip)).map(|c| Rect::new(c.left as f32, c.top as f32, (c.left + c.width) as f32, (c.top + c.height) as f32));
+    let pane = if w.shown.as_ref().is_some_and(|s| s.objectives.is_some()) { Some(objectives_window(ui)?) } else { None };
     Ok(Checked { rows: w.rows.len(), rows_in_clip, hit_tests: wanted.len() + optional.len(), pane, missed })
+}
+
+/// The objectives' window as laid out (canvas units): what the list clips its children to, read
+/// off its scroll bar, whose place is the list's and which is there with or without rows
+/// [documented: list_box.xml]; why it cannot serve otherwise: no clip (a list without its window
+/// would show rows scrolled out of it), no size, or not wholly on the canvas. The wheel over it and
+/// a page of it are its own ([`DataState::publish_drawn`]).
+fn objectives_window(ui: &Ui) -> Result<Rect, String> {
+    let bar = ui.find_tile(OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)).ok_or("the objectives' scroll bar is gone")?;
+    let item = super::layout::layout(ui, bar, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == bar).ok_or("the objectives' scroll bar is not laid out")?;
+    let c = item.clip.ok_or("the objectives have no window")?;
+    let canvas = (f64::from(crate::pipboy::CANVAS.x), f64::from(crate::pipboy::CANVAS.y));
+    if c.width <= 0.0 || c.height <= 0.0 || c.left < 0.0 || c.top < 0.0 || c.left + c.width > canvas.0 || c.top + c.height > canvas.1 {
+        return Err("the objectives' window does not fit".into());
+    }
+    Ok(Rect::new(c.left as f32, c.top as f32, (c.left + c.width) as f32, (c.top + c.height) as f32))
 }
 
 /// What [`page`] keeps: the rows, what was last written, and the reasons warned of.
@@ -522,6 +538,12 @@ pub struct Written {
     tried_tree: Option<TreeMark>,
     reason: String,
     fallbacks: HashSet<String>,
+    /// The last failure was the layout's ([`usable`]): places and traits a script or the file can
+    /// put right without changing the tree's shape, so it is tried again now and then
+    /// ([`LAYOUT_RETRY_PASSES`]); a missing tile or template waits for the tree to change.
+    layout_failure: bool,
+    /// Passes waited since the last try of a layout failure.
+    waited: u32,
 }
 
 /// The decision every reader shares, and what the page keeps.
@@ -536,12 +558,18 @@ pub struct MapTiles {
     /// [`CUT_AID`] and its time.
     pub cut: Option<String>,
     pub cut_until: Option<f32>,
-    /// A menu over the page when this frame began (`stats_menu::modal_over`).
+    /// A menu over the page when this frame began (`stats_menu::modal_over`), while it is drawn
+    /// from its tiles: the shell's keys wait (`crate::pipboy::takes_keys`).
     pub modal: bool,
+    /// A menu over the DATA page, on any tab, when this frame began: set before the scripts, so it
+    /// holds through the frame that menu closes in. The page's own input waits
+    /// (`crate::pipboy::data::prepare`), with the switch on only.
+    pub over_data: bool,
     /// Another menu took this frame's tile input (`super::input::feed`).
     pub others: bool,
-    /// The quests list's marker held.
+    /// The quests list's marker held, and the objectives' (the right pane's, by the file's bar).
     drag: Option<list::Drag>,
+    pane_drag: Option<list::Drag>,
     /// The page's draw state last logged: the tab, and drawn from tiles or why not.
     told: Option<(usize, Result<(), String>)>,
     written: Written,
@@ -566,6 +594,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         tiles.drag = None;
     }
     let w = &mut tiles.written;
+    w.layout_failure = false;
     if w.checked.is_empty() || !w.checked.iter().all(|&t| ui.is_live(t)) {
         w.checked = check_file(ui, tiles.cut.as_deref())?;
     }
@@ -622,7 +651,13 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
             info!("tiles: {MAP_MENU} tabs stand: {places}");
             w.places_told = Some(places);
         }
-        w.counted = usable(ui, menu, w, s.tab, &pieces)?;
+        w.counted = match usable(ui, menu, w, s.tab, &pieces) {
+            Ok(c) => c,
+            Err(reason) => {
+                w.layout_failure = true;
+                return Err(reason);
+            }
+        };
         if let Some(missed) = w.counted.missed.clone() {
             if w.fallbacks.insert(told_once(&missed)) {
                 warn!("{MAP_MENU}: {missed}");
@@ -762,7 +797,7 @@ pub(crate) fn write(mut p: MapPage) {
 /// Before the drawing, after the page's preparation: the tree worked out, and the one decision
 /// every reader of this frame shares.
 pub(crate) fn settle(mut p: MapPage) {
-    if p.tiles.cut_until.is_some_and(|until| p.time.elapsed_secs() >= until) {
+    if cut_over(p.switch.as_deref().copied().unwrap_or_default(), p.tiles.cut_until, p.time.elapsed_secs()) {
         info!("test aid: {CUT_AID} over");
         p.tiles.cut = None;
         p.tiles.cut_until = None;
@@ -821,9 +856,18 @@ pub(crate) fn settle(mut p: MapPage) {
     }
 }
 
+/// Whether [`CUT_AID`]'s time is over now: only with the switch on, as nothing else of the page runs
+/// off (its end builds the menu again).
+fn cut_over(switch: TileMenus, until: Option<f32>, now: f32) -> bool {
+    switch.map && until.is_some_and(|until| now >= until)
+}
+
 /// Final passes in a row that fail before the reason is warned of, and before the page waits for
 /// a change to try again.
 const FAILING_PASSES: u32 = 3;
+/// Passes (two a frame) a layout's failure waits before it is tried again with nothing changed:
+/// about half a second at 60 frames a second, one measured pass then [design].
+const LAYOUT_RETRY_PASSES: u32 = 60;
 
 /// What the tree was at a failed pass: the menu's tile and the tree's shape (`Ui::shape`) [design].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -847,9 +891,23 @@ impl Written {
     }
 
     /// The page has fallen back and waits: nothing it would show changed, the tab and frame are the
-    /// failure's, and the tree is as that failure met it.
-    fn waits(&self, tab: usize, device: bool, tree: TreeMark, changed: bool) -> bool {
-        self.failing >= FAILING_PASSES && !changed && self.tried == Some((tab, device)) && self.tried_tree == Some(tree)
+    /// failure's, and the tree is as that failure met it. A layout's failure is tried again every
+    /// [`LAYOUT_RETRY_PASSES`] all the same: what it met (a place, `visible`, `target`) can change
+    /// without the tree's shape changing.
+    fn waits(&mut self, tab: usize, device: bool, tree: TreeMark, changed: bool) -> bool {
+        let same = self.failing >= FAILING_PASSES && !changed && self.tried == Some((tab, device)) && self.tried_tree == Some(tree);
+        if !same {
+            self.waited = 0;
+            return false;
+        }
+        if self.layout_failure {
+            self.waited += 1;
+            if self.waited >= LAYOUT_RETRY_PASSES {
+                self.waited = 0;
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -891,15 +949,16 @@ pub(crate) struct FeedOut<'w> {
 }
 
 /// The right pane's bar piece for a piece of the file's scroll bar: an arrow a wheel notch, a page
-/// area a page, the marker held dragging (`data::bar_act`).
-fn pane_part(piece: BarPiece, text_max: f32) -> BarPart {
-    match piece {
+/// area a page of the window as measured (`data::bar_act`); the marker is held by the file's own
+/// bar instead ([`pane_grab`]).
+fn pane_part(piece: BarPiece) -> Option<BarPart> {
+    Some(match piece {
         BarPiece::Up => BarPart::Up,
         BarPiece::Down => BarPart::Down,
         BarPiece::PageUp => BarPart::PageUp,
         BarPiece::PageDown => BarPart::PageDown,
-        BarPiece::Marker => BarPart::Marker(data::objectives_drag_scale(text_max)),
-    }
+        BarPiece::Marker => return None,
+    })
 }
 
 /// The page's tile input, on a frame it takes it ([`takes`]): see the module notes.
@@ -910,7 +969,11 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     let FeedPip { pip, screen, aid, paused, bindings } = from;
     let Some(rt) = script.rt.as_mut() else { return };
     let game = &mut rt.game;
-    let modal = eligible(*switch, &pip) && pip.open() && modal_over(game.menu);
+    let over_data = pip.open() && pip.page == Page::Data && modal_over(game.menu);
+    if tiles.over_data != over_data {
+        tiles.over_data = over_data;
+    }
+    let modal = over_data && eligible(*switch, &pip);
     if tiles.modal != modal {
         tiles.modal = modal;
     }
@@ -919,6 +982,7 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
     let (Some(menu), Some(data)) = (menu, out.data.as_mut()) else {
         *state = Feed::default();
         tiles.drag = None;
+        tiles.pane_drag = None;
         return;
     };
     // With Controller chosen the hand-built page ignores the mouse pointer; so does this one.
@@ -947,13 +1011,10 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         .filter_map(|c| data_tile(ui, w, c.tile).map(|t| (t, matches!(c.by, fnv_ui::input::By::Pointer))))
         .collect();
     let over = report.over.map(|(from, to)| (from.and_then(|t| data_tile(ui, w, t)), to.and_then(|t| data_tile(ui, w, t))));
-    let row_keys: Vec<u32> = w.rows.iter().map(|r| r.key).collect();
     let hints: Vec<(Slot, ButtonKind)> = w.shown.as_ref().map(|s| s.hints.iter().map(|h| (h.slot, h.kind)).collect()).unwrap_or_default();
-    let keys: Vec<u32> = data.prepared().filter(|p| p.view.tab == tab).map(|p| p.keys.clone()).unwrap_or_default();
-    // The row a tile stands for, as the page shows it now: by its quest, not its place.
-    let now_at = |i: usize| -> Option<usize> { keys.iter().position(|k| Some(k) == row_keys.get(i)) };
     if !held {
         tiles.drag = None;
+        tiles.pane_drag = None;
     }
     let mut row_acted = false;
     let mut pressed_marker = false;
@@ -961,12 +1022,9 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
         info!("tiles: {MAP_MENU} {tile:?} on its tiles");
         match tile {
             DataTile::Row(i) => {
-                let Some(i) = now_at(i).filter(|_| !row_acted) else {
-                    info!("tiles: {MAP_MENU} a click on a row no longer there is ignored");
-                    continue;
-                };
+                let Some(act) = row_act(&tiles.written, tab, i, RowAct::Use).filter(|_| !row_acted) else { continue };
                 row_acted = true;
-                data.push_act(Act::Use(tab, i));
+                data.push_act(act);
             }
             DataTile::Tab(i) => {
                 out.tabs.write(PipBoyInput::Tab(i));
@@ -987,22 +1045,31 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
                     tiles.written.view.scroll_to(v);
                 }
             }
+            DataTile::PaneBar(BarPiece::Marker) => {
+                pressed_marker = true;
+                tiles.pane_drag = at.filter(|_| held && by_pointer).and_then(|(_, y)| pane_grab(ui, menu, y));
+            }
             DataTile::PaneBar(piece) => {
-                let part = pane_part(piece, data.text_max());
-                data.push_act(Act::Bar(part));
+                if let Some(part) = pane_part(piece) {
+                    data.push_act(Act::Bar(part));
+                }
             }
         }
     }
-    if let (false, Some(drag), Some((_, y))) = (pressed_marker, tiles.drag, at) {
-        if let Some(v) = list::value_under(ui, drag, y) {
+    if let (false, Some((_, y))) = (pressed_marker, at) {
+        if let Some(v) = tiles.drag.and_then(|d| list::value_under(ui, d, y)) {
             tiles.written.view.scroll_to(v);
+        }
+        if let Some(v) = tiles.pane_drag.and_then(|d| list::value_under(ui, d, y)) {
+            data.push_act(Act::PaneTo(v as f32));
         }
     }
     if let Some((was, is)) = over {
+        let w = &tiles.written;
         // Off the selected row: no longer boxed, as the hand-built row's pointer leaving.
         if let Some(DataTile::Row(j)) = was.filter(|_| was != is) {
-            if let Some(j) = now_at(j) {
-                data.push_act(Act::Leave(tab, j));
+            if let Some(act) = row_act(w, tab, j, RowAct::Leave) {
+                data.push_act(act);
             }
         }
         match is {
@@ -1012,13 +1079,41 @@ pub(crate) fn feed(mut script: ResMut<ScriptState>, switch: Res<TileMenus>, from
             // The row the pointer comes onto is selected and boxed; not one a file's own key
             // binding moved the highlight onto.
             Some(DataTile::Row(i)) if !report.over_by_key && !row_acted => {
-                if let Some(i) = now_at(i) {
-                    data.push_act(Act::Hover(tab, i));
+                if let Some(act) = row_act(w, tab, i, RowAct::Hover) {
+                    data.push_act(act);
                 }
             }
             _ => {}
         }
     }
+}
+
+/// What the pointer did on a row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RowAct {
+    Hover,
+    Leave,
+    Use,
+}
+
+/// The act for the row tile `i` of the list as written: by the record it stands for (its quest's
+/// FormID), which the page finds in its list as that is when it takes the act
+/// (`data::by_record`), never by the row's place: a script may change the list in between.
+fn row_act(w: &Written, tab: usize, i: usize, what: RowAct) -> Option<Act> {
+    let key = w.rows.get(i)?.key;
+    Some(match what {
+        RowAct::Hover => Act::HoverRecord(tab, key),
+        RowAct::Leave => Act::LeaveRecord(tab, key),
+        RowAct::Use => Act::UseRecord(tab, key),
+    })
+}
+
+/// A press at height `y` on the objectives' scroll bar's marker, held to drag it by the file's own
+/// bar: its marker's place over its `_step_height` is the pane's scroll (the bar's value is the
+/// pane's, [`write_pane`]) [documented: scrollbar_vert.xml's `_drag_value`].
+fn pane_grab(ui: &Ui, menu: TileId, y: f64) -> Option<list::Drag> {
+    let l = ui.find_tile(OBJECTIVES)?;
+    list::marker_grab_on(ui, menu, l, list::child(ui, l, list::SCROLLBAR)?, y)
 }
 
 /// The resource, with the test aid read.
@@ -1050,6 +1145,8 @@ mod tests {
         let bar = r#"<image name="lb_scrollbar"><_step_size>1</_step_size><_jump_size>3</_jump_size><_current_value>0</_current_value>
               <hotrect name="scrollbar_vert_page_up"/><hotrect name="scrollbar_vert_page_down"/>
               <image name="scrollbar_vert_marker"/><image name="scrollbar_vert_up"/><image name="scrollbar_vert_down"/></image>"#;
+        // The objectives' bar: its marker 16 down the bar, a value every 2 units of its drag.
+        let pane_bar = bar.replace(r#"<image name="scrollbar_vert_marker"/>"#, r#"<image name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height></image>"#);
         let offset = r#"<_offset><copy src="child(lb_scrollbar)" trait="_current_value"/><mul src="me()" trait="_scroll_delta"/></_offset>"#;
         let button = |name: &str, y: u32| format!(r#"<image name="{name}"><y>{y}</y><width>150</width><height>30</height><target>&true;</target><text name="button_text"><string><copy src="parent()" trait="string"/></string></text></image>"#);
         let buttons: String = [("MM_ButtonA", 0), ("MM_ButtonX", 40), ("MM_ButtonY", 80)].iter().map(|(n, y)| button(n, *y)).collect();
@@ -1072,7 +1169,7 @@ mod tests {
               <rect name="MM_DataRect"><x>450</x><y>200</y><visible>&false;</visible>
                 <hotrect name="MM_QuestObjectivesList"><width>380</width><height>200</height><clipwindow>&true;</clipwindow>
                   <_scroll_delta>9</_scroll_delta>{offset}
-                  <hotrect name="lb_highlight_box"/>{bar}
+                  <hotrect name="lb_highlight_box"/>{pane_bar}
                 </hotrect>
               </rect>
             </rect>
@@ -1229,6 +1326,12 @@ mod tests {
         assert_eq!(data_tile(&ui, &t.written, first), Some(DataTile::Row(1)));
         let text = list::child(&ui, first, ROW_TEXT).unwrap();
         assert_eq!(data_tile(&ui, &t.written, text), Some(DataTile::Row(1)), "inside a row is the row");
+        // What a click or the pointer on that tile sends names its quest, not its place: the page
+        // finds the quest in its list as that is when it takes the act (`data::by_record`).
+        assert_eq!(row_act(&t.written, data::QUESTS, 1, RowAct::Use), Some(Act::UseRecord(data::QUESTS, 100)));
+        assert_eq!(row_act(&t.written, data::QUESTS, 0, RowAct::Hover), Some(Act::HoverRecord(data::QUESTS, 102)));
+        assert_eq!(row_act(&t.written, data::QUESTS, 1, RowAct::Leave), Some(Act::LeaveRecord(data::QUESTS, 100)));
+        assert_eq!(row_act(&t.written, data::QUESTS, 2, RowAct::Use), None, "no such row");
     }
 
     #[test]
@@ -1288,8 +1391,19 @@ mod tests {
         s.pane_first = 500.0;
         run(&mut ui, Some(s), &mut t).unwrap();
         assert_eq!(at(&ui, &bar, "_current_value"), 80.0);
-        assert_eq!(pane_part(BarPiece::PageDown, 80.0), BarPart::PageDown);
-        assert_eq!(pane_part(BarPiece::Marker, 80.0), BarPart::Marker(data::objectives_drag_scale(80.0)));
+        assert_eq!(pane_part(BarPiece::PageDown), Some(BarPart::PageDown));
+        // The marker held: the pane's scroll is where the file's bar puts it, its marker's place
+        // over its step (the fixture's 16 down and 2 a value): 30 lower is (16 + 30) / 2.
+        let menu = ui.menu(MAP_MENU).unwrap();
+        let marker = ui.find_tile(&format!("{bar}/{}", list::MARKER)).unwrap();
+        let top = super::super::layout::layout(&ui, marker, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker).unwrap().rect.top;
+        let drag = pane_grab(&ui, menu, top + 3.0).expect("the marker taken");
+        assert_eq!(list::value_under(&ui, drag, top + 3.0), Some(8.0), "where it stands");
+        assert_eq!(list::value_under(&ui, drag, top + 33.0), Some(23.0));
+        assert_eq!(list::value_under(&ui, drag, top + 500.0), Some(80.0), "held at the end");
+        // A page is the window as measured: the fixture's 200.
+        assert_eq!(t.written.counted.pane.map(|r| r.height()), Some(200.0));
+        assert_eq!(pane_part(BarPiece::Marker), None, "the marker is the file's bar's to drag");
     }
 
     #[test]
@@ -1340,6 +1454,7 @@ mod tests {
         let (mut ui, mut t) = (tree(), MapTiles { cut: Some("MM_ButtonX".into()), ..Default::default() });
         let err = run(&mut ui, Some(shown(1, 0, 0)), &mut t).unwrap_err();
         assert!(err.contains("MM_ButtonX missing"), "{err}");
+        assert!(!t.written.layout_failure, "a missing tile waits for the tree");
         t.cut = None;
         t.written.checked.clear();
         assert!(run(&mut ui, Some(shown(1, 0, 0)), &mut t).is_ok(), "recovered");
@@ -1366,9 +1481,46 @@ mod tests {
         // A list off the canvas: no row shows whole.
         let mut ui = tree_changed(|x| x.replace(r#"<hotrect name="MM_QuestsList"><y>60</y>"#, r#"<hotrect name="MM_QuestsList"><y>2000</y>"#));
         assert_eq!(run(&mut ui, Some(shown(2, 0, 0)), &mut MapTiles::default()), Err("no quest's row shows whole".to_string()));
+        // Objectives with no window, or a window off the canvas: no usable pane.
+        let mut ui = tree_changed(|x| x.replace(r#"<hotrect name="MM_QuestObjectivesList"><width>380</width><height>200</height><clipwindow>&true;</clipwindow>"#, r#"<hotrect name="MM_QuestObjectivesList"><width>380</width><height>200</height>"#));
+        let mut t = MapTiles::default();
+        assert_eq!(run(&mut ui, Some(shown(2, 0, 1)), &mut t), Err("the objectives have no window".to_string()));
+        assert!(t.written.layout_failure, "a layout's failure");
+        let mut ui = tree_changed(|x| x.replace(r#"<rect name="MM_DataRect"><x>450</x><y>200</y>"#, r#"<rect name="MM_DataRect"><x>450</x><y>700</y>"#));
+        assert_eq!(run(&mut ui, Some(shown(2, 0, 1)), &mut MapTiles::default()), Err("the objectives' window does not fit".to_string()));
+        // No quest, no objectives: no pane is asked for.
+        let mut s = shown(0, 0, 0);
+        s.hints.clear();
+        assert!(run(&mut ui, Some(s), &mut MapTiles::default()).is_ok());
         // Nothing to show yet: no snapshot, nothing written.
         let (mut ui, mut t) = (tree(), MapTiles::default());
         assert_eq!(run(&mut ui, None, &mut t), Err("nothing to show yet".to_string()));
+    }
+
+    /// A failure waits for a change once it has lasted: a missing name for the tree to change, a
+    /// layout's failure only so long, as what it met can change without the tree's shape.
+    #[test]
+    fn a_layout_failure_is_tried_again_now_and_then_a_missing_name_waits_for_the_tree() {
+        let tree = TreeMark { menu: None, shape: 7 };
+        let mut w = Written { failing: FAILING_PASSES, tried: Some((data::QUESTS, true)), tried_tree: Some(tree), ..Default::default() };
+        assert!((0..500).all(|_| w.waits(data::QUESTS, true, tree, false)), "a missing name waits");
+        assert!(!w.waits(data::QUESTS, true, TreeMark { shape: 8, ..tree }, false), "the tree changed");
+        assert!(!w.waits(data::QUESTS, true, tree, true), "what it would show changed");
+        assert!(!w.waits(data::QUESTS, false, tree, false), "the other frame");
+        w.layout_failure = true;
+        w.waited = 0;
+        let tries: Vec<usize> = (1..=150).filter(|_| !w.waits(data::QUESTS, true, tree, false)).collect();
+        assert_eq!(tries.len(), 2, "tried again every {LAYOUT_RETRY_PASSES} passes");
+        assert!(!Written { failing: FAILING_PASSES - 1, ..Default::default() }.waits(data::QUESTS, true, tree, false), "not before it lasted");
+    }
+
+    #[test]
+    fn the_cut_aid_ends_only_with_the_switch_on() {
+        let on = TileMenus { map: true, ..Default::default() };
+        assert!(cut_over(on, Some(20.0), 20.0));
+        assert!(!cut_over(on, Some(20.0), 19.0));
+        assert!(!cut_over(on, None, 99.0));
+        assert!(!cut_over(TileMenus::default(), Some(20.0), 99.0), "off: the menu is not built again");
     }
 
     #[test]

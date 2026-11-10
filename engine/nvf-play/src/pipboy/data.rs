@@ -267,6 +267,16 @@ pub(crate) enum Act {
     PopupPick(usize),
     /// A part of the right pane's scroll bar was clicked (the marker: pressed).
     Bar(BarPart),
+    /// The page drawn from the file (`crate::tiles::map_menu`): the pointer came onto, left or
+    /// clicked the row of a tab's list standing for record `.1` (a quest's FormID, [`row_keys`]),
+    /// found in the list as it is when the act is taken, so a list a script changed meanwhile
+    /// acts on that record or on none ([`by_record`]).
+    HoverRecord(usize, u32),
+    LeaveRecord(usize, u32),
+    UseRecord(usize, u32),
+    /// The page drawn from the file: its right pane's scroll bar's marker dragged to `.0`, by
+    /// the file's own bar (its marker's `_step_height`): the pane's scroll there.
+    PaneTo(f32),
 }
 
 /// A part of the right pane's scroll bar ([`bar_spots`]): an arrow steps it as a wheel
@@ -397,6 +407,9 @@ pub struct DataState {
     /// Wheel notches over the list while the tile page showed it, for that page's own scroll
     /// (`crate::tiles::map_menu`); the hand-built list's is `first`.
     list_notches: f32,
+    /// The right pane's window as the page drawn from the file measured it (its height a page);
+    /// none from the hand-built drawing, whose windows are the file's numbers ([`pane_page`]).
+    pane_page: Option<f32>,
     was_open: bool,
     last_tab: Option<usize>,
     /// The doors outdoors into each interior a quest target is in (`Game::doors_into`).
@@ -606,10 +619,24 @@ pub fn prepare(
         return;
     };
     let open = (pip.open() && pip.page == Page::Data).then(|| pip.tab());
-    // The list the player saw last frame was the tile page's, on a tab it draws: the wheel over
-    // it is that page's scroll.
-    let tiles_list = tiles.is_some_and(|t| t.shown.is_some()) && open.is_some_and(|tab| crate::tiles::map_menu::TILED_TABS.contains(&tab));
-    step(&mut state, open, screen.as_deref(), &mut game, &mut input, &mut images, tiles_list);
+    let early = Early {
+        // The list the player saw last frame was the tile page's, on a tab it draws: the wheel
+        // over it is that page's scroll.
+        tiles_list: tiles.as_ref().is_some_and(|t| t.shown.is_some()) && open.is_some_and(|tab| crate::tiles::map_menu::TILED_TABS.contains(&tab)),
+        // A menu over the page this frame (set before the scripts, so through the frame it closes
+        // in): the page's input is that menu's (`crate::tiles::map_menu::MapTiles::over_data`).
+        hold: tiles.as_ref().is_some_and(|t| t.over_data),
+    };
+    step(&mut state, open, screen.as_deref(), &mut game, &mut input, &mut images, Some(early));
+}
+
+/// What the early preparation ([`prepare`], `MapMenu` on) knows besides the hand-built drawing:
+/// whether the tile page's list showed last frame (the wheel over it scrolls that list), and
+/// whether a menu over the page holds its input this frame.
+#[derive(Clone, Copy, Debug, Default)]
+struct Early {
+    tiles_list: bool,
+    hold: bool,
 }
 
 /// Whether the page is prepared by [`prepare`], before the frame: with `MapMenu` switched on.
@@ -648,7 +675,7 @@ pub fn draw(
             _ => return,
         }
     } else {
-        match step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, false) {
+        match step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images, None) {
             Some(v) => v,
             None => return,
         }
@@ -665,10 +692,11 @@ pub fn draw(
 
 /// The page's preparation, a frame's: keep track of the quests and markers, and while the page is
 /// open on tab `open` take the player's input and gather what it shows ([`View`], kept in
-/// [`DataState::prepared`] and returned). Closed (`None`), what was open is let go. `tiles_list`:
-/// the tile page showed the list last frame, so the wheel over it is that page's scroll.
+/// [`DataState::prepared`] and returned). Closed (`None`), what was open is let go. `early`: the
+/// early preparation's ([`prepare`], `MapMenu` on), which keeps what it gathered for the tile page;
+/// `None` for the hand-built drawing's, which keeps nothing more than it always did.
 #[allow(clippy::too_many_arguments)]
-fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, game: &mut Game, input: &mut Input, images: &mut Assets<Image>, tiles_list: bool) -> Option<View> {
+fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, game: &mut Game, input: &mut Input, images: &mut Assets<Image>, early: Option<Early>) -> Option<View> {
     st.poll += input.time.delta_secs();
     if st.poll >= POLL {
         st.poll = 0.0;
@@ -698,7 +726,12 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     // With Controller chosen the controls answer the controller only (pad.rs): the mouse
     // pointer is ignored so it cannot take the highlight box back from the stick.
     let pointer = screen.and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
-    take_input(st, tab, &lists, game, input, pointer, tiles_list);
+    let e = early.unwrap_or_default();
+    if e.hold {
+        hold_input(st, tab, &lists, input);
+    } else {
+        take_input(st, tab, &lists, game, input, pointer, e.tiles_list);
+    }
     if tab == NOTES && lists.challenges.is_none() {
         mark_read(st, &lists, game);
     } else {
@@ -712,20 +745,64 @@ fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, 
     // it was, and with it the Travel hint's marker (#1897).
     let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
     let view = build(st, tab, &lists, game, on_map, pointer.is_some());
-    if st.last_view.as_ref().is_none_or(|s| s.tab != view.tab || s.buttons != view.buttons) {
+    // The hints are logged when they change from what was last shown: the hand-built drawing's
+    // last view, or with the early preparation the last one prepared.
+    let last = if early.is_some() { st.last_view.as_ref() } else { st.shown.as_ref() };
+    if last.is_none_or(|s| s.tab != view.tab || s.buttons != view.buttons) {
         let line = super::frame::hints_line(view.buttons.iter().map(|b| &b.hint));
         info!("pipboy hints: data {}: {}", TAB_NAMES[view.tab.min(RADIO)], if line.is_empty() { "none" } else { &line });
     }
-    st.last_view = Some(view.clone());
-    let keys = match tab {
-        QUESTS => lists.quests.iter().map(|q| q.form).collect(),
-        NOTES if lists.challenges.is_some() => (0..list_len(tab, &lists) as u32).collect(),
-        NOTES => lists.notes.iter().map(|n| n.form).collect(),
-        RADIO => lists.stations.iter().map(|s| s.0).collect(),
-        _ => Vec::new(),
-    };
-    st.prepared = Some(Prepared { view: view.clone(), keys, sel: st.sel[tab], pointer_pick: st.pointer_pick, navigated: st.navigated });
+    if early.is_some() {
+        st.last_view = Some(view.clone());
+        st.prepared = Some(Prepared { view: view.clone(), keys: row_keys(tab, &lists), sel: st.sel[tab], pointer_pick: st.pointer_pick, navigated: st.navigated });
+    }
     Some(view)
+}
+
+/// What each row of tab `tab`'s list stands for: a quest's or note's FormID, a station's base, a
+/// challenge's place.
+fn row_keys(tab: usize, l: &Lists) -> Vec<u32> {
+    match tab {
+        QUESTS => l.quests.iter().map(|q| q.form).collect(),
+        NOTES if l.challenges.is_some() => (0..list_len(tab, l) as u32).collect(),
+        NOTES => l.notes.iter().map(|n| n.form).collect(),
+        RADIO => l.stations.iter().map(|s| s.0).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// An act of the page drawn from the file that names a record, as the act on that record's row in
+/// the list as it is now (`keys`, [`row_keys`]); `None` for a record no longer there or another
+/// tab's. Other acts are as they are.
+fn by_record(a: Act, tab: usize, keys: &[u32]) -> Option<Act> {
+    let at = |t: usize, k: u32| (t == tab).then(|| keys.iter().position(|x| *x == k)).flatten();
+    Some(match a {
+        Act::HoverRecord(t, k) => Act::Hover(t, at(t, k)?),
+        Act::LeaveRecord(t, k) => Act::Leave(t, at(t, k)?),
+        Act::UseRecord(t, k) => Act::Use(t, at(t, k)?),
+        other => other,
+    })
+}
+
+/// A menu over the page holds its input (`MapMenu` on, [`Early::hold`]): the keys, the wheel, the
+/// test aid's steps and the pointer's acts this frame are that menu's, not the page's, so Enter
+/// closing a message box does not also use the selected row. What the page shows still follows the
+/// lists (the selection held in them, a new pane at its top).
+fn hold_input(st: &mut DataState, tab: usize, l: &Lists, input: &mut Input) {
+    input.wheel.clear();
+    input.menu.clear();
+    st.acts.clear();
+    st.drag = Vec2::ZERO;
+    st.drag_from = None;
+    st.press = None;
+    st.bar_drag = None;
+    input.aid.drag = Vec2::ZERO;
+    let len = list_len(tab, l);
+    if len > 0 {
+        st.sel[tab] = st.sel[tab].min(len - 1);
+    }
+    let shows = pane_key(st, tab, l);
+    scroll_pane(st, tab, shows, PaneMoves::default());
 }
 
 /// Note the order quests are listed in, the markers the player finds, and where the
@@ -757,11 +834,7 @@ impl DataState {
         }
         self.text_max = text_max;
         self.pane_rect = pane;
-    }
-
-    /// How far the right pane can scroll, as last published.
-    pub(crate) fn text_max(&self) -> f32 {
-        self.text_max
+        self.pane_page = pane.map(|r| r.height());
     }
 
     /// A tab's selected row and whether Misc shows the challenges, for the scroll sound
@@ -1092,7 +1165,13 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     if input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller) && (tab == NOTES || tab == QUESTS) {
         pane.stick = crate::pad::stick(&input.pads, false).y;
     }
-    for a in std::mem::take(&mut st.acts) {
+    let acts = std::mem::take(&mut st.acts);
+    let keys = if acts.iter().any(|a| matches!(a, Act::HoverRecord(..) | Act::LeaveRecord(..) | Act::UseRecord(..))) { row_keys(tab, l) } else { Vec::new() };
+    for a in acts {
+        let Some(a) = by_record(a, tab, &keys) else {
+            info!("pipboy data: an act on a row no longer listed is ignored");
+            continue;
+        };
         match a {
             // Another row shown starts its pane at the top (`scroll_pane`, by `pane_key`).
             Act::Hover(t, i) if t == tab && i < len => {
@@ -1109,6 +1188,7 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             Act::Button(k) if k.is_a() => use_it = true,
             Act::Button(k) => button(st, k, input),
             Act::Bar(b) if tab == QUESTS || tab == NOTES => bar_act(st, b, pointer, &mut pane),
+            Act::PaneTo(v) if tab == QUESTS || tab == NOTES => pane.drag += v - st.text_first,
             _ => {}
         }
     }
@@ -1181,9 +1261,14 @@ fn pane_key(st: &DataState, tab: usize, l: &Lists) -> Option<PaneKey> {
 }
 
 /// A page of the right pane: the objectives' window on Quests, a note's on Misc (the
-/// windows 400 and 385 high [documented: map_menu.xml]; a page a window [design]).
-fn pane_page(tab: usize) -> f32 {
-    if tab == QUESTS { OBJECTIVES_H } else { TEXT_H }
+/// windows 400 and 385 high [documented: map_menu.xml]; a page a window [design]); the window as
+/// the page drawn from the file measured it, while it published one (`measured`).
+fn pane_page(tab: usize, measured: Option<f32>) -> f32 {
+    match measured {
+        Some(h) if h > 0.0 => h,
+        _ if tab == QUESTS => OBJECTIVES_H,
+        _ => TEXT_H,
+    }
 }
 
 /// Scroll the right pane (a note's text or a quest's objectives; one scroll for both):
@@ -1204,7 +1289,7 @@ fn scroll_pane(st: &mut DataState, tab: usize, shows: Option<PaneKey>, m: PaneMo
     let max = st.text_max.max(0.0);
     let before = st.text_first;
     if shows.is_some() {
-        st.text_first += m.pages * pane_page(tab) - m.notches * TEXT_STEP - m.stick * PANE_STICK_SPEED * m.dt + m.drag;
+        st.text_first += m.pages * pane_page(tab, st.pane_page) - m.notches * TEXT_STEP - m.stick * PANE_STICK_SPEED * m.dt + m.drag;
     }
     st.text_first = st.text_first.clamp(0.0, max);
     let what = match shows {
@@ -2126,6 +2211,7 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
             // Only a note's text and the objectives scroll; the other panes leave none.
             st.text_max = 0.0;
             st.pane_rect = None;
+            st.pane_page = None;
             match right {
                 Right::None => {}
                 Right::Objectives { rows, first } => {
@@ -2367,13 +2453,6 @@ fn bar_hits(p: &mut ChildSpawnerCommands, spots: Vec<(Rect, BarPart)>) {
             e.observe(on_bar_click);
         }
     }
-}
-
-/// The right pane's units a unit of its scroll bar's marker drags, for objectives that can scroll
-/// `text_max` in their window: as [`objectives_pane`]'s bar ([`bar_run`]), for the page drawn from
-/// the file, whose bar the file sizes [design].
-pub(crate) fn objectives_drag_scale(text_max: f32) -> f32 {
-    (text_max.max(0.0) + OBJECTIVES_H) / bar_run(OBJECTIVES_H)
 }
 
 /// How far objectives `total` high can scroll in their window.
@@ -2717,6 +2796,73 @@ mod tests {
         w.resource_mut::<PipBoy>().page = Page::Items;
         w.run_system_once(prepare).unwrap();
         assert!(!w.resource::<DataState>().was_open);
+    }
+
+    /// With `MapMenu` on, a menu over the page (a message box, the tutorial menu, through the frame it
+    /// closes in) holds the page's input: its keys, the wheel and the pointer's acts are that menu's,
+    /// so Enter answering it does not also use the selected row. The page is still prepared.
+    #[test]
+    fn with_mapmenu_on_a_menu_over_the_page_holds_its_input() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut w = page_world(true, data_open(NOTES));
+        w.init_resource::<crate::tiles::map_menu::MapTiles>();
+        w.resource_mut::<crate::tiles::map_menu::MapTiles>().over_data = true;
+        {
+            let mut st = w.resource_mut::<DataState>();
+            st.acts.push(Act::Button(ButtonKind::NotesFilter));
+            st.acts.push(Act::UseRecord(NOTES, 5));
+        }
+        w.resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyR);
+        w.run_system_once(prepare).unwrap();
+        let st = w.resource::<DataState>();
+        assert!(!st.notes_of_active && !st.challenges, "neither the act nor R acted");
+        assert!(st.acts.is_empty(), "the menu's acts are dropped, not kept for later");
+        assert_eq!(st.prepared.as_ref().map(|p| p.view.tab), Some(NOTES), "still prepared");
+        // The menu gone: the page takes its input again.
+        w.resource_mut::<crate::tiles::map_menu::MapTiles>().over_data = false;
+        w.resource_mut::<DataState>().acts.push(Act::Button(ButtonKind::NotesFilter));
+        w.run_system_once(prepare).unwrap();
+        assert!(w.resource::<DataState>().notes_of_active);
+        // Off, the early preparation does nothing, held or not.
+        let mut w = page_world(false, data_open(NOTES));
+        w.init_resource::<crate::tiles::map_menu::MapTiles>();
+        w.resource_mut::<crate::tiles::map_menu::MapTiles>().over_data = true;
+        w.resource_mut::<DataState>().acts.push(Act::Button(ButtonKind::NotesFilter));
+        w.run_system_once(prepare).unwrap();
+        assert_eq!(w.resource::<DataState>().acts.len(), 1);
+    }
+
+    /// An act of the page drawn from the file names its record: taken, it is the act on that
+    /// record's row in the list as it is then, though a script changed the list after the click
+    /// was queued; a record gone, or another tab's, acts on nothing.
+    #[test]
+    fn an_act_by_record_finds_its_row_in_the_list_as_it_is_when_taken() {
+        let queued = Act::UseRecord(QUESTS, 20);
+        assert_eq!(by_record(queued, QUESTS, &[10, 20, 30]), Some(Act::Use(QUESTS, 1)));
+        assert_eq!(by_record(queued, QUESTS, &[20, 30]), Some(Act::Use(QUESTS, 0)), "a quest above it gone");
+        assert_eq!(by_record(queued, QUESTS, &[30, 40, 20]), Some(Act::Use(QUESTS, 2)), "the list resorted");
+        assert_eq!(by_record(queued, QUESTS, &[10, 30]), None, "the quest gone");
+        assert_eq!(by_record(queued, NOTES, &[20]), None, "another tab");
+        assert_eq!(by_record(Act::HoverRecord(QUESTS, 30), QUESTS, &[30]), Some(Act::Hover(QUESTS, 0)));
+        assert_eq!(by_record(Act::LeaveRecord(QUESTS, 30), QUESTS, &[10, 30]), Some(Act::Leave(QUESTS, 1)));
+        assert_eq!(by_record(Act::Use(QUESTS, 4), QUESTS, &[]), Some(Act::Use(QUESTS, 4)), "the hand-built page's acts as they are");
+    }
+
+    /// A page of the right pane is the window the page drawn from the file measured while it
+    /// published one, else the file's numbers; the file's bar's marker drags it to a place.
+    #[test]
+    fn a_page_is_the_measured_window_and_the_files_marker_sets_the_place() {
+        assert_eq!(pane_page(QUESTS, None), OBJECTIVES_H);
+        assert_eq!(pane_page(NOTES, None), TEXT_H);
+        assert_eq!(pane_page(QUESTS, Some(150.0)), 150.0);
+        let key = Some((QUESTS, false, 7));
+        let mut st = DataState { pane_of: key, text_max: 1000.0, ..DataState::default() };
+        st.publish_drawn(QUESTS, 3, 1000.0, Some(Rect::new(10.0, 20.0, 410.0, 170.0)));
+        scroll_pane(&mut st, QUESTS, key, PaneMoves { pages: 1.0, ..PaneMoves::default() });
+        assert_eq!(st.text_first, 150.0, "a page of the measured 150");
+        let drag = 640.0 - st.text_first;
+        scroll_pane(&mut st, QUESTS, key, PaneMoves { drag, ..PaneMoves::default() });
+        assert_eq!(st.text_first, 640.0);
     }
 
     /// With `MapMenu` off (the default) the early preparation does nothing, and the hand-built
