@@ -264,11 +264,15 @@ const NPC_DELAY: f32 = 2.0 / net::NPC_HZ as f32;
 /// stays where it was last drawn.
 const NPC_FORGET: f32 = 3.0;
 /// Between two of the host's states of an NPC, a move longer than this (units) and
-/// faster than [`NPC_JUMP_SPEED`] (units/s) is a script's move, put there at once, not
+/// faster than it runs (at most [`NPC_JUMP_SPEED`], units/s) is a script's move, put there at once, not
 /// walked [design: no actor of the game runs near 2000 units/s; a sprinting player is
 /// a few hundred].
-const NPC_JUMP: f32 = 200.0;
+const NPC_JUMP: f32 = 64.0;
 const NPC_JUMP_SPEED: f32 = 2000.0;
+/// How much faster than its run speed an NPC may move between the host's states before
+/// it counts as a jump [design: a run's speed-ups and the states' jitter; the fastest
+/// runner seen, a cazador, runs 955 units/s, observed: creature pace logs].
+const NPC_RUN_ROOM: f32 = 1.5;
 /// States further apart in time than this (seconds, over three rounds of
 /// [`net::NPC_HZ`]) with a move of more than [`NPC_JUMP`] between them: the host did not
 /// send it meanwhile (faded out, disabled for the move), so it is put there too.
@@ -592,7 +596,9 @@ struct NpcTrack {
 
 impl NpcTrack {
     /// Where to draw it at `t`: feet and heading blended between the states either side.
-    fn pose(&self, t: f32) -> Option<([f32; 3], f32, bool)> {
+    /// `top`: the fastest it moves walking or running (units/s); a move faster than that
+    /// (and longer than [`NPC_JUMP`]) is a jump.
+    fn pose(&self, t: f32, top: f32) -> Option<([f32; 3], f32, bool)> {
         let last = self.samples.back()?.1;
         let (a, b, f) = match self.samples.iter().position(|(at, _)| *at > t) {
             None => return Some((last.feet, last.heading, false)),
@@ -605,7 +611,7 @@ impl NpcTrack {
                 // where it ends once its time comes. Blended, Kimball's fade move at the
                 // Hoover Dam slid across on a guest at 1069 units/s (item 187).
                 let gap = (0..3).map(|k| (b.feet[k] - a.feet[k]).powi(2)).sum::<f32>().sqrt();
-                if a.space != b.space || (gap > NPC_JUMP && (gap / (tb - ta).max(1e-4) > NPC_JUMP_SPEED || tb - ta > NPC_GAP)) {
+                if a.space != b.space || (gap > NPC_JUMP && (gap / (tb - ta).max(1e-4) > top || tb - ta > NPC_GAP)) {
                     return Some(if t < tb { (a.feet, a.heading, false) } else { (b.feet, b.heading, false) });
                 }
                 (a, b, ((t - ta) / (tb - ta).max(1e-4)).clamp(0.0, 1.0))
@@ -2705,7 +2711,11 @@ fn follow_npcs(
             // Its furniture as the host has it now (a chair, a bed, a cross: module notes).
             let furniture = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0).map(|s| (s.furniture, s.has(npc_flag::SEATED)));
             let space = t.samples.back().map_or(0, |(_, s)| s.space);
-            t.pose(now - NPC_DELAY).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture, space }))
+            // Faster than it runs (with room for a run's speed-ups) is a jump; Kimball's
+            // and the Legion sniper's enables and first states at the Hoover Dam were
+            // blended from where they were placed at 1165-1399 units/s (laptop 1110d).
+            let top = residents.as_deref().and_then(|res| res.top_speed(r)).map_or(NPC_JUMP_SPEED, |run| (run * NPC_RUN_ROOM).min(NPC_JUMP_SPEED));
+            t.pose(now - NPC_DELAY, top).map(|(feet, heading, moving)| (r, RemotePose { feet, heading, moving, furniture, space }))
         })
         .collect();
     if poses.len().abs_diff(*told) >= 5 || (*told == 0) != poses.is_empty() {
@@ -3761,16 +3771,21 @@ mod tests {
         let track = |a: (f32, f32, u32), b: (f32, f32, u32)| NpcTrack { samples: [(a.0, state(a.1, a.2)), (b.0, state(b.1, b.2))].into(), ..NpcTrack::default() };
         // A walk: 30 units in a round, half way at half the time.
         let walk = track((0.0, 0.0, 7), (0.1, 30.0, 7));
-        assert!((walk.pose(0.05).unwrap().0[0] - 15.0).abs() < 0.01);
+        assert!((walk.pose(0.05, NPC_JUMP_SPEED).unwrap().0[0] - 15.0).abs() < 0.01);
         // A move of 1000 units in a round: where it was, then where it went.
         let moved = track((0.0, 0.0, 7), (0.1, 1000.0, 7));
-        assert_eq!(moved.pose(0.05).unwrap().0[0], 0.0);
+        assert_eq!(moved.pose(0.05, NPC_JUMP_SPEED).unwrap().0[0], 0.0);
         // Not sent for a while (faded out) and 1000 units on: no slide either.
         let faded = track((0.0, 0.0, 7), (2.0, 1000.0, 7));
-        assert_eq!(faded.pose(1.0).unwrap().0[0], 0.0);
+        assert_eq!(faded.pose(1.0, NPC_JUMP_SPEED).unwrap().0[0], 0.0);
+        // 140 units in a round (1400 units/s) by one that runs 450: a jump; by one
+        // that runs 955 (a cazador): its run, blended.
+        let enabled = track((0.0, 0.0, 7), (0.1, 140.0, 7));
+        assert_eq!(enabled.pose(0.05, 450.0 * NPC_RUN_ROOM).unwrap().0[0], 0.0);
+        assert!((enabled.pose(0.05, 955.0 * NPC_RUN_ROOM).unwrap().0[0] - 70.0).abs() < 0.01);
         // Into another space: no blend across.
         let door = track((0.0, 0.0, 7), (0.1, 10.0, 8));
-        assert_eq!(door.pose(0.05).unwrap().0[0], 0.0);
+        assert_eq!(door.pose(0.05, NPC_JUMP_SPEED).unwrap().0[0], 0.0);
     }
 
     /// The host's lines reach a guest as the host says them: its player is the host's

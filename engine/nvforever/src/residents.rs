@@ -868,6 +868,13 @@ impl Residents {
         self.core.scripted.remove(&id);
     }
 
+    /// The fastest an actor runs here (its alert or calm run speed, units/s), for a
+    /// guest to tell a host NPC's script move from its run (`coop::NpcTrack::pose`).
+    pub fn top_speed(&self, id: u32) -> Option<f32> {
+        let id = FormId(id);
+        self.core.ai.agents.contains_key(&id).then(|| self.core.ai.alert_speeds(id).run.max(self.core.ai.calm_speeds(id).run))
+    }
+
     /// Where actor `id`'s AI has it now (space, feet, heading), when it is a resident
     /// this game runs (`coop::share_npcs`: an NPC the host stopped drawing, item 179).
     pub fn walker_of(&self, id: u32) -> Option<(Space, [f32; 3], f32)> {
