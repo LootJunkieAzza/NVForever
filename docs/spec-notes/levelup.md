@@ -78,9 +78,13 @@ pieces with the character-creation menus (chargen.md).
 
 ## 4. Rules (`fnv_game::levelup`)
 
-- **Points per level**: ⌊min(permanent Intelligence, 9) × 0.5 + 10⌋, and one more when
-  the new level and Intelligence are both even [documented: GECK wiki Skill Rate, New
-  Vegas]. 12 at level 3 fits Intelligence 4 or 5 [observed].
+- **Points per level**: ⌊min(permanent Intelligence, 9) × 0.5 + 10⌋ [documented: GECK
+  wiki Skill Rate, New Vegas], and one more at an even new level when min(Intelligence,
+  9) is odd: the half point an odd Intelligence leaves over, paid every second level
+  [observed: the L5.ext rerun, #2040: ShowOff's GetCalculatedSkillPoints in the original
+  gives 13 at even levels and 12 at odd ones on the save nvfairport, Intelligence 5;
+  #2035. Earlier this note read the wiki as both even, which gave 12 at every level].
+  12 at level 3 fits Intelligence 4 or 5 [observed].
 - **A point** adds `iSkillPointsTagSkillMult` (1) to a tagged skill, 1 to others
   [documented: wiki skill settings].
 - **Where spent points live**: `PlayerState::skill_points`, added to the player's skill
