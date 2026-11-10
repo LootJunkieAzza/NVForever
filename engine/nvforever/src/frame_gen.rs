@@ -13,15 +13,23 @@
 //!   this frame's HUD pixels (wherever the frame with the HUD differs from the one without)
 //!   over it, so the HUD and menus are never interpolated. The generated frame goes to the
 //!   window; the real one waits in a texture of its own.
-//! - When the frame's commands are submitted ([`RenderGraphSystems::Finish`]): the window's
-//!   image (the generated frame) is presented, a second one is taken with Bevy's own
-//!   `prepare_windows`, the real frame is drawn into it, and Bevy presents that.
+//! - The window's images are not Bevy's while it runs (the vendored bevy_render's
+//!   `DeferredSwapchain`, 2026-11-08): the frame is drawn into a stand-in texture, and once
+//!   Bevy's `render_system` has submitted the frame's commands (and a screenshot's copy into the
+//!   stand-in) the stand-in (the generated frame) and the real frame are handed to a presenter
+//!   thread (`fg_presenter.rs`), which takes the window's images, copies them in and presents
+//!   them. If that thread cannot start or stops, the window is presented from the render thread
+//!   again, as with `NVF_FG_PRESENTER=0`.
+//! - **Screenshots**: on a frame a screenshot targets the window, the window shows the real
+//!   frame only and the screenshot is of the real frame ([`take_for_presenters`]).
 //!
-//! **Pacing** is vsync's: both presents queue in FIFO order, one refresh apart, and the real
-//! frame rate is capped at half the refresh rate ([`real_frame_cap`], through
-//! `frame_pace::cap_rate`). Below half the refresh rate the two presents still land one
-//! refresh apart, so the generated frame is shown early, not at the midpoint. A presenter of
-//! our own on raw Vulkan (AMD's `FrameInterpolationSwapchainVK`) could time it; not built.
+//! **Pacing**: the presenter spaces the two presents half a real frame apart (AMD's rule, from
+//! `FrameInterpolationSwapchainVK`), and the real frame rate is capped slightly below half the
+//! refresh rate ([`real_frame_cap`], through `frame_pace::cap_rate`). The render thread never waits in a
+//! present: presented back to back from it, the real frame's present waited about a refresh for
+//! the generated one to be shown, and frames whose work passed about 7 ms fell to 50-58 real
+//! fps at 160 Hz (h9x000/NVForever#1). `NVF_FG_PRESENTER=0` presents from the render thread as
+//! before, for comparisons.
 //!
 //! **No generated frame** in menus, dialogue, loading screens, while paused (all
 //! `PlayState`s but Playing), on a camera cut (`FsrCamera::cut_from`) or the first frame after
@@ -54,9 +62,9 @@ use bevy::core_pipeline::{prepass::ViewPrepassTextures, upscaling::upscaling, Co
 use bevy::prelude::*;
 use bevy::render::{
     camera::{ExtractedCamera, TemporalJitter},
-    renderer::{RenderAdapter, RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue, ViewQuery},
+    renderer::{render_system, RenderAdapter, RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue, ViewQuery},
     sync_world::MainEntity,
-    view::{prepare_view_targets, prepare_windows, ExtractedWindow, ViewTarget},
+    view::{prepare_view_targets, prepare_windows, DeferredSwapchain, ExtractedWindow, SurfaceData, ViewTarget, STAND_INS},
     Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
 };
 use bevy::ui_render::ui_pass;
@@ -99,11 +107,18 @@ pub fn unavailable_reason(world: &World) -> Option<&'static str> {
     }
 }
 
-/// The real frame rate frame generation allows: half the refresh rate (each real frame is
-/// shown twice as long as a refresh, its generated frame first). `0`: no cap (the refresh
-/// rate is not known).
+/// The real frame rate frame generation allows: slightly below half the refresh rate (each
+/// real frame is shown for two refreshes, its generated frame first), a frame a second under
+/// it per 40 (at least one), so the two presents of a frame are never closer than a refresh
+/// and queue up [documented: AMD's FidelityFX frame interpolation swapchain manual, "the
+/// rendered frame rate is slightly below half the desired output frame rate"; observed
+/// 2026-11-08: at exactly half, 160 Hz, the presents took 2 ms each, waiting for the screen].
+/// `0`: no cap (the refresh rate is not known).
 pub fn real_frame_cap(refresh_millihertz: Option<u32>) -> u32 {
-    refresh_millihertz.map_or(0, |m| (m / 2000).max(15))
+    refresh_millihertz.map_or(0, |m| {
+        let half = m / 2000;
+        half.saturating_sub((half / 40).max(1)).max(15)
+    })
 }
 
 /// Generated frames presented since the start, shared by the render world (which counts them)
@@ -111,6 +126,12 @@ pub fn real_frame_cap(refresh_millihertz: Option<u32>) -> u32 {
 /// apart (#1959; nothing reads it yet).
 #[derive(Resource, Clone, Default)]
 pub struct GeneratedFrames(pub std::sync::Arc<AtomicU64>);
+
+/// [`usable`], as [`follow_switch`] last found it, for the render world: the windows' images
+/// go to the presenter only while frame generation can run (not with FSR off, where nothing is
+/// generated and a stand-in, a copy and the presenter's queue would be added to every frame).
+#[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct FrameGenUsable(pub bool);
 
 /// The cap `frame_pace::cap_rate` adds while frame generation runs (0: none).
 #[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
@@ -124,6 +145,7 @@ impl Plugin for FrameGenPlugin {
         app.insert_resource(FrameGeneration { on: self.0 })
             .insert_resource(generated.clone())
             .init_resource::<FrameGenCap>()
+            .init_resource::<FrameGenUsable>()
             .add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace));
         if std::env::var("NVF_FRAME_GEN_GPU_TIMES").is_ok_and(|v| v.trim() == "1") {
             crate::graphics::ensure_render_diagnostics(app);
@@ -142,14 +164,28 @@ impl Plugin for FrameGenPlugin {
                 Render,
                 prepare.in_set(RenderSystems::PrepareViews).after(crate::fsr::prepare).before(prepare_view_targets),
             )
+            .add_systems(Render, render_stall.in_set(RenderSystems::PrepareResources).after(prepare_windows))
             .add_systems(Core3d, prepare_pass.in_set(Core3dSystems::EarlyPostProcess).after(crate::fsr::fsr_pass))
             .add_systems(Core3d, capture_hudless.after(Core3dSystems::PostProcess).before(ui_pass))
             .add_systems(Core3d, generate.after(ui_pass).before(upscaling))
+            .init_resource::<Blit>()
+            .init_resource::<Presenters>()
+            .init_resource::<PresenterReals>()
             .add_systems(
                 RenderGraph,
-                (present_generated, prepare_windows, show_real, log_stats).chain().in_set(RenderGraphSystems::Finish).run_if(any_pending),
+                (
+                    take_for_presenters,
+                    // `NVF_FG_PRESENTER=0`: from the render thread, Bevy taking the second image.
+                    (present_generated, prepare_windows, show_real).chain().run_if(any_pending),
+                    log_stats,
+                )
+                    .chain()
+                    .in_set(RenderGraphSystems::Finish),
             )
-            .add_systems(RenderGraph, write_capture.after(RenderGraphSystems::Finish));
+            .add_systems(RenderGraph, write_capture.after(RenderGraphSystems::Finish))
+            // After `render_system`, whose screenshot copy draws into the stand-in after the
+            // render graph.
+            .add_systems(Render, hand_to_presenter.in_set(RenderSystems::Render).after(render_system));
     }
 
     fn finish(&self, app: &mut App) {
@@ -218,6 +254,9 @@ fn follow_switch(world: &mut World) {
     if world.resource::<FrameGenCap>().0 != cap {
         world.resource_mut::<FrameGenCap>().0 = cap;
     }
+    if world.resource::<FrameGenUsable>().0 != usable {
+        world.resource_mut::<FrameGenUsable>().0 = usable;
+    }
     let mut latency = world.resource_mut::<crate::anti_lag::LatencyReduction>();
     if latency.by_frame_generation != usable {
         latency.by_frame_generation = usable;
@@ -246,7 +285,7 @@ fn log_switch(world: &World, mut said: Local<Option<SwitchState>>) {
             "frame generation: on (FSR 3.1.4 optical flow and frame interpolation; the refresh rate is not known yet, so no real-frame cap; latency reduction on)"
         ),
         (true, None, cap) => info!(
-            "frame generation: on (FSR 3.1.4 optical flow and frame interpolation; real frames capped at {cap} fps in play, half the refresh rate; latency reduction on)"
+            "frame generation: on (FSR 3.1.4 optical flow and frame interpolation; real frames capped at {cap} fps in play, just under half the refresh rate; latency reduction on)"
         ),
     }
 }
@@ -256,26 +295,85 @@ fn log_switch(world: &World, mut said: Local<Option<SwitchState>>) {
 pub(crate) struct FrameGenRequest {
     on: bool,
     playing: bool,
+    /// The window's monitor's refresh rate, when known: the presenter never presents closer
+    /// than one refresh.
+    refresh_millihertz: Option<u32>,
 }
 
 impl FrameGenRequest {
-    /// Frame generation is on and can run on this device (FSR's log line says so).
+    /// Frame generation is on and can run ([`usable`]; FSR's log line says so).
     pub(crate) fn on(&self) -> bool {
         self.on
     }
 }
 
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn extract(
+    mut commands: Commands,
     mut request: ResMut<FrameGenRequest>,
-    switch: Extract<Res<FrameGeneration>>,
-    pace: Extract<Res<crate::frame_pace::FramePace>>,
-    support: Extract<Res<FrameGenSupport>>,
+    mut presenters: ResMut<Presenters>,
+    usable: Extract<Res<FrameGenUsable>>,
     play_state: Extract<Option<Res<State<nvf_play::PlayState>>>>,
+    refresh: Extract<Option<Res<crate::frame_pace::Refresh>>>,
+    windows: Query<(Entity, Has<DeferredSwapchain>, Has<SurfaceData>), With<ExtractedWindow>>,
 ) {
     *request = FrameGenRequest {
-        on: switch.on && support.0 && pace.sync.vsync(),
+        on: usable.0,
         playing: play_state.as_ref().is_none_or(|s| *s.get() == nvf_play::PlayState::Playing),
+        refresh_millihertz: refresh.as_ref().and_then(|r| r.millihertz),
     };
+    // While it is on, the windows' images are the presenter's ([`hand_to_presenter`]); when it
+    // goes off, or a presenter failed, the presenters finish what they were handed and end
+    // before Bevy takes the windows' images again.
+    let defer = request.on && *PRESENTER && !presenters.failed;
+    if !defer && !presenters.running.is_empty() {
+        presenters.running.clear();
+    }
+    // A window that lost its surface (closed) ends its presenter, and with it the presenter's
+    // hold on the surface and the window (bevy_render `SharedSurface`).
+    presenters.running.retain(|(window, _)| windows.get(*window).is_ok_and(|(_, _, surface)| surface));
+    for (window, deferred, _) in &windows {
+        if defer && !deferred {
+            commands.entity(window).insert(DeferredSwapchain::default());
+        } else if !defer && deferred {
+            commands.entity(window).remove::<DeferredSwapchain>();
+        }
+    }
+}
+
+/// `NVF_FG_PRESENTER=0`: present from the render thread as before 2026-11-08, for comparisons.
+static PRESENTER: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| !std::env::var("NVF_FG_PRESENTER").is_ok_and(|v| v.trim() == "0"));
+
+/// The presenter of each window frame generation runs in.
+#[derive(Resource, Default)]
+struct Presenters {
+    /// By render-world window entity.
+    running: Vec<(Entity, crate::fg_presenter::Presenter)>,
+    /// A presenter thread could not start or stopped (a panic): the windows are presented from
+    /// the render thread from then on, as with `NVF_FG_PRESENTER=0`, until the game restarts
+    /// (a thread that failed once may well fail again).
+    failed: bool,
+}
+
+/// The real frames [`take_for_presenters`] took this frame for [`hand_to_presenter`], by
+/// window (main-world entity).
+#[derive(Resource, Default)]
+struct PresenterReals(Vec<(Entity, wgpu::Texture)>);
+
+/// `NVF_TEST_RENDER_STALL_MS=<ms>`: the render world spends that long on the CPU each frame,
+/// after the window's image would be taken at the start of the frame and before the frame is
+/// recorded, as a heavy scene's recording does. A measuring aid for frame generation's pacing.
+static RENDER_STALL: std::sync::LazyLock<Option<std::time::Duration>> = std::sync::LazyLock::new(|| {
+    std::env::var("NVF_TEST_RENDER_STALL_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| v.is_finite() && *v > 0.0).map(|ms| std::time::Duration::from_secs_f64(ms / 1000.0))
+});
+
+fn render_stall() {
+    if let Some(stall) = *RENDER_STALL {
+        let until = Instant::now() + stall;
+        while Instant::now() < until {
+            std::hint::spin_loop();
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -296,12 +394,16 @@ struct Stats {
     real: AtomicU64,
     generated: AtomicU64,
     /// When each present was handed over (the generated frame's, then the real one's).
-    presents: Mutex<Vec<Instant>>,
+    presents: std::sync::Arc<Mutex<Vec<Instant>>>,
+    /// The swapchain calls' totals when the period began (bevy_render `SWAPCHAIN_WAITS`).
+    waits: (u64, u64, u64, u64),
+    /// Time in the generated frame's presents over the period.
+    generated_present_nanos: AtomicU64,
 }
 
 impl Default for Stats {
     fn default() -> Self {
-        Self { since: Instant::now(), real: AtomicU64::new(0), generated: AtomicU64::new(0), presents: Mutex::new(Vec::new()) }
+        Self { since: Instant::now(), real: AtomicU64::new(0), generated: AtomicU64::new(0), presents: Default::default(), waits: bevy::render::view::SWAPCHAIN_WAITS.totals(), generated_present_nanos: AtomicU64::new(0) }
     }
 }
 
@@ -327,8 +429,10 @@ pub(crate) struct PreparedFrameGen {
     hudless: wgpu::Texture,
     /// The generated frame.
     output: wgpu::Texture,
-    /// The real frame, while the generated one is presented first.
-    real: wgpu::Texture,
+    /// The real frame, while the generated one is presented first: one of [`STAND_INS`] used in
+    /// turn, as the presenter may still copy from the last two.
+    reals: [wgpu::Texture; STAND_INS],
+    real_next: AtomicU64,
     frame_id: AtomicU64,
     /// Frame interpolation's prepare pass ran this frame.
     prepared: AtomicBool,
@@ -361,7 +465,8 @@ impl PreparedFrameGen {
             output_size,
             hudless: texture("frame_gen_hudless", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC),
             output: texture("frame_gen_output", U::STORAGE_BINDING | U::TEXTURE_BINDING | U::COPY_SRC),
-            real: texture("frame_gen_real", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC),
+            reals: std::array::from_fn(|_| texture("frame_gen_real", U::TEXTURE_BINDING | U::COPY_DST | U::COPY_SRC)),
+            real_next: AtomicU64::new(0),
             frame_id: AtomicU64::new(0),
             prepared: AtomicBool::new(false),
             history: AtomicBool::new(false),
@@ -530,11 +635,12 @@ fn generate(
         info!("frame generation: the camera draws into a screenshot this frame; the real frame is presented alone");
     }
     if !reset && to_window {
-        let size = fg.real.size();
-        encoder.copy_texture_to_texture(main.as_image_copy(), fg.real.as_image_copy(), size);
+        let real = &fg.reals[(fg.real_next.fetch_add(1, Ordering::Relaxed) % STAND_INS as u64) as usize];
+        let size = real.size();
+        encoder.copy_texture_to_texture(main.as_image_copy(), real.as_image_copy(), size);
         encoder.copy_texture_to_texture(fg.output.as_image_copy(), main.as_image_copy(), size);
-        pending.0.lock().unwrap().push((window.entity(), fg.real.clone()));
-        capture.record(device.wgpu_device(), encoder, &[("0-hudless", &fg.hudless), ("1-generated", &fg.output), ("2-real", &fg.real)]);
+        pending.0.lock().unwrap().push((window.entity(), real.clone()));
+        capture.record(device.wgpu_device(), encoder, &[("0-hudless", &fg.hudless), ("1-generated", &fg.output), ("2-real", real)]);
         stats.generated.fetch_add(1, Ordering::Relaxed);
         generated.0.fetch_add(1, Ordering::Relaxed);
         if !fg.logged.swap(true, Ordering::Relaxed) {
@@ -544,20 +650,144 @@ fn generate(
     span.end(ctx.command_encoder());
 }
 
-/// Present the window's image (the generated frame); `prepare_windows` then takes the next.
+/// The real frames of the windows a presenter shows (`DeferredSwapchain`), taken out of
+/// [`PendingReal`] for [`hand_to_presenter`] before the render-thread path of
+/// `NVF_FG_PRESENTER=0` ([`present_generated`], [`show_real`]) would show them.
+///
+/// A screenshot of the window (F12, `--screenshot`): Bevy's `prepare_screenshots` points the
+/// camera's output at a screenshot texture instead of the stand-in, and `render_system`, after
+/// the render graph, copies that texture to the screenshot's buffer and draws it into the
+/// stand-in. On such a frame the generated frame is left out: the real one is drawn over the
+/// generated one in the screenshot texture (submitted here, before that copy), so the
+/// screenshot is of the real frame and the presenter shows the stand-in, the real frame, alone.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn take_for_presenters(
+    pending: Res<PendingReal>,
+    mut reals: ResMut<PresenterReals>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    stats: Res<Stats>,
+    generated: Res<GeneratedFrames>,
+    mut blit: ResMut<Blit>,
+    windows: Query<(MainEntity, &DeferredSwapchain)>,
+    views: Query<(&ViewTarget, &ExtractedCamera), With<PreparedFrameGen>>,
+) {
+    let device = device.wgpu_device();
+    let mut pending = pending.0.lock().unwrap();
+    let mut encoder: Option<wgpu::CommandEncoder> = None;
+    for (main, deferred) in &windows {
+        let Some(at) = pending.iter().position(|(w, _)| *w == main) else { continue };
+        let (window, real) = pending.remove(at);
+        // The camera's output, when it is not this frame's stand-in: a screenshot's texture
+        // (or, on the frame a window is first deferred, the image Bevy still presents itself).
+        let stand_in = deferred.stand_in().map(|(_, view)| view.id());
+        let screenshot = views.iter().find_map(|(target, camera)| {
+            let ours = matches!(&camera.target, Some(NormalizedRenderTarget::Window(w)) if w.entity() == window);
+            target.out_texture().filter(|out| ours && Some(out.id()) != stand_in).zip(target.out_texture_view_format())
+        });
+        let Some((out, format)) = screenshot else {
+            reals.0.push((window, real));
+            continue;
+        };
+        let recording = encoder.get_or_insert_with(|| device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame_gen_screenshot_real") }));
+        blit.draw(device, recording, &real.create_view(&default()), out, format, "frame_gen_screenshot_real");
+        // Not shown: the frame-rate counter counts generated frames shown.
+        stats.generated.fetch_sub(1, Ordering::Relaxed);
+        generated.0.fetch_sub(1, Ordering::Relaxed);
+    }
+    if let Some(encoder) = encoder {
+        queue.submit([encoder.finish()]);
+    }
+}
+
+/// Each deferred window's frame to its presenter (`fg_presenter.rs`, started the first time),
+/// after Bevy's `render_system` has submitted the frame and any screenshot's copy into the
+/// stand-in: the stand-in, which holds the generated frame (or the only one, on a frame
+/// without), then the real frame when there is one. A presenter whose thread could not start
+/// or has ended (a panic) is dropped and no window is deferred from the next frame
+/// ([`Presenters::failed`]); this frame is not presented.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn hand_to_presenter(
+    mut presenters: ResMut<Presenters>,
+    mut reals: ResMut<PresenterReals>,
+    request: Res<FrameGenRequest>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    stats: Res<Stats>,
+    generated: Res<GeneratedFrames>,
+    windows: Query<(Entity, MainEntity, &DeferredSwapchain, &SurfaceData)>,
+) {
+    let refresh = request.refresh_millihertz.filter(|m| *m > 0).map_or(std::time::Duration::ZERO, |m| std::time::Duration::from_secs_f64(1000.0 / f64::from(m)));
+    // Those of windows without a stand-in this frame are dropped with it.
+    let mut reals = std::mem::take(&mut reals.0);
+    for (entity, main, deferred, surface) in &windows {
+        // Only a stand-in drawn this frame: a window `prepare_windows` passed over (no camera
+        // draws to it, or Bevy still held an image) has last frame's, already handed over.
+        let Some((_, stand_in)) = deferred.take_stand_in() else { continue };
+        let mut frames = vec![(**stand_in).clone()];
+        if let Some(at) = reals.iter().position(|(w, _)| *w == main) {
+            frames.push(reals.swap_remove(at).1.create_view(&default()));
+        }
+        let paired = frames.len() == 2;
+        let at = match presenters.running.iter().position(|(e, _)| *e == entity) {
+            Some(at) => at,
+            None => match crate::fg_presenter::Presenter::start(surface.shared(), device.wgpu_device().clone(), (**queue).clone(), stats.presents.clone(), generated.0.clone()) {
+                Ok(started) => {
+                    presenters.running.push((entity, started));
+                    presenters.running.len() - 1
+                }
+                Err(e) => {
+                    presenter_failed(&mut presenters, entity, paired, &generated, &format!("could not be started ({e})"));
+                    continue;
+                }
+            },
+        };
+        use crate::fg_presenter::Handed;
+        let presenter = &mut presenters.running[at].1;
+        match if presenter.running() { presenter.send(frames, refresh) } else { Handed::Ended } {
+            Handed::Over => {}
+            // Not shown: the presenter still has the frames before it to copy.
+            Handed::Behind => {
+                if paired {
+                    stats.generated.fetch_sub(1, Ordering::Relaxed);
+                    generated.0.fetch_sub(1, Ordering::Relaxed);
+                }
+            }
+            Handed::Ended => presenter_failed(&mut presenters, entity, paired, &generated, "has stopped"),
+        }
+    }
+}
+
+/// A window's presenter thread could not start or has ended: the presenter is dropped (its
+/// thread joined, at once as it has ended), the frame it was to show is not shown, and from the
+/// next frame no window is deferred, so Bevy presents them (said once).
+fn presenter_failed(presenters: &mut Presenters, window: Entity, paired: bool, generated: &GeneratedFrames, why: &str) {
+    presenters.running.retain(|(e, _)| *e != window);
+    if paired {
+        generated.0.fetch_sub(1, Ordering::Relaxed);
+    }
+    if !std::mem::replace(&mut presenters.failed, true) {
+        error!("frame generation: the presenter thread {why}; the window is presented from the render thread from now on, as with NVF_FG_PRESENTER=0");
+    }
+}
+
+/// `NVF_FG_PRESENTER=0`: present the window's image (the generated frame) from the render
+/// thread; Bevy's `prepare_windows` then takes the next.
 fn present_generated(pending: Res<PendingReal>, queue: Res<RenderQueue>, stats: Res<Stats>, mut windows: Query<(MainEntity, &mut ExtractedWindow)>) {
     let pending = pending.0.lock().unwrap();
     for (entity, mut window) in &mut windows {
         if pending.iter().any(|(w, _)| *w == entity) {
+            let started = Instant::now();
             window.present(&queue);
+            stats.generated_present_nanos.fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
             stats.presents.lock().unwrap().push(Instant::now());
         }
     }
 }
 
-/// The blit of the real frame into the window's second image, per window format.
-#[derive(Default)]
-struct Blit {
+/// A full-screen copy of a texture into a window's image, per window format.
+#[derive(Resource, Default)]
+pub(crate) struct Blit {
     pipelines: Vec<(wgpu::TextureFormat, wgpu::RenderPipeline)>,
     layout: Option<wgpu::BindGroupLayout>,
     sampler: Option<wgpu::Sampler>,
@@ -576,37 +806,23 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
 }
 ";
 
-/// Draw the real frame into the window's new image; Bevy's `render_system` presents it.
-fn show_real(
-    pending: Res<PendingReal>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-    stats: Res<Stats>,
-    windows: Query<(MainEntity, &ExtractedWindow)>,
-    mut blit: Local<Blit>,
-) {
-    let device = device.wgpu_device();
-    let mut pending = pending.0.lock().unwrap();
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame_gen_show_real") });
-    for (entity, real) in pending.drain(..) {
-        let Some((_, window)) = windows.iter().find(|(w, _)| *w == entity) else { continue };
-        // `present` takes the image but leaves its view: without a second image the view is
-        // the presented one's.
-        let (Some(_), Some(view), Some(format)) = (window.swap_chain_texture.as_ref(), window.swap_chain_texture_view.as_ref(), window.swap_chain_texture_view_format) else {
-            warn!("frame generation: the window had no second image; the real frame is dropped");
-            continue;
-        };
-        let layout = blit.layout.get_or_insert_with(|| {
-            let entry = |binding, ty| wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT, ty, count: None };
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("frame_gen_blit"),
-                entries: &[
-                    entry(0, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }),
-                    entry(1, wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
-                ],
+impl Blit {
+    /// Draw `source` over the whole of `target` (a view in `format`).
+    pub(crate) fn draw(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, source: &wgpu::TextureView, target: &wgpu::TextureView, format: wgpu::TextureFormat, label: &str) {
+        let layout = self
+            .layout
+            .get_or_insert_with(|| {
+                let entry = |binding, ty| wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT, ty, count: None };
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("frame_gen_blit"),
+                    entries: &[
+                        entry(0, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }),
+                        entry(1, wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
+                    ],
+                })
             })
-        }).clone();
-        if !blit.pipelines.iter().any(|(f, _)| *f == format) {
+            .clone();
+        if !self.pipelines.iter().any(|(f, _)| *f == format) {
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("frame_gen_blit"), source: wgpu::ShaderSource::Wgsl(BLIT.into()) });
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("frame_gen_blit"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
             let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -625,23 +841,22 @@ fn show_real(
                 multiview_mask: None,
                 cache: None,
             });
-            blit.pipelines.push((format, pipeline));
+            self.pipelines.push((format, pipeline));
         }
-        let sampler = blit.sampler.get_or_insert_with(|| device.create_sampler(&wgpu::SamplerDescriptor { label: Some("frame_gen_blit"), ..default() })).clone();
-        let source = real.create_view(&default());
+        let sampler = self.sampler.get_or_insert_with(|| device.create_sampler(&wgpu::SamplerDescriptor { label: Some("frame_gen_blit"), ..default() })).clone();
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("frame_gen_blit"),
             layout: &layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&source) },
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(source) },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
             ],
         });
-        let pipeline = &blit.pipelines.iter().find(|(f, _)| *f == format).unwrap().1;
+        let pipeline = &self.pipelines.iter().find(|(f, _)| *f == format).unwrap().1;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("frame_gen_show_real"),
+            label: Some(label),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
+                view: target,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
@@ -655,13 +870,40 @@ fn show_real(
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..3, 0..1);
     }
+}
+
+/// Draw the real frame into the window's new image; Bevy's `render_system` presents it.
+#[allow(clippy::too_many_arguments)]
+fn show_real(
+    pending: Res<PendingReal>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    stats: Res<Stats>,
+    mut blit: ResMut<Blit>,
+    windows: Query<(MainEntity, &ExtractedWindow)>,
+    mut warned: Local<bool>,
+) {
+    let device = device.wgpu_device();
+    let mut pending = pending.0.lock().unwrap();
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame_gen_show_real") });
+    for (entity, real) in pending.drain(..) {
+        let Some((_, window)) = windows.iter().find(|(w, _)| *w == entity) else { continue };
+        let (Some(_), Some(view), Some(format)) = (window.swap_chain_texture.as_ref(), window.swap_chain_texture_view.as_ref(), window.swap_chain_texture_view_format) else {
+            // An occluded or minimised window has no image to take.
+            if !std::mem::replace(&mut *warned, true) {
+                warn!("frame generation: the window had no second image; the real frame is dropped");
+            }
+            continue;
+        };
+        let source = real.create_view(&default());
+        blit.draw(device, &mut encoder, &source, view, format, "frame_gen_show_real");
+    }
     queue.submit([encoder.finish()]);
     // Bevy's render_system presents it next.
     stats.presents.lock().unwrap().push(Instant::now());
 }
 
-/// Every ten seconds: real frames, generated frames, and the rates they make.
-fn log_stats(mut stats: ResMut<Stats>) {
+fn log_stats(mut stats: ResMut<Stats>, presenters: Res<Presenters>) {
     let seconds = stats.since.elapsed().as_secs_f64();
     if seconds < 10.0 {
         return;
@@ -670,13 +912,51 @@ fn log_stats(mut stats: ResMut<Stats>) {
     let generated = stats.generated.swap(0, Ordering::Relaxed);
     let presents = std::mem::take(&mut *stats.presents.lock().unwrap());
     stats.since = Instant::now();
+    if real == 0 {
+        // Frame generation was off throughout: nothing to say.
+        stats.waits = bevy::render::view::SWAPCHAIN_WAITS.totals();
+        stats.generated_present_nanos.store(0, Ordering::Relaxed);
+        return;
+    }
     let spread = interval_spread(&presents).map_or_else(String::new, |[mean, median, p95, p99, max]| {
         format!("; between presents {mean:.2} ms mean, {median:.2} median, {p95:.2} at the 95th percentile, {p99:.2} at the 99th, {max:.2} at most")
     });
+    // The time in the swapchain's calls over the period, per real frame, and the presenter's.
+    let now = bevy::render::view::SWAPCHAIN_WAITS.totals();
+    let (p, pn, a, an) = (now.0 - stats.waits.0, now.1 - stats.waits.1, now.2 - stats.waits.2, now.3 - stats.waits.3);
+    stats.waits = now;
+    let per_frame = |nanos: u64| nanos as f64 / 1e6 / real.max(1) as f64;
+    let generated_present = stats.generated_present_nanos.swap(0, Ordering::Relaxed);
+    let (paced, queued, gpu_wait, polls, skipped, dropped) = presenters.running.iter().fold((0, 0, 0, 0, 0, 0), |(p, q, g, n, s, d), (_, presenter)| {
+        let shared = presenter.shared();
+        (
+            p + shared.paced_nanos.swap(0, Ordering::Relaxed),
+            q + shared.queued_nanos.swap(0, Ordering::Relaxed),
+            g + shared.gpu_wait_nanos.swap(0, Ordering::Relaxed),
+            n + shared.gpu_polls.swap(0, Ordering::Relaxed),
+            s + shared.skipped.swap(0, Ordering::Relaxed),
+            d + shared.dropped.swap(0, Ordering::Relaxed),
+        )
+    });
+    let place = if presenters.running.is_empty() {
+        format!("on the render thread (the generated frame's {:.2})", per_frame(generated_present))
+    } else {
+        format!(
+            "on the presenter thread, which paced them {:.2} ms and issued the first {:.2} ms after it was handed over ({:.2} waiting for the GPU, {:.1} polls); {skipped} not presented, {dropped} generated left out to catch up",
+            per_frame(paced),
+            per_frame(queued),
+            per_frame(gpu_wait),
+            polls as f64 / real.max(1) as f64,
+        )
+    };
     info!(
-        "frame generation: {real} real frames and {generated} generated in {seconds:.1} s ({:.1} real fps, {:.1} presented fps{spread})",
+        "frame generation: {real} real frames and {generated} generated in {seconds:.1} s ({:.1} real fps, {:.1} presented fps{spread}); a real frame's {:.1} presents took {:.2} ms {place}, {:.1} image takes {:.2} ms",
         real as f64 / seconds,
-        (real + generated) as f64 / seconds
+        (real + generated).saturating_sub(dropped) as f64 / seconds,
+        pn as f64 / real.max(1) as f64,
+        per_frame(p),
+        an as f64 / real.max(1) as f64,
+        per_frame(a),
     );
 }
 
@@ -816,11 +1096,12 @@ mod tests {
 
     #[test]
     fn real_frames_are_capped_at_half_the_refresh_rate() {
-        assert_eq!(real_frame_cap(Some(144_000)), 72);
-        assert_eq!(real_frame_cap(Some(143_998)), 71, "a 144 Hz mode as Windows reports it");
-        assert_eq!(real_frame_cap(Some(120_000)), 60);
-        assert_eq!(real_frame_cap(Some(60_000)), 30);
-        assert_eq!(real_frame_cap(Some(240_000)), 120);
+        assert_eq!(real_frame_cap(Some(160_000)), 78);
+        assert_eq!(real_frame_cap(Some(144_000)), 71);
+        assert_eq!(real_frame_cap(Some(143_998)), 70, "a 144 Hz mode as Windows reports it");
+        assert_eq!(real_frame_cap(Some(120_000)), 59);
+        assert_eq!(real_frame_cap(Some(60_000)), 29);
+        assert_eq!(real_frame_cap(Some(240_000)), 117);
         assert_eq!(real_frame_cap(Some(20_000)), 15, "never under 15");
         assert_eq!(real_frame_cap(None), 0, "unknown refresh: no cap");
     }

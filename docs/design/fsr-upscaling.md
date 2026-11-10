@@ -351,8 +351,8 @@ So the frame rate rises with FSR only where the GPU sets the frame, and then by 
 share above. Where something else sets it, it does not move:
 
 - **Vsync** (Display sync's default) holds frames to the refresh rate.
-- **Frame generation** holds the game's own frames to half the refresh rate (30 on a 60 Hz
-  screen; [frame-generation](frame-generation.md)).
+- **Frame generation** holds the game's own frames to just under half the refresh rate (29 on
+  a 60 Hz screen, 78 at 160 Hz; [frame-generation](frame-generation.md)).
 - **The CPU**: towns, crowds and battles take 6-46 ms a frame of CPU on the owner's i9-14900K
   (docs/design/frame-rate-audit.md §5), which FSR does not touch.
 - On the machine measured here, presents were held to the 160 Hz refresh even with vsync

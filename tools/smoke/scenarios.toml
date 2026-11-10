@@ -22911,15 +22911,17 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 name = "frame-generation"
 source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/vendor/wgpu-ffx/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
-run_seconds = 22
+run_seconds = 26
 expect = [
   "FSR 3.1.4: Quality, 853x480 -> 1280x720, frame generation on",
   "frame generation: 853x480 -> 1280x720, a generated frame between each two real frames",
   "frame generation active: 1280x720, generated frame presented first, the real frame second",
+  { text = "frame generation: presenting on a thread of its own", label = "the presenter thread takes the window's images (h9x000/NVForever#1)" },
   { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
+  { text = "frame generation: … presents took … on the presenter thread", label = "presented from the presenter thread, not the render thread" },
   { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
 ]
 forbid = [
@@ -22928,6 +22930,26 @@ forbid = [
   { text = "frame generation: on but not running", label = "frame generation switched on but held off" },
   { text = "the real frame is dropped", label = "a real frame without its second window image" },
 ]
+
+[[scenario]]
+name = "frame-generation-switch"
+source = "h9x000/NVForever#1, docs/design/frame-generation.md \"Presentation and pacing\": frame generation switched off and on again on the settings page: its presenter thread ends before Bevy takes the window's images again, a new one starts and presents, no validation errors"
+areas = ["graphics", "ui"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/vendor/bevy_render/src/view/window/**"]
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "8:10,13:15", NVF_PLAY_TEST_SETTINGS = "9:frame-generation,14:frame-generation" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--no-voice", "--no-lodgen"]
+run_seconds = 32
+expect = [
+  { text = "frame generation: presenting on a thread of its own", count = 2, label = "a presenter at the start and a new one after switching back on" },
+]
+order = [[
+  { text = "frame generation: presenting on a thread of its own", label = "the first presenter starts" },
+  { text = "frame generation: off", label = "switched off on the settings page" },
+  { text = "frame generation: on (FSR", label = "switched on again" },
+  { text = "frame generation: presenting on a thread of its own", label = "a new presenter starts" },
+  { re = 'frame generation: [1-9]\d* real frames and .* on the presenter thread', label = "frames presented by it" },
+]]
+forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }, { text = "panicked", label = "a panic" }]
 
 [[scenario]]
 name = "frame-generation-needs-fsr"
