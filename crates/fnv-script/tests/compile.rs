@@ -661,6 +661,25 @@ fn temporary_arrays_are_freed() {
     assert!(h.1.arrays.is_empty(), "nothing holds any array at the end: {:?}", h.1.arrays.keys().collect::<Vec<_>>());
 }
 
+/// A foreach whose body stops on an error lets its source go, and an element set on an
+/// empty array variable does not hold the value: each held an array for ever, never swept
+/// and saved [#1990]. The list's only holder after the error is the variable `a`.
+#[test]
+fn an_error_inside_foreach_or_an_element_set_holds_no_array() {
+    let t = table();
+    let list_refs = |h: &Locals| h.1.arrays.values().filter(|a| a.kind == fnv_script::vm::ArrayKind::List).map(|a| a.refs).collect::<Vec<_>>();
+    for src in [
+        "array_var a\narray_var e\nfloat n\nbegin GameMode\nlet a := Ar_List 1, 2\nforeach e <- a\n  let n := e[\"nvf no key\"]\nloop\nend",
+        "array_var a\narray_var b\nbegin GameMode\nlet a := Ar_List 1, 2\nlet b[0] := a\nend",
+    ] {
+        let (c, p) = build(src);
+        let mut h = host_for(&c);
+        let r = Vm::new(&t, &mut h, RunOpts { strict: true, ..RunOpts::default() }).run(&p.blocks[0].body);
+        assert!(r.is_err(), "{src}");
+        assert_eq!(list_refs(&h), [1], "{src}");
+    }
+}
+
 // ---- string functions, formats, output, version reports (D1, C4, D4, C5) ------------------
 
 #[test]
