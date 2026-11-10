@@ -181,11 +181,11 @@
   },
   {
    "op": "move_player",
-   "to": "scripted:0x001618C4#1"
+   "to": "scripted:0x001618C4#2"
   },
   {
    "op": "trigger_enter",
-   "trigger": "scripted:0x001618C4#1",
+   "trigger": "scripted:0x001618C4#2",
    "actor": "player",
    "event": "enter"
   },
@@ -233,11 +233,11 @@
   },
   {
    "op": "move_player",
-   "to": "scripted:0x001618C4#2"
+   "to": "scripted:0x001618C4#3"
   },
   {
    "op": "trigger_enter",
-   "trigger": "scripted:0x001618C4#2",
+   "trigger": "scripted:0x001618C4#3",
    "actor": "player",
    "event": "enter"
   },
