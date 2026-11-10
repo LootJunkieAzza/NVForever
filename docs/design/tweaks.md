@@ -499,6 +499,7 @@ unless the player binds them, so nothing changes until then.
 | Sneak Attacks Standing | `bSneakAttackWithoutCrouching` | `combat::sneak_attack` takes the player as sneaking whenever the target has not detected them |
 | No Companion Item Damage | `bNoCompanionItemDamage` | `combat::wear_weapon` returns before any wear for a teammate (armour wears only on the player in NVForever) |
 | Weapon Mods Need the Skill | `bWeaponModdingSkillRequirement` | `pipboy::item_mod::keys` refuses to open the mod list when the player's skill (`WeaponStats::skill`) is under `skill_req` |
+| Planting Grenades Needs the Skill | `bPlantingLiveGrenadesRequiresWeaponSkill` | `pickpocket` (engine): under the explosive's skill requirement it is placed but does not go live |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -520,8 +521,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 421 |
-| to do | 182 |
+| done | 422 |
+| to do | 181 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -590,6 +591,7 @@ game's Data folder, read-only).
 | `bPickLocksWithoutSkill` | done |  | 1 | Pick Any Lock (the lock plays as before; the difficulty option not built) |
 | `bPickpocketCaughtCausesDetection` | done |  |  | Caught Pickpocketing Means Detected |
 | `bPickpocketFleeingActors` | done |  |  | Pickpocket the Fleeing |
+| `bPlantingLiveGrenadesRequiresWeaponSkill` | done |  |  | Planting Grenades Needs the Skill (under it the explosive stays a plain item) |
 | `bPowerArmorNeedsNoTraining` | done |  |  | Power Armor Without Training |
 | `bPowerArmorScalesFallDamage` | done |  | 2 | Falls in Power Armor (slider; applies to everyone, the player-only option not built) |
 | `bPowerArmorScalesLimbDamage` | done |  | 3 | Limb Damage in Power Armor (slider, every limb; the head and mode options not built) |
@@ -663,7 +665,6 @@ game's Data folder, read-only).
 | `bOverencumberedTweak` | to do |  | 8 | encumbered_walks and ap_costs together, with a timer |
 | `bPerBulletLoopingReloads` | to do |  | 2 | a press counter on the attack Cycle |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
-| `bPlantingLiveGrenadesRequiresWeaponSkill` | to do |  |  | pickpocket::results; a dud when under the skill |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
 | `bRememberBobbyPinHealth` | to do |  |  | Picking::new starts a full pin; needs a stored health |

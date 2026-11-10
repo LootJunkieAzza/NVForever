@@ -407,6 +407,9 @@ pub struct Tweaks {
     /// `bWeaponModdingSkillRequirement`: a weapon is modded only by a player who meets
     /// its skill requirement.
     pub modding_needs_skill: bool,
+    /// `bPlantingLiveGrenadesRequiresWeaponSkill`: an explosive placed in a pocket goes
+    /// live only for a player who meets its skill requirement.
+    pub planting_needs_skill: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -594,6 +597,7 @@ impl Default for Tweaks {
             standing_sneak_attacks: false,
             no_companion_item_damage: false,
             modding_needs_skill: false,
+            planting_needs_skill: false,
         }
     }
 }
