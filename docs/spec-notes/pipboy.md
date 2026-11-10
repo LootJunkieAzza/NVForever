@@ -1360,6 +1360,143 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   where the World Map opens; how the original turns the arrow; the radio's waveform model;
   Place Marker, Challenges, the audio notes' panel, the buttons' hover boxes.
 
+### 5.3.1 DATA from its file: what the code writes
+
+The DATA page drawn from `menus\main\map_menu.xml`, in the Pip-Boy's image, behind
+`[UI] TileMenus=MapMenu`, off by default (`tiles/map_menu.rs`; issue #1513). Off, nothing of it
+runs and the hand-built page (`pipboy/data.rs`) draws as before. The rules stay `pipboy::data`'s:
+the module writes values and says what a tile stands for; commands go where the hand-built page's
+go [design]. Tile names, places and expressions are [documented: `menus\main\map_menu.xml` and the
+prefabs it includes, `list_box.xml`, `list_box_template.xml`, `text_box.xml`, `tabline.xml`]. No
+capture of the original's MapMenu traits was read for this slice but run08's map markers (§5.3);
+what the original writes into the traits below is not known unless tagged.
+
+**This slice draws the Quests tab only** [design, #1513]. The Local Map, the World Map, Misc and
+Radio keep the whole hand-built page while they show: the maps' drawing and picking need a shared
+viewport the file's map windows do not give yet, Misc's notes and challenges and Radio's waveform
+are later work. The page goes over to its tiles and back as the tab changes, as STATS' tabs do.
+
+**The one decision**: `MapTiles::ready`, as `InventoryTiles::ready` (§5.2.1): the switch on, DATA
+showing on a tab drawn from the file, no fast-travel question up, the file's tiles there, the tabs
+made, the model prepared for this tab, and a usable measured layout. A failure leaves the whole
+hand-built page, says why once (on the third final pass in a row that fails), and is tried again
+when what it would show or the tree changes. While the Pip-Boy goes down the page stays as last
+written [design].
+
+**Preparing and painting** [design]: with the switch on the DATA page's preparation (its lists, the
+player's keys, the pointer's acts, notes marked read, the Local Map's outline, the quest order and
+the hints) runs in `pipboy::data::prepare`, before the tile decision and the frame, for the DATA page
+as the Pip-Boy shows it, whatever draws it; the hand-built `draw` then only paints, and only while its
+body is there. Off, `draw` prepares and paints as before. Exactly one presentation publishes what the
+page's rules read of the drawing: how many rows fit, how far the right pane can scroll and its window
+(the wheel's), each from the drawing that showed this frame.
+
+**The file's structure this relies on** [documented: map_menu.xml]:
+
+- The root `MapMenu` binds the controller's X to `MM_ButtonX`'s `clicked` and Y to `MM_ButtonY`'s,
+  and names `MM_ButtonY` for the PC's R (`_PCButton_R`).
+- `MM_Tabline` (`tabline.xml`) under `GLOW_BRANCH`, beside `MM_MainRect`: `_CurrentTab` is the tab,
+  0 Local Map, 1 World Map, 2 Quests, 3 Misc, 4 Radio. The parts' `visible` read it: the local map's
+  window on 0, the world map's on 1, the highlight box's window on 0 and 1, `MM_QuestsList` on 2,
+  `MM_NotesList` and `MM_ChallengeList` on 3, `MM_RadioStationList` and `MM_WaveformRect` on 4. The
+  tabs are made from `TabButtonTemplate`, as ITEMS' (§5.2.1).
+- `MM_HeadlineRect`: `MM_Headline_Title` (`&-sData;`), the line `MM_Headline_h2` (x 180, 470 long),
+  `MM_Headline_LocationInfo` and `MM_Headline_TimeDateInfo`, both `string` "Set in code".
+- The lists (`list_box.xml`): `MM_QuestsList`, `MM_NotesList`, `MM_RadioStationList`,
+  `MM_ChallengeList`, each at x -15, y 75, 400 × 468; `_enabled` is empty, "set in code", on the
+  first three (the radio's follows its own `visible`). A row's `target` is its list's `_enabled` and
+  its own; the highlight box shows only while `_enabled`.
+- The rows' templates: `MM_ListMarkerTemplate` (`MM_ListItem`, 400 wide; `ListItemText` font 2 at 40,
+  20, wrapped at 310, its `string` the row's and its `alpha` the row's `_TextAlpha` (255);
+  `MM_Template_ItemMarker`, 25 square at 15, 20, shown when the row's `_ShowEmptyMarker` (false) or
+  its `_selected` is, `square.dds` or `square_filled.dds` by `_selected`, at `_TextAlpha` too) and
+  `MM_ListTemplate` (its text at 15, no marker).
+- `MM_ButtonRect` at the main rect's right edge, at the Quests list's `y`, 120 high, holding
+  `MM_ButtonA`, `MM_ButtonX` and `MM_ButtonY` (`text_box.xml`): right-justified, `_horbuf` 20,
+  `_verbuf` 15, X under A and Y under X only where the one above shows (`_y`), the line's alpha
+  255 while `target`, 127 otherwise (dim). Their `visible` and `_Title` are expressions of the tab,
+  the lists' child counts, `_ItemType` and `&xbox;` (§5.3's hint rules); Y's `_PCButtonText` is
+  `&-sPCMenuHintR;`.
+- `MM_DataRect`, 400 × 400 at the main rect's right, under the buttons when one shows: `visible`
+  false, set in code; its user traits `_ItemType` (the selected row's kind: its children show on 1
+  the text, 2 the picture, 3 the audio meter, 4 the objectives), `_ItemStringInfo` (the audio's time
+  left), `_AudioFileCompletion` (the share played) and `user0` (a playing audio note highlighted).
+- `MM_QuestObjectivesList` under `MM_DataRect` (`list_box.xml`): 400 wide, 400 high on a PC, at the
+  rect's right, `_enabled` false (no highlight box, no row a target), `target` true, its scroll bar on
+  the right, shown on `_ItemType` 4.
+- Not read in this slice: the maps' windows and templates, the highlight box, `MM_DataTextRect`,
+  `MM_DataImage`, `MM_DataAudioInfo`, `MM_WaveformRect`, `MM_Headline_ChallengeType`,
+  `MM_Notes_SelectedNoteHighlight`, `MM_Challenge_SelectedHighlight`.
+
+**What the code writes on Quests** [design]:
+
+| Model (`pipboy::data`) | Tile, trait | Notes |
+|---|---|---|
+| The tab | `MM_Tabline`: `_ButtonCount` 5, `_CurrentTab`, `_LeftLineLength`; five tiles from `TabButtonTemplate`, each `listindex`, `string`, `_x` | As ITEMS' tabs (§5.2.1), the same rule for their places. The words are the hand-built page's (`Page::tabs`: `sLocalMapTabText` … `sCommsTabText` where the load order defines them, else "Local Map", "World Map", "Quests", "Misc", "Radio"). |
+| The place, the date and time | `MM_Headline_LocationInfo/string`, `MM_Headline_TimeDateInfo/string` | `read::place_name`, `model::date_time`, as the hand-built heading. |
+| Title, heading line | `MM_Headline_Title` hidden in the screen menu, `MM_Headline_h2` run on; both as the file on the device | As §5.1.1 [design: the owner, 2026-10-31]. |
+| The quests (`model::sort_quests`'s order) | `MM_ListMarkerTemplate` rows under `MM_QuestsList`, kept by the quest's FormID; each row's `string`, `_selected` (the active quest: filled square), `_ShowEmptyMarker` 0, `_TextAlpha` 128 for a quest done, else 255; the list's `_enabled` 1 | A done quest at half strength and the active quest's square as the hand-built page's (§5.3) [hypothesis there]. Rows from `list::reconcile`, placed by `list::measure_rows`: a wrapped name makes a taller row. |
+| The selection, boxed | the list's `_highlight_y`, `_selected_height` while boxed; -1 and 0 otherwise | As the hand-built box: under the pointer or after Up/Down, none when a tab comes up. |
+| The list's scroll | `lb_scrollbar` counts by `list::counts`, `_current_value`, `_SetInCode` | The tile page's own scroll, as ITEMS' (§5.2.1): the keys bring the selected row into view, the pointer's pick does not; the wheel over the page (not over the objectives) moves it a notch a value; the bar's arrows, page areas and marker move it. |
+| The selected quest's objectives (`objectives`) | `MM_DataRect`: `visible` 1 while a quest is selected, `_ItemType` 4; `MM_ListMarkerTemplate` rows under `MM_QuestObjectivesList`, by place: `string`, `_ShowEmptyMarker` 1, `_selected` (done), `_TextAlpha` 128 when done | The hand-built pane's squares and dimming. |
+| The right pane's scroll (`text_first`, one scroll for both panes, §5.3) | `MM_QuestObjectivesList`: `_scroll_delta` 1; its `lb_scrollbar`'s `_number_of_items` (how far it can scroll, plus 1), `_number_of_visible_items` 1, `_current_value` the pane's scroll, `_SetInCode` | So the rows move by exactly the units the hand-built pane does: Page Up/Down a window, the wheel over it 20 a notch, the right stick, the bar's clicks (an arrow a notch, a page area a page, the marker held dragging) [design]. |
+| The hints (`tab_buttons`, #1897 / #1952) | `MM_ButtonA` (Set Active), `MM_ButtonX` (Show Location), `MM_ButtonY` (none on Quests): `visible`, `string` (the hint's word), `_PCButtonText` (its key, "X)", with a controller its button), `target` (lit: 1, dim: 0) | The hand-built page's rules, not the file's expressions: A with a controller only, X with either device when a quest is listed, no Y on Quests. Bound by what each hint does (`ButtonKind`), never by its place in the list. |
+| `MM_Background` | hidden in both frames | The shell's background, as §5.1.1. |
+| `MM_Headline_ChallengeType` | hidden | Misc's, not on this tab. |
+
+**Every string written, and where it comes from** [design: LEGAL.md]: the tabs as above; the place
+and the quests' names (record data, `FULL`); the date and time (figures); the objectives' texts
+(record data, SetObjectiveText's); the hints' words (the settings' texts, else NVForever's labels in
+the strings table, §5.3); their keys (`crate::pad::hint`).
+
+**Input** (`map_menu::feed`): the pointer is `PipBoyScreen::pointer`, read and never written; with
+Controller chosen as the Input Device it is ignored, as on the hand-built page. It takes nothing with
+a menu over the page or another tile menu taking the frame. What a tile stands for goes where the
+hand-built page's node sends it, through `DataState`'s acts:
+
+| What | Sends |
+|---|---|
+| The pointer moves onto a quest's row | `Hover(tab, i)`: selected and boxed |
+| The pointer leaves the selected row | `Leave(tab, i)`: no longer boxed |
+| A click on a row | `Use(tab, i)`: selected and used (`use_row`: made the active quest) |
+| A click on a hint | `Button(kind)`: the A hints do Enter's work; Show Location shows the World Map |
+| A tab | `PipBoyInput::Tab(i)`; the pointer onto it, `TabHovered(i)` |
+| The objectives' bar: arrow, page area, marker | `Bar(Up/Down/PageUp/PageDown/Marker)`: the right pane's |
+| The quests' bar | the tile list's own scroll, no command of the model's |
+
+The keys, the wheel and the sticks stay `pipboy::data`'s and `pipboy::keys`' (`HAND_BUILT_KEYS`): a
+file's binding acts for a script's tap, not for a physical press, and never for a controller's
+button (the file's X and Y would act twice with the page's own X and R).
+
+**Usable**: as §5.2.1: every tab's words shown whole, the tabs but the one showing taking the pointer
+(one that does not is warned of and the page stays); the quests' rows whose words lie whole inside
+the list's window, at least one when there are quests, taking the pointer at their middles; a list
+that scrolls has a window. A hint that shows lit and does not take the pointer is warned of and the
+page stays (its key still works).
+
+**Falls back, whole page, with the reason** [design]: another tab than Quests; the question box up;
+`MapMenu` not in the tree; a tile or template above missing (a mod's restructured file); the tabs or
+a row not made; nothing prepared yet for this tab (no failure); the layout not usable. The test aid
+`NVF_PLAY_TEST_MAP_TILE_CUT=<name>[@<seconds>]` takes a tile or template as missing, and at its end
+builds the menu again from its file, for the recovery.
+
+**Log**: `tiles: MapMenu draws <tab> from tiles` and `tiles: MapMenu leaves <tab> hand-built: <reason>`
+when that changes; `tiles: MapMenu page from tiles: tab quests, <n> rows, "<name>" selected, <m>
+objectives, hints: <…>` when what it shows changes; `MapMenu drawn by hand: <reason>` (a warning)
+for a failure; the painter's `tiles: MapMenu drawn from tiles (…)` and `set out for the Pip-Boy's
+image: …` lines.
+
+**Unit coverage given up** (#1512): the tests' fixture is written for them. It cannot prove how the
+file's expressions read what is written: `_CurrentTab` and the lists' `visible`, the tabs' insides,
+`_selected` and `_TextAlpha` in the row template, `_ItemType` and `MM_DataRect`'s `y`, the buttons'
+`_y` and their dim look, or the file's own places. The smoke scenarios `tiles-data*` check structure
+and hits on the real file; their logs cannot prove pixels, only their shots can.
+
+**Known differences behind the switch** [design]: the hints' hover box is the file's (`_box_visible`
+on mouseover), which the hand-built page does not draw; the file's own hint rules are not used.
+**Not known**: what the original writes into `_TextAlpha`, `_ShowEmptyMarker` and the objectives'
+scroll; the original's objectives scroll by rows (`list_box.xml`), ours by DATA's continuous pane.
+
 ## 6. Keys and pointer [hypothesis unless marked]
 
 - Tab opens and closes; Esc closes. F1, F2, F3 show STATS, ITEMS, DATA; A/D and
