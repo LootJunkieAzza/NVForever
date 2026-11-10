@@ -1690,8 +1690,12 @@ impl Vm<'_, '_> {
         let XVal::Array(id) = holder else { return Err(VmError::Type("[] of something that is not an array".into())) };
         let key = self.key_for(*id, k)?;
         let store = self.store()?;
+        // Held once the array is there: an empty array variable left `v` held for good [#1990].
+        if store.array(*id).is_none() {
+            return Err(VmError::Type("[] of an empty array variable".into()));
+        }
         store.retain(&v);
-        let a = store.array_mut(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
+        let a = store.array_mut(*id).expect("looked up just above");
         let old = match (a.kind, &key) {
             (ArrayKind::List, XKey::Num(x)) => {
                 let len = a.entries.len();
@@ -1761,6 +1765,24 @@ impl Vm<'_, '_> {
         format!("{kind} #{id} [{}]", parts.join(", "))
     }
 
+    /// The loop of [`Vm::foreach`] over array `id`, its source held by the caller.
+    fn foreach_array(&mut self, var: &VarRef, id: u32, body: &[Stmt]) -> Result<Flow, VmError> {
+        let mut i = 0;
+        loop {
+            self.step()?;
+            let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { return Ok(Flow::Normal) };
+            let store = self.store()?;
+            let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
+            self.write_var(var, XVal::Array(e))?;
+            match self.list(body, false)? {
+                f @ (Flow::Return | Flow::GoTo(_)) => return Ok(f),
+                Flow::Break => return Ok(Flow::Normal),
+                Flow::Normal | Flow::Leave | Flow::Continue | Flow::Wait => {}
+            }
+            i += 1;
+        }
+    }
+
     /// `foreach <var> <- <source>` … `loop`. Over an array each entry is a string map with
     /// its "key" and "value"; over a string each character [documented: ForEach]. The
     /// source is read element by element as the loop goes, so erasing during it skips
@@ -1770,23 +1792,15 @@ impl Vm<'_, '_> {
         let src = self.xeval(&head.source)?;
         match src {
             XVal::Array(id) => {
+                // The source is held for the loop and let go however it ends: an error in
+                // the body (a function on no reference, the step budget) kept it held for
+                // ever, swept never and saved [#1990].
                 self.store()?.retain(&src);
-                let mut i = 0;
-                let flow = loop {
-                    self.step()?;
-                    let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { break Flow::Normal };
-                    let store = self.store()?;
-                    let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
-                    self.write_var(var, XVal::Array(e))?;
-                    match self.list(body, false)? {
-                        f @ (Flow::Return | Flow::GoTo(_)) => break f,
-                        Flow::Break => break Flow::Normal,
-                        Flow::Normal | Flow::Leave | Flow::Continue | Flow::Wait => {}
-                    }
-                    i += 1;
-                };
-                self.store()?.release(&src);
-                Ok(flow)
+                let flow = self.foreach_array(var, id, body);
+                if let Ok(store) = self.store() {
+                    store.release(&src);
+                }
+                flow
             }
             XVal::Str(s) => {
                 for ch in s.chars() {

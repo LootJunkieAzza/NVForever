@@ -24355,3 +24355,18 @@ expect = [
   "run log: the game exited normally",
 ]
 forbid = [{ text = "reports: sent", label = "a test run sent a report" }]
+
+[[scenario]]
+name = "calm-creature-idles"
+source = "#2051: a calm creature standing still plays its idle tree's ordinary idles, the tree's conditions deciding (FidgetKind::Calm). Observed in the original (#1977 probe 2): HELIOS One's stasis protectrons, calm on ProtectronNotActive, play IdleSearch, IdleLookLeft and IdleLookRight"
+note = "HELIOSOneTower, the player 295 units south of p4 behind the pods' wall: p5 (VHeliosStasisProtectron5REF 0x0009A256) and p2 (0x0009A262) do not notice it and stand calm in their pods; the tower's other robots (0x0009A271, 0x0009A1FF) stand calm too"
+areas = ["idles", "creatures"]
+paths = ["engine/nvforever/src/idles.rs", "crates/fnv-game/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneTower", "--play", "--no-voice", "--no-messages", "--pos=-2995,-650,6600", "--heading", "0"]
+run_seconds = 25
+expect = [
+  { re = 'idle: VHeliosStasisProtectron[25]REF plays (IdleSearch|IdleLookLeft|IdleLookRight) .*\(CalmIdle\)', label = "a calm stasis protectron looks about in its pod (the original's IdleSearch / IdleLook*)" },
+  { re = 'idle: VHeliosStasisProtectron[25]REF plays ProtectronTurnedOff', max = 0, label = "not the switched-off pose: they are awake (GetUnconscious 0 in the original)" },
+  { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
+]
