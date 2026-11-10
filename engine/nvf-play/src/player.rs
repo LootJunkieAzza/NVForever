@@ -728,6 +728,10 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
     }
 }
 
+/// How fast the Smooth Camera tweak's look catches up with the input, per second (ours)
+/// [design: docs/design/tweaks.md].
+const SMOOTH_LOOK_RATE: f32 = 8.0;
+
 /// Mouse look while the cursor is grabbed, or with a controller working the controls the
 /// right stick's (`crate::pad`); while Toggle POV is held it circles the camera instead
 /// (control.rs). Not while a script has locked looking: the view stays where it is
@@ -748,7 +752,7 @@ fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
+    (talk, switches, mut smooth): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>, Local<Vec2>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
@@ -774,6 +778,21 @@ fn mouse_look(
     } else {
         // The axes ToggleMouseMovement left on (`crate::script_switches`).
         (switches.as_deref().map_or(motion.delta, |s| s.look(motion.delta)), bindings.mouse_sensitivity)
+    };
+    // The player's tweak: the look eases after the mouse or stick, a cinematic camera;
+    // not while aiming [design: docs/design/tweaks.md].
+    let smoothing = tweaks.as_ref().is_some_and(|t| t.smooth_look) && !control.aiming;
+    let delta = if smoothing {
+        *smooth += delta;
+        let out = *smooth * (1.0 - (-time.delta_secs() * SMOOTH_LOOK_RATE).exp());
+        *smooth -= out;
+        if smooth.length() < 1e-3 {
+            *smooth = Vec2::ZERO;
+        }
+        out
+    } else {
+        *smooth = Vec2::ZERO;
+        delta
     };
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;

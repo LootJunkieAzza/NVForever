@@ -289,6 +289,12 @@ pub struct TweakSettings {
     /// `bPickLocksEvenWithKey`: with Shift held a lock the player has the key of is
     /// picked instead.
     pub pick_locks_with_key: bool,
+    /// `iToggleSmoothCameraKey`: the look eases after the input (the Smooth Camera key
+    /// flips it; not kept in the INI).
+    pub smooth_look: bool,
+    /// `bRightClickChangesToPreviousContainerCategory`: a right click on a container's
+    /// or a barter's list heading steps back a category.
+    pub right_click_previous_category: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -468,6 +474,8 @@ impl Default for TweakSettings {
             store_all: false,
             quick_load_in_menus: false,
             pick_locks_with_key: false,
+            smooth_look: false,
+            right_click_previous_category: false,
         }
     }
 }
@@ -1283,6 +1291,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "quick-load-in-menus", "Quick Load From the Menus", "The QuickLoad key loads the quicksave from the main and pause menus too. (Stewie's Tweaks bStartMenuQuickLoad)", quick_load_in_menus);
         switch!(app, "preview-perks", "Preview Perks on Level Up", "A level-up without a perk still shows the perks page, to look at with none to take. (Stewie's Tweaks bPreviewPerksOnLevelUp)", game.preview_perks);
         switch!(app, "pick-locks-with-key", "Pick Locks Even With the Key", "Holding Shift, a lock the player has the key of opens the lockpicking game instead. (Stewie's Tweaks bPickLocksEvenWithKey)", pick_locks_with_key);
+        switch!(app, "right-click-previous-category", "Right Click for the Previous Category", "In a container or a barter, a right click on a list's heading steps back to the previous category. (Stewie's Tweaks bRightClickChangesToPreviousContainerCategory)", right_click_previous_category);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1455,6 +1464,10 @@ fn keys(
             inventory.write(crate::menu::OpenInventory);
             info!("tweaks: Pip-Boy opened on {} tab {} (key)", page.title(), page.tabs()[tab]);
         }
+    }
+    if input.just_pressed(Control::SmoothCamera) {
+        tweaks.smooth_look = !tweaks.smooth_look;
+        info!("tweaks: smooth camera {}", if tweaks.smooth_look { "on" } else { "off" });
     }
     if input.just_pressed(Control::ToggleCrosshair) {
         tweaks.crosshair_hidden = !tweaks.crosshair_hidden;

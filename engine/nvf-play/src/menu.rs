@@ -562,9 +562,11 @@ fn menu_mouse(
     mut out: MessageWriter<MenuInput>,
     (tile_menu, barter_tiles, tile_title): MouseTiles,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    mouse: Res<ButtonInput<MouseButton>>,
 ) {
+    let right_steps_back = tweaks.as_ref().is_some_and(|t| t.right_click_previous_category);
     // The player's tweak turns the wheel over a category title the other way [design: docs/design/tweaks.md].
-    let invert_titles = tweaks.is_some_and(|t| t.invert_title_wheel);
+    let invert_titles = tweaks.as_ref().is_some_and(|t| t.invert_title_wheel);
     let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory && m.quantity.is_none()) else {
         wheel.clear();
         return;
@@ -607,6 +609,13 @@ fn menu_mouse(
             MouseScrollUnit::Line => w.y,
             MouseScrollUnit::Pixel => w.y / 20.0,
         };
+    }
+    // The player's tweak: a right click on a list's heading steps back a category [design: docs/design/tweaks.md].
+    if right_steps_back && mouse.just_pressed(MouseButton::Right) {
+        let title = if tiled { tile_title.as_ref().and_then(|t| t.0) } else { titles.iter().find(|(i, _)| **i != PointerState::None).map(|(_, t)| t.0) };
+        if let Some(side) = title {
+            out.write(MenuInput(Command::Category(side, -1)));
+        }
     }
     let whole = lines.trunc();
     if whole != 0.0 {

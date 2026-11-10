@@ -477,6 +477,8 @@ unless the player binds them, so nothing changes until then.
 | Preview Perks on Level Up | `bPreviewPerksOnLevelUp` | `levelup::model::LevelUp::preview_perks`: with no perk due, Continue still leads to the perks page, its `PerkSheet::count` 0 |
 | Last Weapon key | `iEquipLastWeaponKey` | a new unbound Control; `tweaks::last_weapon` follows the equipped weapon each frame and equips the one before, put away |
 | Pick Locks Even With the Key | `bPickLocksEvenWithKey` | `fnv_sim::World::set_player_ignores_keys`, set by `activate::shift_talks` while Shift is held: `World::activate` leaves the key unused, so the lock is picked; locks only, not terminals; the prompt still says Unlock |
+| Smooth Camera key | `iToggleSmoothCameraKey` | a new unbound Control flips `TweakSettings::smooth_look`; `player::mouse_look` eases the look at `SMOOTH_LOOK_RATE` (ours), never while aiming |
+| Right Click for the Previous Category | `bRightClickChangesToPreviousContainerCategory` | `menu::menu_mouse` sends `Command::Category(side, -1)` for a right click on a list heading; container and barter, not the recipe menu |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -498,8 +500,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 399 |
-| to do | 204 |
+| done | 401 |
+| to do | 202 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -953,6 +955,7 @@ game's Data folder, read-only).
 | `bPreventNoFastTravelMessage` | done |  | 1 | Quiet Undiscovered Markers (the sound option not built) |
 | `bPreviewPerksOnLevelUp` | done |  |  | Preview Perks on Level Up (the page with none to take) |
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
+| `bRightClickChangesToPreviousContainerCategory` | done |  |  | Right Click for the Previous Category (container and barter; not the recipe menu) |
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
 | `bShowActiveQuestNotesShowsAllStartedQuests` | done |  |  | Notes of Every Quest |
 | `bShowAlternateAmmoTypesAvailableInMenus` | done |  |  | Mark Other Ammo |
@@ -1017,7 +1020,6 @@ game's Data folder, read-only).
 | `bQuestTextVisibleInMenus` | to do |  |  | quest_messages held; check what draws over the Pip-Boy |
 | `bRepairAllConfirmation` | to do |  | 2 | a confirmation box in repair |
 | `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
-| `bRightClickChangesToPreviousContainerCategory` | to do |  |  | menu_mouse right click over a title |
 | `bShowBarterTotalWhenOverSellLimit` | to do |  |  | tiles barter snapshot amount; a menu bool |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
@@ -1050,6 +1052,7 @@ game's Data folder, read-only).
 | `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
 | `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |
 | `iTogglePipboyLightKey` | done |  | 2 | a Controls key: Pip-Boy Light (the night vision part not built) |
+| `iToggleSmoothCameraKey` | done |  | 2 | Smooth Camera key (Controls page; never while aiming; the rate is ours) |
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
@@ -1059,7 +1062,6 @@ game's Data folder, read-only).
 | `iScreenshotKey` | to do |  | 1 | not built: no player screenshot key outside F12 in nvforever |
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
 | `iToggleSightingNodeHotkey` | to do |  | 2 | a second sighting node path per weapon |
-| `iToggleSmoothCameraKey` | to do |  | 2 | not built: no look smoothing |
 
 ### Cheat
 
