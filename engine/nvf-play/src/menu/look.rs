@@ -633,6 +633,18 @@ const Q_PROMPT_Y: f32 = 50.0;
 const Q_METER: Rect = Rect { min: Vec2::new(149.5, 115.0), max: Vec2::new(540.5, 139.0) };
 const Q_ARROWS: [f32; 2] = [130.0, 549.0];
 const Q_AMOUNT_Y: f32 = 170.0;
+/// The tweaks' weight or price line, under the amount [design: docs/design/tweaks.md].
+const Q_EXTRA_Y: f32 = 215.0;
+
+/// The line the quantity tweaks add under the amount: in a barter what `amount` units
+/// fetch, in a container what they weigh (our words) [design: docs/design/tweaks.md].
+pub fn quantity_line(price: Option<f32>, weight: Option<f32>, amount: i32) -> Option<String> {
+    match (price, weight) {
+        (Some(p), _) => Some(format!("Price: {:.0} caps", p * amount as f32)),
+        (None, Some(w)) => Some(format!("Weight: {}", format!("{:.1}", w * amount as f32).trim_end_matches(".0"))),
+        _ => None,
+    }
+}
 const Q_BUTTONS_RIGHT: f32 = 665.0;
 const Q_BUTTONS_Y: [f32; 2] = [155.0, 200.0];
 /// A tick of the meter: 8 apart [observed], the picture's top 8 × 20 texels stretched to
@@ -663,7 +675,7 @@ pub fn quantity_words(game: Option<&fnv_game::Game<'_>>) -> [String; 2] {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
+pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[String; 2], kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs, extra: Option<&str>) {
     let mut c = Ctx { kit, data, images, bc, glyphs };
     let bright = amber(255.0);
     let sheet = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
@@ -707,6 +719,10 @@ pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, words: &[St
                 }
             }
             c.text(p, true, &q.amount.to_string(), Q_CENTRE, Q_AMOUNT_Y, Align::Centre, bright);
+            // The player's tweaks: what the amount weighs or costs, under it [design: docs/design/tweaks.md].
+            if let Some(line) = extra {
+                c.text(p, false, line, Q_CENTRE, Q_EXTRA_Y, Align::Centre, bright);
+            }
             let h = 31.0 + BUTTON_PAD;
             // The prompt's own keys over any menu: A (Enter) and B (Esc) on a controller.
             let any = crate::pad::MenuAt::default();

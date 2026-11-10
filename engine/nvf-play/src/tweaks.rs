@@ -1270,6 +1270,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "store-all", "Store All", "In a container, Shift with Take All puts everything listed on the player's side in it, but what is worn or a quest's. (Stewie's Tweaks bContainerMenuStoreAllHotkey)", store_all);
         switch!(app, "map-recentre-key", "Map Recentre Key", "C puts the Pip-Boy's local or world map back on the player after it was dragged. (Stewie's Tweaks bMapRecenterHotkey)", game.map_recentre_key);
         switch!(app, "map-marker-distance", "Map Marker Distance", "The World Map says how far the marker under the pointer is from the player. (Stewie's Tweaks bMapLocationDisplayDistance)", game.map_marker_distance);
+        switch!(app, "quantity-shows-price", "Quantity Box Shows the Price", "In a barter, the \"How many?\" box says what the amount costs. (Stewie's Tweaks bBarterQuantityMenuShowsPrice)", game.quantity_shows_price);
+        switch!(app, "quantity-shows-weight", "Quantity Box Shows the Weight", "In a container, the \"How many?\" box says what the amount weighs. (Stewie's Tweaks bContainerQuantityMenuShowsWeight)", game.quantity_shows_weight);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

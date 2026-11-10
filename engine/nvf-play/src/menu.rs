@@ -1028,8 +1028,17 @@ fn draw(
     match (crate::tiles::menus::modal(m.quantity.is_some(), tiled), &m.quantity) {
         (crate::tiles::menus::Modal::HandBuilt, Some(q)) => {
             let words = look::quantity_words(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game));
+            // The player's tweaks: the price in a barter, the weight in a container [design: docs/design/tweaks.md].
+            let t = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| (rt.game.tweaks.quantity_shows_price, rt.game.tweaks.quantity_shows_weight));
+            let row = m.list(q.side).rows.get(q.row);
+            let (price, weight) = match (m.mode, t) {
+                (Mode::Barter(_), Some((true, _))) => (row.and_then(|r| r.price), None),
+                (Mode::Container(_), Some((_, true))) => (None, row.and_then(|r| r.weight)),
+                _ => (None, None),
+            };
+            let extra = look::quantity_line(price, weight, q.amount);
             commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
-                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc, &glyphs);
+                look::spawn_quantity(root, q, &words, kit, data.as_deref(), &mut images, bc, &glyphs, extra.as_deref());
             });
         }
         (crate::tiles::menus::Modal::Sheet, _) => {

@@ -768,7 +768,7 @@ fn forget_closed(menu: Res<RecipeMenu>, script: Option<ResMut<ScriptState>>, mut
 fn spawn_prompt(root: &mut ChildSpawnerCommands, (amount, most): (i32, i32), words: &[String; 2], kit: &mut crate::menu::look::Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool, glyphs: &crate::pad::PadGlyphs) {
     let screen = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
     let q = crate::menu::model::Quantity { cmd: crate::menu::model::Command::One, side: crate::menu::model::Side::Player, row: 0, max: most, amount };
-    root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc, glyphs));
+    root.spawn(screen).with_children(|s| crate::menu::look::spawn_quantity(s, &q, words, kit, data, images, bc, glyphs, None));
 }
 
 /// [`view`] with the selected output's effects (`forms`: where they are read from).

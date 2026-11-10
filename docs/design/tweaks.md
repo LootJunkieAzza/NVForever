@@ -471,6 +471,7 @@ unless the player binds them, so nothing changes until then.
 | Store All | `bContainerMenuStoreAllHotkey` | `menu::model::Command::StoreAll`, sent for Shift with Take All while `MenuModel::store_all`; the player's listed rows go in, worn and quest items stay |
 | Map Recentre Key | `bMapRecenterHotkey` | `pipboy::data::take_input`: C (our key) clears the dragged map's centre, which falls back on the player; at once, no easing |
 | Map Marker Distance | `bMapLocationDisplayDistance` | `pipboy::data::world_map` adds `model::distance_text` (metres or kilometres, our words, 70 units a metre [hypothesis]) to the marker's detail line; the travel-time modes are not done |
+| Quantity Box Shows the Price / Weight | `bBarterQuantityMenuShowsPrice`, `bContainerQuantityMenuShowsWeight` | `menu::look::quantity_line` under the amount of the hand-built "How many?" box (our words); the box drawn from the game's tiles does not show it yet |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -492,8 +493,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 392 |
-| to do | 211 |
+| done | 394 |
+| to do | 209 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -910,11 +911,13 @@ game's Data folder, read-only).
 | `b24HourSleepWaitClock` | done |  |  | already so: the wait clock is 24-hour |
 | `bAddInventoryDropItemHotkey` | done |  |  | Q Drops Items |
 | `bAllowRebindNumkeys` | done |  |  | already so: the hotkeys and the D-pad are on the Controls tab |
+| `bBarterQuantityMenuShowsPrice` | done |  |  | Quantity Box Shows the Price (the hand-built box; the tiles box not yet) |
 | `bBlackJackTotalDisplay` | done |  |  | Blackjack Hand Total |
 | `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
 | `bCompareWeaponStats` | done |  |  | Compare Weapons (DAM and DPS, both at full condition) |
 | `bContainerEncumbranceIndicator` | done |  |  | Weight Warning (the selected row, the whole stack) |
 | `bContainerMenuStoreAllHotkey` | done |  | 1 | Store All (Shift with Take All; worn and quest items stay) |
+| `bContainerQuantityMenuShowsWeight` | done |  |  | Quantity Box Shows the Weight (the hand-built box; the tiles box not yet) |
 | `bContainerTakeAllDoesntCloseMenu` | done |  |  | Take All Stays Open |
 | `bDialogueKeepVoiceActingNotes` | done |  |  | Keep Acting Notes (spoken lines; topics as before) |
 | `bDisableInventoryRightClickDrop` | done |  |  | No Right-Click Drop |
@@ -980,12 +983,10 @@ game's Data folder, read-only).
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
 | `bSortEquipableAmmo` | to do | yes |  | rows sort by name (menu/model.rs sort_rows) |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
-| `bBarterQuantityMenuShowsPrice` | to do |  |  | the quantity box has no price |
 | `bBetterMapZoom` | to do |  |  | pipboy data take_input zoom around the pointer |
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
 | `bCompareArmorStats` | to do |  |  | needs the worn pieces of the same slots summed |
-| `bContainerQuantityMenuShowsWeight` | to do |  |  | the quantity box has no weight |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | pipboy close_keys with the pad East button |
 | `bCustomHackingAnswerLength` | to do |  | 8 | Difficulty::word_lengths and the perk |

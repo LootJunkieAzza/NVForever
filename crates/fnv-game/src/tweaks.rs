@@ -376,6 +376,10 @@ pub struct Tweaks {
     /// `bMapLocationDisplayDistance`: the World Map says how far the marker under the
     /// pointer is.
     pub map_marker_distance: bool,
+    /// `bBarterQuantityMenuShowsPrice`, `bContainerQuantityMenuShowsWeight`: the "How
+    /// many?" box says what the amount costs in a barter, or weighs in a container.
+    pub quantity_shows_price: bool,
+    pub quantity_shows_weight: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -551,6 +555,8 @@ impl Default for Tweaks {
             lockpick_move_keys: false,
             map_recentre_key: false,
             map_marker_distance: false,
+            quantity_shows_price: false,
+            quantity_shows_weight: false,
         }
     }
 }
