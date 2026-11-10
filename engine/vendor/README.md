@@ -57,6 +57,24 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 `pipboy-first-open` scenarios passed with a clean first opening without them
 (2026-11-07).
 
+Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/transmission/`,
+each part marked `NVForever one resolve`, with `ViewTarget::set_resolve_deferred` in
+bevy_render below:
+
+- `node.rs`: `begin_deferred_resolve` (before the opaque pass) and `end_deferred_resolve`
+  (after the transmissive pass, before the transparent pass) hold back the multisample
+  resolve of a view whose transparent pass is going to run and which has no main-pass
+  resolution override (the game's FSR passes read the resolved picture in between).
+  `main_transmissive_pass_3d` then resolves the samples straight into the transmission
+  texture with a pass that draws nothing, instead of copying the resolved picture.
+- `texture.rs`: the transmission texture is also a render attachment, to be resolved into.
+- `mod.rs`: the two systems, ordered around the opaque and transmissive passes.
+
+Upstream resolves the whole target at the end of the opaque, transmissive and transparent
+passes and copies it once: three resolves and a copy where one resolve to the transmission
+texture and one to the main texture are read. Without multisampling, with a resolution
+override, or when the transparent phase is empty, upstream's path runs unchanged.
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
@@ -74,6 +92,22 @@ not `Send`).
 `profile` build] Alone it took 0.2-0.5 ms a frame off finishing the encoders' wall time
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
+
+Third change (one resolve, docs/design/frame-rate-audit.md §9), in `src/view/mod.rs`,
+marked `NVForever one resolve`: `ViewTarget::set_resolve_deferred` and
+`ViewTarget::resolve_deferred`. While set, `get_color_attachment` hands out the multisampled
+texture without its resolve target, so a pass keeps its samples and resolves nothing. A new
+`ViewTarget` (each frame) starts with it off, and nothing in Bevy sets it: bevy_pbr's
+transmission systems above do.
+
+Fourth change (a measuring aid, docs/design/frame-rate-audit.md §9), in
+`src/renderer/render_context.rs`, marked `NVForever encoder spans`: with
+`NVF_PLAY_TEST_PROFILE_ENCODERS=1` and a diagnostics recorder (the `profile` build's
+`NVF_PLAY_TEST_PROFILE`), every render system's command encoder is wrapped in a GPU time
+span `enc:<system>`, opened when the encoder is made and closed when the system's
+`RenderContext` is dropped. The passes' own spans nest inside it, so the difference is the
+GPU time of what a system records outside its passes: image copies, multisample resolves,
+passes without a span. Without the variable nothing is recorded.
 
 Second change (#1887, docs/design/frame-rate-audit.md, the indirect-parameter build jobs),
 in `src/batching/gpu_preprocessing.rs`, `coalesce_batch_ranges` (comment starting
