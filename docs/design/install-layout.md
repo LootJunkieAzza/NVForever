@@ -143,7 +143,9 @@ MO2 and modorganizer-game_gamebryo source, cited in `mo2.rs`]. A player's start 
 loads the plugins listed there, in their order (MO2's right pane), skipping any not in
 `Data`, with `FalloutNV.esm` first. The home's `plugins.txt` is then not read or written.
 Such a start also runs on the game folder MO2's instance manages
-(`gamePath` in the instance's `ModOrganizer.ini`; modlists often manage a copy of the game),
+(`gamePath` in the instance's `ModOrganizer.ini`; modlists often manage a copy of the game;
+a `@ByteArray(...)` value whose escapes, `\\` and `\xNN` for the UTF-8 bytes of a folder name
+outside ASCII, are read as Qt writes them [hypothesis: only `\\` seen, #1996]),
 not the INI's, and does not store it. Without the hook, or without MO2's header, nothing changes. Player guide:
 docs/mod-organizer-2.md.
 
