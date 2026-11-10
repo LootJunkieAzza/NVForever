@@ -4,7 +4,6 @@
 //! ambient light like the water body [hypothesis; the light level is tuned to match the
 //! water surface's own shading]. Leaving the water hands the fog back to the weather.
 
-use crate::reflection::ReflectionCamera;
 use crate::sky::{SkyState, Sun};
 use crate::water::DistantWater;
 use crate::world::{bevy_to_game, Streamer, WorldData};
@@ -89,7 +88,7 @@ pub fn underwater_fog(
     mut sky: ResMut<SkyState>,
     ambient: Res<GlobalAmbientLight>,
     sun: Query<&DirectionalLight, With<Sun>>,
-    mut cam: Query<(&GlobalTransform, &mut DistanceFog, Option<&Exposure>), (With<Camera3d>, Without<ReflectionCamera>)>,
+    mut cam: Query<(&GlobalTransform, &mut DistanceFog, Option<&Exposure>), crate::fly::WorldCamera>,
     phys: Option<Res<PhysState>>,
     sim: Option<Res<SimState>>,
     mut types: Local<WaterTypes>,
