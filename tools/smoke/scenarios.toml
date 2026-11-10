@@ -24010,16 +24010,17 @@ order = [[
 [[scenario]]
 name = "tiles-data-misc"
 source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Misc tab is drawn from map_menu.xml: the notes in MM_NotesList, the picked note's text in MM_DataTextRect or an audio note's time and meter in MM_DataAudioInfo, the hints on MM_ButtonX and MM_ButtonY; the Challenges hint's click shows the challenges in MM_ChallengeList (the notes' list hidden), again the notes, and the notes' filter's click acts once; Radio keeps the whole hand-built page"
-note = "the points are canvas units on the page as run [hypothesis until the first run: the first note's words about 200, 150 as the first quest's in tiles-data-quests; with the keyboard X (the notes' filter) is the first hint, right-justified at 905 from y 125, and Y (Challenges) the row under it, about 46 lower]. Two notes from the console: VMQ01CourierNote (a text note, read.rs) and VMQ01BeagleJournalNote (a voice note, 001618BF, pipboy-holotape's), picked by the aid first, so the pane shows the audio note, then the click on the first row picks whichever note sorts first. Shots: tiles_data_misc.png (the audio or text pane), tiles_data_misc_challenges.png."
+note = "the points are canvas units on the page as run [hypothesis until the first run: the first note's words about 200, 150 as the first quest's in tiles-data-quests; with the keyboard X (the notes' filter) is the first hint, right-justified at 905 from y 125, and Y (Challenges) the row under it, about 46 lower]. Two notes from the console: VMQ01CourierNote (a text note, read.rs) and VMQ01BeagleJournalNote (a voice note, 001618BF, pipboy-holotape's), picked by the aid first, so the pane shows the audio note; Down at 16 s selects the second row, the delivery order (the notes sort the journal first [observed: the first run]), so the pane shows its text; then the click on the first row picks the journal again. The points of the hints were right in the first run (the X hint takes 860, 145, Y 880, 191). Shots: tiles_data_misc.png (the audio or text pane), tiles_data_misc_challenges.png."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/draw.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,17:point=200:150,18:click=200:150,19:point=off,20:click=880:191,22:click=880:191,23.5:click=860:145,25:tab=4,26:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "16.5:tiles_data_misc.png,21:tiles_data_misc_challenges.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,17:point=200:150,18:click=200:150,19:point=off,20:click=880:191,22:click=880:191,23.5:click=860:145,25:tab=4,26:close", NVF_PLAY_TEST_KEYS = "16:down", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "16.5:tiles_data_misc.png,21:tiles_data_misc_challenges.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 29
 expect = [
   { text = "tiles: MapMenu draws misc from tiles", min = 1, label = "Misc is drawn from its file" },
   { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, audio, hints: X [^,]+ X\), Y [^,]+ R\), device$', min = 1, label = "the two notes, the audio note's pane, the filter and Challenges hints, written" },
   { re = 'pipboy data: note .+ \(0x001618BF\) picked', min = 1, label = "the aid picks the voice note" },
+  { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ', min = 1, label = "Down selects the text note: its text from the file" },
   { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the first note acted once, through its tile" },
   { re = 'pipboy data: note .+ picked', min = 2, label = "the click picked a note, the hand-built page's rule" },
   { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, (text|audio), ', min = 1, label = "the note clicked shows its pane from the file" },
@@ -24030,9 +24031,10 @@ expect = [
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the notes' filter's click, through its tile" },
   { re = 'pipboy hints: data misc: All Notes X\)', min = 1, label = "the filter acted once: its hint now offers all the notes" },
   { text = "tiles: MapMenu leaves radio hand-built: not drawn from the file yet", min = 1, label = "Radio keeps the whole hand-built page (its waveform)" },
-  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Misc needs" },
+  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Misc needs, and its panes show (a challenge's short text without a scroll bar)" },
+  { re = 'MapMenu: Button\(.\) does not take the pointer', count = 0, label = "the hints take the pointer at their words, not their keys beside the box" },
 ]
-order = [["tiles: MapMenu draws misc from tiles", { re = 'pipboy data: note .+ \(0x001618BF\) picked' }, "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(Y) on its tiles", "pipboy data: challenges shown", "pipboy data: notes shown", "tiles: MapMenu Button(X) on its tiles", "tiles: MapMenu leaves radio hand-built"]]
+order = [["tiles: MapMenu draws misc from tiles", { re = 'pipboy data: note .+ \(0x001618BF\) picked' }, { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ' }, "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(Y) on its tiles", "pipboy data: challenges shown", "pipboy data: notes shown", "tiles: MapMenu Button(X) on its tiles", "tiles: MapMenu leaves radio hand-built"]]
 
 [[scenario]]
 name = "tiles-data-misc-off"
@@ -24040,7 +24042,7 @@ source = "[design] pipboy.md section 5.3.1: without the switch Misc is the hand-
 note = "the same steps and times as tiles-data-misc, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,17:point=200:150,18:click=200:150,19:point=off,20:click=880:191,22:click=880:191,23.5:click=860:145,25:tab=4,26:close", NVF_PLAY_TEST_SHOTS = "16.5:tiles_data_misc_off.png,21:tiles_data_misc_challenges_off.png" }
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,17:point=200:150,18:click=200:150,19:point=off,20:click=880:191,22:click=880:191,23.5:click=860:145,25:tab=4,26:close", NVF_PLAY_TEST_KEYS = "16:down", NVF_PLAY_TEST_SHOTS = "16.5:tiles_data_misc_off.png,21:tiles_data_misc_challenges_off.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 29
 expect = [

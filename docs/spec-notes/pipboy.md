@@ -1601,10 +1601,13 @@ that scrolls has a window; with a quest selected, the objectives' window (what t
 read off its scroll bar) has a size and lies wholly on the canvas, and a quest with objectives shows
 at least one of them whole inside it among what is painted (a list or text hidden, by its own
 `visible` or one above it, or placed outside the window, shows none); a text shown has its window
-likewise (what clips `MM_TextScrollbar`) and some of its words painted inside it; a picture is
+likewise (what clips `MM_DataText` itself: its rect and its bar are hotrects, which lay out no box,
+and the bar shows only while the text scrolls [documented: scrollbar_vert.xml's `visible`]) and
+some of its words painted inside it, and a text that scrolls shows its bar's marker; a picture is
 painted on the canvas; an audio note's time is painted whole; or the page falls back. The right
 pane's window is published while it scrolls (the objectives, a text). A hint that shows lit and does
-not take the pointer is warned of and the page stays (its key still works).
+not take the pointer at its word is warned of and the page stays (its key still works); its key's
+text (`PCShortcutLabel`) stands beside the hint's box [documented: text_box.xml] and is not asked.
 
 **Falls back, whole page, with the reason** [design]: the maps and Radio; the question box up;
 `MapMenu` not in the tree; a tile or template above missing (a mod's restructured file), each tab

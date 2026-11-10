@@ -666,7 +666,11 @@ pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) 
         if !ui.tile(b).get("visible").is_some_and(Value::truthy) || !ui.tile(b).get("target").is_some_and(Value::truthy) {
             continue;
         }
-        if let Some(middle) = pieces.iter().filter(is_text).find(|x| stats_menu::inside(ui, x.tile, b)).and_then(shows_whole) {
+        // The hint's word, not its key: the key's text may stand beside the tile's own box.
+        let word = w.shown.as_ref().and_then(|s| s.hints.iter().find(|h| h.slot == slot)).map(|h| h.word.as_str());
+        let says = |x: &&Piece| matches!(&x.look, Look::Text { string, .. } if Some(string.as_str()) == word);
+        let inside: Vec<&Piece> = pieces.iter().filter(is_text).filter(|x| stats_menu::inside(ui, x.tile, b)).collect();
+        if let Some(middle) = inside.iter().find(|x| says(x)).or(inside.first()).and_then(|p| shows_whole(p)) {
             optional.push((DataTile::Button(slot), middle));
         }
     }
@@ -718,13 +722,22 @@ fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashM
             }
             Ok(Some(window))
         }
-        Pane::Text(words) => {
-            let bar = ui.find_tile(TEXT_BAR).ok_or("the text's scroll bar is gone")?;
-            let window = pane_window(ui, bar, ("the text's", "the text has"))?;
-            if !words.trim().is_empty() {
-                let shows = ui.find_tile(DATA_TEXT).and_then(|t| texts.get(&t)).is_some_and(|p| within(window, p, false));
-                if !shows {
-                    return Err("the text does not show in its window".into());
+        // The window is what clips the text itself: its rect and its scroll bar are hotrects, which
+        // lay out no box of their own, and the bar shows only while the text scrolls [documented:
+        // map_menu.xml, scrollbar_vert.xml's `visible`].
+        Pane::Text(words) if words.trim().is_empty() => Ok(None),
+        Pane::Text(_) => {
+            let text = ui.find_tile(DATA_TEXT).ok_or("the text is gone")?;
+            let window = pane_window(ui, text, ("the text's", "the text has"))?;
+            if !texts.get(&text).is_some_and(|p| within(window, p, false)) {
+                return Err("the text does not show in its window".into());
+            }
+            // A text that scrolls shows its bar's marker, to drag; one that fits needs no bar.
+            if w.pane_most > 0.0 {
+                let marker = ui.find_tile(TEXT_BAR).and_then(|b| list::child(ui, b, list::MARKER)).ok_or("the text's scroll bar is gone")?;
+                let shown = super::layout::layout(ui, marker, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == marker).is_some_and(|i| i.visible);
+                if !shown {
+                    return Err("the text scrolls and its scroll bar is not shown".into());
                 }
             }
             Ok(Some(window))
@@ -752,14 +765,14 @@ fn on_canvas(r: &super::layout::Rect) -> bool {
     r.width > 0.0 && r.height > 0.0 && r.left >= -1.0 && r.top >= -1.0 && r.left + r.width <= canvas.0 + 1.0 && r.top + r.height <= canvas.1 + 1.0
 }
 
-/// The right pane's window as laid out (canvas units): what clips its scroll bar `bar`, whose place
-/// is the pane's and which is there whatever it shows [documented: list_box.xml, map_menu.xml
-/// `MM_TextScrollbar`]; why it cannot serve otherwise: no clip (a pane without its window would
-/// show what is scrolled out of it), no size, or not wholly on the canvas. The wheel over it and a
-/// page of it are its own ([`DataState::publish_drawn`]). `(whose, has)`: the pane's possessive
-/// and its "has", for the reasons.
-fn pane_window(ui: &Ui, bar: TileId, (whose, has): (&str, &str)) -> Result<Rect, String> {
-    let item = super::layout::layout(ui, bar, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == bar).ok_or_else(|| format!("{whose} scroll bar is not laid out"))?;
+/// The right pane's window as laid out (canvas units): what clips `inside`, a tile of the pane that
+/// is laid out whatever it shows (the objectives' scroll bar [documented: list_box.xml], a note's
+/// text); why it cannot serve otherwise: no clip (a pane without its window would show what is
+/// scrolled out of it), no size, or not wholly on the canvas. The wheel over it and a page of it
+/// are its own ([`DataState::publish_drawn`]). `(whose, has)`: the pane's possessive and its "has",
+/// for the reasons.
+fn pane_window(ui: &Ui, inside: TileId, (whose, has): (&str, &str)) -> Result<Rect, String> {
+    let item = super::layout::layout(ui, inside, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == inside).ok_or_else(|| format!("{whose} window is not laid out"))?;
     let c = item.clip.ok_or_else(|| format!("{has} no window"))?;
     let canvas = (f64::from(crate::pipboy::CANVAS.x), f64::from(crate::pipboy::CANVAS.y));
     if c.width <= 0.0 || c.height <= 0.0 || c.left < 0.0 || c.top < 0.0 || c.left + c.width > canvas.0 || c.top + c.height > canvas.1 {
@@ -1457,11 +1470,13 @@ mod tests {
               <image name="scrollbar_vert_marker"/><image name="scrollbar_vert_up"/><image name="scrollbar_vert_down"/></image>"#;
         // The objectives' bar and the text's: its marker 16 down the bar, a value every 2 units of
         // its drag.
-        let marked = |name: &str| format!(r#"<image name="{name}"><_current_value>0</_current_value><_ScrollDelta>7</_ScrollDelta><x>330</x><width>20</width><height>150</height>
+        // The text's bar is a hotrect, which lays out no box of its own; its marker shows while
+        // the bar has more than one item.
+        let text_bar = r#"<hotrect name="MM_TextScrollbar"><_current_value>0</_current_value><_ScrollDelta>7</_ScrollDelta><x>330</x><width>20</width><height>150</height>
               <hotrect name="scrollbar_vert_page_up"/><hotrect name="scrollbar_vert_page_down"/>
               <image name="scrollbar_vert_up"><width>20</width><height>10</height></image><image name="scrollbar_vert_down"/>
-              <image name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height></image></image>"#);
-        let text_bar = marked("MM_TextScrollbar");
+              <image name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height>
+                <visible><copy src="parent()" trait="_number_of_items"/><gt>1</gt></visible></image></hotrect>"#;
         let pane_bar = bar.replace(r#"<image name="scrollbar_vert_marker"/>"#, r#"<image name="scrollbar_vert_marker"><y>16</y><width>20</width><height>10</height><_step_height>2</_step_height></image>"#);
         let offset = r#"<_offset><copy src="child(lb_scrollbar)" trait="_current_value"/><mul src="me()" trait="_scroll_delta"/></_offset>"#;
         let button = |name: &str, y: u32| format!(r#"<image name="{name}"><y>{y}</y><width>150</width><height>30</height><target>&true;</target><text name="button_text"><string><copy src="parent()" trait="string"/></string></text></image>"#);
@@ -1899,6 +1914,31 @@ mod tests {
         run(&mut ui, Some(s), &mut t).unwrap();
         assert_eq!(at(&ui, DATA_RECT, "visible"), 0.0);
         assert!(describe(&t.written).contains("tab misc notes, 0 rows, \"none\" selected, no pane"), "{}", describe(&t.written));
+    }
+
+    /// The smoke run's case: a text that fits its window (a challenge's) shows no scroll bar, the
+    /// file's bar and rect being hotrects that lay out no box: the window is what clips the text,
+    /// and only a text that scrolls asks for its bar's marker.
+    #[test]
+    fn a_short_text_needs_no_scroll_bar_and_a_long_one_shows_its_marker() {
+        let (mut ui, mut t) = (tree(), MapTiles::default());
+        run(&mut ui, Some(misc(ListKind::Challenges, 2, 0, Pane::Text("Short|text".into()))), &mut t).unwrap();
+        assert_eq!(t.written.pane_most, 0.0, "it fits");
+        let marker = ui.find_tile(&format!("{TEXT_BAR}/{}", list::MARKER)).unwrap();
+        assert_eq!(trait_of(&ui, marker, "visible"), 0.0, "no bar shows");
+        let pane = t.written.counted.pane.expect("the text's window, from what clips it");
+        assert_eq!((pane.min.x, pane.min.y, pane.width(), pane.height()), (500.0, 245.0, 360.0, 150.0));
+        // A long one scrolls: its marker shows.
+        assert!(run(&mut ui, Some(misc(ListKind::Challenges, 2, 0, Pane::Text(lines(9)))), &mut t).is_ok());
+        assert_eq!(trait_of(&ui, marker, "visible"), 1.0);
+        // A long one whose marker the file hides falls back; the same file shows a short one.
+        let hidden = |x: String| x.replace("<visible><copy src=\"parent()\" trait=\"_number_of_items\"/><gt>1</gt></visible>", "<visible>&false;</visible>");
+        let mut ui = tree_changed(hidden);
+        let mut t = MapTiles::default();
+        assert_eq!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text(lines(9)))), &mut t), Err("the text scrolls and its scroll bar is not shown".to_string()));
+        assert!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text("A".into()))), &mut t).is_ok());
+        // An empty text asks for nothing.
+        assert!(run(&mut ui, Some(misc(ListKind::Notes, 1, 0, Pane::Text(String::new()))), &mut MapTiles::default()).is_ok());
     }
 
     #[test]
