@@ -166,6 +166,10 @@ pub fn xp_for_level(g: &Game, level: i32) -> f64 {
 
 /// The highest level the player can reach in this load order.
 pub fn max_level(g: &Game) -> i32 {
+    // The player's tweak: a cap of its own, with no levels added for the add-ons [design: docs/design/tweaks.md].
+    if g.tweaks.max_level > 0 {
+        return g.tweaks.max_level as i32;
+    }
     let base = setting(g, "iMaxCharacterLevel", DEFAULT_MAX_LEVEL as f64) as i32;
     level_cap(base, &g.data.load_order)
 }

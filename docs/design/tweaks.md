@@ -495,6 +495,8 @@ unless the player binds them, so nothing changes until then.
 | Radiation Brings Radio Static | `bRadiationCausesRadioStatic` | `radio`: the Pip-Boy station's static share is at least the player's rads a second over `RADS_FOR_FULL_STATIC` (10), at most `MAX_RAD_STATIC` (0.8); both ours |
 | Barter Shows Caps After | `bBarterShowCapsChange` | `menu::look::half_figure` writes "Caps  N (to M)" (ours) with `MenuModel::barter_caps_change`; the hand-built barter menu only, `iMode` not offered |
 | No Self Meltdown Damage | `bNoSelfMeltdownDamage` | `combat::meltdown` notes its explosions in `Combat::meltdowns`; the blast loop spares the player and teammates from them (the tweak's three options as one) |
+| Level Cap (0–100) | `iMaxCharacterLevel` | `experience::max_level` returns the tweak's cap when set, without the add-ons' +5 |
+| Sneak Attacks Standing | `bSneakAttackWithoutCrouching` | `combat::sneak_attack` takes the player as sneaking whenever the target has not detected them |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -516,8 +518,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 417 |
-| to do | 186 |
+| done | 419 |
+| to do | 184 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -610,6 +612,7 @@ game's Data folder, read-only).
 | `bSleepHealingMinDuration` | done |  | 2 | Sleep Healing Min Duration (hours; every bed, the bed's owner is not known; bMiscStatRequiresSleepDuration not done) |
 | `bSleepOnChairs` | done |  |  | Sleep on Chairs |
 | `bSlowBreathRegen` | done |  | 2 | Slow Breath Regen (seconds of breath a second at the surface; the meter already stays up until whole) |
+| `bSneakAttackWithoutCrouching` | done |  |  | Sneak Attacks Standing |
 | `bSpeedMultScalesJumpHeight` | done |  |  | Speed Scales the Jump (the player; NPCs do not jump) |
 | `bStealingSendsNoAlarm` | done |  |  | Quiet Theft |
 | `bUnequipWeaponMods` | done |  | 7 | already so: attached mods can be taken off and come back (item_mod detach) |
@@ -620,6 +623,7 @@ game's Data folder, read-only).
 | `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | already so: no projectile can be targeted in V.A.T.S. |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
+| `iMaxCharacterLevel` | done |  | 1 | Level Cap (0 to 100; no add-on levels) |
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
 | `bHiddenFragsFix` | to do | yes |  | NPCs' own unplayable explosives are hidden from the pickpocket list |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
@@ -664,7 +668,6 @@ game's Data folder, read-only).
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
 | `bScopeHoldBreath` | to do |  | 7 | scope_view has no input or AP |
-| `bSneakAttackWithoutCrouching` | to do |  |  | sneaking comes from control.sneak (melee) and the projectile; both need the switch |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | to do |  |  | not built: fThrowingStrengthPenalty is not read |
 | `bTargetProjectilesInVATS` | to do |  | 1 | not built: projectiles in flight are not targetable |
@@ -675,7 +678,6 @@ game's Data folder, read-only).
 | `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
 | `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
 | `bWeaponModdingSkillRequirement` | to do |  |  | item_mod keys needs the skill and two params |
-| `iMaxCharacterLevel` | to do |  | 1 | experience::level_cap adds 5 per story add-on; choose how the cap is set |
 
 ### Combat
 

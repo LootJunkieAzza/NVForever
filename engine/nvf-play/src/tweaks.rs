@@ -1381,6 +1381,30 @@ impl Plugin for TweaksPlugin {
         switch!(app, "radiation-radio-static", "Radiation Brings Radio Static", "Taking radiation brings static into the Pip-Boy's radio, more the faster the rads come. (Stewie's Tweaks bRadiationCausesRadioStatic)", game.radiation_radio_static);
         switch!(app, "barter-caps-change", "Barter Shows Caps After", "In a barter, each side's caps after the trade are shown beside its caps now. (Stewie's Tweaks bBarterShowCapsChange)", barter_caps_change);
         switch!(app, "no-self-meltdown", "No Self Meltdown Damage", "Blasts given off by the Meltdown perk hurt neither the player nor the companions. (Stewie's Tweaks bNoSelfMeltdownDamage)", game.no_self_meltdown);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-max-level",
+                GROUP,
+                "Level Cap",
+                "The highest level the player can reach, with no levels added for the add-ons; 0 keeps the game's. (Stewie's Tweaks iMaxCharacterLevel)",
+                Slider {
+                    get: |w| w.get_resource::<TweakSettings>().map_or(0.0, |t| t.game.max_level as f32 / MAX_LEVEL_CAP),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.max_level = (v * MAX_LEVEL_CAP).round() as u32;
+                        }
+                    },
+                    min: 0.0,
+                    step: 1.0 / MAX_LEVEL_CAP,
+                    shown: Some(|v| match (v * MAX_LEVEL_CAP).round() as u32 {
+                        0 => "the game's".to_string(),
+                        n => n.to_string(),
+                    }),
+                },
+            ),
+        );
+        switch!(app, "standing-sneak-attacks", "Sneak Attacks Standing", "An attack on someone who has not detected the player is a sneak attack without crouching too. (Stewie's Tweaks bSneakAttackWithoutCrouching)", game.standing_sneak_attacks);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1610,6 +1634,9 @@ fn keys(
         exit.write(AppExit::Success);
     }
 }
+
+/// The Level Cap slider's top (ours).
+const MAX_LEVEL_CAP: f32 = 100.0;
 
 /// What the Pip-Boy says when the No Skill Books Above 100 tweak keeps a book (our words).
 pub const BOOK_AT_MAX_LINE: &str = "That skill cannot go any higher.";

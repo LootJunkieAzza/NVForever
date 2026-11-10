@@ -396,6 +396,12 @@ pub struct Tweaks {
     pub radiation_radio_static: bool,
     /// `bNoSelfMeltdownDamage`: Meltdown's blasts do not hurt the player or companions.
     pub no_self_meltdown: bool,
+    /// `iMaxCharacterLevel`: the player's level cap, the add-ons' +5 left out; 0 as the
+    /// game.
+    pub max_level: u32,
+    /// `bSneakAttackWithoutCrouching`: an attack on someone who has not detected the
+    /// player is a sneak attack standing too.
+    pub standing_sneak_attacks: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -579,6 +585,8 @@ impl Default for Tweaks {
             vats_shift_ignores_friends: false,
             radiation_radio_static: false,
             no_self_meltdown: false,
+            max_level: 0,
+            standing_sneak_attacks: false,
         }
     }
 }

@@ -2533,8 +2533,10 @@ fn companion_nerve(script: Option<&mut ScriptState>, sim: &mut SimState, actor: 
 fn sneak_attack(script: Option<&ScriptState>, attacker: FormId, sneaking: bool, target: FormId) -> bool {
     use fnv_game::detection::Band;
     // The player's tweak takes the sneak critical away [design: docs/design/tweaks.md].
+    // The player's tweak: unseen is enough, standing or not [design: docs/design/tweaks.md].
+    let standing = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.standing_sneak_attacks);
     attacker == FormId::PLAYER_REF
-        && sneaking
+        && (sneaking || standing)
         && !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_sneak_criticals)
         && script.and_then(|s| s.rt.as_ref()).is_none_or(|rt| rt.game.detection.get(target, FormId::PLAYER_REF).is_none_or(|d| d.band != Band::Detected))
 }
