@@ -8239,6 +8239,11 @@ WRITING_SETS |= {"jg7"}
 # the engine: fnvtool, with no engine, reads 0 (the lab rows say what the original
 # answers). PlayHolotape, the moves (Jump, SetAutoMove, SetPlayerMovementFlags,
 # SetVelEx) and the audio marker setters change the game and are not probed.
+# Rerun of 2026-11-10: the marker through a ref variable and the sky colour dropped (the
+# original, JohnnyGuitar 528, compiled neither: a call as GetFormIDString's parameter, and
+# output variables as in jg8's GetSystemColorAlt), the player's Medicine beside the
+# Stimpak's line (its potency follows the skill, and the save's character is not
+# fnvtool's).
 JG9 = {"stimpak": "15169", "leather": "20423", "v34": "13253C"}
 JG9_SOUND = r"Data\Sound\fx\ui\popup\ui_popup_experienceup.wav"
 
@@ -8251,6 +8256,7 @@ def _jg9(pid, body, text=False):
 JG9_PROBES = (
     [_jg9("karma", 'SetFunctionValue (sv_Construct "%z|%z" (GetPlayerKarmaTitle 0) (GetPlayerKarmaTitle 1))', True),
      *[_jg9(f"effect.{k}", _form("rObj", JG9[k]) + "SetFunctionValue (GetItemEffectString rObj)", True) for k in ("stimpak", "leather")],
+     _jg9("medicine", 'SetFunctionValue (sv_Construct "%.0f" (rP.GetAV Medicine))', True),
      _jg9("fov", 'SetFunctionValue (sv_Construct "%g %g %g" (rP.GetPlayerCamFOV 0) (rP.GetPlayerCamFOV 1) (rP.GetPlayerCamFOV 2))', True),
      _jg9("term", _form("rObj", JG9["v34"])
           + "let fA := GetTerminalMenuItemCount rObj\nlet fB := AddTerminalMenuItem rObj\nlet fC := GetTerminalMenuItemCount rObj\n"
@@ -8262,8 +8268,7 @@ JG9_PROBES = (
           'SetFunctionValue (sv_Construct "%g %g %g" fA fB fC)', True),
      _jg9("grenade", "SetFunctionValue (GetGrenadeHoldTime)"),
      _jg9("compass", 'SetFunctionValue (sv_Construct "%g %g" (GetNearestCompassHostileDirection 0) (GetNearestCompassHostileDirection 1))', True),
-     _jg9("marker", "SetFunctionValue (GetFormIDString (AudioMarkerGetCurrent))", True),
-     _jg9("sky", 'let fA := GetCurrentSkyColor 4 iR iG iB\nSetFunctionValue (sv_Construct "%g %g %g %g" fA iR iG iB)', True),
+     _jg9("marker", "let rObj := AudioMarkerGetCurrent\nSetFunctionValue (GetFormIDString rObj)", True),
      _jg9("spread", 'SetFunctionValue (sv_Construct "%.2f %.0f" (rP.GetCalculatedSpread) (rP.GetRunSpeed))', True)]
 )
 SETS.update({"jg9": JG9_PROBES})  # JohnnyGuitar batch 9 (#1007)

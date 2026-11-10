@@ -94,13 +94,15 @@ pub struct Jg9State {
     /// had them, how long the player held a thrown weapon's trigger, the nearest hostile
     /// compass mark's direction (0-7; of all, and of those not invisible), the sky's
     /// colours now (0-255, in the weather colour types' order) and whether the player
-    /// looks through the first-person camera.
+    /// looks through the third-person camera (false, first person, until the engine
+    /// tells: the original answered the first person's FOV in the probe's save
+    /// [observed 2026-11-10]).
     pub run_speeds: HashMap<FormId, f32>,
     pub spreads: HashMap<FormId, f32>,
     pub grenade_hold: f32,
     pub compass_hostile: [Option<u8>; 2],
     pub sky_colors: Option<[[f32; 3]; 10]>,
-    pub first_person: bool,
+    pub third_person: bool,
 }
 
 /// A path "relative to the New Vegas folder" [documented: PlaySoundFile] as a Data path:
@@ -241,31 +243,39 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // PlaySoundFromPath path [fadeTime] [isVoice] [systemSound] [shouldLoop]
         // [documented]. isVoice plays it as any script sound [hypothesis: the voice
         // channel's volume is not applied].
+        // 1 for any path, a missing file too [observed: the original, 2026-11-10].
         "playsoundfrompath" => {
-            let Some(p) = text(args, 0).as_deref().and_then(data_path).filter(|p| crate::mod_files::exists(p)) else { return Some(Ok(yes(false))) };
+            let Some(p) = text(args, 0).as_deref().and_then(data_path).filter(|p| crate::mod_files::exists(p)) else { return Some(Ok(yes(true))) };
             let looping = num(args, 4, 0.0) != 0.0;
-            let Some(id) = g.path_sound(&p, None, looping, false) else { return Some(Ok(yes(false))) };
+            let Some(id) = g.path_sound(&p, None, looping, false) else { return Some(Ok(yes(true))) };
             g.play_faded(id, None, num(args, 3, 0.0) != 0.0, num(args, 1, 0.0));
             yes(true)
         }
-        // ref.PlaySound3DFromPath path [fadeTime] [isVoice] [shouldLoop] [documented].
+        // ref.PlaySound3DFromPath path [fadeTime] [isVoice] [shouldLoop] [documented]; 1
+        // as PlaySoundFromPath [hypothesis].
         "playsound3dfrompath" => {
             let Some(at) = subject else { return Some(Ok(yes(false))) };
-            let Some(p) = text(args, 0).as_deref().and_then(data_path).filter(|p| crate::mod_files::exists(p)) else { return Some(Ok(yes(false))) };
+            let Some(p) = text(args, 0).as_deref().and_then(data_path).filter(|p| crate::mod_files::exists(p)) else { return Some(Ok(yes(true))) };
             let looping = num(args, 3, 0.0) != 0.0;
-            let Some(id) = g.path_sound(&p, Some(at), looping, false) else { return Some(Ok(yes(false))) };
+            let Some(id) = g.path_sound(&p, Some(at), looping, false) else { return Some(Ok(yes(true))) };
             g.play_faded(id, Some(at), false, num(args, 1, 0.0));
             yes(true)
         }
         // StopSoundFromPath path [fadeTime]: "all instances" of the file [documented].
+        // 0, with the file just played [observed: the original, 2026-11-10; hypothesis:
+        // it returns nothing]; the 3D one alike [hypothesis].
         "stopsoundfrompath" => {
-            let Some(p) = text(args, 0).as_deref().and_then(data_path) else { return Some(Ok(yes(false))) };
-            yes(g.stop_paths(num(args, 1, 0.0), |s| s.path == p))
+            if let Some(p) = text(args, 0).as_deref().and_then(data_path) {
+                g.stop_paths(num(args, 1, 0.0), |s| s.path == p);
+            }
+            yes(false)
         }
         // ref.StopSound3DFromPath path [fadeTime]: those from that source [documented].
         "stopsound3dfrompath" => {
-            let (Some(at), Some(p)) = (subject, text(args, 0).as_deref().and_then(data_path)) else { return Some(Ok(yes(false))) };
-            yes(g.stop_paths(num(args, 1, 0.0), |s| s.path == p && s.at == Some(at)))
+            if let (Some(at), Some(p)) = (subject, text(args, 0).as_deref().and_then(data_path)) {
+                g.stop_paths(num(args, 1, 0.0), |s| s.path == p && s.at == Some(at));
+            }
+            yes(false)
         }
         // ref.PlaySoundFade sound fadeTime: at the calling reference, the player without
         // one [documented].
@@ -438,10 +448,10 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // kept after the throw until the next hold [documented].
         "getgrenadeholdtime" => XVal::Num(f64::from(g.other.jg9.grenade_hold)),
         // GetNearestCompassHostileDirection [skipInvisible]: 0 front … 7 front left
-        // [documented]; 8 with no hostile mark [hypothesis: the page's 0-8 range].
+        // [documented]; -1 with no hostile mark [observed: the original, 2026-11-10].
         "getnearestcompasshostiledirection" => {
             let k = usize::from(num(args, 0, 0.0) != 0.0);
-            XVal::Num(f64::from(g.other.jg9.compass_hostile[k].unwrap_or(8)))
+            XVal::Num(g.other.jg9.compass_hostile[k].map_or(-1.0, f64::from))
         }
         // GetCurrentSkyColor type rOut gOut bOut: the sky's colour of that type now
         // [documented: 0 sky upper … 9 clouds upper], 0-255; 0 without a sky (an
@@ -458,7 +468,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "getplayercamfov" => {
             let which = match int_arg(args, 0) {
                 Some(1) => 1.0,
-                Some(2) => f64::from(u8::from(g.other.jg9.first_person)),
+                Some(2) => f64::from(u8::from(!g.other.jg9.third_person)),
                 _ => 0.0,
             };
             match crate::nvse_small::call(g, &crate::game::RunCtx::default(), "getcamerafov", None, &[XVal::Num(which)]) {

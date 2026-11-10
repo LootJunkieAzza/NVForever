@@ -188,7 +188,7 @@ fn script_moves(
         }
         st.grenade_hold = c.grenade_hold;
     }
-    st.first_person = control.as_deref().is_some_and(|c| c.pov == crate::control::Pov::First);
+    st.third_person = control.as_deref().is_some_and(|c| c.pov != crate::control::Pov::First);
 }
 
 /// SetVelEx's velocity on `who`: a character goes up or down at z and is pushed along

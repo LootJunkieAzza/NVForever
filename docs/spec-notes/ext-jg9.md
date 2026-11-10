@@ -30,7 +30,7 @@ engine's answers work for it.
 | StopSoundFile | stops what PlaySoundFile plays [documented] |
 | PlaySoundFromPath `path [fadeTime] [isVoice] [systemSound] [shouldLoop]` | plays the file, fading in over fadeTime seconds; isVoice changes nothing [hypothesis: the voice volume is not applied] |
 | PlaySound3DFromPath `path [fadeTime] [isVoice] [shouldLoop]` | at the calling reference [documented] |
-| StopSoundFromPath `path [fadeTime]` | stops "all instances" of the file [documented], fading out over fadeTime; 1 when something was stopped [hypothesis] |
+| StopSoundFromPath `path [fadeTime]` | stops "all instances" of the file [documented], fading out over fadeTime; 0 [observed: with the file just played, §7; hypothesis: it returns nothing] |
 | StopSound3DFromPath `path [fadeTime]` | those from the calling reference [documented] |
 | PlaySoundFade `sound fadeTime` | a SOUN at the calling reference, the player without one [documented], faded in |
 | StopSoundLooping `sound` | the page stops it "by triggering its Loop End point"; NVForever plays no loop points, so what a script plays of it stops [hypothesis] |
@@ -96,20 +96,34 @@ controls are read.
 | GetItemEffectString `item` | the item card's effect line for the player [documented]: an aid item's changes as taking it would make them, else its enchantment's (apparel); the Pip-Boy's text, moved to `fnv_game::item_text` |
 | GetCalculatedSpread | the actor's spread now [documented]: the player's as the crosshair has it, another's at its last shot; 0 before any |
 | GetGrenadeHoldTime | seconds the player has held a thrown weapon's trigger, kept after the throw until the next hold [documented] (`nvf-play` combat.rs) |
-| GetNearestCompassHostileDirection `[skipInvisible]` | 0 front … 7 front left [documented], eight equal sectors about the heading [hypothesis]; 8 with no hostile mark [hypothesis: the page's 0-8 range]; invisible is Invisibility or Chameleon above 0 (`nvf-play` compass.rs) |
+| GetNearestCompassHostileDirection `[skipInvisible]` | 0 front … 7 front left [documented], eight equal sectors about the heading [hypothesis]; -1 with no hostile mark [observed, §7]; invisible is Invisibility or Chameleon above 0 (`nvf-play` compass.rs) |
 | GetCurrentSkyColor `type rOut gOut bOut` | the sky's colour of that type now [documented: 0 sky upper … 9 clouds upper], 0-255, by the weather colour types' order [hypothesis: the page's ids are NAM0's]; 0 in an interior [hypothesis] (`nvforever` sky.rs) |
-| GetPlayerCamFOV `0/1/2` | the world FOV, the first person's, or the one the camera uses now [documented], as GetCameraFOV reads them |
+| GetPlayerCamFOV `0/1/2` | the world FOV, the first person's, or the one the camera uses now [documented], as GetCameraFOV reads them; the first person's until the engine tells the view [observed: 55 in the probe's save, §7] |
 
-## 7. Probe questions (set jg9, not run)
+## 7. Observed (set jg9 at 5d1ab3447, 2026-11-10)
 
-1. `karma`: GetPlayerKarmaTitle 0 and 1 in the probe's save.
-2. `effect.stimpak`, `effect.leather`: the effect lines; the page's example reads "HP + 43" (a space after the sign?).
-3. `fov`: GetPlayerCamFOV 0, 1, 2.
-4. `term`: a Vault 34 terminal item added (count, return, the new item's text) and removed.
-5. `sound.path`: PlaySoundFromPath of a UI sound and of a missing file, then StopSoundFromPath's return.
-6. `grenade`, `compass`, `marker`, `sky`, `spread`: what the original answers at the start cell (fnvtool, with no engine, reads 0).
+The observer session ran the set in the original (xNVSE 6.4.9, JohnnyGuitar 528, save
+nvfairport); 4 of 11 rows matched [observed]. The golden is private.
+
+| Row | Original | fnvtool then | Now |
+|---|---|---|---|
+| karma | `Drifter\|Neutral` | same | |
+| effect.stimpak | `HP +40` | `HP +39` | the potency follows the player's Medicine, and fnvtool's player is not the save's; row `medicine` added to show both |
+| effect.leather | `""` | same | |
+| fov | `75 55 55` | `75 55 75` | the view is first person until the engine tells |
+| term | `5 1 6 [] 1 5` | same | |
+| sound.path | `1 1 0` | `1 0 1` | PlaySoundFromPath 1 for a missing file; StopSoundFromPath 0 |
+| grenade | `0` | same | |
+| compass | `-1 -1` | `8 8` | -1 with no mark |
+| marker | did not compile | `00000000` | asked again through a ref variable |
+| sky | did not compile | `0 0 0 0` | dropped: output variables do not compile in that build (as jg8's GetSystemColorAlt) |
+| spread | `0.00 339` | `0.00 0` | GetRunSpeed is told by the engine, which fnvtool lacks; 339 against the 344 the engine measured running (`nvf-play` player.rs) is a follow-up (§8) |
+
+Asked again (the one rerun): `medicine`, `marker`, and the rows above with their new
+answers.
 
 ## 8. Follow-ups (engine)
 
+GetRunSpeed's 339 for a standing player against the 344 units a second the engine measured running [observed both];
 Loop End points for StopSoundLooping; a node's own body for GetLinearVelocity; the voice
 channel's volume for isVoice.

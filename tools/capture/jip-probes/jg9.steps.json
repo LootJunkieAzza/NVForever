@@ -23,6 +23,12 @@
    "text": true
   },
   {
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (sv_Construct \"%.0f\" (rP.GetAV Medicine))\nEnd\n",
+   "label": "jg9.medicine",
+   "field": "value",
+   "text": true
+  },
+  {
    "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (sv_Construct \"%g %g %g\" (rP.GetPlayerCamFOV 0) (rP.GetPlayerCamFOV 1) (rP.GetPlayerCamFOV 2))\nEnd\n",
    "label": "jg9.fov",
    "field": "value",
@@ -52,14 +58,8 @@
    "text": true
   },
   {
-   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nSetFunctionValue (GetFormIDString (AudioMarkerGetCurrent))\nEnd\n",
+   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet rObj := AudioMarkerGetCurrent\nSetFunctionValue (GetFormIDString rObj)\nEnd\n",
    "label": "jg9.marker",
-   "field": "value",
-   "text": true
-  },
-  {
-   "query": "ref rP\nref rObj\nfloat fA\nfloat fB\nfloat fC\nint iR\nint iG\nint iB\nstring_var sText\nBegin Function { }\nlet rP := GetFormFromMod \"FalloutNV.esm\" \"14\"\nlet fA := GetCurrentSkyColor 4 iR iG iB\nSetFunctionValue (sv_Construct \"%g %g %g %g\" fA iR iG iB)\nEnd\n",
-   "label": "jg9.sky",
    "field": "value",
    "text": true
   },

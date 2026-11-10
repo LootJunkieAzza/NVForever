@@ -95,7 +95,7 @@ fn sounds_from_files_and_holotapes() {
     let f = fixture();
     let mut g = game(&f);
     assert_eq!(n(&mut g, r#"PlaySoundFromPath "Data\Sound\fx\test.wav" 2.5"#), 1.0);
-    assert_eq!(n(&mut g, r#"PlaySoundFromPath "Data\Sound\fx\nosuch.wav""#), 0.0, "no such file");
+    assert_eq!(n(&mut g, r#"PlaySoundFromPath "Data\Sound\fx\nosuch.wav""#), 1.0, "no such file: 1 all the same, as the original");
     assert_eq!(n(&mut g, r#"PlaySoundFromPath "Data\Sound\fx\test.wav""#), 1.0);
     // One sound for the file, played twice; the first fades in.
     let st = &g.other.jg9;
@@ -112,7 +112,7 @@ fn sounds_from_files_and_holotapes() {
     assert!(g.other.jg9.path_sounds[1].looping);
     assert_eq!(g.other.jg9.path_sounds[2].at, Some(FormId::PLAYER_REF));
     // The stops: those of the file, with the fade; StopSoundFile those of PlaySoundFile.
-    let _ = n(&mut g, r#"StopSoundFromPath "Data\Sound\fx\test.wav" 1.5"#);
+    assert_eq!(n(&mut g, r#"StopSoundFromPath "Data\Sound\fx\test.wav" 1.5"#), 0.0, "0 though it stops them, as the original");
     assert_eq!(g.other.jg9.fades_out.len(), 3);
     assert!(g.other.jg9.fades_out.iter().all(|f| f.1 == 1.5));
     assert_eq!(n(&mut g, r#"PlaySoundFile "Data\Sound\fx\test.wav" 0 1"#), 1.0);
@@ -188,15 +188,16 @@ fn markers_moves_and_told_values() {
     assert_eq!(n(&mut g, "player.GetCalculatedSpread"), 1.25);
     assert_eq!(n(&mut g, "GetGrenadeHoldTime"), 0.75);
     assert_eq!(n(&mut g, "GetNearestCompassHostileDirection"), 2.0);
-    assert_eq!(n(&mut g, "GetNearestCompassHostileDirection 1"), 8.0, "none that is not invisible");
+    assert_eq!(n(&mut g, "GetNearestCompassHostileDirection 1"), -1.0, "none that is not invisible");
     assert_eq!(q(&mut g, "int r\nint gr\nint b\nGetCurrentSkyColor 4 r gr b\nSetFunctionValue (r * 1000000 + gr * 1000 + b)"), XVal::Num(255_227_170.0));
     g.other.jg9.sky_colors = None;
     assert_eq!(n(&mut g, "GetCurrentSkyColor 4 0 0 0"), 0.0, "no sky indoors");
     // FOV: the INI's defaults without a SetCameraFOV [hypothesis there: 75 and 55].
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 0"), 75.0);
     assert_eq!(n(&mut g, "player.GetPlayerCamFOV 1"), 55.0);
-    g.other.jg9.first_person = true;
-    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 55.0);
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 55.0, "first person until the engine tells");
+    g.other.jg9.third_person = true;
+    assert_eq!(n(&mut g, "player.GetPlayerCamFOV 2"), 75.0);
     // Karma: neutral at 0 between the globals; the level 1 neutral title.
     assert_eq!(s(&mut g, "GetPlayerKarmaTitle 1"), "Neutral");
     assert_eq!(s(&mut g, "GetPlayerKarmaTitle 0"), "Drifter");

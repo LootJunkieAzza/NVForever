@@ -1406,7 +1406,7 @@
   {
    "id": "L5.ext.jg9",
    "layer": 5,
-   "description": "JohnnyGuitar batch 9 (#1007; docs/spec-notes/ext-jg9.md): GetPlayerKarmaTitle, GetItemEffectString of the Stimpak and Leather Armor, GetPlayerCamFOV, a Vault 34 terminal item added and removed, PlaySoundFromPath and StopSoundFromPath, GetGrenadeHoldTime, GetNearestCompassHostileDirection, AudioMarkerGetCurrent, GetCurrentSkyColor, GetCalculatedSpread and GetRunSpeed; set jg9 of tools/capture/jip_probes.py, keyed by probe id, steps in order; each change put back. Not probed yet. Oracle and candidate as L5.ext.jip.getters.",
+   "description": "JohnnyGuitar batch 9 (#1007; docs/spec-notes/ext-jg9.md): GetPlayerKarmaTitle, GetItemEffectString of the Stimpak and Leather Armor, GetPlayerCamFOV, a Vault 34 terminal item added and removed, PlaySoundFromPath and StopSoundFromPath, GetGrenadeHoldTime, GetNearestCompassHostileDirection, AudioMarkerGetCurrent, GetCalculatedSpread and GetRunSpeed, and the player's Medicine; set jg9 of tools/capture/jip_probes.py, keyed by probe id, steps in order; each change put back. Probed 2026-11-10 (docs/spec-notes/ext-jg9.md §7). Oracle and candidate as L5.ext.jip.getters.",
    "oracle": {"golden": "jip/jg9.json"},
    "candidate": {
     "argv": ["{candidate}", "ext", "queries", "{data_dir}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
