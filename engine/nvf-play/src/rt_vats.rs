@@ -16,7 +16,7 @@
 //!   keys are the lock's alone (`crate::bindings::FreedKeys`).
 //! - **Targets**: the living actors drawn now that are hostile to the player (fighting
 //!   it, the host's hostile set on a guest, or would attack it: the compass's rule),
-//!   seen along a ray from the eye (`crate::aim_assist::seen`), looked for every
+//!   seen along a ray from the eye ([`in_sight`]), looked for every
 //!   `fLosInterval`. A locked target out of sight for `fLosLostSeconds` is let go.
 //! - **Shots** (`crate::combat::LockLink`): a gun's shot while locked is rolled on the
 //!   aimed limb's VATS chance (`fnv_combat::vats`, no higher than `fMaxChance`) and
@@ -52,7 +52,7 @@ use fnv_sim::FormId;
 use nvf_assets::GameData;
 
 use crate::activate::HudMessage;
-use crate::aim_assist::{angle_off, sight_filter, Candidate, TORSO_ABOVE_FEET};
+use crate::aim_assist::{angle_off, sight_filter, TORSO_ABOVE_FEET};
 use crate::bindings::{dik_key, Control, ControlInput, FreedKeys};
 use crate::combat::{Combat, LockEvent};
 use crate::control::{ControlLocks, PlayerControl};
@@ -228,6 +228,10 @@ fn read_keys(input: ControlInput, state: Res<State<PlayState>>, mut rt: ResMut<R
     rt.keys = keys;
 }
 
+/// How far off the view an actor that is not hostile may be for V to lock on to it,
+/// degrees [design: about a body's width at talking distance].
+pub const CROSSHAIR_DEG: f32 = 4.0;
+
 /// A hostile in view and where a limb of it is.
 #[derive(Debug, Clone, Copy)]
 struct Aimed {
@@ -285,7 +289,12 @@ struct Look<'w> {
 
 /// The living hostiles seen from the eye now, each on `limb` (the torso for those
 /// without it), with the chance a shot at it would have.
-fn look_round(look: &mut Look, cfg: &Config, limb: Limb, skill: f32) -> Vec<(Seen, Aimed)> {
+///
+/// A living actor that is not hostile is among them, marked so (`false`), only while it
+/// is under the crosshair (within [`CROSSHAIR_DEG`] of the view): V locks on to it, as
+/// VATS may target anyone; X, the target key and a chain never take it. The actor a lock
+/// is held on (`held`) is looked for wherever it stands.
+fn look_round(look: &mut Look, cfg: &Config, limb: Limb, skill: f32, held: Option<u32>) -> Vec<(Seen, Aimed, bool)> {
     let Some(combat) = look.combat.as_deref() else { return Vec::new() };
     let eye = look.player.eye();
     let dir = look.player.look_dir();
@@ -300,7 +309,7 @@ fn look_round(look: &mut Look, cfg: &Config, limb: Limb, skill: f32) -> Vec<(See
         .filter_map(|&(id, feet)| {
             let aimed = limb_of(combat, &look.parts, &look.phys, id, limb, Some(feet)).or_else(|| limb_of(combat, &look.parts, &look.phys, id, Limb::Torso, Some(feet)))?;
             let (angle, distance) = angle_off(eye, dir, aimed.point);
-            (distance <= reach && angle <= widest).then_some((id, aimed, angle, distance))
+            (held == Some(id) || (distance <= reach && angle <= widest)).then_some((id, aimed, angle, distance))
         })
         .collect();
     if near.is_empty() {
@@ -308,13 +317,14 @@ fn look_round(look: &mut Look, cfg: &Config, limb: Limb, skill: f32) -> Vec<(See
     }
     // Hostile and alive: the compass's rule (a guest has the host's hostile set).
     let sim = &mut *look.sim;
-    let foes: Vec<(u32, Aimed, f32, f32)> = match look.script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+    let foes: Vec<(u32, Aimed, f32, f32, bool)> = match look.script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         Some(rt) => with_world(rt, sim, |rt| {
             near.into_iter()
-                .filter(|(id, ..)| {
-                    let (r, g) = (FormId(*id), &mut rt.game);
+                .filter_map(|(id, aimed, angle, distance)| {
+                    let (r, g) = (FormId(id), &mut rt.game);
                     let fighting = g.awareness.get(r).and_then(|x| x.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
-                    !g.is_dead(r) && (fighting || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF))
+                    let hostile = fighting || g.coop_hostile.contains(&r) || g.would_attack(r, FormId::PLAYER_REF);
+                    (!g.is_dead(r) && (hostile || held == Some(id) || angle <= CROSSHAIR_DEG.to_radians())).then_some((id, aimed, angle, distance, hostile))
                 })
                 .collect()
         }),
@@ -324,12 +334,24 @@ fn look_round(look: &mut Look, cfg: &Config, limb: Limb, skill: f32) -> Vec<(See
     let filter = sight_filter(p.player.as_ref().map(|c| c.key()), p.npcs.keys().copied());
     let q = p.world.queries();
     foes.into_iter()
-        .filter(|(id, aimed, angle, distance)| !cfg.line_of_sight || crate::aim_assist::seen(&q, &filter, eye, &Candidate { form_id: *id, aim: aimed.point, distance: *distance, angle: *angle }))
-        .map(|(id, aimed, angle, distance)| {
+        .filter(|(_, aimed, _, distance, _)| !cfg.line_of_sight || in_sight(&q, &filter, eye, aimed.point, *distance))
+        .map(|(id, aimed, angle, distance, hostile)| {
             let chance = cfg.shot_chance(vats_chance(combat, skill, eye, &aimed, |c| c));
-            (Seen { id, distance, angle: angle.to_degrees(), chance }, aimed)
+            (Seen { id, distance, angle: angle.to_degrees(), chance }, aimed, hostile)
         })
         .collect()
+}
+
+/// Whether `point` is seen from `eye`: nothing of the world lies on the ray to it. Another
+/// actor's body in the way does not hide it [design: in a pack the one behind is still
+/// seen past the others; the aim assist's rule, which wants the target struck first, let
+/// go of a coyote in a pack of twelve after 1.6 s].
+fn in_sight(q: &fnv_phys::Queries<'_>, filter: &fnv_phys::Filter, eye: [f32; 3], point: [f32; 3], distance: f32) -> bool {
+    let to = [point[0] - eye[0], point[1] - eye[1], point[2] - eye[2]];
+    match q.ray(eye, to, distance, filter) {
+        Some(h) => matches!(h.owner, fnv_phys::Owner::Actor { .. } | fnv_phys::Owner::Character { .. }),
+        None => true,
+    }
 }
 
 /// The Action Points a round of the weapon in hand costs under the lock, and its name;
@@ -448,24 +470,27 @@ fn update(
     let wants_look = keys.vats || keys.lock || keys.next || keys.previous;
     let target_dead = rt.lock.as_ref().is_some_and(|l| crate::combat::is_dead(look.script.as_deref(), l.target));
     let looked = rt.look_in <= 0.0 || wants_look || target_dead;
-    let mut found: Vec<(Seen, Aimed)> = Vec::new();
+    let mut found: Vec<(Seen, Aimed, bool)> = Vec::new();
     if looked {
         let since = cfg.los_interval - rt.look_in.min(cfg.los_interval);
         rt.look_in = cfg.los_interval;
         let limb = rt.lock.as_ref().map_or(cfg.limb, |l| l.limb);
-        found = if playing && !dead { look_round(&mut look, &cfg, limb, skill) } else { Vec::new() };
-        rt.seen = found.iter().map(|(s, _)| *s).filter(|s| s.distance <= cfg.max_range && s.angle <= cfg.max_angle && cfg.lockable(s.chance)).collect();
+        found = if playing && !dead { look_round(&mut look, &cfg, limb, skill, rt.locked()) } else { Vec::new() };
+        rt.seen = found.iter().filter(|f| f.2).map(|(s, ..)| *s).filter(|s| s.distance <= cfg.max_range && s.angle <= cfg.max_angle && cfg.lockable(s.chance)).collect();
         // The locked target's sight.
         if let Some(l) = rt.lock.as_mut().filter(|_| !target_dead) {
-            let seen = found.iter().any(|(s, _)| s.id == l.target);
+            let seen = found.iter().any(|(s, ..)| s.id == l.target);
             if l.sight.check(seen, since, &cfg) {
                 let why = format!("{} out of sight for {:.1} s", l.name, l.sight.unseen);
                 end(rt, &mut look, &why, &mut sounds);
             }
         }
     }
-    let all: Vec<Seen> = found.iter().map(|(s, _)| *s).collect();
-    let aimed_of = |id: u32| found.iter().find(|(s, _)| s.id == id).map(|(_, a)| *a);
+    // The hostiles (what X, the target key and a chain choose among), and with them the
+    // actor under the crosshair that is not one (V's).
+    let all: Vec<Seen> = found.iter().filter(|f| f.2).map(|(s, ..)| *s).collect();
+    let any: Vec<Seen> = found.iter().map(|(s, ..)| *s).collect();
+    let aimed_of = |id: u32| found.iter().find(|(s, ..)| s.id == id).map(|(_, a, _)| *a);
     // What ends the lock whatever it is doing.
     if rt.lock.is_some() {
         let stop = if !playing {
@@ -547,7 +572,8 @@ fn update(
                 }
             }
         }
-        None if keys.vats || keys.lock => {
+        // (X with nothing to lock is not the lock's: it is the fork's Weapon Bash.)
+        None if keys.vats || (keys.lock && !rt.seen.is_empty()) => {
             let refuse = |rt: &mut RtVats, why: &str, hud: &mut HudMessage, sounds: &mut Sounds| {
                 info!("realtime vats: refused: {why}");
                 hud.show(why.to_string());
@@ -564,7 +590,7 @@ fn update(
             } else if !cfg.can_start(ap) {
                 refuse(rt, "Not enough Action Points.", &mut hud, &mut sounds);
             } else {
-                match pick_lock(&all, &cfg).and_then(|s| aimed_of(s.id).map(|a| (s, a))) {
+                match pick_lock(if keys.vats { &any } else { &all }, &cfg).and_then(|s| aimed_of(s.id).map(|a| (s, a))) {
                     Some((s, a)) => {
                         let lock = lock_on(&mut look, s, a, cfg.limb);
                         let (per, edid) = weapon.unwrap_or_default();
@@ -702,7 +728,7 @@ fn spawn_hud(mut commands: Commands) {
     commands.spawn((Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, GlobalZIndex(5), LimbMark, UiTransform::from_rotation(Rot2::degrees(45.0)))).with_children(|p| {
         let bar = |left: f32, top: f32, width: f32, height: f32| Node { position_type: PositionType::Absolute, left: Val::Percent(left), top: Val::Percent(top), width: Val::Percent(width), height: Val::Percent(height), ..default() };
         for node in [bar(0.0, 0.0, 100.0, MARK_BAR), bar(0.0, 100.0 - MARK_BAR, 100.0, MARK_BAR), bar(0.0, 0.0, MARK_BAR, 100.0), bar(100.0 - MARK_BAR, 0.0, MARK_BAR, 100.0)] {
-            p.spawn((node, BackgroundColor(amber(1.0)), MarkBar));
+            p.spawn((node, BackgroundColor(amber(255.0)), MarkBar));
         }
     });
     commands.spawn((Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, GlobalZIndex(5), Panel::default()));
@@ -756,7 +782,7 @@ fn draw(
     let lock = rt.lock.as_ref();
     let at = lock.zip(cameras.single().ok()).and_then(|(l, (cam, t))| cam.world_to_viewport(t, space::to_bevy(l.point)).ok());
     let size = (MARK_SIZE * width).max(10.0);
-    let colour = amber(1.0);
+    let colour = amber(255.0);
     for (mut node, mut vis) in &mut marks {
         let want = if at.is_some() && rt.cfg.limb_highlight { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
@@ -794,7 +820,7 @@ fn draw(
                 }
             }
             let mut meter = |top: f32, sixteenths: u8| {
-                p.spawn((box_at(0.0, top, BAR_WIDTH, BAR_HEIGHT), BackgroundColor(amber(0.25))));
+                p.spawn((box_at(0.0, top, BAR_WIDTH, BAR_HEIGHT), BackgroundColor(amber(70.0))));
                 p.spawn((box_at(0.0, top, BAR_WIDTH * f32::from(sixteenths) / 16.0, BAR_HEIGHT), BackgroundColor(colour)));
             };
             if let Some(c) = text.condition {

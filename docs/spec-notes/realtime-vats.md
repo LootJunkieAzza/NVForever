@@ -38,6 +38,11 @@ vats system", with the archive of the mod RealtimeVatsNV 1.0.0.
   - Among several, the one nearest the view direction [hypothesis].
   - Hostile: fighting the player, in the host's hostile set (on a guest), or would attack
     the player: the compass's rule [design].
+  - V also locks on to a living actor that is not hostile while it is under the crosshair
+    (within 4° of the view), as VATS may target anyone [design]. X, the target key and a
+    chain take hostiles only.
+  - Seen: nothing of the world lies between the eye and the limb. Another actor's body in
+    the way does not hide the target [design].
 - C (`iKeyNext`) moves to the next target: the lockable ones ordered by their angle off the
   view, going round [hypothesis: the order]. `iKeyPrevious` (off by default) goes back.
 - Sight: looked for every `fLosInterval` 0.2 s; a locked target out of sight for
