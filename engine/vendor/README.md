@@ -59,7 +59,7 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
-Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). One
+Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
 change, in `src/renderer/render_context.rs`, each part marked by a comment starting
 `NVForever early finish`: when a render system is done (`RenderContextState`'s
 `SystemBuffer::queue`), each encoder it recorded is handed to the compute threads to be
@@ -106,6 +106,35 @@ the frame's recording time) in a new main-world resource, `RenderDiagnosticsReco
 store's measurements keep upstream's import time (frame telemetry exports it as such,
 docs/design/frame-telemetry.md). `nvforever/src/perf_overlay/split.rs` uses the pairs to
 read only the measurements of frames recorded in its window and since its row began to show.
+
+Fourth change (#1778, docs/design/latency-reduction.md): Bevy's `raw_vulkan_init` feature,
+which the engine turns on so `anti_lag.rs` can add a device extension, no longer changes which
+backend starts or which validation wgpu runs. Each part is marked by a comment starting
+`NVForever (2026-11-09)`:
+
+- `src/renderer/mod.rs` `initialize_renderer`: the raw Vulkan instance is created only when
+  the backends include Vulkan, otherwise `Instance::new`, as without the feature. Upstream
+  creates it whatever the backends say, so `WGPU_BACKEND=dx12` or `gl` was ignored.
+- `src/settings.rs` `WgpuSettings::default`: upstream, the feature also removes
+  `InstanceFlags::VALIDATION_INDIRECT_CALL` in every release build, on every backend. Left
+  out: the flag goes only when the backends don't include DX12, as without the feature. On
+  DX12 the built-ins `num_workgroups`, `vertex_index` and `instance_index` read wrong in
+  indirect calls without it [documented: wgpu-types 30.0.1 `instance.rs`], and release builds
+  on Vulkan with the default backends keep the validation (and its GPU time) they had before.
+
+Still as upstream: when the backends include Vulkan, the instance is Vulkan-only whenever
+Vulkan starts, so a Vulkan instance with no adapter that can draw to the window stops the start
+instead of going on to DX12. Left so: the game does not run on DX12 as it is (main's own
+`WGPU_BACKEND=dx12` start stops on bind group validation errors [observed 2026-11-09, RTX
+4070]), so there is nothing to fall back to. Where the Vulkan instance cannot be made at all
+(no driver), upstream's own fallback to `Instance::new` is kept.
+
+Still as upstream, and different from a build without the feature: the instance made from
+the raw Vulkan one takes wgpu-core's default instance flags (`Instance::from_hal`), so
+`WgpuSettings::instance_flags` and the `WGPU_VALIDATION*`/`WGPU_DEBUG` environment switches
+reach the Vulkan layer (wgpu-hal) but not wgpu-core [documented: wgpu-core 30.0.1
+`instance.rs` `from_hal_instance`]. The defaults are the same either way. Drop this change
+when a Bevy release makes the feature follow the backends.
 
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
