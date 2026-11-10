@@ -23,13 +23,17 @@
 //! ground triangle carries 2.2 painted layers on average, so the ground was lit 3.2 times
 //! [observed 2026-11-10: 50 cells, 102,400 base triangles, 224,778 painted layer
 //! triangles; docs/design/frame-rate-audit.md §9]. Where the GPU has bindless textures
-//! ([`TerrainMaterials::folds`]), a quadrant's first [`FOLDED_LAYERS`] layers are folded
+//! ([`TerrainMaterials::folds`]), a quadrant's first [`folded_layers`] layers are folded
 //! into its base instead: one opaque mesh ([`folded_mesh`]) that carries the layers'
 //! opacities at each vertex, with a [`TerrainMaterial`] holding their textures, whose
 //! shader (terrain.wesl) blends the surface colour and the normal in the layers' order
-//! and lights the result once. A quadrant's later layers (up to 6 were seen; the first
-//! four hold 85 % of the painted triangles at Goodsprings, 95 % at Novac) keep their
-//! blended draws over it, in the same order as before.
+//! and lights the result once. That is [`FOLDED_LAYERS`] layers, every layer of every
+//! quadrant seen (up to 6), when the texture repeat divides the cell: the texture
+//! coordinate is then the vertex's place in the cell over the repeat, which the shader
+//! works out itself, and its slot carries two more opacities. Otherwise it is
+//! [`FOLDED_LAYERS_WITH_UV`], and a quadrant's later layers keep their blended draws over
+//! it, in the same order as before (at Goodsprings the fifth and sixth layers are 15 % of
+//! the painted triangles and cost 0.18 ms a frame at 2560 x 1440 [observed 2026-11-10]).
 //!
 //! What differs in the picture: the layers' *surfaces* are blended and then lit, where
 //! their *lit colours* were blended. The two agree where a layer is fully opaque or
@@ -68,7 +72,7 @@ pub struct TerrainCache {
     base: HashMap<Option<String>, Handle<NifMaterial>>,
     layer: HashMap<(String, usize), Handle<NifMaterial>>,
     /// Base texture and folded layer textures → the material of a folded quadrant.
-    folded: HashMap<(Option<String>, Vec<String>), Handle<TerrainMaterial>>,
+    folded: HashMap<(Option<String>, Vec<String>, bool), Handle<TerrainMaterial>>,
     /// Quadrants drawn with their first layers folded in, and the layers folded.
     pub folded_quadrants: usize,
     pub folded_layers: usize,
@@ -88,8 +92,22 @@ impl TerrainCache {
 }
 
 /// The layers of a quadrant folded into its base's draw (module notes, "One draw for the
-/// base and its first layers").
-pub const FOLDED_LAYERS: usize = 4;
+/// base and its first layers") when the shader works the texture coordinate out, and when
+/// the mesh has to carry it.
+pub const FOLDED_LAYERS: usize = 6;
+pub const FOLDED_LAYERS_WITH_UV: usize = 4;
+
+/// How many layers a quadrant folds with textures repeating every `tile` units: all
+/// [`FOLDED_LAYERS`] when a cell holds a whole number of repeats (16 at the game's 256),
+/// since the texture coordinate of a vertex is then its place in the cell over `tile`,
+/// but for whole repeats.
+pub fn folded_layers(tile: f32) -> usize {
+    if tile > 0.0 && (fnv_world::CELL_SIZE / tile).fract() == 0.0 {
+        FOLDED_LAYERS
+    } else {
+        FOLDED_LAYERS_WITH_UV
+    }
+}
 
 /// The landscape material of a quadrant whose first layers are folded into the base:
 /// the base's StandardMaterial with the layers' textures (terrain.wesl).
@@ -102,10 +120,14 @@ const SHADER: &str = "embedded://nvforever/terrain.wesl";
 /// do (nvf_assets nif_material.rs "Bindless"), so quadrants still draw in one batch.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
 #[data(50, TerrainLayersUniform, binding_array(101))]
-#[bindless(limit(512), index_table(range(50..59), binding(100)))]
+#[bindless(limit(512), index_table(range(50..63), binding(100)))]
 pub struct TerrainLayers {
     /// Layers held (at most [`FOLDED_LAYERS`]).
     pub count: u32,
+    /// World units per texture repeat when the shader works the texture coordinate out
+    /// (the mesh's first texture coordinate then holds the fifth and sixth opacities);
+    /// 0 when the mesh carries it.
+    pub tile: f32,
     #[texture(51)]
     pub diffuse0: Option<Handle<Image>>,
     #[texture(52)]
@@ -122,20 +144,30 @@ pub struct TerrainLayers {
     pub diffuse3: Option<Handle<Image>>,
     #[texture(58)]
     pub normal3: Option<Handle<Image>>,
+    #[texture(59)]
+    pub diffuse4: Option<Handle<Image>>,
+    #[texture(60)]
+    pub normal4: Option<Handle<Image>>,
+    #[texture(61)]
+    pub diffuse5: Option<Handle<Image>>,
+    #[texture(62)]
+    pub normal5: Option<Handle<Image>>,
 }
 
-/// What terrain.wesl reads of a [`TerrainLayers`]: x the layer count, y a bit for each
-/// layer that has a normal map.
+/// What terrain.wesl reads of a [`TerrainLayers`]: `counts` x the layer count, y a bit for
+/// each layer that has a normal map; `tile` x [`TerrainLayers::tile`].
 #[derive(Clone, Default, ShaderType)]
 pub struct TerrainLayersUniform {
     pub counts: UVec4,
+    pub tile: Vec4,
 }
 
 impl From<&TerrainLayers> for TerrainLayersUniform {
     fn from(l: &TerrainLayers) -> Self {
-        let normals = [&l.normal0, &l.normal1, &l.normal2, &l.normal3];
+        let normals = [&l.normal0, &l.normal1, &l.normal2, &l.normal3, &l.normal4, &l.normal5];
         let bits = normals.iter().enumerate().filter(|(_, n)| n.is_some()).fold(0u32, |b, (i, _)| b | 1 << i);
-        TerrainLayersUniform { counts: UVec4::new(l.count.min(FOLDED_LAYERS as u32), bits, 0, 0) }
+        let most = if l.tile > 0.0 { FOLDED_LAYERS } else { FOLDED_LAYERS_WITH_UV };
+        TerrainLayersUniform { counts: UVec4::new(l.count.min(most as u32), bits, 0, 0), tile: Vec4::new(l.tile.max(0.0), 0.0, 0.0, 0.0) }
     }
 }
 
@@ -185,7 +217,7 @@ impl TerrainMaterials<'_> {
         }
         static ONCE: std::sync::Once = std::sync::Once::new();
         let folds = self.device.as_ref().is_some_and(|d| bevy::render::material_bind_groups::material_uses_bindless_resources::<TerrainMaterial>(d));
-        ONCE.call_once(|| info!("terrain: the first {FOLDED_LAYERS} texture layers of a quadrant are {} (render device {})", if folds { "folded into its base's draw" } else { "blended over it, as every layer" }, if self.device.is_some() { "known" } else { "not known" }));
+        ONCE.call_once(|| info!("terrain: the first {} texture layers of a quadrant are {} (render device {})", folded_layers(self.settings.tile), if folds { "folded into its base's draw" } else { "blended over it, as every layer" }, if self.device.is_some() { "known" } else { "not known" }));
         folds
     }
 }
@@ -252,8 +284,8 @@ impl TerrainCtx<'_, '_, '_> {
     /// The material of a quadrant with `layers` (diffuse paths, in order) folded into the
     /// base `tex`. `None` when a layer's diffuse texture is not found: the quadrant then
     /// keeps its blended layers, which leave such a layer out.
-    fn folded_material(&mut self, tex: Option<String>, layers: &[String]) -> Option<Handle<TerrainMaterial>> {
-        let key = (tex.clone(), layers.to_vec());
+    fn folded_material(&mut self, tex: Option<String>, layers: &[String], tile: f32) -> Option<Handle<TerrainMaterial>> {
+        let key = (tex.clone(), layers.to_vec(), tile > 0.0);
         if let Some(h) = self.tm.cache.folded.get(&key) {
             return Some(h.clone());
         }
@@ -265,8 +297,8 @@ impl TerrainCtx<'_, '_, '_> {
         }
         let mut textures = textures.into_iter();
         let mut next = || textures.next().map_or((None, None), |(d, n)| (Some(d), n));
-        let ((diffuse0, normal0), (diffuse1, normal1), (diffuse2, normal2), (diffuse3, normal3)) = (next(), next(), next(), next());
-        let extension = TerrainLayers { count: layers.len() as u32, diffuse0, normal0, diffuse1, normal1, diffuse2, normal2, diffuse3, normal3 };
+        let ((diffuse0, normal0), (diffuse1, normal1), (diffuse2, normal2), (diffuse3, normal3), (diffuse4, normal4), (diffuse5, normal5)) = (next(), next(), next(), next(), next(), next());
+        let extension = TerrainLayers { count: layers.len() as u32, tile, diffuse0, normal0, diffuse1, normal1, diffuse2, normal2, diffuse3, normal3, diffuse4, normal4, diffuse5, normal5 };
         let base = self.surface(tex.as_deref());
         let h = self.tm.folded.add(TerrainMaterial { base, extension });
         self.tm.cache.folded.insert(key, h.clone());
@@ -407,10 +439,11 @@ fn across(q: u8, side: usize) -> (Option<usize>, u8) {
 }
 
 /// The base mesh of quadrant `q` with the opacities of its first layers (`alphas`, at most
-/// [`FOLDED_LAYERS`], in the layers' order) at each vertex, where terrain.wesl reads them:
+/// [`folded_layers`], in the layers' order) at each vertex, where terrain.wesl reads them:
 /// the first in the vertex colour's alpha, the second and third in the second texture
 /// coordinate, the fourth in the size of the tangent's last number past 1 (its sign stays
-/// [`TANGENT_SIGN`]).
+/// [`TANGENT_SIGN`]), and, where [`folded_layers`] is [`FOLDED_LAYERS`], the fifth and
+/// sixth in the first texture coordinate, which the shader then works out.
 fn folded_mesh(land: &Land, q: u8, alphas: &[&[f32]], cell_origin: Vec2, tile: f32) -> Option<Mesh> {
     use bevy::mesh::VertexAttributeValues;
     let mut mesh = quadrant_mesh(land, q, None, cell_origin, tile)?;
@@ -426,6 +459,9 @@ fn folded_mesh(land: &Land, q: u8, alphas: &[&[f32]], cell_origin: Vec2, tile: f
         for (v, t) in tan.iter_mut().enumerate() {
             t[3] = TANGENT_SIGN * (1.0 + at(3, v));
         }
+    }
+    if folded_layers(tile) == FOLDED_LAYERS {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, (0..n).map(|v| [at(4, v), at(5, v)]).collect::<Vec<_>>());
     }
     Some(mesh)
 }
@@ -529,9 +565,11 @@ pub struct TerrainPrep {
     /// The layers drawn: the land's, stitched to the neighbours' ([`stitch_layers`]).
     layers: Vec<Layer>,
     meshes: HashMap<(u8, Option<usize>), Mesh>,
-    /// Each quadrant's base with its first [`FOLDED_LAYERS`] layers folded in
+    /// Each quadrant's base with its first [`folded_layers`] layers folded in
     /// ([`folded_mesh`]); none for a quadrant without layers.
     folded: HashMap<u8, Mesh>,
+    /// The texture repeat the meshes were built for.
+    tile: f32,
 }
 
 /// Read LAND `land_id` of grid square `grid` and build its meshes (`tile`: world units per
@@ -559,13 +597,13 @@ pub fn prepare_terrain(lo: &LoadOrder, schema: &EsmSchema, land_id: u32, grid: (
             }
         }
         if !alphas.is_empty() {
-            let first: Vec<&[f32]> = alphas.iter().take(FOLDED_LAYERS).map(Vec::as_slice).collect();
+            let first: Vec<&[f32]> = alphas.iter().take(folded_layers(tile)).map(Vec::as_slice).collect();
             if let Some(mesh) = folded_mesh(&land, q, &first, origin, tile) {
                 folded.insert(q, mesh);
             }
         }
     }
-    Some(TerrainPrep { land, layers, meshes, folded })
+    Some(TerrainPrep { land, layers, meshes, folded, tile })
 }
 
 /// A mesh of a cell's land (its base or a texture layer over it).
@@ -575,8 +613,12 @@ pub struct LandMesh;
 /// Spawn a cell's terrain from its prepared landscape ([`prepare_terrain`]); returns the
 /// landscape (for the grass).
 pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, prep: TerrainPrep, tm: &mut TerrainCtx) -> Land {
-    let TerrainPrep { land, layers: drawn, mut meshes, mut folded } = prep;
+    let TerrainPrep { land, layers: drawn, mut meshes, mut folded, tile } = prep;
     let folds = tm.tm.folds();
+    let most = folded_layers(tile);
+    // The repeat for the shader to work the texture coordinate out with, 0 when the mesh
+    // carries the coordinate.
+    let shader_tile = if most == FOLDED_LAYERS { tile } else { 0.0 };
     for q in 0..4u8 {
         let base = drawn.iter().rev().find(|l| l.base && l.quadrant == q);
         if base.is_none() {
@@ -589,8 +631,8 @@ pub fn spawn_terrain(commands: &mut Commands, cell: Entity, world: &WorldData, p
         let mut blended_from = 0;
         let folded_mat = match folded.remove(&q).filter(|_| folds) {
             Some(mesh) => {
-                let first: Option<Vec<String>> = layers.iter().take(FOLDED_LAYERS).map(|(_, l)| tm.texture_of(world, l.texture)).collect();
-                first.and_then(|first: Vec<String>| Some((mesh, tm.folded_material(tex.clone(), &first)?, first.len())))
+                let first: Option<Vec<String>> = layers.iter().take(most).map(|(_, l)| tm.texture_of(world, l.texture)).collect();
+                first.and_then(|first: Vec<String>| Some((mesh, tm.folded_material(tex.clone(), &first, shader_tile)?, first.len())))
             }
             None => None,
         };
@@ -661,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn a_folded_mesh_carries_four_layers_opacities_and_keeps_the_base() {
+    fn a_folded_mesh_carries_its_layers_opacities_and_keeps_the_base() {
         let land = sloped_land();
         let n = QUAD_SIDE * QUAD_SIDE;
         let v = 5 * QUAD_SIDE + 7;
@@ -672,8 +714,11 @@ mod tests {
         };
         let alphas = [layer(0.2), layer(0.4), layer(0.6), layer(0.8)];
         let refs: Vec<&[f32]> = alphas.iter().map(Vec::as_slice).collect();
-        let base = quadrant_mesh(&land, 0, None, Vec2::ZERO, 256.0).unwrap();
-        let folded = folded_mesh(&land, 0, &refs, Vec2::ZERO, 256.0).unwrap();
+        // A repeat that does not divide the cell: four layers, the mesh keeps its texture
+        // coordinate.
+        assert_eq!((folded_layers(256.0), folded_layers(300.0), folded_layers(0.0)), (FOLDED_LAYERS, FOLDED_LAYERS_WITH_UV, FOLDED_LAYERS_WITH_UV));
+        let base = quadrant_mesh(&land, 0, None, Vec2::ZERO, 300.0).unwrap();
+        let folded = folded_mesh(&land, 0, &refs, Vec2::ZERO, 300.0).unwrap();
         // The base's own geometry: every triangle, the same positions, normals and texture
         // coordinates, so the depth prepass and the shadows see the same ground.
         assert_eq!(triangles(&folded), triangles(&base));
@@ -694,8 +739,24 @@ mod tests {
             assert_eq!(t[..3], b[..3]);
             assert_eq!(t[3].signum(), b[3].signum());
         }
+        // The game's repeat: six layers, the fifth and sixth in the first texture coordinate,
+        // which is the vertex's place in the cell over the repeat but for whole repeats (the
+        // cell's origin is a whole number of them away), so the shader can work it out.
+        let six = [layer(0.1), layer(0.2), layer(0.3), layer(0.4), layer(0.5), layer(0.6)];
+        let six_refs: Vec<&[f32]> = six.iter().map(Vec::as_slice).collect();
+        let origin = Vec2::new(-17.0 * 4096.0, 3.0 * 4096.0);
+        let all = folded_mesh(&land, 0, &six_refs, origin, 256.0).unwrap();
+        let Some(VertexAttributeValues::Float32x2(uv)) = all.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
+        assert!(close([uv[v][0], uv[v][1], 0.0, 0.0], [0.5, 0.6, 0.0, 0.0]) && uv[0] == [0.0, 0.0]);
+        let with_uv = quadrant_mesh(&land, 0, None, origin, 256.0).unwrap();
+        let Some(VertexAttributeValues::Float32x2(real)) = with_uv.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
+        let Some(VertexAttributeValues::Float32x3(pos)) = with_uv.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!() };
+        for (uv, p) in real.iter().zip(pos) {
+            let worked_out = [p[0] / 256.0, p[1] / 256.0];
+            assert_eq!(((uv[0] - worked_out[0]).fract(), (uv[1] - worked_out[1]).fract()), (0.0, 0.0), "{uv:?} {p:?}");
+        }
         // Fewer layers: the others' opacities are 0.
-        let two = folded_mesh(&land, 0, &refs[..2], Vec2::ZERO, 256.0).unwrap();
+        let two = folded_mesh(&land, 0, &refs[..2], Vec2::ZERO, 300.0).unwrap();
         let Some(VertexAttributeValues::Float32x2(uv_b)) = two.attribute(Mesh::ATTRIBUTE_UV_1) else { panic!() };
         let Some(VertexAttributeValues::Float32x4(tan)) = two.attribute(Mesh::ATTRIBUTE_TANGENT) else { panic!() };
         assert_eq!((uv_b[v], tan[v][3]), ([0.4, 0.0], TANGENT_SIGN));
@@ -704,9 +765,14 @@ mod tests {
     #[test]
     fn the_shader_is_told_how_many_layers_and_which_have_normal_maps() {
         let image = Handle::<Image>::default();
-        let layers = TerrainLayers { count: 3, diffuse0: Some(image.clone()), normal0: Some(image.clone()), diffuse1: Some(image.clone()), diffuse2: Some(image.clone()), normal2: Some(image), ..default() };
-        assert_eq!(TerrainLayersUniform::from(&layers).counts, UVec4::new(3, 0b101, 0, 0));
-        assert_eq!(TerrainLayersUniform::from(&TerrainLayers { count: 9, ..default() }).counts.x, FOLDED_LAYERS as u32);
+        let layers = TerrainLayers { count: 3, diffuse0: Some(image.clone()), normal0: Some(image.clone()), diffuse1: Some(image.clone()), diffuse2: Some(image.clone()), normal2: Some(image.clone()), ..default() };
+        let uniform = TerrainLayersUniform::from(&layers);
+        assert_eq!((uniform.counts, uniform.tile.x), (UVec4::new(3, 0b101, 0, 0), 0.0));
+        // No more layers than the mesh can carry: four with its own texture coordinate, six
+        // when the shader works it out.
+        assert_eq!(TerrainLayersUniform::from(&TerrainLayers { count: 9, ..default() }).counts.x, FOLDED_LAYERS_WITH_UV as u32);
+        let six = TerrainLayersUniform::from(&TerrainLayers { count: 9, tile: 256.0, normal5: Some(image), ..default() });
+        assert_eq!((six.counts, six.tile.x), (UVec4::new(FOLDED_LAYERS as u32, 1 << 5, 0, 0), 256.0));
     }
 
     fn triangles(mesh: &Mesh) -> Vec<[u32; 3]> {

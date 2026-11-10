@@ -1,10 +1,13 @@
 // Landscape with its first texture layers folded into the base's draw (terrain.rs "One
 // draw for the base and its first layers"): the fragment shader of `TerrainMaterial`.
 //
-// The mesh carries the opacity of up to four layers a vertex (terrain.rs `folded_mesh`):
-// the vertex colour's alpha, the second texture coordinate's two numbers, and the tangent's
+// The mesh carries the opacity of up to six layers a vertex (terrain.rs `folded_mesh`):
+// the vertex colour's alpha, the second texture coordinate's two numbers, the tangent's
 // fourth number, whose size past 1 is the opacity while its sign stays the tangent's
-// handedness. The surface colour and the normal are the base's, blended towards each
+// handedness, and, when the material gives a texture repeat, the first texture
+// coordinate's two numbers; the coordinate itself is then the fragment's place in its
+// mesh over the repeat, which is the mesh's coordinate but for whole repeats. The surface
+// colour and the normal are the base's, blended towards each
 // layer's in the layers' order by opacity x the layer texture's alpha, as the layers'
 // own blended draws blended their lit colours over the base; then the surface is lit once.
 // What follows the lighting is nif_material.wesl's for an opaque lit shape with no emitted
@@ -18,6 +21,7 @@ import bevy_pbr::{
     render::pbr_lighting::{EnvBRDFApprox, F_AB},
     render::mesh_view_bindings::{lights, view},
     render::mesh_bindings::mesh,
+    render::mesh_functions::get_local_from_world,
     render::pbr_types::StandardMaterial,
 };
 @if(VISIBILITY_RANGE_DITHER) import bevy_pbr::render::pbr_functions::visibility_range_dither;
@@ -26,12 +30,15 @@ import bevy_pbr::{
 @if(!BINDLESS) import bevy_pbr::render::pbr_bindings;
 
 struct TerrainLayers {
-    // x: how many layers the material holds (0 to 4); y: bit i set when layer i has a
+    // x: how many layers the material holds (0 to 6); y: bit i set when layer i has a
     // normal map (without one its normal is the surface's own).
     counts: vec4<u32>,
+    // x: world units per texture repeat when the texture coordinate is worked out here and
+    // the mesh's holds the fifth and sixth opacities; 0 when the mesh's is the coordinate.
+    tile: vec4<f32>,
 }
 
-// The extension's index table (indices 50-58 of TerrainLayers' bindless attribute).
+// The extension's index table (indices 50-62 of TerrainLayers' bindless attribute).
 @if(BINDLESS) struct TerrainIndices {
     layers: u32,    // 50
     diffuse0: u32,  // 51
@@ -42,6 +49,10 @@ struct TerrainLayers {
     normal2: u32,   // 56
     diffuse3: u32,  // 57
     normal3: u32,   // 58
+    diffuse4: u32,  // 59
+    normal4: u32,   // 60
+    diffuse5: u32,  // 61
+    normal5: u32,   // 62
 }
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<storage> terrain_indices: array<TerrainIndices>;
 @if(BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(101) var<storage> terrain_layers: array<TerrainLayers>;
@@ -54,6 +65,10 @@ struct TerrainLayers {
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(56) var normal2: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(57) var diffuse3: texture_2d<f32>;
 @if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(58) var normal3: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(59) var diffuse4: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(60) var normal4: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(61) var diffuse5: texture_2d<f32>;
+@if(!BINDLESS) @group(constants::MATERIAL_BIND_GROUP) @binding(62) var normal5: texture_2d<f32>;
 
 // The material's slot in the bindless tables (unused without bindless).
 fn material_slot(instance_index: u32) -> u32 {
@@ -63,6 +78,11 @@ fn material_slot(instance_index: u32) -> u32 {
 fn layer_counts(instance_index: u32) -> vec4<u32> {
     @if(BINDLESS) return terrain_layers[terrain_indices[material_slot(instance_index)].layers].counts;
     @if(!BINDLESS) return terrain_layer_values.counts;
+}
+
+fn layer_tile(instance_index: u32) -> f32 {
+    @if(BINDLESS) return terrain_layers[terrain_indices[material_slot(instance_index)].layers].tile.x;
+    @if(!BINDLESS) return terrain_layer_values.tile.x;
 }
 
 fn standard_material(instance_index: u32) -> StandardMaterial {
@@ -79,12 +99,16 @@ fn layer_diffuse(k: u32, instance_index: u32, uv: vec2<f32>) -> vec4<f32> {
         if k == 1u { t = i.diffuse1; }
         if k == 2u { t = i.diffuse2; }
         if k == 3u { t = i.diffuse3; }
+        if k == 4u { t = i.diffuse4; }
+        if k == 5u { t = i.diffuse5; }
         return textureSampleBias(bindless_textures_2d[t], bindless_samplers_filtering[material_indices[slot].base_color_sampler], uv, view.mip_bias);
     }
     @if(!BINDLESS) {
         if k == 1u { return textureSampleBias(diffuse1, pbr_bindings::base_color_sampler, uv, view.mip_bias); }
         if k == 2u { return textureSampleBias(diffuse2, pbr_bindings::base_color_sampler, uv, view.mip_bias); }
         if k == 3u { return textureSampleBias(diffuse3, pbr_bindings::base_color_sampler, uv, view.mip_bias); }
+        if k == 4u { return textureSampleBias(diffuse4, pbr_bindings::base_color_sampler, uv, view.mip_bias); }
+        if k == 5u { return textureSampleBias(diffuse5, pbr_bindings::base_color_sampler, uv, view.mip_bias); }
         return textureSampleBias(diffuse0, pbr_bindings::base_color_sampler, uv, view.mip_bias);
     }
 }
@@ -98,12 +122,16 @@ fn layer_normal(k: u32, instance_index: u32, uv: vec2<f32>) -> vec3<f32> {
         if k == 1u { t = i.normal1; }
         if k == 2u { t = i.normal2; }
         if k == 3u { t = i.normal3; }
+        if k == 4u { t = i.normal4; }
+        if k == 5u { t = i.normal5; }
         return textureSampleBias(bindless_textures_2d[t], bindless_samplers_filtering[material_indices[slot].base_color_sampler], uv, view.mip_bias).rgb;
     }
     @if(!BINDLESS) {
         if k == 1u { return textureSampleBias(normal1, pbr_bindings::base_color_sampler, uv, view.mip_bias).rgb; }
         if k == 2u { return textureSampleBias(normal2, pbr_bindings::base_color_sampler, uv, view.mip_bias).rgb; }
         if k == 3u { return textureSampleBias(normal3, pbr_bindings::base_color_sampler, uv, view.mip_bias).rgb; }
+        if k == 4u { return textureSampleBias(normal4, pbr_bindings::base_color_sampler, uv, view.mip_bias).rgb; }
+        if k == 5u { return textureSampleBias(normal5, pbr_bindings::base_color_sampler, uv, view.mip_bias).rgb; }
         return textureSampleBias(normal0, pbr_bindings::base_color_sampler, uv, view.mip_bias).rgb;
     }
 }
@@ -118,15 +146,22 @@ fn fragment(
     // The layers' opacities, taken out of the attributes that carried them, which then
     // hold what the standard material expects: an opaque vertex colour and a tangent of
     // handedness +-1.
-    var opacity = vec4(0.0);
+    var opacity = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     var tint = vec3(1.0);
-    @if(VERTEX_COLORS) opacity.x = in.color.a;
+    @if(VERTEX_COLORS) opacity[0] = in.color.a;
     @if(VERTEX_COLORS) tint = in.color.rgb;
     @if(VERTEX_COLORS) in.color = vec4(in.color.rgb, 1.0);
-    @if(VERTEX_UVS_B) opacity.y = in.uv_b.x;
-    @if(VERTEX_UVS_B) opacity.z = in.uv_b.y;
-    @if(VERTEX_TANGENTS) opacity.w = abs(in.world_tangent.w) - 1.0;
+    @if(VERTEX_UVS_B) opacity[1] = in.uv_b.x;
+    @if(VERTEX_UVS_B) opacity[2] = in.uv_b.y;
+    @if(VERTEX_TANGENTS) opacity[3] = abs(in.world_tangent.w) - 1.0;
     @if(VERTEX_TANGENTS) in.world_tangent = vec4(in.world_tangent.xyz, sign(in.world_tangent.w));
+    // The texture coordinate worked out from the fragment's place in its mesh.
+    @if(VERTEX_UVS_A) let tile = layer_tile(in.instance_index);
+    @if(VERTEX_UVS_A) if tile > 0.0 {
+        opacity[4] = in.uv.x;
+        opacity[5] = in.uv.y;
+        in.uv = (get_local_from_world(in.instance_index) * in.world_position).xy / tile;
+    }
 
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     let counts = layer_counts(in.instance_index);
@@ -137,7 +172,7 @@ fn fragment(
         var normal = pbr_input.N;
         let plain = normalize(pbr_input.world_normal);
         @if(VERTEX_TANGENTS) let tbn = calculate_tbn_mikktspace(in.world_normal, in.world_tangent);
-        for (var k = 0u; k < min(counts.x, 4u); k += 1u) {
+        for (var k = 0u; k < min(counts.x, 6u); k += 1u) {
             let texel = layer_diffuse(k, in.instance_index, uv);
             let share = saturate(opacity[k]) * texel.a;
             var layer_n = plain;
