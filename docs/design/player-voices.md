@@ -412,3 +412,43 @@ What changed [design]:
 Still open (owner): the `idle` lines are the one large pool that could make the voice
 talk out of a fight; they need a review pass (which are fine said by the player, alone or
 to the others) before an idle timer can use them.
+
+## 13. Co-op: every player's voice from its own state, heard by all (item 106, 2026-11-09)
+
+The owner: some lines played only on the speaker's machine, and some fired from another
+player's flags. What each trigger did [observed, both the normal and the replication
+build, which change none of this]:
+- Combat lines (Hit, HealthHalf/Quarter, Crippled, Death, Attack, PowerAttack ...) are
+  decided on each player's own game from its own player (a guest's hits come from the
+  host as `RemoteHit` and are applied to the guest's own player). A voice-set line went
+  to the others; the player's own grunt (GenericPlayer, no set line for the event) was
+  never sent: heard only on the speaker's machine.
+- Reactions answered another player's deeds. A gunshot was to be answered out of a fight
+  only, but the speaker cannot know the shooter's fight (on a guest nobody is ever seen
+  fighting it), so every shot of the host's fight made the guest's voice answer.
+- The host sent its own player's lines in its line feed too, and a guest's stand-in's
+  as that guest's: a player's line could be heard twice, or from the wrong body.
+
+Now [design]:
+- A combat line the player says that is not a set line (its grunt, in the voice type of
+  `Game::player_own_voice_type`) is sent with that voice type (`party_quips::OWN_LINE`,
+  "@own" in the voice table's blob, then the INFO and the voice type) and heard from the
+  speaker's character, positional, like a quip; the Party Quips switch does not hold it,
+  it shows no subtitle and holds no quips back. One line per event: when a set line went
+  to the others for the event, that is what they hear. An older game reads "@own" as a set
+  it lacks, warns once and plays nothing.
+- Reactions: gunfire is not answered; the deeds left are about the speaker itself (a
+  grenade or mine near it, sights held on it), and none in its own fight.
+- The host's line feed carries no player speaker: a player's voice goes only by the
+  voice table, from its own game, once.
+
+## 14. Follows-Chalk (item 119, 2026-11-09)
+
+`vanilla.followschalk`: Honest Hearts' NVDLC02FollowsChalk (voice type
+NVDLC02MaleUniqueFollowsChalk), drafted by `set-draft` like the other vanilla sets: 54
+combat lines over 23 events in use, all first-person; his 78 idle and 13 quest lines wait
+for review like the other sets'. Companion: himself (the 50/50 split when he follows).
+Rate 0.90: the rate moves pitch and speed together (playback speed), so the owner's
+"about -2 semitones and 0.92x" is met as about -1.8 semitones at 0.90x; lip timing stays
+in step. A set whose speaker's plugin is not loaded is not offered, and the game says so
+once: `player voices: <name> (<id>) is hidden: its speaker <ref> is not in the load order`.

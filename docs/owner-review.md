@@ -250,12 +250,12 @@ the spec it links to.
     `ShowTutorialMenu` shows as a page, with a count, Next and Previous, so none goes
     unread. In the original the second replaces the first, with none of those. Keep the pages,
     or follow the original? ([tutorial-menu §4](spec-notes/tutorial-menu.md))
-46. **A guard for Honest Hearts' arrival (item 117, not built).** Your stall after the
-    intro slideshow (Jed never greets, the controls stay locked) did not come back in 10
-    runs, solo and co-op. A guard would re-run stage 5's controls and Jed's EVP if neither
-    the greet nor NVDLC02MQ01 stage 5 comes within N seconds of the slideshow, and log
-    it. It only exists in NVForever and covers up a cause that is still unknown. Build it,
-    or wait for the stall to come back with a log?
+46. **A guard for Honest Hearts' arrival (item 117): you said build it (2026-11-09); built
+    in 6b3c20d52, on claude/scene-stalls-1109.** If NVDLC02MQ01 stage 5 has not come 8 s
+    after the slideshow, Jed is asked to choose his package again; at 30 s the guard sets
+    stage 5 itself (controls back), skipping Jed's greeting. Both steps log a
+    `story guard:` warning, so if it ever fires in your games, send that log: it is the
+    stall coming back. Smoke: hh-arrival-guard.
     (overnight-results/scene-stalls-1109.md)
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)

@@ -164,6 +164,9 @@ pub struct Social {
     /// the knockdown's camera follows the body (`nvforever::player_knockdown`) and takes
     /// this.
     pub thrown: Option<[f32; 3]>,
+    /// Players whose own game threw their body (a lost duel), and with what velocity:
+    /// every copy of them is thrown the same (`Msg::Thrown`; `nvforever::coop`).
+    pub throws: Vec<(u8, [f32; 3])>,
     /// Attacks begun by this player as last seen (`combat::WeaponAnim::attacks`).
     attacks: Option<u32>,
     /// Caps to give back (buys the other could not honour), and sales to carry out
@@ -627,6 +630,9 @@ fn revive_kit(script: Res<crate::script::ScriptState>, sim: Option<Res<crate::si
     }
 }
 
+/// The social state, combat, the revive kit and the minigame tables `target` reads.
+type TargetState<'w> = (ResMut<'w, Social>, Option<Res<'w, crate::combat::Combat>>, Res<'w, ReviveKit>, Option<Res<'w, crate::coop_tables::Tables>>);
+
 #[allow(clippy::too_many_arguments)]
 fn target(
     input: ControlInput,
@@ -636,7 +642,7 @@ fn target(
     control: Res<crate::control::PlayerControl>,
     mates: Res<SocialMates>,
     mut found: ResMut<crate::activate::Target>,
-    (mut social, combat, kit): (ResMut<Social>, Option<Res<crate::combat::Combat>>, Res<ReviveKit>),
+    (mut social, combat, kit, tables): TargetState,
 ) {
     let Some(player) = player else { return };
     if mates.me.is_none() || social.holds_input() {
@@ -667,10 +673,15 @@ fn target(
         }
         return;
     }
+    let at_minigame = found.0.as_ref().is_some_and(|f| tables.as_deref().is_some_and(|t| t.near.iter().chain(t.me.iter()).any(|p| t.view(*p).is_some_and(|v| v.0 == f.form_id))));
     let near = mates
         .mates
         .iter()
         .filter(|m| m.here && !m.lost && !m.down)
+        // Players at a minigame (darts, pool...) stand in front of its board or table: when
+        // the world's pick is a board someone near plays at, it keeps E, so a third or fourth
+        // player can still use it (item 128).
+        .filter(|_| !at_minigame)
         .filter_map(|m| ray_meets_body(eye, dir, m.feet, INTERACT_REACH).filter(|d| wall.is_none_or(|w| *d <= w + 8.0)).map(|d| (d, m)))
         .min_by(|a, b| a.0.total_cmp(&b.0));
     // An invitation waiting for Y or N, or a duel under way: the message box stands where
@@ -790,6 +801,11 @@ fn talk(real: Res<Time<Real>>, mut tables: ResMut<Tables>, mut social: ResMut<So
             },
             Msg::Quit { nonce } if s.invites.asked.iter().any(|i| i.nonce == nonce && i.with == from) => {
                 s.invites.withdrawn(from, nonce);
+            }
+            Msg::Thrown { velocity, .. } => {
+                let velocity = velocity.map(|v| v as f32);
+                info!("co-op social: player {} was thrown at ({:.0}, {:.0}, {:.0}) units/s in its own game", from + 1, velocity[0], velocity[1], velocity[2]);
+                s.throws.push((from, velocity));
             }
             m @ (Msg::Quit { .. } | Msg::DuelReady { .. } | Msg::DuelFreeze { .. } | Msg::DuelHit { .. } | Msg::DuelOver { .. }) if s.duel.as_ref().is_some_and(|d| d.nonce == nonce && d.with == from) => {
                 let d = s.duel.as_mut().unwrap();
@@ -940,6 +956,13 @@ fn duel_step(
             let down = crate::script::with_world(rt, &mut sim, |rt| rt.game.knock_down(FormId::PLAYER_REF, None, shove));
             s.thrown = down.then_some(shove);
             info!("co-op social: duel: this player is thrown back ({shove:?}): {}", if down { "knocked down" } else { "could not be knocked down" });
+            // Every player's copy of this body is thrown the same.
+            if down {
+                let nonce = s.duel.as_ref().map_or(0, |d| d.nonce);
+                for m in mates.mates.iter().filter(|m| Some(m.id) != mates.me) {
+                    out.push((m.id, Msg::Thrown { nonce, velocity: shove.map(|v| v.round() as i32) }));
+                }
+            }
         }
     }
     for (to, m) in out {

@@ -133,6 +133,9 @@ pub struct Graphics {
     /// vanilla, as the original's water reflects the world). Off, water reflects the sky,
     /// and what is on the screen where `water_reflections` is on.
     pub water_mirror: bool,
+    /// More body for the world's fires (`fuller_fire.rs`; an NVForever addition, on in
+    /// both presets at the owner's word, 2026-11-09).
+    pub fuller_fire: bool,
     /// How the sun's shadow maps are filtered (Bevy's default, Gaussian, in vanilla).
     pub shadow_filter: ShadowFilteringMethod,
 }
@@ -175,6 +178,7 @@ impl Graphics {
             light_shafts: on,
             water_reflections: on,
             water_mirror: true,
+            fuller_fire: true,
             shadow_filter: ShadowFilteringMethod::Gaussian,
         }
     }
@@ -189,6 +193,7 @@ impl Graphics {
             "eye-adaptation" => &mut self.eye_adaptation,
             "neon-glow" => &mut self.neon_glow,
             "water-mirror" => &mut self.water_mirror,
+            "fuller-fire" => &mut self.fuller_fire,
             "sharpen" => &mut self.sharpen,
             "anisotropic" => &mut self.anisotropic,
             "light-shafts" => &mut self.light_shafts,
@@ -212,9 +217,10 @@ impl Graphics {
                 "no-eye-adaptation" => g.eye_adaptation = false,
                 "no-neon-glow" => g.neon_glow = false,
                 "no-water-mirror" => g.water_mirror = false,
+                "no-fuller-fire" => g.fuller_fire = false,
                 _ => match g.switch(k) {
                     Some(on) => *on = true,
-                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror", KEYS.join(", "))),
+                    None => return Err(format!("--graphics-only {k}: expected one of {}, no-glow, no-eye-adaptation, no-neon-glow, no-water-mirror, no-fuller-fire", KEYS.join(", "))),
                 },
             }
         }
@@ -238,6 +244,7 @@ impl Graphics {
             (self.light_shafts, "sun shafts"),
             (self.water_reflections, "screen-space water reflections"),
             (!self.water_mirror, "no mirrored water"),
+            (!self.fuller_fire, "no fuller fire"),
             (self.shadow_filter == ShadowFilteringMethod::Hardware2x2, "hardware 2x2 shadow filtering"),
             (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
         ];
@@ -981,6 +988,17 @@ mod tests {
         assert_eq!(off.describe(), "vanilla (no engine-level improvements)");
         // Bloom, when on, adds to the glow.
         assert!(Graphics::only(&["bloom".into()]).unwrap().describe().contains("light glow"));
+    }
+
+    #[test]
+    fn fuller_fire_is_on_in_both_presets_and_can_be_switched_off() {
+        assert!(Graphics::preset(Preset::Vanilla).fuller_fire && Graphics::preset(Preset::Enhanced).fuller_fire);
+        let off = Graphics::only(&["no-fuller-fire".into()]).expect("no-fuller-fire");
+        assert!(!off.fuller_fire);
+        assert_eq!(off.describe(), "light glow, no fuller fire");
+        let mut g = Graphics::preset(Preset::Vanilla);
+        *g.switch("fuller-fire").expect("settings key") = false;
+        assert!(!g.fuller_fire);
     }
 
     #[test]

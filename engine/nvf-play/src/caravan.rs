@@ -209,6 +209,8 @@ pub struct Session {
     rng: ChaCha8Rng,
     /// Against another player (co-op).
     pub pvp: Option<Pvp>,
+    /// The reactions to the game's result, sent once (item 127).
+    pub moods: Vec<crate::flourish::HandMood>,
     /// The player's last move, for the other player (taken by `apply`).
     sent_move: Option<Move>,
 }
@@ -719,6 +721,7 @@ fn open(
         rng,
         pvp: None,
         sent_move: None,
+        moods: Vec::new(),
     };
     s.show_help(rt, rules::Help::Betting, &bindings);
     screen.0 = Some(s);
@@ -1047,6 +1050,7 @@ fn open_pvp(
         rng: ChaCha8Rng::seed_from_u64(o.seed ^ 0x5EED),
         pvp: Some(Pvp { mate: o.mate, leads: o.leads, seed: o.seed, mine: None, theirs: None }),
         sent_move: None,
+        moods: Vec::new(),
     };
     s.show_help(rt, rules::Help::Deck, &bindings);
     wire.playing = Some(o.mate);
@@ -1282,6 +1286,11 @@ fn settle(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, 
         return;
     }
     s.settled = true;
+    // Item 127: this player cheers or looks beaten, and the other player the other way.
+    s.moods.push(crate::flourish::HandMood { who: None, won: winner == PLAYER });
+    if let Some(p) = &s.pvp {
+        s.moods.push(crate::flourish::HandMood { who: Some(p.mate), won: winner != PLAYER });
+    }
     s.over_at = Some(now);
     if s.pvp.is_some() {
         // Between players nothing is staked: the record of this sitting only.
@@ -1361,9 +1370,12 @@ fn settle(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, 
 /// The opponent's moves (and the player's under `auto`), the results after the game,
 /// leaving.
 #[allow(clippy::too_many_arguments)]
-fn step(time: AidTime, mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<CaravanStats>, mut sounds: MessageWriter<UiSound>, mut next: ResMut<NextState<PlayState>>, (bindings, mut wire): (Res<crate::bindings::Bindings>, ResMut<PvpWire>)) {
+fn step(time: AidTime, mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<CaravanStats>, mut sounds: MessageWriter<UiSound>, mut next: ResMut<NextState<PlayState>>, (bindings, mut wire, mut moods): (Res<crate::bindings::Bindings>, ResMut<PvpWire>, MessageWriter<crate::flourish::HandMood>)) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    for m in s.moods.drain(..) {
+        moods.write(m);
+    }
     if s.pvp.is_some() && s.leaving.is_none() {
         if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
             pvp_step(s, rt, &mut sim, now, &mut stats, &mut sounds, &bindings, &mut wire);

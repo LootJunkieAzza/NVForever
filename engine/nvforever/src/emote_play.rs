@@ -22,8 +22,16 @@
 //! it when first seen (one who joins late sees it under way). While a puppet emotes its
 //! name tag follows its head bone (`nvf_play::emotes::MateHeads`).
 //!
+//! **On the ground**: every emote clip, the player's and the puppets', is first set on the
+//! ground ([`EmoteGround`]): its lowest bone at its first frame level with the standing
+//! idle's. The game's bed idles lie at a mattress's height; set down, lay-back lies on the
+//! ground. The start is on the ground under the feet by a trace down.
+//!
 //! Log lines: `emotes: …` (start, each phase, end, refusals; the puppets' as
-//! `emotes: puppet …`).
+//! `emotes: puppet …`; `emotes: ground: …` per clip as first played).
+//!
+//! Test aid: `NVF_PLAY_TEST_EMOTE_GROUND=1` sets every catalogue clip the load order has on
+//! the ground at the start of play (one `emotes: ground:` line each), for an audit.
 
 use crate::furniture::{BodyClip, BodyOverride};
 use crate::idles::ActorIdle;
@@ -32,7 +40,9 @@ use bevy::prelude::*;
 use fnv_actor::furniture::Frame;
 use fnv_actor::idle_play::{IdleKeys, IdlePlay};
 use fnv_game::idles::IdleSource;
-use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
+use fnv_nif::anim::Channel;
+use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts, PreparedSkeleton};
+use nvf_assets::anim_blend::{Animator, Mode};
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::ModelCtx;
 use nvf_coop::net::{emote as phase, EmoteState};
@@ -88,6 +98,177 @@ pub struct EmotePlay {
     started: u32,
     refused: u32,
     puppets: HashMap<u32, Puppet>,
+}
+
+/// The skeleton emotes are measured on [observed: `Fallout - Meshes.bsa`].
+const SKELETON: &str = "meshes\\characters\\_male\\skeleton.nif";
+/// The node a clip's height is moved on.
+const NON_ACCUM: &str = "Bip01 NonAccum";
+/// A clip whose lowest bone is within this of the standing idle's is left as it is (game
+/// units) [design].
+const SNAP_MIN: f32 = 3.0;
+
+/// The emote clips set on the ground, by path: each one's lowest bone at its first frame
+/// (over the standing idle, as the body plays it) is put level with the standing idle's
+/// lowest bone, by moving its `Bip01 NonAccum` track up or down. The game's bed idles
+/// (lay-back's `specialidle_nvsleeponback.kf`) lie at a mattress's height and floated in
+/// the air (laptop run 139, 2026-11-09). Measured from the data alike on every machine,
+/// so the player and every viewer's puppet play the same clip and nothing more goes
+/// over the wire.
+#[derive(Resource, Default)]
+pub struct EmoteGround {
+    /// The standing idle's lowest bone height, once measured.
+    stand: Option<Option<f32>>,
+    clips: HashMap<String, Option<Arc<Clip>>>,
+    /// The clips moved, for the summary.
+    moved: Vec<(String, f32)>,
+}
+
+impl EmoteGround {
+    /// The clip at `path`, set on the ground.
+    pub fn clip(&mut self, ctx: &mut ActorCtx, path: &str) -> Option<Arc<Clip>> {
+        if let Some(c) = self.clips.get(path) {
+            return c.clone();
+        }
+        let out = ctx.clip(path).map(|raw| self.ground(ctx, path, raw));
+        self.clips.insert(path.to_string(), out.clone());
+        out
+    }
+
+    fn ground(&mut self, ctx: &mut ActorCtx, path: &str, raw: Arc<Clip>) -> Arc<Clip> {
+        let raw = sane(path, raw);
+        let (Some(skel), Some(stand)) = (ctx.skeleton(SKELETON), ctx.clip(STAND)) else { return raw };
+        let reference = *self.stand.get_or_insert_with(|| lowest(&skel, &[&stand]).map(|(z, _)| z));
+        let (Some(reference), Some((low, bone))) = (reference, lowest(&skel, &[&stand, &raw])) else { return raw };
+        let lift = reference - low;
+        if lift.abs() < SNAP_MIN {
+            info!("emotes: ground: {path}: lowest bone {bone} at {low:.1} ({lift:+.1} from the standing idle's): left as it is");
+            return raw;
+        }
+        match raised(&raw, NON_ACCUM, lift) {
+            Some(c) => {
+                info!("emotes: ground: {path}: lowest bone {bone} at {low:.1}: moved {lift:+.1} to the standing idle's {reference:.1}");
+                self.moved.push((path.to_string(), lift));
+                Arc::new(c)
+            }
+            None => {
+                info!("emotes: ground: {path}: lowest bone {bone} at {low:.1} ({lift:+.1}), no {NON_ACCUM} translation to move: left as it is");
+                raw
+            }
+        }
+    }
+}
+
+/// `NVF_PLAY_TEST_EMOTE_GROUND`: every catalogue clip set on the ground, once.
+fn ground_audit(mut done: Local<bool>, data: Option<Res<nvf_assets::GameData>>, mut ground: ResMut<EmoteGround>, (mut parts, mut models): (ResMut<ActorParts>, ModelCtx)) {
+    if *done || data.is_none() {
+        return;
+    }
+    *done = true;
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+    let mut n = 0;
+    for (i, e) in CATALOG.iter().enumerate() {
+        let fast = clip_path(i, 1, phase::EXIT, 0);
+        for p in e.candidates().into_iter().chain(e.needs()).chain(fast) {
+            if !ground.clips.contains_key(&p) && ground.clip(&mut ctx, &p).is_some() {
+                n += 1;
+            }
+        }
+    }
+    let moved: Vec<String> = ground.moved.iter().map(|(p, dz)| format!("{} {dz:+.1}", p.rsplit('\\').next().unwrap_or(p))).collect();
+    info!("test aid NVF_PLAY_TEST_EMOTE_GROUND: {n} clips measured, {} moved: {}", moved.len(), moved.join(", "));
+}
+
+/// The lowest `Bip01 …` bone of the body (its height and name) of `clips` at their first frames, each
+/// over the ones before it as the body plays an emote over the standing idle.
+fn lowest(skel: &Arc<PreparedSkeleton>, clips: &[&Arc<Clip>]) -> Option<(f32, String)> {
+    let mut a = Animator::new(skel.clone(), Vec::new(), Some("Bip01"));
+    for (k, c) in clips.iter().enumerate() {
+        let i = a.want(c, k as u32, 1.0, Mode::Once, 0.0);
+        if k > 0 {
+            a.lift(i, 1000 * k as i32);
+        }
+    }
+    a.pose();
+    skel.names
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter_map(|(i, n)| {
+            let n = n.as_deref()?;
+            // The pauldrons are armour's shoulder pads, not the body: lying, the floor sleep
+            // has one under the ground and was moved up 3 in its loop and exit alone.
+            (n.starts_with("Bip01 ") && n != NON_ACCUM && !n.contains("Pauldron")).then(|| (a.model_space(i).translation.z, n.to_string()))
+        })
+        .min_by(|x, y| x.0.total_cmp(&y.0))
+}
+
+/// Bounds an emote clip's tracks are kept within, so one bad key cannot fill a viewer's
+/// screen with a puppet: a bone's scale (a body's bones keep theirs at 1) and the root's
+/// distance from the actor (game units; `Bip01 NonAccum` stands at the pelvis, 66 up)
+/// [design].
+const SCALE_BOUNDS: (f32, f32) = (0.5, 2.0);
+const ROOT_REACH: f32 = 150.0;
+
+/// `clip` with what is out of bounds left out (logged): a track's scale past
+/// [`SCALE_BOUNDS`] at any key, the root's or `Bip01 NonAccum`'s translation past
+/// [`ROOT_REACH`]. The bone then takes its bind pose's part, as for a clip that does not
+/// key it.
+fn sane(path: &str, clip: Arc<Clip>) -> Arc<Clip> {
+    let values = |c: &Channel<1>| -> Vec<f32> {
+        match c {
+            Channel::Static(Some([s])) => vec![*s],
+            Channel::Keys(k) => k.keys.iter().map(|k| k.value[0]).collect(),
+            Channel::BSpline { spline, .. } => spline.points.clone(),
+            _ => Vec::new(),
+        }
+    };
+    let reach = |c: &Channel<3>| -> f32 {
+        let len = |v: &[f32]| v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        match c {
+            Channel::Static(Some(v)) => len(v),
+            Channel::Keys(k) => k.keys.iter().map(|k| len(&k.value)).fold(0.0, f32::max),
+            Channel::BSpline { spline, .. } if spline.dim == 3 => spline.points.chunks(3).map(len).fold(0.0, f32::max),
+            _ => 0.0,
+        }
+    };
+    let root = clip.accum_root.clone().unwrap_or_else(|| "Bip01".to_string());
+    let mut out: Option<Clip> = None;
+    for i in 0..clip.tracks.len() {
+        let (name, track) = &clip.tracks[i];
+        let bad_scale = values(&track.scale).into_iter().find(|s| !(SCALE_BOUNDS.0..=SCALE_BOUNDS.1).contains(s));
+        let far = (*name == root || name == NON_ACCUM).then(|| reach(&track.translation)).filter(|r| *r > ROOT_REACH);
+        if bad_scale.is_none() && far.is_none() {
+            continue;
+        }
+        let mut t = (**track).clone();
+        if let Some(s) = bad_scale {
+            warn!("emotes: ground: {path}: {name} scale {s} is out of bounds: left out");
+            t.scale = Channel::Static(None);
+        }
+        if let Some(r) = far {
+            warn!("emotes: ground: {path}: {name} reaches {r:.0} units from the actor: its translation left out");
+            t.translation = Channel::Static(None);
+        }
+        out.get_or_insert_with(|| (*clip).clone()).tracks[i].1 = Arc::new(t);
+    }
+    out.map_or(clip, Arc::new)
+}
+
+/// `clip` with node `node`'s translation moved up by `dz`; `None` when the clip has no
+/// translation of its own for it.
+fn raised(clip: &Clip, node: &str, dz: f32) -> Option<Clip> {
+    let i = clip.tracks.iter().position(|(n, _)| n == node)?;
+    let mut t = (*clip.tracks[i].1).clone();
+    match &mut t.translation {
+        Channel::Static(Some(v)) => v[2] += dz,
+        Channel::Keys(k) if !k.keys.is_empty() => k.keys.iter_mut().for_each(|key| key.value[2] += dz),
+        Channel::BSpline { spline, .. } if spline.dim == 3 => spline.points.chunks_mut(3).for_each(|p| p[2] += dz),
+        _ => return None,
+    }
+    let mut c = clip.clone();
+    c.tracks[i].1 = Arc::new(t);
+    Some(c)
 }
 
 /// What a puppet plays.
@@ -147,10 +328,12 @@ pub struct EmotePlayPlugin;
 impl Plugin for EmotePlayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EmotePlay>()
+            .init_resource::<EmoteGround>()
             .init_resource::<LocalEmote>()
             .init_resource::<PeerEmotes>()
             .add_systems(Update, drive.in_set(nvf_play::player::BodySet).before(crate::furniture::drive_player))
             .add_systems(Update, puppets.after(nvf_play::player::BodySet))
+            .add_systems(Update, ground_audit.run_if(|| std::env::var("NVF_PLAY_TEST_EMOTE_GROUND").is_ok_and(|v| v == "1")))
             .add_systems(Last, report);
     }
 }
@@ -169,7 +352,7 @@ fn drive(
     mut phys: ResMut<nvf_play::phys::PhysState>,
     input: ControlInput,
     (state, cues, stats, book): Look,
-    (mut parts, mut models): (ResMut<ActorParts>, ModelCtx),
+    (mut parts, mut models, mut ground): (ResMut<ActorParts>, ModelCtx, ResMut<EmoteGround>),
     mut hud: ResMut<nvf_play::activate::HudMessage>,
 ) {
     let st = &mut *st;
@@ -213,12 +396,17 @@ fn drive(
                     }
                     Shape::Loop { enter, .. } => (if enter.is_some() { phase::ENTER } else { phase::STAY }, 0),
                 };
-                let Some((path, clip)) = clip_path(emote, variant, ph, 0).and_then(|p| Some((p.clone(), ctx.clip(&p)?))) else {
+                let Some((path, clip)) = clip_path(emote, variant, ph, 0).and_then(|p| Some((p.clone(), ground.clip(&mut ctx, &p)?))) else {
                     warn!("emotes: {} has no clip to play", e.key);
                     continue;
                 };
                 // Held where an emote under way had the player, else at the feet.
-                let mut frame = Frame { pos: player.feet, heading: player.heading };
+                // On the ground under the feet (a trace down, not the character's own height).
+                let mut feet = player.feet;
+                if let Some(hit) = phys.ground_below(feet, 40.0, 200.0) {
+                    feet[2] = hit.point[2];
+                }
+                let mut frame = Frame { pos: feet, heading: player.heading };
                 if let Some(old) = st.run.take() {
                     // Another emote over one under way: the old one ends where it is (the
                     // view stays third person for the new one).
@@ -276,7 +464,7 @@ fn drive(
     let mut end = None;
     if let Some((why, fast)) = cancel {
         match r.phase {
-            phase::ENTER | phase::STAY => match clip_path(r.emote, u8::from(fast), phase::EXIT, 0).and_then(|p| Some((p.clone(), ctx.clip(&p)?))) {
+            phase::ENTER | phase::STAY => match clip_path(r.emote, u8::from(fast), phase::EXIT, 0).and_then(|p| Some((p.clone(), ground.clip(&mut ctx, &p)?))) {
                 Some((path, clip)) if playing => {
                     info!("emotes: {key} exit ({why}{}): {path} ({:.2}s)", if fast { ", fast" } else { "" }, clip.length());
                     (r.phase, r.variant, r.step, r.t, r.clip, r.path) = (phase::EXIT, u8::from(fast), 0, 0.0, clip, path);
@@ -296,7 +484,7 @@ fn drive(
             phase::STAY => Some((phase::STAY, r.step.wrapping_add(1))),
             _ => None,
         };
-        match next.and_then(|(ph, step)| clip_path(r.emote, 0, ph, step).and_then(|p| Some((ph, step, p.clone(), ctx.clip(&p)?)))) {
+        match next.and_then(|(ph, step)| clip_path(r.emote, 0, ph, step).and_then(|p| Some((ph, step, p.clone(), ground.clip(&mut ctx, &p)?)))) {
             Some((ph, step, path, clip)) => {
                 info!("emotes: {key} {} {}: {path} ({:.2}s)", phase_name(ph), step, clip.length());
                 (r.phase, r.step, r.t, r.clip, r.path) = (ph, step, 0.0, clip, path);
@@ -339,7 +527,7 @@ fn puppets(
     book: Res<EmoteBook>,
     mut rigs: Query<(Entity, &ActorRig, Option<&mut ActorIdle>)>,
     globals: Query<&GlobalTransform>,
-    (mut parts, mut models): (ResMut<ActorParts>, ModelCtx),
+    (mut parts, mut models, mut ground): (ResMut<ActorParts>, ModelCtx, ResMut<EmoteGround>),
     mut heads: ResMut<MateHeads>,
 ) {
     let st = &mut *st;
@@ -361,7 +549,7 @@ fn puppets(
                 Some(inst) if e.phase == phase::ONCE && !inst.get(e.variant as usize).copied().unwrap_or(false) => inst.iter().position(|b| *b).unwrap_or(0) as u8,
                 _ => e.variant,
             };
-            let Some((path, clip)) = clip_path(emote, variant, e.phase, e.step).and_then(|p| Some((p.clone(), ctx.clip(&p)?))) else {
+            let Some((path, clip)) = clip_path(emote, variant, e.phase, e.step).and_then(|p| Some((p.clone(), ground.clip(&mut ctx, &p)?))) else {
                 debug!("emotes: puppet {reference:08X}: no clip for emote {} phase {}", e.id, e.phase);
                 continue;
             };
@@ -409,11 +597,12 @@ fn puppets(
     }
 }
 
-fn report(mut exit: MessageReader<AppExit>, st: Res<EmotePlay>) {
+fn report(mut exit: MessageReader<AppExit>, st: Res<EmotePlay>, ground: Res<EmoteGround>) {
     if exit.read().next().is_none() || st.started + st.refused == 0 {
         return;
     }
-    info!("emotes summary: {} started, {} refused", st.started, st.refused);
+    let moved: Vec<String> = ground.moved.iter().map(|(p, dz)| format!("{} {dz:+.1}", p.rsplit('\\').next().unwrap_or(p))).collect();
+    info!("emotes summary: {} started, {} refused; {} clips set on the ground ({} moved: {})", st.started, st.refused, ground.clips.len(), moved.len(), moved.join(", "));
 }
 
 #[cfg(test)]

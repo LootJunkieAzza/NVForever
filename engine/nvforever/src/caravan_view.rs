@@ -25,18 +25,33 @@
 //!   turns face up on the way), a card drawn from the deck to the hand, a card thrown away
 //!   (a discard, a jack's victim, a caravan thrown away) off the left of the table. A card
 //!   in flight is lifted off the table, so its shadow shows how high.
+//! - The pot lies on the planks under the cards, as in the original: bottle caps, the
+//!   Legion's denarius and aureus and NCR notes cut from the game's own Caravan money
+//!   sheet (`caravanmoney_d.dds`, 4096 by 2048: the caps and coins along the top, the
+//!   $100, $5 and $20 notes under them, each cut out by its alpha) [observed: the texture].
+//!   How many and which follow the pot: more of them as it grows, Legion coins from 20,
+//!   notes from 40, bigger notes and gold for bigger pots, each in a place and turn fixed
+//!   by its number, so the pile only grows as the bet does [design, owner 2026-11-09:
+//!   "fill the caravan play area like they do in the original, matching the bet"].
+//!   Caps and coins are the game's own Caravan models (`meshes\terminals\nv_caravan\
+//!   currency-coin_1.nif` the cap, `_2` silver, `_3` gold [observed: their textures and
+//!   shapes]), so they stand up off the planks and catch the lamp; the notes lie flat. A
+//!   piece goes only where no card can ever lie (`card_zones`); one that finds no such
+//!   place is left out [design, owner 2026-11-09: "make sure things on the table don't
+//!   overlap with the cards, cash can go under everything else just stay away"].
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ImageRenderTarget, RenderTarget, ScalingMode};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::{AmbientLight, NotShadowCaster};
+use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::window::PrimaryWindow;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::{nif_material, NifMaterial};
-use nvf_play::caravan::screen::{card_texture, table_cards, view_width, TableCard, FRAME_W};
+use nvf_play::caravan::screen::{card_texture, card_zones, table_cards, view_width, TableCard, FRAME_W};
 use nvf_play::caravan::{CaravanScreen, CaravanView, Session, Stage};
 use nvf_play::pause::AidTime;
 use std::collections::HashMap;
@@ -68,6 +83,241 @@ const JITTER_DEG: f32 = 3.0;
 const SLIDE_RATE: f32 = 9.0;
 const LIFT_PER_UNIT: f32 = 0.18;
 const LIFT_MAX: f32 = 70.0;
+/// The money sheet, and where each piece is on it (u0, v0, u1, v1) [observed: the
+/// texture's alpha; 4096 by 2048].
+const MONEY_SHEET: &str = "textures\\terminals\\nv_caravan\\caravanmoney_d.dds";
+const fn sheet(x0: f32, y0: f32, x1: f32, y1: f32) -> [f32; 4] {
+    [x0 / 4096.0, y0 / 2048.0, x1 / 4096.0, y1 / 2048.0]
+}
+const CAP_PLAIN: [f32; 4] = sheet(0.0, 13.0, 506.0, 518.0);
+const CAP_NUKA: [f32; 4] = sheet(524.0, 13.0, 1032.0, 518.0);
+const DENARIUS: [f32; 4] = sheet(1159.0, 6.0, 1678.0, 526.0);
+const AUREUS: [f32; 4] = sheet(2332.0, 1.0, 2852.0, 521.0);
+const NOTE_100: [f32; 4] = sheet(26.0, 534.0, 1338.0, 1273.0);
+const NOTE_5: [f32; 4] = sheet(1380.0, 534.0, 2706.0, 1276.0);
+const NOTE_20: [f32; 4] = sheet(2745.0, 534.0, 4056.0, 1275.0);
+/// Real sizes on the table's scale: a card on it is 147 high, a playing card 88.9 mm
+/// (3.5 in), so 1.65 units to the millimetre [documented: playing cards are 2.5 by 3.5 in;
+/// a US note is 156 by 66.3 mm; a crown cap is about 32 mm across; the Legion coins are
+/// given a quarter's 24.3 mm (denarius) and an aureus's 20 mm, hypothesis: the game gives
+/// no coin size].
+const MM: f32 = 147.0 / 88.9;
+/// A cap across, a coin across, a note's length; the note keeps its picture's shape
+/// (1312 by 740 on the sheet: 156 by 88 mm), which a real note's 156 by 66 would squash.
+const CAP_SIZE: Vec2 = Vec2::new(32.0 * MM, 32.0 * MM);
+const DENARIUS_SIZE: Vec2 = Vec2::new(24.3 * MM, 24.3 * MM);
+const AUREUS_SIZE: Vec2 = Vec2::new(20.0 * MM, 20.0 * MM);
+const NOTE_SIZE: Vec2 = Vec2::new(156.0 * MM, 156.0 * MM * 740.0 / 1312.0);
+/// The most pieces on the table.
+const MONEY_MAX: usize = 90;
+/// How far a piece keeps from where a card can lie, and how many places it tries.
+const MONEY_CLEAR: f32 = 10.0;
+const MONEY_TRIES: u32 = 48;
+/// The game's Caravan cap and coin models.
+const CAP_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_1.nif";
+const SILVER_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_2.nif";
+const GOLD_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_3.nif";
+/// Each model has a flat disc round its piece (its shadow on the table); the piece itself
+/// is this much of the disc across: the cap 0.58 of 0.74, a coin 0.55 [observed: the
+/// models' vertices].
+const CAP_BODY: f32 = 0.58 / 0.74;
+const COIN_BODY: f32 = 0.55 / 0.74;
+/// The models drew 31 units across where 53 were asked (a cap, 32 mm) in the first
+/// capture, so the scale from their bounds is corrected by that [observed: 2026-11-09].
+const MODEL_FIT: f32 = 53.0 / 31.0;
+
+/// A piece of the pot on the table.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Money {
+    Cap,
+    NukaCap,
+    Denarius,
+    Aureus,
+    Note5,
+    Note20,
+    Note100,
+}
+
+impl Money {
+    fn rect(self) -> [f32; 4] {
+        match self {
+            Money::Cap => CAP_PLAIN,
+            Money::NukaCap => CAP_NUKA,
+            Money::Denarius => DENARIUS,
+            Money::Aureus => AUREUS,
+            Money::Note5 => NOTE_5,
+            Money::Note20 => NOTE_20,
+            Money::Note100 => NOTE_100,
+        }
+    }
+
+    fn size(self) -> Vec2 {
+        match self {
+            Money::Cap | Money::NukaCap => CAP_SIZE,
+            Money::Denarius => DENARIUS_SIZE,
+            Money::Aureus => AUREUS_SIZE,
+            _ => NOTE_SIZE,
+        }
+    }
+
+    fn note(self) -> bool {
+        matches!(self, Money::Note5 | Money::Note20 | Money::Note100)
+    }
+
+    /// The game's model for a cap or coin, and how much of the model across the piece is.
+    fn model(self) -> Option<(&'static str, f32)> {
+        match self {
+            Money::Cap | Money::NukaCap => Some((CAP_MODEL, CAP_BODY)),
+            Money::Denarius => Some((SILVER_MODEL, COIN_BODY)),
+            Money::Aureus => Some((GOLD_MODEL, COIN_BODY)),
+            _ => None,
+        }
+    }
+}
+
+/// Whether a piece of `size` at `at`, turned by `turn`, keeps out of every zone: its
+/// corners, the middles of its sides and its middle are tested (a zone is far bigger than
+/// the gaps between those points).
+fn clear_of(zones: &[(Vec2, Vec2)], at: Vec2, size: Vec2, turn: f32) -> bool {
+    let (sin, cos) = turn.sin_cos();
+    let h = size / 2.0;
+    let on_frame = (0..9).map(|k| {
+        let local = Vec2::new(h.x * ((k % 3) as f32 - 1.0), h.y * ((k / 3) as f32 - 1.0));
+        at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos)
+    });
+    on_frame.into_iter().all(|p| zones.iter().all(|(a, b)| p.x < a.x || p.x > b.x || p.y < a.y || p.y > b.y))
+}
+
+/// A number from 0 to 1, the same each time for `i` and `salt`.
+fn scatter(i: usize, salt: u32) -> f32 {
+    let mut h = (i as u32).wrapping_mul(0x9E37_79B9) ^ salt.wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    (h % 10_000) as f32 / 9_999.0
+}
+
+/// The pot's pieces: what each is, its middle (frame units, y down) and its turn
+/// (radians). Piece `i` is the same for every pot that has it, so the pile grows.
+pub fn money(pot: u32) -> Vec<(Money, Vec2, f32)> {
+    if pot == 0 {
+        return Vec::new();
+    }
+    let n = (((pot as f32).sqrt() * 3.0).ceil() as usize).clamp(2, MONEY_MAX);
+    let zones = card_zones(MONEY_CLEAR);
+    (0..n)
+        .filter_map(|i| {
+            let kind = if pot >= 40 && i % 4 == 3 {
+                match (pot, i % 3) {
+                    (0..=149, _) => Money::Note5,
+                    (150..=599, 0) => Money::Note5,
+                    (150..=599, _) => Money::Note20,
+                    (_, 0) => Money::Note20,
+                    _ => Money::Note100,
+                }
+            } else if pot >= 20 && i % 5 == 2 {
+                // Legion coins; gold among them once the pot is big.
+                if pot >= 300 && i % 3 == 0 { Money::Aureus } else { Money::Denarius }
+            } else if scatter(i, 7) < 0.6 {
+                Money::NukaCap
+            } else {
+                Money::Cap
+            };
+            // Anywhere on the planks where no card can lie; left out if nowhere is found
+            // (the same tries for the same piece, so the pile still only grows) [design].
+            let turn = scatter(i, 53) * 2.0 * PI;
+            let h = kind.size().max_element() / 2.0;
+            (0..MONEY_TRIES)
+                .map(|k| Vec2::new(h + scatter(i, 11 + k) * (FRAME_W - 2.0 * h), h + scatter(i, 131 + k) * (960.0 - 2.0 * h)))
+                .find(|at| clear_of(&zones, *at, kind.size(), turn))
+                .map(|at| (kind, at, turn))
+        })
+        .collect()
+}
+
+/// A unit square showing `rect` of its picture.
+fn atlas_quad(rect: [f32; 4]) -> Option<Mesh> {
+    let mut m = Mesh::from(Rectangle::new(1.0, 1.0));
+    if let Some(VertexAttributeValues::Float32x2(uv)) = m.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
+        for p in uv.iter_mut() {
+            p[0] = rect[0] + p[0] * (rect[2] - rect[0]);
+            p[1] = rect[1] + p[1] * (rect[3] - rect[1]);
+        }
+    }
+    m.with_generated_tangents().ok()
+}
+
+/// Lays the pot out again when it changed.
+fn place_money(commands: &mut Commands, models: &mut ModelCtx, b: &mut Built, pot: u32) {
+    if b.money_pot == Some(pot) {
+        return;
+    }
+    b.money_pot = Some(pot);
+    for e in b.money.drain(..) {
+        commands.entity(e).despawn();
+    }
+    let pieces = money(pot);
+    for (i, (kind, at, turn)) in pieces.iter().enumerate() {
+        if let Some((path, body)) = kind.model() {
+            if let Some(e) = spawn_piece(commands, models, b, path, body * kind.size().x * MODEL_FIT, on_table(*at), *turn) {
+                b.money.push(e);
+                continue;
+            }
+        }
+        let Some(mat) = money_material(models, &mut b.materials, MONEY_SHEET) else { continue };
+        let mesh = match b.money_meshes.iter().find(|(k, _)| k == kind) {
+            Some((_, m)) => m.clone(),
+            None => {
+                let Some(m) = atlas_quad(kind.rect()) else { continue };
+                let m = models.meshes.add(m);
+                b.money_meshes.push((*kind, m.clone()));
+                m
+            }
+        };
+        // Notes first, caps over them; each a hair over the last, all under the cards.
+        let up = if kind.note() { 0.3 } else { 0.9 } + 0.004 * i as f32;
+        let tr = Transform::from_translation(on_table(*at).extend(up)).with_rotation(Quat::from_rotation_z(*turn)).with_scale(kind.size().extend(1.0));
+        b.money.push(commands.spawn((Mesh3d(mesh), MeshMaterial3d(mat), tr, b.layer.clone(), ChildOf(b.space))).id());
+    }
+    info!("caravan view: the pot of {pot} on the table as {} pieces", pieces.len());
+}
+
+/// A cap or coin from the game's model, `across` wide (its piece, not the disc round it),
+/// standing on the planks at `at`, turned by `turn`.
+fn spawn_piece(commands: &mut Commands, models: &mut ModelCtx, b: &Built, path: &str, across: f32, at: Vec2, turn: f32) -> Option<Entity> {
+    let pm = models.model(path)?;
+    let (lo, hi) = pm.bounds?;
+    let wide = (hi.x - lo.x).max(hi.y - lo.y);
+    if wide <= 0.0 {
+        return None;
+    }
+    let k = across / wide;
+    // On the planks, under the cards (which lie from 2 up), its bottom on the wood.
+    let holder = commands
+        .spawn((Transform::from_translation(at.extend(0.2 - lo.z * k)).with_rotation(Quat::from_rotation_z(turn)).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(b.space)))
+        .id();
+    let root = commands.spawn((Transform::from_matrix(Mat4::from(pm.root)), Visibility::Inherited, ChildOf(holder))).id();
+    let nodes: Vec<Entity> = pm.nodes.iter().map(|n| commands.spawn((Transform::from_matrix(Mat4::from(n.local)), Visibility::Inherited)).id()).collect();
+    for (n, e) in pm.nodes.iter().zip(&nodes) {
+        commands.entity(n.parent.map_or(root, |p| nodes[p])).add_child(*e);
+    }
+    for s in &pm.shapes {
+        let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.own)), Visibility::Inherited, b.layer.clone())).id();
+        commands.entity(s.node.map_or(root, |n| nodes[n])).add_child(e);
+    }
+    Some(holder)
+}
+
+fn money_material(models: &mut ModelCtx, cache: &mut HashMap<String, Handle<NifMaterial>>, path: &str) -> Option<Handle<NifMaterial>> {
+    if let Some(m) = cache.get(path) {
+        return Some(m.clone());
+    }
+    let t = models.textures.get(path, true, &models.data, &mut models.images, models.formats.as_deref())?;
+    let m = models.materials.add(nif_material(StandardMaterial { base_color_texture: Some(t), perceptual_roughness: 0.55, reflectance: 0.35, alpha_mode: AlphaMode::Mask(0.5), ..default() }));
+    cache.insert(path.to_string(), m.clone());
+    Some(m)
+}
+
 /// A card thrown away leaves to the left, and is gone after this long.
 const GONE_X: f32 = -260.0;
 const GONE_SECONDS: f32 = 0.9;
@@ -103,6 +353,10 @@ struct Built {
     leaving: Vec<CardDrawn>,
     materials: HashMap<String, Handle<NifMaterial>>,
     view_w: f32,
+    /// The pot's pieces on the table, the pot they show, their meshes by kind.
+    money: Vec<Entity>,
+    money_pot: Option<u32>,
+    money_meshes: Vec<(Money, Handle<Mesh>)>,
 }
 
 #[derive(Default)]
@@ -215,6 +469,7 @@ fn show(
     let now = time.elapsed_secs();
     let dt = (time.delta_secs_f64() as f32).clamp(0.0, 0.1);
     place_cards(&mut commands, &mut models, b, s, now);
+    place_money(&mut commands, &mut models, b, s.bet.pot());
     let close = 1.0 - (-SLIDE_RATE * dt).exp();
     let cards = table_cards(s);
     let goals: HashMap<&str, (Vec3, Quat)> = cards.iter().enumerate().map(|(k, c)| (c.key.as_str(), (target(c, k), turn(&c.key, c.face_up)))).collect();
@@ -359,7 +614,7 @@ fn build(commands: &mut Commands, models: &mut ModelCtx, window: Option<&Window>
         .id();
     commands.insert_resource(CaravanView { image });
     info!("caravan view: the table built ({PLANKS}, normal map {}), view {view_w:.0} wide", if has_normal { "found" } else { "missing" });
-    Some(Built { entities: vec![holder, camera, lamp], space, camera, planks, layer, card_mesh, cards: HashMap::new(), leaving: Vec::new(), materials: HashMap::new(), view_w })
+    Some(Built { entities: vec![holder, camera, lamp], space, camera, planks, layer, card_mesh, cards: HashMap::new(), leaving: Vec::new(), materials: HashMap::new(), view_w, money: Vec::new(), money_pot: None, money_meshes: Vec::new() })
 }
 
 #[cfg(test)]
@@ -374,6 +629,29 @@ mod tests {
             assert_eq!(a, jitter(key));
         }
         assert_ne!(jitter("c0:0:0"), jitter("c0:0:1"));
+    }
+
+    #[test]
+    fn the_pot_grows_into_more_money_and_bigger_notes() {
+        assert!(money(0).is_empty());
+        let small = money(10);
+        assert!(small.iter().all(|m| !m.0.note()), "a small pot is caps");
+        let mid = money(164);
+        let big = money(2000);
+        assert!(mid.len() > small.len() && big.len() > mid.len());
+        assert!(mid.iter().any(|m| m.0.note()));
+        assert!(big.iter().any(|m| m.0 == Money::Note100));
+        assert!(mid.iter().any(|m| m.0 == Money::Denarius), "Legion coins in the pot");
+        assert!(big.iter().any(|m| m.0 == Money::Aureus));
+        assert!(money(100_000).len() <= MONEY_MAX);
+        // The pile only grows: a piece is where it was in the smaller pot.
+        assert_eq!(&money(170)[..4].iter().map(|m| m.1).collect::<Vec<_>>(), &mid[..4].iter().map(|m| m.1).collect::<Vec<_>>());
+        let zones = card_zones(0.0);
+        for (kind, at, turn) in &big {
+            assert!(at.x > 0.0 && at.x < FRAME_W && at.y > 0.0 && at.y < 960.0);
+            assert!(clear_of(&zones, *at, kind.size(), *turn), "{kind:?} at {at} lies where a card can");
+        }
+        assert!(big.len() > 40, "the big pot still fills the free planks: {}", big.len());
     }
 
     #[test]

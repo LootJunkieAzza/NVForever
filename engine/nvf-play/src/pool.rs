@@ -33,7 +33,8 @@ use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayerCamera};
 use bevy::prelude::*;
-use fnv_game::pool::{self, Game, Notice, Plan, ShotLog, ShotStart, Table};
+use crate::match_lobby::{Gather, LobbyView};
+use fnv_game::pool::{self, Game, MultiGame, MultiNotice, MultiStart, Notice, Plan, ShotLog, ShotStart, Table};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
@@ -112,6 +113,20 @@ pub enum Page {
     Main,
     Bet,
     Play,
+    /// The Challenge page: the house's player, or a players' game by mode (item 126).
+    Challenge,
+    /// A players' game being gathered: waiting for all players (`match_lobby`).
+    Gather,
+}
+
+/// The rules of a Challenge page mode (`match_lobby::POOL_MODES`) [owner 2026-11-08].
+pub fn mode_rules(code: u8) -> pool::Mode {
+    match code {
+        2 => pool::Mode::Cutthroat3,
+        3 => pool::Mode::EightBall2v2,
+        4 => pool::Mode::Cutthroat4,
+        _ => pool::Mode::EightBall1v1,
+    }
 }
 
 /// Who plays the second side.
@@ -127,6 +142,8 @@ pub enum Foe {
 pub struct Shot {
     pub rest: Table,
     pub start: ShotStart,
+    /// A players' game of more than two: what its rules need (item 128).
+    pub mstart: Option<MultiStart>,
     pub dir: [f32; 2],
     pub speed: f32,
     pub since: f32,
@@ -176,8 +193,23 @@ pub struct Pool {
     pub asking: Vec<u8>,
     /// The other player's aim (their way, power), as they last sent it.
     pub remote_aim: Option<([f32; 2], f32)>,
+    /// The other player's white from the hand, as they last sent it: where they are
+    /// moving it, or where they put it down (with [`Self::remote_aim`] once down).
+    pub remote_place: Option<[f32; 2]>,
     pub settled: bool,
     pub leave: bool,
+    /// A players' game (items 126, 128): its rules when more than two play (2v2,
+    /// cutthroat), the players by seat (the owner first), this player's seat and id; the
+    /// game being gathered (the owner), or the owner's (a joined player), and whether this
+    /// player told it it came; players near the table, this one counted.
+    pub multi: Option<MultiGame>,
+    pub players: Vec<u8>,
+    pub seat: usize,
+    pub me: Option<u8>,
+    pub gather: Option<Gather>,
+    pub lobby: Option<LobbyView>,
+    pub arrived: bool,
+    pub at_hand: usize,
     /// The player was stood beside the table ([`pool_stand`]).
     stood: bool,
     sound_at: f32,
@@ -188,9 +220,31 @@ pub struct Pool {
 }
 
 impl Pool {
-    /// The side this game plays (a joined player plays the second).
+    /// The seat this game plays (a joined player: its seat in the owner's game).
     pub fn mine(&self) -> usize {
-        usize::from(self.joined.is_some())
+        self.seat
+    }
+
+    /// The seat whose shot it is.
+    pub fn turn(&self) -> usize {
+        self.multi.as_ref().map_or(self.game.turn, |m| m.turn)
+    }
+
+    pub fn break_shot(&self) -> bool {
+        self.multi.as_ref().map_or(self.game.break_shot, |m| m.break_shot)
+    }
+
+    /// Whether `seat` won the game over (alone, or with its team).
+    pub fn won_by(&self, seat: usize) -> bool {
+        match &self.multi {
+            Some(m) => m.seat_won(seat),
+            None => self.game.winner == Some(seat),
+        }
+    }
+
+    /// The seat a player plays in this table's players' game.
+    pub fn seat_of(&self, p: u8) -> Option<usize> {
+        self.players.iter().position(|q| *q == p)
     }
 
     pub fn practice(&self) -> bool {
@@ -199,7 +253,11 @@ impl Pool {
 
     /// The white is in the shooter's hand.
     pub fn in_hand(&self) -> bool {
-        if self.practice() { self.practice_hand } else { self.game.in_hand }
+        if self.practice() {
+            self.practice_hand
+        } else {
+            self.multi.as_ref().map_or(self.game.in_hand, |m| m.in_hand)
+        }
     }
 
     /// The balls are still and the game waits for a shot.
@@ -209,14 +267,14 @@ impl Pool {
 
     /// This player may shoot now.
     pub fn my_shot(&self) -> bool {
-        self.idle() && (self.practice() || self.game.turn == self.mine()) && self.sent_at.is_none()
+        self.idle() && (self.practice() || self.turn() == self.mine()) && self.sent_at.is_none()
     }
 
     /// Where the white goes from the hand, from the cursor: on the break along the head
     /// string, anywhere valid otherwise [observed: Tick.txt].
     pub fn hand_spot(&self) -> Option<[f32; 2]> {
         let c = self.cursor?;
-        let p = if !self.practice() && self.game.break_shot { [pool::HEAD_X, c[1].clamp(40.0, 460.0)] } else { c };
+        let p = if !self.practice() && self.break_shot() { [pool::HEAD_X, c[1].clamp(40.0, 460.0)] } else { c };
         let mut t = self.table.clone();
         t.balls[0].on = false;
         t.valid_place(p).then_some(p)
@@ -227,13 +285,33 @@ impl Pool {
         self.charge.map_or(0.0, |since| (pool::POWER_START + pool::POWER_RATE * (now - since)).min(1.0))
     }
 
-    /// The cue to draw: the way it points and its power, while someone aims.
-    pub fn cue(&self, now: f32) -> Option<([f32; 2], f32)> {
-        if !self.idle() || !self.table.balls[0].on {
+    /// Ball in hand, first step: this player is still moving the white (not yet put down).
+    pub fn placing(&self) -> bool {
+        self.my_shot() && self.in_hand() && self.placed.is_none()
+    }
+
+    /// Where the white is drawn while it is in hand: this player's where they move it or
+    /// put it down, the other player's as they sent it; `None` with nowhere legal.
+    pub fn hand_white(&self) -> Option<[f32; 2]> {
+        if !self.in_hand() {
             return None;
         }
         if self.my_shot() {
-            return (!self.in_hand() && self.cursor.is_some()).then_some((self.aim, self.power(now)));
+            self.placed.or_else(|| self.hand_spot())
+        } else {
+            self.remote_place
+        }
+    }
+
+    /// The cue to draw: the way it points and its power, while someone aims (once a white
+    /// from the hand is down: item 115, a joined player's cue never came after placing).
+    pub fn cue(&self, now: f32) -> Option<([f32; 2], f32)> {
+        let white_down = self.table.balls[0].on || self.in_hand() && (self.placed.is_some() || (!self.my_shot() && self.remote_place.is_some()));
+        if !self.idle() || !white_down {
+            return None;
+        }
+        if self.my_shot() {
+            return (!self.placing() && self.cursor.is_some()).then_some((self.aim, self.power(now)));
         }
         if self.joined.is_none() && self.foe == Foe::Opponent {
             return self.ai.and_then(|a| a.plan).map(|p| (p.dir, ((now - self.ai.map_or(now, |a| a.since)) / pool::AI_SHOOT_AFTER).clamp(0.0, 1.0) * 0.6));
@@ -283,7 +361,7 @@ fn open(
             continue;
         }
         let tables = tables.as_deref().filter(|t| t.on);
-        let joined = tables.and_then(|t| t.near_at(a.reference, game::POOL).and_then(|(p, b)| PoolView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
+        let joined = tables.and_then(|t| t.near_at_all(a.reference, game::POOL).find_map(|(p, b)| PoolView::decode(b).filter(|v| v.owner == p && Some(p) != t.me).map(|_| p)));
         let frame = frame_of(&sim, a.reference);
         match frame {
             Some(f) => info!("pool: open at 0x{:08X}: the table at ({:.0}, {:.0}, {:.0}), facing {:.0} degrees, scale {:.2}{}", a.reference, f.pos[0], f.pos[1], f.pos[2], f.theta.to_degrees(), f.k, joined.map(|p| format!(", {}'s table", tables.map(|t| t.name(p)).unwrap_or_default())).unwrap_or_default()),
@@ -316,8 +394,17 @@ fn open(
             last_aim_sent: 0.0,
             asking: Vec::new(),
             remote_aim: None,
+            remote_place: None,
             settled: true,
             leave: false,
+            multi: None,
+            players: Vec::new(),
+            seat: usize::from(joined.is_some()),
+            me: tables.and_then(|t| t.me),
+            gather: None,
+            lobby: None,
+            arrived: false,
+            at_hand: 1,
             stood: false,
             sound_at: 0.0,
             pocket_at: 0.0,
@@ -329,8 +416,24 @@ fn open(
     }
 }
 
+/// A players' game against `others` (the players by seat after this one), by its rules.
+fn start_players(p: &mut Pool, others: &[u8], rules: pool::Mode, files: &mut MessageWriter<PlayFile>) {
+    let Some(first) = others.first().copied() else { return };
+    p.stake = 0;
+    p.gather = None;
+    start_game(p, Foe::Player(first), files);
+    p.players = std::iter::once(p.me.unwrap_or(0)).chain(others.iter().copied()).collect();
+    p.multi = (rules != pool::Mode::EightBall1v1 && p.players.len() == rules.players()).then(|| MultiGame::new(rules));
+    if let Some(m) = &p.multi {
+        p.status = multi_notice(m, 0, 0, &|s| if s == 0 { "You".into() } else { format!("Seat {}", s + 1) });
+    }
+    info!("pool: a players' game ({rules:?}): seats {:?}", p.players);
+}
+
 fn start_game(p: &mut Pool, foe: Foe, files: &mut MessageWriter<PlayFile>) {
     p.foe = foe;
+    p.multi = None;
+    p.players.clear();
     p.page = Page::Play;
     p.table = Table::rack();
     p.game = Game::new();
@@ -340,6 +443,7 @@ fn start_game(p: &mut Pool, foe: Foe, files: &mut MessageWriter<PlayFile>) {
     p.charge = None;
     p.practice_hand = false;
     p.remote_aim = None;
+    p.remote_place = None;
     p.settled = p.stake == 0;
     p.status = if foe == Foe::Practice { String::new() } else { notice(&p.game, 0, 0) };
     files.write(PlayFile(format!("{SOUNDS}rack.wav")));
@@ -376,8 +480,9 @@ fn on_screen(p: [f32; 2], frame: TableFrame, (cam, gt): (&Camera, &GlobalTransfo
 
 /// The white struck: the layout kept for the rules and the watchers.
 fn strike(p: &mut Pool, dir: [f32; 2], speed: f32, now: f32, files: &mut MessageWriter<PlayFile>) {
-    let start = p.game.start(&p.table);
-    p.shot = Some(Shot { rest: p.table.clone(), start, dir, speed, since: now });
+    let mstart = p.multi.as_ref().map(|m| m.start(&p.table));
+    let start = mstart.map_or_else(|| p.game.start(&p.table), |m| m.shot);
+    p.shot = Some(Shot { rest: p.table.clone(), start, mstart, dir, speed, since: now });
     p.seq = p.seq.wrapping_add(1);
     p.log = ShotLog::default();
     p.accum = 0.0;
@@ -385,8 +490,9 @@ fn strike(p: &mut Pool, dir: [f32; 2], speed: f32, now: f32, files: &mut Message
     p.charge = None;
     p.ai = None;
     p.remote_aim = None;
+    p.remote_place = None;
     files.write(PlayFile(format!("{SOUNDS}shot{}.wav", p.rng.next_u32() % 3)));
-    info!("pool: shot {} by side {} at {:.0} (way {:.2}, {:.2})", p.seq, if p.practice() { 0 } else { p.game.turn }, speed, dir[0], dir[1]);
+    info!("pool: shot {} by side {} at {:.0} (way {:.2}, {:.2})", p.seq, if p.practice() { 0 } else { p.turn() }, speed, dir[0], dir[1]);
 }
 
 /// The white put down from the hand.
@@ -397,6 +503,9 @@ fn put_white(p: &mut Pool, at: [f32; 2]) {
     b.on = true;
     p.practice_hand = false;
     p.game.in_hand = false;
+    if let Some(m) = p.multi.as_mut() {
+        m.in_hand = false;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -419,7 +528,13 @@ fn keys(
         }
     };
     if keys.any_just_pressed([KeyCode::Tab, KeyCode::Escape]) {
-        if p.page == Page::Bet {
+        if matches!(p.page, Page::Bet | Page::Challenge) {
+            p.page = Page::Main;
+            return;
+        }
+        if p.page == Page::Gather && p.joined.is_none() {
+            info!("pool: the players' game called off");
+            p.gather = None;
             p.page = Page::Main;
             return;
         }
@@ -444,7 +559,8 @@ fn keys(
                 return;
             }
             if keys.just_pressed(KeyCode::Digit1) {
-                p.page = Page::Bet;
+                // In co-op the Challenge page (the house's player, or a players' game).
+                p.page = if tables.as_deref().is_some_and(|t| t.on) { Page::Challenge } else { Page::Bet };
             } else if keys.just_pressed(KeyCode::Digit2) {
                 p.stake = 0;
                 start_game(p, Foe::Practice, &mut files);
@@ -457,6 +573,24 @@ fn keys(
                 }
             }
         }
+        Page::Challenge => {
+            if keys.just_pressed(KeyCode::Digit1) {
+                p.page = Page::Bet;
+                return;
+            }
+            let picked = [KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5].iter().position(|k| keys.just_pressed(*k));
+            let Some(mode) = picked.and_then(|i| crate::match_lobby::POOL_MODES.get(i).copied()) else { return };
+            if !crate::match_lobby::available(mode, p.at_hand) {
+                p.status = format!("{} needs {} players near the table.", mode.label, mode.players);
+                return;
+            }
+            let asked: Vec<u8> = tables.as_deref().map(|t| t.near.clone()).unwrap_or_default();
+            info!("pool: a players' game ({}) asked of {:?}", mode.label, asked);
+            p.gather = Some(Gather::new(mode, &asked, now));
+            p.page = Page::Gather;
+            p.status.clear();
+        }
+        Page::Gather => {}
         Page::Bet => {
             if keys.just_pressed(KeyCode::KeyQ) {
                 p.bet = pool::step_bet(p.bet, false);
@@ -493,14 +627,21 @@ fn keys(
                 return;
             }
             let white = p.placed.unwrap_or(p.table.balls[0].pos);
-            if p.in_hand() && p.placed.is_none() {
+            if p.placing() {
                 if mouse.just_pressed(MouseButton::Left) {
                     if let Some(at) = p.hand_spot() {
                         if p.joined.is_some() {
                             p.placed = Some(at);
+                            p.charge = None;
+                            info!("pool: the white put down at ({:.0}, {:.0}); aiming", at[0], at[1]);
                         } else {
                             put_white(p, at);
                         }
+                    }
+                } else if p.joined.is_some() && now - p.last_aim_sent >= AIM_EVERY {
+                    if let Some(at) = p.hand_spot() {
+                        p.last_aim_sent = now;
+                        send(&mut tables, p.table_ref, PoolAction::Hand { at });
                     }
                 }
                 return;
@@ -517,10 +658,10 @@ fn keys(
             }
             if p.joined.is_some() && now - p.last_aim_sent >= AIM_EVERY {
                 p.last_aim_sent = now;
-                send(&mut tables, p.table_ref, PoolAction::Aim { dir: p.aim, power: p.power(now) });
+                send(&mut tables, p.table_ref, PoolAction::Aim { dir: p.aim, power: p.power(now), place: p.placed });
             }
             if mouse.just_released(MouseButton::Left) && p.charge.is_some() {
-                let breaking = !p.practice() && p.game.break_shot;
+                let breaking = !p.practice() && p.break_shot();
                 let speed = pool::shot_speed(p.power(now), breaking);
                 if p.joined.is_some() {
                     send(&mut tables, p.table_ref, PoolAction::Shot { place: p.placed, dir: p.aim, speed });
@@ -573,13 +714,27 @@ fn step(
     time: AidTime,
     mut files: MessageWriter<PlayFile>,
     mut next: ResMut<NextState<PlayState>>,
+    mut waiting: ResMut<crate::match_lobby::WaitingScreen>,
 ) {
     let Some(p) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
     let dt = (now - p.now).max(0.0);
     p.now = now;
+    // Players near; "Waiting for all players..." while a game gathers here.
+    if let Some(t) = tables.as_deref() {
+        p.at_hand = 1 + t.near.iter().filter(|x| t.at_table(**x).is_none_or(|g| g == game::POOL)).count();
+        let name = |x: u8| t.name(x);
+        let want = match (p.page, p.gather.as_ref(), p.lobby.as_ref()) {
+            (Page::Gather, Some(g), _) => Some((game::POOL, g.view().still_to_come(&name))),
+            (Page::Gather, None, Some(l)) => Some((game::POOL, l.still_to_come(&name))),
+            _ => None,
+        };
+        if waiting.0 != want {
+            waiting.0 = want;
+        }
+    }
     if let Some(owner) = p.joined {
-        follow(p, owner, &watch, tables.as_deref(), now, &mut files);
+        follow(p, owner, &watch, tables.as_deref_mut(), now, &mut files);
         if p.leave {
             next.set(PlayState::Playing);
         }
@@ -588,30 +743,53 @@ fn step(
     if let Some(t) = tables.as_deref_mut() {
         for (from, table, blob) in t.take_actions(game::POOL) {
             let Some(a) = PoolAction::decode(&blob).filter(|_| table == p.table_ref) else { continue };
-            let theirs = p.foe == Foe::Player(from) && p.page == Page::Play;
+            let at_seat = p.seat_of(from).filter(|_| p.page == Page::Play && matches!(p.foe, Foe::Player(_)));
+            let theirs = at_seat.is_some();
+            let shoots = at_seat == Some(p.turn());
             match a {
+                PoolAction::Answer(yes) => {
+                    if let Some(g) = p.gather.as_mut() {
+                        g.answer(from, yes, now);
+                        info!("pool: {} {} the players' game", t.name(from), if yes { "joins" } else { "declines" });
+                    }
+                }
+                PoolAction::Join if p.gather.is_some() => {
+                    if let Some(g) = p.gather.as_mut() {
+                        g.arrive(from);
+                        info!("pool: {} is at the table", t.name(from));
+                    }
+                }
                 PoolAction::Join => {
                     if !p.asking.contains(&from) {
                         p.asking.push(from);
                     }
                     if p.page != Page::Play || p.practice() {
                         info!("pool: {} plays at this table", t.name(from));
-                        p.stake = 0;
-                        start_game(p, Foe::Player(from), &mut files);
+                        start_players(p, &[from], pool::Mode::EightBall1v1, &mut files);
                     } else {
                         p.status = format!("{} wants a game (press 3 after this one).", t.name(from));
                     }
                 }
                 PoolAction::Leave => {
                     p.asking.retain(|x| *x != from);
+                    if let Some(g) = p.gather.as_mut() {
+                        g.leave(from);
+                    }
                     if theirs && p.game.winner.is_none() {
                         p.game.winner = Some(0);
                         p.status = format!("{} left the game.", t.name(from));
                     }
                 }
-                PoolAction::Aim { dir, power } if theirs && p.game.turn == 1 => p.remote_aim = Some((dir, power)),
-                PoolAction::Shot { place, dir, speed } if theirs && p.game.turn == 1 && p.idle() => {
-                    if p.game.in_hand {
+                PoolAction::Aim { dir, power, place } if shoots => {
+                    p.remote_aim = Some((dir, power));
+                    p.remote_place = place.filter(|_| p.in_hand());
+                }
+                PoolAction::Hand { at } if shoots && p.in_hand() => {
+                    p.remote_aim = None;
+                    p.remote_place = Some(at);
+                }
+                PoolAction::Shot { place, dir, speed } if shoots && p.idle() => {
+                    if p.in_hand() {
                         let Some(at) = place.filter(|q| {
                             let mut t = p.table.clone();
                             t.balls[0].on = false;
@@ -625,6 +803,21 @@ fn step(
                 }
                 _ => {}
             }
+        }
+    }
+    // The players' game being gathered: called off, or everyone is here.
+    if let Some(g) = p.gather.as_ref() {
+        if let Some(off) = g.off(now) {
+            p.status = match off {
+                crate::match_lobby::Off::TooFew => "Not enough players said yes.".into(),
+                crate::match_lobby::Off::NotCome => "Not everyone came to the table.".into(),
+            };
+            info!("pool: the players' game is off ({off:?})");
+            p.gather = None;
+            p.page = Page::Main;
+        } else if let Some(others) = g.ready() {
+            let rules = mode_rules(g.mode.code);
+            start_players(p, &others, rules, &mut files);
         }
     }
     if p.page != Page::Play {
@@ -649,6 +842,17 @@ fn step(
                 if (1..16).all(|i| !p.table.balls[i].on) {
                     p.status = "Cleared. R racks them again.".into();
                 }
+            } else if let (Some(m), Some(ms)) = (p.multi.as_mut(), shot.mstart) {
+                // A players' game of more than two: its rules; the 1v1 game's fields show
+                // whose shot and the end (the menus and the camera read them).
+                let shooter = m.turn;
+                m.resolve(ms, &p.log);
+                p.game.turn = m.turn;
+                p.game.in_hand = m.in_hand;
+                p.game.break_shot = m.break_shot;
+                p.game.winner = m.winner.map(|_| usize::from(!m.seat_won(0)));
+                let names: Vec<String> = p.players.iter().enumerate().map(|(i, x)| if i == 0 { "You".to_string() } else { tables.as_deref().map_or_else(|| format!("Player {x}"), |t| t.name(*x)) }).collect();
+                p.status = multi_notice(m, 0, shooter, &|s| names.get(s).cloned().unwrap_or_default());
             } else {
                 let side = p.game.turn;
                 p.game.resolve(shot.start, &p.log);
@@ -691,7 +895,7 @@ fn step(
         info!("pool: game over, side {w} won (stake {})", p.stake);
     }
     if p.game.winner.is_some() && !p.practice() {
-        let won = p.game.winner == Some(0);
+        let won = p.won_by(0);
         p.status = match (won, p.stake) {
             (true, 0) => "You win the game.".into(),
             (false, 0) => "You lose the game.".into(),
@@ -724,9 +928,31 @@ fn notice(g: &Game, mine: usize, shooter: usize) -> String {
     }
 }
 
+/// What the line under the table says after a shot of a players' game of more than two;
+/// `who` names a seat ("You" for this player's) [design: NVForever's words].
+fn multi_notice(m: &MultiGame, mine: usize, shooter: usize, who: &dyn Fn(usize) -> String) -> String {
+    let next = if m.turn == mine { "Your turn".to_string() } else { format!("{}'s turn", who(m.turn)) };
+    let by = if shooter == mine { "You".to_string() } else { who(shooter) };
+    match m.notice {
+        MultiNotice::Eight(_) if m.winner.is_some() => "The game is over.".into(),
+        MultiNotice::Eight(Notice::Break) | MultiNotice::Break => "The break: put the white on the head string, then shoot.".into(),
+        MultiNotice::Eight(n) => {
+            let g = Game { turn: m.team_of(m.turn), notice: n, ..m.eight.clone() };
+            format!("{} {next}.", notice(&g, m.team_of(mine), m.team_of(shooter)))
+        }
+        MultiNotice::OpponentPotted => format!("{by} sank another player's ball and shoots again."),
+        MultiNotice::OwnPotted => format!("{by} sank their own ball. {next}."),
+        MultiNotice::NeutralPotted => format!("A neutral ball went down: it counts for nobody. {next}."),
+        MultiNotice::Missed => format!("No pot. {next}."),
+        MultiNotice::NoContact => format!("Foul: the white hit nothing. {next}, the white in hand."),
+        MultiNotice::Scratch => format!("Scratch. {next}, the white in hand."),
+        MultiNotice::Won => "The game is over.".into(),
+    }
+}
+
 /// A joined player's game: the owner's, as their view and its replay have it.
-fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, tables: Option<&Tables>, now: f32, files: &mut MessageWriter<PlayFile>) {
-    let me = tables.and_then(|t| t.me);
+fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, mut tables: Option<&mut Tables>, now: f32, files: &mut MessageWriter<PlayFile>) {
+    let me = tables.as_deref().and_then(|t| t.me);
     let Some(r) = watch.0.get(&owner).filter(|r| r.table_ref == p.table_ref) else {
         if now - p.joined_heard > OWNER_GONE {
             p.status = "They have left the table.".into();
@@ -736,7 +962,31 @@ fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, tables: Option<&Tables>, n
     };
     p.joined_heard = now;
     let v = &r.view;
-    let in_it = v.playing && Some(v.foe) == me;
+    // This player's seat: in a players' game by the view's players, else the second side.
+    let seat = me.and_then(|me| v.players.iter().position(|x| *x == me));
+    let in_it = v.playing && (seat.is_some() || v.players.is_empty() && Some(v.foe) == me);
+    p.lobby = v.lobby.clone();
+    p.players = v.players.clone();
+    p.multi = v.multi.clone();
+    if let Some(s) = seat {
+        p.seat = s;
+    }
+    // Asked to a players' game here and said yes: this player came.
+    let mine_seat = me.and_then(|me| v.lobby.as_ref().and_then(|l| l.seat(me)));
+    if !in_it && matches!(mine_seat, Some(crate::match_lobby::Seat::Yes | crate::match_lobby::Seat::Here)) {
+        if !p.arrived {
+            p.arrived = true;
+            if let Some(t) = tables.as_deref_mut() {
+                t.send(p.table_ref, game::POOL, PoolAction::Join.encode());
+            }
+            info!("pool: came for the players' game at {owner}'s table");
+        }
+        p.page = Page::Gather;
+    } else if !in_it && p.page == Page::Gather {
+        p.page = Page::Main;
+        p.arrived = false;
+    }
+    let tables = tables.as_deref();
     if in_it && p.page != Page::Play {
         p.page = Page::Play;
         p.status.clear();
@@ -753,14 +1003,22 @@ fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, tables: Option<&Tables>, n
     if p.sent_at.is_some_and(|(seq, at)| seq != v.seq || now - at > 3.0) {
         p.sent_at = None;
     }
-    if !(p.game.turn == 1 && v.in_hand) {
+    if !(p.turn() == p.seat && v.in_hand) {
         p.placed = None;
     }
     p.remote_aim = v.aim;
     if r.table.moving() {
         p.charge = None;
     }
-    if p.page == Page::Play && p.game.winner.is_none() {
+    if let (Some(m), true) = (p.multi.as_ref(), p.page == Page::Play) {
+        let names: Vec<String> = p.players.iter().map(|x| if Some(*x) == me { "You".to_string() } else { tables.map_or_else(|| format!("Player {x}"), |t| t.name(*x)) }).collect();
+        let shooter = if matches!(m.notice, MultiNotice::OpponentPotted) { m.turn } else { m.turn.wrapping_sub(1) % m.mode.players() };
+        p.status = if m.winner.is_some() {
+            if m.seat_won(p.seat) { "You win the game.".into() } else { "You lose the game.".into() }
+        } else {
+            multi_notice(m, p.seat, shooter, &|s| names.get(s).cloned().unwrap_or_default())
+        };
+    } else if p.page == Page::Play && p.game.winner.is_none() {
         let shooter = if matches!(p.game.notice, Notice::OwnPotted | Notice::OneLeft) { p.game.turn } else { 1 - p.game.turn };
         p.status = notice(&p.game, 1, shooter);
     } else if let Some(w) = p.game.winner {
@@ -874,6 +1132,11 @@ pub struct PoolView {
     pub shot: Option<ShotView>,
     /// Whoever shoots, aiming: the way and the power.
     pub aim: Option<([f32; 2], f32)>,
+    /// A players' game (items 126, 128): the players by seat (the owner first), its rules
+    /// when more than two play, and a game being gathered (`match_lobby`).
+    pub players: Vec<u8>,
+    pub multi: Option<MultiGame>,
+    pub lobby: Option<LobbyView>,
 }
 
 impl PoolView {
@@ -893,6 +1156,33 @@ impl PoolView {
         if let Some((d, pw)) = self.aim {
             w.f32(d[0]).f32(d[1]).f32(pw);
         }
+        // A players' game and the lobby: a trailing part, left out when neither is on.
+        if !self.players.is_empty() || self.lobby.is_some() {
+            w.u8(self.players.len().min(4) as u8);
+            for x in self.players.iter().take(4) {
+                w.u8(*x);
+            }
+            match &self.multi {
+                Some(m) => {
+                    w.u8(1);
+                    for b in m.encode() {
+                        w.u8(b);
+                    }
+                }
+                None => {
+                    w.u8(0);
+                }
+            }
+            match &self.lobby {
+                Some(l) => {
+                    w.u8(1);
+                    l.write(&mut w);
+                }
+                None => {
+                    w.u8(0);
+                }
+            }
+        }
         w.0
     }
 
@@ -908,15 +1198,32 @@ impl PoolView {
         }
         let shot = if flags & 8 != 0 { Some(ShotView { dir: [r.f32()?, r.f32()?], speed: r.f32()?, age: r.f32()? }) } else { None };
         let aim = if flags & 16 != 0 { Some(([r.f32()?, r.f32()?], r.f32()?)) } else { None };
+        let (mut players, mut multi, mut lobby) = (Vec::new(), None, None);
+        if !r.done() {
+            let n = r.u8()? as usize;
+            for _ in 0..n.min(4) {
+                players.push(r.u8()?);
+            }
+            if r.u8()? != 0 {
+                let mut b = [0u8; pool::MULTI_BYTES];
+                for x in &mut b {
+                    *x = r.u8()?;
+                }
+                multi = Some(MultiGame::decode(&b)?);
+            }
+            if r.u8()? != 0 {
+                lobby = Some(LobbyView::read(&mut r)?);
+            }
+        }
         r.done().then_some(PoolView {
             owner,
             foe,
             stake,
             playing: flags & 1 != 0,
-            turn: turn.min(1),
+            turn: turn.min(3),
             shots_left,
             groups: [groups & 15, groups >> 4],
-            winner: (winner < 2).then_some(winner),
+            winner: (winner < 4).then_some(winner),
             in_hand: flags & 2 != 0,
             break_shot: flags & 4 != 0,
             notice: *NOTICES.get(usize::from(notice))?,
@@ -924,6 +1231,9 @@ impl PoolView {
             balls,
             shot,
             aim,
+            players,
+            multi,
+            lobby,
         })
     }
 }
@@ -940,6 +1250,11 @@ pub fn pool_view(p: &Pool, me: u8, now: f32) -> Option<PoolView> {
             balls[i] = Some(b.pos);
         }
     }
+    // The white in hand where its shooter moves it or put it down (this player's, or the
+    // joined player's as it sent it), so whoever watches sees it too (item 115).
+    if p.shot.is_none() && p.in_hand() {
+        balls[0] = p.hand_white();
+    }
     Some(PoolView {
         owner: me,
         foe: match p.foe {
@@ -949,17 +1264,20 @@ pub fn pool_view(p: &Pool, me: u8, now: f32) -> Option<PoolView> {
         },
         stake: p.stake,
         playing: p.page == Page::Play,
-        turn: p.game.turn as u8,
+        turn: p.turn() as u8,
         shots_left: p.game.shots_left,
         groups: p.game.groups,
         winner: p.game.winner.map(|w| w as u8),
         in_hand: p.in_hand(),
-        break_shot: p.game.break_shot,
+        break_shot: p.break_shot(),
         notice: p.game.notice,
         seq: p.seq,
         balls,
         shot: p.shot.as_ref().map(|s| ShotView { dir: s.dir, speed: s.speed, age: now - s.since }),
         aim: p.cue(now),
+        players: if p.page == Page::Play { p.players.clone() } else { Vec::new() },
+        multi: p.multi.clone().filter(|_| p.page == Page::Play),
+        lobby: p.gather.as_ref().map(|g| g.view()),
     })
 }
 
@@ -971,8 +1289,13 @@ pub enum PoolAction {
     Leave,
     /// A shot: the white put down first (from the hand), the way and the speed.
     Shot { place: Option<[f32; 2]>, dir: [f32; 2], speed: f32 },
-    /// Aiming: the way and the power, for the cue on the others' screens.
-    Aim { dir: [f32; 2], power: f32 },
+    /// Aiming: the way and the power, for the cue on the others' screens, and the white
+    /// put down from the hand.
+    Aim { dir: [f32; 2], power: f32, place: Option<[f32; 2]> },
+    /// The white in hand, being moved (not put down yet): where it is.
+    Hand { at: [f32; 2] },
+    /// The answer to the table's invitation to a players' game (`match_lobby`).
+    Answer(bool),
 }
 
 impl PoolAction {
@@ -988,7 +1311,15 @@ impl PoolAction {
                 }
                 &mut w
             }
-            PoolAction::Aim { dir, power } => w.u8(3).f32(dir[0]).f32(dir[1]).f32(power),
+            PoolAction::Aim { dir, power, place } => {
+                w.u8(3).f32(dir[0]).f32(dir[1]).f32(power);
+                if let Some(q) = place {
+                    w.f32(q[0]).f32(q[1]);
+                }
+                &mut w
+            }
+            PoolAction::Hand { at } => w.u8(4).f32(at[0]).f32(at[1]),
+            PoolAction::Answer(yes) => w.u8(5).u8(u8::from(yes)),
         };
         w.0
     }
@@ -1003,7 +1334,13 @@ impl PoolAction {
                 let place = if r.done() { None } else { Some([r.f32()?, r.f32()?]) };
                 PoolAction::Shot { place, dir, speed }
             }
-            3 => PoolAction::Aim { dir: [r.f32()?, r.f32()?], power: r.f32()? },
+            3 => {
+                let (dir, power) = ([r.f32()?, r.f32()?], r.f32()?);
+                let place = if r.done() { None } else { Some([r.f32()?, r.f32()?]) };
+                PoolAction::Aim { dir, power, place }
+            }
+            4 => PoolAction::Hand { at: [r.f32()?, r.f32()?] },
+            5 => PoolAction::Answer(r.u8()? != 0),
             _ => return None,
         };
         r.done().then_some(a)
@@ -1139,10 +1476,6 @@ pub fn summary(tables: &Tables, name: &str, blob: &[u8]) -> Vec<String> {
 
 // ---- drawing -------------------------------------------------------------------------
 
-fn text(p: &mut ChildSpawnerCommands, s: impl Into<String>, left: Val, top: Val, size: f32, color: Color) {
-    p.spawn((Node { position_type: PositionType::Absolute, left, top, ..default() }, Text::new(s.into()), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color)));
-}
-
 /// A dot of `r` pixels at a point (% of the window).
 fn dot(p: &mut ChildSpawnerCommands, at: Vec2, r: f32, color: Color) {
     p.spawn((
@@ -1151,13 +1484,10 @@ fn dot(p: &mut ChildSpawnerCommands, at: Vec2, r: f32, color: Color) {
     ));
 }
 
-const AMBER: Color = Color::srgb(0.98, 0.78, 0.35);
-const CHALK: Color = Color::srgb(0.92, 0.92, 0.88);
-
 fn draw(
     mut commands: Commands,
     screen: Res<PoolScreen>,
-    tables: Option<Res<Tables>>,
+    (tables, casino): (Option<Res<Tables>>, Option<Res<crate::casino_hud::CasinoFaces>>),
     time: AidTime,
     old: Query<Entity, With<PoolRoot>>,
     (windows, cams): crate::minigames::ViewQueries,
@@ -1171,6 +1501,14 @@ fn draw(
     let shade = if p.page == Page::Play && p.frame.is_some() { 0.0 } else { 0.55 };
     let root = commands.spawn((PoolRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::srgba(0.02, 0.02, 0.02, shade)), GlobalZIndex(25))).id();
     let proj = windows.single().ok().zip(cams.single().ok()).zip(p.frame);
+    let plain;
+    let faces = match casino.as_deref() {
+        Some(f) => f,
+        None => {
+            plain = crate::casino_hud::CasinoFaces::plain();
+            &plain
+        }
+    };
     commands.entity(root).with_children(|ui| {
         let foe_word = match p.foe {
             Foe::Player(x) if p.joined.is_none() => name(x),
@@ -1179,33 +1517,72 @@ fn draw(
         };
         match p.page {
             Page::Main => {
-                text(ui, "Pool", Val::Percent(8.0), Val::Percent(14.0), 34.0, AMBER);
-                let mut lines: Vec<String> = Vec::new();
-                if let Some(owner) = p.joined {
-                    lines.push(format!("{} has this table.", name(owner)));
-                    lines.push(format!("Space  Ask {} for a game", name(owner)));
-                } else {
-                    lines.push("1  Challenge the opponent".into());
-                    lines.push("2  Practice".into());
-                    if let Some(x) = p.asking.first() {
-                        lines.push(format!("3  Play {}", name(*x)));
+                use crate::match_lobby::{menu_card, row};
+                match p.joined {
+                    Some(owner) => menu_card(ui, faces, "Pool", &format!("{} has this table.", name(owner)), &[row("Space", format!("Ask {} for a game", name(owner))), row("Tab", "Leave")], ""),
+                    None => {
+                        let mut rows = vec![row("1", if p.at_hand > 1 { "Challenge" } else { "Challenge the opponent" }), row("2", "Practice")];
+                        if let Some(x) = p.asking.first() {
+                            rows.push(row("3", format!("Play {}", name(*x))));
+                        }
+                        rows.push(row("Tab", "Leave"));
+                        menu_card(ui, faces, "Pool", "", &rows, "Eight-ball. Aim with the mouse; hold the left button to charge, let go to shoot.");
                     }
                 }
-                lines.push("Tab  Leave".into());
-                for (i, l) in lines.iter().enumerate() {
-                    text(ui, l.clone(), Val::Percent(8.0), Val::Percent(24.0 + 5.0 * i as f32), 22.0, CHALK);
+            }
+            Page::Challenge => {
+                use crate::match_lobby::{available, menu_card, row, POOL_MODES};
+                let mut rows = vec![row("1", "The house's player").note("a bet")];
+                for (i, m) in POOL_MODES.iter().enumerate() {
+                    let open = available(*m, p.at_hand);
+                    let r = row(&(i + 2).to_string(), m.label).enabled(open);
+                    rows.push(if open { r } else { r.note(format!("{} players near the table", m.players)) });
                 }
+                rows.push(row("Tab", "Back"));
+                menu_card(ui, faces, "Challenge", "Who to play", &rows, &p.status);
+            }
+            Page::Gather => {
+                crate::casino_hud::help_line(ui, faces, "Tab) Leave");
             }
             Page::Bet => {
-                text(ui, "Challenge the opponent", Val::Percent(8.0), Val::Percent(14.0), 30.0, AMBER);
-                text(ui, format!("Bet: {} caps   (Q less, E more)", p.bet), Val::Percent(8.0), Val::Percent(24.0), 22.0, CHALK);
-                text(ui, format!("The opponent plays at {} of 10. A win pays twice the bet.", pool::difficulty(p.bet)), Val::Percent(8.0), Val::Percent(29.0), 18.0, CHALK);
-                text(ui, "Space  Rack them up      Tab  Back", Val::Percent(8.0), Val::Percent(36.0), 22.0, CHALK);
+                use crate::match_lobby::{menu_card, row};
+                let rows = [row("Q", "Less"), row("E", "More"), row("Space", "Rack them up"), row("Tab", "Back")];
+                let foot = format!("The opponent plays at {} of 10. A win pays twice the bet.", pool::difficulty(p.bet));
+                menu_card(ui, faces, "Challenge the opponent", &format!("Bet: {} caps", p.bet), &rows, &foot);
             }
             Page::Play => {
-                // Who has what.
+                // Who has what: the HUD-look panel while the game runs, the leaderboard at its end.
+                use crate::casino_hud::{help_line, leaderboard, score_panel, Place, ScoreRow};
+                let mut foot = (p.stake > 0).then(|| format!("Stake: {} caps", p.stake));
                 if p.practice() {
-                    text(ui, format!("Practice: {} balls on the table", p.table.balls[1..].iter().filter(|b| b.on).count()), Val::Percent(3.0), Val::Percent(3.0), 22.0, AMBER);
+                    let rows = [ScoreRow { name: "Practice".into(), score: format!("{}", p.table.balls[1..].iter().filter(|b| b.on).count()), note: "balls on the table".into(), up: true }];
+                    score_panel(ui, faces, &rows, None);
+                } else if let Some(m) = &p.multi {
+                    // A players' game of more than two: each seat, its balls, whose shot.
+                    let who = |s: usize| p.players.get(s).map_or_else(|| "?".to_string(), |x| if Some(*x) == p.me { "You".to_string() } else { name(*x) });
+                    let what = |s: usize| {
+                        if m.mode.cutthroat() {
+                            if m.eliminated(s) { "out".to_string() } else { format!("{} balls left", m.balls_left(&p.table, s)) }
+                        } else {
+                            let team = m.team_of(s);
+                            match m.eight.groups[team] {
+                                1 => format!("team {}, solids", team + 1),
+                                2 => format!("team {}, stripes", team + 1),
+                                _ => format!("team {}, open table", team + 1),
+                            }
+                        }
+                    };
+                    let seats = m.mode.players();
+                    if m.winner.is_some() {
+                        let mut order: Vec<usize> = (0..seats).collect();
+                        order.sort_by_key(|&s| (!m.seat_won(s), m.eliminated(s), s));
+                        let won: Vec<String> = order.iter().filter(|&&s| m.seat_won(s)).map(|&s| who(s)).collect();
+                        let places: Vec<Place> = order.iter().map(|&s| Place { name: who(s), detail: what(s) }).collect();
+                        leaderboard(ui, faces, &won.join(" & "), &places);
+                    } else {
+                        let rows: Vec<ScoreRow> = (0..seats).map(|s| ScoreRow { name: who(s), score: String::new(), note: what(s), up: m.turn == s }).collect();
+                        score_panel(ui, faces, &rows, foot.as_deref());
+                    }
                 } else {
                     let mine = p.mine();
                     let side = |s: usize| match p.game.groups[s] {
@@ -1213,26 +1590,30 @@ fn draw(
                         2 => format!("stripes, {} left", p.table.left_of(2)),
                         _ => "open table".to_string(),
                     };
-                    let up = |s: usize| if p.game.turn == s && p.game.winner.is_none() { "> " } else { "  " };
-                    text(ui, format!("{}You ({})", up(mine), side(mine)), Val::Percent(3.0), Val::Percent(3.0), 22.0, AMBER);
-                    text(ui, format!("{}{} ({})", up(1 - mine), foe_word, side(1 - mine)), Val::Percent(3.0), Val::Percent(7.5), 22.0, CHALK);
-                    if p.game.winner.is_none() && p.game.shots_left > 1 {
-                        text(ui, format!("{} shots", p.game.shots_left), Val::Percent(3.0), Val::Percent(12.0), 18.0, CHALK);
-                    }
-                    if p.stake > 0 {
-                        text(ui, format!("Stake: {} caps", p.stake), Val::Percent(80.0), Val::Percent(3.0), 20.0, CHALK);
+                    let who = |s: usize| if s == mine { "You".to_string() } else { foe_word.to_string() };
+                    if let Some(w) = p.game.winner {
+                        let places = [w, 1 - w].map(|s| Place { name: who(s), detail: side(s) });
+                        leaderboard(ui, faces, &who(w), &places);
+                    } else {
+                        if p.game.shots_left > 1 {
+                            foot = Some(format!("{} shots{}", p.game.shots_left, foot.map_or_else(String::new, |f| format!("   {f}"))));
+                        }
+                        let rows = [mine, 1 - mine].map(|s| ScoreRow { name: who(s), score: String::new(), note: side(s), up: p.turn() == s });
+                        score_panel(ui, faces, &rows, foot.as_deref());
                     }
                 }
-                text(ui, p.status.clone(), Val::Percent(3.0), Val::Percent(86.0), 22.0, AMBER);
-                let help = if p.my_shot() && p.in_hand() && p.placed.is_none() {
-                    "Click to put the white down"
+                let help = if p.placing() {
+                    "Ball in hand: move the white, click to put it down"
+                } else if p.my_shot() && p.in_hand() {
+                    "White down: aim with the mouse, hold the left button to charge, let go to shoot"
                 } else if p.my_shot() {
                     "Aim with the mouse, hold the left button to charge, let go to shoot"
                 } else {
                     ""
                 };
                 let keys = if p.joined.is_some() { "Tab  Leave" } else if p.practice() { "R  Rack again   Space  White in hand   Tab  Leave" } else if p.game.winner.is_some() { "R  Menu   Tab  Leave" } else { "Tab  Leave (forfeit)" };
-                text(ui, format!("{help}{}{keys}", if help.is_empty() { "" } else { "      " }), Val::Percent(3.0), Val::Percent(92.0), 18.0, CHALK);
+                help_line(ui, faces, &format!("{}
+{help}{}{keys}", p.status, if help.is_empty() { "" } else { "      " }));
                 // The power.
                 if p.charge.is_some() {
                     let pw = p.power(now);
@@ -1241,7 +1622,7 @@ fn draw(
                 }
                 // The white from the hand, and the aiming guide.
                 let Some(((w, c), f)) = proj else { return };
-                if p.my_shot() && p.in_hand() && p.placed.is_none() {
+                if p.placing() {
                     if let Some(at) = p.hand_spot().and_then(|q| on_screen(q, f, c, w)) {
                         dot(ui, at, 9.0, Color::srgba(1.0, 1.0, 1.0, 0.7));
                     }
@@ -1275,8 +1656,8 @@ fn draw(
                 }
             }
         }
-        if p.page != Page::Play && !p.status.is_empty() {
-            text(ui, p.status.clone(), Val::Percent(8.0), Val::Percent(60.0), 20.0, AMBER);
+        if p.page != Page::Play && !p.status.is_empty() && p.page != Page::Challenge {
+            crate::casino_hud::banner(ui, faces, &p.status);
         }
     });
 }
@@ -1307,11 +1688,22 @@ mod tests {
             balls,
             shot: Some(ShotView { dir: [0.6, 0.8], speed: 700.0, age: 0.25 }),
             aim: Some(([1.0, 0.0], 0.5)),
+            players: Vec::new(),
+            multi: None,
+            lobby: None,
         };
         assert_eq!(PoolView::decode(&v.encode()), Some(v.clone()));
+        // Four at the table, cutthroat, seat 3 to shoot; and a lobby.
+        let mut m = MultiGame::new(pool::Mode::Cutthroat4);
+        m.turn = 3;
+        let four = PoolView { turn: 3, players: vec![1, 2, 3, 4], multi: Some(m), lobby: Some(LobbyView { mode: 4, seats: vec![(2, crate::match_lobby::Seat::Yes)] }), ..v.clone() };
+        assert_eq!(PoolView::decode(&four.encode()), Some(four.clone()));
+        for yes in [true, false] {
+            assert_eq!(PoolAction::decode(&PoolAction::Answer(yes).encode()), Some(PoolAction::Answer(yes)));
+        }
         let full = PoolView { balls: [Some([1.0, 1.0]); 16], ..v };
         assert!(full.encode().len() < 400);
-        for a in [PoolAction::Join, PoolAction::Leave, PoolAction::Shot { place: None, dir: [1.0, 0.0], speed: 500.0 }, PoolAction::Shot { place: Some([300.0, 200.0]), dir: [0.0, 1.0], speed: 80.0 }, PoolAction::Aim { dir: [0.6, 0.8], power: 0.3 }] {
+        for a in [PoolAction::Join, PoolAction::Leave, PoolAction::Shot { place: None, dir: [1.0, 0.0], speed: 500.0 }, PoolAction::Shot { place: Some([300.0, 200.0]), dir: [0.0, 1.0], speed: 80.0 }, PoolAction::Aim { dir: [0.6, 0.8], power: 0.3, place: None }, PoolAction::Aim { dir: [0.6, 0.8], power: 0.0, place: Some([120.0, 240.0]) }, PoolAction::Hand { at: [400.0, 90.0] }] {
             assert_eq!(PoolAction::decode(&a.encode()), Some(a));
         }
     }

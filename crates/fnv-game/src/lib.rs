@@ -169,6 +169,7 @@ pub mod rest;
 pub mod roulette;
 pub mod slots;
 pub mod sound;
+pub mod story_guards;
 pub mod style_weapon;
 pub mod talking_activators;
 pub mod runner;

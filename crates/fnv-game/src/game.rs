@@ -1481,6 +1481,10 @@ pub struct Game<'a> {
     /// cashier ([`Game::guest_lines`]) and
     /// no script starts a conversation with it.
     pub coop_guest: bool,
+    /// A co-op replication guest's: the host's actors hostile to the players in the
+    /// host's world (`fighting one or ready to attack one`), which this game's compass marks
+    /// hostile as its own would be; this game runs none of the scripts that turned them.
+    pub coop_hostile: BTreeSet<FormId>,
     /// Co-op replication (docs/design/coop-replication.md §11 phase 4): this game is a
     /// guest's that draws the host's world and runs none of its logic (R3). Its own
     /// player's carried-item scripts and menus go on; the story's quests (those of the
@@ -1584,6 +1588,8 @@ pub struct Game<'a> {
     /// Cannibal's and Mister Sandman's acts under way (GetCannibal, GetSandman). Not
     /// saved.
     pub perk_acts: Vec<crate::activate_choices::PerkAct>,
+    /// The story guards' steps (`crate::story_guards`). Not saved.
+    pub story_guards: crate::story_guards::StoryGuards,
     /// Challenge rewards and notices waiting for the next frame (`crate::challenges`).
     /// Not saved.
     pub challenge_queue: crate::challenges::Queue,
@@ -2255,6 +2261,7 @@ impl<'a> Game<'a> {
             coop_story_wait: None,
             story_speakers: None,
             coop_guest: false,
+            coop_hostile: BTreeSet::new(),
             world_logic_off: false,
             story_plugins: Vec::new(),
             coop_effects: None,
@@ -2284,6 +2291,7 @@ impl<'a> Game<'a> {
             appearance_changes: Vec::new(),
             activate_menu: None,
             perk_acts: Vec::new(),
+            story_guards: Default::default(),
             challenge_queue: Default::default(),
             note_notices: Vec::new(),
             fighting: BTreeSet::new(),
@@ -3587,6 +3595,10 @@ impl<'a> Game<'a> {
             self.activate_due_children();
             // Fighting NPCs take up the weapon their combat style allows (`crate::style_weapon`).
             self.arm_by_style();
+        }
+        // NVForever's fallbacks for scenes seen to stall (`crate::story_guards`).
+        if world_logic && !in_menu {
+            self.story_guards_tick(dt);
         }
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.open_menu_code().map(|m| Value::Num(m as f64));

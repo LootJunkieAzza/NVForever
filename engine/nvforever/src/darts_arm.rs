@@ -494,7 +494,7 @@ fn own_board(
     } else if let Some((root, rig, dist)) = other {
         // Its arm is raised while its turn lasts and it stands at the line, and drawn
         // back as its game says (the owner's view; a joined player's draw is not sent).
-        let up = d.m.up != d.mine() && d.m.winner.is_none() && !d.m.turn_over;
+        let up = !d.up_is_me() && d.m.winner.is_none() && !d.m.turn_over;
         let at_line = dist < AT_LINE && (up || since(1, hands).is_some());
         throwers[1] = Some((root, rig.clone(), Throwing { at_line, draw: if up { draw } else { 0.0 }, since_release: since(1, hands) }));
     }
