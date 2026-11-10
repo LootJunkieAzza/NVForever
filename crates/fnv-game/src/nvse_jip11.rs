@@ -470,8 +470,9 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             let on = g.world.equipment(r).unwrap_or_default();
             reff(crate::functions::refs::list_members(g, l).into_iter().find(|i| on.contains(i)))
         }
-        // [decision: NVForever puts no poison on weapons; 0 until it does, spec note §6.]
-        "getequippedweaponpoison" => XVal::Ref(0),
+        // The poison JohnnyGuitar's ApplyWeaponPoison put on the equipped weapon
+        // (`crate::nvse_jg10`); 0 for none.
+        "getequippedweaponpoison" => XVal::Ref(subject.and_then(|r| g.weapon_poison(r)).map_or(0, |p| p.0)),
         // 1 scoped by default, 2 a scope mod on, 0 neither [documented]: DNAM "Has Scope"
         // without "Scope from Mod", or an Increase Zoom mod attached.
         "isequippedweaponscoped" | "isequippedweaponsilenced" => {

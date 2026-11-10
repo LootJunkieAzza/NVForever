@@ -63,11 +63,11 @@ pub enum CombatRequest {
     /// (`DetonatePlacedExplosives`).
     Detonate(FormId),
     /// `from` fires one shot of `weapon` from its centre, straight ahead (`FireWeapon`).
-    Fire { from: FormId, weapon: FormId },
+    Fire { from: FormId, weapon: FormId, muzzle: Option<[f32; 3]> },
     /// Dismember the part at `location` (GetHitLocation's numbering) of a dead actor:
     /// KillActor's limb argument. The engine knows the actor's body parts
     /// (docs/spec-notes/dismemberment.md §5).
-    Dismember { actor: FormId, location: i32, by: Option<FormId> },
+    Dismember { actor: FormId, location: i32, by: Option<FormId>, explode: Option<bool> },
     /// Set off an explosion placed by a script (PlaceAtMe of an EXPL) where it was placed,
     /// nobody's.
     Explode { explosion: FormId, at: [f32; 3] },

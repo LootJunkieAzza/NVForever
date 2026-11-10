@@ -162,7 +162,12 @@ body    u32 length + zstd(JSON or postcard) of SaveBody
   added to docs/design/dependencies.md with the licence check there.
 - Writing is atomic: write `<name>.nvfsave.tmp`, flush, rename over the old file; the
   previous file of a rolling slot (quick, auto) becomes `.bak`, as the original does with
-  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs].
+  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs]. The backup
+  is made as a second name for the old file (a hard link, or a copy), so the save never
+  leaves its own name, and one save is written at a time, so two saves to one slot a
+  frame apart cannot share the `.tmp` (#1982).
+- A name the player gives is refused when it is a Windows device name (`con`, `nul`,
+  `com1` …, on every system) or a rolling slot's own name (#1983).
 
 Form IDs in the snapshot are load-order form IDs (mod index = plugin position). The
 original stores a plugin list and resolves form IDs by position in it [observed: save M,
@@ -205,7 +210,10 @@ What NVForever does (`fnv_save::PluginRemap`, `fnv_save::remap_json`,
 4. A form of a missing plugin: where it is a map key, a list entry, or in a pair or tuple
    that is a list entry, that entry is removed (a reference of the plugin's, an item in an
    inventory, a quest's state, a global, a form-list entry, a remembered pair).
-   Anywhere else (a field) it is moved to the *gone* slot `FE` with its low bytes, which no
+   A tuple that is a field's value keeps its length, or the save could not be read
+   back: one of form IDs beside other values (`package_ends`) is known by its shape, one
+   of form IDs alone by its field's name (`fnv_game::game::SAVE_PAIR_FIELDS`) (#1981).
+   Anywhere else (a field, such a tuple) it is moved to the *gone* slot `FE` with its low bytes, which no
    plugin uses; then the game layer drops what stands on one: references whose base or
    cell is gone (created ones of the plugin's bases), script instances whose key or script
    is gone, magic effects whose effect, source, target or script is gone, the radio station
@@ -241,7 +249,8 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
    reached the world, so no request a script made is still queued.
 2. **Autosaves**: after each loading screen (door travel, `coc`, a script moving the
    player) and when a script calls `Autosave` [documented: GECK wiki Autosave], each with
-   its own switch on the settings page (group Saving), both on by default. Three more
+   its own switch on the settings page (registered in group Saving, shown under
+   Gameplay › Saving: settings-page.md), both on by default. Three more
    switches there, on by default [owner request 2026-10-27]: Save on fast travel (after
    a fast travel's loading screen, in place of the travel switch), Save on wait and Save
    on sleep (when the menu closes with at least one hour passed, also after Cancel). Their timing

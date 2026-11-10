@@ -67,7 +67,7 @@ mod eye_adapt;
 mod fog;
 mod fly;
 mod foot_ik;
-mod fps_counter;
+mod anti_lag;
 mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
@@ -149,10 +149,13 @@ mod sneaking;
 mod swimming;
 mod ssao;
 mod taa;
+mod fg_presenter;
+mod frame_gen;
 mod fsr;
 mod speech_look;
 mod stress_sample;
 mod profile;
+mod perf_overlay;
 mod occlusion;
 mod rooms;
 mod terrain;
@@ -428,11 +431,22 @@ struct Args {
     /// `[Settings] cpu-cache-placement` for this run; without either, `auto`.
     #[arg(long, value_enum)]
     cpu_cache_placement: Option<cpu_placement::Mode>,
-    /// Show the frame rate counter in the top-right corner (fps_counter.rs; a switch on the
-    /// settings page too). Once any setting is saved, NVForever.ini's Frame rate counter
+    /// Show the frame rate counter, the performance overlay (perf_overlay/; a switch on the
+    /// settings page too, its rows as the settings give them). Once any setting is saved, NVForever.ini's Frame rate counter
     /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,
+    /// Latency reduction: AMD Anti-Lag through Vulkan (AMD GPUs only), the driver keeping the
+    /// CPU from preparing frames ahead of the GPU (anti_lag.rs). Once any setting is saved,
+    /// NVForever.ini's Latency reduction switch wins over this flag, as for every switch.
+    #[arg(long)]
+    latency_reduction: bool,
+    /// FSR 3.1 frame generation: a frame made between each two real frames, from optical
+    /// flow and the motion FSR gets (frame_gen.rs). Needs --fsr (any mode) and vsync; turns
+    /// latency reduction on with it. Once any setting is saved, NVForever.ini's Frame
+    /// generation switch wins over this flag, as for every switch.
+    #[arg(long)]
+    frame_generation: bool,
     /// With --play: draw the text overlay (the developer's position, loading counts and
     /// key help), which the game leaves off (owner, list 5 item 68); the settings page's
     /// Developer group turns it on and off too.
@@ -446,7 +460,7 @@ struct Args {
     /// runs (--screenshot, --timelapse, --frame-json, --run-seconds) always default to it.
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
-    /// FSR 3.1 upscaling (no frame generation). Replaces other anti-aliasing while on.
+    /// FSR 3.1 upscaling (frame generation: --frame-generation). Replaces other anti-aliasing while on.
     /// Saved Graphics settings take precedence in normal play, as for other switches.
     #[arg(long, value_enum, default_value = "off")]
     fsr: graphics::FsrMode,
@@ -1286,6 +1300,17 @@ fn main() -> AppExit {
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
+    // NVF_FIXED_FRAME_TIME_MS=<ms>: every frame moves the clocks on by that much, whatever the
+    // real frame took (Bevy's `TimeUpdateStrategy::ManualDuration`, set before Bevy's time
+    // plugin, which keeps it), so the test aids reach the same view on the same frame in every
+    // run: renderer changes compared frame by frame (docs/design/fsr-upscaling.md, "Mip
+    // bias"). A diagnostic, not a setting.
+    if let Some(ms) = std::env::var("NVF_FIXED_FRAME_TIME_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|ms| ms.is_finite() && *ms > 0.0) {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(ms / 1000.0)));
+        app.add_systems(Startup, move || info!("fixed frame time: every frame {ms} ms (NVF_FIXED_FRAME_TIME_MS)"));
+    }
+    // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
+    app.add_plugins(anti_lag::AntiLagInitPlugin);
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
@@ -1336,6 +1361,9 @@ fn main() -> AppExit {
                     visible: args.handoff.is_none(),
                     // Measuring frame times: not held to the display's refresh.
                     present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
+                    // `NVF_SWAPCHAIN_LATENCY=<n>`: frames the swapchain may queue (images: n + 1;
+                    // Bevy's 2 otherwise), for measuring frame generation's pacing.
+                    desired_maximum_frame_latency: std::env::var("NVF_SWAPCHAIN_LATENCY").ok().and_then(|v| v.trim().parse::<u32>().ok()).and_then(std::num::NonZeroU32::new),
                     ..default()
                 }),
                 ..default()
@@ -1345,9 +1373,13 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
-    .add_plugins(fps_counter::FpsCounterPlugin(args.fps))
+    // The switches the settings page weighs against the INI (`--play` only), for the
+    // frame split's start-time decision (perf_overlay/split.rs).
+    .add_plugins(perf_overlay::PerfOverlayPlugin(args.fps, play.is_some().then(|| settings::given_switches(&args, &command_line()))))
     // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
     .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { sync: if args.log_frame_times.is_none() { frame_pace::DisplaySync::Vsync } else { frame_pace::DisplaySync::Off }, cap: 0 }))
+    .add_plugins(anti_lag::AntiLagPlugin(args.latency_reduction))
+    .add_plugins(frame_gen::FrameGenPlugin(args.frame_generation))
     .add_plugins(blit_warm::BlitWarmPlugin)
     // Lights clustered on the CPU, Bevy's own fallback: its GPU clustering made about six
     // new GPU buffers a frame (10,235 in 30 s at night against 4,060 on the CPU), GPU
@@ -1425,8 +1457,10 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
+    .add_systems(Update, sky::tell_sky_colors.after(sky::update_sky))
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
-    .add_systems(Update, cell_buffer::remember.after(world::stream))
+    .add_systems(Update, (cell_buffer::remember, cell_buffer::tell_game).chain().after(world::stream))
+    .add_systems(Update, world::script_markers.before(world::stream))
     .add_systems(Update, world::draw_waiting_actors.after(world::stream))
     // Actors of the next ring of cells read and prepared before they come into range.
     .insert_resource(readahead::ReadAhead::from_env())
@@ -1630,7 +1664,7 @@ fn main() -> AppExit {
         }
     }
     if play.is_some() {
-        app.add_systems(Update, (script_weather, sky_follows_game).chain().before(sky::update_sky));
+        app.add_systems(Update, (script_weather, worldspace::script_sky, sky_follows_game).chain().before(sky::update_sky));
         // The weather's sounds, precipitation and lightning (weather_fx.rs).
         app.add_plugins(weather_fx::WeatherFxPlugin);
     }
@@ -2034,6 +2068,15 @@ fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, wor
     let (shown, raining) = (fnv_sim::FormId(sky.weather.form_id), sky.raining());
     if g.weather.shown != Some(shown) || g.weather.raining != raining {
         g.set_shown_weather(shown, raining);
+    }
+    // The scripts' wind and lightning (SetWindDirection, TriggerLightningFX;
+    // `fnv_game::nvse_jip12`); their climate and moons: `worldspace::script_sky`.
+    let wind = g.script_wind();
+    if sky.script_wind != wind {
+        sky.script_wind = wind;
+    }
+    if g.take_lightning() {
+        sky.lightning_request = true;
     }
 }
 

@@ -59,7 +59,7 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
-Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). One
+Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First
 change, in `src/renderer/render_context.rs`, each part marked by a comment starting
 `NVForever early finish`: when a render system is done (`RenderContextState`'s
 `SystemBuffer::queue`), each encoder it recorded is handed to the compute threads to be
@@ -88,18 +88,102 @@ upstream merges the jobs.
 no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
 frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
 
+Third change (#1868), in `src/diagnostic/mod.rs`, each part marked by a comment starting
+`NVForever recorder gate`: `begin_diagnostics_frame`, `resolve_encoder` and
+`finish_diagnostics_frame` take the `DiagnosticsRecorder` as optional and do nothing
+without it. Upstream they require it, so taking it out of the render world stops the app
+(a missing resource fails the systems' parameter check). Every pass already records only
+while the recorder is there (`RenderContext::diagnostic_recorder` is optional; the camera
+driver checks `contains_resource`), so without it no timestamp is written, resolved or read
+back. `nvforever/src/perf_overlay/split.rs` takes it out while the performance overlay's
+frame split, the only reader that added the render diagnostics, is not shown. With the
+recorder there (every run that does not take it out) the systems do what upstream does.
+
+`NVForever recorded instant` (`diagnostic/internal.rs`, `diagnostic/mod.rs`): each frame's
+`FrameData` notes when it began recording, `RenderDiagnostics` carries that instant, and
+`sync_diagnostics` keeps the last pair (the import time its measurements carry in the store,
+the frame's recording time) in a new main-world resource, `RenderDiagnosticsRecorded`. The
+store's measurements keep upstream's import time (frame telemetry exports it as such,
+docs/design/frame-telemetry.md). `nvforever/src/perf_overlay/split.rs` uses the pairs to
+read only the measurements of frames recorded in its window and since its row began to show.
+
+Fourth change (#1778, docs/design/latency-reduction.md): Bevy's `raw_vulkan_init` feature,
+which the engine turns on so `anti_lag.rs` can add a device extension, no longer changes which
+backend starts or which validation wgpu runs. Each part is marked by a comment starting
+`NVForever (2026-11-09)`:
+
+- `src/renderer/mod.rs` `initialize_renderer`: the raw Vulkan instance is created only when
+  the backends include Vulkan, otherwise `Instance::new`, as without the feature. Upstream
+  creates it whatever the backends say, so `WGPU_BACKEND=dx12` or `gl` was ignored.
+- `src/settings.rs` `WgpuSettings::default`: upstream, the feature also removes
+  `InstanceFlags::VALIDATION_INDIRECT_CALL` in every release build, on every backend. Left
+  out: the flag goes only when the backends don't include DX12, as without the feature. On
+  DX12 the built-ins `num_workgroups`, `vertex_index` and `instance_index` read wrong in
+  indirect calls without it [documented: wgpu-types 30.0.1 `instance.rs`], and release builds
+  on Vulkan with the default backends keep the validation (and its GPU time) they had before.
+
+Still as upstream: when the backends include Vulkan, the instance is Vulkan-only whenever
+Vulkan starts, so a Vulkan instance with no adapter that can draw to the window stops the start
+instead of going on to DX12. Left so: the game does not run on DX12 as it is (main's own
+`WGPU_BACKEND=dx12` start stops on bind group validation errors [observed 2026-11-09, RTX
+4070]), so there is nothing to fall back to. Where the Vulkan instance cannot be made at all
+(no driver), upstream's own fallback to `Instance::new` is kept.
+
+Still as upstream, and different from a build without the feature: the instance made from
+the raw Vulkan one takes wgpu-core's default instance flags (`Instance::from_hal`), so
+`WgpuSettings::instance_flags` and the `WGPU_VALIDATION*`/`WGPU_DEBUG` environment switches
+reach the Vulkan layer (wgpu-hal) but not wgpu-core [documented: wgpu-core 30.0.1
+`instance.rs` `from_hal_instance`]. The defaults are the same either way. Drop this change
+when a Bevy release makes the feature follow the backends.
+
+Window images for another thread (2026-11-08, frame generation's presenter,
+docs/design/frame-generation.md "Presentation and pacing", h9x000/NVForever#1). In
+`src/view/window/mod.rs`, each part marked by a comment starting `NVForever (2026-11-08)`:
+
+- `DeferredSwapchain`, a component on a window: `prepare_windows` takes no swapchain image
+  for it and points the window's view at a stand-in texture of the window's size instead
+  (`STAND_INS` = 3, used in turn, so a thread may still read the last two).
+- `SharedSurface` (`SurfaceData::shared`): the window's surface and its configuration behind
+  a lock, for one other thread to take images from and present (`SurfaceGuard::acquire`,
+  `present`). `create_surfaces` reconfigures under the same lock, so never while that thread
+  holds an image (wgpu allows one per surface).
+- `SWAPCHAIN_WAITS`: the time spent in the swapchain's acquires and presents, for frame
+  generation's log line.
+
+Review fixes (2026-11-09, h9x000/NVForever#6), marked `NVForever (2026-11-09)`:
+
+- The thread never configures the surface. `SurfaceGuard::acquire` returns no image on
+  `Outdated` and marks the surface (`SurfaceShare::outdated`); `need_surface_configuration`
+  and `create_surfaces` then reconfigure it on the render thread, under the lock, whether or
+  not the window's size changed (alt-tab, a display mode or HDR change), and clear the mark.
+  Before, `acquire` configured the surface itself, and wgpu-core 30's `configure_surface` waits
+  for the GPU and fails with `GpuWaitTimeout`, a validation error, when another thread submits
+  meanwhile (`wgpu-core-30.0.1/src/device/resource.rs` 5338-5351); the render thread keeps
+  submitting.
+- `SurfaceData` keeps a clone of the window's `RawHandleWrapper` and `SharedSurface` holds
+  one, dropped after its surface, so the window outlives every holder of the surface
+  (`create_surface_unsafe`'s contract, which upstream keeps by removing `RawHandleWrapper` and
+  `SurfaceData` together).
+- Review of LootJunkieAzza/NVForever#1964: `SurfaceGuard::acquire` marks the surface on `Lost`
+  as on `Outdated` (a lost surface froze the window with nothing asking for a reconfigure),
+  and `DeferredSwapchain::take_stand_in` gives each frame's stand-in once, so a window
+  `prepare_windows` passed over (no camera draws to it) is not handed over a second time.
+
+Upstream Bevy has no way for a thread other than the render thread to present a window.
+
 ## wgpu-ffx 0.1.0 (MIT, the wgpu-ffx developers and Advanced Micro Devices)
 
-The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md): a Rust/wgpu port of AMD FidelityFX
+The FSR 3.1.4 upscaler (docs/design/fsr-upscaling.md) and, added here, FSR 3.1 frame
+generation (docs/design/frame-generation.md): a Rust/wgpu port of AMD FidelityFX
 SDK 1.1.4's upscaler, [cwfitzgerald/wgpu-ffx](https://github.com/cwfitzgerald/wgpu-ffx) at
 commit `6fe7064064b396b30df97341c2ca957ca1b00884`. It is not on crates.io, so it is not a
 `[patch]`: the engine uses its `wgpu-ffx` and `wgpu-ffx-shaders-spv` crates as path
 dependencies, and `engine/Cargo.toml` excludes the workspace. Its shaders are the SDK's
 GLSL (FidelityFX-SDK commit `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`, with AMD's MIT
 notices), compiled to the SPIR-V that `wgpu-ffx-shaders-spv` embeds. `xtask/` and the
-shaders it compiles are that SPIR-V's source and stay with it: `shaders/src/fsr3upscaler`
-and what it includes (`shaders/include` with `fsr3upscaler`, `spd` for the luma pyramid
-and `fsr1` for RCAS). `LICENSE.MIT` holds both copyright
+shaders it compiles are that SPIR-V's source and stay with it: `shaders/src/fsr3upscaler`,
+`shaders/src/frameinterpolation`, `shaders/src/opticalflow` and what they include
+(`shaders/include` with those three, `spd` for the pyramids and `fsr1` for RCAS). `LICENSE.MIT` holds both copyright
 notices; `tools/release/third_party_licenses.py` takes it from the workspace root for the
 release's `THIRD-PARTY-LICENSES.txt`.
 
@@ -115,17 +199,63 @@ Changes:
   variants.
 - `wgpu-ffx/src/lib.rs`: the dispatch no longer pushes and pops a device-wide error scope,
   which raced Bevy's pipeline compilation on other threads.
+- `wgpu-ffx/src/lib.rs` (2026-11-08): `FsrView::configure` and `FsrConfigureKey`, the
+  upscaler's tuning constants as FidelityFX SDK 1.1.4's `FfxFsr3UpscalerConfigureKey` sets
+  them (`ffx_fsr3upscaler.h`: names, descriptions, defaults and ranges). The engine keeps
+  AMD's defaults; `tools/fsr-validation` (`ghosting.rs`) uses it to measure them.
+- **Half precision** (2026-11-08): the upscaler's `perm.toml` compiles `FFX_HALF = [0, 1]`
+  (shaderc 2026.4, Vulkan SDK 1.4.363.0, `--only fsr3upscaler`). The committed FP32 SPIR-V
+  is kept byte for byte (the Half::Off arms of `fsr3upscaler/mod.rs` name the same files);
+  26 FP16 files are added, for the accumulate pass and the two pyramids. `lib.rs`:
+  `FsrContextFlags::ALLOW_FP16` (not one of AMD's flags) and `FP16_FEATURES` (`SHADER_F16`
+  and `SHADER_I16`: the FP16 SPIR-V declares `Float16` and, in 8 accumulate variants,
+  `Int16`). The pyramids stay full precision: SDK 1.1.4's FFX_HALF SPD callbacks in
+  `ffx_fsr3upscaler_luma_pyramid.h` and `ffx_fsr3upscaler_shading_change_pyramid.h` return
+  zero and store nothing, and those variants compile to passes that bind 2 resources where
+  the FP32 ones bind 7 and 12 [observed 2026-11-08, spirv-dis]. The FP16 accumulate variants
+  bind the same sets, bindings and image formats as their FP32 slots [observed 2026-11-08,
+  from the SPIR-V's decorations].
+- **Frame generation** (2026-11-07, #1778), new code ported from AMD's MIT host sources of
+  FidelityFX SDK 1.1.4 (`sdk/src/components/opticalflow/ffx_opticalflow.cpp`,
+  `sdk/src/components/frameinterpolation/ffx_frameinterpolation.cpp`, and the parameters
+  `sdk/src/components/fsr3/ffx_fsr3.cpp` passes them; tag `v1.1.4` of
+  GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, MIT throughout, read as reference and not
+  vendored):
+  - `wgpu-ffx/src/opticalflow.rs` and `wgpu-ffx/src/frameinterpolation.rs`: the passes,
+    their resources, constants, order and dispatch sizes. Left out: the debug view, the async
+    (second queue) mode and the distortion-field input (a 1x1 zero field is bound, as AMD's
+    default).
+  - `wgpu-ffx/src/fg_pass.rs`: the passes bind by GLSL name. AMD's frame-interpolation
+    shaders put their sampler at binding 1000 (over wgpu's limit) and number bindings with
+    gaps; wgpu-hal's Vulkan backend numbers a layout's descriptors 0, 1, 2... and rewrites
+    only shaders it translates, so the SPIR-V's binding decorations are rewritten to that
+    dense order when each module is created. The shader sources stay unchanged.
+  - Tests compare every pass's binding table with the `#define`s of its `.glsl` file and the
+    declarations of the callbacks header, and with the bindings the compiled SPIR-V
+    declares; GPU checks against true midpoints are in `tools/fsr-validation` (`fg.rs`).
+  - Shaders: `shaders/src/{frameinterpolation,opticalflow}` and
+    `shaders/include/{frameinterpolation,opticalflow}` (46 files), each identical to the
+    v1.1.4 tag's file but for line endings (compared by git blob hash, 2026-11-07), with
+    AMD's copyright and MIT notice. Compiled with `perm.toml` configs in
+    `wgpu-ffx-shaders-spv/src/{frameinterpolation,opticalflow}` (base defines from AMD's
+    `CMakeCompile*Shaders.txt`). Not permuted: jittered motion vectors, whose define AMD's
+    list misnames so its own build never compiles that branch (it does not compile).
+- `xtask/src/compile_shaders.rs`: `--only <effect>` compiles one effect's `perm.toml`, so
+  the upscaler's committed SPIR-V is left alone (a newer `glslc` gives different bytes for
+  unchanged sources). The frame-generation SPIR-V was built with shaderc 2026.4 (Vulkan SDK
+  1.4.363.0): `cargo xtask compile-shaders --only frameinterpolation --only opticalflow`.
 - Left out: the upstream repository's Git and CI files, and the shader sources of the SDK's
-  other effects (blur, Brixelizer, CACAO, CAS, the denoiser, depth of field, FSR 2, frame
-  interpolation, optical flow, SSSR and the rest). Nothing here compiles them:
-  `cargo xtask compile-shaders` builds the effects with a `perm.toml` in
-  `wgpu-ffx-shaders-spv/src`, only FSR 3.1. Every `#include` of its shaders resolves among
-  the kept files.
+  other effects (blur, Brixelizer, CACAO, CAS, the denoiser, depth of field, FSR 2, SSSR and
+  the rest). Nothing here compiles them: `cargo xtask compile-shaders` builds the effects
+  with a `perm.toml` in `wgpu-ffx-shaders-spv/src`: the FSR 3.1 upscaler, frame
+  interpolation and optical flow. Every `#include` of their shaders resolves among the kept
+  files.
 
 The kept shader files are unchanged. To rebuild the SPIR-V, install `glslc` (Vulkan SDK or
-Shaderc) and run `cargo xtask compile-shaders` in `engine/vendor/wgpu-ffx`; `cargo xtask
-vendor` downloads the whole AMD SDK and is not needed. Not used: AMD's signed DLLs, frame
-generation, the SDK's samples and prebuilt binaries.
+Shaderc) and run `cargo xtask compile-shaders` in `engine/vendor/wgpu-ffx` (`--only <effect>`
+for one); `cargo xtask vendor` downloads the whole AMD SDK and is not needed. Not used:
+AMD's signed DLLs (FSR SDK 2.x), its frame-generation swapchain and DLLs, the SDK's samples
+and prebuilt binaries.
 
 ## Dropped
 

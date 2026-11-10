@@ -521,6 +521,80 @@ impl Default for Particles {
     }
 }
 
+/// The live systems of placed reference `r`'s models (each model instance's own,
+/// particles.md §7.1), for JohnnyGuitar's particle functions (`crate::nif_mirror`).
+pub(crate) fn placed_systems(p: &mut Particles, r: u32) -> Vec<&mut ParticleSystemDef> {
+    let mine: HashSet<Entity> = p.instance_refs.iter().filter(|(_, &v)| v == r).map(|(e, _)| *e).collect();
+    p.systems
+        .iter_mut()
+        .filter(|(k, _)| k.instance.is_some_and(|e| mine.contains(&e)))
+        .filter_map(|(_, v)| v.as_mut())
+        .flat_map(|v| v.iter_mut().map(|l| &mut l.def))
+        .collect()
+}
+
+/// A system's values by GetNiPSysModifierValue's IDs [documented: the page's table]: 0
+/// the order (0, not kept), 1 active, 2-7 the emitter's speed, declination and planar
+/// angle with their variations, 8-11 its initial colour, 12-15 radius and life with their
+/// variations, 16 the scale, 17-19 a box emitter's width, height and depth; then (20) the
+/// spawn rate [hypothesis: the order is unknown, active is whether the controller has
+/// not switched it off, the scale the particles' base scale].
+pub(crate) fn script_values(d: &ParticleSystemDef) -> [f32; 21] {
+    let e = &d.emitter;
+    let active = d.active.first().is_none_or(|(_, on)| *on);
+    [
+        0.0,
+        f32::from(u8::from(active)),
+        e.speed,
+        e.speed_variation,
+        e.declination,
+        e.declination_variation,
+        e.planar_angle,
+        e.planar_angle_variation,
+        e.color[0],
+        e.color[1],
+        e.color[2],
+        e.color[3],
+        e.radius,
+        e.radius_variation,
+        e.life,
+        e.life_variation,
+        d.base_scale,
+        e.size.x,
+        e.size.y,
+        e.size.z,
+        d.rate,
+    ]
+}
+
+/// Sets one of [`script_values`] on the live system; the order is not kept.
+pub(crate) fn set_script_value(d: &mut ParticleSystemDef, id: usize, v: f32) {
+    let e = &mut d.emitter;
+    match id {
+        1 => d.active = vec![(0.0, v != 0.0)],
+        2 => e.speed = v,
+        3 => e.speed_variation = v,
+        4 => e.declination = v,
+        5 => e.declination_variation = v,
+        6 => e.planar_angle = v,
+        7 => e.planar_angle_variation = v,
+        8..=11 => e.color[id - 8] = v,
+        12 => e.radius = v,
+        13 => e.radius_variation = v,
+        14 => e.life = v,
+        15 => e.life_variation = v,
+        16 => d.base_scale = v,
+        17 => e.size.x = v,
+        18 => e.size.y = v,
+        19 => e.size.z = v,
+        20 => {
+            d.rate = v;
+            d.rate_keys = None;
+        }
+        _ => {}
+    }
+}
+
 pub struct ParticlesPlugin;
 
 impl Plugin for ParticlesPlugin {
