@@ -1299,6 +1299,15 @@ fn main() -> AppExit {
     let mut app = App::new();
     // A command for an entity that is gone is logged, not fatal (stray_commands.rs).
     app.set_error_handler(stray_commands::handler);
+    // NVF_FIXED_FRAME_TIME_MS=<ms>: every frame moves the clocks on by that much, whatever the
+    // real frame took (Bevy's `TimeUpdateStrategy::ManualDuration`, set before Bevy's time
+    // plugin, which keeps it), so the test aids reach the same view on the same frame in every
+    // run: renderer changes compared frame by frame (docs/design/fsr-upscaling.md, "Mip
+    // bias"). A diagnostic, not a setting.
+    if let Some(ms) = std::env::var("NVF_FIXED_FRAME_TIME_MS").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|ms| ms.is_finite() && *ms > 0.0) {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(ms / 1000.0)));
+        app.add_systems(Startup, move || info!("fixed frame time: every frame {ms} ms (NVF_FIXED_FRAME_TIME_MS)"));
+    }
     // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
     app.add_plugins(anti_lag::AntiLagInitPlugin);
     app.add_plugins(

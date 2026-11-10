@@ -444,6 +444,11 @@ impl Plugin for GraphicsPlugin {
                     let total: f64 = passes.iter().filter(|(n, _)| !n.contains('/')).map(|(_, t)| t).sum();
                     let list: Vec<String> = passes.iter().filter(|(n, _)| !n.contains('/')).take(12).map(|(n, t)| format!("{n} {t:.2}")).collect();
                     info!("gpu time: {total:.2} ms in all top-level passes; {}", list.join(", "));
+                    // FSR's parts (fsr.rs sub-spans): AMD's upscaler and NVForever's passes.
+                    let fsr: Vec<String> = passes.iter().filter_map(|(n, t)| n.strip_prefix("nvf_fsr_3_1/").map(|part| format!("{part} {t:.3}"))).collect();
+                    if !fsr.is_empty() {
+                        info!("gpu time in FSR: {}", fsr.join(", "));
+                    }
                     // The player's fixed steps over the whole period (none logged when no
                     // frame was played).
                     if let Some(line) = phys_load.take_line() {

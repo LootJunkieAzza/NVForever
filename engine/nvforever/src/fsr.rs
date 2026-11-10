@@ -5,10 +5,12 @@
 //! target. FSR reconstructs the entire target before bloom, tonemapping and UI.
 //! Opaque/transparent colour differences supply a conservative reactive mask; the sky's
 //! blended parts and the terrain's blended texture layers count as opaque there
-//! ([`reference_sky_and_terrain_layers`]).
+//! ([`reference_sky_and_terrain_layers`]). Last frame's mask, where each pixel's history
+//! comes from, and light that moved away from FSR's last output mark the history that would
+//! trail (`fsr_reactive.wgsl`).
 //! The depth prepass is expanded afterwards for NVForever's screen-space effects.
 
-use std::{borrow::Cow, ops::{Deref, Range}, sync::{atomic::{AtomicBool, Ordering}, Mutex}};
+use std::{borrow::Cow, ops::{Deref, Range}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Mutex}};
 
 use bevy::camera::{CameraMainTextureUsages, Hdr, MainPassResolutionOverride, Viewport};
 use bevy::core_pipeline::{
@@ -107,11 +109,38 @@ impl FsrCamera {
             || self.settings.quality != previous.settings.quality
             || self.delta_ms > 250.0
             || self.loading_generation != previous.loading_generation
-            || self.play_state != previous.play_state
+            || play_state_cut(previous.play_state, self.play_state)
     }
 }
 
+/// Whether a change of play state is a cut for FSR's history: into or out of dialogue (its
+/// close-up) or a loading screen. The Pip-Boy and the other menus (`PlayState::Menu`) raise
+/// over the view or stop the world without moving the camera, so the history stays: thrown
+/// away, the whole view was rebuilt from single jittered frames for about a second every time
+/// the Pip-Boy opened or closed [observed 2026-11-08, frame-exact captures of the Pip-Boy's
+/// raise at Goodsprings, docs/design/fsr-upscaling.md "History resets"]. A view the camera
+/// stops drawing resets anyway (`frame` skips).
+fn play_state_cut(before: Option<nvf_play::PlayState>, now: Option<nvf_play::PlayState>) -> bool {
+    use nvf_play::PlayState::{Dialogue, Loading};
+    before != now && [before, now].iter().any(|state| matches!(state, Some(Dialogue | Loading)))
+}
+
 pub struct FsrPlugin;
+
+/// What is added to log2(render / display) for the texture mip bias: AMD's −1 [documented:
+/// AMD's FSR 3.1 guide], or `NVF_FSR_MIP_BIAS_OFFSET` for comparisons (a diagnostic).
+static MIP_BIAS_OFFSET: std::sync::LazyLock<f32> = std::sync::LazyLock::new(|| {
+    let offset = std::env::var("NVF_FSR_MIP_BIAS_OFFSET").ok().and_then(|v| v.trim().parse::<f32>().ok()).filter(|v| v.is_finite());
+    if let Some(offset) = offset {
+        info!("FSR mip bias: log2(render / display) {offset:+} (NVF_FSR_MIP_BIAS_OFFSET)");
+    }
+    offset.unwrap_or(-1.0)
+});
+
+/// AMD's half-precision variant of FSR's accumulate pass where the GPU has 16-bit shader
+/// floats and integers (wgpu-ffx `FsrContextFlags::ALLOW_FP16`); `NVF_FSR_FP16=0` keeps full
+/// precision, for comparisons.
+static FP16: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| !std::env::var("NVF_FSR_FP16").is_ok_and(|v| v.trim() == "0"));
 
 /// Whether this device can execute the audited Vulkan SPIR-V shader path.
 #[derive(Resource, Clone, Copy, Default)]
@@ -255,7 +284,20 @@ pub(crate) struct PreparedFsr {
     /// A camera cut this frame (`FsrCamera::cut_from`).
     pub(crate) reset: bool,
     opaque: wgpu::Texture,
+    /// FSR's reactive and transparency/composition masks (`fsr_reactive.wgsl`).
     reactive: wgpu::Texture,
+    composition: wgpu::Texture,
+    /// The transparent phase's presence, this frame's and last frame's: written to
+    /// `presence[presence_written]`, and the other is read.
+    presence: [wgpu::Texture; 2],
+    presence_written: AtomicUsize,
+    /// This frame's luminance (render size), from the masks' first pass.
+    luma_now: wgpu::Texture,
+    /// The luminance of FSR's last output (render size), for the masks' light term; cleared
+    /// when FSR did not reconstruct.
+    history_luma: wgpu::Texture,
+    /// FSR's jitter this frame, for the masks (render pixels, AMD's sign).
+    mask_jitter: wgpu::Buffer,
     /// The depth FSR reads (render size, first-person depth unsqueezed); frame
     /// generation's prepare pass reads it too.
     pub(crate) fsr_depth: wgpu::Texture,
@@ -309,11 +351,20 @@ pub(crate) fn prepare(
             continue;
         }
         let (context, _) = renderer.0.get_or_insert_with(|| {
-            let context = FsrContext::new(FsrContextInfo {
-                device: device.wgpu_device().clone(),
-                flags: FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED
-                    | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE,
-            });
+            let mut flags = FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::DEPTH_INVERTED
+                | FsrContextFlags::DEPTH_INFINITE | FsrContextFlags::AUTO_EXPOSURE;
+            if *FP16 {
+                flags |= FsrContextFlags::ALLOW_FP16;
+            }
+            let context = FsrContext::new(FsrContextInfo { device: device.wgpu_device().clone(), flags });
+            let shaders = if context.uses_fp16() {
+                "half precision (accumulate pass)"
+            } else if *FP16 {
+                "full precision (the GPU lacks 16-bit shader floats or integers)"
+            } else {
+                "full precision (NVF_FSR_FP16=0)"
+            };
+            info!("FSR 3.1 shaders: {shaders}");
             (context, AuxiliaryPipelines::new(device.wgpu_device()))
         });
         usages.0 |= wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC;
@@ -321,26 +372,38 @@ pub(crate) fn prepare(
         let offset = Vec2::from_array(wgpu_ffx::get_jitter_offset((camera.frame % i32::MAX as u32) as i32, phases));
         // Bevy applies its projection jitter with the opposite displacement sign.
         jitter.offset = -offset;
-        bias.0 = (render_size.x as f32 / output_size.x as f32).log2() - 1.0;
-        // The depth prepass is drawn at the render size and expanded by nearest texels
-        // ([`AuxiliaryPipelines::expand_depth`]); the ambient occlusion takes its normals
-        // from neighbouring texels as drawn (ssao.wesl `normal_at`). Before the uniforms are
-        // written (RenderSystems::PrepareResources); the extraction resets it every frame.
-        if let Some(mut ao) = ao.filter(|_| render_size != output_size) {
-            ao.render_scale = Vec4::new(render_size.x as f32, render_size.y as f32, output_size.x as f32, output_size.y as f32);
+        bias.0 = (render_size.x as f32 / output_size.x as f32).log2() + *MIP_BIAS_OFFSET;
+        // The ambient occlusion: at the render size before FSR (ssao.rs `ao_before_fsr`), or
+        // with `NVF_AO_BEFORE_FSR=0` after tonemapping, from the depth prepass drawn at the
+        // render size and expanded by nearest texels ([`AuxiliaryPipelines::expand_depth`]),
+        // its normals taken from neighbouring texels as drawn (ssao.wesl `normal_at`). Before
+        // the uniforms are written (RenderSystems::PrepareResources); the extraction resets
+        // it every frame.
+        if let Some(mut ao) = ao {
+            if *crate::ssao::AO_BEFORE_FSR {
+                ao.before_fsr(render_size, output_size);
+            } else if render_size != output_size {
+                ao.render_scale = Vec4::new(render_size.x as f32, render_size.y as f32, output_size.x as f32, output_size.y as f32);
+            }
         }
         match old {
             Some(mut old) if old.render_size == render_size && old.output_size == output_size => {
                 old.reset = camera.cut_from(&old.camera);
                 old.camera = *camera;
+                queue.write_buffer(&old.mask_jitter, 0, &mask_jitter_bytes(offset));
             }
             _ => {
                 info!("FSR 3.1.4: {:?}, {}x{} -> {}x{}, frame generation {}", camera.settings.quality, render_size.x, render_size.y, output_size.x, output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
-                commands.entity(entity).insert(PreparedFsr::new(context, &device, &queue, *camera, render_size, output_size));
+                commands.entity(entity).insert(PreparedFsr::new(context, &device, &queue, *camera, render_size, output_size, offset));
             }
         }
         commands.entity(entity).insert(MainPassResolutionOverride(render_size));
     }
+}
+
+/// The masks' uniform (`fsr_reactive.wgsl` `jitter`): FSR's jitter, then two unused floats.
+fn mask_jitter_bytes(jitter: Vec2) -> Vec<u8> {
+    [jitter.x, jitter.y, 0.0, 0.0].into_iter().flat_map(f32::to_ne_bytes).collect()
 }
 
 fn on_off(on: bool) -> &'static str {
@@ -348,7 +411,13 @@ fn on_off(on: bool) -> &'static str {
 }
 
 impl PreparedFsr {
-    fn new(context: &FsrContext, device: &RenderDevice, queue: &RenderQueue, camera: FsrCamera, render_size: UVec2, output_size: UVec2) -> Self {
+    /// The opaque copy the masks compare the finished frame with (display-sized; the render
+    /// rectangle is used): the ambient occlusion before FSR darkens it as it does the frame.
+    pub(crate) fn opaque(&self) -> &wgpu::Texture {
+        &self.opaque
+    }
+
+    fn new(context: &FsrContext, device: &RenderDevice, queue: &RenderQueue, camera: FsrCamera, render_size: UVec2, output_size: UVec2, jitter: Vec2) -> Self {
         let device = device.wgpu_device();
         let texture = |label, size: UVec2, format, usage| device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label), size: wgpu::Extent3d { width: size.x, height: size.y, depth_or_array_layers: 1 },
@@ -369,6 +438,14 @@ impl PreparedFsr {
             // only the render rectangle is used.
             opaque: texture("fsr_opaque", output_size, wgpu::TextureFormat::Rgba16Float, attachment | wgpu::TextureUsages::COPY_DST),
             reactive: texture("fsr_reactive", render_size, wgpu::TextureFormat::R8Unorm, attachment),
+            composition: texture("fsr_transparency_and_composition", render_size, wgpu::TextureFormat::R8Unorm, attachment),
+            presence: [0, 1].map(|_| texture("fsr_transparency_presence", render_size, wgpu::TextureFormat::R8Unorm, attachment | wgpu::TextureUsages::COPY_DST)),
+            presence_written: AtomicUsize::new(0),
+            luma_now: texture("fsr_luma", render_size, wgpu::TextureFormat::R16Float, attachment),
+            history_luma: texture("fsr_history_luma", render_size, wgpu::TextureFormat::R16Float, attachment | wgpu::TextureUsages::COPY_DST),
+            mask_jitter: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("fsr_mask_jitter"), contents: &mask_jitter_bytes(jitter), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            }),
             fsr_depth: texture("fsr_linear_camera_depth", render_size, wgpu::TextureFormat::Depth32Float, attachment),
             expanded_depth: texture("fsr_full_resolution_depth", output_size, wgpu::TextureFormat::Depth32Float, attachment | wgpu::TextureUsages::COPY_SRC),
             dilated_depth: texture("fsr_dilated_depth", render_size, wgpu::TextureFormat::R32Float, storage),
@@ -474,6 +551,16 @@ fn sky_range(sort_keys: impl Iterator<Item = f32>) -> Range<usize> {
     band_range(sort_keys, crate::sky::sorts_with_sky)
 }
 
+/// `NVF_FSR_DEBUG_VIEW=1`: FSR draws AMD's debug view over its output (a 3x3 grid: dilated
+/// motion, protected areas and depth on top; disocclusion, shading change with the reactive
+/// mask, and the transparency/composition mask with FSR's motion divergence (its protection
+/// takedown, the `REACTIVE` channel of `ffx_fsr3upscaler_prepare_reactivity.h`) in the bottom
+/// row, in green). For checking where the masks act; a diagnostic, not a setting. With the debug
+/// view the light term is off: the output holds the grid, so the history luminance is cleared
+/// each frame instead of read from it (as on a reset), and the masks shown are those of play
+/// without the light term.
+static DEBUG_VIEW: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var("NVF_FSR_DEBUG_VIEW").is_ok_and(|v| v.trim() == "1"));
+
 /// Reconstruction is before every effect expecting the full display-sized image.
 #[allow(clippy::type_complexity)]
 pub(crate) fn fsr_pass(
@@ -496,29 +583,47 @@ pub(crate) fn fsr_pass(
     let span = diagnostics.time_span(ctx.command_encoder(), "nvf_fsr_3_1");
     let device = device.wgpu_device();
     let encoder = ctx.command_encoder();
-    auxiliary.prepare_inputs(device, encoder, prepared, target.main_texture(), &depth.texture.texture);
+    let reset = prepared.reset || !prepared.history_valid.load(Ordering::Relaxed);
+    // Sub-spans (`nvf_fsr_3_1/...`, logged with `--log-frame-times`): NVForever's own passes
+    // around AMD's, to tell their cost apart.
+    let inputs_span = diagnostics.time_span(encoder, "inputs");
+    auxiliary.prepare_inputs(device, encoder, prepared, target.main_texture(), &depth.texture.texture, &motion.texture.texture, reset);
+    inputs_span.end(encoder);
     let source = target.main_texture().deref().clone();
     let destination = target.main_texture_other().deref().clone();
     let info = FsrDispatchInfo {
         color: source, depth: prepared.fsr_depth.clone(), motion_vectors: motion.texture.texture.deref().clone(),
-        exposure: None, reactive_mask: Some(prepared.reactive.clone()), transparency_and_composition: Some(prepared.reactive.clone()),
+        exposure: None, reactive_mask: Some(prepared.reactive.clone()), transparency_and_composition: Some(prepared.composition.clone()),
         dilated_depth: prepared.dilated_depth.clone(), dilated_motion_vectors: prepared.dilated_motion.clone(),
         reconstructed_previous_depth: prepared.reconstructed_depth.clone(), output: destination,
         jitter_offset: (-jitter.offset).to_array(), motion_vector_scale: (-prepared.render_size.as_vec2()).to_array(),
         render_size: prepared.render_size.to_array(), upscale_size: prepared.output_size.to_array(),
         enable_sharpening: prepared.camera.settings.sharpness > 0.0, sharpness: prepared.camera.settings.sharpness.clamp(0.0, 1.0),
         frame_time_delta: prepared.camera.delta_ms, pre_exposure: 1.0,
-        reset_history: prepared.reset || !prepared.history_valid.load(Ordering::Relaxed),
+        reset_history: reset,
         camera_near: f32::MAX, camera_far: prepared.camera.near, camera_fov_y: prepared.camera.fov,
         // NVForever's world coordinates are the game's units, about 70 a metre [hypothesis, the
         // scale fnv-phys uses (`PhysParams::units_per_metre`): the game's gravity of 684-686
         // units/s² (physics.md §6.3, observed) is 9.81 m/s² at 70 units a metre].
-        view_space_to_meters_factor: 1.0 / 70.0, flags: FsrDispatchFlags::empty(),
+        view_space_to_meters_factor: 1.0 / 70.0,
+        flags: if *DEBUG_VIEW { FsrDispatchFlags::DRAW_DEBUG_VIEW } else { FsrDispatchFlags::empty() },
     };
-    match context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info) {
+    let upscale_span = diagnostics.time_span(encoder, "upscale");
+    let dispatched = context.dispatch(&mut prepared.view.lock().unwrap(), encoder, &info);
+    upscale_span.end(encoder);
+    match dispatched {
         Ok(()) => {
+            let after_span = diagnostics.time_span(encoder, "alpha_and_history");
             auxiliary.restore_alpha(device, encoder, prepared, target);
             target.post_process_write();
+            if *DEBUG_VIEW {
+                // The output is AMD's grid, not what FSR's history shows: a cleared history
+                // makes the next frame's light term skip (`DEBUG_VIEW`).
+                encoder.clear_texture(&prepared.history_luma, &wgpu::ImageSubresourceRange::default());
+            } else {
+                auxiliary.keep_history_luma(device, encoder, prepared, target);
+            }
+            after_span.end(encoder);
             prepared.history_valid.store(true, Ordering::Relaxed);
             if !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {
                 info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
@@ -530,15 +635,20 @@ pub(crate) fn fsr_pass(
             auxiliary.fallback(device, encoder, prepared, target);
         }
     }
+    let depth_span = diagnostics.time_span(encoder, "depth_expand");
     auxiliary.expand_depth(device, encoder, prepared, &depth.texture.texture);
+    depth_span.end(encoder);
     span.end(ctx.command_encoder());
 }
 
 struct AuxiliaryPipelines {
+    presence_layout: wgpu::BindGroupLayout,
     reactive_layout: wgpu::BindGroupLayout,
     depth_layout: wgpu::BindGroupLayout,
     fallback_layout: wgpu::BindGroupLayout,
+    presence: wgpu::RenderPipeline,
     reactive: wgpu::RenderPipeline,
+    history_luma: wgpu::RenderPipeline,
     prepare_depth: wgpu::RenderPipeline,
     expand_depth: wgpu::RenderPipeline,
     fallback: wgpu::RenderPipeline,
@@ -553,32 +663,47 @@ impl AuxiliaryPipelines {
             ty: wgpu::BindingType::Texture { sample_type: if depth { wgpu::TextureSampleType::Depth } else { wgpu::TextureSampleType::Float { filterable: true } }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None,
         };
         let uniform_entry = wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None };
-        let reactive_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_reactive_layout"), entries: &[texture_entry(0, false), texture_entry(1, false)] });
+        // fsr_reactive.wgsl's first pass: the opaque copy and the finished frame; its second:
+        // motion, last presence, FSR's last output luminance, a linear sampler, the jitter,
+        // and the first pass's presence and luminance.
+        let presence_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_presence_layout"), entries: &[texture_entry(0, false), texture_entry(1, false)] });
+        let reactive_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_reactive_layout"), entries: &[
+            texture_entry(2, false), texture_entry(3, false), texture_entry(4, false),
+            wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+            wgpu::BindGroupLayoutEntry { binding: 6, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
+            texture_entry(7, false), texture_entry(8, false),
+        ] });
         let depth_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_depth_layout"), entries: &[texture_entry(0, true), uniform_entry] });
         let fallback_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("fsr_fallback_layout"), entries: &[
             texture_entry(0, false), uniform_entry,
             wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
         ] });
-        let make = |label, source: &'static str, layout: &wgpu::BindGroupLayout, entry, color: Option<(wgpu::TextureFormat, wgpu::ColorWrites)>| {
+        let make_targets = |label, source: &'static str, layout: &wgpu::BindGroupLayout, entry, colors: &[(wgpu::TextureFormat, wgpu::ColorWrites)]| {
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)) });
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some(label), bind_group_layouts: &[Some(layout)], immediate_size: 0 });
-            let targets: Vec<_> = color.into_iter().map(|(format, write_mask)| Some(wgpu::ColorTargetState { format, blend: None, write_mask })).collect();
+            let targets: Vec<_> = colors.iter().map(|&(format, write_mask)| Some(wgpu::ColorTargetState { format, blend: None, write_mask })).collect();
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label), layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState { module: &shader, entry_point: Some("vertex"), compilation_options: default(), buffers: &[] },
                 fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some(entry), compilation_options: default(), targets: &targets }),
-                primitive: default(), depth_stencil: color.is_none().then_some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: Some(true), depth_compare: Some(wgpu::CompareFunction::Always), stencil: default(), bias: default() }),
+                primitive: default(), depth_stencil: colors.is_empty().then_some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: Some(true), depth_compare: Some(wgpu::CompareFunction::Always), stencil: default(), bias: default() }),
                 multisample: default(), multiview_mask: None, cache: None,
             })
         };
+        let make = |label, source: &'static str, layout: &wgpu::BindGroupLayout, entry, color: Option<(wgpu::TextureFormat, wgpu::ColorWrites)>| {
+            make_targets(label, source, layout, entry, color.as_slice())
+        };
+        let mask = (wgpu::TextureFormat::R8Unorm, wgpu::ColorWrites::ALL);
         Self {
-            reactive: make("fsr_reactive", include_str!("fsr_reactive.wgsl"), &reactive_layout, "fragment", Some((wgpu::TextureFormat::R8Unorm, wgpu::ColorWrites::ALL))),
+            presence: make_targets("fsr_presence", include_str!("fsr_reactive.wgsl"), &presence_layout, "presence_pass", &[mask, (wgpu::TextureFormat::R16Float, wgpu::ColorWrites::ALL)]),
+            reactive: make_targets("fsr_reactive", include_str!("fsr_reactive.wgsl"), &reactive_layout, "fragment", &[mask, mask]),
+            history_luma: make("fsr_history_luma", include_str!("fsr_fallback.wgsl"), &fallback_layout, "luma", Some((wgpu::TextureFormat::R16Float, wgpu::ColorWrites::ALL))),
             prepare_depth: make("fsr_prepare_depth", include_str!("fsr_depth.wgsl"), &depth_layout, "prepare_depth", None),
             expand_depth: make("fsr_expand_depth", include_str!("fsr_depth.wgsl"), &depth_layout, "expand_depth", None),
             fallback: make("fsr_spatial_fallback", include_str!("fsr_fallback.wgsl"), &fallback_layout, "fragment", Some((wgpu::TextureFormat::Rgba16Float, wgpu::ColorWrites::ALL))),
             alpha: make("fsr_restore_alpha", include_str!("fsr_fallback.wgsl"), &fallback_layout, "alpha", Some((wgpu::TextureFormat::Rgba16Float, wgpu::ColorWrites::ALPHA))),
             sampler: device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..default() }),
-            reactive_layout, depth_layout, fallback_layout,
+            presence_layout, reactive_layout, depth_layout, fallback_layout,
         }
     }
 
@@ -600,22 +725,65 @@ impl AuxiliaryPipelines {
         pass.draw(0..3, 0..1);
     }
 
-    fn prepare_inputs(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, fsr: &PreparedFsr, color: &wgpu::Texture, depth: &wgpu::Texture) {
+    /// FSR's depth and its two masks. On a history reset last frame's presence and output
+    /// luminance are cleared: the masks then hold this frame's presence alone.
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_inputs(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, fsr: &PreparedFsr, color: &wgpu::Texture, depth: &wgpu::Texture, motion: &wgpu::Texture, reset: bool) {
         let depth_view = depth.create_view(&default());
         let group = self.depth_group(device, fsr, &depth_view);
         Self::draw_depth(encoder, &fsr.fsr_depth.create_view(&default()), &self.prepare_depth, &group);
-        let color = color.create_view(&default());
-        let opaque = fsr.opaque.create_view(&default());
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_reactive_group"), layout: &self.reactive_layout, entries: &[
+        let written = 1 - fsr.presence_written.load(Ordering::Relaxed);
+        let previous = &fsr.presence[1 - written];
+        if reset {
+            encoder.clear_texture(previous, &wgpu::ImageSubresourceRange::default());
+            encoder.clear_texture(&fsr.history_luma, &wgpu::ImageSubresourceRange::default());
+        }
+        let view = |texture: &wgpu::Texture| texture.create_view(&default());
+        let (opaque, color, motion, previous, history) = (view(&fsr.opaque), view(color), view(motion), view(previous), view(&fsr.history_luma));
+        let (presence, luma) = (view(&fsr.presence[written]), view(&fsr.luma_now));
+        let attachment = |view| Some(wgpu::RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } });
+        let draw = |encoder: &mut wgpu::CommandEncoder, label, attachments: &[Option<wgpu::RenderPassColorAttachment>], pipeline, group| {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label), color_attachments: attachments,
+                depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, group, &[]);
+            pass.draw(0..3, 0..1);
+        };
+        // This frame's presence and luminance, then the masks from them.
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_presence_group"), layout: &self.presence_layout, entries: &[
             wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&opaque) },
             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&color) },
         ] });
-        let target = fsr.reactive.create_view(&default());
+        draw(encoder, "fsr_presence", &[attachment(&presence), attachment(&luma)], &self.presence, &group);
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_reactive_group"), layout: &self.reactive_layout, entries: &[
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&motion) },
+            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&previous) },
+            wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&history) },
+            wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+            wgpu::BindGroupEntry { binding: 6, resource: fsr.mask_jitter.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&presence) },
+            wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(&luma) },
+        ] });
+        draw(encoder, "fsr_reactive_mask", &[attachment(&view(&fsr.reactive)), attachment(&view(&fsr.composition))], &self.reactive, &group);
+        fsr.presence_written.store(written, Ordering::Relaxed);
+    }
+
+    /// The luminance of FSR's output (the main texture, after the flip), for the next
+    /// frame's masks (`fsr_reactive.wgsl` `light_change`).
+    fn keep_history_luma(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, fsr: &PreparedFsr, target: &ViewTarget) {
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("fsr_history_luma_group"), layout: &self.fallback_layout, entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(target.main_texture_view()) },
+            wgpu::BindGroupEntry { binding: 1, resource: fsr.resolution.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+        ] });
+        let history = fsr.history_luma.create_view(&default());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("fsr_reactive_mask"), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &target, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
+            label: Some("fsr_history_luma"), color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &history, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
             depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
         });
-        pass.set_pipeline(&self.reactive);
+        pass.set_pipeline(&self.history_luma);
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..3, 0..1);
     }
@@ -690,6 +858,19 @@ mod tests {
         assert!(FsrCamera { delta_ms: 500.0, ..after }.cut_from(&before));
         assert!(FsrCamera { loading_generation: 1, ..after }.cut_from(&before));
         assert!(FsrCamera { play_state: Some(nvf_play::PlayState::Loading), ..after }.cut_from(&before));
+    }
+
+    #[test]
+    fn the_pip_boy_and_menus_keep_the_history_and_dialogue_and_loading_reset_it() {
+        use nvf_play::PlayState::{Dialogue, Loading, Menu, Playing};
+        let playing = FsrCamera { settings: default(), translation: Vec3::ZERO, rotation: Quat::IDENTITY, near: 5.0, fov: 1.0, frame: 10, delta_ms: 16.0, loading_generation: 0, play_state: Some(Playing) };
+        let next = |state| FsrCamera { frame: 11, play_state: Some(state), ..playing };
+        assert!(!next(Menu).cut_from(&playing), "the Pip-Boy opens");
+        assert!(!FsrCamera { play_state: Some(Playing), ..next(Menu) }.cut_from(&FsrCamera { play_state: Some(Menu), ..playing }), "and closes");
+        assert!(next(Dialogue).cut_from(&playing));
+        assert!(FsrCamera { play_state: Some(Playing), ..next(Dialogue) }.cut_from(&FsrCamera { play_state: Some(Dialogue), ..playing }));
+        assert!(next(Loading).cut_from(&playing));
+        assert!(!next(Playing).cut_from(&playing));
     }
 
     #[test]

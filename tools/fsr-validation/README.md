@@ -18,9 +18,12 @@ set `NVF_SHADER_REGISTRY` to the folder containing the Bevy crate source folders
 For the complete source archive, set `NVF_SHADER_REGISTRY` to its `cargo-vendor`
 directory and add `--offline` to the run command.
 
-It compiles nineteen WESL/WGSL variants with Bevy's actual shader resolver and Naga,
+It compiles twenty-one WESL/WGSL variants with Bevy's actual shader resolver and Naga,
 covering motion/depth prepasses, first-person depth, foliage deformation, refraction,
-water, and the FSR auxiliary passes. Vulkan GPU readback checks depth conversion,
+water, the ambient occlusion (both its passes before FSR and after tonemapping), and the
+FSR auxiliary passes. Every FSR dispatch runs on AMD's half-precision accumulate pass where
+the GPU has 16-bit shader floats and integers, as in the engine; `NVF_FSR_FP16=0` runs full
+precision, `NVF_FSR_FP16=1` fails the run on a GPU without them. Vulkan GPU readback checks depth conversion,
 depth expansion, reactive masks, and the spatial fallback's viewport boundary.
 It also executes the vendored clustered-light shader's actual indexing functions:
 90 center/edge/corner cases verify the same light cluster at Native AA, Quality,
@@ -36,6 +39,21 @@ controls. This catches the port's former accumulation binding error: its low-res
 shader read raw Bevy motion instead of the converted, dilated vector texture. Direction
 is established by the direct Bevy/dilated-vector checks alongside the image comparison.
 
+Ghosting (`src/ghosting.rs`): the engine's own mask shader (`fsr_reactive.wgsl`, with
+`fsr_fallback.wgsl`'s output-luminance pass) feeding real FSR dispatches at Quality. A soft
+disc drawn over a textured background as the transparent phase would (alpha-blended smoke or an
+additive glow, with no motion vectors of its own) moves across a still or panned view, and a
+moving light brightens opaque ground. The output is scored against the scene drawn at the
+display pixels: in the disc's or light's trail, on it, and clear of its path. The temporal
+masks must shorten the trail against this frame's presence alone (the masks before them),
+leave the clear region and a still disc or light as they were, leave a fire-like flicker to
+FSR, and beat a control whose lookup goes the wrong way. A still neon tube (thin, very
+bright, additive) must flicker far less than with this frame's presence as the reactive
+mask. Run only these with `-- --ghosting-only`. Diagnostics, printed and not checked:
+`NVF_GHOST_DEBUG=1` FSR's own masks from its debug view, `NVF_GHOST_SWEEP=1` AMD's velocity
+factor (`FsrView::configure`), `NVF_GHOST_FENCE=1` and `NVF_GHOST_NEON=1` the masks on fine
+detail and on the neon tube against no masks and this frame's presence alone.
+
 Frame generation (`src/fg.rs`; the wgpu-ffx port of FidelityFX SDK 1.1.4's optical flow and
 frame interpolation): a textured plane slides across a 384x256 view at a known speed, with
 reversed-infinite depth and Bevy-convention motion vectors, at Native AA and at a Quality
@@ -43,7 +61,9 @@ render size (render-resolution motion). Each generated frame is compared with th
 at the true midpoint, against three baselines (repeating the previous or the current frame,
 and their blend), at 6,2 and 14,-5 pixels a frame. Controls: a still scene must come back
 unchanged; reversed game motion and a reset on every frame must be clearly worse; at a scene
-cut the generated frame must be the new frame (AMD's scene-change rule). Run only these with
+cut the generated frame must be the new frame (AMD's scene-change rule). A square sliding over
+a still background, its depth and motion drawn at FSR's jittered positions, must keep the
+midpoint with the jitter passed to the prepare pass and without. Run only these with
 `-- --frame-generation-only`; set `WGPU_VALIDATION=1` (Vulkan SDK installed) for the
 Khronos validation layer. Any wgpu validation error stops the run.
 

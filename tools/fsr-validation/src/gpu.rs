@@ -165,6 +165,26 @@ pub(crate) fn read(
 
 /// The Vulkan device every check runs on. `WGPU_VALIDATION=1` turns on the Khronos
 /// validation layer (Vulkan SDK); any wgpu validation error stops the run.
+/// The FSR dispatches use AMD's half-precision accumulate pass where the GPU has 16-bit
+/// shader floats and integers, as the engine does (fsr.rs `FP16`), so a run with nothing set
+/// checks what the game runs. `NVF_FSR_FP16=0`: full precision; `NVF_FSR_FP16=1`: half
+/// precision or stop (a GPU without it).
+pub fn fp16_requested() -> bool {
+    !std::env::var("NVF_FSR_FP16").is_ok_and(|v| v.trim() == "0")
+}
+
+/// `NVF_FSR_FP16=1`: stop when the GPU cannot run the half-precision pass.
+fn fp16_required() -> bool {
+    std::env::var("NVF_FSR_FP16").is_ok_and(|v| v.trim() == "1")
+}
+
+/// The engine's FSR context flags (fsr.rs `prepare`), with `ALLOW_FP16` when requested.
+pub fn fsr_flags() -> wgpu_ffx::FsrContextFlags {
+    use wgpu_ffx::FsrContextFlags as F;
+    let flags = F::HIGH_DYNAMIC_RANGE | F::DEPTH_INVERTED | F::DEPTH_INFINITE | F::AUTO_EXPOSURE;
+    if fp16_requested() { flags | F::ALLOW_FP16 } else { flags }
+}
+
 pub fn device() -> (Device, Queue) {
     let instance = Instance::new(InstanceDescriptor {
         backends: Backends::VULKAN,
@@ -204,6 +224,15 @@ pub fn device() -> (Device, Queue) {
             .flags
             .contains(TextureFormatFeatureFlags::STORAGE_READ_WRITE));
     }
+    if fp16_required() {
+        assert!(
+            adapter.features().contains(wgpu_ffx::FP16_FEATURES),
+            "NVF_FSR_FP16=1 but the adapter lacks {:?}",
+            wgpu_ffx::FP16_FEATURES - adapter.features()
+        );
+    }
+    let fp16 = fp16_requested() && adapter.features().contains(wgpu_ffx::FP16_FEATURES);
+    let required = if fp16 { required | wgpu_ffx::FP16_FEATURES } else { required };
     let (device, queue) = pollster::block_on(adapter.request_device(&DeviceDescriptor {
         required_features: required,
         required_limits: adapter.limits(),
@@ -320,39 +349,128 @@ pub fn run(root: &Path) {
             texture.size(),
         );
     }
-    let reactive_source = std::fs::read_to_string(root.join("fsr_reactive.wgsl")).unwrap();
-    let reactive_pipeline = pipeline(
-        &device,
-        &reactive_source,
-        "fragment",
-        Some(TextureFormat::R8Unorm),
+    // Last frame's presence: 200 at pixel 0. Pixel 1's motion (a quarter of the 4-pixel
+    // width) says its history comes from pixel 0; the others have none.
+    let previous = texture(&device, TextureFormat::R8Unorm, [4, 1]);
+    queue.write_texture(
+        previous.as_image_copy(),
+        &[200u8, 0, 0, 0],
+        TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: Some(1),
+        },
+        previous.size(),
     );
-    let opaque_view = opaque.create_view(&Default::default());
-    let scene_view = scene.create_view(&Default::default());
-    let group = device.create_bind_group(&BindGroupDescriptor {
+    let motion = texture(&device, TextureFormat::Rg16Float, [4, 1]);
+    let motion_data: Vec<u8> = [0.0f32, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0]
+        .iter()
+        .flat_map(|v| half::f16::from_f32(*v).to_le_bytes())
+        .collect();
+    queue.write_texture(
+        motion.as_image_copy(),
+        &motion_data,
+        TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: Some(1),
+        },
+        motion.size(),
+    );
+    // FSR's last output luminance: none (cleared), so the light term stays out of this check.
+    let previous_luma = texture(&device, TextureFormat::R16Float, [8, 2]);
+    let reactive_source = std::fs::read_to_string(root.join("fsr_reactive.wgsl")).unwrap();
+    let pipelines = crate::ghosting::mask_pipelines(&device, &reactive_source);
+    let view = |t: &Texture| t.create_view(&Default::default());
+    let (opaque_view, scene_view, motion_view, previous_view, previous_luma_view) =
+        (view(&opaque), view(&scene), view(&motion), view(&previous), view(&previous_luma));
+    let linear = device.create_sampler(&SamplerDescriptor {
+        mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Linear,
+        ..Default::default()
+    });
+    let no_jitter = device.create_buffer_init(&util::BufferInitDescriptor {
         label: None,
-        layout: &reactive_pipeline.get_bind_group_layout(0),
+        contents: &[0u8; 16],
+        usage: BufferUsages::UNIFORM,
+    });
+    // The first pass's outputs (presence, luminance) and the second's (reactive, composition).
+    let presence_out = texture(&device, TextureFormat::R8Unorm, [4, 1]);
+    let luma_out = texture(&device, TextureFormat::R16Float, [4, 1]);
+    let reactive_out = texture(&device, TextureFormat::R8Unorm, [4, 1]);
+    let composition_out = texture(&device, TextureFormat::R8Unorm, [4, 1]);
+    let (presence_view, luma_view) = (view(&presence_out), view(&luma_out));
+    let (reactive_view, composition_view) = (view(&reactive_out), view(&composition_out));
+    let texture_entry = |binding, view| BindGroupEntry {
+        binding,
+        resource: BindingResource::TextureView(view),
+    };
+    let first = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &pipelines.presence.get_bind_group_layout(0),
+        entries: &[texture_entry(0, &opaque_view), texture_entry(1, &scene_view)],
+    });
+    let second = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &pipelines.masks.get_bind_group_layout(0),
         entries: &[
+            texture_entry(2, &motion_view),
+            texture_entry(3, &previous_view),
+            texture_entry(4, &previous_luma_view),
             BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::TextureView(&opaque_view),
+                binding: 5,
+                resource: BindingResource::Sampler(&linear),
             },
             BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::TextureView(&scene_view),
+                binding: 6,
+                resource: no_jitter.as_entire_binding(),
             },
+            texture_entry(7, &presence_view),
+            texture_entry(8, &luma_view),
         ],
     });
-    let reactive = texture(&device, TextureFormat::R8Unorm, [4, 1]);
     let mut encoder = device.create_command_encoder(&Default::default());
-    draw(&mut encoder, &reactive, &reactive_pipeline, Some(&group));
+    let attachment = |view| {
+        Some(RenderPassColorAttachment {
+            view,
+            resolve_target: None,
+            depth_slice: None,
+            ops: Operations {
+                load: LoadOp::Clear(Color::BLACK),
+                store: StoreOp::Store,
+            },
+        })
+    };
+    for (targets, pipeline, group) in [
+        ([attachment(&presence_view), attachment(&luma_view)], &pipelines.presence, &first),
+        ([attachment(&reactive_view), attachment(&composition_view)], &pipelines.masks, &second),
+    ] {
+        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("fsr masks"),
+            color_attachments: &targets,
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, group, &[]);
+        pass.draw(0..3, 0..1);
+    }
     queue.submit([encoder.finish()]);
-    let values = read(&device, &queue, &reactive, 1);
-    assert_eq!(values[0], 0);
-    assert!((values[1] as i32 - 127).abs() <= 1);
-    assert!((values[2] as i32 - 230).abs() <= 1);
-    assert!((values[3] as i32 - 230).abs() <= 1);
-    println!("PASS GPU reactive mask unchanged/moderate/bright/dark pixels {values:?}");
+    let [reactive, composition, presence] =
+        [&reactive_out, &composition_out, &presence_out].map(|t| read(&device, &queue, t, 1));
+    let near = |a: u8, b: i32| (a as i32 - b).abs() <= 1;
+    assert_eq!(presence[0], 0);
+    assert!(near(presence[1], 127) && near(presence[2], 230) && near(presence[3], 230), "presence {presence:?}");
+    // Composition: pixel 0 keeps its own last presence; pixel 1 takes pixel 0's (its
+    // history's source), above its own; pixels 2 and 3 had none. Reactive, what changed:
+    // pixel 0's 200 went (127 is the most within a texel now), pixel 1's history still finds
+    // 229 within a texel (nothing went) and its 127 had 200 near its source (nothing came),
+    // pixels 2 and 3 appeared.
+    assert!(near(composition[0], 200) && near(composition[1], 200) && near(composition[2], 229) && near(composition[3], 229), "composition {composition:?}");
+    assert!(near(reactive[0], 73) && reactive[1] <= 1 && near(reactive[2], 229) && near(reactive[3], 229), "reactive {reactive:?}");
+    println!("PASS GPU masks: presence unchanged/moderate/bright/dark {presence:?}; composition {composition:?} (last frame's presence where the history comes from) and reactive {reactive:?} (what came or went)");
 
     // The unrendered portion of the full-sized attachment must never leak into fallback.
     let source = texture(&device, TextureFormat::Rgba8Unorm, [8, 2]);
@@ -417,5 +535,6 @@ pub fn run(root: &Path) {
         "PASS GPU spatial fallback clamps to rendered region (16 pixels, no stale-area bleed)"
     );
     crate::fsr::run(&device, &queue);
+    crate::ghosting::run(&device, &queue, &reactive_source, &fallback_source);
     crate::fg::run(&device, &queue);
 }

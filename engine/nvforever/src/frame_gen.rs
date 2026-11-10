@@ -53,7 +53,7 @@ use bevy::camera::{CameraMainTextureUsages, NormalizedRenderTarget};
 use bevy::core_pipeline::{prepass::ViewPrepassTextures, upscaling::upscaling, Core3d, Core3dSystems};
 use bevy::prelude::*;
 use bevy::render::{
-    camera::ExtractedCamera,
+    camera::{ExtractedCamera, TemporalJitter},
     renderer::{RenderAdapter, RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue, ViewQuery},
     sync_world::MainEntity,
     view::{prepare_view_targets, prepare_windows, ExtractedWindow, ViewTarget},
@@ -106,6 +106,12 @@ pub fn real_frame_cap(refresh_millihertz: Option<u32>) -> u32 {
     refresh_millihertz.map_or(0, |m| (m / 2000).max(15))
 }
 
+/// Generated frames presented since the start, shared by the render world (which counts them)
+/// and the main world, for the performance overlay to show frames presented and real frames
+/// apart (#1959; nothing reads it yet).
+#[derive(Resource, Clone, Default)]
+pub struct GeneratedFrames(pub std::sync::Arc<AtomicU64>);
+
 /// The cap `frame_pace::cap_rate` adds while frame generation runs (0: none).
 #[derive(Resource, Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct FrameGenCap(pub u32);
@@ -114,7 +120,9 @@ pub struct FrameGenPlugin(pub bool);
 
 impl Plugin for FrameGenPlugin {
     fn build(&self, app: &mut App) {
+        let generated = GeneratedFrames::default();
         app.insert_resource(FrameGeneration { on: self.0 })
+            .insert_resource(generated.clone())
             .init_resource::<FrameGenCap>()
             .add_systems(Update, (follow_switch, log_switch).after(crate::frame_pace::ApplyFramePace));
         if std::env::var("NVF_FRAME_GEN_GPU_TIMES").is_ok_and(|v| v.trim() == "1") {
@@ -123,6 +131,7 @@ impl Plugin for FrameGenPlugin {
         }
         let Some(render) = app.get_sub_app_mut(RenderApp) else { return };
         render
+            .insert_resource(generated)
             .init_resource::<FrameGenRenderer>()
             .init_resource::<FrameGenRequest>()
             .init_resource::<PendingReal>()
@@ -402,13 +411,15 @@ fn prepare(
     }
 }
 
-/// Frame interpolation's prepare pass: this frame's depth and motion, as FSR got them.
+/// Frame interpolation's prepare pass: this frame's depth and motion, as FSR got them, with
+/// FSR's jitter (as FidelityFX SDK 1.1.4's `ffxFsr3ContextDispatchFrameGenerationPrepare`
+/// passes the upscaler's on; AMD's pass reads it only for display-resolution motion vectors).
 fn prepare_pass(
-    view: ViewQuery<(&PreparedFsr, &PreparedFrameGen, Option<&ViewPrepassTextures>)>,
+    view: ViewQuery<(&PreparedFsr, &PreparedFrameGen, Option<&ViewPrepassTextures>, &TemporalJitter)>,
     renderer: Res<FrameGenRenderer>,
     mut ctx: RenderContext,
 ) {
-    let (fsr, fg, prepass) = view.into_inner();
+    let (fsr, fg, prepass, jitter) = view.into_inner();
     let Some((_, interpolation)) = &renderer.0 else { return };
     let motion = prepass.and_then(|p| p.motion_vectors.as_ref());
     // A frame FSR did not reconstruct (its spatial fallback) has no inputs worth reading.
@@ -424,7 +435,8 @@ fn prepare_pass(
             depth: &fsr.fsr_depth,
             motion_vectors: &motion.texture.texture,
             render_size: fsr.render_size.to_array(),
-            jitter_offset: [0.0, 0.0],
+            // Bevy's offset is minus FSR's (fsr.rs `prepare`).
+            jitter_offset: (-jitter.offset).to_array(),
             motion_vector_scale: (-fsr.render_size.as_vec2()).to_array(),
             camera_near: f32::MAX,
             camera_far: camera.near,
@@ -452,6 +464,7 @@ fn generate(
     renderer: Res<FrameGenRenderer>,
     pending: Res<PendingReal>,
     stats: Res<Stats>,
+    generated: Res<GeneratedFrames>,
     capture: Res<Capture>,
     device: Res<RenderDevice>,
     windows: Query<(MainEntity, &ExtractedWindow)>,
@@ -523,6 +536,7 @@ fn generate(
         pending.0.lock().unwrap().push((window.entity(), fg.real.clone()));
         capture.record(device.wgpu_device(), encoder, &[("0-hudless", &fg.hudless), ("1-generated", &fg.output), ("2-real", &fg.real)]);
         stats.generated.fetch_add(1, Ordering::Relaxed);
+        generated.0.fetch_add(1, Ordering::Relaxed);
         if !fg.logged.swap(true, Ordering::Relaxed) {
             info!("frame generation active: {}x{}, generated frame presented first, the real frame second", fg.output_size.x, fg.output_size.y);
         }

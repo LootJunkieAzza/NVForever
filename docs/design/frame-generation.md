@@ -40,7 +40,14 @@ Per real frame, in the camera's render schedule (`Core3d`):
 
 1. After FSR (`fsr::fsr_pass`): frame interpolation's prepare pass on FSR's depth
    (`PreparedFsr::fsr_depth`, render size, first-person depth unsqueezed) and Bevy's motion
-   vectors, with FSR's scale (minus the render size) and reversed infinite depth.
+   vectors, with FSR's scale (minus the render size), reversed infinite depth and FSR's
+   jitter. AMD's host code passes the upscaler's jitter on
+   (`ffxFsr3ContextDispatchFrameGenerationPrepare`); its pass reads it only to find
+   display-resolution motion vectors (`ComputeHrPosFromLrPos`), so with Bevy's
+   render-resolution ones it changes nothing [observed 2026-11-08, GPU harness: a square
+   over a still background with jittered depth and motion, the same midpoint error 0.00064
+   with and without it]. The frames it interpolates are FSR's output, so FSR's masks
+   ([fsr-upscaling](fsr-upscaling.md), "The reactive mask") keep trails out of them too.
 2. After the post passes, before the UI: a copy of the frame without the HUD.
 3. After the UI, before Bevy's upscaling blit: optical flow on the HUD-less frame, then
    interpolation between the previous HUD-less frame and this one, into a display-sized
@@ -99,6 +106,9 @@ Limits of this path:
   next frame interpolates from this one), but the real frame is presented once, and the
   screenshot and the screen both show it (`frame_gen::generate`, the camera's output against
   the window's image).
+- **The cap on slower screens**: half the refresh rate is 30 real frames a second on a 60 Hz
+  screen, which is little to interpolate from and to aim with; frame generation suits screens
+  of 120 Hz and more.
 - **Swapchain depth**: Bevy's default (two frames queued). Three and four were tried (2026-11-07,
   the walk below): three lowered the real rate (56 fps), four gave the same as two.
 

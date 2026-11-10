@@ -4,7 +4,9 @@
 // (1 open, 0 closed) and writes that with the pixel's distance into a texture of its own;
 // entry `apply` blurs that over the 4 x 4 texels its sample pattern repeats over, keeping
 // to texels at about this pixel's distance (so nothing bleeds across a depth edge), and
-// multiplies the picture by it. An engineering choice, not the original game's.
+// multiplies the picture by it. Under FSR the passes run at the render size before FSR
+// instead, and entry `multiply` gives the factor to a blend (ssao.rs `ao_before_fsr`). An
+// engineering choice, not the original game's.
 
 import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 import nvf_assets::first_person_depth::unsqueeze;
@@ -20,6 +22,10 @@ struct Ao {
     // under FSR's upscaling (fsr.rs `prepare`), whose depth is expanded to the picture's
     // size by nearest texels (fsr_depth.wgsl `expand_depth`); all 1 otherwise.
     render_scale: vec4<f32>,
+    // x, y: the size of the picture the passes cover, from the top left of the depth
+    // texture: FSR's render size while the occlusion is applied before FSR (entry
+    // `multiply`, ssao.rs `ao_before_fsr`); 0 for the depth texture's whole size.
+    area: vec4<f32>,
 }
 
 @if(MULTISAMPLED) @group(0) @binding(0) var depth: texture_depth_multisampled_2d;
@@ -48,6 +54,9 @@ const BIAS: f32 = 0.12;
 const TAU: f32 = 6.2831853;
 
 fn dims() -> vec2<i32> {
+    if ao.area.x > 0.0 {
+        return vec2<i32>(ao.area.xy);
+    }
     return vec2<i32>(textureDimensions(depth));
 }
 
@@ -167,6 +176,27 @@ fn apply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     if d <= 0.0 {
         return src;
     }
+    return vec4(src.rgb * openness_at(px, d), src.a);
+}
+
+// Before FSR: the factor the picture is multiplied by, through the pipeline's blend (the
+// render-size rectangle of the HDR picture and of FSR's opaque copy, ssao.rs `ao_before_fsr`).
+@fragment
+fn multiply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let px = vec2<i32>(floor(in.position.xy));
+    let d = depth_at(px);
+    if d <= 0.0 {
+        return vec4(1.0);
+    }
+    // Never a value outside 0..1 nor NaN (comparisons with NaN are false): FSR's exposure
+    // averages the whole HDR picture, so one NaN pixel would blacken the frame.
+    let open = openness_at(px, d);
+    let safe = select(1.0, min(open, 1.0), open >= 0.0);
+    return vec4(safe, safe, safe, 1.0);
+}
+
+// How open pixel `px` (depth value `d`, not the sky) is, from the half-resolution texels.
+fn openness_at(px: vec2<i32>, d: f32) -> f32 {
     let z = ao.params.z / d;
     let size = vec2<i32>(textureDimensions(openness));
     // The 4 x 4 texels around this pixel: texel q stands for full pixel 2q.
@@ -191,6 +221,5 @@ fn apply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
             }
         }
     }
-    let open = select(nearest, total / weight, weight > 0.0);
-    return vec4(src.rgb * open, src.a);
+    return select(nearest, total / weight, weight > 0.0);
 }
