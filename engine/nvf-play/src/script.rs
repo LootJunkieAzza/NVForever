@@ -571,7 +571,22 @@ fn apply_pushes(g: &mut Game, phys: &mut PhysState) {
     }
 }
 
-fn with_ray_caster<R>(phys: &mut PhysState, f: impl FnOnce() -> R) -> R {
+/// The landscape texture (LTEX) showing most at game-space `p` in exterior cell (`x`,
+/// `y`) of `world`: the BTXT and ATXT layers' coverage there; `None` where the default
+/// texture shows more than any one of them (as footsteps choose their sound, nvforever
+/// `anim_sounds.rs`) (JohnnyGuitar's GetLandTextureUnderFeet, `fnv_game::nvse_jg10`).
+fn land_texture_at(play: &PlayData, world: u32, x: i32, y: i32, p: [f32; 3]) -> Option<u32> {
+    let cell = play.index.worldspaces.get(&world)?.grid.get(&(x, y))?;
+    let land = play.index.cells.get(cell)?.land?;
+    let parts = fnv_world::land::LandParts { heights: false, normals: false, colors: false, layers: true };
+    let cover = fnv_world::grass::Coverage::new(&fnv_world::land::load_land(play.lo, play.schema, land, parts)?);
+    let size = fnv_world::CELL_SIZE;
+    let (lx, ly) = (p[0] - x as f32 * size, p[1] - y as f32 * size);
+    let (best, share) = cover.textures().into_iter().map(|t| (t, cover.at(t, lx, ly))).fold((None, 0.0f32), |b, (t, a)| if a > b.1 { (Some(t), a) } else { b });
+    best.filter(|_| share >= 1.0 - share)
+}
+
+fn with_ray_caster<R>(phys: &mut PhysState, play: &PlayData, worldspace: u32, f: impl FnOnce() -> R) -> R {
     let filter = fnv_phys::world::Filter { exclude: phys.player.as_ref().map(|c| vec![c.key()]).unwrap_or_default(), no_terrain: true, ..Default::default() };
     let world = std::cell::RefCell::new(&mut phys.world);
     let caster = |a: [f32; 3], b: [f32; 3], kind: fnv_game::ray::CastKind| {
@@ -582,8 +597,19 @@ fn with_ray_caster<R>(phys: &mut PhysState, f: impl FnOnce() -> R) -> R {
             fnv_game::ray::CastKind::Scene => w.queries().ray(a, d, len, &filter),
             fnv_game::ray::CastKind::World => w.queries().ray(a, d, len, &fnv_phys::world::Filter { no_terrain: false, ..filter.clone() }),
             // The terrain's own hit, past anything standing on it.
-            fnv_game::ray::CastKind::Terrain => w.queries().ray_all(a, d, len, &fnv_phys::world::Filter::default()).into_iter().find(|h| matches!(h.owner, fnv_phys::world::Owner::Terrain { .. })),
+            fnv_game::ray::CastKind::Terrain | fnv_game::ray::CastKind::LandTexture => {
+                w.queries().ray_all(a, d, len, &fnv_phys::world::Filter::default()).into_iter().find(|h| matches!(h.owner, fnv_phys::world::Owner::Terrain { .. }))
+            }
         };
+        if kind == fnv_game::ray::CastKind::LandTexture {
+            return hit.map(|h| {
+                let texture = match h.owner {
+                    fnv_phys::world::Owner::Terrain { x, y } => land_texture_at(play, worldspace, x, y, h.point),
+                    _ => None,
+                };
+                fnv_game::ray::Hit { distance: h.distance, point: h.point, form: texture, material: h.material }
+            });
+        }
         hit.map(|h| {
             let form = match h.owner {
                 fnv_phys::world::Owner::Ref { form_id, .. } | fnv_phys::world::Owner::Actor { form_id, .. } => Some(form_id),
@@ -1703,6 +1729,10 @@ pub(crate) fn start_world_aids(
     }
 }
 
+/// The run's furniture, terminal and door messages, a refused load and the save's engine part
+/// still to put back (`crate::save::PendingEngine`).
+type UsesAndLoads<'w> = (MessageWriter<'w, crate::furniture::UseFurniture>, MessageWriter<'w, crate::terminal::OpenTerminal>, Option<ResMut<'w, crate::doors::Doors>>, MessageWriter<'w, crate::save::LoadRefused>, Option<Res<'w, crate::save::PendingEngine>>);
+
 /// [`run_scripts`]'s loading screen, keys, menu files, the pause menu's page and the
 /// count of MenuMode frames under its Mods page (`crate::tiles::mods`), and the main menu
 /// still to open (`--menu`).
@@ -1740,7 +1770,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
-    (mut sit, mut terminals, mut doors, mut refused): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::terminal::OpenTerminal>, Option<ResMut<crate::doors::Doors>>, MessageWriter<crate::save::LoadRefused>),
+    (mut sit, mut terminals, mut doors, mut refused, pending_engine): UsesAndLoads,
     paused: Res<crate::pause::Paused>,
     (mut screen, bindings, tiles, page, mut mods_ticks, menu_to_open): ScreenAndMenus,
 ) {
@@ -1784,6 +1814,10 @@ pub(crate) fn run_scripts(
                                 doors.rest_as_restored(&sim);
                             }
                             tiles.load(&mut rt.game, &sim.world);
+                            // The game's state the engine's part of the save holds goes
+                            // back before the load's handlers run, so theirs wins: the
+                            // custom map marker (`pipboy::data`, #1954).
+                            crate::pipboy::data::restore_custom_marker(&mut rt.game, pending_engine.as_deref());
                             // The Script Runner's files after the save is in place (the
                             // restore takes the game's state, lambdas included, from the
                             // save): the game restart's, then the load's after LoadGame.
@@ -1856,7 +1890,7 @@ pub(crate) fn run_scripts(
         if let Some(rt) = st.rt.as_mut() {
             rt.game.cfg.frame_seconds = time.delta_secs_f64();
             // In the played world, as every run of the game's scripts (`with_world`).
-            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, || crate::tiles::mods::tick(&mut rt.game)));
+            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::tick(&mut rt.game)));
             *mods_ticks += 1;
             if *mods_ticks == 1 {
                 info!("scripts: MenuMode {} blocks run under the pause menu's Mods page", fnv_game::game::menus::START);
@@ -1981,7 +2015,7 @@ pub(crate) fn run_scripts(
                 "t": secs(rt.started), "gt": rt.game.time}));
         }
         due.clear();
-        with_ray_caster(&mut phys, || {
+        with_ray_caster(&mut phys, &play.0, location.world, || {
             for c in &console {
                 console_out.push(crate::console::run_call(rt, c));
             }
@@ -2006,7 +2040,7 @@ pub(crate) fn run_scripts(
             .chain(phys.npcs.iter().map(|(&r, b)| (FormId(r), b.ch.air_time)))
             .filter(|(_, t)| *t > 0.0)
             .collect();
-        with_ray_caster(&mut phys, || rt.game.tick());
+        with_ray_caster(&mut phys, &play.0, location.world, || rt.game.tick());
         apply_pushes(&mut rt.game, &mut phys);
         rt.ticked = true;
         crate::aid::after_tick(rt, aid_from);

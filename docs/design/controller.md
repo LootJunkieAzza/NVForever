@@ -67,7 +67,7 @@ Start cannot be bound.
   | Pip-Boy (every page) | LT / RT the previous / next page (STATS, ITEMS, DATA, round again); D-pad left / right the tabs [design: owner 2026-11-02] |
   | Pip-Boy ITEMS | X Drop (`pipboy::items`, not while "How many?" is up), Y Repair, LB Mod |
   | Pip-Boy STATS | status tab: A Stimpak, Y Doctor's Bag, X Rad-X; General tab: X switch lists |
-  | Pip-Boy DATA | Y Challenges (Notes tab); A Fast Travel on the World Map's marker (`pipboy::data`) |
+  | Pip-Boy DATA | Y Challenges (Notes tab); A Fast Travel on the World Map's marker, Set Active on Quests, Tune on Radio; X Place Marker (the custom marker's question, #1954), Show Location, the notes' filter (`pipboy::data`, #1897) |
   | Crafting | X Accept |
   | Repair services | X Repair All |
   | Level up, traits | Y Reset, X Continue, B Back |

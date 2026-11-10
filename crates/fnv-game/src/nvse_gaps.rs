@@ -297,10 +297,19 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // The item's effects in record order [observed: gaps2, the stimpak 4, the first
         // RestoreHealth, past the end 0].
         // Less RemoveNthEffect's (`crate::nvse_jip11`).
-        "getnumeffects" => XVal::Num(form(args, 0).map_or(0, |f| g.effect_indices(f).len()) as f64),
+        // AddNewEffect's entries too (`crate::nvse_jip14`).
+        "getnumeffects" => XVal::Num(form(args, 0).map_or(0, |f| {
+            let (a, b) = g.added_effect_counts(f);
+            g.effect_indices(f).len() + a + b
+        }) as f64),
         "getntheffectbase" => {
-            let i = num(args, 1, 0.0);
+            let n = num(args, 1, 0.0);
             let f = form(args, 0).unwrap_or(FormId(0));
+            let i = match (n >= 0.0).then(|| g.added_effect_at(f, n as usize)).flatten() {
+                Some(Ok(added)) => return Some(Ok(XVal::Ref(added.0))),
+                Some(Err(own)) => own as f64,
+                None => -1.0,
+            };
             let e = g.data.effect_items.get(&f).and_then(|l| if i >= 0.0 { l.get(i as usize) } else { None });
             match e {
                 Some(e) => XVal::Ref(g.gaps.effect_bases.get(&(f, i as usize)).copied().unwrap_or(e.effect).0),
@@ -751,12 +760,16 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // 0 the actors in the loaded cells, 3 the others; 1 and 2 none here, no array
         // [observed: gaps3, 16, ar_Null, ar_Null, over 1000; hypothesis: NVForever runs
-        // every loaded actor fully].
+        // every loaded actor fully]. Not disabled ones, which have no process [observed:
+        // ai-observer-jip.md, GetActorProcessingLevel -1 when disabled; L5.ext rerun,
+        // #2040: 16 in the start cell 0xDEB16, where the loaded actors are 20 with 4
+        // disabled Golden Geckos; hypothesis: the same at level 3].
         "getactorsbyprocessinglevel" => {
             let high = g.package_actors();
+            let on = |r: &FormId| g.world.is_enabled(*r).unwrap_or(false);
             let actors: Vec<XVal> = match num(args, 0, -1.0) as i64 {
-                0 => high.iter().map(|r| XVal::Ref(r.0)).collect(),
-                3 => g.world.placed.refs.iter().filter(|(r, p)| matches!(&p.sig, b"ACHR" | b"ACRE") && !high.contains(r)).map(|(r, _)| XVal::Ref(r.0)).collect(),
+                0 => high.iter().filter(|r| on(r)).map(|r| XVal::Ref(r.0)).collect(),
+                3 => g.world.placed.refs.iter().filter(|(r, p)| matches!(&p.sig, b"ACHR" | b"ACRE") && !high.contains(r) && on(r)).map(|(r, _)| XVal::Ref(r.0)).collect(),
                 _ => Vec::new(),
             };
             if actors.is_empty() { zero } else { list(g, actors) }
@@ -877,14 +890,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             zero
         }
         // The player's worldspace's climate; none indoors [observed: gaps4 and gaps8,
-        // 0008809B in the Mojave, unchanged by RefreshCurrentClimate].
-        "getcurrentclimate" => {
-            let w = g.cell_of(FormId::PLAYER_REF).and_then(|c| g.world.placed.world_of(c));
-            match w.and_then(|w| crate::nvse::record_value(g, w, "CNAM", "")) {
-                Some(XVal::Ref(c)) => XVal::Ref(c),
-                _ => XVal::Ref(0),
-            }
-        }
+        // 0008809B in the Mojave, unchanged by RefreshCurrentClimate]. ForceClimate's
+        // or SetCurrentClimate's when a script set one (`crate::nvse_jip12`).
+        "getcurrentclimate" => XVal::Ref(crate::nvse_jip12::current_climate(g).map_or(0, |c| c.0)),
         "refreshcurrentclimate" => zero,
         // WRLD DATA flags bit by bit [observed: gaps8, WastelandNV only 7].
         "getworldspaceflag" | "setworldspaceflag" => {
@@ -1225,7 +1233,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let seconds = num(args, 0, 2.0) as f32;
             let (text, icon, sound) = split_styled(&text(args, 1));
             if let Some(s) = sound.and_then(|s| g.data.by_edid(&s)) {
-                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true, id: 0 });
+                g.ask_sound(crate::sound::SoundRequest { sound: s, at: None, system: true, id: 0, point: None });
             }
             g.emit(crate::trace::EventKind::NoteShown { text, icon, seconds });
             zero
@@ -1294,7 +1302,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             XVal::Num(if on { 2.0 } else { 0.0 })
         }
         // `x y`: the terrain's height there, from the engine's loaded terrain; outside it
-        // -20.48 [observed: gaps7, 60.3 at the player; -20.48 far outside the loaded cells].
+        // -2048 [observed: gaps7, 60.3 at the player; L5.ext rerun, #2040: `Floor` of it far
+        // outside the loaded cells is -2048, so -2048 to -2047; hypothesis: -2048 itself].
         // `x y z force [origin]`: the reference's loose body is pushed away from the
         // origin (the reference's place, or `origin`'s, moved by x y z), towards it for a
         // negative force; the engine applies it at its next frame [documented: PushObject;
@@ -1367,7 +1376,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let top = 100_000.0f32;
             match crate::ray::cast([x, y, top], [x, y, -top], crate::ray::CastKind::Terrain) {
                 Some(d) => XVal::Num(f64::from(top - d)),
-                None => XVal::Num(-20.48),
+                None => XVal::Num(-2048.0),
             }
         }
         // `[max]`: the distance along the crosshair to what it meets, 0 for nothing

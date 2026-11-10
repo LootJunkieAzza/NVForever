@@ -327,6 +327,10 @@ pub struct RefExtra {
     /// for GetCurrentAIProcedure. Not saved.
     #[serde(skip)]
     pub ai_phase: Option<crate::ai::AiPhase>,
+    /// Where the last hit on the reference struck, in the world, as the engine tells it
+    /// (`Game::note_hit_point`; JohnnyGuitar's Get3DDistanceFromHitToNiNode).
+    #[serde(skip)]
+    pub hit_point: Option<[f32; 3]>,
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,
@@ -1847,6 +1851,10 @@ pub struct GameSnapshot {
     /// (`functions::misc::ScriptLooks::fade_moves`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fade_moves: BTreeMap<FormId, crate::functions::misc::FadeMove>,
+    /// References a `Disable 1` was still fading out
+    /// (`functions::misc::ScriptLooks::fading_out`): disabled on load.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub fading_out: BTreeSet<FormId>,
     /// Players 2–4 of a co-op game (`crate::coop`); absent in a one-player save.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coop: Vec<crate::coop::CoopPlayer>,
@@ -1972,6 +1980,15 @@ impl GameSnapshot {
         });
         n += before - self.instances.len();
         n += self.nx.drop_gone(&gone);
+        // A timer on a gone plugin's package (the remap keeps the pair, its ID in the
+        // gone slot) has nothing left to end.
+        for e in self.extra.values_mut() {
+            if e.package_ends.is_some_and(|(p, _)| gone(p)) {
+                e.package_ends = None;
+                e.package_ends_by_schedule = false;
+                n += 1;
+            }
+        }
         for slot in [&mut self.pipboy_station, &mut self.weather_shown] {
             if slot.is_some_and(&gone) {
                 *slot = None;
@@ -1983,6 +2000,13 @@ impl GameSnapshot {
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
+
+/// The fields of this crate whose value is a tuple of form IDs alone
+/// (`Option<(FormId, FormId)>`, `Option<(FormId, Option<FormId>)>`), by name, for
+/// `fnv_save::remap_json_with`: in a save's JSON such a tuple looks like a list of form
+/// IDs, and the remap must not shorten it when a plugin is gone (#1981). Every such
+/// field is listed, saved or not (`tests/save_pairs.rs` reads the sources for them).
+pub const SAVE_PAIR_FIELDS: [&str; 9] = ["trespassing", "then", "tape_playing", "talking_through", "farewell_then", "farewell_said", "set_climate", "recipe_menu", "item_running"];
 
 /// What the default action of the player's own activation did
 /// ([`Game::default_activation_by_hand`]).
@@ -2773,7 +2797,7 @@ impl<'a> Game<'a> {
     /// with the compiler's warnings. The console's lines and the Script Runner's files
     /// (`crate::script_runner`).
     pub(crate) fn compile_statements(&mut self, src: &str, plugin: &str, sig: &str) -> Result<(&'a Compiled, Vec<String>), String> {
-        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        let c = fnv_script::compile::compile_runtime(src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
             // The console's own line needs no number.
             return Err(match sig {
@@ -2814,7 +2838,7 @@ impl<'a> Game<'a> {
     /// extender's and JIP's stores, handlers and the game itself keep what it changed.
     pub fn run_query(&mut self, src: &str, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::XVal;
-        let c = fnv_script::compile::compile(src, &self.data.table, &GameEnv { g: self }, None);
+        let c = fnv_script::compile::compile_runtime(src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
             // The error is the capture's own text; what the compiler said goes to the trace.
             let what = format!("query: {}: {}", e.kind.replace('_', " "), e.detail);
@@ -2916,7 +2940,7 @@ impl<'a> Game<'a> {
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what: format!("{what}: no compiled-script ID left") });
             return None;
         }
-        let c = fnv_script::compile::compile(&src, &self.data.table, &GameEnv { g: self }, None);
+        let c = fnv_script::compile::compile_runtime(&src, &self.data.table, &GameEnv { g: self });
         if let Some(e) = c.errors().next() {
             let what = format!("{what}: {}: {}", e.kind.replace('_', " "), e.detail);
             self.emit(EventKind::Skipped { unit: "CompileScript".into(), what });
@@ -3305,7 +3329,15 @@ impl<'a> Game<'a> {
     /// Run every block of `event` in the instance's script that accepts `subject`.
     /// Returns whether a block ran.
     pub fn run_event(&mut self, key: InstKey, script: FormId, event: u16, subject: Option<Value>, ctx: RunCtx) -> bool {
-        self.run_blocks(key, script, event, subject, ctx, false)
+        // GetSelfAsInventoryRef (`crate::nvse_jip14`): the item whose script runs.
+        let item = match key {
+            InstKey::Item { holder, item } => Some((holder, item)),
+            _ => None,
+        };
+        let before = std::mem::replace(&mut self.other.jip14.item_running, item);
+        let ran = self.run_blocks(key, script, event, subject, ctx, false);
+        self.other.jip14.item_running = before;
+        ran
     }
 
     /// [`Game::run_event`]; with `coded_only`, only the blocks with a parameter run (the
@@ -3550,6 +3582,8 @@ impl<'a> Game<'a> {
         self.hud_tick();
         self.lu3_tick();
         self.sup7_tick();
+        // SUP's HUD bars: their visibility conditions and fades (`crate::ui_hudbar`).
+        crate::ui_hudbar::tick(self);
         self.expire_aux_timers();
         self.input.next_frame();
         self.turned.clear();
@@ -3587,6 +3621,10 @@ impl<'a> Game<'a> {
             self.script_looks.fading_out.remove(&r);
             if self.world.set_enabled(r, false).is_ok() {
                 self.script_looks.disabled_after_fade.push(r);
+                // The extender's OnDisable, as a plain Disable sends it, now that the
+                // reference is disabled [hypothesis: the event follows the state
+                // GetDisabled reads; not observed for a faded disable].
+                self.dispatch_event("OnDisable", vec![fnv_script::vm::XVal::Ref(r.0), fnv_script::vm::XVal::Num(0.0)], Some(r));
             }
         }
         // `MoveToMarkerWithFade` moves whose fade out has ended.
@@ -4930,7 +4968,11 @@ impl<'a> Game<'a> {
     /// with their value changes as applied.
     pub fn apply_magic_item_with(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool, mods: &crate::aid::Mods) -> Vec<crate::aid::Applied> {
         let data = self.data;
-        let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
+        // With AddNewEffect's entries after the record's (`crate::nvse_jip14`).
+        let items = self.applied_effects(source);
+        if items.is_empty() {
+            return Vec::new();
+        }
         let mut started: Vec<crate::aid::Applied> = Vec::new();
         // The effects that took, kept here: one of duration 0 has finished by the hit check
         // and is a hit all the same [observed: gaps2, a used stimpak raises OnMagicEffectHit
@@ -5477,6 +5519,7 @@ impl<'a> Game<'a> {
             nav_switches: self.nav_switches.clone(),
             securitron_faces: self.texture_swaps.securitron.clone(),
             fade_moves: self.script_looks.fade_moves.clone(),
+            fading_out: self.script_looks.fading_out.keys().copied().collect(),
             coop: self.coop.clone(),
             due_children: self.due_children.clone(),
             menu_under: self.menu_under,
@@ -5579,6 +5622,11 @@ impl<'a> Game<'a> {
         // draws the reference where it ends up [design].
         for (r, m) in &s.fade_moves {
             let _ = crate::functions::refs::move_ref(&mut g, *r, m.marker, m.offset);
+        }
+        // Likewise a `Disable 1` a save caught during its hold: the reference is disabled
+        // at once, where the hold would have left it [design] (#1985).
+        for r in &s.fading_out {
+            let _ = g.world.set_enabled(*r, false);
         }
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);

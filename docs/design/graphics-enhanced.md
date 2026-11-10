@@ -65,7 +65,9 @@ Constraints that decide what fits:
 
 `--graphics vanilla|enhanced` picks the look; each improvement is also a switch on the pause
 menu's settings page (category "Graphics") and can be compared alone with
-`--graphics-only <keys>`. The log says what is on: `graphics: ambient occlusion, longer
+`--graphics-only <keys>`. The settings page's **Enhanced effects** row (Graphics > Picture, #1966) sets
+them all as `enhanced` (On) or `vanilla` (Off) does and reads Custom when they are mixed;
+the Quality row's presets never touch them (docs/spec-notes/quality-presets.md). The log says what is on: `graphics: ambient occlusion, longer
 shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water
 reflections` (or `graphics: vanilla (no engine-level improvements)`), again whenever a switch
 changes. Anti-aliasing (`anti-aliasing`: multisampling off/2x/4x/8x, FXAA, SMAA or TAA) and
@@ -360,10 +362,14 @@ Settings rows that are not improvements and do not change the vanilla picture un
   measures (which turns vsync off). What vendors document about VRR in borderless and
   exclusive full screen: spec-notes/display-sync.md.
 - **Frame rate limit** (`frame-cap`): Off, 30, 60, 90, 120 or 144 frames a second
-  (`frame_pace.rs`): the main world's frame waits at its end until 1/limit s has passed since the
-  last (sleep, then spin the last millisecond); a late frame does not catch up. Bevy has no
-  limiter of its own (`bevy_framepace` is a separate crate); this plain one is enough to keep
-  a fast GPU from drawing hundreds of frames a second in menus [engineering choice].
+  (`frame_pace.rs`): each frame waits until 1/limit s has passed since the last (sleep, then
+  spin the last millisecond), right after it is handed to the render thread and before the
+  next frame's input is read, so the wait is not between the input and the picture (until
+  2026-11-10 it waited at the end of the main world's frame, after the input; measured in
+  [frame-generation](frame-generation.md), "Measurements"). A late frame is made up for a
+  hundredth of a frame's time at a time. Bevy has no limiter of its own (`bevy_framepace` is a
+  separate crate); this plain one is enough to keep a fast GPU from drawing hundreds of
+  frames a second in menus [engineering choice].
 
 ### 3.11 Light glow (`glow`; on in vanilla too)
 

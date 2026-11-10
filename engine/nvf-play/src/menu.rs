@@ -46,8 +46,10 @@
 //!   acts ([`PromptKeys`]).
 //!
 //! Test aids (only with `--play`, since this plugin exists only then):
-//! - F10 while playing opens the container menu on the container reference nearest to
-//!   the camera (in the current interior, or the worldspace), logging which one.
+//! - F10 while playing, with the developer keys on (`NVF_PLAY_DEV_KEYS`, or a test aid's
+//!   `NVF_PLAY_TEST_KEYS`; [`DevKeys`]), opens the container menu on the container
+//!   reference nearest to the camera (in the current interior, or the worldspace), logging
+//!   which one.
 //! - `NVF_PLAY_TEST_MENU=<container FormID hex | nearest>` runs a scripted check (see
 //!   [`test_aid`]).
 //! - `NVF_PLAY_TEST_BARTER=<merchant FormID hex>[:discount]` opens the barter menu and
@@ -179,6 +181,7 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(Update, WheelHoldSet.before(MenuSystems)).add_systems(Update, wheel_hold.in_set(WheelHoldSet));
         app.init_resource::<ActiveMenu>()
+            .insert_resource(DevKeys::from_env())
             .init_resource::<FreshMenu>()
             .init_resource::<PromptKeys>()
             .init_resource::<WheelHold>()
@@ -199,6 +202,7 @@ impl Plugin for MenuPlugin {
                     keep_menu_state,
                     sync_cards,
                     publish_menu_picks,
+                    publish_jip_menus,
                     (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
                     draw,
                 )
@@ -212,16 +216,31 @@ impl Plugin for MenuPlugin {
     }
 }
 
-/// Test aid: F10 opens the nearest container (F9 is the game's Quick Load).
+/// Whether the developer keys work in play (F10, the nearest container): only with
+/// `NVF_PLAY_DEV_KEYS` set, or while a test aid presses keys (`NVF_PLAY_TEST_KEYS`, as the
+/// smoke scenarios do). In plain play the key did nothing the game has, and opened any
+/// container in the cell or the worldspace, at any distance [#1988; design].
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct DevKeys(pub bool);
+
+impl DevKeys {
+    pub fn from_env() -> DevKeys {
+        DevKeys(std::env::var_os("NVF_PLAY_DEV_KEYS").is_some() || std::env::var_os("NVF_PLAY_TEST_KEYS").is_some())
+    }
+}
+
+/// Test aid: F10 opens the nearest container (F9 is the game's Quick Load), with the
+/// developer keys on ([`DevKeys`]); `OpenNearestContainer` always.
 fn f9_opens_nearest_container(
     keys: Res<ButtonInput<KeyCode>>,
+    dev: Res<DevKeys>,
     here: Res<Location>,
     sim: Res<SimState>,
     cam: Query<&GlobalTransform, With<PlayerCamera>>,
     mut requests: MessageReader<OpenNearestContainer>,
     mut out: MessageWriter<OpenContainer>,
 ) {
-    if !keys.just_pressed(KeyCode::F10) && requests.read().count() == 0 {
+    if !(dev.0 && keys.just_pressed(KeyCode::F10)) && requests.read().count() == 0 {
         return;
     }
     let Ok(cam) = cam.single() else { return };
@@ -726,6 +745,52 @@ fn publish_menu_picks(
     }
     for (code, p) in picks {
         rt.game.set_menu_picks(code, p);
+    }
+}
+
+/// Tell the scripts' game the open item menu's filters, lists and trade, and take back a
+/// script's barter price multipliers (`fnv_game::nvse_jip12`: GetMenuItemFilter,
+/// GetMenuItemListRefs, GetBarterGoldAlt, GetBarterItems, Get/SetBarterPriceMult). The
+/// lists are the rows shown: NVForever's lists hold only the rows the category lets
+/// through, keyed by their place among them [decision: the original's keys count the
+/// filtered rows too].
+fn publish_jip_menus(mut active: ResMut<ActiveMenu>, script: Option<ResMut<crate::script::ScriptState>>, mut sim: ResMut<SimState>, mut was: Local<Option<u16>>) {
+    use fnv_game::nvse_jip12::{BarterView, ItemMenuView, MenuList};
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    let code = active.0.as_ref().map(|m| crate::script::menu_code(m.mode));
+    if let Some(old) = was.filter(|&w| Some(w) != code) {
+        rt.game.set_item_menu_view(old, None);
+        if old == crate::script::MENU_BARTER {
+            rt.game.set_barter_view(None);
+        }
+    }
+    *was = code;
+    // Read through `as_ref`: taking the menu mutably every frame would mark it changed every
+    // frame, and the item menus and the Pip-Boy's ITEMS page redraw on a change, so a click's
+    // press and release would meet different rows. Only a script's new multipliers change it.
+    let (Some(m), Some(code)) = (active.0.as_ref(), code) else { return };
+    let list = |m: &MenuModel, side: Side, owner: Option<FormId>| MenuList { owner, rows: m.list(side).rows.iter().enumerate().filter(|(_, r)| r.folder.is_none()).map(|(i, r)| (i, r.item, true)).collect() };
+    let category = |side: Side| model::Category::ORDER.iter().position(|c| *c == m.category[side as usize]).unwrap_or(0) as u8;
+    let other = match m.mode {
+        Mode::Container(c) => Some(c),
+        Mode::Barter(_) => m.trade.as_ref().map(|t| t.stock),
+        Mode::Inventory => None,
+    };
+    let view = ItemMenuView { filter: [category(Side::Player), category(Side::Container)], lists: [list(m, Side::Player, Some(FormId::PLAYER_REF)), list(m, Side::Container, other)] };
+    rt.game.set_item_menu_view(code, Some(view));
+    let Some(t) = m.trade.as_ref() else { return };
+    let units = |side: Side| t.offered[side as usize].keys().map(|u| u.0).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    rt.game.set_barter_view(Some(BarterView { merchant_caps: t.purse[Side::Container as usize], stock: t.stock, bought: units(Side::Container), sold: units(Side::Player), mult: t.mults() }));
+    let set = rt.game.barter_price_mults();
+    if m.trade.as_ref().is_some_and(|t| t.mult_set != set) {
+        let Some(m) = active.0.as_mut() else { return };
+        if let Some(t) = m.trade.as_mut() {
+            t.mult_set = set;
+        }
+        info!("barter: a script set the price multipliers to {set:?}");
+        if let Err(e) = crate::script::with_world(rt, &mut sim, |rt| m.refresh(&mut rt.game.world)) {
+            warn!("barter: the trade cannot be listed again: {e}");
+        }
     }
 }
 

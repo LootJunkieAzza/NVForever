@@ -43,6 +43,9 @@ pub enum IdleSource {
     /// A creature standing alerted plays a combat idle from the idle tree (the gecko's
     /// hiss; [`FidgetKind::Alerted`]).
     CombatIdle,
+    /// A creature standing still and calm plays an idle from the idle tree (a
+    /// protectron's look about; [`FidgetKind::Calm`]).
+    CalmIdle,
     /// A talking or listening gesture picked from the idle tree
     /// ([`Game::talk_gesture`]).
     Gesture,
@@ -79,6 +82,13 @@ pub enum FidgetKind {
     /// IsMoving != 1 and GetIsAlerted 1 or the combat or flee procedure; MWarning,
     /// StBWarning) [observed: FalloutNV.esm; idles.md §14].
     Alerted,
+    /// A creature standing still and calm (not alerted, not on furniture): no node gates
+    /// it, the tree's own conditions decide [observed: HELIOS One's stasis protectrons,
+    /// calm on ProtectronNotActive, play the protectron tree's CommonIdle leaves
+    /// IdleSearch, IdleLookLeft and IdleLookRight, #1977 probe 2, 2026-11-10]. The
+    /// Idle-section leaves are the standing looks' ([`Game::standing_idle`]): the engine
+    /// holds them back.
+    Calm,
 }
 
 impl FidgetKind {
@@ -92,6 +102,7 @@ impl FidgetKind {
             FidgetKind::WeaponOut => requires(conds, IS_WEAPON_OUT, 1.0),
             FidgetKind::OnFurniture => requires(conds, GET_SITTING, 3.0) || requires(conds, GET_SLEEPING, 3.0),
             FidgetKind::Alerted => names(conds, GET_IS_ALERTED, 1.0),
+            FidgetKind::Calm => true,
         }
     }
 
@@ -100,6 +111,7 @@ impl FidgetKind {
             FidgetKind::WeaponOut => IdleSource::Fidget,
             FidgetKind::OnFurniture => IdleSource::FurnitureFidget,
             FidgetKind::Alerted => IdleSource::CombatIdle,
+            FidgetKind::Calm => IdleSource::CalmIdle,
         }
     }
 }
@@ -400,6 +412,42 @@ impl<'a> Game<'a> {
         None
     }
 
+    /// The powered-down pose of an actor that SetUnconscious holds standing (not one
+    /// knocked out, which lies down: `crate::unconscious`), or `None`: the first idle of
+    /// its own `folder`'s tree, in chain order, that names a file, tests GetUnconscious
+    /// and whose way down passes [observed: FalloutNV.esm has one such leaf per body,
+    /// `ProtectronTurnedOff` 0x0005B344 `MTSpecialIdle_Deactivate.kf`, `MrGutsyUnconscious`
+    /// 0x00060C89 `SpecialIdle_Deactivate.kf`, `SentryBotUnconscious`,
+    /// `RobobrainUnconscious` and more, each with the one condition GetUnconscious == 1;
+    /// the protectron and Gutsy clips hold the switched-off pose between their StartLoop
+    /// and EndLoop keys. Owner 2026-11-09, with a still of the original: HELIOS One's
+    /// stasis protectrons and PYTHON stand arms down until switched on; documented: GECK
+    /// wiki SetUnconscious, unconscious actors "will not use AI behavior"]. Played as the
+    /// standing look ([`Game::standing_idle`]), looping until SetUnconscious 0 ends it.
+    pub fn unconscious_idle(&mut self, actor: FormId, folder: &str) -> Option<FormId> {
+        if !self.extra.get(&actor).is_some_and(|e| e.unconscious && e.knocked_out.is_none() && !e.dead) {
+            return None;
+        }
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
+        let off = |id: FormId| data.idles.get(&id).is_some_and(|d| d.has_file() && d.conditions.as_deref().is_some_and(|c| c.iter().any(|c| c.function == GET_UNCONSCIOUS)));
+        let roots: Vec<FormId> = data.idle_children.get(&None).into_iter().flatten().copied().filter(own).collect();
+        for root in roots {
+            let branch = data.idle_children.contains_key(&Some(root));
+            if (!branch && !off(root)) || !self.idle_allowed(actor, root) {
+                continue;
+            }
+            if !branch {
+                return Some(root);
+            }
+            if let Some((leaf, _)) = self.first_leaf(actor, root, None, true, &|i| !off(i)) {
+                return Some(leaf);
+            }
+        }
+        None
+    }
+
     /// The standing look of creature `actor` from the idle tree, or `None`: the roots of
     /// the actor's own `folder` in chain order, as for [`Game::pick_idle`], counting only
     /// idles of the Idle section (DATA section 0, the `DynamicIdle_…` files) that are not
@@ -419,6 +467,9 @@ impl<'a> Game<'a> {
     /// engine plays the pick looping and asks again now and then, so a change of state
     /// changes the look (#1542).
     pub fn standing_idle(&mut self, actor: FormId, folder: &str) -> Option<FormId> {
+        if let Some(off) = self.unconscious_idle(actor, folder) {
+            return Some(off);
+        }
         let data = self.data;
         let folder = folder.to_ascii_lowercase();
         let look = |id: FormId| data.idles.get(&id).is_some_and(|d| d.section == 0 && !d.loose && d.has_file());
@@ -444,6 +495,12 @@ impl<'a> Game<'a> {
 
     /// The first leaf below `node` whose way down passes, and whether a node on that
     /// way (or `gated`, said of those above) gates `kind`.
+    /// PlayIdleEx's pick under a parent idle (`crate::nvse_jip14`): its first leaf whose
+    /// conditions, and its branches', pass.
+    pub(crate) fn first_idle_leaf(&mut self, actor: FormId, parent: FormId) -> Option<FormId> {
+        self.first_leaf(actor, parent, None, true, &|_| false).map(|(leaf, _)| leaf)
+    }
+
     fn first_leaf(&mut self, actor: FormId, node: FormId, kind: Option<FidgetKind>, gated: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
         let data = self.data;
         for &child in data.idle_children.get(&Some(node)).into_iter().flatten() {
@@ -609,6 +666,10 @@ pub fn talk_node(data: &crate::data::GameData, idle: FormId) -> bool {
 }
 
 const GET_CURRENT_AI_PROCEDURE: u16 = 0x108F;
+
+/// GetUnconscious's condition function index [documented: schemas/script/
+/// command_opcodes.json, GetUnconscious 4338 = 0x1000 + 242].
+const GET_UNCONSCIOUS: u16 = 242;
 const IS_TALKING: u16 = 0x108D;
 const MENU_MODE: u16 = 0x1024;
 
@@ -821,6 +882,20 @@ mod tests {
         assert!(!a.gated_by(&[c(IS_WEAPON_OUT - 0x1000, Cmp::Eq, 1.0, false)]));
         assert!(!FidgetKind::WeaponOut.gated_by(&[c(alerted, Cmp::Eq, 1.0, false)]));
         assert_eq!(a.source(), IdleSource::CombatIdle);
+    }
+
+    #[test]
+    fn a_calm_creature_walks_the_whole_tree_by_its_own_conditions() {
+        use crate::cond::{Cmp, Operand, RunOn};
+        let c = |function: u16, cmp: Cmp, v: f64| Condition { cmp, or: false, run_on: RunOn::Subject, function, params: Vec::new(), rhs: Operand::Value(v) };
+        let calm = FidgetKind::Calm;
+        // The protectron's CommonIdle (IsInCombat == 0) and its leaves (GetRandomPercent,
+        // IsMoving) are no gate any kind names: every branch is a calm creature's, and
+        // the conditions met on the walk decide [observed: #1977 probe 2].
+        assert!(calm.gated_by(&[c(0x121, Cmp::Eq, 0.0)]));
+        assert!(calm.gated_by(&[]));
+        assert!(!FidgetKind::Alerted.gated_by(&[c(0x121, Cmp::Eq, 0.0)]));
+        assert_eq!(calm.source(), IdleSource::CalmIdle);
     }
 
     #[test]

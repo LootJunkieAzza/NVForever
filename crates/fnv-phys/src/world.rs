@@ -713,6 +713,15 @@ impl PhysWorld {
         true
     }
 
+    /// Whether collision object `object` of reference `form_id` is a keyframed body: one
+    /// an animation or a script moves (a door's leaf, a gate, a force field), not a fixed
+    /// one.
+    pub fn ref_object_keyframed(&self, form_id: u32, object: u16) -> bool {
+        self.keyframed.get(&form_id).is_some_and(|bodies| {
+            bodies.iter().any(|&b| matches!(Owner::decode(self.w.bodies[b].user_data), Some(Owner::Ref { form_id: f, object: o, .. }) if f == form_id && o == object))
+        })
+    }
+
     /// Make a reference's keyframed bodies solid or not: when not, their colliders take
     /// no part in contacts, the character controller or queries. For a door while it
     /// swings, so its moving leaf cannot hit or push an actor (`fnv_collide::anim`).

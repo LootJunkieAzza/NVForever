@@ -1932,6 +1932,10 @@ fn barred(v: &VatsMode, mut script: Option<&mut ScriptState>, sim: &mut SimState
     if crate::combat::is_dead(script.as_deref(), actor) {
         return Err(Bar::Dead);
     }
+    // SetVATSTargetable 0 (`fnv_game::nvse_jip14`): no target of the classic style either.
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| !rt.game.actor_vats_targetable(FormId(actor))) {
+        return Err(Bar::NoTarget("SetVATSTargetable 0"));
+    }
     // A cloaked actor (Invisibility or Chameleon at least 1: a Stealth Boy, a Nightkin's
     // cloak) is not marked unless the player has Enhanced Sensors, whose entry point 69 Has
     // Improved Detection gives "VATS targeting of cloaked enemies" [documented: GECK wiki
@@ -2282,6 +2286,11 @@ fn mark_actor(
     fallback: [f32; 3],
     special: bool,
 ) {
+    // SetVATSTargetable 0 (`fnv_game::nvse_jip14`).
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| !rt.game.actor_vats_targetable(FormId(actor))) {
+        info!("vats mode: {actor:08X} is not a VATS target (SetVATSTargetable 0): not marked");
+        return;
+    }
     match barred(v, script.as_deref_mut(), sim, actor) {
         Err(Bar::Dead) => {
             info!("vats mode: {actor:08X} is dead: not marked");

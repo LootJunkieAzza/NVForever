@@ -310,7 +310,8 @@ at the same view size). That is the work of each migration task, not guessed up 
      spec-notes/dialogue-menu.md §6), `StatsMenu` for the Pip-Boy's STATS page,
      painted in the Pip-Boy's image (issue #1513, pipboy.md §5.1.1 to §5.1.3), and `InventoryMenu`
      for its ITEMS page, painted there too, its prompt following from `QuantityMenu`'s file
-     (issues #1513, #1468, pipboy.md §5.2.1).
+     (issues #1513, #1468, pipboy.md §5.2.1), and `MapMenu` for its DATA page's Quests and Misc
+     tabs, the maps and Radio keeping the hand-built page (issue #1513, pipboy.md §5.3.1).
      `VATSMenu`, the classic VATS style's target screen, is drawn from its file behind a
      switch of its own, `[UI] VatsMenuFile` (on unless set to 0; the engine-drawn screen is
      its fallback), since VATS is no `Game::menu` here and the file is built only while

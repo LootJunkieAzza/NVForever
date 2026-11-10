@@ -145,6 +145,7 @@ pub struct OpticalFlowView {
     frame_index: i32,
     resource_frame_index: u32,
     first_execution: bool,
+    bind_groups: fg_pass::BindGroups,
 }
 
 pub struct OpticalFlowDispatchInfo<'a> {
@@ -217,6 +218,7 @@ impl OpticalFlowContext {
             frame_index: 0,
             resource_frame_index: 0,
             first_execution: true,
+            bind_groups: Default::default(),
         }
     }
 
@@ -270,7 +272,8 @@ impl OpticalFlowContext {
         let odd = view.resource_frame_index & 1 == 1;
         let (current, previous) = if odd { (1, 0) } else { (0, 1) };
         let slot = |index: u64| Res::Slot(&view.constants, index * fg_pass::SLOT, std::mem::size_of::<Constants>() as u64);
-        let v = fg_pass::view;
+        let v = fg_pass::whole;
+        let kept = &view.bind_groups;
 
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("FSR3 optical flow"),
@@ -280,9 +283,10 @@ impl OpticalFlowContext {
         self.prepare_luma.dispatch(
             device,
             &mut pass,
+            kept,
             &mut |name| match name {
-                "r_input_color" => Res::View(v(info.color)),
-                "rw_optical_flow_input" => Res::View(v(&view.input[current][0])),
+                "r_input_color" => v(info.color),
+                "rw_optical_flow_input" => v(&view.input[current][0]),
                 _ => slot(0),
             },
             [width.div_ceil(2).div_ceil(16), height.div_ceil(2).div_ceil(16), 1],
@@ -290,13 +294,14 @@ impl OpticalFlowContext {
         self.luminance_pyramid.dispatch(
             device,
             &mut pass,
+            kept,
             &mut |name| match name {
                 "cbOF" => slot(0),
                 "cbOF_SPD" => Res::Slot(&view.spd_constants, 0, std::mem::size_of::<SpdConstants>() as u64),
-                "rw_optical_flow_input" => Res::View(v(&view.input[current][0])),
+                "rw_optical_flow_input" => v(&view.input[current][0]),
                 level => {
                     let level: usize = level.trim_start_matches("rw_optical_flow_input_level_").parse().unwrap();
-                    Res::View(v(&view.input[current][level]))
+                    v(&view.input[current][level])
                 }
             },
             [pyramid_groups[0], pyramid_groups[1], 1],
@@ -305,9 +310,10 @@ impl OpticalFlowContext {
         self.scd_histogram.dispatch(
             device,
             &mut pass,
+            kept,
             &mut |name| match name {
-                "r_optical_flow_input" => Res::View(v(&view.input[current][0])),
-                "rw_optical_flow_scd_histogram" => Res::View(v(&view.scd_histogram)),
+                "r_optical_flow_input" => v(&view.input[current][0]),
+                "rw_optical_flow_scd_histogram" => v(&view.scd_histogram),
                 _ => slot(0),
             },
             [strata_width.div_ceil(32), 16, HISTOGRAMS_PER_DIM * HISTOGRAMS_PER_DIM],
@@ -315,11 +321,12 @@ impl OpticalFlowContext {
         self.scd_divergence.dispatch(
             device,
             &mut pass,
+            kept,
             &mut |name| match name {
-                "rw_optical_flow_scd_histogram" => Res::View(v(&view.scd_histogram)),
-                "rw_optical_flow_scd_previous_histogram" => Res::View(v(&view.scd_previous_histogram)),
-                "rw_optical_flow_scd_temp" => Res::View(v(&view.scd_temp)),
-                "rw_optical_flow_scd_output" => Res::View(v(&view.scd_output)),
+                "rw_optical_flow_scd_histogram" => v(&view.scd_histogram),
+                "rw_optical_flow_scd_previous_histogram" => v(&view.scd_previous_histogram),
+                "rw_optical_flow_scd_temp" => v(&view.scd_temp),
+                "rw_optical_flow_scd_output" => v(&view.scd_output),
                 _ => slot(0),
             },
             [HISTOGRAMS_PER_DIM * HISTOGRAMS_PER_DIM, HISTOGRAM_SHIFTS, 1],
@@ -338,11 +345,12 @@ impl OpticalFlowContext {
             self.search.dispatch(
                 device,
                 &mut pass,
+                kept,
                 &mut |name| match name {
-                    "r_optical_flow_input" => Res::View(v(input_a)),
-                    "r_optical_flow_previous_input" => Res::View(v(input_b)),
-                    "rw_optical_flow" => Res::View(v(flow_a)),
-                    "rw_optical_flow_scd_output" => Res::View(v(&view.scd_output)),
+                    "r_optical_flow_input" => v(input_a),
+                    "r_optical_flow_previous_input" => v(input_b),
+                    "rw_optical_flow" => v(flow_a),
+                    "rw_optical_flow_scd_output" => v(&view.scd_output),
                     _ => slot(1 + level as u64),
                 },
                 [(luma[0].div_ceil(4) * 16).div_ceil(64), luma[1].div_ceil(16), 1],
@@ -351,9 +359,10 @@ impl OpticalFlowContext {
             self.filter.dispatch(
                 device,
                 &mut pass,
+                kept,
                 &mut |name| match name {
-                    "r_optical_flow_previous" => Res::View(v(flow_a)),
-                    "rw_optical_flow" => Res::View(v(filtered)),
+                    "r_optical_flow_previous" => v(flow_a),
+                    "rw_optical_flow" => v(filtered),
                     _ => slot(1 + level as u64),
                 },
                 [sizes[level][0].div_ceil(16), sizes[level][1].div_ceil(4), 1],
@@ -363,12 +372,13 @@ impl OpticalFlowContext {
                 self.scale.dispatch(
                     device,
                     &mut pass,
+                    kept,
                     &mut |name| match name {
-                        "r_optical_flow_input" => Res::View(v(input_a)),
-                        "r_optical_flow_previous_input" => Res::View(v(input_b)),
-                        "r_optical_flow" => Res::View(v(flow_b)),
-                        "rw_optical_flow_next_level" => Res::View(v(next)),
-                        "rw_optical_flow_scd_output" => Res::View(v(&view.scd_output)),
+                        "r_optical_flow_input" => v(input_a),
+                        "r_optical_flow_previous_input" => v(input_b),
+                        "r_optical_flow" => v(flow_b),
+                        "rw_optical_flow_next_level" => v(next),
+                        "rw_optical_flow_scd_output" => v(&view.scd_output),
                         _ => slot(1 + level as u64),
                     },
                     [sizes[level - 1][0].div_ceil(4), sizes[level - 1][1].div_ceil(4), 1],

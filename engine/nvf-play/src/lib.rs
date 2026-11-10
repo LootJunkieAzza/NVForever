@@ -49,6 +49,7 @@ pub mod file_bytes;
 pub mod swing_traps;
 pub mod flashlight;
 pub mod free_cam;
+pub mod script_camera;
 pub mod game_start;
 pub mod furniture;
 pub mod grab;
@@ -110,6 +111,7 @@ pub mod script_draw;
 pub mod script_events;
 pub mod script_hud;
 pub mod jip_physics;
+pub mod script_quantity;
 pub mod sup_screen;
 pub mod sup_shots;
 pub mod script_trigger;
@@ -233,6 +235,21 @@ pub struct PlayerCamera;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 #[component(immutable, on_insert = hitvol::ref_visual_inserted, on_remove = hitvol::ref_visual_removed)]
 pub struct RefVisual(pub u32);
+
+/// On the root of a reference's own node hierarchy (an animated model spawned with
+/// `nvf_assets::model::Rig::spawn_nodes`: nvforever's doors, containers, activators and
+/// scripted models, [`script_draw`]'s enabled references): the reference and its node
+/// entities by their names as the NIF spells them (the first of a repeated name), for what
+/// follows a named node (AttachUIComponent, nvforever `ui_attach.rs`). Those node entities
+/// carry no `Name` [design: #1835].
+///
+/// Immutable, so whoever indexes it by reference sees every change in its hooks.
+#[derive(Component, Clone, Debug)]
+#[component(immutable)]
+pub struct RefNodes {
+    pub reference: u32,
+    pub nodes: std::collections::HashMap<String, Entity>,
+}
 
 /// Put by nvforever on the entity of every render cell it streams in (its transform is
 /// the cell's origin in game space, under the world root). [`dropped`] spawns the
@@ -380,6 +397,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(console::ConsolePlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
+            .add_plugins(script_camera::ScriptCameraPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
@@ -389,6 +407,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(jip_physics::JipPhysicsPlugin)
+            .add_plugins(script_quantity::ScriptQuantityPlugin)
             .add_plugins(mines::MinesPlugin)
             .add_plugins(thrown::ThrownPlugin)
             .add_plugins(falls::FallsPlugin)

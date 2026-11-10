@@ -203,6 +203,13 @@ Changes:
   upscaler's tuning constants as FidelityFX SDK 1.1.4's `FfxFsr3UpscalerConfigureKey` sets
   them (`ffx_fsr3upscaler.h`: names, descriptions, defaults and ranges). The engine keeps
   AMD's defaults; `tools/fsr-validation` (`ghosting.rs`) uses it to measure them.
+- **Bind groups kept** (2026-11-10): `pass.rs` (`BindKey`, in the view's `FsrResources`) and
+  `fg_pass.rs` (`BindGroups`, in the optical-flow and frame-interpolation views) keep each
+  pass's bind group by what it binds, where upstream and the first port made the bind group
+  and its texture views again for every pass of every frame (0.3 and 0.5 ms a frame of the
+  render thread at 4K, 0.09 and 0.07 after [observed, docs/design/frame-generation.md]).
+  `frameinterpolation.rs`: `FrameInterpolationDispatchInfo::previous_source`, the previous
+  interpolation source kept by the caller, which saves AMD's display-sized copy of it.
 - **Half precision** (2026-11-08): the upscaler's `perm.toml` compiles `FFX_HALF = [0, 1]`
   (shaderc 2026.4, Vulkan SDK 1.4.363.0, `--only fsr3upscaler`). The committed FP32 SPIR-V
   is kept byte for byte (the Half::Off arms of `fsr3upscaler/mod.rs` name the same files);

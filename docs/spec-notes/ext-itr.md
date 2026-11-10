@@ -76,7 +76,7 @@ events.
 | Function | NVForever |
 |---|---|
 | WatchTileValue `tile trait`, UnwatchTileValue `id` | a positive id (the same for a trait already watched; 0 when 48 are watched) [documented]; a trait that is not there is watched too while its menu is [observed: HUDMainMenu `_nvfnone` returns an id, against the page's 0], 0 without the menu [hypothesis]; UnwatchTileValue 1, then 0 [observed]; each frame a changed value fires ITR:OnTileValueChange (numbers) or ITR:OnTileStrValueChange (text); a watch whose trait is gone (its menu closed) is dropped [documented]; the events' parameters (id, path, value) [hypothesis: no page] |
-| SetUIAlphaMap `tile texture`, SetUITexOffset `tile x y` | kept by tile path for the tile renderer; the offsets wrapped into 0-1, image and radial tiles only [documented]; 1 when the tile is there, 0 for an offset that is not a finite number [decision]. Drawing them is the engine's: follow-up |
+| SetUIAlphaMap `tile texture`, SetUITexOffset `tile x y` | kept by tile (its id: an unloaded or replaced tile drops them) for the tile renderer; the offsets wrapped into 0-1, image and radial tiles only [documented]; the mask's path relative to `Data\Textures\`, sampled at the base texture's coordinates, clamped, not moved by the offset, its alpha the mask [documented: SetUIAlphaMap]; 1 on success, 0 when the tile is not found or the texture fails to load [documented], a texture not in the data (loose or archived) being the failure the script side sees [hypothesis] (none while the host gives no archive answer [decision]); 0 for an offset that is not a finite number or an empty texture [decision]. Drawn by the engine's tile renderer since #1833 (menu-xml.md §9, `tiles/texmod.rs`) |
 | GetItemModFlags, SetItemModFlags `[flags]` | on an inventory reference: the weapon's mod bits 1, 2, 4; the setter defaults to 1, 0 takes them off [documented]; as GetWeaponRefModFlags; the setter returns 1 when the item was changed, else 0 [hypothesis] |
 | SetWeaponEmissiveColor `r g b mult`, ClearWeaponEmissiveColor | kept for the engine's first-person weapon materials (follow-up); 0 with no weapon in the player's hand [documented: "no first-person weapon node"; hypothesis: the weapon in hand stands for the node], or for a value that is not a finite number [decision]; Clear returns 0 when nothing was set [documented; observed] |
 
@@ -161,9 +161,9 @@ The navmesh answerer (`nav_ask::with_nav` around the script tick, as `ray::with_
 the radio's songs and file names (`Game::set_radio_playing`) and the injected queue,
 the dialogue camera and camera angle, the custom dialogue entries and their alphas, the
 barter filter, gestures, ragdolls, impacts, reloads, eye meshes, the weapon emissive
-colour, the UI alpha maps and texture offsets, contact events, the new-game request and
-the primitives switch: each is kept on `Game::other.itr` / `itr2` for the engine to read.
-The combat AI's weapon search and switch (`ItrKept`) waits on that system; the dialogue's
+colour, contact events, the new-game request and the primitives switch: each is kept on `Game::other.itr` / `itr2` for the engine to read.
+The UI alpha maps and texture offsets are drawn by the tile renderer (#1833). The combat
+AI's weapon search and switch (`ItrKept`) waits on that system; the dialogue's
 own rules read SetDialogueInfoFlags since SUP batch 2 (ext-sup2.md §1).
 
 ## 13. Probes and the lab (2026-11-01)

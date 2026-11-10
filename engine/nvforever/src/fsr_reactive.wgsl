@@ -38,35 +38,48 @@
 // and flickered more [observed, the harness's fence case].
 //
 // Two passes, so that the neighbourhoods read small textures: `presence_pass` reads each
-// pixel's two colours once and writes its presence and luminance; `fragment` makes the masks
-// from those. In one pass the 3x3 neighbourhoods re-read about 30 colour texels a pixel: 0.25
+// pixel's two colours once and writes its presence and its light change (ln of this frame's
+// luminance over the history's at the same surface point); `fragment` makes the masks from
+// those. In one pass the 3x3 neighbourhoods re-read about 30 colour texels a pixel: 0.25
 // ms a frame at 4K Quality on an RTX 5090, a third of FSR's own time [observed 2026-11-08,
-// `--log-frame-times` sub-span `nvf_fsr_3_1/inputs`].
+// `--log-frame-times` sub-span `nvf_fsr_3_1/inputs`]. Since 2026-11-10 the light change of a
+// texel is worked out once, in the first pass, where the second read each texel's motion,
+// history and luminance again for all nine of a pixel's neighbourhood, and the second pass
+// takes its 3x3 neighbourhoods four texels at a read (`textureGather`): 15 reads a pixel
+// where there were 51 [observed 2026-11-10, 4K Native AA: docs/design/fsr-upscaling.md
+// "Performance"].
 
 // The first pass's inputs: the opaque-only copy and the finished frame (display-size
 // textures, the render rectangle read).
 @group(0) @binding(0) var opaque: texture_2d<f32>;
 @group(0) @binding(1) var scene: texture_2d<f32>;
-// The second pass's inputs.
-// Bevy's motion-vector prepass: current minus previous position, in UV of the render
-// rectangle (the top-left render-size part of a display-size texture).
+// Both passes: Bevy's motion-vector prepass, current minus previous position, in UV of the
+// render rectangle (the top-left render-size part of a display-size texture).
 @group(0) @binding(2) var motion: texture_2d<f32>;
-// Last frame's presence (render size), cleared on a history reset.
+// The second pass: last frame's presence (render size), cleared on a history reset.
 @group(0) @binding(3) var previous_presence: texture_2d<f32>;
-// The luminance of FSR's last output (render size; fsr_fallback.wgsl `luma`); 0: none.
+// The first pass: the luminance of FSR's last output (render size; fsr_fallback.wgsl
+// `luma`); 0: none.
 @group(0) @binding(4) var history_luma: texture_2d<f32>;
+// Both passes; clamped at the edges, which the 3x3 neighbourhoods rely on.
 @group(0) @binding(5) var linear_clamp: sampler;
-// xy: FSR's jitter this frame (render pixels, AMD's sign); zw unused.
+// The first pass. xy: FSR's jitter this frame (render pixels, AMD's sign); zw unused.
 @group(0) @binding(6) var<uniform> jitter: vec4<f32>;
-// This frame's presence and luminance (render size), from the first pass.
+// The second pass: this frame's presence and light change (render size), from the first.
 @group(0) @binding(7) var presence_now: texture_2d<f32>;
-@group(0) @binding(8) var luma_now: texture_2d<f32>;
+@group(0) @binding(8) var change_now: texture_2d<f32>;
 
 struct Pixel {
-    // This frame's presence (kept for the next frame too) and the finished frame's luminance.
+    // This frame's presence (kept for the next frame too).
     @location(0) presence: f32,
-    @location(1) luma: f32,
+    // ln(this frame's luminance / the history's) at this texel's surface point, or
+    // NO_CHANGE_KNOWN.
+    @location(1) change: f32,
 }
+
+// A texel without a light change: no history, or its surface point was off screen last
+// frame. Far above any real one (|ln| of two half floats' ratio is under 15).
+const NO_CHANGE_KNOWN: f32 = 1000.0;
 
 struct Masks {
     // FSR's reactive mask: keep less history.
@@ -93,7 +106,7 @@ fn luminance(c: vec3<f32>) -> f32 {
     return dot(max(c, vec3<f32>(0.0)), vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
-// The first pass: presence and luminance of each render pixel.
+// The first pass: presence and light change of each render pixel.
 @fragment fn presence_pass(@builtin(position) p: vec4<f32>) -> Pixel {
     let at = vec2<i32>(p.xy);
     let a = max(textureLoad(opaque, at, 0).rgb, vec3<f32>(0.0));
@@ -101,8 +114,31 @@ fn luminance(c: vec3<f32>) -> f32 {
     let d = abs(a - b) / max(max(a, b), vec3<f32>(0.05));
     var pixel: Pixel;
     pixel.presence = clamp(max(d.r, max(d.g, d.b)), 0.0, 0.9);
-    pixel.luma = luminance(b);
+    pixel.change = NO_CHANGE_KNOWN;
+    // The surface point this texel shows (its centre less this frame's jitter) and where it
+    // was last frame, in render pixels; FSR's output is unjittered.
+    let size = vec2<f32>(textureDimensions(history_luma));
+    let point = p.xy - jitter.xy - textureLoad(motion, at, 0).xy * size;
+    if all(point >= vec2<f32>(0.0)) && all(point <= size) {
+        let history = textureSampleLevel(history_luma, linear_clamp, point / size, 0.0).r;
+        if history > 0.0 {
+            pixel.change = log((luminance(b) + LIGHT_FLOOR) / (history + LIGHT_FLOOR));
+        }
+    }
     return pixel;
+}
+
+// The four texels of `t` whose top left one is `at`, read at once: x (0, 1), y (1, 1),
+// z (1, 0), w (0, 0) from `at`; past an edge, the edge's texel.
+fn block(t: texture_2d<f32>, at: vec2<i32>) -> vec4<f32> {
+    return textureGather(0, t, linear_clamp, vec2<f32>(at + 1) / vec2<f32>(textureDimensions(t)));
+}
+
+// The most of the 3x3 texels of `t` around `c` (past an edge, the edge's texel): four
+// overlapping blocks.
+fn most_around(t: texture_2d<f32>, c: vec2<i32>) -> f32 {
+    let m = max(max(block(t, c - 1), block(t, c + vec2<i32>(0, -1))), max(block(t, c + vec2<i32>(-1, 0)), block(t, c)));
+    return max(max(m.x, m.y), max(m.z, m.w));
 }
 
 fn presence(at: vec2<i32>) -> f32 {
@@ -129,59 +165,58 @@ fn presence_before(source: vec2<f32>) -> f32 {
     return most;
 }
 
-// How far the light around `at` has moved away from FSR's history: of ln(now / history) at
-// the 3x3 texels, the second smallest when it is above 0 (8 of 9 brighter), or minus the
-// second largest when that is below 0 (8 of 9 darker); 0 otherwise, without a history, or
-// where a texel's surface point was off screen.
+// The two smallest so far (x the smallest) with `r` taken in, and the two largest.
+fn lower(low: vec2<f32>, r: f32) -> vec2<f32> {
+    return vec2<f32>(min(low.x, r), min(low.y, max(low.x, r)));
+}
+
+fn higher(high: vec2<f32>, r: f32) -> vec2<f32> {
+    return vec2<f32>(max(high.x, r), max(high.y, min(high.x, r)));
+}
+
+// How far the light around `at` has moved away from FSR's history: of the light change at
+// the 3x3 texels (past an edge, the edge's texel), the second smallest when it is above 0 (8
+// of 9 brighter), or minus the second largest when that is below 0 (8 of 9 darker); 0
+// otherwise, without a history, or where a texel's surface point was off screen.
 fn light_change(at: vec2<i32>) -> f32 {
-    let size = vec2<f32>(textureDimensions(previous_presence));
-    // The two smallest and the two largest ratios, in registers: a sorted array indexed by a
+    // The nine texels from four blocks: the first whole, then the texels it lacks.
+    let a = block(change_now, at - 1);
+    let b = block(change_now, at + vec2<i32>(0, -1));
+    let c = block(change_now, at + vec2<i32>(-1, 0));
+    let d = block(change_now, at);
+    // The two smallest and the two largest, in registers: a sorted array indexed by a
     // variable went to the GPU's local memory and was the pass's cost.
     var low = vec2<f32>(1e30);
     var high = vec2<f32>(-1e30);
-    for (var i = 0; i < 9; i++) {
-        let here = clamp(at + vec2<i32>(i % 3 - 1, i / 3 - 1), vec2<i32>(0), vec2<i32>(size) - 1);
-        // The surface point this texel shows (its centre less this frame's jitter) and where
-        // it was last frame, in render pixels; FSR's output is unjittered.
-        let point = vec2<f32>(here) + 0.5 - jitter.xy - textureLoad(motion, here, 0).xy * size;
-        if any(point < vec2<f32>(0.0)) || any(point > size) {
-            return 0.0;
-        }
-        let history = textureSampleLevel(history_luma, linear_clamp, point / size, 0.0).r;
-        if history <= 0.0 {
-            return 0.0;
-        }
-        let now = textureLoad(luma_now, here, 0).r;
-        let r = log((now + LIGHT_FLOOR) / (history + LIGHT_FLOOR));
-        low = vec2<f32>(min(low.x, r), min(low.y, max(low.x, r)));
-        high = vec2<f32>(max(high.x, r), max(high.y, min(high.x, r)));
+    low = lower(low, a.w); high = higher(high, a.w);
+    low = lower(low, a.z); high = higher(high, a.z);
+    low = lower(low, b.z); high = higher(high, b.z);
+    low = lower(low, a.x); high = higher(high, a.x);
+    low = lower(low, a.y); high = higher(high, a.y);
+    low = lower(low, b.y); high = higher(high, b.y);
+    low = lower(low, c.x); high = higher(high, c.x);
+    low = lower(low, c.y); high = higher(high, c.y);
+    low = lower(low, d.y); high = higher(high, d.y);
+    if high.x > 0.5 * NO_CHANGE_KNOWN {
+        return 0.0;
     }
     return max(max(low.y, -high.y), 0.0);
 }
 
 // The most presence last frame within a texel of `source` (render pixels): what a blended
-// shape left at and around this pixel's history.
+// shape left at and around this pixel's history. Texels off the screen hold none.
 fn presence_before_around(source: vec2<f32>) -> f32 {
     let size = vec2<i32>(textureDimensions(previous_presence));
     let c = vec2<i32>(floor(source));
-    var most = 0.0;
-    for (var i = 0; i < 9; i++) {
-        let t = c + vec2<i32>(i % 3 - 1, i / 3 - 1);
-        if all(t >= vec2<i32>(0)) && all(t < size) {
-            most = max(most, textureLoad(previous_presence, t, 0).r);
-        }
+    if any(c < vec2<i32>(-1)) || any(c > size) {
+        return 0.0;
     }
-    return most;
+    return most_around(previous_presence, c);
 }
 
 // The most presence this frame within a texel of `at`: a shape still there, by the jitter.
 fn presence_around(at: vec2<i32>) -> f32 {
-    let size = vec2<i32>(textureDimensions(previous_presence));
-    var most = 0.0;
-    for (var i = 0; i < 9; i++) {
-        most = max(most, presence(clamp(at + vec2<i32>(i % 3 - 1, i / 3 - 1), vec2<i32>(0), size - 1)));
-    }
-    return most;
+    return most_around(presence_now, at);
 }
 
 @fragment fn fragment(@builtin(position) p: vec4<f32>) -> Masks {

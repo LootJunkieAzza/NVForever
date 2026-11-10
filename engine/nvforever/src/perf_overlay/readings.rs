@@ -91,7 +91,9 @@ impl Low {
 
 /// The frame times of the readout's window (their count, sum and slowest, kept as they
 /// come: no list to sort) and of the last [`LOW_SECS`] (a list, for the 1 % low),
-/// milliseconds. Kept only while a row needs them (`super::Overlay::step`).
+/// milliseconds. Kept only while a row needs them (`super::Overlay::step`); frame
+/// generation's count of generated frames is noted every frame
+/// ([`Frames::note_generated`]).
 #[derive(Default)]
 pub struct Frames {
     count: u32,
@@ -102,6 +104,11 @@ pub struct Frames {
     recent_secs: f32,
     /// Reused for the 1 % low at each reading ([`low_of`]).
     scratch: Vec<f32>,
+    /// Frame generation's count of generated frames shown (`frame_gen::GeneratedFrames`)
+    /// as the last frame read it; kept when the frames are let go.
+    generated: Option<u64>,
+    /// The count where the window begins: as the frame before its first frame time read it.
+    generated_from: Option<u64>,
 }
 
 impl Frames {
@@ -109,6 +116,11 @@ impl Frames {
     pub fn push(&mut self, dt: f32) {
         if dt <= 0.0 || !dt.is_finite() {
             return;
+        }
+        // A window's first frame time runs from the frame before, whose count is the one
+        // last noted: its generated frames are counted from there.
+        if self.generated_from.is_none() {
+            self.generated_from = self.generated;
         }
         let ms = dt * 1e3;
         self.count += 1;
@@ -123,16 +135,33 @@ impl Frames {
         }
     }
 
+    /// Frame generation's count of generated frames shown as this frame read it (none
+    /// without frame generation), noted every frame after its time is pushed, the overlay
+    /// shown or not: a window that begins with the next frame time counts its generated
+    /// frames from it, so the first reading of a showing, or of a row turned on, has all
+    /// of its own [design].
+    pub fn note_generated(&mut self, count: Option<u64>) {
+        self.generated = count;
+    }
+
     /// The reading of the frames since the last one (the window then starts again);
-    /// none without a frame.
+    /// none without a frame. Its generated frames are the count noted at its last frame
+    /// less the count where it began; a generated frame of the window before that the
+    /// presenter took back (`fg_presenter.rs`) can put the count below where this one
+    /// began, which reads as none.
     pub fn take(&mut self) -> Option<FrameReading> {
         if self.count == 0 || self.secs <= 0.0 {
             return None;
         }
         let low_ms = low_of(self.recent.iter().copied(), &mut self.scratch).unwrap_or(self.worst_ms);
         let slowest_ms = self.recent.iter().copied().fold(self.worst_ms, f32::max);
-        let r = FrameReading { fps: self.count as f32 / self.secs, mean_ms: self.sum_ms / self.count as f32, worst_ms: self.worst_ms, low_ms, slowest_ms };
+        let generated = self.generated.zip(self.generated_from).map_or(0, |(now, from)| now.saturating_sub(from));
+        let fps = self.count as f32 / self.secs;
+        let shown_fps = (generated > 0).then(|| fps + generated as f32 / self.secs);
+        let r = FrameReading { fps, mean_ms: self.sum_ms / self.count as f32, worst_ms: self.worst_ms, low_ms, slowest_ms, shown_fps };
         (self.count, self.sum_ms, self.worst_ms, self.secs) = (0, 0.0, 0.0, 0.0);
+        // The next window's first frame time runs from this frame.
+        self.generated_from = self.generated;
         Some(r)
     }
 
@@ -147,9 +176,10 @@ impl Frames {
     }
 
     /// Forget every frame, and the room they took: a new showing reads afresh, and a row
-    /// switched off keeps nothing.
+    /// switched off keeps nothing. Frame generation's last noted count stays, for the next
+    /// window to count from.
     pub fn clear(&mut self) {
-        *self = Frames::default();
+        *self = Frames { generated: self.generated, ..Frames::default() };
     }
 }
 
@@ -164,6 +194,10 @@ pub struct FrameReading {
     pub low_ms: f32,
     /// The slowest of the recent frames (the frame rate row's other choice, [`Low`]).
     pub slowest_ms: f32,
+    /// The frames shown a second while frame generation shows generated frames: the
+    /// rendered ones (`fps`, whose times the figures above are) and the generated ones
+    /// between them; none without a generated frame in the window.
+    pub shown_fps: Option<f32>,
 }
 
 impl FrameReading {
@@ -282,15 +316,26 @@ pub fn rows(r: &Readings, on: &Rows) -> Vec<Row> {
 }
 
 /// `60  16.7 ms  1% low 21.3` (or `slowest 21.3`, [`Low`]): the rate and the mean of the
-/// window, the last 10 s's 1 % low or slowest frame. The numbers are padded to their
-/// usual width, so in the overlay's even-width font the row keeps its length while they
-/// change.
+/// window, the last 10 s's 1 % low or slowest frame. While frame generation shows
+/// generated frames, the frames shown and the rendered ones apart,
+/// `156  (78 rendered)  12.8 ms  1% low 14.0`, the times the rendered frames' [design:
+/// the rendered frames' rate alone, which frame generation holds under half the refresh
+/// rate, read as frame generation halving the frame rate]. The numbers are padded to
+/// their usual width, so in the overlay's even-width font the row keeps its length while
+/// they change.
 pub fn fps_text(f: &FrameReading, low: Low) -> String {
     let name = match low {
         Low::OnePercent => "1% low",
         Low::Slowest => "slowest",
     };
-    format!("{:>3.0}  {:>4.1} ms  {name} {:>4.1}", f.fps, f.mean_ms, f.last_figure(low))
+    let rate = match f.shown_fps {
+        Some(shown) => {
+            let rendered = format!("({:.0}", f.fps);
+            format!("{shown:>3.0} {rendered:>4} rendered)")
+        }
+        None => format!("{:>3.0}", f.fps),
+    };
+    format!("{rate}  {:>4.1} ms  {name} {:>4.1}", f.mean_ms, f.last_figure(low))
 }
 
 /// `main  5.5  render  6.3 (wait  4.0)  GPU  2.4 ms`: each part when read, padded as
@@ -467,10 +512,141 @@ mod tests {
 
     #[test]
     fn the_frame_rate_row_reads_like_the_counter() {
-        let f = FrameReading { fps: 59.6, mean_ms: 16.78, worst_ms: 21.0, low_ms: 24.04, slowest_ms: 40.0 };
+        let f = FrameReading { fps: 59.6, mean_ms: 16.78, worst_ms: 21.0, low_ms: 24.04, slowest_ms: 40.0, shown_fps: None };
         assert_eq!(fps_text(&f, Low::OnePercent), " 60  16.8 ms  1% low 24.0");
-        let fast = FrameReading { fps: 144.0, mean_ms: 6.94, worst_ms: 9.0, low_ms: 8.5, slowest_ms: 9.5 };
+        let fast = FrameReading { fps: 144.0, mean_ms: 6.94, worst_ms: 9.0, low_ms: 8.5, slowest_ms: 9.5, shown_fps: None };
         assert_eq!(fps_text(&fast, Low::OnePercent), "144   6.9 ms  1% low  8.5");
+        // Frame generation: the frames shown, then the rendered ones, as long whatever
+        // their digits (a 240 Hz screen's cap is 117).
+        let fg = FrameReading { fps: 77.9, mean_ms: 12.84, worst_ms: 14.0, low_ms: 14.04, slowest_ms: 15.0, shown_fps: Some(155.8) };
+        assert_eq!(fps_text(&fg, Low::OnePercent), "156  (78 rendered)  12.8 ms  1% low 14.0");
+        let fg_240 = FrameReading { fps: 117.0, mean_ms: 8.54, shown_fps: Some(234.0), ..fg };
+        assert_eq!(fps_text(&fg_240, Low::Slowest), "234 (117 rendered)   8.5 ms  slowest 15.0");
+        assert_eq!(fps_text(&fg, Low::OnePercent).len(), fps_text(&fg_240, Low::OnePercent).len());
+    }
+
+    /// Half a second at frame generation's cap on a 160 Hz screen: 39 frames of 1/78 s.
+    const CAP_DT: f32 = 1.0 / 78.0;
+    const CAP_WINDOW: usize = 39;
+
+    /// A frame as `super::sample` takes it: its time, then frame generation's count as it
+    /// read it.
+    fn frame(f: &mut Frames, dt: f32, generated: Option<u64>) {
+        f.push(dt);
+        f.note_generated(generated);
+    }
+
+    /// `n` frames at the cap, each with a generated frame shown after it; the count after.
+    fn generating(f: &mut Frames, mut count: u64, n: usize) -> u64 {
+        for _ in 0..n {
+            count += 1;
+            frame(f, CAP_DT, Some(count));
+        }
+        count
+    }
+
+    fn shown(r: &FrameReading) -> f32 {
+        r.shown_fps.expect("frames shown")
+    }
+
+    #[test]
+    fn frame_generation_counts_the_generated_frames_of_each_window() {
+        let mut f = Frames::default();
+        f.note_generated(Some(1000));
+        // A generated frame after each rendered one: twice the rendered rate.
+        let count = generating(&mut f, 1000, CAP_WINDOW);
+        let r = f.take().expect("frames");
+        assert!((r.fps - 78.0).abs() < 0.01, "{r:?}");
+        assert!((shown(&r) - 156.0).abs() < 0.01, "{r:?}");
+        assert_eq!(fps_text(&r, Low::OnePercent), "156  (78 rendered)  12.8 ms  1% low 12.8");
+        // The next window counts from where this one ended: the same, not a frame more or
+        // fewer.
+        generating(&mut f, count, CAP_WINDOW);
+        let r = f.take().expect("frames");
+        assert!((shown(&r) - 156.0).abs() < 0.01, "{r:?}");
+    }
+
+    #[test]
+    fn frame_generation_on_for_part_of_a_window_counts_what_it_generated() {
+        let mut f = Frames::default();
+        f.note_generated(Some(0));
+        // 20 frames with nothing generated (a menu), then 19 with: 38 generated a second
+        // over the window beside the 78 rendered.
+        for _ in 0..20 {
+            frame(&mut f, CAP_DT, Some(0));
+        }
+        let count = generating(&mut f, 0, 19);
+        let r = f.take().expect("frames");
+        assert!((shown(&r) - 116.0).abs() < 0.01, "{r:?}");
+        // Off for the next window: the rendered frames' reading alone.
+        for _ in 0..CAP_WINDOW {
+            frame(&mut f, CAP_DT, Some(count));
+        }
+        let r = f.take().expect("frames");
+        assert_eq!(r.shown_fps, None);
+        assert_eq!(fps_text(&r, Low::OnePercent), " 78  12.8 ms  1% low 12.8");
+    }
+
+    #[test]
+    fn a_generated_frame_taken_back_counts_against_the_window_it_lands_in() {
+        let mut f = Frames::default();
+        f.note_generated(Some(0));
+        let count = generating(&mut f, 0, CAP_WINDOW);
+        assert!(f.take().is_some_and(|r| (shown(&r) - 156.0).abs() < 0.01));
+        // The presenter leaves out the last window's last generated frame to catch up:
+        // taken back at this window's first frame, which shows one generated frame fewer.
+        frame(&mut f, CAP_DT, Some(count));
+        let count = generating(&mut f, count, CAP_WINDOW - 1);
+        let r = f.take().expect("frames");
+        assert!((shown(&r) - 154.0).abs() < 0.01, "{r:?}");
+        // Frame generation switched off and a take-back landing after the window began:
+        // the count below where it began reads as nothing generated, not as a count
+        // wrapped round.
+        for _ in 0..CAP_WINDOW {
+            frame(&mut f, CAP_DT, Some(count - 1));
+        }
+        let r = f.take().expect("frames");
+        assert_eq!(r.shown_fps, None, "{r:?}");
+        assert!((r.fps - 78.0).abs() < 0.01, "{r:?}");
+    }
+
+    #[test]
+    fn a_new_showing_counts_from_the_frame_before_its_first_frame_time() {
+        let mut f = Frames::default();
+        // Hidden while frame generation runs: no frame kept, the count noted each frame.
+        let mut count = 0;
+        for _ in 0..100 {
+            count += 1;
+            f.note_generated(Some(count));
+        }
+        // Shown (`super::switch` lets the frames go): the first frame time runs from the
+        // last hidden frame, so the first reading has all 39 generated frames, not 38.
+        f.clear();
+        count = generating(&mut f, count, CAP_WINDOW);
+        let r = f.take().expect("frames");
+        assert!((shown(&r) - 156.0).abs() < 0.01, "{r:?}");
+        // Hidden and shown again, or the frame rows off and on again (the frames let go
+        // the same way): the same.
+        f.clear();
+        for _ in 0..50 {
+            count += 1;
+            f.note_generated(Some(count));
+        }
+        f.clear();
+        generating(&mut f, count, CAP_WINDOW);
+        let r = f.take().expect("frames");
+        assert!((shown(&r) - 156.0).abs() < 0.01, "{r:?}");
+    }
+
+    #[test]
+    fn without_frame_generation_the_row_reads_the_rendered_frames() {
+        let mut f = Frames::default();
+        for _ in 0..30 {
+            frame(&mut f, 1.0 / 60.0, None);
+        }
+        let r = f.take().expect("frames");
+        assert_eq!(r.shown_fps, None);
+        assert_eq!(fps_text(&r, Low::OnePercent), " 60  16.7 ms  1% low 16.7");
     }
 
     #[test]
@@ -573,7 +749,7 @@ mod tests {
         let waiting = rows(&Readings::default(), &on);
         assert_eq!(waiting, vec![Row { label: "FPS", value: "--".into(), warn: false, graph: false }]);
         let r = Readings {
-            frame: Some(FrameReading { fps: 60.0, mean_ms: 16.7, worst_ms: 20.0, low_ms: 21.3, slowest_ms: 30.0 }),
+            frame: Some(FrameReading { fps: 60.0, mean_ms: 16.7, worst_ms: 20.0, low_ms: 21.3, slowest_ms: 30.0, shown_fps: None }),
             cpu: Some(12.0),
             game_cores: Some(1.6),
             gpu: Some(71.0),

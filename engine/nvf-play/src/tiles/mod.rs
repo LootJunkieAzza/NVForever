@@ -50,6 +50,7 @@ pub mod inventory_menu;
 pub mod item_card;
 pub mod layout;
 pub mod list;
+pub mod map_menu;
 pub mod menus;
 pub mod model;
 pub mod mods;
@@ -57,6 +58,7 @@ pub mod notices;
 pub mod stats_menu;
 pub(crate) mod selection_menu;
 pub mod tag_menu;
+pub mod texmod;
 pub mod trait_menu;
 pub mod tutorial_menu;
 pub mod vanilla;
@@ -160,7 +162,7 @@ pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
     if menus.repair_services || menus.repair_menu {
         return true;
     }
-    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog || menus.inventory
+    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog || menus.inventory || menus.map
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -787,6 +789,7 @@ fn write_tutorial(
     mut fonts: draw::FontKit,
     mut written: Local<TutorialWritten>,
     mut check: ResMut<TutorialScrollCheck>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
 ) {
     check.wrote = None;
     if !switch.tutorial {
@@ -804,7 +807,7 @@ fn write_tutorial(
         check.drawn = None;
         return;
     }
-    let pages = crate::tutorial_menu::pages_with(game, tutorial_menu::body_text);
+    let pages = crate::tutorial_menu::pages_with(game, tutorial_menu::body_text, bindings.as_deref());
     let (Some(menu), false) = (game.ui_tree.menu(tutorial_menu::TUTORIAL_MENU), pages.is_empty()) else { return };
     let at = view.page.min(pages.len() - 1);
     let now = tutorial_menu::Shown { menu, page: pages[at].clone(), at, of: pages.len() };
@@ -975,6 +978,7 @@ impl Plugin for TilesPlugin {
         input::setup(app);
         stats_menu::setup(app);
         inventory_menu::setup(app);
+        map_menu::setup(app);
         vats_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
             .init_resource::<TutorialScrollCheck>()
@@ -1017,6 +1021,11 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, inventory_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, inventory_menu::write.after(inventory_menu::feed).before(PlaySet::Activation))
             .add_systems(Update, inventory_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's DATA page, in the same three steps; its preparation (the model's keys,
+            // the acts, what it shows) is `data::prepare`, before the decision and the frame.
+            .add_systems(Update, map_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, map_menu::write.after(map_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, map_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(crate::pipboy::frame::draw))
             // The Pip-Boy's repair page, in the same three steps; its model's keys have run by
             // `prepare`, in the Pip-Boy's chain.
             .add_systems(Update, repair_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
@@ -1174,6 +1183,7 @@ mod tests {
         assert!(interface_screen(vanilla::TileMenus { traits: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { tags: true, ..Default::default() }));
         assert!(interface_screen(vanilla::TileMenus { dialog: true, ..Default::default() }));
+        assert!(interface_screen(vanilla::TileMenus { map: true, ..Default::default() }));
         write_screen(&mut ui, 1280.0, 720.0, true);
         ui.update();
         assert_eq!(ui.get_float("M/Box/x").map(|x| (x * 100.0).round() / 100.0), Some(803.33));

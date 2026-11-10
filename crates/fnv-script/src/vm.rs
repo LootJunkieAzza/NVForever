@@ -1199,6 +1199,11 @@ fn hex_prefix(h: &str) -> f64 {
 /// asks of the message formatter].
 const MAX_FORMAT_FIELD: usize = 512;
 
+/// The most elements an array function makes or grows an array to (Ar_Init, Ar_Range,
+/// Ar_Generate, Ar_Resize) [design: a bound against a runaway script, far above what a mod
+/// keeps].
+const MAX_ELEMENTS: usize = 1_000_000;
+
 /// A number by a printf-style code, as the C library writes it [observed: the game's
 /// sv_Construct, probe format1 and jip5 (#1006): `%g` 0.5 "0.5", 2.5 "2.5", 1000000
 /// "1e+06", 123.456789 "123.457", 1234567 "1.23457e+06", 10020030 "1.002e+07"; `%G`
@@ -1354,6 +1359,28 @@ fn position(i: f64, len: usize) -> Option<usize> {
     let i = i.trunc() as i64;
     let p = if i < 0 { len as i64 + i } else { i };
     (0..len as i64).contains(&p).then_some(p as usize)
+}
+
+/// A character for a search without regard to case: its lowercase when that is one
+/// character, else itself. Lowering a whole string changes its byte length for some
+/// characters (`İ` 2 → 3 bytes, the Kelvin sign 3 → 1), so a position found in a
+/// lowered copy is not one in the original; character by character it is [#1989].
+fn fold(c: char) -> char {
+    let mut l = c.to_lowercase();
+    match (l.next(), l.next()) {
+        (Some(x), None) => x,
+        _ => c,
+    }
+}
+
+/// The first `needle` in `hay` from character `from`, as a character index; `case`
+/// compares as they are, else through [`fold`]. An empty needle is found at `from`.
+fn find_chars(hay: &[char], needle: &[char], from: usize, case: bool) -> Option<usize> {
+    if needle.is_empty() {
+        return (from <= hay.len()).then_some(from);
+    }
+    let same = |a: &char, b: &char| if case { a == b } else { fold(*a) == fold(*b) };
+    (from..=hay.len().checked_sub(needle.len())?).find(|&i| hay[i..i + needle.len()].iter().zip(needle).all(|(a, b)| same(a, b)))
 }
 
 impl Vm<'_, '_> {
@@ -1668,8 +1695,12 @@ impl Vm<'_, '_> {
         let XVal::Array(id) = holder else { return Err(VmError::Type("[] of something that is not an array".into())) };
         let key = self.key_for(*id, k)?;
         let store = self.store()?;
+        // Held once the array is there: an empty array variable left `v` held for good [#1990].
+        if store.array(*id).is_none() {
+            return Err(VmError::Type("[] of an empty array variable".into()));
+        }
         store.retain(&v);
-        let a = store.array_mut(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
+        let a = store.array_mut(*id).expect("looked up just above");
         let old = match (a.kind, &key) {
             (ArrayKind::List, XKey::Num(x)) => {
                 let len = a.entries.len();
@@ -1739,6 +1770,24 @@ impl Vm<'_, '_> {
         format!("{kind} #{id} [{}]", parts.join(", "))
     }
 
+    /// The loop of [`Vm::foreach`] over array `id`, its source held by the caller.
+    fn foreach_array(&mut self, var: &VarRef, id: u32, body: &[Stmt]) -> Result<Flow, VmError> {
+        let mut i = 0;
+        loop {
+            self.step()?;
+            let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { return Ok(Flow::Normal) };
+            let store = self.store()?;
+            let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
+            self.write_var(var, XVal::Array(e))?;
+            match self.list(body, false)? {
+                f @ (Flow::Return | Flow::GoTo(_)) => return Ok(f),
+                Flow::Break => return Ok(Flow::Normal),
+                Flow::Normal | Flow::Leave | Flow::Continue | Flow::Wait => {}
+            }
+            i += 1;
+        }
+    }
+
     /// `foreach <var> <- <source>` … `loop`. Over an array each entry is a string map with
     /// its "key" and "value"; over a string each character [documented: ForEach]. The
     /// source is read element by element as the loop goes, so erasing during it skips
@@ -1748,23 +1797,15 @@ impl Vm<'_, '_> {
         let src = self.xeval(&head.source)?;
         match src {
             XVal::Array(id) => {
+                // The source is held for the loop and let go however it ends: an error in
+                // the body (a function on no reference, the step budget) kept it held for
+                // ever, swept never and saved [#1990].
                 self.store()?.retain(&src);
-                let mut i = 0;
-                let flow = loop {
-                    self.step()?;
-                    let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { break Flow::Normal };
-                    let store = self.store()?;
-                    let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
-                    self.write_var(var, XVal::Array(e))?;
-                    match self.list(body, false)? {
-                        f @ (Flow::Return | Flow::GoTo(_)) => break f,
-                        Flow::Break => break Flow::Normal,
-                        Flow::Normal | Flow::Leave | Flow::Continue | Flow::Wait => {}
-                    }
-                    i += 1;
-                };
-                self.store()?.release(&src);
-                Ok(flow)
+                let flow = self.foreach_array(var, id, body);
+                if let Ok(store) = self.store() {
+                    store.release(&src);
+                }
+                flow
             }
             XVal::Str(s) => {
                 for ch in s.chars() {
@@ -1976,7 +2017,8 @@ impl Vm<'_, '_> {
                 let Some(id) = array_of(&a) else { return num(0.0) };
                 let store = self.store()?;
                 let Some(arr) = store.array_mut(id).filter(|a| a.kind == ArrayKind::List && size >= 0.0) else { return num(0.0) };
-                let size = size as usize;
+                // At most as many as Ar_Init makes: `Ar_Resize a 1e12` tried to allocate that [#1991].
+                let size = (size as usize).min(MAX_ELEMENTS);
                 let cut: Vec<XVal> = if arr.entries.len() > size { arr.entries.split_off(size).into_iter().map(|e| e.1).collect() } else { Vec::new() };
                 let grow = size.saturating_sub(arr.entries.len());
                 for _ in 0..grow {
@@ -2045,6 +2087,8 @@ impl Vm<'_, '_> {
                 for i in 1..vals.len() {
                     let mut j = i;
                     while j > 0 {
+                        // Each call of the script's test is a step of this run [#1991].
+                        self.step()?;
                         let store = self.store()?;
                         let x = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j].clone())]);
                         let y = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j - 1].clone())]);
@@ -2114,7 +2158,7 @@ impl Vm<'_, '_> {
                 while (step > 0.0 && x <= b) || (step < 0.0 && x >= b) {
                     es.push((XKey::Num(es.len() as f64), XVal::Num(x)));
                     x += step;
-                    if es.len() > 1_000_000 {
+                    if es.len() > MAX_ELEMENTS {
                         break;
                     }
                 }
@@ -2122,7 +2166,7 @@ impl Vm<'_, '_> {
             }
             "ar_init" => {
                 let (count, v) = (val(self, 0)?.num()?.max(0.0) as usize, val(self, 1)?);
-                let es = (0..count.min(1_000_000)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
+                let es = (0..count.min(MAX_ELEMENTS)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
                 Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
             }
             // [documented: Ar Unique] the first of each value, in its place.
@@ -2188,6 +2232,9 @@ impl Vm<'_, '_> {
                 let entries: Vec<(XKey, XVal)> = self.store()?.array(id).map(|a| a.entries.clone()).unwrap_or_default();
                 let mut kept = Vec::new();
                 for (k, v) in entries {
+                    // Each call of the function is a step of this run: a million elements
+                    // called it a million times on no budget [#1991].
+                    self.step()?;
                     let store = self.store()?;
                     let it = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v.clone())]);
                     let r = self.host.call_function(&f, None, vec![XVal::Array(it)]).map_err(VmError::Host)?;
@@ -2213,7 +2260,8 @@ impl Vm<'_, '_> {
                 let kf = if nargs > 2 { Some(val(self, 2)?) } else { None };
                 let mut es = Vec::new();
                 let mut kind = ArrayKind::List;
-                for i in 0..count.min(1_000_000) {
+                for i in 0..count.min(MAX_ELEMENTS) {
+                    self.step()?;
                     let v = self.host.call_function(&vf, None, Vec::new()).map_err(VmError::Host)?;
                     let key = match &kf {
                         None => XKey::Num(i as f64),
@@ -2444,7 +2492,12 @@ impl Vm<'_, '_> {
                 if needle.is_empty() {
                     return Ok(Some(XVal::Num(0.0)));
                 }
-                let n = if case { region.matches(needle.as_str()).count() } else { region.to_lowercase().matches(needle.to_lowercase().as_str()).count() };
+                let (region, needle): (Vec<char>, Vec<char>) = (region.chars().collect(), needle.chars().collect());
+                let (mut n, mut at) = (0usize, 0usize);
+                while let Some(i) = find_chars(&region, &needle, at, case) {
+                    n += 1;
+                    at = i + needle.len();
+                }
                 XVal::Num(n as f64)
             }
             // [documented: Sv Destruct] the variable's string goes; it reads 0 after.
@@ -2468,9 +2521,10 @@ impl Vm<'_, '_> {
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let chars: Vec<char> = hay.chars().collect();
                 let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
-                let region: String = chars.get(start..end).map(|s| s.iter().collect()).unwrap_or_default();
-                let found = if case { region.find(&needle) } else { region.to_lowercase().find(&needle.to_lowercase()) };
-                XVal::Num(found.map_or(-1.0, |b| (start + region[..b].chars().count()) as f64))
+                let region = chars.get(start..end).unwrap_or_default();
+                let needle: Vec<char> = needle.chars().collect();
+                let found = find_chars(region, &needle, 0, case);
+                XVal::Num(found.map_or(-1.0, |i| (start + i) as f64))
             }
             // [documented: Sv Replace] "old|new", in place, every match without regard to
             // case by default; the number replaced.
@@ -2489,21 +2543,17 @@ impl Vm<'_, '_> {
                     return Ok(Some(XVal::Num(0.0)));
                 }
                 let chars: Vec<char> = s.chars().collect();
-                let (head, tail): (String, String) = (chars[..start.min(chars.len())].iter().collect(), chars[start.min(chars.len())..].iter().collect());
-                let (mut out, mut count, mut rest) = (head, 0usize, tail.as_str());
-                loop {
-                    let at = if case { rest.find(old) } else { rest.to_lowercase().find(&old.to_lowercase()) };
-                    match at {
-                        Some(b) if max.is_none_or(|m| count < m) => {
-                            out.push_str(&rest[..b]);
-                            out.push_str(new);
-                            rest = &rest[b + old.len()..];
-                            count += 1;
-                        }
-                        _ => break,
-                    }
+                let old: Vec<char> = old.chars().collect();
+                let from = start.min(chars.len());
+                let (mut out, mut count, mut at): (String, usize, usize) = (chars[..from].iter().collect(), 0, from);
+                while max.is_none_or(|m| count < m) {
+                    let Some(i) = find_chars(&chars, &old, at, case) else { break };
+                    out.extend(&chars[at..i]);
+                    out.push_str(new);
+                    at = i + old.len();
+                    count += 1;
                 }
-                out.push_str(rest);
+                out.extend(&chars[at..]);
                 self.write_var(var, XVal::Str(out))?;
                 XVal::Num(count as f64)
             }
@@ -2896,6 +2946,10 @@ impl Vm<'_, '_> {
         // place (fnv_game::ui_functions).
         let format_at = match lname.as_str() {
             "addtilefromtemplate" => Some(0),
+            // [documented: ShowTextInputMenu `callback width height "title" values…`,
+            // SetTextInputString `"text" values…`] (fnv_game::nvse_jip12).
+            "settextinputstring" => Some(0),
+            "showtextinputmenu" => Some(3),
             "setuistringex" | "setuistringalt" | "injectuicomponent" | "attachuicomponent" => Some(1),
             _ => None,
         };
@@ -3116,7 +3170,8 @@ impl Vm<'_, '_> {
             // the page names the option without showing it].
             "inttobin" => {
                 let v = arg(self, 0)?.num()? as i64 as u32;
-                let width = c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                // The width capped as the format fields are: it went straight into the padding [#1991].
+                let width = (c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize).min(MAX_FORMAT_FIELD);
                 let prefix = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_some_and(|v| v.truthy());
                 Ok(XVal::Str(format!("{}{:0width$b}", if prefix { "0b" } else { "" }, v)))
             }
@@ -3288,6 +3343,9 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         // [documented: GetMousePosition, GetMouseMovement, "output … to fPosX and fPosY
         // script variables"].
         "getmouseposition" | "getmousemovement" => &[0, 1],
+        // [documented: GetCameraTranslation and WorldToScreen, "Stores … in xOut, yOut and
+        // zOut variables"].
+        "getcameratranslation" | "worldtoscreen" => &[0, 1, 2],
         // [documented: Ar_SetFloatsFrom, "Sets float variables from variables in array (up
         // to 10)"].
         "ar_setfloatsfrom" => &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -3295,6 +3353,8 @@ fn out_params(lname: &str) -> Option<&'static [usize]> {
         "hsvtorgb" | "rgbtohsv" => &[3, 4, 5],
         // [documented: GetSystemColorAlt and GetPixelFromBMP, three variables for R, G, B].
         "getsystemcoloralt" | "getpixelfrombmp" => &[1, 2, 3],
+        // [documented: GetLinearVelocity and GetCurrentSkyColor, three script variables].
+        "getlinearvelocity" | "getcurrentskycolor" => &[1, 2, 3],
         _ => return None,
     })
 }

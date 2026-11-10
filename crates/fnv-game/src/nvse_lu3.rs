@@ -86,15 +86,24 @@ fn of_sig(g: &Game, f: FormId, sigs: &[&[u8; 4]]) -> bool {
 }
 
 /// Where the script functions' Nth entry of a perk is in the record: the entries by rank,
-/// then priority, those alike in the reverse of the record's order [observed: lu3
-/// perkentry, Fast Shot's entry 1 is its third in the record (entry points 40, 43, 8, 34
-/// in the record, 8 read); gaps4 and jip2, Toughness's entry 0 is its rank-1 entry, the
-/// first of two ranks; hypothesis: the order between priorities, no perk probed has
-/// two].
+/// then priority, then kind (quest stages, abilities, entry points), those alike in the
+/// reverse of the record's order [observed: lu3 perkentry, Fast Shot's entry 1 is its
+/// third in the record (entry points 40, 43, 8, 34 in the record, 8 read); gaps4 and
+/// jip2, Toughness's entry 0 is its rank-1 entry, the first of two ranks; L5.ext rerun,
+/// #2040: Small Frame (ability, ability, entry point 6 in the record) reads abilities
+/// at 0 and 1, Built to Last (ability, entry point) its ability at 0; hypothesis: the
+/// kind as the key, the one rule found that fits every perk probed, and the order
+/// between priorities, no perk probed has two].
 pub(crate) fn nth_entry(def: &PerkDef, i: f64) -> Option<usize> {
     let i = usize::try_from(i as i64).ok()?;
+    let kind = |e: &crate::data::PerkEntry| match e.effect {
+        PerkEffect::QuestStage { .. } => 0u8,
+        PerkEffect::Ability(_) => 1,
+        PerkEffect::EntryPoint(_) => 2,
+        PerkEffect::Other => 3,
+    };
     let mut order: Vec<usize> = (0..def.entries.len()).collect();
-    order.sort_by_key(|&k| (def.entries[k].rank, def.entries[k].priority, std::cmp::Reverse(k)));
+    order.sort_by_key(|&k| { let e = &def.entries[k]; (e.rank, e.priority, kind(e), std::cmp::Reverse(k)) });
     order.get(i).copied()
 }
 
@@ -465,4 +474,40 @@ fn equip(g: &mut Game, a: FormId, item: FormId, health: f64, mods: Option<u8>, l
     }
     g.equip_events(a, item, e.consumed);
     g.sync_actor_effects(a);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::{EntryPointDef, PerkEntry};
+
+    fn perk(entries: &[(u8, PerkEffect)]) -> PerkDef {
+        let entries = entries.iter().enumerate().map(|(k, (rank, effect))| PerkEntry { rank: *rank, priority: 0, effect: effect.clone(), ordinal: k as u32 }).collect();
+        PerkDef { entries, ..Default::default() }
+    }
+
+    fn point(p: u8) -> PerkEffect {
+        PerkEffect::EntryPoint(EntryPointDef { point: p, ..Default::default() })
+    }
+
+    fn order(d: &PerkDef) -> Vec<usize> {
+        (0..d.entries.len()).map(|i| nth_entry(d, i as f64).unwrap()).collect()
+    }
+
+    /// The perks the probes read [observed: lu3 perkentry; gaps4, jip2; L5.ext rerun, #2040].
+    #[test]
+    fn entries_go_by_rank_then_kind_then_reverse_record_order() {
+        // Fast Shot: four entry points, entry 1 the third in the record.
+        assert_eq!(order(&perk(&[(0, point(40)), (0, point(43)), (0, point(8)), (0, point(34))])), vec![3, 2, 1, 0]);
+        // Small Frame: two abilities, then an entry point; abilities at 0 and 1.
+        let small = perk(&[(0, PerkEffect::Ability(FormId(0))), (0, PerkEffect::Ability(FormId(0x135EC2))), (0, point(6))]);
+        assert_eq!(order(&small)[2], 2);
+        // Built to Last: its ability first.
+        assert_eq!(order(&perk(&[(0, PerkEffect::Ability(FormId(0x137B00))), (0, point(0x44))])), vec![0, 1]);
+        // Action Boy and Toughness: by rank.
+        assert_eq!(order(&perk(&[(0, PerkEffect::Ability(FormId(1))), (1, PerkEffect::Ability(FormId(2)))])), vec![0, 1]);
+        assert_eq!(order(&perk(&[(0, point(56)), (1, point(56))])), vec![0, 1]);
+        assert_eq!(nth_entry(&small, 3.0), None);
+        assert_eq!(nth_entry(&small, -1.0), None);
+    }
 }
