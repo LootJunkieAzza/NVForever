@@ -57,6 +57,16 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 `pipboy-first-open` scenarios passed with a clean first opening without them
 (2026-11-07).
 
+Fourth change (prepass coverage, docs/design/frame-rate-audit.md §9), in
+`src/render/pbr_prepass_functions.wesl`, marked `NVForever prepass coverage`:
+`nvf_prepass_sample_color` and its result struct, which hand out the base colour, flags and
+alpha cutoff that `prepass_sample_color_and_alpha_discard` samples, without testing them.
+nvf-assets' `fade_prepass.wesl` turns that alpha into a sample mask (the soft edge of grass,
+leaf cards and tree billboards, written by the depth prepass). Upstream's function is
+unchanged, so nothing else behaves differently. Upstream has no way to get the sampled alpha
+out of the prepass's own code; drop this when it has, or when the sampling is written in
+nvf-assets.
+
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
 Early finishing of command encoders (#1427, docs/design/frame-rate-audit.md §5). First

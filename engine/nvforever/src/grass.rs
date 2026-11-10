@@ -79,8 +79,14 @@ impl MaterialExtension for GrassSway {
     ) -> Result<(), SpecializedMeshPipelineError> {
         // Grass fades in and out with its cell (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
-        // Main pass of a multisampled view: the fragment's alpha is the share of the
-        // pixel's samples it covers.
+        // A multisampled view with a depth-only prepass: the prepass writes the share of
+        // the pixel's samples each blade covers, and the main pass tests depth for
+        // equality (nvf_assets `grass_edges`).
+        if nvf_assets::grass_edges(descriptor, key.mesh_key) {
+            return Ok(());
+        }
+        // Main pass of any other multisampled view: the fragment's alpha is the share of
+        // the pixel's samples it covers.
         let prepass = descriptor.vertex.shader_defs.contains(&"PREPASS_PIPELINE".into());
         if !prepass && descriptor.multisample.count > 1 {
             if let Some(fragment) = descriptor.fragment.as_mut() {
