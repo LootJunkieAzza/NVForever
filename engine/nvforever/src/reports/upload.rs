@@ -22,6 +22,7 @@ pub const KEEP_SENT: usize = 20;
 /// Pending files older than this are dropped unsent (§8).
 pub const MAX_AGE: Duration = Duration::from_secs(14 * 86_400);
 /// One request's limit (§8).
+#[cfg_attr(not(windows), allow(dead_code))] // used only by the Windows HTTP client
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 /// The project's server, used when `[Reports] Endpoint` is empty.
 pub const DEFAULT_ENDPOINT: &str = "https://reports-api.nv-forever.com";
