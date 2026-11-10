@@ -489,6 +489,19 @@ pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) 
         }
     }
     let pane = if w.shown.as_ref().is_some_and(|s| s.objectives.is_some()) { Some(objectives_window(ui)?) } else { None };
+    // A quest with objectives shows at least one of them whole in that window: the pieces are what
+    // is painted, so a list or text hidden (its own `visible` or one above it) or placed outside the
+    // window shows none, and the pane would be blank.
+    if let Some(window) = pane.filter(|_| !w.objectives.is_empty()) {
+        let inside = |p: &Piece| {
+            let r = p.rect;
+            f64::from(window.min.x) - 1.0 <= r.left && f64::from(window.min.y) - 1.0 <= r.top && r.left + r.width <= f64::from(window.max.x) + 1.0 && r.top + r.height <= f64::from(window.max.y) + 1.0
+        };
+        let shows = w.objectives.iter().filter_map(|r| list::child(ui, r.tile, ROW_TEXT)).filter_map(|t| texts.get(&t)).any(|p| shows_whole(p).is_some() && inside(p));
+        if !shows {
+            return Err("no objective shows in its window".into());
+        }
+    }
     Ok(Checked { rows: w.rows.len(), rows_in_clip, hit_tests: wanted.len() + optional.len(), pane, missed })
 }
 
@@ -1488,6 +1501,27 @@ mod tests {
         assert!(t.written.layout_failure, "a layout's failure");
         let mut ui = tree_changed(|x| x.replace(r#"<rect name="MM_DataRect"><x>450</x><y>200</y>"#, r#"<rect name="MM_DataRect"><x>450</x><y>700</y>"#));
         assert_eq!(run(&mut ui, Some(shown(2, 0, 1)), &mut MapTiles::default()), Err("the objectives' window does not fit".to_string()));
+        // Objectives whose list is hidden: none shows in the window.
+        let mut ui = tree_changed(|x| x.replace(r#"<hotrect name="MM_QuestObjectivesList"><width>380</width>"#, r#"<hotrect name="MM_QuestObjectivesList"><visible>&false;</visible><width>380</width>"#));
+        let mut t = MapTiles::default();
+        let err = run(&mut ui, Some(shown(2, 0, 2)), &mut t).unwrap_err();
+        // Whether a hidden list's window is laid out at all is the layout's; either way no pane.
+        assert!(err == "no objective shows in its window" || err == "the objectives have no window", "{err}");
+        assert!(t.written.layout_failure);
+        // Their words hidden, or placed outside the window, after a pass that went through: the
+        // next final pass falls back.
+        for (name, value) in [("visible", 0.0), ("x", 2000.0), ("y", -500.0)] {
+            let (mut ui, mut t) = (tree(), MapTiles::default());
+            assert!(run(&mut ui, Some(shown(2, 0, 2)), &mut t).is_ok());
+            for row in t.written.objectives.clone() {
+                let words = list::child(&ui, row.tile, ROW_TEXT).unwrap();
+                ui.set_trait(words, name, Value::Num(value));
+            }
+            ui.update();
+            assert_eq!(run(&mut ui, None, &mut t), Err("no objective shows in its window".to_string()), "{name} {value}");
+        }
+        // A quest with no objective shown asks for the window only.
+        assert!(run(&mut tree(), Some(shown(2, 0, 0)), &mut MapTiles::default()).is_ok());
         // No quest, no objectives: no pane is asked for.
         let mut s = shown(0, 0, 0);
         s.hints.clear();

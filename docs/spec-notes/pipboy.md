@@ -1482,7 +1482,9 @@ separate issue).
 (one that does not is warned of and the page stays); the quests' rows whose words lie whole inside
 the list's window, at least one when there are quests, taking the pointer at their middles; a list
 that scrolls has a window; with a quest selected, the objectives' window (what their list clips to,
-read off its scroll bar) has a size and lies wholly on the canvas, or the page falls back. A hint
+read off its scroll bar) has a size and lies wholly on the canvas, and a quest with objectives shows
+at least one of them whole inside it among what is painted (a list or text hidden, by its own
+`visible` or one above it, or placed outside the window, shows none), or the page falls back. A hint
 that shows lit and does not take the pointer is warned of and the page stays (its key still works).
 
 **Falls back, whole page, with the reason** [design]: another tab than Quests; the question box up;
