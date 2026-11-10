@@ -21125,7 +21125,7 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 17
 order = [[
   { re = 'world sounds: a script plays (0x)?FFF00000', label = "the file's own sound is played as a script's" },
-  { re = 'script: print "nvf jg9 stop 1"', label = "StopSoundFromPath stops it" },
+  { re = 'script: print "nvf jg9 stop 0"', label = "StopSoundFromPath returns 0 as the original does (ext-jg9.md §7)" },
   { re = 'script moves: (0x)?00000014 jumps', label = "Jump on the player" },
   { re = 'script moves: auto move on', label = "SetAutoMove 1" },
   { re = 'script moves: auto move off', label = "SetAutoMove 0" },
