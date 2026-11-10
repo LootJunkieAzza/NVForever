@@ -21,18 +21,20 @@ This is the last check before the owner signs off the NVSE work (#1758): every e
 ## 1. Result
 
 - **Sets:** 106 in all.
-  - 23 match every row.
-  - 73 differ.
-  - 10 have no golden: their probes need probe-game setup only the owner can do (§3).
-- **Rows:** 5211 of 5669 golden rows match. 537 rows differ (changed or extra).
+  - 27 match every row.
+  - 77 differ.
+  - 2 have no golden on this machine (pp, jipppln; §3).
+- **Rows:** 5582 of 6046 golden rows match. 546 rows differ (changed or extra).
 
-How the 537 rows that differ break down [observed: lab run; classes by reading the probes, docs and code]:
+The first run left 10 sets without a golden. The owner then set up the probe game, and eight of them were probed and labbed the same day (§3). Those eight add 377 golden rows, of which 371 match, and 9 rows that differ: save 5, engine 1, decided 3, no defect.
+
+How the 546 rows that differ break down [observed: lab run; classes by reading the probes, docs and code]:
 
 | Class | Rows |
 |---|---|
-| save (the owner's save or the probe game's setup) | 257 |
-| engine | 121 |
-| decided | 106 |
+| save (the owner's save or the probe game's setup) | 262 |
+| engine | 122 |
+| decided | 109 |
 | known | 13 |
 | unsure | 11 |
 | **defect** | **29** |
@@ -116,18 +118,26 @@ Defects (29 rows) and unsure rows (11), each with its issue. Original = the gold
 
 ## 3. Sets with no golden: owner step
 
-These sets can't be recorded on this machine until the owner sets up the probe game, as observer-checks.md item 103 asks.
+At the first run these sets could not be recorded on this machine: NVFExtProbe.esp and the MCM plugin were inactive, ITR was not installed and the test INIs were not in `Data\Config` [observed 2026-11-10: `plugins.txt` listed CM4A1.esp and FalloutNV.esm only].
 
-| Sets | What's missing |
-|---|---|
-| nvse.strings, nvse.expressions, nvse.arrays, nvse.loops, nvse.udf | NVFExtProbe.esp is not active, so its probe quests don't start and the SCOF console logs stay empty. Run again here: 60 jobs, 0 logs. |
-| nvse.vars | The same plugin. A run here read `HasVariable` 0 on its quest, so it was not kept as a golden. |
-| ini-files | The test INIs of `tools/capture/jip-probes/config` must be in `Data\Config`, and NVForever never writes into the game folder. |
-| itr, pp, jipppln | ITR NVSE and ppNVSE are not installed. JIP++ has to be swapped in for JIP LN for the run. |
+The owner then installed ITR, copied the test INIs and had `plugins.txt` list The Mod Configuration Menu.esp and NVFExtProbe.esp. The eight sets below were probed in the original under both locks (`ext_probe_run.py`, then `capture_run.py` for itr, ini_files and nvse_vars), collected into the private goldens and labbed against the same fnvtool [observed 2026-11-10]:
 
-[observed 2026-11-10: `plugins.txt` lists CM4A1.esp and FalloutNV.esm only; `Data\NVSE\Plugins` has JIP LN, JohnnyGuitar, kNVSE, MCM, nvf_capture, 1111, ShowOff, SUP.]
+| Set | Matched | Rows that differ |
+|---|---|---|
+| nvse.strings | 66/67 | tostring.form `[Loot]` vs `[<no name>]`: the save's player name (save). replace.empty_old: an extra row, because Sv_Replace with empty old text crashes the game and NVForever chose a safe answer (ext-strings.md, decided) |
+| nvse.expressions | 35/35 | |
+| nvse.arrays | 84/84 | range.step0: an extra row, because Ar_Range with step 0 crashes xNVSE (ext-arrays.md, decided) |
+| nvse.loops | 21/23 | foreach.container_entries and container_kinds 27 vs 2: the save's inventory (save) |
+| nvse.udf | 19/19 | |
+| nvse.vars | 18/18 | `HasVariable` now reads 1 on the plugin's quest |
+| ini-files | 39/39 | |
+| itr | 89/92 | exteriordoor.player and nextdoor.doc: the player stands outdoors in the save and in GSGasStation in the candidate (save). navmesh.player 1 vs 0: no navmesh answerer headless (ext-itr.md, engine). perkblockers.wildwasteland.kind.1: an extra row, because an index past the end is a script error in the game and 0 in our VM (ext-itr.md, decided) |
 
-The same setup explains three rows counted as save above:
+The run crashed the game twice, on the probes that the spec notes record as crashing xNVSE (strings 05, arrays 07 #4). The ini-files steps wrote into the test INIs. Those were put back from `tools/capture/jip-probes/config` afterwards, and `SUPNVSE.log` was deleted.
+
+**pp and jipppln** are still without a golden here. ppNVSE needs JIP++, and JIP++ replaces JIP LN, which JohnnyGuitar checks for. So both go in only for one run with `bJIPFixes=0`, as ext-jippp.md §3 describes, and never stay installed. Their goldens were captured that way on 2026-11-01 and are on the other machine (`jip/pp.json`, `jip/jipppln.json`). Copying them here is enough.
+
+The old setup also explains three rows counted as save above. These and the NVFExtProbe.esp rows below can be captured again now that the plugins are active; that has not been done yet:
 - gaps1 glta.probe: the original returns all 496 weapons for index 255;
 - mcm.loaded: 0;
 - plugins2 so.list.last: GunRunnersArsenal at index 05, where the lab has 09.
@@ -152,8 +162,8 @@ Matched = rows equal to the golden, out of the golden's rows. Extra = rows we pr
 | L5.ext.gaps7 | 81/110 |  | defect 2, engine 1, save 26 |
 | L5.ext.gaps8 | 47/48 |  | engine 1 |
 | L5.ext.gaps9 | 62/103 |  | save 41 |
-| L5.ext.ini.files | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
-| L5.ext.itr | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
+| L5.ext.ini.files | 39/39 |  |  |
+| L5.ext.itr | 89/92 | 1 | engine 1, save 2, decided 1 |
 | L5.ext.jg1 | 68/68 |  |  |
 | L5.ext.jg10 | 4/10 |  | engine 2, save 1, known 3 |
 | L5.ext.jg2 | 37/38 |  | unsure 1 |
@@ -192,7 +202,7 @@ Matched = rows equal to the golden, out of the golden's rows. Extra = rows we pr
 | L5.ext.jip7b | 44/46 |  | defect 2 |
 | L5.ext.jip8 | 281/282 |  | decided 1 |
 | L5.ext.jip9 | 42/48 | 10 | engine 1, save 1, decided 14 |
-| L5.ext.jipppln | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
+| L5.ext.jipppln | no golden here | | captured 2026-11-01 with JIP++ swapped in; the golden is on the other machine (§3) |
 | L5.ext.knvse.anim | 20/32 |  | engine 12 |
 | L5.ext.knvse2 | 27/31 |  | engine 4 |
 | L5.ext.lu.leveled | 91/94 | 3 | save 3, decided 3 |
@@ -202,12 +212,12 @@ Matched = rows equal to the golden, out of the golden's rows. Extra = rows we pr
 | L5.ext.lutana1 | 220/226 | 7 | defect 2, save 1, decided 10 |
 | L5.ext.mcm | 12/13 |  | save 1 |
 | L5.ext.nvse.actors | 64/64 |  |  |
-| L5.ext.nvse.arrays | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
+| L5.ext.nvse.arrays | 84/84 | 1 | decided 1 |
 | L5.ext.nvse.controls | 90/90 |  |  |
 | L5.ext.nvse.data | 20/20 |  |  |
 | L5.ext.nvse.eighth | 56/59 |  | save 3 |
 | L5.ext.nvse.events | 81/100 |  | engine 19 |
-| L5.ext.nvse.expressions | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
+| L5.ext.nvse.expressions | 35/35 |  |  |
 | L5.ext.nvse.fifth | 76/77 |  | save 1 |
 | L5.ext.nvse.flags | 30/42 |  | unsure 2, save 10 |
 | L5.ext.nvse.forms | 110/110 |  |  |
@@ -215,7 +225,7 @@ Matched = rows equal to the golden, out of the golden's rows. Extra = rows we pr
 | L5.ext.nvse.inv | 21/21 |  |  |
 | L5.ext.nvse.keynames | 266/266 |  |  |
 | L5.ext.nvse.leftovers | 13/16 |  | save 3 |
-| L5.ext.nvse.loops | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
+| L5.ext.nvse.loops | 21/23 |  | save 2 |
 | L5.ext.nvse.math | 15/15 | 9 | decided 9 |
 | L5.ext.nvse.misc | 33/34 | 1 | defect 1, save 1 |
 | L5.ext.nvse.refs | 11/12 |  | save 1 |
@@ -223,16 +233,16 @@ Matched = rows equal to the golden, out of the golden's rows. Extra = rows we pr
 | L5.ext.nvse.setters | 10/10 |  |  |
 | L5.ext.nvse.seventh | 38/44 | 1 | save 2, decided 5 |
 | L5.ext.nvse.sixth | 41/41 | 2 | decided 2 |
-| L5.ext.nvse.strings | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
+| L5.ext.nvse.strings | 66/67 | 1 | save 1, decided 1 |
 | L5.ext.nvse.third | 25/25 |  |  |
-| L5.ext.nvse.udf | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
-| L5.ext.nvse.vars | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
+| L5.ext.nvse.udf | 19/19 |  |  |
+| L5.ext.nvse.vars | 18/18 |  |  |
 | L5.ext.one111 | 117/118 |  | engine 1 |
 | L5.ext.plugin.odds | 42/42 | 2 | decided 2 |
 | L5.ext.plugins1 | 67/71 |  | save 4 |
 | L5.ext.plugins2 | 65/67 |  | save 2 |
 | L5.ext.plugins3 | 19/21 |  | unsure 1, save 1 |
-| L5.ext.pp | no golden | | owner step: probe-game setup (observer-checks.md item 103) |
+| L5.ext.pp | no golden here | | captured 2026-11-01 with JIP++ swapped in; the golden is on the other machine (§3) |
 | L5.ext.showoff2 | 49/50 | 1 | decided 2 |
 | L5.ext.showoff3 | 85/104 | 3 | defect 3, engine 1, save 17, decided 1 |
 | L5.ext.showoff4 | 38/38 |  |  |
