@@ -306,7 +306,9 @@ pub(crate) fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, l
 /// again after. Nothing else pauses it.
 fn freeze_picture(mode: Res<MenuPause>, paused: Res<Paused>, state: Res<State<PlayState>>, free_cam: Option<Res<crate::free_cam::FreeCam>>, mut clock: ResMut<Time<Virtual>>) {
     let held_by_cam = free_cam.is_some_and(|f| f.holds_world());
-    let stop = picture_held(*mode, paused.0, *state.get()) || held_by_cam;
+    // In a co-op session only a loading screen holds the picture (`crate::coop_tables`).
+    let coop = crate::coop_tables::keeps_world() && *state.get() != PlayState::Loading;
+    let stop = (picture_held(*mode, paused.0, *state.get()) && !coop) || held_by_cam;
     if clock.is_paused() != stop {
         let why = if paused.0 {
             "the pause menu"

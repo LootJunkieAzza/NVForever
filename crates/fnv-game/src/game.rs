@@ -1505,6 +1505,11 @@ pub struct Game<'a> {
     /// combat blocks, activate children, packages and door OnOpen/OnClose do not: the
     /// host runs them and sends what they did. Off (the default, and always solo).
     pub world_logic_off: bool,
+    /// A co-op session: nothing this player opens holds the world (owner, 2026-11-10:
+    /// "it's co-op! There's no pausing!"). The engine sets it each frame
+    /// (nvf-play `coop_tables::keeps_world`); [`Game::tick`] then runs the world as in
+    /// game mode behind a menu or a conversation.
+    pub no_pause: bool,
     /// The load-order indices whose quests are the host's story ([`Game::world_logic_off`]):
     /// the official masters. A mod's quest scripts keep running on a guest (its menus,
     /// LListAddForm edits a guest's looks read).
@@ -2279,6 +2284,7 @@ impl<'a> Game<'a> {
             coop_checkpoint_holds: BTreeSet::new(),
             coop_checked: BTreeMap::new(),
             world_logic_off: false,
+            no_pause: false,
             story_plugins: Vec::new(),
             coop_effects: None,
             coop_cells: BTreeSet::new(),
@@ -3565,8 +3571,11 @@ impl<'a> Game<'a> {
             return;
         }
         let dt = self.cfg.frame_seconds;
-        // A conversation with the player is menu mode too (`Game::in_menu`).
-        let in_menu = self.in_menu();
+        // A conversation with the player is menu mode too (`Game::in_menu`). Not in a
+        // co-op session ([`Game::no_pause`]): the world goes on behind this player's
+        // menus and conversations, its GameMode blocks with it; the open menu's own
+        // `Begin MenuMode <code>` blocks run beside them (below).
+        let in_menu = self.in_menu() && !self.no_pause;
         // FreezeTime holds game time (`nvse_jip3`).
         if !in_menu && !self.gaps.jip3.time_frozen {
             self.time += dt;
@@ -3617,7 +3626,7 @@ impl<'a> Game<'a> {
             self.story_guards_tick(dt);
         }
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
-        let subject = self.open_menu_code().map(|m| Value::Num(m as f64));
+        let subject = self.open_menu_code().filter(|_| in_menu).map(|m| Value::Num(m as f64));
         let data = self.data;
         // ToggleScripts: no per-frame block runs (`functions::toggles`).
         let scripts = !self.toggles.scripts_off;
@@ -3637,7 +3646,7 @@ impl<'a> Game<'a> {
             })
             .collect();
         // A menu opened during this frame's GameMode holds the rest of it.
-        let held = |g: &Game| !in_menu && g.in_menu();
+        let held = |g: &Game| !in_menu && !g.no_pause && g.in_menu();
         for (q, script) in due {
             if held(self) {
                 break;
@@ -3717,10 +3726,18 @@ impl<'a> Game<'a> {
         }
         if self.menu.is_none() {
             self.update_dialogue(dt);
+        }
+        if self.menu.is_none() || self.no_pause {
             if world_logic {
                 self.tick_packages();
             }
             self.update_image_modifiers(dt);
+        }
+        // Co-op: the open menu's own blocks, beside the GameMode ones above.
+        if self.no_pause {
+            if let Some(code) = self.open_menu_code() {
+                self.side_blocks(code);
+            }
         }
     }
 

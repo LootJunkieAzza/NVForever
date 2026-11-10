@@ -825,7 +825,7 @@ fn sync_state(
         (PlayState::Dialogue, false) => next.set(if boxed { PlayState::Menu } else { PlayState::Playing }),
         _ => {}
     }
-    world_held.set_if_neq(WorldHeld(talking));
+    world_held.set_if_neq(WorldHeld(talking && !crate::coop_tables::keeps_world()));
     // Free look while the actor speaks; the cursor while the player chooses or answers a
     // message box.
     let speaking = game.is_some_and(|g| !held(g) && g.dialogue.as_ref().is_some_and(|c| c.line.is_some()));

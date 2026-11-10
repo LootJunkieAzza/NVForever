@@ -149,7 +149,7 @@ impl Tables {
 
 /// Whether the world goes on now: playing, or (in co-op) behind a minigame table.
 pub fn world_runs(state: &crate::PlayState, keep: &KeepWorld) -> bool {
-    *state == crate::PlayState::Playing || (*state == crate::PlayState::Menu && keep.0)
+    *state == crate::PlayState::Playing || (matches!(*state, crate::PlayState::Menu | crate::PlayState::Dialogue) && keep.0)
 }
 
 /// In co-op with a minigame table open: the world is not held (set each frame by
@@ -1046,7 +1046,11 @@ pub fn keeps_world() -> bool {
 
 /// In co-op a minigame table does not hold the world.
 fn keep_world(tables: Res<Tables>, open: Res<OpenTable>, mut keep: ResMut<KeepWorld>) {
-    let on = tables.on && open.0.is_some();
+    // Nor does anything else a player opens: a conversation, a container, the pause
+    // menu (owner, 2026-11-10: "World shouldn't pause when host does something that
+    // pauses it ... it's co-op! There's no pausing!"; queue item 195).
+    let _ = &open;
+    let on = tables.on;
     KEEPS_WORLD.store(on, std::sync::atomic::Ordering::Relaxed);
     keep.set_if_neq(KeepWorld(on));
 }

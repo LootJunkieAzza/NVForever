@@ -1864,7 +1864,8 @@ impl Core {
         }
         // A menu, a conversation or a loading screen holds the game: nobody moves.
         // In co-op a minigame table does not hold it (`nvf_play::coop_tables`).
-        self.held_now = (game.menu.is_some() && !nvf_play::coop_tables::keeps_world()) || game.loading || game.dialogue.is_some();
+        // Nor, in a co-op session, any menu or conversation (queue item 195).
+        self.held_now = ((game.menu.is_some() || game.dialogue.is_some()) && !nvf_play::coop_tables::keeps_world()) || game.loading;
         if self.held_now {
             for b in phys.iter_mut().flat_map(|p| p.npcs.values_mut()) {
                 b.velocity = [0.0, 0.0];

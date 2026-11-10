@@ -1980,6 +1980,7 @@ pub(crate) fn run_scripts(
             .chain(phys.npcs.iter().map(|(&r, b)| (FormId(r), b.ch.air_time)))
             .filter(|(_, t)| *t > 0.0)
             .collect();
+        rt.game.no_pause = crate::coop_tables::keeps_world();
         with_ray_caster(&mut phys, || rt.game.tick());
         apply_pushes(&mut rt.game, &mut phys);
         rt.ticked = true;

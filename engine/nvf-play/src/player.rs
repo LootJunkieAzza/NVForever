@@ -1055,7 +1055,11 @@ fn step(
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
 ) {
-    if *state.get() != PlayState::Playing {
+    // In a co-op session the world's physics goes on behind this player's menus and
+    // conversations (`crate::coop_tables`; the player itself stands: `read_input` asks
+    // for no movement there). Held, the NPCs' AI walked on with bodies that stood, and
+    // they were moved along their paths in jumps (desktop run for item 195).
+    if !crate::coop_tables::world_runs(state.get(), &crate::coop_tables::KeepWorld(crate::coop_tables::keeps_world())) {
         phys.stepper = default();
         return;
     }
