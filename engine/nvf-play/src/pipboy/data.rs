@@ -384,6 +384,12 @@ pub struct DataState {
     doors: HashMap<DoorKey, Vec<read::Door>>,
     /// What was drawn last.
     shown: Option<View>,
+    /// What the page showed when last prepared ([`step`]), whatever draws it: the hints are
+    /// logged when they change from it. Kept while the page is closed.
+    last_view: Option<View>,
+    /// What the page shows, as last prepared while open: the hand-built body paints it with
+    /// `MapMenu` on ([`prepare`]). Kept while the page goes down.
+    prepared: Option<View>,
     was_open: bool,
     last_tab: Option<usize>,
     /// The doors outdoors into each interior a quest target is in (`Game::doors_into`).
@@ -552,8 +558,43 @@ pub struct Tools<'w> {
     glyphs: Res<'w, crate::pad::PadGlyphs>,
 }
 
-/// Keep track of the quests and markers, take the player's input while the page is
-/// shown, and fill the page's body when what it shows changed.
+/// With the DATA page drawn from its file switched on (`[UI] TileMenus=MapMenu`), the page's
+/// preparation, before the tile page's decision and the frame (docs/spec-notes/pipboy.md §5.3.1):
+/// the quests and markers kept track of, the player's input taken, notes marked read, the Local
+/// Map's outline advanced and what the page shows gathered ([`step`]), for the DATA page as the
+/// Pip-Boy shows it, whatever draws it. [`draw`] then only paints the hand-built body while it is
+/// there. Off, this does nothing and [`draw`] prepares and paints as it always did.
+pub fn prepare(
+    mut commands: Commands,
+    switch: Option<Res<crate::tiles::vanilla::TileMenus>>,
+    pip: Res<PipBoy>,
+    screen: Option<Res<PipBoyScreen>>,
+    state: Option<ResMut<DataState>>,
+    mut game: Game,
+    mut input: Input,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if !prepares_early(switch.as_deref()) {
+        return;
+    }
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
+    let Some(mut state) = state else {
+        commands.init_resource::<DataState>();
+        return;
+    };
+    let open = (pip.open() && pip.page == Page::Data).then(|| pip.tab());
+    step(&mut state, open, screen.as_deref(), &mut game, &mut input, &mut images);
+}
+
+/// Whether the page is prepared by [`prepare`], before the frame: with `MapMenu` switched on.
+pub(crate) fn prepares_early(switch: Option<&crate::tiles::vanilla::TileMenus>) -> bool {
+    switch.is_some_and(|s| s.map)
+}
+
+/// Fill the page's body when what it shows changed. With `MapMenu` off it first prepares the
+/// page ([`step`]) while its body is there, as it always did; on, [`prepare`] did that before
+/// the frame and this paints what it gathered.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
     mut commands: Commands,
@@ -562,6 +603,7 @@ pub fn draw(
     pip: Res<PipBoy>,
     screen: Option<Res<PipBoyScreen>>,
     state: Option<ResMut<DataState>>,
+    switch: Option<Res<crate::tiles::vanilla::TileMenus>>,
     mut game: Game,
     mut input: Input,
     mut tools: Tools,
@@ -573,13 +615,39 @@ pub fn draw(
         return;
     };
     let st = &mut *state;
+    let body = bodies.iter().find(|(_, b)| b.page == Page::Data && pip.open());
+    let view = if prepares_early(switch.as_deref()) {
+        // Prepared before the frame, for the tab the body was made for.
+        match (body, st.prepared.as_ref()) {
+            (Some((_, b)), Some(v)) if v.tab == b.tab => v.clone(),
+            _ => return,
+        }
+    } else {
+        match step(st, body.map(|(_, b)| b.tab), screen.as_deref(), &mut game, &mut input, &mut tools.images) {
+            Some(v) => v,
+            None => return,
+        }
+    };
+    let Some((body, _)) = body else { return };
+    if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
+        return;
+    }
+    let mut c = Ctx::new(&mut tools.kit, tools.data.as_deref(), &mut tools.images, tools.formats.as_deref(), &tools.glyphs);
+    st.button_rects = (view.tab, button_boxes(&c, &view.buttons));
+    commands.entity(body).despawn_children().with_children(|p| show(p, &mut c, st, &view));
+    st.shown = Some(view);
+}
+
+/// The page's preparation, a frame's: keep track of the quests and markers, and while the page is
+/// open on tab `open` take the player's input and gather what it shows ([`View`], kept in
+/// [`DataState::prepared`] and returned). Closed (`None`), what was open is let go.
+fn step(st: &mut DataState, open: Option<usize>, screen: Option<&PipBoyScreen>, game: &mut Game, input: &mut Input, images: &mut Assets<Image>) -> Option<View> {
     st.poll += input.time.delta_secs();
     if st.poll >= POLL {
         st.poll = 0.0;
-        track(st, &game);
+        track(st, game);
     }
-    let body = bodies.iter().find(|(_, b)| b.page == Page::Data && pip.open());
-    let Some((body, b)) = body else {
+    let Some(tab) = open else {
         st.was_open = false;
         st.popup = None;
         st.note_shown = None;
@@ -587,9 +655,8 @@ pub fn draw(
         st.bar_drag = None;
         input.wheel.clear();
         input.menu.clear();
-        return;
+        return None;
     };
-    let tab = b.tab;
     if st.last_tab != Some(tab) {
         st.last_tab = Some(tab);
         st.boxed = false;
@@ -598,40 +665,33 @@ pub fn draw(
     }
     if !st.was_open {
         st.was_open = true;
-        opened(st, &game);
+        opened(st, game);
     }
-    let lists = lists(st, &game);
+    let lists = lists(st, game);
     // With Controller chosen the controls answer the controller only (pad.rs): the mouse
     // pointer is ignored so it cannot take the highlight box back from the stick.
-    let pointer = screen
-        .as_ref()
-        .and_then(|s| s.pointer)
-        .filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
-    take_input(st, tab, &lists, &mut game, &mut input, pointer);
+    let pointer = screen.and_then(|s| s.pointer).filter(|_| !input.bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller));
+    take_input(st, tab, &lists, game, input, pointer);
     if tab == NOTES && lists.challenges.is_none() {
-        mark_read(st, &lists, &mut game);
+        mark_read(st, &lists, game);
     } else {
         // Left the notes: the next note shown comes up again.
         st.note_shown = None;
     }
     if tab == LOCAL {
-        advance_outline(st, &mut game, &mut tools.images);
+        advance_outline(st, game, images);
     }
     // Over a button at the right the pointer is off the map: the highlight box stays where
     // it was, and with it the Travel hint's marker (#1897).
     let on_map = pointer.filter(|_| !on_button(st, tab, pointer));
-    let view = build(st, tab, &lists, &game, on_map, pointer.is_some());
-    if st.shown.as_ref().is_none_or(|s| s.tab != view.tab || s.buttons != view.buttons) {
+    let view = build(st, tab, &lists, game, on_map, pointer.is_some());
+    if st.last_view.as_ref().is_none_or(|s| s.tab != view.tab || s.buttons != view.buttons) {
         let line = super::frame::hints_line(view.buttons.iter().map(|b| &b.hint));
         info!("pipboy hints: data {}: {}", TAB_NAMES[view.tab.min(RADIO)], if line.is_empty() { "none" } else { &line });
     }
-    if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
-        return;
-    }
-    let mut c = Ctx::new(&mut tools.kit, tools.data.as_deref(), &mut tools.images, tools.formats.as_deref(), &tools.glyphs);
-    st.button_rects = (view.tab, button_boxes(&c, &view.buttons));
-    commands.entity(body).despawn_children().with_children(|p| show(p, &mut c, st, &view));
-    st.shown = Some(view);
+    st.last_view = Some(view.clone());
+    st.prepared = Some(view.clone());
+    Some(view)
 }
 
 /// Note the order quests are listed in, the markers the player finds, and where the
@@ -2500,6 +2560,104 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A world with what the page's systems read, the DATA page's state fresh, `MapMenu` on or off
+    /// and the Pip-Boy as given; no hand-built body (the frame did not run).
+    fn page_world(map: bool, pip: PipBoy) -> World {
+        let mut w = World::new();
+        w.insert_resource(crate::tiles::vanilla::TileMenus { map, ..Default::default() });
+        w.insert_resource(pip);
+        w.init_resource::<DataState>();
+        w.init_resource::<ButtonInput<KeyCode>>();
+        w.init_resource::<ButtonInput<MouseButton>>();
+        w.init_resource::<Time<Real>>();
+        w.init_resource::<PipBoyAid>();
+        w.init_resource::<Assets<Image>>();
+        w.init_resource::<Kit>();
+        w.init_resource::<crate::pad::PadGlyphs>();
+        w.init_resource::<Messages<MouseWheel>>();
+        w.init_resource::<Messages<MenuInput>>();
+        w.init_resource::<Messages<PipBoyInput>>();
+        w.init_resource::<Messages<FastTravelAsk>>();
+        w.init_resource::<Messages<FastTravelGo>>();
+        w
+    }
+
+    /// The Pip-Boy up on DATA's tab `tab`.
+    fn data_open(tab: usize) -> PipBoy {
+        let mut p = PipBoy { phase: super::super::Phase::Up, page: Page::Data, ..default() };
+        p.tabs[Page::Data.index()] = tab;
+        p
+    }
+
+    /// With `MapMenu` on the page is prepared before the frame for the tab the Pip-Boy shows, with
+    /// no hand-built body: the input taken, a new tab starting unboxed, a closing letting go and a
+    /// reopening opening again, and what was gathered kept while the page is closed. The
+    /// hand-built drawing then neither prepares nor paints without its body.
+    #[test]
+    fn with_mapmenu_on_the_page_is_prepared_without_its_body() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut w = page_world(true, data_open(QUESTS));
+        w.run_system_once(prepare).unwrap();
+        let st = w.resource::<DataState>();
+        assert!(st.was_open, "opened");
+        assert_eq!(st.last_tab, Some(QUESTS));
+        assert_eq!(st.prepared.as_ref().map(|v| v.tab), Some(QUESTS), "what Quests shows, gathered");
+        // Another tab: the input is taken there (Misc's filter, as its X hint's click), unboxed.
+        {
+            let mut st = w.resource_mut::<DataState>();
+            st.boxed = true;
+            st.acts.push(Act::Button(ButtonKind::NotesFilter));
+        }
+        w.resource_mut::<PipBoy>().tabs[Page::Data.index()] = NOTES;
+        w.run_system_once(prepare).unwrap();
+        let st = w.resource::<DataState>();
+        assert!(st.notes_of_active, "the act was taken with no body");
+        assert!(st.acts.is_empty());
+        assert!(!st.boxed, "a new tab starts unboxed");
+        assert_eq!((st.last_tab, st.prepared.as_ref().map(|v| v.tab)), (Some(NOTES), Some(NOTES)));
+        // The hand-built drawing paints only: no body, nothing prepared or drawn by it.
+        w.resource_mut::<DataState>().was_open = false;
+        w.run_system_once(draw).unwrap();
+        assert!(!w.resource::<DataState>().was_open, "the drawing did not prepare");
+        assert!(w.resource::<DataState>().shown.is_none(), "nor paint");
+        w.resource_mut::<DataState>().was_open = true;
+        // Closed: let go, what was gathered kept; open again: opened again.
+        w.resource_mut::<DataState>().note_shown = Some(7);
+        w.resource_mut::<PipBoy>().phase = super::super::Phase::Down;
+        w.run_system_once(prepare).unwrap();
+        let st = w.resource::<DataState>();
+        assert!(!st.was_open && st.note_shown.is_none());
+        assert_eq!(st.prepared.as_ref().map(|v| v.tab), Some(NOTES), "kept while the page goes down");
+        w.resource_mut::<DataState>().boxed = true;
+        w.resource_mut::<PipBoy>().phase = super::super::Phase::Up;
+        w.run_system_once(prepare).unwrap();
+        let st = w.resource::<DataState>();
+        assert!(st.was_open && !st.boxed, "a reopening opens the page again");
+        // Another page: closed for DATA.
+        w.resource_mut::<PipBoy>().page = Page::Items;
+        w.run_system_once(prepare).unwrap();
+        assert!(!w.resource::<DataState>().was_open);
+    }
+
+    /// With `MapMenu` off (the default) the early preparation does nothing, and the hand-built
+    /// drawing prepares only while its body is there, as before: with none, the page is closed.
+    #[test]
+    fn with_mapmenu_off_nothing_is_prepared_early() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut w = page_world(false, data_open(QUESTS));
+        w.resource_mut::<DataState>().acts.push(Act::Button(ButtonKind::NotesFilter));
+        w.run_system_once(prepare).unwrap();
+        let st = w.resource::<DataState>();
+        assert!(!st.was_open && st.prepared.is_none() && st.last_tab.is_none());
+        assert_eq!(st.acts.len(), 1, "nothing taken");
+        w.resource_mut::<DataState>().was_open = true;
+        w.run_system_once(draw).unwrap();
+        let st = w.resource::<DataState>();
+        assert!(!st.was_open, "no body: the drawing closed the page, as before");
+        assert!(st.prepared.is_none() && st.last_tab.is_none());
+        assert!(!prepares_early(None) && !prepares_early(Some(&crate::tiles::vanilla::TileMenus::default())));
+    }
 
     #[test]
     fn family_markers_share_the_map_but_discovery_and_the_local_map_stay_in_their_worldspace() {

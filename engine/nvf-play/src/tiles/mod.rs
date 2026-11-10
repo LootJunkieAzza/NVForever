@@ -50,6 +50,7 @@ pub mod inventory_menu;
 pub mod item_card;
 pub mod layout;
 pub mod list;
+pub mod map_menu;
 pub mod menus;
 pub mod model;
 pub mod mods;

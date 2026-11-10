@@ -527,7 +527,9 @@ impl Plugin for PipBoyPlugin {
                     advance,
                     camera_on,
                     (image_scale, flat_screen),
-                    stats::prepare,
+                    // With `MapMenu` on, the DATA page's preparation too, before the tile pages'
+                    // decisions and the frame (`data::prepare`); off, it does nothing.
+                    (stats::prepare, data::prepare).chain(),
                     frame::draw,
                     (device_screen::draw, device_screen::sweep).chain(),
                     (stats::draw, items::draw, data::draw),
