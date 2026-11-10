@@ -1841,6 +1841,12 @@ impl Core {
                     || (game.in_actor_conversation(r.actor) && !game.conversation_moves(r.actor))
                     || self.ai.holds_for_chat(r.actor)
                     || game.greets_player(r.actor)
+                    // The one this player is talking to stays where it is until the talk
+                    // ends: in a co-op session the world goes on behind a conversation,
+                    // and Sunny Smiles walked off during her own "Meet me outside" line,
+                    // whose script changed her package (queue item 197). Solo the whole
+                    // world stands still then, as in the original.
+                    || game.dialogue.as_ref().is_some_and(|c| c.actor == r.actor)
                     || self.staggering.contains(&r.actor.0)
             })
             .map(|r| r.actor.0)
