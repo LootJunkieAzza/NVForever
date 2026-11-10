@@ -18,7 +18,8 @@
 //!   its own [`RELOAD_DELAY`] seconds later, so the message is out before its game starts
 //!   again. A load restarts the game with its lobby (nvforever `coop`), so the guests
 //!   come back into the host's world as it was at that save. The last shared save's path
-//!   is kept in [`SHARED_ENV`] across those restarts.
+//!   is kept in [`SHARED_ENV`] across those restarts. A guest's save is its own game where
+//!   it left it, so its new run is taken beside the host ([`REJOIN_ENV`]; item 152).
 //!
 //! - **A guest down far from everyone: its own last save.** A guest whose health runs out
 //!   with no other player up near it (nobody to revive it; nvforever `coop` decides,
@@ -47,6 +48,9 @@ pub const RELOAD_DELAY: f64 = 0.5;
 pub const ALONE_HOLD: f64 = 5.0;
 /// The last shared save's path, kept across the restart a load makes.
 pub const SHARED_ENV: &str = "NVF_COOP_SHARED_SAVE";
+/// Set on a guest that loads for everyone being down: its new run goes beside the host
+/// (a guest's save is its own game where it left it; nvforever `coop::rejoin`).
+pub const REJOIN_ENV: &str = "NVF_COOP_REJOIN_HOST";
 
 /// This game's part in a co-op session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -269,9 +273,12 @@ fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, 
                     continue;
                 };
                 let name = rt.game.data.name(FormId(quest));
+                let host = mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str()).to_string();
                 match rt.game.take_coop_reward(xp as f64, caps as i32) {
+                    // Script XP no completion claimed (`fnv_game::coop_rewards::SCRIPT_XP`).
+                    Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, format!("+{gained} XP, earned with {host}")),
                     // The host by its character's name (`coop_social::SocialMates`).
-                    Ok(gained) => say(&mut corner, format!("{} completed {name}: +{gained} XP{}", mates.as_deref().and_then(|m| m.get(0)).map_or("The host", |m| m.name.as_str()), if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
+                    Ok(gained) => say(&mut corner, format!("{host} completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
                     Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
                 }
             }
@@ -294,6 +301,9 @@ fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, 
             Shared::Reload { .. } if p.role == Role::Guest && id == 0 => match p.saves.last.clone() {
                 Some(path) => {
                     say(&mut corner, "Everyone is down: back to the last shared save".into());
+                    // The save is this game's own spot: the new run goes beside the host
+                    // (nvforever `coop::rejoin`; item 152).
+                    std::env::set_var(REJOIN_ENV, "1");
                     load.write(LoadRequest { path });
                 }
                 None => say(&mut corner, "Everyone is down, and this game has no shared save to go back to".into()),
@@ -320,7 +330,11 @@ fn rewards(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>) {
         p.outbox.push(Shared::Gift { batch, item: item.0, count: count.max(0) as u32 });
     }
     for r in rt.game.coop_rewards.due(rt.game.frame) {
-        info!("co-op: {} completed: {} XP and {} caps to the guests", rt.game.data.name(r.quest), r.xp, r.caps);
+        if r.quest == fnv_game::coop_rewards::SCRIPT_XP {
+            info!("co-op: {} XP from the host's scripts, no quest completed: to the guests", r.xp);
+        } else {
+            info!("co-op: {} completed: {} XP and {} caps to the guests", rt.game.data.name(r.quest), r.xp, r.caps);
+        }
         p.outbox.push(Shared::Reward { quest: r.quest.0, xp: r.xp.max(0.0) as u32, caps: r.caps.max(0) as u32 });
     }
 }

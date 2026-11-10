@@ -132,6 +132,17 @@ pub fn question(template: &str, name: &str) -> String {
     }
 }
 
+/// The hours a trip passes on the clock: none while another player is connected
+/// (co-op, owner 2026-11-09, queue item 173: one player's trip does not move the shared
+/// clock, needs, weather and timers for everyone) [design]; solo, the walk's hours.
+pub fn trip_hours(hours: f64, others: usize) -> f64 {
+    if others > 0 {
+        0.0
+    } else {
+        hours
+    }
+}
+
 /// The trip's game hours: the straight line walked at `walk` units a second at
 /// `time_scale` game seconds a real second [hypothesis, fast-travel.md §4]; none within
 /// a cell's width [design].
@@ -422,11 +433,19 @@ pub fn depart(
     mut passed: MessageWriter<HourPassed>,
     landing: Option<ResMut<crate::save::FastTravelLanding>>,
     screen: Option<ResMut<crate::loading::Loading>>,
+    mates: Option<Res<super::super::glance::CoopMates>>,
 ) {
     if *state.get() != PlayState::Playing {
         return;
     }
-    let Some(t) = pending.0.take() else { return };
+    let Some(mut t) = pending.0.take() else { return };
+    // Co-op: no time passes while another player is connected (owner, item 173).
+    let others = mates.as_ref().map_or(0, |m| m.0.len());
+    let hours = trip_hours(t.hours, others);
+    if hours != t.hours {
+        info!("fast travel: no time passes: {others} other player(s) connected (the trip would take {:.2} hours)", t.hours);
+        t.hours = hours;
+    }
     // The player's own trip (`Loading::arriving`): the destination's actors are put at
     // their package's place behind the screen.
     if let Some(mut s) = screen {
@@ -496,6 +515,13 @@ mod tests {
     fn the_question_names_the_marker() {
         assert_eq!(question(OWN_QUESTION, "Goodsprings"), "Do you want to travel to Goodsprings?");
         assert_eq!(question("Travel to", "Primm"), "Travel to Primm?");
+    }
+
+    #[test]
+    fn co_op_trips_pass_no_time() {
+        assert_eq!(trip_hours(3.5, 0), 3.5, "solo: the walk's hours");
+        assert_eq!(trip_hours(3.5, 1), 0.0);
+        assert_eq!(trip_hours(3.5, 3), 0.0);
     }
 
     #[test]
