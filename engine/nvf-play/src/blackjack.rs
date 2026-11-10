@@ -66,6 +66,11 @@ pub const DEAL_GAP: f32 = 0.45;
 /// A deal sequence's length, and the discard's [observed: the models' text keys].
 pub const CARD_SECONDS: f32 = 0.633;
 pub const DISCARD_SECONDS: f32 = 1.3;
+/// The dealer's hole card turning over in place (`Dealer_Reveal`, played in this time by
+/// the view), then the pause before the dealer draws or the result shows [design: the
+/// owner, playtest 119, item 169: a 0.25 to 0.4 s flip, then 0.5 to 0.8 s].
+pub const REVEAL_SECONDS: f32 = 0.35;
+pub const REVEAL_PAUSE: f32 = 0.65;
 /// Seconds the shuffle takes before the deal [design].
 pub const SHUFFLE_SECONDS: f32 = 1.0;
 /// Seconds the table stays after the round that banned the player [design].
@@ -111,6 +116,9 @@ pub struct Session {
     pub earnings: i64,
     pub max_winnings: u32,
     pub status: Option<String>,
+    /// At a shared table: "Waiting for other bets..." or "Waiting for other players..."
+    /// while this player has bet or picked and others still have to (item 156).
+    pub wait_line: Option<String>,
     pub help: Option<Help>,
     pub opened: f32,
     /// The cards on the table, in the order they were dealt.
@@ -628,6 +636,7 @@ fn open(
         earnings,
         max_winnings,
         status: None,
+            wait_line: None,
         help,
         opened: now,
         shown: Vec::new(),
@@ -800,7 +809,7 @@ fn apply(
                     match to_owner(&mut tables, &mut owned, BlackjackAction::Bet { bet: s.bet, chips: s.chips }) {
                         Ok(()) => {
                             info!("blackjack: ready with {} at the shared table", s.bet);
-                            s.status = Some("Waiting for the other players to bet.".into());
+                            s.status = None;
                         }
                         Err(Refusal::Chips) => s.status = Some(format!("You don't have enough {}s.", s.chip_name)),
                         Err(e) => info!("blackjack: bet refused ({e:?})"),
@@ -969,6 +978,24 @@ fn follow_shared(
         return;
     };
     let log = seat.log.clone();
+    // Who the round waits on (item 156): the others' bets once this seat has bet; the
+    // others' picks once this seat has picked or is done.
+    let name = |p: u8| tables.as_deref().map_or_else(|| format!("Player {}", p + 1), |t| t.name(p));
+    let others = v.seats.iter().filter(|o| o.player != sh.me);
+    let line = if v.phase != Phase::Playing {
+        let late: Vec<String> = others.filter(|o| !o.ready).map(|o| name(o.player)).collect();
+        (seat.ready && !late.is_empty()).then(|| format!("Waiting for other bets... ({})", late.join(", ")))
+    } else {
+        let me_done = seat.chose || seat.waiting || seat.hands.iter().all(|h| h.outcome.is_some());
+        let late: Vec<String> = others.filter(|o| !o.chose && !o.waiting && o.hands.iter().any(|h| h.outcome.is_none())).map(|o| name(o.player)).collect();
+        (me_done && !late.is_empty()).then(|| format!("Waiting for other players... ({})", late.join(", ")))
+    };
+    if line != s.wait_line {
+        if let Some(l) = &line {
+            info!("blackjack: {l}");
+        }
+        s.wait_line = line;
+    }
     loop {
         let staked = if s.table.phase == Phase::Playing { s.table.staked() } else { 0 };
         let Some(step) = sh.follow.step(&mut s.table, &log, s.chips) else { break };
@@ -1104,7 +1131,7 @@ fn show_other(o: &mut OtherSeat, events: Vec<Event>, mut t: f32, dealer: &mut Ve
                     *reveal = Some(t);
                     sounds.push((t, UiEvent::CardFlipped));
                 }
-                t += DEAL_GAP;
+                t += REVEAL_SECONDS + REVEAL_PAUSE;
             }
             Event::Settled { outcomes, .. } => {
                 if let Some(natural) = won(&outcomes) {
@@ -1160,7 +1187,7 @@ fn schedule(s: &mut Session, events: Vec<Event>, mut t: f32, stats: &mut Blackja
                 info!("blackjack: the dealer turns over {}", card.short());
                 s.reveal = Some(t);
                 s.sounds.push((t, UiEvent::CardFlipped));
-                t += DEAL_GAP;
+                t += REVEAL_SECONDS + REVEAL_PAUSE;
             }
             Event::Active(h) => info!("blackjack: playing hand {}", h + 1),
             Event::HandOver { hand, outcome } => info!("blackjack: hand {} {}", hand + 1, outcome.name()),
@@ -1237,6 +1264,35 @@ fn win_flourish(who: Option<u8>, natural: bool, tables: Option<&Tables>) -> Flou
     Flourish { kind: Highlight::HandWon, text }
 }
 
+/// The hands won that came at the same moment, as one highlight: one winner's own words,
+/// several named together ("YOU AND ALICE WIN"), so their banners never lie over each
+/// other (owner, playtest 119, item 148).
+fn wins_flourish(wins: &[(Option<u8>, bool)], tables: Option<&Tables>) -> Option<Flourish> {
+    match wins {
+        [] => None,
+        [(who, natural)] => Some(win_flourish(*who, *natural, tables)),
+        _ => {
+            let mut names: Vec<String> = Vec::new();
+            if wins.iter().any(|w| w.0.is_none()) {
+                names.push("YOU".into());
+            }
+            for (who, _) in wins {
+                if let Some(p) = who {
+                    let n = tables.map_or_else(|| format!("PLAYER {p}"), |t| t.name(*p)).to_uppercase();
+                    if !names.contains(&n) {
+                        names.push(n);
+                    }
+                }
+            }
+            let text = match names.split_last() {
+                Some((last, rest)) if !rest.is_empty() => format!("{} AND {last} WIN", rest.join(", ")),
+                _ => return Some(win_flourish(wins[0].0, wins[0].1, tables)),
+            };
+            Some(Flourish { kind: Highlight::HandWon, text })
+        }
+    }
+}
+
 fn ordinal(i: usize) -> String {
     format!("#{}", i + 1)
 }
@@ -1245,15 +1301,19 @@ fn ordinal(i: usize) -> String {
 fn step(time: AidTime, mut screen: ResMut<BlackjackScreen>, mut next: ResMut<NextState<PlayState>>, mut sounds: MessageWriter<UiSound>, (mut flourish, tables, mut moods): (MessageWriter<Flourish>, Option<Res<Tables>>, MessageWriter<crate::flourish::HandMood>)) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    let mut due = Vec::new();
     s.wins.retain(|&(t, who, natural)| {
         if t <= now {
-            flourish.write(win_flourish(who, natural, tables.as_deref()));
+            due.push((who, natural));
             moods.write(crate::flourish::HandMood { who, won: true });
             false
         } else {
             true
         }
     });
+    if let Some(f) = wins_flourish(&due, tables.as_deref()) {
+        flourish.write(f);
+    }
     s.losses.retain(|&(t, who)| {
         if t <= now {
             moods.write(crate::flourish::HandMood { who, won: false });
@@ -1376,6 +1436,10 @@ mod tests {
         assert_eq!(result_line(&[(Outcome::Blackjack, 25)], 16, 15), "Blackjack. Dealer has 16. +15");
         assert_eq!(result_line(&[(Outcome::Win, 20), (Outcome::Bust, 0)], 22, 0), "You win / Bust. Dealer busts. 0");
         assert_eq!(result_line(&[(Outcome::Lose, 0)], 20, -10), "Dealer wins. Dealer has 20. -10");
+        // Several winners at once: one banner naming them all (item 148).
+        assert_eq!(wins_flourish(&[(None, false), (Some(1), true), (Some(2), false)], None).unwrap().text, "YOU, PLAYER 1 AND PLAYER 2 WIN");
+        assert_eq!(wins_flourish(&[(None, true)], None).unwrap().text, "BLACKJACK");
+        assert!(wins_flourish(&[], None).is_none());
     }
 
     fn session() -> Session {
@@ -1392,6 +1456,7 @@ mod tests {
             earnings: 0,
             max_winnings: 0,
             status: None,
+            wait_line: None,
             help: None,
             opened: 0.0,
             shown: Vec::new(),

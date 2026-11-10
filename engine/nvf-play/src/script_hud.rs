@@ -66,7 +66,16 @@ pub struct ScriptHud {
     /// The other players' quips heard now (co-op, `crate::party_quips`): "Name", the
     /// text, and until when it is shown.
     pub party_lines: Vec<(String, String, std::time::Instant)>,
+    /// Each line on screen (speaker, INFO): when it was first drawn, in real time, and
+    /// how long it had left then. A line's time counts game time, which stands still
+    /// while every player is at a table or in a menu; its subtitle goes once that long
+    /// has passed in real time (with [`SUBTITLE_GRACE`]) whatever game time does (owner,
+    /// playtest 119, item 168: "I've got my eye on you." stuck over the blackjack table).
+    seen: std::sync::Mutex<HashMap<(u32, u32), (std::time::Instant, f64)>>,
 }
+
+/// How long past its own length a line's subtitle may stay in real time.
+const SUBTITLE_GRACE: f64 = 1.0;
 
 impl ScriptHud {
     /// A message box was shown: remember its text for when it reaches the front.
@@ -269,7 +278,14 @@ fn subtitles(hud: &ScriptHud, g: &fnv_game::Game<'_>, sim: &SimState, player: Op
     // In a conversation with the player only the dialogue menu's own line is on screen.
     let talking = g.dialogue.is_some();
     let mut wheel = None;
+    let real = std::time::Instant::now();
+    let mut seen = hud.seen.lock().unwrap_or_else(|e| e.into_inner());
+    seen.retain(|k, _| g.speech.iter().any(|s| (s.speaker.0, s.info.0) == *k));
     for s in &g.speech {
+        let (since, length) = *seen.entry((s.speaker.0, s.info.0)).or_insert((real, s.remaining.max(0.0)));
+        if real.duration_since(since).as_secs_f64() > length + SUBTITLE_GRACE {
+            continue;
+        }
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
         // (AlwaysShowActorSubtitles), or for this line's (Say's ForceSubtitles), or said

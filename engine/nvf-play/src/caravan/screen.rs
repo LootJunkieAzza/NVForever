@@ -63,7 +63,12 @@ const OPPONENT_DECK: (f32, f32) = (1340.0, 227.0);
 const INFO_X: (f32, f32) = (1253.0, 1643.0);
 const INFO_Y: [f32; 3] = [40.0, 84.0, 128.0];
 const BUTTONS_RIGHT: f32 = 1664.0;
-const PLAY_BUTTONS: [f32; 4] = [726.0, 778.0, 829.0, 879.0];
+/// The game's four buttons and Tips under them (item 163), the column raised one row.
+const PLAY_BUTTONS: [f32; 5] = [675.0, 726.0, 778.0, 829.0, 879.0];
+/// The guide's lines: as wide as the right-hand area, the last just above the buttons.
+const GUIDE_W: f32 = 600.0;
+const GUIDE_BOTTOM: f32 = 640.0;
+const GUIDE_STEP: f32 = 30.0;
 const BET_BUTTONS: [f32; 4] = [705.0, 756.0, 808.0, 858.0];
 const HINT_GAP: f32 = 16.0;
 /// The betting box: rows, titles' left, values' right, its bracket.
@@ -110,7 +115,8 @@ fn view_key(s: &Session, view_w: f32, table: bool) -> String {
         s.players_turn(),
         s.record.won,
         s.leaving.is_some(),
-    ) + if table { ":3d" } else { "" }
+    ) + &s.guide()
+        + if table { ":3d" } else { "" }
 }
 
 pub fn view_width(window: Option<&Window>) -> f32 {
@@ -522,15 +528,49 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
     if g.phase != Phase::Over && !mine && s.help.is_none() {
         let thinking = format!("{} is thinking…", s.opponent_name);
         let w = c.text_width(FontKind::Menu, &thinking);
-        crate::casino_hud::glass(p, BUTTONS_RIGHT - w, 662.0, w, 32.0);
-        c.text_in(p, FontKind::Menu, &thinking, BUTTONS_RIGHT, 660.0, true, amber(180.0));
+        crate::casino_hud::glass(p, BUTTONS_RIGHT - w, GUIDE_BOTTOM - 28.0, w, 32.0);
+        c.text_in(p, FontKind::Menu, &thinking, BUTTONS_RIGHT, GUIDE_BOTTOM - 30.0, true, amber(180.0));
     }
     let rows: Vec<(&str, &str, f32)> = s.buttons().into_iter().zip(PLAY_BUTTONS).map(|((l, k, _, _), t)| (l, k, t)).collect();
     buttons_backdrop(p, c, &rows);
     for ((label, key, cmd, on), top) in s.buttons().into_iter().zip(PLAY_BUTTONS) {
         button(p, c, label, key, BUTTONS_RIGHT, top, cmd, on);
     }
-    status(p, c, s, 600.0);
+    // The guide (item 163) in the message area, in place of the short messages; with the
+    // guide off, or nothing to say, the game's own line.
+    let guide = if s.forfeit_armed { String::new() } else { s.guide() };
+    if guide.is_empty() {
+        status(p, c, s, GUIDE_BOTTOM - 30.0);
+    } else {
+        guide_lines(p, c, &guide);
+    }
+}
+
+/// A text broken into lines of at most `width` (whole words).
+fn wrap_words(c: &Ctx, text: &str, width: f32) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(l) if c.text_width(FontKind::Menu, &format!("{l} {word}")) <= width => {
+                l.push(' ');
+                l.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
+}
+
+/// The guide's lines, right-aligned over the buttons, the last at [`GUIDE_BOTTOM`].
+fn guide_lines(p: &mut ChildSpawnerCommands, c: &mut Ctx, text: &str) {
+    let lines = wrap_words(c, text, GUIDE_W);
+    let n = lines.len() as f32;
+    let top = GUIDE_BOTTOM - 30.0 - GUIDE_STEP * (n - 1.0);
+    let w = lines.iter().map(|l| c.text_width(FontKind::Menu, l)).fold(0.0, f32::max);
+    crate::casino_hud::glass(p, BUTTONS_RIGHT - w, top + 2.0, w, GUIDE_STEP * (n - 1.0) + 32.0);
+    for (i, l) in lines.iter().enumerate() {
+        c.text_in(p, FontKind::Menu, l, BUTTONS_RIGHT, top + GUIDE_STEP * i as f32, true, amber(255.0));
+    }
 }
 
 fn results(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {

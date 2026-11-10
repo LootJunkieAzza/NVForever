@@ -69,7 +69,7 @@ fn view_key(s: &Session, now: f32, has_view: bool, view_w: f32) -> String {
         shown_bet(s),
         s.chips,
         s.earnings,
-        s.status,
+        s.status.as_ref().or(s.wait_line.as_ref()),
         labels.join("|"),
         s.busy(now),
         has_view,
@@ -164,22 +164,25 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Blackj
             if !s.busy(now) {
                 let column = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(BUTTONS_TOP), width: u(0.0), height: u(6.0 * BUTTON_H), ..default() };
                 m.spawn(column).with_children(|b| {
-                    let all = s.buttons();
-                    let (lw, hw) = all.iter().flatten().fold((0.0f32, 0.0f32), |(l, h), (label, hint, _)| (l.max(c.text_width(FontKind::Menu, label)), h.max(c.text_width(FontKind::Menu, hint))));
-                    let last = all.iter().rposition(Option::is_some).map_or(0.0, |i| i as f32 + 1.0);
-                    if last > 0.0 {
-                        crate::casino_hud::glass(b, -lw, 4.0, lw + HINT_GAP + hw, last * BUTTON_H - 8.0);
+                    // Only the options offered, packed against the bottom of the column with
+                    // no gaps, so the list closes up and grows as they come and go (owner,
+                    // playtest 119, item 167).
+                    let all: Vec<_> = s.buttons().into_iter().flatten().collect();
+                    let (lw, hw) = all.iter().fold((0.0f32, 0.0f32), |(l, h), (label, hint, _)| (l.max(c.text_width(FontKind::Menu, label)), h.max(c.text_width(FontKind::Menu, hint))));
+                    let first = 6usize.saturating_sub(all.len()) as f32;
+                    if !all.is_empty() {
+                        crate::casino_hud::glass(b, -lw, first * BUTTON_H + 4.0, lw + HINT_GAP + hw, all.len() as f32 * BUTTON_H - 8.0);
                     }
-                    for (i, button) in all.into_iter().enumerate() {
-                        let Some((label, hint, cmd)) = button else { continue };
-                        let y = i as f32 * BUTTON_H;
+                    for (i, (label, hint, cmd)) in all.into_iter().enumerate() {
+                        let y = (first + i as f32) * BUTTON_H;
                         let w = c.text_in(b, FontKind::Menu, label, 0.0, y + 9.0, true, bright);
                         c.text_in(b, FontKind::Menu, hint, HINT_GAP, y + 9.0, false, bright);
                         b.spawn((Button, BlackjackButton(cmd), at(-w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, BUTTON_H)));
                     }
                 });
             }
-            if let Some(status) = &s.status {
+            // The round's own line, else whom a shared table waits on (item 156).
+            if let Some(status) = s.status.as_ref().or(s.wait_line.as_ref()) {
                 let line = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(STATUS_Y), width: u(0.0), height: u(36.0), ..default() };
                 m.spawn(line).with_children(|b| {
                     let w = c.text_width(FontKind::Menu, status);

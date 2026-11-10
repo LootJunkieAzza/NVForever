@@ -328,7 +328,8 @@ fn spawn_area(commands: &mut Commands, n: &QuestNotice, kit: &mut Kit, data: Opt
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    time: Res<Time>,
+    // Real time, as the corner messages (owner, playtest 119, item 168).
+    time: Res<Time<Real>>,
     mut quests: ResMut<QuestMessages>,
     panel: Res<MessagePanel>,
     data: Option<Res<GameData>>,

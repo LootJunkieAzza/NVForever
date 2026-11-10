@@ -678,8 +678,12 @@ fn pose(
                     }
                 }
                 None if m.prefix == "Dealer" && k == 1 && reveal.is_some_and(|r| now >= r) => {
+                    // The flip played in REVEAL_SECONDS whatever the sequence's own length
+                    // (item 169), so the pause after it is the logic's.
                     let clip = m.clip("Dealer_Reveal");
-                    let mut tr = sampled(&m.rig, clip, card.node, clip_time(clip, now - reveal.unwrap_or(now)));
+                    let own = clip.map_or(1.0, |c| (c.stop - c.start) / c.frequency.max(1e-3));
+                    let t = (now - reveal.unwrap_or(now)) * own / nvf_play::blackjack::REVEAL_SECONDS;
+                    let mut tr = sampled(&m.rig, clip, card.node, clip_time(clip, t));
                     tr.translation += card.spread;
                     tr
                 }
