@@ -46,6 +46,9 @@ pub struct WorkerTextures {
     entries: Mutex<HashMap<(String, bool), WorkerTexture>>,
     /// Textures a worker could not load, with why, until the cache remembers them.
     failed: Mutex<HashMap<(String, bool), String>>,
+    /// Whether a texture's alpha is a cut-out mask, by resolved path
+    /// ([`Self::alpha_is_mask`]).
+    masks: Mutex<HashMap<String, bool>>,
 }
 
 struct WorkerTexture {
@@ -547,16 +550,44 @@ fn block_alpha(format: Format, b: &[u8]) -> [u8; 16] {
     }
 }
 
-/// [`alpha_shares`] of the texture at a NIF texture path, read from the archives.
-pub fn texture_alpha_shares(raw_path: &str, data: &GameData) -> Option<AlphaShares> {
-    let path = resolved_path(raw_path, |p| data.vfs.exists(p));
-    alpha_shares(&data.read(&path)?)
+impl WorkerTextures {
+    /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
+    /// ([`AlphaShares::is_mask`]). Each file is read and its alpha counted once, then
+    /// remembered by resolved path for the main thread and the workers alike: many shapes
+    /// share a texture.
+    pub fn alpha_is_mask(&self, raw_path: &str, data: &GameData) -> bool {
+        let path = resolved_path(raw_path, |p| data.vfs.exists(p));
+        remembered(&self.masks, path, |path| data.read(path).and_then(|bytes| alpha_shares(&bytes)).is_some_and(|s| s.is_mask()))
+    }
+}
+
+/// `compute`'s answer for `key`, worked out the first time only. The map is not held while
+/// it is worked out, so two threads asking at once may both compute it, to the same answer.
+fn remembered(known: &Mutex<HashMap<String, bool>>, key: String, compute: impl FnOnce(&str) -> bool) -> bool {
+    if let Some(&answer) = known.lock().expect("alpha masks").get(&key) {
+        return answer;
+    }
+    let answer = compute(&key);
+    known.lock().expect("alpha masks").insert(key, answer);
+    answer
 }
 
 #[cfg(test)]
 mod tests {
     use super::first_person_texture;
-    use super::{alpha_shares, AlphaShares};
+    use super::{alpha_shares, remembered, AlphaShares};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    #[test]
+    fn a_mask_is_worked_out_once_per_path() {
+        let known = Mutex::new(HashMap::new());
+        let mut asked = Vec::new();
+        assert!(remembered(&known, "a.dds".into(), |p| { asked.push(p.to_string()); true }));
+        assert!(remembered(&known, "a.dds".into(), |p| { asked.push(p.to_string()); false }), "the first answer is kept");
+        assert!(!remembered(&known, "b.dds".into(), |p| { asked.push(p.to_string()); false }));
+        assert_eq!(asked, ["a.dds", "b.dds"]);
+    }
 
     /// A DDS file of one level: the header (fnv-dds layout) and `payload`.
     fn dds(fourcc: &[u8; 4], w: u32, h: u32, payload: &[u8]) -> Vec<u8> {

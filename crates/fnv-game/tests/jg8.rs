@@ -160,7 +160,10 @@ fn arrays_colours_and_menus() {
     assert_eq!(q(&mut g, "array_var a\nlet a := Ar_Shuffle (Ar_List 1, 2, 3, 4, 5)\nSetFunctionValue (a[0] + a[1] + a[2] + a[3] + a[4])"), XVal::Num(15.0));
     // [documented: GetSystemColor / GetSystemColorAlt, SetSystemColor's colour, amber
     // before].
-    assert_eq!(n(&mut g, "GetSystemColor 1"), f64::from((255u32 << 16) | (182 << 8) | 66));
+    // [observed: probe set jg8, 1/4/5 FFB642, 2 FF432A, 3 21E779].
+    assert_eq!(n(&mut g, "GetSystemColor 1"), f64::from(0xFFB642u32));
+    assert_eq!(n(&mut g, "GetSystemColor 2"), f64::from(0xFF432Au32));
+    assert_eq!(n(&mut g, "GetSystemColor 3"), f64::from(0x21E779u32));
     q(&mut g, "SetSystemColor 4 10 20 30");
     assert_eq!(s(&mut g, "int r\nint gg\nint b\nGetSystemColorAlt 4 r gg b\nSetFunctionValue (sv_Construct \"%g %g %g\" r gg b)"), "10 20 30");
     assert_eq!(n(&mut g, "GetSystemColor 6"), 0.0);

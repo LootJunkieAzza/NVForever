@@ -43,6 +43,8 @@ pub const LIMB_NAMES: [&str; 6] = ["head", "torso", "left arm", "right arm", "le
 /// The CND page's hints that use an item: the Stimpak (0) and the Doctor's Bag (1).
 pub const STIMPAK: usize = 0;
 pub const DOCTORS_BAG: usize = 1;
+/// The RAD page's RadAway hint [design: stats::use_hints].
+pub const RADAWAY: usize = 2;
 
 /// Why the CND page does not use a hint's item, or `None` when it does [design: owner's
 /// request 2026-10-23]: none carried; a Stimpak on the body at full health, or on a limb
@@ -82,6 +84,14 @@ pub use fnv_game::item_text::{avif_form, changes_text, whole, Change};
 // (`fnv_game::karma_titles`), which GetPlayerKarmaTitle reads too.
 pub use fnv_game::karma_titles::{karma_alignment, karma_column, karma_title, KARMA_TITLES};
 
+/// The setting alone, without the table, for a view drawn from the menu's file. Unlike [`karma_title`] it also finds the two-digit names.
+pub fn karma_title_setting(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let level = level.clamp(1, 30) as usize;
+    // FalloutNV.esm spells levels below 10 with two digits (`sKarmicTitleNeutral01`) [documented: `fnvtool esm inventory`].
+    let column = ["Good", "Neutral", "Evil"][karma_column(alignment)];
+    [format!("sKarmicTitle{column}{level:02}"), format!("sKarmicTitle{column}{level}")].iter().find_map(|name| setting(name).filter(|s| !s.is_empty()))
+}
+
 /// The title of a reputation from the levels (0–3) of fame and infamy
 /// (`crate::reputation::TITLES`).
 pub fn reputation_title(fame: usize, infamy: usize) -> &'static str {
@@ -95,16 +105,38 @@ pub fn reputation_title(fame: usize, infamy: usize) -> &'static str {
 /// screenshot in the private references, "pipboy stat tracking", 2026-10-14] (`fnv_game::misc_stats`).
 pub const MISC_STATS: [&str; 43] = fnv_game::misc_stats::NAMES;
 
-/// One row of a list (S.P.E.C.I.A.L., Skills, Perks, General): its name, the number at
-/// the right, the mark after it, and what the display beside the list shows of it.
+/// What a row of a list stands for, so a view that keeps tiles for its rows knows them by
+/// this and not by their words (`crate::tiles::stats_menu`) [design].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RowKey {
+    /// A row made up for a test or a view's own use.
+    #[default]
+    None,
+    /// An actor value, by its code (S.P.E.C.I.A.L., Skills).
+    Av(u16),
+    /// A perk's record (Perks).
+    Perk(FormId),
+    /// A statistic, by its place in [`MISC_STATS`] (General).
+    Stat(u8),
+    /// A reputation's record (General's other list).
+    Rep(FormId),
+    /// A line of the EFF list, by its place.
+    Effect(u16),
+}
+
+/// One row of a list (S.P.E.C.I.A.L., Skills, Perks, General): what it stands for, its name,
+/// the number at the right, the mark after it, and what the display beside the list shows of it.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Row {
+    pub key: RowKey,
     pub name: String,
     pub value: Option<String>,
     pub mark: Option<&'static str>,
     pub description: String,
     /// The picture, a path under `textures\`.
     pub icon: Option<String>,
+    /// A weapon skill's mark, beside the picture in a view drawn from the file.
+    pub badge: Option<String>,
 }
 
 /// One line of the EFF list: the source's name and its changes.
@@ -133,8 +165,20 @@ pub struct Hints {
     /// How many the player carries.
     pub counts: [i32; 4],
     /// Drawn bright: the item would be used if chosen now ([`refusal`] on the body)
-    /// [design: owner's request 2026-10-27, the CND hints lit while usable].
+    /// [design: owner's request 2026-10-27, the CND hints lit while usable]; RadAway
+    /// whenever one is carried (#1899). Every page reads it here, the hand-built one and
+    /// the tile page alike.
     pub lit: [bool; 4],
+}
+
+impl Hints {
+    /// The hints with their texts and counts: RadAway lit when carried (A uses it,
+    /// #1899); the CND hints are lit later, once the body is known ([`refusal`]).
+    pub fn new(texts: [String; 4], counts: [i32; 4]) -> Hints {
+        let mut lit = [false; 4];
+        lit[RADAWAY] = counts[RADAWAY] > 0;
+        Hints { texts, counts, lit }
+    }
 }
 
 /// Everything the page draws, compared frame to frame to know when to draw it again.
@@ -153,8 +197,13 @@ pub struct Snapshot {
     /// Each body part's condition, 0 to 1 ([`LIMBS`]).
     pub limbs: [f64; 6],
     pub hints: Hints,
+    /// The CND limb-switch hint, from sSwitchLimbs [design: read::snapshot].
+    pub switch_limbs: String,
     pub rad_resist: Option<f64>,
     pub rads: f64,
+    /// Whether Hardcore mode is on, and its three needs: dehydration, hunger, sleep deprivation.
+    pub hardcore: bool,
+    pub needs: [f64; 3],
     pub effects: Vec<EffectLine>,
     pub special: Vec<Row>,
     pub skills: Vec<Row>,
@@ -164,6 +213,9 @@ pub struct Snapshot {
     pub karma: Option<(f64, &'static str, &'static str)>,
     /// The karma title for the player's level and alignment ([`karma_title`]).
     pub karma_title: Option<String>,
+    /// That title when a setting holds it ([`karma_title_setting`]): a view drawn from the menu
+    /// file writes only this, the table's words being from no data file [design: LEGAL.md].
+    pub karma_setting_title: Option<String>,
 }
 
 impl Snapshot {
@@ -174,7 +226,7 @@ impl Snapshot {
             1 => self.special.clone(),
             2 => self.skills.clone(),
             3 => self.perks.clone(),
-            4 if reputation => self.standings.iter().map(|s| Row { name: s.name.clone(), icon: s.icon.clone(), ..Row::default() }).collect(),
+            4 if reputation => self.standings.iter().map(|s| Row { key: RowKey::Rep(s.form), name: s.name.clone(), icon: s.icon.clone(), ..Row::default() }).collect(),
             4 => self.general.clone(),
             _ => Vec::new(),
         }
@@ -254,7 +306,7 @@ mod tests {
         // A Doctor's Bag: when any limb is hurt.
         assert_eq!(refusal(DOCTORS_BAG, None, 1, (100.0, 100.0), &arm, false), None);
         assert_eq!(refusal(DOCTORS_BAG, None, 1, (60.0, 100.0), &whole, false).as_deref(), Some("no limb is hurt"));
-        // None carried; RadAway and Rad-X are not used from here.
+        // None carried; this CND refusal helper does not handle the RAD actions.
         assert_eq!(refusal(STIMPAK, None, 0, (10.0, 100.0), &arm, false).as_deref(), Some("none carried"));
         assert!(refusal(2, None, 5, (10.0, 100.0), &arm, false).is_some());
         // Hardcore: a Stimpak on a limb is refused, on the body it is not.
@@ -262,6 +314,13 @@ mod tests {
         assert_eq!(refusal(STIMPAK, None, 3, (60.0, 100.0), &arm, true), None);
         assert_eq!(refusal(DOCTORS_BAG, None, 1, (100.0, 100.0), &arm, true), None);
         assert_eq!(hint_text("RadAway", 0), "RadAway");
+    }
+
+    #[test]
+    fn radaway_is_lit_while_carried_and_rad_x_never() {
+        let texts: [String; 4] = Default::default();
+        assert_eq!(Hints::new(texts.clone(), [3, 1, 2, 5]).lit, [false, false, true, false], "RadAway carried: lit; Rad-X is not used from here");
+        assert_eq!(Hints::new(texts, [3, 1, 0, 5]).lit, [false; 4], "none carried: dim");
     }
 
     #[test]
@@ -276,9 +335,21 @@ mod tests {
         assert_eq!(karma_title(1, "Good", |_| None), "Samaritan");
         assert_eq!(karma_title(45, "Evil", |_| None), "Devil");
         assert_eq!(karma_title(7, "Neutral", |_| None), "Vagabond of the Wastes");
+        assert_eq!(karma_title_setting(29, "Very Evil", esm).as_deref(), Some("Demon Spawn"));
+        assert_eq!(karma_title_setting(29, "Neutral", esm), None);
+        let padded = |n: &str| (n == "sKarmicTitleNeutral01").then(|| "From the plugin".to_string());
+        assert_eq!(karma_title_setting(1, "Neutral", padded).as_deref(), Some("From the plugin"));
+        assert_ne!(karma_title(1, "Neutral", padded), "From the plugin", "the hand-built page keeps the table");
         assert_eq!(reputation_title(0, 0), "Neutral");
         assert_eq!(reputation_title(3, 0), "Idolized");
         assert_eq!(reputation_title(1, 1), "Mixed");
+    }
+
+    #[test]
+    fn every_list_knows_its_rows_by_what_they_stand_for() {
+        let s = Snapshot { standings: vec![Standing { form: FormId(9), name: "A".into(), title: "T", fame: 1.0, infamy: 0.0, icon: None }], ..Snapshot::default() };
+        assert_eq!(s.rows(4, true)[0].key, RowKey::Rep(FormId(9)));
+        assert_eq!(Row::default().key, RowKey::None);
     }
 
     #[test]
