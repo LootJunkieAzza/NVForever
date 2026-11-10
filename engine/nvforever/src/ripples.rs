@@ -21,7 +21,6 @@
 //! (`profile changes:` images changed and MB of pixels, profile.rs) no longer count the
 //! ripple uploads: they do not go through the image asset.
 
-use crate::reflection::ReflectionCamera;
 use crate::sky::SkyState;
 use crate::water::{DistantWater, WaterCache, WaterMaterial};
 use crate::world::{bevy_to_game, Streamer, WorldData};
@@ -391,7 +390,7 @@ fn update_ripples(
     sky: Res<SkyState>,
     player: Option<Res<nvf_play::player::Player>>,
     mut dw: ResMut<DistantWater>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     ripples: Option<ResMut<Ripples>>,
     cache: Res<WaterCache>,
     mut materials: ResMut<Assets<WaterMaterial>>,

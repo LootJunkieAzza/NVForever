@@ -585,7 +585,7 @@ pub fn draw(
     nav: Res<NavState>,
     world: Res<WorldData>,
     streamer: Res<Streamer>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut gizmos: Gizmos,
 ) {
     use fnv_nav::record::tri_flags;

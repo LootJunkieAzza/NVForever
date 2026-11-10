@@ -41,7 +41,7 @@ fewer arguments than it is given.
 
 | Function | NVForever |
 |---|---|
-| SetCustomMapMarker `x y z` | kept with the player's worldspace (or interior cell), 1; 0 with the player in no cell [hypothesis] (`Game::custom_map_marker`, for the Pip-Boy's map) |
+| SetCustomMapMarker `x y z` | kept with the player's worldspace (or interior cell), 1; 0 with the player in no cell [hypothesis] (`Game::custom_map_marker`): the Pip-Boy's one custom marker, which both maps show and Place Marker sets, moves and removes, kept in saves (pipboy.md §5.3, #1954) |
 | ClearCustomMapMarker | 1 when there was one, then none [hypothesis]. GetCustomMapMarker (`nvse_gaps`) stays a null reference: NVForever's marker is no reference [observed there: plugins2, 00000000 without one] |
 | MD5File, SHA1File `path` | the hash of a file "relative to the Fallout folder" as upper-case hex [documented; observed: the case, probe set jg8], "" when it cannot be read. `Data\…` reads through NVForever's mod files (archives too), other paths the game folder, read only; no drive, leading slash or `..` |
 | IsBSALoaded `name` | 1 for an archive the host loaded, by file name, any case [documented]; with `Data\` before the name, 0 [observed: probe set jg8]; the host's list (`mod_files::Roots::archives`: the engine's and fnvtool's archives) |

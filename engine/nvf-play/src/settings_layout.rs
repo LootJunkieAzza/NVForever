@@ -79,13 +79,21 @@ pub const SECTIONS: &[Section] = &[
         Some("Interface"),
         &["hud-colour", "hud-red", "hud-green", "hud-blue", "pipboy-colour", "pipboy-red", "pipboy-green", "pipboy-blue", "language", "dynamic-crosshair", "crosshair-style", "sneak-gauges"],
     ),
-    section("Display", Some("Performance"), &["fps-counter"]),
+    section(
+        "Display",
+        Some("Performance"),
+        &["fps-counter", "fps-counter-fps", "fps-counter-low", "fps-counter-graph", "fps-counter-split", "fps-counter-cpu", "fps-counter-gpu", "fps-counter-vram", "fps-counter-ram", "fps-counter-loaded"],
+    ),
     section("Audio", None, &["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]),
     section("Controls", None, &CONTROLLER_KEYS),
+    // The quality presets over the rows they set, under a heading of their own; the
+    // enhanced look as a whole first under Picture [design: #1966].
+    section("Graphics", Some("Quality"), &["quality"]),
     section(
         "Graphics",
         Some("Picture"),
         &[
+            "enhanced",
             "grade",
             "sun-shadows",
             "fsr-upscaling",
@@ -291,9 +299,9 @@ mod tests {
             .collect()
     }
 
-    /// Every row the registry can hold today (upstream main 9af0a4552), by the group it
-    /// registers with.
-    const KNOWN: [(&str, &str); 89] = [
+    /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
+    /// quality and enhanced rows and #2014's counter rows), by the group it registers with.
+    const KNOWN: [(&str, &str); 100] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -348,6 +356,15 @@ mod tests {
         ("field-of-view", "Display"),
         ("ui-scale", "Display"),
         ("fps-counter", "Display"),
+        ("fps-counter-fps", "Display"),
+        ("fps-counter-low", "Display"),
+        ("fps-counter-graph", "Display"),
+        ("fps-counter-split", "Display"),
+        ("fps-counter-cpu", "Display"),
+        ("fps-counter-gpu", "Display"),
+        ("fps-counter-vram", "Display"),
+        ("fps-counter-ram", "Display"),
+        ("fps-counter-loaded", "Display"),
         ("display-sync", "Display"),
         ("frame-cap", "Display"),
         ("object-distance", "Display"),
@@ -371,6 +388,8 @@ mod tests {
         ("light-shafts", "Graphics"),
         ("water-reflections", "Graphics"),
         ("water-mirror", "Graphics"),
+        ("enhanced", "Graphics"),
+        ("quality", "Graphics"),
         ("volume-master", "Sound"),
         ("volume-music", "Sound"),
         ("volume-footstep", "Sound"),
@@ -420,6 +439,9 @@ mod tests {
         assert_eq!(at("head-bob"), "Gameplay > Camera");
         assert_eq!(at("hud-red"), "Display > Interface");
         assert_eq!(at("sky-clock"), "Graphics > World");
+        assert_eq!(at("quality"), "Graphics > Quality");
+        assert_eq!(at("enhanced"), "Graphics > Picture");
+        assert_eq!(keys(&list, &l, "Graphics")[..4], ["[Quality]", "quality", "[Picture]", "enhanced"], "the presets first, under their own heading (#1966)");
         assert_eq!(at("button-style"), "Controls");
         // The registry itself is left as it was: its order and each row's group.
         let again = registry(&KNOWN);

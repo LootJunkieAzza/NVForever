@@ -1356,6 +1356,28 @@ fn position(i: f64, len: usize) -> Option<usize> {
     (0..len as i64).contains(&p).then_some(p as usize)
 }
 
+/// A character for a search without regard to case: its lowercase when that is one
+/// character, else itself. Lowering a whole string changes its byte length for some
+/// characters (`İ` 2 → 3 bytes, the Kelvin sign 3 → 1), so a position found in a
+/// lowered copy is not one in the original; character by character it is [#1989].
+fn fold(c: char) -> char {
+    let mut l = c.to_lowercase();
+    match (l.next(), l.next()) {
+        (Some(x), None) => x,
+        _ => c,
+    }
+}
+
+/// The first `needle` in `hay` from character `from`, as a character index; `case`
+/// compares as they are, else through [`fold`]. An empty needle is found at `from`.
+fn find_chars(hay: &[char], needle: &[char], from: usize, case: bool) -> Option<usize> {
+    if needle.is_empty() {
+        return (from <= hay.len()).then_some(from);
+    }
+    let same = |a: &char, b: &char| if case { a == b } else { fold(*a) == fold(*b) };
+    (from..=hay.len().checked_sub(needle.len())?).find(|&i| hay[i..i + needle.len()].iter().zip(needle).all(|(a, b)| same(a, b)))
+}
+
 impl Vm<'_, '_> {
     /// Set a variable from an extended value: a function's parameter before it runs.
     pub fn bind(&mut self, var: &VarRef, v: XVal) -> Result<(), VmError> {
@@ -2444,7 +2466,12 @@ impl Vm<'_, '_> {
                 if needle.is_empty() {
                     return Ok(Some(XVal::Num(0.0)));
                 }
-                let n = if case { region.matches(needle.as_str()).count() } else { region.to_lowercase().matches(needle.to_lowercase().as_str()).count() };
+                let (region, needle): (Vec<char>, Vec<char>) = (region.chars().collect(), needle.chars().collect());
+                let (mut n, mut at) = (0usize, 0usize);
+                while let Some(i) = find_chars(&region, &needle, at, case) {
+                    n += 1;
+                    at = i + needle.len();
+                }
                 XVal::Num(n as f64)
             }
             // [documented: Sv Destruct] the variable's string goes; it reads 0 after.
@@ -2468,9 +2495,10 @@ impl Vm<'_, '_> {
                 let case = opt(self, k + 3)?.is_some_and(|v| v.truthy());
                 let chars: Vec<char> = hay.chars().collect();
                 let end = len.map_or(chars.len(), |l| (start + l.max(0.0) as usize).min(chars.len()));
-                let region: String = chars.get(start..end).map(|s| s.iter().collect()).unwrap_or_default();
-                let found = if case { region.find(&needle) } else { region.to_lowercase().find(&needle.to_lowercase()) };
-                XVal::Num(found.map_or(-1.0, |b| (start + region[..b].chars().count()) as f64))
+                let region = chars.get(start..end).unwrap_or_default();
+                let needle: Vec<char> = needle.chars().collect();
+                let found = find_chars(region, &needle, 0, case);
+                XVal::Num(found.map_or(-1.0, |i| (start + i) as f64))
             }
             // [documented: Sv Replace] "old|new", in place, every match without regard to
             // case by default; the number replaced.
@@ -2489,21 +2517,17 @@ impl Vm<'_, '_> {
                     return Ok(Some(XVal::Num(0.0)));
                 }
                 let chars: Vec<char> = s.chars().collect();
-                let (head, tail): (String, String) = (chars[..start.min(chars.len())].iter().collect(), chars[start.min(chars.len())..].iter().collect());
-                let (mut out, mut count, mut rest) = (head, 0usize, tail.as_str());
-                loop {
-                    let at = if case { rest.find(old) } else { rest.to_lowercase().find(&old.to_lowercase()) };
-                    match at {
-                        Some(b) if max.is_none_or(|m| count < m) => {
-                            out.push_str(&rest[..b]);
-                            out.push_str(new);
-                            rest = &rest[b + old.len()..];
-                            count += 1;
-                        }
-                        _ => break,
-                    }
+                let old: Vec<char> = old.chars().collect();
+                let from = start.min(chars.len());
+                let (mut out, mut count, mut at): (String, usize, usize) = (chars[..from].iter().collect(), 0, from);
+                while max.is_none_or(|m| count < m) {
+                    let Some(i) = find_chars(&chars, &old, at, case) else { break };
+                    out.extend(&chars[at..i]);
+                    out.push_str(new);
+                    at = i + old.len();
+                    count += 1;
                 }
-                out.push_str(rest);
+                out.extend(&chars[at..]);
                 self.write_var(var, XVal::Str(out))?;
                 XVal::Num(count as f64)
             }

@@ -777,7 +777,7 @@ fn emit(
     sfx: Option<Res<Sfx>>,
     mut models: ModelCtx,
     root: Query<(Entity, &Transform), With<WorldRoot>>,
-    camera: Query<&Transform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&Transform, crate::fly::WorldCamera>,
     mut emitters: Query<(Entity, &mut AddonEmitter, Option<&InheritedVisibility>, Option<&crate::effect_shaders::PlayerEffectEmitter>)>,
     mut model_emitters: Query<ModelEmitterItem>,
     rigs: Query<&crate::object_anims::GroupRig>,
@@ -1093,9 +1093,9 @@ fn simulate(time: Res<Time>, mut p: ResMut<Particles>) {
     p.most_alive = p.most_alive.max(alive);
 }
 
-/// The world camera the particle draws face: the main camera (`FlyCam`, main.rs `setup`),
-/// never the reflection, scope or menu views' cameras beside it (module notes, "When").
-pub type WorldCamera = (With<Camera3d>, With<crate::fly::FlyCam>, Without<crate::reflection::ReflectionCamera>);
+/// The world camera the particle draws face: the main view's (`fly::WorldCamera`), never
+/// the reflection, scope or menu views' cameras beside it (module notes, "When").
+pub use crate::fly::WorldCamera;
 
 /// The main camera's right, up and backward in game space, as the particle draws take
 /// them: `rotation` the camera's, `to_game` Bevy's space to the game's (the world root's

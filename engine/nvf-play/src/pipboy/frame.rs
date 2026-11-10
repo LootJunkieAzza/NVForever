@@ -50,7 +50,7 @@ const CARD_VALUE_IN: f32 = 10.0;
 pub const BUTTON_TEXT_Y: f32 = 15.0 / 2.0 + 10.0;
 
 /// One button hint of a page: its words, the key's part after them ("R)", with a
-/// controller "Y)"), and whether it is drawn dim (it does nothing now) (#1896).
+/// controller "Y)"), and whether it is drawn dim (it does nothing now) (#1896, #1897).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hint {
     pub word: &'static str,
@@ -63,8 +63,11 @@ impl Hint {
         Hint { word, key, dim }
     }
 
-    /// As drawn: "Repair R)".
+    /// As drawn: "Repair R)"; the word alone when it has no key (a button only clicked).
     pub fn text(&self) -> String {
+        if self.key.is_empty() {
+            return self.word.to_string();
+        }
         format!("{} {}", self.word, self.key)
     }
 
@@ -79,12 +82,14 @@ pub fn hints_line<'a>(hints: impl IntoIterator<Item = &'a Hint>) -> String {
     hints.into_iter().map(|h| if h.dim { format!("{} (dim)", h.text()) } else { h.text() }).collect::<Vec<_>>().join(", ")
 }
 
-/// A column of hints at the top right (the ITEMS page's, the weapon mod menu's): one row
-/// under the other 46 apart, each row's word right-aligned on one line with its key just
-/// after it [observed: the original's screenshots on issue #1896, 1920 × 1080: rows 42 to
-/// 43 px apart, 0.90 of the item list's row step there (47 to 48 px); the words end at the
-/// heading's right end, the button glyph beside them; the mod menu's two rows 43 px apart
-/// too] [design: 0.90 of our 51-high list rows is 46].
+/// A column of hints at the top right (the ITEMS page's, the weapon mod menu's, the DATA
+/// page's): one row under the other 46 apart, each row's word right-aligned on one line
+/// with its key just after it [observed: the original's screenshots on issue #1896, 1920 ×
+/// 1080: rows 42 to 43 px apart, 0.90 of the item list's row step there (47 to 48 px); the
+/// words end at the heading's right end, the button glyph beside them; the mod menu's two
+/// rows 43 px apart too; the DATA page's on issue #1897 the same: rows 43 px apart, the
+/// words ending within 3 px of the heading's right end] [design: 0.90 of our 51-high list
+/// rows is 46].
 pub const HINT_PITCH: f32 = 46.0;
 /// How far right of the menus' rectangle a hint's key may reach on the canvas: the lit
 /// screen ends about 49 past the heading's right end at the first hint's row and further
@@ -253,19 +258,27 @@ impl<'a> Ctx<'a> {
     /// keys reaching at most [`HINT_KEY_ROOM`] past the menus' rectangle. Returns each
     /// row's drawn rectangle (word and key), for its click area.
     pub fn hint_column(&mut self, p: &mut ChildSpawnerCommands, hints: &[Hint], words_right: f32, top: f32) -> Vec<Rect> {
+        let rects = self.hint_column_rects(hints, words_right, top);
+        for (h, r) in hints.iter().zip(&rects) {
+            self.text(p, 2, &h.text(), r.min.x, r.min.y, Align::Left, h.color());
+        }
+        rects
+    }
+
+    /// Where [`Ctx::hint_column`] draws each row (word and key), without drawing: for a
+    /// page that needs its rows' places before it draws (the DATA page's click areas).
+    pub fn hint_column_rects(&self, hints: &[Hint], words_right: f32, top: f32) -> Vec<Rect> {
         let face = self.kit.face(2);
         let height = face.font.size;
         // The drawn widths, not the text's: a hint that names a button draws its picture.
         let widths: Vec<(f32, f32)> =
             hints.iter().map(|h| (crate::pad::hint_width(face, h.word, self.glyphs), crate::pad::hint_width(face, &h.text(), self.glyphs))).collect();
         let right = hint_words_right(words_right, MAIN.max.x + HINT_KEY_ROOM, widths.iter().map(|(word, all)| all - word));
-        hints
-            .iter()
-            .zip(widths)
+        widths
+            .into_iter()
             .enumerate()
-            .map(|(k, (h, (word, all)))| {
+            .map(|(k, (word, all))| {
                 let (x, y) = (right - word, top + HINT_PITCH * k as f32);
-                self.text(p, 2, &h.text(), x, y, Align::Left, h.color());
                 Rect::new(x, y, x + all, y + height)
             })
             .collect()

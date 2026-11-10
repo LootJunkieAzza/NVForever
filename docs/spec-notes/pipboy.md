@@ -328,14 +328,18 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   masters define none of them [observed: FalloutNV.esm and the add-ons], so an English
   install shows NVForever's own words; a plugin that defines one is drawn with its
   text (`pipboy::labels`) [design].
-- **The hints' words** (#1896). The ITEMS hints and the mod menu's read their settings
-  the same way: `sInventoryRepair`, `sMaintainItem`, `sInventoryMod`, `sExit` with the
-  pages' own words beside them ("Repair", "Maintain", "Mod", "Exit"); `sInventoryEquip`,
-  `sInventoryDrop`, `sInventoryHotKey` with NVForever's labels in the game strings table
-  (`fnv_ui::strings`: "Equip", "Drop", "Hotkey"; `labels::built_in_label`) [documented:
-  the setting names and the menus that use them, as that table cites them; design: the
-  words]. "Use" (aid, books) and "Unequip" (what is worn) have no setting named and stay
-  NVForever's own words [design].
+- **The hints' words** (#1896, #1897). The ITEMS and DATA hints and the mod menu's read
+  their settings the same way: `sInventoryRepair`, `sMaintainItem`, `sInventoryMod`,
+  `sExit`, `sChallengeToggle` with the pages' own words beside them ("Repair",
+  "Maintain", "Mod", "Exit", "Challenges"); `sPlaceMarker`, `sShowLocation`,
+  `sShowActiveNotes`, `sShowAllNotes`, `sNextChallenge`, `sInventoryEquip`,
+  `sInventoryDrop`, `sInventoryHotKey`, `sTravel`, `sMakeActiveQuest`, `sPlayAudio`,
+  `sStopAudio`, `sTune` with NVForever's labels in the game strings table
+  (`fnv_ui::strings`: "Place Marker", "Show Location", "Active Notes", "All Notes", "Next
+  Challenge", "Equip", "Drop", "Hotkey", "Travel", "Set Active", "Play", "Stop", "Tune
+  In"; `labels::built_in_label`) [documented: the setting names and the menus that use
+  them, as that table cites them; design: the words]. "Use" (aid, books) and "Unequip"
+  (what is worn) have no setting named and stay NVForever's own words [design].
 
 ## 5. The pages
 
@@ -1111,7 +1115,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     the worldspace's name [hypothesis: the screenshots show "Goodsprings", the map name
     of `VMapGoodspringsRegion` (observed)].
   - Right-aligned texts of the original end about 5 px further right than ours (the time,
-    "Show Location", "Place Marker") [observed]; not corrected.
+    "Show Location", "Place Marker") [observed]; not corrected (for the hints: before
+    they became a column ending at 855 on 2026-11-09).
 - **Lists** (Quests, Misc, Radio) [documented: map_menu.xml, list_box.xml]: 15 left of the
   menus, 75 down, 400 × 468, the scroll bar of 32 on the left; a row's square of 25 at 15,
   20 and its text 40 in and 20 down in font 2, broken at 310. A row is 54 high and a text's
@@ -1123,12 +1128,110 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   show it only under the pointer]. Hover selects, a click or Enter acts. The wheel scrolls
   the list. The scroll bar: the file's arrows (32 × 16) at the ends and a line for the part
   shown [hypothesis: the marker's look].
-- **Buttons at the right** [documented: map_menu.xml, text_box.xml]: right-aligned at
-  855, from 75 down, each its font-2 text with 20 across and 15 up and down, the text 10
-  under the middle of the spare height, a PC key's label 5 after the box. Their words are
-  game settings the masters do not hold (§1): "Place Marker", "Show Location", "Show
-  Active Quest Notes", "Challenges" with "R)" [observed]; "Show All Notes" [hypothesis:
-  the setting `sShowAllNotes`]. The hover box is not drawn.
+- **Hints at the right** (`MM_ButtonRect`, 2026-11-09, #1897; `data.rs::tab_buttons`,
+  `button_boxes`). The file has three hint tiles, A (`MM_ButtonA`), X (`MM_ButtonX`) and Y
+  (`MM_ButtonY`), right-justified, the first at the lists' top (75), each under the one
+  above only where that one shows [documented: map_menu.xml `MM_ButtonA`/`MM_ButtonX`/
+  `MM_ButtonY`]. When each shows, by the file:
+  - **A**, with a controller only, never with the keyboard and mouse: the World Map
+    always; Quests when the player has a quest; Misc when the selected note is an audio
+    note; Radio when at least one station is known. Its title by tab: `sTravel`,
+    `sMakeActiveQuest`, `sPlayAudio` (`sStopAudio` while the selected audio note plays),
+    `sTune` [documented].
+  - **X**: on both maps (`sPlaceMarker`): the file's title for it names a controller
+    [documented], but with the keyboard and mouse the original shows it too, the word
+    alone at the top right with no key, a button that takes a click [observed: the
+    original with no controller, 2026-11-10: `MM_ButtonX` visible 1 and a target on the
+    Local Map and the World Map; a 2026-11-07 shot of the World Map shows "Place Marker"
+    there]; Quests with either
+    device when the player has a quest (`sShowLocation`); Misc with either device when the
+    player has a note: `sShowActiveNotes` while all notes show, `sShowAllNotes` while the
+    filter is on, `sNextChallenge` while the challenges list is up [documented].
+  - **Y**: Misc with either device, its word `sChallengeToggle` in both views, the PC key
+    R (the file's PC hint for R names this tile) [documented]. The file also turns it on
+    for the maps with a controller, but the original's controller screenshots show no Y
+    hint on either map [observed: issue #1897, Local Map "Place Marker X)" alone, World
+    Map "Travel A)" and "Place Marker X)"]: NVForever follows the screenshots there; the
+    file's rule for the maps is not seen.
+
+  So with the **keyboard and mouse** [documented, the rules above, and observed for the
+  maps]: Local Map and World Map "Place Marker" alone (bright: it asks about the custom
+  marker, #1954, below); Radio no hint; Quests "Show Location X)" (with a quest); Misc the notes' filter
+  ("Active Notes X)", "All Notes X)", with a note; "Next Challenge X)" while the
+  challenges show) and "Challenges R)". With a **controller**: Local Map "Place Marker
+  X)"; World Map "Travel A)", "Place Marker X)"; Quests "Set Active A)", "Show Location
+  X)" (none without a quest); Misc "Play A)" / "Stop A)" on an audio note, the notes'
+  filter, "Challenges Y)"; Radio "Tune In A)" (none without a station) [observed: the
+  original's controller screenshots on issue #1897 show these sets: Local Map Place
+  Marker; World Map Travel, dim with no marker chosen, and Place Marker; Quests Make
+  Active Quest and Show Location; Misc the notes' filter and Challenges; Radio Tune].
+  The set follows the device as it changes (`crate::pad::labels`, the Controls page's
+  Input Device; the page draws again). The keys still do what they did with either
+  device (Enter on a row, X on the maps, R on Misc, clicks); only their hints follow the
+  original. Until 2026-11-09 every tab showed its A and X hints with the keyboard too
+  ("Travel Enter)", "Set Active Enter)", "Tune In Enter)", "Place Marker X)"), Misc "Notes
+  R)" while the challenges showed, and the hints were whole boxes right-aligned 10 short
+  of 855.
+  - **Dim** [design]: what does nothing now: Travel with no Travel target (below), Next
+    Challenge (not built; X logs `pipboy data: NextChallenge is not built`), the
+    make-active hint on a quest done or with none selected. Place Marker was dim until
+    it was built (#1954, 2026-11-10).
+  - **Our counts** [design]: "has a quest" is a quest listed; "has a note" counts every
+    note the player has, whatever the filter keeps (the file counts the notes list's
+    entries; counting the filtered list would hide the filter's hint while it hides every
+    note, so it could not be turned off); "known stations" are those the Pip-Boy receives
+    here (`crate::radio`); an audio note is a Sound or Voice note, "playing" the one
+    playing and not paused (`crate::holotape`) [hypothesis: the file's flag for a playing
+    audio note]. Stop shows only on a Voice note: a Sound note's sound is played once and
+    not followed (`crate::holotape`; no master's Sound note names a sound, holotapes.md
+    §2), so its hint stays Play, which is what a second press does (it plays the sound
+    again) [design; `data.rs::audio_hint`].
+  - **Words**: the settings' texts, which the masters do not hold (§1), else NVForever's
+    labels for them in the game strings table (`fnv_ui::strings`,
+    `labels::built_in_label`): `sTravel` "Travel", `sMakeActiveQuest` "Set Active",
+    `sPlayAudio` "Play", `sStopAudio` "Stop", `sTune` "Tune In", `sPlaceMarker` "Place
+    Marker", `sShowLocation` "Show Location", `sShowActiveNotes` "Active Notes",
+    `sShowAllNotes` "All Notes", `sNextChallenge` "Next Challenge". `sChallengeToggle` has
+    no label in that table and keeps NVForever's own "Challenges"
+    (`labels::label`) [design]. The words on the original's screenshots that no data file
+    holds are not copied (LEGAL.md).
+  - **Their places** (`frame::Ctx::hint_column`, as the ITEMS page's, §5): the first row
+    at the file's 75, its text `BUTTON_TEXT_Y` lower as every button's; the rows 46 apart;
+    each word right-aligned at 855, the heading's right end, its key just after it
+    [observed: the issue's five 1920 × 1080 screenshots: the words end within 3 px of the
+    heading's right end (at 1440 to 1448 px against the heading's 1442 to 1451); the rows'
+    letters 43 px apart on Quests and Misc (tops 231 and 274 px), as the ITEMS column's
+    42 to 43 px; the first row's letters 77 px under the heading's line, 0.155 of the way
+    from the heading's line to the tab line, against 0.150 on NVForever's frame before
+    this change, whose first row stood at the same 75]. A click box per row: its word and
+    key widened by the file's box, 20 across and 15 up and down, so the boxes of rows 46
+    apart meet [documented: `_horbuf`, `_verbuf`]. The hints are spawned after the page's
+    body (the maps' window and its markers) and before the question box, so a click on
+    a hint over the map's window is the hint's (before this, the map's window took the
+    clicks on the World Map's Travel word) [design]. The hover box is not drawn.
+  - **The data at the right** (Quests' objectives, a note's text or meter) starts under
+    the hints' rect (75 + 120) when any hint shows, a button's height higher on the tabs
+    up to Misc while the A hint does not show [documented: `MM_DataRect` y]: with a
+    controller Quests' objectives stand one row lower than with the keyboard [observed:
+    the issue's Quests screenshot, the objective under both hints].
+  - **Keys** [design, #1897]: X is each page's X button (Place Marker, below; while the
+    challenges show Next Challenge, which logs that it is not built; Show Location;
+    the notes' filter), on the controller X (`crate::pad::menu_buttons`' map entry); R
+    (the controller's Y) the challenges toggle. Enter on the World Map and the controller's
+    A ask to travel to the Travel target; A presses Enter too, and the two ask once. A
+    click on a hint does what its key does. Log: one `pipboy hints: data <tab>: <hint>, …`
+    line, "(dim)" after a dim hint, "none" for a tab with no hint, whenever the set
+    changes (with the device too).
+  - **Travel target** [design, #1897; `data.rs::travel_target`, `travel_ask`]: the marker
+    under the highlight box; while the mouse pointer is in use, the last marker the box
+    was on, kept while the pointer goes on to the Travel hint, until a click on the map
+    away from any marker (or another tab, or the page closing); only a marker still
+    shown. Over the buttons at the right the pointer is off the map: the highlight box
+    stays where it was, and a press there is the button's, never a click or drag of the
+    map, so one click asks to travel once. A click on the map on a marker asks to
+    travel there and makes it the Travel target. Since 2026-11-09 the Travel hint shows
+    with a controller only, while the page ignores the mouse pointer, so of this only the
+    map's own clicks and Enter remain in play with the mouse.
 - **Quests**: the quests with a name and an objective shown or done (quest-messages.md §5);
   running quests before those done (completed or failed), each part newest first, quests
   first seen together by FormID from the highest [hypothesis: fits the screenshot's
@@ -1174,7 +1277,7 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   right [documented]; sound and voice notes (holotapes) play when used (a click or
   Enter; again to pause, again to go on) and show the audio meter (time remaining and a
   marker moving along the tick meter)
-  ([holotapes](holotapes.md) §3). "Show Active Quest Notes" keeps the notes whose quest (`ONAM`) is the active one.
+  ([holotapes](holotapes.md) §3). The notes' filter (X, `sShowActiveNotes`) keeps the notes whose quest (`ONAM`) is the active one.
 - **Radio**: the stations the Pip-Boy receives where the player is, by name (`crate::radio`,
   radio.md); the one playing has its square filled; a click or Enter tunes to a station,
   or turns the radio off on the one playing [hypothesis: "Tune"]. The waveform panel
@@ -1282,7 +1385,87 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     `docs/owner-review.md`].
   - A click on a marker (the button pressed and let go without the pointer moving
     more than 6 units [design]) asks whether to travel there: fast travel,
-    `fast-travel.md`.
+    `fast-travel.md`. Enter, Space or the Travel hint (with a controller, its A) ask for
+    the marker under the highlight box too (#1897) [design].
+- **Place Marker and the custom marker** (#1954; `data/marker.rs`, `data.rs`
+  `place_marker`, `answer_marker`, `waypoints`). From a capture of the original's
+  MapMenu with the keyboard and mouse at 1280 × 720 (tile readings and screenshots,
+  2026-11-10) [observed unless marked]:
+  - Place Marker is the maps' `MM_ButtonX` (the word alone with the keyboard, the X
+    button with a controller). Pressed (X, the controller's X, a click on the hint) it
+    opens a question box. With no custom marker it asks whether to set it, two
+    answers, yes first: yes places the marker at the highlight box's middle (the
+    marker's texture coordinates equal the box's middle within 0.001), no does
+    nothing. With a marker placed it asks with three answers, in this order: move (to
+    the highlight box's spot), remove, leave (it stays).
+  - The words are game settings by name: `sSetMarkerQuestion` (no marker yet),
+    `sMoveMarkerQuestion` (one placed), `sYes`, `sNo`, `sMoveMarker`, `sRemoveMarker`,
+    `sLeaveMarker` [documented: the GECK wiki's Complete List of GameSettings names
+    them; which setting holds which answer is matched to the box's texts]. FalloutNV.esm
+    and the add-ons define none of them [observed: fnvtool's GMST inventory of every
+    master, 2026-11-10], so an English install shows NVForever's own words, written for
+    this box (`marker::Words`; LEGAL.md) [design]; a plugin that defines a setting wins.
+    NVForever's box is the fast-travel question box (`travel::Popup`, its keys and
+    clicks: Up/Down, Enter, Y the first answer, N the last). An answer the pointer is on
+    takes the choice only once the pointer moves more than 2 units after a key moved it:
+    the box is drawn anew as its choice moves and the answer under a resting pointer was
+    entered again, which undid every Up/Down at once. The answer under the pointer is
+    followed from its pointer-over and pointer-out events, so a pointer moving on within
+    an answer takes it once the hold lets go. Enter (or Space, E, the confirm button)
+    takes the choice as it stands after the same frame's Up and Down (both boxes;
+    `data.rs::box_frame`, `choose`) [design].
+  - There is **one** custom marker, shared by both maps: placed or moved on the Local
+    Map, the World Map shows it at the matching world position, and the other way
+    round. It is the scripts' marker too: JohnnyGuitar's SetCustomMapMarker "functions
+    the same as setting the marker within the map menu in the Pip-Boy" [documented: GECK
+    wiki SetCustomMapMarker], so NVForever keeps it in the game
+    (`fnv_game::Game::custom_map_marker`, the worldspace outdoors or the interior cell,
+    and the point; docs/spec-notes/ext-jg8.md) and the Pip-Boy reads and writes that one
+    [design]. On the World Map the spot is the position under the box's middle in the
+    worldspace shown (the picture's projection undone, `model::WorldMap::position`); on
+    the Local Map the point under it in the interior or worldspace the player is in
+    (`marker::local_point`), so an interior's marker shows on that interior's Local Map
+    only [design].
+  - Drawn: a tile `glow_hud_compass_pc_marker.dds` at depth 5, over the quest markers
+    (4), as wide as the quest markers on both maps (50.59 on the World Map, 75 on the
+    Local Map in the capture). NVForever draws it as a quest marker is drawn (size, the
+    1.25 height, the 15, 5 nudge, the Local Map's clamp to the window) one step above
+    them [hypothesis: the quest markers' templates, `WorldMapQuestMarkerTemplate`,
+    `LocalMapQuestMarkerTemplate`, whose width the capture's matches].
+  - **The dotted lines** (World Map only: the capture's Local Map has no waypoint
+    nodes): each a chain of `WaypointTemplate` nodes (`waypoint_node.dds`, 0.8 of the
+    map markers' width, depth 3; 17.41 against the markers' 21.76) with a `PathLine`
+    child (`waypoint_path.dds`, tiled, depth −1, a third of the node's height, from the
+    node's middle, `(user0 − 4) × _Magnification` wide, turned about its left end by
+    `rotateangle`) [documented: map_menu.xml]. `user0` is the path's length at a
+    magnification of 1 (the capture: 27.87 for a target 0.0136 of the 2048 picture
+    away) and `rotateangle` its direction (0.377 for a target up and to the right). With
+    the active quest's target on the map one chain runs from the arrow to it; with a
+    custom marker placed too, a second chain runs from the arrow to the marker (two
+    nodes at the arrow, one at each target) [observed]. NVForever draws one line from the
+    arrow to the custom marker and one to each quest target the World Map shows, a node
+    at each end, the file repeated along the line at its 64 × 16 shape at the line's
+    height [hypothesis: the tiling; one line per target where there are several]; a
+    target nearer than 4 has none (the capture's −2.1 wide line).
+  - Not captured: whether the original keeps the marker in its saves (the capture's save
+    was made before any marker existed) [hypothesis: it does]. NVForever saves it
+    (`custom_map_marker` in the engine's part of a save, the worldspace or cell moved to
+    the current load order, dropped with a plugin no longer loaded) and puts it back into
+    the restored game before the LoadGame and PostLoadGame handlers and the Script
+    Runner's load files run, so a handler's SetCustomMapMarker or ClearCustomMapMarker
+    wins (`data.rs::restore_custom_marker`, from `crate::script`) [design]; a new game
+    starts without one (the game is made anew).
+  - The HUD compass: the original has a compass tile with the pc-marker picture, but it
+    stayed hidden at four headings with the marker about 300 units away (why is not
+    known; perhaps it hides near the player) [observed]. Not built.
+  - Log: `pipboy map: Place Marker asks "<text>" (<n> answers) for (x, y) in <space>`,
+    `pipboy map: answered "<answer>"`, `pipboy map: custom marker placed at (x, y) in
+    <space>`, `… moved to (x, y) in <space>`, `… removed`, `… left where it was`,
+    `pipboy map: no custom marker placed`; `pipboy map: <world|local> map shows the custom
+    marker at (x, y)` / `shows no custom marker` when that changes; `pipboy map: dotted
+    line to <custom marker|quest target> (n segments)` when the lines' targets or the
+    marker change; `pipboy map: custom marker back from the save at (x, y) in <space>`.
+    Test aid: `placemarker` (§7).
 - **Local Map**: the same window, markers, arrow, quest markers (kept inside the window
   [documented]) and highlight box, on an empty map at 28 game units to a unit [observed:
   fitted, the gas station's door and the saloon's door 168 px apart on the screenshot; the
@@ -1310,7 +1493,7 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   quarter of it, made again for another floor (128 up or down) or place. Indoors the
   map is 8 units to a canvas unit (outdoors 28) [design]. What the physics world has not
   loaded stays empty. Not built: which doors and markers the original shows (its
-  screenshot shows only the gas station's door), Place Marker, fog of the unexplored.
+  screenshot shows only the gas station's door), fog of the unexplored.
 - **Dragging** (both maps): the left button held down on the map and the pointer moved
   pans it [design]; the pointer's own moves are followed, not Bevy's drag events, which
   ended at once because the map's nodes are drawn again as the highlight box follows the
@@ -1328,7 +1511,8 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   how done ones look; the hollow square's size (ours draws smaller than the original's,
   about 9 px against 14); which doors and markers the local map shows and its zoom;
   where the World Map opens; how the original turns the arrow; the radio's waveform model;
-  Place Marker, Challenges, the audio notes' panel, the buttons' hover boxes.
+  Challenges, the audio notes' panel, the buttons' hover boxes; the custom marker's
+  compass mark and whether the original saves it (Place Marker above).
 
 ## 6. Keys and pointer [hypothesis unless marked]
 
@@ -1371,7 +1555,8 @@ logged "pipboy sound: <EditorID>" (the focus sound at debug level).
 `page=stats|items|data`, `tab=<0-4>`, `key=down|up|use|drop`, and for the pointer
 `point=<x>:<y>` (the pointer on that canvas point, through the model's screen),
 `point=off`, `click=<x>:<y>` and `click=stats|items|data` (a click on the device's
-button; logged "pipboy: the STATS button pressed"), `point=stats|items|data` (the pointer
+button; logged "pipboy: the STATS button pressed"), `placemarker` (the DATA maps' Place
+Marker, as X; answer with `key=down` and `key=use`), `point=stats|items|data` (the pointer
 on that button, no click; logged "test aid: the pointer on the STATS button"); screenshots with
 `NVF_PLAY_TEST_SHOTS`. A new game's add-on message boxes come first: answer them with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.05` and open after about 12 s:

@@ -5,7 +5,7 @@
 //! animation as it holds JIP's NIF block setters'. The vertices come back from the
 //! engine's drawn meshes (`SceneMirror::set_vertices`, `nvforever::nif_mirror`). The bars'
 //! values are taken each fUpdateTimer seconds from the variable or the function
-//! (`crate::ui_hudbar`).
+//! (`crate::ui_hudbar`; docs/spec-notes/hud-bars.md §1).
 
 use crate::game::{Game, InstKey, RunCtx};
 use crate::nif_blocks::SceneEdit;
@@ -212,6 +212,13 @@ impl Game<'_> {
             let due: Vec<(usize, BarFeed)> = self.sup7.feeds.iter().enumerate().filter(|(_, s)| now >= s.next).map(|(k, s)| (k, s.clone())).collect();
             for (k, feed) in due {
                 let Some(i) = self.ui_extra.bars.list.iter().position(|b| b.id == feed.bar) else { continue };
+                // A bar hidden by HudBarShowBar is not read [documented: HudBarShowBar,
+                // "Bar value calculations will stop processing"]; shown again, it is read
+                // in that frame (its time is past). A bar its conditions hide is still
+                // read [hypothesis: the page names HudBarShowBar only].
+                if !self.ui_extra.bars.list[i].shown {
+                    continue;
+                }
                 let every = self.ui_extra.bars.list[i].bar_trait(2).max(0.0);
                 if let Some(s) = self.sup7.feeds.get_mut(k) {
                     s.next = now + every;
