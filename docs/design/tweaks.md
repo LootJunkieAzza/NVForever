@@ -482,6 +482,7 @@ unless the player binds them, so nothing changes until then.
 | Mark Notes Unread | `bMarkNotesUnread` | `pipboy::data::take_input`: a right click on the notes list calls `Game::mark_note_unread` for the selected note |
 | Barter Total Past the Merchant's Caps | `bShowBarterTotalWhenOverSellLimit` | `MenuModel::full_barter_total`: the hand-built barter figure shows `Trade::balance` instead of the capped `Trade::paid`; the tiles barter menu not yet |
 | Compass Fades on the Left | `bCompassFadeLeftSide` | `compass::left_fade` shades the marks left of the middle down to a fifth (ours); with it on the marks are drawn again each frame; quest marks stay whole |
+| Controller Dead Zones | `bDisableControllerDeadzones` | `pad::set_dead_zones` from `tweaks::sync`; `pad::stick` reads each stick's own; Bevy's own small dead zone still comes first |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -503,8 +504,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 404 |
-| to do | 199 |
+| done | 405 |
+| to do | 198 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1101,6 +1102,7 @@ game's Data folder, read-only).
 | `bChanceBasedKillcams` | done |  | 1 | Kill Camera Chance (slider; V.A.T.S. kill cameras, the only kind) |
 | `bContainerRespawnsMessage` | done |  | 2 | already so: respawning containers say so (not on NPCs) |
 | `bDetachedBeams` | done |  |  | Detached Beams |
+| `bDisableControllerDeadzones` | done |  | 2 | Controller Dead Zones (ours on top of Bevy's own small dead zone) |
 | `bDisableGodmodeOnLoad` | done |  |  | God Mode Off on Load |
 | `bDisableSellingItems` | done |  |  | No Selling |
 | `bDisableStealthEffectInPipboy` | done |  |  | No Stealth Shimmer in the Pip-Boy |
@@ -1160,7 +1162,6 @@ game's Data folder, read-only).
 | `bDialogMenuDebugging` | n/a |  |  | a mod-author debug print |
 | `bDisableAchievements` | n/a |  |  | NVForever has no achievements |
 | `bDisableCharacterRespec` | to do |  |  | the respec is plugin script data |
-| `bDisableControllerDeadzones` | to do |  | 2 | pad STICK_DEAD and Bevy axis settings |
 | `bDisableRegionBordersKeepMessage` | to do |  |  | not built: no world borders |
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |

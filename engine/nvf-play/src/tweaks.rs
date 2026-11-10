@@ -300,6 +300,11 @@ pub struct TweakSettings {
     pub full_barter_total: bool,
     /// `bCompassFadeLeftSide`: compass marks fade toward the left end.
     pub compass_fade_left: bool,
+    /// `bDisableControllerDeadzones` (`iControllerDeadzone`, `iControllerDeadzoneRS`): the
+    /// sticks' own dead zones, as shares of a full push (0 none).
+    pub custom_dead_zones: bool,
+    pub left_dead_zone: f32,
+    pub right_dead_zone: f32,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -483,6 +488,9 @@ impl Default for TweakSettings {
             right_click_previous_category: false,
             full_barter_total: false,
             compass_fade_left: false,
+            custom_dead_zones: false,
+            left_dead_zone: 0.0,
+            right_dead_zone: 0.0,
         }
     }
 }
@@ -1302,6 +1310,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "mark-notes-unread", "Mark Notes Unread", "A right click on a note in the Pip-Boy marks it unread again. (Stewie's Tweaks bMarkNotesUnread)", game.mark_notes_unread);
         switch!(app, "full-barter-total", "Barter Total Past the Merchant's Caps", "The barter figure shows the whole total even when it is more than the merchant's caps (the merchant still pays only what it has). (Stewie's Tweaks bShowBarterTotalWhenOverSellLimit)", full_barter_total);
         switch!(app, "compass-fade-left", "Compass Fades on the Left", "Marks on the compass fade toward its left end (quest marks stay whole), for a compass seen from its middle. (Stewie's Tweaks bCompassFadeLeftSide)", compass_fade_left);
+        switch!(app, "custom-dead-zones", "Controller Dead Zones", "The sticks use the dead zones below instead of the game's (12% of a push); 0% takes every movement. (Stewie's Tweaks bDisableControllerDeadzones)", custom_dead_zones);
+        part!(app, "left-dead-zone", "Left Stick Dead Zone", "The share of a push the left stick ignores, with Controller Dead Zones on. (Stewie's Tweaks iControllerDeadzone)", left_dead_zone);
+        part!(app, "right-dead-zone", "Right Stick Dead Zone", "The share of a push the right stick ignores, with Controller Dead Zones on. (Stewie's Tweaks iControllerDeadzoneRS)", right_dead_zone);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1537,6 +1548,7 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
 #[allow(clippy::too_many_arguments)]
 fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
+    crate::pad::set_dead_zones(tweaks.custom_dead_zones.then_some((tweaks.left_dead_zone, tweaks.right_dead_zone)));
     crate::wait::model::set_date_style(tweaks.date_style as u8);
     if let Some(mut b) = bindings {
         if b.allow_duplicates != tweaks.duplicate_binds {
