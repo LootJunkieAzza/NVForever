@@ -4,8 +4,8 @@ The last 26 JohnnyGuitar functions the census lists once batch 9 (#1930) and the
 camera slice (#1928) are counted, in `crates/fnv-game/src/nvse_jg10.rs`. Sources: the
 GECK wiki export [documented: the page named, in our own words], the ESM records, and
 NVForever's own systems where a page leaves a value open [hypothesis, with the reason].
-Not probed yet: probe set `jg10` (`tools/capture/jip_probes.py`) and lab scenario
-`L5.ext.jg10` are written, not run. Tests: `crates/fnv-game/tests/jg10.rs`.
+Probe set `jg10` (`tools/capture/jip_probes.py`, lab scenario `L5.ext.jg10`) was run in the
+original on 2026-11-09; §4 has its answers. Tests: `crates/fnv-game/tests/jg10.rs`.
 
 26 functions. Census: JohnnyGuitar 78 → 52 on main, 0 with #1928 and #1930.
 
@@ -17,7 +17,7 @@ DisableMuzzleFlashLights "does not persist through saves" and HighlightBodyPartA
 
 | Function | What it does here |
 |---|---|
-| AddNavmeshObstacle, RemoveNavmeshobstacle | The calling reference joins or leaves the script obstacle list [documented]. Returns 0. The engine does not cut the navmesh round it yet (§3). |
+| AddNavmeshObstacle, RemoveNavmeshobstacle | The calling reference joins or leaves the script obstacle list [documented]. Returns 1 [observed: §4 returns], 0 without a reference [hypothesis]. The engine does not cut the navmesh round it yet (§3). |
 | GetNearestNavMeshTriangle `x y z skipDisabled [zLimit]` | [x, y, z, distance] of the nearest loaded triangle's centre [documented]. Asked of the engine's navmesh through `nav_ask` (a new `triangle` question); an empty array when there is no answer [hypothesis]. |
 | GetPointInNavMesh `x y z skipDisabled [zLimit]` | The same for the triangle whose area holds the point seen from above [documented]. |
 | PathToPoint `x y z [radius] [angle]`, PathToRef `target [radius] [face]` | The actor walks there and keeps its package [documented]. NVForever queues the request for the engine (§3). Returns 1 when queued and 0 with no actor or target [hypothesis: the page gives a float return and no meaning]. A new request replaces the actor's last one. |
@@ -34,7 +34,7 @@ DisableMuzzleFlashLights "does not persist through saves" and HighlightBodyPartA
 | HighlightBodyPartAlt `[part]` | One actor at a time; no part, or 15, is everything but the weapon [documented]. A part outside 0–15 is not taken [hypothesis]. |
 | DeactivateAllHighlightsAlt | Every highlight goes [documented]. |
 | RemoveHighlightedRef | The calling reference's highlight goes [hypothesis: the page is empty; read from its name]. |
-| GetLandTextureUnderFeet | The land texture (LTEX) under the reference; nothing indoors [documented]. A cast straight down from 64 units above (`ray::CastKind::LandTexture`). The engine answers with the texture showing most where it meets the terrain, from the LAND's BTXT/ATXT layers, as footsteps choose their sound. It gives 0 where the default texture shows more [hypothesis]. |
+| GetLandTextureUnderFeet | The land texture (LTEX) under the reference; nothing indoors [documented], though the original gave a valid form indoors [observed: §4 underfeet; which form is asked again]. A cast straight down from 64 units above (`ray::CastKind::LandTexture`). The engine answers with the texture showing most where it meets the terrain, from the LAND's BTXT/ATXT layers, as footsteps choose their sound. It gives 0 where the default texture shows more [hypothesis]. |
 | RemapLand `land world x y` / `land` | The LAND takes the cell's landscape; the form alone puts it back [documented]. Returns 1 when done. It returns 0 for a source cell that does not exist, or a reset of a LAND never remapped [hypothesis]. The game's data keeps no LAND record types, so any form of no other known type is taken as a LAND [hypothesis]. The terrain is not redrawn yet (§3). |
 | RefreshIdle `[stop]` | The actor picks its own idles again after PlayIdle; 1 stops the one playing at once [documented]. NVForever's PlayIdle holds no override past its idle, so the stop (StopIdle's) is all that is left to do [hypothesis]. |
 | ShowBarberMenuEx `flag list` | The barber menu (1036). 0 blacklists hairs and beards, 1 blacklists beards and whitelists hairs, 2 the reverse, 3 whitelists both [documented]. `Game::barber_allows` answers for the menu. A flag outside 0–3 or no list opens it unfiltered [hypothesis]. |
@@ -71,25 +71,21 @@ The game side of each is built; the engine does not read these yet:
 - TriggerScreenSplatterEx's textures in `screen_splatter`.
 - The prompt and repair menu refreshes.
 
-## 4. Probe questions (set jg10)
+## 4. Probe answers (set jg10, run 2026-11-09)
 
-On the player at Doc Mitchell's (an interior):
+On the player at Doc Mitchell's (an interior), in the original game with the extenders
+[observed], and what NVForever does with each:
 
-1. `tri`: the nearest triangle at the player's place. Hypothesis `4 1`: four values, the
-   distance under 200.
-2. `tri.under`: the triangle under the player, and under a point 100,000 units east.
-   Hypothesis `4 0`.
-3. `underfeet`: indoors. Hypothesis `0`: no form.
-4. `facegen`: Doc Mitchell's FGGS[0], FGGA[0], FGTS[0], FGGA[30] (out of range) and type
-   3. This shows whether types 0/1/2 are FGGS/FGGA/FGTS.
-5. `facegen.set`: set FGGS[1] to 0.5, read it, and put it back. Hypothesis `1 0.500` and
-   the old value.
-6. `returns`: what HighlightBodyPartAlt, RemoveHighlightedRef, DeactivateAllHighlightsAlt,
-   Add/RemoveNavmeshObstacle, UpdateCrosshairPrompt, UpdateRepairMenu and
-   DisableMuzzleFlashLights 0 return. Hypothesis: all 0.
-7. `scope.remove`: RemoveScopeModelPath on the 10mm pistol, which has no scope.
-   Hypothesis `0`.
-8. `remapland`: `RemapLand 1`, a reset of nothing. Hypothesis `0`.
+| Probe | Original | NVForever |
+|---|---|---|
+| `tri`: GetNearestNavMeshTriangle at the player, size and distance under 200 | `4 1` | the engine's navmesh (§3: no answerer lent yet); the records-only lab candidate gives `0` |
+| `tri.under`: GetPointInNavMesh at the player and 100,000 units east | `4 4` | as `tri`; far off the navmesh still gives four values in the original |
+| `underfeet`: GetLandTextureUnderFeet indoors | a valid form | 0 indoors; the rerun asks which form it is |
+| `facegen`: types 0-2 index 0, FGGA index 30, type 3 in one step | crashed the game | split into one read per type (`facegen.fggs`, `.fgga`, `.fgts`), last in the set; the out-of-range reads are not asked again |
+| `facegen.set`: set FGGS 1 to 0.5, read it, put the first read back, read again | `1 0.500 0.605` | `1 0.500 0.508`, the record's FGGS 1; why the original reads 0.605 is open (not the race's default, 0.715) |
+| `returns`: HighlightBodyPartAlt, RemoveHighlightedRef, DeactivateAllHighlightsAlt, Add/RemoveNavmeshObstacle, UpdateCrosshairPrompt, UpdateRepairMenu, DisableMuzzleFlashLights 0 | `0 0 0 1 1 0 0 0` | the obstacle functions now return 1 |
+| `scope.remove`: the 10mm pistol, no scope | `0` | `0` |
+| `remapland`: a reset of nothing | `0` | `0` |
 
 Left out, because they move actors, open menus, draw on the screen or need a poison form
 not listed here: PathToPoint, PathToRef, ShowBarberMenuEx, TriggerScreenSplatterEx,

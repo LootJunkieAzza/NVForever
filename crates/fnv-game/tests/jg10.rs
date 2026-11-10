@@ -100,9 +100,9 @@ fn navmeshes_and_paths() {
     let f = fixture();
     let mut g = game(&f);
     // [documented: AddNavmeshObstacle, RemoveNavmeshobstacle on the calling reference].
-    q(&mut g, "PlayerREF.AddNavmeshObstacle");
+    assert_eq!(n(&mut g, "PlayerREF.AddNavmeshObstacle"), 1.0);
     assert!(g.script_nav_obstacles().contains(&FormId::PLAYER_REF));
-    q(&mut g, "PlayerREF.RemoveNavmeshobstacle");
+    assert_eq!(n(&mut g, "PlayerREF.RemoveNavmeshobstacle"), 1.0);
     assert!(g.script_nav_obstacles().is_empty());
     // No answerer (headless): an empty array [hypothesis].
     assert_eq!(n(&mut g, "Ar_Size (GetNearestNavMeshTriangle 0 0 0 1)"), 0.0);

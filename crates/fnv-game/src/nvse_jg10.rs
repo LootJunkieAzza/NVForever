@@ -236,16 +236,16 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
     let v = match name {
         // ---- navmeshes and paths ----
         // The calling reference joins or leaves the obstacle list [documented]; the
-        // engine's navmesh cuts round it (spec note §3).
+        // engine's navmesh cuts round it (spec note §3). 1 on a reference [observed:
+        // jg10.returns, both on Doc Mitchell], 0 without one [hypothesis].
         "addnavmeshobstacle" | "removenavmeshobstacle" => {
-            if let Some(r) = subject {
-                if name == "addnavmeshobstacle" {
-                    g.other.jg10.nav_obstacles.insert(r);
-                } else {
-                    g.other.jg10.nav_obstacles.remove(&r);
-                }
+            let Some(r) = subject else { return Some(Ok(zero)) };
+            if name == "addnavmeshobstacle" {
+                g.other.jg10.nav_obstacles.insert(r);
+            } else {
+                g.other.jg10.nav_obstacles.remove(&r);
             }
-            zero
+            XVal::Num(1.0)
         }
         // `x y z skipDisabled [zLimit]`: [x, y, z, distance] of the nearest triangle's
         // centre, or of the triangle under the point (GetPointInNavMesh) [documented];

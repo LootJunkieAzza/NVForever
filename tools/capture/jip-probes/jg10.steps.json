@@ -17,13 +17,8 @@
    "text": true
   },
   {
-   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := PlayerREF.GetLandTextureUnderFeet\nSetFunctionValue (IsFormValid rA)\nEnd\n",
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := PlayerREF.GetLandTextureUnderFeet\nSetFunctionValue (GetFormIDString rA)\nEnd\n",
    "label": "jg10.underfeet",
-   "field": "value"
-  },
-  {
-   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (sv_Construct \"%.3f %.3f %.3f %.3f %.3f\" (FaceGenGetNthProperty rA 0 0) (FaceGenGetNthProperty rA 1 0) (FaceGenGetNthProperty rA 2 0) (FaceGenGetNthProperty rA 1 30) (FaceGenGetNthProperty rA 3 0))\nEnd\n",
-   "label": "jg10.facegen",
    "field": "value",
    "text": true
   },
@@ -48,6 +43,24 @@
    "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nSetFunctionValue (RemapLand 1)\nEnd\n",
    "label": "jg10.remapland",
    "field": "value"
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (sv_Construct \"%.3f\" (FaceGenGetNthProperty rA 0 0))\nEnd\n",
+   "label": "jg10.facegen.fggs",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (sv_Construct \"%.3f\" (FaceGenGetNthProperty rA 1 0))\nEnd\n",
+   "label": "jg10.facegen.fgga",
+   "field": "value",
+   "text": true
+  },
+  {
+   "query": "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\nBegin Function { }\nlet rA := GetFormFromMod \"FalloutNV.esm\" \"104C0C\"\nSetFunctionValue (sv_Construct \"%.3f\" (FaceGenGetNthProperty rA 2 0))\nEnd\n",
+   "label": "jg10.facegen.fgts",
+   "field": "value",
+   "text": true
   }
  ]
 }
