@@ -49,7 +49,8 @@ use fnv_phys::{layers, Filter, Key, Owner};
 use fnv_sim::settings::Setting as GameSetting;
 use fnv_sim::FormId;
 
-/// The settings page's group of the controller's aim assist.
+/// The group the controller's rows register with (shown on the Controls tab with a
+/// controller only, `crate::settings_layout`).
 pub const GROUP: &str = "Controller";
 
 /// The range when the load order has no `fAutoAimMaxDistance` [documented: GECK wiki
