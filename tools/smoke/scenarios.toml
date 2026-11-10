@@ -635,6 +635,7 @@ paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
   "engine/nvforever/src/taa*", "engine/nvforever/src/shafts*",
   "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs",
+  "engine/nvf-play/src/settings_layout.rs",
 ]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:anti-aliasing=1,15.5:light-shafts,20:anti-aliasing=0.333", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
@@ -656,7 +657,7 @@ name = "ui-scale-write"
 source = "issue #1631: the settings page's Display row UI scale (ui-scale) sets the HUD's size, kept in NVForever.ini; the first half of the round trip, ui-scale-read starts with what this run keeps"
 note = "The home's INI may hold any scale from an earlier run, so the row is set to 100% first and then to 75%: the second is always a change and is written"
 areas = ["hud", "settings"]
-paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:ui-scale=0.5,12:ui-scale=0.25" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 16
@@ -693,6 +694,7 @@ areas = ["menus", "settings", "wait"]
 paths = [
   "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/wait.rs", "engine/nvf-play/src/ui_pointer.rs",
   "engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/start_menu.rs",
+  "engine/nvf-play/src/settings_layout.rs",
 ]
 env = { NVFOREVER_HOME = "ui-scale-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:page", NVF_PLAY_TEST_SHOTS = "12.5:ui_scale_75_settings.png,17:ui_scale_75_wait.png", NVF_PLAY_TEST_WAIT = "16:open,17.5:point=0.563:0.4775,18:press,18.5:release,19:point=0.63275:0.557,19.5:press,20.5:release" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
@@ -725,7 +727,7 @@ manual = "ui_scale_75_tiles_wait.png: the tile-drawn wait menu three quarters of
 name = "draw-distance-sliders"
 source = "engine/nvforever/src/draw_distance.rs (owner request 2026-10-16): the settings page's Display sliders set how far objects, actors and items are drawn and how far shadows and grass reach, while the game runs, without a rendering error"
 areas = ["renderer", "settings"]
-paths = ["engine/nvforever/src/draw_distance.rs", "engine/nvforever/src/fade.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvforever/src/draw_distance.rs", "engine/nvforever/src/fade.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:object-distance=0.5,12:actor-distance=0.3,13:item-distance=0.25,14:shadow-distance=0.5,15:grass-distance=0.5,16:object-distance=1" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
 run_seconds = 22
@@ -745,7 +747,7 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 name = "sound-volumes"
 source = "engine/nvf-play/src/audio_out.rs (owner request 2026-10-17): the settings page's Sound tab sets the master volume and each category's while the game runs; music and footsteps play into their own categories"
 areas = ["audio", "settings"]
-paths = ["engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/music.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/music.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "6:1:0,10:0:0", NVF_PLAY_TEST_PAUSE = "12:16", NVF_PLAY_TEST_SETTINGS = "13:volume-master=0.8,14:volume-footstep=0.25,15:volume-voice=0.5" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 18
@@ -804,7 +806,7 @@ expect = [
 name = "graphics-glow-switches"
 source = "docs/spec-notes/world.md §6 \"HDR and bloom\", \"Eye adaptation\" (owner 2026-10-25: the HDR effects as settings switches): the settings page's Eye adaptation and Neon glow switches, and the light glow (HDR) they need, change while the game runs, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
-paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/post.rs", "engine/nvforever/src/eye_adapt.rs"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/post.rs", "engine/nvforever/src/eye_adapt.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:eye-adaptation,12:neon-glow,13:glow,14:glow,15:eye-adaptation,16:neon-glow" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 19
@@ -822,7 +824,7 @@ forbid = [{ text = "Caught rendering error", label = "a rendering (validation) e
 name = "fps-counter"
 source = "engine/nvforever/src/perf_overlay/ (issues #1087, #1704, #1868): --fps shows the frame rate counter (with CPU and GPU use) from the start, and the settings page's Frame rate counter switch hides and shows it while the game runs"
 areas = ["renderer", "settings"]
-paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvforever/src/perf_overlay/*", "engine/nvforever/src/memory_budget.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_SETTINGS = "11:fps-counter,12:fps-counter" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--fps"]
 run_seconds = 16
@@ -895,6 +897,7 @@ areas = ["renderer", "graphics", "settings"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/settings.rs",
   "engine/nvforever/src/taa*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs",
+  "engine/nvf-play/src/settings_layout.rs",
 ]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0.667,12:anti-aliasing=0.833,13:anti-aliasing=1,14:anti-aliasing=0.5,15:shadow-filter=0,16:shadow-filter=1,17:shadow-filter=0.5,17.5:field-of-view=0.667,18:frame-cap=0.4,18.5:display-sync=Off,19:frame-cap=0,19.5:field-of-view=0.417" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
@@ -2376,7 +2379,7 @@ expect = [
 name = "radio-rnv-voice-off"
 source = "#1077 item 2 (owner: Mr. New Vegas on the Pip-Boy followed the Voice slider): with Voice at 0, Radio New Vegas's DJ talk and news are still heard, on the Radio mixer"
 areas = ["radio", "audio", "pipboy", "settings"]
-paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/audio_out.rs"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:volume-voice=0", NVF_PLAY_TEST_SCRIPT = "1:enable:RNVTARef", NVF_PLAY_TEST_RADIO = "2:tune=RadioNewVegasTA,48:off" }
 args = ["--cell", "Goodsprings", "--play", "--no-messages"]
 run_seconds = 52
@@ -2395,7 +2398,7 @@ expect = [
 name = "radio-rnv-radio-off"
 source = "#1077 item 2: with Radio at 0, Radio New Vegas's DJ talk and news are silent"
 areas = ["radio", "audio", "pipboy", "settings"]
-paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/audio_out.rs"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:volume-radio=0", NVF_PLAY_TEST_SCRIPT = "1:enable:RNVTARef", NVF_PLAY_TEST_RADIO = "2:tune=RadioNewVegasTA,48:off" }
 args = ["--cell", "Goodsprings", "--play", "--no-messages"]
 run_seconds = 52
@@ -3532,7 +3535,7 @@ name = "ui-sounds"
 note = "--no-messages added 2026-10-12 (fixes workstream): on a loaded machine the add-on packs' twelve start-up message boxes came up while the test aids ran (a menu request ignored, the game clock held for about 10 s while the aids' clock ran on); with it they close on the frame they open. Expectations unchanged"
 source = "CLAUDE.md: after changes to the menus' sounds (docs/spec-notes/audio.md §12): the menus one after the other"
 areas = ["ui-sounds", "audio", "menus"]
-paths = ["engine/nvf-play/src/ui_sounds.rs", "engine/nvf-play/src/menu*", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/world_sounds.rs"]
+paths = ["engine/nvf-play/src/ui_sounds.rs", "engine/nvf-play/src/menu*", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "11:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_BARTER_DELAY = "6", NVF_PLAY_TEST_MENU = "nearest", NVF_PLAY_TEST_DELAY = "44", NVF_PLAY_TEST_GIVE = "00015169:2", NVF_PLAY_TEST_DROP = "58:00015169:use", NVF_PLAY_TEST_WAIT = "61:open,62:hours=2,63:accept", NVF_PLAY_TEST_PAUSE = "66:69", NVF_PLAY_TEST_SETTINGS = "67:page,67.5:menu-pause,68:menu-pause" }
 args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages"]
 run_seconds = 72
@@ -3700,7 +3703,7 @@ name = "dialogue-goodbye-hint-off"
 note = "As dialogue-goodbye-hint with the Goodbye hint switched off first: the pause menu's settings page flips dialogue-goodbye-hint at 3 s (the aids that act on the world, the talk among them, wait for 11 s of the world clock, which never runs ahead of the real one, so the flip comes first on any machine). The hint is held back, the real Tab at 36 s still says goodbye. Shots hint_off_*.png. Does not cover the flip while a conversation is open (unit test of the cache key) or a refused Tab"
 source = "docs/spec-notes/dialogue-menu.md §4: the Goodbye hint switch (#1517)"
 areas = ["dialogue", "menus"]
-paths = ["engine/nvf-play/src/dialogue_menu.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/dialogue_menu.rs", "engine/nvf-play/src/dialogue.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:page,3:dialogue-goodbye-hint", NVF_PLAY_TEST_TALK = "11:GSChetRef=", NVF_PLAY_TEST_TALK_DELAY = "60", NVF_PLAY_TEST_KEYS = "36:tab", NVF_PLAY_TEST_SHOTS = "30:hint_off_30.png,33:hint_off_33.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--size", "1024x768"]
 run_seconds = 48
@@ -7931,7 +7934,7 @@ expect = [
   "main menu: Continue is greyed out",
   "main menu: Load Game is greyed out",
   "main menu: Settings",
-  "pause menu: Settings { selected: 0 } page for another menu",
+  "pause menu: Settings { selected: None } page for another menu",
   "main menu: New Game",
   "main menu: closed, the intro film plays",
   { re = 'intro: playing .*FNVIntro\.bik \(1280x720, \d+ frames\)', label = "the intro film plays" },
@@ -7965,7 +7968,7 @@ forbid = [{ text = "explore: the free-camera explorer", label = "not the explore
 name = "menus-look"
 source = "owner todo 5 items 8, 19, 51: the pause menu in the original's look (column, highlight box, settings categories, quit question, load page), the game's pointer, the wait menu in the HUD's colour and fonts; frames pause_main/quit/settings/load.png and wait_menu.png in the working folder"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs", "engine/nvf-play/src/wait.rs", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs", "engine/nvf-play/src/wait.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "menus-look-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_PAUSE_MENU = "10.5:shot,11:down,12:quit,12.5:shot,13:back,14.5:shot,16.5:back,17:load,17.5:shot,18:back", NVF_PLAY_TEST_SETTINGS = "14:page,15:god-mode,16:god-mode", NVF_PLAY_TEST_WAIT = "23:open,24:hours=5", NVF_PLAY_TEST_SHOTS = "25:wait_menu.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 28
@@ -8738,7 +8741,7 @@ name = "hardcore-setting"
 source = "owner 2026-10-25: Hardcore mode is a switch of the settings page's Gameplay group; turning it off clears the needs and their effects (engine/nvf-play/src/hardcore.rs, crates/fnv-game/src/needs.rs, docs/spec-notes/aid-items.md §11)"
 note = "The settings page turns Hardcore on at 11 s; Dehydration 650 at 13 s (Critical: H20 red, Strength down); the page turns it off at 17 s: the needs go back to 0 and the word and its effect go"
 areas = ["hud", "hardcore", "settings"]
-paths = ["engine/nvf-play/src/hardcore.rs", "crates/fnv-game/src/needs.rs", "engine/nvf-play/src/hud_needs.rs"]
+paths = ["engine/nvf-play/src/hardcore.rs", "crates/fnv-game/src/needs.rs", "engine/nvf-play/src/hud_needs.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:12,16:18", NVF_PLAY_TEST_SETTINGS = "11:hardcore,17:hardcore", NVF_PLAY_TEST_SCRIPT = "13:set_av:player:Dehydration:650" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 22
@@ -8889,7 +8892,7 @@ name = "dynamic-crosshair-off"
 source = "owner 2026-10-25: the dynamic crosshair is a switch of the settings page's Gameplay group (engine/nvf-play/src/reticle.rs, docs/spec-notes/reticle.md §6)"
 note = "The settings page turns Dynamic crosshair off at 6 s, before the 10mm Pistol is drawn; the run of shots blooms the combat model's cone as in combat-bloom-recoil, but the arrows never part"
 areas = ["hud", "settings"]
-paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "5:7", NVF_PLAY_TEST_SETTINGS = "6:dynamic-crosshair", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11.00:fire,11.20:fire,11.55:fire,11.75:fire,12.10:fire,12.30:fire,12.65:fire,12.85:fire" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
 run_seconds = 15
@@ -8911,7 +8914,7 @@ name = "crosshair-style-arrows"
 source = "owner 2026-10-30: the settings page's Crosshair style row picks the gun cross or the parting arrows (engine/nvf-play/src/reticle.rs, docs/spec-notes/reticle.md §7)"
 note = "The settings page picks Arrows at 6 s, before the 10mm Pistol is drawn; the run of shots parts the arrows and the gun cross never shows"
 areas = ["hud", "settings"]
-paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "5:7", NVF_PLAY_TEST_SETTINGS = "6:crosshair-style=Arrows", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "8:weapon,11.00:fire,11.20:fire,11.55:fire,11.75:fire,12.10:fire,12.30:fire,12.65:fire,12.85:fire" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
 run_seconds = 15
@@ -9514,7 +9517,7 @@ forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]
 name = "settings-write"
 source = "owner 2026-10-16: every settings switch is kept in NVForever.ini, so a start or a save's load does not reset it; the first half of the round trip (settings-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-install/src/lib.rs"]
+paths = ["engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-install/src/lib.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "settings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,13:hit-markers", NVF_PLAY_TEST_PAUSE_MENU = "12:defaults" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 18
@@ -9528,7 +9531,7 @@ order = [["pause menu: settings back to their defaults", "settings: hit-markers 
 name = "ui-colours"
 source = "owner 2026-10-26: colour pickers on the settings page for the HUD and the Pip-Boy's screens, amber the default; a preset and a slider change each colour at once and the Pip-Boy opens in its own"
 areas = ["settings", "hud", "pipboy"]
-paths = ["engine/nvf-play/src/ui_colour.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/ui_colour.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:hud-colour=Green,12:pipboy-colour=Blue,13:pipboy-red=0.2", NVF_PLAY_TEST_PIPBOY = "17:open,18:page=items,20:close", NVF_PLAY_TEST_SHOTS = "19:ui_colours_pipboy.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--pos=-68375,4800,8700"]
 run_seconds = 22
@@ -9545,7 +9548,7 @@ order = [[
 name = "display-sync-write"
 source = "#1082: the settings page's Display sync choice Variable refresh keeps vsync on and caps the frame rate a few frames under the monitor's refresh rate (engine/nvforever/src/frame_pace.rs vrr_cap; docs/spec-notes/display-sync.md); the start logs the surface's present modes; the first half of a round trip (display-sync-read starts in the same home)"
 areas = ["renderer", "settings"]
-paths = ["engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "display-sync-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:page,12:display-sync=Vertical sync,13:display-sync=Variable refresh" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
 run_seconds = 17
@@ -9587,7 +9590,7 @@ expect = [
 name = "settings-switch-write"
 source = "#1382: the first half of the command line against NVForever.ini (settings-switch-wins starts in the same home): a run given --fps turns the settings page's Frame rate counter off, which is stored"
 areas = ["settings"]
-paths = ["engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "switch-wins-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,13:fps-counter", NVF_PLAY_TEST_PAUSE_MENU = "12:defaults" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700", "--fps"]
 run_seconds = 18
@@ -9616,7 +9619,7 @@ forbid = [{ text = "overrides --fps on the command line", label = "the stored st
 name = "window-borderless"
 source = "coordinator 2026-10-16: the game can run borderless full screen (--window borderless), and the settings page's Display group switches the live window back and forth (engine/nvforever/src/window_mode.rs); no home, so the player's INI is neither read nor written"
 areas = ["main-menu"]
-paths = ["engine/nvforever/src/window_mode.rs"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,13:borderless" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--window", "borderless"]
 run_seconds = 18
@@ -9631,7 +9634,7 @@ order = [["window: borderless full screen on the current monitor", "settings: bo
 name = "resolution-revert"
 source = "owner 2026-10-18: a resolution dropdown first in the settings page's Display group, and a 20 s countdown back to the resolution before unless it is kept (engine/nvforever/src/window_mode.rs, nvf-play settings.rs ChoiceList); no home, so the player's INI is neither read nor written"
 areas = ["main-menu"]
-paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:36", NVF_PLAY_TEST_SETTINGS = "11:page,12:resolution=1024x768" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 38
@@ -9646,7 +9649,7 @@ order = [["window: windowed, 1280x800", "settings: resolution 1024x768, until ke
 name = "resolution-keep"
 source = "owner 2026-10-18: the resolution dropdown's choice is kept when Keep is taken in time; the dropdown opens on the row and shows the monitor's sizes (pause_settings.png is taken with the keep question up, then with the dropdown open)"
 areas = ["main-menu"]
-paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvforever/src/window_mode.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:34", NVF_PLAY_TEST_SETTINGS = "11:page,12:resolution=1600x900", NVF_PLAY_TEST_PAUSE_MENU = "13:shot,15:keep,17:pick,18:down,19:shot,21:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 38
@@ -9663,7 +9666,7 @@ forbid = [{ text = "(not kept)", label = "a kept resolution does not go back" }]
 name = "controls-write"
 source = "owner 2026-10-16: keys are mapped in the INI's [Controls] and rebound on the settings page's Controls tab; the first half of the round trip (controls-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:controls,12:bind:Jump=J,13:bind:Activate=F", NVF_PLAY_TEST_PAUSE_MENU = "11.5:defaults" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 18
@@ -9690,7 +9693,7 @@ expect = [
 name = "settings-scroll"
 source = "owner 2026-10-16: the settings page's long categories scroll with the mouse wheel and show a scroll bar; the Controls tab's rows scrolled down three notches and back up one"
 areas = ["main-menu"]
-paths = ["engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:controls", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:wheel-up,14:shot" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
 run_seconds = 17
@@ -9701,11 +9704,388 @@ order = [[
   { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up shows the row before again" },
 ]]
 
+
+[[scenario]]
+name = "settings-scroll-headings"
+source = "#1953: the mouse wheel moves the window of a tab with headings (Gameplay) as of one without, the chosen row brought into the window (the top row once the chosen one leaves it) and the window not pulled back to the chosen row's heading; a notch up moves it back one line"
+note = "Gameplay's first lines: [Game], difficulty, hardcore, kill-camera, reload-slows, UsePipBoy, [Saving], the five autosave rows; the window is nine lines"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:inspect,14:wheel-up,15:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "pause menu: tab Gameplay; selected difficulty",
+  { re = 'pause menu: rows 2-10 of \d+ shown', label = "a notch of the wheel shows the next line" },
+  { re = 'pause menu: rows 3-11 of \d+ shown' },
+  { re = 'pause menu: rows 4-12 of \d+ shown', label = "three notches, three lines down" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 4-12 of \d+', label = "the window stays moved, the chosen row its top row" },
+  { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up moves it back one line" },
+  { re = 'pause menu: inspect: Gameplay, keys on the rows, selected kill-camera, lines 3-11 of \d+', label = "the chosen row still in the window" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'pause menu: rows 1-9 of \d+ shown', label = "the window is never pulled back to the top (to the chosen row's heading)" },
+  { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "scrolling changes no setting" },
+]
+
+[[scenario]]
+name = "settings-reopen"
+source = "#1953, the fork owner's request 2026-11-09: the settings page opens again where it was left, its tab and chosen row (from the pause menu's column, the aid's settings verb, as Settings or S)"
+note = "no home: the row and the scroll are kept for the run only, the tab in the INI only with a home (settings-tab-write)"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:tab:Debug,12:select:god-mode", NVF_PLAY_TEST_PAUSE_MENU = "13:back,14:settings,15:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "pause menu: tab Debug; selected overlay",
+  "pause menu: select god-mode: god-mode on Debug",
+  "pause menu: settings",
+  { text = "pause menu: settings open on Debug; selected god-mode", label = "Settings again opens on the tab and the row it was left on" },
+  "pause menu: inspect: Debug, keys on the rows, selected god-mode",
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'settings page: \[UI\] SettingsTab=', label = "an unattended run without a home reads and writes no INI" },
+]
+
+[[scenario]]
+name = "settings-tab-write"
+source = "#1953, the fork owner's request 2026-11-09: the settings page's tab is kept in NVForever.ini as [UI] SettingsTab=<tab> when it changes, so a new start (Continue, a save's load) opens on it; the first half of a round trip (settings-tab-read starts in the same home), run them together"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs"]
+env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:tab:Debug,12:tab:Graphics" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 17
+order = [[
+  { re = 'settings page: \[UI\] SettingsTab=Debug kept in .*NVForever\.ini', label = "each new tab is kept" },
+  { re = 'settings page: \[UI\] SettingsTab=Graphics kept in .*NVForever\.ini', label = "the last one shown is in the INI" },
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-tab-read"
+source = "#1953, the fork owner's request 2026-11-09: the second half of the tab round trip: a new start in settings-tab-write's home opens the settings page on Graphics, the tab kept in [UI] SettingsTab="
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_PAUSE_MENU = "11:settings,12:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  { re = 'settings page: \[UI\] SettingsTab=Graphics read from .*NVForever\.ini', label = "the kept tab is read at the start" },
+  { text = "pause menu: settings open on Graphics; selected grade", label = "Settings opens on it, on its first row" },
+  "pause menu: inspect: Graphics, keys on the rows, selected grade",
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'settings page: \[UI\] SettingsTab=\S+ kept in', label = "the tab did not change: nothing written" },
+]
+
+[[scenario]]
+name = "settings-rail-hover"
+source = "#1953, the fork owner's request 2026-11-09: a rail line under the pointer is boxed (unfilled) and drawn bright, with the focus sound once, so the tabs read as clickable; the pointer resting on it takes nothing"
+note = "point:<target> puts the pointer on the middle of what is drawn; inspect logs the line hovered"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/settings_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:point:tab:Debug,13:inspect,14:point:heading-down,15:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { text = "pause menu: hover Debug", count = 1, label = "the pointer coming onto Debug, once (no repeat while it rests there)" },
+]
+order = [[
+  "pause menu: tab Gameplay; selected difficulty",
+  "pause menu: the pointer on tab:Debug",
+  "pause menu: hover Debug",
+  { text = "pause menu: inspect: Gameplay, keys on the rows, selected difficulty", label = "hovering takes no tab" },
+  { text = "pause menu: inspect: hovered Debug", label = "Debug is drawn hovered" },
+  "pause menu: the pointer on heading-down",
+  { text = "pause menu: inspect: hovered none", label = "off the rail, nothing hovered" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood, every target drawn" },
+  { text = "pause menu: tab Debug", label = "the pointer resting on a tab does not show it" },
+]
+
+[[scenario]]
+name = "settings-layout"
+source = "#1953: the settings page's seven tabs, the original's four first, and each row's tab and heading from one table (engine/nvf-play/src/settings_layout.rs; docs/design/settings-page.md); an empty Tweaks tab opens on no row"
+note = "the placements checked are of rows registered in every --play run; `0 not in the table` says every row this run registers has its place"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,12:layout,13:tab:Tweaks", NVF_PLAY_TEST_PAUSE_MENU = "14:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { text = "settings layout: tabs Gameplay, Display, Audio, Controls, Graphics, Tweaks, Debug", count = 1, label = "seven tabs, the original's four first" },
+  { re = 'settings layout: \d+ row\(s\) in 7 tab\(s\), 0 not in the table', label = "every registered row has its place in the table, no tab of its own" },
+  "settings layout: difficulty -> Gameplay > Game",
+  "settings layout: autosave-travel -> Gameplay > Saving",
+  "settings layout: menu-pause -> Gameplay > Dialogue",
+  "settings layout: detached-camera -> Gameplay > Camera",
+  "settings layout: resolution -> Display > Screen",
+  "settings layout: hud-colour -> Display > Interface",
+  "settings layout: hud-red -> Display > Interface",
+  "settings layout: crosshair-style -> Display > Interface",
+  "settings layout: language -> Display > Interface",
+  "settings layout: fps-counter -> Display > Performance",
+  "settings layout: music -> Audio",
+  "settings layout: button-style -> Controls",
+  "settings layout: aim-assist -> Controls",
+  "settings layout: grade -> Graphics > Picture",
+  "settings layout: grass -> Graphics > Distance",
+  "settings layout: sky-clock -> Graphics > World",
+  "settings layout: god-mode -> Debug",
+  "settings layout: scope-3d -> Debug",
+  { text = "pause menu: tab Tweaks; selected none", label = "the empty Tweaks tab opens on no row" },
+  { text = "pause menu: inspect: Tweaks, keys on the rows, selected none, lines 0-0 of 0", label = "it lists nothing" },
+  { re = 'pause menu: inspect: words Search \| Changed \| Gameplay \| Display \| Audio \| Controls \| Graphics \| Tweaks \| Debug \| No settings here\.', label = "the rail and the empty tab's words" },
+]
+order = [[
+  "settings layout: tabs Gameplay",
+  "settings layout: difficulty -> Gameplay > Game",
+  "settings layout: autosave-travel -> Gameplay > Saving",
+  "settings layout: menu-pause -> Gameplay > Dialogue",
+  "settings layout: resolution -> Display > Screen",
+  "settings layout: music -> Audio",
+  "settings layout: button-style -> Controls",
+  "settings layout: grade -> Graphics > Picture",
+  "settings layout: god-mode -> Debug",
+  "pause menu: tab Tweaks; selected none",
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-headings"
+source = "#1953: headings inside a tab, passed by Up/Down, jumped between with Page Up/Page Down (the aid's heading-down/heading-up press them); Tab the next tab (tab-down)"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:heading-down,13:heading-down,14:heading-up,15:tab-down,16:heading-down,17:inspect,17.5:up,18:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 21
+order = [[
+  { text = "pause menu: tab Gameplay; selected difficulty", label = "Gameplay opens on its first row, under Game" },
+  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "Page Down: the first row under Saving" },
+  { text = "pause menu: heading Gameplay > Dialogue; selected menu-pause", label = "Page Down again: under Dialogue" },
+  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "Page Up: back under Saving" },
+  { text = "pause menu: tab Display; selected resolution", label = "Tab: Display, on its first row" },
+  { text = "pause menu: heading Display > Interface; selected hud-colour", label = "Page Down: under Interface" },
+  { text = "pause menu: inspect: Display, keys on the rows, selected hud-colour", label = "the row is chosen with the keys on the rows" },
+  { re = 'pause menu: inspect: shown .*\[Display > Interface\], hud-colour', label = "the heading is drawn over its first row" },  { text = "pause menu: inspect: Display, keys on the rows, selected ui-scale", label = "Up from the heading's first row passes the heading to the row above it" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "moving between headings and tabs changes no setting (a row's change is logged `settings: <key> <state>`)" },
+]
+
+[[scenario]]
+name = "settings-custom-sliders"
+source = "#1953: the HUD's and the Pip-Boy's red, green and blue sliders are shown only while the colour is Custom; Custom is always offered and keeps the colour as it is (engine/nvf-play/src/ui_colour.rs)"
+areas = ["settings", "hud"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/ui_colour.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:tab:Display,12:hud-colour=Custom,14:hud-red=0.2,16:hud-colour=Green,17:pipboy-colour=Custom", NVF_PLAY_TEST_PAUSE_MENU = "11.5:inspect,13:inspect,15:inspect,16.5:inspect,18:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'interface colours: ', count = 2, label = "only the slider and Green change a colour: Custom keeps it as it is" },
+]
+order = [[
+  { text = "pause menu: colour sliders HUD hidden, Pip-Boy hidden", label = "both colours amber: no sliders" },
+  { re = 'pause menu: inspect: rows .*\bhud-colour,pipboy-colour,language\b', label = "the lists without their sliders" },
+  "settings: hud-colour Custom",
+  { text = "pause menu: colour sliders HUD shown, Pip-Boy hidden", label = "Custom shows the HUD's sliders only" },
+  { re = 'pause menu: inspect: Display, keys on the rows, selected hud-colour, ', label = "the choice stays on the colour" },
+  { re = 'pause menu: inspect: rows .*\bhud-colour,hud-red,hud-green,hud-blue,pipboy-colour,language\b', label = "red, green and blue under the HUD's colour" },
+  "settings: hud-red 51",
+  "interface colours: HUD [51, 182, 66], Pip-Boy [255, 182, 66]",
+  "settings: hud-colour Green",
+  { text = "pause menu: colour sliders HUD hidden, Pip-Boy hidden", label = "a named colour hides them again (logged in the draw, before the recolour after PlaySet::Ui)" },
+  "interface colours: HUD [26, 255, 128], Pip-Boy [255, 182, 66]",
+  "settings: pipboy-colour Custom",
+  { text = "pause menu: colour sliders HUD hidden, Pip-Boy shown", label = "the Pip-Boy's alone" },
+  { re = 'pause menu: inspect: rows .*\bhud-colour,pipboy-colour,pipboy-red,pipboy-green,pipboy-blue,language\b' },
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-controller-navigation"
+source = "#1953: with a controller the settings page's LB/RB go from heading to heading, RT/LT to the tab after and before, Y puts the keys on the rail, the D-pad and A choose and take there: Changed and Defaults reached without a keyboard (engine/nvf-play/src/pad.rs menu_buttons)"
+note = "pad:<button> presses the key the button presses on the pause menu (no controller is needed); the Changed list lists the Input Device row (Controller is not the game's default), so A on it gives the keys to its rows and Y brings them back to the rail; a home of its own keeps the Controller choice away from the other scenarios (as controller-menu-hints)"
+areas = ["settings", "controller"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "settings-controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:25", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "13:pad:RB,14:pad:LB,15:pad:RT,16:pad:Y,17:inspect,18:pad:D-Pad Up,19:pad:D-Pad Up,20:pad:A,21:pad:Y,22:pad:LT,23:pad:D-Pad Down,23.5:pad:A" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 27
+order = [[
+  "controls: input device Controller",
+  "pause menu: tab Gameplay; selected difficulty",
+  "pause menu: RB presses PageDown",
+  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "RB: the next heading" },
+  "pause menu: LB presses PageUp",
+  { text = "pause menu: heading Gameplay > Game; selected difficulty", label = "LB: the heading before" },
+  "pause menu: RT presses Tab",
+  { text = "pause menu: tab Display; selected resolution", label = "RT: the next tab" },
+  "pause menu: Y presses F6",
+  { text = "pause menu: the keys on the rail (Display)", label = "Y: the keys on the rail" },
+  "pause menu: inspect: Display, keys on the rail (Display), selected resolution",
+  "pause menu: rail Gameplay",
+  "pause menu: rail Changed",
+  { text = "pause menu: list Changed; selected device", label = "A on the rail: the Changed list, on the Input Device row (set to Controller)" },
+  { text = "pause menu: the keys on the rail (Changed)", label = "Y: the keys back on the rail" },
+  "pause menu: LT presses F1",
+  { text = "pause menu: tab Debug; selected overlay", label = "LT: the tab before, round to Debug, the keys staying on the rail" },
+  "pause menu: rail Defaults",
+  { text = "pause menu: settings back to their defaults", label = "A on Defaults: Defaults, without a keyboard" },
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-search"
+source = "#1953 point 5: the settings page's search finds a row of any tab by its INI key or by words of its note, lists it under where it lives (Gameplay > Dialogue) and acts on it as on its own tab (a switch, a list's dropdown); Esc (back) closes the search once and shows the tab it came from (engine/nvf-play/src/settings_view.rs search; docs/design/settings-page.md)"
+note = "search:<text> opens the search on that text with the keys on its results; menu-pause is the only row whose key, label or note holds menu-pause, and whose words hold both inventory and animations"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:23", NVF_PLAY_TEST_SETTINGS = "11:search:menu-pause,14:search:inventory animations,17:search:kill-camera", NVF_PLAY_TEST_PAUSE_MENU = "12:inspect,13:pick,15:inspect,18:pick,19:down,20:pick,21:back,22:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { text = "pause menu: search open", count = 1, label = "the search opens once; a second search: keeps it open" },
+  { text = "pause menu: search closed", count = 1, label = "Esc closes it once" },
+]
+order = [[
+  "pause menu: search open",
+  { text = 'pause menu: search "menu-pause": 1 result(s); keys menu-pause', label = "found by its INI key" },
+  { text = "pause menu: inspect: Search, keys on the rows, selected menu-pause, lines 1-2 of 2", label = "the result chosen, under one heading" },
+  { text = "pause menu: inspect: shown [Gameplay > Dialogue], menu-pause", label = "the heading says where it lives" },
+  { text = "settings: menu-pause on", label = "Enter on the result flips the switch" },
+  { text = 'pause menu: search "inventory animations": 1 result(s); keys menu-pause', label = "found by two words of its note" },
+  "pause menu: inspect: Search, keys on the rows, selected menu-pause",
+  'pause menu: search "kill-camera": 1 result(s); keys kill-camera',
+  { text = "pause menu: the list of 3 choice(s) open", label = "Enter on a list's result opens its dropdown" },
+  { text = "settings: kill-camera Every kill", label = "and takes the choice" },
+  "pause menu: search closed",
+  { text = "pause menu: tab Gameplay; selected difficulty", label = "back on the tab the search came from" },
+  { text = "pause menu: inspect: Gameplay, keys on the rows, selected difficulty", label = "the settings page stays open" },
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-search-input"
+source = "#1953 point 5: Ctrl+F opens the settings page's search and what is typed goes into it, the window's text messages and the keys' presses alike: N, L, S, Q, W and S save, load, quit, rebind or change nothing; Backspace takes a letter off and does not leave the page; Esc closes the search and the page stays"
+note = "ctrl-f, type:<text> and backspace go in as real input the next frame (the window's KeyboardInput messages before Bevy reads them, so ButtonInput has the letters pressed too); nothing's words hold nlsqws"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:ctrl-f,13:type:nlsqws,14:inspect,15:backspace,16:inspect,17:back,18:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  "pause menu: tab Gameplay; selected difficulty",
+  { text = "pause menu: search open", label = "Ctrl+F opens the search" },
+  { text = 'pause menu: search "nlsqws": 0 result(s); keys', label = "the letters are the search's text" },
+  { text = "pause menu: inspect: Search, keys on the search text, selected none, lines 0-0 of 0", label = "the keys stay in the text" },
+  { re = 'pause menu: inspect: words .*\| Search: nlsqws \| No results\.', label = "the line shows the text, the page says nothing was found" },
+  { text = 'pause menu: search "nlsqw": 0 result(s); keys', label = "Backspace takes the last letter off" },
+  "pause menu: inspect: Search, keys on the search text",
+  { text = "pause menu: search closed", label = "Esc closes the search" },
+  { text = "pause menu: tab Gameplay; selected difficulty", label = "back on the tab and the row it came from" },
+  { text = "pause menu: inspect: Gameplay, keys on the rows, selected difficulty", label = "Backspace and Esc did not leave the settings page" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { text = "pause menu: saving as", label = "N saves nothing" },
+  { text = "pause menu: load page", label = "L opens no load page" },
+  { text = "pause menu: quit?", label = "Q asks nothing" },
+  { text = "waits for its new", label = "no control waits for a key" },
+  { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "typing changes no setting (a row's change is logged `settings: <key> <state>`)" },
+]
+
+[[scenario]]
+name = "settings-changed"
+source = "#1953 point 6: the Changed list shows every row set away from what Defaults puts back, of every tab, under where each lives; Defaults there puts back exactly those rows and the list empties (engine/nvf-play/src/settings.rs changed_rows)"
+note = "a clean run changes no row by itself: the three set by the aid are the only ones listed"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/bindings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:god-mode,12:difficulty=0.75,13:crosshair-style=Arrows,14:changed", NVF_PLAY_TEST_PAUSE_MENU = "15:inspect,16:defaults,17:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { text = "pause menu: changed defaults; keys", count = 1, label = "one Defaults on the list" },
+]
+order = [[
+  "settings: god-mode on",
+  "settings: difficulty Hard",
+  "settings: crosshair-style Arrows",
+  { text = "pause menu: list Changed; selected difficulty", label = "the Changed list opens on its first row" },
+  { text = "pause menu: changed 3 row(s); keys difficulty,crosshair-style,god-mode", label = "exactly the three rows set, in the page's order" },
+  "pause menu: inspect: Changed, keys on the rows, selected difficulty, lines 1-6 of 6",
+  { text = "pause menu: inspect: shown [Gameplay > Game], difficulty, [Display > Interface], crosshair-style, [Debug], god-mode", label = "each under where it lives" },
+  { text = "pause menu: changed defaults; keys difficulty,crosshair-style,god-mode", label = "Defaults on the list puts back those rows" },
+  "settings: difficulty Normal",
+  "settings: crosshair-style Cross",
+  "settings: god-mode off",
+  { text = "pause menu: changed 0 row(s); keys", label = "the list empties" },
+  "pause menu: inspect: Changed, keys on the rows, selected none, lines 0-0 of 0",
+  { re = 'pause menu: inspect: words .*\| No changed settings\.$', label = "and says so" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { text = "pause menu: settings back to their defaults", label = "the Changed list's Defaults is not the page's global one" },
+]
+
+[[scenario]]
+name = "settings-heading-pointer"
+source = "#1953 points 2 and 6: a click on \"Next heading\" over the rows jumps to the next heading as Page Down does, and a click on the rail's Changed opens the Changed list, empty in a clean run"
+note = "point:<target> puts the pointer on the middle of what is drawn for it (as laid out the frame before), press and release the left button; both go through the pointer's real handling"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/ui_pointer.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:tab:Gameplay", NVF_PLAY_TEST_PAUSE_MENU = "12:point:heading-down,12.2:press,12.4:release,13:inspect,14:point:changed,14.2:press,14.4:release,15:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 21
+order = [[
+  "pause menu: tab Gameplay; selected difficulty",
+  "pause menu: the pointer on heading-down",
+  { text = "pause menu: heading Gameplay > Saving; selected autosave-travel", label = "a click on Next heading: the first row under Saving" },
+  "pause menu: inspect: Gameplay, keys on the rows, selected autosave-travel",
+  "pause menu: the pointer on changed",
+  { text = "pause menu: list Changed; selected none", label = "a click on Changed opens the list" },
+  { text = "pause menu: changed 0 row(s); keys", label = "nothing changed in a clean run" },
+  "pause menu: inspect: Changed, keys on the rows, selected none, lines 0-0 of 0",
+  { re = 'pause menu: inspect: words .*\| No changed settings\.$', label = "the empty list says so" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood, every target drawn" },
+  { re = 'nvf_play::settings: settings: [a-zA-Z][\w-]* \S', label = "the clicks change no setting" },
+]
+
+[[scenario]]
+name = "settings-search-language"
+source = "#1953 points 5 and 6 with a language chosen (#1443): the rail, the search's line, the headings saying where a row lives and the empty lists' words are drawn in it, and the search still finds a row by its English INI key"
+note = "the made-up language marks its words [xx] (tools/smoke/fixtures/lang/xx.toml); the language row itself is then the one row away from its default"
+areas = ["settings"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_view.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/language.rs", "crates/fnv-util/src/words.rs", "tools/smoke/fixtures/lang/xx.toml"]
+env = { NVF_LANG_DIR = "{repo}/tools/smoke/fixtures/lang", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:language=Smoke Language,12:search:menu-pause,14:search:zzzz,16:changed", NVF_PLAY_TEST_PAUSE_MENU = "13:inspect,15:inspect,17:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  "language: xx",
+  "settings: language Smoke Language",
+  { text = 'pause menu: search "menu-pause": 1 result(s); keys menu-pause', label = "the English key is found under another language" },
+  { text = "pause menu: inspect: words [xx] Search | [xx] Changed | [xx] Gameplay | [xx] Display | [xx] Audio | [xx] Controls | [xx] Graphics | [xx] Tweaks | [xx] Debug | [xx] Search: menu-pause | [xx] Gameplay > [xx] Dialogue", label = "the rail, the search's line and where the row lives, translated" },
+  'pause menu: search "zzzz": 0 result(s); keys',
+  { re = 'pause menu: inspect: words .*\| \[xx\] Search: zzzz \| \[xx\] No results\.$', label = "nothing found, in the language" },
+  "pause menu: search closed",
+  { text = "pause menu: list Changed; selected language", label = "the Changed list: the language row" },
+  "pause menu: changed 1 row(s); keys language",
+  { re = 'pause menu: inspect: words .*\| \[xx\] Display > \[xx\] Interface$', label = "where it lives, translated" },
+]]
+forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
 [[scenario]]
 name = "controller-write"
 source = "owner 2026-10-16: keyboard and mouse or a controller by a setting under Controls, the controller's defaults the game's (docs/design/controller.md); the first half of a round trip (controller-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:padbind:Jump=RB,13:rumble:0", NVF_PLAY_TEST_PAUSE_MENU = "11.5:defaults" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 18
@@ -9722,7 +10102,7 @@ name = "controller-menu-hints"
 source = "#1662: with Controller as the Input Device the menus' action hints name the button that presses their key (docs/design/controller.md §3, engine/nvf-play/src/pad.rs `hint`); the caravan screens against Ringo (the caravan scenario's aid steps), each stage's hints logged as they change"
 note = "the caravan buttons are [design, #1662] (no caravan menu file is read); a home of its own keeps the Controller choice away from the other scenarios. The help box's Close word comes from the game strings, so it is matched loosely"
 areas = ["caravan", "menus"]
-paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "engine/nvf-play/src/lockpick/help.rs"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/caravan.rs", "engine/nvf-play/src/caravan/**", "engine/nvf-play/src/lockpick/help.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "controller-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,25:help,26:forfeit,26.5:forfeit,29:continue" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 32
@@ -9742,7 +10122,7 @@ name = "controller-playstation-hints"
 source = "#1452: PlayStation button names; the settings page's Button style (Controller group) set to PlayStation with Controller as the Input Device, the caravan screens' hints in the PlayStation names (docs/design/controller.md §3a)"
 note = "as controller-menu-hints, with button-style=PlayStation; no controller is connected in a smoke run, so Auto's name detection is covered by the unit tests (pad.rs playstation_pads_are_told_by_name), not here"
 areas = ["caravan", "menus"]
-paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/bindings.rs"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "controller-ps-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller,3:button-style=PlayStation", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,25:help,26:forfeit,26.5:forfeit,29:continue" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 32
@@ -9771,7 +10151,7 @@ expect = [
 name = "look-sensitivity-write"
 source = "owner 2026-11-03 (#1451): Invert Y and a sensitivity slider (as the sound sliders) on the settings page's Controls tab, Mouse Sensitivity with keyboard and mouse and Stick Sensitivity with a controller, kept apart; NVForever's own range (25%-300% of the game's, floor 5% since #1632); the first half of a round trip (look-sensitivity-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "10.5:controls,11:device:Keyboard and Mouse,11.5:invert:0,12:sensitivity:100,12.5:invert:1,13:sensitivity:150,14:device:Controller,14.5:sensitivity:100,15:sensitivity:50" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 19
@@ -9799,7 +10179,7 @@ name = "controller-rumble"
 source = "controller rumble (docs/design/controller.md §4, engine/nvf-play/src/rumble.rs): with Controller chosen the pad rumbles when the player fires, by the weapon's weight; compass-reticle's firing at the bighorner pen with the varmint rifle"
 note = "the strengths are [design]; a run without a pad connected still sends and logs the rumble (on 0 controllers)"
 areas = ["combat"]
-paths = ["engine/nvf-play/src/rumble.rs", "engine/nvf-play/src/pad.rs"]
+paths = ["engine/nvf-play/src/rumble.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "4:7", NVF_PLAY_TEST_SETTINGS = "5:device:Controller,6:rumble:1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "10:weapon,13:aimactor,15:fire,15.6:fire" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
 run_seconds = 19
@@ -10988,7 +11368,7 @@ name = "vats-kill-cam-off"
 source = "owner's playtest request #1037: the settings page's Kill camera row turns the VATS kill camera off (engine/nvf-play/src/kill_cam.rs, docs/design/vats-mode.md §19)"
 note = "vats-kill-cam's setup with the settings page's Kill camera set to Off at 6.5 s (the pause menu open 6 to 7.5 s): the shot kills the dog and no kill camera plays"
 areas = ["combat", "vats", "settings"]
-paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_PAUSE = "6:7.5", NVF_PLAY_TEST_SETTINGS = "6.5:kill-camera=Off" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 20
@@ -12061,7 +12441,7 @@ expect = [
 name = "sneak-gauges"
 source = "Owner request 2026-10-24 (docs/design/detection.md §10): the settings switch sneak-gauges shows light and noise bars under the sneak word while sneaking; the player sneaks at noon in Goodsprings and fires a Normal-level gun, which fills the noise bar"
 areas = ["detection", "hud"]
-paths = ["engine/nvf-play/src/sneak_gauges.rs", "engine/nvforever/src/detection.rs"]
+paths = ["engine/nvf-play/src/sneak_gauges.rs", "engine/nvforever/src/detection.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "4:5", NVF_PLAY_TEST_SETTINGS = "4.5:sneak-gauges", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "8:sneak,12:weapon,15:reload,20:fire" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 26
@@ -21972,7 +22352,7 @@ name = "tiles-dialog-hint-off"
 source = "[design] docs/spec-notes/dialogue-menu.md §6.4: the Goodbye hint switch (#1517) holds for the menu drawn from tiles too: its list is painted with no hint, and Tab still says goodbye"
 note = "as dialogue-goodbye-hint-off, the settings page flips the switch at 3 s, before the talk aid's 11 s of world clock. A flip while a conversation is open is the unit test's (the_hint_setting_hides_only_the_hint_at_once); this is what proves write_system reads the resource"
 areas = ["ui", "dialogue", "menus"]
-paths = ["engine/nvf-play/src/tiles/dialog_menu.rs", "engine/nvf-play/src/dialogue_menu.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/tiles/dialog_menu.rs", "engine/nvf-play/src/dialogue_menu.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_PLAY_TEST_TILE_MENUS = "DialogMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:page,3:dialogue-goodbye-hint", NVF_PLAY_TEST_TALK = "11:SunnyRef=", NVF_PLAY_TEST_TALK_DELAY = "90", NVF_PLAY_TEST_KEYS = "34:tab" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 50
@@ -22008,7 +22388,7 @@ order = [[
 name = "language-choice"
 source = "#1443: the settings page's Language row lists the languages found in the lang folders (NVF_LANG_DIR here, a made-up one), takes one at once and draws the page again; a broken language file is skipped with a warning"
 areas = ["settings"]
-paths = ["engine/nvf-play/src/language.rs", "crates/fnv-util/src/words.rs", "engine/nvf-play/src/pause.rs", "tools/smoke/fixtures/lang/xx.toml"]
+paths = ["engine/nvf-play/src/language.rs", "crates/fnv-util/src/words.rs", "engine/nvf-play/src/pause.rs", "tools/smoke/fixtures/lang/xx.toml", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { NVF_LANG_DIR = "{repo}/tools/smoke/fixtures/lang", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:language=Smoke Language,13:language=English" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 18
@@ -22405,7 +22785,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-settings"
 source = "docs/design/fsr-upscaling.md: live native AA, quality, performance and off transitions; rebuild histories without stacking AA"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Native AA,12:fsr-upscaling=Quality,13:fsr-upscaling=Performance,14:fsr-upscaling=Off,15:fsr-upscaling=Quality" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 20
@@ -22427,7 +22807,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-resize"
 source = "docs/design/fsr-upscaling.md: window resize and Ultra Performance recreate histories and output-sized resources"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/window_mode.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/window_mode.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-resize-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:resolution=1600x900,15:fsr-upscaling=Ultra Performance,17:fsr-upscaling=Quality", NVF_PLAY_TEST_PAUSE_MENU = "13:keep" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "quality", "--no-voice", "--no-lodgen"]
 run_seconds = 23
@@ -22449,7 +22829,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-dropdown"
 source = "docs/design/fsr-upscaling.md: the native dropdown presents all six FSR choices and keyboard selection applies Balanced"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs"]
+paths = ["engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-dropdown-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Quality", NVF_PLAY_TEST_PAUSE_MENU = "12:pick,13:down,14:shot,15:pick" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 21
@@ -22472,7 +22852,7 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 name = "fsr-aa-lock"
 source = "docs/design/fsr-upscaling.md: Native AA explicitly disables the engine AA row, ignores edits while locked, and restores saved 8x when FSR is disabled"
 areas = ["graphics", "ui"]
-paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
+paths = ["engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-aa-lock-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0,14:fsr-upscaling=Off", NVF_PLAY_TEST_PAUSE_MENU = "12:shot" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--msaa", "8", "--fsr", "native-aa", "--no-voice", "--no-lodgen"]
 run_seconds = 21
@@ -22505,7 +22885,7 @@ forbid = ["FSR reactive reference: terrain layers not drawn", "FSR reactive refe
 name = "fsr-corn-cutouts"
 source = "docs/design/fsr-upscaling.md revision 3: Goodsprings' corn rows (blended, cut-out alpha) are drawn alpha-tested while FSR is on and blended again when it is off"
 areas = ["graphics", "world"]
-paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/graphics.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs"]
+paths = ["engine/nvforever/src/fsr*", "engine/nvforever/src/graphics.rs", "engine/nvf-assets/src/nif_material.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Native AA,14:fsr-upscaling=Off" }
 args = ["--cell", "Goodsprings", "--pos=-69814,774,8451", "--heading", "205.5", "--pitch=-6.4", "--play", "--hour", "12", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-messages", "--no-lodgen"]
 run_seconds = 18

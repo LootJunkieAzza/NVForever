@@ -12,7 +12,7 @@ needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md)
 
 ## Using it
 
-**Settings > Graphics > FSR 3.1 upscaling** offers Off (the default), Native AA, Quality,
+**Settings > Graphics > Picture > FSR 3.1 upscaling** offers Off (the default), Native AA, Quality,
 Balanced, Performance and Ultra Performance, saved by name. `--fsr <mode>` (`off`,
 `native-aa`, `quality`, `balanced`, `performance`, `ultra-performance`) sets the starting
 choice; a saved setting wins in play, as for every setting. The render size per axis is 1,

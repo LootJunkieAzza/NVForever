@@ -50,7 +50,11 @@ Start cannot be bound.
 - Start is Esc (the pause menu) everywhere. In a menu the D-pad is the arrow keys, A
   Enter, B Esc, LB and RB, LT and RT Page Up and Page Down: the menus read keys, and the
   controller stands in for them (`pad::menu_keys`), pressing a key only as its button
-  goes down.
+  goes down. On the pause menu LB and RB go from heading to heading of the settings
+  page, LT and RT are F1 and Tab (the tab before and after), Y is F6 (the keys onto the
+  rail and back; there the D-pad passes over Search, which is typed and says "Keyboard
+  search", and the controller works the results a keyboard found) and X Delete [design:
+  #1953; settings-page.md §4, §6].
 - Each menu's own buttons follow the original's menu files (`_xbox_button` of the button
   tiles [documented: the vanilla menu files]) and press the key NVForever's menu gives
   that control (`pad::menu_buttons`, keyed by the open menu's MenuMode code); a menu's
@@ -135,7 +139,8 @@ Start cannot be bound.
 The original shows only Xbox button pictures; a PlayStation controller's names are
 NVForever's own [design, #1452]:
 
-- **Which names.** The settings page's Button style (Controller group, `button-style` in
+- **Which names.** The settings page's Button style (registered in the Controller group,
+  shown on the Controls tab with a controller as the input device; `button-style` in
   `[Settings]` of NVForever.ini): Auto (the default), Xbox or PlayStation (`pad::ButtonStyle`).
   Auto takes the PlayStation names while the controller in use reports a PlayStation
   name (`pad::playstation_pad`: "DualSense", "DualShock", "PlayStation", "Sony", "PS3",
@@ -220,7 +225,8 @@ those settings so a mod that changes them changes this too.
 - **Not while** the free camera, the weapon wheel, a kill camera, VATS mode, an animation
   driving the view, furniture holding the player, a script's look lock or a circling or
   detached camera has the look, without the cursor grabbed, or outside play.
-- **Settings**: the settings page's Controller group, kept in `[Settings]` of
+- **Settings**: the settings page's Controller group (shown on the Controls tab after the
+  controls, with a controller as the input device: settings-page.md), kept in `[Settings]` of
   NVForever.ini: `aim-assist` (on/off, on), `aim-slowdown` and `aim-lock` (strengths 0 to
   1, 0.6 each; 0 turns that part off).
 - The log says when a lock starts and how it ends (`aim assist: lock-on to 0x…`).
