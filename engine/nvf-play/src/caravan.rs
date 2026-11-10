@@ -39,6 +39,7 @@
 //! `forfeit`, `help` (closes the help box), `continue`, `exit`. At exit, when the menu was asked for: "caravan
 //! summary: …".
 
+pub mod guide;
 pub mod screen;
 
 use crate::lockpick::Help;
@@ -215,7 +216,31 @@ pub struct Session {
     sent_move: Option<Move>,
 }
 
+/// The Caravan guide on (item 163), kept with the settings as `caravan-tips`.
+static TIPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+pub fn tips() -> bool {
+    TIPS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_tips(on: bool) {
+    TIPS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 impl Session {
+    /// The guide's text for the table as it stands ([`guide::text`]), empty when the
+    /// guide is off or it is not the player's turn.
+    pub fn guide(&self) -> String {
+        let Some(g) = self.game.as_ref().filter(|_| tips() && self.players_turn()) else { return String::new() };
+        let shown = match &self.pick {
+            Pick::Place { moves, at } => moves.get(*at).copied(),
+            Pick::Track { tracks, at } => tracks.get(*at).map(|&track| Move::DiscardTrack { track }),
+            Pick::Hand => None,
+        };
+        let refused = self.hand_moves(self.hand).next().is_none();
+        guide::text(g, self.hand, shown.as_ref(), refused)
+    }
+
     pub fn fade(&self, now: f32) -> f32 {
         self.leaving.map_or(1.0, |(since, _)| (1.0 - (now - since) / LEAVE_SECONDS).clamp(0.0, 1.0))
     }
@@ -253,6 +278,7 @@ impl Session {
                     ("Discard Card", "Q)", CaravanInput::Discard, discard),
                     ("Discard Track", "E)", CaravanInput::DiscardTrack, track),
                     ("Cancel", "R)", CaravanInput::Cancel, mine || self.game.as_ref().is_some_and(|g| g.phase != Phase::Over)),
+                    (if tips() { "Tips On" } else { "Tips Off" }, "T)", CaravanInput::Tips, true),
                 ]
             }
             _ => Vec::new(),
@@ -307,6 +333,8 @@ pub enum CaravanInput {
     Forfeit,
     CloseHelp,
     Continue,
+    /// The guide on or off (item 163).
+    Tips,
 }
 
 #[derive(Resource, Default, Debug)]
@@ -391,6 +419,18 @@ impl Plugin for CaravanPlugin {
             }
             Err(_) => Vec::new(),
         };
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "caravan-tips",
+                group: crate::pause::GROUP_MENUS,
+                label: "Caravan tips",
+                note: "On: the Caravan table says what the chosen card does there and why a card can't be played. Off: only the game's short messages. T) at the table.",
+                get: |_| tips(),
+                set: |_, on| set_tips(on),
+                slider: None,
+            },
+        );
         app.init_resource::<CaravanScreen>()
             .init_resource::<CaravanStats>()
             .init_resource::<PvpWire>()
@@ -770,6 +810,7 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, scr
             send(KeyCode::KeyQ, CaravanInput::Discard);
             send(KeyCode::KeyE, CaravanInput::DiscardTrack);
             send(KeyCode::KeyR, CaravanInput::Cancel);
+            send(KeyCode::KeyT, CaravanInput::Tips);
             send(KeyCode::ArrowLeft, CaravanInput::Step(-1));
             send(KeyCode::ArrowRight, CaravanInput::Step(1));
             send(KeyCode::KeyA, CaravanInput::Step(-1));
@@ -816,7 +857,7 @@ fn apply(
     time: AidTime,
     mut stats: ResMut<CaravanStats>,
     mut sounds: MessageWriter<UiSound>,
-    (bindings, mut wire): (Res<crate::bindings::Bindings>, ResMut<PvpWire>),
+    (bindings, mut wire, mut commands): (Res<crate::bindings::Bindings>, ResMut<PvpWire>, Commands),
 ) {
     let now = time.elapsed_secs();
     let sound = |sounds: &mut MessageWriter<UiSound>, event| {
@@ -920,6 +961,12 @@ fn apply(
                 start_game(s, rt, &mut sim, now, &bindings);
                 stats.games += 1;
                 sound(&mut sounds, UiEvent::Accepted);
+            }
+            (Stage::Play, CaravanInput::Tips) => {
+                set_tips(!tips());
+                info!("caravan: tips {}", if tips() { "on" } else { "off" });
+                commands.queue(crate::settings::keep);
+                sound(&mut sounds, UiEvent::Value { up: tips() });
             }
             (Stage::Play, CaravanInput::Forfeit) => forfeit(s, rt, &mut sim, now, &mut stats, &mut sounds, &mut wire),
             (Stage::Play, CaravanInput::Cancel) => match s.pick {
@@ -1127,6 +1174,9 @@ fn player_input(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimS
     let choose_card = |s: &mut Session, i: usize, sounds: &mut MessageWriter<UiSound>| {
         let moves: Vec<Move> = s.hand_moves(i).collect();
         if moves.is_empty() {
+            // The card picked before goes back into the hand: only the refused card, the
+            // one in focus, stays raised (owner, playtest 119, item 164).
+            s.pick = Pick::Hand;
             s.status = Some("That card cannot be played now.".into());
             sound(sounds, UiEvent::Refused);
         } else {

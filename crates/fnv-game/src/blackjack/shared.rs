@@ -10,8 +10,12 @@
 //!   ([`Shared::bet`]); when every seat is ready the round is dealt ([`Shared::deal`]):
 //!   each seat its first card, the dealer's up card, each seat its second, the hole card,
 //!   as the single table deals (blackjack.md §3), with the same two dealer cards for all.
-//! - **Playing.** The seats play at once, each its own hands ([`Shared::act`]). A choice
-//!   that ends a seat's last hand waits for the dealer: once every seat is done or waiting,
+//! - **Playing.** The seats play in rounds of choices ([`Shared::act`]): each seat still
+//!   playing picks its move, which waits ([`SharedSeat::chose`]: "Waiting for other
+//!   players...") until every seat still playing has picked; then all of them are taken
+//!   together, in seat order, and the next round of choices starts (owner, playtest 119,
+//!   item 156). A seat leaving picks Stay. A choice that ends a seat's last hand waits
+//!   for the dealer: once every seat is done or waiting,
 //!   the dealer draws to 17 by the casino's rule (while any waiting seat has a hand
 //!   standing), and each waiting seat's choice is taken with the dealer's cards after its
 //!   own, so its table settles as a single table would.
@@ -54,6 +58,9 @@ pub struct SharedSeat {
     waiting: Option<(Action, Vec<Card>, bool)>,
     /// Asked to leave during a round.
     pub leaving: bool,
+    /// The move picked this round of choices, not taken until every seat still playing
+    /// has picked one.
+    pub pending: Option<Action>,
 }
 
 impl SharedSeat {
@@ -64,6 +71,11 @@ impl SharedSeat {
 
     pub fn waiting(&self) -> bool {
         self.waiting.is_some()
+    }
+
+    /// Whether the seat picked its move and waits for the others' this round.
+    pub fn chose(&self) -> bool {
+        self.pending.is_some()
     }
 }
 
@@ -119,7 +131,7 @@ impl Shared {
         if self.seats.len() >= MAX_SEATS {
             return false;
         }
-        self.seats.push(SharedSeat { player, bet: self.rules.min_bet, ready: false, chips: 0, log: SeatLog::default(), table: None, waiting: None, leaving: false });
+        self.seats.push(SharedSeat { player, bet: self.rules.min_bet, ready: false, chips: 0, log: SeatLog::default(), table: None, waiting: None, leaving: false, pending: None });
         true
     }
 
@@ -132,15 +144,7 @@ impl Shared {
         }
         let Some(i) = self.seats.iter().position(|s| s.player == player) else { return };
         self.seats[i].leaving = true;
-        while !self.seats[i].done() {
-            if self.act(player, Action::Stay, 0).is_err() {
-                break;
-            }
-            let Some(j) = self.seats.iter().position(|s| s.player == player) else { return };
-            if j != i {
-                break;
-            }
-        }
+        self.take_choices();
     }
 
     /// `player`'s bet for the next round, `chips` those it carries; ready to be dealt.
@@ -201,6 +205,7 @@ impl Shared {
             seat.log = SeatLog { round, bet: seat.bet, cards, actions: Vec::new() };
             seat.table = Some(t);
             seat.waiting = None;
+            seat.pending = None;
             seat.ready = false;
         }
         self.settle_if_done();
@@ -210,7 +215,7 @@ impl Shared {
     /// The choices `player`'s active hand has now (`chips` beyond those staked).
     pub fn legal(&self, player: u8) -> super::Legal {
         match self.seat(player) {
-            Some(s) if !s.done() => s.table.as_ref().map(|t| t.legal(s.chips)).unwrap_or_default(),
+            Some(s) if !s.done() && s.pending.is_none() => s.table.as_ref().map(|t| t.legal(s.chips)).unwrap_or_default(),
             _ => super::Legal::default(),
         }
     }
@@ -225,9 +230,43 @@ impl Shared {
         if chips > 0 {
             self.seats[i].chips = chips;
         }
-        if self.seats[i].done() {
+        if self.seats[i].done() || self.seats[i].pending.is_some() {
             return Err(Refusal::NotNow);
         }
+        let free = self.seats[i].chips;
+        let t = self.seats[i].table.as_ref().ok_or(Refusal::NotNow)?;
+        if !t.legal(free).allows(action) {
+            return Err(Refusal::NotNow);
+        }
+        self.seats[i].pending = Some(action);
+        self.take_choices();
+        Ok(())
+    }
+
+    /// Once every seat still playing has picked (a seat leaving picks Stay), all the
+    /// picks are taken together in seat order; the dealer plays when every seat is done.
+    fn take_choices(&mut self) {
+        // A leaving seat's further hands (after a split) are stayed on in later rounds.
+        for _ in 0..super::MAX_CARDS * 2 {
+            if self.phase != Phase::Playing || !self.seats.iter().all(|s| s.done() || s.pending.is_some() || s.leaving) {
+                return;
+            }
+            for i in 0..self.seats.len() {
+                if self.seats[i].done() {
+                    self.seats[i].pending = None;
+                    continue;
+                }
+                let action = self.seats[i].pending.take().unwrap_or(Action::Stay);
+                if self.apply(i, action).is_err() && action != Action::Stay {
+                    let _ = self.apply(i, Action::Stay);
+                }
+            }
+            self.settle_if_done();
+        }
+    }
+
+    /// Seat `i`'s choice taken.
+    fn apply(&mut self, i: usize, action: Action) -> Result<(), Refusal> {
         let free = self.seats[i].chips;
         let t = self.seats[i].table.as_ref().ok_or(Refusal::NotNow)?;
         if !t.legal(free).allows(action) {
@@ -261,7 +300,6 @@ impl Shared {
             seat.log.cards.extend(&cards);
             seat.log.actions.push((action, n));
         }
-        self.settle_if_done();
         Ok(())
     }
 
@@ -399,7 +437,7 @@ mod tests {
         assert_eq!(s.seat(2).unwrap().log.cards, cards("9c Td 7h 6d"));
         assert_eq!(s.seat(2).unwrap().chips, 25, "the bet is staked");
         s.act(0, Action::Stay, 0).unwrap();
-        assert!(s.seat(0).unwrap().waiting(), "waits for the dealer");
+        assert!(s.seat(0).unwrap().chose(), "waits for seat 2's pick");
         assert_eq!(s.phase, Phase::Playing);
         assert!(s.act(0, Action::Hit, 0).is_err(), "done");
         s.act(2, Action::Stay, 0).unwrap();
@@ -428,7 +466,7 @@ mod tests {
         s.shoe.stack(&cards("Kh 9c 9s 6d 9d 7c Qh 2c"));
         s.deal().unwrap();
         s.act(0, Action::Hit, 0).unwrap();
-        assert!(s.seat(0).unwrap().waiting());
+        assert!(s.seat(0).unwrap().chose());
         s.act(1, Action::Stay, 0).unwrap();
         assert_eq!(s.dealer, cards("9s 7c 2c"));
         let bust = s.seat(0).unwrap();
@@ -486,6 +524,31 @@ mod tests {
         assert_eq!(f.follow(&mut t, &early, 1000).len(), 2);
         assert_eq!(f.follow(&mut t, &s.seat(0).unwrap().log, 1000).len(), 2);
         assert_eq!(t.hands, owner.hands);
+    }
+
+    #[test]
+    fn picks_wait_for_every_seat_still_playing() {
+        let mut s = shared();
+        s.sit(0);
+        s.sit(1);
+        s.bet(0, 10, 100).unwrap();
+        s.bet(1, 10, 100).unwrap();
+        // Seat 0: 2 3; seat 1: 4 5; dealer: 9 up, 8 hole. Hits: seat 0 a 6, seat 1 a 7.
+        s.shoe.stack(&cards("2h 4c 9s 3d 5d 8c 6h 7s Tc"));
+        s.deal().unwrap();
+        s.act(0, Action::Hit, 0).unwrap();
+        assert!(s.seat(0).unwrap().chose());
+        assert_eq!(s.seat(0).unwrap().log.actions, vec![], "not taken until seat 1 picks");
+        assert!(s.act(0, Action::Hit, 0).is_err(), "one pick a round");
+        s.act(1, Action::Hit, 0).unwrap();
+        assert!(!s.seat(0).unwrap().chose() && !s.seat(1).unwrap().chose(), "both taken: the next round of picks");
+        assert_eq!(s.seat(0).unwrap().log.cards[4..], cards("6h"));
+        assert_eq!(s.seat(1).unwrap().log.cards[4..], cards("7s"));
+        // Seat 0 stays; it waits on seat 1, which picks again alone.
+        s.act(0, Action::Stay, 0).unwrap();
+        assert_eq!(s.phase, Phase::Playing);
+        s.act(1, Action::Stay, 0).unwrap();
+        assert_eq!(s.phase, Phase::Over, "the dealer plays once every seat is done");
     }
 
     #[test]

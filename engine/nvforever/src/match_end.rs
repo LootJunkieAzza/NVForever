@@ -3,9 +3,14 @@
 //! own character; when the result menu closes the screen fades through black back to the
 //! player's own view.
 //!
-//! - **Which matches** [design]: darts at a board (`nvf_play::minigames::DartsScreen`) and
-//!   pool at a table (`nvf_play::pool::PoolScreen`), once their match has a winner. A
-//!   practice game has no one to beat and plays nothing. Card games ([`cards`]): each
+//! - **Which matches**: every one, at every table, in every mode (owner, playtest 119,
+//!   item 166: "make sure it always does"). Darts at a board
+//!   (`nvf_play::minigames::DartsScreen`) and pool at a table (`nvf_play::pool::PoolScreen`)
+//!   once their match has a winner, practice included (the player alone, cheering a
+//!   practice won). Five Finger Fillet once a game or a race is settled, and the card
+//!   tables (blackjack, roulette, slots, poker, Caravan) when the player leaves after
+//!   playing: a timed end view ([`TIMED`] s) that cheers a win, or chips won over the
+//!   visit, and looks beaten otherwise ([`timed_end`]). Card games ([`cards`]): each
 //!   player who won the hand (blackjack, poker) or the game (Caravan) cheers once and each
 //!   who lost looks beaten, with no end view or fade (the round goes on).
 //! - **Where they stand** ([`stand`]): a moment after the result each player steps to its
@@ -95,6 +100,29 @@ const BODY_WAIT: f32 = 4.0;
 pub enum Kind {
     Darts,
     Pool,
+    Fillet,
+    Blackjack,
+    Roulette,
+    Slots,
+    Poker,
+    Caravan,
+}
+
+impl Kind {
+    /// Whether its end view runs for a fixed time ([`TIMED`]) rather than while a result
+    /// menu shows.
+    pub fn timed(self) -> bool {
+        !matches!(self, Kind::Darts | Kind::Pool)
+    }
+}
+
+/// How long a timed end view stays before the fade back, real seconds [design].
+pub const TIMED: f32 = 3.5;
+
+/// The end of a fillet game or race, or of a visit to a card table: this player alone,
+/// cheering when `won` (item 166).
+pub fn timed_end(kind: Kind, table: u32, won: bool) -> Ended {
+    Ended { kind, table, winner: 0, sides: vec![(Who::Me, usize::from(!won))], seat: (0, 1) }
 }
 
 /// A body at the match.
@@ -154,7 +182,8 @@ pub fn sides(joined: Option<u8>, other: Other) -> Option<Vec<(Who, usize)>> {
         return Some(vec![(Who::Me, 1), (Who::Peer(owner), 0)]);
     }
     match other {
-        Other::Nobody => None,
+        // Practice: the player alone (item 166: the end view after every match).
+        Other::Nobody => Some(vec![(Who::Me, 0)]),
         Other::Npc(None) => Some(vec![(Who::Me, 0)]),
         Other::Npc(Some(r)) => Some(vec![(Who::Me, 0), (Who::Npc(r), 1)]),
         Other::Player(id) => Some(vec![(Who::Me, 0), (Who::Peer(id), 1)]),
@@ -232,6 +261,8 @@ fn open_at(kind: Kind, table: u32, darts: Option<&DartsScreen>, pool: Option<&Po
     match kind {
         Kind::Darts => darts.and_then(|s| s.0.as_ref()).is_some_and(|d| d.board == table),
         Kind::Pool => pool.and_then(|s| s.0.as_ref()).is_some_and(|p| p.table_ref == table),
+        // A timed end fades back when its time is up, whatever is open.
+        _ => false,
     }
 }
 
@@ -294,6 +325,8 @@ pub struct MatchEnd {
     /// This result's end camera: the table's row's own ([`nvf_play::table_spots::Pick`]),
     /// [`END_VIEW`] until the player stands.
     view: Option<Portrait>,
+    /// A timed end (fillet, the card tables) and when it began (real seconds).
+    pub timed: Option<(Ended, f32)>,
 }
 
 impl MatchEnd {
@@ -311,7 +344,7 @@ impl Plugin for MatchEndPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MatchEnd>()
             .add_systems(Startup, spawn_blackout)
-            .add_systems(Update, (watch, stand, cards, react).chain().before(nvf_play::player::BodySet).before(crate::idles::drive))
+            .add_systems(Update, (ends, watch, stand, cards, react).chain().before(nvf_play::player::BodySet).before(crate::idles::drive))
             .add_systems(PostUpdate, (camera, blackout).after(TransformSystems::Propagate).before(VisibilitySystems::UpdateFrusta));
     }
 }
@@ -355,7 +388,10 @@ fn watch(
     } else if !playing {
         st.read_ahead = false;
     }
-    let cur = ended(darts, pool, opponent.as_deref());
+    if st.timed.as_ref().is_some_and(|(e, since)| !e.kind.timed() || now - since >= TIMED) {
+        st.timed = None;
+    }
+    let cur = ended(darts, pool, opponent.as_deref()).or_else(|| st.timed.as_ref().map(|t| t.0.clone()));
     if let Some(e) = &cur {
         if !matches!(st.phase, Phase::Result { kind, table, .. } if kind == e.kind && table == e.table) {
             info!("match end: {:?} at {:08X} won by side {}; the end view", e.kind, e.table, e.winner);
@@ -444,6 +480,10 @@ fn stand(
     let tkind = match kind {
         Kind::Darts => nvf_play::table_spots::Kind::Darts,
         Kind::Pool => nvf_play::table_spots::Kind::Pool,
+        Kind::Fillet => nvf_play::table_spots::Kind::Fillet,
+        // The card tables have no row picked: the player stays where it sits, the end
+        // view in front of it.
+        _ => return,
     };
     let Some(pick) = nvf_play::table_spots::row(phys, &lo, table, f, tkind, player.feet[2]) else { return };
     st.view = Some(nvf_play::table_spots::portrait(pick));
@@ -457,6 +497,97 @@ fn stand(
     let floor = player.feet[2];
     nvf_play::table_spots::stand_player(phys, player, *xy, floor, heading);
     info!("match end: this player stands at seat {seat} of {n} beside {table:08X} (feet {:?})", player.feet);
+}
+
+/// What a card table showed last while open: its kind, table, the earnings or stack it
+/// began with, those now, and whether anything was played.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Visit {
+    kind: Kind,
+    table: u32,
+    start: i64,
+    now: i64,
+    played: bool,
+    /// Caravan: the game's result for this player, once over.
+    won: Option<bool>,
+}
+
+/// A visit to a card table ended: whether it plays the end view, and whether as a win
+/// (the game won, else chips won over the visit). Nothing played: none.
+pub fn visit_end(played: bool, won: Option<bool>, start: i64, now: i64) -> Option<bool> {
+    played.then(|| won.unwrap_or(now > start))
+}
+
+/// The timed ends (item 166): a fillet game or race settled, and leaving a card table
+/// after playing. Each starts the end view for [`TIMED`] seconds.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn ends(
+    real: Res<Time<Real>>,
+    mut st: ResMut<MatchEnd>,
+    fillet: Option<Res<nvf_play::minigames::FilletScreen>>,
+    (bj, rl, sl): (Option<Res<nvf_play::blackjack::BlackjackScreen>>, Option<Res<nvf_play::roulette::RouletteScreen>>, Option<Res<nvf_play::slots::SlotsScreen>>),
+    (pk, cv): (Option<Res<nvf_play::poker::PokerScreen>>, Option<Res<nvf_play::caravan::CaravanScreen>>),
+    mut fillet_seen: Local<Option<(u32, bool)>>,
+    mut visit: Local<Option<Visit>>,
+) {
+    let now = real.elapsed_secs();
+    // Fillet: a game or a race settled (its result line up).
+    let f = fillet.as_deref().and_then(|f| f.0.as_ref());
+    let settled = f.and_then(|f| {
+        if let Some(r) = f.duel.as_ref().and_then(|d| d.result) {
+            return Some((f.knife, r == std::cmp::Ordering::Greater));
+        }
+        let g = f.game.as_ref().filter(|_| f.settled)?;
+        Some((f.knife, g.state == fnv_game::fillet::State::Won))
+    });
+    if settled != *fillet_seen {
+        if let Some((knife, won)) = settled {
+            info!("match end: fillet at {knife:08X} {}; the end view", if won { "won" } else { "lost" });
+            st.timed = Some((timed_end(Kind::Fillet, knife, won), now));
+        }
+        *fillet_seen = settled;
+    }
+    // The card tables: what is open now.
+    let tref = |r: Option<fnv_sim::FormId>| r.map_or(0, |r| r.0);
+    let open = if let Some(s) = bj.as_deref().and_then(|b| b.0.as_ref()) {
+        Some(Visit { kind: Kind::Blackjack, table: tref(s.table_ref), start: 0, now: s.earnings, played: s.table.rounds > 0, won: None })
+    } else if let Some(s) = rl.as_deref().and_then(|b| b.0.as_ref()) {
+        Some(Visit { kind: Kind::Roulette, table: tref(s.table_ref), start: 0, now: s.earnings, played: s.phase != nvf_play::roulette::Phase::Betting, won: None })
+    } else if let Some(s) = sl.as_deref().and_then(|b| b.0.as_ref()) {
+        Some(Visit { kind: Kind::Slots, table: s.casino.0, start: 0, now: s.earnings, played: !matches!(s.phase, nvf_play::slots::Phase::Betting), won: None })
+    } else if let Some(s) = pk.as_deref().and_then(|b| b.0.as_ref()) {
+        Some(Visit { kind: Kind::Poker, table: tref(s.table_ref), start: s.buy_in as i64, now: s.stack_on_leaving() as i64, played: s.dealt_at > 0.0, won: None })
+    } else if let Some(s) = cv.as_deref().and_then(|b| b.0.as_ref()) {
+        let won = s.game.as_ref().and_then(|g| g.winner).map(|(side, _)| side == fnv_game::caravan::PLAYER);
+        Some(Visit { kind: Kind::Caravan, table: s.opponent.0, start: 0, now: 0, played: won.is_some(), won })
+    } else {
+        None
+    };
+    match (open, visit.as_mut()) {
+        (Some(o), Some(v)) if v.kind == o.kind && v.table == o.table => {
+            v.now = o.now;
+            v.played |= o.played;
+            v.won = o.won.or(v.won);
+        }
+        (Some(o), _) => {
+            // A new visit: what it began with (blackjack, roulette and slots count the
+            // casino's earnings, which go on from earlier visits; poker its buy-in).
+            let start = if o.kind == Kind::Poker { o.start } else { o.now };
+            *visit = Some(Visit { start, ..o });
+        }
+        (None, Some(v)) => {
+            let v = *v;
+            *visit = None;
+            match visit_end(v.played, v.won, v.start, v.now) {
+                Some(won) => {
+                    info!("match end: left {:?} ({} to {}); {}; the end view", v.kind, v.start, v.now, if won { "won" } else { "lost" });
+                    st.timed = Some((timed_end(v.kind, v.table, won), now));
+                }
+                None => info!("match end: left {:?} without playing; no end view", v.kind),
+            }
+        }
+        (None, None) => {}
+    }
 }
 
 /// Card games (item 127): each player who won the hand (blackjack, poker) or the game
@@ -628,7 +759,8 @@ mod tests {
         assert_eq!(sides(Some(2), Other::Player(5)), Some(vec![(Who::Me, 1), (Who::Peer(2), 0)]));
         assert_eq!(sides(None, Other::Npc(Some(0x1234))), Some(vec![(Who::Me, 0), (Who::Npc(0x1234), 1)]));
         assert_eq!(sides(None, Other::Npc(None)), Some(vec![(Who::Me, 0)]));
-        assert_eq!(sides(None, Other::Nobody), None);
+        // Practice: the player alone (item 166: the end view after every match).
+        assert_eq!(sides(None, Other::Nobody), Some(vec![(Who::Me, 0)]));
     }
 
     #[test]
@@ -702,6 +834,46 @@ mod tests {
         // Against an opponent with no body: alone in the row.
         assert_eq!(two_seat(&sides(None, Other::Npc(None)).unwrap()), (0, 1));
         assert_eq!(players_seat(&[3, 5, 7, 9], Some(7)), (2, 4));
+    }
+
+    #[test]
+    fn every_match_at_every_table_ends_in_the_end_view() {
+        // Darts and pool: practice, against the game's opponent (with and without a body),
+        // against another player, and at another player's board (a guest): each has sides,
+        // so `ended` starts the end view; the winner cheers and the rest look beaten.
+        let modes = [(None, Other::Nobody), (None, Other::Npc(None)), (None, Other::Npc(Some(7))), (None, Other::Player(2)), (Some(1), Other::Nobody)];
+        for (joined, other) in modes {
+            let s = sides(joined, other).unwrap_or_else(|| panic!("{joined:?} {other:?}: no end view"));
+            assert!(s.iter().any(|(w, _)| *w == Who::Me), "{joined:?} {other:?}: this player reacts");
+            for winner in [0, 1] {
+                let me = s.iter().find(|(w, _)| *w == Who::Me).unwrap().1;
+                assert_eq!(mood(winner, me), if winner == me { Mood::Cheer } else { Mood::Defeat });
+            }
+        }
+        // Players' games of 3 and 4: every player, by its own result.
+        for n in [3u8, 4] {
+            let players: Vec<u8> = (0..n).collect();
+            let s = players_sides(&players, Some(1), |x| x == 2);
+            assert_eq!(s.len(), n as usize);
+        }
+        // Fillet (solo, practice, race) and the card tables, won and lost: a timed view
+        // with this player cheering or beaten.
+        for kind in [Kind::Fillet, Kind::Blackjack, Kind::Roulette, Kind::Slots, Kind::Poker, Kind::Caravan] {
+            assert!(kind.timed());
+            for won in [true, false] {
+                let e = timed_end(kind, 0x1234, won);
+                assert_eq!(e.sides, vec![(Who::Me, usize::from(!won))]);
+                assert_eq!(mood(e.winner, e.sides[0].1), if won { Mood::Cheer } else { Mood::Defeat }, "{kind:?} won {won}");
+            }
+        }
+        assert!(!Kind::Darts.timed() && !Kind::Pool.timed());
+        // A visit: the game's result first, else chips won; nothing played, no view.
+        assert_eq!(visit_end(true, Some(false), 0, 500), Some(false));
+        assert_eq!(visit_end(true, None, 100, 140), Some(true));
+        assert_eq!(visit_end(true, None, 100, 60), Some(false));
+        assert_eq!(visit_end(false, None, 0, 0), None);
+        // The timed view holds, then fades through black.
+        assert_eq!(black(Phase::Result { kind: Kind::Fillet, table: 1, since: 0.0 }, TIMED - 0.1), 0.0);
     }
 
     #[test]

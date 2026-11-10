@@ -236,7 +236,9 @@ pub(crate) fn held(panel_open: bool, state: Option<crate::PlayState>, driven: bo
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
-    time: Res<Time>,
+    // Real time: a message ends after its time on screen even while game time stands
+    // still with every player at a table (owner, playtest 119, item 168).
+    time: Res<Time<Real>>,
     mut corner: ResMut<CornerMessages>,
     panel: Res<MessagePanel>,
     data: Option<Res<GameData>>,

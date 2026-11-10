@@ -67,10 +67,10 @@ fn view_key(s: &Session, has_view: bool, view_w: f32) -> String {
         s.chips,
         s.earnings,
         s.cursor,
-        s.status,
+        (&s.status, &s.wait_line, s.confirmed),
         std::mem::discriminant(&s.phase),
         s.help.is_some(),
-        s.can_place()
+        s.can_place() && s.can_finish()
     )
 }
 
@@ -128,7 +128,8 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
     }
     root.with_children(|r| {
         // The status lines.
-        let lines = s.status.clone().unwrap_or_else(|| if s.phase == Phase::Betting { s.bet_lines() } else { [String::new(), String::new()] });
+        // The round's own lines, else whom the shared wheel waits on (item 156), else the bet.
+        let lines = s.status.clone().or_else(|| s.wait_line.clone().map(|l| [l, String::new()])).unwrap_or_else(|| if s.phase == Phase::Betting { s.bet_lines() } else { [String::new(), String::new()] });
         let status = Node { position_type: PositionType::Absolute, left: u(STATUS.x), top: u(STATUS.y), width: u(800.0), height: u(2.0 * STATUS_STEP), ..default() };
         r.spawn(status).with_children(|b| {
             let w = lines.iter().map(|l| c.text_width(FontKind::Menu, l)).fold(0.0, f32::max);
@@ -175,7 +176,7 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&Roulet
             let buttons = [
                 ("Place Bet", "W)", RouletteInput::Place, betting && s.can_place()),
                 ("Remove Bet", "F)", RouletteInput::Remove, betting && any),
-                ("Finish Bet", "S)", RouletteInput::Spin, betting && s.can_spin()),
+                ("Finish Bet", "S)", RouletteInput::Spin, betting && s.can_finish()),
                 ("Decrease Bet", "Q)", RouletteInput::Decrease, betting && s.bet > s.table.min_bet),
                 ("Increase Bet", "E)", RouletteInput::Increase, betting && s.bet < s.table.max_bet),
                 ("Exit", "R)", RouletteInput::Exit, betting),

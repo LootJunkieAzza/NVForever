@@ -307,6 +307,13 @@ impl Pool {
     /// from the hand is down: item 115, a joined player's cue never came after placing).
     pub fn cue(&self, now: f32) -> Option<([f32; 2], f32)> {
         let white_down = self.table.balls[0].on || self.in_hand() && (self.placed.is_some() || (!self.my_shot() && self.remote_place.is_some()));
+        // Watching another player's game (at its table, not in the game): the shooter's
+        // cue as its view sends it, while the balls are still (owner, playtest 119, item
+        // 159: "spectators don't see the pool cue").
+        if self.joined.is_some() && self.page != Page::Play {
+            let still = self.shot.is_none() && !self.table.moving() && self.game.winner.is_none();
+            return self.remote_aim.filter(|_| still && white_down);
+        }
         if !self.idle() || !white_down {
             return None;
         }

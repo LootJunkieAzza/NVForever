@@ -386,7 +386,13 @@ fn show(
             &plain
         }
     };
-    for f in asked.read() {
+    // Several asked in one frame: the last one only (a stamp spawned this frame is not in
+    // `old` yet, so they would lie over each other) (item 148).
+    let all: Vec<Flourish> = asked.read().cloned().collect();
+    if all.len() > 1 {
+        info!("flourish: {} at once, the last shown", all.len());
+    }
+    if let Some(f) = all.last() {
         info!("flourish: {:?} {:?}", f.kind, f.text);
         // A new stamp takes the place of one still showing.
         for e in &old {
@@ -438,7 +444,7 @@ fn show(
         let names = f.kind.sounds();
         *turn = turn.wrapping_add(1);
         let name = names[*turn as usize % names.len()];
-        let Some(sfx) = sfx.as_deref() else { continue };
+        let Some(sfx) = sfx.as_deref() else { return };
         let mut find = |n: &'static str| *cache.entry(n).or_insert_with(|| sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(n))).map(|(id, _)| *id));
         match find(name).or_else(|| find(FALLBACK)) {
             Some(sound) => {

@@ -12,6 +12,13 @@
 //!   within 125 by 72 table units of its middle, 18 to 100 above it]; NVForever puts them
 //!   out of sight while the table is played and shows them again after [design: nothing
 //!   is moved for good].
+//! - **The solids' texture** ([`inset_uvs`]): the balls share the base game's 256 by 256
+//!   sheet `textures\clutter\billiards\poolballsandtriangle.dds`, where each solid's
+//!   colour cell lies against the stripes' white band and a one-texel grey line between
+//!   cells [observed: the texture]. Sampled with its smaller mips, the white and grey bleed
+//!   into the solid as a thin light band round its middle (owner, playtest 119, item 160).
+//!   The solids' UVs (balls 1 to 8) are drawn in towards their cell's middle by
+//!   [`UV_INSET`] texels, so they never sample outside the cell [design].
 //! - **Watchers**: a co-op player near a table another player plays sees its balls too, as
 //!   replayed from each shot's strike (`nvf_play::pool::PoolWatch`).
 //! - **The lamp** ([`table_light`]): a soft warm downlight over the cloth while a table is
@@ -24,6 +31,7 @@ use fnv_game::pool;
 use nvf_assets::model::{ModelCtx, PreparedModel};
 use nvf_play::control::{PlayerControl, Pov};
 use nvf_play::pool::{PoolScreen, PoolWatch, TableFrame};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// The cue's tip height, table units [observed: Cue3D.txt].
@@ -33,6 +41,38 @@ const CUE_Z: f32 = 28.1;
 const CUE_LIFT: f32 = 9.0;
 /// Model 16 is the cue.
 const CUE: usize = 16;
+
+/// How far the solids' UVs are drawn in from the edge of their part of the sheet, in
+/// texels of its 256 [design: past the one-texel border and the bilinear and mip reach of
+/// the first mips].
+const UV_INSET: f32 = 3.0 / 256.0;
+
+/// The UVs pulled in towards the middle of their own box by `inset` on each side (the
+/// box no smaller than a quarter of its size).
+pub fn inset_uvs(uv: &mut [[f32; 2]], inset: f32) {
+    if uv.is_empty() {
+        return;
+    }
+    let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+    for p in uv.iter() {
+        for k in 0..2 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    for k in 0..2 {
+        let size = hi[k] - lo[k];
+        if size <= 0.0 {
+            continue;
+        }
+        let d = inset.min(size * 0.375);
+        let scale = (size - 2.0 * d) / size;
+        let mid = (lo[k] + hi[k]) / 2.0;
+        for p in uv.iter_mut() {
+            p[k] = mid + (p[k] - mid) * scale;
+        }
+    }
+}
 
 fn model_path(i: usize) -> String {
     if i == CUE { "meshes\\minigames\\pool\\practicecue.nif".into() } else { format!("meshes\\minigames\\pool\\ball{i:02}.nif") }
@@ -44,6 +84,8 @@ struct PoolHolder;
 #[derive(Resource, Default)]
 struct PoolModels {
     models: Vec<Option<Arc<PreparedModel>>>,
+    /// The solids' meshes with their UVs drawn in ([`inset_uvs`]), by the model's mesh.
+    inset: HashMap<AssetId<Mesh>, Handle<Mesh>>,
     tried: bool,
     /// Each model's holders, one per table it is drawn on.
     holders: Vec<Vec<Entity>>,
@@ -281,7 +323,10 @@ fn place(
             table(&f, &t, p.cue(p.now), &mut want);
         }
     }
-    let own_ref = screen.0.as_ref().map(|p| p.table_ref);
+    // The table this player's own screen draws (its game, or the one it watches as a
+    // joined player); any other table watched is drawn from its replay, with its cue
+    // (item 159).
+    let own_ref = own.map(|p| p.table_ref);
     for r in watch.0.values() {
         if Some(r.table_ref) == own_ref || !r.view.playing {
             continue;
@@ -314,7 +359,20 @@ fn place(
         if k == st.holders[*m].len() {
             let h = commands.spawn((PoolHolder, *t, Visibility::Inherited, ChildOf(root))).id();
             for s in &pm.shapes {
-                let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), Visibility::Inherited)).id();
+                let mut mesh = s.mesh.clone();
+                if (1..=8).contains(m) {
+                    if let Some(fixed) = st.inset.get(&mesh.id()) {
+                        mesh = fixed.clone();
+                    } else if let Some(mut copy) = models.meshes.get(&mesh).cloned() {
+                        if let Some(bevy::mesh::VertexAttributeValues::Float32x2(uv)) = copy.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
+                            inset_uvs(uv, UV_INSET);
+                        }
+                        let fixed = models.meshes.add(copy);
+                        st.inset.insert(mesh.id(), fixed.clone());
+                        mesh = fixed;
+                    }
+                }
+                let e = commands.spawn((Mesh3d(mesh), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), Visibility::Inherited)).id();
                 commands.entity(h).add_child(e);
             }
             st.holders[*m].push(h);
@@ -337,6 +395,16 @@ fn place(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_solids_uvs_keep_inside_their_cell() {
+        // A cell from (0, 0.555) to (0.333, 1.0) of the sheet.
+        let mut uv = vec![[0.0, 0.555], [0.333, 1.0], [0.1665, 0.7775]];
+        inset_uvs(&mut uv, UV_INSET);
+        assert!((uv[0][0] - UV_INSET).abs() < 1e-5 && (uv[0][1] - (0.555 + UV_INSET)).abs() < 1e-5);
+        assert!((uv[1][0] - (0.333 - UV_INSET)).abs() < 1e-5 && (uv[1][1] - (1.0 - UV_INSET)).abs() < 1e-5);
+        assert!((uv[2][0] - 0.1665).abs() < 1e-5, "the middle stays");
+    }
 
     #[test]
     fn the_cue_lies_behind_the_white_pointing_at_it() {

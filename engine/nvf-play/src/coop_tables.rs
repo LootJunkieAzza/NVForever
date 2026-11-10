@@ -325,6 +325,8 @@ pub struct SeatView {
     pub bet: u32,
     pub ready: bool,
     pub waiting: bool,
+    /// Picked this round's move and waits for the other seats' (item 156).
+    pub chose: bool,
     pub log: SeatLog,
     pub hands: Vec<HandView>,
 }
@@ -349,7 +351,7 @@ impl BlackjackView {
         cards(&mut w, &self.dealer);
         w.u8(self.seats.len() as u8);
         for s in &self.seats {
-            w.u8(s.player).u32(s.bet).u8(u8::from(s.ready) | u8::from(s.waiting) << 1);
+            w.u8(s.player).u32(s.bet).u8(u8::from(s.ready) | u8::from(s.waiting) << 1 | u8::from(s.chose) << 2);
             w.u32(s.log.round).u32(s.log.bet);
             cards(&mut w, &s.log.cards);
             w.u8(s.log.actions.len() as u8);
@@ -395,7 +397,7 @@ impl BlackjackView {
             for _ in 0..nh {
                 hands.push(HandView { cards: read_cards(&mut r)?, bet: r.u32()?, outcome: outcome_of(r.u8()?)? });
             }
-            seats.push(SeatView { player, bet, ready: flags & 1 != 0, waiting: flags & 2 != 0, log: SeatLog { round: log_round, bet: log_bet, cards: log_cards, actions }, hands });
+            seats.push(SeatView { player, bet, ready: flags & 1 != 0, waiting: flags & 2 != 0, chose: flags & 4 != 0, log: SeatLog { round: log_round, bet: log_bet, cards: log_cards, actions }, hands });
         }
         r.done().then_some(BlackjackView { owner, round, phase, dealer, hole_shown, min_bet, max_bet, seats })
     }
@@ -417,6 +419,7 @@ impl BlackjackView {
                     bet: s.bet,
                     ready: s.ready,
                     waiting: s.waiting(),
+                    chose: s.chose(),
                     log: s.log.clone(),
                     hands: s.table.as_ref().filter(|_| s.log.round > 0).map(|t| t.hands.iter().map(|h| HandView { cards: h.cards.clone(), bet: h.bet, outcome: h.outcome }).collect()).unwrap_or_default(),
                 })
@@ -475,6 +478,8 @@ pub struct RouletteView {
     /// The spin's sequence (1–3) and how far in it is, seconds.
     pub clip: u8,
     pub elapsed: f32,
+    /// The player pressed Finish Bet: done betting for this spin (item 156).
+    pub done: bool,
 }
 
 impl RouletteView {
@@ -484,7 +489,7 @@ impl RouletteView {
         for (p, n) in self.bets.iter().take(60) {
             w.str(p).u32(*n);
         }
-        w.u8(self.owner).u32(self.spin).u8(self.clip).f32(self.elapsed);
+        w.u8(self.owner).u32(self.spin).u8(self.clip).f32(self.elapsed).u8(u8::from(self.done));
         w.0
     }
 
@@ -498,8 +503,8 @@ impl RouletteView {
         for _ in 0..n {
             bets.push((r.str()?, r.u32()?));
         }
-        let (owner, spin, clip, elapsed) = (r.u8()?, r.u32()?, r.u8()?, r.f32()?);
-        r.done().then_some(RouletteView { bets, spinning, pocket, chips, owner, spin, clip, elapsed })
+        let (owner, spin, clip, elapsed, done) = (r.u8()?, r.u32()?, r.u8()?, r.f32()?, r.u8()? != 0);
+        r.done().then_some(RouletteView { bets, spinning, pocket, chips, owner, spin, clip, elapsed, done })
     }
 }
 
@@ -999,7 +1004,7 @@ fn publish(
             crate::roulette::Phase::Paid { pocket, clip, since, .. } => (false, Some(pocket), clip, now - since),
         };
         let (owner, spin) = s.coop.as_ref().map_or((me, 0), |c| (c.owner, c.spins));
-        let v = RouletteView { bets: s.table.bets.iter().map(|(spot, n)| (spot.point.clone(), *n)).collect(), spinning, pocket, chips: s.chips, owner, spin, clip, elapsed };
+        let v = RouletteView { bets: s.table.bets.iter().map(|(spot, n)| (spot.point.clone(), *n)).collect(), spinning, pocket, chips: s.chips, owner, spin, clip, elapsed, done: s.confirmed };
         out = Some((s.casino.0, game::ROULETTE, v.encode()));
     }
     if let Some(s) = sl.as_deref().and_then(|r| r.0.as_ref()) {
@@ -1110,9 +1115,12 @@ mod tests {
             t.bet(p, 25, 500).unwrap();
         }
         t.deal().unwrap();
-        for p in 0..4 {
-            while t.legal(p).hit {
-                t.act(p, Action::Hit, 0).unwrap();
+        // Every seat hits each turn until none can (the picks resolve together, item 156).
+        while (0..4).any(|p| t.legal(p).hit) {
+            for p in 0..4 {
+                if t.legal(p).hit {
+                    t.act(p, Action::Hit, 0).unwrap();
+                }
             }
         }
         let v = BlackjackView::of(0, &t);
@@ -1139,7 +1147,7 @@ mod tests {
             assert_eq!(DartsAction::decode(&a.encode()), Some(a));
         }
         assert_eq!(DartsAction::decode(&DartsAction::Throw(f32::NAN, 0.0).encode()), None);
-        let r = RouletteView { bets: vec![("A01".into(), 10), ("RED".into(), 25)], spinning: true, pocket: Some(37), chips: 300, owner: 1, spin: 4, clip: 2, elapsed: 3.5 };
+        let r = RouletteView { bets: vec![("A01".into(), 10), ("RED".into(), 25)], spinning: true, pocket: Some(37), chips: 300, owner: 1, spin: 4, clip: 2, elapsed: 3.5, done: true };
         assert_eq!(RouletteView::decode(&r.encode()), Some(r));
         let s = SlotsView { bet: 10, line: [2, 2, 6], spinning: false, won: 300, chips: 50 };
         assert_eq!(SlotsView::decode(&s.encode()), Some(s));

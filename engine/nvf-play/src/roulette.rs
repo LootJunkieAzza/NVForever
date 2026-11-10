@@ -97,6 +97,8 @@ pub struct OtherBets {
     pub player: u8,
     pub name: String,
     pub bets: Vec<(String, u32)>,
+    /// Done betting for this spin (pressed Finish Bet).
+    pub done: bool,
 }
 
 /// The roulette sounds [observed: FalloutNV.esm SOUN `GAMERouletteSpin` 0x001519E2,
@@ -179,6 +181,10 @@ pub struct Session {
     pub coop: Option<CoopSeat>,
     /// The other players betting at the same wheel.
     pub others: Vec<OtherBets>,
+    /// In co-op: this player pressed Finish Bet and waits for the others' (item 156).
+    pub confirmed: bool,
+    /// "Waiting for other bets... (names)" while this player is done and others are not.
+    pub wait_line: Option<String>,
 }
 
 impl Session {
@@ -190,6 +196,16 @@ impl Session {
     /// Whether this player spins the wheel (alone, or its co-op owner).
     pub fn spins_wheel(&self) -> bool {
         self.coop.as_ref().is_none_or(|c| c.owns())
+    }
+
+    /// Whether Finish Bet can be pressed: alone, when it can spin; at a shared wheel, until
+    /// this player is done betting (item 156).
+    pub fn can_finish(&self) -> bool {
+        if self.coop.is_some() {
+            self.phase == Phase::Betting && !self.confirmed
+        } else {
+            self.can_spin()
+        }
     }
 
     /// Whether Finish Bet can spin now: this player's wheel, and bets on it from anyone.
@@ -508,6 +524,8 @@ fn open(
         table_ref,
         coop,
         others: Vec::new(),
+        confirmed: false,
+        wait_line: None,
     });
     next.set(PlayState::Menu);
 }
@@ -699,6 +717,10 @@ fn apply(mut input: MessageReader<RouletteInput>, mut screen: ResMut<RouletteScr
     };
     for cmd in input.read() {
         let Some(s) = screen.0.as_mut() else { return };
+        // A bet placed or taken back after Finish Bet: not done betting any more (156).
+        if matches!(cmd, RouletteInput::Place | RouletteInput::Remove) && s.phase == Phase::Betting && s.help.is_none() {
+            s.confirmed = false;
+        }
         match cmd.clone() {
             RouletteInput::CloseHelp => {
                 if s.help.take().is_some() {
@@ -753,6 +775,16 @@ fn apply(mut input: MessageReader<RouletteInput>, mut screen: ResMut<RouletteScr
                 }
                 Err(_) => play(sounds::INVALID),
             },
+            RouletteInput::Spin if s.coop.is_some() && s.phase == Phase::Betting => {
+                // At a shared wheel Finish Bet says this player is done; the wheel spins
+                // once every player at it is (`follow_wheel`) (owner, playtest 119, 156).
+                if !s.confirmed {
+                    s.confirmed = true;
+                    s.status = None;
+                    info!("roulette: done betting ({} on the table)", s.table.total());
+                    play(sounds::VALID);
+                }
+            }
             RouletteInput::Spin => {
                 if !s.spins_wheel() {
                     let owner = s.coop.as_ref().map(|c| c.owner_name.clone()).unwrap_or_default();
@@ -791,6 +823,8 @@ fn start_spin(s: &mut Session, sim: &mut SimState, since: f32, clip: u8, pocket:
     }
     s.chips = s.chips.saturating_sub(staked);
     s.status = None;
+    s.confirmed = false;
+    s.wait_line = None;
     s.phase = Phase::Spinning { since, clip, pocket };
     info!("roulette: spin (Spin_{clip}): {staked} chips on {} bets; the ball will stop in {}", s.table.bets.len(), rules::pocket_name(pocket));
     true
@@ -811,14 +845,35 @@ fn follow_wheel(time: AidTime, tables: Option<Res<Tables>>, mut screen: ResMut<R
         .filter(|p| **p != c.me)
         .filter_map(|p| t.view(*p).filter(|v| v.0 == casino && v.1 == game::ROULETTE).and_then(|v| TableRoulette::decode(v.2)).map(|v| (*p, v)))
         .collect();
-    let others: Vec<OtherBets> = views.iter().filter(|(p, v)| *p == c.owner || v.owner == c.owner).map(|(p, v)| OtherBets { player: *p, name: t.name(*p), bets: v.bets.clone() }).collect();
+    let others: Vec<OtherBets> = views.iter().filter(|(p, v)| *p == c.owner || v.owner == c.owner).map(|(p, v)| OtherBets { player: *p, name: t.name(*p), bets: v.bets.clone(), done: v.done }).collect();
     if s.others != others {
         if s.others.iter().map(|o| o.player).ne(others.iter().map(|o| o.player)) {
             info!("roulette: at the wheel with {}", others.iter().map(|o| o.name.as_str()).collect::<Vec<_>>().join(", "));
         }
         s.others = others;
     }
+    let late: Vec<String> = s.others.iter().filter(|o| !o.done).map(|o| o.name.clone()).collect();
+    let line = (s.confirmed && s.phase == Phase::Betting && !late.is_empty()).then(|| format!("Waiting for other bets... ({})", late.join(", ")));
+    if line != s.wait_line {
+        if let Some(l) = &line {
+            info!("roulette: {l}");
+        }
+        s.wait_line = line;
+    }
     if c.owns() {
+        // Every player at the wheel done betting, with chips on it from someone: it spins.
+        if s.confirmed && late.is_empty() && s.phase == Phase::Betting && s.can_spin() {
+            let pocket = s.forced.take().unwrap_or_else(|| rules::spin(&mut s.rng));
+            let clip = (rand_core::RngCore::next_u32(&mut s.rng) % 3 + 1) as u8;
+            if start_spin(s, &mut sim, now, clip, pocket) {
+                if let Some(c) = s.coop.as_mut() {
+                    c.spins += 1;
+                }
+                stats.spins += 1;
+                info!("roulette: every player is done betting: the wheel spins");
+                sounds.write(PlaySound { sound: sounds::SPIN, at: None });
+            }
+        }
         return;
     }
     let owner = views.iter().find(|(p, v)| *p == c.owner && v.owner == c.owner).map(|(_, v)| v.clone());

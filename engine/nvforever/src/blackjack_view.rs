@@ -7,8 +7,11 @@
 //!   `NV_Blackjack-Dealer.NIF`, `-Hand1.NIF` and `-Hand2.NIF`, seven cards each, all at the
 //!   shoe until a sequence moves them [observed: the files' nodes and sequences].
 //! - A card dealt is posed by its own deal sequence (`Hand1_03` for the player's third)
-//!   from when it left the shoe and held at its end; the hole card (`Dealer_02`) by
-//!   `Dealer_Reveal` once turned; the last round's cards by `<model>_Discard` as the next
+//!   from when it left the shoe and held at its end. The model's hole card is its first,
+//!   `Dealer_01`: its deal lays it face down, `Dealer_02`'s lays the second face up
+//!   [observed: frames of a round, playtest 119 item 169]. The rules deal the hole card
+//!   second, so the dealer's first two faces change places ([`dealer_face_slot`]) and the
+//!   first card turns by `Dealer_Reveal` once revealed; the last round's cards by `<model>_Discard` as the next
 //!   deal sweeps them away. Cards not on the table are hidden [hypothesis: each sequence
 //!   holds every card of its model; NVForever takes from it only its own card's track].
 //! - A card's face is the shape named `<card>:n`: its picture is set to the card's face
@@ -677,9 +680,13 @@ fn pose(
                         Transform::from_matrix(undo * Mat4::from(tr.compute_affine()))
                     }
                 }
-                None if m.prefix == "Dealer" && k == 1 && reveal.is_some_and(|r| now >= r) => {
+                None if m.prefix == "Dealer" && k == 0 && reveal.is_some_and(|r| now >= r) => {
+                    // The flip played in REVEAL_SECONDS whatever the sequence's own length
+                    // (item 169), so the pause after it is the logic's.
                     let clip = m.clip("Dealer_Reveal");
-                    let mut tr = sampled(&m.rig, clip, card.node, clip_time(clip, now - reveal.unwrap_or(now)));
+                    let own = clip.map_or(1.0, |c| (c.stop - c.start) / c.frequency.max(1e-3));
+                    let t = (now - reveal.unwrap_or(now)) * own / nvf_play::blackjack::REVEAL_SECONDS;
+                    let mut tr = sampled(&m.rig, clip, card.node, clip_time(clip, t));
                     tr.translation += card.spread;
                     tr
                 }
@@ -694,6 +701,16 @@ fn pose(
                 *t = tr;
             }
         }
+    }
+}
+
+/// Which of its model's cards shows a card's face: the dealer's hole card (the rules'
+/// second) on the model's face-down first card, and its first on the second (item 169).
+pub fn dealer_face_slot(seat: Seat, index: usize) -> usize {
+    match (seat, index) {
+        (Seat::Dealer, 0) => 1,
+        (Seat::Dealer, 1) => 0,
+        _ => index,
     }
 }
 
@@ -712,7 +729,7 @@ fn faces(
     let mut want: [[Option<Card>; 7]; 3] = [[None; 7]; 3];
     for c in discard.map(|d| d.1.as_slice()).unwrap_or_default().iter().chain(shown) {
         if let Some(m) = want.get_mut(slot(c.seat)).filter(|_| c.index < 7) {
-            m[c.index] = Some(c.card);
+            m[dealer_face_slot(c.seat, c.index)] = Some(c.card);
         }
     }
     for (m, want) in card_models.iter_mut().zip(want) {
