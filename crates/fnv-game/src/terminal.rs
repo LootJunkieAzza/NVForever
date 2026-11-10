@@ -44,6 +44,9 @@ pub struct Terminals {
     /// ForceTerminalBack was called by the result script running now
     /// ([`choose`] hands it on as [`Chosen::back`]).
     pub back: bool,
+    /// Terminals opened at their menu this session: the Show Use Password tweak's prompt
+    /// stops once one has been opened with its note [design: docs/design/tweaks.md]. Not saved.
+    pub opened: std::collections::BTreeSet<FormId>,
 }
 
 /// What activating a terminal does.
@@ -108,11 +111,29 @@ pub fn still_locked(g: &mut Game, reference: FormId, base: FormId) -> Option<Dif
     Some(Difficulty::from_code(code))
 }
 
+/// The player's Show Use Password tweak [design: docs/design/tweaks.md]: a terminal that is locked to others but
+/// opens to the player's password note, and has not been opened yet, shows as locked
+/// with the password to use.
+pub fn opens_by_password(g: &mut Game, reference: FormId, base: FormId) -> bool {
+    if !g.tweaks.terminal_password_prompt || g.terminals.opened.contains(&reference) {
+        return false;
+    }
+    let Some(t) = g.data.terminals.get(&base) else { return false };
+    let script = g.terminals.script_locks.get(&reference).copied();
+    if script.is_some_and(|l| !l.locked) || (script.is_none() && t.has(terminal_flag::UNLOCKED)) || g.terminals.access.get(&reference) == Some(&Access::Hacked) {
+        return false;
+    }
+    has_password(g, t)
+}
+
 /// What activating the terminal reference `reference` of base `base` does, for a player
 /// of Science skill `sci` ([`science`]).
 pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Option<Opening> {
     g.data.terminals.get(&base)?;
-    let Some(difficulty) = still_locked(g, reference, base) else { return Some(Opening::Menu) };
+    let Some(difficulty) = still_locked(g, reference, base) else {
+        g.terminals.opened.insert(reference);
+        return Some(Opening::Menu);
+    };
     if g.terminals.access.get(&reference) == Some(&Access::LockedOut) {
         // Computer Whiz's Ignore Locked Terminal: one more try at a locked-out terminal
         // [documented: GECK wiki Entry Point, "run when the player attempts to activate a

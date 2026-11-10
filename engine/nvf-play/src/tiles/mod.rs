@@ -391,6 +391,7 @@ impl HudTiles<'_> {
                 lock_text: self.target.as_ref().and_then(|t| t.0.as_ref()).map_or_else(|| "Locked".into(), |t| {
                     match t.action {
                         crate::activate::outcome::Action::Locked { level } => format!("[Locked - {}]", crate::activate::outcome::lock_text(level)),
+                        crate::activate::outcome::Action::UsePassword => "[Locked - Use Password]".into(),
                         _ => "Locked".into(),
                     }
                 }),
@@ -398,7 +399,7 @@ impl HudTiles<'_> {
                     .target
                     .as_ref()
                     .and_then(|t| t.0.as_ref())
-                    .is_some_and(|t| matches!(t.action, crate::activate::outcome::Action::Locked { .. })),
+                    .is_some_and(|t| matches!(t.action, crate::activate::outcome::Action::Locked { .. } | crate::activate::outcome::Action::UsePassword)),
                 // Only the two captured heights; further lines/wrapping await text
                 // layout [hypothesis: hud.md §14.3; design: widths deferred].
                 height: if p.name.lines().count() > 1 { 80.0 } else { 42.0 },

@@ -431,6 +431,10 @@ fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mu
 /// accessed. Without the scripts: Access.
 fn terminal_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id: u32) -> Action {
     let (Some(rt), Some(base)) = (rt, sim.base_of(id)) else { return Action::Access };
+    // The player's tweak: a locked terminal the note opens says so [design: docs/design/tweaks.md].
+    if crate::script::with_world(rt, sim, |rt| fnv_game::terminal::opens_by_password(&mut rt.game, FormId(id), base)) {
+        return Action::UsePassword;
+    }
     let lock = crate::script::with_world(rt, sim, |rt| fnv_game::terminal::still_locked(&mut rt.game, FormId(id), base));
     lock.map_or(Action::Access, |d| Action::Locked { level: outcome::terminal_lock_level(d.code()) })
 }

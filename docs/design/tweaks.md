@@ -466,6 +466,7 @@ unless the player binds them, so nothing changes until then.
 | Ammo Label Under the Count | `bMoveAmmoTypeLabel` | `hud::texts` puts the label right-aligned `AMMO_LABEL_DROP` below the count, inside the panel |
 | Companion Compass Colour | `bCompanionPipColorChange` | `compass::Mark::Companion` for teammates, drawn in `tweaks::COMPANION_COLOURS` (a choice of ours in place of the tweak's RGB value) |
 | Facial Hair for Women | `bRaceMenuAllowFemaleFacialHair` | `creator::model::Model::female_beards` (set by `creator::sync`) keeps the facial hair row and its shading for a woman; a change of sex to female still clears the beard |
+| Show Use Password | `bShowUsePasswordOnTerminalsWithNote` | `fnv_game::terminal::opens_by_password` gives `Action::UsePassword` ("Locked (Use Password)", our words) until the terminal has been opened (`Terminals::opened`, this session only) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -487,8 +488,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 387 |
-| to do | 216 |
+| done | 388 |
+| to do | 215 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -853,6 +854,7 @@ game's Data folder, read-only).
 | `bScopeVisibleAPHP` | done |  | 1 | already so: HP and AP stay up while scoped |
 | `bShowNearestUndiscoveredLocation` | done |  | 2 | Nearest Unfound Place (the compass; the map option not built) |
 | `bShowSneakLabelWhileStanding` | done |  |  | Sneak Label While Standing |
+| `bShowUsePasswordOnTerminalsWithNote` | done |  | 1 | Show Use Password (until first opened this session; sUsePassword is our words) |
 | `bSubtitlesShowActorNames` | done |  |  | Subtitles Name the Speaker |
 | `bTalkWhileSneakingIfShiftIsHeld` | done |  |  | Shift to Talk While Sneaking |
 | `iDateFormat` | done |  | 1 | Date Format (four styles of ours) |
@@ -880,7 +882,6 @@ game's Data folder, read-only).
 | `bRecentlyDeadNPCIndicator` | to do |  | 4 | the compass skips the dead; needs per-actor state |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
 | `bShowQuestObjectivesOnCellChange` | to do |  | 1 | cell change detection and objectives for the active quest |
-| `bShowUsePasswordOnTerminalsWithNote` | to do |  | 1 | a labelled Action variant for the note |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
 
 ### Menus

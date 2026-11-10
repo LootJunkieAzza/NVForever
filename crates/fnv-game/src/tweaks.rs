@@ -365,6 +365,9 @@ pub struct Tweaks {
     pub repair_needs_weapon_skill: bool,
     /// `bHideUnknownNPCNames`: the prompt names no one who has not spoken to the player.
     pub hide_unknown_names: bool,
+    /// `bShowUsePasswordOnTerminalsWithNote`: a locked terminal the player holds the
+    /// password note of says so until first opened.
+    pub terminal_password_prompt: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -536,6 +539,7 @@ impl Default for Tweaks {
             vats_burst_stops_on_kill: false,
             repair_needs_weapon_skill: false,
             hide_unknown_names: false,
+            terminal_password_prompt: false,
         }
     }
 }

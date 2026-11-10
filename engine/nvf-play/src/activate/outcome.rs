@@ -26,6 +26,9 @@ pub enum Action {
     Unlock,
     /// Locked, no key.
     Locked { level: u8 },
+    /// A locked terminal the player's password note opens (the Show Use Password tweak,
+    /// docs/design/tweaks.md).
+    UsePassword,
     Talk,
     /// A living actor the sneaking player may pickpocket (`crate::pickpocket`).
     Steal,
@@ -85,6 +88,8 @@ impl Action {
             Action::Travel { to: None } => "Open".into(),
             Action::Unlock => "Unlock (key)".into(),
             Action::Locked { level } => format!("Locked ({})", lock_text(*level)),
+            // Our words for the tweak's prompt.
+            Action::UsePassword => "Locked (Use Password)".into(),
             Action::Talk => "Talk".into(),
             // [hypothesis: the original's word for picking a pocket]
             Action::Steal => "Steal".into(),
