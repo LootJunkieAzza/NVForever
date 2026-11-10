@@ -36,7 +36,6 @@ use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::player_body::PlayerBody;
 use crate::ragdoll::Corpse;
-use crate::reflection::ReflectionCamera;
 use crate::world::WorldData;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
@@ -339,7 +338,7 @@ fn place(
     player_use: Option<Res<PlayerUse>>,
     mut phys: Option<ResMut<PhysState>>,
     world: Option<Res<WorldData>>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     actors: Query<Actor>,
     parents: Query<&ChildOf>,
     globals: Query<&GlobalTransform>,

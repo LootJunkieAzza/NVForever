@@ -200,8 +200,11 @@ SetFunctionValue (Ar_Size a)"#);
 fn bars_take_values_from_a_variable_and_a_function() {
     let f = fixture();
     let mut g = game(&f);
+    // Shown: a bar HudBarShowBar hides is not read (below).
     q(&mut g, r#"HudBarCreate "B" 10 10 3
 HudBarCreate "U" 10 40 3
+HudBarShowBar "B" 1
+HudBarShowBar "U" 1
 HudBarSetValueMax "B" 200"#);
     // A value that is no variable is refused; a global is taken.
     assert_eq!(n(&mut g, r#"HudBarSetValueScriptVar "B" 5 1"#), -1.0);
@@ -231,5 +234,41 @@ End)"#), 1.0);
     // A bar destroyed takes its source with it.
     q(&mut g, r#"HudBarDestroy "U""#);
     g.tick();
+    assert_eq!(g.sup7.feeds.len(), 1);
+}
+
+#[test]
+fn a_hidden_bar_is_not_read_and_a_failing_source_keeps_its_value() {
+    let f = fixture();
+    let mut g = game(&f);
+    q(&mut g, r#"HudBarCreate "B" 10 10 3
+HudBarShowBar "B" 1
+HudBarSetValueScriptVar "B" Sup7Global 0
+set Sup7Global to 5"#);
+    g.tick();
+    assert_eq!(g.ui_extra.bars.list[0].value, 5.0);
+    // Hidden by HudBarShowBar: "Bar value calculations will stop processing".
+    q(&mut g, r#"HudBarShowBar "B" 0
+set Sup7Global to 7"#);
+    g.tick();
+    g.tick();
+    assert_eq!(g.ui_extra.bars.list[0].value, 5.0);
+    // Shown again, read in that frame (no catch-up of the missed reads).
+    q(&mut g, r#"HudBarShowBar "B" 1"#);
+    g.tick();
+    assert_eq!(g.ui_extra.bars.list[0].value, 7.0);
+    // A UDF that gives no number leaves the value and stays bound; one that gives a
+    // number again is read at the next interval.
+    q(&mut g, r#"HudBarSetValueUDF "B" (Begin Function { }
+SetFunctionValue "not a number"
+End)"#);
+    g.tick();
+    assert_eq!(g.ui_extra.bars.list[0].value, 7.0);
+    assert_eq!(g.sup7.feeds.len(), 1, "still bound");
+    // A new source replaces the old: back to the global.
+    q(&mut g, r#"HudBarSetValueScriptVar "B" Sup7Global 0
+set Sup7Global to 9"#);
+    g.tick();
+    assert_eq!(g.ui_extra.bars.list[0].value, 9.0);
     assert_eq!(g.sup7.feeds.len(), 1);
 }

@@ -1453,7 +1453,7 @@ impl Combat {
     /// (IsPlayerActionActive 9, GetPCUsingIronSights), not while a reload or a jam holds
     /// the sights down ([`sights_held_down`]).
     pub fn player_sights_up(&self, anim: &WeaponAnim, aiming: bool) -> bool {
-        anim.ready && aiming && !self.player_sights_held_down() && self.sight_fov().is_some()
+        sights_up(anim.ready, aiming, self.player_sights_held_down(), self.sight_fov().is_some())
     }
 
     /// The gun's firing cycle holds the sights down now: it reloads or clears a jam
@@ -1479,6 +1479,13 @@ impl Combat {
     pub fn vats_part(&self, parts: &ActorParts, actor: u32, part: Option<u8>) -> Option<BodyPart> {
         body_part(self, parts, actor as ActorId, part)
     }
+}
+
+/// The sights are up ([`Combat::player_sights_up`]): the weapon is ready, Block is held
+/// with it out, no reload or jam holds them down, and the weapon in use has sights (a gun;
+/// a melee weapon has none, so blocking with one is not aiming).
+pub fn sights_up(ready: bool, aiming: bool, held_down: bool, has_sights: bool) -> bool {
+    ready && aiming && !held_down && has_sights
 }
 
 /// A firing cycle in this phase holds the sights down: a reload (every step of a
@@ -5194,6 +5201,18 @@ mod tests {
         assert_eq!(magazine_in_hand(1, 0, true, false, false), 1);
         assert_eq!(magazine_in_hand(5, 0, false, true, false), 5);
         assert_eq!(magazine_in_hand(30, 0, false, false, true), 30);
+    }
+
+    #[test]
+    fn sights_are_up_only_with_a_ready_gun_and_no_reload() {
+        assert!(sights_up(true, true, false, true));
+        // Reloading (or clearing a jam) holds them down though Block is held.
+        assert!(!sights_up(true, true, true, true));
+        // Blocking with a melee weapon: no sights.
+        assert!(!sights_up(true, true, false, false));
+        // Block not held, or the weapon not ready yet.
+        assert!(!sights_up(true, false, false, true));
+        assert!(!sights_up(false, true, false, true));
     }
 
     #[test]

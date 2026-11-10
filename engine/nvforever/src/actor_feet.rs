@@ -6,7 +6,6 @@
 //! actor shows in the log (docs/spec-notes/floating-actors.md).
 
 use crate::limbs::ActorRig;
-use crate::reflection::ReflectionCamera;
 use crate::world::{bevy_to_game, WorldData};
 use bevy::prelude::*;
 use nvf_play::phys::PhysState;
@@ -51,7 +50,7 @@ pub fn probe(
     mut p: ResMut<FeetProbe>,
     // Not the water's reflection camera, which follows the view mirrored below the
     // water (and came first in this query: no actor was in range of it).
-    cams: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    cams: Query<&GlobalTransform, crate::fly::WorldCamera>,
     roots: Query<(&Name, &GlobalTransform, &InheritedVisibility, &ActorRig)>,
     nodes: Query<&GlobalTransform>,
     bodies: Query<(&Name, &GlobalTransform), Without<ActorRig>>,

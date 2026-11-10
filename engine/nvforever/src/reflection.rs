@@ -402,7 +402,7 @@ fn update_reflection(
     world: Res<WorldData>,
     streamer: Res<Streamer>,
     mut dw: ResMut<DistantWater>,
-    main: Query<(&GlobalTransform, &Projection, &DistanceFog), (With<Camera3d>, Without<ReflectionCamera>)>,
+    main: Query<(&GlobalTransform, &Projection, &DistanceFog), crate::fly::WorldCamera>,
     mut refl: Query<
         (&mut Camera, &mut Transform, &mut GlobalTransform, &mut Projection, &mut DistanceFog),
         With<ReflectionCamera>,

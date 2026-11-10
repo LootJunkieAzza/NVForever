@@ -4393,6 +4393,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "menu-camera-world-runs"
+source = "[design] issue #1753: a menu's own 3D camera (the lockpicking view's) beside the main view's does not stop the world's systems; they find the main view by its marker (fly::WorldCamera, docs/design/layer4-play.md §2), so streaming keeps running for the seconds the lock is up (world.rs `note_other_cameras`)"
+note = "lockpick's wall safe in GSHouseInterior02 at Lockpick 55: opened at 12 s, the help closed, left with the menu's Exit at 20 s"
+areas = ["lockpick", "streaming", "camera"]
+paths = ["engine/nvforever/src/fly.rs", "engine/nvforever/src/world.rs", "engine/nvforever/src/lockpick_view.rs", "engine/nvforever/src/lod.rs", "engine/nvforever/src/grass.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_LOCKPICK = "1:skill:55,13.5:help,20:exit" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  "lockpick: open 0x00105229 Safe: Average lock (Lockpick 55, 3 bobby pins)",
+  { text = "world: streaming runs with another 3D camera active (Lockpicking camera)", label = "streaming runs while the lockpicking camera is up" },
+  "lockpick: closed (the player left)",
+  { re = 'world: streaming kept running behind another 3D camera \(Lockpicking camera\): [1-9]\d+ frames', label = "and kept running for the seconds the menu was open" },
+]]
+expect = [
+  { text = "lockpick view: the lock drawn", label = "the menu's own camera drew the lock" },
+]
+
+[[scenario]]
 name = "perk-infiltrator"
 source = "perk audit 2026-10-23 §3.4, owner 2026-10-24: Infiltrator gives one more try at a broken lock (docs/spec-notes/perk-entry-points.md §7)"
 note = "lockpick-floor-safe's setup (Ringo's floor safe in GSGasStation, Lockpick 30, two pins) with the perk Infiltrator from 3 s: a failed Force Lock breaks the safe; the next activation opens the menu again (one more try), a second failed Force Lock spends it, and the activation after is refused as broken"
@@ -9754,7 +9773,7 @@ forbid = [
 name = "settings-tab-write"
 source = "#1953, the fork owner's request 2026-11-09: the settings page's tab is kept in NVForever.ini as [UI] SettingsTab=<tab> when it changes, so a new start (Continue, a save's load) opens on it; the first half of a round trip (settings-tab-read starts in the same home), run them together"
 areas = ["settings"]
-paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs", "engine/nvforever/src/quality.rs"]
 env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:tab:Debug,12:tab:Graphics" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 17
@@ -9768,14 +9787,14 @@ forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (li
 name = "settings-tab-read"
 source = "#1953, the fork owner's request 2026-11-09: the second half of the tab round trip: a new start in settings-tab-write's home opens the settings page on Graphics, the tab kept in [UI] SettingsTab="
 areas = ["settings"]
-paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/quality.rs"]
 env = { NVFOREVER_HOME = "settings-tab-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:14", NVF_PLAY_TEST_PAUSE_MENU = "11:settings,12:inspect" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 16
 order = [[
   { re = 'settings page: \[UI\] SettingsTab=Graphics read from .*NVForever\.ini', label = "the kept tab is read at the start" },
-  { text = "pause menu: settings open on Graphics; selected grade", label = "Settings opens on it, on its first row" },
-  "pause menu: inspect: Graphics, keys on the rows, selected grade",
+  { text = "pause menu: settings open on Graphics; selected quality", label = "Settings opens on it, on its first row (the Quality row, #1966)" },
+  "pause menu: inspect: Graphics, keys on the rows, selected quality",
 ]]
 forbid = [
   { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
@@ -10080,6 +10099,144 @@ order = [[
   { re = 'pause menu: inspect: words .*\| \[xx\] Display > \[xx\] Interface$', label = "where it lives, translated" },
 ]]
 forbid = [{ re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" }]
+
+[[scenario]]
+name = "settings-quality-presets"
+source = "#1966: the Graphics tab's Quality row, over its own heading at the top: each preset sets the rows its file's keys map to (docs/spec-notes/quality-presets.md), each logged with its value; a change to one of them reads Custom (engine/nvforever/src/quality.rs)"
+note = "the presets are the made-up files of tools/smoke/fixtures/quality-presets (NVF_PLAY_TEST_QUALITY_PRESETS), not an install's: a slider's part is the file's number against the largest of the four, so Very High is 100% and matches today's distances"
+areas = ["settings", "renderer"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings.rs", "tools/smoke/fixtures/quality-presets/"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:21", NVF_PLAY_TEST_SETTINGS = "11:layout,12:quality=Low,14:quality=Medium,15:quality=High,16:quality=Very High,18:object-distance=0.5" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 23
+expect = [
+  { re = 'quality presets: Low, Medium, High, Very High from .*quality-presets; 9 key\(s\) set rows, 32 not used', count = 1, label = "the four made-up files are read once, at the start" },
+  { text = "settings layout: quality -> Graphics > Quality", label = "the Quality row under its own heading" },
+  { text = "settings layout: enhanced -> Graphics > Picture", label = "the Enhanced effects row under Picture" },
+]
+order = [[
+  "settings: shadow-distance 25%",
+  "settings: sun-shadows off",
+  "settings: shadow-filter Fast",
+  "settings: actor-distance 20%",
+  "settings: object-distance 40%",
+  "settings: item-distance 50%",
+  { text = "settings: grass-distance 10%", label = "0 in the file: the slider's least" },
+  "settings: water-mirror off",
+  "settings: glow off",
+  { re = 'quality presets: Low from .*quality-presets: 9 row\(s\) set', label = "Low sets its nine rows" },
+  "settings: quality Low",
+  "quality presets: the Quality row reads Low",
+  "settings: shadow-distance 50%",
+  "settings: sun-shadows on",
+  "settings: actor-distance 40%",
+  "settings: object-distance 50%",
+  "settings: item-distance 60%",
+  "settings: grass-distance 25%",
+  "settings: water-mirror on",
+  "settings: quality Medium",
+  "quality presets: the Quality row reads Medium",
+  "settings: shadow-distance 75%",
+  "settings: shadow-filter Smooth",
+  "settings: actor-distance 60%",
+  "settings: object-distance 80%",
+  "settings: item-distance 70%",
+  "settings: grass-distance 75%",
+  "settings: glow on",
+  "settings: quality High",
+  "quality presets: the Quality row reads High",
+  "settings: shadow-distance 100%",
+  "settings: actor-distance 100%",
+  "settings: object-distance 100%",
+  "settings: item-distance 100%",
+  "settings: grass-distance 100%",
+  "settings: quality Very High",
+  "quality presets: the Quality row reads Very High",
+  { text = "settings: object-distance 50%", label = "a covered row changed on its own" },
+  { text = "quality presets: the Quality row reads Custom", label = "the row reads Custom" },
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'quality presets: .*(is not offered|not a key|not a number|above 0 in no)', label = "every made-up file is read and every key known" },
+  { re = 'settings: (ambient-occlusion|fine-shadows|bloom|sharpen|anisotropic|light-shafts|water-reflections|anti-aliasing|fsr-upscaling) ', label = "a preset touches no enhanced effect, anti-aliasing or FSR" },
+]
+
+[[scenario]]
+name = "settings-quality-presets-missing"
+source = "#1966: without any of the preset files the Quality row is not registered, and the log says why once; the Enhanced effects row stays (engine/nvforever/src/quality.rs)"
+note = "NVF_PLAY_TEST_QUALITY_PRESETS names a folder that does not exist; the aid's quality=Low then finds no such row"
+areas = ["settings"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets-none", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:layout,12:quality=Low" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 17
+expect = [
+  { re = 'quality presets: none of low\.ini, medium\.ini, high\.ini, VeryHigh\.ini in .*quality-presets-none: the Quality row is not shown', count = 1, label = "said once" },
+  { text = "settings layout: enhanced -> Graphics > Picture", label = "the Enhanced effects row is there all the same" },
+  { re = 'settings layout: \d+ row\(s\) in 7 tab\(s\), 0 not in the table', label = "every row still has its place" },
+  { re = 'NVF_PLAY_TEST_SETTINGS: no switch "quality"', label = "there is no Quality row to take a preset" },
+]
+forbid = [
+  { text = "settings layout: quality ->", label = "no Quality row" },
+  { text = "the Quality row reads", label = "nothing to read" },
+]
+
+[[scenario]]
+name = "settings-quality-presets-part"
+source = "#1966: a missing preset file leaves that preset out of the list, said once in the log; the others still work (engine/nvforever/src/quality.rs)"
+note = "tools/smoke/fixtures/quality-presets-part holds only the made-up low.ini and high.ini"
+areas = ["settings"]
+paths = ["engine/nvforever/src/quality.rs", "tools/smoke/fixtures/quality-presets-part/"]
+env = { NVF_PLAY_TEST_QUALITY_PRESETS = "{repo}/tools/smoke/fixtures/quality-presets-part", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:quality=Medium,12:quality=Low,14:quality=High" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 19
+expect = [
+  { re = 'quality presets: Medium is not offered: medium\.ini not found in .*quality-presets-part', count = 1, label = "Medium's file is missing, said once" },
+  { re = 'quality presets: Very High is not offered: VeryHigh\.ini not found in .*quality-presets-part', count = 1, label = "Very High's too" },
+  { re = 'quality presets: Low, High from .*quality-presets-part; ', count = 1, label = "the two found are offered" },
+  { text = "settings: quality has no such choice", count = 1, label = "Medium cannot be taken" },
+]
+order = [["settings: quality Low", "quality presets: the Quality row reads Low", "settings: quality High", "quality presets: the Quality row reads High"]]
+forbid = [{ text = "settings: quality Medium", label = "Medium is not taken" }]
+
+[[scenario]]
+name = "settings-enhanced-effects"
+source = "#1966: the Enhanced effects row under Graphics > Picture: On sets every effect --graphics enhanced turns on, Off every one off as vanilla, Custom when mixed; the Quality row reads the install's own preset files (engine/nvforever/src/quality.rs)"
+note = "test runs start with the vanilla look, so the row first reads Off; bloom flipped alone makes it Custom; Off then flips the six still on (bloom is off already)"
+areas = ["settings", "renderer"]
+paths = ["engine/nvforever/src/quality.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:18", NVF_PLAY_TEST_SETTINGS = "11:enhanced=On,13:bloom,15:enhanced=Off" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'quality presets: Low, Medium, High, Very High from .+; 9 key\(s\) set rows, 32 not used', count = 1, label = "the install's four preset files are read from its folder" },
+]
+order = [[
+  { text = "quality presets: the Enhanced effects row reads Off", label = "the vanilla look at the start" },
+  "settings: ambient-occlusion on",
+  "settings: fine-shadows on",
+  "settings: bloom on",
+  "settings: sharpen on",
+  "settings: anisotropic on",
+  "settings: light-shafts on",
+  "settings: water-reflections on",
+  "settings: enhanced On",
+  "quality presets: the Enhanced effects row reads On",
+  "settings: bloom off",
+  { text = "quality presets: the Enhanced effects row reads Custom", label = "one effect off: Custom" },
+  "settings: ambient-occlusion off",
+  "settings: fine-shadows off",
+  "settings: sharpen off",
+  "settings: anisotropic off",
+  "settings: light-shafts off",
+  "settings: water-reflections off",
+  "settings: enhanced Off",
+  "quality presets: the Enhanced effects row reads Off",
+]]
+forbid = [
+  { re = 'NVF_PLAY_TEST_(SETTINGS|PAUSE_MENU): ("|no switch|\S+ is a (list|slider):)', label = "every aid step is understood" },
+  { re = 'settings: (glow|eye-adaptation|neon-glow|water-mirror|shadow-filter|anti-aliasing|fsr-upscaling) ', label = "the row touches only the enhanced effects" },
+]
 
 [[scenario]]
 name = "controller-write"
@@ -23872,6 +24029,73 @@ forbid = [
 manual = "ui_attach_on_head.png: the words NVF ATTACH TEST in white just above and left of Easy Pete's head, the view on him; ui_attach_turned_away.png: the view south, no words on screen"
 
 [[scenario]]
+name = "ui-texoffset-alphamap"
+source = "#1833 [documented: SetUITexOffset, SetUIAlphaMap] an offset shifts a tile's texture coordinates, wrapping; an alpha map's alpha masks the tile; [design: tiles/texmod.rs, nvse_itr1.rs] both kept per tile id, baked into the picture's place, dropped with the tile"
+note = "Authored for the test (the fixture home's mods layer): five 256 x 64 pictures of the HUD's 64 x 16 compass alpha map texture (white for its first 20 texels, then black, hud.md §3) in one injected rect at x 80, y 280. A as it is; B offset 1.5 (wraps to 0.5); C offset -0.5 (0.5) and masked by the HUD's hit gradient, whose alpha falls from 255 to about 26 left to right; D masked by a texture that is not there (SetUIAlphaMap returns 0 and keeps nothing [documented: SetUIAlphaMap, 0 on a texture load failure]); E masked by an authored text file in the mods layer, no image (accepted, 1; the renderer cannot decode it). At 8 s the controller unloads B and injects a new B at its path."
+areas = ["ui", "scripts", "hud"]
+paths = ["crates/fnv-game/src/nvse_itr1.rs", "crates/fnv-game/tests/nvse_itr1.rs", "engine/nvf-play/src/tiles/texmod.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/repeat.rs", "tools/smoke/fixtures/ui-texoffset-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-texoffset-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "6:ui_texoffset_set.png,12:ui_texoffset_replaced.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 14
+expect = [
+  { text = 'script: print "nvf texoffset injected 1"', count = 1 },
+  { text = 'script: print "nvf texoffset set 1 1 1 0 1"', count = 1, label = "both offsets and C's and E's masks accepted, D's missing mask refused" },
+  { re = 'tiles: HUDMainMenu/NVFTex/B: texture offset 0\.500, 0\.000 drawn \(\d+ x \d+ texels\)', count = 1, label = "B drawn at its wrapped offset" },
+  { re = 'tiles: HUDMainMenu/NVFTex/C: texture offset 0\.500, 0\.000, alpha map textures.interface.hud.hitgradientleft\.dds drawn', count = 1, label = "C drawn shifted and masked" },
+  { re = 'tiles: HUDMainMenu/NVFTex/D:', count = 0, label = "a refused mask is not kept: the renderer has nothing for D" },
+  { re = 'tiles: HUDMainMenu/NVFTex/E: the alpha map textures.interface.hud.mask_not_an_image_nvf\.txt could not be read; the tile is drawn without it \(SetUITexOffset / SetUIAlphaMap: not a DDS file', count = 1, label = "a mask in the mods layer that is no image: read from that layer, refused by the decoder, said once; E draws as it was" },
+  { re = 'tiles: HUDMainMenu/NVFTex/A: texture offset', count = 0, label = "A has neither" },
+  { text = 'script: print "nvf texoffset unloaded 1"', count = 1 },
+  { text = 'script: print "nvf texoffset replaced 1"', count = 1, label = "a new B at the old B's path" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(\d+ items\)', label = "the authored rect enters rendering" },
+]
+order = [["nvf texoffset set", "tiles: HUDMainMenu/NVFTex/B: texture offset", "nvf texoffset replaced"]]
+manual = "ui_texoffset_set.png: five amber-and-black strips on the left; A's light band at its left end, B's and C's moved to the middle (about 128-208 of 256 units), C fading from left to right (its left end solid, its right end faint), D and E as A. ui_texoffset_replaced.png: B's band back at its left end, as A's (the replaced tile has no offset); C, D and E unchanged."
+
+[[scenario]]
+name = "ui-texoffset-compass"
+source = "#1833 review [documented: SetUITexOffset, SetUIAlphaMap; design: tiles/texmod.rs strip, compass_strip.rs StripWindow::masked] with the HUD drawn from tiles, the compass strip takes the offset on top of the heading's scroll and the mask over its window"
+note = "The fixture home's script sets offset 0.25 (a quarter turn of the 1024-unit strip) and the hit gradient mask on HUDMainMenu/HitPoints/compass_window at game start. Same place and heading as tiles-hud-compass-north, whose N stands just right of the bracket's downward triangle: here the letters stand a quarter turn (256 units) on from there and fade from left to right."
+areas = ["ui", "scripts", "hud"]
+paths = ["engine/nvf-play/src/tiles/texmod.rs", "engine/nvf-play/src/compass_strip.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/nvse_itr1.rs", "tools/smoke/fixtures/ui-texoffset-compass-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-texoffset-compass-home", NVF_PLAY_TEST_TILE_MENUS = "HUDMainMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.2", NVF_PLAY_TEST_SHOTS = "10:ui_texoffset_compass.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--heading", "0", "--hour", "12", "--size", "1280x720"]
+run_seconds = 12
+expect = [
+  { text = 'script: print "nvf compass texoffset set 1 1"', count = 1, label = "the strip tile takes both" },
+  { re = 'tiles: HUDMainMenu/HitPoints/compass_window: texture offset 0\.250, 0\.000, alpha map textures.interface.hud.hitgradientleft\.dds drawn on the compass strip', count = 1, label = "the strip moved on and masked, told once" },
+  { re = 'tiles: the compass strip baked into one window image of \d+ x \d+ texels', label = "the strip is still one baked window" },
+  { re = 'could not be read; the tile is drawn without it', count = 0, label = "both textures read" },
+]
+manual = "ui_texoffset_compass.png against tiles_hud_compass_north.png: the strip's letters a quarter turn (256 units) on from where they stand at heading 0, and the strip fading from solid at the window's left to faint at its right, the marks over it unchanged."
+
+[[scenario]]
+name = "ui-hudbar-bound-conditions"
+source = "[documented: HudBarSetValueUDF, HudBarSetBarTrait, HudBarGetVisible, HudBarShowBar] a bar bound to a UDF follows it each fUpdateTimer; trait 23 at 2 shows the bar only in combat, HudBarGetVisible answers -1 while a condition hides it, 0 when HudBarShowBar hides it; traits 41/44 make it vanish gradually; [design: ui_hudbar.rs tick, docs/spec-notes/hud-bars.md]"
+note = "Issue #1834. The authored probe's frame callback makes the bar at 2 s (session time), bound to a UDF giving GetSessionTime / 100 as the raw share of a 300-wide meter, samples its width at 3 s and 4 s, hides it by trait 23 at 4 s (the player is not in combat at the Goodsprings start), shows it again at 4.5 s, starts a 2 s gradual vanishing at 5 s, samples the Meter's alpha at 6 s and the bar's visibility after 8 s. No console opens. The bar's tile is HUDMainMenu/NVFHudBar1 (the first bar of the session)."
+areas = ["ui", "scripts", "hud"]
+paths = ["crates/fnv-game/src/ui_hudbar.rs", "crates/fnv-game/src/nvse_sup7.rs", "crates/fnv-game/tests/ui_more.rs", "crates/fnv-game/tests/sup7.rs", "tools/smoke/fixtures/ui-hudbar-home/"]
+env = { NVFOREVER_HOME = "{repo}/tools/smoke/fixtures/ui-hudbar-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 16
+expect = [
+  { text = 'script: print "nvf hudbar probe 1"', count = 1 },
+  { text = 'script: print "nvf hudbar made 1"', count = 1 },
+  { text = 'script: print "nvf hudbar udf 1"', count = 1 },
+  { text = 'script: print "nvf hudbar bound 1"', count = 1, label = "the UDF's value reached the meter" },
+  { text = 'script: print "nvf hudbar follows 1"', count = 1, label = "the meter grew with the UDF on the timer" },
+  { text = 'script: print "nvf hudbar hidden -1"', count = 1, label = "a condition hides the bar: -1" },
+  { text = 'script: print "nvf hudbar drawn hidden 0"', count = 1, label = "the hidden bar's tile is not drawn" },
+  { text = 'script: print "nvf hudbar shown 1"', count = 1 },
+  { text = 'script: print "nvf hudbar drawn shown 1"', count = 1 },
+  { re = 'script: print "nvf hudbar fading (\d+(?:\.\d+)?)"', range = [1, 254], label = "half way through the gradual vanishing: an alpha between" },
+  { text = 'script: print "nvf hudbar fading ', count = 1, label = "one sample of the fade" },
+  { text = 'script: print "nvf hudbar faded 0"', count = 1, label = "vanished all the way" },
+  { text = 'script: print "nvf hudbar manual 0"', count = 1, label = "HudBarShowBar's hiding answers 0" },
+]
+order = [["nvf hudbar made", "nvf hudbar bound", "nvf hudbar follows", "nvf hudbar hidden", "nvf hudbar drawn hidden", "nvf hudbar shown", "nvf hudbar drawn shown", "nvf hudbar fading", "nvf hudbar faded", "nvf hudbar manual"]]
+
+[[scenario]]
 name = "pipboy-items-hints"
 source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
 areas = ["pipboy"]
@@ -24001,4 +24225,18 @@ expect = [
   { re = 'combat group: VHeliosStasisProtectron4REF 0x0009A260 alarms ', min = 1, label = "it still alarms the tower's other robots" },
   { re = 'alarms VHeliosStasisProtectron\dREF', max = 0, label = "but none of the stasis protectrons on ProtectronNotActive" },
   { re = 'entered trigger 0x0009A1E8', max = 0, label = "and nobody walks through the tripwire's beam (p2 did, 19 s in, before)" },
+]
+
+[[scenario]]
+name = "helios-python-switched-off"
+source = "#1977 (owner 2026-11-09): PYTHON, the Mister Gutsy on HELIOS One's deck fixed with a Science check, stands switched off until fixed. Its OnLoad runs SetUnconscious 1; an unconscious standing actor now plays its idle tree's GetUnconscious idle (MrGutsyUnconscious 0x00060C89), held between its loop keys (crates/fnv-game/src/idles.rs unconscious_idle)"
+note = "HELIOSOneDeck: VMS03PythonREF (0x000E3621) beside the player; nothing else in the cell plays an idle"
+areas = ["idles", "creatures"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/unconscious.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--cell", "HELIOSOneDeck", "--play", "--no-voice", "--no-messages", "--pos=600,3337,8190"]
+run_seconds = 25
+expect = [
+  { re = 'idle: VMS03PythonREF plays MrGutsyUnconscious .*looping until replaced.*\(Standing\)', label = "PYTHON holds its switched-off pose (it stood in the normal idle before)" },
+  { re = 'npc combat: VMS03PythonREF', max = 0, label = "and does not fight" },
 ]

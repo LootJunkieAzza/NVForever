@@ -2000,17 +2000,7 @@ pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
 /// `fnv_save::remap_json_with`: in a save's JSON such a tuple looks like a list of form
 /// IDs, and the remap must not shorten it when a plugin is gone (#1981). Every such
 /// field is listed, saved or not (`tests/save_pairs.rs` reads the sources for them).
-pub const SAVE_PAIR_FIELDS: [&str; 9] = [
-    "trespassing",
-    "then",
-    "tape_playing",
-    "talking_through",
-    "farewell_then",
-    "farewell_said",
-    "set_climate",
-    "recipe_menu",
-    "item_running",
-];
+pub const SAVE_PAIR_FIELDS: [&str; 9] = ["trespassing", "then", "tape_playing", "talking_through", "farewell_then", "farewell_said", "set_climate", "recipe_menu", "item_running"];
 
 /// What the default action of the player's own activation did
 /// ([`Game::default_activation_by_hand`]).
@@ -3585,6 +3575,8 @@ impl<'a> Game<'a> {
         self.hud_tick();
         self.lu3_tick();
         self.sup7_tick();
+        // SUP's HUD bars: their visibility conditions and fades (`crate::ui_hudbar`).
+        crate::ui_hudbar::tick(self);
         self.expire_aux_timers();
         self.input.next_frame();
         self.turned.clear();
