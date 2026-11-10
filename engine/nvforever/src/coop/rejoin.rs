@@ -57,7 +57,8 @@ pub(super) fn rejoin_host(
         return;
     }
     let Some(host) = coop.host else { return };
-    let feet = scene::beside(host.feet, host.yaw);
+    // Each guest its own place beside the host (`scene::beside_slot`, item 154).
+    let feet = scene::beside_slot(host.feet, host.yaw, coop.link.as_ref().and_then(|l| l.id()).unwrap_or(1));
     let (world, interior) = match host.place {
         Place::Interior(c) => (None, Some(c)),
         Place::Exterior(w) => (Some(w), None),
