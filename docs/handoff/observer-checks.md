@@ -1492,17 +1492,17 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     2026-11-09 the probe game's load order gave NVFExtProbe.esp and The Mod Configuration
     Menu.esp mod index 255 (not active), and the DLC packs load as GunRunnersArsenal 5,
     ClassicPack 6, MercenaryPack 7, TribalPack 8, CaravanPack 9, not in the lab's order
-    [observed: GetModIndex in the original]. ITR NVSE, JIP++ (JIP PP LN) and ppNVSE are not
-    in `Data\NVSE\Plugins` (the original returns their function names as strings). The
-    ini-files set reads the test INIs of `tools/capture/jip-probes/config`, which must sit
-    in `Data\Config` first, and NVForever never writes into the game folder. Until these are
-    set up, the sets itr, jipppln, pp, ini-files, nvse-vars, mcm (one row) and the five xNVSE
-    core `ext/*` sets (strings, expressions, arrays, loops, udf; their SCOF logs stay empty)
-    can't be recorded on this machine, and rows that use NVFExtProbe.esp forms in
-    nvse-fourth, plugin-odds, gaps1 and showoff4 read as if the plugin were missing. Wanted
-    from the owner: NVFExtProbe.esp and the MCM plugin active, the three plugins installed,
-    the test INIs copied, and the plugin order, or the word that the lab should take the
-    game's order.
+    [observed: GetModIndex in the original]. **Done 2026-11-10, except the order:** the owner
+    installed ITR NVSE, copied the test INIs of `tools/capture/jip-probes/config` into
+    `Data\Config`, and `plugins.txt` now lists both plugins. The sets itr, ini-files,
+    nvse-vars and the five xNVSE core `ext/*` sets were then recorded and labbed
+    (docs/handoff/l5ext-final-rerun-2026-11-10.md §3). ppNVSE and JIP++ are not installed
+    and must not stay installed: ppNVSE needs JIP++, and JIP++ replaces JIP LN, which
+    JohnnyGuitar checks for. They go in only for a single run with `bJIPFixes=0`, as
+    ext-jippp.md §3 describes. The pp and jipppln goldens from 2026-11-01 are on the other
+    machine. Still open: the plugin order, or the word that the lab should take the
+    game's order; and recapturing the rows that read NVFExtProbe.esp as missing
+    (nvse-fourth, plugin-odds, gaps1, showoff4, mcm).
 
 ## Added 2026-11-09 (a walking Securitron's wheel)
 
