@@ -8632,6 +8632,51 @@ JG8_PROBES = (
 SETS.update({"jg8": JG8_PROBES})  # JohnnyGuitar batch 8 (#1007)
 
 
+# jg10 (writes and puts back; #1007): JohnnyGuitar batch 10 (docs/spec-notes/ext-jg10.md)
+# on the player in Doc Mitchell's house (an interior): navmesh triangles at and far from
+# the player, the land texture underfoot indoors, Doc Mitchell's (base 104C0C) FaceGen
+# values by type and one set and put back, the return values of the calls that change
+# nothing lasting (a highlight taken off again, an obstacle added and removed, the
+# refreshes, DisableMuzzleFlashLights 0), RemoveScopeModelPath on the 10mm pistol (no
+# scope) and RemapLand's reset of a LAND never remapped. PathToPoint, PathToRef,
+# ShowBarberMenuEx, TriggerScreenSplatterEx, ApplyWeaponPoison (no poison form known
+# here), EjectCasing and the scope picture are left out: they move actors, open menus or
+# draw on the screen.
+def _jg10(pid, body, text=False):
+    return (f"jg10.{pid}", "ref rA\nfloat fA\nfloat fB\nfloat fC\nfloat fD\narray_var aOut\n"
+            "Begin Function { }\n" + body, text, None, "")
+
+
+JG10_PROBES = (
+    [_jg10("tri", "let fA := PlayerREF.GetPos X\nlet fB := PlayerREF.GetPos Y\nlet fC := PlayerREF.GetPos Z\n"
+           "let aOut := GetNearestNavMeshTriangle fA fB fC 1\nlet fD := Ar_Size aOut\n"
+           'SetFunctionValue (sv_Construct "%g %g" fD (aOut[3] < 200))', True),
+     _jg10("tri.under", "let fA := PlayerREF.GetPos X\nlet fB := PlayerREF.GetPos Y\nlet fC := PlayerREF.GetPos Z\n"
+           "let aOut := GetPointInNavMesh fA fB fC 1\nlet fD := Ar_Size aOut\n"
+           "let aOut := GetPointInNavMesh (fA + 100000) fB fC 1\n"
+           'SetFunctionValue (sv_Construct "%g %g" fD (Ar_Size aOut))', True),
+     # Indoors the original gave a valid form [observed, 2026-11-09]: which one.
+     _jg10("underfeet", "let rA := PlayerREF.GetLandTextureUnderFeet\nSetFunctionValue (GetFormIDString rA)", True),
+     _jg10("facegen.set", _form("rA", NF["doc"])
+           + "let fA := FaceGenGetNthProperty rA 0 1\nlet fB := FaceGenSetNthProperty rA 0 1 0.5\n"
+           "let fC := FaceGenGetNthProperty rA 0 1\nFaceGenSetNthProperty rA 0 1 fA\n"
+           'SetFunctionValue (sv_Construct "%g %.3f %.3f" fB fC (FaceGenGetNthProperty rA 0 1))', True),
+     _jg10("returns", _form("rA", NF["docref"])
+           + "let fA := rA.HighlightBodyPartAlt 1\nlet fB := rA.RemoveHighlightedRef\nlet fC := PlayerREF.DeactivateAllHighlightsAlt\n"
+           "let fD := rA.AddNavmeshObstacle\n"
+           'SetFunctionValue (sv_Construct "%g %g %g %g %g %g %g %g" fA fB fC fD (rA.RemoveNavmeshobstacle) '
+           "(UpdateCrosshairPrompt) (UpdateRepairMenu) (DisableMuzzleFlashLights 0))", True),
+     _jg10("scope.remove", _form("rA", NF["pistol10"]) + "SetFunctionValue (RemoveScopeModelPath rA)"),
+     _jg10("remapland", "SetFunctionValue (RemapLand 1)"),
+     # One FaceGen read per type, last: the first try asked types 0-2, FGGA's 30th and a
+     # type 3 in one step and crashed the original [observed, 2026-11-09]; out-of-range
+     # reads are not asked again. Doc's record: FGGS 0.309, FGGA 0, FGTS -1.245.
+     _jg10("facegen.fggs", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 0 0))', True),
+     _jg10("facegen.fgga", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 1 0))', True),
+     _jg10("facegen.fgts", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 2 0))', True)]
+)
+SETS.update({"jg10": JG10_PROBES})  # JohnnyGuitar batch 10 (#1007)
+WRITING_SETS |= {"jg10"}
 
 # jip13 (reads; SetAngleEx on Doc is put back; #1006): JIP batch 13
 # (docs/spec-notes/jip-physics-13.md) on Doc Mitchell and the player in the probe save.

@@ -125,6 +125,7 @@ pub mod nvse_jg8;
 pub mod nvse_jg9;
 pub mod karma_titles;
 pub mod item_text;
+pub mod nvse_jg10;
 pub mod nvse_lutana;
 pub mod nvse_jip5;
 pub mod nvse_jip6;

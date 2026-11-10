@@ -245,6 +245,12 @@ trade and its price multipliers, the item menus' filters and lists, the recipe m
 AddRecipeCondition, ShowQuantityMenu and ShowTextInputMenu with their engine menus,
 GetWheelDisabled; GetStringHash 0 by decision, §2; not probed yet, set jip12). Census after
 it: JIP 142 → 108 on main, 102 → 68 with batch 11 (#1915).
+JohnnyGuitar batch 10: the last 26 (#1007, ext-jg10.md: navmesh obstacles, triangles through `nav_ask` and paths,
+weapon poisons (GetEquippedWeaponPoison reads them), EjectCasing, DisableMuzzleFlashLights, the scope picture and
+RemoveScopeModelPath, FaceGen values by type, body part highlights, GetLandTextureUnderFeet through the engine's
+land-texture cast, RemapLand, RefreshIdle, ShowBarberMenuEx, TriggerScreenSplatterEx, the prompt and repair menu
+refreshes; engine follow-ups in §3 of the note; set jg10, not probed yet). Census after it: JohnnyGuitar 78 → 52
+on main, 0 with #1928 and #1930.
 
 **The plugin libraries: 1,519 left** (recounted with #1022's census). JIP LN 349,
 JohnnyGuitar 313, SUP 184, LU 145, ShowOff 139, ITR 119, One111 51, CacheUI 45, PP 42,

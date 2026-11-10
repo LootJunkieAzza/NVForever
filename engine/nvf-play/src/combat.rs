@@ -2883,6 +2883,14 @@ pub(crate) fn fire(
         throw_casing(&mut casings, &anim, weapon_fx, id, &c.rules);
         info!("combat: {} ejects its casing at the clip's Eject key, {:.2} s after the shot", w.edid.as_deref().unwrap_or("?"), c.time - c.last_shot);
     }
+    // Scripts' EjectCasing on the player (`fnv_game::nvse_jg10`): a casing from the
+    // weapon's ShellCasingNode now. A node or model of the script's own and other
+    // actors' casings are not drawn yet (docs/spec-notes/ext-jg10.md §3).
+    let asked = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| rt.game.take_casing_requests()).unwrap_or_default();
+    if asked.iter().any(|r| r.actor == FormId::PLAYER_REF) {
+        throw_casing(&mut casings, &anim, weapon_fx, id, &c.rules);
+        info!("combat: a script's EjectCasing throws {}'s casing", w.edid.as_deref().unwrap_or("?"));
+    }
     for e in events {
         match e {
             Event::SpinUp => {
