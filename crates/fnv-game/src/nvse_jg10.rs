@@ -440,8 +440,11 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
             let Some(p) = pos(g, r) else { return Some(Ok(XVal::Ref(0))) };
             let from = [p[0], p[1], p[2] + UNDERFOOT_UP];
             let to = [p[0], p[1], p[2] - UNDERFOOT_DOWN];
-            match crate::ray::cast_hit(from, to, crate::ray::CastKind::LandTexture).and_then(|h| h.form) {
-                Some(f) => {
+            // No terrain under it (indoors): the last texture found outside; terrain
+            // showing the default texture: 0.
+            match crate::ray::cast_hit(from, to, crate::ray::CastKind::LandTexture) {
+                Some(h) => {
+                    let f = h.form.unwrap_or(0);
                     g.other.jg10.last_land_texture.insert(r, f);
                     XVal::Ref(f)
                 }

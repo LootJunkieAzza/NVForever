@@ -2761,6 +2761,9 @@ pub(crate) fn fire(
     let swap = std::mem::take(&mut control.ammo_swap);
     c.crosshair_cone = None;
     c.player_spread = None;
+    // Scripts' EjectCasing requests (`fnv_game::nvse_jg10`) are taken every frame, so
+    // those made with no gun out (or for other actors) do not pile up or fire later.
+    let asked = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| rt.game.take_casing_requests()).unwrap_or_default();
     if c.melee {
         c.vats_cone = None;
         return;
@@ -2886,7 +2889,6 @@ pub(crate) fn fire(
     // Scripts' EjectCasing on the player (`fnv_game::nvse_jg10`): a casing from the
     // weapon's ShellCasingNode now. A node or model of the script's own and other
     // actors' casings are not drawn yet (docs/spec-notes/ext-jg10.md §3).
-    let asked = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| rt.game.take_casing_requests()).unwrap_or_default();
     if asked.iter().any(|r| r.actor == FormId::PLAYER_REF) {
         throw_casing(&mut casings, &anim, weapon_fx, id, &c.rules);
         info!("combat: a script's EjectCasing throws {}'s casing", w.edid.as_deref().unwrap_or("?"));

@@ -11,7 +11,7 @@
 
 use crate::cond::{Cmp, Condition, Operand, RunOn};
 use crate::game::{Game, RunCtx};
-use fnv_script::vm::{ArgValue, ArrayKind, Value, XKey, XVal};
+use fnv_script::vm::{ArrayKind, XKey, XVal};
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -661,7 +661,15 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 5 => Cmp::Le,
                 _ => return Some(Ok(zero)),
             };
-            let params = form(args, 2).map(|p| vec![ArgValue::Value(Value::Ref(p.0))]).unwrap_or_default();
+            // The parameter typed by the function's first parameter type, as a CTDA's
+            // (`crate::cond::param`): a number stays a number, a form a form.
+            let raw = match args.get(2) {
+                Some(XVal::Ref(r)) => Some(*r),
+                Some(XVal::Num(x)) if x.fract() == 0.0 => Some(*x as i32 as u32),
+                _ => None,
+            };
+            let ty = g.data.param_types.0.get(&function).and_then(|t| t.first()).map(String::as_str);
+            let params = raw.map(|raw| vec![crate::cond::param(ty, raw, &|r| Some(r))]).unwrap_or_default();
             g.other.jip12.recipe_conditions.entry(r).or_default().push(Condition { cmp, or: false, run_on: RunOn::Subject, function, params, rhs: Operand::Value(v) });
             zero
         }

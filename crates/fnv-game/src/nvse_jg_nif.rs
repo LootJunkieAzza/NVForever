@@ -215,7 +215,8 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "isnisequenceactive" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let want = text(args, 0);
-            let stem = |p: &str| p.rsplit(['\\', '/']).next().unwrap_or(p).trim_end_matches(".kf").trim_end_matches(".KF").to_string();
+            let stem = |p: &str| p.rsplit(['\\', '/']).next().unwrap_or(p).to_string();
+            let stem = |p: &str| { let f = stem(p); match f.len().checked_sub(3) { Some(k) if f.is_char_boundary(k) && f[k..].eq_ignore_ascii_case(".kf") => f[..k].to_string(), _ => f } };
             let playing = g.playing_sequences(r).iter().any(|p| stem(p).eq_ignore_ascii_case(&want) || p.eq_ignore_ascii_case(&want));
             let group = g.senses.anim.get(&r).and_then(|s| s.group).is_some_and(|gr| gr.eq_ignore_ascii_case(&want));
             XVal::Num(f64::from(u8::from(playing || group)))

@@ -8670,7 +8670,7 @@ JG10_PROBES = (
      _jg10("remapland", "SetFunctionValue (RemapLand 1)"),
      # One FaceGen read per type, last: the first try asked types 0-2, FGGA's 30th and a
      # type 3 in one step and crashed the original [observed, 2026-11-09]; out-of-range
-     # reads are not asked again. Doc's record: FGGS 0.309, FGGA 0, FGTS -1.245.
+     # reads are not asked again. Doc's record: FGGS 0.309, FGGA 0, FGTS -1.245 [observed: the ESM; ext-jg10.md §4].
      _jg10("facegen.fggs", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 0 0))', True),
      _jg10("facegen.fgga", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 1 0))', True),
      _jg10("facegen.fgts", _form("rA", NF["doc"]) + 'SetFunctionValue (sv_Construct "%.3f" (FaceGenGetNthProperty rA 2 0))', True)]

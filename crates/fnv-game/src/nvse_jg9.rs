@@ -184,7 +184,7 @@ impl Game<'_> {
 
     /// Play a sound for a script and fade it in over `fade` seconds; the request's id.
     fn play_faded(&mut self, sound: FormId, at: Option<FormId>, system: bool, fade: f64) -> u32 {
-        self.ask_sound(SoundRequest { sound, at, system, id: 0 });
+        self.ask_sound(SoundRequest { sound, at, system, id: 0, point: None });
         let id = self.sound_requests.last().map_or(0, |r| r.id);
         if fade > 0.0 && fade.is_finite() {
             self.other.jg9.fades_in.push((id, fade as f32));
@@ -298,7 +298,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         "playholotape" => {
             let Some(note) = form(args, 0).filter(|n| g.note_tape(*n).is_some()) else { return Some(Ok(yes(false))) };
             if num(args, 1, 0.0) != 0.0 {
-                g.ask_sound(SoundRequest { sound: HOLOTAPE_START, at: None, system: true, id: 0 });
+                g.ask_sound(SoundRequest { sound: HOLOTAPE_START, at: None, system: true, id: 0, point: None });
             }
             g.other.jg9.holotape.push(HolotapeRequest::Play(note));
             yes(true)
@@ -306,7 +306,7 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // StopHolotape [playStartStopSound] (1 by default) [documented].
         "stopholotape" => {
             if num(args, 0, 1.0) != 0.0 {
-                g.ask_sound(SoundRequest { sound: HOLOTAPE_STOP, at: None, system: true, id: 0 });
+                g.ask_sound(SoundRequest { sound: HOLOTAPE_STOP, at: None, system: true, id: 0, point: None });
             }
             g.other.jg9.holotape.push(HolotapeRequest::Stop);
             yes(true)
