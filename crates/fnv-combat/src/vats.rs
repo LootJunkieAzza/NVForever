@@ -54,6 +54,48 @@ pub fn shot_ap_cost(w: &WeaponStats, a: &ApAttack) -> f32 {
     }
 }
 
+/// A weapon's VATS special attack (WEAP `VATS`; docs/design/vats-classic.md §9)
+/// [documented: xEdit wbDefinitionsFNV.pas WEAP, VATS: Effect, Skill, Dam. Mult, AP;
+/// fallout.wiki "Special Attack (Fallout: New Vegas)"; observed: FalloutNV.esm,
+/// WeapBaseballBat skill 50, 2.0, 35 AP beside its attack's 25, the page's Grand Slam
+/// "200 %, +10"; WeapNVMachete 0.7, 16 beside 20, Back Slash "70 %, -4"; so AP is the
+/// special attack's whole cost, and a weapon without one has 0 and 0].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct SpecialAttack {
+    /// The actor effect it puts on the target (WeapSledgehammer's knocks down), if any.
+    pub effect: Option<FormId>,
+    /// The weapon skill it needs.
+    pub skill: f32,
+    /// On the blow's damage.
+    pub dam_mult: f32,
+    /// What it costs, AP, before the Action Point Cost perks.
+    pub ap: f32,
+}
+
+impl SpecialAttack {
+    /// From the record's fields; `None` for a weapon without one (no damage multiplier
+    /// or no cost).
+    pub fn from_fields(effect: Option<FormId>, skill: f32, dam_mult: f32, ap: f32) -> Option<SpecialAttack> {
+        (dam_mult > 0.0 && ap > 0.0).then_some(SpecialAttack { effect, skill: skill.max(0.0), dam_mult, ap })
+    }
+
+    /// Whether an actor of weapon skill `skill` may use it.
+    pub fn allowed(&self, skill: f32) -> bool {
+        skill >= self.skill
+    }
+
+    /// Its cost when the weapon's attack, `base` AP by its record, costs `now` after the
+    /// Action Point Cost perks: the perks scale it as they scale the attack [design: the
+    /// pages give perks as a share of the cost].
+    pub fn cost(&self, base: f32, now: f32) -> f32 {
+        if base > 0.0 {
+            (self.ap * now / base).max(0.0)
+        } else {
+            self.ap.max(0.0)
+        }
+    }
+}
+
 /// One marked shot.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Mark {
@@ -118,8 +160,19 @@ impl MarkQueue {
 
     /// Mark `target` (on `part`): the number of marks after it, or why not.
     pub fn push(&mut self, target: FormId, part: Option<u8>, ap_now: f32) -> Result<usize, Refusal> {
-        self.check(ap_now)?;
-        self.marks.push(Mark { target, part, cost: self.cost });
+        self.push_costing(target, part, ap_now, self.cost)
+    }
+
+    /// [`MarkQueue::push`] for a mark of its own cost (a special attack's).
+    pub fn push_costing(&mut self, target: FormId, part: Option<u8>, ap_now: f32, cost: f32) -> Result<usize, Refusal> {
+        let cost = cost.max(0.0);
+        if self.reserved() + cost > ap_now + AP_EPSILON {
+            return Err(Refusal::ActionPoints);
+        }
+        if self.rounds_needed() + self.rounds_per_shot > self.rounds {
+            return Err(Refusal::Rounds);
+        }
+        self.marks.push(Mark { target, part, cost });
         Ok(self.marks.len())
     }
 
@@ -675,6 +728,26 @@ mod tests {
         assert_eq!(shot_ap_cost(&weapon("Thrown (1 Hand)", None), &AP), 35.0);
         assert_eq!(shot_ap_cost(&weapon("Mine Drop (1 Hand)", None), &AP), 10.0);
         assert_eq!(shot_ap_cost(&WeaponStats::default(), &AP), 25.0, "no type: as a rifle");
+    }
+
+    #[test]
+    fn a_special_attack_comes_from_the_record_and_costs_its_own_ap() {
+        // A weapon without one: the record's zeros.
+        assert_eq!(SpecialAttack::from_fields(None, 0.0, 0.0, 0.0), None);
+        // The baseball bat's [observed]: Melee Weapons 50, twice the damage, 35 AP.
+        let bat = SpecialAttack::from_fields(None, 50.0, 2.0, 35.0).unwrap();
+        assert!(!bat.allowed(49.0) && bat.allowed(50.0));
+        assert_eq!(bat.cost(25.0, 25.0), 35.0);
+        // A perk taking a tenth off the attack takes a tenth off it too.
+        assert!((bat.cost(25.0, 22.5) - 31.5).abs() < 1e-4);
+        assert_eq!(bat.cost(0.0, 0.0), 35.0);
+        // In the queue beside ordinary attacks: 25 + 35 of 62 AP, then no room for 25.
+        let mut q = MarkQueue::new(25.0, 1, u32::MAX);
+        assert_eq!(q.push(FormId(1), None, 62.0), Ok(1));
+        assert_eq!(q.push_costing(FormId(1), None, 62.0, bat.cost(25.0, 25.0)), Ok(2));
+        assert_eq!(q.reserved(), 60.0);
+        assert_eq!(q.push(FormId(1), None, 62.0), Err(Refusal::ActionPoints));
+        assert_eq!(q.marks()[1].cost, 35.0);
     }
 
     #[test]

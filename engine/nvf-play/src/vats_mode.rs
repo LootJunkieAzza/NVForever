@@ -63,7 +63,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
 use fnv_combat::vats::{
-    final_chance, miss_point, raw_chance, restored_damage, rolled_hit, throw_miss_point, AttackStyle, HitInputs, HitTuning, MarkQueue, MeleeAction, MeleeLimits, MeleeRun, Volley, VolleyEvent, HELD_WEAPON_TO_HIT,
+    final_chance, miss_point, raw_chance, restored_damage, rolled_hit, throw_miss_point, AttackStyle, SpecialAttack, HitInputs, HitTuning, MarkQueue, MeleeAction, MeleeLimits, MeleeRun, Volley, VolleyEvent, HELD_WEAPON_TO_HIT,
     SIZE_HELD_WEAPON, SIZE_TORSO, WHOLE_TO_HIT,
 };
 use fnv_game::vats::{pick_helper, Helper, HitPerks};
@@ -237,6 +237,8 @@ struct Keys {
     /// The classic style's: the target before or after (-1, 1), the part before or after.
     target_step: i32,
     part_step: i32,
+    /// The classic style's: switch between the weapon's attack and its special attack.
+    special: bool,
 }
 
 /// Where a mark is and what it is on.
@@ -261,6 +263,8 @@ struct Spot {
     chance: f32,
     /// Its last roll while firing (GetVATSValue Is Success).
     landed: Option<bool>,
+    /// Queued as the weapon's special attack (the classic style, vats-classic.md §9).
+    special: bool,
 }
 
 /// The weapon VATS mode was entered with.
@@ -276,6 +280,9 @@ struct InHand {
     /// The player's skill with it, and the VATS settings of the hit chance (§17).
     skill: f32,
     hit: HitTuning,
+    /// A melee weapon's special attack the player's skill allows, and what it costs
+    /// after the Action Point Cost perks (vats-classic.md §9).
+    special: Option<(SpecialAttack, f32)>,
 }
 
 /// A helper in the world (§18.2).
@@ -436,6 +443,8 @@ struct ClassicState {
     restore: Option<(f32, f32)>,
     /// Real seconds when the targets were last looked for.
     scanned_at: f64,
+    /// The next attack queued is the weapon's special attack.
+    special_on: bool,
 }
 
 /// The classic style's targets are looked for again this often, real seconds [design:
@@ -470,11 +479,23 @@ impl VatsMode {
 
     /// The classic style's header while targets are chosen (vats-classic.md §4): the
     /// selected target's name and its health as a share, once its preview is built.
-    fn classic_header(&self) -> Option<(&str, f32)> {
+    fn classic_header(&self) -> Option<(String, f32)> {
         let actor = self.selected()?;
         let name = self.preview.parts.first().filter(|_| self.preview.actor == Some(actor))?.spot.name.as_str();
         let share = self.preview.health.map_or(1.0, |(now, max)| if max > 0.0 { (now / max).clamp(0.0, 1.0) } else { 0.0 });
-        Some((name, share))
+        // With the special attack switched on the header says so, and what it costs.
+        let text = match self.weapon.as_ref().and_then(|w| w.special).filter(|_| self.classic.special_on) {
+            Some((s, cost)) => format!("{name} - {}", special_text(s.dam_mult, cost)),
+            None => name.to_string(),
+        };
+        Some((text, share))
+    }
+
+    /// The special attack of the blow being struck, when it was queued as one
+    /// (`crate::combat::melee` multiplies the damage and adds the effect).
+    pub fn swing_special(&self) -> Option<SpecialAttack> {
+        let i = self.striking.filter(|_| self.phase == Phase::Firing)?;
+        self.spots.get(i).filter(|s| s.special).and(self.weapon.as_ref()?.special).map(|(s, _)| s)
     }
 
     /// The attack camera asked for now, with its serial (`crate::kill_cam` plays each
@@ -543,7 +564,7 @@ impl VatsMode {
         if !self.active() {
             return 0.0;
         }
-        self.queue.cost * self.queue.len().saturating_sub(self.started) as f32
+        self.queue.marks().iter().skip(self.started).map(|m| m.cost).sum()
     }
 
     /// The clock's speed the mode asks for (`script::time_multiplier` multiplies it in).
@@ -741,13 +762,16 @@ fn read_keys(
     let playing = *state.get() == PlayState::Playing && !input.suppressed();
     let pressed = |c: Control| playing && input.just_pressed(c);
     let now = real.elapsed_secs_f64();
-    vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate), target_step: 0, part_step: 0 };
+    vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate), target_step: 0, part_step: 0, special: false };
     // The classic style (vats-classic.md §4, §5): the movement controls choose, left and
     // right the target, forward and back the part; the player stands still.
     if vats.holds_view() {
         if vats.phase == Phase::Marking {
             vats.keys.target_step = i32::from(pressed(Control::SlideRight)) - i32::from(pressed(Control::SlideLeft));
             vats.keys.part_step = i32::from(pressed(Control::Back)) - i32::from(pressed(Control::Forward));
+            // Run switches to the weapon's special attack and back [design: the player
+            // stands still, so the key is free; vats-classic.md §9].
+            vats.keys.special = pressed(Control::Run);
         }
         let mut i = *intent;
         (i.forward, i.right, i.jump) = (0.0, 0.0, false);
@@ -1032,6 +1056,7 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
         Ok(w) => w,
         Err(why) => return refused(v, why, hud, sounds),
     };
+    let base_cost = w.cost;
     // The Action Point Cost perks (docs/spec-notes/perk-entry-points.md §2).
     let (cost, by) = crate::combat::player_weapon_perk(script.as_deref_mut(), sim, fnv_game::perks::ACTION_POINT_COST, w.id, w.cost);
     if !by.is_empty() {
@@ -1065,7 +1090,15 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
     }
     let sight_fov = combat.sight_fov().filter(|&(id, _)| id == w.id).map_or(0.0, |(_, f)| f);
     let skill = combat.player_weapon_skill(script, sim);
-    v.weapon = Some(InHand { id: w.id, reach: w.reach, style: w.style, melee_reach: w.melee_reach, sight_fov, skill, hit: combat.rules.vats_hit });
+    // A melee weapon's special attack, in the classic style and with the skill for it.
+    let special = combat.vats_special(w.id).filter(|_| w.style == AttackStyle::Melee && v.style == VatsStyle::Classic);
+    let allowed = special.filter(|s| s.allowed(skill)).map(|s| (s, s.cost(base_cost, w.cost)));
+    match (special, allowed) {
+        (Some(_), Some((s, cost))) => info!("vats mode: {} has a special attack: damage x{:.2}, {cost:.0} AP (skill {skill:.0} of {:.0} needed)", w.edid, s.dam_mult, s.skill),
+        (Some(s), None) => info!("vats mode: {} has a special attack the player cannot use yet: skill {skill:.0} of {:.0} needed", w.edid, s.skill),
+        _ => {}
+    }
+    v.weapon = Some(InHand { id: w.id, reach: w.reach, style: w.style, melee_reach: w.melee_reach, sight_fov, skill, hit: combat.rules.vats_hit, special: allowed });
     (v.hits, v.misses) = (0, 0);
     sounds.play(v, "UIVATSEnter");
     sounds.looping(v, true);
@@ -1106,6 +1139,12 @@ fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     // Left without firing, the classic style's view goes back to where it was.
     let restore = v.classic.entry_view.filter(|_| was == Phase::Marking && v.style == VatsStyle::Classic);
     v.classic = ClassicState { scale: v.classic.scale, restore, ..ClassicState::default() };
+}
+
+/// The header's words for a special attack switched on [design: NVForever's own; the
+/// moves' names are not in the data files].
+pub fn special_text(dam_mult: f32, cost: f32) -> String {
+    format!("special attack: damage x{dam_mult:.1}, {cost:.0} AP")
 }
 
 /// The classic style's attack cameras, one frame (vats-classic.md §8): before a mark's
@@ -1268,6 +1307,20 @@ fn classic_frame(
             return None;
         }
     }
+    // Run: the weapon's attack or its special attack for what is queued next.
+    if keys.special {
+        match v.weapon.as_ref().and_then(|w| w.special) {
+            Some((s, cost)) => {
+                v.classic.special_on = !v.classic.special_on;
+                info!("vats mode: classic: special attack {} (damage x{:.2}, {cost:.0} AP against {:.0})", if v.classic.special_on { "on" } else { "off" }, s.dam_mult, v.queue.cost);
+                sounds.play(v, "UIVATSMove");
+            }
+            None => {
+                info!("vats mode: classic: this weapon has no special attack the player can use");
+                sounds.play(v, "UIVATSInsufficientAP");
+            }
+        }
+    }
     let n = v.classic.targets.len();
     let mut at = v.classic.selected.and_then(|a| v.classic.targets.iter().position(|c| c.actor == a))?;
     if keys.target_step != 0 && n > 1 {
@@ -1406,7 +1459,7 @@ fn spot_on(v: &VatsMode, combat: &Combat, parts: &ActorParts, script: Option<&mu
         }),
         _ => (HitPerks::default(), Vec::new()),
     };
-    let mut spot = Spot { point, name, part: part_name, condition, base, size, perks, earlier, chance: 0.0, landed: None };
+    let mut spot = Spot { point, name, part: part_name, condition, base, size, perks, earlier, chance: 0.0, landed: None, special: false };
     if let Some(w) = v.weapon.as_ref() {
         spot.chance = chance_of(&spot, w, player.eye(), combat.vats_cone);
     }
@@ -1689,11 +1742,18 @@ fn mark_actor(
     }
     let ap_now = player_ap(script.as_deref_mut(), sim).map_or(f32::INFINITY, |a| a.0);
     let earlier = v.queue.marks().iter().filter(|m| m.target.0 == actor && m.part == part).count() as u32;
-    match v.queue.push(FormId(actor), part, ap_now) {
+    // The classic style's special attack costs its own AP (vats-classic.md §9).
+    let special = v.weapon.as_ref().and_then(|w| w.special).filter(|_| v.classic.special_on && v.style == VatsStyle::Classic);
+    let cost = special.map_or(v.queue.cost, |(_, cost)| cost);
+    match v.queue.push_costing(FormId(actor), part, ap_now, cost) {
         Ok(k) => {
             let point = point_of(phys, actor, part).unwrap_or(fallback);
             v.stats.marks += 1;
-            let (spot, names) = spot_on(v, combat, parts, script, sim, player, actor, part, point, earlier);
+            let (mut spot, names) = spot_on(v, combat, parts, script, sim, player, actor, part, point, earlier);
+            spot.special = special.is_some();
+            if let Some((s, cost)) = special {
+                info!("vats mode: classic: mark {k} is a special attack: damage x{:.2}, {cost:.0} AP", s.dam_mult);
+            }
             let perk_text = if names.is_empty() { String::new() } else { format!(", perks {}", names.join(", ")) };
             let cf = if spot.perks.concentrated_fire && earlier > 0 { format!(", concentrated fire +{earlier}") } else { String::new() };
             // What the preview showed for this part (§17.5): the same figure.
@@ -1746,7 +1806,7 @@ fn mark_object(v: &mut VatsMode, object: u32, point: [f32; 3], mut script: Optio
                 (Some(shot), Some(rt)) => with_world(rt, sim, |rt| rt.game.vats_hit_perks(shot)),
                 _ => HitPerks::default(),
             };
-            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, size: SIZE_TORSO, perks, earlier, chance: 0.0, landed: None };
+            let mut spot = Spot { point, name, part: "object".into(), condition: None, base: WHOLE_TO_HIT, size: SIZE_TORSO, perks, earlier, chance: 0.0, landed: None, special: false };
             if let Some(w) = v.weapon.as_ref() {
                 spot.chance = chance_of(&spot, w, player.eye(), None);
             }
@@ -2375,8 +2435,8 @@ fn draw_previews(
         if *vis != want {
             *vis = want;
         }
-        let Some((name, share)) = head else { continue };
-        if h.shown != name {
+        let Some((ref name, share)) = head else { continue };
+        if h.shown != *name {
             let f = face_.get_or_insert_with(|| font_face(LABEL_FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
             let line = f.font.lines(name, None).into_iter().next();
             h.width = line.as_ref().map_or(0.0, |l| l.width);
@@ -2385,7 +2445,7 @@ fn draw_previews(
                     set_line(c, f, line, 0.0, LABEL_BASE, LABEL_COLOUR);
                 }
             });
-            h.shown = name.to_string();
+            h.shown.clone_from(name);
         }
         let top = HEADER_TOP * px;
         node.left = Val::Px(width / 2.0 - h.width * px / 2.0);
@@ -2472,7 +2532,7 @@ mod tests {
 
     #[test]
     fn a_marks_chance_follows_range_and_perks() {
-        let w = |style, skill| InHand { id: FormId(1), reach: REACH, style, melee_reach: 75.0, sight_fov: 0.0, skill, hit: HitTuning { spread_mult: 1.1, ..HitTuning::default() } };
+        let w = |style, skill| InHand { id: FormId(1), reach: REACH, style, melee_reach: 75.0, sight_fov: 0.0, skill, hit: HitTuning { spread_mult: 1.1, ..HitTuning::default() }, special: None };
         let torso = Spot { point: [500.0, 0.0, 0.0], base: 60.0, size: SIZE_TORSO, ..Default::default() };
         let gun = w(AttackStyle::Single, 50.0);
         let near = chance_of(&torso, &gun, [0.0; 3], Some(2.0));
@@ -2496,7 +2556,7 @@ mod tests {
 
     #[test]
     fn a_preview_figure_is_the_marks_chance() {
-        let gun = InHand { id: FormId(1), reach: REACH, style: AttackStyle::Single, melee_reach: 0.0, sight_fov: 0.0, skill: 45.0, hit: HitTuning::default() };
+        let gun = InHand { id: FormId(1), reach: REACH, style: AttackStyle::Single, melee_reach: 0.0, sight_fov: 0.0, skill: 45.0, hit: HitTuning::default(), special: None };
         let head = Spot { point: [900.0, 0.0, 60.0], part: "Head".into(), base: 30.0, size: 0.4, ..Default::default() };
         let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), weapon: Some(gun.clone()), ..Default::default() };
         let previewed = chance_of(&head, &gun, [0.0; 3], Some(1.5));
@@ -2596,6 +2656,27 @@ mod tests {
     }
 
     #[test]
+    fn a_queued_special_attack_holds_its_own_ap_and_marks_its_blow() {
+        let bat = SpecialAttack::from_fields(None, 50.0, 2.0, 35.0).unwrap();
+        let hand = InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0, sight_fov: 0.0, skill: 60.0, hit: HitTuning::default(), special: Some((bat, 35.0)) };
+        let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(25.0, 1, u32::MAX), style: VatsStyle::Classic, weapon: Some(hand), ..Default::default() };
+        v.queue.push(FormId(7), None, 80.0).unwrap();
+        v.spots.push(Spot::default());
+        v.queue.push_costing(FormId(7), None, 80.0, 35.0).unwrap();
+        v.spots.push(Spot { special: true, ..Default::default() });
+        assert_eq!(v.reserved(), 60.0, "an ordinary attack and a special one");
+        assert_eq!(v.swing_special(), None, "nothing is struck while targets are chosen");
+        v.phase = Phase::Firing;
+        v.started = 1;
+        assert_eq!(v.reserved(), 35.0);
+        v.striking = Some(0);
+        assert_eq!(v.swing_special(), None, "the first blow is the weapon's own attack");
+        v.striking = Some(1);
+        assert_eq!(v.swing_special(), Some(bat));
+        assert_eq!(special_text(2.0, 35.0), "special attack: damage x2.0, 35 AP");
+    }
+
+    #[test]
     fn the_classic_style_draws_no_marks_while_targets_are_chosen() {
         let mut v = VatsMode { phase: Phase::Marking, queue: MarkQueue::new(20.0, 1, 100), style: VatsStyle::Classic, ..Default::default() };
         v.queue.push(FormId(7), Some(1), f32::INFINITY).unwrap();
@@ -2662,7 +2743,7 @@ mod tests {
         let mut v = VatsMode { phase: Phase::Firing, queue: MarkQueue::new(20.0, 1, 100), ..Default::default() };
         v.queue.push(FormId(7), None, 92.0).unwrap();
         v.spots.push(Spot { point: [1.0, 2.0, 3.0], name: "dog".into(), part: "whole".into(), ..Default::default() });
-        v.weapon = Some(InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0, sight_fov: 0.0, skill: 50.0, hit: HitTuning::default() });
+        v.weapon = Some(InHand { id: FormId(1), reach: MELEE_MARK_REACH, style: AttackStyle::Melee, melee_reach: 75.0, sight_fov: 0.0, skill: 50.0, hit: HitTuning::default(), special: None });
         assert_eq!(v.melee_mark(), None, "no swing yet");
         v.striking = Some(0);
         assert_eq!(v.melee_mark(), Some((7, [1.0, 2.0, 3.0], 75.0 + CLOSE_SLACK, false)), "the roll has not let it land");

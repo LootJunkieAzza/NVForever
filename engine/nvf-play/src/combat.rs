@@ -1302,6 +1302,11 @@ impl Combat {
 
     /// The weapon in use and its Sight FOV (degrees), when it is a gun with sights (Sight
     /// FOV above 0; melee weapons block instead) (`crate::aim_zoom`).
+    /// Weapon `id`'s VATS special attack, when its record has one (WEAP `VATS`).
+    pub fn vats_special(&self, id: FormId) -> Option<fnv_combat::vats::SpecialAttack> {
+        self.forms.weapons.get(&id)?.vats_special
+    }
+
     pub fn sight_fov(&self) -> Option<(FormId, f32)> {
         let w = self.weapon.filter(|_| !self.melee)?;
         let fov = self.player_stats(w)?.sight_fov;
@@ -3727,6 +3732,13 @@ fn melee(
         // VATS mode's swing lands on its mark when the mark is still close and the first
         // thing on the line from the eye to it (100 % accuracy, vats-mode.md §16.2).
         let vats_mark = vats.as_deref().and_then(|v| v.melee_mark());
+        // The blow is a queued special attack of the classic style: its damage multiplier
+        // and the effect it puts on the target (docs/design/vats-classic.md §9).
+        let vats_special = vats.as_deref().and_then(|v| v.swing_special());
+        if let Some(s) = vats_special {
+            info!("combat: vats special attack: the blow's damage times {:.2}{}", s.dam_mult, s.effect.map_or_else(String::new, |e| format!(", effect {e}")));
+        }
+        let power_mult = power_mult * vats_special.map_or(1.0, |s| s.dam_mult);
         let hits = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
             let straight = vats_mark.and_then(|(target, point, close, lands)| {
@@ -3844,6 +3856,7 @@ fn melee(
             if let Some(spell) = special.and_then(|m| m.spell) {
                 items.push(spell);
             }
+            items.extend(vats_special.and_then(|s| s.effect));
             note_armour(script.as_deref_mut(), target, &d);
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
             armour_lines(script.as_deref_mut(), Some(FormId::PLAYER_REF), target, &d, c.tuning.dt_floor);

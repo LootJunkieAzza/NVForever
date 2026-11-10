@@ -77,7 +77,7 @@ ends.
 - Any other action leaves, as Dead Eye (§11.8 there).
 
 [design: the pages give V, the accept key and the mouse; the rest is ours until the
-game's own menu file is driven, §9.]
+game's own menu file is driven, §9b.]
 
 A new target starts on the part with the best chance [design]. Each part's label shows
 its name and chance, the selected one bracketed, with "xN" when N attacks are queued on
@@ -139,11 +139,43 @@ conditions run on the player with GetVATSValue answering about that attack.
 Where the camera stands, what it looks at, the walls it stays in front of, the held
 controls and the hidden HUD are the kill camera's (`kill_cam.rs`).
 
-## 9. Planned on this branch
+## 9. Special attacks
+
+A melee weapon's special attack is its record's own (WEAP `VATS`: the effect it puts on
+the target, the weapon skill it needs, the damage multiplier, its AP) [documented: xEdit
+wbDefinitionsFNV.pas WEAP; fallout.wiki "Special Attack (Fallout: New Vegas)"; observed:
+FalloutNV.esm, the baseball bat skill 50, x2.0, 35 AP beside its swing's 25; the machete
+x0.7, 16 beside 20; the sledgehammer x0.5, 48 beside 38 with an effect; a weapon without
+one has zeros]. So the AP is the special attack's whole cost, not an addition.
+
+- Offered in the classic style, for a melee weapon, when the player's skill with the
+  weapon is at least the one it needs.
+- Run switches between the weapon's attack and its special attack for what is queued
+  next [design: the pages do not give the key; the player stands still, so Run is free].
+  The header then reads "<target> - special attack: damage xN, M AP" [design: our own
+  words; the moves' names are not in the data files].
+- A queued special attack reserves and spends its own AP, scaled by the Action Point
+  Cost perks as the weapon's attack is [design].
+- Its blow's damage is multiplied (with a power attack's multiplier, in `HitInput::power`)
+  and its effect goes on the target with the blow's other effects.
+- Not built: the unarmed moves the page lists for bare fists (Uppercut, Stomp, Cross),
+  which are not in the weapon records read here; the record's Silent and Mod Required
+  fields are read by the schema and not used.
+
+## 9a. Frame time (2026-11-10)
+
+The chances are worked out every frame. Measured on the owner's machine at the
+Goodsprings smoke spot, display sync off (`--log-frame-times`), 40 s runs: 198.0 frames
+a second with VATS never opened; 209.5 with the classic style open at a full stop for
+the last 28 s with two attacks queued (six labels on a dog). Opening it did not lower
+the frame rate; the stopped world costs less than the labels add. Not measured: a
+crowded scene, the top graphics settings, a slowdown under 100 %.
+
+## 9b. Planned
 
 - The target screen driven by the game's own VATS menu file, the engine-drawn labels
   as the fallback.
-- Melee and unarmed special attacks; mines as targets.
+- Mines as targets. The unarmed special moves.
 
 ## 10. Test aids and smoke
 
