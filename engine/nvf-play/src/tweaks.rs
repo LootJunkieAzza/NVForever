@@ -295,6 +295,9 @@ pub struct TweakSettings {
     /// `bRightClickChangesToPreviousContainerCategory`: a right click on a container's
     /// or a barter's list heading steps back a category.
     pub right_click_previous_category: bool,
+    /// `bShowBarterTotalWhenOverSellLimit`: the barter figure shows the whole total when
+    /// it is more than the merchant's caps.
+    pub full_barter_total: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -476,6 +479,7 @@ impl Default for TweakSettings {
             pick_locks_with_key: false,
             smooth_look: false,
             right_click_previous_category: false,
+            full_barter_total: false,
         }
     }
 }
@@ -1293,6 +1297,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "pick-locks-with-key", "Pick Locks Even With the Key", "Holding Shift, a lock the player has the key of opens the lockpicking game instead. (Stewie's Tweaks bPickLocksEvenWithKey)", pick_locks_with_key);
         switch!(app, "right-click-previous-category", "Right Click for the Previous Category", "In a container or a barter, a right click on a list's heading steps back to the previous category. (Stewie's Tweaks bRightClickChangesToPreviousContainerCategory)", right_click_previous_category);
         switch!(app, "mark-notes-unread", "Mark Notes Unread", "A right click on a note in the Pip-Boy marks it unread again. (Stewie's Tweaks bMarkNotesUnread)", game.mark_notes_unread);
+        switch!(app, "full-barter-total", "Barter Total Past the Merchant's Caps", "The barter figure shows the whole total even when it is more than the merchant's caps (the merchant still pays only what it has). (Stewie's Tweaks bShowBarterTotalWhenOverSellLimit)", full_barter_total);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1561,6 +1566,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if m.store_all != tweaks.store_all {
             m.store_all = tweaks.store_all;
+        }
+        if m.full_barter_total != tweaks.full_barter_total {
+            m.full_barter_total = tweaks.full_barter_total;
         }
         let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
         if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {

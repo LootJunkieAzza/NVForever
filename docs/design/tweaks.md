@@ -480,6 +480,7 @@ unless the player binds them, so nothing changes until then.
 | Smooth Camera key | `iToggleSmoothCameraKey` | a new unbound Control flips `TweakSettings::smooth_look`; `player::mouse_look` eases the look at `SMOOTH_LOOK_RATE` (ours), never while aiming |
 | Right Click for the Previous Category | `bRightClickChangesToPreviousContainerCategory` | `menu::menu_mouse` sends `Command::Category(side, -1)` for a right click on a list heading; container and barter, not the recipe menu |
 | Mark Notes Unread | `bMarkNotesUnread` | `pipboy::data::take_input`: a right click on the notes list calls `Game::mark_note_unread` for the selected note |
+| Barter Total Past the Merchant's Caps | `bShowBarterTotalWhenOverSellLimit` | `MenuModel::full_barter_total`: the hand-built barter figure shows `Trade::balance` instead of the capped `Trade::paid`; the tiles barter menu not yet |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -501,8 +502,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 402 |
-| to do | 201 |
+| done | 403 |
+| to do | 200 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -961,6 +962,7 @@ game's Data folder, read-only).
 | `bSavingDoesntClosePauseMenu` | done |  |  | already so: saving leaves the pause menu open |
 | `bShowActiveQuestNotesShowsAllStartedQuests` | done |  |  | Notes of Every Quest |
 | `bShowAlternateAmmoTypesAvailableInMenus` | done |  |  | Mark Other Ammo |
+| `bShowBarterTotalWhenOverSellLimit` | done |  |  | Barter Total Past the Merchant's Caps (hand-built barter menu; the tiles menu not yet) |
 | `bShowCaravanCardsInMiscTabs` | done |  |  | already so: carried cards show in Misc |
 | `bShowCurrencyInContainers` | done |  |  | already so: caps and faction currency are listed in Misc |
 | `bShowModNameInPerkDescriptions` | done |  | 3 | Perk Plugins (the level-up menu; the Pip-Boy and hide-list options not built) |
@@ -1021,7 +1023,6 @@ game's Data folder, read-only).
 | `bQuestTextVisibleInMenus` | to do |  |  | quest_messages held; check what draws over the Pip-Boy |
 | `bRepairAllConfirmation` | to do |  | 2 | a confirmation box in repair |
 | `bRepairItemsPreview` | to do |  | 1 | a preview session in the repair list |
-| `bShowBarterTotalWhenOverSellLimit` | to do |  |  | tiles barter snapshot amount; a menu bool |
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
 | `bTerminalGreyReadNotes` | to do |  |  | no record of entries read |

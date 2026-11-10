@@ -738,6 +738,9 @@ pub struct MenuModel {
     pub take_all_stays: bool,
     /// The player's Store All tweak: Shift with Take All stores instead.
     pub store_all: bool,
+    /// The player's tweak: the barter figure shows the whole total, past what the
+    /// merchant can pay [design: docs/design/tweaks.md].
+    pub full_barter_total: bool,
     pub hide_equipped_barter: bool,
     pub hide_equipped_containers: bool,
     pub title_case_categories: bool,
@@ -919,6 +922,7 @@ impl MenuModel {
             hide_misc_quest: false,
             take_all_stays: false,
             store_all: false,
+            full_barter_total: false,
             hide_equipped_barter: false,
             hide_equipped_containers: false,
             title_case_categories: false,
