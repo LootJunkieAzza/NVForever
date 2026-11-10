@@ -110,14 +110,48 @@ A file is a list of entries, or one entry; 59 files are empty. An entry's keys:
   A reload with rounds still in the magazine plays the `…_Partial` file first
   [hypothesis: from the file names only; 173 such files]. The log says `plays override
   <path>` for each choice so taken.
+- **Files played in turn** (`_order_N`): "If you want variants to play in order, have the
+  file names end with _order_[NUMBER].kf" [documented: kNVSE's Nexus page, Tip 2 of the
+  folder guide; the same tip says other `_<letters>` variants are picked at random]. The
+  files of a stem ending `_order_N` are one set, ordered by N; a file of the same stem
+  without the ending, in the same folder, comes first [hypothesis: Another Millenia's
+  `Sneak1hpAttackRightDOWN.kf` beside `…DOWN_order_2.kf`, with no `_order_1`]. Each
+  attack of the player plays the set's next file, the first again after the last; the
+  turn is the player's attack count, one for every set of both rigs, so the hip and
+  down-the-sights sets keep in step [hypothesis: whether kNVSE keeps a turn per group,
+  per set or per actor is not known]. A later entry holding the stem replaces the whole
+  set [hypothesis]: the akimbo sets' last-shot folders (`…RightLast`,
+  `GetCurrentAmmoRounds == 2`, only `_order_1`; `…LeftLast`, `== 1`, only `_order_2`)
+  then play their one file at those shots. The up and down forms of an ordered file put
+  the aim's ending before `_order_N` (`1hpAttackRightUP_order_1.kf`) [observed: the
+  akimbo `_male` files]. The akimbo files move the weapon model's `ProjectileNode` and
+  `ShellCasingNode` to the gun that fires (`order_1` the right one, with `##nmBar`,
+  `order_2` the left, with `##nmBar1`) [observed: the node names in the files], and shots
+  leave from that node, so each shot leaves the gun its clip fires.
+- **`noBlend`** (a kNVSE text key): NVForever starts a clip that has it at once instead
+  of fading it in [hypothesis: from the key's name only; kNVSE's list of its text keys
+  is on the GECK wiki, which could not be read]. The key has a time: 0.15 s in
+  `…_order_1.kf`, 0.05 s in `…_order_2.kf`, so its meaning may be narrower [observed].
+  The clips' `Hit` key is at 0.017 s, one frame in; their `ProjectileNode` sits on the
+  firing gun from 0 to 0.1 s, then moves to the other gun for the next shot [observed:
+  the tracks sampled with NVForever's clip reader]. A 0.03 s fade-in left part of the
+  node at its rest place (the right gun) when the shot left.
+- **The shot's frame**: a shot that waits for a `Hit` key never leaves in the frame of its
+  pull, even when that frame is longer than the wait (`fnv_combat::attack`): the clip
+  starts at the pull and the shot is drawn from its pose a frame later [design]. Before,
+  at about 60 frames a second, some shots left in the pull's frame from the last clip's
+  fading pose: 9 of 15 left-gun shots left part way to the right gun [observed:
+  NVForever run of 2026-11-10].
+- `respectEndKey`, also on those clips (0.25 s and 0.35 s), is not read.
 
 ## 4. Not built (follow-ups)
 
 - NPCs' weapon clips (attacks, reloads) from the folders: only their locomotion is
   replaced.
 - `_hurt` files (143 in the Millenia and Hit packs) are left out [hypothesis: played
-  while the actor is hurt]; `_A`/`_B`/`_1`/`_2` variants of an attack are not picked at
-  random (the plain file plays; a WEAP attack animation naming the variant plays it).
+  while the actor is hurt; kNVSE's page names a `Hurt` folder for crippled legs];
+  `_A`/`_B`/`_1`/`_2` variants of an attack are not picked at random, as the page says
+  kNVSE does (the plain file plays; a WEAP attack animation naming the variant plays it).
 - The group of a file from its sequence name instead of its file name; several files of
   one group (`2haJamF.kf`, `2haJamF_a.kf`) and `chances.txt` [hypothesis: variants picked
   at random].
