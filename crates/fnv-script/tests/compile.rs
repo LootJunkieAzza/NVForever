@@ -1186,3 +1186,58 @@ fn a_block_lambda_may_open_with_a_space() {
     let (c, _) = build("begin GameMode\nCallWhen ( begin function {}\nPrintC \"x\"\nend) ({}=> (GetSecondsPassed) != 0) (0b10100)\nend");
     assert!(c.errors().next().is_none(), "{:?}", c.diags);
 }
+
+/// The projectile-impact handlers of the probe set (`tools/capture/jip_probes.py`, rows
+/// proj.reg and proj.reg2): both compile in the original [observed: golden projectile,
+/// #2036].
+const PROJ_REG: &str = r#"ref rP
+ref rGun
+ref rProj
+float fRes
+Begin Function { }
+let rP := GetFormFromMod "FalloutNV.esm" "14"
+let rGun := GetFormFromMod "FalloutNV.esm" "434F"
+let rProj := GetWeaponProjectile rGun
+SetOnProjectileImpactEventHandler (Begin Function { }
+  rP.AuxVarSetFlt "*nvfPJ.count" (1) -1
+  rP.AuxVarSetFlt "*nvfPJ.impact.isref" (IsReference (GetSelf.GetProjectileRefImpactRef)) -1
+  rP.AuxVarSetFlt "*nvfPJ.source.player" ((GetSelf.GetProjectileRefSource) == rP) -1
+  rP.AuxVarSetFlt "*nvfPJ.self.type" (GetType (GetSelf.GetBaseObject)) -1
+End) 1 rProj
+SetFunctionValue 1"#;
+
+const PROJ_REG2: &str = r#"ref rP
+ref rGun
+ref rProj
+float fRes
+Begin Function { }
+let rP := GetFormFromMod "FalloutNV.esm" "14"
+let rGun := GetFormFromMod "FalloutNV.esm" "434F"
+let rProj := GetWeaponProjectile rGun
+SetOnProjectileImpactEventHandler (Begin Function { }
+  rP.AuxVarSetFlt "*nvfPJ.impact.type" (GetType ((GetSelf.GetProjectileRefImpactRef).GetBaseObject)) -1
+  rP.AuxVarSetFlt "*nvfPJ.weapon.ispistol" ((GetSelf.GetProjectileRefWeapon) == rGun) -1
+  rP.AuxVarSetFlt "*nvfPJ.damage" (GetSelf.GetProjectileRefDamage) -1
+End) 1 rProj
+SetFunctionValue 1"#;
+
+#[test]
+fn projectile_impact_lambdas_compile() {
+    // `GetSelf.Function` inside an extender expression: the call on the function's
+    // result [documented: Chained dot syntax]. build() also decodes the bytes; the probe
+    // runner adds the outer block's End.
+    for src in [PROJ_REG, PROJ_REG2] {
+        build(&format!("{src}\nEnd\n"));
+    }
+}
+
+#[test]
+fn a_dotted_head_naming_nothing_is_still_refused() {
+    let t = table();
+    let c = compile("Begin Function { }
+SetFunctionValue (NoSuchThing.GetBaseObject)
+End
+", &t, &World, None);
+    let bad: Vec<&str> = c.errors().map(|d| d.detail.as_str()).collect();
+    assert_eq!(bad, ["NoSuchThing"]);
+}
