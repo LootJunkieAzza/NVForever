@@ -63,11 +63,11 @@ const OPPONENT_DECK: (f32, f32) = (1340.0, 227.0);
 const INFO_X: (f32, f32) = (1253.0, 1643.0);
 const INFO_Y: [f32; 3] = [40.0, 84.0, 128.0];
 const BUTTONS_RIGHT: f32 = 1664.0;
-/// The game's four buttons and Tips under them (item 163), the column raised one row.
-const PLAY_BUTTONS: [f32; 5] = [675.0, 726.0, 778.0, 829.0, 879.0];
+/// The game's four buttons and Tips under them (item 163), 48 apart to leave the guide room.
+const PLAY_BUTTONS: [f32; 5] = [692.0, 740.0, 788.0, 836.0, 884.0];
 /// The guide's lines: as wide as the right-hand area, the last just above the buttons.
-const GUIDE_W: f32 = 600.0;
-const GUIDE_BOTTOM: f32 = 640.0;
+const GUIDE_W: f32 = 860.0;
+const GUIDE_BOTTOM: f32 = 686.0;
 const GUIDE_STEP: f32 = 30.0;
 const BET_BUTTONS: [f32; 4] = [705.0, 756.0, 808.0, 858.0];
 const HINT_GAP: f32 = 16.0;
