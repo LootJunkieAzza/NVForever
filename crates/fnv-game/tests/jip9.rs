@@ -284,7 +284,7 @@ fn the_position_into_script_variables() {
 }
 
 fn node(name: &str, parent: Option<usize>, translation: [f32; 3], rotation: [f32; 3], material: Option<[f32; 9]>) -> SceneNode {
-    SceneNode { name: name.into(), parent, translation, rotation, scale: 1.0, flags: 0, material }
+    SceneNode { name: name.into(), parent, translation, rotation, scale: 1.0, flags: 0, material, info: None }
 }
 
 #[test]

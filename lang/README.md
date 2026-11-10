@@ -28,6 +28,12 @@ name = "Deutsch"
   order your language needs.
 - Write your own words. Don't copy the original game's strings into a file
   (LEGAL.md).
+- The settings page's own words are its tabs and headings (`Gameplay`, `Saving`, …),
+  `Search`, `Changed`, `Keyboard search`, `Previous heading`, `Next heading` and what an
+  empty list says (`No settings here.`, `No results.`, `No changed settings.`). The
+  search finds a row by its words in the language shown and in English, and by its INI
+  key, so a translation never hides a row from it. `Stands for: {rows}.` begins the note
+  of a row listed for others (its `{rows}` the rows it stands for).
 
 ## Where NVForever looks
 
@@ -36,7 +42,7 @@ name = "Deutsch"
 3. The folder `NVF_LANG_DIR` names, if set.
 
 When two folders have the same id, the first one wins. The language is chosen on the
-settings page (Interface, Language) and acts at once. It is kept as `language=<id>` in
+settings page (Display, Interface: Language) and acts at once. It is kept as `language=<id>` in
 `NVForever.ini`.
 
 Until one is chosen there, the start picks the language of the game's text when its code

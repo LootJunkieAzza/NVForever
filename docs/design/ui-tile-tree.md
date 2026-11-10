@@ -307,8 +307,10 @@ at the same view size). That is the work of each migration task, not guessed up 
      and `RecipeMenu` (candidate: crafting.md section 4; its prompt stays hand-built) [design:
      `tiles/recipe_menu.rs`].
      Also `TraitMenu` (chargen.md §4.1), `CharGenMenu` (tag skills only, chargen.md §3.1), `DialogMenu` (its contract and fallback:
-     spec-notes/dialogue-menu.md §6), and `StatsMenu` for the Pip-Boy's S.P.E.C.I.A.L. tab
-     alone, painted in the Pip-Boy's image (issue #1513, pipboy.md §5.1.1).
+     spec-notes/dialogue-menu.md §6), `StatsMenu` for the Pip-Boy's STATS page,
+     painted in the Pip-Boy's image (issue #1513, pipboy.md §5.1.1 to §5.1.3), and `InventoryMenu`
+     for its ITEMS page, painted there too, its prompt following from `QuantityMenu`'s file
+     (issues #1513, #1468, pipboy.md §5.2.1).
    - The game rules stay where they are (`menu::model`, `pipboy::items`,
      `wait::model`, …). Only the view changes: the model writes `io()` traits and
      template rows, input comes back as clicked tiles.
@@ -322,8 +324,9 @@ at the same view size). That is the work of each migration task, not guessed up 
 
 ## 7. What stays NVForever's own
 
-- The **settings pages** (Display, Gameplay, Sound, Controls), with their INI keys and
-  live switches. They are NVForever's design (settings.rs), not the original's.
+- The **settings pages** (Gameplay, Display, Audio, Controls, Graphics, Tweaks, Debug, with
+  headings: settings-page.md), with their INI keys and live switches. They are
+  NVForever's design (settings.rs, settings_layout.rs), not the original's.
 - The main menu's loading-screen background; the character creator; the poker table;
   the debug and test aids.
 - These may later be written as NVForever's own menu XML, so modders can restyle them

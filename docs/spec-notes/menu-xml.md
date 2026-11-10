@@ -869,7 +869,7 @@ rule are in the code beside it. Smoke: `ui-gradual-in-game`, `ui-string-dimensio
 | GetUIFloatGradualActiveForTile, …ForTileTrait, …Mode, …Timer | the four SUP pages [documented] | read JIP's table; Mode -1 when none [documented] | Timer -1 when none, a repeating change's time left is its round's [hypothesis] |
 | SetUIStringReveal, CacheUIStringReveal(Alt) | SetUIStringReveal, CacheUIStringReveal [documented] | letters by the time's share, from the left or right, inverted, ease in as the square [hypothesis for the rounding, the right and the ease] | none |
 | SetUIFloatMultiple | SetUIFloatMultiple [documented] | every tile inside of the type, that has the trait; the count back [design] | whether it makes the trait [hypothesis: not] |
-| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component. Replaces the one attached before to the same (reference, node, rect name), keeps it hidden until placed, drops it when the reference is deleted, disabled or outside the loaded cells [design] | node validation, animated transforms and screen projection: its own issue, **Project attached UI components onto model nodes** |
+| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component. Replaces the one attached before to the same (reference, node, rect name), keeps it hidden until placed, drops it when the reference is deleted, disabled or outside the loaded cells [design]; placed over the node on screen each frame, hidden off screen or without the node (`ui_more::place_attachments`, `nvforever` `ui_attach.rs`, #1835) [design] | the rules on screen are our own (below) |
 | AddTraitToTile | AddTraitToTile [documented] | makes or sets the trait; an empty name makes none (0) [design] | the original's list of trait ids it allows is not known: any other name taken [hypothesis] |
 | GetUIValueType, GetUIElementType | the SUP pages [documented] | 1/2/3 and -1; 1-5 by tile kind; GetUIElementType uses the live cursor tile for a missing or nonexistent path, -1 with none [design: `ui_more::inspection_tile`] | `nif` 4, other kinds 0 [hypothesis] |
 | SortUIListBox | SortUIListBox [documented] | keys `-`, `#`, `@`; `$destination$increment` (default `_y`, `height`); numeric keys in a total order, NaN keys at the ends (`total_cmp`) [design] | which children are items (those with the destination), the first value (the smallest), the case [hypothesis each] |
@@ -961,9 +961,23 @@ Implemented consumers and remaining exclusions:
 - **Attached components** [documented: [AttachUIComponent](https://geckwiki.com/index.php?title=AttachUIComponent)]
   require a loaded, case-sensitive model node and one parent rect under HUDMainMenu.
   [design: `ui_more.rs`, `attach`; `tiles/mod.rs`, update] Attachments remain hidden until
-  placed. **Project attached UI components onto model nodes** needs its own issue for
-  animated node transforms, camera projection/interface units and lifetime. Occlusion,
-  clipping, distance scaling and offscreen behavior are not settled by that page.
+  placed. Occlusion, clipping, distance scaling and offscreen behavior are not settled by
+  that page. [design: `ui_more.rs`, `place_attachments`; `engine/nvforever/src/ui_attach.rs`,
+  #1835] Each frame, after the animated pose and the camera are worked out, the node (by
+  its exact name: an actor's skeleton node, or a node of the reference's own animated
+  model, `nvf_play::RefNodes`; statics' baked shapes and worn or held models keep none)
+  goes through the player's camera to the HUD's interface units (960 to the window's
+  height divided by NVForever's UI scale, as the HUD is drawn; the view taken to fill the
+  window), and the rect's `x`/`y` (its top left) are put on that point. When it is
+  attached its `x`/`y` lose any expression and stay plain numbers (an authored constant as
+  written, else 0) that scripts can read and write until the next placement; the
+  component centres itself through its children. `visible` is written 1 when it comes on screen and 0 when
+  it leaves. Hidden: behind the camera, nearer than the near plane or farther than the
+  camera's far distance (checked on the camera-space depth: Bevy's perspective matrix
+  has no far plane), the point outside the view's sides, no such node, no drawn model
+  that names nodes or that model hidden, no active camera. A rect whose node is on screen
+  draws whole, cut only by the window's edge; there is no occlusion test and no scaling
+  with distance. The drawing shows the new place a frame behind the model.
 - **HudBar live value bindings and conditional visibility** needs its own issue.
   [documented: [ScriptVar](https://geckwiki.com/index.php?title=HudBarSetValueScriptVar),
   [UDF](https://geckwiki.com/index.php?title=HudBarSetValueUDF),

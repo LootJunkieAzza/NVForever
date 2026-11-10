@@ -17,7 +17,7 @@
 //!   or on the limb chosen; a click on a limb's bar uses one on that limb; the Doctor's
 //!   Bag (E, or its hint) heals the limbs ([`use_hints`], `model::refusal` says when an
 //!   item is not used, `fnv_game::aid::PARTS_LIMB_SHARE` what a Stimpak gives the limbs).
-//!   Using RadAway and Rad-X from here is not built.
+//!   RadAway (A) uses the carried item without leaving RAD; Rad-X is not built.
 //! - **S.P.E.C.I.A.L., Skills, Perks**: a list at the left (nine rows at once, a scroll bar
 //!   when longer), the selected row's picture and description at the right.
 //! - **General**: the Reputation list (the file's first mode) or the General list of
@@ -25,7 +25,8 @@
 //! - **Keys** [design]: Up/Down (W/S) select in a list, the arrows choose CND, RAD, EFF
 //!   (S is the Stimpak's key there, E the Doctor's Bag's; 1-6 choose the head, torso,
 //!   left arm, right arm, left leg or right leg for the Stimpak, the same key again the
-//!   whole body; the pointer on a limb's bar chooses it while there), Page Up/Down
+//!   whole body; X cycles through the limbs and body; the pointer on a limb's bar
+//!   chooses it while there), Page Up/Down
 //!   scroll the description, the wheel
 //!   scrolls the list or, over it, the description; R switches General's lists. The
 //!   pointer selects the row it moves onto (as the list boxes do), clicks the buttons and
@@ -38,6 +39,9 @@
 
 pub mod model;
 pub mod read;
+
+#[cfg(test)]
+mod input_tests;
 
 use super::frame::{self, Align, Card, Ctx, Kit, DIMMED, FADE, FILL, LINE, TEXT, THICK};
 use super::labels::label;
@@ -78,8 +82,9 @@ const BOX_TEXT_DROP: f32 = 3.0;
 /// screenshots; documented: `_PCButton_S` and the others name these buttons].
 const HINT_KEYS: [&str; 4] = ["S)", "E)", "A)", "X)"];
 /// The keys themselves; with a controller the hints name the buttons that press them
-/// (`crate::pad::menu_buttons`: A, Y on CND; A, X on RAD) [#1662].
-const HINT_KEY_CODES: [KeyCode; 4] = [KeyCode::KeyS, KeyCode::KeyE, KeyCode::KeyA, KeyCode::KeyX];
+/// (`crate::pad::menu_buttons`: A, X, Y on CND; A, X on RAD) [design: #1662, #1898].
+pub(crate) const HINT_KEY_CODES: [KeyCode; 5] = [KeyCode::KeyS, KeyCode::KeyE, KeyCode::KeyA, KeyCode::KeyX, KeyCode::KeyX];
+const SWITCH_LIMBS: usize = 4;
 
 /// The status tab's hint `i` for the device in use.
 fn hint_key(v: &StatsView, i: usize) -> String {
@@ -109,7 +114,7 @@ pub(crate) const LIMB_PIECES: [(Vec2, Vec2, &str); 4] = [
 const METER_HEIGHT: f32 = 38.0;
 const BAR_Y: f32 = 24.0;
 const BAR_LENGTH: f32 = 77.0;
-const BOY_FACE: &str = "Interface\\Stats\\face_00.dds";
+pub(crate) const BOY_FACE: &str = "Interface\\Stats\\face_00.dds";
 
 /// The RAD page (`stats_radiation_container`, zoom 130).
 const RAD_ZOOM: f32 = 1.3;
@@ -119,7 +124,7 @@ const RAD_Y: f32 = 360.0;
 /// shows [observed: 1000 on the owner's screenshot; the file leaves it to the code].
 const RAD_ZERO: f32 = 186.0;
 const RAD_FULL: f32 = 482.0;
-const RAD_MAX: f64 = 1000.0;
+pub(crate) const RAD_MAX: f64 = 1000.0;
 /// The arrow (`pointer_tail.dds`): 22 × 40 zoomed, 30 down.
 const RAD_ARROW: (f32, f32, f32) = (22.0, 40.0, 30.0);
 const RAD_BRACKET: &str = "Interface\\stats\\rad_effects_bracket.dds";
@@ -191,7 +196,7 @@ pub enum Spot {
     Sub(usize),
     /// A row of the tab's list.
     Row(usize),
-    /// Stimpak, Doctor's Bag, RadAway, Rad-X.
+    /// Stimpak, Doctor's Bag, RadAway, Rad-X, limb switch.
     Hint(usize),
     /// A limb's bar on CND (`model::LIMB_NAMES`).
     Limb(usize),
@@ -208,7 +213,7 @@ pub enum Spot {
 /// pointer is over.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct StatsView {
-    /// 0 CND, 1 RAD, 2 EFF.
+    /// 0 CND, 1 RAD, 2 EFF; on the tiles in Hardcore also 3 H2O, 4 FOD, 5 SLP.
     pub status: usize,
     pub selected: [usize; 5],
     pub top: [usize; 5],
@@ -218,7 +223,7 @@ pub struct StatsView {
     /// it in the reputation mode, `user0` 1].
     pub reputation: bool,
     pub hover: Option<Spot>,
-    /// The limb chosen by key on CND for the Stimpak (`model::LIMB_NAMES`); `None` the
+    /// The limb chosen by keyboard or controller on CND for the Stimpak (`model::LIMB_NAMES`); `None` the
     /// whole body.
     pub limb: Option<usize>,
     /// The selected row is boxed: after a key moved the selection or while the pointer
@@ -229,14 +234,27 @@ pub struct StatsView {
     /// The pointer when the page was drawn: a row under a pointer that has not moved
     /// since does not take the selection.
     drawn_at: Option<Vec2>,
+    /// X changed `limb` since the last draw; the next draw turns it into `keep_limb`.
+    cycled: bool,
+    /// [design] This draw followed X changing `limb`: a limb's bar drawn under the
+    /// unmoved pointer does not take the choice back (#1898). Other draws leave limb
+    /// bars hovered under an unmoved pointer, as before.
+    keep_limb: bool,
     /// How many rows each tab's list has, and the furthest the description scrolls.
     lens: [usize; 5],
     desc_max: usize,
+    /// Rows shown at once in each tab's list, as the view that draws it says
+    /// ([`StatsView::set_rows_shown`]) [hypothesis for General on the hand-built page: nine as
+    /// the others; the file gives its list the area's height, 542 from 100 down, which would
+    /// reach the tab line].
+    rows_shown: [usize; 5],
+    /// How many of the status page's buttons the view that draws it has.
+    status_pages: usize,
 }
 
 impl Default for StatsView {
     fn default() -> StatsView {
-        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, lens: [0; 5], desc_max: 0 }
+        StatsView { status: 0, selected: [0; 5], top: [0; 5], desc: 0, reputation: true, hover: None, limb: None, highlight: false, drawn_at: None, cycled: false, keep_limb: false, lens: [0; 5], desc_max: 0, rows_shown: [VISIBLE; 5], status_pages: 3 }
     }
 }
 
@@ -249,7 +267,7 @@ impl StatsView {
             self.selected[tab] = row;
             self.desc = 0;
         }
-        self.top[tab] = model::keep_in_view(self.top[tab], row, visible(tab), len);
+        self.top[tab] = model::keep_in_view(self.top[tab], row, self.rows_shown[tab], len);
     }
 
     /// Move the selection by `by` rows.
@@ -261,8 +279,20 @@ impl StatsView {
 
     /// Scroll a tab's list by `by` rows (the selection stays).
     pub fn scroll(&mut self, tab: usize, by: i32) {
-        let most = self.lens[tab].saturating_sub(visible(tab));
+        let most = self.list_most(tab);
         self.top[tab] = (self.top[tab] as i32 + by).clamp(0, most as i32) as usize;
+    }
+
+    /// The furthest a tab's list scrolls: the first row shown when the last row is.
+    pub fn list_most(&self, tab: usize) -> usize {
+        self.lens[tab].saturating_sub(self.rows_shown[tab])
+    }
+
+    /// How many rows the view that draws a tab's list shows at once: each view gives its own, as
+    /// with the description's bound, and what is scrolled stays within it.
+    pub fn set_rows_shown(&mut self, tab: usize, rows: usize) {
+        self.rows_shown[tab] = rows.max(1);
+        self.top[tab] = self.top[tab].min(self.list_most(tab));
     }
 
     pub fn scroll_desc(&mut self, by: i32) {
@@ -300,6 +330,24 @@ impl StatsView {
         self.limb = if self.limb == Some(i) { None } else { Some(i) };
     }
 
+    /// How many of the status page's buttons the view that draws it has: each view gives its own,
+    /// and the page chosen stays among them.
+    pub fn set_status_pages(&mut self, pages: usize) {
+        self.status_pages = pages.max(1);
+        self.status = self.status.min(self.status_pages - 1);
+    }
+
+    /// [design] Body, then the six limbs in model order, then body again.
+    pub fn cycle_limb(&mut self) {
+        self.limb = match self.aimed() {
+            None => Some(0),
+            Some(i) if i + 1 < model::LIMB_NAMES.len() => Some(i + 1),
+            _ => None,
+        };
+        self.hover = None;
+        self.cycled = true;
+    }
+
     /// Switch General between its two lists.
     pub fn switch(&mut self) {
         self.reputation = !self.reputation;
@@ -315,13 +363,6 @@ fn change(view: &mut ResMut<StatsView>, f: impl FnOnce(&mut StatsView)) {
     if v != **view {
         **view = v;
     }
-}
-
-/// Rows shown at once in a tab's list [hypothesis for General: nine as the others; the
-/// file gives its list the area's height, 542 from 100 down, which would reach the tab
-/// line].
-fn visible(_tab: usize) -> usize {
-    VISIBLE
 }
 
 #[derive(SystemParam)]
@@ -361,6 +402,8 @@ pub struct StateMemory {
     page: Option<(usize, super::Frame)>,
     /// The test aid's `longdesc`.
     long: bool,
+    /// A box over the Pip-Boy held the keys last frame (`super::box_holds_keys`).
+    boxed: bool,
 }
 
 /// What [`prepare`] leaves for the views of the page, the hand-built [`draw`] and the tiles'
@@ -388,6 +431,14 @@ pub fn prepare(
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
+    // [design] A box over the Pip-Boy (the tutorial; with the tiles, any menu over the page)
+    // holds the view's keys and the wheel on every tab, by the rule the Pip-Boy's own keys
+    // follow (`super::takes_keys`), and for the frame it closes in too: the press that closed
+    // it was the box's, so A closing a tutorial over Status > RAD uses no RadAway.
+    let menu = src.script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.menu);
+    let boxed = super::box_holds_keys(menu, input.tiles.as_deref());
+    let was = std::mem::replace(&mut mem.boxed, boxed);
+    let held = boxed || was;
     let Some(mut view) = view else {
         commands.init_resource::<StatsView>();
         return;
@@ -432,12 +483,18 @@ pub fn prepare(
         }
     }
     mem.long |= long;
-    // With the page drawn from its tiles a menu over it owns the keys and the wheel for all of
-    // the frame it closes in (`crate::tiles::stats_menu::StatsTiles::modal`).
+    // A box over the page owns the keys and the wheel, also in the frame it closes in (`held`;
+    // with the tiles, `crate::tiles::stats_menu::StatsTiles::modal` holds through that frame).
     let tiles = input.tiles.as_deref();
-    if pip.open() && !tiles.is_some_and(|t| t.modal) {
+    if pip.open() && !held {
         let mut ask = None;
-        change(&mut view, |v| ask = keys(&input.keys, v, tab));
+        // [design] A press that opened the page or changed its tab or frame this frame
+        // is spent: the view's keys (hints, X, the digits) do not act on it, so the
+        // keyboard's A stepping from S.P.E.C.I.A.L. to a Status left on RAD uses no
+        // RadAway (#1899).
+        if !new {
+            change(&mut view, |v| ask = keys(&input.keys, v, tab));
+        }
         if let Some(a) = ask {
             input.asks.write(a);
         }
@@ -548,6 +605,7 @@ pub fn draw(
     let mut c = Ctx::new(&mut d.kit, d.data.as_deref(), &mut d.images, d.formats.as_deref(), &d.glyphs);
     let v = view.bypass_change_detection();
     v.drawn_at = screen.as_ref().and_then(|s| s.pointer);
+    v.keep_limb = std::mem::take(&mut v.cycled);
     commands.entity(body).despawn_children().with_children(|p| {
         let value = figures;
         let cards = [
@@ -572,13 +630,16 @@ pub fn figures(v: Option<(f64, f64)>) -> String {
     v.map_or("--".to_string(), |(a, b)| format!("{}/{}", model::whole(a), model::whole(b)))
 }
 
+/// The status page's buttons, for the log.
+pub(crate) const STATUS_PAGES: [&str; 6] = ["CND", "RAD", "EFF", "H2O", "FOD", "SLP"];
+
 /// One line for the log: what the tab shows selected.
 fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
     let name = Page::Stats.tabs()[tab];
     match tab {
         0 => {
             let limb = view.limb.filter(|_| view.status == 0).map_or(String::new(), |i| format!(" ({} chosen)", model::LIMB_NAMES[i]));
-            format!("{name} {}{limb}", ["CND", "RAD", "EFF"][view.status.min(2)])
+            format!("{name} {}{limb}", STATUS_PAGES[view.status.min(5)])
         }
         _ => {
             let rows = snap.rows(tab, view.reputation);
@@ -605,10 +666,13 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
         if keys.just_pressed(ArrowUp) && view.status > 0 {
             view.status -= 1;
         }
-        if keys.just_pressed(ArrowDown) && view.status < 2 {
+        if keys.just_pressed(ArrowDown) && view.status + 1 < view.status_pages {
             view.status += 1;
         }
         if view.status == 0 {
+            if keys.just_pressed(KeyX) {
+                view.cycle_limb();
+            }
             for (i, k) in [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6].into_iter().enumerate() {
                 if keys.just_pressed(k) {
                     view.choose_limb(i);
@@ -643,11 +707,12 @@ fn keys(keys: &ButtonInput<KeyCode>, view: &mut StatsView, tab: usize) -> Option
 }
 
 /// A hint's key or button: the item to use (the Stimpak on the limb aimed at), or `None`
-/// for RadAway and Rad-X, which are not used from here.
-fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
+/// for Rad-X, which is not used from here, or the separate limb-switch hint.
+pub(crate) fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
     match hint {
         model::STIMPAK => Some(UseHint { hint, limb: view.aimed() }),
-        model::DOCTORS_BAG => Some(UseHint { hint, limb: None }),
+        model::DOCTORS_BAG | model::RADAWAY => Some(UseHint { hint, limb: None }),
+        SWITCH_LIMBS => None,
         _ => {
             info!("pipboy stats: {} (using it from the STATS page is not built)", HINT_KEYS[hint]);
             None
@@ -660,13 +725,19 @@ fn hint_pressed(view: &StatsView, hint: usize) -> Option<UseHint> {
 fn on_over(over: On<PointerOver>, spots: Query<&Spot>, view: Option<ResMut<StatsView>>, pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>) {
     let (Ok(&spot), Some(mut view)) = (spots.get(over.entity), view) else { return };
     let tab = pip.tab();
+    // A row drawn under a pointer that has not moved keeps the selection; [design] so
+    // does the limb X just chose, against a limb's bar redrawn under it (`keep_limb`).
+    let at = screen.as_ref().and_then(|s| s.pointer);
+    let kept = match spot {
+        Spot::Row(_) => true,
+        Spot::Limb(_) => view.keep_limb,
+        _ => false,
+    };
+    if kept && at.is_some() && at == view.drawn_at {
+        return;
+    }
     match spot {
         Spot::Row(i) => {
-            // A row drawn under a pointer that has not moved keeps the selection.
-            let at = screen.as_ref().and_then(|s| s.pointer);
-            if at.is_some() && at == view.drawn_at {
-                return;
-            }
             change(&mut view, |v| {
                 v.select(tab, i);
                 v.highlight = true;
@@ -703,6 +774,7 @@ fn on_click(click: On<PointerClick>, spots: Query<&Spot>, view: Option<ResMut<St
         Spot::Sub(i) => v.status = i,
         Spot::Row(i) => v.select(tab, i),
         Spot::Switch => v.switch(),
+        Spot::Hint(SWITCH_LIMBS) => v.cycle_limb(),
         Spot::DescUp => v.scroll_desc(-1),
         Spot::DescDown => v.scroll_desc(1),
         Spot::ListUp => v.scroll(tab, -1),
@@ -732,7 +804,16 @@ fn box_text_top(c: &Ctx, top: f32, h: f32) -> f32 {
     top + (h - c.line_height(2)) / 2.0 + BOX_TEXT_DROP
 }
 
+fn status_hints(status: usize) -> &'static [(usize, usize)] {
+    match status {
+        0 => &[(0, 0), (SWITCH_LIMBS, 1), (1, 2)],
+        1 => &[(2, 0), (3, 1)],
+        _ => &[],
+    }
+}
+
 fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
+    v.set_status_pages(3);
     let o = STATUS.min;
     let h = c.line_height(2) + SUB_VERBUF;
     let mut spots = Vec::new();
@@ -747,15 +828,9 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         c.text(p, 2, name, r.min.x + SUB_HORBUF / 2.0, box_text_top(c, r.min.y, h), Align::Left, bright());
         spots.push((r, Spot::Sub(i)));
     }
-    // The hints at the top right, in the file's slots: Stimpak, (the controller's healing
-    // mode), Doctor's Bag; or RadAway, Rad-X.
-    let shown: &[(usize, usize)] = match v.status {
-        0 => &[(0, 0), (1, 2)],
-        1 => &[(2, 0), (3, 1)],
-        _ => &[],
-    };
-    for &(i, slot) in shown {
-        let text = &s.hints.texts[i];
+    // Keep the existing slots: Stimpak, limb switch, Doctor's Bag; or RadAway, Rad-X.
+    for &(i, slot) in status_hints(v.status) {
+        let text = if i == SWITCH_LIMBS { &s.switch_limbs } else { &s.hints.texts[i] };
         let size = text_box(c, text, HINT_HORBUF, HINT_VERBUF);
         let right = o.x + HINT_X;
         let top = o.y + HINT_Y + size.y * slot as f32;
@@ -764,7 +839,8 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         // Dim unless pointed at or usable [observed: dim on all three screenshots;
         // hypothesis: bright with its box when pointed at; design: owner 2026-10-27, a
         // Stimpak or Doctor's Bag that would heal is lit (`Hints::lit`)].
-        let colour = if hovered || s.hints.lit[i] { bright() } else { amber(DIMMED) };
+        let lit = i == SWITCH_LIMBS || s.hints.lit[i];
+        let colour = if hovered || lit { bright() } else { amber(DIMMED) };
         if hovered {
             c.boxed(p, r, amber(LINE), None);
         }
@@ -791,7 +867,7 @@ fn condition(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, s: &Snaps
     let head = Vec2::new(STATUS.min.x + (STATUS.width() - head_size.x) / 2.0, STATUS.min.y + HEAD_Y);
     let crippled = |i: usize| s.limbs[i] <= 0.0;
     // A crippled piece by its "_broken" picture [hypothesis: the files' names].
-    let piece = |name: &str, broken: bool| format!("Interface\\Stats\\{name}{}.dds", if broken { "_broken" } else { "" });
+    let piece = boy_picture;
     c.image_cut(p, &piece("head", crippled(0)), head.x, head.y, head_size.x, head_size.y, z, bright());
     // The face [hypothesis: face_00, the smile on the owner's screenshot; when the
     // others (01–04, 10) show is not known], centred in the head's height and 16 lower.
@@ -981,6 +1057,7 @@ fn arrow(p: &mut ChildSpawnerCommands, c: &mut Ctx, r: Rect, name: &str) {
 /// S.P.E.C.I.A.L., Skills, Perks: the list and the selected row's picture and
 /// description.
 fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot, tab: usize) {
+    v.set_rows_shown(tab, VISIBLE);
     let rows = s.rows(tab, false);
     let r = list_rect(tab, &rows, c.line_height(2) + ROW_SPACING);
     let mut spots = Vec::new();
@@ -1023,6 +1100,7 @@ fn listed(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
 /// General: the reputations or the statistics, the reputation's or the karma's picture
 /// beside, the switch at the top right.
 fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snapshot) {
+    v.set_rows_shown(4, VISIBLE);
     let rows = s.rows(4, v.reputation);
     let mut spots = Vec::new();
     let th = c.line_height(2);
@@ -1052,7 +1130,7 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         let h = 270.0 + 2.0 * th;
         let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
         centred(p, c, &format!("Karma: {word}"), mid, top, bw);
-        let path = format!("Interface\\Icons\\PipboyImages\\Karma Icons\\{picture}.dds");
+        let path = karma_picture(picture);
         c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, ICON_ZOOM, bright());
         let mut y = top + 270.0;
         if let Some(title) = &s.karma_title {
@@ -1086,6 +1164,19 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
     }
 }
 
+/// The file of a piece of the Vault Boy, a crippled one by its "_broken" picture, as every view of
+/// the page reads it [hypothesis: the names of the head's and the others'; observed:
+/// `left_leg_broken.dds`, private job run07_stats_tabs].
+pub fn boy_picture(name: &str, broken: bool) -> String {
+    format!("Interface\\Stats\\{name}{}.dds", if broken { "_broken" } else { "" })
+}
+
+/// The file of a karma's picture ([`model::karma_alignment`]'s name), as every view of the page
+/// reads it.
+pub fn karma_picture(picture: &str) -> String {
+    format!("Interface\\Icons\\PipboyImages\\Karma Icons\\{picture}.dds")
+}
+
 /// `s` broken at `wrap`, each line centred on `mid`.
 fn centred(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &str, mid: f32, top: f32, wrap: f32) {
     for (i, l) in c.lines(2, s, Some(wrap)).iter().enumerate() {
@@ -1095,7 +1186,7 @@ fn centred(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &str, mid: f32, top: f3
 
 // ---- using the hints' items -------------------------------------------------------------
 
-/// Use a CND hint's item ([`model::STIMPAK`], [`model::DOCTORS_BAG`]) from the STATS
+/// Use a hint's item ([`model::STIMPAK`], [`model::DOCTORS_BAG`], [`model::RADAWAY`]) from the STATS
 /// page; `limb` the body part a Stimpak goes on (`model::LIMB_NAMES`), `None` the body.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UseHint {
@@ -1128,11 +1219,18 @@ pub fn use_hints(
         };
         let name = sim.name(item).unwrap_or("?").to_string();
         let count = sim.world.item_count(FormId::PLAYER_REF, item).unwrap_or(0);
-        let Some((hp, limbs, hardcore)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
-            info!("pipboy stats: {name} not used: the scripts' game is not running");
-            continue;
+        let why = if hint == model::RADAWAY {
+            // [design] Like the inventory's aid action, carried RadAway can be used
+            // regardless of health or limb condition; no item means a dim hint.
+            (count <= 0).then(|| "none carried".to_string())
+        } else {
+            let Some((hp, limbs, hardcore)) = read::condition(&mut sim, script.as_mut().map(|s| s.bypass_change_detection())) else {
+                info!("pipboy stats: {name} not used: the scripts' game is not running");
+                continue;
+            };
+            model::refusal(hint, limb, count, hp, &limbs, hardcore)
         };
-        if let Some(why) = model::refusal(hint, limb, count, hp, &limbs, hardcore) {
+        if let Some(why) = why {
             info!("pipboy stats: {name} not used: {why}");
             sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
             continue;
@@ -1156,13 +1254,14 @@ pub fn use_hints(
 
 // ---- test aid -------------------------------------------------------------------------
 
-/// `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...`: `sub=<0-2>` (CND, RAD, EFF),
+/// `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...`: `sub=<0-5>` (CND, RAD, EFF, H2O, FOD, SLP),
 /// `down`, `up` (the list's selection), `mode` (General's lists), `desc=down|up`; and to
 /// have something to show, `perk=<FormID hex>` (the player gains a rank of it, as
 /// AddPerk) and `fame=<FormID hex>=<points>` (fame with a reputation); on CND
 /// `limb=<0-5>` chooses a limb (`model::LIMB_NAMES`), `limb=none` the whole body, and
 /// `use=stimpak` or `use=bag` uses the hint's item as its key does; `longdesc` gives every
-/// S.P.E.C.I.A.L. row a description long enough to scroll, in words of the aid's own.
+/// S.P.E.C.I.A.L. row a description long enough to scroll, in words of the aid's own;
+/// `scroll=<n>` makes row n the first the tab's list shows, within its range.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AidStep {
     Sub(usize),
@@ -1175,6 +1274,7 @@ pub enum AidStep {
     Limb(Option<usize>),
     Use(usize),
     LongDesc,
+    Scroll(usize),
 }
 
 /// The test aid's `longdesc`: twelve lines of its own words.
@@ -1199,7 +1299,8 @@ fn parse_aid(v: &str) -> Vec<(f32, AidStep)> {
                 "use=bag" => Some(AidStep::Use(model::DOCTORS_BAG)),
                 s => match s.split_once('=') {
                     Some(("limb", n)) => n.trim().parse().ok().filter(|n| *n < 6).map(|n| AidStep::Limb(Some(n))),
-                    Some(("sub", n)) => n.trim().parse().ok().filter(|n| *n < 3).map(AidStep::Sub),
+                    Some(("sub", n)) => n.trim().parse().ok().filter(|n| *n < 6).map(AidStep::Sub),
+                    Some(("scroll", n)) => n.trim().parse().ok().map(AidStep::Scroll),
                     Some(("perk", f)) => u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok().map(AidStep::Perk),
                     Some(("fame", r)) => r.split_once('=').and_then(|(f, n)| Some(AidStep::Fame(u32::from_str_radix(f.trim().trim_start_matches("0x"), 16).ok()?, n.trim().parse().ok()?))),
                     _ => None,
@@ -1224,6 +1325,7 @@ fn apply_aid(view: &mut StatsView, tab: usize, s: AidStep) {
         AidStep::Mode => view.switch(),
         AidStep::Desc(by) => view.scroll_desc(by),
         AidStep::Limb(l) => view.limb = l,
+        AidStep::Scroll(n) => view.scroll(tab, n as i32 - view.top[tab] as i32),
         AidStep::Perk(_) | AidStep::Fame(..) | AidStep::Use(_) | AidStep::LongDesc => {}
     }
 }
@@ -1240,6 +1342,7 @@ mod tests {
             vec![(2.0, AidStep::Perk(0x44CB1)), (2.5, AidStep::Fame(0x104C22, 4.0)), (3.0, AidStep::Sub(1)), (4.0, AidStep::Down), (5.0, AidStep::Desc(1)), (9.0, AidStep::Mode)]
         );
         assert_eq!(parse_aid("7:longdesc"), vec![(7.0, AidStep::LongDesc)]);
+        assert_eq!(parse_aid("8:scroll=3"), vec![(8.0, AidStep::Scroll(3))]);
         assert_eq!(long_description().lines().count(), 12);
         let s = parse_aid("1:limb=2,2:use=stimpak,3:limb=none,4:use=bag,5:limb=6");
         assert_eq!(s, vec![(1.0, AidStep::Limb(Some(2))), (2.0, AidStep::Use(0)), (3.0, AidStep::Limb(None)), (4.0, AidStep::Use(1))]);
@@ -1258,7 +1361,7 @@ mod tests {
         v.hover = None;
         v.choose_limb(4);
         assert_eq!(v.aimed(), None);
-        assert_eq!(hint_pressed(&v, 2), None);
+        assert_eq!(hint_pressed(&v, model::RADAWAY), Some(UseHint { hint: model::RADAWAY, limb: None }));
     }
 
     #[test]
@@ -1271,6 +1374,41 @@ mod tests {
         assert_eq!(v.desc, 1, "a shorter text pulls the scroll back");
         v.scroll_desc(-5);
         assert_eq!(v.desc, 0);
+    }
+
+    /// A view's own count of the rows it shows: the hand-built nine by default, what is
+    /// scrolled and kept in view following what a tile view says.
+    #[test]
+    fn each_view_gives_a_list_its_rows_and_the_scroll_stays_within() {
+        let mut v = StatsView { lens: [0, 7, 13, 0, 43], ..StatsView::default() };
+        assert_eq!(v.list_most(2), 4, "nine at once");
+        v.scroll(2, 9);
+        assert_eq!(v.top[2], 4);
+        v.set_rows_shown(2, 11);
+        assert_eq!((v.list_most(2), v.top[2]), (2, 2), "more shown pulls the scroll back");
+        v.select(2, 12);
+        assert_eq!(v.top[2], 2, "the last row is among the eleven");
+        v.set_rows_shown(2, 5);
+        assert_eq!(v.top[2], 2, "a new count alone moves no row into view");
+        v.select(2, 12);
+        assert_eq!(v.top[2], 8);
+        v.set_rows_shown(4, 0);
+        assert_eq!(v.list_most(4), 42, "at least one row");
+        let mut aid = StatsView { lens: [0, 7, 13, 0, 0], ..StatsView::default() };
+        apply_aid(&mut aid, 2, AidStep::Scroll(3));
+        assert_eq!(aid.top[2], 3);
+        apply_aid(&mut aid, 2, AidStep::Scroll(30));
+        assert_eq!(aid.top[2], 4, "within its range");
+    }
+
+    #[test]
+    fn each_view_gives_the_status_page_its_buttons() {
+        let mut v = StatsView { status: 2, ..StatsView::default() };
+        v.set_status_pages(6);
+        assert_eq!(v.status, 2);
+        v.status = 5;
+        v.set_status_pages(3);
+        assert_eq!(v.status, 2, "Hardcore off, or the hand-built page: among those it has");
     }
 
     #[test]

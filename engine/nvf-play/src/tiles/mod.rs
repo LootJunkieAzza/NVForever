@@ -46,6 +46,7 @@ mod item_menu;
 pub mod dialog_menu;
 pub mod draw;
 pub mod input;
+pub mod inventory_menu;
 pub mod item_card;
 pub mod layout;
 pub mod list;
@@ -143,7 +144,7 @@ pub fn interface_screen(menus: vanilla::TileMenus) -> bool {
     if menus.repair_services || menus.repair_menu {
         return true;
     }
-    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog
+    menus.message || menus.quantity || menus.sleep_wait || menus.tutorial || menus.container || menus.barter || menus.recipe || menus.traits || menus.tags || menus.start || menus.stats || menus.dialog || menus.inventory
 }
 
 /// Write `screen()`'s traits for a window `window_width` x `window_height` (logical
@@ -471,6 +472,8 @@ struct MenuTiles<'w, 's> {
     /// T15b: the Wait / Sleep menu and its words.
     wait: Option<Res<'w, crate::wait::WaitMenu>>,
     words: Option<Res<'w, crate::wait::model::Words>>,
+    /// The ITEMS page's decision, for its prompt (`inventory_menu`).
+    inventory: Option<Res<'w, inventory_menu::InventoryTiles>>,
     written: Local<'s, MenusWritten>,
 }
 
@@ -485,7 +488,7 @@ impl MenuTiles<'_, '_> {
     /// (each measured again only when its string changed), before scripts [design:
     /// ui-tile-tree.md §4.1]. Off, or without the menu files, nothing.
     fn write(&mut self, game: &mut fnv_game::Game<'_>, switch: vanilla::TileMenus, fonts: &mut draw::FontKit, calendar: Option<fnv_sim::clock::Calendar>) {
-        if !(switch.message || switch.quantity || switch.sleep_wait || switch.container || switch.barter) || game.ui_files.is_none() {
+        if !(switch.message || switch.quantity || switch.sleep_wait || switch.container || switch.barter || switch.inventory) || game.ui_files.is_none() {
             return;
         }
         self.write_wait(game, switch, fonts, calendar);
@@ -499,7 +502,8 @@ impl MenuTiles<'_, '_> {
         let shown = self.active.as_ref().and_then(|a| a.0.as_ref());
         let prompt_open = shown.is_some_and(|m| m.quantity.is_some());
         let container_tiled = prompt_open && (container_menu::tiled(switch.container, game, container_menu::is_container(shown))
-            || barter_menu::tiled(switch.barter, game, barter_menu::is_barter(shown)));
+            || barter_menu::tiled(switch.barter, game, barter_menu::is_barter(shown))
+            || self.inventory.as_ref().is_some_and(|i| i.ready.is_some()));
         let quantity = self.quantity().filter(|_| menus::quantity_tiled(switch.quantity, game, true, container_tiled));
         let prompt = quantity.and_then(|q| game.ui_tree.menu(menus::QUANTITY_MENU).map(|m| (m, q)));
         // Which showing the box on screen is (counted up for every box shown, one alike
@@ -753,6 +757,7 @@ fn write_tutorial(
     mut fonts: draw::FontKit,
     mut written: Local<TutorialWritten>,
     mut check: ResMut<TutorialScrollCheck>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
 ) {
     check.wrote = None;
     if !switch.tutorial {
@@ -770,7 +775,7 @@ fn write_tutorial(
         check.drawn = None;
         return;
     }
-    let pages = crate::tutorial_menu::pages_with(game, tutorial_menu::body_text);
+    let pages = crate::tutorial_menu::pages_with(game, tutorial_menu::body_text, bindings.as_deref());
     let (Some(menu), false) = (game.ui_tree.menu(tutorial_menu::TUTORIAL_MENU), pages.is_empty()) else { return };
     let at = view.page.min(pages.len() - 1);
     let now = tutorial_menu::Shown { menu, page: pages[at].clone(), at, of: pages.len() };
@@ -940,6 +945,7 @@ impl Plugin for TilesPlugin {
         vanilla::setup(app);
         input::setup(app);
         stats_menu::setup(app);
+        inventory_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
@@ -971,11 +977,16 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, input::feed.after(write).after(crate::menu::WheelHoldSet).before(PlaySet::Activation))
             .add_systems(Update, update.after(PlaySet::Scripts).before(PlaySet::Ui))
             .add_systems(Update, repair_services_menu::after_update.after(update).before(PlaySet::Ui))
-            // The Pip-Boy's S.P.E.C.I.A.L.: written after the tile input and before the scripts;
+            // The Pip-Boy's STATS page: written after the tile input and before the scripts;
             // again after its keys and decided before the frame and the tile drawing read it.
             .add_systems(Update, stats_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, stats_menu::write.after(stats_menu::feed).before(PlaySet::Activation))
             .add_systems(Update, stats_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
+            // The Pip-Boy's ITEMS page, in the same three steps; its model's keys and commands
+            // have run by `prepare`, the first system after them in the Pip-Boy's chain.
+            .add_systems(Update, inventory_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
+            .add_systems(Update, inventory_menu::write.after(inventory_menu::feed).before(PlaySet::Activation))
+            .add_systems(Update, inventory_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::stats::prepare).before(crate::pipboy::frame::draw))
             // The Pip-Boy's repair page, in the same three steps; its model's keys have run by
             // `prepare`, in the Pip-Boy's chain.
             .add_systems(Update, repair_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))

@@ -521,6 +521,38 @@ pub struct MusicCues {
     next: f32,
 }
 
+/// The audio markers between the music and scripts (`fnv_game::nvse_jg9`): their values
+/// told to the game once they are read, the marker whose music plays told every frame,
+/// and the markers a script changed (AudioMarkerSetController, AudioMarkerSetProperty)
+/// changed here, so the music picks from them from then on.
+fn script_markers(places: Option<ResMut<AudioPlaces>>, music: Option<Res<Music>>, script: Option<ResMut<crate::script::ScriptState>>, mut plugins: Local<Option<HashMap<u32, fnv_game::nvse_jg9::MarkerValues>>>) {
+    use fnv_game::nvse_jg9::MarkerValues;
+    let (Some(mut places), Some(mut script)) = (places, script) else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
+    let st = &mut rt.game.other.jg9;
+    let values = |m: &AudioMarker| MarkerValues { controller: m.controller.map(fnv_sim::FormId), radius: m.radius, layer2: m.layer2_percent, layer3: m.layer3_percent };
+    let plugins = plugins.get_or_insert_with(|| places.audio.values().flatten().map(|m| (m.ref_id, values(m))).collect());
+    // A game state without them (the first, or one loaded since): told the plugins'
+    // values, and the markers put back to them (a script's changes last the session).
+    if st.markers.is_empty() && !plugins.is_empty() {
+        st.markers = plugins.iter().map(|(&r, &v)| (fnv_sim::FormId(r), v)).collect();
+        st.markers_changed = true;
+    }
+    st.current_marker = music.and_then(|m| m.marker).map(|m| fnv_sim::FormId(m.0));
+    if !std::mem::take(&mut st.markers_changed) {
+        return;
+    }
+    let edits = st.marker_edits.clone();
+    for m in places.audio.values_mut().flatten() {
+        let id = fnv_sim::FormId(m.ref_id);
+        let Some(&e) = edits.get(&id).or_else(|| plugins.get(&m.ref_id)) else { continue };
+        if e != values(m) {
+            (m.controller, m.radius, m.layer2_percent, m.layer3_percent) = (e.controller.map(|c| c.0), e.radius, e.layer2, e.layer3);
+            info!("music: audio marker {:08X} now: controller {:?}, radius {:.0}, layers {:.2} {:.2}", m.ref_id, m.controller, m.radius, m.layer2_percent, m.layer3_percent);
+        }
+    }
+}
+
 fn init(mut commands: Commands, d: Res<PlayWorld>) {
     let d = d.0;
     crate::start_read::start(&mut commands, "nvf-audio-read", move || read_places(d));
@@ -1164,7 +1196,7 @@ impl Plugin for MusicPlugin {
             .add_audio_source::<LayeredMusic>()
             .add_systems(Startup, init)
             // Its stingers are sound effects: before sfx plays them (crate::sfx::SfxSet).
-            .add_systems(Update, (cues.after(crate::PlaySet::Scripts), play.after(crate::PlaySet::Activation)).chain().before(crate::sfx::SfxSet))
+            .add_systems(Update, (cues.after(crate::PlaySet::Scripts), script_markers, play.after(crate::PlaySet::Activation)).chain().before(crate::sfx::SfxSet))
             .add_systems(Last, (release_files, report));
         crate::settings::add_setting(
             app,

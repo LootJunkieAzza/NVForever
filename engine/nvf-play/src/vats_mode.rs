@@ -1242,6 +1242,11 @@ fn mark(
         info!("vats mode: nothing to mark under the crosshair");
         return;
     };
+    // SetVATSTargetable 0 (`fnv_game::nvse_jip14`).
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| !rt.game.actor_vats_targetable(FormId(actor))) {
+        info!("vats mode: {actor:08X} is not a VATS target (SetVATSTargetable 0): not marked");
+        return;
+    }
     match barred(v, script.as_deref_mut(), sim, actor) {
         Err(Bar::Dead) => {
             info!("vats mode: {actor:08X} is dead: not marked");
