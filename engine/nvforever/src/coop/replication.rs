@@ -748,8 +748,9 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                 } else if let Some(effects) = repl::unpack_effects(&item) {
                     // Played as this game's own scripts' would be (the sound at the
                     // reference, which this game has too).
-                    if let Some(g) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game) {
+                    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
                         for e in effects {
+                            let g = &mut rt.game;
                             r.effects_played += 1;
                             match e {
                                 Effect::Sound { sound, at_ref, .. } => g.sound_requests.push(fnv_game::sound::SoundRequest { sound: FormId(sound), at: Some(FormId(at_ref)), system: false, id: 0 }),
@@ -769,13 +770,17 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                                     }
                                 }
                                 Effect::AnimReset { on } => g.anims.reset(FormId(on)),
+                                // With this game's world lent to the game: the player's
+                                // inventory is there (`nvf_play::script::with_world`); on
+                                // the game alone it found nothing to hand over (laptop
+                                // 1110b Fort run: 'hands over its own 0', rifle kept).
                                 Effect::Checkpoint { container, code, except, back } => {
                                     let c = FormId(container);
                                     if back {
-                                        let n = g.coop_check_out(c);
+                                        let n = nvf_play::script::with_world(rt, sim, |rt| rt.game.coop_check_out(c));
                                         info!("replication: the host's checkpoint gave its items back: this player gets back its own {n} from {c}");
                                     } else {
-                                        let n = g.coop_check_in(c, code, (except != 0).then_some(FormId(except)));
+                                        let n = nvf_play::script::with_world(rt, sim, |rt| rt.game.coop_check_in(c, code, (except != 0).then_some(FormId(except))));
                                         info!("replication: the host's checkpoint took its items (type {code}): this player hands over its own {n} to {c}");
                                     }
                                 }

@@ -468,6 +468,10 @@ pub(crate) fn show_actor(
         for e in bodies() {
             warn!("nav: {reference:08X} had a body left behind ({e}); it goes before it is drawn again");
             commands.entity(e).despawn();
+            // Not kept as its root: the body drawn next is found as that.
+            if *root == Some(e) {
+                *root = None;
+            }
         }
         let at = Vec3::from_array(feet);
         let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-heading), at);
@@ -536,11 +540,19 @@ pub(crate) fn show_actor(
 /// where it was and the next spawn drew a second one (owner's overnight queue item 105:
 /// a young gecko hunter at the edge of the loaded cells). It is no longer spawned after.
 pub(crate) fn bodies_to_let_go<I: Iterator<Item = Entity>>(root: &mut Option<Entity>, spawned: &mut bool, bodies: impl FnOnce() -> I) -> Vec<Entity> {
-    let out = match root.take() {
-        Some(e) => vec![e],
-        None if *spawned => bodies().collect(),
-        None => Vec::new(),
-    };
+    // Its root and every body of it found under the world root: a root that went
+    // already (taken as a body left behind, below in `show_actor`) is not the one drawn,
+    // and letting go of it alone left the drawn one standing (the Strip crowd's
+    // VStreetSS6Trooper01REF on a guest, laptop 2026-11-10: the host's disable despawned
+    // a body gone 46 s before, and the one drawn stood 10 s more, until hidden).
+    let mut out: Vec<Entity> = root.take().into_iter().collect();
+    if *spawned || !out.is_empty() {
+        for e in bodies() {
+            if !out.contains(&e) {
+                out.push(e);
+            }
+        }
+    }
     *spawned = false;
     out
 }
@@ -664,10 +676,14 @@ mod tests {
     fn a_body_spawned_but_not_found_yet_goes_when_the_actor_is_let_go() {
         let mut w = World::new();
         let (a, b) = (w.spawn_empty().id(), w.spawn_empty().id());
-        // Found: that one goes, the search is not needed.
+        // Found: that one goes, and any other body of it, but not twice.
         let (mut root, mut spawned) = (Some(a), true);
-        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || -> std::vec::IntoIter<Entity> { panic!("no search") }), vec![a]);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![a].into_iter()), vec![a]);
         assert_eq!((root, spawned), (None, false));
+        // A root that went already while another body of it is drawn: both are let go
+        // (the Strip crowd's trooper on a guest, 2026-11-10).
+        let (mut root, mut spawned) = (Some(a), false);
+        assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![b].into_iter()), vec![a, b]);
         // Spawned last frame, not found yet: whatever of it is there goes.
         let (mut root, mut spawned) = (None, true);
         assert_eq!(bodies_to_let_go(&mut root, &mut spawned, || vec![b].into_iter()), vec![b]);

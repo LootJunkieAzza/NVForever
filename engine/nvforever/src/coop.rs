@@ -3069,11 +3069,31 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
         let shown = world.is_enabled(id).unwrap_or(false);
         let by_parent = world.placed.get(id).is_some_and(|p| p.enable_parent.is_some());
         let enable = !shown && !by_parent;
-        let Ok(st) = world.get(id) else { continue };
-        // Elsewhere: another interior, or another worldspace, than this player's.
-        let elsewhere = st.cell.is_none_or(|c| c != cell && (player_space.is_none() || world.placed.world_of(c) != player_space));
+        let Ok(st_cell) = world.get(id).map(|st| st.cell) else { continue };
+        // Where the host has it (`NpcState::space`, protocol 129): another interior than
+        // this player's is that interior; this player's space (or none told) is the cell
+        // here at its feet. One in another worldspace is left to the drawing
+        // (`residents::Core::follow`). Putting every one of them in this player's cell
+        // fought the drawing every frame: Easy Pete, gone into the Prospector Saloon on
+        // the host, was put back in the street and taken in again 120 times a second
+        // while the guest stood outside (desktop vspace run, 2026-11-10).
+        let my_space = player_space.map_or(cell.0, |w| w.0);
+        let target = if s.space == 0 || s.space == my_space {
+            world.placed.exterior_cell_at(cell, s.feet).unwrap_or(cell)
+        } else if world.placed.world_grid.contains_key(&FormId(s.space)) {
+            if enable {
+                let _ = world.set_enabled(id, true);
+                enabled.push(id);
+                info!("co-op: {id} enabled as in the host's world");
+            }
+            continue;
+        } else {
+            FormId(s.space)
+        };
+        // Elsewhere: another interior, or another worldspace, than where it belongs.
+        let elsewhere = st_cell.is_none_or(|c| c != target && ((s.space != 0 && s.space != my_space) || player_space.is_none() || world.placed.world_of(c) != player_space));
         if elsewhere {
-            let to = world.placed.exterior_cell_at(cell, s.feet).unwrap_or(cell);
+            let to = target;
             if let Ok(st) = world.get(id) {
                 st.cell = Some(to);
                 st.pos = s.feet;
