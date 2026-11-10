@@ -18,6 +18,11 @@ the masters' scripts decompiled with `fnvtool script decompile`. No game data is
 - The messages are message boxes (DNAM Message Box) with a title (FULL "Healing Limbs")
   and a text (DESC) marked up with `<div>` at the start and `<p>` between paragraphs
   [observed].
+- The text names the controls by key strings: `&-sUActnUse;`, `&sUActnCrouch;`,
+  `&sDeviceMouse;` [observed: #1909, Movement and Combat 0x0006D914]. The menu shows
+  them as the keys or buttons bound now, as the lockpick help and the notes do
+  (`lockpick::help::expand_keys`, lockpicking.md) [hypothesis: the game's words for the
+  keys; the strings are the same as the lockpick help's].
 
 ## 2. The menu file [documented: menus\tutorial_menu.xml]
 
