@@ -551,6 +551,39 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   lights on the motel sign"). With the rule here the Tropicana, Mick & Ralph's and the
   Prospector Saloon match the old frames (mean difference under 0.3/255) and the sign
   shows green and magenta tubes at noon, cyan and magenta at night like its twins.
+  **Hue kept past white** (2026-11-10, queue items 146 and 174). Channel by channel the
+  inverse still raised every emitted channel past 0.95 to about 11-16, so a coloured
+  emitter whose weakest channel passed white burned white with a wide halo: in the
+  owner's playtest 119 frames the Lucky 38's card signs (`lucky38signglow.nif`
+  `L38sign_anim`, unlit, white × 6 on `Lucky38Sign_m.dds`, under the Strip's night
+  Emissive Mult ×2.67) and the Monte Carlo's cyan tube (HotM `montecarloclubshort.nif`,
+  `montecarloclubneon_g.dds` × (0, 0.58, 1) × 4) were white blobs, Gomorrah's tubes very
+  hot [observed]. The original's frames of the Lucky 38 at night (Fallout wiki,
+  `Lucky_38_at_night.jpg`) show the sign's letters pink and readable inside a soft halo
+  and the tower's bands a muted yellow [observed]. Rule now [engineering choice, judged
+  against those frames]: where the display clips, emitted light whose brightest channel
+  `m` passes white is drawn at `1 + 0.5 × log2(m)` in that channel (at most 3,
+  `hot_brightness`, `HOT_GLOW_PER_STOP`, `HOT_GLOW_MAX`), the other channels in proportion,
+  so after the clip a colour keeps its hue and what lies over white still feeds the light
+  glow. Up to white nothing changes. The test aid `NVF_NEON=per_stop,max,add_hue,pass,blend`
+  (nvforever lights.rs) replaces the numbers without a build.
+
+  **Blended glows held to white** (2026-11-10, queue item 146). An unlit emitter that
+  blends over the frame (SRC_ALPHA / INV_SRC_ALPHA) was drawn at its whole emitted
+  light, several times white on the Strip at night, so its alpha no longer shaped it.
+  The Ultra-Luxe's stair lights (`ultraluxdome_glows.nif` `StairLight1`..`10`: white
+  (0.91, 0.96, 0.98) × 2, flat white `L38GlowWL.dds`, vertex alpha 0.15 at most and 0 at
+  the rim) and the Lucky 38's (`lucky38stairlights.nif` `Stair_Lights:0`..`2`: white ×
+  1.25 with an alpha and an emissive-colour controller, the plain white corner of
+  `StripLights01.dds`, vertex alpha 0 to 1) [observed, `fnvtool nif decode`] came out as
+  solid white slabs over every step and thick white bars. The original's Ultra-Luxe
+  exterior (Fallout wiki, `Ultra_Luxe_exterior.jpg`, by day) shows the stair lights as
+  separate light strips with darker steps between them [observed]. Rule now
+  [hypothesis]: such a shape's colour is held to 1 in its brightest channel, the others
+  in proportion (`blend_glow`, `BLEND_GLOW_MAX`), so the alpha is the cover the mesh
+  stores. Additive shapes keep "Additive blend"; solid emitters keep the rule above.
+  Not settled by published frames: how bright the original's stair lights are at night
+  (docs/handoff/observer-checks.md).
 - **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
   (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
   centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim
@@ -699,7 +732,11 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   The sum is held to display 2.0 (`ADD_DISPLAY_MAX`) or the frame's own value if
   brighter [engineering choice: it lets the Big MT's sky beams, display 1.5 at the core,
   through whole and keeps a multiplier of 30 (the Securitron's screen flash) from adding
-  thousands of times white in the HDR view]. Bevy copies the frame only for a view with
+  thousands of times white in the HDR view]. Since 2026-11-10 what is added is first held
+  to display 1.5 in its brightest channel, the others in proportion (`ADD_HUE_MAX`): held
+  per channel, the Monte Carlo's bulbs (HotM `BulbLayer`, unlit (1.0, 0.84, 0.16) × 15)
+  reached 2.0 in all three and burned white discs that merged into one blob (owner's
+  playtest 119, queue item 174); now they are yellow dots [engineering choice]. Bevy copies the frame only for a view with
   something in its transmissive phase, so the engine keeps a material that reads the
   copy on a triangle of no area in every render layer (`TransmissionAnchor`); otherwise
   the shader would read a white stand-in. Cost: one copy of the frame per view and frame.

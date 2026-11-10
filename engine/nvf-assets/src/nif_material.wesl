@@ -176,6 +176,19 @@ fn tony_inverse(y: f32) -> f32 {
     return TONY_IN[TONY_N - 1u];
 }
 
+// The brightness at which emitted light whose brightest channel is `m` is drawn under the
+// display clip (nif_material.rs `hot_brightness`, the CPU mirror and the reasons): as it
+// is up to white, then HOT_GLOW_PER_STOP more for each doubling, at most HOT_GLOW_MAX.
+// The test aid NVF_NEON (nvforever lights.rs) replaces the two numbers.
+const HOT_GLOW_PER_STOP: f32 = 0.5;
+const HOT_GLOW_MAX: f32 = 3.0;
+fn hot_brightness(m: f32) -> f32 {
+    if m <= 1.0 {
+        return max(m, 0.0);
+    }
+    return min(1.0 + log2(m) * HOT_GLOW_PER_STOP, HOT_GLOW_MAX);
+}
+
 // `lit` plus the emitted light `e` as a hot source: held per channel, mapped through
 // the inverse response. Only light that goes past white is a hot source: blended in as
 // the emitted light's brightest channel rises from 0.8 to 1.5, so faint effect shapes
@@ -184,11 +197,15 @@ fn tony_inverse(y: f32) -> f32 {
 @if(!PREPASS_PIPELINE) fn hot_light(lit: vec3<f32>, e: vec3<f32>) -> vec3<f32> {
     let k = smoothstep(0.8, 1.5, max(e.r, max(e.g, e.b)));
     if !view_keeps_tony() {
-        // The display clips: only the emitted light is raised, channel by channel, as
-        // before (so a neon sign keeps the light glow its hot channels give it); the light
-        // falling on the surface is left as it is.
-        let he = min(e, vec3(HOT_MAX));
-        return lit + mix(e, vec3(tony_inverse(he.r), tony_inverse(he.g), tony_inverse(he.b)), k);
+        // The display clips: only the emitted light is changed; the light falling on the
+        // surface is left as it is. Emitted light past white keeps its hue: its brightest
+        // channel is compressed (hot_brightness) and the others follow in proportion, so
+        // after the clip a cyan tube stays cyan and a bulb stays a yellow dot, and what is
+        // left over white feeds the light glow. Raising each channel on its own past white
+        // turned every coloured sign white with a halo that swallowed its shape (owner's
+        // playtest 119: Lucky 38, Monte Carlo, Gomorrah; queue items 146, 174).
+        let m = max(e.r, max(e.g, e.b));
+        return lit + e * (hot_brightness(m) / max(m, 1e-6));
     }
     let d = min(lit + e, vec3(HOT_MAX));
     let hot = vec3(tony_inverse(d.r), tony_inverse(d.g), tony_inverse(d.b));
@@ -200,11 +217,27 @@ fn tony_inverse(y: f32) -> f32 {
 // and the reasons: nif_material.rs `add_display`). The game adds colour × alpha to the
 // frame's display values [hypothesis]: the sum is formed in display values (gamma 2.2),
 // held to ADD_DISPLAY_MAX (2.0) or the frame's own value if brighter, and the difference
-// to the frame returned as linear light.
+// to the frame returned as linear light. What is added is first held to ADD_HUE_MAX in
+// its brightest channel, the others in proportion, so a coloured shape keeps its hue
+// (the Monte Carlo's bulbs at × 15 stay yellow dots, not white discs).
+const ADD_HUE_MAX: f32 = 1.5;
+
+// The colour an unlit emitter that blends over the frame (SRC_ALPHA / INV_SRC_ALPHA) is
+// drawn at: its emitted light held to BLEND_GLOW_MAX in its brightest channel, the
+// others in proportion (CPU mirror and the reasons: nif_material.rs `blend_glow`). Its
+// alpha is how much of the frame it covers, so a colour past white would turn a soft
+// edge or a faint wash into a solid bar.
+const BLEND_GLOW_MAX: f32 = 1.0;
+fn blend_glow(e: vec3<f32>) -> vec3<f32> {
+    let m = max(e.r, max(e.g, e.b));
+    return e * min(1.0, BLEND_GLOW_MAX / max(m, 1e-6));
+}
 fn add_display(colour: vec3<f32>, a: f32, behind: vec3<f32>) -> vec3<f32> {
     let b = max(behind, vec3(0.0));
     let shown = pow(b, vec3(1.0 / 2.2));
-    let added = pow(max(colour, vec3(0.0)), vec3(1.0 / 2.2)) * saturate(a);
+    let raw = pow(max(colour, vec3(0.0)), vec3(1.0 / 2.2)) * saturate(a);
+    let top = max(raw.r, max(raw.g, raw.b));
+    let added = raw * min(1.0, ADD_HUE_MAX / max(top, 1e-6));
     let sum = min(shown + added, max(shown, vec3(2.0)));
     return max(pow(sum, vec3(2.2)) - b, vec3(0.0));
 }
@@ -518,8 +551,13 @@ fn nif_fragment(
             // glows and beams that blend or add over the frame stay soft (hot_light), or a
             // lamp's glow card burns into a hard disc on the wall behind it.
             @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) let unlit_blend = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-            @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
+            @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
                 out.color = vec4(unlit_e, out.color.a);
+            } else if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
+                // A glow that blends over the frame covers it by its alpha: its colour is
+                // held to BLEND_GLOW_MAX (blend_glow), or a strip authored at alpha 0.15
+                // (the Ultra-Luxe's stair lights) covers the steps in solid white.
+                out.color = vec4(blend_glow(unlit_e), out.color.a);
             } else {
                 out.color = vec4(hot_light(vec3(0.0), unlit_e), out.color.a);
             }

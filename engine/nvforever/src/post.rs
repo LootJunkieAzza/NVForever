@@ -180,6 +180,8 @@ fn image_space_glow(
     let hdr = &sky.cinematic().hdr;
     let intensity = modified_glow(glow_intensity(hdr), ratio(fnv_world::imagespace::HDR_BRIGHT_SCALE));
     let pass = modified_bright_pass(hdr.v[fnv_world::imagespace::HDR_BRIGHT_SCALE], ratio(fnv_world::imagespace::HDR_BRIGHT_SCALE), ratio(fnv_world::imagespace::HDR_BRIGHT_CLAMP));
+    // Test aid NVF_NEON's fourth number (lights.rs `neon_tune`).
+    let pass = pass * crate::lights::neon_tune().and_then(|t| t[3]).unwrap_or(1.0);
     if (pass - *told).abs() > 0.05 {
         info!("light glow: bright pass {pass:.2} (Bright Scale {:.1})", hdr.v[fnv_world::imagespace::HDR_BRIGHT_SCALE]);
         *told = pass;
