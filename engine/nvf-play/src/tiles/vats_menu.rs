@@ -996,7 +996,12 @@ mod tests {
         let menu = ui.menu(VATS_MENU).unwrap();
         let hit = hit_boxes(&ui, menu);
         assert_eq!(hit.arrows.iter().map(|a| a.0).collect::<Vec<_>>(), [-1, 1]);
-        assert!(inside(&hit.arrows[1].1, (1650.0, 250.0), 0.0) && !inside(&hit.arrows[0].1, (1650.0, 250.0), 0.0));
+        // The right arrow's box is at the view's right and holds its own middle; the left
+        // one's does not (the arrows stand halfway down the view now, not a quarter).
+        let right = &hit.arrows[1].1;
+        let middle = (right.left + right.width / 2.0, right.top + right.height / 2.0);
+        assert!(middle.0 > hit.arrows[0].1.left + hit.arrows[0].1.width, "{middle:?}");
+        assert!(inside(&hit.arrows[1].1, middle, 0.0) && !inside(&hit.arrows[0].1, middle, 0.0));
         assert_eq!(hit.parts.len(), 4);
         write_pointer(&mut ui, true, Some(1));
         let get = |path: &str, n: &str| ui.tile(ui.find_tile(path).unwrap()).get(n).cloned().unwrap();
