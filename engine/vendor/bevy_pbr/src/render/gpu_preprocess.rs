@@ -994,11 +994,8 @@ fn gather_shadow_cascades_for_view(
 ) -> SmallVec<[Entity; 8]> {
     let mut all_views: SmallVec<[_; 8]> = SmallVec::new();
     all_views.push(view_entity);
-    // NVForever held shadow maps: the cascades are not drawn this frame, so nothing is
-    // prepared for them.
-    if hold_directional.is_some_and(|hold| hold.0) {
-        return all_views;
-    }
+    // NVForever held shadow maps: nothing is prepared for the cascades not drawn this frame.
+    let hold = hold_directional.copied().unwrap_or_default();
     if let Some(shadow_cascade_views) = shadow_cascade_views {
         all_views.extend(
             shadow_cascade_views
@@ -1006,7 +1003,7 @@ fn gather_shadow_cascades_for_view(
                 .iter()
                 .filter(|light_entity| {
                     light_query.get(**light_entity).is_ok_and(|light_entity| {
-                        matches!(*light_entity, LightEntity::Directional { .. })
+                        matches!(*light_entity, LightEntity::Directional { cascade_index, .. } if !hold.holds(cascade_index))
                     })
                 })
                 .copied(),

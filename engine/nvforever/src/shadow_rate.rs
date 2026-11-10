@@ -19,7 +19,15 @@
 //!   ([`far_trees_cast_no_shadow`]): a SpeedTree tree is thousands of leaf cards and a
 //!   finely divided trunk in every cascade it falls in.
 //!
-//! What it costs and saves: docs/design/frame-rate-audit.md §9.
+//! With the switch off the sun's cascades are drawn on a staggered schedule
+//! ([`STAGGERED_SCHEDULE`], #2063): the nearest every frame, the middle one every other
+//! frame, the farthest every fourth, each held cascade kept with the matrices of the frame
+//! that drew it, as above. A moving thing's shadow in the far cascades moves at a half or
+//! a quarter of the frame rate, and on a fast turn the edge of the view can lie outside a
+//! held cascade for up to three frames. Test aid `NVF_PLAY_TEST_SHADOW_STAGGER=0` draws
+//! every cascade every frame.
+//!
+//! What it costs and saves: docs/design/frame-rate-audit.md §9 and §10.
 
 use crate::fly::FlyCam;
 use crate::sky::{SkyState, Sun};
@@ -108,11 +116,30 @@ fn far_trees_cast_no_shadow(
     }
 }
 
-/// Whether a frame may reuse the maps of the frame before: that frame drew them, and every
-/// light has the cascades it drew them with, for the same views and as many of them.
-fn can_hold(drew_last: bool, kept: &EntityHashMap<Cascades>, now: &[(Entity, &Cascades)]) -> bool {
-    drew_last
-        && !now.is_empty()
+/// How often each cascade's map is drawn, nearest cascade first: `(n, phase)` draws it on
+/// the frames where (frame + phase) is a multiple of n; a cascade past the list is drawn
+/// every frame. With the switch on, both cascades every other frame, together.
+pub const LIGHTER_SCHEDULE: [(u32, u32); 2] = [(2, 0), (2, 0)];
+/// With the switch off: the nearest cascade every frame, the middle one every other frame
+/// and the farthest every fourth, on different frames, so at most two are drawn in one
+/// frame (1.75 of 3 on average). The farthest holds most of the casters (about 1,150 of
+/// 1,400 at Goodsprings, 1,570 of 2,140 at Novac), and its shadows are the coarsest, so a
+/// moving thing's shadow there moving at a quarter of the frame rate shows least.
+pub const STAGGERED_SCHEDULE: [(u32, u32); 3] = [(1, 0), (2, 1), (4, 2)];
+
+/// The cascades (a bit each, nearest first) whose maps frame `frame` keeps from an earlier
+/// frame under `schedule`, of `cascades` cascades.
+pub fn held_mask(schedule: &[(u32, u32)], frame: u64, cascades: usize) -> u32 {
+    (0..cascades.min(32)).fold(0, |mask, i| {
+        let (n, phase) = schedule.get(i).copied().unwrap_or((1, 0));
+        if n > 1 && (frame + u64::from(phase)) % u64::from(n) != 0 { mask | 1 << i } else { mask }
+    })
+}
+
+/// Whether the cascades kept from earlier frames can stand in for this frame's: every
+/// light has kept cascades for the same views, as many of them.
+fn same_layout(kept: &EntityHashMap<Cascades>, now: &[(Entity, &Cascades)]) -> bool {
+    !now.is_empty()
         && now.iter().all(|(light, cascades)| {
             kept.get(light).is_some_and(|k| {
                 k.cascades.len() == cascades.cascades.len()
@@ -121,44 +148,68 @@ fn can_hold(drew_last: bool, kept: &EntityHashMap<Cascades>, now: &[(Entity, &Ca
         })
 }
 
-/// Every other frame, give the directional lights back the cascades of the frame before
-/// and have the renderer keep its shadow maps (module notes). Runs after Bevy has built
-/// this frame's cascades and before it fits the lights' frusta to them.
+/// Whether the cascades are drawn on a staggered schedule with the switch off (test aid
+/// `NVF_PLAY_TEST_SHADOW_STAGGER=0` draws every cascade every frame).
+fn staggered() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_SHADOW_STAGGER").map_or(true, |v| v != "0"))
+}
+
+/// The cascades not drawn this frame ([`LIGHTER_SCHEDULE`], [`STAGGERED_SCHEDULE`]): give
+/// the directional lights back those cascades as the frame that drew them had them, and
+/// have the renderer keep their maps (module notes). Runs after Bevy has built this
+/// frame's cascades and before it fits the lights' frusta to them.
 fn hold_cascades(
     on: Res<LighterShadows>,
     map: Option<Res<DirectionalLightShadowMap>>,
     mut hold: ResMut<HoldDirectionalShadowMaps>,
     mut lights: Query<(Entity, &mut Cascades), With<DirectionalLight>>,
     mut kept: Local<EntityHashMap<Cascades>>,
-    mut drew_last: Local<bool>,
+    mut frame: Local<u64>,
     mut said: Local<bool>,
 ) {
+    *frame = frame.wrapping_add(1);
+    let schedule: &[(u32, u32)] = if on.0 {
+        &LIGHTER_SCHEDULE
+    } else if staggered() {
+        &STAGGERED_SCHEDULE
+    } else {
+        &[]
+    };
+    let count = lights.iter().flat_map(|(_, c)| c.cascades.values().map(Vec::len)).max().unwrap_or(0);
     // A new map size makes new maps: nothing to keep.
     let same_maps = !map.is_some_and(|m| m.is_changed());
-    let holds = on.0 && same_maps && {
-        let now: Vec<(Entity, &Cascades)> = lights.iter().collect();
-        can_hold(*drew_last, &kept, &now)
-    };
-    if holds {
-        for (light, mut cascades) in &mut lights {
-            if let Some(k) = kept.get(&light) {
-                *cascades = k.clone();
-            }
-        }
-    } else {
+    let mut mask = held_mask(schedule, *frame, count);
+    if mask != 0 && !(same_maps && same_layout(&kept, &lights.iter().map(|(e, c)| (e, c)).collect::<Vec<_>>())) {
+        mask = 0;
+    }
+    if mask == 0 {
         kept.clear();
-        if on.0 {
+        if !schedule.is_empty() {
             kept.extend(lights.iter().map(|(e, c)| (e, c.clone())));
         }
+    } else {
+        for (light, mut cascades) in &mut lights {
+            let Some(k) = kept.get_mut(&light) else { continue };
+            for (view, list) in cascades.cascades.iter_mut() {
+                let Some(kl) = k.cascades.get_mut(view) else { continue };
+                for (i, (c, kc)) in list.iter_mut().zip(kl.iter_mut()).enumerate() {
+                    if mask & (1 << i) != 0 {
+                        *c = kc.clone();
+                    } else {
+                        *kc = c.clone();
+                    }
+                }
+            }
+        }
     }
-    *drew_last = !holds;
     // Once each time the switch goes on: the first frame that kept its maps.
-    if holds && !*said {
+    if on.0 && mask != 0 && !*said {
         info!("sun shadows: a frame kept the shadow maps of the frame before ({} light(s))", kept.len());
     }
-    *said = on.0 && (*said || holds);
-    if hold.0 != holds {
-        hold.0 = holds;
+    *said = on.0 && (*said || mask != 0);
+    if hold.0 != mask {
+        hold.0 = mask;
     }
 }
 
@@ -189,21 +240,33 @@ mod tests {
     }
 
     #[test]
-    fn maps_are_held_only_after_a_frame_that_drew_them_for_the_same_lights_and_cascades() {
+    fn maps_are_held_only_for_the_same_lights_and_cascades() {
         let (sun, arms, view) = (Entity::from_raw_u32(1).unwrap(), Entity::from_raw_u32(2).unwrap(), Entity::from_raw_u32(3).unwrap());
         let (three, two) = (cascades(view, 3), cascades(view, 2));
         let mut kept = EntityHashMap::default();
         kept.insert(sun, three.clone());
-        // The frame before drew, and the sun's cascades are those it drew with.
-        assert!(can_hold(true, &kept, &[(sun, &three)]));
-        // Not two frames running, and never without lights.
-        assert!(!can_hold(false, &kept, &[(sun, &three)]));
-        assert!(!can_hold(true, &kept, &[]));
+        assert!(same_layout(&kept, &[(sun, &three)]));
+        // Never without lights.
+        assert!(!same_layout(&kept, &[]));
         // A light that was not there (the arms' shade light switching on), a different
         // number of cascades, or another view: this frame draws.
-        assert!(!can_hold(true, &kept, &[(sun, &three), (arms, &three)]));
-        assert!(!can_hold(true, &kept, &[(sun, &two)]));
-        assert!(!can_hold(true, &kept, &[(sun, &cascades(arms, 3))]));
+        assert!(!same_layout(&kept, &[(sun, &three), (arms, &three)]));
+        assert!(!same_layout(&kept, &[(sun, &two)]));
+        assert!(!same_layout(&kept, &[(sun, &cascades(arms, 3))]));
+    }
+
+    #[test]
+    fn the_schedules_hold_the_cascades_they_should() {
+        // Lighter: both cascades every other frame, together.
+        let lighter: Vec<u32> = (0..4).map(|f| held_mask(&LIGHTER_SCHEDULE, f, 2)).collect();
+        assert_eq!(lighter, [0, 0b11, 0, 0b11]);
+        // Staggered: the nearest every frame, the middle every other, the farthest every
+        // fourth, never both of the far two drawn in one frame.
+        let staggered: Vec<u32> = (0..4).map(|f| held_mask(&STAGGERED_SCHEDULE, f, 3)).collect();
+        assert_eq!(staggered, [0b110, 0b100, 0b010, 0b100]);
+        // More cascades than the schedule: those are drawn every frame.
+        assert_eq!(held_mask(&LIGHTER_SCHEDULE, 1, 3), 0b011);
+        assert_eq!(held_mask(&[], 1, 3), 0);
     }
 
     #[test]

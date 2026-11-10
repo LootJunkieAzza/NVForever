@@ -57,19 +57,21 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 `pipboy-first-open` scenarios passed with a clean first opening without them
 (2026-11-07).
 
-Another change (held shadow maps, docs/design/frame-rate-audit.md §9; the game's Lighter sun
-shadows switch, nvforever shadow_rate.rs), marked `NVForever held shadow maps`:
+Another change (held shadow maps, docs/design/frame-rate-audit.md §9 and §10; the game's
+Lighter sun shadows switch and staggered cascades, nvforever shadow_rate.rs), marked
+`NVForever held shadow maps`:
 
-- `src/render/light.rs`: the render-world resource `HoldDirectionalShadowMaps`. While it is
-  `true`, `per_view_shadow_pass` leaves out the views of directional lights, so their
-  shadow maps keep the picture of the last frame that drew them. Point and spot lights'
-  maps are drawn as ever.
-- `src/render/gpu_preprocess.rs`: `gather_shadow_cascades_for_view` then returns the main
-  view alone, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare
-  nothing for the cascades that frame.
+- `src/render/light.rs`: the render-world resource `HoldDirectionalShadowMaps`, a bit per
+  cascade index (#2063: it was one switch for all of them). `per_view_shadow_pass` leaves
+  out the directional light views whose cascade's bit is set, so their shadow maps keep the
+  picture of the last frame that drew them. Point and spot lights' maps are drawn as ever.
+- `src/render/gpu_preprocess.rs`: `gather_shadow_cascades_for_view` leaves out the same
+  views, so `early_gpu_preprocess`, `allocate_uniforms` and `unpack_bins` prepare nothing
+  for those cascades that frame.
 
-Bevy inserts no such resource, and without it (or with `false`) nothing changes. Whoever
-sets it must hand the lights the cascades of the frame that drew the maps, as the game does.
+Bevy inserts no such resource, and without it (or with no bits set) nothing changes.
+Whoever sets it must hand the lights the held cascades as the frame that drew them had
+them, as the game does.
 Upstream has no way to draw a light's shadow map less often than every frame.
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
