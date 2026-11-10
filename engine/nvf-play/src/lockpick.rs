@@ -532,6 +532,7 @@ fn open(
 }
 
 /// The keys and the mouse.
+#[allow(clippy::too_many_arguments)]
 fn keys(
     keys: Res<ButtonInput<KeyCode>>,
     motion: Option<Res<AccumulatedMouseMotion>>,
@@ -539,6 +540,8 @@ fn keys(
     screen: Res<LockpickScreen>,
     over_button: Query<&PointerState, With<screen::LockButton>>,
     mut out: MessageWriter<LockpickInput>,
+    input: ControlInput,
+    script: Option<Res<ScriptState>>,
 ) {
     let Some(s) = screen.0.as_ref() else { return };
     if s.leaving.is_some() {
@@ -566,6 +569,23 @@ fn keys(
     if keys.pressed(KeyCode::ArrowRight) {
         turn += KEY_DEGREES * dt;
     }
+    // The player's tweak: the strafe keys move the pin, Shift faster and Ctrl slower
+    // [design: docs/design/tweaks.md].
+    if moving_keys(script.as_deref()) {
+        let k = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
+            2.0
+        } else if keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]) {
+            0.5
+        } else {
+            1.0
+        };
+        if input.pressed(Control::SlideLeft) {
+            turn -= KEY_DEGREES * k * dt;
+        }
+        if input.pressed(Control::SlideRight) {
+            turn += KEY_DEGREES * k * dt;
+        }
+    }
     // The pointer on a button moves no pin [design: the original hides the pointer over
     // the lock only, `LPM_DetectArea`].
     let on_button = over_button.iter().any(|i| *i != PointerState::None);
@@ -578,9 +598,16 @@ fn keys(
 }
 
 /// Whether torque is held: any of the four movement controls [documented: the help
-/// message].
-fn torque_held(input: &ControlInput) -> bool {
-    [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight].into_iter().any(|c| input.pressed(c))
+/// message]; with the player's Keyboard Movement tweak Forward, Back and Jump, the strafe
+/// keys moving the pin instead [design: docs/design/tweaks.md].
+fn torque_held(input: &ControlInput, moving_keys: bool) -> bool {
+    let controls: &[Control] = if moving_keys { &[Control::Forward, Control::Back, Control::Jump] } else { &[Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight] };
+    controls.iter().any(|&c| input.pressed(c))
+}
+
+/// The Keyboard Movement tweak is on.
+fn moving_keys(script: Option<&ScriptState>) -> bool {
+    script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.lockpick_move_keys)
 }
 
 fn buttons(screen: Res<LockpickScreen>, pressed: Query<(&PointerState, &screen::LockButton), Changed<PointerState>>, mut out: MessageWriter<LockpickInput>) {
@@ -763,7 +790,7 @@ fn step(
     }
     // The player's tweak: the left mouse button turns the screwdriver too [design: docs/design/tweaks.md].
     let mouse_turns = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.lockpick_mouse_turn);
-    let torque = torque_held(&input) || aid || (mouse_turns && input.mouse.pressed(MouseButton::Left));
+    let torque = torque_held(&input, moving_keys(script.as_deref())) || aid || (mouse_turns && input.mouse.pressed(MouseButton::Left));
     let strained = s.game.stopped;
     let reference = s.reference;
     let events = s.game.step(dt, torque);

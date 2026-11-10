@@ -368,6 +368,9 @@ pub struct Tweaks {
     /// `bShowUsePasswordOnTerminalsWithNote`: a locked terminal the player holds the
     /// password note of says so until first opened.
     pub terminal_password_prompt: bool,
+    /// `bLockPickMenuKeyboardMovement`: in lockpicking the strafe keys move the pin and
+    /// Forward, Back and Jump turn the screwdriver.
+    pub lockpick_move_keys: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -540,6 +543,7 @@ impl Default for Tweaks {
             repair_needs_weapon_skill: false,
             hide_unknown_names: false,
             terminal_password_prompt: false,
+            lockpick_move_keys: false,
         }
     }
 }

@@ -1262,6 +1262,7 @@ impl Plugin for TweaksPlugin {
         );
         switch!(app, "female-facial-hair", "Facial Hair for Women", "The character creator and the barber offer facial hair to a woman too. (Stewie's Tweaks bRaceMenuAllowFemaleFacialHair)", female_facial_hair);
         switch!(app, "terminal-password-prompt", "Show Use Password", "A locked terminal whose password note the player holds says so in its prompt until first opened. (Stewie's Tweaks bShowUsePasswordOnTerminalsWithNote)", game.terminal_password_prompt);
+        switch!(app, "lockpick-move-keys", "Lockpicking With the Movement Keys", "Picking a lock, the strafe keys move the pin (Shift faster, Ctrl slower) and Forward, Back or Jump turn the screwdriver. (Stewie's Tweaks bLockPickMenuKeyboardMovement)", game.lockpick_move_keys);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

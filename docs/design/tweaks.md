@@ -467,6 +467,7 @@ unless the player binds them, so nothing changes until then.
 | Companion Compass Colour | `bCompanionPipColorChange` | `compass::Mark::Companion` for teammates, drawn in `tweaks::COMPANION_COLOURS` (a choice of ours in place of the tweak's RGB value) |
 | Facial Hair for Women | `bRaceMenuAllowFemaleFacialHair` | `creator::model::Model::female_beards` (set by `creator::sync`) keeps the facial hair row and its shading for a woman; a change of sex to female still clears the beard |
 | Show Use Password | `bShowUsePasswordOnTerminalsWithNote` | `fnv_game::terminal::opens_by_password` gives `Action::UsePassword` ("Locked (Use Password)", our words) until the terminal has been opened (`Terminals::opened`, this session only) |
+| Lockpicking With the Movement Keys | `bLockPickMenuKeyboardMovement` | `lockpick::keys` moves the pin with the strafe keys (Shift twice as fast, Ctrl half: ours); `torque_held` takes Forward, Back and Jump |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -488,8 +489,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 388 |
-| to do | 215 |
+| done | 389 |
+| to do | 214 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -928,6 +929,7 @@ game's Data folder, read-only).
 | `bInvertPipboyRepairMenuSorting` | done |  |  | Repair List: Low Condition First |
 | `bKarmaTitleShowsValue` | done |  |  | already so: the karma number is under its title |
 | `bLockpickAllowMouse` | done |  |  | Mouse Turns the Lock |
+| `bLockPickMenuKeyboardMovement` | done |  | 3 | Lockpicking With the Movement Keys (Shift x2, Ctrl x0.5: ours) |
 | `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
 | `bNoCapitaliseContainerCategories` | done |  |  | Quiet Category Titles |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
@@ -992,7 +994,6 @@ game's Data folder, read-only).
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
-| `bLockPickMenuKeyboardMovement` | to do |  | 3 | lockpick keys and torque_held |
 | `bMapLocationDisplayDistance` | to do |  | 3 | world_map detail line |
 | `bMapRecenterHotkey` | to do |  | 2 | pipboy data take_input |
 | `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
