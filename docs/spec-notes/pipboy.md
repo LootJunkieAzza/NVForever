@@ -279,9 +279,11 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   titles, the same along rows and columns, where the pointer's own hard edge measures 0.8. With
   `fBlurRadiusPipboy` and `fBlurIntensityPipboy` at 0 they measure the same, so that blur is not
   what softens them; what does is not known (`fBlurRadiusMenus=0.30` is a [hypothesis]).
-  NVForever: the screen's material reads the menus' picture through a 3 x 3 tent of taps 0.75 of
-  a view pixel apart (`device_screen.rs` `TEXT_SOFTEN`) [hypothesis: by its spread about 1.6 on a
-  hard edge; to be fitted on this engine's shots with the same measure], and adds a triangular
+  NVForever: the screen's material reads the menus' picture through a 3 x 3 tent of taps 0.4 of
+  a view pixel apart (`device_screen.rs` `TEXT_SOFTEN`) [observed: the same measure on this
+  engine's 1280 x 720 shots (scenario `pipboy-screen-text`): none 1.48 to 1.60 px, 0.75 1.69 to
+  1.96, 0.4 S.P.E.C.I.A.L. 1.59, Skills 1.59, ITEMS 1.58, DATA 1.66, Status 1.62 (the
+  original's Status, 2.06, is softer than this tent makes it)], and adds a triangular
   noise of 1.35 display levels' reach, new every frame (`SCREEN_NOISE`; about 0.6 levels once
   rounded) [design], on the model only.
 - **Background**: `Interface\Shared\Background\pipboy.dds` over the whole canvas at
