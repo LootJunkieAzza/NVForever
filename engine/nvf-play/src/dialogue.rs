@@ -814,11 +814,15 @@ fn sync_state(
     mut next: ResMut<NextState<PlayState>>,
     mut world_held: ResMut<WorldHeld>,
     mut look: ResMut<FreeLook>,
+    (repair, recipes): (Option<Res<crate::repair::RepairServices>>, Option<Res<crate::crafting::RecipeMenu>>),
 ) {
     let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let talking = game.is_some_and(|g| g.dialogue.is_some());
     let boxed = game.and_then(|g| g.menu).is_some_and(is_script_menu);
-    let own_menu = active.0.is_some() || paused.0;
+    // The repair and recipe menus a line opened stay over the conversation until closed
+    // (queue item 143: Major Knight's repair menu was put back to the dialogue at once).
+    let script_menu = repair.is_some_and(|r| r.is_open()) || recipes.is_some_and(|r| r.is_open());
+    let own_menu = active.0.is_some() || paused.0 || script_menu;
     match (*state.get(), talking) {
         (PlayState::Playing, true) => next.set(PlayState::Dialogue),
         (PlayState::Menu, true) if !own_menu => next.set(PlayState::Dialogue),

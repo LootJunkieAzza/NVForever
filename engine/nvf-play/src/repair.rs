@@ -267,7 +267,12 @@ fn scripts_open(
     mut sounds: MessageWriter<UiSound>,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    if rt.game.repair_requests.is_empty() || *state.get() != PlayState::Playing || menu.is_open() || active.0.is_some() {
+    // Over a conversation too: a line's ShowRepairMenu / ShowRecipeMenu opens the menu when
+    // the line ends, and closing it goes back to the choices (Major Knight's "I need
+    // repairs.", queue item 143) [documented: GECK wiki ShowRepairMenu, called from a
+    // topic's result script].
+    let here = matches!(*state.get(), PlayState::Playing | PlayState::Dialogue);
+    if rt.game.repair_requests.is_empty() || !here || menu.is_open() || active.0.is_some() {
         return;
     }
     let Some(r) = rt.game.repair_requests.pop() else { return };
@@ -351,7 +356,7 @@ fn keys(
     if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab]) || clicked == Some(RepairButton::Done) || act("done") {
         info!("repair menu: done");
         sounds.write(UiSound { menu: UiMenu::Repair, event: UiEvent::Back });
-        next.set(PlayState::Playing);
+        next.set(if rt.game.dialogue.is_some() { PlayState::Dialogue } else { PlayState::Playing });
         return;
     }
     let forms = sim.forms;
