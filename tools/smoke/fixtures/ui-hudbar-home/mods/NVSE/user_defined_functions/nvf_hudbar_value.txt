@@ -1,0 +1,5 @@
+; The bound bar's value: a share that grows with the session's seconds (raw, the bar is
+; bound without iCalculateValueMax).
+Begin Function { }
+SetFunctionValue (GetSessionTime / 100)
+End
