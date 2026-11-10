@@ -157,7 +157,10 @@ time: open.
   function (`GetSelf.SetActorValue …`), on another quest's or reference's ref variable
   (`Quest.rVar.Func`) and on an array element holding a reference
   (`a[100].GetBaseObject`); before, only on a local ref variable or a reference form
-  [documented: Chained dot syntax].
+  [documented: Chained dot syntax]. A head that names no variable or form but a
+  function (`GetSelf.GetProjectileRefDamage`) compiles as that function called with no
+  arguments, the tail called on its result [observed: projectile set rows proj.reg and
+  proj.reg2 compile in the original, #2036]; a head naming nothing is still refused.
 - **Binary literals**: `0b` followed by bits, highest first, wherever extender
   expressions are allowed [documented: Binary Notation]. The page's own example says
   `0b101010` equals 52; by its stated rule (bits highest first) it is 42, so the

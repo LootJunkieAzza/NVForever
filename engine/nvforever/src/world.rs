@@ -1226,9 +1226,13 @@ pub fn spawn_model(
             commands.entity(root).insert(crate::wrecks::WreckRig { form_id: r, path: path.clone(), nodes: nodes.clone() });
         }
         if !rig.groups.is_empty() {
-            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
+            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes.clone()));
             stats.refs_group_rigs += 1;
         }
+        // Its nodes by name, for what follows one (`nvf_play::RefNodes`, ui_attach.rs): the
+        // map spawn_nodes made, kept rather than dropped here (copied only when a GroupRig
+        // took it above, as before).
+        commands.entity(root).insert(nvf_play::RefNodes { reference: r, nodes });
         stats.shapes += drawn.len();
         stats.refs_drawn += 1;
         stats.refs_animated += 1;
