@@ -468,6 +468,7 @@ unless the player binds them, so nothing changes until then.
 | Facial Hair for Women | `bRaceMenuAllowFemaleFacialHair` | `creator::model::Model::female_beards` (set by `creator::sync`) keeps the facial hair row and its shading for a woman; a change of sex to female still clears the beard |
 | Show Use Password | `bShowUsePasswordOnTerminalsWithNote` | `fnv_game::terminal::opens_by_password` gives `Action::UsePassword` ("Locked (Use Password)", our words) until the terminal has been opened (`Terminals::opened`, this session only) |
 | Lockpicking With the Movement Keys | `bLockPickMenuKeyboardMovement` | `lockpick::keys` moves the pin with the strafe keys (Shift twice as fast, Ctrl half: ours); `torque_held` takes Forward, Back and Jump |
+| Store All | `bContainerMenuStoreAllHotkey` | `menu::model::Command::StoreAll`, sent for Shift with Take All while `MenuModel::store_all`; the player's listed rows go in, worn and quest items stay |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -489,8 +490,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 389 |
-| to do | 214 |
+| done | 390 |
+| to do | 213 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -911,6 +912,7 @@ game's Data folder, read-only).
 | `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
 | `bCompareWeaponStats` | done |  |  | Compare Weapons (DAM and DPS, both at full condition) |
 | `bContainerEncumbranceIndicator` | done |  |  | Weight Warning (the selected row, the whole stack) |
+| `bContainerMenuStoreAllHotkey` | done |  | 1 | Store All (Shift with Take All; worn and quest items stay) |
 | `bContainerTakeAllDoesntCloseMenu` | done |  |  | Take All Stays Open |
 | `bDialogueKeepVoiceActingNotes` | done |  |  | Keep Acting Notes (spoken lines; topics as before) |
 | `bDisableInventoryRightClickDrop` | done |  |  | No Right-Click Drop |
@@ -979,7 +981,6 @@ game's Data folder, read-only).
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
 | `bCompareArmorStats` | to do |  |  | needs the worn pieces of the same slots summed |
-| `bContainerMenuStoreAllHotkey` | to do |  | 1 | a Store All command |
 | `bContainerQuantityMenuShowsWeight` | to do |  |  | the quantity box has no weight |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | pipboy close_keys with the pad East button |

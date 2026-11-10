@@ -532,6 +532,9 @@ pub enum Command {
     Stack,
     /// Container menu: take everything from the container.
     TakeAll,
+    /// Container menu: put everything listed on the player's side in the container, but
+    /// what is worn or a quest's (the Store All tweak [design: docs/design/tweaks.md]).
+    StoreAll,
     /// Barter: make the trade.
     Accept,
     /// Inventory: drop one unit of the selected stack into the world.
@@ -733,6 +736,8 @@ pub struct MenuModel {
     /// equipped items are left out of the player's side in barter and containers;
     /// category titles in title case.
     pub take_all_stays: bool,
+    /// The player's Store All tweak: Shift with Take All stores instead.
+    pub store_all: bool,
     pub hide_equipped_barter: bool,
     pub hide_equipped_containers: bool,
     pub title_case_categories: bool,
@@ -913,6 +918,7 @@ impl MenuModel {
             vendor_lists_both: false,
             hide_misc_quest: false,
             take_all_stays: false,
+            store_all: false,
             hide_equipped_barter: false,
             hide_equipped_containers: false,
             title_case_categories: false,
@@ -1370,6 +1376,16 @@ impl MenuModel {
                 out.taken.clone_from(&moved);
                 Ok(if moved.is_empty() { "Nothing to take".into() } else { format!("Took everything ({n} items)") })
             }
+            (Mode::Container(_), Command::StoreAll) if self.steal.is_some() => Ok("Give items one at a time".into()),
+            (Mode::Container(c), Command::StoreAll) => {
+                let rows: Vec<Row> = self.lists[Side::Player as usize].rows.iter().filter(|r| r.folder.is_none() && !r.equipped && !r.quest).cloned().collect();
+                let mut n: i64 = 0;
+                for r in &rows {
+                    n += world.transfer_at(PLAYER, c, r.item, r.count, r.pick())? as i64;
+                }
+                out.changed = n > 0;
+                Ok(if n == 0 { "Nothing to store".into() } else { format!("Stored everything ({n} items)") })
+            }
             (Mode::Container(c), Command::One | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 let (from, to) = match self.focus {
@@ -1493,7 +1509,7 @@ impl MenuModel {
                 Ok(format!("Dropped {} x{want}", name(&r)))
             }
             (Mode::Container(_) | Mode::Barter(_), Command::Drop | Command::DropStack) => Ok("Drop from the inventory menu (Tab)".into()),
-            (Mode::Inventory, Command::Stack | Command::TakeAll) => Ok("No container open".into()),
+            (Mode::Inventory, Command::Stack | Command::TakeAll | Command::StoreAll) => Ok("No container open".into()),
             _ => Ok(String::new()),
         }
     }

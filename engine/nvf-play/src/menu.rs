@@ -501,7 +501,8 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut fresh
     }
     match m.mode {
         Mode::Barter(_) if keys.just_pressed(KeyA) => send(Command::Accept),
-        Mode::Container(_) if keys.just_pressed(KeyR) => send(Command::TakeAll),
+        // The player's tweak: Shift with Take All stores everything instead [design: docs/design/tweaks.md].
+        Mode::Container(_) if keys.just_pressed(KeyR) => send(if shift && m.store_all { Command::StoreAll } else { Command::TakeAll }),
         _ => {}
     }
 }
@@ -853,7 +854,7 @@ fn apply_input(
         if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
             sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
         }
-        let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
+        let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::StoreAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
         if moves_items || a.changed {
             if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {
                 info!("menu: {cmd:?}: {s}");

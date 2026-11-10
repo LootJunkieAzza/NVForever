@@ -281,6 +281,9 @@ pub struct TweakSettings {
     pub companion_pip: usize,
     /// `bRaceMenuAllowFemaleFacialHair`: the character menus offer facial hair to women.
     pub female_facial_hair: bool,
+    /// `bContainerMenuStoreAllHotkey`: Shift with Take All puts everything listed on the
+    /// player's side in the container.
+    pub store_all: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -457,6 +460,7 @@ impl Default for TweakSettings {
             ammo_label_under: false,
             companion_pip: 0,
             female_facial_hair: false,
+            store_all: false,
         }
     }
 }
@@ -1263,6 +1267,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "female-facial-hair", "Facial Hair for Women", "The character creator and the barber offer facial hair to a woman too. (Stewie's Tweaks bRaceMenuAllowFemaleFacialHair)", female_facial_hair);
         switch!(app, "terminal-password-prompt", "Show Use Password", "A locked terminal whose password note the player holds says so in its prompt until first opened. (Stewie's Tweaks bShowUsePasswordOnTerminalsWithNote)", game.terminal_password_prompt);
         switch!(app, "lockpick-move-keys", "Lockpicking With the Movement Keys", "Picking a lock, the strafe keys move the pin (Shift faster, Ctrl slower) and Forward, Back or Jump turn the screwdriver. (Stewie's Tweaks bLockPickMenuKeyboardMovement)", game.lockpick_move_keys);
+        switch!(app, "store-all", "Store All", "In a container, Shift with Take All puts everything listed on the player's side in it, but what is worn or a quest's. (Stewie's Tweaks bContainerMenuStoreAllHotkey)", store_all);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1494,6 +1499,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if m.warn_encumbrance != tweaks.warn_encumbrance {
             m.warn_encumbrance = tweaks.warn_encumbrance;
+        }
+        if m.store_all != tweaks.store_all {
+            m.store_all = tweaks.store_all;
         }
         let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
         if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {
