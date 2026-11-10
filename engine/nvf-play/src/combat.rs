@@ -3342,6 +3342,10 @@ pub fn wear_weapon(
     points: f32,
     at: Option<V3>,
 ) -> Option<Wear> {
+    // The player's tweak: the companions' weapons do not wear [design: docs/design/tweaks.md].
+    if actor != FormId::PLAYER_REF && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_companion_item_damage && rt.game.is_teammate(actor)) {
+        return None;
+    }
     // The player's Modify Item Damage perks (Regular Maintenance × 0.5, Built to
     // Destroy × 1.15) (docs/spec-notes/perk-entry-points.md §2).
     let points = if actor == FormId::PLAYER_REF {

@@ -1405,6 +1405,8 @@ impl Plugin for TweaksPlugin {
             ),
         );
         switch!(app, "standing-sneak-attacks", "Sneak Attacks Standing", "An attack on someone who has not detected the player is a sneak attack without crouching too. (Stewie's Tweaks bSneakAttackWithoutCrouching)", game.standing_sneak_attacks);
+        switch!(app, "no-companion-item-damage", "No Companion Item Damage", "The companions' weapons do not wear with use. (Stewie's Tweaks bNoCompanionItemDamage)", game.no_companion_item_damage);
+        switch!(app, "modding-needs-skill", "Weapon Mods Need the Skill", "A weapon can be modded only by a player who meets its skill requirement. (Stewie's Tweaks bWeaponModdingSkillRequirement)", game.modding_needs_skill);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

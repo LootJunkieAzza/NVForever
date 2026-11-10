@@ -402,6 +402,11 @@ pub struct Tweaks {
     /// `bSneakAttackWithoutCrouching`: an attack on someone who has not detected the
     /// player is a sneak attack standing too.
     pub standing_sneak_attacks: bool,
+    /// `bNoCompanionItemDamage`: the companions' weapons do not wear.
+    pub no_companion_item_damage: bool,
+    /// `bWeaponModdingSkillRequirement`: a weapon is modded only by a player who meets
+    /// its skill requirement.
+    pub modding_needs_skill: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -587,6 +592,8 @@ impl Default for Tweaks {
             no_self_meltdown: false,
             max_level: 0,
             standing_sneak_attacks: false,
+            no_companion_item_damage: false,
+            modding_needs_skill: false,
         }
     }
 }

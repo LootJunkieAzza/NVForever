@@ -300,6 +300,7 @@ pub fn keys(
     combat: Option<Res<crate::combat::Combat>>,
     mut sounds: MessageWriter<UiSound>,
     prompt: Res<crate::menu::PromptKeys>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
@@ -335,6 +336,16 @@ pub fn keys(
             (None, ModInput::Open) => {
                 // Not a weapon with mod slots: X does nothing.
                 let Some(o) = current(&active, &sim, combat.as_deref()) else { continue };
+                // The player's tweak: modding a weapon asks its skill requirement [design: docs/design/tweaks.md].
+                let need = combat.as_deref().and_then(|c| c.forms.weapons.get(&o.item)).and_then(|w| Some((fnv_game::functions::av_by_name(w.skill.as_deref()?)?, w.skill_req)));
+                if let (Some((skill, req)), Some(rt)) = (need, script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.modding_needs_skill)) {
+                    let has = crate::script::with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, FormId::PLAYER_REF, skill));
+                    if has < f64::from(req) {
+                        info!("pipboy mod: {} needs skill {req} to mod (the player has {has:.0}, tweak)", o.name);
+                        sounds.write(UiSound { menu: UiMenu::Inventory, event: UiEvent::Refused });
+                        continue;
+                    }
+                }
                 info!("pipboy mod: open {} (flags {}): {}", o.name, o.extra.mods, o.choices.iter().map(|c| format!("{} (slot {}{})", c.name, c.slot, if c.attached { ", on" } else { "" })).collect::<Vec<_>>().join(", "));
                 menu.0 = Some(Session { offer: o, first: 0, selected: 0 });
             }

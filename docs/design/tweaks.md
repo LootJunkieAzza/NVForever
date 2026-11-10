@@ -497,6 +497,8 @@ unless the player binds them, so nothing changes until then.
 | No Self Meltdown Damage | `bNoSelfMeltdownDamage` | `combat::meltdown` notes its explosions in `Combat::meltdowns`; the blast loop spares the player and teammates from them (the tweak's three options as one) |
 | Level Cap (0–100) | `iMaxCharacterLevel` | `experience::max_level` returns the tweak's cap when set, without the add-ons' +5 |
 | Sneak Attacks Standing | `bSneakAttackWithoutCrouching` | `combat::sneak_attack` takes the player as sneaking whenever the target has not detected them |
+| No Companion Item Damage | `bNoCompanionItemDamage` | `combat::wear_weapon` returns before any wear for a teammate (armour wears only on the player in NVForever) |
+| Weapon Mods Need the Skill | `bWeaponModdingSkillRequirement` | `pipboy::item_mod::keys` refuses to open the mod list when the player's skill (`WeaponStats::skill`) is under `skill_req` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -518,8 +520,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 419 |
-| to do | 184 |
+| done | 421 |
+| to do | 182 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -572,6 +574,7 @@ game's Data folder, read-only).
 | `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
 | `bNoAmmoFromTakingNPCWeapon` | done |  |  | already so: taking a weapon adds only its placed ammo |
 | `bNoAPRegenWhileOverencumbered` | done |  | 2 | Action Points Back When Over-Encumbered (slider; the while-moving option not built) |
+| `bNoCompanionItemDamage` | done |  |  | No Companion Item Damage (weapons; NPC armour does not wear in NVForever) |
 | `bNoDamageMeleeWeaponIfTargetDead` | done |  |  | Spare the Blade on the Dead |
 | `bNoDialogueZoom` | done |  |  | already a row: Gameplay tab, dialogue-zoom |
 | `bNoEnvironmentRadiationInFullPowerArmor` | done |  |  | Power Armor Blocks Radiation (body armour; the helmet is not asked for) |
@@ -621,6 +624,7 @@ game's Data folder, read-only).
 | `bUsingNotesRewardsXP` | done |  | 3 | Experience for Passwords (a share of the hacking XP, once; the base and skill options not built) |
 | `bVATSHipFire` | done |  |  | V.A.T.S. Hip Fire (entered not aiming: every gun shot from the hip) |
 | `bVATSIgnoreNonExplosiveProjectiles` | done |  |  | already so: no projectile can be targeted in V.A.T.S. |
+| `bWeaponModdingSkillRequirement` | done |  |  | Weapon Mods Need the Skill (the Pip-Boy mod list) |
 | `bWeightlessWornArmor` | done |  | 1 | Worn Armor Weighs Nothing (weightless; the scale option not built) |
 | `bWeightlessWornPowerArmor` | done |  | 3 | Worn Power Armor Weighs Nothing (weightless; the scale and requirement options not built) |
 | `iMaxCharacterLevel` | done |  | 1 | Level Cap (0 to 100; no add-on levels) |
@@ -652,7 +656,6 @@ game's Data folder, read-only).
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
 | `bMovementPenalties` | to do |  | 11 | player::step pace chain; seven percentages to choose |
-| `bNoCompanionItemDamage` | to do |  |  | wear_weapon and wear_armor; the armour path has no game |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
@@ -677,7 +680,6 @@ game's Data folder, read-only).
 | `bVATSDequeueWeaponShotsOnDisarm` | to do |  |  | vats_mode::shoot needs ActorParts |
 | `bVATSTargetPlayerProjectiles` | to do |  |  | not built: projectiles in flight are not targetable |
 | `bVATSThrowablesUseVisibility` | to do |  |  | not built: V.A.T.S. chance has no visibility term |
-| `bWeaponModdingSkillRequirement` | to do |  |  | item_mod keys needs the skill and two params |
 
 ### Combat
 
