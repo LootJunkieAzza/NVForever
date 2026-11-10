@@ -11268,17 +11268,18 @@ expect = [
 [[scenario]]
 name = "vats-classic-special"
 source = "fork owner 2026-11-09: melee special attacks in the classic style, from the weapon's own record (docs/design/vats-classic.md §9)"
-note = "vats-mode-melee's setup in the classic style: a machete (WeapNVMachete 000CE569: 20 AP a swing; its VATS data: no skill needed, damage x0.7, 16 AP [observed]) among the Goodsprings dogs. V at 16 s, Run (Shift) switches the special attack on, the left button queues it at its own 16 AP, E plays it: the teleport, the swing, the blow's damage times 0.7. The roll is forced to hit, as vats-mode-melee's"
+note = "vats-mode-melee's setup in the classic style: a machete (WeapNVMachete 000CE569: 20 AP a swing; its VATS data: no skill needed, damage x0.7, 16 AP [observed]) among the Goodsprings dogs. V at 16 s, R (the menu file's key for its special attack button) queues the special attack at its own 16 AP, the file's button and queue row say so, E plays it: the teleport, the swing, the blow's damage times 0.7. The roll is forced to hit, as vats-mode-melee's"
 areas = ["combat", "vats"]
-paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-combat/src/data.rs", "engine/nvf-play/src/combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_CONTROL = "3:weapon,15.8:aimvats", NVF_PLAY_TEST_KEYS = "16:v,17:shift,17.5:mouse-left,18:e", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+paths = ["engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/vats_classic.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-combat/src/data.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/tiles/vats_menu.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "000CE569", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_CONTROL = "3:weapon,15.8:aimvats", NVF_PLAY_TEST_KEYS = "16:v,17:r,18:e", NVF_PLAY_TEST_VATS_STYLE = "classic" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 26
 order = [[
   { re = 'vats mode: WeapNVMachete has a special attack: damage x0\.70, 16 AP', label = "the machete's special attack comes from its record" },
-  { re = 'vats mode: classic: special attack on \(damage x0\.70, 16 AP against 20\)', label = "Run switches it on" },
-  { re = 'vats mode: classic: mark 1 is a special attack: damage x0\.70, 16 AP', label = "the queued attack is the special one" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 0 queued \[\], special "special attack: damage x0\.7, 16 AP"', label = "the file's special attack button says what R queues" },
+  { re = 'vats mode: classic: mark 1 is a special attack: damage x0\.70, 16 AP', label = "R queues the special attack" },
   { re = 'vats mode: marked .* mark 1; 16 AP reserved', label = "it reserves its own 16 AP, not the swing's 20" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 1 queued \[.+ \(special\)\]', label = "its row in the file's queue says it is the special attack" },
   "vats mode: firing 1 marked swings",
   { re = 'vats mode: swing 1 of 1 at .*, 16 AP spent', label = "the swing spends 16 AP" },
   { re = "combat: vats special attack: the blow's damage times 0\\.70", label = "the blow's damage is multiplied" },
@@ -11301,6 +11302,48 @@ expect = [
   { re = 'vats mode summary: entered 0 times, 0 marks, 0 shots, 0 AP spent, 1 refused', label = "no stay is counted" },
 ]
 forbid = [{ re = 'vats mode: classic: \d+ targets', label = "the mode started" }]
+
+[[scenario]]
+name = "vats-classic-menu-file"
+source = "fork owner 2026-11-10: the classic style's target screen drawn from the game's own VATS menu file, the engine-drawn screen as the fallback (docs/design/vats-classic.md §11, docs/spec-notes/vats-menu.md)"
+note = "vats-classic-queue's run read for the screen: V builds VATSMenu from menus\\vats_menu.xml on the frame the targets are found (VATS is no menu to the runtime, so nothing else builds it), the tile renderer draws it, the model writes a box per body part with the selected one, then a row per queued attack; E plays the queue and the menu is dropped. The file never falls back to the engine-drawn screen"
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/tiles/vats_menu.rs", "engine/nvf-play/src/vats_mode.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/draw.rs", "crates/fnv-game/src/ui_loading.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:v,11:s,11.5:mouse-left,12:mouse-left,12.5:e", NVF_PLAY_TEST_VATS_STYLE = "classic" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 20
+order = [[
+  { re = 'vats mode: classic: \d+ targets, [0-9A-F]{8} selected', label = "the targets are found" },
+  { re = 'ui: built VATSMenu \(menus\\vats_menu\.xml, \d+ tiles\)', label = "the game's VATS menu file is built on that frame" },
+  { re = 'tiles: VATSMenu drawn from tiles \(\d+ file tiles, \d+ code tiles\)', label = "the tile renderer draws it" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 0 queued \[\], no special attack', label = "a box per body part, one selected, nothing queued" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 1 queued \[[^,\]]+\]', label = "the first queued attack is a row of the file's list" },
+  { re = 'tiles: VATSMenu drawn from tiles: [1-9]\d* parts, selected ".+" \d+, 2 queued \[[^,\]]+, [^,\]]+\]', label = "the second is another" },
+  "vats mode: firing 2 marked shots",
+  { text = "ui: dropped VATSMenu", label = "the menu goes when the attacks play" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent', label = "the mode's rules are unchanged: two queued, two fired, 52 AP" },
+]
+forbid = [{ text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn screen" }]
+
+[[scenario]]
+name = "vats-classic-engine-screen"
+source = "fork owner 2026-11-10: the engine-drawn target screen stays as the fallback (docs/design/vats-classic.md §11)"
+note = "the same spot with the menu file switched off by its test aid (as [UI] VatsMenuFile=0): V finds the targets, the left button queues an attack, the right button takes it back and a second press leaves; the file is never built"
+areas = ["combat", "vats", "ui"]
+paths = ["engine/nvf-play/src/tiles/vats_menu.rs", "engine/nvf-play/src/vats_mode.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,9.8:aimvats", NVF_PLAY_TEST_KEYS = "10:v,11:mouse-left,12:mouse-right,12.5:mouse-right", NVF_PLAY_TEST_VATS_STYLE = "classic", NVF_PLAY_TEST_VATS_MENU_FILE = "0" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 16
+order = [[
+  { text = "tiles: VATSMenu not drawn from its file (test aid NVF_PLAY_TEST_VATS_MENU_FILE)", label = "the switch is off" },
+  { re = 'vats mode: classic: \d+ targets, [0-9A-F]{8} selected', label = "the targets are found" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "the left button queues an attack" },
+  { re = 'vats mode: unmarked .*, 0 marks left', label = "the right button takes it back" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; right click with no marks\)', label = "and with none queued it leaves" },
+]]
+forbid = [{ text = "ui: built VATSMenu", label = "the menu file was built" }]
 
 [[scenario]]
 name = "vats-mark-forehead"

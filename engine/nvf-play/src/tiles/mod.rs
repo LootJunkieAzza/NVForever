@@ -60,6 +60,7 @@ pub mod tag_menu;
 pub mod trait_menu;
 pub mod tutorial_menu;
 pub mod vanilla;
+pub mod vats_menu;
 pub mod wait_menu;
 
 use crate::{script::ScriptState, PlaySet, PlayState};
@@ -108,6 +109,11 @@ impl MenuFiles<'_, '_> {
         info!("ui: game strings: {} read, {} without text", report.game_strings, report.game_strings_unresolved);
     }
 
+    /// The window's size, logical pixels.
+    pub(crate) fn window_size(&self) -> Option<(f32, f32)> {
+        self.windows.single().ok().map(|w| (w.width(), w.height()))
+    }
+
     pub(crate) fn write(&self, game: &mut fnv_game::Game<'_>) {
         self.install_measure(game);
         if game.ui_files.is_none() {
@@ -115,7 +121,9 @@ impl MenuFiles<'_, '_> {
         }
         if let Ok(window) = self.windows.single() {
             // T15a: interface units only while a T15 menu is drawn from its file.
-            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m));
+            // Also while the classic VATS screen is the game's file (`vats_menu`), which
+            // places its pieces by `screen()` as those menus do.
+            let units = self.menus.as_ref().is_some_and(|m| interface_screen(**m)) || game.ui_vats;
             write_screen(&mut game.ui_tree, window.width(), window.height(), units);
         }
         let report = ui_loading::sync(game, self.paused.as_ref().is_some_and(|p| p.0), self.main_menu.as_ref().is_some_and(|m| m.open));
@@ -944,6 +952,7 @@ impl Plugin for TilesPlugin {
         input::setup(app);
         stats_menu::setup(app);
         inventory_menu::setup(app);
+        vats_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
@@ -997,6 +1006,9 @@ impl Plugin for TilesPlugin {
             .add_systems(Update, dialog_menu::publish_system.in_set(PlaySet::Scripts).after(crate::dialogue::input).before(crate::script::run_scripts))
             .add_systems(Update, dialog_menu::write_system.after(PlaySet::Scripts).before(update))
             .add_systems(Update, dialog_menu::snapshot_system.after(update).before(PlaySet::Ui))
+            // The classic VATS screen (`vats_menu`): after the mode's work for the frame and
+            // the scripts, built, written and worked out by `update` before it is drawn.
+            .add_systems(Update, vats_menu::write_system.after(PlaySet::Scripts).after(crate::vats_mode::VatsUpdate).before(update))
             // After the character menus' sync, so the trait menu's decision reads this frame's.
             .add_systems(Update, (draw::draw, draw::scroll, model::animate).chain().in_set(PlaySet::Ui).after(crate::pipboy::frame::draw).after(crate::chargen::ChargenSet))
             .add_systems(PostUpdate, vanilla::hide_hand_built.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));

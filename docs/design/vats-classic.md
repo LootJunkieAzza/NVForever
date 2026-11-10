@@ -74,10 +74,12 @@ ends.
   rounds exactly as a Dead Eye mark (`MarkQueue`).
 - Block: take the last queued attack back; with none queued, leave.
 - Activate: play the queue. V: leave.
+- Ready / Reload: queue the weapon's special attack on the selected part (§9).
 - Any other action leaves, as Dead Eye (§11.8 there).
 
-[design: the pages give V, the accept key and the mouse; the rest is ours until the
-game's own menu file is driven, §9b.]
+[documented: the game's menu file gives E for Accept, the right mouse button for Return
+and R for the special attack (spec-notes/vats-menu.md §3); design: the controls those
+keys are by default, and the target and part keys, which the file does not name.]
 
 A new target starts on the part with the best chance [design]. Each part's label shows
 its name and chance, the selected one bracketed, with "xN" when N attacks are queued on
@@ -85,7 +87,7 @@ it; with Concentrated Fire the label shows the chance the next attack on it woul
 Under each label a bar shows the part's condition (its condition actor value of 100; a
 part without one has no bar), and at the top of the view the target's name stands over
 a bar of its health [documented: the original shows each part's chance and condition;
-design: this layout, the engine-drawn screen that stays as the fallback, §8].
+design: this layout, the engine-drawn screen that stays as the fallback, §11].
 
 ## 5. The player and the view
 
@@ -150,10 +152,12 @@ one has zeros]. So the AP is the special attack's whole cost, not an addition.
 
 - Offered in the classic style, for a melee weapon, when the player's skill with the
   weapon is at least the one it needs.
-- Run switches between the weapon's attack and its special attack for what is queued
-  next [design: the pages do not give the key; the player stands still, so Run is free].
-  The header then reads "<target> - special attack: damage xN, M AP" [design: our own
-  words; the moves' names are not in the data files].
+- Ready / Reload (R) queues the special attack on the selected part, as Attack queues
+  the weapon's own [documented: vats_menu.xml binds R to its special attack button;
+  design: the press queues at once]. While targets are chosen that control does not
+  leave the mode. The button reads "special attack: damage xN, M AP" [design: our own
+  words; the moves' names are not in the data files]; on the engine-drawn screen the
+  header says the same after the target's name.
 - A queued special attack reserves and spends its own AP, scaled by the Action Point
   Cost perks as the weapon's attack is [design].
 - Its blow's damage is multiplied (with a power attack's multiplier, in `HitInput::power`)
@@ -173,9 +177,8 @@ crowded scene, the top graphics settings, a slowdown under 100 %.
 
 ## 9b. Planned
 
-- The target screen driven by the game's own VATS menu file, the engine-drawn labels
-  as the fallback.
 - Mines as targets. The unarmed special moves.
+- The menu file's arrows and buttons as click targets (§11).
 
 ## 10. Test aids and smoke
 
@@ -183,3 +186,31 @@ crowded scene, the top graphics settings, a slowdown under 100 %.
 - Every Dead Eye scenario sets the first to `dead-eye`; their expectations are
   untouched.
 - The classic scenarios are named `vats-classic-*`.
+- `NVF_PLAY_TEST_VATS_MENU_FILE=0` keeps the engine-drawn target screen (§11).
+
+## 11. The target screen from the game's menu file (2026-11-10)
+
+By default the target screen is the game's own `menus\vats_menu.xml`, drawn by the tile
+renderer (`engine/nvf-play/src/tiles/vats_menu.rs`); what the file holds and what is
+written into it: spec-notes/vats-menu.md.
+
+- **From the file**: a bracket on each body part of the selected target with its chance
+  and its condition meter, the selected part named; the arrows at the view's edges;
+  Accept (dim until an attack is queued), Return and the special attack button with
+  their key hints; the queue's list of queued attacks with its divider.
+- **Still the engine's**: the target's name over its health at the top (the file leaves
+  that box empty for code), the HUD's own HP and AP meters, the amber grade.
+- **The switch**: on unless `[UI] VatsMenuFile=0` is in `NVForever.ini` [design: the
+  fork owner's decision, the game's file first]. Upstream's convention is the other
+  way round (`[UI] TileMenus=` lists the menus drawn from files, none by default); to
+  go upstream this would become a name in that list.
+- **The fallback**: a missing file, or one without a path the code writes, keeps the
+  engine-drawn screen of §4 for the run and warns once with the reason.
+- **Life**: VATS is no menu to the runtime (`Game::menu`), so the file is built on the
+  frame the screen comes up (`Game::ui_vats`) and dropped on the frame it goes. While
+  it is up `screen()` is in interface units and its `cropx` and `cropy` are 15; a mod's
+  HUD tiles that read `screen()` see those values for that time.
+- **Input** stays the keys of §4. The arrows and buttons are drawn and not clicked: the
+  pointer is the view's in play.
+- **The right mouse button's hint** is NVForever's "[RMB]" (it was "[Right Click]"): the
+  file gives a hint its button's width as room, and "Return" is short.

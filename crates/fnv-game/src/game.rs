@@ -1575,6 +1575,12 @@ pub struct Game<'a> {
     /// MenuMode does not report it; whether the original's MenuMode 1016 holds over a
     /// container is not captured]. Set by the engine each frame. Not saved.
     pub ui_prompt: Option<u16>,
+    /// The engine's classic VATS target screen is up and is drawn from the game's menu file
+    /// ([`menus::VATS`]): the tile tree builds `VATSMenu` while set
+    /// (`crate::ui_loading::sync`). VATS is no [`Game::menu`] in NVForever (its
+    /// `Begin MenuMode 1056` blocks run beside GameMode), so nothing else builds the file
+    /// [design: docs/design/vats-classic.md §11]. Set by the engine each frame. Not saved.
+    pub ui_vats: bool,
     /// The messages of the open tutorial menu (ShowTutorialMenu), its pages in the order
     /// shown [hypothesis: further calls while it is open add pages]. Saved.
     pub tutorial: Vec<FormId>,
@@ -2325,6 +2331,7 @@ impl<'a> Game<'a> {
             race_menu_studio: false,
             menu_under: None,
             ui_prompt: None,
+            ui_vats: false,
             tutorial: Vec::new(),
             loading: false,
             message_box: None,

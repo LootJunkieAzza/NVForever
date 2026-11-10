@@ -237,7 +237,7 @@ struct Keys {
     /// The classic style's: the target before or after (-1, 1), the part before or after.
     target_step: i32,
     part_step: i32,
-    /// The classic style's: switch between the weapon's attack and its special attack.
+    /// The classic style's: queue the weapon's special attack on the selected part.
     special: bool,
 }
 
@@ -443,8 +443,45 @@ struct ClassicState {
     restore: Option<(f32, f32)>,
     /// Real seconds when the targets were last looked for.
     scanned_at: f64,
-    /// The next attack queued is the weapon's special attack.
-    special_on: bool,
+}
+
+/// One body part on the classic style's target screen (vats-classic.md §4, §11).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassicPart {
+    /// The part's name as the data spells it; empty for a target without parts.
+    pub name: String,
+    /// The chance to hit it now, percent.
+    pub chance: f32,
+    /// Its condition, 0 (crippled) to 1; `None` for a part without one.
+    pub condition: Option<f32>,
+    /// Its condition actor value (25 the head, 26 the torso, 27 to 30 the limbs).
+    pub value: Option<u16>,
+    /// The part the next attack is queued on.
+    pub selected: bool,
+    /// Where it is now, game space.
+    pub point: [f32; 3],
+}
+
+/// What the classic style's target screen shows (`crate::tiles::vats_menu` writes it into
+/// the game's menu file; the engine-drawn screen reads the mode itself).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ClassicView {
+    pub parts: Vec<ClassicPart>,
+    /// The queued attacks in their order, each by its words ([`queued_text`]).
+    pub queue: Vec<String>,
+    /// The weapon's special attack, when the player can use it ([`special_text`]).
+    pub special: Option<String>,
+}
+
+/// A queued attack's words in the queue's list: the part's name (the target's for a
+/// target without parts), and that it is a special attack [design: NVForever's own].
+pub fn queued_text(target: &str, part: &str, special: bool) -> String {
+    let what = if part.is_empty() || part == "whole" { target } else { part };
+    if special {
+        format!("{what} (special)")
+    } else {
+        what.to_string()
+    }
 }
 
 /// The classic style's targets are looked for again this often, real seconds [design:
@@ -483,12 +520,30 @@ impl VatsMode {
         let actor = self.selected()?;
         let name = self.preview.parts.first().filter(|_| self.preview.actor == Some(actor))?.spot.name.as_str();
         let share = self.preview.health.map_or(1.0, |(now, max)| if max > 0.0 { (now / max).clamp(0.0, 1.0) } else { 0.0 });
-        // With the special attack switched on the header says so, and what it costs.
-        let text = match self.weapon.as_ref().and_then(|w| w.special).filter(|_| self.classic.special_on) {
-            Some((s, cost)) => format!("{name} - {}", special_text(s.dam_mult, cost)),
-            None => name.to_string(),
-        };
-        Some((text, share))
+        Some((name.to_string(), share))
+    }
+
+    /// What the classic style's target screen shows now, while targets are chosen and the
+    /// selected target's parts are worked out.
+    pub fn classic_view(&self) -> Option<ClassicView> {
+        let actor = self.selected()?;
+        if self.preview.actor != Some(actor) {
+            return None;
+        }
+        let parts = self
+            .previewed()
+            .map(|(p, point)| ClassicPart {
+                name: if p.spot.part == "whole" { String::new() } else { p.spot.part.clone() },
+                chance: p.spot.chance,
+                condition: p.condition,
+                value: p.spot.condition,
+                selected: p.under,
+                point,
+            })
+            .collect();
+        let queue = self.spots.iter().map(|s| queued_text(&s.name, &s.part, s.special)).collect();
+        let special = self.weapon.as_ref().and_then(|w| w.special).map(|(s, cost)| special_text(s.dam_mult, cost));
+        Some(ClassicView { parts, queue, special })
     }
 
     /// The special attack of the blow being struck, when it was queued as one
@@ -769,9 +824,11 @@ fn read_keys(
         if vats.phase == Phase::Marking {
             vats.keys.target_step = i32::from(pressed(Control::SlideRight)) - i32::from(pressed(Control::SlideLeft));
             vats.keys.part_step = i32::from(pressed(Control::Back)) - i32::from(pressed(Control::Forward));
-            // Run switches to the weapon's special attack and back [design: the player
-            // stands still, so the key is free; vats-classic.md §9].
-            vats.keys.special = pressed(Control::Run);
+            // The control R is by default queues the weapon's special attack [documented:
+            // vats_menu.xml binds the key R to its special attack button; design: the
+            // control and not the key, so a rebound layout keeps one key for it;
+            // vats-classic.md §9].
+            vats.keys.special = pressed(Control::ReadyItem);
         }
         let mut i = *intent;
         (i.forward, i.right, i.jump) = (0.0, 0.0, false);
@@ -779,7 +836,9 @@ fn read_keys(
     }
     // Any other action ends the mode (§11.8), here before activation, so an E with
     // nothing marked reaches what is under the crosshair.
-    if let Some(c) = leaving_press(vats.phase, vats.queue.len(), pressed) {
+    // (While the classic style chooses targets, Ready / Reload is its special attack's.)
+    let classic_marking = vats.phase == Phase::Marking && vats.style == VatsStyle::Classic;
+    if let Some(c) = leaving_press(vats.phase, vats.queue.len(), |c| pressed(c) && !(classic_marking && c == Control::ReadyItem)) {
         vats.now = now;
         vats.keys = Keys::default();
         end(&mut vats, &format!("{} pressed", crate::bindings::label(c)), &mut sounds);
@@ -978,11 +1037,15 @@ fn update(
                     sounds.play(v, "UIVATSReady");
                     info!("vats mode: firing {n} marked {what}");
                 }
-            } else if keys.mark && v.style == VatsStyle::Classic {
-                // The selected target's selected part (vats-classic.md §4).
+            } else if keys.special && v.style == VatsStyle::Classic && v.weapon.as_ref().is_none_or(|w| w.special.is_none()) {
+                info!("vats mode: classic: this weapon has no special attack the player can use");
+                sounds.play(v, "UIVATSInsufficientAP");
+            } else if (keys.mark || keys.special) && v.style == VatsStyle::Classic {
+                // The selected target's selected part (vats-classic.md §4), with the
+                // weapon's attack or its special attack (§9).
                 let on = v.classic.selected.zip(v.preview.parts.get(v.classic.part).map(|p| (p.part, p.spot.point)));
                 match on {
-                    Some((actor, (part, point))) => mark_actor(v, &combat, &parts, script.as_deref_mut(), &mut sim, &phys, &player, &mut hud, &mut sounds, actor, part, point),
+                    Some((actor, (part, point))) => mark_actor(v, &combat, &parts, script.as_deref_mut(), &mut sim, &phys, &player, &mut hud, &mut sounds, actor, part, point, keys.special),
                     None => info!("vats mode: nothing selected to queue an attack on"),
                 }
             } else if keys.mark {
@@ -1141,8 +1204,8 @@ fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     v.classic = ClassicState { scale: v.classic.scale, restore, ..ClassicState::default() };
 }
 
-/// The header's words for a special attack switched on [design: NVForever's own; the
-/// moves' names are not in the data files].
+/// The words for a weapon's special attack on the target screen [design: NVForever's own;
+/// the moves' names are not in the data files].
 pub fn special_text(dam_mult: f32, cost: f32) -> String {
     format!("special attack: damage x{dam_mult:.1}, {cost:.0} AP")
 }
@@ -1305,20 +1368,6 @@ fn classic_frame(
         if v.classic.selected.is_none() {
             end(v, "no target left", sounds);
             return None;
-        }
-    }
-    // Run: the weapon's attack or its special attack for what is queued next.
-    if keys.special {
-        match v.weapon.as_ref().and_then(|w| w.special) {
-            Some((s, cost)) => {
-                v.classic.special_on = !v.classic.special_on;
-                info!("vats mode: classic: special attack {} (damage x{:.2}, {cost:.0} AP against {:.0})", if v.classic.special_on { "on" } else { "off" }, s.dam_mult, v.queue.cost);
-                sounds.play(v, "UIVATSMove");
-            }
-            None => {
-                info!("vats mode: classic: this weapon has no special attack the player can use");
-                sounds.play(v, "UIVATSInsufficientAP");
-            }
         }
     }
     let n = v.classic.targets.len();
@@ -1701,7 +1750,7 @@ fn mark(
         return;
     };
     let fallback = hit.map_or(from, |h| h.point);
-    mark_actor(v, combat, parts, script, sim, phys, player, hud, sounds, actor, part, fallback);
+    mark_actor(v, combat, parts, script, sim, phys, player, hud, sounds, actor, part, fallback, false);
 }
 
 /// Mark `actor` on `part` (§6, §7.2): the crosshair's click, and the classic style's
@@ -1721,6 +1770,7 @@ fn mark_actor(
     actor: u32,
     part: Option<u8>,
     fallback: [f32; 3],
+    special: bool,
 ) {
     match barred(v, script.as_deref_mut(), sim, actor) {
         Err(Bar::Dead) => {
@@ -1743,7 +1793,7 @@ fn mark_actor(
     let ap_now = player_ap(script.as_deref_mut(), sim).map_or(f32::INFINITY, |a| a.0);
     let earlier = v.queue.marks().iter().filter(|m| m.target.0 == actor && m.part == part).count() as u32;
     // The classic style's special attack costs its own AP (vats-classic.md §9).
-    let special = v.weapon.as_ref().and_then(|w| w.special).filter(|_| v.classic.special_on && v.style == VatsStyle::Classic);
+    let special = v.weapon.as_ref().and_then(|w| w.special).filter(|_| special && v.style == VatsStyle::Classic);
     let cost = special.map_or(v.queue.cost, |(_, cost)| cost);
     match v.queue.push_costing(FormId(actor), part, ap_now, cost) {
         Ok(k) => {
@@ -2372,7 +2422,11 @@ fn draw_previews(
     mut labels: Query<(Entity, &mut PreviewLabel, &mut Node, &mut Visibility)>,
     mut bars: Query<(&PreviewBar, &mut Node, &mut Visibility), (Without<PreviewLabel>, Without<ClassicHeader>)>,
     mut header: Query<(Entity, &mut ClassicHeader, &mut Node, &mut Visibility), (Without<PreviewLabel>, Without<PreviewBar>)>,
+    tiles: Option<Res<crate::tiles::vats_menu::VatsTiles>>,
 ) {
+    // The parts' labels and bars are the game's menu file's while it draws them
+    // (`crate::tiles::vats_menu`, vats-classic.md §11); the header stays this drawing's.
+    let from_file = tiles.is_some_and(|t| t.drawn);
     // Each bar's place and share this frame: left, top, width, share.
     let mut bar_at: [Option<[f32; 4]>; MAX_PREVIEW + 1] = [None; MAX_PREVIEW + 1];
     let (width, height) = windows.iter().next().map_or((1280.0, 720.0), |w| (w.width(), w.height()));
@@ -2380,7 +2434,7 @@ fn draw_previews(
     let tall = LABEL_HEIGHT * px;
     let camera = cameras.single().ok();
     placed.clear();
-    let mut shown = vats.previewed();
+    let mut shown = vats.previewed().filter(|_| !from_file);
     // The labels in their order (the query's is not theirs).
     let mut order: [Option<Entity>; MAX_PREVIEW] = [None; MAX_PREVIEW];
     for (e, label, _, _) in &labels {
@@ -2429,7 +2483,11 @@ fn draw_previews(
     }
     drop(shown);
     // The header: the target's name over its health (the classic style only).
-    let head = vats.classic_header();
+    // Without the file's buttons the header also says what R queues.
+    let head = vats.classic_header().map(|(name, share)| match vats.classic_view().and_then(|v| v.special).filter(|_| !from_file) {
+        Some(special) => (format!("{name} - [{}] {special}", crate::bindings::label(Control::ReadyItem)), share),
+        None => (name, share),
+    });
     for (e, mut h, mut node, mut vis) in &mut header {
         let want = if head.is_some() { Visibility::Inherited } else { Visibility::Hidden };
         if *vis != want {
@@ -2495,7 +2553,7 @@ impl Plugin for VatsModePlugin {
             .add_systems(Startup, spawn_marks)
             .add_systems(Update, read_keys.after(PlaySet::Input).after(crate::control::enforce_locks).after(crate::player::encumbered_walks).before(PlaySet::Physics))
             .add_systems(Update, update.in_set(PlaySet::Activation).in_set(VatsUpdate).before(crate::combat::fire))
-            .add_systems(Update, (draw_marks, draw_labels, draw_previews).after(PlaySet::Activation))
+            .add_systems(Update, (draw_marks, draw_labels, draw_previews.after(crate::tiles::vats_menu::write_system)).after(PlaySet::Activation))
             .add_systems(Last, report);
     }
 }

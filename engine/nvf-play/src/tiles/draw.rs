@@ -1004,6 +1004,8 @@ pub(crate) struct View<'w, 's> {
     /// The trait menu, when this frame's writer has it drawn from its tiles.
     traits: Option<Res<'w, super::trait_menu::TraitTiles>>,
     tags: Option<Res<'w, super::tag_menu::TagTiles>>,
+    /// The classic VATS screen, when this frame's writer has it drawn from its file.
+    vats: Option<Res<'w, super::vats_menu::VatsTiles>>,
     /// The open character menu, for the same decision as the hand-built trait menu's.
     chargen: Option<Res<'w, crate::chargen::ChargenMenus>>,
 }
@@ -1042,6 +1044,8 @@ pub(crate) struct MenusDrawn {
     traits: Drawn,
     tags: Drawn,
     dialog: Drawn,
+    /// The classic VATS target screen (`super::vats_menu`).
+    vats: Drawn,
 }
 
 /// The stacking levels of the menus drawn from tiles besides the HUD: their hand-built
@@ -1106,6 +1110,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         (super::trait_menu::TRAIT_MENU, view.traits.as_ref().is_some_and(|t| super::trait_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.traits_open()), game).is_some()), TRAIT_Z, &mut others.traits),
         (super::tag_menu::TAG_MENU, view.tags.as_ref().is_some_and(|t| super::tag_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.tags_open()), game).is_some()), TRAIT_Z, &mut others.tags),
         (super::dialog_menu::DIALOG_MENU, view.dialog.as_ref().is_some_and(|d| d.drawn()), DIALOG_Z, &mut others.dialog),
+        (super::vats_menu::VATS_MENU, view.vats.as_ref().is_some_and(|v| v.drawn), super::vats_menu::VATS_Z, &mut others.vats),
     ] {
         let ui = game.map(|g| &g.ui_tree);
         let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));
@@ -1124,7 +1129,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                let pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch));
+                // The VATS screen writes `screen()` in interface units itself while it is up.
+                let pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch) || name == super::vats_menu::VATS_MENU);
                 if name == super::dialog_menu::DIALOG_MENU && pieces != drawn.pieces {
                     info!("{}", super::dialog_menu::painted(ui, &pieces));
                 }
