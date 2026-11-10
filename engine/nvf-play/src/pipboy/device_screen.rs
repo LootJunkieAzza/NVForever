@@ -144,9 +144,10 @@ const BEAM_COLUMNS: usize = 2 * CANVAS.x as usize;
 /// from 10 to 90 % over about 1.6 pixels at 1280 x 720 on most of its text, 1.8 to 2.1 on the
 /// titles, where a hard edge measures 0.8 [observed: private jobs pipboy_fx_still and
 /// pipboy_fx_text, every STATS tab, ITEMS and DATA; the same with fBlurRadiusPipboy at 0]. A
-/// tent of this reach widens a hard edge to about that [hypothesis: by its spread, to be fitted
-/// on this engine's shots with the same measure].
-pub const TEXT_SOFTEN: f32 = 0.75;
+/// tent of this reach brings NVForever's to about that [observed: the same measure on this
+/// engine's 1280 x 720 shots, scenario pipboy-screen-text: with none, 1.48 to 1.60 px; at 0.75,
+/// 1.69 to 1.96, past the original; fitted between].
+pub const TEXT_SOFTEN: f32 = 0.4;
 
 /// The reach of the screen's noise in display values (triangular, new every frame), on the
 /// model (`nif_material.wesl` `pipboy_picture`): an empty stretch of the original's screen
