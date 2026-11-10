@@ -21130,7 +21130,7 @@ order = [[
   { re = 'script moves: auto move on', label = "SetAutoMove 1" },
   { re = 'script moves: auto move off', label = "SetAutoMove 0" },
   { re = 'script moves: SetVelEx: (0x)?00000014 400 units/s up', label = "SetVelEx lifts the player" },
-  { re = 'script: print "nvf jg9 fov 75 55 compass [0-8]"', label = "the FOVs and a compass direction read back" },
+  { re = 'script: print "nvf jg9 fov 75 55 compass -1"', label = "the FOVs read back; no hostile on the compass here gives -1, as in the original (ext-jg9.md)" },
 ]]
 
 [[scenario]]
