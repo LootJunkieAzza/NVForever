@@ -167,7 +167,7 @@ pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 /// A UTC time stamp for file names, `YYYYMMDD-HHMMSS`.
-fn stamp(unix_secs: u64) -> String {
+pub(crate) fn stamp(unix_secs: u64) -> String {
     let (days, secs) = ((unix_secs / 86_400) as i64, unix_secs % 86_400);
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}{m:02}{d:02}-{:02}{:02}{:02}", secs / 3600, secs / 60 % 60, secs % 60)
@@ -270,7 +270,7 @@ pub fn file_layer(_app: &mut App) -> Option<BoxedLayer> {
         let writer = move || RunLogWriter(log);
         Box::new(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer)) as BoxedLayer
     });
-    let layers: Vec<BoxedLayer> = file.into_iter().chain(crate::profile::layer()).collect();
+    let layers: Vec<BoxedLayer> = file.into_iter().chain(crate::profile::layer()).chain(crate::reports::warnings_layer()).collect();
     (!layers.is_empty()).then(|| Box::new(layers) as BoxedLayer)
 }
 

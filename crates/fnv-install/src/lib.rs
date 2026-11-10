@@ -18,6 +18,7 @@
 
 pub mod mo2;
 pub mod plugins;
+pub mod reports;
 
 use serde::Deserialize;
 use std::fmt;

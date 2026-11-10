@@ -24317,3 +24317,41 @@ expect = [
   { re = 'actor 0009A261 stuck at .*: held at 00099D28.s moving collision', label = "p3 is held at its pod's stasis field" },
   { re = 'actor 0009A26[01] stuck at .*moved on along its path', max = 0, label = "and neither is moved on through its field (both were before; p2 and p1, alarmed or noticing, leave through their pods' fixed walls: the alarm is #2009's, the notice the detection edge on #1977)" },
 ]
+
+[[scenario]]
+name = "reports-off-in-smoke-runs"
+source = "#2055, docs/design/player-reports.md section 2.1: never asked and nothing sent in a scripted run (engine/nvforever/src/reports/)"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs", "crates/fnv-install/src/reports.rs"]
+env = { NVFOREVER_HOME = "reports-off-home" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 12
+expect = ["reports: off (a developer or smoke run (--data))", "run log: the game exited normally"]
+forbid = [{ text = "reports: on", label = "reports turned on in a smoke run" }, { text = "reports: session summary written", label = "a summary written while off" }]
+
+[[scenario]]
+name = "reports-env-off"
+source = "#2055, docs/design/player-reports.md section 2.2: NVF_REPORTS=0 forces reports off for any run"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs"]
+env = { NVFOREVER_HOME = "reports-env-off-home", NVF_REPORTS = "0" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 12
+expect = ["reports: off (NVF_REPORTS=0)"]
+forbid = [{ text = "reports: on", label = "reports on despite NVF_REPORTS=0" }]
+
+[[scenario]]
+name = "reports-session-summary"
+source = "#2055, docs/design/player-reports.md section 3.1 and 8: a session file is written; a test run without NVF_REPORTS_ENDPOINT never sends to the project's server"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs", "engine/nvforever/src/reports/summary.rs", "engine/nvforever/src/reports/upload.rs", "engine/nvforever/src/reports/warnings.rs", "crates/fnv-install/src/reports.rs"]
+env = { NVFOREVER_HOME = "reports-on-home", NVF_REPORTS = "1" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 15
+expect = [
+  "reports: on, sending to https://reports-api.nv-forever.com (not in this test run: no NVF_REPORTS_ENDPOINT)",
+  "reports: sending skipped in this test run (no NVF_REPORTS_ENDPOINT)",
+  { re = 'reports: session summary written to .*session-\d{8}-\d{6}-\d+\.json$', label = "the summary written at exit to <home>/reports/pending" },
+  "run log: the game exited normally",
+]
+forbid = [{ text = "reports: sent", label = "a test run sent a report" }]
