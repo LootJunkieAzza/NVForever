@@ -22534,7 +22534,7 @@ areas = ["graphics"]
 paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen"]
-run_seconds = 22
+run_seconds = 26
 expect = [
   "FSR 3.1.4: Quality, 853x480 -> 1280x720, frame generation on",
   "frame generation: 853x480 -> 1280x720, a generated frame between each two real frames",
