@@ -221,6 +221,17 @@ fn hot_brightness(m: f32) -> f32 {
 // its brightest channel, the others in proportion, so a coloured shape keeps its hue
 // (the Monte Carlo's bulbs at × 15 stay yellow dots, not white discs).
 const ADD_HUE_MAX: f32 = 1.5;
+
+// The colour an unlit emitter that blends over the frame (SRC_ALPHA / INV_SRC_ALPHA) is
+// drawn at: its emitted light held to BLEND_GLOW_MAX in its brightest channel, the
+// others in proportion (CPU mirror and the reasons: nif_material.rs `blend_glow`). Its
+// alpha is how much of the frame it covers, so a colour past white would turn a soft
+// edge or a faint wash into a solid bar.
+const BLEND_GLOW_MAX: f32 = 1.0;
+fn blend_glow(e: vec3<f32>) -> vec3<f32> {
+    let m = max(e.r, max(e.g, e.b));
+    return e * min(1.0, BLEND_GLOW_MAX / max(m, 1e-6));
+}
 fn add_display(colour: vec3<f32>, a: f32, behind: vec3<f32>) -> vec3<f32> {
     let b = max(behind, vec3(0.0));
     let shown = pow(b, vec3(1.0 / 2.2));
@@ -540,8 +551,13 @@ fn nif_fragment(
             // glows and beams that blend or add over the frame stay soft (hot_light), or a
             // lamp's glow card burns into a hard disc on the wall behind it.
             @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) let unlit_blend = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-            @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
+            @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
                 out.color = vec4(unlit_e, out.color.a);
+            } else if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
+                // A glow that blends over the frame covers it by its alpha: its colour is
+                // held to BLEND_GLOW_MAX (blend_glow), or a strip authored at alpha 0.15
+                // (the Ultra-Luxe's stair lights) covers the steps in solid white.
+                out.color = vec4(blend_glow(unlit_e), out.color.a);
             } else {
                 out.color = vec4(hot_light(vec3(0.0), unlit_e), out.color.a);
             }

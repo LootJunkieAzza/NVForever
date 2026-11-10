@@ -670,6 +670,27 @@ pub const ADD_DISPLAY_MAX: f32 = 2.0;
 /// they stay yellow dots. The Big MT's sky beams (1.5 at the core) still pass whole].
 pub const ADD_HUE_MAX: f32 = 1.5;
 
+/// The most an unlit emitter that blends over the frame (SRC_ALPHA / INV_SRC_ALPHA) is
+/// drawn at, in its brightest channel (2026-11-10, queue item 146). Such a shape's alpha
+/// says how much of the frame it covers: the Ultra-Luxe's stair lights
+/// (`ultraluxdome_glows.nif` `StairLight1`..`10`, white × 2 over a flat white texture)
+/// have vertex alpha 0.15 at most, a faint wash on each step, and the Lucky 38's stair
+/// lights (`lucky38stairlights.nif`, white × 1.25) fade to alpha 0 at their edges
+/// [observed, fnvtool nif decode]. Drawn at the emissive multiplier times the Strip's
+/// night Emissive Mult (× 2.67) the colour was 3 to 5 times white, so alpha 0.15 was
+/// already white and both read as solid white bars. Held to white, the alpha shapes
+/// them as authored [hypothesis: an engine choice; the original's stair lights are
+/// separate strips with dark steps between them in the wiki's Ultra-Luxe exterior
+/// shot].
+pub const BLEND_GLOW_MAX: f32 = 1.0;
+
+/// The colour a blended unlit emitter of emitted light `e` is drawn at: `e` held to
+/// [`BLEND_GLOW_MAX`] in its brightest channel, the others in proportion (the shader's
+/// `blend_glow`).
+pub fn blend_glow(e: Vec3) -> Vec3 {
+    e * (BLEND_GLOW_MAX / e.max_element().max(1e-6)).min(1.0)
+}
+
 /// How much brighter than white emitted light past white is drawn under the main view's
 /// display clip for each doubling of its brightest channel (`hot_brightness`), and the
 /// most it reaches (nif_material.wesl has the same numbers) [engineering choice,
@@ -1210,6 +1231,11 @@ mod tests {
         // Up to white nothing changes.
         assert_eq!(hot_brightness(0.6), 0.6);
         assert_eq!(hot_brightness(1.0), 1.0);
+        // A blended glow is never past white, and keeps its hue and anything dimmer.
+        let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 1e-5;
+        assert!(close(blend_glow(Vec3::new(0.91, 0.96, 0.98) * 5.3), Vec3::new(0.91, 0.96, 0.98) / 0.98));
+        assert!(close(blend_glow(Vec3::new(4.0, 2.0, 0.0)), Vec3::new(1.0, 0.5, 0.0)));
+        assert!(close(blend_glow(Vec3::new(0.2, 0.1, 0.4)), Vec3::new(0.2, 0.1, 0.4)));
         // Past white: half a unit per doubling, at most HOT_GLOW_MAX.
         assert!((hot_brightness(4.0) - 2.0).abs() < 1e-6);
         assert_eq!(hot_brightness(1e6), HOT_GLOW_MAX);

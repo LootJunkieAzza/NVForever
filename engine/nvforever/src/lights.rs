@@ -285,13 +285,14 @@ pub fn created_placement(reference: u32, base: u32, position: [f32; 3]) -> Place
 /// `NVF_NEON` replaces.
 const NIF_MATERIAL: &str = "embedded://nvf_assets/nif_material.wesl";
 
-/// Test aid `NVF_NEON=per_stop,max,add_hue,pass`: the hot light's brightness per doubling
-/// and most (nif_material.rs `HOT_GLOW_PER_STOP`, `HOT_GLOW_MAX`), the most an additive
-/// shape adds (`ADD_HUE_MAX`) and a factor on the bright pass (post.rs), each optional,
-/// for tuning the Strip's neon without a build (queue items 146, 174).
-pub fn neon_tune() -> Option<[Option<f32>; 4]> {
+/// Test aid `NVF_NEON=per_stop,max,add_hue,pass,blend`: the hot light's brightness per
+/// doubling and most (nif_material.rs `HOT_GLOW_PER_STOP`, `HOT_GLOW_MAX`), the most an
+/// additive shape adds (`ADD_HUE_MAX`), a factor on the bright pass (post.rs) and the
+/// most a blended glow is drawn at (`BLEND_GLOW_MAX`), each optional, for tuning the
+/// Strip's neon without a build (queue items 146, 174).
+pub fn neon_tune() -> Option<[Option<f32>; 5]> {
     let v = std::env::var("NVF_NEON").ok()?;
-    let mut out = [None; 4];
+    let mut out = [None; 5];
     for (slot, f) in out.iter_mut().zip(v.split(',')) {
         *slot = f.trim().parse().ok().filter(|x: &f32| x.is_finite() && *x >= 0.0);
     }
@@ -301,7 +302,7 @@ pub fn neon_tune() -> Option<[Option<f32>; 4]> {
 #[derive(Resource)]
 struct NeonShader {
     handle: Handle<Shader>,
-    tune: [Option<f32>; 4],
+    tune: [Option<f32>; 5],
     patched: bool,
 }
 
@@ -314,7 +315,7 @@ fn patch_neon(mut state: ResMut<NeonShader>, mut shaders: ResMut<Assets<Shader>>
     state.patched = true;
     let bevy::shader::Source::Wesl(source) = &shader.source else { return };
     let mut source = unix_lines(source);
-    for (name, value) in [("HOT_GLOW_PER_STOP", state.tune[0]), ("HOT_GLOW_MAX", state.tune[1]), ("ADD_HUE_MAX", state.tune[2])] {
+    for (name, value) in [("HOT_GLOW_PER_STOP", state.tune[0]), ("HOT_GLOW_MAX", state.tune[1]), ("ADD_HUE_MAX", state.tune[2]), ("BLEND_GLOW_MAX", state.tune[4])] {
         let Some(v) = value else { continue };
         let Some(start) = source.find(&format!("const {name}: f32 = ")) else {
             error!("NVF_NEON: {name} not found in {NIF_MATERIAL}");

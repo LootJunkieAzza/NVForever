@@ -565,8 +565,25 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   `m` passes white is drawn at `1 + 0.5 × log2(m)` in that channel (at most 3,
   `hot_brightness`, `HOT_GLOW_PER_STOP`, `HOT_GLOW_MAX`), the other channels in proportion,
   so after the clip a colour keeps its hue and what lies over white still feeds the light
-  glow. Up to white nothing changes. The test aid `NVF_NEON=per_stop,max,add_hue,pass`
+  glow. Up to white nothing changes. The test aid `NVF_NEON=per_stop,max,add_hue,pass,blend`
   (nvforever lights.rs) replaces the numbers without a build.
+
+  **Blended glows held to white** (2026-11-10, queue item 146). An unlit emitter that
+  blends over the frame (SRC_ALPHA / INV_SRC_ALPHA) was drawn at its whole emitted
+  light, several times white on the Strip at night, so its alpha no longer shaped it.
+  The Ultra-Luxe's stair lights (`ultraluxdome_glows.nif` `StairLight1`..`10`: white
+  (0.91, 0.96, 0.98) × 2, flat white `L38GlowWL.dds`, vertex alpha 0.15 at most and 0 at
+  the rim) and the Lucky 38's (`lucky38stairlights.nif` `Stair_Lights:0`..`2`: white ×
+  1.25 with an alpha and an emissive-colour controller, the plain white corner of
+  `StripLights01.dds`, vertex alpha 0 to 1) [observed, `fnvtool nif decode`] came out as
+  solid white slabs over every step and thick white bars. The original's Ultra-Luxe
+  exterior (Fallout wiki, `Ultra_Luxe_exterior.jpg`, by day) shows the stair lights as
+  separate light strips with darker steps between them [observed]. Rule now
+  [hypothesis]: such a shape's colour is held to 1 in its brightest channel, the others
+  in proportion (`blend_glow`, `BLEND_GLOW_MAX`), so the alpha is the cover the mesh
+  stores. Additive shapes keep "Additive blend"; solid emitters keep the rule above.
+  Not settled by published frames: how bright the original's stair lights are at night
+  (docs/handoff/observer-checks.md).
 - **Soft intersections of small shapes** (2026-10-23). Dead Money's lantern glow
   (`SconceON:4` above) is three crossed octagonal discs, 58 units across, through the
   centre of the 14-unit glass box, vertex alpha 0.93 at the centre and 0 at the rim

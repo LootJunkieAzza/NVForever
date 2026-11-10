@@ -1301,3 +1301,18 @@ The numbers above stay put so links to them hold; each item here gives its own p
     checks:
     - is the ground lit warm around the fire;
     - do the five stacked lights look brighter than one placed fire light (a fire barrel)?
+
+## Added 2026-11-10 (stair lights on the Strip at night, queue item 146)
+
+90. **How bright are the Ultra-Luxe's and the Lucky 38's stair lights at night?** (P2;
+    docs/spec-notes/nif.md §6 "Blended glows held to white".) Both are unlit shapes that
+    blend over the steps [observed]; NVForever now holds their colour to white, so their
+    alpha shapes them [hypothesis]. On the Strip at 23:00 capture the Ultra-Luxe entrance
+    stairs from the street (TheStripWorldNew 1400, -1200, 1020, facing south-east) and
+    the Lucky 38's stairs (100, 6000, 1050, facing east). The checks:
+    - Ultra-Luxe: is each step a thin light strip with a darker tread between, or is the
+      whole tread white;
+    - Lucky 38: are the stair lights thin lines or thick bars, and do the three sets
+      light in turn (a chase) or all at once;
+    - Lucky 38: is the white tube around the base (`lucky38lights.nif` `Object49`,
+      white × 5, not blended) a hard white line or a soft one?
