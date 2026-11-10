@@ -263,6 +263,9 @@ const NPC_DELAY: f32 = 2.0 / net::NPC_HZ as f32;
 /// A guest stops following an NPC the host has not drawn for this long (seconds); it
 /// stays where it was last drawn.
 const NPC_FORGET: f32 = 3.0;
+/// The host goes on sending an NPC it stopped drawing this long (seconds), from where its
+/// AI has it, longer than a guest's [`NPC_FORGET`] would keep it ([`share_npcs`]).
+const NPC_LINGER: f32 = 5.0;
 /// How often every body of the other players is checked for strays (seconds, [`draw`]).
 const SWEEP_EVERY: f32 = 1.0;
 /// A guest's own actor this near the host (game units, across the floor), which the
@@ -333,6 +336,7 @@ impl Plugin for CoopPlugin {
             repl: Default::default(),
             areas: Default::default(),
             far: Default::default(),
+            sent_npcs: HashMap::new(),
             repl_hud: None,
             ended: false,
             leaving: Default::default(),
@@ -551,6 +555,9 @@ struct Coop {
     areas: areas::Areas,
     /// The host's fights of its undrawn actors with guests away from it (item 129).
     far: far_combat::FarFights,
+    /// The host's: the NPCs it sent last round, and since when each has not been drawn
+    /// ([`share_npcs`]: sent on a while from where its AI has it, item 179).
+    sent_npcs: HashMap<u32, Option<f32>>,
     repl_hud: Option<String>,
     /// A guest's: the host ended the lobby (told, or gone too long), not yet acted on
     /// ([`leave::guest_leaves`]).
@@ -2145,7 +2152,7 @@ fn share_npcs(
     fighters: Res<Fighters>,
     mut attacks: MessageReader<PlayAttack>,
     mut told: Local<usize>,
-    (mut sim, actor_world): (Option<ResMut<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>),
+    (mut sim, actor_world, time): (Option<ResMut<nvf_play::sim::SimState>>, Option<Res<ActorWorld>>, Res<Time>),
     (residents, streamer, world, mut script): (Option<Res<Residents>>, Res<Streamer>, Option<Res<WorldData>>, Option<ResMut<nvf_play::script::ScriptState>>),
 ) {
     let coop = &mut *coop;
@@ -2243,7 +2250,17 @@ fn share_npcs(
             all_levels: level.all_levels,
             rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
             hostile: hostile.contains(&r),
-            space: sim.as_deref().map_or(0, |s| space_of_ref(&s.world, FormId(r))),
+            // Where its AI has it first: a script's MoveTo of a resident moves the walker,
+            // and the reference's cell can still name where it was (Jeannie May, moved
+            // out of her house at Novac, was sent as inside it and hidden on the guest).
+            space: residents
+                .as_deref()
+                .and_then(|res| res.walker_of(r))
+                .map(|(space, ..)| match space {
+                    fnv_nav::Space::Interior(c) | fnv_nav::Space::World(c) => c,
+                })
+                .or_else(|| sim.as_deref().map(|s| space_of_ref(&s.world, FormId(r))))
+                .unwrap_or(0),
         });
         // What it is drawn wearing and holding: each game rolls carried items from its
         // own random numbers (item 71), so the guests dress their copies in this.
@@ -2284,6 +2301,47 @@ fn share_npcs(
                 },
             });
         }
+    }
+    // One the host stopped drawing (gone through a load door, out of the loaded cells)
+    // goes on being sent for a while from where its AI has it, so a guest stops drawing
+    // it where it was last seen (item 179: Benny went through the Tops' elevator door on
+    // the host and stood at the elevator on the guest for good).
+    let now_secs = time.elapsed_secs();
+    let sending: HashSet<u32> = npcs.iter().map(|n| n.reference).collect();
+    coop.sent_npcs.retain(|r, since| {
+        if sending.contains(r) {
+            *since = None;
+            return true;
+        }
+        now_secs - *since.get_or_insert(now_secs) < NPC_LINGER
+    });
+    if let Some(res) = residents.as_deref() {
+        for (&r, _) in coop.sent_npcs.iter().filter(|(r, _)| !sending.contains(r)) {
+            let Some((space, feet, heading)) = res.walker_of(r) else { continue };
+            let dead = script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId(r)));
+            let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
+            npcs.push(NpcState {
+                reference: r,
+                feet,
+                heading,
+                pitch: 0.0,
+                flags: if dead { npc_flag::DEAD } else { 0 },
+                weapon: 0,
+                attacks: coop.npc_attacks.get(&r).copied().unwrap_or(0),
+                furniture: 0,
+                base: sim.as_deref().and_then(|s| s.base_of(r)).map_or(0, |b| b.0),
+                level: level.level,
+                all_levels: level.all_levels,
+                rolls: rolls.get(&r).copied().unwrap_or(0).min(127) as u8,
+                hostile: false,
+                space: match space {
+                    fnv_nav::Space::Interior(c) | fnv_nav::Space::World(c) => c,
+                },
+            });
+        }
+    }
+    for r in sending {
+        coop.sent_npcs.insert(r, None);
     }
     // The replication build dresses the guests' NPCs by the change log's Look (the
     // host's worn list, `replication`); two senders could disagree and the NPC would

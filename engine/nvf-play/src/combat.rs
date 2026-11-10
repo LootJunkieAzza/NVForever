@@ -4255,7 +4255,9 @@ fn fly(
             }
         });
     }
-    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() {
+    // (Another player's explosions are drawn at the end even with nothing of this game's
+    // in flight: item 162, the guest drew none of the host's grenades.)
+    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() && c.remote_booms.is_empty() {
         if !visuals.flying.is_empty() {
             visuals.flying.clear();
         }

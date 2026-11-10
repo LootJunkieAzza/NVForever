@@ -686,6 +686,18 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                             continue;
                         }
                         r.applied += 1;
+                        // The host's disable of an actor it was drawing: its NPC samples
+                        // from before must not show it here again (`place_like_host`), and
+                        // this game stops following it (item 186: the Strip's fluff NPCs
+                        // and Vulpes at Nipton came back "enabled as in the host's world"
+                        // for 5-9 s, Benny at the Tops elevator for good).
+                        if let Value::Enabled { enabled, deleted } = c.value {
+                            if enabled && !deleted {
+                                coop.host_disabled.remove(&c.reference);
+                            } else if coop.host_disabled.insert(c.reference) && coop.npcs.remove(&c.reference).is_some() {
+                                info!("replication: the host disabled {:#010X}: not followed here any more", c.reference);
+                            }
+                        }
                         if apply(sim, &mut r.slow, &c, residents.as_deref_mut(), commands) {
                             r.corrections += 1;
                             *r.corrected.entry((c.reference, c.value.comp())).or_default() += 1;

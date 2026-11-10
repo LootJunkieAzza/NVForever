@@ -868,6 +868,13 @@ impl Residents {
         self.core.scripted.remove(&id);
     }
 
+    /// Where actor `id`'s AI has it now (space, feet, heading), when it is a resident
+    /// this game runs (`coop::share_npcs`: an NPC the host stopped drawing, item 179).
+    pub fn walker_of(&self, id: u32) -> Option<(Space, [f32; 3], f32)> {
+        let a = self.core.ai.agents.get(&FormId(id))?;
+        Some((a.walker.space, a.walker.feet, a.walker.heading))
+    }
+
     /// Co-op replication, the host's: the residents it simulates in its guests'
     /// surroundings (`Streamer::coop_areas`) and does not draw itself, each as
     /// (reference, base, space, feet, heading, walking). A guest draws them by these.
