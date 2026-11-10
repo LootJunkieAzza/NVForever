@@ -1199,6 +1199,11 @@ fn hex_prefix(h: &str) -> f64 {
 /// asks of the message formatter].
 const MAX_FORMAT_FIELD: usize = 512;
 
+/// The most elements an array function makes or grows an array to (Ar_Init, Ar_Range,
+/// Ar_Generate, Ar_Resize) [design: a bound against a runaway script, far above what a mod
+/// keeps].
+const MAX_ELEMENTS: usize = 1_000_000;
+
 /// A number by a printf-style code, as the C library writes it [observed: the game's
 /// sv_Construct, probe format1 and jip5 (#1006): `%g` 0.5 "0.5", 2.5 "2.5", 1000000
 /// "1e+06", 123.456789 "123.457", 1234567 "1.23457e+06", 10020030 "1.002e+07"; `%G`
@@ -2012,7 +2017,8 @@ impl Vm<'_, '_> {
                 let Some(id) = array_of(&a) else { return num(0.0) };
                 let store = self.store()?;
                 let Some(arr) = store.array_mut(id).filter(|a| a.kind == ArrayKind::List && size >= 0.0) else { return num(0.0) };
-                let size = size as usize;
+                // At most as many as Ar_Init makes: `Ar_Resize a 1e12` tried to allocate that [#1991].
+                let size = (size as usize).min(MAX_ELEMENTS);
                 let cut: Vec<XVal> = if arr.entries.len() > size { arr.entries.split_off(size).into_iter().map(|e| e.1).collect() } else { Vec::new() };
                 let grow = size.saturating_sub(arr.entries.len());
                 for _ in 0..grow {
@@ -2081,6 +2087,8 @@ impl Vm<'_, '_> {
                 for i in 1..vals.len() {
                     let mut j = i;
                     while j > 0 {
+                        // Each call of the script's test is a step of this run [#1991].
+                        self.step()?;
                         let store = self.store()?;
                         let x = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j].clone())]);
                         let y = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j - 1].clone())]);
@@ -2150,7 +2158,7 @@ impl Vm<'_, '_> {
                 while (step > 0.0 && x <= b) || (step < 0.0 && x >= b) {
                     es.push((XKey::Num(es.len() as f64), XVal::Num(x)));
                     x += step;
-                    if es.len() > 1_000_000 {
+                    if es.len() > MAX_ELEMENTS {
                         break;
                     }
                 }
@@ -2158,7 +2166,7 @@ impl Vm<'_, '_> {
             }
             "ar_init" => {
                 let (count, v) = (val(self, 0)?.num()?.max(0.0) as usize, val(self, 1)?);
-                let es = (0..count.min(1_000_000)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
+                let es = (0..count.min(MAX_ELEMENTS)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
                 Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
             }
             // [documented: Ar Unique] the first of each value, in its place.
@@ -2224,6 +2232,9 @@ impl Vm<'_, '_> {
                 let entries: Vec<(XKey, XVal)> = self.store()?.array(id).map(|a| a.entries.clone()).unwrap_or_default();
                 let mut kept = Vec::new();
                 for (k, v) in entries {
+                    // Each call of the function is a step of this run: a million elements
+                    // called it a million times on no budget [#1991].
+                    self.step()?;
                     let store = self.store()?;
                     let it = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v.clone())]);
                     let r = self.host.call_function(&f, None, vec![XVal::Array(it)]).map_err(VmError::Host)?;
@@ -2249,7 +2260,8 @@ impl Vm<'_, '_> {
                 let kf = if nargs > 2 { Some(val(self, 2)?) } else { None };
                 let mut es = Vec::new();
                 let mut kind = ArrayKind::List;
-                for i in 0..count.min(1_000_000) {
+                for i in 0..count.min(MAX_ELEMENTS) {
+                    self.step()?;
                     let v = self.host.call_function(&vf, None, Vec::new()).map_err(VmError::Host)?;
                     let key = match &kf {
                         None => XKey::Num(i as f64),
@@ -3158,7 +3170,8 @@ impl Vm<'_, '_> {
             // the page names the option without showing it].
             "inttobin" => {
                 let v = arg(self, 0)?.num()? as i64 as u32;
-                let width = c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                // The width capped as the format fields are: it went straight into the padding [#1991].
+                let width = (c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize).min(MAX_FORMAT_FIELD);
                 let prefix = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_some_and(|v| v.truthy());
                 Ok(XVal::Str(format!("{}{:0width$b}", if prefix { "0b" } else { "" }, v)))
             }
