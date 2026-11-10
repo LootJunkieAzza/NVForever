@@ -22840,7 +22840,7 @@ expect = [
   { re = 'tiles: HUDMainMenu/NVFTex/B: texture offset 0\.500, 0\.000 drawn \(\d+ x \d+ texels\)', count = 1, label = "B drawn at its wrapped offset" },
   { re = 'tiles: HUDMainMenu/NVFTex/C: texture offset 0\.500, 0\.000, alpha map textures.interface.hud.hitgradientleft\.dds drawn', count = 1, label = "C drawn shifted and masked" },
   { re = 'tiles: HUDMainMenu/NVFTex/D:', count = 0, label = "a refused mask is not kept: the renderer has nothing for D" },
-  { re = 'tiles: HUDMainMenu/NVFTex/E: the alpha map textures.interface.hud.mask_not_an_image_nvf.txt could not be read; the tile is drawn without it', count = 1, label = "a mask that cannot be decoded is said once and E draws as it was" },
+  { re = 'tiles: HUDMainMenu/NVFTex/E: the alpha map textures.interface.hud.mask_not_an_image_nvf\.txt could not be read; the tile is drawn without it \(SetUITexOffset / SetUIAlphaMap: not a DDS file', count = 1, label = "a mask in the mods layer that is no image: read from that layer, refused by the decoder, said once; E draws as it was" },
   { re = 'tiles: HUDMainMenu/NVFTex/A: texture offset', count = 0, label = "A has neither" },
   { text = 'script: print "nvf texoffset unloaded 1"', count = 1 },
   { text = 'script: print "nvf texoffset replaced 1"', count = 1, label = "a new B at the old B's path" },

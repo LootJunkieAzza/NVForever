@@ -226,6 +226,11 @@ pub fn resolution(across: (usize, usize), mask: Option<(usize, usize)>, drawn: (
     }
 }
 
+/// The longest side of an image [`oversized`] bakes, in texels: wgpu's default
+/// `max_texture_dimension_2d`, the cap `crate::intro` puts on a film's frame too [design:
+/// #1833 review, a longer image is one the GPU refuses].
+pub const MAX_SIDE: usize = 8192;
+
 /// An [`oversized`] box: its repeats' texels, its node in units, the texels baked.
 pub type Oversized = ((usize, usize), (f64, f64), (usize, usize));
 
@@ -233,7 +238,7 @@ pub type Oversized = ((usize, usize), (f64, f64), (usize, usize));
 /// (`repeat::texels_for` gave none): the texels of its repeats across and down (a box of
 /// `size` units, a repeat `repeat` units of `texels` texels), the node they make in units
 /// (as `texels_for`'s), and the texels baked: the repeats', scaled down to at most
-/// [`MAX_TEXELS`] keeping their shape. Its picture is sampled coarser, but the mask lies
+/// [`MAX_TEXELS`] texels and [`MAX_SIDE`] a side, keeping their shape. Its picture is sampled coarser, but the mask lies
 /// once and clamps, where Bevy's tiling of a masked piece would repeat it [design:
 /// #1833]. `None` for a box of no texels or one past 2^32 texels a side.
 pub fn oversized(size: (f64, f64), repeat: (f64, f64), texels: (f64, f64)) -> Option<Oversized> {
@@ -248,21 +253,13 @@ pub fn oversized(size: (f64, f64), repeat: (f64, f64), texels: (f64, f64)) -> Op
     if !(w >= 1.0 && h >= 1.0 && w <= side && h <= side) {
         return None;
     }
+    // One scale for both sides keeps the shape: at most `MAX_TEXELS` in all and
+    // `MAX_SIDE` a side. A side scaled under one texel is one; the other is then at most
+    // `MAX_SIDE`, so the image stays under both limits.
     let most = MAX_TEXELS as f64;
-    let (mut ow, mut oh) = (w, h);
-    if w * h > most {
-        let s = (most / (w * h)).sqrt();
-        ow = (w * s).floor().max(1.0);
-        oh = (h * s).floor().max(1.0);
-        // A side cut to one texel leaves the other the rest.
-        if ow * oh > most {
-            if ow < oh {
-                oh = (most / ow).floor();
-            } else {
-                ow = (most / oh).floor();
-            }
-        }
-    }
+    let longest = MAX_SIDE as f64;
+    let s = (most / (w * h)).sqrt().min(longest / w).min(longest / h).min(1.0);
+    let (ow, oh) = if s < 1.0 { ((w * s).floor().clamp(1.0, longest), (h * s).floor().clamp(1.0, longest)) } else { (w, h) };
     Some(((w as usize, h as usize), (w * per.0, h * per.1), (ow as usize, oh as usize)))
 }
 
@@ -676,7 +673,9 @@ fn who(piece: &Piece, ui: Option<&Ui>) -> String {
 /// not be read (said once).
 fn read_mask(tex: &TexMod, who: &str, b: &mut Bake<'_>) -> Option<(String, Arc<Texels>)> {
     let path = alpha_map_path(tex.mask.as_deref()?);
-    match b.state.texels(&path, &|p| b.data.read(p)) {
+    // Read as the script's check found it (`fnv_game::mod_files`): NVForever's mods layer,
+    // then the game's Data and archives; the game's own files while that reader is not set.
+    match b.state.texels(&path, &|p| fnv_game::mod_files::read_data_file(p).or_else(|| b.data.read(p))) {
         Ok(t) => Some((path, t)),
         Err(why) => {
             b.state.failed(&path, "alpha map", who, &why);
@@ -976,8 +975,11 @@ mod tests {
         let ((w, h), node, (ow, oh)) = oversized((4096.0, 2048.0), (8.0, 8.0), (8.0, 8.0)).unwrap();
         assert_eq!(((w, h), node, (ow, oh)), ((4096, 2048), (4096.0, 2048.0), (2896, 1448)));
         assert!((ow * oh) as u64 <= MAX_TEXELS);
-        // A thin box: one texel down, the rest across.
-        assert_eq!(oversized((1e7, 1.0), (1.0, 1.0), (1.0, 1.0)).map(|o| o.2), Some((MAX_TEXELS as usize, 1)));
+        // A thin box: one texel down, the longest side across.
+        assert_eq!(oversized((1e7, 1.0), (1.0, 1.0), (1.0, 1.0)).map(|o| o.2), Some((MAX_SIDE, 1)));
+        // A long box: under the texel budget, but its side cut to the longest the GPU takes.
+        let (_, _, (lw, lh)) = oversized((20000.0, 300.0), (1.0, 1.0), (1.0, 1.0)).unwrap();
+        assert_eq!((lw, lh), (8192, 122));
         // One that fits keeps its texels; none for an empty or endless one.
         assert_eq!(oversized((16.0, 8.0), (8.0, 8.0), (8.0, 8.0)), Some(((16, 8), (16.0, 8.0), (16, 8))));
         assert_eq!(oversized((0.0, 8.0), (8.0, 8.0), (8.0, 8.0)), None);
