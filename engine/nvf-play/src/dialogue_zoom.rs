@@ -122,9 +122,13 @@ pub const FOLLOW_SECONDS: f32 = 0.5;
 /// [design: the original's target view shows the whole target with room around it; no
 /// page gives a number].
 pub const VATS_TARGET_SHARE: f32 = 0.6;
-/// Seconds of the ease onto a VATS target, real time [design: quicker than a
-/// conversation's, the player is choosing].
-pub const VATS_IN_SECONDS: f32 = 0.25;
+/// Seconds of the ease onto a VATS target and of the ease back out after it, real time
+/// [design: quicker than a conversation's, the player is choosing; the fork owner
+/// 2026-11-10, "slow down the VATS zoom in/out animation by 50%, it is too fast now":
+/// they were 0.25 and 0.3 ([`OUT_SECONDS`]); then "make the zoom in/out vats animation the
+/// same length 0.5sec"].
+pub const VATS_IN_SECONDS: f32 = 0.5;
+pub const VATS_OUT_SECONDS: f32 = 0.5;
 
 /// How a VATS target `height` tall as drawn is framed: all of it, at
 /// [`VATS_TARGET_SHARE`] of the view, the point aimed at in the middle.
@@ -365,7 +369,7 @@ pub(crate) fn track(
     // stand still. The ease out after it is real time too, until it is over.
     let vats_ease = vats_target.is_some() || (zoom.vats && conv.is_none());
     zoom.vats = vats_ease && (vats_target.is_some() || zoom.weight > 0.0);
-    let dt = if vats_ease { real.delta_secs().min(0.25) * if vats_target.is_some() { IN_SECONDS / VATS_IN_SECONDS } else { 1.0 } } else { time.delta_secs() };
+    let dt = if vats_ease { real.delta_secs().min(0.25) * if vats_target.is_some() { IN_SECONDS / VATS_IN_SECONDS } else { OUT_SECONDS / VATS_OUT_SECONDS } } else { time.delta_secs() };
     let mut said = None;
     let want = found.ok().map(|(actor, (point, from))| {
         let d = distance(player.eye(), point);

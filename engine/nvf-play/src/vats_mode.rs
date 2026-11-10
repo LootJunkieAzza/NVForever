@@ -394,6 +394,9 @@ pub struct VatsMode {
     blast_seen: u32,
     blast_until: Option<f64>,
     blast_since: Option<f64>,
+    /// The real second (`now`) the last attack left to play was dropped because its
+    /// target had died: the mode ends [`AFTER_KILL`] after it.
+    kill_end: Option<f64>,
     /// How much faster than the world's clock the player's own attack runs now: the
     /// playing camera shot's Player time multiplier (`crate::kill_cam`), else 1 (0 before
     /// the first frame).
@@ -472,6 +475,13 @@ pub struct CameraAsk {
     pub stage: CamStage,
     pub shot: fnv_game::vats::VatsShot,
 }
+
+/// The mode ends this many real seconds after the last attack left to play was dropped
+/// because its target had died [design: the fork owner 2026-11-10, "when the target dies,
+/// vats should automatically end after a 1s delay - currently the player character keeps
+/// shooting the dead body if the NPC got killed at 2/5 shot"; 2 s since "extend the vats
+/// kill/slowmo camera by 1 second", the same day].
+pub const AFTER_KILL: f64 = 2.0;
 
 /// The attack cameras are given up for a stay when `crate::kill_cam` has not taken a
 /// request after this many real seconds (it does not run without the script runtime).
@@ -1352,6 +1362,7 @@ fn update(
                     v.phase = Phase::Firing;
                     (v.aim_mark, v.sights_up) = (0, None);
                     (v.blast_seen, v.blast_until, v.blast_since) = (combat.vats_blast.went_off, None, None);
+                    v.kill_end = None;
                     let n = v.queue.len();
                     let style = v.weapon.as_ref().map_or(AttackStyle::Single, |w| w.style);
                     let (run, what) = match style {
@@ -1385,6 +1396,8 @@ fn update(
             follow(v, &phys);
             rechance(v, &combat, player.eye());
             let dt = time.delta_secs();
+            // An attack whose target has died is not played ([`AFTER_KILL`]).
+            drop_dead_marks(v, script.as_deref());
             // A throw is in the hand until its clip's `Hit` key: the next waits for it.
             let held = v.throw_holds();
             // An explosive the marks sent holds the mode's end, not the next mark.
@@ -1393,16 +1406,23 @@ fn update(
             let wait = held || classic_cameras(v, kill_cam.as_deref(), &player) || blast;
             // The marks' pace is the player's own (a camera shot's Player time multiplier).
             let pace = dt * v.player_rate();
-            match v.run.as_mut() {
-                Some(Run::Volley(vo)) => match (!wait).then_some(vo).and_then(|vo| vo.step(pace)) {
-                    Some(VolleyEvent::Shot { mark, round }) => {
-                        shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds);
-                    }
-                    Some(VolleyEvent::Done) => end(v, "all shots fired", &mut sounds),
-                    None => {}
-                },
-                Some(Run::Melee(_)) => melee_step(v, dt, &combat, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds),
-                None => end(v, "nothing to fire", &mut sounds),
+            if let Some(since) = v.kill_end {
+                // Nothing is left to play: the cameras go on, the mode ends in a moment.
+                if v.now - since >= AFTER_KILL {
+                    end(v, "the target died", &mut sounds);
+                }
+            } else {
+                match v.run.as_mut() {
+                    Some(Run::Volley(vo)) => match (!wait).then_some(vo).and_then(|vo| vo.step(pace)) {
+                        Some(VolleyEvent::Shot { mark, round }) => {
+                            shoot(v, mark, round, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds);
+                        }
+                        Some(VolleyEvent::Done) => end(v, "all shots fired", &mut sounds),
+                        None => {}
+                    },
+                    Some(Run::Melee(_)) => melee_step(v, dt, &combat, script.as_deref_mut(), &mut sim, &mut phys, &mut player, &control, &mut sounds),
+                    None => end(v, "nothing to fire", &mut sounds),
+                }
             }
         }
     }
@@ -1508,6 +1528,7 @@ fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     }
     v.run = None;
     v.shot = None;
+    v.kill_end = None;
     v.throw_held = None;
     v.shooting = None;
     v.swing_now = false;
@@ -1628,6 +1649,60 @@ fn classic_hit_camera(v: &mut VatsMode, i: usize, player: &Player) {
     v.cam_serial += 1;
     v.cam_ask = Some((v.cam_serial, CameraAsk { mark: i, stage: CamStage::Hit, shot }));
     v.cam_wait = Some((v.cam_serial, CamStage::Hit, v.now));
+}
+
+/// The attacks still to play whose target has died are dropped (their AP was only
+/// reserved), and a burst under way on it is cut short; with none left to play the mode
+/// ends [`AFTER_KILL`] later (`kill_end`) [design: the fork owner 2026-11-10; until then
+/// the queue played on at the body]. Attacks queued on other targets play on.
+fn drop_dead_marks(v: &mut VatsMode, script: Option<&ScriptState>) {
+    if v.kill_end.is_some() {
+        return;
+    }
+    let gone: Vec<bool> = v.queue.marks().iter().map(|m| crate::combat::is_dead(script, m.target.0)).collect();
+    if !gone.contains(&true) {
+        return;
+    }
+    let is_gone = |k: usize| gone.get(k).copied().unwrap_or(false);
+    let mut dropped: Vec<usize> = Vec::new();
+    let mut cut = false;
+    let none_left = match v.run.as_mut() {
+        Some(Run::Volley(vo)) => {
+            if vo.fired >= 1 && is_gone(vo.fired - 1) {
+                cut = vo.cut_burst();
+            }
+            while let Some(k) = vo.next_mark().filter(|k| is_gone(*k)) {
+                vo.skip();
+                dropped.push(k);
+            }
+            vo.all_fired()
+        }
+        Some(Run::Melee(run)) => {
+            while let Some(k) = run.approaching().filter(|k| is_gone(*k)) {
+                run.skip();
+                dropped.push(k);
+            }
+            run.all_fired()
+        }
+        None => false,
+    };
+    if dropped.is_empty() && !cut {
+        return;
+    }
+    // A dropped attack's camera, asked for but not yet led into, is not waited for.
+    if v.cam_led.is_some_and(|k| dropped.contains(&k)) {
+        (v.cam_led, v.cam_wait, v.cam_ask, v.cam_released) = (None, None, None, false);
+    }
+    let who = dropped.first().and_then(|k| v.spots.get(*k).zip(v.queue.marks().get(*k))).map_or_else(|| "its target".to_string(), |(s, m)| format!("{} {}", s.name, m.target));
+    info!(
+        "vats mode: {who} is dead: {} queued attacks dropped{}{}",
+        dropped.len(),
+        if cut { ", the burst cut short" } else { "" },
+        if none_left { format!("; none left to play, the mode ends in {AFTER_KILL:.0} s") } else { String::new() }
+    );
+    if none_left {
+        v.kill_end = Some(v.now);
+    }
 }
 
 /// The classic style's targets now (vats-classic.md §3): every living actor with a hit

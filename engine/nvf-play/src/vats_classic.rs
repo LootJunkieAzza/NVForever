@@ -183,8 +183,10 @@ pub fn cycle(i: usize, n: usize, step: i32) -> usize {
 }
 
 /// The view's turn onto a target, a share of what is left each second [design: the
-/// original's camera swings onto the target in a fraction of a second].
-pub const TURN_RATE: f32 = 14.0;
+/// original's camera swings onto the target in a fraction of a second; the fork owner
+/// 2026-11-10, "slow down the VATS zoom in/out animation by 50%": it was 14, with the
+/// zoom's time (`crate::dialogue_zoom::VATS_IN_SECONDS`)].
+pub const TURN_RATE: f32 = 7.0;
 
 /// `from` moved towards the angle `to` the short way round, `rate` of what is left a
 /// second, over `dt` real seconds.

@@ -75,11 +75,13 @@
 //!   rounds, a throw's wind-up) and [`SHOOT_AFTER`] more, no longer than
 //!   [`SHOOT_PATIENCE`]; the next attack waits for the cameras
 //!   (`vats_mode::classic_cameras`). Their lines start `vats camera:`.
-//! - **Where an attack's camera stands: four angles** ([`Angle`], [`angle_spot`]) [design:
+//! - **Where an attack's camera stands: three angles** ([`Angle`], [`angle_spot`]) [design:
 //!   the fork owner 2026-11-10, "update the camera angle so it has these 4 options: both
 //!   player character and target npc in frame, first person view, only the targeted npc,
 //!   only the player character; vats switch between them but not too fast so the camera
-//!   angles don't just jump around for each shot"]. The path's shot still gives an
+//!   angles don't just jump around for each shot"; the fourth, the player alone, went the
+//!   same day: first "the killshot should always have the NPC kill visible therefore
+//!   exclude cam 4", then "remove the player only camera all together"]. The path's shot still gives an
 //!   attack's camera its length and its clocks (the world's and the player's); where the
 //!   camera stands is one of the four, not the shot's model, and its image space modifier
 //!   is not played (it would start again with every attack). Each stay's attacks start
@@ -182,6 +184,9 @@ pub const PLAYER_FASTEST: f32 = 1.1;
 /// 2026-11-10, "increase duration of the vats shooting/kill slowmo camera by 2 seconds",
 /// and for Dead Eye "port all the fixes we put in vats into deadeye also"].
 pub const CLASSIC_HOLD: f32 = 2.0;
+/// The kill camera holds its last shot this many real seconds longer still [design: the
+/// fork owner 2026-11-10, "extend the vats kill/slowmo camera by 1 second"].
+pub const KILL_HOLD: f32 = 1.0;
 
 /// Where an attack's camera stands (the module's notes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,20 +197,17 @@ pub enum Angle {
     FirstPerson,
     /// By the target, on the attacker's side of it: the target alone.
     Target,
-    /// Before the attacker, looking back: the attacker alone.
-    Player,
 }
 
 impl Angle {
-    /// The order the angles come in.
-    pub const CYCLE: [Angle; 4] = [Angle::Both, Angle::Target, Angle::Player, Angle::FirstPerson];
+    /// The order the angles come in. Each shows the target, so a kill is always seen.
+    pub const CYCLE: [Angle; 3] = [Angle::Both, Angle::Target, Angle::FirstPerson];
 
     fn name(self) -> &'static str {
         match self {
             Angle::Both => "both in the frame",
             Angle::FirstPerson => "first person",
             Angle::Target => "the target alone",
-            Angle::Player => "the player alone",
         }
     }
 }
@@ -224,9 +226,7 @@ pub const ANGLE_LINGER: f32 = 0.25;
 ///   the way from the target back to the attacker;
 /// - the target alone: on the attacker's side of the target, 35 degrees off the line (70
 ///   with the two nearer than 180, where there is no room between them), a little over
-///   half their distance away, no nearer than 110 and no further than 240, 18 up;
-/// - the player alone: 100 before the attacker, 48 to the side and 30 up, looking at its
-///   chest.
+///   half their distance away, no nearer than 110 and no further than 240, 18 up.
 pub fn angle_spot(angle: Angle, side: f32, attacker: Vec3, chest: Vec3, target: Vec3) -> Option<(Vec3, Vec3)> {
     let forward = level_forward(attacker, target);
     let right = forward.cross(Vec3::Z);
@@ -239,7 +239,6 @@ pub fn angle_spot(angle: Angle, side: f32, attacker: Vec3, chest: Vec3, target: 
             let away = (apart * 0.55).clamp(110.0, 240.0);
             Some((target + (right * side * off.sin() - forward * off.cos()) * away + Vec3::Z * 18.0, target))
         }
-        Angle::Player => Some((attacker + forward * 100.0 + right * side * 48.0 + Vec3::Z * 30.0, chest)),
     }
 }
 
@@ -298,6 +297,12 @@ pub fn attack_length(def: &CameraShotDef, stage: CamStage) -> f32 {
     asked.clamp(SHOT_LEAST, most)
 }
 
+/// A camera's place for its target closes this share of the way to where the target is
+/// in each of these real seconds (1 - 1/e), and goes there at once when that is further
+/// than [`FOLLOW_JUMP`] units (a target put somewhere else) [design].
+pub const FOLLOW_SECONDS: f32 = 0.1;
+pub const FOLLOW_JUMP: f32 = 200.0;
+
 /// A kill camera under way.
 struct Show {
     kind: Kind,
@@ -312,6 +317,10 @@ struct Show {
     angle: Option<(Angle, f32)>,
     /// The shot played when the path names none ([`own_shot`]).
     fallback: Option<CameraShotDef>,
+    /// Where its target is for the camera: [`middle`], followed smoothly
+    /// ([`FOLLOW_SECONDS`]). The camera stays about that place when the target cannot
+    /// be found, not about the attacker.
+    seen: Option<Vec3>,
 }
 
 /// The last mark's actor being watched.
@@ -517,12 +526,18 @@ fn player_look(p: &Player) -> Vec3 {
     feet + (eye - feet) * PLAYER_LOOK_HEIGHT
 }
 
-/// An actor's middle (game space), the player's for the player.
+/// An actor's middle (game space), the player's for the player: its hit volume's aim
+/// point, and for a corpse, which has none once its ragdoll is in the world
+/// (`crate::hitvol`), its ragdoll's centre. Without the second a kill camera lost its
+/// target a frame after the kill and stood about the attacker instead, the room about
+/// the two measured as none [observed: the fork owner's playtest 2026-11-10, "the kill
+/// camera still shows/rotates around the player character and not the target/killed
+/// NPC"; the run's log, `room right/left/back/front 0/0/0/0`].
 fn middle(phys: &PhysState, player: &Player, actor: FormId) -> Option<Vec3> {
     if actor == FormId::PLAYER_REF {
         return Some(player_middle(player));
     }
-    phys.world.actor_aim_point(actor.0).map(Vec3::from_array)
+    phys.world.actor_aim_point(actor.0).or_else(|| phys.world.ragdoll_center(actor.0)).map(Vec3::from_array)
 }
 
 /// Watch the last mark, start and run the kill camera.
@@ -544,10 +559,16 @@ fn update(
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let playing = *state.get() == PlayState::Playing;
     let player_dead = rt.game.is_dead(FormId::PLAYER_REF);
+    // No kill camera has the view: none, or an attack's, which a kill's takes over. (The
+    // last attack leaves a moment into its own camera, so a near target dies while that
+    // still plays; waiting for it to end, the target was dead before it was watched and
+    // no kill camera came [observed: a run of 2026-11-10, a dog killed by the last of two
+    // marks 0.07 s after the shot, no `kill camera:` line].)
+    let free = !matches!(cam.show.as_ref().map(|s| s.kind), Some(Kind::Kill));
     // The last mark: watched from the frame its attack starts.
     if let Some((shot, _)) = vats.final_shot(&player) {
         let same = cam.watch.as_ref().is_some_and(|w| w.shot.target == shot.target);
-        if !same && cam.show.is_none() && !rt.game.is_dead(shot.target) {
+        if !same && free && !rt.game.is_dead(shot.target) {
             cam.watch = Some(Watch { shot, since_off: 0.0 });
         } else if let Some(w) = cam.watch.as_mut().filter(|_| same) {
             w.shot = shot;
@@ -561,7 +582,7 @@ fn update(
         }
     }
     // A kill: whether the setting and the fight leave room for a camera.
-    let mut killed = cam.watch.as_ref().filter(|w| cam.show.is_none() && rt.game.is_dead(w.shot.target)).map(|w| w.shot);
+    let mut killed = cam.watch.as_ref().filter(|w| free && rt.game.is_dead(w.shot.target)).map(|w| w.shot);
     if let Some(shot) = killed {
         cam.watch = None;
         let others = enemies_in_combat(&rt.game, shot.target);
@@ -612,7 +633,12 @@ fn update(
                     room.target_visible[3],
                     if outcome.dismember || outcome.explode { ", a part is gone" } else { "" }
                 );
-                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None });
+                // An attack's camera still playing gives way to it.
+                if let Some(m) = cam.show.take().and_then(|s| s.playing).and_then(|p| p.imod) {
+                    rt.game.remove_image_modifier(m);
+                }
+                cam.linger = None;
+                cam.show = Some(Show { kind: Kind::Kill, target: shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None });
                 cam.shown += 1;
             }
             None => info!("kill camera: {} killed by the last mark: no camera path chosen", shot.target),
@@ -648,7 +674,7 @@ fn update(
                     (cam.angle, cam.angle_for) = (Some(at), 0.0);
                     cam.angle_side = roomier_side(&mut phys, Angle::CYCLE[at], attacker, player_look(&player), target);
                 }
-                let angle = Angle::CYCLE[cam.angle.unwrap_or(0)];
+                let (angle, side) = (Angle::CYCLE[cam.angle.unwrap_or(0)], cam.angle_side);
                 let names: Vec<String> = shots.iter().map(|s| rt.game.data.name(*s)).collect();
                 info!(
                     "vats camera: attack {} on {} {}, {:?}: angle {}{}; {}",
@@ -657,7 +683,7 @@ fn update(
                     ask.shot.target,
                     ask.stage,
                     angle.name(),
-                    match (angle, cam.angle_side < 0.0) {
+                    match (angle, side < 0.0) {
                         (Angle::FirstPerson, _) => "",
                         (_, true) => ", from the left",
                         (_, false) => ", from the right",
@@ -667,7 +693,7 @@ fn update(
                         None => "no path with such a shot, NVForever's own clocks".to_string(),
                     }
                 );
-                cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: Some((angle, cam.angle_side)), fallback });
+                cam.show = Some(Show { kind: Kind::Attack(ask.stage), target: ask.shot.target, shots, next: 0, playing: None, real: 0.0, held: 0, angle: Some((angle, side)), fallback, seen: None });
                 cam.attacks += 1;
             }
         }
@@ -685,6 +711,16 @@ fn update(
         control.cinematic = cam.linger.is_some_and(|l| l.angle != Angle::FirstPerson);
         return;
     };
+    // The place the camera is held about and looks at follows the target smoothly: a
+    // corpse's place is its ragdoll's, which moves a physics step at a time while the
+    // picture is drawn every frame, and a camera hung on it shook with every step
+    // [observed: the fork owner's playtest 2026-11-10, "the kill camera jitters a lot"].
+    if let Some(at) = middle(&phys, &player, show.target) {
+        show.seen = Some(match show.seen {
+            Some(was) if was.distance(at) <= FOLLOW_JUMP => was.lerp(at, 1.0 - (-real.delta_secs().min(0.25) / FOLLOW_SECONDS).exp()),
+            _ => at,
+        });
+    }
     // Cut short.
     let stop = if player_dead {
         Some("the player died")
@@ -733,7 +769,7 @@ fn update(
                 // An attack's camera stands at its angle, not where the shot's model does.
                 let model = def.model.as_deref().filter(|_| !def.has(FIRST_PERSON_CAMERA) && show.angle.is_none()).and_then(|m| models.camera_model(&format!("meshes\\{m}")));
                 let attacker = player_middle(&player);
-                let target = middle(&phys, &player, show.target).unwrap_or(attacker);
+                let target = show.seen.unwrap_or(attacker);
                 let forward = level_forward(attacker, target);
                 let origin = match def.location {
                     ShotActor::Target => target,
@@ -750,10 +786,14 @@ fn update(
                     Kind::Attack(stage) => attack_length(&def, stage),
                 };
                 // The classic style holds the last shot of a hit's camera and of the kill
-                // camera longer ([`CLASSIC_HOLD`]).
+                // camera longer ([`CLASSIC_HOLD`]), the kill camera's longer still
+                // ([`KILL_HOLD`]).
                 let last = show.next >= show.shots.len();
-                let held = last && matches!(show.kind, Kind::Kill | Kind::Attack(CamStage::Hit));
-                let length = if held { length + CLASSIC_HOLD } else { length };
+                let length = match show.kind {
+                    Kind::Kill if last => length + CLASSIC_HOLD + KILL_HOLD,
+                    Kind::Attack(CamStage::Hit) if last => length + CLASSIC_HOLD,
+                    _ => length,
+                };
                 let world = if def.time_global > 0.0 { def.time_global.clamp(SLOWEST, 1.0) } else { 1.0 };
                 let from = model.as_ref().map_or(Vec3::ZERO, |m| m.root_at(0.0).0);
                 info!(
@@ -816,11 +856,11 @@ fn place(
     let attacker = player_middle(&player);
     // An attack's camera at its angle, and the angle that holds between two of them.
     let angled = match cam.show.as_ref() {
-        Some(show) => show.angle.filter(|_| show.playing.is_some()).map(|(angle, side)| (angle, side, show.target)),
-        None => cam.linger.map(|l| (l.angle, l.side, l.target)),
+        Some(show) => show.angle.filter(|_| show.playing.is_some()).map(|(angle, side)| (angle, side, show.target, show.seen)),
+        None => cam.linger.map(|l| (l.angle, l.side, l.target, None)),
     };
-    if let Some((angle, side, who)) = angled {
-        let target = middle(&phys, &player, who).unwrap_or(attacker);
+    if let Some((angle, side, who, seen)) = angled {
+        let target = seen.or_else(|| middle(&phys, &player, who)).unwrap_or(attacker);
         let Some((want, look)) = angle_spot(angle, side, attacker, player_look(&player), target) else { return };
         let eye = clear(&mut phys, look, want);
         let (from, to) = (space::to_bevy(eye.to_array()), space::to_bevy(look.to_array()));
@@ -832,7 +872,7 @@ fn place(
     let Some(show) = cam.show.as_ref() else { return };
     let Some(p) = show.playing.as_ref() else { return };
     let Some(model) = p.model.as_ref() else { return };
-    let target = middle(&phys, &player, show.target).unwrap_or(attacker);
+    let target = show.seen.or_else(|| middle(&phys, &player, show.target)).unwrap_or(attacker);
     let (origin, forward) = if p.def.has(POSITION_FOLLOWS_LOCATION) {
         let o = match p.def.location {
             ShotActor::Target => target,
@@ -927,7 +967,7 @@ mod angle_tests {
     use super::*;
 
     #[test]
-    fn the_four_angles_stand_where_they_show_whom_they_name() {
+    fn the_angles_stand_where_they_show_whom_they_name() {
         // The attacker at the origin, the target 600 ahead (+Y), their middles 60 up.
         let (a, chest, t) = (Vec3::new(0.0, 0.0, 60.0), Vec3::new(0.0, 0.0, 100.0), Vec3::new(0.0, 600.0, 60.0));
         assert_eq!(angle_spot(Angle::FirstPerson, 1.0, a, chest, t), None, "the eye's own view");
@@ -939,9 +979,6 @@ mod angle_tests {
         let (at, look) = angle_spot(Angle::Target, 1.0, a, chest, t).unwrap();
         assert_eq!(look, t);
         assert!(at.y > 300.0 && at.y < t.y, "{at:?}");
-        // The player alone: before the attacker, looking back at its chest.
-        let (at, look) = angle_spot(Angle::Player, 1.0, a, chest, t).unwrap();
-        assert!(at.y > 0.0 && at.y < 200.0 && look == chest, "{at:?}");
         // A target at arm's length leaves no room between the two: from beside them.
         let (at, _) = angle_spot(Angle::Target, 1.0, a, chest, Vec3::new(0.0, 100.0, 60.0)).unwrap();
         assert!(at.x > 90.0, "{at:?}");
@@ -949,7 +986,7 @@ mod angle_tests {
 
     #[test]
     fn every_angle_has_its_turn() {
-        for angle in [Angle::Both, Angle::FirstPerson, Angle::Target, Angle::Player] {
+        for angle in [Angle::Both, Angle::FirstPerson, Angle::Target] {
             assert!(Angle::CYCLE.contains(&angle), "{}", angle.name());
         }
         assert_eq!(own_shot().action, ShotAction::Shoot);
@@ -1026,7 +1063,7 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<MoveIntent>().forward, 1.0);
         assert!(app.world().resource::<PlayerControl>().trigger);
-        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None });
+        app.world_mut().resource_mut::<KillCam>().show = Some(Show { kind: Kind::Kill, target: FormId(0x1234), shots: Vec::new(), next: 0, playing: None, real: 0.0, held: 0, angle: None, fallback: None, seen: None });
         ask(&mut app);
         app.update();
         let (i, c) = (*app.world().resource::<MoveIntent>(), *app.world().resource::<PlayerControl>());

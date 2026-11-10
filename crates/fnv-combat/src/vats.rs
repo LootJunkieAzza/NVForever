@@ -384,6 +384,25 @@ impl Volley {
         self.since = f32::INFINITY;
     }
 
+    /// Pass over the mark whose first round comes next without firing it (its target is
+    /// gone): it counts as started. Whether there was one.
+    pub fn skip(&mut self) -> bool {
+        let next = self.next_mark().is_some();
+        if next {
+            self.fired += 1;
+        }
+        next
+    }
+
+    /// Leave the rounds still to come of the burst under way unfired. Whether one was.
+    pub fn cut_burst(&mut self) -> bool {
+        let mid = self.mid_burst();
+        if mid {
+            self.round = 0;
+        }
+        mid
+    }
+
     /// Every mark's every round has left.
     pub fn all_fired(&self) -> bool {
         self.fired >= self.shots && self.round == 0
@@ -489,6 +508,23 @@ impl MeleeRun {
     /// Every mark has been swung at and its swing is over.
     pub fn all_fired(&self) -> bool {
         matches!(self.stage, MeleeStage::After | MeleeStage::Done)
+    }
+
+    /// The mark being closed on, its swing not yet started.
+    pub fn approaching(&self) -> Option<usize> {
+        (self.stage == MeleeStage::Approach).then_some(self.current)
+    }
+
+    /// Pass over the mark being closed on without a swing (its target is gone). Whether
+    /// there was one.
+    pub fn skip(&mut self) -> bool {
+        let closing = self.stage == MeleeStage::Approach;
+        if closing {
+            self.current += 1;
+            self.t = 0.0;
+            self.stage = if self.current < self.marks { MeleeStage::Approach } else { MeleeStage::After };
+        }
+        closing
     }
 
     pub fn done(&self) -> bool {
@@ -868,6 +904,33 @@ mod tests {
         let done = events.last().unwrap();
         assert_eq!(done.0, VolleyEvent::Done);
         assert!((done.1 - 0.54).abs() < 0.03, "{done:?}");
+    }
+
+    #[test]
+    fn a_mark_whose_target_is_gone_is_passed_over() {
+        // Three single shots: the second is passed over, the third leaves in its turn.
+        let mut v = Volley::new(3, 0.12, 0.3);
+        assert_eq!(v.step(0.0), Some(VolleyEvent::Shot { mark: 0, round: 0 }));
+        assert!(v.skip());
+        assert_eq!(v.next_mark(), Some(2));
+        assert_eq!(v.step(1.0), Some(VolleyEvent::Shot { mark: 2, round: 0 }));
+        assert!(v.all_fired() && !v.skip(), "none is left to pass over");
+        // A burst cut short: its later rounds stay, the next mark is the next to start.
+        let mut b = Volley::bursts(2, 3, 0.2, 0.1, 0.3);
+        assert_eq!(b.step(0.0), Some(VolleyEvent::Shot { mark: 0, round: 0 }));
+        assert!(!b.skip(), "not in the middle of a burst");
+        assert!(b.cut_burst() && !b.mid_burst());
+        assert_eq!(b.next_mark(), Some(1));
+        assert!(b.skip() && b.all_fired());
+        // A melee run: the mark being closed on is passed over, a swing under way is not.
+        let mut m = MeleeRun::new(2, MeleeLimits { approach: 2.5, swing: 2.0, after: 0.3 });
+        assert_eq!(m.approaching(), Some(0));
+        assert_eq!(m.step(0.0, true, false), Some(MeleeAction::Swing(0)));
+        assert!(m.approaching().is_none() && !m.skip());
+        m.step(0.1, true, true);
+        m.step(0.1, true, false);
+        assert_eq!(m.approaching(), Some(1));
+        assert!(m.skip() && m.all_fired());
     }
 
     #[test]

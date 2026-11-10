@@ -951,6 +951,17 @@ impl PhysWorld {
         self.steps
     }
 
+    /// Change the fixed step, seconds (`PhysParams::dt`): the next [`PhysWorld::step`] and
+    /// everything that reads the step (characters, buoyancy, the grab) go by it. For a
+    /// clock that runs slow: a step of the same share of the usual one keeps the steps as
+    /// many a real second as at full speed. Not positive: left as it is.
+    pub fn set_step(&mut self, dt: f32) {
+        if dt > 0.0 && dt.is_finite() {
+            self.params.dt = dt;
+            self.w.integration_parameters.dt = dt;
+        }
+    }
+
     /// Bring the broad phase up to date after adding or removing bodies, so that queries
     /// see them, without advancing time.
     pub fn update_queries(&mut self) {

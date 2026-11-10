@@ -46,7 +46,15 @@
 //!   the highlighted bodypart pulse the same way the predicted damage on healthbar does"]:
 //!   the fill and the outline both.
 //! - **Life**: the shapes' copies are made when the selected target or part changes and
-//!   removed when the screen goes; the camera draws only meanwhile.
+//!   removed when the screen goes. The mask's camera is there only while a part is lit and
+//!   [`CAMERA_KEPT`] after: the world's systems find the view with a query for the one 3D
+//!   camera that is not the reflection's (`world::stream`, `lod`, `grass`, `nav`, ...,
+//!   `Query::single`), which finds none while a second one exists. Kept for good from the
+//!   first lit part, as it was until 2026-11-10, the camera stopped them all for the rest
+//!   of the run: no cell loaded any more, and a door's loading screen waited out its 120 s
+//!   for "cells to draw" [observed: the fork owner's playtest, "stuck in an infinite
+//!   loading screen when entering goodsprings store after a gunfight and vats use"; a run
+//!   with one VATS kill and then the store's door]. The picture and the node stay.
 //!
 //! Log: `vats highlight: <actor> part <n>: <t> triangles on <s> shapes`, `vats highlight:
 //! off`, and at exit `vats highlight summary: <n> shown`.
@@ -136,9 +144,15 @@ impl UiMaterial for PartMaskMaterial {
 #[derive(Component)]
 struct PartGlow;
 
-/// The mask's camera, its picture and the node drawn from it.
+/// The mask's camera goes this many real seconds after the last part was lit (the
+/// module's notes, Life) [design: longer than the frames between two parts' turns].
+pub const CAMERA_KEPT: f32 = 0.5;
+
+/// The mask's camera (while a part is lit, and how long none has been), its picture and
+/// the node drawn from it.
 struct View {
-    camera: Entity,
+    camera: Option<Entity>,
+    unlit_for: f32,
     node: Entity,
     image: Handle<Image>,
     material: Handle<PartMaskMaterial>,
@@ -414,17 +428,40 @@ fn glow(
     info!("vats highlight: {actor:08X} part {}: {triangles} triangles on {covered} shapes", part.map_or_else(|| "whole".to_string(), |p| p.to_string()));
 }
 
-/// The numbers the node is drawn with for a mask `size` pixels, the HUD's colour and how
-/// much of the part is drawn now (`pulse`, 0 to 1).
-pub fn mask_uniform(size: (u32, u32), hud: [u8; 3], pulse: f32) -> MaskUniform {
+/// Dead Eye's lines are no thinner than this share of the classic style's, nor than these
+/// pixels of outline and of the lines' period [design].
+pub const THIN_LEAST: f32 = 0.3;
+pub const OUTLINE_THINNEST: f32 = 1.0;
+pub const SCAN_THINNEST: f32 = 2.0;
+
+/// How thin the lit part's lines are for a target that fills `share` of the view's height,
+/// as a share of their full width: full for a target as large as the classic style's zoom
+/// frames one (`dialogue_zoom::VATS_TARGET_SHARE`), thinner in proportion for a smaller
+/// one. Dead Eye does not zoom onto its target, and lines drawn for a target that fills
+/// the view lay as thick bars across one that is small in it [design: the fork owner
+/// 2026-11-10, "make the body part highlight outline and inlines thinner in the dead eye
+/// mode - as the camera does not zoom in like normal vats and the target is therefore
+/// smaller the lines are way too big"].
+pub fn thinned(share: f32) -> f32 {
+    (share / nvf_play::dialogue_zoom::VATS_TARGET_SHARE).clamp(THIN_LEAST, 1.0)
+}
+
+/// The numbers the node is drawn with for a mask `size` pixels, the HUD's colour, how
+/// much of the part is drawn now (`pulse`, 0 to 1) and how thin its lines are (`thin`, a
+/// share of their full width, [`thinned`]).
+pub fn mask_uniform(size: (u32, u32), hud: [u8; 3], pulse: f32, thin: f32) -> MaskUniform {
     let (w, h) = (size.0.max(1) as f32, size.1.max(1) as f32);
     let [r, g, b] = hud.map(|v| f32::from(v) / 255.0);
     let line = Color::srgb(r, g, b).to_linear();
     let fill = line;
+    let thin = thin.clamp(THIN_LEAST, 1.0);
+    let (outline, period) = ((h * OUTLINE_SHARE).round().max(OUTLINE_LEAST), (h * SCAN_PERIOD).round().max(SCAN_LEAST));
+    // The period in whole pixels, so the lines do not crawl as the target comes nearer.
+    let (outline, period) = if thin < 1.0 { ((outline * thin).max(OUTLINE_THINNEST), (period * thin).round().max(SCAN_THINNEST)) } else { (outline, period) };
     MaskUniform {
         fill: Vec4::new(fill.red, fill.green, fill.blue, STRENGTH),
         line: Vec4::new(line.red, line.green, line.blue, 1.0),
-        shape: Vec4::new(1.0 / w, 1.0 / h, (h * OUTLINE_SHARE).round().max(OUTLINE_LEAST), (h * SCAN_PERIOD).round().max(SCAN_LEAST)),
+        shape: Vec4::new(1.0 / w, 1.0 / h, outline, period),
         more: Vec4::new(SCAN_FAINT, MASK_ON, pulse.clamp(0.0, 1.0), 0.0),
     }
 }
@@ -443,10 +480,23 @@ fn view(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<PartMaskMaterial>>,
     real: Res<Time<Real>>,
+    (style, phys, who): (Option<Res<nvf_play::vats_classic::VatsStyle>>, Option<Res<nvf_play::phys::PhysState>>, Option<Res<nvf_play::player::Player>>),
 ) {
     let on = st.on.is_some();
     let pulse = nvf_play::hud::sight_alpha(real.elapsed_secs());
     let (Ok(window), Ok((eye, projection))) = (windows.single(), player.single()) else { return };
+    // Dead Eye: the lines as thin as its target is small in the view ([`thinned`]).
+    let thin = match (style.as_deref(), st.on, phys.as_deref(), who.as_deref(), projection) {
+        (Some(nvf_play::vats_classic::VatsStyle::DeadEye), Some((actor, _)), Some(phys), Some(who), Projection::Perspective(p)) => {
+            let seen = phys.world.actor_volume(actor).zip(phys.world.actor_aim_point(actor));
+            seen.map_or(1.0, |(v, at)| {
+                let eye = who.eye();
+                let away = ((at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2)).sqrt().max(1.0);
+                thinned(v.height / (2.0 * away * (p.fov * 0.5).tan()).max(1e-3))
+            })
+        }
+        _ => 1.0,
+    };
     let size = (window.physical_width().max(1), window.physical_height().max(1));
     if st.view.is_none() {
         if !on {
@@ -456,24 +506,11 @@ fn view(
         let mut image = Image::new_fill(extent, TextureDimension::D2, &[0, 0, 0, 0], TextureFormat::Bgra8UnormSrgb, RenderAssetUsages::default());
         image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
         let image = images.add(image);
-        let camera = commands
-            .spawn((
-                Name::new("VATS part mask camera"),
-                Camera3d::default(),
-                Camera { order: -6, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
-                RenderTarget::Image(ImageRenderTarget::from(image.clone())),
-                projection.clone(),
-                Tonemapping::None,
-                Msaa::Off,
-                Transform::IDENTITY,
-                RenderLayers::layer(MASK_LAYER),
-                ChildOf(eye),
-            ))
-            .id();
-        let material = materials.add(PartMaskMaterial { u: mask_uniform(size, nvf_play::interface::hud_rgb(), pulse), mask: image.clone() });
+        let camera = mask_camera(&mut commands, eye, projection, &image);
+        let material = materials.add(PartMaskMaterial { u: mask_uniform(size, nvf_play::interface::hud_rgb(), pulse, thin), mask: image.clone() });
         let whole = Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
         let node = commands.spawn((Name::new("VATS lit part"), whole, MaterialNode(material.clone()), GlobalZIndex(MASK_Z), bevy::picking::Pickable::IGNORE)).id();
-        st.view = Some(View { camera, node, image, material, size });
+        st.view = Some(View { camera: Some(camera), unlit_for: 0.0, node, image, material, size });
         info!("vats highlight: the mask's camera and its picture ({} x {})", size.0, size.1);
         return;
     }
@@ -485,7 +522,21 @@ fn view(
         }
         v.size = size;
     }
-    if let Ok((mut camera, mut own)) = cameras.get_mut(v.camera) {
+    // The camera is there only while a part is lit and a moment after (the module's notes).
+    if on {
+        v.unlit_for = 0.0;
+        if v.camera.is_none() {
+            v.camera = Some(mask_camera(&mut commands, eye, projection, &v.image));
+        }
+    } else if let Some(camera) = v.camera {
+        v.unlit_for += real.delta_secs();
+        if v.unlit_for >= CAMERA_KEPT {
+            commands.entity(camera).despawn();
+            v.camera = None;
+            info!("vats highlight: the mask's camera is put away");
+        }
+    }
+    if let Some((mut camera, mut own)) = v.camera.and_then(|c| cameras.get_mut(c).ok()) {
         if camera.is_active != on {
             camera.is_active = on;
         }
@@ -496,12 +547,31 @@ fn view(
     if let Ok(mut shown) = nodes.get_mut(v.node) {
         shown.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
     }
-    let u = mask_uniform(size, nvf_play::interface::hud_rgb(), pulse);
+    let u = mask_uniform(size, nvf_play::interface::hud_rgb(), pulse, thin);
     if on && materials.get(&v.material).is_some_and(|m| m.u != u) {
         if let Some(mut m) = materials.get_mut(&v.material) {
             m.u = u;
         }
     }
+}
+
+/// The mask's camera: at the player's eye with its field of view, drawing the mask's
+/// layer into `image`.
+fn mask_camera(commands: &mut Commands, eye: Entity, projection: &Projection, image: &Handle<Image>) -> Entity {
+    commands
+        .spawn((
+            Name::new("VATS part mask camera"),
+            Camera3d::default(),
+            Camera { order: -6, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
+            RenderTarget::Image(ImageRenderTarget::from(image.clone())),
+            projection.clone(),
+            Tonemapping::None,
+            Msaa::Off,
+            Transform::IDENTITY,
+            RenderLayers::layer(MASK_LAYER),
+            ChildOf(eye),
+        ))
+        .id()
 }
 
 fn report(mut exit: MessageReader<AppExit>, st: Res<Glow>) {
@@ -541,19 +611,33 @@ mod tests {
 
     #[test]
     fn the_nodes_numbers_follow_the_windows_size_and_the_huds_colour() {
-        let u = mask_uniform((1280, 720), [255, 255, 255], 0.4);
+        let u = mask_uniform((1280, 720), [255, 255, 255], 0.4, 1.0);
         assert_eq!(u.more.z, 0.4, "the pulse");
         assert_eq!((u.shape.x, u.shape.y), (1.0 / 1280.0, 1.0 / 720.0));
         assert_eq!((u.shape.z, u.shape.w), (3.0, 6.0), "3 pixels of outline and lines 6 apart at 720 lines");
         assert_eq!((u.line.x, u.line.y, u.line.z), (1.0, 1.0, 1.0), "the outline in the HUD's colour");
-        let blue = mask_uniform((1280, 720), [0, 0, 255], 1.0);
+        let blue = mask_uniform((1280, 720), [0, 0, 255], 1.0, 1.0);
         assert_eq!((blue.fill.x, blue.fill.y, blue.fill.z), (blue.line.x, blue.line.y, blue.line.z), "and the fill's lines in it too");
         assert_eq!(u.fill.w, STRENGTH);
         // Twice the size: twice the pixels, the same look.
-        let big = mask_uniform((2560, 1440), [255, 255, 255], 1.0);
+        let big = mask_uniform((2560, 1440), [255, 255, 255], 1.0, 1.0);
         assert_eq!((big.shape.z, big.shape.w), (6.0, 12.0));
         // A tiny window keeps the least.
-        let small = mask_uniform((320, 240), [255, 255, 255], 1.0);
+        let small = mask_uniform((320, 240), [255, 255, 255], 1.0, 1.0);
         assert_eq!((small.shape.z, small.shape.w), (OUTLINE_LEAST, SCAN_LEAST));
+    }
+
+    #[test]
+    fn a_small_target_gets_thinner_lines() {
+        // As large as the classic style's zoom frames it: the full lines.
+        assert_eq!(thinned(nvf_play::dialogue_zoom::VATS_TARGET_SHARE), 1.0);
+        assert_eq!(thinned(0.9), 1.0, "never thicker");
+        // Half as large: half as thick; a far one no thinner than the least.
+        assert!((thinned(nvf_play::dialogue_zoom::VATS_TARGET_SHARE / 2.0) - 0.5).abs() < 1e-6);
+        assert_eq!(thinned(0.01), THIN_LEAST);
+        let half = mask_uniform((2560, 1440), [255, 255, 255], 1.0, 0.5);
+        assert_eq!((half.shape.z, half.shape.w), (3.0, 6.0));
+        let least = mask_uniform((1280, 720), [255, 255, 255], 1.0, 0.0);
+        assert_eq!((least.shape.z, least.shape.w), (OUTLINE_THINNEST, SCAN_THINNEST));
     }
 }
