@@ -4043,6 +4043,60 @@ forbid = [
 ]
 
 [[scenario]]
+name = "pipboy-screen-fx"
+source = "docs/spec-notes/pipboy.md §3 'Page changes': on the arm a page change washes the screen and, as the test aid forces them, rolls it once through the vertical hold or shudders; a tab change brightens it a little; the beam still sweeps and the pages still draw"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/transition.rs", "engine/nvf-play/src/pipboy/device_screen.rs", "engine/nvf-play/src/pipboy/test_aid.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvf-assets/src/nif_material*", "engine/nvf-assets/src/nif_surface_bindings.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:glitch=hold,14:page=stats,15:glitch=shudder,15.5:page=data,16.5:glitch=plain,17:page=items,18:tab=1,19:glitch=off,19.5:page=stats,21:close", NVF_PLAY_TEST_SHOTS = "14.1:pipboy_fx_hold.png,15.6:pipboy_fx_shudder.png,17.05:pipboy_fx_plain.png,18.02:pipboy_fx_tab.png,20.5:pipboy_fx_after.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 23
+order = [[
+  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: the menus are on the model's screen",
+  "pipboy: page change transition vertical hold (270 ms)",
+  "pipboy: page change transition shudder (245 ms)",
+  "pipboy: page change transition plain (225 ms)",
+  "pipboy: tab change transition brighten (200 ms)",
+  { re = 'pipboy: page change transition (plain|shudder|vertical hold) \((225|245|270) ms\)', label = "the chances rolled again after glitch=off" },
+  "pipboy: down",
+]]
+manual = "the shots in the middle of each change (14.1 the roll, 15.6 the shudder, 17.05 the wash, 18.02 the tab's brighten) and after (20.5, STATS settled as before: pipboy.md section 3's numbers); the beam has no bands of about five rows on its rise"
+expect = [
+  { text = "pipboy: page change transition", count = 4, label = "one line a page change: the hold, the shudder, the plain one and the rolled one" },
+  { text = "pipboy: tab change transition brighten", count = 1, label = "one line for the tab change" },
+  { re = 'pipboy: the beam sweeps the screen \(2\.3 s, every 5\.12 s\)', label = "the beam at the measured speed and period" },
+  "pipboy: DATA",
+  "pipboy: STATS Status",
+]
+forbid = [
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+  { re = '(?i)failed to process shader|wgpu error|validation error', label = "the screen's shader compiles (nif_material.wesl pipboy_picture)" },
+]
+
+[[scenario]]
+name = "pipboy-screen-text"
+source = "docs/spec-notes/pipboy.md §3 'Text edges': eight stills each of S.P.E.C.I.A.L., Status, Skills, ITEMS and DATA on the arm at 1280 x 720, for the edge measure (median of the eight, the beam drops out)"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy/device_screen.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvf-assets/src/nif_material.wesl"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13.5:page=stats,14:tab=1,17.5:tab=0,21:tab=2,24.5:page=items,28:page=data,31.5:close", NVF_PLAY_TEST_SHOTS = "15.0:pipboy_text_special_1.png,15.3:pipboy_text_special_2.png,15.6:pipboy_text_special_3.png,15.9:pipboy_text_special_4.png,16.2:pipboy_text_special_5.png,16.5:pipboy_text_special_6.png,16.8:pipboy_text_special_7.png,17.1:pipboy_text_special_8.png,18.5:pipboy_text_status_1.png,18.8:pipboy_text_status_2.png,19.1:pipboy_text_status_3.png,19.4:pipboy_text_status_4.png,19.7:pipboy_text_status_5.png,20.0:pipboy_text_status_6.png,20.3:pipboy_text_status_7.png,20.6:pipboy_text_status_8.png,22.0:pipboy_text_skills_1.png,22.3:pipboy_text_skills_2.png,22.6:pipboy_text_skills_3.png,22.9:pipboy_text_skills_4.png,23.2:pipboy_text_skills_5.png,23.5:pipboy_text_skills_6.png,23.8:pipboy_text_skills_7.png,24.1:pipboy_text_skills_8.png,25.5:pipboy_text_items_1.png,25.8:pipboy_text_items_2.png,26.1:pipboy_text_items_3.png,26.4:pipboy_text_items_4.png,26.7:pipboy_text_items_5.png,27.0:pipboy_text_items_6.png,27.3:pipboy_text_items_7.png,27.6:pipboy_text_items_8.png,29.0:pipboy_text_data_1.png,29.3:pipboy_text_data_2.png,29.6:pipboy_text_data_3.png,29.9:pipboy_text_data_4.png,30.2:pipboy_text_data_5.png,30.5:pipboy_text_data_6.png,30.8:pipboy_text_data_7.png,31.1:pipboy_text_data_8.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 33
+order = [[
+  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: the menus are on the model's screen",
+  "pipboy: STATS S.P.E.C.I.A.L.",
+  "pipboy: STATS Status",
+  "pipboy: STATS Skills",
+  "pipboy: ITEMS",
+  "pipboy: DATA",
+  "pipboy: down",
+]]
+manual = "the edges: python C:/fnv-private/hud-capture/tools/analyze_pipboy_screen_fx.py edges --files 'target/smoke/…/pipboy_text_special_*.png' (and status, skills, items, data); the original's text measures about 1.6 px from 10 to 90 %, titles 1.8 to 2.1 (pipboy.md section 3)"
+forbid = [
+  { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
+]
+
+[[scenario]]
 name = "pipboy-menu-pause"
 source = "issue #1330: with menu pause on (--menu-pause original) the inventory stops the virtual clock; the Pip-Boy still comes up, on the menus' clock"
 areas = ["pipboy"]

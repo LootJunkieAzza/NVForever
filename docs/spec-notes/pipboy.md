@@ -205,20 +205,85 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     because the model is missing keeps the layers and has no glare.
 - **Scanlines** [observed]: `pipboyscanlines.dds` is 64 × 64 DXT1, one soft dark band
   (white at the top to about 0.8 at the bottom). On the screenshot the solid bar's rows
-  are bright and dim by about 15% every 6 pixels, which is 9.5 of the canvas. Flicker,
-  vertical hold and shudder (the INI's transitions) are not built.
+  are bright and dim by about 15% every 6 pixels, which is 9.5 of the canvas. Flicker is not
+  built; the page change's transitions are below.
 - **The beam**: a wave of light travels down the screen, its leading edge hard at the foot and
   a long fade behind it [observed: private job pipboy_special_device_motion, the same empty
-  stretch of the screen frame by frame; playtest 2026-11-05]. Edges at the same place come 5 s
-  apart. On those frames the light rises about straight over 95 rows of the 720 to about +14
-  in display red, then drops within about 12 rows, the measure's smoothing included; it adds
-  about (1, 0.58, 0.17) in linear light. The playtest shots of the original show the same step
-  of 13 to 14. Frames go by at about 7 rows a frame, and at least 190 rows went by within one
-  clock second, so the time is [hypothesis] within about 1 to 2 s. NVForever draws one column
-  (`device_screen.rs`): 224 canvas units high with an edge of 24, the Pip-Boy's colour lightened
-  0.2 towards white at a fitted alpha of 0.016 at the peak, over the pages and under the
-  scanlines, 1.3 s from above the top edge to off the foot on the real clock, hidden between
-  sweeps and held with the pause menu. Not in the screen menu.
+  stretch of the screen frame by frame; playtest 2026-11-05]. The private job pipboy_fx_still
+  (2026-11-10, 1280 x 720, 300 frames on consecutive game loops of an empty stretch of the
+  Perks page, then 60 eight loops apart) measured it again [observed]:
+  - Its leading edge passed the same row 5.12 s apart by the wall clock (the earlier 5 s was a
+    whole-second clock's), going 231 and 239 rows a second down the shot in two jobs (156 on one
+    sweep). The screen there is about 416 rows for about 731 canvas units, about 1.8 a row
+    [hypothesis], so about 415 canvas units a second.
+  - On the mean of the frames holding the whole wave, aligned at the edge, the light rises about
+    straight over 72 rows (55 from 10 to 90 %) to +13.6 in display red on a base of 22, then
+    falls to nothing over 24 rows (14 from 90 to 10 %). What it adds is about (1, 0.63, 0.12) in
+    linear light on one job and (1, 0.50, 0.11) on the other (the earlier reading (1, 0.58,
+    0.17)).
+  - It is not banded: with about 14 display levels over some 70 rows a quantised ramp would step
+    every five rows, but frame by frame a pixel's level along the rise changes every row at the
+    median (runs of 1.6 rows on average), and a quarter of its steps go down while the wave
+    rises. An empty stretch varies by 0.61 levels from frame to frame (standard deviation) without
+    the beam. Noise or a dither breaks the steps up [hypothesis: which, and where, is not known].
+  NVForever (`device_screen.rs`): 172 canvas units high with an edge of 44, the Pip-Boy's colour
+  lightened 0.2 towards white at a fitted alpha of 0.016 at the peak, over the pages and under
+  the scanlines, 2.3 s from above the top edge to off the foot every 5.12 s on the real clock,
+  hidden between sweeps and held with the pause menu; not in the screen menu. The earlier 224
+  and 24 units and 1.3 s every 5 s were fitted to single frames and a whole-second clock and are
+  replaced. Its picture is 2048 x 172 with a triangular dither of up to a display level on the
+  alpha (less near either end, so it never clips), read texel for texel from a new column every
+  frame, so the 8-bit image holds the rise as a mix of neighbouring levels, not as bands
+  [design]. The screen's noise (below) adds the frame-to-frame variation.
+- **Page changes** [observed: private jobs pipboy_fx_switch_a and _b, 2026-11-10, 1280 x 720:
+  30 switches in each of the six directions between STATS, ITEMS and DATA, 20 STATS and 10
+  ITEMS tab steps, 10 bursts with no change; one shot of the old page, then 13 on consecutive
+  game loops from a delay that differs from switch to switch, so the switches together cover
+  the first 0.3 s densely; measured against the settled new page]:
+  - Every page change is a transition of about a quarter of a second. At once the picture keeps
+    only about an eighth of its detail on a lift of about 16 display levels (a gain of 0.12 to
+    0.15 on the display values, fitted per band of eight rows on ink and background); from 70 to
+    130 ms about a fifth on +10; it comes back from there (0.34 at 150 ms, 0.58 at 190, 0.74 at
+    210) and is whole again at about 225 ms (the median settling; 196 to 294 over all of them).
+    The new page shows through from 30 to 200 ms (about 100 at the median). The bursts with no
+    change show none of this.
+  - About a third also move the whole picture: 13 of 180 switches roll it (7 %), 35 jump it up and
+    down by about 15 rows (19 %). With `fVertHoldChance` set to 1 and `fShudderChance` to 0 by
+    SetNumericINISetting every one of 12 switches rolled; with them the other way round every one
+    of 12 shuddered; with both at 0 none moved [observed: private job pipboy_fx_forced]. So the
+    roll is the vertical hold and the jump the shudder, each rolled once a change at the INI's
+    0.08 and 0.20 [hypothesis: once a change; the shares fit].
+  - The vertical hold: the picture rolls up about 43 rows a game loop, wraps at its foot, and
+    comes to rest from below at 250 to 290 ms: once through its whole height.
+  - The shudder: the same steps every time within a row or two: 14 rows up at about 50 ms, 15
+    down at 95, 10 down at 120, then 7 and 9 up, 5 up, 3 down twice, still by about 250 ms; never
+    sideways.
+  - A tab change is a small brighten and nothing more: a gain of about 1.05 and +3.5 levels at
+    once, +2 at 100 ms, gone by about 200 ms, the new tab there from the first shot.
+  NVForever (`pipboy/transition.rs`, all its numbers there): when the page on the arm changes, a
+  transition of that kind runs on the real clock, held under the pause menu (its time stops
+  and the picture stays): the wash by the table above, 225 ms; the shudder's steps, 245 ms; the
+  vertical hold's roll from 40 to 255 ms, 270 ms (its wash stretched to the length); a tab's
+  brighten, 200 ms. The hold is rolled first at 0.08, then the shudder at 0.20 [documented:
+  `Fallout_default.ini` `[InterfaceFX]`]. The page itself is drawn at once as before, under the
+  wash [design]. It is the screen material's (`ScreenLook` put on the menus' copy by
+  `pipboy_arm.rs`; `nif_material.wesl` `pipboy_picture`), so it covers whichever painter drew the
+  page; the flat image where the model is missing and the screen menu have none [design].
+  Logged `pipboy: page change transition <plain|shudder|vertical hold> (<ms> ms)` and `pipboy:
+  tab change transition brighten (200 ms)`; the test aid's `glitch=` forces the kind as the
+  forced job did.
+- **Text edges** [observed: private jobs pipboy_fx_still at 1280 x 720 and pipboy_fx_text at
+  1920 x 1080 scaled to 1280 x 720, twelve stills each of S.P.E.C.I.A.L., Status, Skills, ITEMS
+  and DATA, the per-pixel median of the frames that did not sway]: the text's edges rise from
+  10 to 90 % over about 1.6 pixels on most of it (a straight two-pixel ramp), 1.8 to 2.1 on the
+  titles, the same along rows and columns, where the pointer's own hard edge measures 0.8. With
+  `fBlurRadiusPipboy` and `fBlurIntensityPipboy` at 0 they measure the same, so that blur is not
+  what softens them; what does is not known (`fBlurRadiusMenus=0.30` is a [hypothesis]).
+  NVForever: the screen's material reads the menus' picture through a 3 x 3 tent of taps 0.75 of
+  a view pixel apart (`device_screen.rs` `TEXT_SOFTEN`) [hypothesis: by its spread about 1.6 on a
+  hard edge; to be fitted on this engine's shots with the same measure], and adds a triangular
+  noise of 1.35 display levels' reach, new every frame (`SCREEN_NOISE`; about 0.6 levels once
+  rounded) [design], on the model only.
 - **Background**: `Interface\Shared\Background\pipboy.dds` over the whole canvas at
   brightness 90 [documented: inventory_menu.xml]; `ScreenGlare.dds` and this picture are
   512 × 512 DXT1, alpha 1 throughout [observed].
