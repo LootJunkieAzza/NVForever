@@ -462,3 +462,29 @@ fn tile_textures_follow_the_tile_not_its_path() {
     assert_eq!(fnv_game::nvse_itr1::wrap(-1e-17), 0.0);
     assert_eq!(fnv_game::nvse_itr1::wrap(-0.25), 0.75);
 }
+
+/// #1833: SetUIAlphaMap returns 0 for a texture that is not in the data, under
+/// `Data\Textures\` [documented: SetUIAlphaMap, "texture load failure", "relative to
+/// Data\Textures\"], and leaves the tile without it. The host's archive answer stands for
+/// the data: every test of this file may run under it, so the mask the others name is
+/// there.
+#[test]
+fn an_alpha_map_not_in_the_data_is_refused() {
+    use fnv_game::mod_files::{set_roots, Roots};
+    use std::sync::Arc;
+    set_roots(Roots { lookup: Some(Arc::new(|p: &str| 2 * u8::from(p.eq_ignore_ascii_case(r"textures\interface\mask.dds")))), ..Roots::default() });
+    let f = fixture();
+    let mut g = game(&f);
+    let pic = g.ui_tree.find_tile("TestMenu/Pic").unwrap();
+    assert_eq!(num(&mut g, r#"SetUIAlphaMap "TestMenu/Pic" "Interface\Missing.dds""#), 0.0);
+    assert!(g.other.itr.alpha_maps.is_empty(), "a refused mask is not kept");
+    // Any case, either separator, a leading one dropped, the folder named or not.
+    for name in [r"Interface\Mask.dds", "/interface/mask.dds", r"Textures\Interface\mask.dds"] {
+        assert_eq!(num(&mut g, &format!(r#"SetUIAlphaMap "TestMenu/Pic" "{name}""#)), 1.0, "{name}");
+    }
+    assert_eq!(g.other.itr.alpha_maps.get(&pic).map(String::as_str), Some(r"Textures\Interface\mask.dds"));
+    // A refused one later leaves the kept one.
+    assert_eq!(num(&mut g, r#"SetUIAlphaMap "TestMenu/Pic" "Interface\Missing.dds""#), 0.0);
+    assert_eq!(g.other.itr.alpha_maps.get(&pic).map(String::as_str), Some(r"Textures\Interface\mask.dds"));
+    assert_eq!(fnv_game::nvse_itr1::alpha_map_path("/Interface/HUD/M.dds"), r"textures\interface\hud\m.dds");
+}

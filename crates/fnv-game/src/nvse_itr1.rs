@@ -176,6 +176,21 @@ pub fn wrap(x: f64) -> f64 {
     }
 }
 
+/// The Data path of an alpha map a script named (SetUIAlphaMap): under `textures\`
+/// [documented: SetUIAlphaMap, "relative to Data\Textures\"], `/` read as `\`, in small
+/// letters, a leading separator dropped. A path that already starts with `textures\` is
+/// kept as it is [decision: it would otherwise name `textures\textures\…`, which no mod
+/// ships; how the original treats such a path is not documented]. The script's check
+/// (`mod_files::exists`) and the engine's renderer (`tiles::texmod`) both read it so.
+pub fn alpha_map_path(name: &str) -> String {
+    let p = name.trim().trim_start_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase();
+    if p.starts_with("textures\\") {
+        p
+    } else {
+        format!("textures\\{p}")
+    }
+}
+
 fn yes(b: bool) -> XVal {
     XVal::Num(f64::from(u8::from(b)))
 }
@@ -785,13 +800,23 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.other.itr.tile_watches.retain(|w| i64::from(w.id) != id);
             yes(g.other.itr.tile_watches.len() < before)
         }
-        // `tile texture`: the alpha map for the tile's renderer; 1 when the tile is there
-        // [documented: SetUIAlphaMap]. The texture is not loaded here: the engine's tile
-        // renderer reads it when it draws the tile (`nvf-play`'s `tiles::texmod`).
+        // `tile texture`: the alpha map for the tile's renderer; 1 on success, 0 when the
+        // tile is not found or the texture fails to load [documented: SetUIAlphaMap]. The
+        // texture is not decoded here: the engine's tile renderer reads it when it draws
+        // the tile (`nvf-play`'s `tiles::texmod`), so a texture not in the data (loose or
+        // in an archive, under `Data\Textures\`) is the failure this side sees
+        // [hypothesis: existence as the test for "texture load failure"; a file there that
+        // does not decode is refused by the renderer only, said in its log]. While the host
+        // gives no answer for the archives (no Data open, or a game made without the
+        // engine) the file is taken as there [decision]. A refused call leaves the tile as
+        // it was [hypothesis].
         "setuialphamap" => {
             let path = text(args, 0);
             let tex = text(args, 1);
-            let Some(t) = g.ui_tree.find_tile(&path).filter(|_| !tex.is_empty()) else { return Some(Ok(zero)) };
+            let Some(t) = g.ui_tree.find_tile(&path).filter(|_| !tex.trim().is_empty()) else { return Some(Ok(zero)) };
+            if crate::mod_files::knows_archives() && !crate::mod_files::exists(&alpha_map_path(&tex)) {
+                return Some(Ok(zero));
+            }
             g.other.itr.alpha_maps.insert(t, tex);
             one
         }

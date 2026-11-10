@@ -909,14 +909,31 @@ Implemented consumers and remaining exclusions:
   unloaded or replaced at its path drops them (`Game::itr_drop_gone_tile_textures`, each
   frame). The tile renderer bakes a picture with either into one image in its place: its
   texels (atlas piece or own file) sampled shifted by the offset in whole texels, wrapping
-  inside the piece, the alpha multiplied by the mask's alpha stretched over the texture
-  area, nearest texels. The image has the picture's texels, more where the mask is more
-  detailed, up to a texel an interface unit of the drawn size (a 1 x 1 picture over a
-  panel keeps the mask's detail). Stretched, natural, zoomed (cut to the box) and clipped
-  pictures keep their fit; a `tile` picture repeats the shifted piece and takes the mask
-  over its whole box; radial tiles stay undrawn. The compass strip's texels are moved on
-  by the offset before the heading scrolls them (the two add up) and its window is baked
-  under the mask (`compass_strip::StripWindow::masked`) [design]. Textures are decoded
+  inside the piece, nearest texels [design]; the alpha multiplied by the alpha of the
+  mask, an "alpha mask texture" bound beside the unchanged base texture and sampled at
+  "the same UVs as the base texture", clamped to its edge texels (`CLAMP_S_CLAMP_T`)
+  [documented: GECK wiki SetUIAlphaMap]. The offset does not move the mask
+  [documented: SetUIAlphaMap notes; the mask not scrolling is read from its advice to
+  scroll a strip's base texture with SetUITexOffset on a normal-sized quad under a
+  mask, which only works if the scroll leaves the mask's stage alone]. So a picture
+  whose coordinates run 0-1 (stretched, natural, zoomed and cut to the box, clipped)
+  has the mask over it once; a `tile` picture, whose coordinates run past 1 with its
+  repeats [documented: the same note], has it over its first repeat from the box's top
+  left and the mask's edge texels over the rest; an atlas piece, whose coordinates are
+  its part of the atlas (the index gives them as parts of the atlas, corner-messages.md
+  §2.2), has the mask's same part over it [hypothesis: "same UVs" read for an atlas
+  piece]. NVForever reads no `cropoffsetX`, so no tile's coordinates start elsewhere.
+  The image has the picture's texels, more where the mask is more detailed, up to a
+  texel an interface unit of the drawn size (a 1 x 1 picture over a panel keeps the
+  mask's detail). A masked `tile` box too large to bake at its repeats' texels is baked
+  at fewer, at most `repeat::MAX_TEXELS`, so the mask still lies once (its picture
+  coarser); without a mask such a box keeps Bevy's tiling of the shifted piece [design].
+  Radial tiles stay undrawn. The compass strip's texels are moved on by the offset
+  before the heading scrolls them (the two add up) and its window is baked under the
+  mask stretched over it (`compass_strip::StripWindow::masked`) [design]: the documented
+  rule is not applied there, as NVForever's code, not a trait, scrolls the vanilla strip
+  (hud.md §14.4) and the coordinates of the original's window (which part of the strip,
+  scrolled how) are not known [hypothesis]. Textures are decoded
   only up to `repeat::MAX_TEXELS`, read from the file's header first, by these bakes and
   by `crate::repeat`'s (the tiled pictures, the compass strip), whose oversized textures
   keep Bevy's drawing. An offset that changes alone re-bakes the kept image, or moves the
@@ -931,13 +948,16 @@ Implemented consumers and remaining exclusions:
   recently used, a kept bake decoding its texture again when it next needs it. Texels held
   outside the cache (a strip window's mask, a bake under way) are never let go, so the
   cache can pass 64 MiB only while they are held. Those nothing names any more are
-  released at once [design: #1833 review]. Which way the offset moves (the texel
-  at the coordinate plus the offset), that the mask is not shifted and is read from its
-  alpha, and that its path is under `textures\` as a `filename` are [hypothesis: the pages
-  could not be reread on 2026-11-09; SetUITexOffset's "without changing the tile's screen
-  position or crop window", hud.md §14.4]. A texture that cannot be read (missing, too
-  large, not decoded) leaves the tile without it, said once (smoke `ui-texoffset-alphamap`,
-  `ui-texoffset-compass`).
+  released at once [design: #1833 review]. Which way the offset moves (the texel at the
+  coordinate plus the offset) is [hypothesis: no page gives it]. The mask's path is
+  under `Data\Textures\` [documented: SetUIAlphaMap, "relative to Data\Textures\"]; a
+  path already starting `textures\` is kept as one [decision]
+  (`nvse_itr1::alpha_map_path`). SetUIAlphaMap returns 0 when the tile is not found or
+  the texture fails to load [documented]; the script side takes a texture not in the
+  data (loose or in an archive) as the failure [hypothesis], and while the host gives no
+  answer for the archives takes it as there [decision]. A texture there that cannot be
+  read (too large, not decoded) leaves the tile without it, said once (smoke
+  `ui-texoffset-alphamap`, `ui-texoffset-compass`).
 - **Attached components** [documented: [AttachUIComponent](https://geckwiki.com/index.php?title=AttachUIComponent)]
   require a loaded, case-sensitive model node and one parent rect under HUDMainMenu.
   [design: `ui_more.rs`, `attach`; `tiles/mod.rs`, update] Attachments remain hidden until

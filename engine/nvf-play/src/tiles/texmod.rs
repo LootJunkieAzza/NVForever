@@ -1,40 +1,60 @@
 //! #1833: ITR's SetUITexOffset and SetUIAlphaMap drawn by the tile renderer
 //! [documented: GECK wiki SetUITexOffset, SetUIAlphaMap; docs/spec-notes/menu-xml.md §9].
 //!
-//! - What: an offset shifts a tile's texture coordinates, wrapping; an alpha map is a
-//!   second texture whose alpha masks the tile [documented: the two pages, as issue #1833
-//!   reads them]. The scripts' calls are kept by `fnv_game::nvse_itr1` per tile id
-//!   (`ItrState::tex_offsets`, `ItrState::alpha_maps`), so a tile unloaded or replaced
-//!   at its path has neither [design].
+//! - What: an offset shifts a tile's texture coordinates, wrapping ("changes texture
+//!   sampling only"); an alpha map is a second texture, an "alpha mask texture", bound
+//!   beside the unchanged base texture and sampled "using the same UVs as the base
+//!   texture", clamped to its edge texels (`CLAMP_S_CLAMP_T`) [documented: GECK wiki
+//!   SetUITexOffset, SetUIAlphaMap]. The scripts' calls are kept by `fnv_game::nvse_itr1`
+//!   per tile id (`ItrState::tex_offsets`, `ItrState::alpha_maps`), so a tile unloaded or
+//!   replaced at its path has neither [design; documented: the mask "persists until the
+//!   tile is destroyed or replaced"].
 //! - How: a picture piece with either set carries a [`TexMod`] ([`mark`]); when it is
 //!   spawned its texels (the atlas piece or its own file, decoded on the CPU, at most
 //!   [`MAX_TEXELS`] by the file's header) are sampled shifted by the offset in whole
-//!   texels, wrapping inside the piece, and their alpha multiplied by the mask's, into one
-//!   image that takes the picture's place ([`compose`]) [design]. The image has the
-//!   picture's texels, more where the mask is more detailed, up to a texel an interface
-//!   unit of the size it is drawn at ([`resolution`]). Everything else about the piece
-//!   stays as it was, so the fits keep their own behaviour:
-//!   - stretched and natural pictures draw the new image where the old one stood;
-//!   - a `zoom` picture cut to its box (`draw::Placed::At`) and a clip window cut the new
-//!     image as they cut the old;
-//!   - a `tile` picture repeats the shifted piece over its box, and the mask lies over
-//!     the whole box, once [hypothesis: the mask is sampled on its own, not repeated with
-//!     the texture]; a box too large to bake (`crate::repeat::MAX_TEXELS`) keeps Bevy's
-//!     tiling of the shifted, masked piece, so its mask repeats [design];
+//!   texels, wrapping inside the piece, and their alpha multiplied by the mask's alpha,
+//!   into one image that takes the picture's place ([`compose`]) [design]. The image has
+//!   the picture's texels, more where the mask is more detailed, up to a texel an
+//!   interface unit of the size it is drawn at ([`resolution`]).
+//! - Where the mask lies: at the base texture's own coordinates before the offset,
+//!   clamped [documented: SetUIAlphaMap, "the same UVs as the base texture", "clamps to
+//!   edge pixels"]. It is not moved by the offset [documented: SetUIAlphaMap notes; the
+//!   mask not scrolling is read from its advice to scroll a strip's base texture with
+//!   SetUITexOffset on a normal-sized quad under a mask, which only works if the scroll
+//!   leaves the mask's stage alone]. So:
+//!   - a picture whose coordinates run 0-1 over it (stretched, natural, a `zoom` picture
+//!     cut to its box, a clip window cutting it) has the mask over it once;
+//!   - a `tile` picture's coordinates run past 1 with its repeats [documented:
+//!     SetUIAlphaMap, `tile` "UVs that extend past [0,1]"]: the mask covers the first
+//!     repeat (from the box's top left) and its edge texels stretch over the rest. NVForever
+//!     reads no `cropoffsetX`, so no tile's coordinates start elsewhere [design];
+//!   - an atlas piece's coordinates are its part of the atlas [documented: the atlas
+//!     index gives each picture's offset and size as parts of the atlas, corner-messages.md
+//!     §2.2], so the mask's same part lies over it [hypothesis: the page's "same UVs" read
+//!     for an atlas piece; how the original repeats an atlas piece is not known, and
+//!     NVForever's repeats run on through the mask's next texels, clamped at its edge];
+//!   - a `tile` box too large to bake (`crate::repeat::MAX_TEXELS`) with a mask is baked
+//!     at fewer texels than its repeats have, at most [`MAX_TEXELS`], so the mask still
+//!     lies once and clamps; its picture is sampled coarser. Without a mask it keeps
+//!     Bevy's tiling of the shifted piece, which is the same picture [design];
 //!   - radial tiles are not drawn by the tile renderer (`draw::pieces`), with or without
 //!     an offset;
 //!   - the compass strip (`draw::Fit::Strip`): its strip moved on by the offset before the
 //!     heading scrolls it, the two adding up, and the mask laid over its window, at the
-//!     window's texels ([`strip`], `crate::compass_strip`) [design].
+//!     window's texels ([`strip`], `crate::compass_strip`) [design]. The documented rule
+//!     is not applied here: NVForever's code, not a trait, scrolls the vanilla strip
+//!     (hud.md §14.4), and which coordinates the original's window has (the part of the
+//!     strip it shows, and whether the heading's scroll moves the coordinates or a texture
+//!     transform) is not known, so where the mask would land would be guessed
+//!     [hypothesis].
 //! - Direction [hypothesis: no page gives it]: the tile shows the texel at its texture
 //!   coordinate plus the offset, so an offset of 0.25 moves the picture a quarter of its
-//!   width to the left. The mask is stretched over the tile's texture area and is not
-//!   shifted [hypothesis: "without changing the tile's screen position or crop window",
-//!   GECK wiki SetUITexOffset, quoted in hud.md §14.4]. Its path reads as a tile's
-//!   `filename` does, under `textures\` [hypothesis].
-//! - A texture whose texels cannot be read (missing, or a format `fnv_dds` does not
-//!   decode) leaves the tile as it was without it, said once per texture in the log; the
-//!   first drawing of each tile's offset and mask is said once too [design].
+//!   width to the left. The mask's path is under `textures\` [documented: SetUIAlphaMap,
+//!   "relative to Data\Textures\"] (`fnv_game::nvse_itr1::alpha_map_path`).
+//! - The script refuses a mask that is not in the data (`fnv_game::nvse_itr1`); a texture
+//!   whose texels cannot be read here (too large, or a format `fnv_dds` does not decode)
+//!   leaves the tile as it was without it, said once per texture in the log; the first
+//!   drawing of each tile's offset and mask is said once too [design].
 //! - A scrolling offset: a piece whose offset alone changed keeps its nodes and image; the
 //!   image is baked again in place when the new offset is another texel shift, within a
 //!   budget of texels a frame ([`BAKE_BUDGET`], [`State::shift_in_place`]). Each tile's
@@ -49,7 +69,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use fnv_game::nvse_itr1::{wrap, ItrState};
+use fnv_game::nvse_itr1::{alpha_map_path, wrap, ItrState};
 use fnv_ui::{TileId, Ui};
 use nvf_assets::GameData;
 use std::collections::{HashMap, HashSet};
@@ -80,18 +100,6 @@ pub fn mark(pieces: &mut [Piece], itr: Option<&ItrState>) {
             (Look::Picture { .. }, Some(itr)) => of(itr, p.tile),
             _ => None,
         };
-    }
-}
-
-/// The game path of an alpha map the script named: under `textures\`, in small letters,
-/// as a tile's `filename` (`interface::own_texture`); a path already under it is kept
-/// [hypothesis].
-pub fn mask_path(name: &str) -> String {
-    let p = name.trim().trim_start_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase();
-    if p.starts_with("textures\\") {
-        p
-    } else {
-        format!("textures\\{p}")
     }
 }
 
@@ -199,10 +207,11 @@ pub fn decode(bytes: &[u8], max: u64) -> Result<Texels, String> {
 }
 
 /// The texels across and down a baked image: the source's `across` (one piece, or a
-/// `tile` box's repeats), more where the mask has more detail, up to one texel an
-/// interface unit of the size it is drawn at (`drawn`, in units), and the source's alone
-/// when that would pass [`MAX_TEXELS`] [design: #1833 review, so a small picture
-/// stretched over a panel keeps its mask's detail].
+/// `tile` box's repeats), more where the mask has more detail (`mask`: the mask's texels
+/// the image spans, [`mask_span`]), up to one texel an interface unit of the size it is
+/// drawn at (`drawn`, in units), and the source's alone when that would pass
+/// [`MAX_TEXELS`] [design: #1833 review, so a small picture stretched over a panel keeps
+/// its mask's detail].
 pub fn resolution(across: (usize, usize), mask: Option<(usize, usize)>, drawn: (f64, f64)) -> (usize, usize) {
     let Some((mw, mh)) = mask else { return across };
     let up = |a: usize, m: usize, d: f64| {
@@ -217,24 +226,84 @@ pub fn resolution(across: (usize, usize), mask: Option<(usize, usize)>, drawn: (
     }
 }
 
+/// An [`oversized`] box: its repeats' texels, its node in units, the texels baked.
+pub type Oversized = ((usize, usize), (f64, f64), (usize, usize));
+
+/// A `tile` box under a mask too large to bake at its repeats' texels
+/// (`repeat::texels_for` gave none): the texels of its repeats across and down (a box of
+/// `size` units, a repeat `repeat` units of `texels` texels), the node they make in units
+/// (as `texels_for`'s), and the texels baked: the repeats', scaled down to at most
+/// [`MAX_TEXELS`] keeping their shape. Its picture is sampled coarser, but the mask lies
+/// once and clamps, where Bevy's tiling of a masked piece would repeat it [design:
+/// #1833]. `None` for a box of no texels or one past 2^32 texels a side.
+pub fn oversized(size: (f64, f64), repeat: (f64, f64), texels: (f64, f64)) -> Option<Oversized> {
+    if !(repeat.0 > 0.0 && repeat.1 > 0.0 && texels.0 > 0.0 && texels.1 > 0.0) || !(size.0.is_finite() && size.1.is_finite()) {
+        return None;
+    }
+    let per = (repeat.0 / texels.0, repeat.1 / texels.1);
+    // A hair under a whole texel is that texel, as `texels_for`.
+    let count = |s: f64, p: f64| (s / p - 1e-6).ceil();
+    let (w, h) = (count(size.0, per.0), count(size.1, per.1));
+    let side = (1u64 << 32) as f64;
+    if !(w >= 1.0 && h >= 1.0 && w <= side && h <= side) {
+        return None;
+    }
+    let most = MAX_TEXELS as f64;
+    let (mut ow, mut oh) = (w, h);
+    if w * h > most {
+        let s = (most / (w * h)).sqrt();
+        ow = (w * s).floor().max(1.0);
+        oh = (h * s).floor().max(1.0);
+        // A side cut to one texel leaves the other the rest.
+        if ow * oh > most {
+            if ow < oh {
+                oh = (most / ow).floor();
+            } else {
+                ow = (most / oh).floor();
+            }
+        }
+    }
+    Some(((w as usize, h as usize), (w * per.0, h * per.1), (ow as usize, oh as usize)))
+}
+
+/// The mask's texels across and down that an image of `across` texels of the piece's
+/// repeats spans, its source `texture` texels in all (the atlas, or the picture's own
+/// file), had it no edge: the mask's size times the part of the texture's coordinates the
+/// image runs over ([`compose`]), whole texels up, at least one [design].
+pub fn mask_span(mask: (usize, usize), across: (usize, usize), texture: (usize, usize)) -> (usize, usize) {
+    let span = |m: usize, a: usize, t: usize| if t == 0 { m } else { (m as u64 * a as u64).div_ceil(t as u64).max(1) as usize };
+    (span(mask.0, across.0, texture.0), span(mask.1, across.1, texture.1))
+}
+
 /// The `out` texels of a baked image. Each samples, at its centre, the texel of the
 /// source's piece `cut` (left, top, width, height) that `across` texels of the piece's
 /// repeats put there (`across` the piece's own size: once; a `tile` box's: repeated),
-/// moved on `shift` texels and wrapping inside the piece; its alpha times that of the
-/// `mask` texel stretched over the image under the same centre. Nearest texels both: a
-/// mask finer than the source keeps its detail, the source's texels grow by the same
-/// factor [design]. `None` when the piece is not inside the source or a size is 0.
+/// moved on `shift` texels and wrapping inside the piece [design]. Its alpha is times the
+/// alpha of the `mask` texel at the base texture's coordinate under the same centre before
+/// the shift, clamped to the mask's edge [documented: SetUIAlphaMap, "the same UVs as the
+/// base texture", `CLAMP_S_CLAMP_T`, not scrolled: module doc]: the coordinate is the
+/// piece's start plus the texels of its repeats run so far, over the source's size, so a
+/// whole picture's runs 0-1 once, a `tile` box's on past 1 (its first repeat masked, the
+/// mask's edge texels beyond), an atlas piece's over its part of the atlas. Nearest texels
+/// both: a mask finer than the source keeps its detail, the source's texels grow by the
+/// same factor [design]. `None` when the piece is not inside the source or a size is 0.
 pub fn compose(src: &Texels, cut: [usize; 4], shift: (usize, usize), across: (usize, usize), out: (usize, usize), mask: Option<&Texels>) -> Option<Vec<u8>> {
     let [px, py, pw, ph] = cut;
     if pw == 0 || ph == 0 || px + pw > src.width || py + ph > src.height || across.0 == 0 || across.1 == 0 || out.0 == 0 || out.1 == 0 {
         return None;
     }
     let at = |i: usize, n: usize, m: usize| (((i as f64 + 0.5) * m as f64 / n as f64) as usize).min(m - 1);
-    let columns: Vec<(usize, usize)> = (0..out.0).map(|x| (px + (at(x, out.0, across.0) + shift.0) % pw, mask.map_or(0, |m| at(x, out.0, m.width)))).collect();
+    // The mask texel (of `m`) at the coordinate of out texel `i`'s centre (of `n`), its
+    // piece starting at texel `start` of `size`, `a` texels of repeats across the image.
+    let clamped = |i: usize, n: usize, a: usize, start: usize, size: usize, m: usize| {
+        let texel = start as f64 + (i as f64 + 0.5) * a as f64 / n as f64;
+        ((texel * m as f64 / size as f64) as usize).min(m - 1)
+    };
+    let columns: Vec<(usize, usize)> = (0..out.0).map(|x| (px + (at(x, out.0, across.0) + shift.0) % pw, mask.map_or(0, |m| clamped(x, out.0, across.0, px, src.width, m.width)))).collect();
     let mut v = Vec::with_capacity(out.0 * out.1 * 4);
     for y in 0..out.1 {
         let sy = py + (at(y, out.1, across.1) + shift.1) % ph;
-        let my = mask.map_or(0, |m| at(y, out.1, m.height));
+        let my = mask.map_or(0, |m| clamped(y, out.1, across.1, py, src.height, m.height));
         for &(sx, mx) in &columns {
             let i = (sy * src.width + sx) * 4;
             let t = &src.rgba[i..i + 4];
@@ -606,7 +675,7 @@ fn who(piece: &Piece, ui: Option<&Ui>) -> String {
 /// The mask `tex` names, decoded, with its game path; none without one or when it could
 /// not be read (said once).
 fn read_mask(tex: &TexMod, who: &str, b: &mut Bake<'_>) -> Option<(String, Arc<Texels>)> {
-    let path = mask_path(tex.mask.as_deref()?);
+    let path = alpha_map_path(tex.mask.as_deref()?);
     match b.state.texels(&path, &|p| b.data.read(p)) {
         Ok(t) => Some((path, t)),
         Err(why) => {
@@ -632,16 +701,23 @@ pub(super) fn apply(tex: &TexMod, piece: &Piece, d: Drawing<'_>, picture: Option
     let cut = rect.map_or([0, 0, src.width, src.height], |r| repeat::piece_texels(r).map(|v| v as usize));
     let (pw, ph) = (cut[2], cut[3]);
     let mask = read_mask(tex, &who, &mut b);
-    // The texels across the image and the size it is drawn at. Bevy's tiling (a `tile` box
-    // too large to bake) sizes its repeats by the image's texels, so it keeps the piece's.
-    let (across, out, node) = match (d.placed, d.repeat, baked.is_some()) {
-        (Placed::Repeat { .. }, Some((count, node)), true) => {
+    // The mask's texels an image of `across` texels of repeats spans ([`mask_span`]).
+    let span = |across: (usize, usize)| mask.as_ref().map(|(_, m)| mask_span((m.width, m.height), across, (src.width, src.height)));
+    // The texels across the image and the size it is drawn at.
+    let (across, out, node) = match (d.placed, d.repeat) {
+        (Placed::Repeat { .. }, Some((count, node))) => {
             let across = (count.0 as usize, count.1 as usize);
-            (across, resolution(across, mask.as_ref().map(|(_, m)| (m.width, m.height)), node), Some(node))
+            (across, resolution(across, span(across), node), Some(node))
         }
-        (Placed::Repeat { .. }, _, _) => ((pw, ph), (pw, ph), None),
-        (Placed::At { width, height }, _, _) => ((pw, ph), resolution((pw, ph), mask.as_ref().map(|(_, m)| (m.width, m.height)), (width, height)), None),
-        _ => ((pw, ph), resolution((pw, ph), mask.as_ref().map(|(_, m)| (m.width, m.height)), (piece.rect.width, piece.rect.height)), None),
+        // Too large to bake at its repeats' texels: with a mask, fewer texels, so the
+        // mask lies once and clamps ([`oversized`]); without, Bevy's tiling of the shifted
+        // piece, which sizes its repeats by the image's texels, so it keeps the piece's.
+        (Placed::Repeat { width, height }, None) => match oversized((piece.rect.width, piece.rect.height), (width, height), (f64::from(size.x), f64::from(size.y))) {
+            Some((across, node, out)) if mask.is_some() => (across, out, Some(node)),
+            _ => ((pw, ph), (pw, ph), None),
+        },
+        (Placed::At { width, height }, _) => ((pw, ph), resolution((pw, ph), span((pw, ph)), (width, height)), None),
+        _ => ((pw, ph), resolution((pw, ph), span((pw, ph)), (piece.rect.width, piece.rect.height)), None),
     };
     let shift = (texel_shift(tex.offset.0, pw), texel_shift(tex.offset.1, ph));
     let Some(rgba) = compose(&src, cut, shift, across, out, mask.as_ref().map(|(_, m)| m.as_ref())) else { return (picture, baked) };
@@ -665,8 +741,9 @@ pub(super) fn apply(tex: &TexMod, piece: &Piece, d: Drawing<'_>, picture: Option
 /// The compass strip of a piece with texture state `tex` (`draw::Fit::Strip`): its texels
 /// (texture `path`, `rect` its piece) moved on by the offset, wrapping, so the heading's
 /// scroll (`crate::compass_strip`) starts from the moved strip and the two add up; and its
-/// mask, laid over the strip's window [design: #1833 review]. `None` when its texels are
-/// not read (the strip drawn as it was).
+/// mask, laid over the strip's window [design: #1833 review; the documented "same UVs"
+/// rule is not applied, as the original window's coordinates are not known: module doc].
+/// `None` when its texels are not read (the strip drawn as it was).
 pub(super) fn strip(tex: &TexMod, piece: &Piece, path: &str, rect: Option<Rect>, mut b: Bake<'_>) -> Option<(StripTexels, Option<Arc<Texels>>)> {
     let who = who(piece, b.ui);
     let src = match b.state.texels(path, &|p| b.data.read(p)) {
@@ -799,9 +876,9 @@ mod tests {
     }
 
     #[test]
-    fn mask_paths_read_as_a_tiles_filename() {
-        assert_eq!(mask_path(r"Interface\HUD\Mask.dds"), r"textures\interface\hud\mask.dds");
-        assert_eq!(mask_path(r"\Textures\Interface/m.dds"), r"textures\interface\m.dds");
+    fn mask_paths_are_under_the_textures_folder() {
+        assert_eq!(alpha_map_path(r"Interface\HUD\Mask.dds"), r"textures\interface\hud\mask.dds");
+        assert_eq!(alpha_map_path(r"\Textures\Interface/m.dds"), r"textures\interface\m.dds");
     }
 
     /// `alphas` as a picture one texel high, white.
@@ -832,6 +909,84 @@ mod tests {
         // Past the largest image: the picture's texels alone.
         assert_eq!(resolution((1, 1), Some((4096, 4096)), (5000.0, 5000.0)), (1, 1));
         assert_eq!(resolution((1, 1), Some((4, 4)), (f64::NAN, -1.0)), (1, 1));
+        // The mask's texels an image spans: all of them over a whole picture once, a part
+        // over an atlas piece, past them over a `tile` box's repeats.
+        assert_eq!(mask_span((4, 1), (1, 1), (1, 1)), (4, 1));
+        assert_eq!(mask_span((4, 4), (2, 2), (4, 2)), (2, 4));
+        assert_eq!(mask_span((4, 1), (5, 1), (2, 1)), (10, 1));
+        assert_eq!(mask_span((3, 1), (1, 1), (4, 1)), (1, 1), "whole texels up, at least one");
+    }
+
+    /// `alphas` as a white picture `width` texels wide.
+    fn alpha_rows(alphas: &[u8], width: usize) -> Texels {
+        Texels::new(alphas.iter().flat_map(|&a| [255, 255, 255, a]).collect(), width).unwrap()
+    }
+
+    #[test]
+    fn a_tile_pictures_mask_covers_its_first_repeat_and_clamps_beyond() {
+        // A 2 x 1 picture repeated over 5 x 1 texels under a 2 x 1 mask: the first repeat
+        // takes the mask, the rest its right edge texel.
+        let src = Texels::new(numbered(2, 1), 2).unwrap();
+        let out = compose(&src, [0, 0, 2, 1], (0, 0), (5, 1), (5, 1), Some(&row(&[200, 100]))).unwrap();
+        assert_eq!(reds(&out), [0, 1, 0, 1, 0]);
+        assert_eq!(alphas(&out), [200, 100, 100, 100, 100]);
+        // Down as across: a 2 x 2 picture over 3 x 3 texels under a 2 x 2 mask, the last
+        // column and row the mask's edge.
+        let square = Texels::new(numbered(2, 2), 2).unwrap();
+        let mask = alpha_rows(&[10, 20, 30, 40], 2);
+        assert_eq!(alphas(&compose(&square, [0, 0, 2, 2], (0, 0), (3, 3), (3, 3), Some(&mask)).unwrap()), [10, 20, 20, 30, 40, 40, 30, 40, 40]);
+        // Twice the texels for a finer mask: its four texels over the first repeat (two
+        // source texels), its last beyond.
+        let fine = row(&[0, 85, 170, 255]);
+        let out = compose(&src, [0, 0, 2, 1], (0, 0), (5, 1), (10, 1), Some(&fine)).unwrap();
+        assert_eq!(reds(&out), [0, 0, 1, 1, 0, 0, 1, 1, 0, 0]);
+        assert_eq!(alphas(&out), [0, 85, 170, 255, 255, 255, 255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn the_offset_moves_the_picture_not_its_mask() {
+        let mask = row(&[0, 85, 170, 255]);
+        // A whole picture shifted a texel: its texels move, the mask stays put.
+        let src = Texels::new(numbered(4, 1), 4).unwrap();
+        let out = compose(&src, [0, 0, 4, 1], (1, 0), (4, 1), (4, 1), Some(&mask)).unwrap();
+        assert_eq!(reds(&out), [1, 2, 3, 0]);
+        assert_eq!(alphas(&out), [0, 85, 170, 255]);
+        assert_eq!(alphas(&compose(&src, [0, 0, 4, 1], (3, 0), (4, 1), (4, 1), Some(&mask)).unwrap()), [0, 85, 170, 255]);
+        // Repeated and shifted: the first repeat still the masked one.
+        let two = Texels::new(numbered(2, 1), 2).unwrap();
+        let out = compose(&two, [0, 0, 2, 1], (1, 0), (5, 1), (5, 1), Some(&row(&[200, 100]))).unwrap();
+        assert_eq!(reds(&out), [1, 0, 1, 0, 1]);
+        assert_eq!(alphas(&out), [200, 100, 100, 100, 100]);
+    }
+
+    #[test]
+    fn an_atlas_piece_takes_the_masks_same_part() {
+        // The right 2 x 2 of a 4 x 2 atlas: its coordinates run over the right half, so
+        // the mask's right half lies over it.
+        let src = Texels::new(numbered(4, 2), 4).unwrap();
+        let out = compose(&src, [2, 0, 2, 2], (0, 0), (2, 2), (2, 2), Some(&row(&[10, 20, 30, 40]))).unwrap();
+        assert_eq!(reds(&out), [2, 3, 6, 7]);
+        assert_eq!(alphas(&out), [30, 40, 30, 40]);
+    }
+
+    #[test]
+    fn a_box_too_large_to_bake_under_a_mask_is_baked_coarser() {
+        // 4096 x 2048 texels of 8 x 8 repeats: past the largest image, scaled down to it,
+        // its shape kept; the node is the box.
+        let ((w, h), node, (ow, oh)) = oversized((4096.0, 2048.0), (8.0, 8.0), (8.0, 8.0)).unwrap();
+        assert_eq!(((w, h), node, (ow, oh)), ((4096, 2048), (4096.0, 2048.0), (2896, 1448)));
+        assert!((ow * oh) as u64 <= MAX_TEXELS);
+        // A thin box: one texel down, the rest across.
+        assert_eq!(oversized((1e7, 1.0), (1.0, 1.0), (1.0, 1.0)).map(|o| o.2), Some((MAX_TEXELS as usize, 1)));
+        // One that fits keeps its texels; none for an empty or endless one.
+        assert_eq!(oversized((16.0, 8.0), (8.0, 8.0), (8.0, 8.0)), Some(((16, 8), (16.0, 8.0), (16, 8))));
+        assert_eq!(oversized((0.0, 8.0), (8.0, 8.0), (8.0, 8.0)), None);
+        assert_eq!(oversized((f64::INFINITY, 8.0), (8.0, 8.0), (8.0, 8.0)), None);
+        // Baked at half its repeats' texels: the mask over the first repeat once, its
+        // edge beyond, never again (Bevy's tiling would have laid it on every repeat).
+        let src = Texels::new(numbered(2, 1), 2).unwrap();
+        let out = compose(&src, [0, 0, 2, 1], (0, 0), (8, 1), (4, 1), Some(&row(&[0, 85, 170, 255]))).unwrap();
+        assert_eq!(alphas(&out), [170, 255, 255, 255]);
     }
 
     #[test]
