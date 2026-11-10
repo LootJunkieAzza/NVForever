@@ -475,6 +475,7 @@ unless the player binds them, so nothing changes until then.
 | Hide an Empty Reputation List | `bHideReputationTabIfEmpty` | `pipboy::stats::model::Snapshot::hide_reputation`; the hand-built General tab keeps to the statistics and draws no switch; the tiles Stats page does not hide it yet |
 | Quick Load From the Menus | `bStartMenuQuickLoad` | `save::requests` takes the QuickLoad key in `PlayState::Menu` too (QuickSave stays play-only) |
 | Preview Perks on Level Up | `bPreviewPerksOnLevelUp` | `levelup::model::LevelUp::preview_perks`: with no perk due, Continue still leads to the perks page, its `PerkSheet::count` 0 |
+| Last Weapon key | `iEquipLastWeaponKey` | a new unbound Control; `tweaks::last_weapon` follows the equipped weapon each frame and equips the one before, put away |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -496,8 +497,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 397 |
-| to do | 206 |
+| done | 398 |
+| to do | 205 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1030,6 +1031,7 @@ game's Data folder, read-only).
 | `iConsoleKey` | done |  | 1 | Console Key (a choice of six keys) |
 | `iDisableCollisionKey` | done |  | 1 | a Controls key: No Collision (held) |
 | `iDropEquippedWeaponKey` | done |  | 1 | Drop Weapon key (Controls page; not a quest item or one that can't be dropped) |
+| `iEquipLastWeaponKey` | done |  | 4 | Last Weapon key (Controls page; the weapon before the one now, put away) |
 | `iExitGameKey` | done |  | 1 | a Controls key: Quit Game |
 | `iExitToMainMenuKey` | done |  | 1 | a Controls key: Main Menu |
 | `iHolsterWeaponKey` | done |  | 1 | a Controls key: Holster Weapon (unbound until set; the hold to holster stays) |
@@ -1050,7 +1052,6 @@ game's Data folder, read-only).
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
-| `iEquipLastWeaponKey` | to do |  | 4 | not built: no previous weapon recorded |
 | `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
 | `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
 | `iRepeatActivateKey` | to do |  | 2 | activate is at 16 params; a timer in a tuple |

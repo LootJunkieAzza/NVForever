@@ -600,7 +600,7 @@ impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon).in_set(crate::PlaySet::Input))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
         add_setting(
@@ -1282,6 +1282,36 @@ impl Plugin for TweaksPlugin {
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
         switch!(app, "power-armor-no-training", "Power Armor Without Training", "Power armor can be worn without Power Armor Training. (Stewie's Tweaks bPowerArmorNeedsNoTraining)", game.power_armor_needs_no_training);
+    }
+}
+
+/// The Last Weapon key: the weapon the player held before the one now is equipped
+/// again (put away, as a hotkey's new weapon is) [design: docs/design/tweaks.md]. The weapons are followed
+/// each frame: `(now, before)`.
+fn last_weapon(input: crate::bindings::ControlInput, state: Res<State<crate::PlayState>>, mut sim: ResMut<crate::sim::SimState>, mut control: ResMut<crate::control::PlayerControl>, mut seen: Local<(Option<fnv_sim::FormId>, Option<fnv_sim::FormId>)>) {
+    use fnv_sim::FormId;
+    let forms = sim.forms;
+    let equipped = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
+    let now = equipped.into_iter().find(|&id| forms.item(id).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Weapon));
+    if now != seen.0 {
+        if seen.0.is_some() {
+            seen.1 = seen.0;
+        }
+        seen.0 = now;
+    }
+    if *state.get() != crate::PlayState::Playing || !input.just_pressed(crate::bindings::Control::LastWeapon) {
+        return;
+    }
+    let Some(before) = seen.1.filter(|&w| sim.world.item_count(FormId::PLAYER_REF, w).is_ok_and(|n| n > 0)) else {
+        info!("tweaks: Last Weapon: none to go back to");
+        return;
+    };
+    match sim.world.equip(FormId::PLAYER_REF, before) {
+        Ok(_) => {
+            control.weapon_out = false;
+            info!("tweaks: Last Weapon: {before} equipped (key)");
+        }
+        Err(e) => info!("tweaks: Last Weapon: {before} not equipped: {e}"),
     }
 }
 
