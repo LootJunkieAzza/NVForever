@@ -13,13 +13,19 @@
 //! that capture [observed: 2026-11-05, pipboy.md §3]. `ScreenLit:8` has no part in it:
 //! `screen.dds` is black, `Screen_n.dds` flat and its specular colour black [observed: the
 //! files; `fnvtool nif decode`], so it stays hidden. None of this is lit by the world [design:
-//! both shapes are unlit]. Other hours and custom colours are not measured. Flicker, vertical
-//! hold and shudder are not built.
+//! both shapes are unlit]. Other hours and custom colours are not measured. Flicker is not
+//! built; the page change's wash, shudder and vertical hold are `transition.rs`'s.
 //!
 //! One moving layer: the beam ([`ScreenFxBeam`], [`sweep`]), a wave of light that travels down
 //! the screen every [`BEAM_PERIOD`] seconds: a hard leading edge at its foot and a long fade
-//! behind it [observed: private job pipboy_special_device_motion; playtest 2026-11-05]. It lies
-//! over the pages and under the scanlines, so the lines cross it. Between sweeps it is hidden.
+//! behind it [observed: private jobs pipboy_special_device_motion and pipboy_fx_still; playtest
+//! 2026-11-05]. It lies over the pages and under the scanlines, so the lines cross it. Between
+//! sweeps it is hidden. Its picture carries a dither, so its slow rise does not quantise into
+//! bands in the 8-bit image ([`beam_pixels`]).
+//!
+//! Two parts are the screen material's, on the model only (nvf_assets `nif_material.wesl`
+//! `pipboy_picture`, through `transition::ScreenLook`): the text's edges softened
+//! ([`TEXT_SOFTEN`]) and a fine noise new every frame ([`SCREEN_NOISE`]).
 //!
 //! The path from the image to the frame [design: `pipboy_arm.rs`, `nvf_assets::nif_spawn`
 //! `unlit_vertex_colors`, `imagespace.wesl`]: image × [`SCREEN_TINT`] ×
@@ -106,21 +112,49 @@ pub const SCANLINE_PITCH: f32 = 9.5;
 /// earlier 15% was the ITEMS screenshot's reading.
 pub const SCANLINE_DEPTH: f32 = 0.20;
 
-/// The beam (module docs). Seconds between sweeps: edges at the same place 5 s apart [observed:
-/// private job pipboy_special_device_motion, frames with a whole-second clock; playtest
-/// 2026-11-05]. Seconds from just above the top edge to off the foot: at least 190 of 720 rows
-/// went by within one clock second, so this is [hypothesis] within about 1 to 2.
-pub const BEAM_PERIOD: f32 = 5.0;
-pub const BEAM_TRAVEL: f32 = 1.3;
-/// Its height in canvas units, a quarter of the screen and a little, and its leading edge's.
-/// On the private job's frames the light rises about straight over 95 rows of the 720, to a
-/// peak of about +14 in display red on the dim screen, and drops within about 12 rows, the
-/// measure's own smoothing included [observed: the same frames against their own without it].
-pub const BEAM_HEIGHT: f32 = 224.0;
-pub const BEAM_EDGE: f32 = 24.0;
+/// The beam (module docs). Seconds between sweeps: its leading edge passed the same row 5.12 s
+/// apart by the wall clock [observed: private job pipboy_fx_still, 2026-11-10; the earlier 5
+/// was read on a whole-second clock]. Seconds from just above the top edge to off the foot:
+/// its edge went 231 and 239 rows a second down the 1280 x 720 shots in two jobs (156 on one
+/// sweep) [observed: the same job], about 415 canvas units a second
+/// (`transition::CANVAS_PER_ROW`), so the canvas and the wave in 2.3 s. The earlier 1.3 s was a
+/// [hypothesis] from a whole-second clock, nearly twice as fast.
+pub const BEAM_PERIOD: f32 = 5.12;
+pub const BEAM_TRAVEL: f32 = 2.3;
+/// Its height in canvas units and its leading edge's. On the mean of frames aligned at the
+/// edge the light rises about straight over 72 rows of the 720 (55 from 10 to 90 %) to a peak
+/// of +14 in display red, then falls to nothing over 24 rows (14 from 90 to 10 %) [observed:
+/// private job pipboy_fx_still, 3 frames holding the whole wave]: 130 and 44 canvas units. The
+/// earlier 224 and 24 were read on single frames with the measure's own smoothing in them.
+pub const BEAM_HEIGHT: f32 = 172.0;
+pub const BEAM_EDGE: f32 = 44.0;
 /// How strongly it covers the image at its peak, fitted to that +14 [hypothesis: fitted on the
-/// playtest shots of the original at 1920 x 1080, where the same step reads 13 to 14].
+/// playtest shots of the original at 1920 x 1080, where the same step reads 13 to 14; the
+/// private job's peak is 13.6].
 pub const BEAM_ALPHA: f32 = 0.016;
+/// The beam's peak in display levels, for its dither: one display level is about this share
+/// of its picture's alpha range (the private job's 13.6 [observed]).
+const BEAM_LEVELS: f32 = 13.6;
+/// The beam's picture is this many columns wide, twice the canvas, and a canvas's width of it
+/// is shown, from a new place every frame, so its dither changes from frame to frame [design].
+const BEAM_COLUMNS: usize = 2 * CANVAS.x as usize;
+
+/// How far apart the screen's taps of the menus' picture are, in the view's pixels, on the
+/// model (`nif_material.wesl` `pipboy_picture`: a 3 x 3 tent). The original's text edges rise
+/// from 10 to 90 % over about 1.6 pixels at 1280 x 720 on most of its text, 1.8 to 2.1 on the
+/// titles, where a hard edge measures 0.8 [observed: private jobs pipboy_fx_still and
+/// pipboy_fx_text, every STATS tab, ITEMS and DATA; the same with fBlurRadiusPipboy at 0]. A
+/// tent of this reach widens a hard edge to about that [hypothesis: by its spread, to be fitted
+/// on this engine's shots with the same measure].
+pub const TEXT_SOFTEN: f32 = 0.75;
+
+/// The reach of the screen's noise in display values (triangular, new every frame), on the
+/// model (`nif_material.wesl` `pipboy_picture`): an empty stretch of the original's screen
+/// varies by 0.61 levels (standard deviation) from frame to frame, and the beam's rise steps
+/// up and down a row at a time, not in bands [observed: private job pipboy_fx_still, 109 frames
+/// without the beam; the rise's runs a row long at the median]. This reach gives about 0.55
+/// levels, and about 0.6 once rounded to whole levels [design].
+pub const SCREEN_NOISE: f32 = 1.35 / 255.0;
 /// How far its colour is lightened from the Pip-Boy's towards white: what it adds on the
 /// original's screen is about (1, 0.58, 0.17) in linear light [observed: the same frames].
 const BEAM_LIGHTEN: f32 = 0.2;
@@ -131,22 +165,56 @@ pub fn beam_top(phase: f32) -> Option<f32> {
     (0.0..BEAM_TRAVEL).contains(&phase).then(|| -BEAM_HEIGHT + (CANVAS.y + BEAM_HEIGHT) * phase / BEAM_TRAVEL)
 }
 
-/// The beam's column, white, with the wave's shape in its alpha from the top down: a straight
-/// rise to the peak, then the leading edge. The strength is on the node's colour, so a faint
-/// beam keeps a full range of alpha here.
-fn beam_pixels() -> Vec<u8> {
+/// The wave's shape at row `y` of the beam from its top, 0 to 1: a straight rise to the peak,
+/// then the leading edge.
+fn beam_weight(y: usize) -> f32 {
     let rows = BEAM_HEIGHT as usize;
     let edge = BEAM_EDGE as usize;
-    (0..rows)
-        .flat_map(|y| {
-            let w = if y + edge < rows {
-                (y as f32 + 0.5) / (rows - edge) as f32
-            } else {
-                0.5 + 0.5 * (std::f32::consts::PI * ((y + edge - rows) as f32 + 0.5) / edge as f32).cos()
-            };
-            [255, 255, 255, (w * 255.0).round() as u8]
-        })
-        .collect()
+    if y + edge < rows {
+        (y as f32 + 0.5) / (rows - edge) as f32
+    } else {
+        0.5 + 0.5 * (std::f32::consts::PI * ((y + edge - rows) as f32 + 0.5) / edge as f32).cos()
+    }
+}
+
+/// A whole-number hash (PCG), for the beam's dither.
+fn hash(v: u32) -> u32 {
+    let state = v.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
+    let word = ((state >> ((state >> 28) + 4)) ^ state).wrapping_mul(277_803_737);
+    (word >> 22) ^ word
+}
+
+/// A triangular value in -1..1 for texel (`x`, `y`).
+fn dither(x: usize, y: usize) -> f32 {
+    let unit = |k: u32| (hash(x as u32 ^ hash(y as u32 ^ hash(k))) >> 8) as f32 / (1u32 << 24) as f32;
+    unit(0) + unit(1) - 1.0
+}
+
+/// The beam's picture, [`BEAM_COLUMNS`] wide, white, with the wave's shape in its alpha from
+/// the top down ([`beam_weight`]) and a triangular dither of about a display level on it, less
+/// where the alpha is near either end so it never clips: the 8-bit image under it then holds
+/// the rise as a mix of neighbouring levels, not as bands about five rows wide (module docs).
+/// The strength is on the node's colour, so a faint beam keeps a full range of alpha here.
+fn beam_pixels() -> Vec<u8> {
+    let level = 255.0 / BEAM_LEVELS;
+    let rows = BEAM_HEIGHT as usize;
+    let mut out = Vec::with_capacity(rows * BEAM_COLUMNS * 4);
+    for y in 0..rows {
+        let v = beam_weight(y) * 255.0;
+        let reach = level.min(v).min(255.0 - v);
+        for x in 0..BEAM_COLUMNS {
+            let a = (v + reach * dither(x, y)).round().clamp(0.0, 255.0) as u8;
+            out.extend_from_slice(&[255, 255, 255, a]);
+        }
+    }
+    out
+}
+
+/// Where the beam's picture is read from on frame `frame`: a canvas's width of it from a
+/// column that changes every frame ([`BEAM_COLUMNS`]).
+fn beam_window(frame: u32) -> Rect {
+    let x = (hash(frame) % (BEAM_COLUMNS as u32 - CANVAS.x as u32)) as f32;
+    Rect::new(x, 0.0, x + CANVAS.x, BEAM_HEIGHT)
 }
 
 /// The beam's colour for the Pip-Boy colour `rgb`, its strength in the alpha.
@@ -227,6 +295,16 @@ fn column_image(rgba: Vec<u8>, what: &str) -> Option<Image> {
     Some(image)
 }
 
+/// The beam's picture, read texel for texel (its node is drawn one texel to a canvas unit on
+/// the device), so the dither stays a texel's.
+fn beam_image() -> Option<Image> {
+    let format = bevy::render::render_resource::TextureFormat::Rgba8Unorm;
+    let mut image = nvf_assets::texture::checked_image(BEAM_COLUMNS as u32, BEAM_HEIGHT as u32, 1, format, beam_pixels()).map_err(|e| warn!("pipboy: beam: {e}")).ok()?;
+    image.asset_usage = bevy::asset::RenderAssetUsages::default();
+    image.sampler = bevy::image::ImageSampler::nearest();
+    Some(image)
+}
+
 impl ScreenFx {
     /// One baked column over the whole canvas, a value per row, as the terminal's: no tile
     /// per line, whose fractional pitch rounded to whole rows. A broken file gives no
@@ -236,7 +314,7 @@ impl ScreenFx {
             return;
         }
         self.baked = true;
-        self.beam = column_image(beam_pixels(), "beam").map(|i| images.add(i));
+        self.beam = beam_image().map(|i| images.add(i));
         let Some(band) = data.and_then(|d| d.read(SCANLINES)).and_then(|b| scanline_column(&b)).filter(|b| !b.is_empty()) else { return };
         let column = baked_column(&band_at_depth(&band, SCANLINE_DEPTH), CANVAS.y as usize, SCANLINE_PITCH);
         let (rgba, kept) = scanline_pixels(&column);
@@ -379,7 +457,7 @@ pub fn draw(
             ScreenFxBeam,
             at(0.0, -BEAM_HEIGHT, CANVAS.x, BEAM_HEIGHT),
             Visibility::Hidden,
-            ImageNode { color: beam_tint(rgb), image_mode: NodeImageMode::Stretch, ..ImageNode::new(beam) },
+            ImageNode { color: beam_tint(rgb), rect: Some(beam_window(0)), image_mode: NodeImageMode::Stretch, ..ImageNode::new(beam) },
             UiTargetCamera(screen.camera),
             BEAM,
             Pickable::IGNORE,
@@ -394,18 +472,22 @@ pub fn draw(
 /// real clock, hidden the rest. Under the pause menu the band stands where it is; the clock
 /// runs on, so on resume it jumps to where the clock says (or hides): a wall-clock effect
 /// held in the picture, not a phase kept across the pause [design]. Logged once each time
-/// the treatment comes on, on the first sweep.
-pub fn sweep(time: Res<Time<Real>>, paused: Res<crate::pause::Paused>, pip: Res<PipBoy>, mut fx: ResMut<ScreenFx>, mut beams: Query<(&mut Node, &mut Visibility), With<ScreenFxBeam>>) {
+/// the treatment comes on, on the first sweep. Its picture is read from a new place every
+/// frame it shows ([`beam_window`]).
+#[allow(clippy::type_complexity)]
+pub fn sweep(time: Res<Time<Real>>, paused: Res<crate::pause::Paused>, pip: Res<PipBoy>, mut fx: ResMut<ScreenFx>, mut frame: Local<u32>, mut beams: Query<(&mut Node, &mut Visibility, &mut ImageNode), With<ScreenFxBeam>>) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
     let _canvas = crate::interface::original_units();
     if paused.0 {
         return;
     }
+    *frame = frame.wrapping_add(1);
     let phase = time.elapsed_secs() % BEAM_PERIOD;
-    for (mut node, mut visibility) in &mut beams {
+    for (mut node, mut visibility, mut image) in &mut beams {
         match beam_top(phase) {
             Some(top) => {
                 node.top = crate::interface::u(top);
+                image.rect = Some(beam_window(*frame));
                 *visibility = Visibility::Inherited;
                 if !fx.swept && pip.warming.is_none() {
                     fx.swept = true;
@@ -541,22 +623,41 @@ mod tests {
         assert!(last > CANVAS.y - 1.0 && last <= CANVAS.y, "{last}: off the foot at the end");
         assert_eq!(beam_top(BEAM_TRAVEL), None);
         assert_eq!(beam_top(BEAM_PERIOD - 0.1), None);
-        // Its column: nothing at the top, a straight rise, a full range at the peak, and the
+        // Its shape: nothing at the top, a straight rise, a full range at the peak, and the
         // leading edge at the foot, much steeper.
-        let px = beam_pixels();
-        assert_eq!(px.len(), BEAM_HEIGHT as usize * 4);
-        let alpha: Vec<u8> = px.chunks(4).map(|p| p[3]).collect();
-        let n = alpha.len();
+        let n = BEAM_HEIGHT as usize;
         let edge = BEAM_EDGE as usize;
-        assert!(alpha[0] < 3 && alpha[n - 1] < 3, "{} {}", alpha[0], alpha[n - 1]);
-        assert_eq!(*alpha.iter().max().unwrap(), 255);
+        let w: Vec<f32> = (0..n).map(beam_weight).collect();
+        assert!(w[0] < 0.01 && w[n - 1] < 0.01, "{} {}", w[0], w[n - 1]);
+        assert!(w.iter().copied().fold(0.0, f32::max) > 0.99);
         let half = (n - edge) / 2;
-        assert!(alpha[half].abs_diff(128) < 3, "half way up the rise: {}", alpha[half]);
-        assert!(alpha[..n - edge].windows(2).all(|w| w[0] <= w[1]), "the rise only rises");
-        assert!(alpha[n - edge..].windows(2).all(|w| w[0] >= w[1]), "the edge only falls");
-        let rise = 255.0 / (n - edge) as f32;
-        assert!(255.0 / edge as f32 > 5.0 * rise, "the leading edge is the hard side");
+        assert!((w[half] - 0.5).abs() < 0.01, "half way up the rise: {}", w[half]);
+        assert!(w[..n - edge].windows(2).all(|p| p[0] <= p[1]), "the rise only rises");
+        assert!(w[n - edge..].windows(2).all(|p| p[0] >= p[1]), "the edge only falls");
+        let rise = 1.0 / (n - edge) as f32;
+        assert!(1.0 / edge as f32 > 2.5 * rise, "the leading edge is the hard side");
+        // Its picture: that shape in the alpha, on average along each row, with a dither of
+        // up to about a display level on it that never clips, different from texel to texel.
+        let px = beam_pixels();
+        assert_eq!(px.len(), n * BEAM_COLUMNS * 4);
         assert!(px.chunks(4).all(|p| p[..3] == [255, 255, 255]), "white, the tint on the node");
+        let level = 255.0 / BEAM_LEVELS;
+        for y in 0..n {
+            let row: Vec<f32> = px[y * BEAM_COLUMNS * 4..(y + 1) * BEAM_COLUMNS * 4].chunks(4).map(|p| f32::from(p[3])).collect();
+            let mean = row.iter().sum::<f32>() / row.len() as f32;
+            assert!((mean - w[y] * 255.0).abs() < 1.0, "row {y}: {mean} against {}", w[y] * 255.0);
+            let v = w[y] * 255.0;
+            let reach = level.min(v).min(255.0 - v);
+            assert!(row.iter().all(|a| (a - v).abs() <= reach + 0.5), "row {y}");
+        }
+        let mid = half * BEAM_COLUMNS * 4;
+        let alphas: std::collections::HashSet<u8> = px[mid..mid + BEAM_COLUMNS * 4].chunks(4).map(|p| p[3]).collect();
+        assert!(alphas.len() > 20, "a mid row holds many levels: {}", alphas.len());
+        // A canvas's width of it, from a new place on most frames, inside the picture.
+        let windows: Vec<Rect> = (0..20).map(beam_window).collect();
+        assert!(windows.iter().all(|r| r.min.x >= 0.0 && r.max.x <= BEAM_COLUMNS as f32 && r.width() == CANVAS.x && r.height() == BEAM_HEIGHT));
+        let starts: std::collections::HashSet<u32> = windows.iter().map(|r| r.min.x as u32).collect();
+        assert!(starts.len() > 15, "{starts:?}");
         // Its colour: amber lightened a little, its strength in the alpha.
         let t = beam_tint(AMBER_RGB).to_srgba();
         assert!(t.red > 0.99 && t.green > f32::from(AMBER_RGB[1]) / 255.0 && t.blue > f32::from(AMBER_RGB[2]) / 255.0);

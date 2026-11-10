@@ -326,6 +326,18 @@ pub struct NifSurface {
     /// pixels are marked in alpha so the image-space grade leaves them alone
     /// (`imagespace.wesl`, `SCREEN_MARK`).
     pub pipboy_screen: bool,
+    /// The Pip-Boy's screen picture as it is now ([`pipboy_screen`](Self::pipboy_screen)
+    /// only; nvf-play `pipboy/transition.rs` `ScreenLook`, put on by nvforever
+    /// `pipboy_arm.rs`): x how far the picture is rolled up, as a share of the canvas's
+    /// height (it wraps inside the canvas; 0 leaves it in place), y how much of the display
+    /// values is washed away (the gain is 1 − y; negative brightens), z display value added
+    /// (0–1), w the canvas's share of the texture's height. All zero leaves the picture as
+    /// it is.
+    pub pipboy_a: Vec4,
+    /// The Pip-Boy's screen, the static part: x the softening's reach in the view's pixels
+    /// (0 none), y the noise's reach in display values (0–1, triangular, new every frame; 0
+    /// none); z, w unused.
+    pub pipboy_b: Vec4,
     /// A blended shape that draws the same as a cut-out (`nif_spawn::blended_cutout`): its
     /// alpha is a texture's cut-out mask and nothing else. Where [`BlendedCutouts`] is on
     /// (FSR's temporal upscaling) it is drawn alpha-tested at this cut, so it has depth
@@ -371,6 +383,9 @@ pub struct NifSurfaceUniform {
     pub holes: Vec4,
     pub holes_edge: Vec4,
     pub soft: Vec4,
+    /// [`NifSurface::pipboy_a`], [`NifSurface::pipboy_b`].
+    pub pipboy_a: Vec4,
+    pub pipboy_b: Vec4,
 }
 
 /// Screen UV of shift per unit of refraction strength and of view-space tilt
@@ -382,7 +397,7 @@ pub const REFRACTION_SCREEN: f32 = 0.1;
 
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft, pipboy_a: s.pipboy_a, pipboy_b: s.pipboy_b }
     }
 }
 
@@ -443,6 +458,8 @@ impl Default for NifSurface {
             first_person: false,
             add_linear: false,
             pipboy_screen: false,
+            pipboy_a: Vec4::ZERO,
+            pipboy_b: Vec4::ZERO,
             blended_cutout: None,
             holes: NO_HOLES,
             holes_edge: Vec4::ONE,
@@ -1100,6 +1117,25 @@ mod tests {
         assert!(!NifSurfaceKey::from(&NifSurface::default()).pipboy_screen);
         assert!(include_str!("nif_material.wesl").contains("@if(PIPBOY_SCREEN)"));
         assert_eq!(FIRST_PERSON_DEPTH_SHARE, 0.015625);
+    }
+
+    /// The Pip-Boy screen's values reach the shaders: the last two fields of the uniform,
+    /// in the same order in the shaders' struct, read by the screen's picture; all zero
+    /// on every other shape.
+    #[test]
+    fn the_pipboy_screen_values_are_the_uniforms_last_fields() {
+        let a = Vec4::new(0.25, 0.9, 0.06, 0.8);
+        let b = Vec4::new(0.75, 0.005, 0.0, 0.0);
+        let u = NifSurfaceUniform::from(&NifSurface { pipboy_a: a, pipboy_b: b, ..default() });
+        assert_eq!((u.pipboy_a, u.pipboy_b), (a, b));
+        let d = NifSurface::default();
+        assert_eq!((d.pipboy_a, d.pipboy_b), (Vec4::ZERO, Vec4::ZERO));
+        let bindings = include_str!("nif_surface_bindings.wesl");
+        let (soft, pa, pb) = (bindings.find("    soft: vec4<f32>,").unwrap(), bindings.find("    pipboy_a: vec4<f32>,").unwrap(), bindings.find("    pipboy_b: vec4<f32>,").unwrap());
+        assert!(soft < pa && pa < pb, "after soft, in order");
+        assert_eq!(bindings[pb..].find('}'), bindings[pb..].find("\n}").map(|i| i + 1), "pipboy_b is the struct's last field");
+        let shader = include_str!("nif_material.wesl");
+        assert!(shader.contains("surface.pipboy_a, surface.pipboy_b, in.position.xy"));
     }
 
     /// CPU mirror of the shaders' edge formula (nif_material.wesl, tree.wesl).

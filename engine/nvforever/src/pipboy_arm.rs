@@ -52,6 +52,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::window::PrimaryWindow;
 use nvf_assets::nif_material::{Falloff, NifMaterial};
 use nvf_play::pipboy::device_screen::{GLARE_LINEAR_SCALE, SCREEN_TINT};
+use nvf_play::pipboy::transition::ScreenLook;
 use nvf_play::pipboy::{AidTarget, Frame, Page, Phase, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen, Warming, CANVAS, TARGET};
 use nvf_play::PlayerCamera;
 use std::sync::Arc;
@@ -351,7 +352,22 @@ fn menus_material(own: &NifMaterial, image: Handle<Image>) -> NifMaterial {
     m.base.alpha_mode = AlphaMode::Opaque;
     m.base.uv_transform = bevy::math::Affine2::from_scale(scale);
     m.extension.pipboy_screen = true;
+    (m.extension.pipboy_a, m.extension.pipboy_b) = ScreenLook::default().surface();
     m
+}
+
+/// The screen's picture as `look` says it is now (nvf-play `pipboy/transition.rs`: the page
+/// change's roll and wash, the softening and the noise), on the menus' copy of the material,
+/// written only when it changed: a material changed is sent to the GPU again with its slab.
+fn put_look(menus: &Handle<NifMaterial>, look: &ScreenLook, materials: &mut Assets<NifMaterial>) -> bool {
+    let (a, b) = look.surface();
+    if materials.get(menus).is_none_or(|m| (m.extension.pipboy_a, m.extension.pipboy_b) == (a, b)) {
+        return false;
+    }
+    if let Some(mut m) = materials.get_mut(menus) {
+        (m.extension.pipboy_a, m.extension.pipboy_b) = (a, b);
+    }
+    true
 }
 
 /// Put the copies on the screen and the glare while the menus are on the model (`on`), and
@@ -431,6 +447,7 @@ pub(crate) fn show_screen(
     mut visibility: Query<&mut Visibility>,
     mut materials: ResMut<Assets<NifMaterial>>,
     mut swapped: Local<Swapped>,
+    look: Option<Res<ScreenLook>>,
 ) {
     let Some(mut screen) = screen else { return };
     let shown = pip.on_arm() && (body.first_person_drawn() || (pip.warming.is_some() && body.first_person_root().is_some()));
@@ -439,6 +456,9 @@ pub(crate) fn show_screen(
     // [design: this file] Compare Copied.source after resolving any Stealth Boy copy.
     if wear_materials(screen.on_model, pip.warming.is_none(), &screen.image, &mut parts, &mut field, &mut materials, &mut swapped) {
         pip.invalidate_warm();
+    }
+    if let (Some(look), Some(menus), true) = (look.as_deref(), swapped.menus.as_ref(), swapped.screen.is_some()) {
+        put_look(&menus.worn, look, &mut materials);
     }
     // Said once each time the Pip-Boy comes up when the menus have nowhere to show, so a
     // player's log says why the arm came up blank or not at all (#1330).
@@ -802,6 +822,21 @@ mod tests {
         assert_eq!(m.base.base_color.to_linear(), LinearRgba::rgb(r, g, b));
         // The source is a copy away, and keeps the engine's add.
         assert!(!own.extension.add_linear && own.base.base_color == Color::WHITE);
+    }
+
+    #[test]
+    fn the_menus_copy_wears_the_screen_look_and_takes_its_changes_once() {
+        let own = surface(Color::WHITE);
+        let m = menus_material(&own, Handle::default());
+        assert_eq!((m.extension.pipboy_a, m.extension.pipboy_b), ScreenLook::default().surface(), "the static look from the start");
+        assert_eq!((own.extension.pipboy_a, own.extension.pipboy_b), (Vec4::ZERO, Vec4::ZERO), "the source left alone");
+        let mut materials = Assets::<NifMaterial>::default();
+        let menus = materials.add(m);
+        assert!(!put_look(&menus, &ScreenLook::default(), &mut materials), "the same look writes nothing");
+        let washed = ScreenLook::during(nvf_play::pipboy::transition::Kind::VerticalHold, 100.0);
+        assert!(put_look(&menus, &washed, &mut materials));
+        assert_eq!((materials.get(&menus).unwrap().extension.pipboy_a, materials.get(&menus).unwrap().extension.pipboy_b), washed.surface());
+        assert!(!put_look(&menus, &washed, &mut materials));
     }
 
     /// `On` says the menus are on the model, as `show_screen` would, and the image they are
