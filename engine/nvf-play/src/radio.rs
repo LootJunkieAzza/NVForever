@@ -123,6 +123,11 @@ const TABLE: u32 = u32::MAX - 2;
 /// at the table, away from them].
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
 pub struct TableStation(pub Option<u32>);
+/// The Radiation Causes Radio Static tweak: rads a second that bring the most static,
+/// and that most, as a share (ours) [design: docs/design/tweaks.md].
+const RADS_FOR_FULL_STATIC: f64 = 10.0;
+const MAX_RAD_STATIC: f32 = 0.8;
+
 /// The Pip-Boy's static (see the module notes).
 const STATIC_SOUND: &str = "UIRadioStaticLP";
 
@@ -797,6 +802,9 @@ fn play(
         info!("pipboy radio: stations received: {}", radio.pipboy_list.iter().map(|&b| name(&places, b)).collect::<Vec<_>>().join(", "));
         radio.logged_list = Some(radio.pipboy_list.clone());
     }
+    // The player's tweak: radiation taken now brings static into the Pip-Boy's radio,
+    // whole at `RADS_FOR_FULL_STATIC` a second, never all of it [design: docs/design/tweaks.md].
+    let rad_static = if rt.game.tweaks.radiation_radio_static { (rt.game.radiation().rate / RADS_FOR_FULL_STATIC).clamp(0.0, 1.0) as f32 * MAX_RAD_STATIC } else { 0.0 };
     let pip = &mut rt.game.radio.pipboy;
     if let Some(t) = pip.tune.take() {
         if received(&sim, &places, t.0, &listener).is_some() {
@@ -811,7 +819,7 @@ fn play(
         pip.station = radio.pipboy_list.first().map(|b| FormId(places.station_ref[b]));
     }
     let pip_station = pip.station.filter(|_| pip.on).and_then(|s| Some((s, places.base_of(s.0)?)));
-    let pip_share = pip_station.and_then(|(s, _)| received(&sim, &places, s.0, &listener));
+    let pip_share = pip_station.and_then(|(s, _)| received(&sim, &places, s.0, &listener)).map(|share| share.max(rad_static));
     let logged = (pip.on, pip.station, pip_share.is_some());
     if radio.logged_pipboy != Some(logged) {
         match pip_station {

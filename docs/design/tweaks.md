@@ -492,6 +492,7 @@ unless the player binds them, so nothing changes until then.
 | Console Output File | `bUseConsoleOutputFile` | `Console::auto_output` sets the output file to `ConsoleOutput.txt` in NVForever's folder once a session (never the game's folder; the name is ours) |
 | Console Text Shadow | `bConsoleTextShadow` | `console::spawn` draws the scrollback a darker green with Bevy's `TextShadow` (our shade and offset) |
 | Press to Leave Loading Screens | `bClickToExitLoadScreens` | `loading::finish`: with `Loading::click_to_exit` the finished screen shows `PRESS_LINE` (ours) and comes down on the next key or button; every screen, `bLoadGameOnly` not done |
+| Radiation Brings Radio Static | `bRadiationCausesRadioStatic` | `radio`: the Pip-Boy station's static share is at least the player's rads a second over `RADS_FOR_FULL_STATIC` (10), at most `MAX_RAD_STATIC` (0.8); both ours |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -513,8 +514,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 414 |
-| to do | 189 |
+| done | 415 |
+| to do | 188 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1142,6 +1143,7 @@ game's Data folder, read-only).
 | `bPipBoyTabHotkeysDontCloseMenu` | done |  |  | already so: F1-F3 change page, only Tab or Esc close |
 | `bPreventNPCComments` | done |  | 1 | already so: NPCs make no such comments |
 | `bPreventTeammateFootstepSounds` | done |  |  | Quiet Companion Footsteps |
+| `bRadiationCausesRadioStatic` | done |  | 1 | Radiation Brings Radio Static (whole at 10 rads/s, at most 80%: ours) |
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
@@ -1180,7 +1182,6 @@ game's Data folder, read-only).
 | `bNoTurningAnim` | to do |  |  | nvforever player_body turn_rate; drive_body at 16 params |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |
-| `bRadiationCausesRadioStatic` | to do |  | 1 | radio play share with the radiation taken |
 | `bRadioKeepPositionWhenLoading` | to do |  |  | the radio position is not saved |
 | `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
 | `bReplaceHelpWithConsole` | to do |  |  | no Help entry; a Console entry is new |

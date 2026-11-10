@@ -391,6 +391,9 @@ pub struct Tweaks {
     /// `bShiftIgnoresFriendlyVATS`: with Shift held V.A.T.S. marks no one who would not
     /// fight the player.
     pub vats_shift_ignores_friends: bool,
+    /// `bRadiationCausesRadioStatic`: radiation taken brings static into the Pip-Boy's
+    /// radio.
+    pub radiation_radio_static: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -572,6 +575,7 @@ impl Default for Tweaks {
             preview_perks: false,
             mark_notes_unread: false,
             vats_shift_ignores_friends: false,
+            radiation_radio_static: false,
         }
     }
 }
