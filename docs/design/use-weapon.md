@@ -83,7 +83,8 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
   (`npc_combat::hold_for_use`): blows begun and not landed are let go, a gun's wind-up or
   reload goes back to Ready (`settle_for_use`; a step with the trigger off would still
   fire a committed wind-up, and a frozen reload would leave it reported reloading and
-  busy), and its combat crouch ends. Only a use still to be carried out is kept so; a
+  busy), its melee guard is lowered and a pending reaction to a blow dropped (others
+  would read it as guarding), and its combat crouch ends. Only a use still to be carried out is kept so; a
   package's last melee blow landing drops the fight's state, as before. Spent (or its
   package changed),
   the use is no longer active and the fight takes the actor back. Out of a combat state,

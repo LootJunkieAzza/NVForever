@@ -1325,13 +1325,17 @@ fn use_hold(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_g
 /// A kept fighter while the shooter has its actor ([`UseHold::Kept`]): nothing of its
 /// own attack is left under way, since `fight` does not step it meanwhile and the
 /// shooter's attacks are the ones that count. Blows begun and not landed are let go, a
-/// gun's shot or reload under way is settled ([`settle_for_use`]), and its combat crouch
-/// ends (the caller takes it out of `Awareness::crouching`; the stance rolls run again
-/// once the fight has the actor back). Its sight time, magazine, post and the rest stay
-/// (#2145 review) [design].
+/// gun's shot or reload under way is settled ([`settle_for_use`]), its melee guard is
+/// lowered and a reaction to an opponent's blow dropped (other fighters read `block` as
+/// it guarding, and an overdue `react` would raise a guard against an old blow on its
+/// first frame back), and its combat crouch ends (the caller takes it out of
+/// `Awareness::crouching`; the stance rolls run again once the fight has the actor back).
+/// Its sight time, magazine, post and the rest stay (#2145 review) [design].
 fn hold_for_use(x: &mut Fighter) {
     x.blows.clear();
     x.swing = None;
+    x.block = None;
+    x.react = None;
     x.crouched_since = None;
     settle_for_use(x.ranged.as_mut());
 }
@@ -1343,7 +1347,8 @@ fn hold_for_use(x: &mut Fighter) {
 /// reports it reloading or busy (`Fighters::reloading`, `Fighters::busy`) while the
 /// shooter fires. A reload let go leaves the magazine as it was (rounds already put in
 /// by a round-by-round reload stay), and the fight reloads at once on its first frame
-/// back if that is short [design].
+/// back if that holds less than one shot; a gun partly loaded, or full with only its
+/// close still to play, fires on without that clip [design].
 fn settle_for_use(ranged: Option<&mut RangedAttack>) {
     if let Some((cycle, _)) = ranged.and_then(RangedAttack::firearm_mut) {
         if cycle.reloading() || matches!(cycle.phase, GunPhase::SpinUp { .. } | GunPhase::WindUp { .. }) {
