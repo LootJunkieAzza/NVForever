@@ -1213,8 +1213,9 @@ fDyingTimer read 2.
 - **Shot dead**: the last OnHit event came at 30.11 s (the event reported health 1.76;
   the sample at 30.1 s read -2.57); OnDeath at 32.12 s.
 - **So.** In both deaths the xNVSE OnDeath event came 2.0 s (fDyingTimer) after the
-  death, while GetDead already read 1. NVForever runs the OnDeath blocks at the kill
-  [design: `Game::kill`, `crates/fnv-game/src/combat.rs:385`]. That the OnDeath
+  death, while GetDead already read 1. NVForever runs the OnDeath blocks with no dying
+  delay: at the kill, or, for a death inside a script, once that script run ends [design:
+  `Game::kill`, `crates/fnv-game/src/combat.rs:385`, `:412-416`]. That the OnDeath
   block runs with the event is a [hypothesis]. GetLifeState (JohnnyGuitar) was not
   installed.
 
@@ -1242,8 +1243,10 @@ SetActorRefEssential and set on the player by StartCombat.
 - DamageAV Health 500 at 9.7 s knocked it out. In that same sample: IsInCombat 0, no
   combat target, and the leg back at 100. It got up at 19.7 s (10 s later), out of combat.
 - **So.** The original cleared the essential's crippled limb and its fight at the
-  knockout. NVForever keeps both: getting up restores only Fatigue and Health [design:
-  `crates/fnv-game/src/unconscious.rs:375-427`]. The fight here came from a script's
+  knockout. NVForever keeps both: the knockout clears neither the actor's own fight nor
+  its limbs, and getting up restores only Fatigue and Health [design:
+  `crates/fnv-game/src/unconscious.rs:221-256`, `:375-427`; `Game::settle_awareness`,
+  `crates/fnv-game/src/awareness.rs:829-859`, drops only dead or absent actors]. The fight here came from a script's
   StartCombat, not an assault by the player.
 
 ### 16.6 Assistance 0 and a follower (`assist_follow`)
@@ -1270,7 +1273,8 @@ A fist-only LvlFiendGun was set on L at 10.0 s.
 Three GoodspringsFaction settlers. SetAV Aggression 3 on one at 4.8 s: it was in combat
 at 4.9 s, with one fellow as target at 5.1 s and the other at 8.0 s; both fought back.
 The original's Frenzied actor attacked its own faction. NVForever's does not start combat
-against actors it shares a faction with [design: alert.md §3].
+against these kin (a shared faction, with the exceptions alert.md §3 lists) [design:
+alert.md §3].
 
 ### 16.8 CastImmediateOnSelf (`cios_duration0`)
 
