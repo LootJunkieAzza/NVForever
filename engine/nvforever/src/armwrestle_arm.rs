@@ -248,6 +248,12 @@ pub fn arms(
                 warn!("arm wrestle arm: side {k} does not lean in: {why}");
             }
         }
+        // The free hand braced flat on the table (`armwrestle_free_arm`).
+        if let Err(why) = crate::armwrestle_free_arm::brace(*root, rig, top, toward, w, &parents, &mut transforms, &globals) {
+            if !std::mem::replace(&mut shown.noted, true) {
+                warn!("arm wrestle arm: side {k}'s free hand is not braced: {why}");
+            }
+        }
         match bones(*root, rig, &parents, &transforms, &globals) {
             Ok(a) => arms.push((k, a)),
             Err(why) => {

@@ -120,6 +120,7 @@ mod coop;
 mod consume_anims;
 mod emote_play;
 mod armwrestle_arm;
+mod armwrestle_free_arm;
 mod darts_arm;
 mod darts_world;
 mod pool_world;
