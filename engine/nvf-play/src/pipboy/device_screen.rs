@@ -121,13 +121,17 @@ pub const SCANLINE_DEPTH: f32 = 0.20;
 /// [hypothesis] from a whole-second clock, nearly twice as fast.
 pub const BEAM_PERIOD: f32 = 5.12;
 pub const BEAM_TRAVEL: f32 = 2.3;
-/// Its height in canvas units and its leading edge's. On the mean of frames aligned at the
-/// edge the light rises about straight over 72 rows of the 720 (55 from 10 to 90 %) to a peak
-/// of +14 in display red, then falls to nothing over 24 rows (14 from 90 to 10 %) [observed:
-/// private job pipboy_fx_still, 3 frames holding the whole wave]: 130 and 44 canvas units. The
-/// earlier 224 and 24 were read on single frames with the measure's own smoothing in them.
-pub const BEAM_HEIGHT: f32 = 172.0;
-pub const BEAM_EDGE: f32 = 44.0;
+/// Its rise and its leading edge in canvas units, and its height, the two together. On the
+/// mean of frames aligned at the edge the light rises about straight over 72 rows of the 720
+/// (55 from 10 to 90 %) to a peak of +14 in display red, then falls to nothing over 24 rows
+/// (14 from 90 to 10 %) [observed: private job pipboy_fx_still, 3 frames holding the whole
+/// wave]. The rows are the measured numbers; at 1.8 canvas units a row
+/// (`transition::CANVAS_PER_ROW` [hypothesis]) they are 129.6 and 43.2, so 130 and 43, 173 in
+/// all. The earlier 224 and 24 were read on single frames with the measure's own smoothing in
+/// them.
+pub const BEAM_RISE: f32 = 130.0;
+pub const BEAM_EDGE: f32 = 43.0;
+pub const BEAM_HEIGHT: f32 = BEAM_RISE + BEAM_EDGE;
 /// How strongly it covers the image at its peak, fitted to that +14 [hypothesis: fitted on the
 /// playtest shots of the original at 1920 x 1080, where the same step reads 13 to 14; the
 /// private job's peak is 13.6].
