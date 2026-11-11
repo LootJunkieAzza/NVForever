@@ -585,7 +585,7 @@ fn remembered(known: &Mutex<HashMap<String, bool>>, key: String, compute: impl F
 #[cfg(test)]
 mod tests {
     use super::first_person_texture;
-    use super::{alpha_shares, remembered, AlphaShares};
+    use super::{alpha_shares, dds_image, remembered, AlphaShares, TextureFormat};
     use std::collections::HashMap;
     use std::sync::Mutex;
 
