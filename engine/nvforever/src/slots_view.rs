@@ -251,13 +251,22 @@ fn flat_mesh(points: &[[f32; 2]], tris: &[u32], radius: f32, lift: f32) -> Mesh 
         .with_inserted_indices(Indices::U32(tris.to_vec()))
 }
 
-/// A mesh's bounds from its positions; `None` when the mesh keeps none in the main world
-/// (a GPU mesh already extracted to the render world: reading it there panics).
+/// A drum mesh's centre and half sizes from its positions: half x along its axis, and its
+/// radius (the farthest vertex from the axis through the centre) for y and z. The radius
+/// is read about the axis, not from the box, so a polygonal drum turned about its axis
+/// measures the same (an 8-sided drum's box is cos 15° narrower when it sits 15° turned).
+/// `None` when the mesh keeps no positions in the main world (a GPU mesh already
+/// extracted to the render world: reading it there panics).
 fn mesh_bounds(m: &Mesh) -> Option<(Vec3, Vec3)> {
     let Ok(Some(bevy::mesh::VertexAttributeValues::Float32x3(p))) = m.try_attribute_option(Mesh::ATTRIBUTE_POSITION) else { return None };
+    if p.is_empty() {
+        return None;
+    }
     let lo = p.iter().fold(Vec3::splat(f32::MAX), |a, v| a.min(Vec3::from(*v)));
     let hi = p.iter().fold(Vec3::splat(f32::MIN), |a, v| a.max(Vec3::from(*v)));
-    (!p.is_empty()).then_some((lo, hi))
+    let c = (lo + hi) / 2.0;
+    let r = p.iter().map(|v| Vec2::new(v[1] - c.y, v[2] - c.z).length()).fold(0.0f32, f32::max);
+    Some((c, Vec3::new((hi.x - lo.x) / 2.0, r, r)))
 }
 
 fn smooth(t: f32) -> f32 {
@@ -329,7 +338,7 @@ fn fit_of(
                     named.cpu.as_deref().and_then(mesh_bounds)
                 });
                 let (centre, half) = match bounds {
-                    Some((lo, hi)) => (local.transform_point((lo + hi) / 2.0), (hi - lo) / 2.0 * local.scale),
+                    Some((c, h)) => (local.transform_point(c), h * local.scale),
                     None => (Vec3::new(DRUM_X[i] - DRUM_X[1], 0.0, 0.0), Vec3::new(DRUM_W / 2.0, DRUM_R, DRUM_R)),
                 };
                 radius = radius.max(half.y.max(half.z));
@@ -724,6 +733,26 @@ mod tests {
         assert!((arm_angle(0.33) - 0.774).abs() < 1e-4);
         assert!((arm_angle(0.7) - 0.861).abs() < 1e-4);
         assert!(arm_angle(0.83 + PULL_BACK + 0.01).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_turned_drum_measures_the_same_radius() {
+        // An 8-sided drum, a vertex on +Z, then the same drum turned 15° about its axis.
+        let drum = |turn: f32| {
+            let mut pos = Vec::new();
+            for k in 0..8 {
+                let a = turn + k as f32 * std::f32::consts::TAU / 8.0;
+                for x in [0.0f32, 3.79] {
+                    pos.push([x, 8.19 * a.sin(), 8.19 * a.cos()]);
+                }
+            }
+            Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default()).with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+        };
+        for turn in [0.0f32, 15f32.to_radians()] {
+            let (c, h) = mesh_bounds(&drum(turn)).unwrap();
+            assert!(c.yz().length() < 1e-4 && (c.x - 1.895).abs() < 1e-4);
+            assert!((h.y - 8.19).abs() < 1e-4 && (h.z - 8.19).abs() < 1e-4 && (h.x - 1.895).abs() < 1e-4);
+        }
     }
 
     #[test]
