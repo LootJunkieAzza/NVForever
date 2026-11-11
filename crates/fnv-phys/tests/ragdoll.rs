@@ -841,3 +841,49 @@ fn a_corpse_gone_nan_is_held_at_rest() {
     assert!(w.ragdoll_nodes(0x10).unwrap().iter().flatten().all(|b| b.translation.iter().all(|v| v.is_finite())));
     assert_eq!(w.stats().quarantined_bodies, 1);
 }
+
+/// A ragdoll settled over half a second (`PhysWorld::settle_ragdoll`, the share raised from
+/// 0 to 1) has almost stopped by the end of it, where the same ragdoll left alone still
+/// moves; a shove or a blast ends the settle, and a ragdoll at rest cannot settle.
+#[test]
+fn a_settling_ragdoll_slows_to_a_stop_until_a_push_ends_its_settle() {
+    // The figure lying on the ground shoved along it, then left alone or settled over 30
+    // steps.
+    let run = |settle: bool| {
+        let mut w = ground();
+        drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 3.0);
+        let c = w.ragdoll_center(0x10).unwrap();
+        assert!(w.push_ragdoll(0x10, c, [500.0, 150.0, 0.0]));
+        for i in 0..30 {
+            if settle {
+                assert!(w.settle_ragdoll(0x10, i as f32 / 30.0));
+            }
+            w.step();
+        }
+        (w.ragdoll_speed(0x10).unwrap(), w)
+    };
+    let ((free_v, free_w), _) = run(false);
+    let ((v, a), mut w) = run(true);
+    assert!(free_v > 20.0 || free_w > 1.0, "left alone it still moves: {free_v} units/s, {free_w} rad/s");
+    // Its sliding dies out as the damping says (about exp(-15 × 0.5 / 2), 2 %); its fastest
+    // body's spin less, as a light body shivers against the ground and its joint, which
+    // the solver drives anew each step (`SETTLE_DAMPING`) [observed: 191 → 3.4 units/s,
+    // 4.7 → 0.48 rad/s].
+    assert!(v < 0.05 * free_v.max(20.0) && a < 0.2 * free_w.max(1.0), "settled {v} units/s, {a} rad/s; left alone {free_v}, {free_w}");
+    assert!(w.ragdoll_settling(0x10) && !w.ragdoll_settling(0x11) && !w.settle_ragdoll(0x11, 0.5));
+    // A shove ends it: the body flies off as from a ragdoll that was not settling.
+    let c = w.ragdoll_center(0x10).unwrap();
+    assert!(w.push_ragdoll(0x10, c, [400.0, 0.0, 150.0]));
+    assert!(!w.ragdoll_settling(0x10));
+    for _ in 0..10 {
+        w.step();
+    }
+    assert!(w.ragdoll_speed(0x10).unwrap().0 > 50.0);
+    // So does a blast.
+    assert!(w.settle_ragdoll(0x10, 1.0));
+    let c = w.ragdoll_center(0x10).unwrap();
+    assert!(w.push_dynamic([c[0] + 30.0, c[1], c[2] - 10.0], 300.0, 600.0) >= 1);
+    assert!(!w.ragdoll_settling(0x10) && !w.unsettle_ragdoll(0x10));
+    // Held at rest it does not settle.
+    assert!(w.set_ragdoll_at_rest(0x10) && !w.settle_ragdoll(0x10, 0.5) && !w.ragdoll_settling(0x10));
+}

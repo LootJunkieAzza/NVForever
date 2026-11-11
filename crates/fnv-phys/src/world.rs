@@ -780,7 +780,8 @@ impl PhysWorld {
 
     /// Push dynamic bodies within `radius` of `center` away from it (an explosion's force,
     /// combat C7) [design: the EXPL force read as a speed change in game units per second
-    /// at the centre, falling linearly to 0 at the radius]. Returns how many moved.
+    /// at the centre, falling linearly to 0 at the radius]. A settling ragdoll it strikes
+    /// stops settling (`PhysWorld::settle_ragdoll`). Returns how many moved.
     pub fn push_dynamic(&mut self, center: [f32; 3], radius: f32, speed: f32) -> usize {
         let k = self.k;
         let c = vec3(center) * k;
@@ -790,6 +791,7 @@ impl PhysWorld {
             self.rouse_ragdoll(id);
         }
         let mut n = 0;
+        let mut struck_ragdolls = Vec::new();
         for (h, b) in self.w.bodies.iter_mut() {
             if !b.is_dynamic() {
                 continue;
@@ -805,7 +807,11 @@ impl PhysWorld {
             b.apply_impulse(dir * (dv * m), true);
             // A query before the next step must not lose the wake-up (`update_queries`).
             self.struck.push(h);
+            struck_ragdolls.extend(self.ragdoll_of.get(&h).map(|o| o.0));
             n += 1;
+        }
+        for id in struck_ragdolls {
+            self.unsettle_ragdoll(id);
         }
         n
     }
