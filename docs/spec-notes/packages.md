@@ -522,6 +522,10 @@ ambush location, then will drop out of combat and perform the normal package beh
   reference, always; a base form or faction: its members) or, with no target, an actor it
   would attack (`Game::would_attack`) [hypothesis]. Without a location 2, within 1,024 of
   where it waits [our choice; every master Ambush has one].
+- In the original an ambusher on QJDeathclawAmbushPackage did not spring on the player
+  hidden inside its ambush location, nor on the player detected outside it; it sprang
+  when the player was both detected and inside [observed: npc-behaviour-compare.md
+  §16.2]. The rule above has no detection test.
 - **Hide While Ambushing** does not make it sneak [observed: §4, IsSneaking 0 in every
   sample of GoodspringsSettler04Ref waiting under GSSettlerAmbushPackage, which sets
   it]; what it does is not known, and here it is only reported.

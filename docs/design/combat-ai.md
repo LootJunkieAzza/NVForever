@@ -285,7 +285,9 @@ that other take up its fight against each actor on its target list (and whoever 
 it) when the other's Assistance helps it: 1 Helps Allies for an ally, 2 Helps Friends and
 Allies for a friend too [documented: GECK wiki GetFactionCombatReaction, "An actor's
 Assistance setting determine whether it will help an Ally / a Friend in combat or not";
-the codes: xEdit AIDT]. Never against one of its own allies or friends ("cannot attack
+the codes: xEdit AIDT]. In one capture an actor with Assistance 0 stayed out of a
+fellow's fight for 7.6 s while one with Helps Friends and Allies joined within 2 s
+[observed: npc-behaviour-compare.md §16.6]. Never against one of its own allies or friends ("cannot attack
 each other under any circumstances" [documented]). Actors sharing a faction, or placed
 from the same base form, count as allies [engineering choice: the rule that keeps them
 from fighting each other, alert.md §3]. The helper holds a grudge (`Assist`) and gets an

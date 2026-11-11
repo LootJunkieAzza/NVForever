@@ -1149,3 +1149,180 @@ markers, waits of 1, 1 and 5 s.
     108 units short of his third marker.
 - No capture of the original for this case is recorded here. Resuming an interrupted patrol is the
   design's own rule (`fnv_ai::carry::back_to_package`).
+
+## 16. Parity round 2 (2026-11-11) [observed]
+
+Campaign `parity_round2`, set up as §15 (save hudtest, xNVSE 6.4.9 with jip_nvse and the
+capture plugin, so the original with JIP LN's fixes; private captures, never committed).
+Each of the 25 sessions ran in its own game start after a god-mode session. One scene
+each, one actor per role, one run unless a line says otherwise. Times are real seconds
+from the session's first sample. Placed actors were told apart by a number written to
+their Variable05 actor value. The runway scenes are on the Searchlight Airport runway
+with the god-mode player; the player's detection was forced with JIP
+ForceActorDetectionValue where a line says "hidden" or "made detectable". The
+readings of the original are [observed]; lines on NVForever cite the code or design note
+they come from, and wiki lines carry their own tag.
+
+### 16.1 A target hidden outright: which setting (`lost_detect_only`, `lost_remove_only`, `lost_hidden_pair`, `lost_default_repeat`)
+
+§15.6's scene again (a lone LvlFiendGun set on the player, the player hidden at 3.5 s).
+fCombatDetectionLostTime and fCombatTargetLostRemoveTime were changed separately, the two
+search settings together; the header read all four back each time. One run per setting,
+the time from the hide to the combat target being cleared.
+
+| Settings (DetectionLost / TargetLostRemove / SearchHiddenRemove / SearchHiddenMax) | Kept after the hide |
+|---|---|
+| 15 / 30 / 10 / 20 (the built-in values) | 20.7 s (round 1), 22.7 s (this round; combat ended 24.2 s after the hide) |
+| 15 / **120** / 10 / 20 | 20.6 s |
+| 15 / 30 / **40** / **80** | 22.6 s |
+| **60** / 30 / 10 / 20 | 65.0 s |
+| **60 / 120 / 40 / 80** (§15.6) | 64.8 s |
+
+- **So.** In this scene only raising fCombatDetectionLostTime made a large shift: the time
+  came to about its value plus 5 to 8 s (offsets 4.8 to 7.7 s). The other configurations
+  fell inside the spread of the default runs (20.6 to 22.7 s) [hypothesis:
+  fCombatDetectionLostTime governs it; one run per setting cannot rule out a small effect
+  of the others or an interaction]. What the extra seconds are was not isolated.
+- No SEARCH (36) procedure appeared at any sample in any run. After combat the Fiend
+  wandered (procedure 7) in the runs where that was read (§15.6, `lost_detect_only`).
+
+### 16.2 Ambush (`ambush_hidden_inside`, `ambush_detected_outside`)
+
+A LvlFiendGun was given QJDeathclawAmbushPackage (ambush location: its editor location,
+radius 5000). It was created only after the player read out of combat (player_in_combat
+0 at sample 0 in both).
+
+- **Hidden, inside the location.** The player was hidden 2,000 units away. The ambusher
+  waited in procedure 30, not in combat, with GetDetected 0, for 56 s. The player was
+  made detectable at 56.1 s: combat with the player as target in the same sample.
+- **Detected, outside the location.** The player was detectable at 5,800 units:
+  GetDetected 1 from 7.7 s, no combat for 58 s. The player was moved to 2,000 units
+  (inside) at 65.9 s: combat in the same sample.
+- **So.** This ambusher sprang on an enemy that was both detected and inside its ambush
+  location, as the GECK wiki's Ambush Package page says [documented: Ambush Package].
+  NVForever's ambush springs on an enemy inside the location without a detection test
+  [design: packages.md §3.1], and a detected hostile outside it starts combat as any
+  detected hostile does [design: alert.md §2].
+
+### 16.3 Dying (`dying_timer`)
+
+fDyingTimer read 2.
+
+- **KillActor** at 1.9 s: GetDead read 1 in the same sample; the OnDeath event came at
+  3.88 s.
+- **Shot dead**: the last OnHit event came at 30.11 s (the event reported health 1.76;
+  the sample at 30.1 s read -2.57); OnDeath at 32.12 s.
+- **So.** In both deaths the xNVSE OnDeath event came 2.0 s (fDyingTimer) after the
+  death, while GetDead already read 1. NVForever runs the OnDeath blocks with no dying
+  delay: at the kill, or, for a death inside a script, once that script run ends [design:
+  `Game::kill`, `crates/fnv-game/src/combat.rs:385`, `:412-416`]. That the OnDeath
+  block runs with the event is a [hypothesis]. GetLifeState (JohnnyGuitar) was not
+  installed.
+
+### 16.4 StartCombat (`startcombat_allies_unseen`)
+
+- **Between allies.** A GSSettlerAAM was told to StartCombat a GSSettlerAM, both in
+  GoodspringsFaction, which lists itself as an ally. Neither read IsInCombat 1 from the
+  order (3.7 s) until both were disabled (23 s). The wiki's StartCombat page says it does
+  not work between allies [documented: StartCombat]; NVForever's StartCombat puts the
+  target on the actor's list as detected whatever their factions [design:
+  `Game::start_combat`, `crates/fnv-game/src/awareness.rs:1073`].
+- **On an unseen target.** A LvlFiendGun created 1,500 units behind the hidden player was
+  told to StartCombat the player. IsInCombat 1 and procedure 13 came in the same sample,
+  the player as target in the next, and it ran to the player's spot; ours starts combat at
+  once too [design: `Game::start_combat`]. It never detected the player and left combat
+  after 10.1 s, about half the time a detected-then-hidden target was kept at the default
+  settings (§16.1) [hypothesis: a separate rule for a target never detected].
+
+### 16.5 An essential knocked out (`essential_getup`)
+
+fEssentialDeathTime read 10. A GSSettlerAAM was made essential with
+SetActorRefEssential and set on the player by StartCombat.
+
+- DamageAV LeftMobilityCondition 100 at 7.7 s crippled the leg (0).
+- DamageAV Health 500 at 9.7 s knocked it out. In that same sample: IsInCombat 0, no
+  combat target, and the leg back at 100. It got up at 19.7 s (10 s later), out of combat.
+- **So.** The original cleared the essential's crippled limb and its fight at the
+  knockout. NVForever keeps both: the knockout clears neither the actor's own fight nor
+  its limbs, and getting up restores only Fatigue and Health [design:
+  `crates/fnv-game/src/unconscious.rs:221-256`, `:375-427`; `Game::settle_awareness`,
+  `crates/fnv-game/src/awareness.rs:829-859`, drops only dead or absent actors]. The fight here came from a script's
+  StartCombat, not an assault by the player.
+
+### 16.6 Assistance 0 and a follower (`assist_follow`)
+
+All in GoodspringsFaction and Aggression 0:
+- L, default AI;
+- F, Assistance 0, linked to L on DefaultFollowLinkedClose;
+- C, Assistance 0, not following;
+- D, its base's Helps Friends and Allies (the control).
+
+A fist-only LvlFiendGun was set on L at 10.0 s.
+
+- D started combat on the Fiend at 12.0 s. C and F, never hit, stayed out until 17.6 /
+  17.7 s, when the Fiend fell (health 1.1, its combat ended in the same sample).
+- **So.** Assistance 0 kept C out of a fellow's fight for 7.6 s while the control helped
+  within 2 s, as the AI Data Tab's "Helps Nobody" says [documented: AI Data Tab].
+  NVForever's combat-group alarm lets an actor of the sender's own kind answer whatever
+  its Assistance [design: `crates/fnv-game/src/combat_group.rs:583-586`; combat-ai.md
+  §12.3]. Why both joined when the Fiend fell is not known.
+- F did not defend its leader either, but its own Assistance 0 confounds that case.
+
+### 16.7 Aggression 3 (`frenzied`)
+
+Three GoodspringsFaction settlers. SetAV Aggression 3 on one at 4.8 s: it was in combat
+at 4.9 s, with one fellow as target at 5.1 s and the other at 8.0 s; both fought back.
+The original's Frenzied actor attacked its own faction. NVForever's does not start combat
+against these kin (a shared faction, with the exceptions alert.md §3 lists) [design:
+alert.md §3].
+
+### 16.8 CastImmediateOnSelf (`cios_duration0`)
+
+- At 4.6 s a settler at 5 health was given CIOS VMQ03RestUp (Restore Health 10000,
+  duration 0): 45 health in the next sample.
+- At 15.3 s, with a crippled leg (0) and 15 health, it was given CIOS
+  VPitFighterHealthBoost01 (Restore Health over 3 s, plus duration-0 limb restores): the
+  leg read 107.5 in the next sample, and health was back to 45 within 0.4 s.
+- **So.** CIOS applied duration-0 effects; the "Limitations" line of the wiki page does
+  not hold here [documented: CastImmediateOnSelf]. NVForever applies the effects with
+  their durations [design: `crates/fnv-game/src/functions/magic.rs:61-65`].
+
+### 16.9 A body killed by a hostile; a theft beside an ally; crime after a day (`corpse_killed_by_hostile`, `theft_ally`, `theft_expiry_1day`, `theft_expiry_4day`)
+
+- **A body.** A settler was killed by KillActor with a LvlFiendGun as the killer, and the
+  Fiend was then disabled. A walker on a Follow package passed within 12 units of the body
+  with no change: not alerted or alarmed, no weapon out, procedure 11 throughout. With
+  §15.4 that makes two scenes with no reaction; ours has none built [design: detection.md
+  §9].
+- **A theft beside an ally.** §15.5's theft, with GoodspringsSettler01Ref held beside Chet.
+  - Chet was again in procedure 47 from 3.0 to 23.0 s (20.0 s, as in §15.5), then attacked.
+  - The settler, never hit, attacked the player at 26.9 s, 3.9 s after Chet. The
+    victim's ally joined, as NVForever's alarms bring in the victim's own kind [design:
+    combat-ai.md §12.3].
+- **A day later.** After the same theft the clock was moved on by script, 1 day in one
+  session and 4 in the other. Chet was not hostile at the start of either observation:
+  - GetActorCrimePlayerEnemy 0 and not in combat;
+  - karma -5, so the theft stood.
+
+  When the hostility ended was not captured, so the 3-day iCoolDownTimerSetting was not
+  tested.
+
+### 16.10 Inconclusive and void sessions
+
+- **Inconclusive.**
+  - `tether_teammate`: the Fiends brought the fight to the player, and every actor
+    dropped in and out of combat about every 13 s.
+  - `cdc_wander` and `cdc_travel`: the Travel control left its package for combat too
+    (package type 5 during the fight), so the comparison says nothing.
+  - `no_combat_alert` (rerun): the control reacted to none of the stimuli either.
+  - `aggro_radius_npc`: a radroach attacks a person it detects anyway.
+  - `npc_leader_sneak`: out of combat the follower did not copy its NPC leader's sneak;
+    the in-combat case did not occur.
+  - `ko_essential_activate`: a script's `Activate player` opened no menu, not even
+    dialogue for the conscious control.
+- **Void.** In `door_creature`, game time stopped the sample after the player was moved
+  through a closed door into a room, and the session never ended.
+- **Hooks that did not compile.** Three sessions (`cdc_wander`, `cdc_travel` and the
+  first `no_combat_alert`) had hooks that did not compile at run time. Each of them, and
+  only those, declared a reference variable named `rS`, `rN` or `rK`; hooks of the same
+  shape with other names compiled [observed]. Why is not known.

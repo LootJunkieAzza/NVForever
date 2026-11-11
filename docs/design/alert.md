@@ -66,9 +66,12 @@ again after a load).
 In the original, the running game reports fCombatDetectionLostTime 15 and
 fCombatTargetLostRemoveTime 30 as built-in values (not set by FalloutNV.esm). A target
 hidden outright was kept 20.7 s at those values and 64.8 s with four combat timers ×4,
-with no search procedure [observed: npc-behaviour-compare.md §15.6]. Which setting
-moves the time, and how the original's timers map onto `alarm`, `forget_target` and
-`lost`, is not established; the engineering choice above stands (#2010).
+with no search procedure [observed: npc-behaviour-compare.md §15.6]. In a second round
+only raising fCombatDetectionLostTime made a large shift (about its value plus 5 to 8 s);
+raising fCombatTargetLostRemoveTime, or the two search settings together, stayed inside
+the default runs' spread [observed: npc-behaviour-compare.md §16.1; that
+fCombatDetectionLostTime governs it is a hypothesis from one run per setting]. How the original's timers map onto `alarm`,
+`forget_target` and `lost` is not established; the engineering choice above stands (#2010).
 
 **"No Combat Alert"** (package flag 27): an actor whose current package has it does not
 become Alert; it still goes to Combat [hypothesis: the flag's name; no source describes
@@ -80,7 +83,8 @@ it; 192 of FalloutNV.esm's 4,163 packages set it, observed 2026-10-11].
 Very Aggressive actors", "Neutrals will be attacked by Very Aggressive actors", allies and
 friends are not [documented: GECK wiki GetFactionCombatReaction], the factions combined as
 `GetFactionRelation` does (docs/spec-notes/factions.md §4); Frenzied attacks anyone
-[hypothesis]. Neither may be dead, disabled, unconscious or restrained; the player's
+[hypothesis] (in the original a settler set to Aggression 3 attacked its own faction at
+once [observed: npc-behaviour-compare.md §16.7]). Neither may be dead, disabled, unconscious or restrained; the player's
 teammates do not attack the player. Two actors with a faction in common, or placed from
 the same base form, never attack each other [engineering choice: without it the Very
 Aggressive creatures of one kind, neutral to each other, would fight]; since 2026-10-12
