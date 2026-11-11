@@ -34,7 +34,8 @@
 //!
 //! Speeds are given once the creature is drawn (its clips are then loaded), so one walking
 //! off-screen before that moves at the people's speeds; an actor no longer drawn keeps
-//! the speeds it was last given until it is drawn again.
+//! the speeds it was last given until it is drawn again, when it is given its current
+//! ones, Speed Mult 100 included ([`first_pace`]).
 
 use crate::limbs::ActorRig;
 use crate::locomotion::{ClipSet, Locomotion};
@@ -329,7 +330,59 @@ fn creature_line(name: &str, id: FormId, paced: &Paced, s: &ActorSpeeds, has_ale
     )
 }
 
-/// Drawn actors are given their speeds once (their clips are loaded by then).
+/// A newly drawn actor's pace and the speeds it is given: always, at Speed Mult 100 and
+/// armour 1 too, as the AI may still hold the speeds it had when it was last drawn (a
+/// despawn takes [`Paced`] off but leaves `fnv_ai::Ai::speeds`), at another Speed Mult.
+/// `None` for the player or an actor without a record ([`PaceKind::Own`]). A person's
+/// armour share is read from `armour` (`Some(None)`: the game's own world) when given,
+/// else 1 until [`refresh_speeds`] reads it. Logs the `npc pace` (Speed Mult not 100),
+/// `person pace` (armour not 1) and `creature pace` lines.
+#[allow(clippy::too_many_arguments)]
+fn first_pace(
+    game: &mut fnv_game::Game<'_>,
+    base: FormId,
+    id: FormId,
+    skeleton: &str,
+    scale: f32,
+    armour: Option<Option<&fnv_sim::World<'_>>>,
+    lo: &mut Locomotion,
+    default: Speeds,
+    stats: &mut PaceStats,
+) -> (Paced, Option<ActorSpeeds>) {
+    let creature = game.data.actors.get(&base).map(|def| &def.sig == b"CREA");
+    let Some(creature) = creature.filter(|_| id != FormId::PLAYER_REF) else {
+        return (Paced { mult: 100.0, kind: PaceKind::Own }, None);
+    };
+    let mult = current_speed_mult(game, base, id);
+    if !creature {
+        let share = armour.map_or(1.0, |w| person_pace(game, w.unwrap_or(&game.world), id));
+        let paced = Paced { mult, kind: PaceKind::Person { armour: share } };
+        let s = paced_speeds(&paced, lo, default);
+        if let Some(s) = s {
+            if (mult - 100.0).abs() >= 0.5 {
+                info!("npc pace: {} {id} walks {:.0} and runs {:.0} units/s (Speed Mult {mult:.0})", game.data.name(id), s.calm.walk, s.calm.run);
+                stats.npcs += 1;
+                stats.paced += 1;
+            }
+            if (share - 1.0).abs() >= 1e-3 {
+                info!("person pace: {} {id} walks {:.0} and runs {:.0} units/s ({:.1}% of the people's speeds for its armour)", game.data.name(base), s.calm.walk, s.calm.run, share * 100.0);
+                stats.people += 1;
+            }
+        }
+        return (paced, s);
+    }
+    let share = skeleton_share(skeleton);
+    let tnam = game.creature_turning_speed(base, id);
+    let paced = Paced { mult, kind: PaceKind::Creature { scale, share, turn: creature_turn_rate(tnam, scale), tnam } };
+    let s = paced_speeds(&paced, lo, default);
+    if let Some(s) = &s {
+        info!("{}", creature_line(&game.data.name(base), id, &paced, s, lo.alert.is_some()));
+        stats.paced += 1;
+    }
+    (paced, s)
+}
+
+/// Drawn actors are given their speeds once their clips are loaded ([`first_pace`]).
 fn give_speeds(
     mut commands: Commands,
     mut script: Option<ResMut<ScriptState>>,
@@ -343,38 +396,20 @@ fn give_speeds(
         return;
     }
     let default = res.default_speeds();
-    let given = on_game(script.as_deref_mut(), sim.as_deref_mut(), res, |game, _| {
+    // Without the simulation there is no worn armour to read (as in `refresh_speeds`).
+    let have_sim = sim.is_some();
+    let given = on_game(script.as_deref_mut(), sim.as_deref_mut(), res, |game, world| {
         let mut given = Vec::new();
         for (e, rig, mut lo, global) in &mut actors {
             let (id, base) = (FormId(rig.reference), FormId(rig.base));
-            let creature = game.data.actors.get(&base).map(|def| &def.sig == b"CREA");
-            let Some(creature) = creature.filter(|_| id != FormId::PLAYER_REF) else {
-                commands.entity(e).insert(Paced { mult: 100.0, kind: PaceKind::Own });
-                continue;
-            };
-            let mult = current_speed_mult(game, base, id);
-            if !creature {
-                // Its armour's share on top: `refresh_speeds`. At Speed Mult 100 (most
-                // people) it keeps the AI's speeds until then.
-                let paced = Paced { mult, kind: PaceKind::Person { armour: 1.0 } };
-                commands.entity(e).insert(paced);
-                if (mult - 100.0).abs() >= 0.5 {
-                    if let Some(s) = paced_speeds(&paced, &mut lo, default) {
-                        info!("npc pace: {} {id} walks {:.0} and runs {:.0} units/s (Speed Mult {mult:.0})", game.data.name(id), s.calm.walk, s.calm.run);
-                        given.push((id, s));
-                        stats.npcs += 1;
-                    }
-                }
-                continue;
-            }
             let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.01);
-            let share = skeleton_share(&rig.skeleton);
-            let tnam = game.creature_turning_speed(base, id);
-            let paced = Paced { mult, kind: PaceKind::Creature { scale, share, turn: creature_turn_rate(tnam, scale), tnam } };
-            commands.entity(e).insert((paced, PacedCreature));
-            let Some(s) = paced_speeds(&paced, &mut lo, default) else { continue };
-            info!("{}", creature_line(&game.data.name(base), id, &paced, &s, lo.alert.is_some()));
-            given.push((id, s));
+            let (paced, s) = first_pace(game, base, id, &rig.skeleton, scale, have_sim.then_some(world), &mut lo, default, &mut stats);
+            if matches!(paced.kind, PaceKind::Creature { .. }) {
+                commands.entity(e).insert((paced, PacedCreature));
+            } else {
+                commands.entity(e).insert(paced);
+            }
+            given.extend(s.map(|s| (id, s)));
         }
         given
     });
@@ -382,7 +417,6 @@ fn give_speeds(
     tell_run_speeds(script.as_deref_mut(), &given);
     for (id, s) in given {
         res.set_speeds(id, s);
-        stats.paced += 1;
     }
 }
 
@@ -821,6 +855,52 @@ mod tests {
         assert_eq!((still.calm.walk, still.calm.run), (0.0, 0.0));
         call(&mut game, "RestoreActorValue", creature, sm, 300.0);
         assert_eq!(look_again(&mut game, CREA, creature, &mut c, &mut clo), Some(at_300));
+    }
+
+    /// Review of #2118: an actor that left view at Speed Mult 200 (or 0) and is drawn again
+    /// after its value came back to 100 is given 100's speeds: the despawn took its
+    /// `Paced` off but the AI kept the old speeds, and nothing was given at 100.
+    #[test]
+    fn an_actor_drawn_again_at_100_loses_the_speeds_it_left_with() {
+        let (mut game, [person, creature, _]) = speed_game();
+        let sm = fnv_game::actor_values::SPEED_MULTIPLIER;
+        let mut ai = fnv_ai::Ai::new(fnv_ai::AiConfig { walk_speed: D.walk, run_speed: D.run, ..Default::default() });
+        let mut stats = PaceStats::default();
+        let mut lo = Locomotion::new(Arc::new(set(85.3, Some(344.0))), 0.0);
+        // Drawn at 100 in no armour: given the people's speeds, which the AI has anyway.
+        let (mut p, s) = first_pace(&mut game, NPC, person, "", 1.0, None, &mut lo, D, &mut stats);
+        assert_eq!(s.map(|s| s.calm), Some(D));
+        ai.set_speeds(person, s.unwrap());
+        // SetAV 200 while drawn, then it leaves view: the AI keeps the doubled speeds.
+        call(&mut game, "SetActorValue", person, sm, 200.0);
+        ai.set_speeds(person, look_again(&mut game, NPC, person, &mut p, &mut lo).expect("given again"));
+        near(ai.calm_speeds(person).run, 688.0);
+        // (The despawn takes its `Paced` off.)
+        // Back to 100 while away; drawn again: 100's speeds, given though nothing differs
+        // from a first pace at 100.
+        call(&mut game, "SetActorValue", person, sm, 100.0);
+        let mut lo = Locomotion::new(Arc::new(set(85.3, Some(344.0))), 0.0);
+        let (p, s) = first_pace(&mut game, NPC, person, "", 1.0, None, &mut lo, D, &mut stats);
+        assert_eq!(p.mult, 100.0);
+        ai.set_speeds(person, s.expect("given at 100 too"));
+        assert_eq!(ai.calm_speeds(person), D);
+        assert_eq!(lo.pace, 1.0);
+        // A creature that left at 0 is drawn again at its record's 150: its clips' speeds.
+        let caz = set(216.73, Some(545.54));
+        let skeleton = "creatures\\nvcazadores\\skeleton.nif";
+        let mut clo = Locomotion::new(Arc::new(caz.clone()), 0.0);
+        call(&mut game, "SetActorValue", creature, sm, 0.0);
+        let (_, s) = first_pace(&mut game, CREA, creature, skeleton, 1.0, None, &mut clo, D, &mut stats);
+        ai.set_speeds(creature, s.unwrap());
+        assert_eq!(ai.calm_speeds(creature).run, 0.0);
+        call(&mut game, "SetActorValue", creature, sm, 150.0);
+        let (c, s) = first_pace(&mut game, CREA, creature, skeleton, 1.0, None, &mut clo, D, &mut stats);
+        assert_eq!(c.mult, 150.0);
+        ai.set_speeds(creature, s.unwrap());
+        assert_eq!(ai.calm_speeds(creature), clip_speeds(&caz, 1.0, 150.0, skeleton_share(skeleton), D));
+        // The player and an actor without a record are left alone.
+        let (own, s) = first_pace(&mut game, NPC, FormId::PLAYER_REF, "", 1.0, None, &mut lo, D, &mut stats);
+        assert_eq!((own.kind, s), (PaceKind::Own, None));
     }
 
     /// A record without a Speed Mult of its own (0) moves at 100, as before; SetAV's 0

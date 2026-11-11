@@ -1022,6 +1022,38 @@ fn a_walk_planned_at_speed_0_sets_off_when_the_speed_comes_back() {
     assert_eq!(plans(&s, R_TRAVEL), planned);
 }
 
+/// A package's walk planned while the speeds are 0 goes on in its own gait when they come
+/// back: an Always Run package runs; and a walking package taken up at 0 after a run was
+/// stopped walks, not at the stopped run's speed (the stop belongs to the walk, not to the
+/// actor).
+#[test]
+fn a_package_walk_planned_at_speed_0_keeps_its_own_gait() {
+    let f = fixture();
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want * 0.1, "{got} against {want}");
+    // Planned at 0: the run, 40 units/s (20 a step), not the walk's 10.
+    let mut s = sim(&f, &[R_RUN]);
+    let actor = FormId(R_RUN);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    s.run(1.0);
+    assert!(matches!(s.events(R_RUN)[1], AiEvent::Trip { running: true, .. }));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    near(step_length(&mut s, R_RUN), 20.0);
+    // Stopped running, then given a walking package while still at 0.
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    s.game.extra.entry(actor).or_default().script_package = Some(FormId(P_TRAVEL_B));
+    assert_eq!(s.game.evaluate_package(actor), Some(FormId(P_TRAVEL_B)));
+    s.run(0.5);
+    assert!(s.events(R_RUN).iter().any(|e| matches!(e, AiEvent::Trip { package, running: false, .. } if package.0 == P_TRAVEL_B)), "{:?}", s.events(R_RUN));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    // Back: the new walk's 10 units/s (5 a step), not the old run's 40.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    near(step_length(&mut s, R_RUN), 5.0);
+}
+
 #[test]
 fn a_patrol_walks_its_linked_references_in_order_once() {
     let f = fixture();

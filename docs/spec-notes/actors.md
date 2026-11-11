@@ -1711,7 +1711,11 @@ stopped and started, as Victor's walk had before #258). Code:
     lines; smoke `npc-speed-mult-changes`). Whether the clips keep up with a changed Speed
     Mult is the same open question as for the record's value (docs/owner-review.md); they
     follow it as they do now (`Locomotion::pace`). An actor not drawn keeps the speeds it
-    had when it was last drawn until it is drawn again.
+    had when it was last drawn until it is drawn again; then it is given its current
+    speeds, at Speed Mult 100 and armour 1 too (`creature_pace::first_pace`), so one that
+    left at 200 or 0 does not keep them. A walk stopped at 0 keeps its gait only for that
+    walk: a package's walk planned at 0 goes on in the gait the package chose
+    (`Ai::plan`), any other at the calm walk until it is planned again.
 - **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
   ground when not alert and fly when they are alert/in combat"]: the cazador's folder
   has `h2hforward.kf` (298.15 units/s), `h2hfastforward.kf` (545.54) and `h2hidle.kf`
