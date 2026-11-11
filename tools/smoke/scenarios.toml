@@ -24556,3 +24556,16 @@ expect = [
   { re = 'idle: VHeliosStasisProtectron[25]REF plays ProtectronTurnedOff', max = 0, label = "not the switched-off pose: they are awake (GetUnconscious 0 in the original)" },
   { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
 ]
+
+[[scenario]]
+name = "terrain-edge-stitch"
+source = "issue #2089 (owner 2026-11-10, save 36): a texture seam on the ground along the edge between cells (-14,-17) and (-14,-16); the south cell paints LTEX 000357BA up to its north edge and the north cell has no layer of it [observed: fnvtool world land --full]. Texture layers are stitched along quadrant and cell edges (engine/nvforever/src/terrain.rs stitch_layers)"
+areas = ["rendering", "terrain"]
+paths = ["engine/nvforever/src/terrain.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SHOTS = "10:terrain_edge_save36.png" }
+args = ["--play", "--world", "WastelandNV", "--pos=-55420,-65575,5678", "--heading", "279", "--pitch", "-30.8", "--hour", "12.5", "--no-voice", "--no-messages"]
+run_seconds = 13
+manual = "terrain_edge_save36.png: the ground in front of the player has no straight line where one texture stops (the cell edge runs east-west 38 units north of the feet); before the fix a lighter texture ended along it"
+expect = [
+  { re = 'test aid: screenshot .*terrain_edge_save36\.png', label = "the ground frame is saved" },
+]
