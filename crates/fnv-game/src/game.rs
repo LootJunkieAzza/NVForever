@@ -101,11 +101,29 @@ pub mod event {
 
 /// Nested script runs allowed (a stage result script setting another stage, an
 /// `Activate` running an OnActivate block) [documented: GECK wiki SetStage, at least 250
-/// recursive SetStage calls work]. Stack: 256 nested SetStage result scripts ran in a
-/// 768 KiB thread stack and overflowed 640 KiB [observed: release build, synthetic
-/// quest, 2026-10-24], so they fit a 2 MiB worker thread and, with less room, the 1 MiB
-/// Windows main thread; deeper frames of other nestings are not measured.
+/// recursive SetStage calls work]. It and [`MAX_UDF_DEPTH`] count apart, so the deepest
+/// chain is both: 29 user-defined function calls under a query, the innermost setting a
+/// stage whose result script sets it again 256 deep.
+///
+/// Stack, release build, the smallest thread stack each ran in five times out of five
+/// (`tests/script_stack.rs`, 2026-11-11) [observed]: 256 nested SetStage result scripts
+/// 911 KiB (768 KiB was enough on 2026-10-24); the 30-deep function recursion 271 KiB;
+/// the mixed chain 1166 KiB, more than the 1 MiB Windows main thread a frame's script
+/// system may run on. So each nested run ([`Game::exec_at`], [`Game::run_function`])
+/// moves to a new stack segment of [`STACK_SEGMENT`] when less than [`STACK_RED_ZONE`]
+/// is left (`stacker`); the limits stay as documented, and the stack no longer bounds
+/// them. With that all three ran in a 128 KiB thread, five times out of five [observed: same
+/// test].
 pub const MAX_DEPTH: u32 = 256;
+
+/// The stack a nested script run needs left before it starts, else it runs on a new
+/// segment: one level takes about 3.5 KiB (a result script) to 9 KiB (a function)
+/// [observed: the measurement above], so this leaves room for many levels' worth of a
+/// host call between two runs.
+pub const STACK_RED_ZONE: usize = 256 * 1024;
+
+/// The size of each stack segment a deep nesting moves to.
+pub const STACK_SEGMENT: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GameConfig {
@@ -1707,6 +1725,11 @@ pub struct Game<'a> {
     /// ScriptEffectElapsedSeconds inside a ScriptEffectUpdate block (0 elsewhere).
     pub effect_elapsed: f64,
     pub(crate) depth: u32,
+    /// Script runs open now (result scripts, blocks, user-defined functions, queries)
+    /// and the steps the outermost of them and every run under it have taken: one budget
+    /// of [`GameConfig::max_steps`] for the whole call tree ([`Game::open_run`], #1991).
+    runs_open: u32,
+    run_steps: u64,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
     /// The (script record, opcode) pairs whose call on an empty reference was already
@@ -2393,6 +2416,8 @@ impl<'a> Game<'a> {
             image_modifiers: Vec::new(),
             effect_elapsed: 0.0,
             depth: 0,
+            runs_open: 0,
+            run_steps: 0,
             stop_run: false,
             empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
@@ -2722,6 +2747,22 @@ impl<'a> Game<'a> {
         RunOpts { strict: self.cfg.strict, max_steps: self.cfg.max_steps }
     }
 
+    /// A script run starts: the outermost one (no run open) starts the shared step count
+    /// from 0; a run nested under it (a user-defined function, a result script one of its
+    /// statements started) draws on the same count, so a loop calling a function that
+    /// loops for ever stops at one budget, not one per call [#1991]. Paired with
+    /// [`Game::close_run`].
+    fn open_run(&mut self) {
+        if self.runs_open == 0 {
+            self.run_steps = 0;
+        }
+        self.runs_open += 1;
+    }
+
+    fn close_run(&mut self) {
+        self.runs_open = self.runs_open.saturating_sub(1);
+    }
+
     /// Run statements; returns whether the run ended with `Return` (or a function that
     /// acts as one).
     fn exec(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx) -> bool {
@@ -2731,11 +2772,16 @@ impl<'a> Game<'a> {
     /// [`Game::exec`], from the start or (`resume`) after the place a ScriptWait left;
     /// with the wait the run ended on, if it did.
     fn exec_at(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx, resume: Option<&[(usize, usize)]>) -> (bool, Option<(u32, fnv_script::vm::WaitPoint)>) {
+        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || self.exec_at_here(unit, stmts, locals, ctx, resume))
+    }
+
+    fn exec_at_here(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx, resume: Option<&[(usize, usize)]>) -> (bool, Option<(u32, fnv_script::vm::WaitPoint)>) {
         if self.depth >= MAX_DEPTH {
             self.emit(EventKind::ScriptError { unit: unit.key(), error: format!("nesting deeper than {MAX_DEPTH}") });
             return (false, None);
         }
         self.depth += 1;
+        self.open_run();
         let opts = self.opts();
         let data = self.data;
         let table = &data.table;
@@ -2746,6 +2792,7 @@ impl<'a> Game<'a> {
             None => vm.run(stmts),
         };
         let wait = vm.take_wait();
+        self.close_run();
         self.depth -= 1;
         if self.depth == 0 {
             self.run_deferred_deaths();
@@ -2856,6 +2903,7 @@ impl<'a> Game<'a> {
         let data = self.data;
         let opts = self.opts();
         self.udf.push(UdfFrame { value: None, caller: None });
+        self.open_run();
         let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx };
         let result = Vm::new(&data.table, &mut ex, opts).run(&block.body).map_err(|e| e.to_string());
         if let Locals::Temp(m) = &ex.locals {
@@ -2867,6 +2915,7 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        self.close_run();
         let frame = self.udf.pop();
         let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
         self.ext.hand_over(&v);
@@ -2963,6 +3012,10 @@ impl<'a> Game<'a> {
     /// Defined Function; Lambda]. The function's strings and arrays go when it ends
     /// [documented: Ar Null, arrays of a function script are freed].
     pub fn run_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
+        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || self.run_function_here(f, on, args, caller, ctx))
+    }
+
+    fn run_function_here(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::XVal;
         let id = match f {
             XVal::Ref(id) => *id,
@@ -2995,6 +3048,7 @@ impl<'a> Game<'a> {
             (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
         };
         self.udf.push(UdfFrame { value: None, caller });
+        self.open_run();
         let ctx = RunCtx { self_ref: self_ref.or(ctx.self_ref), ..ctx };
         let mut ex = Exec { game: self, unit, locals, ctx };
         let mut vm = Vm::new(&data.table, &mut ex, opts);
@@ -3030,6 +3084,7 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        self.close_run();
         let frame = self.udf.pop();
         self.udf_value_set = frame.as_ref().is_some_and(|f| f.value.is_some());
         let v = match lambda_value {
@@ -5725,6 +5780,9 @@ impl Exec<'_, '_> {
 }
 
 impl Host for Exec<'_, '_> {
+    fn shared_steps(&mut self) -> Option<&mut u64> {
+        Some(&mut self.game.run_steps)
+    }
     fn var_kind(&mut self, var: &VarRef) -> fnv_script::vm::VarKind {
         use fnv_script::vm::VarKind;
         let VarSlot::Local { index, .. } = var.var else { return VarKind::Value };
