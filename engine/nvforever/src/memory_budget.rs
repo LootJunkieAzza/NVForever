@@ -18,9 +18,12 @@
 //! Where the driver does not give the extension (RADV: wgpu leaves it off there), Linux takes
 //! the card's VRAM from amdgpu's sysfs
 //! (`/sys/bus/pci/devices/<pci>/drm/card*/device/mem_info_vram_{total,used}`), the card chosen
-//! by the adapter's PCI address. Those figures are every program's use of the card, not this
-//! process's, so they set the budget and the keep limits but do not feed the press check,
-//! which stays on RAM on that path; the log's second line says so.
+//! by the adapter's PCI address, and this process's share of it from amdgpu's per-client
+//! fdinfo (`/proc/self/fdinfo`, `drm-memory-vram`, kernel 6.x with Mesa 23.x or later; the
+//! DRM files are filtered to the card's render node, since the machine has one client per
+//! GPU). Both feed the press check as the extension's figures do. Where fdinfo has no such
+//! line, the card's whole use is every program's and is only logged: the press check then
+//! stays on RAM. The log's second line says which of the two it got.
 //!
 //! **Keep limits** ([`nvf_assets::KeepLimits`], read by the release sweep each 2 s) scale
 //! down from five minutes and 2048 unused entries per cache on a machine with less than
@@ -240,7 +243,7 @@ fn read_vram(device: Option<&RenderDevice>, integrated: bool, pci_bus_id: Option
         Ok((b, u)) => Ok(Vram {
             budget_mb: b / MB,
             used_mb: Some(u / MB),
-            source: format!("VK_EXT_memory_budget, device-local heaps; this process uses {} MB", u / MB),
+            source: "VK_EXT_memory_budget, device-local heaps".into(),
             detail: None,
         }),
         Err(why) => vram_beside_the_extension(pci_bus_id, why),
@@ -248,19 +251,66 @@ fn read_vram(device: Option<&RenderDevice>, integrated: bool, pci_bus_id: Option
 }
 
 /// The budget read where the driver does not give the extension's figures: amdgpu's sysfs
-/// (Linux) has the card's VRAM, whose use figure is every program's, not this process's.
+/// (Linux) has the card's VRAM, and its per-client fdinfo has this process's share of it.
 #[cfg(not(windows))]
 fn vram_beside_the_extension(pci_bus_id: Option<&str>, why: String) -> Result<Vram, String> {
-    let (b, u) = sysfs_vram(pci_bus_id)?;
+    let id = pci_bus_id.ok_or("the adapter has no PCI address")?;
+    let (b, card_used) = sysfs_vram(id)?;
+    let ours = process_vram_mb(id);
     Ok(Vram {
         budget_mb: b,
-        used_mb: None,
+        used_mb: ours,
         source: "amdgpu sysfs, the card's VRAM".into(),
-        detail: Some(format!(
-            "{why}; the card reports {u} MB in use by every program, so the GPU press check is off \
-             and only RAM pressure applies"
-        )),
+        detail: Some(match ours {
+            Some(_) => format!(
+                "{why}; this process's use is /proc/self/fdinfo's drm-memory-vram, summed over the card's \
+                 DRM files, and the press check compares it with the budget; the card's {card_used} MB is every program's"
+            ),
+            None => format!(
+                "{why}; the card reports {card_used} MB in use by every program and fdinfo has no \
+                 drm-memory-vram for this process, so the GPU press check is off and only RAM pressure applies"
+            ),
+        }),
     })
+}
+
+/// This process's own use of the card's VRAM, MB, from amdgpu's per-client fdinfo
+/// (`drm-memory-vram`: kernel 6.x with Mesa 23.x or later). A DRM file belongs to the card it
+/// was opened on, so only the files whose render node sits at the adapter's PCI address count.
+#[cfg(not(windows))]
+fn process_vram_mb(pci_bus_id: &str) -> Option<u64> {
+    let mut total = 0;
+    let mut any = false;
+    for entry in std::fs::read_dir("/proc/self/fdinfo").ok()?.flatten() {
+        let fd = entry.file_name();
+        let Ok(node) = std::fs::read_link(format!("/proc/self/fd/{}", fd.to_string_lossy())) else {
+            continue;
+        };
+        if !node.starts_with("/dev/dri") || drm_node_card(&node).as_deref() != Some(pci_bus_id) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        if let Some(mb) = fdinfo_vram_mb(&text) {
+            total += mb;
+            any = true;
+        }
+    }
+    any.then_some(total)
+}
+
+/// The card a `/dev/dri/renderD*` node belongs to, as its PCI address.
+#[cfg(not(windows))]
+fn drm_node_card(node: &std::path::Path) -> Option<String> {
+    let drm = std::path::Path::new("/sys/class/drm").join(node.file_name()?);
+    let device = std::fs::canonicalize(drm.join("device")).ok()?;
+    Some(device.file_name()?.to_string_lossy().to_string())
+}
+
+/// `drm-memory-vram:   607296 KiB` as MB.
+#[cfg(not(windows))]
+fn fdinfo_vram_mb(text: &str) -> Option<u64> {
+    let line = text.lines().find(|l| l.starts_with("drm-memory-vram:"))?;
+    Some(line.split_whitespace().nth(1)?.parse::<u64>().ok()? / 1024)
 }
 
 /// Off Linux there is no sysfs to fall back on.
@@ -272,8 +322,7 @@ fn vram_beside_the_extension(_pci_bus_id: Option<&str>, why: String) -> Result<V
 /// The card's VRAM from amdgpu's sysfs, MB: (total, used). The adapter's PCI address names
 /// the card, since a machine with two GPUs has a `card*` for each.
 #[cfg(not(windows))]
-fn sysfs_vram(pci_bus_id: Option<&str>) -> Result<(u64, u64), String> {
-    let id = pci_bus_id.ok_or("the adapter has no PCI address")?;
+fn sysfs_vram(id: &str) -> Result<(u64, u64), String> {
     let drm = format!("/sys/bus/pci/devices/{id}/drm");
     let entries = std::fs::read_dir(&drm).map_err(|e| format!("no VRAM figures: {drm}: {e}"))?;
     for entry in entries.flatten() {
@@ -314,7 +363,10 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
         Err(_) => aid_vram,
     };
     let source = match &vram {
-        Ok(v) => v.source.clone(),
+        Ok(v) => match v.used_mb {
+            Some(used) => format!("{}; this process uses {used} MB", v.source),
+            None => format!("{}; this process's use not read", v.source),
+        },
         Err(e) => format!("not read: {e}"),
     };
     let base = limits_for(ram_mb, vram_mb);
@@ -413,6 +465,17 @@ mod tests {
         assert_eq!(meminfo_ram(""), None);
         // MemFree is not MemAvailable: "Mem" alone must not match.
         assert_eq!(meminfo_ram("MemFree: 100 kB\nMemTotal: 200 kB\n"), None);
+    }
+
+    /// The per-process VRAM read: amdgpu's fdinfo line in KiB as MB, and nothing else.
+    #[cfg(not(windows))]
+    #[test]
+    fn fdinfo_vram_is_read_in_mb() {
+        let sample = "pos:\t0\nflags:\t02100002\ndrm-client-id:\t2771\ndrm-memory-vram: \t607296 KiB\n\
+                      drm-memory-gtt: \t1340812 KiB\n";
+        assert_eq!(fdinfo_vram_mb(sample), Some(593));
+        assert_eq!(fdinfo_vram_mb("drm-memory-gtt: 1 KiB\n"), None, "GTT is not VRAM");
+        assert_eq!(fdinfo_vram_mb("drm-memory-vram: \n"), None);
     }
 
     #[test]

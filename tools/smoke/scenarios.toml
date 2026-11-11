@@ -155,7 +155,7 @@ env = { NVF_PLAY_TEST_VRAM_MB = "512" }
 args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
 expect = [
-  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid" },
+  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, (VK_EXT_memory_budget, device-local heaps|amdgpu sysfs, the card.s VRAM); this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid (the driver's extension, or sysfs where wgpu leaves it off, as on Mesa's RADV)" },
   "caches keep unused models and textures 30 s, at most 128 per cache",
   { re = 'memory budget: near a budget, caches pressed \(GPU: this process uses \d+ of 512 MB', label = "the flight's use of the device-local heaps near the 512 MB budget presses the caches" },
 ]
