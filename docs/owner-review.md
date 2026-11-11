@@ -176,7 +176,7 @@ the spec it links to.
     face buttons; menu hints write the names (the game fonts have no symbols). Select and
     Start rather than Share/Create and Options. Right choices, and do the glyphs look
     right? ([controller §3a](design/controller.md))
-52. **Followers come in once you stop (#2122).** A follower on its way now stops 150
+53. **Followers come in once you stop (#2122).** A follower on its way now stops 150
     units inside its package's distance (not nearer than 128): Boone 180 of his 330,
     DefaultFollowPlayerFar 362 of 512, the usual 256 at 128; before, it stood near the
     distance. The original's two recorded arrivals were about 150 inside (Boone 177, the
