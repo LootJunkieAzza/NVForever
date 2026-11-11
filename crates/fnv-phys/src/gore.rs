@@ -55,9 +55,8 @@ impl PhysWorld {
             .angvel(vec3(s.angvel))
             .linear_damping(0.1)
             .angular_damping(0.5)
-            .ccd_enabled(true)
             .user_data(owner);
-        let h = self.insert_body(body);
+        let h = self.insert_body(self.ccd.gore.build(body, k));
         let he = s.half_extents.map(|v| (v * k).max(0.005));
         let c = ColliderBuilder::cuboid(he[0], he[1], he[2])
             .position(Pose::from_parts(vec3(s.center) * k, Rotation::IDENTITY))

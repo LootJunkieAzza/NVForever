@@ -349,13 +349,13 @@ impl PhysWorld {
             let builder = if at_rest || held {
                 RigidBodyBuilder::fixed().pose(pose).user_data(owner)
             } else {
-                RigidBodyBuilder::dynamic()
+                let builder = RigidBodyBuilder::dynamic()
                     .pose(pose)
                     .linvel(start_velocity)
                     .linear_damping(damping(b.linear_damping))
                     .angular_damping(damping(b.angular_damping))
-                    .ccd_enabled(true)
-                    .user_data(owner)
+                    .user_data(owner);
+                self.ccd.bones.build(builder, k)
             };
             let body = self.insert_body(builder);
             // Known at once, so `remove_ragdoll` finds it even when the build stops part way.

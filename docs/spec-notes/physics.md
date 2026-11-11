@@ -1130,8 +1130,12 @@ How many fixed steps a second play takes [design: the owner's approved plan,
     ms a tick on the global pool, 1.90 with 4 threads, 2.11 with 8, all within the plain
     build's 1.75-2.16 [observed: a probe build, not committed]. No gain, as upstream PR
     #1801 found; not adopted.
-  - `Stats::solver_us[4]` (rapier's `ccd_time`) reads 0 in rapier 0.36.0 whatever CCD
-    costs (its timer is never started); CCD's work is in `counters.ccd` (#1798).
+  - `Stats::solver_us[4]` read rapier's `stages.ccd_time`, which is 0 in rapier 0.36.0
+    and 0.36.1 whatever CCD costs: its timer is never started [documented: rapier3d
+    0.36.1 `counters/mod.rs`, no call to `ccd_started`]. It now reads
+    `counters.ccd.toi_computation_time`, the sweeps and clamps of the fast bodies, and
+    `Stats::ccd_steps` / `ccd_bodies` count the steps in which CCD swept and the bodies it
+    swept (#1798; the stress sample prints them).
 
 ## 6. Character controller and capture questions
 

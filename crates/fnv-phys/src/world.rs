@@ -185,9 +185,17 @@ pub struct Stats {
     /// the `solver-timers` feature): the solver's serial set-up (velocity assembly), its
     /// solve (velocity resolution: the constraint iterations and writeback), collision
     /// detection, island construction, CCD, the whole rapier step. Not serialized (timings
-    /// differ run to run).
+    /// differ run to run). The CCD one is rapier's `ccd.toi_computation_time`, the sweeps and
+    /// clamps of the fast bodies: rapier 0.36 never starts its `stages.ccd_time`, which read 0
+    /// before (#1798) [documented: rapier3d 0.36.1 `counters/mod.rs`, `substep.rs`].
     #[serde(skip)]
     pub solver_us: [u64; 6],
+    /// With `solver-timers`, summed over every step so far: the steps in which CCD swept a
+    /// body, and the fast bodies it swept (one count per body per step). Not serialized.
+    #[serde(skip)]
+    pub ccd_steps: u64,
+    #[serde(skip)]
+    pub ccd_bodies: u64,
     /// Bodies and colliders rapier disabled so far for state that went NaN or infinite,
     /// each counted once (`crate::quarantine`).
     pub quarantined_bodies: usize,
@@ -458,6 +466,10 @@ pub struct PhysWorld {
     pub(crate) hitvol_pending: Vec<(ColliderHandle, RigidBodyHandle, Pose)>,
     /// [`Stats::solver_us`], milliseconds.
     pub(crate) solver_ms: [f64; 6],
+    /// [`Stats::ccd_steps`] and [`Stats::ccd_bodies`].
+    pub(crate) ccd_counts: [u64; 2],
+    /// The CCD new ragdoll bones and gore pieces get (`crate::ccd`).
+    pub(crate) ccd: crate::ccd::CcdChoice,
     /// The moving bodies' poses before the last step, for drawing between steps
     /// (`crate::drawn`).
     pub(crate) before: crate::drawn::Before,
@@ -511,6 +523,8 @@ impl PhysWorld {
             standalone_hit_volumes: true,
             hitvol_pending: Vec::new(),
             solver_ms: [0.0; 6],
+            ccd_counts: [0; 2],
+            ccd: Default::default(),
             before: Default::default(),
             quarantined: Default::default(),
         }
@@ -1021,8 +1035,15 @@ impl PhysWorld {
             let _span = tracing::info_span!("phys::rapier_step").entered();
             self.step_world();
             let c = &self.w.physics_pipeline.counters;
-            for (a, t) in self.solver_ms.iter_mut().zip([c.solver.velocity_assembly_time, c.solver.velocity_resolution_time, c.stages.collision_detection_time, c.stages.island_construction_time, c.stages.ccd_time, c.step_time]) {
+            for (a, t) in self.solver_ms.iter_mut().zip([c.solver.velocity_assembly_time, c.solver.velocity_resolution_time, c.stages.collision_detection_time, c.stages.island_construction_time, c.ccd.toi_computation_time, c.step_time]) {
                 *a += t.time_ms();
+            }
+            // Only with the counters on: rapier leaves `num_substeps` as it was on steps
+            // where CCD did nothing when its counters are off (never reset).
+            #[cfg(feature = "solver-timers")]
+            if c.ccd.num_substeps > 0 {
+                self.ccd_counts[0] += 1;
+                self.ccd_counts[1] += self.w.islands.active_bodies().filter(|h| self.w.bodies.get(*h).is_some_and(|b| b.is_ccd_active())).count() as u64;
             }
         }
         // Bodies and colliders rapier took out for NaN or infinite state (`crate::quarantine`).
@@ -1217,6 +1238,7 @@ impl PhysWorld {
         s.joints = self.w.impulse_joints.len();
         (s.quarantined_bodies, s.quarantined_colliders) = self.quarantined.counts();
         s.solver_us = self.solver_ms.map(|v| (v * 1000.0) as u64);
+        [s.ccd_steps, s.ccd_bodies] = self.ccd_counts;
         s
     }
 
@@ -1269,6 +1291,8 @@ impl PhysWorld {
             standalone_hit_volumes: self.standalone_hit_volumes,
             hitvol_pending: self.hitvol_pending.clone(),
             solver_ms: self.solver_ms,
+            ccd_counts: self.ccd_counts,
+            ccd: self.ccd,
             before: self.before.clone(),
             quarantined: self.quarantined.clone(),
         }

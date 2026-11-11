@@ -186,6 +186,15 @@ fn play_world() -> PhysWorld {
         info!("actor hit volumes: standalone colliders ({HITVOL_ATTACHED_VAR}=1 attaches them)");
     }
     w.set_standalone_hit_volumes(!attached);
+    // For comparing: the CCD of ragdoll bones and gore pieces (`fnv_phys::ccd`, #1798).
+    if let Ok(v) = std::env::var(fnv_phys::ccd::CCD_VAR) {
+        match fnv_phys::CcdChoice::parse(&v) {
+            Some(c) => w.set_ccd(c),
+            None => warn!("{}={v:?} not understood (`<bones>[,<gore>]`, each plain, soft, soft:<units> or bullet)", fnv_phys::ccd::CCD_VAR),
+        }
+    }
+    let c = w.ccd();
+    info!("ragdoll bones: {} CCD, gore pieces: {} CCD ({})", c.bones, c.gore, fnv_phys::ccd::CCD_VAR);
     w
 }
 

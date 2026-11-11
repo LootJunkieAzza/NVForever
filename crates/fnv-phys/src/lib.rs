@@ -15,6 +15,7 @@
 //! - [`placed`]: the collision objects of a placed reference (shared by the tools and the
 //!   game)
 //! - [`ragdoll`]: ragdolls, the jointed bodies of dead actors
+//! - [`ccd`]: continuous collision detection for ragdoll bones and gore pieces
 //! - [`grab`]: a body held by the player's grab
 //! - [`drawn`]: the moving bodies' poses before the last step, for drawing between steps
 //! - [`quarantine`]: bodies and colliders whose state went NaN or infinite
@@ -33,6 +34,7 @@ pub mod actors;
 pub mod air;
 pub mod arrival;
 pub mod buoyancy;
+pub mod ccd;
 pub mod character;
 pub mod convert;
 #[cfg(feature = "debug-lines")]
@@ -53,6 +55,7 @@ pub mod world;
 
 pub use actors::{HitVolume, PartCapsule};
 pub use arrival::Arrival;
+pub use ccd::{BodyCcd, CcdChoice};
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep, Push, SpotRefused, secs_reached, STUCK_RETRY_SECS};
 pub use convert::ConvertError;
 pub use drawn::DRAWN_JUMP;
