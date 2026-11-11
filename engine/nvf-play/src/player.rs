@@ -219,6 +219,9 @@ pub fn read_keys(c: &mut Controls, intent: &mut MoveIntent, pressed: impl Fn(Key
     }
 }
 
+/// Jump is held now (the Jump Swims Upwards tweak reads it in the step) [design: docs/design/tweaks.md].
+static JUMP_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Speed backwards as a fraction of the forward speed [observed: 272.8 against 344 units/s
 /// running, capture mv_values, physics.md §6.3]. Sideways and diagonal speeds were not
 /// measured (the strafe runs hit a wall); they take the forward speed [hypothesis].
@@ -554,6 +557,7 @@ fn read_input(
     if input.just_pressed(Control::Jump) || (repeat && input.pressed(Control::Jump)) {
         intent.jump = true;
     }
+    JUMP_HELD.store(input.pressed(Control::Jump), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Actors walked by another system whose moves are planned on the compute pool when at
@@ -1219,7 +1223,11 @@ fn step(
         } else if c.swimming {
             // Running strokes follow the stroke cycle from when the swimmer started to
             // move [observed]; walking stays at its start speed [hypothesis].
-            let v = swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS);
+            let mut v = swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS);
+            // The player's tweak: Jump held swims up, at the walking stroke's speed [design: docs/design/tweaks.md].
+            if tweaks.as_deref().is_some_and(|t| t.jump_swims_up) && JUMP_HELD.load(std::sync::atomic::Ordering::Relaxed) {
+                v[2] = v[2].max(SWIM_SPEEDS.walk);
+            }
             match Stroke::of(intent.forward, intent.right) {
                 Some(stroke) => {
                     let f = if intent.walk { 1.0 } else { stroke.factor(*stroke_time + dt / 2.0) };

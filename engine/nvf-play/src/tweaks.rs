@@ -328,6 +328,8 @@ pub struct TweakSettings {
     pub click_to_exit_loading: bool,
     /// `bBarterShowCapsChange`: a barter shows each side's caps after the trade too.
     pub barter_caps_change: bool,
+    /// `bJumpSwimsUpwards`: holding Jump under water swims up.
+    pub jump_swims_up: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -525,6 +527,7 @@ impl Default for TweakSettings {
             console_text_shadow: false,
             click_to_exit_loading: false,
             barter_caps_change: false,
+            jump_swims_up: false,
         }
     }
 }
@@ -1409,6 +1412,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "modding-needs-skill", "Weapon Mods Need the Skill", "A weapon can be modded only by a player who meets its skill requirement. (Stewie's Tweaks bWeaponModdingSkillRequirement)", game.modding_needs_skill);
         switch!(app, "planting-needs-skill", "Planting Grenades Needs the Skill", "A grenade or mine placed in someone's pocket goes live only if the player meets its skill requirement. (Stewie's Tweaks bPlantingLiveGrenadesRequiresWeaponSkill)", game.planting_needs_skill);
         switch!(app, "travel-costs-bottle", "Fast Travel Costs a Nuka-Cola", "Each fast travel takes a Nuka-Cola Quantum, Quartz or Victory, and is refused without one. (Stewie's Tweaks bFastTravelCostsSpecialNukaBottles)", game.travel_costs_bottle);
+        switch!(app, "jump-swims-up", "Jump Swims Upwards", "Holding Jump under water swims up, at the walking stroke's speed. (Stewie's Tweaks bJumpSwimsUpwards)", jump_swims_up);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
