@@ -92,6 +92,7 @@ mod pipeline_gate;
 mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
+mod slots_view;
 mod caravan_view;
 mod body_weapons;
 mod terminal_view;
@@ -1631,6 +1632,8 @@ fn main() -> AppExit {
         app.add_plugins(roulette_view::RouletteViewPlugin);
         // The blackjack table (blackjack_view.rs).
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // The reels turning on the placed slot machine, its arm and spin camera (slots_view.rs).
+        app.add_plugins(slots_view::SlotsViewPlugin);
         // The terminal's monitor (terminal_view.rs).
         app.add_plugins(terminal_view::TerminalViewPlugin);
         // A weapon's scope: its picture, night vision and sway (scope_view.rs).

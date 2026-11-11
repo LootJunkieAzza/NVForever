@@ -92,6 +92,11 @@ impl GroupRig {
         self.nodes.get(name).copied()
     }
 
+    /// The model drawn (its rig's nodes and shapes).
+    pub fn model(&self) -> &PreparedModel {
+        &self.model
+    }
+
     fn clip(&self, i: usize) -> Option<&Clip> {
         self.model.rig.as_ref()?.groups.get(i)
     }

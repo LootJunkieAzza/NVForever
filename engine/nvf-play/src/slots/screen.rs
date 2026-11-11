@@ -16,8 +16,11 @@
 //! - The three reels side by side in the middle, each a window three symbols high, the
 //!   payline across the middle row; the payout list in their place when asked for.
 //! - The help box over all of it the first time (`crate::lockpick::help`).
+//! - While the reels turn on the placed machine in the world ([`super::SlotsReels3d`],
+//!   item 170) the flat reels and the black ground are left out: the world shows behind
+//!   the text and the buttons; the payout list still comes up over it.
 
-use super::{Phase, Session, SlotsInput, SlotsScreen};
+use super::{Phase, Session, SlotsInput, SlotsReels3d, SlotsScreen};
 use crate::interface::{amber, at, u};
 use crate::lockpick::screen::{Ctx, FontKind, Kit};
 use crate::pause::AidTime;
@@ -62,11 +65,12 @@ pub struct SlotsRoot;
 #[derive(Component, Clone)]
 pub struct SlotsButton(pub SlotsInput);
 
-fn view_key(s: &Session, now: f32, view_w: f32) -> String {
-    // While the reels turn, a new picture every sixth of a stop.
-    let reels = s.positions(now).map(|p| (p * 6.0).round() as i64);
+fn view_key(s: &Session, now: f32, view_w: f32, in_world: bool) -> String {
+    // While the reels turn, a new picture every sixth of a stop (none when they turn on
+    // the machine in the world).
+    let reels = if in_world { [0; 3] } else { s.positions(now).map(|p| (p * 6.0).round() as i64) };
     format!(
-        "{}:{}:{}:{:?}:{:?}:{:?}:{}:{}:{view_w:.0}:{:?}",
+        "{}:{}:{}:{:?}:{:?}:{:?}:{}:{}:{view_w:.0}:{:?}:{in_world}",
         s.bet,
         s.chips,
         s.earnings,
@@ -94,11 +98,12 @@ pub fn draw(
     glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<SlotsRoot>>,
     time: AidTime,
-    (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
+    (mut kit, mut shown, reels3d): (Local<Option<Kit>>, Local<Option<String>>, Option<Res<SlotsReels3d>>),
 ) {
     let view_w = view_width(window.single().ok());
     let now = time.elapsed_secs();
-    let key = screen.0.as_ref().map(|s| view_key(s, now, view_w));
+    let in_world = reels3d.is_some_and(|r| r.0);
+    let key = screen.0.as_ref().map(|s| view_key(s, now, view_w, in_world));
     if key == *shown {
         return;
     }
@@ -110,24 +115,25 @@ pub fn draw(
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
     let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
-    spawn(&mut commands, &mut c, s, now, view_w);
+    spawn(&mut commands, &mut c, s, now, view_w, in_world);
 }
 
 fn picture(s: &Session, symbol: u8) -> &str {
     s.symbols.get(symbol as usize).map_or("", |p| p.as_str())
 }
 
-fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f32) {
+fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f32, in_world: bool) {
     let bright = amber(255.0);
     let dim = amber(DIM);
     let light = if s.help.is_some() { UNDER_HELP } else { 1.0 };
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    let ground = if in_world { Color::NONE } else { Color::BLACK };
     // The menu at the UI scale, in the middle of the view (`crate::interface::menu_frame`, #1631).
-    commands.spawn((SlotsRoot, full.clone(), GlobalZIndex(106), BackgroundColor(Color::BLACK))).with_children(|r| crate::interface::in_menu_frame(r, crate::interface::MIDDLE, |r| {
+    commands.spawn((SlotsRoot, full.clone(), GlobalZIndex(106), BackgroundColor(ground))).with_children(|r| crate::interface::in_menu_frame(r, crate::interface::MIDDLE, |r| {
         // The payout list takes the reels' place while it shows.
         if s.payouts {
             payouts(r, c, s, view_w);
-        } else {
+        } else if !in_world {
             reels(r, c, s, now, view_w, light);
         }
         let main = Node { position_type: PositionType::Absolute, left: u(EDGE), right: u(EDGE), top: u(EDGE), bottom: u(EDGE), ..default() };
