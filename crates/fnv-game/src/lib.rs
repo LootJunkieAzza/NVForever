@@ -67,6 +67,7 @@ pub mod cond;
 pub mod coverage;
 pub mod crafting;
 pub mod crime;
+pub mod armwrestle;
 pub mod darts;
 pub mod data;
 pub mod source_compile;

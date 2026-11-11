@@ -311,6 +311,7 @@ impl Furnishings {
 
     /// Decide how `who`, standing at `from` (game space), uses `furniture`. `game`
     /// answers the idle conditions that are about the game's state ([`game_value`]).
+    #[allow(clippy::too_many_arguments)]
     fn plan(&mut self, world: &WorldData, sim: Option<&nvf_play::sim::SimState>, ctx: &mut ActorCtx, furniture: u32, from: [f32; 3], who: Who, game: furn::World) -> Result<Plan, PlanError> {
         let missing = |what: &str| refused(Refusal::MissingContent, what);
         let placed = placed_at(world, sim, furniture).ok_or_else(|| missing("no such reference"))?;

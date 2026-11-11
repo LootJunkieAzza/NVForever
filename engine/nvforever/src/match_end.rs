@@ -10,7 +10,9 @@
 //!   practice won). Five Finger Fillet once a game or a race is settled, and the card
 //!   tables (blackjack, roulette, slots, poker, Caravan) when the player leaves after
 //!   playing: a timed end view ([`TIMED`] s) that cheers a win, or chips won over the
-//!   visit, and looks beaten otherwise ([`timed_end`]). Card games ([`cards`]): each
+//!   visit, and looks beaten otherwise ([`timed_end`]). Arm wrestling (item 199) once
+//!   both are up from the stools: a timed end view with the stranger reacting too
+//!   ([`arm_end`]). Card games ([`cards`]): each
 //!   player who won the hand (blackjack, poker) or the game (Caravan) cheers once and each
 //!   who lost looks beaten, with no end view or fade (the round goes on).
 //! - **Where they stand** ([`stand`]): a moment after the result each player steps to its
@@ -106,6 +108,7 @@ pub enum Kind {
     Slots,
     Poker,
     Caravan,
+    ArmWrestle,
 }
 
 impl Kind {
@@ -123,6 +126,14 @@ pub const TIMED: f32 = 3.5;
 /// cheering when `won` (item 166).
 pub fn timed_end(kind: Kind, table: u32, won: bool) -> Ended {
     Ended { kind, table, winner: 0, sides: vec![(Who::Me, usize::from(!won))], seat: (0, 1) }
+}
+
+/// The end of an arm-wrestling bout: this player side 0, the stranger (when there is
+/// one) side 1.
+pub fn arm_end(e: &nvf_play::armwrestle::ArmEnded) -> Ended {
+    let mut sides = vec![(Who::Me, 0)];
+    sides.extend(e.opponent.map(|r| (Who::Npc(r), 1)));
+    Ended { kind: Kind::ArmWrestle, table: e.table, winner: usize::from(!e.won), seat: (0, sides.len()), sides }
 }
 
 /// A body at the match.
@@ -529,8 +540,15 @@ fn ends(
     (pk, cv): (Option<Res<nvf_play::poker::PokerScreen>>, Option<Res<nvf_play::caravan::CaravanScreen>>),
     mut fillet_seen: Local<Option<(u32, bool)>>,
     mut visit: Local<Option<Visit>>,
+    mut arm: MessageReader<nvf_play::armwrestle::ArmEnded>,
 ) {
     let now = real.elapsed_secs();
+    // Arm wrestling (item 199): both up after a bout; the winner cheers, the loser is
+    // beaten, the stranger too.
+    for e in arm.read() {
+        info!("match end: arm wrestling at {:08X} {}; the end view", e.table, if e.won { "won" } else { "lost" });
+        st.timed = Some((arm_end(e), now));
+    }
     // Fillet: a game or a race settled (its result line up).
     let f = fillet.as_deref().and_then(|f| f.0.as_ref());
     let settled = f.and_then(|f| {

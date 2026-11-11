@@ -169,7 +169,7 @@ pub fn solve(s: Vec3, e0: Vec3, h0: Vec3, target: Vec3, pole: Vec3) -> (Vec3, Ve
 
 /// The world transform of node `e` from the rig's root down, or `None` when `e` is not
 /// under `root`.
-fn world_of(e: Entity, root: Entity, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Option<GlobalTransform> {
+pub(crate) fn world_of(e: Entity, root: Entity, parents: &Query<&ChildOf>, transforms: &Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Option<GlobalTransform> {
     let mut chain = Vec::new();
     let mut at = e;
     while at != root {
@@ -186,7 +186,7 @@ fn world_of(e: Entity, root: Entity, parents: &Query<&ChildOf>, transforms: &Que
     Some(g)
 }
 
-fn rot(g: &GlobalTransform) -> Quat {
+pub(crate) fn rot(g: &GlobalTransform) -> Quat {
     g.to_scale_rotation_translation().1
 }
 
