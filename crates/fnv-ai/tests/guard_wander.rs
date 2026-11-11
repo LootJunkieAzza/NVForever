@@ -14,7 +14,7 @@ use fnv_game::functions::Ctx;
 use fnv_game::game::{Game, GameConfig};
 use fnv_game::package::type_flags;
 use fnv_game::GameData;
-use fnv_nav::record::{tri_flags, NavMeshRecord, Triangle};
+use fnv_nav::record::{tri_flags, DoorLink, NavMeshRecord, Triangle};
 use fnv_nav::{NavGraph, Space};
 use fnv_script::vm::{ArgValue, Value};
 use fnv_script::FunctionTable;
@@ -84,6 +84,8 @@ const GUARD: u8 = 14;
 // Location types [documented: xEdit PACK PLDT]: near reference 0, near current 2.
 const NEAR_REF: i32 = 0;
 const NEAR_CURRENT: i32 = 2;
+/// "In cell" (location type 1), whose radius the editor greys out.
+const IN_CELL: i32 = 1;
 
 const STAT: u32 = 0x810;
 const CHAIR: u32 = 0x811;
@@ -98,6 +100,9 @@ const P_GUARD_WALL: u32 = 0x824;
 const P_GUARD_TINY: u32 = 0x825;
 const P_GUARD_HERE: u32 = 0x826;
 const P_TO_FAR: u32 = 0x827;
+const P_GUARD_32: u32 = 0x828;
+const P_GUARD_64: u32 = 0x829;
+const P_GUARD_IN_CELL: u32 = 0x82A;
 
 const N_GUARD: u32 = 0x840;
 const N_ZERO: u32 = 0x841;
@@ -107,10 +112,14 @@ const N_WALL: u32 = 0x844;
 const N_TINY: u32 = 0x845;
 const N_HERE: u32 = 0x846;
 const N_FOE: u32 = 0x847;
+const N_SMALL_32: u32 = 0x848;
+const N_SMALL_64: u32 = 0x849;
+const N_IN_CELL: u32 = 0x84A;
 
 const YARD: u32 = 0x860;
 const WALLED: u32 = 0x861;
 const TINY: u32 = 0x862;
+const SHED: u32 = 0x863;
 
 const MARK_POST: u32 = 0x870;
 const MARK_FAR: u32 = 0x871;
@@ -129,6 +138,12 @@ const R_WALL: u32 = 0x885;
 const R_TINY: u32 = 0x886;
 const R_HERE: u32 = 0x887;
 const R_FOE: u32 = 0x888;
+const R_SMALL_32: u32 = 0x889;
+const R_SMALL_64: u32 = 0x88A;
+const R_IN_CELL: u32 = 0x88B;
+/// The yard's door to the shed (in its far corner) and the shed's back to the yard.
+const DOOR_YARD: u32 = 0x8D0;
+const DOOR_SHED: u32 = 0x8D1;
 
 const POST: [f32; 3] = [1000.0, 1000.0, 0.0];
 const FAR: [f32; 3] = [1800.0, 200.0, 0.0];
@@ -162,6 +177,10 @@ fn plugin_bytes() -> Vec<u8> {
         pack(P_GUARD_TINY, "GuardTheLedge", GUARD, 0, (NEAR_REF, MARK_TINY, RADIUS as i32), None),
         pack(P_GUARD_HERE, "GuardWhereItStands", GUARD, 0, (NEAR_CURRENT, 0, RADIUS as i32), None),
         pack(P_TO_FAR, "TravelFar", TRAVEL, 0, (NEAR_REF, MARK_FAR, 0), None),
+        // Small radii, and an "in cell" location with a radius stored all the same.
+        pack(P_GUARD_32, "GuardThePostClosely", GUARD, 0, (NEAR_REF, MARK_POST, 32), None),
+        pack(P_GUARD_64, "GuardThePostNear", GUARD, 0, (NEAR_REF, MARK_POST, 64), None),
+        pack(P_GUARD_IN_CELL, "GuardTheYard", GUARD, 0, (IN_CELL, YARD, 128), None),
     ]
     .concat();
     let npcs = [
@@ -174,6 +193,9 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_TINY, "LedgeGuard", &[P_GUARD_TINY]),
         npc(N_HERE, "Stayer", &[P_GUARD_HERE]),
         npc(N_FOE, "Foe", &[]),
+        npc(N_SMALL_32, "CloseGuard", &[P_GUARD_32]),
+        npc(N_SMALL_64, "NearGuard", &[P_GUARD_64]),
+        npc(N_IN_CELL, "YardGuard", &[P_GUARD_IN_CELL]),
     ]
     .concat();
     // A chair (marker flags bit 30), a bed (bit 31) and an idle marker inside the post's
@@ -198,12 +220,17 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_TRAVELLER, "TravellerRef", N_TRAVELLER, [1700.0, 1700.0, 0.0]),
         placed(b"ACHR", R_HERE, "StayerRef", N_HERE, [500.0, 1500.0, 0.0]),
         placed(b"ACHR", R_FOE, "FoeRef", N_FOE, [1600.0, 1000.0, 0.0]),
+        placed(b"ACHR", R_SMALL_32, "CloseGuardRef", N_SMALL_32, POST),
+        placed(b"ACHR", R_SMALL_64, "NearGuardRef", N_SMALL_64, POST),
+        placed(b"ACHR", R_IN_CELL, "YardGuardRef", N_IN_CELL, [400.0, 1000.0, 0.0]),
+        // The door the graph's door link names, placed so the game knows it.
+        placed(b"REFR", DOOR_YARD, "YardDoor", STAT, [1950.0, 1950.0, 0.0]),
     ]
     .concat();
     let walled = [placed(b"REFR", MARK_WALL, "WallPost", STAT, WALL_POST), placed(b"ACHR", R_WALL, "WallGuardRef", N_WALL, [10950.0, 1000.0, 0.0])].concat();
     let tiny = [placed(b"REFR", MARK_TINY, "LedgePost", STAT, TINY_POST), placed(b"ACHR", R_TINY, "LedgeGuardRef", N_TINY, TINY_POST)].concat();
     let cell = |id: u32, edid: &str, refs: &[u8]| [record(b"CELL", id, &[sub(b"EDID", z(edid))]), group(id.to_le_bytes(), 6, &group(id.to_le_bytes(), 9, refs))].concat();
-    let cells = [cell(YARD, "Yard", &yard), cell(WALLED, "WalledYard", &walled), cell(TINY, "Ledge", &tiny)].concat();
+    let cells = [cell(YARD, "Yard", &yard), cell(WALLED, "WalledYard", &walled), cell(TINY, "Ledge", &tiny), cell(SHED, "Shed", &[])].concat();
     let top = |sig: &[u8; 4], body: &[u8]| group(*sig, 0, body);
     [
         tes4(),
@@ -253,12 +280,31 @@ fn grid(form_id: u32, origin: [f32; 2], n: usize, size: f32, wall: impl Fn(usize
 /// The yard: 20 × 20 squares of 100 at the origin. The walled yard: the same at
 /// (10000, 0), with a wall one square thick at x 11000 to 11100 from y 0 to 1400, so
 /// its post's circle (radius 250 round (11050, 1000)) is cut in two halves joined only
-/// round the wall's end, outside the circle. The ledge: one square of 50.
+/// round the wall's end, outside the circle. The ledge: one square of 50. The shed: 5 × 5
+/// squares of 100 at (30000, 0), a door from the yard's far corner leading to its near
+/// corner and back.
 fn nav() -> NavGraph {
-    let yard = grid(1, [0.0, 0.0], 20, 100.0, |_, _| false);
+    let mut yard = grid(1, [0.0, 0.0], 20, 100.0, |_, _| false);
     let walled = grid(2, [10000.0, 0.0], 20, 100.0, |i, j| i == 10 && j < 14);
     let ledge = grid(3, [20000.0, 20000.0], 1, 50.0, |_, _| false);
-    NavGraph::assemble(&[(&yard, Some(YARD), Some(Space::Interior(YARD))), (&walled, Some(WALLED), Some(Space::Interior(WALLED))), (&ledge, Some(TINY), Some(Space::Interior(TINY)))])
+    let mut shed = grid(4, [30000.0, 0.0], 5, 100.0, |_, _| false);
+    let corner = yard.triangles.len() - 2;
+    yard.door_links.push(DoorLink { door: DOOR_YARD, triangle: corner as u16 });
+    yard.triangles[corner].flags |= tri_flags::DOOR;
+    shed.door_links.push(DoorLink { door: DOOR_SHED, triangle: 0 });
+    let input = [
+        (&yard, Some(YARD), Some(Space::Interior(YARD))),
+        (&walled, Some(WALLED), Some(Space::Interior(WALLED))),
+        (&ledge, Some(TINY), Some(Space::Interior(TINY))),
+        (&shed, Some(SHED), Some(Space::Interior(SHED))),
+    ];
+    let mut g = NavGraph::assemble(&input);
+    g.join_doors(&input, |door| match door {
+        DOOR_YARD => Some((DOOR_SHED, [30050.0, 30.0, 0.0], 0.5, Space::Interior(SHED))),
+        DOOR_SHED => Some((DOOR_YARD, [1940.0, 1940.0, 0.0], 3.0, Space::Interior(YARD))),
+        _ => None,
+    });
+    g
 }
 
 // ---- fixture -----------------------------------------------------------------------
@@ -363,6 +409,8 @@ fn the_fixture_reads_without_issues() {
     assert_eq!(radius(P_GUARD_ZERO), None);
     assert_eq!(radius(P_GUARD_REMAIN), None, "Remain Near Reference to Guard is left as it was");
     assert_eq!(radius(P_TRAVEL_NEAR), None, "a Travel package is no guard");
+    assert_eq!(radius(P_GUARD_IN_CELL), None, "an \"in cell\" location has no radius, whatever is stored");
+    assert_eq!((radius(P_GUARD_32), radius(P_GUARD_64)), (Some(32.0), Some(64.0)));
 }
 
 /// A guard at its post keeps walking about inside the location's radius (128), never
@@ -558,4 +606,84 @@ fn round_a_wall_the_walks_end_inside_though_the_way_leaves_the_circle() {
     assert!(farthest_stop <= WALL_RADIUS + 1.0, "stopped {farthest_stop} from the post");
     assert!(left > 0 && right > 0, "stops on both sides: {left} left, {right} right");
     assert!(farthest_walking > WALL_RADIUS, "the way round the wall: {farthest_walking}");
+}
+
+/// A small radius still wanders (#2027 review): a guard standing on its post with a
+/// location radius of 32 or 64 finds spots nearer than the 64 units an ordinary sandbox
+/// keeps between spots, and walks to them.
+#[test]
+fn a_guard_with_a_small_radius_still_wanders() {
+    let f = fixture();
+    for (actor, radius) in [(R_SMALL_32, 32.0f32), (R_SMALL_64, 64.0)] {
+        let mut s = sim(&f, &[actor]);
+        let mut farthest = 0.0f32;
+        for _ in 0..240 {
+            s.run(0.5);
+            farthest = farthest.max(dist(s.feet(actor), POST));
+        }
+        let did = doings(&s, actor);
+        assert!(did.iter().filter(|d| **d == Doing::Wandering).count() >= 6, "radius {radius}: {did:?}");
+        let walked = s.ai.agents[&FormId(actor)].walker.travelled;
+        assert!(walked > radius * 3.0, "radius {radius}: walked {walked}");
+        assert!(farthest <= radius + 1.0, "radius {radius}: went {farthest} from the post");
+    }
+}
+
+/// An "in cell" location's stored radius is not a wander radius (the editor greys it out
+/// [documented: GECK wiki, Category:Packages, Standard Location]): the guard stays where
+/// it arrived in the cell, as before.
+#[test]
+fn an_in_cell_guard_ignores_its_stored_radius() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_IN_CELL]);
+    s.run(30.0);
+    let here = s.feet(R_IN_CELL);
+    s.run(120.0);
+    assert!(s.ai.agents[&FormId(R_IN_CELL)].sandbox.is_none());
+    assert!(doings(&s, R_IN_CELL).is_empty(), "{:?}", doings(&s, R_IN_CELL));
+    assert!(dist(s.feet(R_IN_CELL), here) < 1.0, "moved from {here:?} to {:?}", s.feet(R_IN_CELL));
+}
+
+/// A guard that fled through a door (#2027 review): its wander is round the post in the
+/// yard, so in the shed it neither wanders nor stands for ever; when the fight is over it
+/// goes back through the door to its post and wanders there again.
+#[test]
+fn a_guard_that_fled_through_a_door_goes_back_to_its_post() {
+    use fnv_game::awareness::{State, Timers};
+    use fnv_game::combat_group::{FleeBy, Flight};
+    use fnv_game::detection::{Band, Detection};
+    let f = fixture();
+    let mut s = sim(&f, &[R_GUARD]);
+    let guard = FormId(R_GUARD);
+    s.run(30.0);
+    assert!(s.ai.agents[&guard].sandbox.is_some());
+    // In combat with the player at the yard's near corner; the door, in the far corner,
+    // is the way away from it.
+    let threat = [0.0, 0.0, 0.0];
+    let (now, t) = (s.game.time, Timers::default());
+    let a = s.game.awareness.actors.entry(guard).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, threat, now, &t);
+    a.settle(guard, now, &t, true);
+    assert_eq!(a.state, State::Combat);
+    a.combat_began = Some(now - fnv_ai::alert::COMBAT_REACTION_SECONDS - 1.0);
+    s.game.awareness.tactics.flights.insert(guard, Flight { from: FormId::PLAYER_REF, from_at: threat, since: now, spot: None, arrived: None });
+    s.run(15.0);
+    assert!(s.events(R_GUARD).iter().any(|e| matches!(e, AiEvent::Flee { how: FleeBy::Door { door }, .. } if door.0 == DOOR_YARD)), "{:?}", s.events(R_GUARD));
+    assert_eq!(s.ai.agents[&guard].walker.space, Space::Interior(SHED), "fled into the shed: {:?}", s.events(R_GUARD));
+    // The fight is over.
+    s.game.awareness.actors.remove(&guard);
+    s.game.awareness.tactics.flights.remove(&guard);
+    let before = doings(&s, R_GUARD).len();
+    s.run(60.0);
+    let ev = s.events(R_GUARD);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SearchBack { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&guard].walker.space, Space::Interior(YARD), "back in the yard: {ev:?}");
+    let mut farthest = 0.0f32;
+    for _ in 0..120 {
+        s.run(0.5);
+        farthest = farthest.max(dist(s.feet(R_GUARD), POST));
+    }
+    assert!(farthest <= RADIUS + 1.0, "went {farthest} from the post");
+    assert!(doings(&s, R_GUARD)[before..].iter().filter(|d| **d == Doing::Wandering).count() >= 3, "{:?}", &doings(&s, R_GUARD)[before..]);
+    assert_eq!(s.ai.agents[&guard].sandbox.as_ref().map(|sb| sb.area().0.space), Some(Space::Interior(YARD)));
 }

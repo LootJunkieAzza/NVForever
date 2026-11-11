@@ -984,6 +984,14 @@ impl Ai {
             self.back_home(game, nav, actor);
             return;
         }
+        // A guard's wander off its area (in another cell after a flight through a door,
+        // or outside its circle) is given up: the guard goes back to its package's place
+        // and wanders again from there (`settle`) [design, #2027].
+        let here = Place { space: a.walker.space, pos: a.walker.feet };
+        if a.sandbox.as_ref().is_some_and(|s| s.off_guard_area(here)) {
+            self.agents.get_mut(&actor).expect("listed").sandbox = None;
+        }
+        let a = &self.agents[&actor];
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         let Some(goal) = a.goal.clone() else { return };
@@ -2034,6 +2042,8 @@ impl Ai {
         }
         let at = Place { space: a.walker.space, pos: a.walker.feet };
         let choice = sb.next(game, nav, &self.taken, actor, at, &mut self.furniture);
+        // A guard's small area reaches its spots closer than the usual arrival distance.
+        let reach = sb.reach();
         // Up from what it was on, unless it stays on the same thing; the furniture it
         // is going to is kept for it from now.
         if a.using != choice.doing.furniture() {
@@ -2044,7 +2054,10 @@ impl Ai {
         if let Some(f) = choice.doing.furniture() {
             self.taken.insert(f, actor);
         }
-        let near = choice.target.is_none_or(|to| self.within(at, to, 0.0));
+        let near = choice.target.is_none_or(|to| match reach {
+            Some(r) => to.space == at.space && hdist(at.pos, to.pos) <= r && (at.pos[2] - to.pos[2]).abs() <= 256.0,
+            None => self.within(at, to, 0.0),
+        });
         if near {
             self.sandbox_begin(game, actor, choice, 0.0);
             return;
@@ -2624,15 +2637,17 @@ const X_MARKER_HEADING: FormId = FormId(0x0000_0034);
 /// The radius a Guard package's actor wanders within once it is at its location: the
 /// location's radius, when over 0 ("If it has a radius greater than 0, the actor will
 /// wander within that radius" [documented: GECK wiki, Guard Package, Guard Location]).
-/// `None` for other types, for a radius of 0 (the guard stands where it arrived) and for
-/// a Guard that remains near the reference it guards, whose place is that reference's
+/// `None` for other types, for a radius of 0 or an "in cell" location (the guard stands
+/// where it arrived) and for a Guard that remains near the reference it guards, whose place is that reference's
 /// and whose area may be the target's distance ([`goal::resolve`]) [design, #2027: that
 /// one is left as it was; packages.md §7.7].
 pub fn guard_wander_radius(def: &fnv_game::package::PackageDef) -> Option<f32> {
     if def.ty != PackageType::Guard || def.remain_near_reference() {
         return None;
     }
-    def.location.map(|l| l.radius).filter(|r| *r > 0).map(|r| r as f32)
+    // "In cell" has no radius: the editor disables it [documented: GECK wiki,
+    // Category:Packages, Standard Location], and `goal::resolve` ignores what is stored.
+    def.location.filter(|l| !matches!(l.kind, fnv_game::package::LocationKind::InCell(_))).map(|l| l.radius).filter(|r| *r > 0).map(|r| r as f32)
 }
 
 /// The heading of the xMarkerHeading a package's location names ("near reference"), if

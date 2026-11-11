@@ -540,15 +540,22 @@ its radius the location's, not the guarded reference's guard radius. Its spots a
 points of the actor's walkable area within the radius (a small radius holds few triangle
 centres: one or two within 128 units of a Goodsprings settler outdoors [observed:
 `fnvtool nav near`]), a triangle centre when eight tries find none; the pause at a spot
-and the walk are a sandbox's [design, #2027]. A spot bounds where the guard stops, not the
-way there: round a wall the way can leave the circle. The package and procedure stay
+and the walk are a sandbox's [design, #2027]. A spot is at least half the radius (at most
+64, a sandbox's distance) from where the guard stands, and counts as reached within half
+that, so a radius of 32 or 64 still moves. A spot bounds where the guard stops, not the
+way there: round a wall the way can leave the circle. A guard off its area when a search,
+flight, push or conversation ends (in another cell after fleeing through a door, or
+outside the circle) gives the wander up and walks back to its place, where it wanders
+again (`back_to_package`). An "in cell" location has no radius (the editor greys it out
+[documented: GECK wiki, Category:Packages, Standard Location]): its guard stands as
+before, whatever radius is stored. The package and procedure stay
 Guard's (GetCurrentAIPackage 35, GetCurrentAIProcedure 44: `package_procedure` reads the
 sandbox's phase only for Sandbox packages). Combat, a warning or flight interrupts it as
 any sandbox (`interrupt_sandbox`) and it goes on from where the guard is. Left as they
 were: a radius of 0 (the guard stands where it arrived), Remain Near Reference to Guard
 (its place is the guarded reference's), the warning rules, and a location reference that
 moves (the centre is where it was when the package began). Checks:
-`crates/fnv-ai/tests/guard_wander.rs` (9 tests) and the smoke scenario
+`crates/fnv-ai/tests/guard_wander.rs` (12 tests) and the smoke scenario
 `guard-radius-wander`; the original's cadence is observer check 106.
 
 **Not done**: conversations; food; the idle manager's idles (package and marker idles

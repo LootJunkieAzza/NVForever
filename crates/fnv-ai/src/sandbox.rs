@@ -386,6 +386,7 @@ impl Sandbox {
         // The whole cell is at most this far away [our choice for "in cell"].
         let reach = if self.radius.is_infinite() { 2048.0 } else { self.radius };
         let centre = self.centre.pos;
+        let step = self.min_step();
         // A guard's small area holds few triangle centres (outdoors one or two within 128
         // units of a Goodsprings settler's editor location [observed: `fnvtool nav near`]):
         // a random point of the actor's walkable area within the radius, else a centre as
@@ -396,7 +397,7 @@ impl Sandbox {
                 let (x, y) = (centre[0] + out * turn.cos(), centre[1] + out * turn.sin());
                 let Some(t) = nav.locate(at.space, [x, y, centre[2]], 256.0) else { continue };
                 let pos = [x, y, nav.height_on(t, x, y)];
-                if nav.area[t as usize] == area && (pos[2] - at.pos[2]).abs() < 400.0 && hdist(pos, at.pos) > 64.0 {
+                if nav.area[t as usize] == area && (pos[2] - at.pos[2]).abs() < 400.0 && hdist(pos, at.pos) > step {
                     return Some(Place { space: at.space, pos });
                 }
             }
@@ -407,7 +408,7 @@ impl Sandbox {
             .filter(|t| nav.area[*t as usize] == area && nav.usable(*t))
             .filter(|t| {
                 let c = nav.centre(*t);
-                hdist(c, centre) <= reach && (c[2] - at.pos[2]).abs() < 400.0 && hdist(c, at.pos) > 64.0
+                hdist(c, centre) <= reach && (c[2] - at.pos[2]).abs() < 400.0 && hdist(c, at.pos) > step
             })
             .collect();
         if spots.is_empty() {
@@ -592,6 +593,30 @@ impl Sandbox {
     /// reports and test aids.
     pub fn area(&self) -> (Place, f32) {
         (self.centre, self.radius)
+    }
+
+    /// How far a wander spot must be from where the actor stands: 64 units [our choice];
+    /// for a guard's area half its radius when that is less, so that a radius of 32 or 64
+    /// still has spots to go to [design, #2027].
+    fn min_step(&self) -> f32 {
+        if self.points {
+            (self.radius * 0.5).min(64.0)
+        } else {
+            64.0
+        }
+    }
+
+    /// How near a chosen spot counts as reached without a walk: `None` for the AI's own
+    /// arrival distance (`AiConfig::arrive`); for a guard's area half its smallest step,
+    /// which a small radius makes shorter [design, #2027].
+    pub(crate) fn reach(&self) -> Option<f32> {
+        self.points.then(|| self.min_step() * 0.5)
+    }
+
+    /// Whether `at` is off a guard's area: in another space (through a door) or outside
+    /// its circle. False for every other sandbox.
+    pub(crate) fn off_guard_area(&self, at: Place) -> bool {
+        self.points && (at.space != self.centre.space || hdist(at.pos, self.centre.pos) > self.radius)
     }
 }
 
