@@ -479,6 +479,10 @@ struct Fighter {
     react: Option<(f32, f32)>,
     /// Its opponent's blows seen begun; its own blows begun.
     seen_opp_blows: u32,
+    /// Kept while the shooter had its actor ([`hold_for_use`]): the opponent's blows begun
+    /// meanwhile went unseen, so on its first frame back [`Fighter::seen_opp_blows`] is
+    /// brought up to date without a reaction to blows already over (#2145 review).
+    opp_blows_unseen: bool,
     blows_begun: u32,
     /// It cannot strike until then (clock): its blow was blocked.
     recoil_until: f32,
@@ -1328,7 +1332,8 @@ fn use_hold(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_g
 /// gun's shot or reload under way is settled ([`settle_for_use`]), its melee guard is
 /// lowered and a reaction to an opponent's blow dropped (other fighters read `block` as
 /// it guarding, and an overdue `react` would raise a guard against an old blow on its
-/// first frame back), and its combat crouch ends (the caller takes it out of
+/// first frame back; the opponent's blows begun meanwhile are marked unseen,
+/// `Fighter::opp_blows_unseen`, so none of them raises one either), and its combat crouch ends (the caller takes it out of
 /// `Awareness::crouching`; the stance rolls run again once the fight has the actor back).
 /// Its sight time, magazine, post and the rest stay (#2145 review) [design].
 fn hold_for_use(x: &mut Fighter) {
@@ -1336,6 +1341,7 @@ fn hold_for_use(x: &mut Fighter) {
     x.swing = None;
     x.block = None;
     x.react = None;
+    x.opp_blows_unseen = true;
     x.crouched_since = None;
     settle_for_use(x.ranged.as_mut());
 }
@@ -1670,6 +1676,7 @@ pub(crate) fn fight(
                         block: None,
                         react: None,
                         seen_opp_blows: opp_blows,
+                        opp_blows_unseen: false,
                         blows_begun: 0,
                         recoil_until: 0.0,
                         approach,
@@ -2476,6 +2483,11 @@ pub(crate) fn fight(
             }
             if fighter.block.is_some_and(|(until, _)| clock >= until) {
                 fighter.block = None;
+            }
+            // Back from the shooter (`Fighter::opp_blows_unseen`): blows begun meanwhile
+            // are counted as seen, with no reaction to them.
+            if std::mem::take(&mut fighter.opp_blows_unseen) {
+                fighter.seen_opp_blows = fighter.seen_opp_blows.max(opp_blows);
             }
             if opp_blows > fighter.seen_opp_blows {
                 fighter.seen_opp_blows = opp_blows;
