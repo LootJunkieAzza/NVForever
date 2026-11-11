@@ -1,11 +1,17 @@
 //! The machine's memory budgets and the asset caches' keep limits that follow them (#1170).
 //!
-//! At the start the game reads the machine's RAM (`GlobalMemoryStatusEx`) and the GPU's
-//! memory budget, and logs both (`memory budget: RAM … MB, GPU budget … MB (…)`, or that the
-//! GPU budget could not be read). The GPU budget is `VK_EXT_memory_budget`'s, read through
+//! At the start the game reads the machine's RAM (`GlobalMemoryStatusEx` on Windows,
+//! `/proc/meminfo`'s `MemTotal` and `MemAvailable` elsewhere) and the GPU's memory budget, and
+//! logs both (`memory budget: RAM … MB, GPU budget … MB (…)`, or that the GPU budget could not
+//! be read). The GPU budget is `VK_EXT_memory_budget`'s, read through
 //! wgpu's Vulkan device (`Device::as_hal`): wgpu-hal 30 enables that extension whenever the
 //! adapter offers it (except on Mesa's RADV) [documented: wgpu-hal 30.0.1
-//! `vulkan/adapter.rs`, "Optional `VK_EXT_memory_budget`"], so no wgpu patch is needed. Of
+//! `vulkan/adapter.rs`, "Optional `VK_EXT_memory_budget`"], so no wgpu patch is needed. Where
+//! the driver does not give it (RADV: wgpu does not enable the extension there), Linux reads
+//! the card's VRAM from amdgpu's sysfs
+//! (`/sys/bus/pci/devices/<pci>/drm/card*/device/mem_info_vram_{total,used}`), chosen by the
+//! adapter's PCI address: those figures are every program's use of the card, not this
+//! process's, and the log line says which source it used. Of
 //! the device-local heaps ([`device_local`]) it sums `heapBudget`, "an estimate of how much
 //! memory the process can allocate from that heap before allocations may fail or cause
 //! performance degradation", and `heapUsage`, "the estimated heap usage of the process"
@@ -65,7 +71,8 @@ pub struct MemoryBudget {
     /// reads nothing a second time: this process's use of the GPU budget and the budget,
     /// MB (the test aid's cap applied), and the machine's RAM in use, a share (the test
     /// aid's RAM taken as RAM the machine does not have, as the press check takes it).
-    /// `None` where not read.
+    /// `None` where not read, and where the driver gives only the card's whole use (amdgpu
+    /// sysfs), which is not this process's to compare with the budget.
     pub vram_use_mb: Option<(u64, u64)>,
     pub ram_share: Option<f64>,
     /// The test aids' caps (MB), applied again at each check.
@@ -165,7 +172,17 @@ fn read_ram() -> Option<(u64, u64)> {
 
 #[cfg(not(windows))]
 fn read_ram() -> Option<(u64, u64)> {
-    None
+    meminfo_ram(&std::fs::read_to_string("/proc/meminfo").ok()?)
+}
+
+/// `MemTotal` and `MemAvailable` from `/proc/meminfo`, kB, as MB: (total, free now).
+#[cfg(not(windows))]
+fn meminfo_ram(text: &str) -> Option<(u64, u64)> {
+    fn kb(text: &str, key: &str) -> Option<u64> {
+        let line = text.lines().find(|l| l.starts_with(key))?;
+        Some(line.split_whitespace().nth(1)?.parse::<u64>().ok()? / 1024)
+    }
+    Some((kb(text, "MemTotal:")?, kb(text, "MemAvailable:")?))
 }
 
 /// The RAM's share in use, a test aid's cap taken as RAM the machine does not have.
@@ -185,7 +202,7 @@ fn read_heaps(device: &RenderDevice) -> Result<Vec<Heap>, String> {
         return Err("not the Vulkan backend".into());
     };
     if !hal.enabled_device_extensions().contains(&ash::ext::memory_budget::NAME) {
-        return Err("the device has no VK_EXT_memory_budget".into());
+        return Err("VK_EXT_memory_budget is not enabled on this device (wgpu leaves it off on Mesa's RADV)".into());
     }
     let instance = hal.shared_instance().raw_instance();
     let mut budget = vk::PhysicalDeviceMemoryBudgetPropertiesEXT::default();
@@ -198,13 +215,85 @@ fn read_heaps(device: &RenderDevice) -> Result<Vec<Heap>, String> {
     Ok(heaps.map(|(i, h)| Heap { device_local: h.flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL), budget: budget.heap_budget[i], usage: budget.heap_usage[i] }).collect())
 }
 
+/// The GPU budget, and this process's use of it when the driver gives that, MB.
+struct Vram {
+    budget_mb: u64,
+    /// `None` where only the card's whole use is readable: that is every program's, so it
+    /// neither feeds the press check nor is labelled this process's.
+    used_mb: Option<u64>,
+    /// Where the budget came from, short enough for the start-up line.
+    source: String,
+    /// The start-up line's second sentence, for a source that needs explaining.
+    detail: Option<String>,
+}
+
 /// The GPU budget and this process's use of it, MB, or why not.
-fn read_vram(device: Option<&RenderDevice>, integrated: bool) -> Result<(u64, u64), String> {
-    let heaps = read_heaps(device.ok_or("no render device")?)?;
+fn read_vram(device: Option<&RenderDevice>, integrated: bool, pci_bus_id: Option<&str>) -> Result<Vram, String> {
     if integrated {
         return Err("an integrated GPU: its memory is the RAM".into());
     }
-    device_local(&heaps, false).map(|(b, u)| (b / MB, u / MB)).ok_or_else(|| "no device-local heap budget".into())
+    let from_extension = read_heaps(device.ok_or("no render device")?)
+        .and_then(|heaps| device_local(&heaps, false).ok_or_else(|| "no device-local heap budget".to_string()));
+    match from_extension {
+        Ok((b, u)) => Ok(Vram {
+            budget_mb: b / MB,
+            used_mb: Some(u / MB),
+            source: format!("VK_EXT_memory_budget, device-local heaps; this process uses {} MB", u / MB),
+            detail: None,
+        }),
+        Err(why) => vram_beside_the_extension(pci_bus_id, why),
+    }
+}
+
+/// The budget read where the driver does not give the extension's figures: amdgpu's sysfs
+/// (Linux) has the card's VRAM, whose use figure is every program's, not this process's.
+#[cfg(not(windows))]
+fn vram_beside_the_extension(pci_bus_id: Option<&str>, why: String) -> Result<Vram, String> {
+    let (b, u) = sysfs_vram(pci_bus_id)?;
+    Ok(Vram {
+        budget_mb: b,
+        used_mb: None,
+        source: "amdgpu sysfs, the card's VRAM".into(),
+        detail: Some(format!(
+            "{why}; the card reports {u} MB in use by every program, so the GPU press check is off \
+             and only RAM pressure applies"
+        )),
+    })
+}
+
+/// Off Linux there is no sysfs to fall back on.
+#[cfg(windows)]
+fn vram_beside_the_extension(_pci_bus_id: Option<&str>, why: String) -> Result<Vram, String> {
+    Err(why)
+}
+
+/// The card's VRAM from amdgpu's sysfs, MB: (total, used). The adapter's PCI address names
+/// the card, since a machine with two GPUs has a `card*` for each.
+#[cfg(not(windows))]
+fn sysfs_vram(pci_bus_id: Option<&str>) -> Result<(u64, u64), String> {
+    let id = pci_bus_id.ok_or("the adapter has no PCI address")?;
+    let drm = format!("/sys/bus/pci/devices/{id}/drm");
+    let entries = std::fs::read_dir(&drm).map_err(|e| format!("no VRAM figures: {drm}: {e}"))?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        // `card3` is the card; `card3-DP-2`, `renderD131` and `controlD67` are not.
+        if !name.starts_with("card") || !name[4..].chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let device = entry.path().join("device");
+        let total = read_sysfs_mb(&device.join("mem_info_vram_total"));
+        let used = read_sysfs_mb(&device.join("mem_info_vram_used"));
+        if let (Some(total), Some(used)) = (total, used) {
+            return Ok((total, used));
+        }
+    }
+    Err(format!("no mem_info_vram_* under {drm} (not an amdgpu card?)"))
+}
+
+/// A sysfs counter in bytes as MB.
+#[cfg(not(windows))]
+fn read_sysfs_mb(path: &std::path::Path) -> Option<u64> {
+    std::fs::read_to_string(path).ok()?.trim().parse::<u64>().ok().map(|b| b / MB)
 }
 
 fn integrated(adapter: Option<&RenderAdapterInfo>) -> bool {
@@ -216,14 +305,14 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
     let ram = read_ram();
     let aid_ram = aid_mb("NVF_PLAY_TEST_RAM_MB");
     let ram_mb = capped(ram.map(|r| r.0), aid_ram);
-    let vram = read_vram(device.as_deref(), integrated(adapter.as_deref()));
+    let vram = read_vram(device.as_deref(), integrated(adapter.as_deref()), adapter.as_deref().map(|a| a.device_pci_bus_id.as_str()));
     let aid_vram = aid_mb("NVF_PLAY_TEST_VRAM_MB");
     let vram_mb = match &vram {
-        Ok((b, _)) => capped(Some(*b), aid_vram),
+        Ok(v) => capped(Some(v.budget_mb), aid_vram),
         Err(_) => aid_vram,
     };
     let source = match &vram {
-        Ok((_, used)) => format!("VK_EXT_memory_budget, device-local heaps; this process uses {used} MB"),
+        Ok(v) => v.source.clone(),
         Err(e) => format!("not read: {e}"),
     };
     let base = limits_for(ram_mb, vram_mb);
@@ -234,12 +323,17 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
         (None, None) => "RAM not read".to_string(),
     };
     let vram_text = match (&vram, vram_mb) {
-        (Ok((b, _)), Some(mb)) if mb < *b => format!("GPU budget {mb} MB (test aid; the device's {b} MB, {source})"),
+        (Ok(v), Some(mb)) if mb < v.budget_mb => format!("GPU budget {mb} MB (test aid; the device's {} MB, {source})", v.budget_mb),
         (_, Some(mb)) => format!("GPU budget {mb} MB ({source})"),
         (_, None) => format!("GPU budget {source}"),
     };
     info!("memory budget: {ram_text}, {vram_text}; caches keep unused models and textures {:.0} s, at most {} per cache", base.secs, base.max);
-    let vram_use_mb = vram.as_ref().ok().zip(vram_mb).map(|(&(_, used), b)| (used, b));
+    if let Ok(v) = &vram {
+        if let Some(detail) = &v.detail {
+            info!("memory budget: {detail}");
+        }
+    }
+    let vram_use_mb = vram.as_ref().ok().and_then(|v| v.used_mb.map(|used| (used, vram_mb.unwrap_or(v.budget_mb))));
     let ram_in_use = ram.map(|r| ram_share(r, aid_ram));
     *budget = MemoryBudget { vram_mb, vram_use_mb, ram_share: ram_in_use, aid_vram, aid_ram, base, pressed: false };
     commands.insert_resource(base);
@@ -260,7 +354,10 @@ fn watch_use(
         return;
     }
     *last = now;
-    let gpu = budget.vram_mb.and_then(|_| read_vram(device.as_deref(), integrated(adapter.as_deref())).ok()).map(|(b, used)| (capped(Some(b), budget.aid_vram).unwrap_or(b), used));
+    let gpu = budget.vram_mb.and_then(|_| {
+        let pci = adapter.as_deref().map(|a| a.device_pci_bus_id.as_str());
+        read_vram(device.as_deref(), integrated(adapter.as_deref()), pci).ok()
+    }).and_then(|v| v.used_mb.map(|used| (capped(Some(v.budget_mb), budget.aid_vram).unwrap_or(v.budget_mb), used)));
     let ram = read_ram();
     budget.vram_use_mb = gpu.map(|(b, used)| (used, b));
     budget.ram_share = ram.map(|r| ram_share(r, budget.aid_ram));
@@ -300,6 +397,20 @@ mod tests {
         assert_eq!(limits_for(Some(32 * 1024), Some(4 * 1024)), KeepLimits { secs: 150.0, max: 1024 }, "a 4 GB card: half");
         assert_eq!(limits_for(Some(8 * 1024), Some(2 * 1024)), KeepLimits { secs: 75.0, max: 512 }, "the smaller share");
         assert_eq!(limits_for(Some(1024), Some(256)), MIN_LIMITS, "never under the least");
+    }
+
+    /// The Linux RAM read: `/proc/meminfo`'s two lines, kB as MB; another key that starts the
+    /// same way, or a missing line, does not fool it.
+    #[cfg(not(windows))]
+    #[test]
+    fn meminfo_gives_the_ram_and_what_of_it_is_available() {
+        let sample = "MemTotal:       32143116 kB\nMemFree:         1234567 kB\n\
+                      MemAvailable:   20000000 kB\nCached:           800000 kB\n";
+        assert_eq!(meminfo_ram(sample), Some((32143116 / 1024, 20000000 / 1024)));
+        assert_eq!(meminfo_ram("MemTotal:       32143116 kB\n"), None, "no MemAvailable");
+        assert_eq!(meminfo_ram(""), None);
+        // MemFree is not MemAvailable: "Mem" alone must not match.
+        assert_eq!(meminfo_ram("MemFree: 100 kB\nMemTotal: 200 kB\n"), None);
     }
 
     #[test]
