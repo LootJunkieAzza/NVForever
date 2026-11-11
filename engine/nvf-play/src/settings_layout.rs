@@ -72,6 +72,7 @@ pub const SECTIONS: &[Section] = &[
     section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "reload-slows", "UsePipBoy"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
+    section("Gameplay", Some("Reports"), &["send-reports"]),
     section("Gameplay", Some("Camera"), &["detached-camera", "true-iron-sights", "first-person-body", "weapon-sway", "head-bob", "weapon-lower", "field-of-view"]),
     section("Display", Some("Screen"), &["resolution", "borderless", "monitor", "display-sync", "frame-cap", "ui-scale"]),
     section(
@@ -301,7 +302,7 @@ mod tests {
 
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
     /// quality and enhanced rows and #2014's counter rows), by the group it registers with.
-    const KNOWN: [(&str, &str); 100] = [
+    const KNOWN: [(&str, &str); 101] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -402,6 +403,7 @@ mod tests {
         ("hit-markers", "Debug"),
         ("god-mode", "Debug"),
         ("navmesh", "Debug"),
+        ("send-reports", "Reports"),
     ];
 
     #[test]

@@ -24559,6 +24559,44 @@ expect = [
 ]
 
 [[scenario]]
+name = "reports-off-in-smoke-runs"
+source = "#2055, docs/design/player-reports.md section 2.1: never asked and nothing sent in a scripted run (engine/nvforever/src/reports/)"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs", "crates/fnv-install/src/reports.rs"]
+env = { NVFOREVER_HOME = "reports-off-home" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 12
+expect = ["reports: off (a developer or smoke run (--data))", "run log: the game exited normally"]
+forbid = [{ text = "reports: on", label = "reports turned on in a smoke run" }, { text = "reports: session summary written", label = "a summary written while off" }]
+
+[[scenario]]
+name = "reports-env-off"
+source = "#2055, docs/design/player-reports.md section 2.2: NVF_REPORTS=0 forces reports off for any run"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs"]
+env = { NVFOREVER_HOME = "reports-env-off-home", NVF_REPORTS = "0" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 12
+expect = ["reports: off (NVF_REPORTS=0)"]
+forbid = [{ text = "reports: on", label = "reports on despite NVF_REPORTS=0" }]
+
+[[scenario]]
+name = "reports-session-summary"
+source = "#2055, docs/design/player-reports.md section 3.1 and 8: a session file is written; a test run without NVF_REPORTS_ENDPOINT never sends to the project's server"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/mod.rs", "engine/nvforever/src/reports/summary.rs", "engine/nvforever/src/reports/upload.rs", "engine/nvforever/src/reports/warnings.rs", "crates/fnv-install/src/reports.rs"]
+env = { NVFOREVER_HOME = "reports-on-home", NVF_REPORTS = "1" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 15
+expect = [
+  "reports: on, sending to https://reports-api.nv-forever.com (not in this test run: no NVF_REPORTS_ENDPOINT)",
+  "reports: sending skipped in this test run (no NVF_REPORTS_ENDPOINT)",
+  { re = 'reports: session summary written to .*session-\d{8}-\d{6}-\d+\.json$', label = "the summary written at exit to <home>/reports/pending" },
+  "run log: the game exited normally",
+]
+forbid = [{ text = "reports: sent", label = "a test run sent a report" }]
+
+[[scenario]]
 name = "calm-creature-idles"
 source = "#2051: a calm creature standing still plays its idle tree's ordinary idles, the tree's conditions deciding (FidgetKind::Calm). Observed in the original (#1977 probe 2): HELIOS One's stasis protectrons, calm on ProtectronNotActive, play IdleSearch, IdleLookLeft and IdleLookRight"
 note = "HELIOSOneTower, the player 295 units south of p4 behind the pods' wall: p5 (VHeliosStasisProtectron5REF 0x0009A256) and p2 (0x0009A262) do not notice it and stand calm in their pods; the tower's other robots (0x0009A271, 0x0009A1FF) stand calm too"
