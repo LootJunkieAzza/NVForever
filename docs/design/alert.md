@@ -168,6 +168,13 @@ docs/spec-notes/crime-karma.md); the player's reputation does not.
 - Back in Normal the actor goes back to its package's place, as after a random
   conversation. Actors not run on their packages stand where they are and only turn
   their heads.
+  Already inside the package's place (a Sleep package "in cell", a radius it never
+  left), it settles there again as on arrival: its bed or chair if free, a sandbox, a
+  marker's heading (`Ai::back_to_package`, log `… is back in the place of <package>:
+  settles there again`; issue #2013). In the original Easy Pete, fought off his chair,
+  had his chair package back at the fight's end and sat again about 5 real seconds
+  later [observed: AI observer 2026-11-10]; the bed case is not settled by that capture
+  [design]. Smoke: `resident-resettles-after-fight`, `resident-resettles-in-bed`.
 
 ### Sandbox interruption [design]
 

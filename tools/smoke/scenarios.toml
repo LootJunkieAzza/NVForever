@@ -2037,6 +2037,39 @@ expect = ["furniture summary: 1 of 1 actors sat down, 1 got up again"]
 # every 3 s would pass). The 5 s spacing is proved by the unit tests of
 # crates/fnv-actor/src/furniture_retry.rs.
 [[scenario]]
+name = "resident-resettles-after-fight"
+source = "issue #2013 (packages.md, furniture.md): Easy Pete on his chair by day is drawn into a fight with a spawned gecko, which gets him up; the gecko is taken away (disabled, as in the capture) and when his search ends inside his package's place he sits again [observed in the original: AI observer 2026-11-10, Easy Pete sat again about 5 real seconds after the fight]"
+areas = ["ai", "residents", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "9", "--size", "1280x720", "--no-voice", "--no-messages", "--npc-packages", "EasyPeteRef"]
+env = { RUST_LOG = "info", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "20:call:EasyPeteRef:PlaceAtMe:NVCrGecko:1:200:0,20.5:combat:EasyPeteRef:0xFF000000,20.6:combat:0xFF000000:EasyPeteRef,26:call:0xFF000000:Disable,80:call:EasyPeteRef:GetSitting" }
+run_seconds = 85
+order = [[
+  "furniture: 00104C80 is on ",
+  "furniture: 00104C80 gets off ",
+  { re = 'EasyPeteRef: (is back in the place of|has searched: back to the place of) ', label = "his search over, he goes back to his chair" },
+  "furniture: 00104C80 is on ",
+  "script: test aid calls GetSitting on EasyPeteRef = 3",
+]]
+
+[[scenario]]
+name = "resident-resettles-in-bed"
+source = "issue #2013 (packages.md): Easy Pete asleep under his Sleep package (in cell) is drawn into a fight with a spawned gecko, which gets him off his bed; the gecko is taken away (disabled) and, his search over anywhere in the cell, his package's place, he lies down again instead of standing in the room until the package's hours end [design; the original's bed case is not settled by the 2026-11-10 capture]"
+note = "Easy Pete is put by his bed (00176ACE) at 2:00 as in wake-to-talk; a gecko is set on him at 20 s and disabled at 26 s"
+areas = ["ai", "residents", "furniture"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:0x00176ACE:0:60:0,20:call:EasyPeteRef:PlaceAtMe:NVCrGecko:1:150:0,20.5:combat:EasyPeteRef:0xFF000000,20.6:combat:0xFF000000:EasyPeteRef,26:call:0xFF000000:Disable,75:call:EasyPeteRef:GetSleeping" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "2", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 80
+order = [[
+  { text = "furniture: 00104C80 is on 00176ACE", label = "Easy Pete asleep on his bed" },
+  { text = "furniture: 00104C80 gets off 00176ACE", label = "the fight gets him up" },
+  { re = 'EasyPeteRef: is back in the place of \S+: settles there again', label = "his search over in the cell, he settles again (#2013)" },
+  { text = "furniture: 00104C80 is on 00176ACE", label = "back on his bed" },
+  { text = "script: test aid calls GetSleeping on EasyPeteRef = 3", label = "asleep" },
+]]
+
+[[scenario]]
 name = "resident-furniture-refusal-retry"
 source = "issue #1506, docs/spec-notes/furniture.md §7: the test aid's settler is on Easy Pete's chair when his AI resumes; refused (in use), he waits, asks again (logged once) and sits soon after the settler got off"
 areas = ["ai", "residents", "furniture"]
