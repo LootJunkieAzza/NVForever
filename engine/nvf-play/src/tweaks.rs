@@ -432,6 +432,8 @@ pub struct TweakSettings {
     /// `bEncumbranceIncludesGrabbedItems`: an item held up by the grab counts in the
     /// carried weight.
     pub grabbed_weighs: bool,
+    /// `bSortEquipableAmmo`: in the Pip-Boy the ammo the carried weapons fire comes first.
+    pub usable_ammo_first: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -676,6 +678,7 @@ impl Default for TweakSettings {
             recent_dead_secs: 0.0,
             armor_sounds_3d: false,
             grabbed_weighs: false,
+            usable_ammo_first: false,
         }
     }
 }
@@ -1677,6 +1680,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "mine-blasts-heard", "Mine Blasts Are Heard", "A mine going off alerts the people near who would fight whoever laid it, or whoever set it off. (Stewie's Tweaks bNPCsDetectMineExplosions)", game.mine_blasts_heard);
         switch!(app, "blasts-spare-items", "Explosions Leave Items Be", "Explosions do not throw about things you can pick up, so loot stays where it lies. (Stewie's Tweaks bExplosionsDontPushTakeableItems)", game.blasts_spare_items);
         switch!(app, "grabbed-weighs", "Held Items Weigh", "An item you are holding up with the grab counts toward what you carry, so it can leave you overencumbered. (Stewie's Tweaks bEncumbranceIncludesGrabbedItems)", grabbed_weighs);
+        switch!(app, "usable-ammo-first", "Usable Ammo First", "In the Pip-Boy's ammo list, ammo that a weapon you carry can fire comes first. (Stewie's Tweaks bSortEquipableAmmo)", usable_ammo_first);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1978,7 +1982,18 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
 
 /// Hand the game's part to the running game when it differs, and log the change.
 #[allow(clippy::too_many_arguments)]
-fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>, hotkeys: Option<Res<crate::hotkeys::Hotkeys>>) {
+#[allow(clippy::type_complexity)]
+fn sync(
+    tweaks: Res<TweakSettings>,
+    mut script: Option<ResMut<ScriptState>>,
+    quests: Option<ResMut<crate::quest_messages::QuestMessages>>,
+    loading: Option<ResMut<crate::loading::Loading>>,
+    console: Option<ResMut<crate::console::Console>>,
+    mut active: Option<ResMut<crate::menu::ActiveMenu>>,
+    bindings: Option<ResMut<crate::bindings::Bindings>>,
+    hotkeys: Option<Res<crate::hotkeys::Hotkeys>>,
+    (combat, sim): (Option<Res<crate::combat::Combat>>, Option<Res<crate::sim::SimState>>),
+) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
     crate::kill_cam::set_move_during(tweaks.move_during_kill_cam);
     crate::console::set_model_details(tweaks.console_model_details);
@@ -2038,6 +2053,20 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
         if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {
             (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) = menu;
+        }
+        // The ammo the carried weapons fire, for Sort Equipable Ammo.
+        let usable: Vec<fnv_sim::FormId> = match (tweaks.usable_ammo_first, combat.as_deref(), sim.as_deref()) {
+            (true, Some(c), Some(sim)) => {
+                let carried: Vec<fnv_sim::FormId> = sim.world.peek(fnv_sim::FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.groups().map(|g| g.0).collect()).unwrap_or_default();
+                let mut out: Vec<fnv_sim::FormId> = carried.iter().filter_map(|w| c.forms.weapons.get(w)).flat_map(|w| c.forms.ammo_choices(w)).collect();
+                out.sort_unstable();
+                out.dedup();
+                out
+            }
+            _ => Vec::new(),
+        };
+        if m.usable_ammo != usable {
+            m.usable_ammo = usable;
         }
         let hotkeyed: Vec<fnv_sim::FormId> = hotkeys.as_deref().map(|h| h.0.iter().flatten().map(|s| fnv_sim::FormId(s.item)).collect()).unwrap_or_default();
         let hide = (tweaks.hide_hotkeyed_containers, tweaks.hide_hotkeyed_barter, tweaks.hide_hotkeyed_repair);

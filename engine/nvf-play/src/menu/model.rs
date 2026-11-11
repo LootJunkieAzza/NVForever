@@ -753,6 +753,9 @@ pub struct MenuModel {
     pub hide_hotkeyed_repair: bool,
     /// The items on the hotkeys (base forms), for those tweaks.
     pub hotkeyed: Vec<FormId>,
+    /// The ammo the player's carried weapons can fire, listed first in the inventory
+    /// under the player's Sort Equipable Ammo tweak (empty: no such order) [design: docs/design/tweaks.md].
+    pub usable_ammo: Vec<FormId>,
     pub title_case_categories: bool,
     /// The price of things worth nothing in a barter (the tweak; 0: as they are).
     pub free_item_price: f32,
@@ -940,6 +943,7 @@ impl MenuModel {
             hide_hotkeyed_barter: false,
             hide_hotkeyed_repair: false,
             hotkeyed: Vec::new(),
+            usable_ammo: Vec::new(),
             title_case_categories: false,
             free_item_price: 0.0,
             warn_encumbrance: false,
@@ -1017,6 +1021,11 @@ impl MenuModel {
                 // And things on a hotkey [design: docs/design/tweaks.md].
                 if side == Side::Player && self.hide_hotkeyed_containers && matches!(self.mode, Mode::Container(_)) {
                     l.rows.retain(|r| !self.hotkeyed.contains(&r.item));
+                }
+                // The player's tweak: ammo a carried weapon fires first, in name order
+                // within each part [design: docs/design/tweaks.md].
+                if self.mode == Mode::Inventory && !self.usable_ammo.is_empty() {
+                    l.rows.sort_by_key(|r| !self.usable_ammo.contains(&r.item));
                 }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
                     // The player's tweak leaves quest items out of Misc [design: docs/design/tweaks.md].

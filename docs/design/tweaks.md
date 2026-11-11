@@ -565,6 +565,7 @@ unless the player binds them, so nothing changes until then.
 | Mine Blasts Are Heard | `bNPCsDetectMineExplosions` | `mines::tick` keeps who set a mine off (`Burning::by`) and, when it goes off, queues an explosion detection event (level 100, ours) owned by whoever laid it, else whoever set it off; nvforever `detection` measures it as any other event |
 | Explosions Leave Items Be | `bExplosionsDontPushTakeableItems` | the explosion's push uses `fnv_phys::World::push_dynamic_but`, sparing bodies whose reference's base is an item |
 | Held Items Weigh | `bEncumbranceIncludesGrabbedItems` | `player::encumbered_walks` adds the grabbed reference's item weight times its count (`GripOn::Ref`) to the carried weight before judging over the limit |
+| Usable Ammo First | `bSortEquipableAmmo` | `tweaks::sync` puts the ammo choices of the player's carried weapons in `MenuModel::usable_ammo`; `MenuModel::refresh` sorts those rows first in the inventory, a stable sort that keeps the names' order |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -586,8 +587,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 491 |
-| to do | 112 |
+| done | 492 |
+| to do | 111 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -732,7 +733,7 @@ game's Data folder, read-only).
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
 | `bPerBulletLoopingReloads` | to do |  | 2 | a press counter on the attack Cycle |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
-| `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
+| `bPreventRepairIfNotAtWorkbench` | to do |  |  | workbenches are activators whose own scripts open the recipe menu; nothing marks one for the crosshair |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
 | `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
@@ -1004,6 +1005,7 @@ game's Data folder, read-only).
 | `bShowBookEffects` | done | yes | 1 | Skill Book Effects |
 | `bShowWeaponAmmoUseInMenus` | done | yes |  | Rounds per Shot |
 | `bSkipSkillMenuIfNoPointsToAssign` | done | yes |  | Perks First When No Points |
+| `bSortEquipableAmmo` | done | yes |  | Usable Ammo First |
 | `bSynchronizeContainerCategories` | done | yes | 1 | Matching Categories (the option for emptying a category not built) |
 | `bTakeAllInCompanionContainers` | done | yes |  | already so: Take All shows for companions |
 | `b12HourPipboyClock` | done |  |  | 12-Hour Pip-Boy Clock |
@@ -1088,7 +1090,6 @@ game's Data folder, read-only).
 | `bRemoveDownloadsButton` | n/a | yes |  | NVForever has no Downloads button |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
-| `bSortEquipableAmmo` | to do | yes |  | rows sort by name (menu/model.rs sort_rows) |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
