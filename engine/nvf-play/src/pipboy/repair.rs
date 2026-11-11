@@ -262,7 +262,16 @@ pub fn current(active: &ActiveMenu, sim: &mut SimState, script: Option<&ScriptSt
     // The item's repair list, and with Jury Rigging the like items carried
     // (`fnv_game::Game::player_repair_list`, perk-entry-points.md §9).
     let list = script.and_then(|s| s.rt.as_ref()).map(|rt| rt.game.player_repair_list(r.item, groups.iter().map(|g| g.0))).unwrap_or_default();
-    tweak_order(offer(&groups, forms, &list, r.item, r.pick(), r.equipped), script)
+    let o = tweak_order(offer(&groups, forms, &list, r.item, r.pick(), r.equipped), script);
+    // The player's tweak keeps things on a hotkey out of the parts [design: docs/design/tweaks.md].
+    if !m.hide_hotkeyed_repair {
+        return o;
+    }
+    o.map(|mut o| {
+        o.parts.retain(|p| !m.hotkeyed.contains(&p.item));
+        o
+    })
+    .filter(|o| !o.parts.is_empty())
 }
 
 /// The keys of the repair list and R on the ITEMS page.

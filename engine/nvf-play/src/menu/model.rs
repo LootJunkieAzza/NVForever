@@ -749,6 +749,8 @@ pub struct MenuModel {
     /// and of a barter [design: docs/design/tweaks.md].
     pub hide_hotkeyed_containers: bool,
     pub hide_hotkeyed_barter: bool,
+    /// And out of the Pip-Boy's repair parts (`crate::pipboy::repair::current`).
+    pub hide_hotkeyed_repair: bool,
     /// The items on the hotkeys (base forms), for those tweaks.
     pub hotkeyed: Vec<FormId>,
     pub title_case_categories: bool,
@@ -936,6 +938,7 @@ impl MenuModel {
             hide_equipped_containers: false,
             hide_hotkeyed_containers: false,
             hide_hotkeyed_barter: false,
+            hide_hotkeyed_repair: false,
             hotkeyed: Vec::new(),
             title_case_categories: false,
             free_item_price: 0.0,
