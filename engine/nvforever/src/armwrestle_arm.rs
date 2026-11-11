@@ -49,6 +49,10 @@ pub const SLAM: f32 = 0.25;
 pub const FOLLOW: f32 = 5.0;
 /// Seconds for the pose to ease in or out [design].
 const EASE: f32 = 0.3;
+/// Seconds the loser's hand stays down before the arms let go [design: the celebration].
+const HOLD: f32 = 3.0;
+/// How near a chair a body sits to be taken for its wrestler, game units [design].
+const ON_SEAT: f32 = 40.0;
 /// The elbow's place on the table from the middle, in forearm lengths [design].
 const ELBOW_IN: f32 = 0.45;
 /// The tremble: within this much of even, at most this lean (radians) [design].
@@ -111,7 +115,7 @@ pub struct Shown {
 /// The match this game shows: this player's own bout (after the card), else the one it
 /// watches.
 fn live(screen: &ArmScreen, watch: &ArmWatch, table: &ArmTable) -> Option<Live> {
-    if let Some(a) = screen.0.as_ref().filter(|a| a.page != Page::Offer && a.left_at.is_none()) {
+    if let Some(a) = screen.0.as_ref().filter(|a| a.page != Page::Offer && !a.leaving && a.left_at.is_none()) {
         let b = a.bout.as_ref()?;
         let mut stools = [0; 2];
         stools[a.side as usize & 1] = a.stool.0;
@@ -135,7 +139,7 @@ pub fn arms(
     seat: Option<Res<PlayerSeat>>,
     sim: Option<Res<SimState>>,
     body: Option<Res<crate::player_body::PlayerBody>>,
-    rigs: Query<(Entity, &ActorRig, Option<&OnFurniture>)>,
+    rigs: Query<(Entity, &ActorRig, Option<&OnFurniture>, &GlobalTransform)>,
     parents: Query<&ChildOf>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
@@ -144,7 +148,11 @@ pub fn arms(
     let dt = time.delta_secs();
     shown.clock += dt;
     let (Some(screen), Some(watch), Some(table), Some(sim)) = (screen, watch, table, sim) else { return };
-    let now_live = live(&screen, &watch, &table);
+    let mut now_live = live(&screen, &watch, &table);
+    // Getting up, or a while after the win: the arms let go.
+    if screen.0.as_ref().is_some_and(|a| a.leaving) || (now_live.is_some_and(|l| l.winner.is_some()) && shown.won.is_some_and(|(_, at, _)| shown.clock - at > HOLD)) {
+        now_live = None;
+    }
     match now_live {
         Some(l) => {
             if l.table != shown.table || l.stools != shown.stools {
@@ -183,10 +191,20 @@ pub fn arms(
     };
     // The table's middle and its axis, from this game's references.
     let at = |r: u32| sim.world.peek(FormId(r)).map(|s| to_bevy(s.pos));
-    let (Some(mid), Some(p0), Some(p1)) = (at(shown.table), at(shown.stools[0]), at(shown.stools[1])) else { return };
+    let (Some(mid), Some(p0), Some(p1)) = (at(shown.table), at(shown.stools[0]), at(shown.stools[1])) else {
+        if !std::mem::replace(&mut shown.noted, true) {
+            warn!("arm wrestle arm: the table {:08X} or its seats are not in the world", shown.table);
+        }
+        return;
+    };
     let mut u = p1 - p0;
     u.y = 0.0;
-    let Some(u) = u.try_normalize() else { return };
+    let Some(u) = u.try_normalize() else {
+        if !std::mem::replace(&mut shown.noted, true) {
+            warn!("arm wrestle arm: the seats stand at one spot");
+        }
+        return;
+    };
     // Each side's body: whoever sits on that side's stool here.
     let mine = seat.as_deref().and_then(|s| s.on.filter(|_| s.hold.is_some()));
     let bodies: [Option<(Entity, ActorRig)>; 2] = std::array::from_fn(|k| {
@@ -194,13 +212,36 @@ pub fn arms(
         if mine == Some(stool) {
             return body.as_deref().and_then(|b| b.third_rig());
         }
-        rigs.iter().find(|(_, _, on)| on.is_some_and(|o| o.furniture() == stool && o.seated())).map(|(e, r, _)| (e, r.clone()))
+        if let Some((e, r, _, _)) = rigs.iter().find(|(_, _, on, _)| on.is_some_and(|o| o.furniture() == stool && o.seated())) {
+            return Some((e, r.clone()));
+        }
+        // Seated some other way (an NPC its AI sat down): the body nearest the chair.
+        let local = body.as_deref().and_then(|b| b.third_rig()).map(|r| r.0);
+        let seat_at = at(stool)?;
+        rigs.iter()
+            .filter(|(e, r, _, _)| Some(*e) != local && r.reference != FormId::PLAYER_REF.0)
+            .map(|(e, r, _, g)| (e, r, Vec2::new(g.translation().x - seat_at.x, g.translation().z - seat_at.z).length()))
+            .filter(|(_, _, d)| *d < ON_SEAT)
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(e, r, _)| (e, r.clone()))
     });
+    for (k, b) in bodies.iter().enumerate() {
+        if b.is_none() && !std::mem::replace(&mut shown.noted, true) {
+            warn!("arm wrestle arm: no body on side {k}'s seat {:08X}", shown.stools[k]);
+        }
+    }
     // The middle of the table's top: the table's x/y, its top's height
     // (`fnv_game::armwrestle_table::TABLE_TOP_Z`, game z is Bevy y).
     let mut arms = Vec::new();
     for (k, b) in bodies.iter().enumerate() {
         let Some((root, rig)) = b else { continue };
+        // Leaning in over the table first: the arm hangs from the leaned chest.
+        let toward = if k == 0 { u } else { -u };
+        if let Err(why) = lean_in(*root, rig, Vec3::new(mid.x, 0.0, mid.z), toward, w, &parents, &mut transforms, &globals) {
+            if !std::mem::replace(&mut shown.noted, true) {
+                warn!("arm wrestle arm: side {k} does not lean in: {why}");
+            }
+        }
         match bones(*root, rig, &parents, &transforms, &globals) {
             Ok(a) => arms.push((k, a)),
             Err(why) => {
@@ -213,13 +254,60 @@ pub fn arms(
     if arms.is_empty() {
         return;
     }
-    let mid = Vec3::new(mid.x, fnv_game::armwrestle_table::TABLE_TOP_Z, mid.z);
+    // Over the table's top, half way between the two shoulders (where both arms reach).
+    let (mx, mz) = if arms.len() == 2 { ((arms[0].1.s.x + arms[1].1.s.x) / 2.0, (arms[0].1.s.z + arms[1].1.s.z) / 2.0) } else { (mid.x, mid.z) };
+    let mid = Vec3::new(mx, fnv_game::armwrestle_table::TABLE_TOP_Z, mz);
     for (k, a) in arms {
         let b = a.e0.distance(a.h0);
         let (elbow, hand) = clasp(mid, u, b, k, lean);
         let (e, h) = solve(a.s, a.e0, a.h0, hand, elbow - a.s);
+        if (shown.clock * 2.0).fract() < dt * 2.0 {
+            info!("arm wrestle arm: side {k} weight {w:.2} lean {:.2} shoulder {:.0?} elbow {:.0?} wrist {:.0?} -> elbow {:.0?} wrist {:.0?} target {:.0?}", lean, a.s, a.e0, a.h0, e, h, hand);
+        }
         a.apply(e, h, w, &mut transforms);
     }
+}
+
+/// The bone the upper body bends at, and the one above it if the skeleton lacks it
+/// [observed: the human skeleton's node names].
+const SPINE: [&str; 2] = ["Bip01 Spine", "Bip01 Spine1"];
+/// The upper body's lean in at most, radians [design: about 25 degrees; 50 hunched them head to head, desktop run 2026-11-11].
+const MAX_BEND: f32 = 0.45;
+/// How near the clasp (level) the shoulder is to come, in arm lengths [design: the
+/// elbow then goes down onto the table with the forearm up].
+const SHOULDER_IN: f32 = 0.8;
+
+/// Bend the upper body forward (towards `toward`, level) so the right shoulder comes in
+/// towards the clasp at `clasp` (level: its y is ignored), by `w`.
+#[allow(clippy::too_many_arguments)]
+fn lean_in(root: Entity, rig: &ActorRig, clasp: Vec3, toward: Vec3, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<(), &'static str> {
+    let node = |name: &str| rig.skel.names.iter().position(|n| n.as_deref() == Some(name)).and_then(|i| rig.nodes.get(i).copied());
+    let spine = SPINE.iter().find_map(|n| node(n)).ok_or("no spine")?;
+    let (Some(upper), Some(fore), Some(hand)) = (node(UPPER), node(FORE), node(HAND)) else { return Err("no right arm") };
+    let above = parents.get(spine).map_err(|_| "the spine hangs from nothing")?.parent();
+    let gp = world_of(above, root, parents, transforms, globals).ok_or("the spine is not under the body")?;
+    let gs = world_of(spine, root, parents, transforms, globals).ok_or("the spine is not under the body")?;
+    let sh = world_of(upper, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
+    let el = world_of(fore, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
+    let wr = world_of(hand, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
+    let reach = sh.distance(el) + el.distance(wr);
+    let pivot = gs.translation();
+    let height = (sh.y - pivot.y).max(1.0);
+    let flat = |v: Vec3| Vec2::new(v.x, v.z);
+    let gap = flat(clasp).distance(flat(sh)) - SHOULDER_IN * reach;
+    if gap <= 0.0 {
+        return Ok(());
+    }
+    let bend = (gap / height).clamp(0.0, 1.0).asin().min(MAX_BEND) * w;
+    // Forward is towards the table: turning about the level axis across it.
+    let axis = Vec3::Y.cross(toward).normalize_or(Vec3::X);
+    // About Y × toward a positive turn takes up towards `toward`.
+    let q = Quat::from_axis_angle(axis, bend);
+    let rp = rot(&gp);
+    if let Ok(mut t) = transforms.get_mut(spine) {
+        t.rotation = (rp.inverse() * q * rp * t.rotation).normalize();
+    }
+    Ok(())
 }
 
 /// An arm's bones as animated: the shoulder, elbow and wrist (world), the frame above
