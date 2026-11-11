@@ -449,6 +449,9 @@ pub struct Tweaks {
     /// `bNPCsDropWeaponHolsteredWeapon`: an NPC that dies with its weapon put away drops
     /// it as one with it drawn does.
     pub npcs_drop_holstered: bool,
+    /// `bNPCsEarnAmmoCasings`: NPCs keep their spent rounds' items (cases, hulls, drained
+    /// cells) as the player does.
+    pub npcs_earn_casings: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -653,6 +656,7 @@ impl Default for Tweaks {
             fall_deaths_dismember: false,
             splash_torso_gib: false,
             npcs_drop_holstered: false,
+            npcs_earn_casings: false,
         }
     }
 }

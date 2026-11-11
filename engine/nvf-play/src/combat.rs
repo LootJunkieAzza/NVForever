@@ -4240,6 +4240,14 @@ fn actor_attacks(
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
         fired.write(ShotFired { projectile: proj, weapon: s.weapon, shooter: s.shooter, at: Some(seen_from), dir: Some(leaving.aim) });
+        // The player's tweak: an NPC's spent round leaves it its case, as the player's does
+        // (no perks) [design: docs/design/tweaks.md].
+        let npc_casings = s.shooter != FormId::PLAYER_REF && !scripted && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npcs_earn_casings);
+        if let Some(spent) = ammo.and_then(|a| c.forms.ammo.get(&a)).and_then(|a| a.consumed).filter(|(i, p)| npc_casings && i.0 != 0 && *p > 0.0) {
+            if c.spent_rng.next_f32() * 100.0 < spent.1 && sim.world.add_item(s.shooter, spent.0, 1).is_ok() {
+                debug!("combat: {} keeps the spent item {} (tweak)", s.shooter, spent.0);
+            }
+        }
         // Heard where it is fired: the weapon's 3D shoot sound, its distant one beyond
         // the 3D sound's reach, the mod set's with a Silence or Suppressor mod on the
         // unit in use (weapon-mods.md §7).

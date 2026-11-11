@@ -513,6 +513,7 @@ unless the player binds them, so nothing changes until then.
 | Deadly Falls Take the Legs | `bFallDeathsCauseDismemberment` | `falls::hurt` queues `dismember::scripted_check` for Left Leg 1 and Right Leg 1 when a fall kills an NPC (exploded where the part can be, else severed) |
 | Splash Kills Can Gib the Torso | `bSplashDamageTorsoGibbing` | the blast loop: a blast kill by an actor with Bloody Mess explodes the torso at `SPLASH_TORSO_CHANCE` (one in four, ours) |
 | NPCs Drop Holstered Weapons | `bNPCsDropWeaponHolsteredWeapon` | `combat::death_drops` follows an NPC's equipped weapon too when none is in its hand |
+| NPCs Keep Spent Cases | `bNPCsEarnAmmoCasings` | the NPC shot path rolls the ammo's Consumed Percentage and adds the Consumed Ammo item to the shooter (no perks) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -534,8 +535,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 439 |
-| to do | 164 |
+| done | 440 |
+| to do | 163 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -605,6 +606,7 @@ game's Data folder, read-only).
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
 | `bNoPlayerStaggerAnims` | done |  |  | No Player Stagger |
 | `bNoSkillTags` | done |  | 6 | No Skill Tags (the outline, percent and XP options not built) |
+| `bNPCsEarnAmmoCasings` | done |  |  | NPCs Keep Spent Cases (the ammo's own chance, no perks) |
 | `bNPCsTakeLimbFallDamage` | done |  |  | already so: falls hit a leg for NPCs too |
 | `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
 | `bPerksAffectFistWeaponSpeed` | done |  |  | already so: the fists are the weapon the perks are asked about |
@@ -675,7 +677,6 @@ game's Data folder, read-only).
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
-| `bNPCsEarnAmmoCasings` | to do |  |  | actor_attacks; spent_ammo_item is player-only |
 | `bOverencumberedTweak` | to do |  | 8 | encumbered_walks and ap_costs together, with a timer |
 | `bPerBulletLoopingReloads` | to do |  | 2 | a press counter on the attack Cycle |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
