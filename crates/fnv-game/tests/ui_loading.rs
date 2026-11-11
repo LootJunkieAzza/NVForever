@@ -201,6 +201,25 @@ fn the_engines_prompt_builds_over_the_open_menu_and_drops_with_it() {
 }
 
 #[test]
+fn the_engines_vats_screen_builds_while_it_is_up() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());
+    let src = lifetime_files().with("menus/added/vats.xml", r#"<menu name="VATSMenu"><class>&VATSMenu;</class></menu>"#);
+    let paths = src.files.keys().cloned().collect::<Vec<_>>();
+    ui_loading::load(&mut g, Box::new(src), paths);
+    // VATS is no `Game::menu`: its file builds only while the engine's screen reads it.
+    assert!(ui_loading::sync(&mut g, false, false).changes.is_empty());
+    g.ui_vats = true;
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes, ["built VATSMenu (menus\\added\\vats.xml, 1 tiles)"]);
+    assert!(g.ui_tree.menu("VATSMenu").is_some());
+    assert!(!g.menu_open(menus::VATS), "the screen alone does not make MenuMode 1056 hold");
+    assert!(ui_loading::sync(&mut g, false, false).changes.is_empty());
+    g.ui_vats = false;
+    assert_eq!(ui_loading::sync(&mut g, false, false).changes, ["dropped VATSMenu"]);
+}
+
+#[test]
 fn missing_class_warns_once_and_side_codes_are_ignored() {
     use fnv_game::game::menus;
     let f = fixture();

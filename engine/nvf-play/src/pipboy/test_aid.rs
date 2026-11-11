@@ -32,6 +32,9 @@
 //!   click assigns, `super::hotkey_panel`) until `hotkey=off`.
 //! - `frame=screen|device`: the Gameplay setting Use Pip-Boy off or on, as the settings
 //!   page sets it (the Pip-Boy and its glove taken off or put on).
+//! - `glitch=plain|shudder|hold|off`: every page change from then on is that kind of
+//!   transition (`super::transition`), as the INI's chances set to 1 or 0 would make it;
+//!   `off` rolls the chances again.
 //!
 //! Each step is logged. Screenshots are `NVF_PLAY_TEST_SHOTS`'.
 
@@ -61,6 +64,8 @@ enum Step {
     Hotkey(Option<usize>),
     /// Use Pip-Boy off (`true`, the screen menu) or on.
     Frame(bool),
+    /// The kind of every page change, or the chances again.
+    Glitch(Option<super::transition::Kind>),
 }
 
 fn page(p: &str) -> Option<Page> {
@@ -116,6 +121,13 @@ fn step(s: &str) -> Option<Step> {
                 "device" => false,
                 _ => return None,
             }),
+            ("glitch", g) => Step::Glitch(match g.trim() {
+                "plain" => Some(super::transition::Kind::Plain),
+                "shudder" => Some(super::transition::Kind::Shudder),
+                "hold" => Some(super::transition::Kind::VerticalHold),
+                "off" => None,
+                _ => return None,
+            }),
             ("hotkey", "off") => Step::Hotkey(None),
             ("hotkey", n) => Step::Hotkey(Some(n.trim().parse::<usize>().ok().filter(|n| (1..=8).contains(n))? - 1)),
             ("tab", t) => Step::Tab(t.trim().parse().ok().filter(|t| *t < 5)?),
@@ -165,6 +177,7 @@ fn run(
     (mut ask, mut repair, mut modding): (MessageWriter<FastTravelAsk>, MessageWriter<super::repair::RepairInput>, MessageWriter<super::item_mod::ModInput>),
     mut hold: ResMut<super::hotkey_panel::HotkeyHold>,
     mut use_pipboy: ResMut<super::UsePipBoy>,
+    mut change: ResMut<super::transition::PageChange>,
 ) {
     let Some(now) = time.world_secs() else { return };
     while let Some(&(t, s)) = script.0.first() {
@@ -226,6 +239,9 @@ fn run(
             Step::Frame(screen) => {
                 use_pipboy.set(!screen);
             }
+            Step::Glitch(kind) => {
+                change.forced = kind;
+            }
         }
     }
 }
@@ -236,7 +252,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.6:rclick=260:150, 8.7:point=off, 8.8:point=1:2, 8.85:point=items, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.9965:placemarker, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.6:rclick=260:150, 8.7:point=off, 8.8:point=1:2, 8.85:point=items, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.9965:placemarker, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up, 9.1:glitch=hold, 9.2:glitch=off, 9.3:glitch=wobble");
         assert_eq!(
             s,
             vec![
@@ -260,7 +276,9 @@ mod tests {
                 (8.9965, Step::PlaceMarker),
                 (8.997, Step::Frame(true)),
                 (8.998, Step::Frame(false)),
-                (9.0, Step::Close)
+                (9.0, Step::Close),
+                (9.1, Step::Glitch(Some(super::super::transition::Kind::VerticalHold))),
+                (9.2, Step::Glitch(None)),
             ]
         );
     }
