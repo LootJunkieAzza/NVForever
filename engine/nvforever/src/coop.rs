@@ -2331,11 +2331,13 @@ fn share_npcs(
         flags |= if knocked(r) { npc_flag::KNOCKED } else { 0 };
         flags |= if pitch.is_some() { npc_flag::AIMING } else { 0 };
         flags |= if fighters.sights(r) { npc_flag::SIGHTS } else { 0 };
-        // Getting off is sent as off: a guest starts its own getting-off clip with the
-        // host's, not once the host's has ended (then it stood up 3.4 s late and was put
-        // 187 units on where the host had walked it meanwhile; armwrestle-c's desktop
-        // run 2026-11-12, the Settler leaving the arm-wrestling chair).
-        let on = on.filter(|f| !f.getting_off());
+        // Getting off, or asked to while still getting on, is sent as off: a guest starts
+        // its own getting-off clip with the host's, not once the host's has ended (then it
+        // stood up 3.4 s late and was put 187 units on where the host had walked it
+        // meanwhile, armwrestle-c's desktop run 2026-11-12; the Dead Horses off their
+        // push-up spots got off 8 s late and were put 82-165 units on, laptop
+        // deadhorse-spears b015).
+        let on = on.filter(|f| !f.leaving());
         flags |= if on.is_some_and(|f| f.seated()) { npc_flag::SEATED } else { 0 };
         let level = actor_world.as_deref().map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(r));
         npcs.push(NpcState {

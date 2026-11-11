@@ -572,6 +572,11 @@ impl OnFurniture {
     pub fn getting_off(&self) -> bool {
         matches!(&self.stage, Stage::Using(u) if u.state() == state::GETTING_OFF)
     }
+
+    /// Getting off it, or asked to while still getting on.
+    pub fn leaving(&self) -> bool {
+        matches!(&self.stage, Stage::Using(u) if u.phase == Phase::GettingOff || u.leave_wanted)
+    }
 }
 
 /// Drawn actors not yet told to sit.
