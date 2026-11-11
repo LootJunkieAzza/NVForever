@@ -2377,7 +2377,7 @@ impl Ai {
                 let going = a.activity == Activity::Travelling;
                 let close = away > if holding { resume } else { stop };
                 match (close, a.search) {
-                    (true, Some(Search::Closing { target: t, to, since })) if t == target && going && goal::dist(to, at) < crate::alert::CLOSE_REPLAN_DISTANCE && game.time - since < crate::alert::CLOSE_REPLAN_SECONDS => {}
+                    (true, Some(Search::Closing { target: t, to, since, .. })) if t == target && going && crate::alert::keeps_way(to, since, at, away, stop, game.time) => {}
                     (true, _) => self.close_in(game, nav, actor, target, at, away, stop),
                     (false, Some(Search::Holding { target: t })) if t == target => {}
                     (false, _) => {
