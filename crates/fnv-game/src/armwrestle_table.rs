@@ -179,16 +179,23 @@ fn created_at(g: &Game, base: FormId, cell: FormId, pos: [f32; 3]) -> Option<For
 }
 
 /// The test aid naming another table base to make in the table's place, for comparison
-/// shots (`NVF_PLAY_TEST_ARMWRESTLE_TABLE=<editor ID>`): only how it looks; the arms
-/// still take [`TABLE_TOP_Z`] [design].
+/// shots (`NVF_PLAY_TEST_ARMWRESTLE_TABLE=<editor ID>[:<yaw in degrees>]`, the yaw
+/// added to [`TABLE_HEADING`]): only how it looks; the arms still take [`TABLE_TOP_Z`]
+/// and the chairs stay where they are [design].
 pub const TABLE_AID: &str = "NVF_PLAY_TEST_ARMWRESTLE_TABLE";
 
 /// The table's base: [`TABLE_EDID`], or the one [`TABLE_AID`] names.
 fn table_base(g: &Game) -> Option<FormId> {
     match std::env::var(TABLE_AID) {
-        Ok(e) if !e.trim().is_empty() => g.data.by_edid(e.trim()),
+        Ok(e) if !e.trim().is_empty() => g.data.by_edid(e.split(':').next().unwrap_or("").trim()),
         _ => g.data.by_edid(TABLE_EDID),
     }
+}
+
+/// The table's heading: [`TABLE_HEADING`], turned by the yaw [`TABLE_AID`] gives.
+fn table_heading() -> f32 {
+    let turn = std::env::var(TABLE_AID).ok().and_then(|e| e.split(':').nth(1).and_then(|y| y.trim().parse::<f32>().ok())).unwrap_or(0.0);
+    wrap(TABLE_HEADING + turn.to_radians())
 }
 
 /// The table and stools, when they are made.
@@ -219,7 +226,7 @@ pub fn ensure(g: &mut Game) -> Vec<FormId> {
         return made;
     }
     retire_first_layout(g, cell);
-    let mut want = vec![(table, TABLE_POS, TABLE_HEADING)];
+    let mut want = vec![(table, TABLE_POS, table_heading())];
     for (seat, base) in [(0, seat0), (1, seat1)] {
         let (p, h) = stool_spot(seat);
         want.push((base, p, h));
