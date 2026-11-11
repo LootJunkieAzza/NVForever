@@ -100,15 +100,7 @@ impl Bout {
         }
         if self.phase == Phase::Pull && now >= self.started + COUNTDOWN + TIME_LIMIT {
             // Called on the lean; dead centre goes to the side with more taps, then side 0.
-            let w = if self.meter > 0.0 {
-                0
-            } else if self.meter < 0.0 {
-                1
-            } else if self.taps[1] > self.taps[0] {
-                1
-            } else {
-                0
-            };
+            let w = if self.meter < 0.0 || (self.meter == 0.0 && self.taps[1] > self.taps[0]) { 1 } else { 0 };
             self.settle(w, now);
         }
     }
