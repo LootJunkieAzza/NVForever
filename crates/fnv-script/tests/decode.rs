@@ -319,6 +319,27 @@ fn begin_parameters() {
     assert_eq!(text(&t, &u, &d), ["begin ontriggerenter 0x00000014", "end", "begin menumode 1012", "end"]);
 }
 
+/// A user-defined function the extender's compiler wrote (block type 0x0D, version 1, a
+/// count byte, then u16 variable + u8 type each, and a trailing byte) reads as
+/// NVForever's own Function block with its parameter variables, with or without
+/// parameters [observed: JustAssortedMods.esp JHIOnHitEventHandler, MAPMO's
+/// MAPMOCallbackMenuModeSCRIPT; Nuclear Sunset run of 2026-11-11, "has no Function block"].
+#[test]
+fn an_extender_function_block() {
+    let t = table();
+    let bytes = [block(0x0D, &[1, 2, 0x17, 0, 0, 0x16, 0, 4, 0], &[st(0x1E, &[])]), block(0x0D, &[1, 0, 0], &[])].concat();
+    let d = run(&t, &bytes);
+    assert!(d.report.issues.is_empty(), "{:?}", d.report.issues);
+    assert_eq!(d.program.blocks[0].event, FUNCTION_BLOCK);
+    let local = |index, letter| Arg::Var(VarRef { on: None, var: VarSlot::Local { index, letter } });
+    assert_eq!(d.program.blocks[0].params, Some(vec![local(0x17, VarLetter::Float), local(0x16, VarLetter::Float)]));
+    assert_eq!(d.program.blocks[1].event, FUNCTION_BLOCK);
+    assert_eq!(d.program.blocks[1].params, Some(vec![]));
+    // An int parameter is a short.
+    let d = run(&t, &block(0x0D, &[1, 1, 0x14, 0, 1, 0], &[]));
+    assert_eq!(d.program.blocks[0].params, Some(vec![local(0x14, VarLetter::Short)]));
+}
+
 #[test]
 fn unknown_bytes_are_kept_raw_and_counted() {
     let t = table();
