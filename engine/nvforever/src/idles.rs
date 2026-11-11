@@ -589,6 +589,7 @@ impl Default for Idles {
             standing_check: HashMap::new(),
             fidget_last: HashMap::new(),
             gesturing: HashMap::new(),
+            holstering: HashMap::new(),
             clock: 0.0,
             player_feet: None,
             told: HashMap::new(),
