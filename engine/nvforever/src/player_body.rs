@@ -576,6 +576,8 @@ struct Rig {
     shown: Option<bool>,
     /// Third person: what of the rig the camera sees (last applied).
     seen: Option<Seen>,
+    /// The whole third-person rig is drawn behind a loading screen (see [`show_rigs`]).
+    warm: bool,
     /// The furniture clip it plays (`BodyClip::serial`), while it plays one.
     furniture: Option<u32>,
     /// The clip played over it (`BodyClip::over`), by serial, while it plays.
@@ -1130,6 +1132,11 @@ struct WarmPose {
 #[derive(Component)]
 struct WarmUnculled;
 
+/// [design: show_rigs] Marks only the culling overrides a loading screen's body warm-up
+/// inserted, so taking them off leaves any other override alone.
+#[derive(Component)]
+struct BodyWarmUnculled;
+
 fn restore_warm_pose(
     mut commands: Commands,
     mut pip: ResMut<nvf_play::pipboy::PipBoy>,
@@ -1670,6 +1677,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         drawn,
         shown: None,
         seen: None,
+        warm: false,
         furniture: None,
         furniture_over: None,
         since_attack: f32::INFINITY,
@@ -2482,8 +2490,37 @@ fn blend_from_pose(rig: &Rig, from: &[Affine3A], k: f32, transforms: &mut Query<
     }
 }
 
-fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool) {
+/// `warm`: a loading screen is up. Behind it the whole third-person rig is drawn in the
+/// camera's pass, culling or not, so that its pipelines compile there and the screen waits
+/// for them (`pipeline_gate`). Otherwise a body first seen in play, kept to the shadow pass
+/// until then (first person, the slot machine's close camera), is skipped for the frames
+/// its pipelines compile and then drawn as a flat silhouette [observed 2026-11-11: slots-3d
+/// on ship + 841b9f9d0, its first third-person view after the win asked 14 pipelines,
+/// ready after 183 ms; the body missing at 43.5 s and flat brown at 43.25 s and 44.0 s].
+/// Compiled once, they stay in the pipeline cache for the run.
+fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool, warm: bool) {
     let third = &mut body.third;
+    let seen = if warm { Seen { body: true, head: true, arms: true, weapon: true } } else { seen };
+    if third.warm != warm {
+        let parts = third.drawn.iter().map(|d| d.entity).chain(third.weapon_parts.iter().map(|p| p.entity));
+        for e in parts {
+            if warm {
+                commands.entity(e).queue(|mut w: EntityWorldMut| {
+                    if !w.contains::<NoFrustumCulling>() {
+                        w.insert((NoFrustumCulling, BodyWarmUnculled));
+                    }
+                });
+            } else {
+                commands.entity(e).queue(|mut w: EntityWorldMut| {
+                    if w.contains::<BodyWarmUnculled>() {
+                        w.remove::<(NoFrustumCulling, BodyWarmUnculled)>();
+                    }
+                });
+            }
+        }
+        debug!("player body: {}", if warm { "drawn whole behind the loading screen" } else { "the loading screen is down" });
+        third.warm = warm;
+    }
     if third.seen != Some(seen) {
         for d in &third.drawn {
             commands.entity(d.entity).insert(Seen::layer(seen.part(d)));
@@ -2630,7 +2667,7 @@ fn take_overrides(script: Option<Res<nvf_play::script::ScriptState>>, anim: Res<
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
-    (time, turbo, sim, mut told_scale): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>),
+    (time, turbo, sim, mut told_scale, loading): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>, Option<Res<nvf_play::loading::Loading>>),
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
@@ -2658,6 +2695,8 @@ fn drive_body(
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
     let state = &mut *state;
+    // A loading screen is up: the whole body is drawn behind it ([`show_rigs`]).
+    let warm = loading.as_deref().is_some_and(|l| l.active());
     player.body_view = None;
     // Set again below while the body's attack clip carries the player.
     let was_carrying = std::mem::replace(&mut lunge.carrying, false);
@@ -2690,7 +2729,7 @@ fn drive_body(
         anim.casing = None;
         state.muzzle_entity = None;
         state.casing_entity = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.holds_pose(), arms: true, weapon: true }, false);
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.holds_pose(), arms: true, weapon: true }, false, warm);
         return;
     }
     // Turbo slows the world's clock, not the player's clips (magic-archetypes.md §2).
@@ -2815,7 +2854,7 @@ fn drive_body(
         // A weapon still in the hand is not drawn: the furniture's clips (and the fillet
         // table's, which put the mod's knife in that hand) do not hold it.
         let seen = Seen { body: (third_view || own_body) && !state.out_of_view, head: third_view, arms: true, weapon: !m.hands.in_hand };
-        show_rigs(body, &mut commands, &mut visibility, seen, false);
+        show_rigs(body, &mut commands, &mut visibility, seen, false, warm);
         return;
     }
     if body.third.furniture.take().is_some() {
@@ -3260,7 +3299,7 @@ fn drive_body(
     // the machine's screen].
     let vigor = script.as_deref().and_then(nvf_play::chargen::open_code) == Some(fnv_game::game::menus::LOVE_TESTER);
     let seen = Seen { body: seen.body && !state.out_of_view, ..seen };
-    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor);
+    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor, warm);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {
