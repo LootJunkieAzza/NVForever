@@ -16,7 +16,7 @@ original what the [hypothesis] values below leave open.
 
 | Function | NVForever |
 |---|---|
-| AddNewEffect `item effect duration magnitude [range] [area] [append]` | a new entry on an ingestible's, object effect's or actor effect's list, at the top or appended (1); the new count, -1 when not added [documented]; for the session [hypothesis]. Appending (1) a second copy of the stimpak's first effect returned 5 in the original where NVForever counts 6 [observed: jip14 addneweffect.append]: whether the entry was not added or the return differs is open [decision: NVForever adds it and returns the new count, as the page says]. A row asking it on Jet did not compile, in the original or in NVForever, and was dropped. The getters (GetNumEffects, GetNthEffectBase) list it in that place; applying the item applies it after the record's entries, which keep their places [decision: the active effects keep a record index]. The range is not kept [decision: NVForever's effect entries have none] |
+| AddNewEffect `item effect duration magnitude [range] [area] [append]` | a new entry on an ingestible's, object effect's or actor effect's list, at the top or appended (1); the new count, -1 when not added [documented]; for the session [hypothesis]. Appending (1) a second copy of the stimpak's first effect returned 5 in the original where NVForever counts 6 [observed: jip14 addneweffect.append]: whether the entry was not added or the return differs is open [decision: NVForever adds it and returns the new count, as the page says]. A row asking it on Jet did not compile, in the original or in NVForever, and was dropped. Every Nth-effect function (GetNumEffects, Get/SetNthEffectBase, Get/SetNthEffectTraitNumeric, RemoveNthEffect and this count) indexes one list: AddNewEffect's top entries newest first, the record's entries RemoveNthEffect left, AddNewEffect's appended entries [decision: #2016, so a loop over 0 to GetNumEffects − 1 reads matching bases and traits]; an added entry's traits are its own, and RemoveNthEffect can take it away; applying the item applies it after the record's entries, which keep their places [decision: the active effects keep a record index]. The range is not kept [decision: NVForever's effect entries have none] |
 | IsSpellTargetList `list` | any effect of the list's items on the actor [documented], as IsSpellTarget |
 
 ## 2. Primitives
@@ -53,7 +53,7 @@ original what the [hypothesis] values below leave open.
 
 | Function | NVForever |
 |---|---|
-| GetDetonationTimer | a timed explosive's seconds left; a mine or proximity charge not set off FLOAT_MAX; -1 for a projectile without a fuse [documented], as the engine tells them (`nvf_play::combat`) |
+| GetDetonationTimer | a timed explosive's seconds left; a mine or proximity charge not set off FLOAT_MAX; -1 for a projectile without a fuse [documented], as the engine tells them (`nvf_play::combat`); a fuse, and a new one SetDetonationTimer left, go with the projectile [decision: #2018] |
 | SetDetonationTimer `seconds` | the projectile's fuse from now; a mine or proximity charge then goes off at the end [documented] |
 | SetProjectileRefWeapon `weapon` | the weapon of the live projectile's record; returns it [documented]; what the impact takes from it is the engine's [hypothesis] |
 | GetSelfAsInventoryRef | from an item's script in a container: the item as an inventory reference [documented]; elsewhere the call fails [observed: jip14 selfinvref, "script call failed"] |

@@ -124,6 +124,61 @@ fn added_effects_in_the_list_and_applied() {
     assert_eq!(applied.iter().map(|e| (e.effect.0, e.magnitude)).collect::<Vec<_>>(), vec![(MGEF1, 5), (MGEF2, 7), (MGEF2, 9)]);
 }
 
+/// Every Nth-effect function indexes one list: AddNewEffect's at the top, the record's
+/// RemoveNthEffect left, AddNewEffect's appended (#2016).
+#[test]
+fn nth_effect_functions_share_one_index() {
+    let f = fixture();
+    let mut g = game(&f);
+    // [front 7] [record 5] [back 9]
+    assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 30 7 0 0"), 2.0);
+    assert_eq!(n(&mut g, "AddNewEffect TestDrink TestEffectTwo 40 9 0 0 1"), 3.0);
+    // The record's entry goes: [front 7] [back 9].
+    assert_eq!(n(&mut g, "RemoveNthEffect TestDrink 1"), 2.0);
+    assert_eq!(n(&mut g, "GetNumEffects TestDrink"), 2.0);
+    // The count AddNewEffect gives is the list's, so the new entry is reachable by it.
+    let count = n(&mut g, "AddNewEffect TestDrink TestEffectOne 50 11 0 0 1");
+    assert_eq!(count, 3.0);
+    assert_eq!(n(&mut g, &format!("GetNthEffectBase TestDrink {}", count - 1.0)), f64::from(MGEF1));
+    // A loop over 0..GetNumEffects-1 reads matching bases and traits.
+    let mut seen = Vec::new();
+    for i in 0..n(&mut g, "GetNumEffects TestDrink") as u32 {
+        let base = n(&mut g, &format!("GetNthEffectBase TestDrink {i}")) as u32;
+        let mag = n(&mut g, &format!("GetNthEffectTraitNumeric TestDrink {i} 0"));
+        let dur = n(&mut g, &format!("GetNthEffectTraitNumeric TestDrink {i} 2"));
+        seen.push((base, mag, dur));
+    }
+    assert_eq!(seen, vec![(MGEF2, 7.0, 30.0), (MGEF2, 9.0, 40.0), (MGEF1, 11.0, 50.0)]);
+    assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 3"), 0.0, "past the end");
+    // The setters change the entry the getters read.
+    n(&mut g, "SetNthEffectBase TestDrink 1 TestEffectOne");
+    n(&mut g, "SetNthEffectTraitNumeric TestDrink 1 0 20");
+    assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 1"), f64::from(MGEF1));
+    assert_eq!(n(&mut g, "GetNthEffectTraitNumeric TestDrink 1 0"), 20.0);
+    assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 0"), f64::from(MGEF2), "its neighbour unchanged");
+    // An added entry can be removed too; the list closes up.
+    assert_eq!(n(&mut g, "RemoveNthEffect TestDrink 0"), 2.0);
+    assert_eq!(n(&mut g, "GetNthEffectTraitNumeric TestDrink 0 0"), 20.0);
+    assert_eq!(n(&mut g, "GetNthEffectBase TestDrink 1"), f64::from(MGEF1));
+    assert_eq!(g.effect_list(FormId(ALCH)).iter().map(|e| (e.effect.0, e.magnitude)).collect::<Vec<_>>(), vec![(MGEF1, 20), (MGEF1, 11)]);
+}
+
+/// A projectile's fuse goes with the projectile (#2018).
+#[test]
+fn fuses_go_with_their_projectile() {
+    let f = fixture();
+    let mut g = game(&f);
+    let r = g.projectile_fired(FormId(ACTI), FormId(NPC_REF), FormId(WEAP), 10.0, [0.0; 3]).expect("a shot");
+    g.set_fuse(r, Some(2.0));
+    let on = RunCtx { self_ref: Some(r), ..RunCtx::default() };
+    let timer = |g: &mut Game, body: &str| g.run_query(&format!("Begin Function {{ }}\n{body}\nEnd\n"), on).unwrap();
+    assert!(matches!(timer(&mut g, "SetFunctionValue (GetDetonationTimer)"), XVal::Num(x) if x == 2.0));
+    timer(&mut g, "SetDetonationTimer 5");
+    assert!(g.projectile_gone(r).is_some());
+    assert!(g.take_fuse_sets().is_empty(), "the script's new fuse is dropped");
+    assert!(!g.other.jip14.fuses.contains_key(&r), "the engine's fuse is dropped");
+}
+
 #[test]
 fn primitives() {
     let f = fixture();
