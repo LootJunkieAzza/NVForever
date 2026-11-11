@@ -23,7 +23,7 @@
 //! The bones are written after the animation has posed them and before transforms are
 //! propagated, as the darts arm (`darts_arm.rs`), whose two-bone reach this uses.
 
-use crate::darts_arm::{rot, solve, world_of};
+use crate::darts_arm::{curl, rot, world_of};
 use crate::furniture::OnFurniture;
 use crate::limbs::ActorRig;
 use bevy::prelude::*;
@@ -241,7 +241,9 @@ pub fn arms(
         let Some((root, rig)) = b else { continue };
         // Leaning in over the table first: the arm hangs from the leaned chest.
         let toward = if k == 0 { u } else { -u };
-        if let Err(why) = lean_in(*root, rig, Vec3::new(mid.x, 0.0, mid.z), toward, w, &parents, &mut transforms, &globals) {
+        // The shoulder is to come over the elbow's spot on the table.
+        let top = Vec3::new(mid.x, fnv_game::armwrestle_table::TABLE_TOP_Z + ELBOW_UP, mid.z);
+        if let Err(why) = lean_in(*root, rig, (top, u, k), toward, w, &parents, &mut transforms, &globals) {
             if !std::mem::replace(&mut shown.noted, true) {
                 warn!("arm wrestle arm: side {k} does not lean in: {why}");
             }
@@ -260,31 +262,53 @@ pub fn arms(
     }
     // Over the table's top, half way between the two shoulders (where both arms reach).
     let (mx, mz) = if arms.len() == 2 { ((arms[0].1.s.x + arms[1].1.s.x) / 2.0, (arms[0].1.s.z + arms[1].1.s.z) / 2.0) } else { (mid.x, mid.z) };
-    let mid = Vec3::new(mx, fnv_game::armwrestle_table::TABLE_TOP_Z, mz);
+    let mid = Vec3::new(mx, fnv_game::armwrestle_table::TABLE_TOP_Z + ELBOW_UP, mz);
     for (k, a) in arms {
-        let b = a.e0.distance(a.h0);
+        let (ua, b) = (a.s.distance(a.e0), a.e0.distance(a.h0));
         let (elbow, hand) = clasp(mid, u, b, k, lean);
-        let (e, h) = solve(a.s, a.e0, a.h0, hand, elbow - a.s);
+        // The elbow planted on its spot (as near as the upper arm reaches), the forearm
+        // from it to the clasp.
+        let e = a.s + (elbow - a.s).normalize_or(Vec3::NEG_Y) * ua;
+        let h = e + (hand - e).normalize_or(Vec3::Y) * b;
+        let toward = if k == 0 { u } else { -u };
         if (shown.clock * 2.0).fract() < dt * 2.0 {
             info!("arm wrestle arm: side {k} weight {w:.2} lean {:.2} shoulder {:.0?} elbow {:.0?} wrist {:.0?} -> elbow {:.0?} wrist {:.0?} target {:.0?}", lean, a.s, a.e0, a.h0, e, h, hand);
         }
-        a.apply(e, h, w, &mut transforms);
+        let fore = a.apply(e, h, w, &mut transforms);
+        a.grip(rig_of(&bodies, k), fore, (h - e).normalize_or(Vec3::Y), toward, w, &mut transforms);
     }
+}
+
+/// The rig of side `k`'s body.
+fn rig_of(bodies: &[Option<(Entity, ActorRig)>; 2], k: usize) -> Option<&ActorRig> {
+    bodies[k].as_ref().map(|(_, r)| r)
 }
 
 /// The bone the upper body bends at, and the one above it if the skeleton lacks it
 /// [observed: the human skeleton's node names].
 const SPINE: [&str; 2] = ["Bip01 Spine", "Bip01 Spine1"];
-/// The upper body's lean in at most, radians [design: about 25 degrees; 50 hunched them head to head, desktop run 2026-11-11].
+/// The upper body's lean in at most, radians [design: about 25 degrees; 40 put the head
+/// down at the table and 50 hunched them head to head, desktop runs 2026-11-11].
 const MAX_BEND: f32 = 0.45;
-/// How near the clasp (level) the shoulder is to come, in arm lengths [design: the
-/// elbow then goes down onto the table with the forearm up].
-const SHOULDER_IN: f32 = 0.8;
+/// How far (level) behind the elbow the shoulder may stay, as a share of what the upper
+/// arm allows [design: the shoulder over the elbow, the upper arm sloping a little].
+const SHOULDER_IN: f32 = 1.0;
+/// The elbow joint's height over the table top, game units (the arm's thickness) [design].
+const ELBOW_UP: f32 = 2.0;
+/// The grip: each finger joint's curl (knuckle, middle, end) towards the palm, radians,
+/// the fingers wrapped round the other hand [design; the finger bones' axes as `darts_arm`].
+const GRIP: [[&str; 3]; 4] = [
+    ["Bip01 R Finger1", "Bip01 R Finger11", "Bip01 R Finger12"],
+    ["Bip01 R Finger2", "Bip01 R Finger21", "Bip01 R Finger22"],
+    ["Bip01 R Finger3", "Bip01 R Finger31", "Bip01 R Finger32"],
+    ["Bip01 R Finger4", "Bip01 R Finger41", "Bip01 R Finger42"],
+];
+const GRIP_CURL: [f32; 3] = [0.9, 1.1, 0.8];
 
-/// Bend the upper body forward (towards `toward`, level) so the right shoulder comes in
-/// towards the clasp at `clasp` (level: its y is ignored), by `w`.
+/// Bends side `k`'s upper body in about the spine so the shoulder comes over its elbow's
+/// spot by the table's middle `top` (axis `u` from side 0 to side 1), by `w`.
 #[allow(clippy::too_many_arguments)]
-fn lean_in(root: Entity, rig: &ActorRig, clasp: Vec3, toward: Vec3, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<(), &'static str> {
+fn lean_in(root: Entity, rig: &ActorRig, (top, u, k): (Vec3, Vec3, usize), toward: Vec3, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<(), &'static str> {
     let node = |name: &str| rig.skel.names.iter().position(|n| n.as_deref() == Some(name)).and_then(|i| rig.nodes.get(i).copied());
     let spine = SPINE.iter().find_map(|n| node(n)).ok_or("no spine")?;
     let (Some(upper), Some(fore), Some(hand)) = (node(UPPER), node(FORE), node(HAND)) else { return Err("no right arm") };
@@ -294,11 +318,14 @@ fn lean_in(root: Entity, rig: &ActorRig, clasp: Vec3, toward: Vec3, w: f32, pare
     let sh = world_of(upper, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
     let el = world_of(fore, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
     let wr = world_of(hand, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
-    let reach = sh.distance(el) + el.distance(wr);
+    let upper_len = sh.distance(el);
+    let (spot, _) = clasp(top, u, el.distance(wr), k, 0.0);
     let pivot = gs.translation();
     let height = (sh.y - pivot.y).max(1.0);
     let flat = |v: Vec3| Vec2::new(v.x, v.z);
-    let gap = flat(clasp).distance(flat(sh)) - SHOULDER_IN * reach;
+    // Level from the elbow's spot, where the upper arm reaches down to it.
+    let over = (upper_len * upper_len - (sh.y - spot.y).powi(2)).max(0.0).sqrt() * SHOULDER_IN;
+    let gap = flat(spot).distance(flat(sh)) - over;
     if gap <= 0.0 {
         return Ok(());
     }
@@ -347,7 +374,7 @@ fn bones(root: Entity, rig: &ActorRig, parents: &Query<&ChildOf>, transforms: &Q
 impl Arm {
     /// Turn the upper arm and the forearm so the elbow is at `e` and the wrist at `h`,
     /// by `w`.
-    fn apply(&self, e: Vec3, h: Vec3, w: f32, transforms: &mut Query<&mut Transform>) {
+    fn apply(&self, e: Vec3, h: Vec3, w: f32, transforms: &mut Query<&mut Transform>) -> Quat {
         let rp = rot(&self.gp);
         let ru = rp * self.lu.rotation;
         let du = Quat::from_rotation_arc((self.e0 - self.s).normalize(), (e - self.s).normalize_or(Vec3::NEG_Y));
@@ -359,8 +386,38 @@ impl Arm {
         if let Ok(mut t) = transforms.get_mut(self.upper) {
             t.rotation = self.lu.rotation.slerp(lu2, w);
         }
+        let (u2, f2) = (self.lu.rotation.slerp(lu2, w), self.lf.rotation.slerp(lf2, w));
         if let Ok(mut t) = transforms.get_mut(self.fore) {
-            t.rotation = self.lf.rotation.slerp(lf2, w);
+            t.rotation = f2;
+        }
+        // The forearm's world turn as posed.
+        rp * u2 * f2
+    }
+
+    /// The hand turned about the forearm so its palm (+Y, as the fingers') faces the other
+    /// wrestler with the thumb up, and the fingers closed round the other hand, by `w`.
+    #[allow(clippy::too_many_arguments)]
+    fn grip(&self, rig: Option<&ActorRig>, fore: Quat, along: Vec3, toward: Vec3, w: f32, transforms: &mut Query<&mut Transform>) {
+        let Some(rig) = rig else { return };
+        let node = |name: &str| rig.skel.names.iter().position(|n| n.as_deref() == Some(name)).and_then(|i| rig.nodes.get(i).copied());
+        let Some(hand) = node(HAND) else { return };
+        let Ok(lh) = transforms.get(hand).copied() else { return };
+        let palm = fore * lh.rotation * Vec3::Y;
+        let flat = |v: Vec3| (v - along * v.dot(along)).normalize_or_zero();
+        let (now, want) = (flat(palm), flat(toward));
+        if now != Vec3::ZERO && want != Vec3::ZERO {
+            let q = Quat::from_rotation_arc(now, want);
+            let to = (fore.inverse() * q * fore * lh.rotation).normalize();
+            if let Ok(mut t) = transforms.get_mut(hand) {
+                t.rotation = lh.rotation.slerp(to, w);
+            }
+        }
+        for names in GRIP {
+            for (k, (n, a)) in names.iter().zip(GRIP_CURL).enumerate() {
+                if let Some(b) = node(n) {
+                    curl(transforms, b, a, k == 0, w);
+                }
+            }
         }
     }
 }
