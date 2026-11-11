@@ -604,7 +604,31 @@ impl<'a> Game<'a> {
         None
     }
 
-    /// The Begin (0), End (1) or Change (2) idle of a package, asked of its actor
+        /// Whether idle `idle` is one to play with a weapon out: it, or a node above it in the
+    /// IDLE tree, asks for `IsWeaponOut == 1` or names `GetWeaponAnimType` (the drawn-weapon
+    /// fidgets, the stance idles). Any other (a talking gesture, a response's or a
+    /// package's idle, a lean or a meal) is played with the weapon put away: an actor with
+    /// its weapon out puts it away first with its stance's unequip clip [design: owner
+    /// 2026-11-11, playtest 119 item 155, "check that an animation fits before it plays,
+    /// and unequip the weapon first when it doesn't"] [hypothesis: the tree's own weapon
+    /// conditions say which idles were made for a drawn weapon].
+    pub fn idle_fits_weapon_out(&self, idle: FormId) -> bool {
+        let data = self.data;
+        let mut node = Some(idle);
+        let mut steps = 0;
+        while let Some(n) = node.filter(|_| steps < 32) {
+            let Some(d) = data.idles.get(&n) else { break };
+            let conds = d.conditions.as_deref().unwrap_or_default();
+            if names(conds, IS_WEAPON_OUT, 1.0) || conds.iter().any(|c| c.opcode() == GET_WEAPON_ANIM_TYPE) {
+                return true;
+            }
+            node = d.parent;
+            steps += 1;
+        }
+        false
+    }
+
+/// The Begin (0), End (1) or Change (2) idle of a package, asked of its actor
     /// ([`Game::package_event`]).
     pub(crate) fn ask_package_idle(&mut self, actor: FormId, package: FormId, which: usize) {
         let Some(def) = self.package_def(&package) else { return };
@@ -711,6 +735,8 @@ fn names(conds: &[Condition], opcode: u16, value: f64) -> bool {
 
 /// Opcodes of `IsWeaponOut`, `GetSitting` and `GetSleeping` (`functions::mod`).
 const IS_WEAPON_OUT: u16 = 0x1065;
+/// Opcode of `GetWeaponAnimType` (`functions::mod`).
+const GET_WEAPON_ANIM_TYPE: u16 = 0x106C;
 const GET_SITTING: u16 = 0x109F;
 const GET_SLEEPING: u16 = 0x1031;
 /// Opcode of `GetIsAlerted` (`functions::mod`).

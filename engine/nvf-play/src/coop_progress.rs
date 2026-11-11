@@ -51,6 +51,10 @@ pub const SHARED_ENV: &str = "NVF_COOP_SHARED_SAVE";
 /// Set on a guest that loads for everyone being down: its new run goes beside the host
 /// (a guest's save is its own game where it left it; nvforever `coop::rejoin`).
 pub const REJOIN_ENV: &str = "NVF_COOP_REJOIN_HOST";
+/// Set for the run a load starts when that run must hold the syncing screen until it has
+/// the host's world (queue item 186: a first join, or a save loaded after going down;
+/// nvforever `coop::syncing`). Not set for ordinary loads.
+pub const SYNC_ENV: &str = "NVF_COOP_SYNC_SCREEN";
 
 /// This game's part in a co-op session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -262,7 +266,14 @@ fn say(corner: &mut Option<ResMut<crate::corner_messages::CornerMessages>>, n: S
 }
 
 /// What the other players sent: rewards taken, saves to follow, the reload.
-fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>, mut load: MessageWriter<LoadRequest>, mates: Option<Res<crate::coop_social::SocialMates>>) {
+fn take_inbox(
+    mut p: ResMut<CoopProgress>,
+    script: Option<ResMut<ScriptState>>,
+    mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
+    mut load: MessageWriter<LoadRequest>,
+    mates: Option<Res<crate::coop_social::SocialMates>>,
+    mut quest_lines: Option<ResMut<crate::quest_messages::QuestMessages>>,
+) {
     let p = &mut *p;
     let mut script = script;
     for (id, what) in std::mem::take(&mut p.inbox) {
@@ -278,7 +289,20 @@ fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, 
                     // Script XP no completion claimed (`fnv_game::coop_rewards::SCRIPT_XP`).
                     Ok(gained) if FormId(quest) == fnv_game::coop_rewards::SCRIPT_XP => say(&mut corner, format!("+{gained} XP, earned with {host}")),
                     // The host by its character's name (`coop_social::SocialMates`).
-                    Ok(gained) => say(&mut corner, format!("{host} completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() })),
+                    Ok(gained) => {
+                        say(&mut corner, format!("{host} completed {name}: +{gained} XP{}", if caps > 0 { format!(", +{caps} caps") } else { String::new() }));
+                        // The quest's COMPLETED line too, as the host's own game showed it
+                        // (item 180: Come Fly With Me, not the host's active quest, showed
+                        // none on the guest); not twice when the host's quest view told it.
+                        let quest_name = rt.game.data.quests.get(&FormId(quest)).and_then(|q| q.name.clone()).filter(|n| !n.trim().is_empty());
+                        if let (Some(lines), Some(qn)) = (quest_lines.as_deref_mut(), quest_name) {
+                            let n = crate::script_events::QuestNotice::Completed(qn);
+                            if !lines.holds(&n) {
+                                info!("co-op: the host's quest: {}", crate::quest_messages::describe(&n));
+                                lines.push(n);
+                            }
+                        }
+                    }
                     Err(e) => warn!("co-op: the reward for {name} could not be given: {e}"),
                 }
             }
@@ -304,6 +328,7 @@ fn take_inbox(mut p: ResMut<CoopProgress>, script: Option<ResMut<ScriptState>>, 
                     // The save is this game's own spot: the new run goes beside the host
                     // (nvforever `coop::rejoin`; item 152).
                     std::env::set_var(REJOIN_ENV, "1");
+                    std::env::set_var(SYNC_ENV, "1");
                     load.write(LoadRequest { path });
                 }
                 None => say(&mut corner, "Everyone is down, and this game has no shared save to go back to".into()),
@@ -419,6 +444,7 @@ fn alone_down(mut p: ResMut<CoopProgress>, time: Res<Time>, mut corner: Option<R
         DownStep::Load(path) => {
             say(&mut corner, "Down with nobody near: back to your last save".into());
             info!("co-op: down far from the other players: loading this game's last save {}", path.display());
+            std::env::set_var(SYNC_ENV, "1");
             load.write(LoadRequest { path });
         }
         DownStep::NoSave => say(&mut corner, "Down with nobody near, and no save to go back to: respawn by another player".into()),

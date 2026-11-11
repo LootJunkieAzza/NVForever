@@ -142,6 +142,14 @@ fn remove_all_items_now(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
             if to == FormId::PLAYER_REF && !g.coop_guest && g.coop_checkpoint_holds.remove(&from) {
                 g.coop_checkpoints.push((from, -1, None, true));
             }
+            // Co-op: the player's whole gear put away (Dead Money's bunker trap, SCPT
+            // 0x0100C59E `player.RemoveAllItems` into 0x0100EFCC; item 182): every guest
+            // hands over its own the same, and gets it back when the container gives the
+            // host's back (above) [design: the script names the player only; each player].
+            if from == FormId::PLAYER_REF && to != FormId::PLAYER_REF && !g.coop_guest && g.coop_effects.is_some() {
+                g.coop_checkpoints.push((to, -1, None, false));
+                g.coop_checkpoint_holds.insert(to);
+            }
             let moved = g.world.transfer_all_owned(from, to, keep_owner).map_err(|e| e.to_string())?;
             for &(item, count) in &moved {
                 g.emit(EventKind::ItemAdded { to, item, count, silent });

@@ -488,7 +488,7 @@ pub fn show_roulette_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
 /// the casino's chips and is not banned there) [documented: GECK wiki
 /// ShowSlotMachineMenuParams; docs/spec-notes/slots.md §1]. Left out, the bets are 1 to 75
 /// [hypothesis: The Tops' machines'].
-pub fn show_slot_machine_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+pub fn show_slot_machine_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let casino = a.form(0)?;
     if !g.data.casinos.contains_key(&casino) {
         return Err(format!("{casino} is not a casino"));
@@ -496,7 +496,7 @@ pub fn show_slot_machine_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
     let min_bet = a.num_or(1, 1.0).max(1.0) as u32;
     let max_bet = (a.num_or(2, 75.0).max(0.0) as u32).max(min_bet);
     let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
-    g.slots_requests.push(crate::slots::SlotsRequest { casino, min_bet, max_bet, max_winnings });
+    g.slots_requests.push(crate::slots::SlotsRequest { casino, min_bet, max_bet, max_winnings, machine: ctx.self_ref });
     none()
 }
 
@@ -556,13 +556,16 @@ pub fn apply_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<
         return Err(format!("{m} is not an image space modifier"));
     }
     g.apply_image_modifier(m);
+    g.script_image_modifiers.insert(m);
     none()
 }
 
 /// `RemoveImageSpaceModifier modifier`: the modifier leaves the screen [documented: GECK
 /// wiki RemoveImageSpaceModifier, owner export]; nothing happens when it is not on it.
 pub fn remove_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.remove_image_modifier(a.form(0)?);
+    let m = a.form(0)?;
+    g.remove_image_modifier(m);
+    g.script_image_modifiers.remove(&m);
     none()
 }
 

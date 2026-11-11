@@ -163,6 +163,7 @@ Add a dirty set to `fnv_sim::World`: each mutation of a ref's replicated fields 
 | `Inventory` | **not replicated** for containers and corpses (per-player loot, §6.4); only the host-script and quest-item exceptions |
 | `Owner` | ownership and crime flags |
 | `Anim` | the furniture the actor sits in, the idle playing, the current package's visible state (sitting, sleeping, leaning) |
+| `Pose` | a dead actor's body as it lies at rest on the host: per ragdoll body, its bone's place and turn (protocol 130). Sent with the actors the host draws or simulates, so a guest that comes by later lays the body down there at rest instead of dropping it from a death pose of its own (playtest 119 items 145, 161) |
 
 The mutation points are the setters in fnv-sim and the existing `emit` sites. A test walks
 every `World` setter and fails if one doesn't mark dirty. That turns today's gap

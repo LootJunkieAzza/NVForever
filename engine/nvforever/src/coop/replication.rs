@@ -36,10 +36,25 @@
 //! Solo: every system returns at once without a lobby (R1).
 
 use super::*;
-use nvf_coop::repl::{self, comp, ActorPose, Change, Digest, Effect, Loose, Shadow, Value};
+use nvf_coop::repl::{self, comp, ActorPose, Change, Digest, Effect, Loose, PoseBone, Shadow, Value};
 use std::collections::BTreeSet;
 use std::time::Instant;
 use bevy::text::FontSize;
+
+/// A script's move of the host to where it was just moved (within [`SUMMON_NEAR`] units,
+/// within this many seconds) takes no guest again (item 185).
+const SUMMON_SAME: f32 = 2.0;
+const SUMMON_NEAR: f32 = 64.0;
+
+/// Whether two summons go to the same place (item 185).
+fn same_summon(a: &Effect, b: &Effect) -> bool {
+    match (a, b) {
+        (Effect::Summon { interior: i1, world: w1, pos: p1, .. }, Effect::Summon { interior: i2, world: w2, pos: p2, .. }) => {
+            i1 == i2 && w1 == w2 && ((p1[0] - p2[0]).powi(2) + (p1[1] - p2[1]).powi(2) + (p1[2] - p2[2]).powi(2)).sqrt() <= SUMMON_NEAR
+        }
+        _ => false,
+    }
+}
 
 /// How often the host sends changes and actor poses.
 const TICK: f32 = 0.05;
@@ -74,6 +89,14 @@ fn solo_perf() -> bool {
     *ON.get_or_init(|| std::env::var(PERF_ENV).is_ok_and(|v| v == "1"))
 }
 
+impl Repl {
+    /// A guest's digest goes on its next frame (the syncing screen's ask follows it on
+    /// the same stream, so what its own save changed in its area is sent back first).
+    pub(super) fn digest_now(&mut self) {
+        self.last_digest = f32::MIN;
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Repl {
     /// A guest's: where the host's script moved the host's player (interior cell or 0,
@@ -96,6 +119,22 @@ pub(super) struct Repl {
     /// The host's: body parts gone here, for the guests ([`dismember_out`]); a guest's:
     /// those the host sent, to take off here ([`dismember_in`]).
     dismembered: Vec<Effect>,
+    /// The host's: guests that asked for the syncing screen's answer (`Effect::Sync`),
+    /// with their serial: their whole area goes again at the next sweep, then the answer.
+    sync_asked: Vec<(u8, u32)>,
+    /// The host's: the last summon each guest was sent, and when ([`same_summon`]).
+    summoned: HashMap<u8, (f32, Effect)>,
+    /// A guest's: the serial of the host's last answer to its `Effect::Sync`.
+    pub sync_done: Option<u32>,
+    /// A guest's: when the stream last set each reference's enabled flag. The host's
+    /// presence list, made up to two seconds before and paged, does not undo it
+    /// (`coop::STREAM_WINS`; item 181: Old World Blues' drive-in refs, enabled by the
+    /// stream at join, were disabled again by an older list for 6 s).
+    pub enabled_heard: HashMap<u32, f32>,
+    /// The host's: the bodies at rest here, as [`Value::Pose`] by reference
+    /// ([`corpses_out`]); a guest's: those the host sent, to lay down here ([`corpses_in`]).
+    host_rest: HashMap<u32, Value>,
+    poses_in: Vec<(u32, Vec<Option<PoseBone>>)>,
     /// A guest's: references the host enabled or disabled that this game changed too, for
     /// their visuals and collision to follow ([`nvf_play::RefChanged`]).
     refreshed: Vec<u32>,
@@ -123,6 +162,8 @@ pub(super) struct Repl {
     effects_sent: u64,
     // The guest's.
     pub inbox: Vec<Event>,
+    /// The guest's: its inbox waits for its own game to be kept (`replicate`), told once.
+    held_for_solo: bool,
     /// Per actor: what its Look, Anim and Life said.
     slow: HashMap<u32, Slow>,
     last_digest: f32,
@@ -301,6 +342,7 @@ pub(super) fn replicate(
     loc: Option<Res<Location>>,
     player: Option<Res<Player>>,
     (grab, mut phys, mut repose, mut changed): (Option<Res<nvf_play::grab::GrabState>>, Option<ResMut<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>, MessageWriter<nvf_play::RefChanged>),
+    solo: Option<Res<nvf_play::save::SoloBase>>,
 ) {
     let started = Instant::now();
     let now = time.elapsed_secs();
@@ -330,7 +372,23 @@ pub(super) fn replicate(
     send_carry(coop, grab.as_deref(), phys.as_deref(), now);
     let moved = if host {
         host_side(coop, sim, script.as_deref_mut(), actor_world.as_deref(), now)
+    } else if solo.is_none() {
+        // Not before this game is kept as the guest's own (`nvf_play::save::SoloBase`,
+        // coop.rs module notes): what the host's stream changes here (an NPC dressed as the
+        // host has it, `World::wear_as`) would be kept in it, and every save this guest
+        // makes is that game. Queue item 165: a Goodsprings Powder Ganger the host had dead
+        // and searched was undressed here (`wear_as` with no items) before the game was
+        // kept, and stood in his underwear when the owner loaded that save solo. The
+        // stream waits in the inbox meanwhile.
+        if !coop.repl.held_for_solo && !coop.repl.inbox.is_empty() {
+            coop.repl.held_for_solo = true;
+            info!("replication: the host's stream waits until this game is kept as the guest's own");
+        }
+        Vec::new()
     } else {
+        if std::mem::take(&mut coop.repl.held_for_solo) {
+            info!("replication: this game is kept as the guest's own; the host's stream ({} messages waiting) is applied", coop.repl.inbox.len());
+        }
         guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), (loc.as_deref(), player.as_deref(), phys.as_deref()), now)
     };
     // A guest's copies of the objects the host's world moves follow the host: this
@@ -437,6 +495,12 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                         Some(w) => Effect::Summon { interior: 0, world: w.0, pos: s.pos, yaw: s.rot[2] },
                         None => Effect::Summon { interior: cell.0, world: 0, pos: s.pos, yaw: s.rot[2] },
                     };
+                    // A script that moves the host again and again to the same spot (item
+                    // 185: Dead Money's bunker, 14 moves in a second) is one trip for
+                    // the guests: one summon, one loading screen.
+                    if !r.summoned.is_empty() && r.summoned.values().all(|(at, last)| now - at < SUMMON_SAME && same_summon(last, &summon)) {
+                        return None;
+                    }
                     // Only the guests within sight of where the host stood go along
                     // (owner, 2026-11-09: a cutscene pulls in the players within sight).
                     let (near, far) = near_guests(r.host_was, &guests);
@@ -502,6 +566,9 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         }
         for (summon, to) in summons {
             r.effects_sent += 1;
+            for &id in &to {
+                r.summoned.insert(id, (now, summon.clone()));
+            }
             for id in to {
                 for item in repl::pack_effects(std::slice::from_ref(&summon), ITEM) {
                     link.send_reliable(Some(id), item);
@@ -552,6 +619,20 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                     }
                 } else if let Some(l) = repl::unpack_loose(&item) {
                     host_loose(link, r, sim, id, l);
+                } else if let Some(effects) = repl::unpack_effects(&item) {
+                    // A guest behind its syncing screen (item 186): its whole area again,
+                    // at a sweep now, and then the answer.
+                    for e in effects {
+                        if let Effect::Sync { serial, done: false } = e {
+                            info!("replication: player {} asks to be synced ({serial}): its whole area goes again", id + 1);
+                            r.shadows.remove(&id);
+                            r.sent_at.remove(&id);
+                            r.poses.remove(&id);
+                            r.sync_asked.retain(|(g, _)| *g != id);
+                            r.sync_asked.push((id, serial));
+                            r.last_sweep = f32::MIN;
+                        }
+                    }
                 } else if let Some(d) = repl::unpack_digest(&item) {
                     let shadow = r.shadows.entry(id).or_default();
                     let sent_at = r.sent_at.entry(id).or_default();
@@ -632,6 +713,10 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 let level = aw.map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(n.reference));
                 vals.push(Value::Look { base: n.base, level: level.level, all_levels: level.all_levels, rolls: rolls.get(&n.reference).copied().unwrap_or(0).min(127) as u8, worn });
             }
+            // Its body as it lies at rest here ([`corpses_out`]).
+            if let Some(p) = r.host_rest.get(&n.reference) {
+                vals.push(p.clone());
+            }
             for v in vals {
                 if shadow.take(n.reference, &v) {
                     changes.push(Change { reference: n.reference, value: v });
@@ -647,6 +732,16 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
             *r.changes_sent.entry(id).or_default() += changes.len() as u64;
             for item in repl::pack_changes(&changes, ITEM) {
                 link.send_reliable(Some(id), item);
+            }
+        }
+        // The syncing screen's answer, after the sweep's changes on the same stream.
+        if sweep {
+            if let Some(i) = r.sync_asked.iter().position(|(g, _)| *g == id) {
+                let (_, serial) = r.sync_asked.remove(i);
+                info!("replication: player {} is synced ({serial}): {} changes of its area sent before the answer", id + 1, changes.len());
+                for item in repl::pack_effects(&[Effect::Sync { serial, done: true }], ITEM) {
+                    link.send_reliable(Some(id), item);
+                }
             }
         }
         // The compact actor stream.
@@ -702,11 +797,15 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         // and Vulpes at Nipton came back "enabled as in the host's world"
                         // for 5-9 s, Benny at the Tops elevator for good).
                         if let Value::Enabled { enabled, deleted } = c.value {
+                            r.enabled_heard.insert(c.reference, now);
                             if enabled && !deleted {
                                 coop.host_disabled.remove(&c.reference);
                             } else if coop.host_disabled.insert(c.reference) && coop.npcs.remove(&c.reference).is_some() {
                                 info!("replication: the host disabled {:#010X}: not followed here any more", c.reference);
                             }
+                        }
+                        if let Value::Pose { bones } = &c.value {
+                            r.poses_in.push((c.reference, bones.clone()));
                         }
                         if apply(sim, &mut r.slow, &c, residents.as_deref_mut(), commands) {
                             if matches!(c.value, Value::Enabled { .. }) && !sim.is_actor(c.reference) {
@@ -798,6 +897,12 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                                     }
                                 }
                                 Effect::Dismember { .. } => r.dismembered.push(e),
+                                Effect::Sync { serial, done } => {
+                                    if done {
+                                        info!("replication: the host's answer {serial}: this game holds the host's world here");
+                                        r.sync_done = Some(serial);
+                                    }
+                                }
                                 Effect::Rules { friendly_fire } => {
                                     if coop.friendly_fire != friendly_fire {
                                         info!("replication: the host's rules: friendly fire {}", if friendly_fire { "on" } else { "off" });
@@ -966,6 +1071,8 @@ fn apply(sim: &mut nvf_play::sim::SimState, slow: &mut HashMap<u32, Slow>, c: &C
             s.hostile = *hostile;
             changed
         }
+        // Laid down by [`corpses_in`].
+        Value::Pose { .. } => false,
         Value::Look { base, level, all_levels, rolls, worn } => {
             let s = slow.entry(c.reference).or_default();
             (s.base, s.level, s.all_levels, s.rolls) = (*base, *level, *all_levels, *rolls);
@@ -1213,6 +1320,87 @@ pub(super) fn dismember_in(mut coop: ResMut<Coop>, mut script: Option<ResMut<nvf
     }
 }
 
+/// The host's: each body at rest here (`crate::ragdoll::Ragdolls::rest`, not one still
+/// falling) as a [`Value::Pose`], for the guests ([`corpses_in`]). Sent with the actors the
+/// host draws or simulates (`host_side`), so a guest that comes by later gets it too.
+pub(super) fn corpses_out(mut coop: ResMut<Coop>, ragdolls: Res<crate::ragdoll::Ragdolls>, time: Res<Time>, mut last: Local<f32>) {
+    let coop = &mut *coop;
+    if !coop.link.as_ref().is_some_and(|l| l.is_host()) || coop.peers.is_empty() {
+        coop.repl.host_rest.clear();
+        return;
+    }
+    // As often as the change log goes out (`TICK`).
+    let now = time.elapsed_secs();
+    if now - *last < TICK {
+        return;
+    }
+    *last = now;
+    let r = &mut coop.repl;
+    r.host_rest.retain(|id, _| ragdolls.rest.contains_key(id) && !ragdolls.falling.contains(id));
+    for (&id, rest) in ragdolls.rest.iter().filter(|(id, _)| !ragdolls.falling.contains(id) && **id != FormId::PLAYER_REF.0) {
+        let pose = Value::Pose { bones: rest.iter().map(|b| b.as_ref().map(pose_bone)).collect() };
+        if r.host_rest.get(&id) != Some(&pose) {
+            r.host_rest.insert(id, pose);
+        }
+    }
+}
+
+/// A guest's: the host's bodies at rest, laid down here in the host's pose and at rest
+/// (`crate::ragdoll::start` puts a body back asleep in its stored pose). A body that died
+/// in sight here keeps its own fall; one drawn dead (the guest came by afterwards, or
+/// drew it again) is put in the host's pose at once [playtest 119 items 145 and 161].
+pub(super) fn corpses_in(
+    mut coop: ResMut<Coop>,
+    mut ragdolls: ResMut<crate::ragdoll::Ragdolls>,
+    phys: Option<ResMut<nvf_play::phys::PhysState>>,
+    mut corpses: Query<(&crate::limbs::ActorRig, &mut crate::ragdoll::Corpse)>,
+) {
+    if coop.repl.poses_in.is_empty() {
+        return;
+    }
+    let mut phys = phys;
+    for (id, bones) in std::mem::take(&mut coop.repl.poses_in) {
+        let pose: Vec<Option<fnv_collide::Iso>> = bones.iter().map(|b| b.as_ref().map(iso_of_bone)).collect();
+        let drawn = corpses.iter_mut().find(|(rig, _)| rig.reference == id);
+        if let Some((_, mut c)) = drawn {
+            if c.fell_here {
+                continue;
+            }
+            if c.body_bones().len() != pose.len() {
+                warn!("replication: the host's body {id:#010X} has {} ragdoll bodies, {} here: its pose is not used", pose.len(), c.body_bones().len());
+                continue;
+            }
+            if c.live {
+                if let Some(p) = phys.as_deref_mut() {
+                    p.world.remove_ragdoll(id);
+                }
+                c.live = false;
+            }
+        }
+        if ragdolls.rest.get(&id) == Some(&pose) {
+            continue;
+        }
+        let at = pose.iter().flatten().next().map(|i| i.translation).unwrap_or_default();
+        info!("replication: the host's body {id:#010X} lies at rest at ({:.0}, {:.0}, {:.0}): laid down here in its pose", at[0], at[1], at[2]);
+        ragdolls.rest.insert(id, pose);
+        ragdolls.falling.remove(&id);
+    }
+}
+
+fn pose_bone(i: &fnv_collide::Iso) -> PoseBone {
+    let r = &i.rotation;
+    let m = Mat3::from_cols(Vec3::new(r[0], r[3], r[6]), Vec3::new(r[1], r[4], r[7]), Vec3::new(r[2], r[5], r[8]));
+    let q = Quat::from_mat3(&m).normalize();
+    PoseBone::new(i.translation, [q.x, q.y, q.z, q.w])
+}
+
+fn iso_of_bone(b: &PoseBone) -> fnv_collide::Iso {
+    let [x, y, z, w] = b.quat();
+    let m = Mat3::from_quat(Quat::from_xyzw(x, y, z, w));
+    let (c0, c1, c2) = (m.x_axis, m.y_axis, m.z_axis);
+    fnv_collide::Iso { translation: b.at, rotation: [c0.x, c1.x, c2.x, c0.y, c1.y, c2.y, c0.z, c1.z, c2.z] }
+}
+
 pub(super) fn hud(mut commands: Commands, mut coop: ResMut<Coop>, mut shown: Query<&mut Text, With<ReplHud>>) {
     let Some(line) = coop.repl_hud.take() else { return };
     let text = line.replace("; ", "\n");
@@ -1262,6 +1450,27 @@ fn near_guests(host: Option<(Place, [f32; 3])>, guests: &[(u8, Place, [f32; 3], 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A script that moves the host to the same spot again and again is one summon for
+    /// the guests (item 185); a move elsewhere is another.
+    #[test]
+    fn the_same_spot_again_is_one_summon() {
+        let at = |interior, world, x: f32| Effect::Summon { interior, world, pos: [x, 0.0, 0.0], yaw: 0.0 };
+        assert!(same_summon(&at(0x1555FD, 0, 0.0), &at(0x1555FD, 0, 30.0)));
+        assert!(!same_summon(&at(0x1555FD, 0, 0.0), &at(0x1555FD, 0, 300.0)), "farther than a step");
+        assert!(!same_summon(&at(0x1555FD, 0, 0.0), &at(0, 0xDA726, 0.0)), "another place");
+        assert!(!same_summon(&at(0x1555FD, 0, 0.0), &Effect::Rules { friendly_fire: true }));
+    }
+
+    #[test]
+    fn a_resting_bone_reaches_a_guest_as_the_host_has_it() {
+        // 90 degrees about z, then 30 about x (as `ragdoll`'s test), at a point.
+        let (s, c) = 30f32.to_radians().sin_cos();
+        let i = fnv_collide::Iso { translation: [120.0, -40.0, 66.0], rotation: [0.0, -c, s, 1.0, 0.0, 0.0, 0.0, s, c] };
+        let back = iso_of_bone(&pose_bone(&i));
+        assert_eq!(back.translation, i.translation);
+        assert!(back.rotation.iter().zip(&i.rotation).all(|(a, b)| (a - b).abs() < 2e-4), "{:?}", back.rotation);
+    }
 
     /// A script's move of the host takes the guests within sight of where it stood
     /// (owner, 2026-11-09), not one in another place or farther; with no place known for

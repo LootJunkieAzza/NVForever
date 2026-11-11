@@ -1589,6 +1589,10 @@ pub struct Game<'a> {
     /// The host's: the containers a checkpoint put the player's items in, until they are
     /// given back.
     pub coop_checkpoint_holds: BTreeSet<FormId>,
+    /// The image space modifiers a script put on the screen (ApplyImageSpaceModifier),
+    /// not the engine's own (hits, chems, the kill camera): a co-op host's go on the
+    /// screens of the guests in its place (queue item 180, the REPCONN launch's flashes).
+    pub script_image_modifiers: BTreeSet<FormId>,
     /// A guest's: what each checkpoint holds of this player's, by container, until the
     /// host gets its own back (playtest 119 item 149: guests kept their guns in the
     /// casinos).
@@ -2509,6 +2513,7 @@ impl<'a> Game<'a> {
             coop_hostile: BTreeSet::new(),
             coop_checkpoints: Vec::new(),
             coop_checkpoint_holds: BTreeSet::new(),
+            script_image_modifiers: BTreeSet::new(),
             coop_checked: BTreeMap::new(),
             world_logic_off: false,
             no_pause: false,
