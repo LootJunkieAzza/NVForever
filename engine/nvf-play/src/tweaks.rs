@@ -330,6 +330,8 @@ pub struct TweakSettings {
     pub barter_caps_change: bool,
     /// `bJumpSwimsUpwards`: holding Jump under water swims up.
     pub jump_swims_up: bool,
+    /// `bFirstPersonVATS`: V.A.T.S.'s firing plays in first person.
+    pub first_person_vats: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -528,6 +530,7 @@ impl Default for TweakSettings {
             click_to_exit_loading: false,
             barter_caps_change: false,
             jump_swims_up: false,
+            first_person_vats: false,
         }
     }
 }
@@ -1448,6 +1451,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "splash-torso-gib", "Splash Kills Can Gib the Torso", "A blast kill by someone with Bloody Mess has a one-in-four chance to blow the torso apart. (Stewie's Tweaks bSplashDamageTorsoGibbing)", game.splash_torso_gib);
         switch!(app, "npcs-drop-holstered", "NPCs Drop Holstered Weapons", "An NPC that dies with its weapon put away drops it, as one with it drawn does. (Stewie's Tweaks bNPCsDropWeaponHolsteredWeapon)", game.npcs_drop_holstered);
         switch!(app, "npcs-earn-casings", "NPCs Keep Spent Cases", "NPCs keep the cases, hulls and drained cells their shots leave, as the player does, to be found on them. (Stewie's Tweaks bNPCsEarnAmmoCasings)", game.npcs_earn_casings);
+        switch!(app, "first-person-vats", "First Person V.A.T.S.", "V.A.T.S.'s shots play in first person; the view comes back after. (Stewie's Tweaks bFirstPersonVATS)", first_person_vats);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

@@ -364,6 +364,9 @@ pub struct VatsMode {
     /// is to go away again (the Entering V.A.T.S. Doesn't Unholster tweak).
     drew_weapon: bool,
     put_away: bool,
+    /// The view before the First Person V.A.T.S. tweak took the firing into first
+    /// person, given back when the mode ends.
+    pov_before: Option<crate::control::Pov>,
     /// The hit rolls' generator (seeded, so a run repeats) and this stay's hits and misses.
     rng: Option<SplitMix>,
     hits: u32,
@@ -644,7 +647,18 @@ fn read_keys(
         control.weapon_out = false;
         info!("vats mode: the weapon it drew is put away again, nothing was fired (tweak)");
     }
-    // The player's tweak: entered not aiming, every shot from the hip {D}.
+    // The player's tweak: the firing in first person, the view given back after [design: docs/design/tweaks.md].
+    let first_person = tweaks.as_ref().is_some_and(|t| t.first_person_vats);
+    if first_person && vats.phase == Phase::Firing && vats.pov_before.is_none() {
+        vats.pov_before = Some(control.pov);
+        control.pov = crate::control::Pov::First;
+    }
+    if vats.phase == Phase::Off {
+        if let Some(p) = vats.pov_before.take() {
+            control.pov = p;
+        }
+    }
+    // The player's tweak: entered not aiming, every shot from the hip [design: docs/design/tweaks.md].
     let hip_fire = tweaks.as_ref().is_some_and(|t| t.vats_hip_fire) && !vats.aimed_before;
     let pressed = |c: Control| playing && input.just_pressed(c);
     let now = real.elapsed_secs_f64();

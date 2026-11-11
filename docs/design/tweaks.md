@@ -514,6 +514,7 @@ unless the player binds them, so nothing changes until then.
 | Splash Kills Can Gib the Torso | `bSplashDamageTorsoGibbing` | the blast loop: a blast kill by an actor with Bloody Mess explodes the torso at `SPLASH_TORSO_CHANCE` (one in four, ours) |
 | NPCs Drop Holstered Weapons | `bNPCsDropWeaponHolsteredWeapon` | `combat::death_drops` follows an NPC's equipped weapon too when none is in its hand |
 | NPCs Keep Spent Cases | `bNPCsEarnAmmoCasings` | the NPC shot path rolls the ammo's Consumed Percentage and adds the Consumed Ammo item to the shooter (no perks) |
+| First Person V.A.T.S. | `bFirstPersonVATS` | the view switches to first person while the mode fires and goes back to the earlier view when it ends |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -535,8 +536,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 440 |
-| to do | 163 |
+| done | 441 |
+| to do | 162 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -711,6 +712,7 @@ game's Data folder, read-only).
 | `bDisableCombatMusic` | done |  |  | No Battle Music |
 | `bEnteringVATSCostsAP` | done |  | 4 | Action Points to Enter V.A.T.S. (slider; refused without them; the fail-only and no-target options not built) |
 | `bFatalNonSneakCritsAlwaysGib` | done |  | 1 | Fatal Criticals Always Gib (melee and shots; bOnlyCritsGib not offered) |
+| `bFirstPersonVATS` | done |  |  | First Person V.A.T.S. |
 | `bHideEnemyMarkers` | done |  | 1 | No Enemies on the Compass (the firing-enemies option is not built) |
 | `bIgnoreCompanionsVATS` | done |  | 1 | V.A.T.S. Ignores Companions (always; bCombatOnly not done) |
 | `bKillsRewardAP` | done |  | 1 | Action Points per Kill (slider 0-50; given in VATS too) |
@@ -736,7 +738,6 @@ game's Data folder, read-only).
 | `bSneakCriticalsHeadshotsOnly` | done |  |  | Sneak Criticals Head Only |
 | `bSneakCriticalsOnlyMeleeWeapons` | done |  |  | Sneak Criticals Melee Only |
 | `bVATSStopBurstIfTargetDead` | done |  |  | V.A.T.S. Burst Stops on a Kill |
-| `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
 | `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
