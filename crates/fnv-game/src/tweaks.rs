@@ -443,6 +443,9 @@ pub struct Tweaks {
     pub fatal_crits_gib: bool,
     /// `bFallDeathsCauseDismemberment`: an actor killed by a fall loses its legs.
     pub fall_deaths_dismember: bool,
+    /// `bSplashDamageTorsoGibbing`: a blast kill by someone with Bloody Mess may blow the
+    /// torso apart.
+    pub splash_torso_gib: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -645,6 +648,7 @@ impl Default for Tweaks {
             npcs_sneak_crit_player: false,
             fatal_crits_gib: false,
             fall_deaths_dismember: false,
+            splash_torso_gib: false,
         }
     }
 }

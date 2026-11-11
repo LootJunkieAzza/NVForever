@@ -744,6 +744,11 @@ fn blast_limb_hits(c: &Combat, parts: &ActorParts, target: FormId, dealt: f32, w
     fnv_game::combat::blast_limb_shares(&conditions, damage)
 }
 
+/// The Splash Damage Torso Gibbing tweak's chance on a Bloody Mess blast kill, and the
+/// torso's body part location (ours, the part type's index) [design: docs/design/tweaks.md].
+const SPLASH_TORSO_CHANCE: f32 = 0.25;
+const TORSO_LOCATION: i32 = 0;
+
 /// The player's Fatal Crits Always Gib tweak: a killing critical that is no sneak attack
 /// takes the struck part off for sure, exploded where it can be, else severed [design: docs/design/tweaks.md].
 fn crit_gib(c: &Combat, parts: &ActorParts, script: Option<&ScriptState>, critical: bool, check: &mut crate::dismember::Check) {
@@ -4844,6 +4849,18 @@ fn fly(
                 let facing = center.and_then(|p| facing_part(&view(&mut phys, script.as_deref(), Some(&sim)), b.actor, at, p));
                 if let Some(check) = facing.and_then(|(part, point)| dismember_check(target, Some(part), &w, rr, info.attacker, point, b.push)) {
                     dm.checks.push(check);
+                }
+            }
+            // The player's tweak: a blast kill by someone with Bloody Mess may blow the torso
+            // apart [design: docs/design/tweaks.md].
+            let splash_gib = r.as_ref().is_some_and(|r| r.died) && target != FormId::PLAYER_REF && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.splash_torso_gib);
+            if let Some(by) = info.attacker.filter(|_| splash_gib) {
+                let bloody = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.has_bloody_mess(by)));
+                if bloody && c.rng.next_f32() < SPLASH_TORSO_CHANCE {
+                    if let Some(check) = crate::dismember::scripted_check(c, &parts, &sim, target, TORSO_LOCATION, Some(by), Some(true)) {
+                        info!("combat: blast kill on {target}: the torso blows apart (Bloody Mess, tweak)");
+                        dm.checks.push(check);
+                    }
                 }
             }
             if let Some(r) = r {

@@ -511,6 +511,7 @@ unless the player binds them, so nothing changes until then.
 | NPCs Sneak Attack the Player | `bNPCsCanSneakCritPlayer` | `combat::sneak_attack` lets an NPC's hit on the player count when the player's measurement of that NPC is below Detected (an unmeasured pair never counts); NPC blows and shots |
 | Fatal Criticals Always Gib | `bFatalNonSneakCritsAlwaysGib` | `combat::crit_gib` gives a killing non-sneak critical's dismember check a set fate (`fnv_combat::dismember::scripted`: explode where it can, else sever); player melee and shots |
 | Deadly Falls Take the Legs | `bFallDeathsCauseDismemberment` | `falls::hurt` queues `dismember::scripted_check` for Left Leg 1 and Right Leg 1 when a fall kills an NPC (exploded where the part can be, else severed) |
+| Splash Kills Can Gib the Torso | `bSplashDamageTorsoGibbing` | the blast loop: a blast kill by an actor with Bloody Mess explodes the torso at `SPLASH_TORSO_CHANCE` (one in four, ours) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -532,8 +533,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 437 |
-| to do | 166 |
+| done | 438 |
+| to do | 165 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1165,6 +1166,7 @@ game's Data folder, read-only).
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
+| `bSplashDamageTorsoGibbing` | done |  |  | Splash Kills Can Gib the Torso (one in four with Bloody Mess, ours) |
 | `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
@@ -1204,7 +1206,6 @@ game's Data folder, read-only).
 | `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
 | `bReplaceHelpWithConsole` | to do |  |  | no Help entry; a Console entry is new |
 | `bSilentSneakPowerAttacks` | to do |  |  | unsure whether a grunt plays; anim_sounds player_keys |
-| `bSplashDamageTorsoGibbing` | to do |  |  | combat::fly torso dismember check |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
 | `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |
