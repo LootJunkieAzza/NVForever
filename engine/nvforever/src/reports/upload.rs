@@ -238,7 +238,8 @@ fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
         }
         let (body, ctype) = multipart(&parts);
         let path = if is_crash(&end) { "/v1/crash" } else { "/v1/session" };
-        let status = http::post(&format!("{}{path}", active.endpoint), &body, &ctype, &active.delete_token);
+        let (_, token) = super::identity(active);
+        let status = http::post(&format!("{}{path}", active.endpoint), &body, &ctype, &token);
         let name = p.summary.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         match outcome(status) {
             Outcome::Sent => {

@@ -46,6 +46,7 @@ impl Reports {
             install_id: get(text, "InstallId"),
             delete_token: get(text, "DeleteToken"),
             endpoint: get(text, "Endpoint"),
+            // `id:token,id:token`: safe to split on `,` and `:` as both are UUIDs or hex.
             past: get(text, "PastInstalls")
                 .map(|v| v.split(',').filter_map(|p| p.trim().split_once(':')).map(|(i, t)| (i.to_string(), t.to_string())).collect())
                 .unwrap_or_default(),

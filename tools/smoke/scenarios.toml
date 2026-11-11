@@ -24685,3 +24685,16 @@ expect = [
   "reports: the flight recorder and world snapshot written beside the crash report",
   "run log: the game exited normally",
 ]
+
+[[scenario]]
+name = "events-log"
+source = "#2055, docs/design/player-reports.md section 4.1: every log event at info and up as a JSON line with where and when it happened, in events-<time>-<pid>.jsonl beside the run log (engine/nvforever/src/events_log.rs)"
+areas = ["crash", "reports"]
+paths = ["engine/nvforever/src/events_log.rs"]
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 15
+expect = [
+  { re = 'events log: .*events-\d{8}-\d{6}-\d+\.jsonl$', label = "the events file beside the run log" },
+  { re = 'events log: (\d+) events written', range = [20, 1000000], label = "the run's events were written to it" },
+  "run log: the game exited normally",
+]

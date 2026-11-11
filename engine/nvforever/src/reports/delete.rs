@@ -62,11 +62,24 @@ fn start() {
         let r = Reports::load(&home);
         let url = endpoint(&r);
         let all = installs(&r);
-        // 202: deletion scheduled. Anything else (no answer, a refused token) leaves the IDs
-        // in place so the player can try again.
-        let ok = all.iter().all(|(id, token)| matches!(super::upload::http::delete(&format!("{url}/v1/install/{id}"), token), Some(200..=299)));
-        if !ok {
-            warn!("reports: deleting the reports sent from this PC failed (the server could not be reached or refused); try again later");
+        // Each install is forgotten as soon as the server has taken its request, so a retry
+        // after a partial failure asks only for the rest. 404 or 410: the server has nothing
+        // (left) for that ID, which is what was asked.
+        let mut failed = 0;
+        for (id, token) in &all {
+            let status = super::upload::http::delete(&format!("{url}/v1/install/{id}"), token);
+            if done(status) {
+                let mut r = Reports::load(&home);
+                r.past.retain(|(i, _)| i != id);
+                if let Err(e) = r.save(&home) {
+                    warn!("reports: install {id} deleted on the server, but could not be forgotten here: {e}");
+                }
+            } else {
+                failed += 1;
+            }
+        }
+        if failed > 0 {
+            warn!("reports: deleting the reports sent from this PC failed for {failed} of {} install ID(s) (the server could not be reached or refused); try again later", all.len());
             STATE.store(3, Ordering::Relaxed);
             return;
         }
@@ -79,9 +92,19 @@ fn start() {
             r.install_id = None;
             r.delete_token = None;
         }
+        // Summaries not sent yet carry a deleted ID: they go too. This run's own summary is
+        // rewritten under the new ID (`renew`), so it is kept.
+        let ids: Vec<&str> = all.iter().map(|(i, _)| i.as_str()).collect();
+        let dropped = super::folders().map_or(0, |(pending, _)| drop_pending(&pending, &ids, std::process::id()));
+        if dropped > 0 {
+            info!("reports: {dropped} report(s) not sent yet were deleted with them");
+        }
         match r.save(&home) {
             Ok(()) => {
-                info!("reports: the server was asked to delete the reports of {} install ID(s) from this PC; later reports get a new ID", all.len());
+                if let (Some(id), Some(token)) = (r.install_id.clone(), r.delete_token.clone()) {
+                    super::renew(id, token);
+                }
+                info!("reports: the server was asked to delete the reports of {} install ID(s) from this PC; later reports, this session's too, get a new ID", all.len());
                 STATE.store(2, Ordering::Relaxed);
             }
             Err(e) => {
@@ -92,6 +115,34 @@ fn start() {
     });
 }
 
+/// The server took a deletion: 2xx, or 404/410 (nothing (left) under that ID).
+fn done(status: Option<u16>) -> bool {
+    matches!(status, Some(200..=299 | 404 | 410))
+}
+
+/// Removes the pending summaries written under one of `ids`,
+/// except this process's own. Returns how many summaries went.
+fn drop_pending(pending: &std::path::Path, ids: &[&str], own_pid: u32) -> usize {
+    let Ok(dir) = std::fs::read_dir(pending) else { return 0 };
+    let own = format!("-{own_pid}.json");
+    let mut n = 0;
+    for e in dir.flatten() {
+        let path = e.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        if !name.starts_with("session-") || !name.ends_with(".json") || name.ends_with(&own) {
+            continue;
+        }
+        let id = std::fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|v| v.get("install_id").and_then(|i| i.as_str()).map(str::to_string));
+        if id.is_some_and(|id| ids.contains(&id.as_str())) && std::fs::remove_file(&path).is_ok() {
+            n += 1;
+        }
+    }
+    n
+}
+
 pub fn add_row(app: &mut App) {
     nvf_play::settings::add_choice_list(
         app,
@@ -99,7 +150,7 @@ pub fn add_row(app: &mut App) {
             key: SETTING_KEY,
             group: "Reports",
             label: "Reports already sent",
-            note: "Delete them now asks the server to delete every report this PC sent (done within 7 days); later reports get a new ID",
+            note: "Delete them now asks the server to delete every report this PC sent (done within 7 days) and drops the ones not sent yet; later reports, this session's too, get a new ID",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -143,5 +194,27 @@ mod tests {
         };
         assert_eq!(installs(&r), vec![("now".to_string(), "t-now".to_string()), ("old".to_string(), "t-old".to_string())]);
         assert!(installs(&Reports::default()).is_empty());
+    }
+
+    #[test]
+    fn an_install_the_server_no_longer_has_counts_as_deleted() {
+        assert!(done(Some(202)) && done(Some(200)) && done(Some(404)) && done(Some(410)));
+        assert!(!done(None) && !done(Some(403)) && !done(Some(500)));
+    }
+
+    #[test]
+    fn pending_reports_of_deleted_ids_are_dropped_but_not_this_runs() {
+        let dir = std::env::temp_dir().join(format!("nvf-delete-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let w = |name: &str, id: &str| std::fs::write(dir.join(name), format!("{{\"install_id\":\"{id}\"}}")).unwrap();
+        w("session-20261111-000000-11.json", "old");
+        w("session-20261111-000100-12.json", "other");
+        w("session-20261111-000200-99.json", "old");
+        assert_eq!(drop_pending(&dir, &["old"], 99), 1);
+        assert!(!dir.join("session-20261111-000000-11.json").exists());
+        assert!(dir.join("session-20261111-000100-12.json").exists());
+        assert!(dir.join("session-20261111-000200-99.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

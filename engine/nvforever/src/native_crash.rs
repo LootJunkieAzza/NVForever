@@ -10,6 +10,12 @@
 //! would have ended it. Rust panics never reach it (crash.rs's panic hook has those), and
 //! neither does a stack overflow (Rust's own handler reports and aborts).
 //!
+//! Limits [our notes]: the dump is written on the crashing thread, as is common; after heap
+//! corruption creating the file or `MiniDumpWriteDump` itself can fail or hang there (a
+//! watcher thread that writes the dump for the crashing one would avoid that, later). A
+//! driver or library that calls `SetUnhandledExceptionFilter` after us replaces this filter
+//! without telling us; such a crash then leaves no dump, only the run log's `native` end.
+//!
 //! Test aid `NVF_PLAY_TEST_NATIVE_CRASH=<seconds>`: a thread of its own causes an access
 //! violation that long after the first frame, so the dump can be checked.
 

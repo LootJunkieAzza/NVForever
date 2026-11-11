@@ -46,6 +46,7 @@ mod alert;
 mod anim_sounds;
 mod cpu_placement;
 mod crash;
+mod events_log;
 mod creature_pace;
 mod creature_stance;
 mod creator_view;
@@ -1508,7 +1509,7 @@ fn main() -> AppExit {
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
     .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
-    .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
+    .add_systems(Last, (crash::note_place, events_log::note_context, crash::report_exit, stray_commands::report));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }

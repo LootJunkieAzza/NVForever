@@ -108,6 +108,26 @@ fn folders_to_hide(data: &Path, exe_dir: Option<&Path>) -> Vec<(String, &'static
     v
 }
 
+/// A new install ID and delete token made while this run plays ("Delete my reports",
+/// delete.rs): this run's summary is rewritten under the ID, and anything this run still
+/// sends goes with them.
+static RENEWED: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
+pub(crate) fn renew(install_id: String, delete_token: String) {
+    if let Ok(mut r) = RENEWED.lock() {
+        *r = Some((install_id, delete_token));
+    }
+}
+
+/// The ID and token to send as now: [`renew`]'s when there was one, else the run's own.
+pub(crate) fn identity(active: &Active) -> (String, String) {
+    RENEWED
+        .lock()
+        .ok()
+        .and_then(|r| r.clone())
+        .unwrap_or_else(|| (active.install_id.clone(), active.delete_token.clone()))
+}
+
 /// This run's choice, once [`decide`] made it.
 pub fn active() -> Option<&'static Active> {
     ACTIVE.get().and_then(Option::as_ref)
@@ -214,12 +234,50 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
         eprintln!("reports: off ([Reports] has no InstallId or DeleteToken)");
         return None;
     };
-    // A test run sends only where it is told to, never to the project's server.
     let test_run = test_on && forced_off(developer_data).is_some();
+    let ini_endpoint = r.endpoint.is_some();
     let endpoint = endpoint_env.clone().or(r.endpoint).unwrap_or_else(|| upload::DEFAULT_ENDPOINT.to_string());
-    let may_send = !test_run || endpoint_env.is_some();
+    let may_send = may_send(SendCase {
+        test_on,
+        test_run,
+        official: OFFICIAL_BUILD,
+        production: production_allowed(),
+        endpoint_env: endpoint_env.is_some(),
+        ini_endpoint,
+    });
     eprintln!("reports: on, sending to {endpoint}{}", if may_send { "" } else { " (not in this test run: no NVF_REPORTS_ENDPOINT)" });
     Some(Active { install_id, delete_token, endpoint: endpoint.trim_end_matches('/').to_string(), may_send })
+}
+
+/// What decides whether a run that has reports on may send (module notes).
+#[derive(Clone, Copy, Default)]
+struct SendCase {
+    /// `NVF_REPORTS=1`.
+    test_on: bool,
+    /// `NVF_REPORTS=1` in a run that would otherwise be off (`--data`, a test aid, `NVF_REPORTS=0`).
+    test_run: bool,
+    /// A release workflow build (`OFFICIAL_BUILD`).
+    official: bool,
+    /// `NVF_REPORTS_PRODUCTION=1`.
+    production: bool,
+    /// `NVF_REPORTS_ENDPOINT` is set.
+    endpoint_env: bool,
+    /// `[Reports] Endpoint` is set (a self-hosted server).
+    ini_endpoint: bool,
+}
+
+/// `NVF_REPORTS=1` sends only to a server it is pointed at (`NVF_REPORTS_ENDPOINT`, or the
+/// INI's own `Endpoint`), never to the project's server, unless the build is official or
+/// `NVF_REPORTS_PRODUCTION=1` and the run is not a test run (§8). Without `NVF_REPORTS=1`,
+/// `choose` has already turned a local build with no server of its own off.
+fn may_send(c: SendCase) -> bool {
+    if !c.test_on {
+        return true;
+    }
+    if c.endpoint_env {
+        return true;
+    }
+    !c.test_run && (c.ini_endpoint || c.official || c.production)
 }
 
 /// Made by the release workflow (`.github/workflows/release.yml` sets it at build time).
@@ -277,7 +335,9 @@ pub fn folders() -> Option<(PathBuf, PathBuf)> {
 /// `script=debug`, so a player asked to reproduce a bug can turn one part up. A name is one
 /// of [`LOG_SUBSYSTEMS`] or a module path (`nvf_play::doors=trace`); levels are trace,
 /// debug, info, warn, error, off. The result is the log plugin's filter: Bevy's default with
-/// these added (`RUST_LOG` still goes on top).
+/// these added. `RUST_LOG` still goes on top [observed: bevy_log 0.20.1
+/// `LogPlugin::build_filter_layer` adds its directives to this filter; its doc comment says
+/// they replace it, the code does not].
 pub fn log_filter() -> String {
     let ini = EngineHome::user().and_then(|h| std::fs::read_to_string(h.config_file()).ok()).unwrap_or_default();
     let extra = log_directives(&ini);
@@ -418,6 +478,7 @@ impl Plugin for ReportsPlugin {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let file = pending.join(format!("session-{}-{}.json", crate::crash::stamp(now), std::process::id()));
         let summary = base_summary(&active, &self.plugins, &self.data, self.mo2, now);
+        spawn_plugin_crcs(&self.plugins, &self.data);
         app.insert_resource(active)
             .insert_resource(Collector {
                 summary,
@@ -473,6 +534,38 @@ fn base_summary(active: &Active, plugins: &[String], data: &Path, mo2: bool, now
         mo2,
         ..Default::default()
     }
+}
+
+/// The plugins' CRC32s (§3.1 `load_order`), in load order, once [`spawn_plugin_crcs`] has
+/// read them all.
+static PLUGIN_CRCS: OnceLock<Vec<Option<String>>> = OnceLock::new();
+
+/// Reads every plugin on a thread of its own (the official masters are hundreds of MB; the
+/// game never waits on it) for its CRC32, as 8 hex digits; the summary gets them at its
+/// next write. Sizes and CRCs tell versions of a plugin apart.
+fn spawn_plugin_crcs(plugins: &[String], data: &Path) {
+    let files: Vec<Option<PathBuf>> = plugins.iter().map(|p| fnv_install::child_ci(data, p)).collect();
+    let _ = std::thread::Builder::new().name("nvf-reports-crc".into()).spawn(move || {
+        let crcs = files.iter().map(|f| f.as_deref().and_then(file_crc32)).collect();
+        let _ = PLUGIN_CRCS.set(crcs);
+    });
+}
+
+/// A file's CRC32 (the zlib/gzip one), as 8 upper-case hex digits.
+fn file_crc32(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut crc = flate2::Crc::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        match f.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => crc.update(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+    Some(format!("{:08X}", crc.sum()))
 }
 
 /// The settings the player changed: the `[Settings]` rows of the INI (the page writes only
@@ -653,44 +746,28 @@ fn refresh_snapshot(
     snapshot::keep(v);
 }
 
-/// The Pip-Boy, VATS and the pause menu, for the game state of an event.
-type Menus<'w> = (Option<Res<'w, nvf_play::pipboy::PipBoy>>, Option<Res<'w, nvf_play::vats_mode::VatsMode>>, Option<Res<'w, nvf_play::pause::Paused>>);
-
 /// The anomaly detectors that read the game's state each frame (anomaly.rs), and the ones
 /// the log lines found since the last frame, given where the player is.
-#[allow(clippy::too_many_arguments)]
 fn detect(
     real: Res<Time<Real>>,
     loading: Option<Res<nvf_play::loading::Loading>>,
-    state: Option<Res<State<nvf_play::PlayState>>>,
     intent: Option<Res<nvf_play::player::MoveIntent>>,
-    menus: Menus,
     voice: Option<Res<nvf_play::voice::VoiceState>>,
     memory: Option<Res<crate::memory_budget::MemoryBudget>>,
-    sim: Option<Res<nvf_play::sim::SimState>>,
     mut c: ResMut<Collector>,
 ) {
     let c = &mut *c;
     let t_s = c.started.elapsed().as_secs();
-    let (pip, vats, paused) = menus;
     let loading_now = loading.as_ref().is_some_and(|l| l.active());
-    c.here.hour = sim.as_ref().map(|s| nvf_play::music::game_hour(s));
+    // The game hour and state, as the structured events say them (events_log.rs, last frame's).
+    let (hour, state) = crate::events_log::context();
+    c.here.hour = hour;
     c.here.state = if loading_now {
         "loading"
-    } else if vats.as_ref().is_some_and(|v| v.active()) {
-        "vats"
-    } else if pip.as_ref().is_some_and(|p| p.open()) {
-        "pipboy"
-    } else if paused.as_ref().is_some_and(|p| p.0) {
-        "paused"
+    } else if state.is_empty() {
+        "viewer"
     } else {
-        match state.as_ref().map(|s| *s.get()) {
-            Some(nvf_play::PlayState::Menu) => "menu",
-            Some(nvf_play::PlayState::Dialogue) => "dialogue",
-            Some(nvf_play::PlayState::Loading) => "loading",
-            Some(nvf_play::PlayState::Playing) => "playing",
-            None => "viewer",
-        }
+        state
     };
     c.detectors.drain_log(&mut c.summary, &c.here, t_s);
     // A hitch: a frame over the limit while the world runs (not behind a loading screen).
@@ -744,7 +821,13 @@ fn read_quests(g: &fnv_game::game::Game, s: &mut Summary) {
 /// Rewrite the summary every [`WRITE_EVERY`], and at exit as a clean end.
 fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::script::ScriptState>>, mut c: ResMut<Collector>) {
     let exiting = exit.read().next().is_some();
-    if !exiting && c.last_write.elapsed() < WRITE_EVERY {
+    // The player deleted their reports: this session goes on under the new ID, written now
+    // so a crash cannot leave it under the deleted one.
+    let renewed = RENEWED.lock().ok().and_then(|r| r.as_ref().map(|(id, _)| id.clone())).filter(|id| *id != c.summary.install_id);
+    if let Some(id) = &renewed {
+        c.summary.install_id = id.clone();
+    }
+    if !exiting && renewed.is_none() && c.last_write.elapsed() < WRITE_EVERY {
         return;
     }
     let c = &mut *c;
@@ -760,6 +843,11 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
     c.summary.end = if exiting { End::Clean } else { End::Unknown };
     c.summary.worldspace_time_s = c.space_time.iter().map(|(k, v)| (k.clone(), *v as u64)).collect();
     c.summary.warnings = warnings::groups();
+    if let Some(crcs) = PLUGIN_CRCS.get() {
+        for ((_, _, crc), new) in c.summary.plugins.iter_mut().zip(crcs) {
+            crc.clone_from(new);
+        }
+    }
     if let Some(rt) = script.as_ref().and_then(|s| s.rt.as_ref()) {
         let g = &rt.game;
         let mut stubs: std::collections::BTreeMap<String, u64> = Default::default();
@@ -854,6 +942,34 @@ fn cut_log(text: &str) -> std::borrow::Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_plugins_crc_is_the_zlib_one() {
+        let p = std::env::temp_dir().join(format!("nvf-crc-test-{}.esp", std::process::id()));
+        std::fs::write(&p, b"123456789").unwrap();
+        // The CRC-32 check value of "123456789".
+        assert_eq!(super::file_crc32(&p).as_deref(), Some("CBF43926"));
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(super::file_crc32(&p), None);
+    }
+
+    #[test]
+    fn nvf_reports_1_never_sends_to_the_project_server_from_a_local_build() {
+        use super::{may_send, SendCase};
+        let on = SendCase { test_on: true, ..SendCase::default() };
+        // The review's case: a local build, NVF_REPORTS=1, no endpoint anywhere.
+        assert!(!may_send(on));
+        assert!(may_send(SendCase { endpoint_env: true, ..on }));
+        assert!(may_send(SendCase { ini_endpoint: true, ..on }));
+        assert!(may_send(SendCase { official: true, ..on }));
+        assert!(may_send(SendCase { production: true, ..on }));
+        // A test run (--data, a test aid) only ever sends to NVF_REPORTS_ENDPOINT.
+        let test_run = SendCase { test_run: true, ..on };
+        assert!(!may_send(SendCase { official: true, production: true, ini_endpoint: true, ..test_run }));
+        assert!(may_send(SendCase { endpoint_env: true, ..test_run }));
+        // Without NVF_REPORTS=1 the local-build gate in `choose` has already decided.
+        assert!(may_send(SendCase::default()));
+    }
+
     #[test]
     fn reports_hide_the_game_data_and_exe_folders() {
         // Paths as this platform writes them (a `\` is no separator off Windows).

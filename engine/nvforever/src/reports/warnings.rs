@@ -63,6 +63,11 @@ struct WarnCounter;
 impl<S: tracing::Subscriber> Layer<S> for WarnCounter {
     fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
         let level = *event.metadata().level();
+        // TRACE (`[Log] …=trace`) is too many lines to format for the recorder each; the run
+        // log still has them (§4.2 keeps debug and up).
+        if level == tracing::Level::TRACE {
+            return;
+        }
         let mut m = Message(String::new());
         event.record(&mut m);
         // Every event: the flight recorder and the anomaly detectors (anomaly.rs).

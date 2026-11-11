@@ -2,7 +2,7 @@
 
 [design, proposal 2026-11-10] A specification for collecting data from players' games so
 bugs and crashes can be found and fixed without a player having to file an issue by hand.
-Nothing here is built yet. Owner's direction (2026-11-10): opt-in only, asked once in a
+What is built is listed under "Status" below. Owner's direction (2026-11-10): opt-in only, asked once in a
 popup at the first launch; once a player opts in, their sessions are sent automatically;
 a player can also send a report by hand; the receiving end and a dashboard run on
 Cloudflare.
@@ -20,6 +20,25 @@ What exists already and is reused, not rewritten:
   performance part below, but it stays a developer aid; nothing below turns it on.
 - [documented: `engine/nvforever/src/setup.rs`] The first-start flow (welcome box, folder
   picker) and `NVForever.ini` in the home, where the choice below is stored.
+
+## Status (2026-11-11)
+
+[documented: `engine/nvforever/src/reports/`, `crash.rs`, `native_crash.rs`, `events_log.rs`]
+
+- Built: the popup and INI keys (§2), the session summary with plugin sizes and CRC32s
+  (§3.1), crash reports with the run log, the flight recorder, the world snapshot and, on
+  Windows, a minidump (§3.2), "Delete my reports" (§6), `[Log]` levels and folded repeats
+  (§4.1), the structured events file (§4.1, local only, not sent), the flight recorder
+  (§4.2, log events only), the world snapshot (§4.3) and the anomaly detectors in
+  `anomaly.rs` (§4.4).
+- Not yet:
+  - the hand report form (§3.3);
+  - the summary's count of loose files in Data (§3.1; it needs the server's schema first);
+  - breadcrumbs the log does not already carry (§4.2);
+  - the AI's procedure and the most expensive scripts in the snapshot (§4.3);
+  - the actor-stuck, quest-stall and script-time detectors, and thresholds set from
+    `/v1/config` (§4.4);
+  - symbolising dumps (§5.4: the release PDB is over the Workers request limit).
 
 ## 1. Principles
 

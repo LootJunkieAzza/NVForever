@@ -20,6 +20,9 @@
 //! the words Rust's default hook prints, redacted (the default hook is not called: it would
 //! print the home folder).
 //!
+//! **Structured events** (events_log.rs): the same events at `info` and up, as JSON lines
+//! with where and when they happened, in `events-<UTC time>-<pid>.jsonl` beside the run log.
+//!
 //! **Native crashes** skip Rust's panic hook; on Windows they leave a minidump
 //! (native_crash.rs) and a line in the run log, and the run log check above still names them.
 //!
@@ -237,6 +240,8 @@ pub fn install(data: &Path, previous_running: bool) {
         .chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS))
         .chain(old_files(&names, "recorder-", ".jsonl", KEEP_REPORTS))
         .chain(old_files(&names, "snapshot-", ".json", KEEP_REPORTS))
+        // The events file of this run is made after this: one fewer old one kept.
+        .chain(old_files(&names, "events-", ".jsonl", KEEP_LOGS - 1))
         .chain(old_files(&names, "crash-", ".dmp", crate::native_crash::KEEP_DUMPS))
     {
         let _ = std::fs::remove_file(dir.join(old));
@@ -250,6 +255,7 @@ pub fn install(data: &Path, previous_running: bool) {
     set_hook();
     test_panic();
     crate::native_crash::install(&dir, &run_stamp);
+    crate::events_log::install(&dir, &run_stamp);
     // Said once the log plugin is up (`report_start`).
     let unclean = previous.filter(|p| !previous_running && std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
     let _ = UNCLEAN.set(unclean);
@@ -279,7 +285,7 @@ pub fn file_layer(_app: &mut App) -> Option<BoxedLayer> {
         let writer = move || RunLogWriter(log);
         Box::new(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer)) as BoxedLayer
     });
-    let layers: Vec<BoxedLayer> = file.into_iter().chain(crate::profile::layer()).chain(crate::reports::warnings_layer()).collect();
+    let layers: Vec<BoxedLayer> = file.into_iter().chain(crate::events_log::layer()).chain(crate::profile::layer()).chain(crate::reports::warnings_layer()).collect();
     (!layers.is_empty()).then(|| Box::new(layers) as BoxedLayer)
 }
 
@@ -362,6 +368,8 @@ impl Write for RunLogWriter {
 /// A native crash (native_crash.rs): a line in the run log naming the exception and the
 /// dump, written straight to the file (the log plugin may be where it crashed). Never waits
 /// on the log's lock: a crash while it was held writes nothing rather than hang.
+// Called only by native_crash.rs's Windows filter.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn native_crash_line(code: u32, dump: Option<&Path>) {
     let dump = dump.map_or_else(|| "no dump written".to_string(), |p| format!("dump written to {}", redact(&p.display().to_string())));
     let line = format!("native crash, exception 0x{code:08X}; {dump}");
@@ -370,7 +378,16 @@ pub fn native_crash_line(code: u32, dump: Option<&Path>) {
     let Some(log) = RUN_LOG.get() else { return };
     let Ok(mut w) = log.writer.try_lock() else { return };
     if let Some(f) = w.as_mut() {
+        // A line still being repeated when the crash came: its count, which `fold` writes
+        // only when a different line arrives. (A run killed from outside still loses it.)
+        if let Ok(mut last) = LAST_LINE.try_lock() {
+            if last.1 > 0 {
+                let _ = writeln!(f, "… the line above repeated {} more time{}", last.1, if last.1 == 1 { "" } else { "s" });
+                last.1 = 0;
+            }
+        }
         let _ = writeln!(f, "{} ERROR nvforever::crash: {line}", stamp(now_secs()));
+        crate::events_log::flush();
         let _ = f.flush();
     }
 }
@@ -455,6 +472,7 @@ fn set_hook() {
             Some((Err(e), p)) => error!("panic on thread '{thread}' at {location}: {message}; the crash report could not be written to {}: {e}", p.display()),
             None => error!("panic on thread '{thread}' at {location}: {message} (no logs folder for a crash report)"),
         }
+        crate::events_log::flush();
         if let Some(l) = RUN_LOG.get() {
             if let Some(f) = l.writer.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
                 let _ = f.flush();
@@ -478,6 +496,9 @@ pub fn report_start(mut commands: Commands) {
     match run_log_path() {
         Some(p) => info!("run log: {}", p.display()),
         None => info!("run log: none"),
+    }
+    if let Some(p) = crate::events_log::path() {
+        info!("events log: {}", p.display());
     }
     if let Some(Some(p)) = UNCLEAN.get() {
         warn!("run log: the previous run did not end normally and left no crash report (a native crash, or the process was ended): {}", p.display());
@@ -549,7 +570,11 @@ pub fn place_text_suffix() -> String {
 /// Log [`CLEAN_EXIT`] when the run ends normally.
 pub fn report_exit(mut exit: MessageReader<AppExit>) {
     if exit.read().next().is_some() {
+        if let Some(n) = crate::events_log::flush() {
+            info!("events log: {n} events written");
+        }
         info!("{CLEAN_EXIT}");
+        crate::events_log::flush();
     }
 }
 
