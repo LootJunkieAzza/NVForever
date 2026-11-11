@@ -175,10 +175,25 @@ pub fn play_params() -> PhysParams {
 /// physics.md §5.1). For comparing; not a test aid: it does not make the run unattended.
 pub const HITVOL_ATTACHED_VAR: &str = "NVF_PHYS_HITVOL_ATTACHED";
 
+/// How actors' ragdolls are solved, for comparing in game (`fnv_phys::RagdollSolver::parse`):
+/// `friction` (the joints' dry friction, the default), `warm` (rapier's joint warm start
+/// and 2 extra PGS iterations for ragdoll bodies, no friction) or `both`; finer parts such
+/// as `fric0.5d200+pgs1` too. Unset, the shipped one. Not a test aid: it does not make the
+/// run unattended.
+pub const RAGDOLL_SOLVER_VAR: &str = "NVF_RAGDOLL_SETTLE";
+
 /// The physics world of play: [`play_params`], hit volumes standalone unless
-/// [`HITVOL_ATTACHED_VAR`] is set.
+/// [`HITVOL_ATTACHED_VAR`] is set, ragdolls solved as [`RAGDOLL_SOLVER_VAR`] says.
 fn play_world() -> PhysWorld {
     let mut w = PhysWorld::new(play_params());
+    match std::env::var(RAGDOLL_SOLVER_VAR).map(|spec| (fnv_phys::RagdollSolver::parse(&spec), spec)) {
+        Ok((Ok(s), spec)) => {
+            info!("ragdoll settle: {s:?} ({RAGDOLL_SOLVER_VAR}={spec})");
+            w.set_ragdoll_solver(s);
+        }
+        Ok((Err(e), spec)) => warn!("{RAGDOLL_SOLVER_VAR}={spec}: {e}; the default, friction: {:?}", w.ragdoll_solver()),
+        Err(_) => info!("ragdoll settle: friction, the default: {:?} ({RAGDOLL_SOLVER_VAR}=warm or both to compare)", w.ragdoll_solver()),
+    }
     let attached = std::env::var(HITVOL_ATTACHED_VAR).is_ok_and(|v| !v.is_empty() && v != "0");
     if attached {
         info!("actor hit volumes: attached to their bodies ({HITVOL_ATTACHED_VAR})");

@@ -925,3 +925,45 @@ fn joint_friction_slows_a_small_swing_the_damper_lets_run() {
     let (held, free) = (speed(swing(true)), speed(swing(false)));
     assert!(free > 10.0 && held < 0.25 * free, "half a second after the nudge the arm's tip moves {held} units/s with the friction, {free} without");
 }
+
+/// The settle switch's spellings (`NVF_RAGDOLL_SETTLE` in the game): the three presets,
+/// finer parts on top, and a bad part refused.
+#[test]
+fn ragdoll_solvers_parse_from_their_names() {
+    assert_eq!(RagdollSolver::default(), RagdollSolver::FRICTION);
+    assert_eq!(RagdollSolver::parse("friction"), Ok(RagdollSolver::FRICTION));
+    assert_eq!(RagdollSolver::parse(" Warm "), Ok(RagdollSolver::WARM));
+    assert_eq!(RagdollSolver::parse("both"), Ok(RagdollSolver::BOTH));
+    let both = RagdollSolver::BOTH;
+    assert!(both.joint_friction.is_some() && both.warmstart_joints && both.extra_pgs_iterations == ragdoll::EXTRA_PGS_ITERATIONS);
+    let warm = RagdollSolver::WARM;
+    assert!(warm.joint_friction.is_none() && warm.warmstart_joints && warm.extra_pgs_iterations > 0);
+    let fine = RagdollSolver::parse("friction+pgs1+it2+fric0.3d50").unwrap();
+    assert_eq!((fine.extra_pgs_iterations, fine.extra_iterations, fine.joint_friction, fine.friction_damping), (1, 2, Some(0.3), 50.0));
+    assert_eq!(RagdollSolver::parse("off").unwrap().joint_friction, None);
+    assert!(RagdollSolver::parse("both+loose").is_err() && RagdollSolver::parse("fricx").is_err());
+}
+
+/// `both`'s extra solver passes hold the joints together better than the friction alone: the
+/// figure shoved hard along the ground opens its joints (the gap between the two bodies'
+/// pivots) less, and lies as joined at the end.
+#[test]
+fn extra_solver_passes_keep_a_shoved_ragdolls_joints_tighter() {
+    let stretch = |solver: RagdollSolver| {
+        let mut w = ground();
+        w.set_ragdoll_solver(solver);
+        let (rag, _, _) = drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 1.5);
+        let c = w.ragdoll_center(0x10).unwrap();
+        assert!(w.push_ragdoll(0x10, [c[0], c[1], c[2] + 20.0], [900.0, 300.0, 200.0]));
+        let mut most = 0.0f32;
+        for _ in 0..90 {
+            w.step();
+            let n = nodes(&w, 0x10);
+            most = most.max(rag.joints.iter().map(|j| j.pivot_gap(&n[j.a], &n[j.b])).fold(0.0, f32::max));
+        }
+        most
+    };
+    let (friction, both) = (stretch(RagdollSolver::FRICTION), stretch(RagdollSolver::BOTH));
+    assert!(both < 0.9 * friction, "the largest joint gap after a hard shove: {both} units with the extra passes, {friction} without");
+    assert!(friction < 15.0 && both < 15.0, "{friction} {both}");
+}

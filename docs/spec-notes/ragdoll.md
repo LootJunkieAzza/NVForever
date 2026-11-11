@@ -161,6 +161,29 @@ world.
   the spine's mass (the human neck is 1 kg between a 9 kg spine and a 3 kg head: little
   better, or much worse), and other friction strengths (0.25-1 N·m/kg, damping 50-1000:
   3.54-4.22 s on the slope at 60 Hz).
+- **The settle switch** `NVF_RAGDOLL_SETTLE` (for comparing in game; `fnv_phys::
+  RagdollSolver`): `friction` (the above, the default), `warm` (rapier's joint warm start,
+  `IntegrationParameters::warmstart_joints`, and 2 extra PGS iterations a substep for
+  each ragdoll body's island, `RigidBody::set_additional_pgs_iterations`, with the plain
+  damper) or `both`; finer parts too (`fric0.5d200+pgs1`, `off`, `warmstart`, `it2`). The
+  warm start is a world setting: placed objects' joints (swinging traps, a globe on its
+  stand) get it as well. The game logs `ragdoll settle: …` at the start. Why `friction`
+  is the default [observed 2026-11-11, the same drops, 15° slope, 100 each]:
+
+  | | 60 Hz: rest (s) | moving at 3 s | largest stretch (units) | step (µs) | 152 Hz: rest (s) | moving at 3 s | largest stretch | step (µs) |
+  |---|---|---|---|---|---|---|---|---|
+  | damper only | 4.41 | 83 | 6.97 | 85 | 3.52 | 66 | 2.03 | 80 |
+  | `friction` | 3.47 | 69 | 5.39 | 86 | 3.04 | 41 | 1.90 | 79 |
+  | `warm` | 4.13 | 76 | 2.65 | 107 | | | | |
+  | `both` | 3.25 | 48 | 2.51 | 106 | 3.15 | 48 | 1.07 | 103 |
+  | `friction` + warm start alone | 3.68 | 72 | 5.39 | 90 | 3.04 | 45 | 1.90 | 83 |
+
+  "Largest stretch" is the most two joined bodies' pivots came apart in a drop. The warm
+  start alone changed nothing measurable. The extra passes halve the stretch at every rate
+  and settle sooner at 60 Hz, but at 120 and 152 Hz they settled no sooner, cost a
+  quarter to a third more a step, and the head broke its calm two to three times as often.
+  So `friction` is the default, cheapest and as good at 152 Hz; `both` is to be weighed in
+  game at 60 Hz, for limbs that stretch at their joints in hard falls.
 - Tests (`crates/fnv-phys/tests/ragdoll.rs`) hold an arm on a hinge and on a ragdoll
   joint under gravity and check it stops at the stored limit on the side §3 says.
 

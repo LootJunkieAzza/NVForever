@@ -110,11 +110,84 @@ pub struct RagdollSolver {
     pub joint_friction: Option<f32>,
     /// [`JOINT_FRICTION_DAMPING`].
     pub friction_damping: f32,
+    /// rapier's `IntegrationParameters::warmstart_joints`: every joint starts each substep
+    /// from the impulses of the last step. A world setting: placed objects' joints (traps,
+    /// a globe on its stand) get it too.
+    pub warmstart_joints: bool,
+    /// Extra solver substeps (`RigidBody::set_additional_solver_iterations`) and extra PGS
+    /// iterations a substep (`set_additional_pgs_iterations`) for the island of each actor
+    /// ragdoll body, instead of more for the whole world.
+    pub extra_iterations: usize,
+    pub extra_pgs_iterations: usize,
 }
 
+/// The default is [`RagdollSolver::FRICTION`] [design, 2026-11-11, from the drops of
+/// [`JOINT_FRICTION`] (100 per case, 15° slope, rest by the game's calm rule), each case
+/// friction alone → [`RagdollSolver::BOTH`]: mean rest 3.47 → 3.25 s at 60 Hz, 3.04 →
+/// 3.15 s at 152; the largest joint stretch (pivot gap) in a drop 5.39 → 2.51 units at 60
+/// Hz, 1.90 → 1.07 at 152; a step 23 % dearer at 60 Hz, 30 % at 152; at 120 and 152 Hz
+/// the head broke its calm two to three times as often. The warm start alone changed
+/// nothing measurable (rest 3.47 → 3.68 s at 60 Hz, 3.04 → 3.04 at 152, the same stretch)
+/// and acts on every joint in the world; [`RagdollSolver::WARM`] (no friction) rested in
+/// 4.13 s at 60 Hz. So friction alone: the cheapest, as good at 152 Hz (the owner's
+/// rate); `both` is the one to weigh in game at 60 Hz, for limbs stretched at their joints
+/// in hard falls].
 impl Default for RagdollSolver {
     fn default() -> RagdollSolver {
-        RagdollSolver { joint_friction: Some(JOINT_FRICTION), friction_damping: JOINT_FRICTION_DAMPING }
+        RagdollSolver::FRICTION
+    }
+}
+
+/// Extra PGS iterations a substep of [`RagdollSolver::WARM`] and [`RagdollSolver::BOTH`]
+/// [design, 2026-11-11, the owner's pick of levers to compare: 2 settled best of 1-2 PGS
+/// iterations and 1-2 substeps in the drops of [`JOINT_FRICTION`]].
+pub const EXTRA_PGS_ITERATIONS: usize = 2;
+
+impl RagdollSolver {
+    /// The joints' dry friction alone ([`JOINT_FRICTION`]): the default.
+    pub const FRICTION: RagdollSolver = RagdollSolver { joint_friction: Some(JOINT_FRICTION), friction_damping: JOINT_FRICTION_DAMPING, warmstart_joints: false, extra_iterations: 0, extra_pgs_iterations: 0 };
+    /// rapier's joint warm start and [`EXTRA_PGS_ITERATIONS`] for ragdoll bodies, the plain
+    /// damper [`JOINT_DAMPING`] in the joints.
+    pub const WARM: RagdollSolver = RagdollSolver { joint_friction: None, friction_damping: JOINT_FRICTION_DAMPING, warmstart_joints: true, extra_iterations: 0, extra_pgs_iterations: EXTRA_PGS_ITERATIONS };
+    /// [`RagdollSolver::FRICTION`] and [`RagdollSolver::WARM`] together.
+    pub const BOTH: RagdollSolver = RagdollSolver { joint_friction: Some(JOINT_FRICTION), friction_damping: JOINT_FRICTION_DAMPING, warmstart_joints: true, extra_iterations: 0, extra_pgs_iterations: EXTRA_PGS_ITERATIONS };
+
+    /// A solver from parts joined by `+` (for comparing builds, `NVF_RAGDOLL_SETTLE`):
+    /// `friction`, `warm` or `both` ([`RagdollSolver::FRICTION`], [`RagdollSolver::WARM`],
+    /// [`RagdollSolver::BOTH`]), `default` (the shipped one), `off` (no joint friction),
+    /// `fric<N·m/kg>[d<damping>]`, `warmstart` (the joints' warm start alone), `it<n>`
+    /// (extra substeps), `pgs<n>` (extra PGS iterations). Each part changes what the parts
+    /// before it set, from the default.
+    pub fn parse(spec: &str) -> Result<RagdollSolver, String> {
+        let mut s = RagdollSolver::default();
+        let num = |t: &str, part: &str| t.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or_else(|| format!("{part:?}: not a number"));
+        for part in spec.split('+').map(|p| p.trim().to_ascii_lowercase()).filter(|p| !p.is_empty()) {
+            let part = part.as_str();
+            if part == "default" {
+                s = RagdollSolver::default();
+            } else if part == "friction" {
+                s = RagdollSolver::FRICTION;
+            } else if part == "warm" {
+                s = RagdollSolver::WARM;
+            } else if part == "both" {
+                s = RagdollSolver::BOTH;
+            } else if part == "off" {
+                s.joint_friction = None;
+            } else if part == "warmstart" {
+                s.warmstart_joints = true;
+            } else if let Some(n) = part.strip_prefix("it") {
+                s.extra_iterations = num(n, part)? as usize;
+            } else if let Some(n) = part.strip_prefix("pgs") {
+                s.extra_pgs_iterations = num(n, part)? as usize;
+            } else if let Some(rest) = part.strip_prefix("fric") {
+                let (cap, damping) = rest.split_once('d').map_or((rest, None), |(c, d)| (c, Some(d)));
+                s.joint_friction = Some(num(cap, part)?);
+                s.friction_damping = damping.map_or(Ok(JOINT_FRICTION_DAMPING), |d| num(d, part))?;
+            } else {
+                return Err(format!("{part:?}: not friction, warm, both, default, off, fric<cap>[d<damping>], warmstart, it<n> or pgs<n>"));
+            }
+        }
+        Ok(s)
     }
 }
 
@@ -335,9 +408,11 @@ pub fn joint(j: &RagdollJoint, s: f32) -> GenericJoint {
 }
 
 impl PhysWorld {
-    /// How actors' ragdolls built from now on are solved ([`RagdollSolver`]).
+    /// How actors' ragdolls built from now on are solved ([`RagdollSolver`]); the joints'
+    /// warm start applies to every joint from the next step.
     pub fn set_ragdoll_solver(&mut self, s: RagdollSolver) {
         self.ragdoll_solver = s;
+        self.w.integration_parameters.warmstart_joints = s.warmstart_joints;
     }
 
     pub fn ragdoll_solver(&self) -> RagdollSolver {
@@ -417,6 +492,13 @@ impl PhysWorld {
             }
             if !at_rest && !held {
                 self.set_mass(body, o.mass);
+            }
+            if !at_rest && !object {
+                // [`RagdollSolver`]'s extra solver passes for the ragdoll's island.
+                if let Some(rb) = self.w.bodies.get_mut(body) {
+                    rb.set_additional_solver_iterations(self.ragdoll_solver.extra_iterations);
+                    rb.set_additional_pgs_iterations(self.ragdoll_solver.extra_pgs_iterations);
+                }
             }
             rag.bodies[i] = Some(body);
             report.bodies += 1;
