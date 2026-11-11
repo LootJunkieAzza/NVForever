@@ -260,7 +260,7 @@ fn in_hand(bone: Entity, hand: Entity, parents: &Query<&ChildOf>, transforms: &Q
 
 /// Turn a finger joint towards a curl of `angle` about its +Z, by `w`: a knuckle keeps
 /// its spread and twist and has only its curl replaced.
-pub(crate) fn curl(transforms: &mut Query<&mut Transform>, bone: Entity, angle: f32, knuckle: bool, w: f32) {
+fn curl(transforms: &mut Query<&mut Transform>, bone: Entity, angle: f32, knuckle: bool, w: f32) {
     let Ok(mut t) = transforms.get_mut(bone) else { return };
     let now = t.rotation;
     let to = if knuckle { now * Quat::from_rotation_z(angle - 2.0 * now.z.clamp(-1.0, 1.0).asin()) } else { Quat::from_rotation_z(angle) };

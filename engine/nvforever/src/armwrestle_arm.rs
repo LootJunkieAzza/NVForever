@@ -4,16 +4,27 @@
 //! [design: owner 2026-11-11, "arm wrestling animated"; the original game has no arm
 //! wrestling].
 //!
-//! - **The clasp.** From the countdown on, each wrestler's elbow goes down onto the table
-//!   on the line between the stools, a little short of the middle ([`ELBOW_IN`]), and the
-//!   hands meet over the middle, the forearms upright ([`clasp`]).
-//! - **The pull.** The clasped hands lean towards the side losing, in step with the
-//!   meter: upright at even, up to [`MAX_LEAN`] just before a win ([`lean_angle`]). The
-//!   meter is followed smoothly ([`FOLLOW`]) so single taps do not jerk it; near even
-//!   the hands tremble a little ([`tremble`]).
-//! - **The win.** The loser's hand goes down onto the table in [`SLAM`] and stays there
-//!   through the celebration ([`PINNED`]); the pose is let go ([`EASE`]) when the bout's
-//!   screen closes, the match view goes, or a wrestler gets up.
+//! How a real arm wrestle moves [documented: Canadian Armwrestling Federation rules,
+//! cawf.ca/rulessummarized; armpower.net "savoir vivre at the armwrestling table"; the
+//! Arm wrestling article on Wikipedia]: the elbow stays on the pad the whole round, the
+//! grip is palm to palm with the thumb knuckle showing, and the match is won by turning
+//! the clasped hands down to the pad.
+//!
+//! - **The plant.** At the countdown each wrestler's right elbow is set on the table top,
+//!   on the line between the chairs a little to its own right, and does not move again
+//!   ([`plant`]). The clasp starts straight up over the middle of the two elbows, the
+//!   forearms nearly upright and leaning a little towards each other.
+//! - **One angle.** The only motion is the two forearms turning together about the line
+//!   through the two elbows: one angle from the meter ([`lean_angle`], with a small
+//!   [`tremble`] near even), the clasp swinging sideways towards the winner's left (the
+//!   loser's right). Elbow to clasp stays one length; nothing pushes along the line
+//!   between the wrestlers ([`swing`]).
+//! - **One clasp.** Both right hands are posed from the same turned frame, palm to palm,
+//!   so they cannot come apart.
+//! - **The win.** The hands go down in [`SLAM`] and stop where the hands reach the table
+//!   top ([`pin_angle`]), not through it, and stay through the celebration; the pose is
+//!   let go ([`EASE`]) when the bout's screen closes, the match view goes, or a wrestler
+//!   gets up.
 //! - **Everyone sees the same arms**: the pose is driven by the bout every game already
 //!   has: this player's own (`ArmScreen`, in co-op filled from the deciding game), or the
 //!   match a watcher sees (`ArmWatch`, the host's table view). Each side's body is
@@ -23,7 +34,7 @@
 //! The bones are written after the animation has posed them and before transforms are
 //! propagated, as the darts arm (`darts_arm.rs`), whose two-bone reach this uses.
 
-use crate::darts_arm::{rot, solve, world_of};
+use crate::darts_arm::{rot, world_of};
 use crate::furniture::OnFurniture;
 use crate::limbs::ActorRig;
 use bevy::prelude::*;
@@ -53,8 +64,22 @@ const EASE: f32 = 0.3;
 const HOLD: f32 = 3.0;
 /// How near a chair a body sits to be taken for its wrestler, game units [design].
 const ON_SEAT: f32 = 40.0;
-/// The elbow's place on the table from the middle, in forearm lengths [design].
-const ELBOW_IN: f32 = 0.45;
+/// The forearms' lean towards each other at the start, radians (about 14 degrees)
+/// [design: the hands meet over the middle of the two elbows, the forearms nearly
+/// upright].
+const TILT: f32 = 0.25;
+/// How far each elbow sits to its own wrestler's right of the line between the chairs,
+/// game units [design: the turn is about the line through both elbows, so the offsets skew
+/// it off the line between the chairs and the clasp drifts that way as it goes down; 1.5
+/// skewed it about 14 degrees with the elbows 12.4 apart (a 5 unit drift at the pin), 0.75
+/// about 7].
+const ELBOW_SIDE: f32 = 0.75;
+/// How far above the table top the palms' middles stay at the pin, game units [design:
+/// with 2.2 the loser's finger bones, wrapped round the other hand, went 1.7 under the
+/// top (run 2026-11-11 18:01, owner: the arm "clipped through the table"); the hand's
+/// lowest bone is about 4.3 under its palm's middle, so 6.5 leaves it about 2 over the
+/// top, the skin on it].
+const HAND_CLEAR: f32 = 6.5;
 /// The tremble: within this much of even, at most this lean (radians) [design].
 const TREMBLE_NEAR: f32 = 0.3;
 const TREMBLE: f32 = 0.035;
@@ -79,16 +104,78 @@ pub fn slam(from: f32, winner: u8, s: f32) -> f32 {
     from + (to - from) * k * k * (3.0 - 2.0 * k)
 }
 
-/// Where a wrestler's elbow rests and its hand goes, for the table's middle `mid` (on its
-/// top), the axis `u` from side 0's stool to side 1's (level, unit), the forearm's length
-/// `b`, the side `k` and the lean (towards side 1, radians).
-pub fn clasp(mid: Vec3, u: Vec3, b: f32, k: usize, lean: f32) -> (Vec3, Vec3) {
-    let d = ELBOW_IN * b;
-    let r = (b * b - d * d).max(0.0).sqrt();
-    let side = if k == 0 { -1.0 } else { 1.0 };
-    let elbow = mid + u * (side * d);
-    let hand = mid + (Vec3::Y * lean.cos() + u * lean.sin()) * r;
-    (elbow, hand)
+/// The two planted elbows and the clasp over them, from the table's middle `mid` (at the
+/// elbow joints' height), the axis `u` from side 0's chair to side 1's (level, unit) and
+/// each side's reach from elbow to the middle of its palm. Side 0's right is `u x Y`.
+/// Each palm's middle sits [`PALM_GAP`] its own side of the clasp, the forearms lean
+/// [`TILT`] towards each other, and the clasp is as high as the shorter reach allows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Plant {
+    pub elbows: [Vec3; 2],
+    pub clasp: Vec3,
+    /// Each hand's palm middle at the start.
+    pub palms: [Vec3; 2],
+}
+
+pub fn plant(mid: Vec3, u: Vec3, reach: [f32; 2]) -> Plant {
+    let right = u.cross(Vec3::Y).normalize_or(Vec3::X);
+    let o = ELBOW_SIDE;
+    let high = |l: f32| (l * l - (l * TILT.sin()).powi(2) - o * o).max(0.0).sqrt();
+    let hc = high(reach[0]).min(high(reach[1]));
+    let out = |l: f32| PALM_GAP + (l * l - hc * hc - o * o).max(0.0).sqrt();
+    let elbows = [mid - u * out(reach[0]) + right * o, mid + u * out(reach[1]) - right * o];
+    let clasp = mid + Vec3::Y * hc;
+    Plant { elbows, clasp, palms: [clasp - u * PALM_GAP, clasp + u * PALM_GAP] }
+}
+
+/// The turn by `theta` (towards side 1's stool is the lean's sign: side 0 winning takes the
+/// clasp towards side 0's left) about the line through the two elbows, as a rotation and
+/// the point it turns about.
+pub fn swing(p: &Plant, theta: f32) -> (Quat, Vec3) {
+    let axis = (p.elbows[1] - p.elbows[0]).normalize_or(Vec3::X);
+    // About the elbows' line (about u) a positive turn takes up towards side 0's right, so
+    // the lean turns the other way.
+    (Quat::from_axis_angle(axis, -theta), p.elbows[0])
+}
+
+/// A point of the start pose turned by `theta`.
+pub fn turned(p: &Plant, theta: f32, at: Vec3) -> Vec3 {
+    let (q, o) = swing(p, theta);
+    o + q * (at - o)
+}
+
+/// The elbow for an upper arm `ua` from the shoulder `s` and a forearm `b` to the wrist
+/// `wrist`, as near the planted elbow `plant` as the two lengths allow: the wrist exactly
+/// where the shared clasp puts it, so the hands stay joined. Out of reach, the arm
+/// straight towards the wrist.
+pub fn elbow_between(s: Vec3, wrist: Vec3, ua: f32, b: f32, plant: Vec3) -> Vec3 {
+    let d = wrist - s;
+    let len = d.length();
+    let Some(n) = d.try_normalize() else { return s + (plant - s).normalize_or(Vec3::NEG_Y) * ua };
+    if len >= ua + b || len <= (ua - b).abs() {
+        return s + n * ua;
+    }
+    // The circle the elbow may be on: its middle along the shoulder-wrist line, its radius.
+    let along = (ua * ua - b * b + len * len) / (2.0 * len);
+    let c = s + n * along;
+    let r = (ua * ua - along * along).max(0.0).sqrt();
+    let off = plant - c;
+    let side = (off - n * off.dot(n)).try_normalize().unwrap_or_else(|| n.any_orthonormal_vector());
+    c + side * r
+}
+
+/// How far the clasp may turn before a hand reaches the table top `top`: the largest angle
+/// (radians, at most [`PINNED`]) at which both palms' middles stay [`HAND_CLEAR`] over it.
+pub fn pin_angle(p: &Plant, top: f32) -> f32 {
+    let mut last = 0.0;
+    for i in 0..=880 {
+        let a = i as f32 * PINNED / 880.0;
+        if p.palms.iter().any(|&m| turned(p, a, m).y.min(turned(p, -a, m).y) < top + HAND_CLEAR) {
+            break;
+        }
+        last = a;
+    }
+    last
 }
 
 /// The match whose arms are shown here: the table, the meter, the winner, each side's
@@ -234,169 +321,207 @@ pub fn arms(
             warn!("arm wrestle arm: no body on side {k}'s seat {:08X}", shown.stools[k]);
         }
     }
-    // The middle of the table's top: the table's x/y, its top's height
-    // (`fnv_game::armwrestle_table::TABLE_TOP_Z`, game z is Bevy y).
-    let mut arms = Vec::new();
+    // Each body's reach first (the bones' lengths do not change with the lean), then the
+    // elbows planted for both.
+    let reach: Vec<(usize, f32)> = bodies
+        .iter()
+        .enumerate()
+        .filter_map(|(k, b)| {
+            let (root, rig) = b.as_ref()?;
+            let a = bones(*root, rig, &parents, &transforms, &globals).ok()?;
+            Some((k, a.e0.distance(a.h0) + a.hand.as_ref().map_or(0.0, |g| g.palm)))
+        })
+        .collect();
+    if reach.is_empty() {
+        return;
+    }
+    let of = |k: usize| reach.iter().find(|(j, _)| *j == k).or(reach.first()).map_or(20.0, |r| r.1);
+    let top = fnv_game::armwrestle_table::TABLE_TOP_Z;
+    let centre = Vec3::new(mid.x, top + ELBOW_UP, mid.z);
+    let pl = plant(centre, u, [of(0), of(1)]);
+    let pin = pin_angle(&pl, top);
+    let theta = lean.clamp(-pin, pin);
+    let (q, _) = swing(&pl, theta);
+    let clasp_now = turned(&pl, theta, pl.clasp);
+    let log = (shown.clock * 2.0).fract() < dt * 2.0;
+    if log {
+        info!("arm wrestle arm: angle {theta:+.2} (pin {pin:.2}) elbows {:.1?} {:.1?} clasp {clasp_now:.1?} lowest palm {:.1} over the top", pl.elbows[0], pl.elbows[1], pl.palms.iter().map(|&m| turned(&pl, theta, m).y).fold(f32::MAX, f32::min) - top);
+    }
+    let mut drawn: [Option<Vec3>; 2] = [None, None];
     for (k, b) in bodies.iter().enumerate() {
         let Some((root, rig)) = b else { continue };
-        // Leaning in over the table first: the arm hangs from the leaned chest.
         let toward = if k == 0 { u } else { -u };
-        // The shoulder is to come over the elbow's spot on the table.
-        let top = Vec3::new(mid.x, fnv_game::armwrestle_table::TABLE_TOP_Z + ELBOW_UP, mid.z);
-        if let Err(why) = lean_in(*root, rig, (top, u, k), toward, w, &parents, &mut transforms, &globals) {
+        // Leaning in over the table first, the shoulder over its planted elbow: the arm
+        // hangs from the leaned chest.
+        if let Err(why) = lean_in(*root, rig, pl.elbows[k], toward, w, &parents, &mut transforms, &globals) {
             if !std::mem::replace(&mut shown.noted, true) {
                 warn!("arm wrestle arm: side {k} does not lean in: {why}");
             }
         }
         // The free hand braced flat on the table (`armwrestle_free_arm`).
-        if let Err(why) = crate::armwrestle_free_arm::brace(*root, rig, top, toward, w, &parents, &mut transforms, &globals) {
+        let top_mid = Vec3::new(mid.x, top + ELBOW_UP, mid.z);
+        if let Err(why) = crate::armwrestle_free_arm::brace(*root, rig, top_mid, toward, w, &parents, &mut transforms, &globals) {
             if !std::mem::replace(&mut shown.noted, true) {
                 warn!("arm wrestle arm: side {k}'s free hand is not braced: {why}");
             }
         }
-        match bones(*root, rig, &parents, &transforms, &globals) {
-            Ok(a) => arms.push((k, a)),
+        let a = match bones(*root, rig, &parents, &transforms, &globals) {
+            Ok(a) => a,
             Err(why) => {
                 if !std::mem::replace(&mut shown.noted, true) {
                     warn!("arm wrestle arm: side {k}'s arm is not posed: {why}");
                 }
+                continue;
             }
-        }
-    }
-    if arms.is_empty() {
-        return;
-    }
-    // Over the table's top, half way between the two shoulders (where both arms reach).
-    let (mx, mz) = if arms.len() == 2 { ((arms[0].1.s.x + arms[1].1.s.x) / 2.0, (arms[0].1.s.z + arms[1].1.s.z) / 2.0) } else { (mid.x, mid.z) };
-    let mid = Vec3::new(mx, fnv_game::armwrestle_table::TABLE_TOP_Z + ELBOW_UP, mz);
-    for (k, a) in arms {
-        let b = a.e0.distance(a.h0);
-        // The palm's middle, from the wrist (0 for a hand without fingers).
+        };
+        let (ua, b) = (a.s.distance(a.e0), a.e0.distance(a.h0));
         let pm = a.hand.as_ref().map_or(0.0, |g| g.palm);
-        // The clasp: the palms' middle, a forearm and part of a hand over the elbows.
-        let (elbow, centre) = clasp(mid, u, b + pm, k, lean);
-        let toward = if k == 0 { u } else { -u };
-        // The wrist goes where this hand, stood up in the grip, has its palm's middle just
-        // this side of the clasp, palm to palm with the other; the arm reaches it with the
-        // elbow bent down towards its spot on the table (on it when the arm reaches that
-        // far: the palms together come first).
-        let first = hand_frame((centre - elbow).normalize_or(Vec3::Y), toward, DEVIATE);
-        let wrist = centre - first.0 * pm - first.2 * PALM_GAP;
-        let (e, h) = solve(a.s, a.e0, a.h0, wrist, elbow - a.s);
-        let log = (shown.clock * 2.0).fract() < dt * 2.0;
+        // The start pose: the forearm from the planted elbow straight to this palm's
+        // middle, the wrist straight, the palm facing the other wrestler; then the whole
+        // of it turned by the one angle about the elbows' line.
+        let e_plant = pl.elbows[k];
+        let along0 = (pl.palms[k] - e_plant).normalize_or(Vec3::Y);
+        let palm0 = (toward - along0 * toward.dot(along0)).normalize_or(toward);
+        let (along, palm) = (q * along0, q * palm0);
+        let thumb = palm.cross(along).normalize();
+        let wrist = turned(&pl, theta, pl.palms[k]) - along * pm;
+        // The wrist exactly where the shared clasp puts it (the hands joined); the elbow as
+        // near its planted spot as the arm's two lengths allow from where the lean put the
+        // shoulder.
+        let e = elbow_between(a.s, wrist, ua, b, e_plant);
+        let h = e + (wrist - e).normalize_or(Vec3::Y) * b;
         if log {
-            info!("arm wrestle arm: side {k} weight {w:.2} lean {:.2} shoulder {:.0?} elbow {:.0?} wrist {:.0?} -> elbow {:.0?} wrist {:.0?} clasp {:.0?}", lean, a.s, a.e0, a.h0, e, h, centre);
+            info!("arm wrestle arm: side {k} weight {w:.2} shoulder {:.1?} -> elbow {e:.1?} (planted {e_plant:.1?}, off {:.1}) wrist {h:.1?} (wanted {wrist:.1?}, off {:.1})", a.s, e.distance(e_plant), h.distance(wrist));
         }
         let fore = a.apply(e, h, w, &mut transforms);
         if let Some(g) = &a.hand {
-            let (along, thumb, palm) = hand_frame((h - e).normalize_or(Vec3::Y), toward, DEVIATE);
-            if log {
-                info!("arm wrestle arm: side {k} hand along {along:.2?} thumb {thumb:.2?} palm {palm:.2?}; palm middle {:.1?}", h + along * pm);
-            }
             g.grip(fore, (along, thumb, palm), w, &mut transforms);
+            // How it came out, from the bones as drawn last frame: the elbow's place, the
+            // palm's middle and the hand's lowest bone over the top.
+            let at = |e: Option<Entity>| e.and_then(|e| globals.get(e).ok()).map(|g| g.translation());
+            if let (Some(el), Some(hb), Some(k2)) = (at(Some(a.fore)), at(Some(g.hand)), at(g.fingers[1][0])) {
+                let palm_mid = hb + (k2 - hb) * PALM_MID;
+                drawn[k] = Some(palm_mid);
+                if log {
+                    let low = g.fingers.iter().flatten().chain(g.thumb.iter()).chain(std::iter::once(&Some(g.hand))).filter_map(|e| at(*e)).map(|v| v.y).fold(f32::MAX, f32::min);
+                    info!("arm wrestle arm: check side {k}: elbow drawn {el:.1?} ({:.1} from the plant), palm middle {palm_mid:.1?}, lowest hand bone {:.1} over the top", el.distance(e_plant), low - top);
+                }
+            }
         } else if !std::mem::replace(&mut shown.noted, true) {
             warn!("arm wrestle arm: side {k}'s hand has no fingers or thumb to grip with");
         }
     }
-}
-
-/// The hand's frame in the grip, in the world: along (wrist to knuckles), thumb side and
-/// palm (its outward normal), for the forearm's direction `fore` (wrist from elbow) and
-/// the direction `toward` the other wrestler (level). The hand stands upright, the wrist
-/// bent back at most [`WRIST_UP`] to get there from a sloping forearm (straight with an
-/// upright one), the palm faces the other wrestler, and the hand turns `deviate` radians
-/// towards the little finger, which puts the thumb on top and crosses the two right
-/// hands [design: the arm wrestling grip].
-/// For a right hand, palm = thumb x along [design: the right-hand rule, checked on the
-/// bones by `Grip::of`].
-pub fn hand_frame(fore: Vec3, toward: Vec3, deviate: f32) -> (Vec3, Vec3, Vec3) {
-    let f = fore.normalize_or(Vec3::Y);
-    let up = f.angle_between(Vec3::Y).min(WRIST_UP);
-    let a0 = match f.cross(Vec3::Y).try_normalize() {
-        Some(axis) => Quat::from_axis_angle(axis, up) * f,
-        None => f,
-    };
-    let p0 = (toward - a0 * toward.dot(a0)).normalize_or(toward);
-    let t0 = a0.cross(p0);
-    let along = (a0 * deviate.cos() - t0 * deviate.sin()).normalize();
-    let thumb = along.cross(p0).normalize();
-    (along, thumb, p0)
+    if log {
+        if let [Some(p0), Some(p1)] = drawn {
+            info!("arm wrestle arm: check: the palms' middles {:.2} apart (the hands' bones, {:.1} is palm to palm)", p0.distance(p1), 2.0 * PALM_GAP);
+        }
+    }
 }
 
 /// The bone the upper body bends at, and the one above it if the skeleton lacks it
 /// [observed: the human skeleton's node names].
 const SPINE: [&str; 2] = ["Bip01 Spine", "Bip01 Spine1"];
-/// The upper body's lean in at most, radians [design: about 25 degrees; 40 put the head
-/// down at the table and 50 hunched them head to head, desktop runs 2026-11-11].
-const MAX_BEND: f32 = 0.45;
+/// The upper body's lean in at most, radians [design: about 43 degrees, with the head
+/// turned back up ([`HEAD_UP`]): the shoulders must come over the elbows for the elbows
+/// to rest on the table with the hands touching (owner, 2026-11-11 17:0x)].
+const MAX_BEND: f32 = 0.75;
+/// The neck: turned back up by this share of the lean [observed: the node name; design:
+/// a 0.7 lean without it put the head down at the table, run 2026-11-11 15:3x].
+const NECK: &str = "Bip01 Neck";
+const HEAD_UP: f32 = 0.8;
 /// How far (level) behind the elbow the shoulder may stay, as a share of what the upper
 /// arm allows [design: the shoulder over the elbow, the upper arm sloping a little].
 const SHOULDER_IN: f32 = 1.0;
 /// The elbow joint's height over the table top, game units (the arm's thickness) [design].
 const ELBOW_UP: f32 = 2.0;
-/// The hand's turn from the forearm towards the little finger in the grip, radians
-/// [design: about 20 degrees, the thumbs on top; a wrist bends about 30 that way].
-const DEVIATE: f32 = 0.35;
-/// How far the wrist bends back to stand the hand up on a sloping forearm, radians
-/// [design: about 35 degrees; a wrist bends back about 70].
-const WRIST_UP: f32 = 0.6;
-/// Half the gap between the two palms' middles, game units [design: a hand is about 2.5
-/// thick].
-const PALM_GAP: f32 = 1.1;
+/// Half the gap between the two hands' bones at the palms, game units [design: the palms
+/// touching; 1.1 left them apart, run 16:48].
+const PALM_GAP: f32 = 0.7;
 /// The palm's middle from the wrist, as a share of the knuckles' distance [design].
 const PALM_MID: f32 = 0.6;
 /// The fingers' bones, index to little, knuckle to tip [observed: the human skeleton's
 /// node names]; each joint's curl towards the palm about the knuckles' line, radians
-/// [design: the first joints nearly straight across the other hand's palm, the middle and
-/// end ones wrapped round its back; all three curled hard made two fists knuckle to
-/// knuckle, desktop run 2026-11-11 16:04].
+/// [design: rounded as round a hand about 3 through; all three curled hard made two fists
+/// knuckle to knuckle (run 16:04), the first joints straight and the rest hard made claws
+/// (run 16:48)].
 const GRIP: [[&str; 3]; 4] = [
     ["Bip01 R Finger1", "Bip01 R Finger11", "Bip01 R Finger12"],
     ["Bip01 R Finger2", "Bip01 R Finger21", "Bip01 R Finger22"],
     ["Bip01 R Finger3", "Bip01 R Finger31", "Bip01 R Finger32"],
     ["Bip01 R Finger4", "Bip01 R Finger41", "Bip01 R Finger42"],
 ];
-const GRIP_CURL: [[f32; 3]; 4] = [[0.3, 1.35, 1.0], [0.35, 1.4, 1.0], [0.45, 1.4, 1.0], [0.55, 1.4, 1.0]];
+const GRIP_CURL: [[f32; 3]; 4] = [[0.7, 0.95, 0.6], [0.75, 1.0, 0.6], [0.8, 1.05, 0.65], [0.85, 1.05, 0.65]];
 /// The thumb's bones, base to tip [observed: node names], and where each segment points
 /// in the grip, in the hand's frame (along, thumb side, palm) [design: up and forward over
 /// the other hand, the tip curled down round the other thumb].
 const THUMB: [&str; 3] = ["Bip01 R Thumb1", "Bip01 R Thumb11", "Bip01 R Thumb12"];
 const THUMB_DIRS: [[f32; 3]; 3] = [[0.55, 0.45, 0.7], [0.75, -0.1, 0.65], [0.3, -0.45, 0.85]];
 
-/// Bends side `k`'s upper body in about the spine so the shoulder comes over its elbow's
-/// spot by the table's middle `top` (axis `u` from side 0 to side 1), by `w`.
+/// Bends the upper body in about the spine so the shoulder comes over its planted elbow
+/// `spot` (an upper arm from it), by `w`.
 #[allow(clippy::too_many_arguments)]
-fn lean_in(root: Entity, rig: &ActorRig, (top, u, k): (Vec3, Vec3, usize), toward: Vec3, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<(), &'static str> {
+fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<(), &'static str> {
+    // Bending lowers the shoulder as it brings it forward, so at full weight the bend is
+    // found again from where the last one put it, a few times [design: one pass left the
+    // shoulder far enough off that the elbow lifted 2.8 off the table at the pin, run
+    // 2026-11-11 18:14]; fading in or out, one pass, so the weight still scales it.
+    let mut used = 0.0;
+    for _ in 0..if w >= 0.99 { 4 } else { 1 } {
+        used += lean_step(root, rig, spot, toward, w, MAX_BEND - used, parents, transforms, globals)?;
+        if used >= MAX_BEND - 1e-3 {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// One bend of [`lean_in`], at most `budget` radians; the bend made back.
+#[allow(clippy::too_many_arguments)]
+fn lean_step(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, w: f32, budget: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<f32, &'static str> {
     let node = |name: &str| rig.skel.names.iter().position(|n| n.as_deref() == Some(name)).and_then(|i| rig.nodes.get(i).copied());
     let spine = SPINE.iter().find_map(|n| node(n)).ok_or("no spine")?;
-    let (Some(upper), Some(fore), Some(hand)) = (node(UPPER), node(FORE), node(HAND)) else { return Err("no right arm") };
+    let (Some(upper), Some(fore)) = (node(UPPER), node(FORE)) else { return Err("no right arm") };
     let above = parents.get(spine).map_err(|_| "the spine hangs from nothing")?.parent();
     let gp = world_of(above, root, parents, transforms, globals).ok_or("the spine is not under the body")?;
     let gs = world_of(spine, root, parents, transforms, globals).ok_or("the spine is not under the body")?;
     let sh = world_of(upper, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
     let el = world_of(fore, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
-    let wr = world_of(hand, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
     let upper_len = sh.distance(el);
-    let (spot, _) = clasp(top, u, el.distance(wr), k, 0.0);
     let pivot = gs.translation();
     let height = (sh.y - pivot.y).max(1.0);
     let flat = |v: Vec3| Vec2::new(v.x, v.z);
     // Level from the elbow's spot, where the upper arm reaches down to it.
     let over = (upper_len * upper_len - (sh.y - spot.y).powi(2)).max(0.0).sqrt() * SHOULDER_IN;
     let gap = flat(spot).distance(flat(sh)) - over;
-    if gap <= 0.0 {
-        return Ok(());
+    if gap <= 0.0 || budget <= 0.0 {
+        return Ok(0.0);
     }
-    let bend = (gap / height).clamp(0.0, 1.0).asin().min(MAX_BEND) * w;
-    // Forward is towards the table: turning about the level axis across it.
-    let axis = Vec3::Y.cross(toward).normalize_or(Vec3::X);
+    let bend = (gap / height).clamp(0.0, 1.0).asin().min(budget) * w;
+    // Towards the planted elbow, not only straight at the table: a body seated off the
+    // table's middle line rolls its shoulder in over the elbow [design: the player sat
+    // with the right shoulder 16 to the right of the middle and a straight-ahead bend left
+    // it 20.5 from the elbow for a 17.4 upper arm, run 2026-11-11 18:26]. Turning about the
+    // level axis across that way.
+    let to_spot = Vec3::new(spot.x - sh.x, 0.0, spot.z - sh.z).normalize_or(toward);
+    let axis = Vec3::Y.cross(to_spot).normalize_or(Vec3::X);
     // About Y × toward a positive turn takes up towards `toward`.
     let q = Quat::from_axis_angle(axis, bend);
     let rp = rot(&gp);
     if let Ok(mut t) = transforms.get_mut(spine) {
         t.rotation = (rp.inverse() * q * rp * t.rotation).normalize();
     }
-    Ok(())
+    // The head turned back up by most of it, looking at the other wrestler and not down at
+    // the table.
+    if let Some(neck) = node(NECK) {
+        let above = parents.get(neck).map_err(|_| "the neck hangs from nothing")?.parent();
+        let gn = world_of(above, root, parents, transforms, globals).ok_or("the neck is not under the body")?;
+        let rn = rot(&gn);
+        let back = Quat::from_axis_angle(axis, -bend * HEAD_UP);
+        if let Ok(mut t) = transforms.get_mut(neck) {
+            t.rotation = (rn.inverse() * back * rn * t.rotation).normalize();
+        }
+    }
+    Ok(bend)
 }
 
 /// An arm's bones as animated: the shoulder, elbow and wrist (world), the frame above
@@ -414,8 +539,8 @@ struct Arm {
 }
 
 /// One hand's bones for the grip, and its own frame measured from them: along (wrist to
-/// the knuckles' middle), thumb side and palm (thumb x along, a right hand), as columns,
-/// in the hand bone's local space.
+/// the knuckles' middle), thumb side (palm x along, as the grip frame) and palm, as
+/// columns, in the hand bone's local space.
 struct Grip {
     hand: Entity,
     fingers: [[Option<Entity>; 3]; 4],
@@ -440,10 +565,13 @@ impl Grip {
         }
         let k = knuckles.iter().sum::<Vec3>() / knuckles.len() as f32;
         let a = k.try_normalize()?;
-        let t = thumb[0].and_then(at)?;
-        let t = (t - a * t.dot(a)).try_normalize()?;
-        let p = t.cross(a).normalize();
-        let t = a.cross(p);
+        // The palm's side, against the finger bones' own +Y [observed: with the palm taken
+        // as the knuckle bones' +Y (or as thumb x along from Thumb1's place) the posed palms
+        // faced away from each other, the fingers hooked back towards their own wrestler
+        // (owner and armwrestle-a, desktop runs 2026-11-11 17:09 and 17:21)].
+        let ys: Vec3 = fingers.iter().filter_map(|f| f[0].and_then(|e| transforms.get(e).ok())).map(|t| t.rotation * Vec3::Y).sum();
+        let p = -(ys - a * ys.dot(a)).try_normalize()?;
+        let t = p.cross(a);
         Some(Grip { hand, fingers, thumb, axes: Mat3::from_cols(a, t, p), palm: k.length() * PALM_MID })
     }
 
@@ -466,7 +594,8 @@ impl Grip {
             let straight = (spread - p * spread.dot(p)).normalize_or(a);
             let dirs = curls.iter().scan(0.0, |sum, c| {
                 *sum += c;
-                Some(Quat::from_axis_angle(t, *sum) * straight)
+                // About the thumb axis (palm x along) a negative turn takes along towards palm.
+                Some(Quat::from_axis_angle(t, -*sum) * straight)
             });
             pose_chain(bones, dirs, w, transforms);
         }
@@ -558,37 +687,62 @@ mod tests {
     }
 
     #[test]
-    fn in_the_grip_the_palms_face_each_other_and_the_thumbs_are_up() {
-        let (a0, t0, p0) = hand_frame(Vec3::Y, Vec3::X, DEVIATE);
-        let (a1, t1, p1) = hand_frame(Vec3::Y, -Vec3::X, DEVIATE);
-        // On a forearm sloping 45 degrees towards the other wrestler the hand still
-        // stands nearly upright, the palm facing the other wrestler, not the table.
-        let (a, _, p) = hand_frame(Vec3::new(1.0, 1.0, 0.0), Vec3::X, DEVIATE);
-        assert!(a.y > 0.85 && p.x > 0.95, "{a} {p}");
-        for (a, t, p) in [(a0, t0, p0), (a1, t1, p1)] {
-            assert!(a.dot(t).abs() < 1e-5 && a.dot(p).abs() < 1e-5 && t.dot(p).abs() < 1e-5);
-            // A right hand: palm = thumb x along.
-            assert!(t.cross(a).distance(p) < 1e-5);
-            // The thumb is on top, the hand still mostly upright.
-            assert!(t.y > 0.2 && a.y > 0.9);
+    fn the_elbows_stay_planted_and_the_clasp_only_turns_sideways() {
+        let (mid, u) = (Vec3::new(10.0, 50.0, 0.0), Vec3::X);
+        let p = plant(mid, u, [22.0, 24.0]);
+        // Planted on the table, either side of the middle, each a little to its own right.
+        assert!(p.elbows.iter().all(|e| (e.y - mid.y).abs() < 1e-4));
+        assert!(p.elbows[0].x < mid.x && p.elbows[1].x > mid.x);
+        let right0 = u.cross(Vec3::Y);
+        assert!((p.elbows[0] - mid).dot(right0) > 0.0 && (p.elbows[1] - mid).dot(right0) < 0.0);
+        // Each palm's middle a reach from its elbow, the clasp straight up over the middle.
+        assert!((p.palms[0].distance(p.elbows[0]) - 22.0).abs() < 1e-3);
+        assert!((p.palms[1].distance(p.elbows[1]) - 24.0).abs() < 1e-3);
+        assert!(p.clasp.x == mid.x && p.clasp.z == mid.z && p.clasp.y > mid.y + 15.0);
+        for theta in [0.3, -0.7, 1.2] {
+            // The elbows do not move, elbow to palm stays one length, the palms stay
+            // together, and the clasp goes sideways, not along the line between the chairs.
+            for k in 0..2 {
+                assert!(turned(&p, theta, p.elbows[k]).distance(p.elbows[k]) < 1e-4);
+                assert!((turned(&p, theta, p.palms[k]).distance(p.elbows[k]) - p.palms[k].distance(p.elbows[k])).abs() < 1e-3);
+            }
+            let (a, b) = (turned(&p, theta, p.palms[0]), turned(&p, theta, p.palms[1]));
+            assert!((a.distance(b) - 2.0 * PALM_GAP).abs() < 1e-3);
+            // Along the line between the chairs only the little the elbows' own offsets
+            // (each to its wrestler's right) skew the turning line: under a tenth of the
+            // sideways travel.
+            let c = turned(&p, theta, p.clasp) - p.clasp;
+            assert!(c.x.abs() < 0.1 * c.z.abs(), "{c}");
         }
-        // Palm to palm, and the two hands crossed.
-        assert!(p0.dot(p1) < -0.99 && p0.x > 0.99);
-        assert!(a0.z * a1.z < 0.0);
+        // Side 0 winning (a positive lean) takes the clasp to side 0's left.
+        assert!((turned(&p, 0.5, p.clasp) - p.clasp).dot(-right0) > 1.0);
     }
 
     #[test]
-    fn the_hands_meet_over_the_middle_and_the_elbows_rest_either_side() {
-        let (mid, u, b) = (Vec3::new(10.0, 50.0, 0.0), Vec3::X, 25.0);
-        let (e0, h0) = clasp(mid, u, b, 0, 0.0);
-        let (e1, h1) = clasp(mid, u, b, 1, 0.0);
-        assert_eq!(h0, h1);
-        assert!((h0.x - mid.x).abs() < 1e-4 && h0.y > mid.y);
-        assert!(e0.x < mid.x && e1.x > mid.x && e0.y == mid.y);
-        // Upright, each forearm keeps its length.
-        assert!((e0.distance(h0) - b).abs() < 1e-3);
-        // Leaning towards side 1 brings the hands over its half and lower.
-        let (_, h) = clasp(mid, u, b, 0, lean_angle(0.9));
-        assert!(h.x > mid.x && h.y < h0.y);
+    fn the_elbow_is_solved_towards_its_plant_with_the_wrist_exact() {
+        let (s, wrist, plant) = (Vec3::new(0.0, 30.0, 0.0), Vec3::new(12.0, 22.0, 0.0), Vec3::new(14.0, 5.0, 1.0));
+        let e = elbow_between(s, wrist, 20.0, 18.0, plant);
+        assert!((e.distance(s) - 20.0).abs() < 1e-3 && (e.distance(wrist) - 18.0).abs() < 1e-3);
+        // Of the circle the elbow may be on, it takes the side towards the plant.
+        assert!(e.y < 20.0, "{e}");
+        // Out of reach: straight towards the wrist.
+        let far = elbow_between(s, Vec3::new(50.0, 30.0, 0.0), 20.0, 18.0, plant);
+        assert!(far.distance(Vec3::new(20.0, 30.0, 0.0)) < 1e-3);
+    }
+
+    #[test]
+    fn the_pin_stops_with_the_hands_on_the_table_not_through_it() {
+        let top = 48.0;
+        let p = plant(Vec3::new(0.0, top + ELBOW_UP, 0.0), Vec3::X, [22.0, 22.0]);
+        let pin = pin_angle(&p, top);
+        assert!(pin > 1.2 && pin <= PINNED, "{pin}");
+        for a in [pin, -pin] {
+            for m in p.palms {
+                assert!(turned(&p, a, m).y >= top + HAND_CLEAR - 1e-3);
+            }
+        }
+        // A little further would go through.
+        let over = pin + 0.05;
+        assert!(p.palms.iter().any(|&m| turned(&p, over, m).y < top + HAND_CLEAR) || over > PINNED);
     }
 }
