@@ -296,6 +296,8 @@ fn drum_turn(pos: f32, n: usize) -> Quat {
 }
 
 /// Where a machine's drums go, from its drawing in the world.
+// The drawing's parts come from the system's own queries and resources, passed through.
+#[allow(clippy::too_many_arguments)]
 fn fit_of(
     machine: FormId,
     rigs: &Query<(Entity, &crate::object_anims::GroupRig)>,
@@ -480,8 +482,13 @@ fn drums(
     mut views: Local<Views>,
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
-    (rigs, refs, world_root): (Query<(Entity, &crate::object_anims::GroupRig)>, Query<(Entity, &nvf_play::RefVisual)>, Query<Entity, With<crate::world::WorldRoot>>),
-    (sim, play, mut reels3d, mut sounds): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::PlayWorld>>, ResMut<SlotsReels3d>, MessageWriter<PlaySound>),
+    rigs: Query<(Entity, &crate::object_anims::GroupRig)>,
+    refs: Query<(Entity, &nvf_play::RefVisual)>,
+    world_root: Query<Entity, With<crate::world::WorldRoot>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
+    play: Option<Res<nvf_play::PlayWorld>>,
+    mut reels3d: ResMut<SlotsReels3d>,
+    mut sounds: MessageWriter<PlaySound>,
 ) {
     let now = time.elapsed_secs();
     // Take away the drums of machines no longer in use.
