@@ -634,7 +634,12 @@ playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](w
 ## 5. Determinism and precision
 
 - The world advances only in fixed steps of `PhysParams::dt`; `Stepper` turns frame time
-  into whole steps and carries the remainder (at most `max_substeps` per call).
+  into whole steps and carries the remainder (at most `max_substeps` per call), in `f64`
+  so it does not drift over hours [design]. `Stepper::alpha` is the one place the share of
+  a step the remainder stands for is worked out: whatever is drawn between the last two
+  steps blends by it. How many steps a second play takes is a setting (§5.2); the tools,
+  the tests and the parity lab step at 60 unless told otherwise (`fnvtool phys walk`'s
+  `hz`).
 - Two worlds built the same way and stepped the same way are bit-identical, with and
   without a character moving and jumping among a dozen tumbling boxes (`state_digest`
   over every body's position and velocity bits, every step) [observed: tests, same
@@ -813,6 +818,98 @@ decides what the next query refresh costs.
   - Combat: with coincident actors the hit now goes to the lower form id, and inside two
     overlapping parts to the lower part index (then the earlier segment), always. Before,
     either could win depending on the tree.
+
+### 5.2 The physics rate (2026-11-11)
+
+How many fixed steps a second play takes [design: the owner's approved plan,
+`dev/plans/physics-timestep-and-rapier.md` §5 phase 2; `engine/nvf-play/src/phys_rate.rs`].
+
+- **The choice**: the settings page's Physics rate (Display > Screen, `physics-rate` in
+  `[Settings]` of NVForever.ini): 60 (the default, the rate the captures and the parity
+  lab's goldens were taken at), 120, 144, 160, 240, or Match display: the frame rate the
+  display's pace holds, from 60 to 240. That is the cap in effect (the page's limit,
+  variable refresh's, frame generation's real-frame cap, the lowest), no more than the
+  refresh rate with vsync; with no cap, the display's refresh rate (`display_hz`).
+  `--physics-hz <60..240|display>` sets it for one run, over the setting (the row then
+  says so and cannot be changed); it is kept across a load's restart.
+- **The INI and older builds**: the key is read only by builds that know it. The settings
+  reader looks up the keys it registered and leaves every other line of the file as it is
+  when it writes (`settings::write`, `fnv_install::ini_set`), so an older build sharing
+  the INI ignores `physics-rate=` and keeps it, and this build reads an INI without it as
+  60 [observed: the code]. Nothing about the rate is in a save: a save loads the same
+  whatever the rate, in either build.
+- **Fixed steps at every rate**: each step is `1/rate` s of the game's clock, so each rate
+  is reproducible on its own. While the clock runs slow (VATS, a kill camera) the step
+  shrinks with it, `1/rate × speed` down to `SLOWEST_PACED` (2 %), so the steps a real
+  second stay the rate's; faster than `FASTEST_PACED` (4×, a script's
+  SetGlobalTimeMultiplier) the step grows instead of the steps a real second, which are
+  thus never more than four times the rate [design; before 2026-11-11 a faster clock kept
+  the step at any speed]. A frame runs at most a quarter second of steps at the rate
+  (`catch_up_steps`: 15 at 60, 38 at 152, 60 at 240), what the virtual clock passes on in
+  its longest frame; time beyond it is dropped, so a slow moment cannot grow a backlog
+  (no "spiral of death": the game slows down instead).
+- **A change of rate in play** (the page, Match display following the display, the guard)
+  keeps the share of a step the clock is into (`Stepper::rescale`), so nothing drawn
+  between steps jumps; the remainder's game time changes by less than a step, once.
+- **The cost guard** (`phys_rate::Guard`): the time in the player's `step` system (the
+  steps and what runs between them) is read every played frame (two `Instant`s). Over half
+  the frame time over 2 s, the rate goes down a notch of 60/120/144/160/240 (never under
+  60); under a quarter for 5 s, and foreseen under 40 % at the next notch, it goes back up
+  towards the chosen rate. A fall within 30 s of a rise doubles the wait before the next
+  rise (up to 80 s), so the rate does not flap. Every switch is logged (`phys: physics rate
+  160 Hz -> 144 Hz: ...`); the `--log-frame-times` physics line names the rate
+  (frame-rate-audit.md), and the exit report says how many switches there were.
+- **Rules that counted steps now count seconds**, so they last as long at any rate and as
+  long as before at 60:
+  - a pushed player held by something is not pushed again for `blocking::HELD_SECS`
+    (0.5 s, was 30 steps);
+  - a stuck character's full move comes `character::STUCK_RETRY_SECS` (1/3 s, was every
+    20th step) after the move that held it;
+  - the drawn-height roughness tally counts walking as over 30 units/s (was half a unit a
+    step; a report figure only).
+  A duration summed from steps is reached on the step that brings the sum within half a
+  step of it (`secs_reached`), so the sum's rounding never adds or drops a step: at 60 the
+  rules act on the same steps as before [observed: tests]. These are game seconds: under
+  VATS slow motion they last longer in real time than the 30 or 20 steps did (each step is
+  shorter there). Checked and already in seconds or distances: the lunge's carry and a
+  knockback (exact over any step), the swim stroke cycle, the air control gain and the
+  landing table (`air.rs`), the jump and an actor's jump (taken on the first step after the
+  press, kept through frames with no step), fall damage (`PLACED_JUMP` is a jump between
+  steps, not a speed), pushes (`blocking::clip`, distances over `dt`), the grab and
+  buoyancy (rates over `dt`), the drawn height's spring (exact over `dt`), the ragdolls'
+  and wrecks' calm rules (seconds), the residents' stuck rule (frame seconds). The step
+  counts left (`steps_blocked`, `held_steps`, the status line's) are report tallies.
+- **What changes with the rate** [observed: `fnvtool phys walk` with the
+  `parity-lab/inputs/layer4/move_*.walk.json` scripts scaled to the same seconds at each
+  rate, and `character_rules_hold_at_every_physics_rate` in
+  `crates/fnv-phys/tests/synthetic.rs`, 2026-11-11]:
+
+  | | 60 | 120 | 144 | 152 | 240 |
+  |---|---|---|---|---|---|
+  | jump apex (units) | 59.20 | 60.39 | 60.59 | 60.65 | 61.00 |
+  | running jump: air time (s) | 0.817 | 0.833 | 0.833 | 0.836 | 0.838 |
+  | running jump: landing speed (units/s) | 281.4 | 287.1 | 286.2 | 287.4 | 287.1 |
+  | a box pushed for 1 s at 120 units/s (units) | 33.8 | 45.4 | 42.6 | 39.1 | 37.7 |
+  | 60° ramp, how high a walker gets (units) | 3.0 | 4.2 | 4.0 | 3.8 | 4.1 |
+  | portal wall walk: end vs 60 (units) | 0 | 1.65 | 1.95 | 2.54 | 2.82 |
+
+  - The jump, as expected: semi-implicit Euler undershoots the apex by about `v0·dt/2`,
+    less at shorter steps (the original's 61.5, §6). The landing speed and air time follow.
+  - **Pushes differ the most**: a pushed box goes 12-34 % farther at 120-240 than at 60,
+    and not in proportion to the rate (rapier's character impulses per step,
+    `solve_character_collision_impulses`) [hypothesis].
+  - Unchanged within 0.05 units at every rate: rest heights on terrain (3.5) and on a
+    static box (0.5 above it), a 300-unit fall's landing speed (639-641.5 against 641.9
+    analytic) and time, step-ups (0.6 step heights) and the REPCONN stairs, the 25° ramp
+    climbed and the 60° one refused, a level run's distance.
+  - The walk traces stay within 0.5 units of 60's on the fence, hill and porch runs (the
+    porch's 0.25 s observations up to 2.2 at 120, as the step-up lands a step earlier or
+    later); the portal-wall run down a mountainside ends 1.7-2.8 units short and 0.4-0.7
+    higher, and at 152 loses the ground for one step (one landing at 9 units/s). All of
+    these are inside the parity lab's 10-unit tolerance, which judges 60 only.
+  - Whether a character in a crease runs out of the controller's sweeps (and is held,
+    above) depends on the step: in the groove test fewer walks stick at 120 than at 60
+    [observed: `a_held_character_waits_the_same_seconds_at_any_step_rate`].
 
 ## 6. Character controller and capture questions
 

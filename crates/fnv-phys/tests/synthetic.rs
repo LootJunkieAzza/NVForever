@@ -537,6 +537,124 @@ fn character_jump_apex() {
     assert!((apex - z0 - c.params.jump_height).abs() < tol, "apex {}", apex - z0);
 }
 
+/// The physics rates the game offers (`nvf_play::phys_rate`), and 152 (the owner's
+/// variable-refresh cap at 160 Hz).
+const RATES: [f32; 5] = [60.0, 120.0, 144.0, 152.0, 240.0];
+
+/// Steps of `hz` a second in `secs` seconds.
+fn steps_in(secs: f32, hz: f32) -> usize {
+    (secs * hz).round() as usize
+}
+
+/// The character's rules at each physics rate, in seconds: what changes with the step's
+/// length, and by how much (docs/spec-notes/physics.md §5, "The physics rate"). Run with
+/// `--nocapture` for the table.
+#[test]
+fn character_rules_hold_at_every_physics_rate() {
+    let p = CharacterParams::default();
+    let mut rows = Vec::new();
+    for hz in RATES {
+        let dt = 1.0 / hz;
+        let rate = |w: &mut PhysWorld| w.set_step(dt);
+        // Rest height on the terrain and on a static box (physics.md §6.2).
+        let mut w = ground();
+        rate(&mut w);
+        w.add_ref(&at(1, [300.0, 0.0, 10.0]), &[object(boxed([50.0, 50.0, 10.0]), Motion::Static)]);
+        let mut c = w.add_character(1, p, [0.0, 0.0, 30.0]);
+        settle(&mut w, &mut c, steps_in(1.0, hz));
+        let rest_terrain = c.feet[2];
+        let mut b = w.add_character(2, p, [300.0, 0.0, 40.0]);
+        settle(&mut w, &mut b, steps_in(1.0, hz));
+        let rest_box = b.feet[2] - 20.0;
+        // Jump apex on flat ground.
+        let z0 = c.feet[2];
+        let mut apex = z0;
+        for i in 0..steps_in(2.0, hz) {
+            let s = w.move_character(&mut c, CharacterInput { jump: i == 0, ..Default::default() });
+            w.step();
+            apex = apex.max(s.feet[2]);
+            if i > 5 && s.grounded {
+                break;
+            }
+        }
+        let apex = apex - z0;
+        // A fall of 300 units: the landing speed and the time it took.
+        let mut w = ground();
+        rate(&mut w);
+        let mut f = w.add_character(1, p, [0.0, 0.0, 300.0 + TERRAIN_SHELL]);
+        let (mut landed, mut fall_s) = (0.0, 0.0);
+        for i in 0..steps_in(2.0, hz) {
+            let s = w.move_character(&mut f, CharacterInput::default());
+            w.step();
+            if let Some(v) = s.landed_speed {
+                (landed, fall_s) = (v, (i + 1) as f32 * dt);
+                break;
+            }
+        }
+        // Up a step of 0.6 step heights, and up the REPCONN stairs (risers of 24) running.
+        let mut w = ground();
+        rate(&mut w);
+        let height = p.step_height * 0.6;
+        w.add_ref(&at(1, [300.0, 0.0, height / 2.0]), &[object(boxed([200.0, 200.0, height / 2.0]), Motion::Static)]);
+        let mut s = w.add_character(1, p, [0.0, 0.0, 1.0]);
+        settle(&mut w, &mut s, steps_in(0.5, hz));
+        walk(&mut w, &mut s, [150.0, 0.0], steps_in(1.5, hz));
+        let step_up = s.feet[0] > 150.0 && (s.feet[2] - height).abs() < 2.0;
+        let mut w = ground();
+        rate(&mut w);
+        for i in 0..8 {
+            let (top, west) = (24.0 * (i + 1) as f32, 100.0 + 24.0 * i as f32);
+            w.add_ref(&at(10 + i, [(west + 1200.0) / 2.0, 0.0, top / 2.0]), &[object(boxed([(1200.0 - west) / 2.0, 200.0, top / 2.0]), Motion::Static)]);
+        }
+        let mut s = w.add_character(1, p, [0.0, 0.0, 1.0]);
+        settle(&mut w, &mut s, steps_in(0.5, hz));
+        let climbed = walk(&mut w, &mut s, [344.0, 0.0], steps_in(4.0, hz)).iter().find(|s| s.feet[0] > 300.0).is_some_and(|s| (s.feet[2] - 192.0).abs() < 2.0);
+        // A walkable ramp climbed, a steep one not; how far a 45° one lets a walker slide.
+        let mut slopes = Vec::new();
+        for deg in [25.0f32, 45.0, 60.0] {
+            let mut w = ground();
+            rate(&mut w);
+            ramp(&mut w, deg);
+            let mut s = w.add_character(1, p, [0.0, 0.0, 1.0]);
+            settle(&mut w, &mut s, steps_in(0.5, hz));
+            walk(&mut w, &mut s, [150.0, 0.0], steps_in(2.0, hz));
+            slopes.push(s.feet[2]);
+        }
+        // A 12-unit box pushed for a second at 120 units/s.
+        let mut w = ground();
+        rate(&mut w);
+        w.add_ref(&at(1, [60.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+        let mut s = w.add_character(1, p, [0.0, 0.0, 1.0]);
+        settle(&mut w, &mut s, steps_in(0.5, hz));
+        walk(&mut w, &mut s, [120.0, 0.0], steps_in(1.0, hz));
+        let pushed = w.ref_bodies(1)[0].translation[0] - 60.0;
+        // A walk of a second along flat ground: no step lost (physics.md §6.4).
+        let mut w = ground();
+        rate(&mut w);
+        let mut s = w.add_character(1, p, [0.0, 0.0, 1.0]);
+        settle(&mut w, &mut s, steps_in(0.5, hz));
+        let x0 = s.feet[0];
+        walk(&mut w, &mut s, [344.0, 0.0], steps_in(1.0, hz));
+        let walked = s.feet[0] - x0;
+        rows.push((hz, rest_terrain, rest_box, apex, landed, fall_s, step_up, climbed, slopes.clone(), pushed, walked));
+        // What must hold at every rate.
+        assert!((rest_terrain - TERRAIN_SHELL).abs() < 0.05, "{hz} Hz: rest on the terrain {rest_terrain}");
+        assert!(rest_box.abs() < 1.5, "{hz} Hz: rest on a box {rest_box} above it");
+        let v0 = (2.0 * w.params.gravity * p.jump_height).sqrt();
+        assert!((apex - p.jump_height).abs() < v0 * dt, "{hz} Hz: apex {apex}");
+        let want = (2.0 * w.params.gravity * 300.0f32).sqrt();
+        assert!((landed - want).abs() < 0.05 * want, "{hz} Hz: landed at {landed}");
+        assert!(step_up && climbed, "{hz} Hz: step up {step_up}, stairs {climbed}");
+        assert!(slopes[0] > 50.0 && slopes[2] < p.step_height + 2.0, "{hz} Hz: slopes {slopes:?}");
+        assert!(pushed > 2.0, "{hz} Hz: pushed {pushed}");
+        assert!((walked - 344.0).abs() < 4.0, "{hz} Hz: walked {walked}");
+    }
+    eprintln!("hz | rest terrain | rest box | apex | landed | fall s | step up | stairs | ramp 25/45/60 z | pushed | walked 1 s");
+    for (hz, rt, rb, apex, landed, fall, up, stairs, slopes, pushed, walked) in rows {
+        eprintln!("{hz} | {rt:.3} | {rb:.3} | {apex:.2} | {landed:.1} | {fall:.4} | {up} | {stairs} | {:.1}/{:.1}/{:.1} | {pushed:.2} | {walked:.2}", slopes[0], slopes[1], slopes[2]);
+    }
+}
+
 #[test]
 fn character_ceiling_stops_jump() {
     let mut w = ground();
