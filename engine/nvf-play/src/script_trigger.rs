@@ -289,8 +289,20 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     let mut now = BTreeSet::new();
     if !shapes.is_empty() {
         let who = if guest { vec![(FormId::PLAYER_REF, player)] } else { actors(rt, phys, player) };
+        // A trigger fires only for an actor in its own space: the same interior, or the
+        // same worldspace (item 184: Dead Money's NVDLC01VillaTravelTrigger, in the
+        // interior SLBoSBunkerINT, fired for the host standing at the same coordinates in
+        // WastelandNV while the interior was still loaded) [hypothesis: interiors and
+        // worldspaces are separate places, and a volume is only in its own].
+        let g = &rt.game;
+        let space = |r: FormId| g.cell_of(r).map(|c| g.world.placed.world_of(c).unwrap_or(c));
+        let trigger_space: HashMap<FormId, Option<FormId>> = shapes.iter().map(|(t, _)| (*t, space(*t))).collect();
         for (a, cap) in who {
+            let mine = space(a);
             for (t, s) in &shapes {
+                if mine.is_some_and(|m| trigger_space.get(t).copied().flatten().is_some_and(|ts| ts != m)) {
+                    continue;
+                }
                 if s.touches(&cap) {
                     now.insert((*t, a));
                 }

@@ -41,6 +41,21 @@ use std::collections::BTreeSet;
 use std::time::Instant;
 use bevy::text::FontSize;
 
+/// A script's move of the host to where it was just moved (within [`SUMMON_NEAR`] units,
+/// within this many seconds) takes no guest again (item 185).
+const SUMMON_SAME: f32 = 2.0;
+const SUMMON_NEAR: f32 = 64.0;
+
+/// Whether two summons go to the same place (item 185).
+fn same_summon(a: &Effect, b: &Effect) -> bool {
+    match (a, b) {
+        (Effect::Summon { interior: i1, world: w1, pos: p1, .. }, Effect::Summon { interior: i2, world: w2, pos: p2, .. }) => {
+            i1 == i2 && w1 == w2 && ((p1[0] - p2[0]).powi(2) + (p1[1] - p2[1]).powi(2) + (p1[2] - p2[2]).powi(2)).sqrt() <= SUMMON_NEAR
+        }
+        _ => false,
+    }
+}
+
 /// How often the host sends changes and actor poses.
 const TICK: f32 = 0.05;
 /// How often the host goes over every reference it holds near each guest.
@@ -74,6 +89,14 @@ fn solo_perf() -> bool {
     *ON.get_or_init(|| std::env::var(PERF_ENV).is_ok_and(|v| v == "1"))
 }
 
+impl Repl {
+    /// A guest's digest goes on its next frame (the syncing screen's ask follows it on
+    /// the same stream, so what its own save changed in its area is sent back first).
+    pub(super) fn digest_now(&mut self) {
+        self.last_digest = f32::MIN;
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Repl {
     /// A guest's: where the host's script moved the host's player (interior cell or 0,
@@ -96,6 +119,18 @@ pub(super) struct Repl {
     /// The host's: body parts gone here, for the guests ([`dismember_out`]); a guest's:
     /// those the host sent, to take off here ([`dismember_in`]).
     dismembered: Vec<Effect>,
+    /// The host's: guests that asked for the syncing screen's answer (`Effect::Sync`),
+    /// with their serial: their whole area goes again at the next sweep, then the answer.
+    sync_asked: Vec<(u8, u32)>,
+    /// The host's: the last summon each guest was sent, and when ([`same_summon`]).
+    summoned: HashMap<u8, (f32, Effect)>,
+    /// A guest's: the serial of the host's last answer to its `Effect::Sync`.
+    pub sync_done: Option<u32>,
+    /// A guest's: when the stream last set each reference's enabled flag. The host's
+    /// presence list, made up to two seconds before and paged, does not undo it
+    /// (`coop::STREAM_WINS`; item 181: Old World Blues' drive-in refs, enabled by the
+    /// stream at join, were disabled again by an older list for 6 s).
+    pub enabled_heard: HashMap<u32, f32>,
     /// A guest's: references the host enabled or disabled that this game changed too, for
     /// their visuals and collision to follow ([`nvf_play::RefChanged`]).
     refreshed: Vec<u32>,
@@ -456,6 +491,12 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                         Some(w) => Effect::Summon { interior: 0, world: w.0, pos: s.pos, yaw: s.rot[2] },
                         None => Effect::Summon { interior: cell.0, world: 0, pos: s.pos, yaw: s.rot[2] },
                     };
+                    // A script that moves the host again and again to the same spot (item
+                    // 185: Dead Money's bunker, 14 moves in a second) is one trip for
+                    // the guests: one summon, one loading screen.
+                    if !r.summoned.is_empty() && r.summoned.values().all(|(at, last)| now - at < SUMMON_SAME && same_summon(last, &summon)) {
+                        return None;
+                    }
                     // Only the guests within sight of where the host stood go along
                     // (owner, 2026-11-09: a cutscene pulls in the players within sight).
                     let (near, far) = near_guests(r.host_was, &guests);
@@ -521,6 +562,9 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
         }
         for (summon, to) in summons {
             r.effects_sent += 1;
+            for &id in &to {
+                r.summoned.insert(id, (now, summon.clone()));
+            }
             for id in to {
                 for item in repl::pack_effects(std::slice::from_ref(&summon), ITEM) {
                     link.send_reliable(Some(id), item);
@@ -571,6 +615,20 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                     }
                 } else if let Some(l) = repl::unpack_loose(&item) {
                     host_loose(link, r, sim, id, l);
+                } else if let Some(effects) = repl::unpack_effects(&item) {
+                    // A guest behind its syncing screen (item 186): its whole area again,
+                    // at a sweep now, and then the answer.
+                    for e in effects {
+                        if let Effect::Sync { serial, done: false } = e {
+                            info!("replication: player {} asks to be synced ({serial}): its whole area goes again", id + 1);
+                            r.shadows.remove(&id);
+                            r.sent_at.remove(&id);
+                            r.poses.remove(&id);
+                            r.sync_asked.retain(|(g, _)| *g != id);
+                            r.sync_asked.push((id, serial));
+                            r.last_sweep = f32::MIN;
+                        }
+                    }
                 } else if let Some(d) = repl::unpack_digest(&item) {
                     let shadow = r.shadows.entry(id).or_default();
                     let sent_at = r.sent_at.entry(id).or_default();
@@ -668,6 +726,16 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 link.send_reliable(Some(id), item);
             }
         }
+        // The syncing screen's answer, after the sweep's changes on the same stream.
+        if sweep {
+            if let Some(i) = r.sync_asked.iter().position(|(g, _)| *g == id) {
+                let (_, serial) = r.sync_asked.remove(i);
+                info!("replication: player {} is synced ({serial}): {} changes of its area sent before the answer", id + 1, changes.len());
+                for item in repl::pack_effects(&[Effect::Sync { serial, done: true }], ITEM) {
+                    link.send_reliable(Some(id), item);
+                }
+            }
+        }
         // The compact actor stream.
         let sent = r.poses.entry(id).or_default();
         let mut poses = Vec::new();
@@ -721,6 +789,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         // and Vulpes at Nipton came back "enabled as in the host's world"
                         // for 5-9 s, Benny at the Tops elevator for good).
                         if let Value::Enabled { enabled, deleted } = c.value {
+                            r.enabled_heard.insert(c.reference, now);
                             if enabled && !deleted {
                                 coop.host_disabled.remove(&c.reference);
                             } else if coop.host_disabled.insert(c.reference) && coop.npcs.remove(&c.reference).is_some() {
@@ -817,6 +886,12 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                                     }
                                 }
                                 Effect::Dismember { .. } => r.dismembered.push(e),
+                                Effect::Sync { serial, done } => {
+                                    if done {
+                                        info!("replication: the host's answer {serial}: this game holds the host's world here");
+                                        r.sync_done = Some(serial);
+                                    }
+                                }
                                 Effect::Rules { friendly_fire } => {
                                     if coop.friendly_fire != friendly_fire {
                                         info!("replication: the host's rules: friendly fire {}", if friendly_fire { "on" } else { "off" });
@@ -1281,6 +1356,17 @@ fn near_guests(host: Option<(Place, [f32; 3])>, guests: &[(u8, Place, [f32; 3], 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A script that moves the host to the same spot again and again is one summon for
+    /// the guests (item 185); a move elsewhere is another.
+    #[test]
+    fn the_same_spot_again_is_one_summon() {
+        let at = |interior, world, x: f32| Effect::Summon { interior, world, pos: [x, 0.0, 0.0], yaw: 0.0 };
+        assert!(same_summon(&at(0x1555FD, 0, 0.0), &at(0x1555FD, 0, 30.0)));
+        assert!(!same_summon(&at(0x1555FD, 0, 0.0), &at(0x1555FD, 0, 300.0)), "farther than a step");
+        assert!(!same_summon(&at(0x1555FD, 0, 0.0), &at(0, 0xDA726, 0.0)), "another place");
+        assert!(!same_summon(&at(0x1555FD, 0, 0.0), &Effect::Rules { friendly_fire: true }));
+    }
 
     /// A script's move of the host takes the guests within sight of where it stood
     /// (owner, 2026-11-09), not one in another place or farther; with no place known for

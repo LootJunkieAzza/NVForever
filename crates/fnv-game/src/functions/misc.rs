@@ -556,13 +556,16 @@ pub fn apply_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<
         return Err(format!("{m} is not an image space modifier"));
     }
     g.apply_image_modifier(m);
+    g.script_image_modifiers.insert(m);
     none()
 }
 
 /// `RemoveImageSpaceModifier modifier`: the modifier leaves the screen [documented: GECK
 /// wiki RemoveImageSpaceModifier, owner export]; nothing happens when it is not on it.
 pub fn remove_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.remove_image_modifier(a.form(0)?);
+    let m = a.form(0)?;
+    g.remove_image_modifier(m);
+    g.script_image_modifiers.remove(&m);
     none()
 }
 

@@ -462,6 +462,11 @@ pub fn keep_step_speed(target_pace: f32, away: f32, keep: f32, walk: f32, run: f
 /// for again, and not more often than every [`REPLAN_SECONDS`] [our choice].
 const REPLAN_DISTANCE: f32 = 64.0;
 const REPLAN_SECONDS: f64 = 0.5;
+/// A walk-up speaker with no way to the player, or at the end of a way that does not
+/// reach it, talks from where it is only this near (units); farther, its greeting waits
+/// until the player moves (queue item 183: a Legion explorer about Nelson greeted the
+/// player 10,335 units off when it found no way to it) [design].
+const TALK_FROM_AFAR_MAX: f32 = 1000.0;
 
 /// A walking actor is asked by the next door of its way when that door is within this
 /// many units beyond the step it takes (`fnv_game::npc_doors`) [design].
@@ -2312,7 +2317,7 @@ impl Ai {
         let moved = planned.is_some_and(|(to, _)| to.space != player.space || goal::dist(to.pos, player.pos) > REPLAN_DISTANCE);
         let near = away <= goal::STANDARD_TALK_DISTANCE.max(self.cfg.arrive);
         // Near enough, or at the end of its way with the player still where it led.
-        if near || (planned.is_some() && !travelling && !moved) {
+        if near || (planned.is_some() && !travelling && !moved && away <= TALK_FROM_AFAR_MAX) {
             let a = self.agents.get_mut(&actor).expect("listed");
             (a.walker.follower, a.activity, a.walk_up) = (None, Activity::There, None);
             let line = game.walk_up_arrived(actor);
@@ -2341,6 +2346,12 @@ impl Ai {
                     let away = (feet.space == player.space).then_some(away);
                     self.log(game, actor, AiEvent::WalkUp { away, length });
                 }
+            }
+            // No way there and far: it waits where it is, and tries again once the player
+            // has moved (item 183).
+            Err(_) if away > TALK_FROM_AFAR_MAX => {
+                (a.walker.follower, a.activity) = (None, Activity::There);
+                a.walk_up = Some((player, game.time + REPLAN_SECONDS));
             }
             Err(_) => {
                 (a.walker.follower, a.activity, a.walk_up) = (None, Activity::There, None);
