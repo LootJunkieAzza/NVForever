@@ -335,7 +335,7 @@ impl Ai {
             if let Some(Search::Closing { target, .. }) = a.search {
                 let speed = if aiming { walk } else { run };
                 if a.walker.speed != speed {
-                    a.walker.speed = speed;
+                    (a.walker.speed, a.walk_pace) = (speed, None);
                     self.log(game, actor, AiEvent::Pace { target, aiming });
                 }
             }
@@ -432,7 +432,7 @@ impl Ai {
         let space = a.walker.space;
         let from = a.walker.feet;
         let point = nav.nearest(space, to, 512.0).map(|(_, p)| p);
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let path = point.and_then(|p| a.walker.go_to(nav, Place { space, pos: p }, &params).ok()).map(|path| path.length);
         match (point, path) {
             (Some(p), Some(length)) => {
@@ -470,7 +470,7 @@ impl Ai {
         let short = (stop * STOP_SHORT).min(len);
         let goal = [at[0] + back[0] / len * short, at[1] + back[1] / len * short, at[2]];
         let point = nav.nearest(space, goal, 512.0).map(|(_, p)| p);
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let path = point.and_then(|p| a.walker.go_to(nav, Place { space, pos: p }, &params).ok()).map(|path| path.length);
         let first = !matches!(a.search, Some(Search::Closing { target: t, .. }) if t == target);
         match (point, path) {
@@ -538,7 +538,7 @@ impl Ai {
                     let speed = self.post_speed(game, actor, post);
                     let a = self.agents.get_mut(&actor).expect("listed");
                     if a.walker.speed != speed {
-                        a.walker.speed = speed;
+                        (a.walker.speed, a.walk_pace) = (speed, None);
                         let aiming = game.awareness.aiming.contains(&actor);
                         self.log(game, actor, AiEvent::Pace { target, aiming });
                     }
@@ -557,7 +557,7 @@ impl Ai {
         let a = self.agents.get_mut(&actor).expect("listed");
         let from = a.walker.feet;
         let point = nav.nearest(space, post.at, 256.0).map(|(_, p)| p);
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let path = point.and_then(|p| a.walker.go_to(nav, Place { space, pos: p }, &params).ok()).map(|path| path.length);
         match (point, path) {
             (Some(p), Some(length)) => {
@@ -617,7 +617,7 @@ impl Ai {
         let a = self.agents.get_mut(&actor).expect("listed");
         let (space, feet) = (a.walker.space, a.walker.feet);
         a.wait_until = None;
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let mut tries: Vec<(Place, FleeBy)> = Vec::new();
         // 1. A door that leads elsewhere, not nearer the threat than the actor is.
         let mut doors: Vec<(f32, Place, FleeBy)> = Vec::new();

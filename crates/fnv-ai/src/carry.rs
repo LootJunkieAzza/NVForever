@@ -1073,7 +1073,7 @@ impl Ai {
         let params = self.path_params(game, actor);
         let speed = self.calm_speeds(actor).walk;
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let Ok(length) = a.walker.go_to(nav, home, &params).map(|p| p.length) else { return };
         a.activity = Activity::Travelling;
         a.trip_started = game.time;
@@ -1107,7 +1107,7 @@ impl Ai {
         let params = self.path_params(game, actor);
         let speed = self.calm_speeds(actor).walk;
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let Ok(length) = a.walker.go_to(nav, Place { space: player.space, pos: to }, &params).map(|p| p.length) else { return };
         a.activity = Activity::Travelling;
         a.trip_started = game.time;
@@ -1635,7 +1635,8 @@ impl Ai {
                 // The pace follows the gap: the catch-up boost eases off as it closes, and
                 // in step it keeps to the target's.
                 let (speed, _) = self.follow_speed(game, actor, package, away, keep, lead_away, pace);
-                self.agents.get_mut(&actor).expect("listed").walker.speed = speed;
+                let a = self.agents.get_mut(&actor).expect("listed");
+                (a.walker.speed, a.walk_pace) = (speed, None);
             }
             return;
         }
@@ -1699,13 +1700,13 @@ impl Ai {
         let pace = self.pace(game, actor, running);
         let params = self.path_params(game, actor);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         match a.walker.go_to(nav, target, &params) {
             Ok(path) => {
                 let (length, doors) = (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect());
                 // In another space the length of the way is the gap the boost goes by.
                 if !away.is_finite() {
-                    a.walker.speed = pace * catch_up(length - keep);
+                    (a.walker.speed, a.walk_pace) = (pace * catch_up(length - keep), None);
                 }
                 if a.activity != Activity::Travelling {
                     a.trip_started = game.time;
@@ -1732,8 +1733,9 @@ impl Ai {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
+        let own = Ai::walk_pace_of(game, actor, running, speed);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, own);
         let from = Place { space: a.walker.space, pos: a.walker.feet };
         match a.walker.go_to(nav, target, &params) {
             Ok(path) => {
@@ -2276,14 +2278,20 @@ impl Ai {
     /// A package's walk under way keeps up with the weapon being drawn or put away
     /// ([`drawn_walk_share`]): its speed is scaled from the share last applied to the share
     /// now ([`Agent::walk_pace`]), whatever its base (an armour or Speed Mult change since
-    /// it was planned waits for the next plan, as before). A walk whose speed something
-    /// else has set since (a run, a follower's matched pace, an alert) is not one: it is
-    /// left as it is [design, #2124: the animating side tells the weapon out only once it
-    /// is drawn, after the walk was planned].
+    /// it was planned waits for the next plan, as before). The walk is owned from where
+    /// a package's walk is planned (`Ai::plan`, `Ai::approach`, a sandbox's or a Find
+    /// errand's walk) until it ends (`Ai::arrived`, or the actor is not travelling); every
+    /// other setter of the walker's speed gives it up, as does another owner of the walk
+    /// (a random conversation, a search, a follow) or a speed it did not set. Such a
+    /// walk is left as it is [design, #2124: the animating side tells the weapon out only
+    /// once it is drawn, after the walk was planned].
     fn repace_walk(&mut self, game: &Game, actor: FormId) {
         let a = &self.agents[&actor];
         let Some((applied, set)) = a.walk_pace else { return };
-        if a.walker.speed != set || a.following.is_some() || a.backing.is_some() || a.walk_up.is_some() {
+        // Another owner of the walk (a random conversation's, a search's, a Follow
+        // package's, a Back Up, a walk-up) gives it up, whatever speed it has.
+        let other = a.chat.is_some() || a.search.is_some() || a.following.is_some() || a.backing.is_some() || a.walk_up.is_some();
+        if other || a.walker.speed != set {
             self.agents.get_mut(&actor).expect("listed").walk_pace = None;
             return;
         }
@@ -2368,7 +2376,7 @@ impl Ai {
         let speed = self.pace(game, actor, true);
         let a = self.agents.get_mut(&actor).expect("listed");
         (a.search, a.sandbox, a.talk, a.face_to, a.following) = (None, None, None, None, None);
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         match a.walker.go_to(nav, player, &params).map(|p| p.length) {
             Ok(length) => {
                 if a.activity != Activity::Travelling {
@@ -2434,7 +2442,7 @@ impl Ai {
                 (a.weapon_order, a.search, a.sandbox, a.talk, a.face_to, a.following) = (Some(seq), None, None, None, None, None);
                 let feet = Place { space: a.walker.space, pos: a.walker.feet };
                 let to = stand.and_then(|s| goal::place_of_ref(game, s)).filter(|t| t.space != feet.space || hdist(t.pos, feet.pos) > arrive);
-                a.walker.speed = speed;
+                (a.walker.speed, a.walk_pace) = (speed, None);
                 let way = to.map(|t| a.walker.go_to(nav, t, &params).map(|p| p.length));
                 let length = match way {
                     Some(Ok(length)) => {
@@ -2574,7 +2582,8 @@ impl Ai {
 
     pub(crate) fn arrived(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.follower = None;
+        // The walk is over: what comes next owns its own speed.
+        (a.walker.follower, a.walk_pace) = (None, None);
         // The end of the way to a conversation partner: `crate::social` starts the
         // conversation.
         if a.chat.is_some() {

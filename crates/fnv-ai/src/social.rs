@@ -707,7 +707,7 @@ impl Ai {
         let params = self.path_params(game, starter);
         let speed = self.calm_speeds(starter).walk;
         let a = self.agents.get_mut(&starter).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         let Ok(length) = a.walker.go_to(nav, to, &params).map(|p| p.length) else { return false };
         a.trip_started = game.time;
         a.trip_from = a.walker.travelled;

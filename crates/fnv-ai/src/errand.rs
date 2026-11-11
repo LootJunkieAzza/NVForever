@@ -801,7 +801,7 @@ impl Ai {
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, true);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         for to in tries {
             let Ok(length) = a.walker.go_to(nav, to, &params).map(|p| p.length) else { continue };
             a.activity = Activity::Travelling;

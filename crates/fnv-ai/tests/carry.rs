@@ -3088,6 +3088,37 @@ fn a_walk_whose_base_speed_changed_on_the_way_still_follows_the_weapon() {
 }
 
 #[test]
+fn a_walk_another_owner_takes_over_with_the_same_speed_is_left_alone() {
+    // A wanderer with its pistol out: its sandbox's walk is the drawn walk.
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_WANDER, R_SB_NOTHING]);
+    let me = FormId(R_SB_WANDER);
+    draw(&mut s, R_SB_WANDER, PISTOL);
+    let drawn = 100.0 / 1.1;
+    let mut owned = false;
+    for _ in 0..120 {
+        s.run(0.5);
+        let a = &s.ai.agents[&me];
+        if a.activity == Activity::Travelling && (a.walker.speed - drawn).abs() < 1e-3 {
+            owned = true;
+            break;
+        }
+    }
+    assert!(owned, "the wanderer never walked with its pistol drawn: {:?}", doings(&s, R_SB_WANDER));
+    // In the same frame a random conversation takes the walk over at the speed it has
+    // (as `social`'s set-off would, the walk's end and the next walk in one frame).
+    let agent = s.ai.agents.get_mut(&me).unwrap();
+    agent.walker.go_to(&s.nav, fnv_nav::path::Place { space: C, pos: [10750.0, 10450.0, 0.0] }, &fnv_nav::path::PathParams::default()).unwrap();
+    agent.activity = Activity::Travelling;
+    agent.chat = Some(fnv_ai::Chat::Going { partner: FormId(R_SB_NOTHING), since: s.game.time });
+    // Put away: the conversation's walk keeps its speed.
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert!((walk_speed(&s, R_SB_WANDER) - drawn).abs() < 1e-3, "{}", walk_speed(&s, R_SB_WANDER));
+}
+
+#[test]
 fn the_drawn_walk_leaves_runs_other_stances_armour_creatures_and_fights_alone() {
     let f = with_arms_and_armour();
     // A run with the pistol drawn keeps the run.
