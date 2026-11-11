@@ -7984,7 +7984,6 @@ order = [[
   { re = 'handoff: the old run \(process \d+\) ended [\d.]+ s after it was told', label = "the new run sees it gone, then opens its GPU device" },
   { re = 'render: adapter ', label = "the new run's adapter (its device) comes after (item 132: never two devices at once)" },
   { re = 'handoff: window shown after [\d.]+ s$', label = "the new window shows" },
-  { re = 'handoff: the old run has ended after [\d.]+ s; the save goes back now', label = "the new run sees the old one end (#1651)" },
   { re = 'load: restored .*handoff-test\.nvfsave', label = "the save is put back" },
   { text = "the new run took over and its world is in; ending it", label = "and the world comes in" },
 ]]
@@ -8003,7 +8002,7 @@ expect = [
   { re = 'pause menu: quit$', count = 0, label = "Exit Game is not picked" },
   { text = "load: handing over to a new run with --menu", count = 1, label = "a new run starts for the main menu" },
   { re = 'handoff: window shown after [\d.]+ s$', label = "the new window is shown (not past the time limit)" },
-  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends once the new one is up" },
+  { re = 'load: the new run is about to open its GPU device after [\d.]+ s; ending this one', label = "the old run ends once the new run is about to open its GPU device (co-op item 132, as load-handoff; release 0.7.0 merge)" },
   { text = "the new run took over and its main menu is in; ending it", label = "the main menu is open" },
   { re = 'before it was ready', count = 0, label = "the new run does not stop at its start" },
 ]

@@ -33,7 +33,8 @@ total = 3488
 # SSHQJacklyn, the Hoover Dam battle's reserves...); 18 of those scripts ran nothing else.
 # lines.said rose 2467 -> 2474 on the same base (1940e8d8b) by other commits, not traced
 # line by line; Jacklyn's OnLoad line (INFO 0x106502) is among the ones no longer said.
-# release 0.7.0 merge (co-op 1110 + main a57ae8160): both sides' deltas added; re-measured below if changed
+# release 0.7.0 merge (co-op 1110 + main a57ae8160): measured on the merge (2f5502817), as this file's
+# merge rule says; the sum of both sides' deltas had read run 1629 / said 2497, one more each.
 touched = 1181
 
 [summary.blocks]
@@ -45,17 +46,20 @@ total = 5690
 # script's Say/SayTo say a fixed speaker's line when no line passes the speaker check, so
 # the Dead Money narrator and the Old World Blues intercoms say Elijah's (+2), Borous's
 # (+4) and Mobius's (+3) lines, and NVDLC03MobiusIntercomSCRIPT runs one more block.
-# release 0.7.0 merge (co-op 1110 + main a57ae8160): both sides' deltas added; re-measured below if changed
-run = 1629
+# release 0.7.0 merge (co-op 1110 + main a57ae8160): measured on the merge (2f5502817), as this file's
+# merge rule says; the sum of both sides' deltas had read run 1629 / said 2497, one more each.
+run = 1628
 
 [summary.lines]
 total = 28896
-# release 0.7.0 merge (co-op 1110 + main a57ae8160): both sides' deltas added; re-measured below if changed
-said = 2497
+# release 0.7.0 merge (co-op 1110 + main a57ae8160): measured on the merge (2f5502817), as this file's
+# merge rule says; the sum of both sides' deltas had read run 1629 / said 2497, one more each.
+said = 2496
 
 [summary.actors]
 with_lines = 704
-# release 0.7.0 merge (co-op 1110 + main a57ae8160): both sides' deltas added; re-measured below if changed
+# release 0.7.0 merge (co-op 1110 + main a57ae8160): measured on the merge (2f5502817), as this file's
+# merge rule says; the sum of both sides' deltas had read run 1629 / said 2497, one more each.
 touched = 267
 
 [summary.results.info]
