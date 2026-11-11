@@ -291,6 +291,13 @@ obstacles that can be enabled or disabled stand on the navmesh …` at the start
 obstacles switched […]` on a change. Not done: the collision-layer condition (fnv-nav
 reads no models), cutting by the shape rather than the bounds.
 
+**A created reference can be an obstacle too** [design: queue item 199]: the arm-wrestling
+table the game makes in the Prospector Saloon (`fnv_game::armwrestle_table`) stands on
+the navmesh, which was made without it, so the engine adds it to the graph once it exists
+(`NavGraph::add_obstacle`, from `nvforever` residents.rs), with Table01's bounds; it
+cuts while present, through the same poll. Log line: `nav: the arm-wrestling table …
+cuts the navmesh under it`.
+
 **The poll is skipped while nothing it reads changed** (issue #1430) [design:
 `fnv_ai::Ai::obstacles_in_line`, crates/fnv-ai/src/carry.rs]. `Game::present` reads the
 world's reference states alone (crates/fnv-game/src/game.rs): whether a reference and the

@@ -227,6 +227,7 @@ pub mod vats;
 pub mod voice;
 pub mod weather;
 pub mod zones;
+pub mod armwrestle_table;
 
 pub use data::GameData;
 pub use game::{Game, GameConfig, InstKey};
