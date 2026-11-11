@@ -1,6 +1,8 @@
 //! NPCs at scripted doors (`fnv_game::npc_doors`, docs/spec-notes/doors.md §5) on a
 //! synthetic plugin: a door whose OnActivate activates for anyone but the player, one
-//! that does something only for the player, and one whose block is for the player only.
+//! that does something only for the player, one whose block is for the player only, one
+//! without a script and one whose script has no OnActivate block; the extender's
+//! OnActivate handlers hear each NPC's attempt once, before any block (#2123).
 
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -117,19 +119,26 @@ fn script(blocks: &[BlockBytes]) -> Vec<u8> {
 const ACTIVATE: u16 = 0x100D;
 const IS_ACTION_REF: u16 = 0x1069;
 const ON_ACTIVATE: u16 = 2;
+const GAME_MODE: u16 = 0;
 
 const SCRIPT_LETS: u32 = 0x901;
 const SCRIPT_PLAYER: u32 = 0x902;
 const SCRIPT_PLAYER_BLOCK: u32 = 0x903;
+const SCRIPT_NO_ACTIVATE: u32 = 0x904;
 const DOOR_LETS: u32 = 0x911;
 const DOOR_PLAYER: u32 = 0x912;
 const DOOR_PLAYER_BLOCK: u32 = 0x913;
+const DOOR_PLAIN: u32 = 0x914;
+const DOOR_NO_ACTIVATE: u32 = 0x915;
+const GLOBAL: u32 = 0x800;
 const NPC: u32 = 0x920;
 const CELL: u32 = 0x930;
 const REF_LETS: u32 = 0x301;
 const REF_PLAYER: u32 = 0x302;
 const REF_PLAYER_BLOCK: u32 = 0x303;
 const REF_PLAYER_LOAD: u32 = 0x304;
+const REF_PLAIN: u32 = 0x305;
+const REF_NO_ACTIVATE: u32 = 0x306;
 const NPC_REF: u32 = 0x310;
 
 /// `IsActionRef player == want`: the expression token.
@@ -166,10 +175,21 @@ fn plugin_bytes() -> Vec<u8> {
         scpt(SCRIPT_LETS, "DoorLetsScript", &[(ON_ACTIVATE, None, lets)]),
         scpt(SCRIPT_PLAYER, "DoorPlayerScript", &[(ON_ACTIVATE, None, player)]),
         scpt(SCRIPT_PLAYER_BLOCK, "DoorPlayerBlockScript", &[(ON_ACTIVATE, Some([le16(1), r(1)].concat()), player_block)]),
+        // begin GameMode
+        //   set nUsed to nUsed + 1
+        // end
+        scpt(SCRIPT_NO_ACTIVATE, "DoorNoActivateScript", &[(GAME_MODE, None, count())]),
     ]
     .concat();
     let door = |id: u32, edid: &str, script: u32| record(b"DOOR", 0, id, &[sub(b"EDID", z(edid)), sub(b"SCRI", script.to_le_bytes().to_vec())]);
-    let doors = [door(DOOR_LETS, "DoorLets", SCRIPT_LETS), door(DOOR_PLAYER, "DoorPlayer", SCRIPT_PLAYER), door(DOOR_PLAYER_BLOCK, "DoorPlayerBlock", SCRIPT_PLAYER_BLOCK)].concat();
+    let doors = [
+        door(DOOR_LETS, "DoorLets", SCRIPT_LETS),
+        door(DOOR_PLAYER, "DoorPlayer", SCRIPT_PLAYER),
+        door(DOOR_PLAYER_BLOCK, "DoorPlayerBlock", SCRIPT_PLAYER_BLOCK),
+        record(b"DOOR", 0, DOOR_PLAIN, &[sub(b"EDID", z("DoorPlain"))]),
+        door(DOOR_NO_ACTIVATE, "DoorNoActivate", SCRIPT_NO_ACTIVATE),
+    ]
+    .concat();
     let npc = record(
         b"NPC_",
         0,
@@ -180,16 +200,27 @@ fn plugin_bytes() -> Vec<u8> {
             sub(b"DATA", [&30i32.to_le_bytes()[..], &[5, 5, 5, 5, 5, 5, 5]].concat()),
         ],
     );
-    let placed = |sig: &[u8; 4], id: u32, base: u32| record(sig, 0, id, &[sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+    let placed = |sig: &[u8; 4], id: u32, edid: &str, base: u32| record(sig, 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
     // DoorPlayer's script on a load door too: XTEL to DoorLets' reference (door, position,
     // rotation, no alarm).
     let xtel = [REF_LETS.to_le_bytes().to_vec(), [0f32; 6].iter().flat_map(|f| f.to_le_bytes()).collect(), 0u32.to_le_bytes().to_vec()].concat();
-    let load = record(b"REFR", 0, REF_PLAYER_LOAD, &[sub(b"NAME", DOOR_PLAYER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]), sub(b"XTEL", xtel)]);
-    let refs = [placed(b"REFR", REF_LETS, DOOR_LETS), placed(b"REFR", REF_PLAYER, DOOR_PLAYER), placed(b"REFR", REF_PLAYER_BLOCK, DOOR_PLAYER_BLOCK), load, placed(b"ACHR", NPC_REF, NPC)].concat();
+    let load = record(b"REFR", 0, REF_PLAYER_LOAD, &[sub(b"EDID", z("DoorPlayerLoadREF")), sub(b"NAME", DOOR_PLAYER.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24]), sub(b"XTEL", xtel)]);
+    let refs = [
+        placed(b"REFR", REF_LETS, "DoorLetsREF", DOOR_LETS),
+        placed(b"REFR", REF_PLAYER, "DoorPlayerREF", DOOR_PLAYER),
+        placed(b"REFR", REF_PLAYER_BLOCK, "DoorPlayerBlockREF", DOOR_PLAYER_BLOCK),
+        load,
+        placed(b"REFR", REF_PLAIN, "DoorPlainREF", DOOR_PLAIN),
+        placed(b"REFR", REF_NO_ACTIVATE, "DoorNoActivateREF", DOOR_NO_ACTIVATE),
+        placed(b"ACHR", NPC_REF, "WalkerREF", NPC),
+    ]
+    .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("DoorCell"))]);
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
+    let glob = record(b"GLOB", 0, GLOBAL, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b's']), sub(b"FLTV", 0f32.to_le_bytes().to_vec())]);
     [
         tes4(),
+        top(b"GLOB", &glob),
         top(b"SCPT", &scripts),
         top(b"DOOR", &doors),
         top(b"NPC_", &npc),
@@ -295,4 +326,145 @@ fn the_players_own_activation_of_a_scripted_door_is_unchanged() {
     // DoorPlayer activates for the player: the default action toggles it open.
     g.activate(FormId::PLAYER_REF, FormId(REF_PLAYER), ActMode::Hand).unwrap();
     assert!(g.world.peek(FormId(REF_PLAYER)).is_some_and(|s| s.open));
+}
+
+// ---- the extender's OnActivate (#2123) --------------------------------------------
+
+/// An OnActivate handler that counts 1 for the walker activating `door`, 100 for anything
+/// else (another target or another actor).
+fn listen(g: &mut Game, door: &str) {
+    let src = format!(
+        "SetEventHandler \"OnActivate\" (begin function {{ref rT, ref rA}}\nif rT == {door} && rA == WalkerREF\nlet TestGlobal := TestGlobal + 1\nelse\nlet TestGlobal := TestGlobal + 100\nendif\nend)"
+    );
+    g.run_source(&src, Default::default()).expect("compiles");
+}
+
+fn heard(g: &Game) -> f32 {
+    g.world.global(FormId(GLOBAL)).unwrap()
+}
+
+/// Where in the trace the handler first counted and where `door`'s block first ran.
+fn handler_then_block(g: &Game, door: u32) -> (usize, usize) {
+    let handler = g.events.iter().position(|e| matches!(e.kind, EventKind::GlobalSet { global, .. } if global.0 == GLOBAL)).expect("the handler ran");
+    let block = g.events.iter().position(|e| matches!(e.kind, EventKind::BlockRun { on: Some(r), .. } if r.0 == door)).expect("the block ran");
+    (handler, block)
+}
+
+#[test]
+fn an_unscripted_door_is_heard_once_per_asking() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorPlainREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+    // Kept for the walk through: not asked, not heard again.
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+    assert!(g.refused_doors(npc).is_empty(), "a door without a block is never refused");
+    // The answer runs out: asked and heard again.
+    g.time += ASKED_SECONDS + 0.1;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 2.0);
+    // Another actor is asked, and heard, for itself.
+    assert_eq!(g.npc_door(FormId::PLAYER_REF, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 102.0);
+    // No activation of the door itself: the AI opens it as before.
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::Activated { .. })));
+}
+
+#[test]
+fn a_script_without_an_onactivate_block_is_heard() {
+    let f = fixture();
+    let mut g = game(&f);
+    listen(&mut g, "DoorNoActivateREF");
+    assert_eq!(g.npc_door(FormId(NPC_REF), FormId(REF_NO_ACTIVATE)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+    assert_eq!(used(&g, REF_NO_ACTIVATE), Value::Num(0.0), "its GameMode block did not run");
+}
+
+#[test]
+fn a_block_that_lets_the_npc_through_is_heard_once_and_first() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorLetsREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    // The block's own `Activate` is the same activation: heard once.
+    assert_eq!(heard(&g), 1.0);
+    let (handler, block) = handler_then_block(&g, REF_LETS);
+    assert!(handler < block, "the handler runs before the block");
+    // The let-through is unchanged: the activation event and no default action.
+    assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Activated { reference, by, .. } if reference.0 == REF_LETS && by == npc)).count(), 1);
+    assert!(!g.world.peek(FormId(REF_LETS)).is_some_and(|s| s.open));
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(heard(&g), 1.0);
+    g.time += ASKED_SECONDS + 0.1;
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!((heard(&g), used(&g, REF_LETS)), (2.0, Value::Num(2.0)));
+}
+
+#[test]
+fn a_refusing_block_is_heard_first_and_once_while_the_refusal_stands() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorPlayerREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(heard(&g), 1.0);
+    let (handler, block) = handler_then_block(&g, REF_PLAYER);
+    assert!(handler < block);
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(heard(&g), 1.0);
+    g.time += REFUSED_SECONDS + 0.1;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(heard(&g), 2.0);
+}
+
+#[test]
+fn a_load_door_and_a_player_only_block_are_heard() {
+    let f = fixture();
+    let npc = FormId(NPC_REF);
+    let mut g = game(&f);
+    listen(&mut g, "DoorPlayerLoadREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER_LOAD)), DoorAnswer::LoadDoor);
+    assert_eq!(heard(&g), 1.0);
+    let mut h = game(&f);
+    listen(&mut h, "DoorPlayerBlockREF");
+    assert_eq!(h.npc_door(npc, FormId(REF_PLAYER_BLOCK)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&h), 1.0);
+    assert_eq!(used(&h, REF_PLAYER_BLOCK), Value::Num(0.0));
+    assert_eq!(h.npc_door(npc, FormId(REF_PLAYER_BLOCK)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&h), 1.0);
+}
+
+/// A destroyed door is heard (the event runs "even if activation will be prevented"), and
+/// a handler that destroys the door refuses the activation before the block runs; the NPC
+/// still goes through as before (no block for a destroyed door).
+#[test]
+fn a_destroyed_door_is_heard_and_a_handler_can_destroy_it_first() {
+    let f = fixture();
+    let npc = FormId(NPC_REF);
+    let mut g = game(&f);
+    listen(&mut g, "DoorPlainREF");
+    g.extra.entry(FormId(REF_PLAIN)).or_default().destroyed = true;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAIN)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+
+    let mut h = game(&f);
+    h.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}\nlet TestGlobal := TestGlobal + 1\nrT.SetDestroyed 1\nend)", Default::default()).expect("compiles");
+    assert_eq!(h.npc_door(npc, FormId(REF_LETS)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&h), 1.0);
+    assert_eq!(used(&h, REF_LETS), Value::Num(0.0), "the block did not run");
+}
+
+/// A script's own `Activate` of a door for the NPC, outside its walk, is an activation of
+/// its own: heard, as before.
+#[test]
+fn a_scripts_activate_of_a_door_for_an_npc_is_still_heard() {
+    let f = fixture();
+    let mut g = game(&f);
+    listen(&mut g, "DoorPlainREF");
+    g.activate(FormId(NPC_REF), FormId(REF_PLAIN), ActMode::Default).unwrap();
+    assert_eq!(heard(&g), 1.0);
 }

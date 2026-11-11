@@ -166,7 +166,10 @@ plugin version 9 (ai-observer.md §12) in the original game [observed unless sai
   doors (HVLevel1To2Door, vCCHQDoor) all over the world while the player stood on the
   Strip, in unloaded cells too. Since 2026-10-25 NVForever runs the door's OnActivate for
   an NPC walking through it, with the NPC as the action reference, and lets it through
-  only when the block activates the door (doors.md §5).
+  only when the block activates the door (doors.md §5). Those two doors' scripts have no
+  OnActivate block [observed: the door survey, doors.md §5.1], so the event does not
+  depend on a block calling `Activate`; since #2123 NVForever dispatches it as the NPC is
+  asked, before any block runs, at every door it walks through (doors.md §5.2).
 - **Not readable**: whether cashing chips counts for GetCasinoWinningsLevel, and GetSleeping
   while the player sleeps: both need a menu entry chosen (the cashier's dialogue, the
   sleep menu's hours), which the plugin cannot do: it taps controls and keys, but has no

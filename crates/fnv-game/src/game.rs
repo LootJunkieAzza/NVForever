@@ -4780,11 +4780,17 @@ impl<'a> Game<'a> {
     /// `actor` activates `target`. A destroyed door or activator
     /// ([`Game::activation_refused`]) does nothing: no default action, no OnActivate.
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
-        if !self.activation_begins(actor, target) {
+        // A door's block letting the NPC that walks through it go on (`crate::npc_doors`):
+        // the extender heard that attempt before the block ran, so this `Activate` is the
+        // same activation and is not heard twice [design, #2123].
+        let npc_door = mode == ActMode::Default && self.in_npc_door_run(actor, target);
+        if !npc_door {
+            self.activation_heard(actor, target);
+        }
+        if !self.activation_goes_on(actor, target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
-        // A door's block letting the NPC that walks through it go on (`crate::npc_doors`).
-        if mode == ActMode::Default && self.npc_door_activated(actor, target) {
+        if npc_door && self.npc_door_activated(actor, target) {
             return Ok(serde_json::json!({"result": "npc door"}));
         }
         let has_block = self.ref_script(target).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
@@ -4805,7 +4811,19 @@ impl<'a> Game<'a> {
     /// Handling]. Whether it goes on (not [`Game::activation_refused`]), with `actor` as
     /// the target's action reference.
     fn activation_begins(&mut self, actor: FormId, target: FormId) -> bool {
+        self.activation_heard(actor, target);
+        self.activation_goes_on(actor, target)
+    }
+
+    /// The extender's OnActivate handlers hear `actor` activating `target` (the target
+    /// first, the action reference second) [documented: NVSE Event Handling, OnActivate
+    /// row]. Also the first step of an NPC's walk through a door (`crate::npc_doors`).
+    pub(crate) fn activation_heard(&mut self, actor: FormId, target: FormId) {
         self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
+    }
+
+    /// [`Game::activation_begins`] after the handlers: whether the activation goes on.
+    fn activation_goes_on(&mut self, actor: FormId, target: FormId) -> bool {
         if self.activation_refused(target) {
             return false;
         }

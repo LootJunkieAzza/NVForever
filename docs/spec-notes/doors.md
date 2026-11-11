@@ -189,6 +189,22 @@ to the player.
   observer's runtime compiler does not take a quest's Editor ID. So the original moved no
   MP through a gate in these runs; whether ours would route him through depends on the
   same variable (open in observer-checks.md item 21).
+- The extender's OnActivate event (first the door, second the actor) is dispatched as the
+  actor is asked, before the block runs, at every door: without a script or block,
+  destroyed, refusing it, or with a block for the player only (#2123). The event "Runs
+  BEFORE the OnActivate block occurs. Runs even if activation will be prevented"
+  [documented: GECK wiki NVSE Event Handling, OnActivate row]; HVLevel1To2Door and
+  vCCHQDoor, where the original's events named NPCs (script-function-coverage.md §3.3),
+  have no OnActivate block (§5.1) [observed]. Once per asking: a block's `Activate` of
+  the door for that actor is the same activation and is not dispatched again, and an
+  answer kept (10 s, 120 s for a refusal; a door without a block now keeps its answer
+  10 s too) is neither asked nor dispatched again [design]. A handler's own `Activate`
+  of the door is an activation of its own (dispatched, not taken as the block's). The
+  passage rules above are unchanged. Not known: whether the original fires it at doors
+  with no script at all, and whether its OnActivate block's reference (`Begin OnActivate
+  player`) is honoured at all: the GECK wiki's OnActivate page (Bugs) says the reference
+  "will be ignored entirely", which this section's player-only rule does not follow
+  [documented: GECK wiki OnActivate; left as it is, observer check 109].
 - Not saved: after a load the doors are asked again.
 - A script's direct `door.Activate npc`, outside an AI door request, places the NPC at
   XTEL's destination and finishes the move through `Game::note_relocated`, shared with
