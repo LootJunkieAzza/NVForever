@@ -1277,18 +1277,8 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             lab = l.clone();
         }
         Action::Query { script, label: l, text } => {
-            use fnv_script::vm::XVal;
-            // A runtime-compiled query runs on no reference [observed: GetSelfAlt gives none
-            // in the original's capture queries].
-            let ctx = crate::game::RunCtx::default();
-            match g.run_query(script, ctx) {
-                Ok(XVal::Str(s)) => obs.insert("value".into(), json!(s)),
-                Ok(XVal::Ref(r)) if !*text => obs.insert("value".into(), json!(FormId(r).to_string())),
-                Ok(v) if *text => obs.insert("value".into(), json!(query_text(&v))),
-                Ok(XVal::Num(n)) => obs.insert("value".into(), json!(n)),
-                Ok(v) => obs.insert("value".into(), json!(query_text(&v))),
-                Err(e) => obs.insert("error".into(), json!(e)),
-            };
+            let step = crate::ext_probes::QueryStep { script: script.clone(), label: l.clone(), text: *text };
+            obs.extend(crate::ext_probes::run_step(g, &step));
             lab = Some(l.clone());
         }
         Action::CallUntil { line, max_frames, label: l } => {
@@ -2485,13 +2475,3 @@ fn action_label(a: &Action) -> Option<String> {
     }
 }
 
-/// A query's value as text (`text: true`): numbers as the extender prints them.
-fn query_text(v: &fnv_script::vm::XVal) -> String {
-    use fnv_script::vm::XVal;
-    match v {
-        XVal::Num(n) => fnv_script::vm::number_text(*n),
-        XVal::Str(s) => s.clone(),
-        XVal::Ref(r) => FormId(*r).to_string(),
-        XVal::Array(id) => format!("array #{id}"),
-    }
-}

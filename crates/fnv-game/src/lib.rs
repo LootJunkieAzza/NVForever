@@ -72,6 +72,7 @@ pub mod dialogue;
 pub mod dialogue_edits;
 pub mod difficulty;
 pub mod experience;
+pub mod ext_probes;
 pub mod functions;
 pub mod hacking;
 pub mod holotapes;
