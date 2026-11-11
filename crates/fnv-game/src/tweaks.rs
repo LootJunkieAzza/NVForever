@@ -514,6 +514,9 @@ pub struct Tweaks {
     /// `bColorRecentlyAddedMapMarkers`: places found since the game was started are red
     /// on the world map.
     pub recent_markers_red: bool,
+    /// `bReloadingWithNoAmmoSwapsAmmoTypes`: reloading with none of the ammo in use left
+    /// swaps to another carried type.
+    pub empty_reload_swaps_ammo: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -799,6 +802,7 @@ impl Default for Tweaks {
             mine_blasts_heard: false,
             blasts_spare_items: false,
             recent_markers_red: false,
+            empty_reload_swaps_ammo: false,
         }
     }
 }

@@ -572,6 +572,7 @@ unless the player binds them, so nothing changes until then.
 | Second Iron Sights | `iToggleSightingNodeHotkey` | a new unbound control, `Control::ToggleSightingNode`, flips `tweaks::SECOND_SIGHT`; nvforever `player_body` finds `##SightingNode2` beside the first sighting node, aims down it while set, and clears the flag for each new weapon model |
 | Fine Weapon Models for Everyone | `bForceHiResWeaponModels` | nvforever `actors::arm_weapon` asks `model_for(true, …)` (the WEAP's first-person model) while `tweaks::HI_RES_NPC_WEAPONS` is set; not checked in game |
 | (already so) | `bAllowActivateWhileAnimPlays` | `activate` refuses nothing for a clip playing (reload, shot, jump, landing) |
+| Reload Swaps Spent Ammo | `bReloadingWithNoAmmoSwapsAmmoTypes` | a reload asked for with none of `Combat::ammo` carried takes the Ammo Swap path (the next carried type); loading a save with none is not handled |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -593,8 +594,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 498 |
-| to do | 105 |
+| done | 499 |
+| to do | 104 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -826,6 +827,7 @@ game's Data folder, read-only).
 | `bNoSkillMessageIfIncreaseIsZero` | done | yes |  | No Message for Spent Books (the two-decimal option is moot: book points are whole) |
 | `bPipboyLightAndHolsteringIgnoreTimescale` | done | yes |  | Holster in Real Time (the Pip-Boy light already counts real time) |
 | `bQueueWeaponHolsteringWhileAnimsPlay` | done | yes |  | already so: a holster is never dropped (it waits for a draw, else starts at once) |
+| `bReloadingWithNoAmmoSwapsAmmoTypes` | done | yes |  | Reload Swaps Spent Ammo (on a reload; not on loading a save) |
 | `bScaleMusicVolumeDuringDialogue` | done | yes | 1 | Music While Talking (slider) |
 | `bScaleRadioSongVolumeDuringDialogue` | done | yes | 1 | Radio While Talking (slider) |
 | `bShiftIgnoresFriendlyVATS` | done | yes | 1 | Shift Ignores Friends in V.A.T.S. (bHideFriendliesByDefault not done) |
@@ -900,7 +902,6 @@ game's Data folder, read-only).
 | `bUnspokenNPCIndicator` | done |  |  | Mark Strangers |
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
-| `bReloadingWithNoAmmoSwapsAmmoTypes` | to do | yes |  | combat::fire is at the system parameter limit |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
 | `bSelectUnavailableRadios` | to do | yes |  | the Pip-Boy lists only stations in range |
 | `bSkipDeathcamHotkey` | to do | yes | 2 | the death camera (nvforever death_cam) has no end but a load yet |

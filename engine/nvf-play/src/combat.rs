@@ -2855,6 +2855,8 @@ pub(crate) fn fire(
     // The player's tweak: reloading a full magazine swaps the ammo [design:
     // docs/design/tweaks.md].
     let full_swap = reload && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.full_reload_swaps_ammo);
+    // And reloading with none of the ammo in use left swaps to another carried type [design: docs/design/tweaks.md].
+    let empty_swap = reload && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.empty_reload_swaps_ammo);
     c.crosshair_cone = None;
     c.player_spread = None;
     // Scripts' EjectCasing requests (`fnv_game::nvse_jg10`) are taken every frame, so
@@ -2931,7 +2933,7 @@ pub(crate) fn fire(
         }
     }
     // Ammo Swap: the next carried type down the list, then a reload [design].
-    let swap = swap || (full_swap && cycle.magazine >= cycle.clip_size && cycle.clip_size > 0);
+    let swap = swap || (full_swap && cycle.magazine >= cycle.clip_size && cycle.clip_size > 0) || (empty_swap && c.ammo.is_some() && player_count(&sim, c.ammo) == 0);
     if swap {
         if let Some(cur) = c.ammo {
             let next = c.forms.next_ammo(id, cur, |a| player_count(&sim, Some(a)) > 0);
