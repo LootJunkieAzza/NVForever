@@ -3442,8 +3442,12 @@ pub fn drive(
             // ([`catch_up`]), not put on in one frame; a long one (a script's move) is.
             let drawn_last = r.spawned && visible && r.last_space == Some(w.space);
             let top = if core.ai.agents.contains_key(&r.actor) { core.ai.alert_speeds(r.actor).run.max(core.ai.calm_speeds(r.actor).run) } else { CATCH_UP_SPEED };
+            // From where its body is: off furniture, where the get-off clip left it, not
+            // where the host had it meanwhile (the Dead Horses off their push-up spots
+            // were put 55-61 units on in one frame, laptop ship5 deadhorse-spears).
+            let body = entity.filter(|_| !on).and_then(|e| actors.get(e).ok()).map(|(t, _)| t.translation.to_array());
             if drawn_last {
-                catch_up(r.drawn_feet, w.feet, top, dt)
+                catch_up(body.unwrap_or(r.drawn_feet), w.feet, top, dt)
             } else {
                 w.feet
             }
