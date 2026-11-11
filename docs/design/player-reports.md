@@ -167,6 +167,16 @@ A player who has not opted in sees the same form; sending it is consent for that
 report only and does not change `Send`. The form shows what will be sent and the total
 size before the Send button.
 
+[built, #2151] `engine/nvforever/src/reports/form.rs`. Opened from Settings > Gameplay >
+Reports > Send a report now (pause menu, in a game); the pause-menu key is not built yet.
+It also sends the world snapshot and the flight recorder (§4.2, §4.3) under the summary's
+and the log's tick boxes; without reports on there is no summary, only the snapshot, and
+no install ID. Sending follows §8: never from a developer or test run without
+`NVF_REPORTS_ENDPOINT`, the project's server only from an official build. The screenshot
+is PNG, at most 1280 wide and halved until under 1.5 MiB; the save is written for the
+report under `<home>\reports\form\` and deleted once sent. Bevy's font draws the form
+[our choice: the player's text may be in any script].
+
 ## 4. Extending the logger for bug hunting
 
 [design] Owner (2026-11-10): capture as much as helps us find bugs, and extend the logger

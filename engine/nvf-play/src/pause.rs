@@ -85,7 +85,8 @@
 //! window's text, `KeyboardInput`, read every frame in `PreUpdate` so nothing typed before
 //! comes in late) goes into it, Backspace takes the last letter off, and while it is open
 //! the letters are its own: N, L, S, Q, W/S, A/D and Space do nothing else, and the game's
-//! controls read no key (`crate::bindings::KeyboardCapture`). It finds every row of every
+//! controls read no key (`crate::bindings::KeyboardCapture`; nvforever's hand-report form
+//! holds the keys the same way while it is over the menu, [`FormOver`]). It finds every row of every
 //! tab whose label or note (in the language shown or in English) or INI key holds each
 //! word typed, any case (`crate::settings_view::search`), the Controls tab's own rows too
 //! by their label, note and INI name; an empty text lists every row. The results are in
@@ -476,6 +477,18 @@ fn fire(due: &mut Vec<f32>, now: f32) -> bool {
 /// Whether the pause menu is the open menu.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Paused(pub bool);
+
+/// A form of nvforever's own is up over the pause menu (the hand report,
+/// nvforever's `reports/form.rs`, player-reports.md §3.3): the pause menu takes no key or
+/// click while it is, and a text field has the keyboard ([`crate::bindings::KeyboardCapture`]).
+/// The form clears it the frame after it closes, so the key that closed it does nothing
+/// here.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormOver(pub bool);
+
+fn no_form(form: Option<Res<FormOver>>) -> bool {
+    !form.is_some_and(|f| f.0)
+}
 
 /// The page of the pause menu that is up; on the settings page, the row the keys are on.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -1195,6 +1208,7 @@ impl Plugin for PausePlugin {
             .add_systems(Startup, read_settings_tab)
             .init_resource::<PauseInputAid>()
             .init_resource::<crate::bindings::KeyboardCapture>()
+            .init_resource::<FormOver>()
             .init_resource::<ModsEntry>()
             .add_message::<MainMenuRequest>()
             .init_resource::<MenuPause>()
@@ -1215,7 +1229,7 @@ impl Plugin for PausePlugin {
                 // Over a conversation, a barter menu takes Esc for itself (`crate::menu`).
                 (
                     open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue)).and_then(crate::menu::no_menu)),
-                    (choose, finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
+                    (choose.run_if(no_form), finish_resume, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
                     .in_set(PlaySet::Ui),
             )
@@ -2335,12 +2349,14 @@ fn search_keys(events: &[KeyboardInput], modifiers: bool) -> Vec<SearchKey> {
 /// the keyboard's messages read, the search's keys kept for the pause menu while the
 /// search is open, and the keyboard held for it then ([`crate::bindings::KeyboardCapture`])
 /// [design: #1953].
+#[allow(clippy::too_many_arguments)]
 fn collect_search_keys(
     mut typed: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     paused: Option<Res<Paused>>,
     page: Option<Res<Page>>,
     view: Option<Res<PauseView>>,
+    form: Option<Res<FormOver>>,
     mut out: ResMut<SearchKeys>,
     mut capture: ResMut<crate::bindings::KeyboardCapture>,
 ) {
@@ -2348,7 +2364,7 @@ fn collect_search_keys(
     let open = paused.is_some_and(|p| p.0) && page.is_some_and(|p| matches!(*p, Page::Settings { .. })) && view.is_some_and(|v| v.scope == SettingsScope::Search);
     let modifiers = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::AltRight, KeyCode::SuperLeft, KeyCode::SuperRight]);
     out.0 = if open { search_keys(&events, modifiers) } else { Vec::new() };
-    capture.set_if_neq(crate::bindings::KeyboardCapture(open));
+    capture.set_if_neq(crate::bindings::KeyboardCapture(open || form.is_some_and(|f| f.0)));
 }
 
 /// A key the pause menu aid presses: its code, what it types and its text.
