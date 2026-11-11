@@ -15,7 +15,8 @@
 //! At the exit, per actor and weapon state: `walk probe: <ref> drawn speed=<median> (<n>
 //! windows; <class> armour, Speed Mult <m>, weapon <weapon> type <t>, the AI's walk <w>)`
 //! (`holstered` the same; the armour class, Speed Mult, weapon and its WEAP animation type
-//! and the AI's walker speed as in the last window), or `walk probe: <ref> drawn: no
+//! and the AI's walker speed as in the last window, the armour and weapon from the live
+//! world, `SimState`), or `walk probe: <ref> drawn: no
 //! windows`; then `walk probe: <ref> windows left out: <c> in combat, <r> running, <o> off
 //! a walk`.
 
@@ -73,8 +74,11 @@ struct Probe {
     actors: BTreeMap<u32, Track>,
 }
 
-fn sample(time: Res<Time>, mut probe: ResMut<Probe>, mut script: Option<ResMut<ScriptState>>, res: Option<Res<Residents>>, rigs: Query<(&ActorRig, &GlobalTransform)>) {
-    let (Some(res), Some(rt)) = (res, script.as_deref_mut().and_then(|s| s.rt.as_mut())) else { return };
+fn sample(time: Res<Time>, mut probe: ResMut<Probe>, mut script: Option<ResMut<ScriptState>>, res: Option<Res<Residents>>, sim: Option<Res<nvf_play::sim::SimState>>, rigs: Query<(&ActorRig, &GlobalTransform)>) {
+    let (Some(res), Some(sim), Some(rt)) = (res, sim, script.as_deref_mut().and_then(|s| s.rt.as_mut())) else { return };
+    // What actors wear and hold is the live world's (`SimState`): between `with_world`
+    // calls the game's own is a stand-in.
+    let world = &sim.world;
     let game = &mut rt.game;
     if !probe.names.is_empty() {
         for name in std::mem::take(&mut probe.names) {
@@ -116,9 +120,14 @@ fn sample(time: Res<Time>, mut probe: ResMut<Probe>, mut script: Option<ResMut<S
                 if dt < WINDOW {
                     continue;
                 }
-                let class = fnv_game::combat::worn_armor_class(&game.world, id);
+                let class = fnv_game::combat::worn_armor_class(world, id);
                 let mult = crate::creature_pace::speed_mult(game, FormId(rig.base), id);
-                let weapon = game.held_weapon(id).map(|(w, _)| w).or_else(|| game.extra.get(&id).and_then(|e| e.held_weapon));
+                // As `fnv_ai::carry::drawn_walk_share` takes it: the equipment, else (none
+                // known) the weapon the animating side last drew.
+                let weapon = match world.equipment(id) {
+                    Some(items) => items.into_iter().find(|i| world.forms.item(*i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Weapon)),
+                    None => game.extra.get(&id).and_then(|e| e.held_weapon),
+                };
                 let kind = weapon.and_then(|w| game.data.weapon_anim_types.get(&w).copied());
                 let phase = if out { &mut t.drawn } else { &mut t.holstered };
                 phase.speeds.push((flat - from).length() / dt);

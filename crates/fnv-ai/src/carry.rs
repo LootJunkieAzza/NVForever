@@ -156,9 +156,13 @@ pub fn drawn_walk_share(game: &Game, actor: FormId) -> f32 {
     if game.awareness.state(actor).in_combat() || !game.weapon_is_out(actor) {
         return 1.0;
     }
-    // The weapon it holds by the rules, else the one the animating side draws for it, as
-    // GetWeaponAnimType reads it (`Game::weapon_anim_type`).
-    let weapon = game.held_weapon(actor).map(|(w, _)| w).or_else(|| game.extra.get(&actor).and_then(|e| e.held_weapon));
+    // The weapon it holds by the rules (none: its fists); only an actor the simulation
+    // holds no equipment for falls back on the one the animating side last drew for it,
+    // which is not cleared when the weapon is taken off (`Game::set_held_weapon`).
+    let weapon = match game.world.equipment(actor) {
+        Some(items) => items.into_iter().find(|i| game.world.forms.item(*i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Weapon)),
+        None => game.extra.get(&actor).and_then(|e| e.held_weapon),
+    };
     let stance = weapon.and_then(|w| game.data.weapon_anim_types.get(&w).copied());
     let light = || fnv_game::combat::worn_armor_class(&game.world, actor) == fnv_sim::forms::ArmorClass::Light;
     if !stance.is_some_and(|t| DRAWN_WALK_ANIM_TYPES.contains(&t)) || crate::alert::creature(game, actor) || !light() {
@@ -613,6 +617,10 @@ pub struct Agent {
     /// where the player was when the way was planned, and from when it may be planned
     /// again.
     pub(crate) walk_up: Option<(Place, f64)>,
+    /// An ordinary walk's drawn-weapon share ([`drawn_walk_share`]) as last applied and
+    /// the walker speed it gave: set where a package's walk is planned at the walk, kept
+    /// up by [`Ai::repace_walk`]; given up once anything else sets the walker's speed.
+    pub(crate) walk_pace: Option<(f32, f32)>,
     /// How many times ResetAI had its package taken up afresh ([`Ai::step_actor`];
     /// `Game::take_ai_reset`): the engine gets a seated actor up when this changes, even
     /// when the package gives it the same furniture again (issue #2119).
@@ -895,7 +903,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, walk_pace: None, restarts: 0 });
         Ok(())
     }
 
@@ -1297,6 +1305,7 @@ impl Ai {
             // package's walk must not be taken for the end of the walk-up's, which would
             // open the conversation from afar (a package changed in the low process).
             a.walk_up = None;
+            a.walk_pace = None;
             self.set_using(game, actor, None);
             self.taken.retain(|_, user| *user != actor);
             // What the old package had it use ends with it.
@@ -1341,6 +1350,10 @@ impl Ai {
         }
         if !quiet && !chatting && !alerted && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
             self.back_after_push(game, nav, actor);
+        }
+        if self.agents[&actor].activity != Activity::Travelling {
+            // Its walk is over: the next one is owned only if planned as a package's.
+            self.agents.get_mut(&actor).expect("listed").walk_pace = None;
         }
         match self.agents[&actor].activity {
             Activity::Travelling => {
@@ -2090,7 +2103,8 @@ impl Ai {
         let to = choice.target.expect("checked");
         let speed = self.calm_speeds(actor).walk;
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        // A package's walk: [`Ai::repace_walk`] gives it the drawn walk.
+        (a.walker.speed, a.walk_pace) = (speed, Some((1.0, speed)));
         match a.walker.go_to(nav, to, &params) {
             Ok(path) => {
                 let walk = path.length;
@@ -2259,29 +2273,32 @@ impl Ai {
         }
     }
 
-    /// A calm walk under way keeps up with the weapon being drawn or put away
-    /// ([`drawn_walk_share`]): one going at the holstered walk changes to the drawn walk
-    /// and back, as [`Ai::pace`] would plan it now. Any other speed (a run, a follower's
-    /// matched pace, a sneak begun or ended on the way) is left as it is [design, #2124:
-    /// the animating side tells the weapon out only once it is drawn, after the walk was
-    /// planned].
+    /// A package's walk under way keeps up with the weapon being drawn or put away
+    /// ([`drawn_walk_share`]): its speed is scaled from the share last applied to the share
+    /// now ([`Agent::walk_pace`]), whatever its base (an armour or Speed Mult change since
+    /// it was planned waits for the next plan, as before). A walk whose speed something
+    /// else has set since (a run, a follower's matched pace, an alert) is not one: it is
+    /// left as it is [design, #2124: the animating side tells the weapon out only once it
+    /// is drawn, after the walk was planned].
     fn repace_walk(&mut self, game: &Game, actor: FormId) {
         let a = &self.agents[&actor];
-        if a.following.is_some() || a.backing.is_some() || a.walk_up.is_some() {
+        let Some((applied, set)) = a.walk_pace else { return };
+        if a.walker.speed != set || a.following.is_some() || a.backing.is_some() || a.walk_up.is_some() {
+            self.agents.get_mut(&actor).expect("listed").walk_pace = None;
             return;
         }
-        let speed = a.walker.speed;
-        let sneak = if game.sneaks(actor) { game.world.forms.setting_f32("fMoveSneakMult").unwrap_or(SNEAK_MULT) } else { 1.0 };
-        let holstered = self.calm_speeds(actor).walk * sneak;
-        let drawn = holstered / game.world.forms.setting_f32("fMoveNoWeaponMult").filter(|m| *m > 0.0).unwrap_or(NO_WEAPON_MULT);
-        let near = |v: f32| (speed - v).abs() <= 1e-3 * v.max(1.0);
-        if !near(holstered) && !near(drawn) {
-            return;
+        let want = drawn_walk_share(game, actor);
+        if want != applied && applied > 0.0 {
+            let speed = set / applied * want;
+            let a = self.agents.get_mut(&actor).expect("listed");
+            (a.walker.speed, a.walk_pace) = (speed, Some((want, speed)));
         }
-        let want = holstered * drawn_walk_share(game, actor);
-        if !near(want) {
-            self.agents.get_mut(&actor).expect("listed").walker.speed = want;
-        }
+    }
+
+    /// What [`Agent::walk_pace`] holds for a walk planned at `speed` by [`Ai::pace`]: the
+    /// share applied for a walk, nothing for a run.
+    pub(crate) fn walk_pace_of(game: &Game, actor: FormId, running: bool, speed: f32) -> Option<(f32, f32)> {
+        (!running).then(|| (drawn_walk_share(game, actor), speed))
     }
 
     /// Plan a walk to `to`; without a way there the package is set aside.
@@ -2292,8 +2309,9 @@ impl Ai {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN) || d.has(flags::PRETEND_IN_COMBAT));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
+        let own = Ai::walk_pace_of(game, actor, running, speed);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, own);
         match a.walker.go_to(nav, to, &params) {
             Ok(path) => {
                 let doors = path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect();

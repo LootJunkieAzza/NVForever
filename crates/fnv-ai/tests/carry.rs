@@ -3044,6 +3044,50 @@ fn the_drawn_walk_keeps_speed_mult_sneaking_and_the_setting() {
 }
 
 #[test]
+fn a_pistol_taken_off_on_the_way_gives_the_unarmed_walk_back() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    // Back to its fists, SetWeaponOut 1 still on; the animating side's last drawn weapon
+    // (not cleared on unequipping) does not count against its inventory.
+    s.game.set_held_weapon(me, Some(FormId(PISTOL)));
+    s.game.world.unequip(me, FormId(PISTOL)).unwrap();
+    assert_eq!(s.game.held_weapon(me), None);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+}
+
+#[test]
+fn a_walk_whose_base_speed_changed_on_the_way_still_follows_the_weapon() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    s.game.world.add_item(me, FormId(PISTOL), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(PISTOL)).unwrap();
+    s.run(1.0);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    // New speeds of its own on the way (armour, Speed Mult): the walk keeps its speed
+    // until it is planned again.
+    let own = fnv_ai::Speeds { walk: 120.0, run: 480.0 };
+    s.ai.set_speeds(me, fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    s.run(0.5);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    // Drawn, then put away: the walk follows from the speed it has.
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+}
+
+#[test]
 fn the_drawn_walk_leaves_runs_other_stances_armour_creatures_and_fights_alone() {
     let f = with_arms_and_armour();
     // A run with the pistol drawn keeps the run.
