@@ -13980,6 +13980,27 @@ expect = [
 ]
 
 [[scenario]]
+name = "npc-speed-mult-changes"
+source = "LootJunkieAzza/NVForever#2118: a script's SetAV SpeedMult (or ModAV, an effect, damage) on an NPC changes its speed, as it does the player's (docs/spec-notes/actors.md §8.10, People and creatures)"
+note = "GoodspringsSettler03Ref is put 150 units from the player at 6 s and follows it (DefaultFollowPlayerFar) from 7 s; SetAV SpeedMult 200 at 9 s, GetRunSpeed at 11 s; put 2,500 units off at 12 s so it runs back; SetAV SpeedMult 50 at 15 s, GetRunSpeed at 17 s. It wears no armour that slows it, so its run is 344 × Speed Mult / 100 (688, then 172); the ranges allow the medium and heavy armour shares. Before the fix its speeds were given once from the record's 100 and GetRunSpeed read 0"
+areas = ["actors", "ai"]
+paths = ["engine/nvforever/src/creature_pace.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:moveto:GoodspringsSettler03Ref:player:150:0:0,7:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,9:set_av:GoodspringsSettler03Ref:SpeedMult:200,11:call:GoodspringsSettler03Ref:GetRunSpeed,12:moveto:GoodspringsSettler03Ref:player:2500:0:0,15:set_av:GoodspringsSettler03Ref:SpeedMult:50,17:call:GoodspringsSettler03Ref:GetRunSpeed" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "12", "--npc-packages", "GoodspringsSettler03Ref", "--no-voice", "--no-messages"]
+run_seconds = 25
+order = [[
+  { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 200', label = "SetAV SpeedMult 200" },
+  { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks \d+ and runs (?P<n>\d+) units/s \(Speed Mult 200 now, 100 before', range = [580, 690], label = "its speeds given again at 200" },
+  { re = 'test aid calls GetRunSpeed on GoodspringsSettler03Ref = (?:Num\()?(?P<n>[\d.]+)', range = [580, 690], label = "GetRunSpeed reads the doubled run" },
+  { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 50', label = "SetAV SpeedMult 50" },
+  { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks \d+ and runs (?P<n>\d+) units/s \(Speed Mult 50 now, 200 before', range = [140, 175], label = "its speeds given again at 50" },
+  { re = 'test aid calls GetRunSpeed on GoodspringsSettler03Ref = (?:Num\()?(?P<n>[\d.]+)', range = [140, 175], label = "GetRunSpeed reads the halved run" },
+]]
+expect = [
+  { re = 'creature pace summary: .*speeds given again for a new Speed Mult (?P<n>\d+) times', range = [2, 10000], label = "counted in the summary" },
+]
+
+[[scenario]]
 name = "pickpocket-steal"
 source = "ESM full audit gap 6 (docs/spec-notes/pickpocket.md): sneaking, E on an NPC shows Steal and opens its pocket; a take rolls against the chance (GECK wiki Pickpocket) and is either unseen or caught"
 note = "Chet in the general store is held where he stands (SetRestrained 1 at 0.5 s: left to his sandbox package he walked off to his broom and FACE put the player on another floor height than him, with nothing under the crosshair; #951) and given two Stimpaks at 3 s; the player stands at him (NEAR), sneaks at 4 s, is put in front of him again at 7 s (FACE), presses E at 8 s, takes the first row at 10 s (Enter; his .357 rounds are a stack, so a second Enter answers How many?) and presses E again at 12 s (closing the menu, or, when caught, hearing that he has already caught the player)"

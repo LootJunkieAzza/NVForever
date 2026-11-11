@@ -596,8 +596,9 @@ pub struct Ai {
     pub(crate) coming: std::collections::BTreeSet<FormId>,
     /// The loaded area, from the engine ([`Ai::set_loaded`]).
     pub(crate) loaded: Option<crate::process::LoadedArea>,
-    /// Actors with speeds of their own (creatures, from their clips); the others move at
-    /// [`AiConfig::walk_speed`] and [`AiConfig::run_speed`].
+    /// Actors with speeds of their own (creatures, from their clips; people, by their
+    /// current Speed Mult and armour); the others move at [`AiConfig::walk_speed`] and
+    /// [`AiConfig::run_speed`].
     pub speeds: BTreeMap<FormId, ActorSpeeds>,
     /// Actors slowed by crippled legs: the share of their speed they keep
     /// ([`Ai::set_pace`]; `fnv_game::Game::leg_speed_mult`).
@@ -631,6 +632,26 @@ pub struct Ai {
     /// When (`Game::time`) a script last put each actor somewhere ([`Ai::relocate`]):
     /// [`Ai::arrive`] leaves such an actor where it was put for a while.
     pub(crate) script_moved: BTreeMap<FormId, f64>,
+    /// Actors whose walk under way was stopped by speeds of 0 (a Speed Mult of 0): the
+    /// speed it went at and the speeds that speed was in, so that it goes on in the same
+    /// gait when its speeds come back ([`Ai::set_speeds`], issue #2118).
+    stalled: BTreeMap<FormId, (f32, ActorSpeeds)>,
+}
+
+/// The speed a walk under way at `speed` goes on at when its actor's speeds change from
+/// `old` to `new`, in the same gait: the walk or run, calm or alert, among `old` nearest
+/// to `speed` (by ratio: a sneaking run, × 0.57, or a follower's catch-up stays a run or a
+/// walk), scaled by how much that one changed, so a sneak, a catch-up boost or a
+/// follower's step speed keep their share. `None` when the gait cannot be told: `speed`
+/// or every speed of `old` is 0 [design, issue #2118].
+fn retimed(speed: f32, old: &ActorSpeeds, new: &ActorSpeeds) -> Option<f32> {
+    if !(speed.is_finite() && speed > 0.0) {
+        return None;
+    }
+    let pairs = [(old.calm.walk, new.calm.walk), (old.calm.run, new.calm.run), (old.alert.walk, new.alert.walk), (old.alert.run, new.alert.run)];
+    let off = |was: f32| (speed / was).ln().abs();
+    let (was, now) = pairs.into_iter().filter(|(was, _)| was.is_finite() && *was > 0.0).min_by(|a, b| off(a.0).total_cmp(&off(b.0)))?;
+    Some(speed * now.max(0.0) / was)
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -649,7 +670,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), furniture: Default::default(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), loaded: None, speeds: BTreeMap::new(), paces: BTreeMap::new(), applied_switches: None, applied_locks: None, applied_obstacles: None, locked_doors: Vec::new(), unseen_greets: Default::default(), restrained: Default::default(), woken: Default::default(), columns: BTreeMap::new(), script_moved: BTreeMap::new(), restored: BTreeMap::new(), stalled: BTreeMap::new() }
     }
 
     /// Give the AI what the assets say about furniture and skeletons ([`crate::furniture`]),
@@ -806,11 +827,42 @@ impl Ai {
         self.applied_obstacles == Some((game.world.presence_serial(), nav.obstacles_stamp()))
     }
 
-    /// Give `actor` speeds of its own; its walker turns at its own rate from now on.
+    /// Give `actor` speeds of its own; its walker turns at its own rate from now on, and
+    /// a walk under way goes on at once at the new speeds, in its gait (`retimed`):
+    /// otherwise a package's walk keeps the speed it was planned at until its next plan
+    /// (issue #2118: a SetAV SpeedMult 200 follower ran on at 100). Speeds of 0 stop the
+    /// walk where it is, and it goes on in the same gait when they come back (a walk
+    /// planned while they were 0 goes on at the calm walk). Crippled
+    /// legs' share ([`Ai::set_pace`]) is the walker's own and stays as it is.
     pub fn set_speeds(&mut self, actor: FormId, speeds: ActorSpeeds) {
-        self.speeds.insert(actor, speeds);
-        if let Some(a) = self.agents.get_mut(&actor) {
-            own_turning(&mut a.walker, &speeds);
+        let default = Speeds { walk: self.cfg.walk_speed, run: self.cfg.run_speed };
+        let old = self.speeds.insert(actor, speeds).unwrap_or(ActorSpeeds { calm: default, alert: default, turn_rate: None, spot_turn_start: None });
+        let Some(a) = self.agents.get_mut(&actor) else {
+            self.stalled.remove(&actor);
+            return;
+        };
+        own_turning(&mut a.walker, &speeds);
+        if a.walker.follower.is_none() {
+            // Nothing under way: the next walk is planned at the new speeds.
+            self.stalled.remove(&actor);
+            return;
+        }
+        let (speed, from) = match self.stalled.get(&actor) {
+            Some(&(speed, from)) if a.walker.speed <= 0.0 => (speed, from),
+            _ => (a.walker.speed, old),
+        };
+        let now = match retimed(speed, &from, &speeds) {
+            Some(now) => now,
+            // Planned while its speeds were 0: its gait is not known, so it walks [design]
+            // until its next plan rather than standing on its way.
+            None if a.walker.speed <= 0.0 => speeds.calm.walk.max(0.0),
+            None => return,
+        };
+        a.walker.speed = now;
+        if now > 0.0 {
+            self.stalled.remove(&actor);
+        } else {
+            self.stalled.insert(actor, (speed, from));
         }
     }
 

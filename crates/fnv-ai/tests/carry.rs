@@ -922,6 +922,106 @@ fn always_run_packages_run() {
     assert!(dist(s.feet(R_RUN), START) > 3.0 * dist(s.feet(R_RADIUS), START));
 }
 
+/// Speeds of `walk` and `run`, calm and alert alike, as the engine gives people
+/// (`creature_pace.rs`).
+fn speeds(walk: f32, run: f32) -> fnv_ai::ActorSpeeds {
+    let s = fnv_ai::Speeds { walk, run };
+    fnv_ai::ActorSpeeds { calm: s, alert: s, turn_rate: None, spot_turn_start: None }
+}
+
+/// How far `actor` goes in one update of half a second.
+fn step_length(s: &mut Sim, actor: u32) -> f32 {
+    let before = s.ai.agents[&FormId(actor)].walker.travelled;
+    s.run(0.5);
+    s.ai.agents[&FormId(actor)].walker.travelled - before
+}
+
+/// The package and trip events so far: a new speed must not make the actor choose or
+/// plan again.
+fn plans(s: &Sim, actor: u32) -> usize {
+    s.events(actor).iter().filter(|e| matches!(e, AiEvent::Package { .. } | AiEvent::Trip { .. })).count()
+}
+
+/// A walk under way takes new speeds at the next step, in its gait, without a new
+/// package or plan: Speed Mult 100 → 200 → 0 → 100 (issue #2118: `plan` fixes the
+/// walker's speed when it plans, and `set_speeds` did not reach it). Crippled legs'
+/// pace stays its own.
+#[test]
+fn a_walk_under_way_takes_new_speeds_at_once_in_its_gait() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // Speed Mult 100 of speeds half the configured ones, given before it plans, so the
+    // way to the door lasts the test; planned at that walk, past its first turn.
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    let planned = plans(&s, R_TRAVEL);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want.max(1.0) * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    // Speed Mult 200.
+    s.ai.set_speeds(actor, speeds(100.0, 400.0));
+    near(step_length(&mut s, R_TRAVEL), 50.0);
+    // Speed Mult 0: it stands on its way, still travelling.
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_TRAVEL).abs() < 1e-3);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Back to 100: it walks on, not runs (200 units/s would be 100 a step).
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    // A crippled leg's pace is kept across a new speed: half of Speed Mult 200's walk.
+    s.ai.set_pace(actor, 0.5);
+    s.ai.set_speeds(actor, speeds(100.0, 400.0));
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    assert_eq!(s.ai.agents[&actor].walker.pace, 0.5);
+    assert_eq!(plans(&s, R_TRAVEL), planned, "{:?}", s.events(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+}
+
+/// A run under way keeps running through new speeds and a stop at 0 (an Always Run
+/// package), at the new run speed.
+#[test]
+fn a_run_under_way_keeps_its_gait_through_a_stop() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_RUN]);
+    let actor = FormId(R_RUN);
+    // Slow speeds before it plans, so the way to its marker lasts the test.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    assert!(matches!(s.events(R_RUN)[1], AiEvent::Trip { running: true, .. }));
+    let planned = plans(&s, R_RUN);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want.max(1.0) * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_RUN), 20.0);
+    s.ai.set_speeds(actor, speeds(20.0, 80.0));
+    near(step_length(&mut s, R_RUN), 40.0);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    // Back: the run's 40 units/s (20 a step), not the walk's 10.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    near(step_length(&mut s, R_RUN), 20.0);
+    assert_eq!(plans(&s, R_RUN), planned, "{:?}", s.events(R_RUN));
+}
+
+/// A walk planned while the actor's speeds are 0 (Speed Mult 0 before its package's
+/// walk) does not stay standing when they come back: it goes on at the calm walk.
+#[test]
+fn a_walk_planned_at_speed_0_sets_off_when_the_speed_comes_back() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(step_length(&mut s, R_TRAVEL).abs() < 1e-3);
+    let planned = plans(&s, R_TRAVEL);
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    // Its first step may still turn it towards its way.
+    s.run(1.0);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    assert_eq!(plans(&s, R_TRAVEL), planned);
+}
+
 #[test]
 fn a_patrol_walks_its_linked_references_in_order_once() {
     let f = fixture();
