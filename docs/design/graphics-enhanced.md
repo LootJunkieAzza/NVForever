@@ -65,7 +65,9 @@ Constraints that decide what fits:
 
 `--graphics vanilla|enhanced` picks the look; each improvement is also a switch on the pause
 menu's settings page (category "Graphics") and can be compared alone with
-`--graphics-only <keys>`. The log says what is on: `graphics: ambient occlusion, longer
+`--graphics-only <keys>`. The settings page's **Enhanced effects** row (Graphics > Picture, #1966) sets
+them all as `enhanced` (On) or `vanilla` (Off) does and reads Custom when they are mixed;
+the Quality row's presets never touch them (docs/spec-notes/quality-presets.md). The log says what is on: `graphics: ambient occlusion, longer
 shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water
 reflections` (or `graphics: vanilla (no engine-level improvements)`), again whenever a switch
 changes. Anti-aliasing (`anti-aliasing`: multisampling off/2x/4x/8x, FXAA, SMAA or TAA) and
@@ -76,7 +78,38 @@ Code: `graphics.rs` (preset, switches, applying them), `ssao.rs`/`ssao.wesl`,
 `sky.rs` (`shadow_reach`), `nvf_assets::texture::set_anisotropy`, `frame_pace.rs`, the rows in
 `settings.rs`.
 
-Pass order after the main pass: tonemapping → ambient occlusion → temporal anti-aliasing, FXAA or
+[design: `engine/nvf-play/src/graphics_resume.rs`, `settings.rs`, `pause.rs`;
+`engine/nvforever/src/settings.rs`, `pipeline_gate.rs`] **Resuming after graphics edits
+(pipeline portion of #1820).** Effective edits to the registered renderer rows latch for
+the pause session, including Defaults. Continue, Esc and the timed resume aid use one
+request. An unchanged session resumes immediately. A changed session keeps
+`PlayState::Menu`, `Paused(true)` and the pause picture while rendering and pipeline
+compilation continue. The wait counts all `PipelineGate::busy()` pipelines, including
+sun shadows even with the travel-only shadow test aid enabled.
+
+[design: the same files; `engine/nvf-play/src/loading.rs`] After the resume request and
+after any further edit, fresh completed render frames must report no pending pipelines
+and no new requests for at least 0.25 real seconds and three render frames. A stale zero
+count cannot release the menu; a late request restarts settling even if it has already
+finished. The wait ends at the loading screen's `PIPELINE_CAP_SECS` (15 real seconds)
+if readiness never arrives. Repeated resume requests keep the first deadline. Loading a
+save, quitting or closing the menu clears the session. Choosing anything else on the
+column while the wait runs (Save, Load, Settings, Mods, Quit), or any page or the quit
+question opening by another path, cancels the wait but keeps the latch: the release
+would otherwise close what the player just opened, and the next Continue waits again
+with a new deadline. The timed resume aid acts as Esc back to the column, then Continue. Completion is logged once as
+`pause menu: resume after graphics change: pipelines waited <seconds> s, pending <n>, capped <true|false>`;
+the existing `pause menu: resume` follows only when release is requested.
+
+[design: `engine/nvforever/src/world.rs`, `loading_gate.rs`] Draw-distance streaming
+stays outside this wait. Loading screens have cell/model readiness signals, but no
+contract identifies which newly visible assets a distance edit must await. That part
+of #1820 remains open; this change does not fully close the issue. Runtime compilation
+timing and the two smoke setups remain unverified until run. State tests use synthetic
+settings and controlled gate samples; smoke scenarios are `settings-resume-pipelines`
+and `settings-resume-unchanged` in `tools/smoke/scenarios.toml`.
+
+Pass order after the main pass (under FSR 3.1 the ambient occlusion comes before FSR, §3.1): tonemapping → ambient occlusion → temporal anti-aliasing, FXAA or
 SMAA → sun shafts → bloom and sharpening → the game's image-space blur and grade (imagespace.rs) → UI. So the game's grade and its modifiers
 (fades, blur, double vision) work on top of the improvements exactly as on the vanilla picture,
 and nothing repeats them.
@@ -104,6 +137,11 @@ fog takes over). The sky is left alone: the dome is opaque and in the depth prep
 Known limits: it darkens sunlit creases too (a post-process cannot tell ambient from direct
 light); water is not in the depth prepass, so the lake bed's occlusion shows faintly through
 the water surface; the first-person arms take a little occlusion from their own folds.
+
+While FSR 3.1 upscales (since 2026-11-08) the same pass runs before FSR instead, at FSR's
+render size, multiplied into the HDR picture FSR then accumulates
+([fsr-upscaling](fsr-upscaling.md), "Ambient occlusion"); `NVF_AO_BEFORE_FSR=0` keeps it
+after tonemapping.
 
 ### 3.2 Longer sun shadows (`fine-shadows`)
 
@@ -187,6 +225,21 @@ runs keep `--msaa`, so `--graphics vanilla` draws as before.
 - **SMAA**: Bevy's (`bevy::anti_alias::smaa::Smaa`) at its default preset (High) [engineering
   choice]. Sharper than FXAA, a little dearer; the same limit on the cut-outs.
 - **TAA**: ours, as follows.
+
+What the multisampling levels cost (#1379; the settings page's note gives the first two rows'
+figures in its own words) [observed 2026-11-02: plain release build, i9-14900K, RTX 4070
+(driver 616.56, Vulkan), 1920 × 1080, `--graphics enhanced`, vsync off (`--log-frame-times
+10`), `--play` standing still, `NVFOREVER_HOME` without stored settings, `--msaa N`, 45 s runs]:
+
+| Place | Off | 2x | 4x | 8x |
+|---|---|---|---|---|
+| Novac 12:00 | 10.36 ms | 11.19 | 11.63 | 12.76 |
+| Goodsprings 12:00 | 7.15 ms | 7.92 | 8.45 | 9.37 |
+| Strip 22:00 (the CPU sets the frame) | 6.26 ms | 6.23 | 6.30 | 6.31 |
+
+So 2x adds about 0.8 ms, 4x about 1.3 ms and 8x about 2.3 ms where the GPU sets the frame.
+The steps and the 4x default stay (#1379, a note only): the note tells a player turning
+everything up what 8x costs and names FXAA, SMAA and TAA as the cheaper choices.
 
 #### Temporal anti-aliasing
 
@@ -309,10 +362,14 @@ Settings rows that are not improvements and do not change the vanilla picture un
   measures (which turns vsync off). What vendors document about VRR in borderless and
   exclusive full screen: spec-notes/display-sync.md.
 - **Frame rate limit** (`frame-cap`): Off, 30, 60, 90, 120 or 144 frames a second
-  (`frame_pace.rs`): the main world's frame waits at its end until 1/limit s has passed since the
-  last (sleep, then spin the last millisecond); a late frame does not catch up. Bevy has no
-  limiter of its own (`bevy_framepace` is a separate crate); this plain one is enough to keep
-  a fast GPU from drawing hundreds of frames a second in menus [engineering choice].
+  (`frame_pace.rs`): each frame waits until 1/limit s has passed since the last (sleep, then
+  spin the last millisecond), right after it is handed to the render thread and before the
+  next frame's input is read, so the wait is not between the input and the picture (until
+  2026-11-10 it waited at the end of the main world's frame, after the input; measured in
+  [frame-generation](frame-generation.md), "Measurements"). A late frame is made up for a
+  hundredth of a frame's time at a time. Bevy has no limiter of its own (`bevy_framepace` is a
+  separate crate); this plain one is enough to keep a fast GPU from drawing hundreds of
+  frames a second in menus [engineering choice].
 
 ### 3.11 Light glow (`glow`; on in vanilla too)
 

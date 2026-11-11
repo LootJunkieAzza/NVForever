@@ -176,10 +176,13 @@ impl FineClock {
         }
     }
 
+    /// The days passed now. A stored GameDaysPassed that is no number counts as 0, as
+    /// `hour_now` counts such a GameHour, so that the count goes on from it [design].
     fn days_passed_now(&self, stored: f32) -> f64 {
         match self.days_passed {
             Some(c) if c.written == stored => c.value,
-            _ => stored as f64,
+            _ if stored.is_finite() => stored as f64,
+            _ => 0.0,
         }
     }
 
@@ -208,20 +211,25 @@ impl FineClock {
         let to = hour.rem_euclid(24.0);
         // A value too small for its own rem_euclid comes back as 24.
         let to = if to >= 24.0 { 0.0 } else { to };
-        let now = self.hour_now(stored.hour);
         if stored_hour(to) == stored.hour {
             return (stored, 0.0);
         }
-        let mut hours = to - now;
-        let next_day = hours < 0.0;
-        if next_day {
+        // A script can store a GameHour out of 0..24: 50 is two days on at 2:00, as
+        // `advance` counts it, and -30 is 18:00 (no days to roll back).
+        let now = self.hour_now(stored.hour);
+        let today = now.rem_euclid(24.0);
+        let today = if today >= 24.0 { 0.0 } else { today };
+        let mut days = ((now - today) / 24.0).round().max(0.0) as i64;
+        let mut hours = to - today;
+        if hours < 0.0 {
             hours += 24.0;
+            days += 1;
         }
-        if hours <= 0.0 || !hours.is_finite() {
+        if hours < 0.0 || !hours.is_finite() {
             return (stored, 0.0);
         }
         let days_passed = self.days_passed_now(stored.days_passed) + hours / 24.0;
-        (self.write(stored, to, days_passed, next_day as i64), hours)
+        (self.write(stored, to, days_passed, days), hours)
     }
 
     fn write(&mut self, stored: Calendar, hour: f64, days_passed: f64, days: i64) -> Calendar {
@@ -431,6 +439,35 @@ mod tests {
     }
 
     #[test]
+    fn game_days_passed_that_is_no_number_does_not_stop_the_count() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut clock = FineClock::default();
+            let c = clock.advance(Calendar { days_passed: bad, ..START }, 12.0);
+            assert_eq!(c.days_passed, 0.5, "{bad}");
+            let (c, hours) = clock.advance_to_hour(Calendar { days_passed: bad, ..c }, 6.0);
+            assert_eq!((c.day, c.hour, hours, c.days_passed), (19.0, 6.0, 6.0, 0.25), "{bad}");
+        }
+    }
+
+    #[test]
+    fn advancing_to_an_hour_from_a_game_hour_out_of_range() {
+        // 50 is two days on at 2:00: eight hours to 10:00, and the two days roll.
+        let (c, hours) = FineClock::default().advance_to_hour(Calendar { hour: 50.0, ..START }, 10.0);
+        assert_eq!((c.day, c.hour, hours), (20.0, 10.0, 8.0));
+        assert_eq!(c.days_passed, 5.0 + 8.0 / 24.0);
+        // 34 is tomorrow at 10:00 already: no time passes, the day rolls.
+        let (c, hours) = FineClock::default().advance_to_hour(Calendar { hour: 34.0, ..START }, 10.0);
+        assert_eq!((c.day, c.hour, hours, c.days_passed), (19.0, 10.0, 0.0, 5.0));
+        // -30 is 18:00: sixteen hours to 10:00, past midnight once.
+        let (c, hours) = FineClock::default().advance_to_hour(Calendar { hour: -30.0, ..START }, 10.0);
+        assert_eq!((c.day, c.hour, hours), (19.0, 10.0, 16.0));
+        assert_eq!(c.days_passed, 5.0 + 16.0 / 24.0);
+        // In range it is as before: 12:00 to 10:00 is the next day's.
+        let (c, hours) = FineClock::default().advance_to_hour(START, 10.0);
+        assert_eq!((c.day, c.hour, hours), (19.0, 10.0, 22.0));
+    }
+
+    #[test]
     fn advancing_to_an_hour_lands_on_it() {
         let frame = 1.0 / 60.0 * 30.0 / 3600.0;
         // Past today's: midnight comes, with the date, and the time passed matches.
@@ -459,12 +496,10 @@ mod tests {
             let (same, hours) = clock.advance_to_hour(c, c.hour as f64);
             assert_eq!((same, hours), (c, 0.0));
         }
-        // As the day-by-day clock did: 30 written and 10 asked is 4 hours on, next day; and
-        // from an hour too far past 24, no move.
+        // 30 written and 10 asked is 4 hours on, next day (as the day-by-day clock did);
+        // further past 24 is `advancing_to_an_hour_from_a_game_hour_out_of_range`.
         let (to, hours) = FineClock::default().advance_to_hour(Calendar { hour: 30.0, ..START }, 10.0);
         assert_eq!((to.day, to.hour, hours), (19.0, 10.0, 4.0));
-        let (to, hours) = FineClock::default().advance_to_hour(Calendar { hour: 50.0, ..START }, 10.0);
-        assert_eq!((to.day, to.hour, hours), (18.0, 50.0, 0.0));
         // Not a number: no move.
         let (to, hours) = FineClock::default().advance_to_hour(START, f64::NAN);
         assert_eq!((to, hours), (START, 0.0));

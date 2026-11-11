@@ -86,7 +86,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 | Crime and enemies | `player.crime_counts`, `crime_enemies`, `enemy_of` | not found | have |
 | Faction reactions, names, cell owners, item values changed by script | `forms: FormChanges` | FACT bit 2 (§6.2) | have |
 | Form list additions | `form_lists` | FLST bit 31 | have |
-| Dialogue: said-once, said-today | `said`, `said_day` | INFO bit 31, no data (§6.2) [hypothesis] | have |
+| Dialogue: said-once, said-today | `said`, `said_day`, `said_day_days_clock` | INFO bit 31, no data (§6.2) [hypothesis] | have. A save without `said_day_days_clock` holds its said-today hours on an older clock (GameDaysPassed × 24 + GameHour) that cannot be converted: the load drops them, once, so those Say Once a Day lines are free again; `said` stays [design: `Game::restore`, #1579] |
 | Active effects, image-space modifiers | `effects`, `image_modifiers` | player/actor records [hypothesis] | have |
 | Broken locks | `locks` | not found | have |
 | Script clock, frame count, RNG | `time`, `frame`, `rng_word_pos` | none | have |
@@ -98,6 +98,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 | Trespass warnings | `crimes.warnings/trespassing` | not found | drop |
 | Request queues, animations, detection values, detection events, Wait/Sleep in progress | marked "Not saved" in `Game` | none | drop |
 | Detection states: each actor's state (Normal/Alert/Combat/Lost), alert and target lists, the target fought; StartCombat's forced pairs | `awareness` (`awareness.actors`, `awareness.forced`) | not found | **saved since 2026-11-01** (#971): a fight goes on after a load, and IsInCombat on the player reads the same before the first detection round; the next round measures again as before. Combat groups' tactics, barks and the engine's engage/aim/crouch hints are rebuilt |
+| Who has had OnStartCombat and not yet OnCombatEnd | `fighting` | not found | **saved** (#1578): a load runs no OnStartCombat for a fight the save holds [documented: spec-notes/ext-save.md §4], a start still due at the save runs once, and the fight's OnCombatEnd runs when it ends. A created reference dropped on a load (§4.1) leaves it with its detection state. Saves from before this field did not record it, and that history cannot be recovered: their actors in Combat or Lost count as started, Alert does not, so a start still due in such a save does not run [design: `Game::restore`] |
 | Config | `cfg: GameConfig` | none | rebuild from settings (seed: see §5) |
 
 ### 3.3 AI (fnv-ai, used by `engine/nvforever`)
@@ -151,7 +152,8 @@ body    u32 length + zstd(JSON or postcard) of SaveBody
 - Each snapshot keeps its own `format` string (`fnv.game.state/N`, `fnv.sim.state/N`).
   New fields use `#[serde(default)]` so older saves still load (already the pattern in
   both snapshots); a change that cannot default bumps N and adds a migration function
-  from N−1, so old saves stay loadable.
+  from N−1, so old saves stay loadable. `RefExtra::killing_hit` is one: the dead of an
+  older save have no killing hit, as nothing in the save tells it [design].
 - Encoding: JSON keeps saves inspectable and is what the tests already use; size is the
   question. Measure a long session's snapshot first: if compressed JSON stays in the low
   megabytes (the original's 61-hour save is 8 MB uncompressed), keep JSON; otherwise
@@ -160,7 +162,12 @@ body    u32 length + zstd(JSON or postcard) of SaveBody
   added to docs/design/dependencies.md with the licence check there.
 - Writing is atomic: write `<name>.nvfsave.tmp`, flush, rename over the old file; the
   previous file of a rolling slot (quick, auto) becomes `.bak`, as the original does with
-  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs].
+  `autosave.fos.bak` [observed: the backups held `.fos` and `.fos.bak` pairs]. The backup
+  is made as a second name for the old file (a hard link, or a copy), so the save never
+  leaves its own name, and one save is written at a time, so two saves to one slot a
+  frame apart cannot share the `.tmp` (#1982).
+- A name the player gives is refused when it is a Windows device name (`con`, `nul`,
+  `com1` …, on every system) or a rolling slot's own name (#1983).
 
 Form IDs in the snapshot are load-order form IDs (mod index = plugin position). The
 original stores a plugin list and resolves form IDs by position in it [observed: save M,
@@ -203,7 +210,10 @@ What NVForever does (`fnv_save::PluginRemap`, `fnv_save::remap_json`,
 4. A form of a missing plugin: where it is a map key, a list entry, or in a pair or tuple
    that is a list entry, that entry is removed (a reference of the plugin's, an item in an
    inventory, a quest's state, a global, a form-list entry, a remembered pair).
-   Anywhere else (a field) it is moved to the *gone* slot `FE` with its low bytes, which no
+   A tuple that is a field's value keeps its length, or the save could not be read
+   back: one of form IDs beside other values (`package_ends`) is known by its shape, one
+   of form IDs alone by its field's name (`fnv_game::game::SAVE_PAIR_FIELDS`) (#1981).
+   Anywhere else (a field, such a tuple) it is moved to the *gone* slot `FE` with its low bytes, which no
    plugin uses; then the game layer drops what stands on one: references whose base or
    cell is gone (created ones of the plugin's bases), script instances whose key or script
    is gone, magic effects whose effect, source, target or script is gone, the radio station
@@ -239,7 +249,8 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
    reached the world, so no request a script made is still queued.
 2. **Autosaves**: after each loading screen (door travel, `coc`, a script moving the
    player) and when a script calls `Autosave` [documented: GECK wiki Autosave], each with
-   its own switch on the settings page (group Saving), both on by default. Three more
+   its own switch on the settings page (registered in group Saving, shown under
+   Gameplay › Saving: settings-page.md), both on by default. Three more
    switches there, on by default [owner request 2026-10-27]: Save on fast travel (after
    a fast travel's loading screen, in place of the travel switch), Save on wait and Save
    on sleep (when the menu closes with at least one hour passed, also after Cancel). Their timing
@@ -286,14 +297,42 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   The body is
   `nvf.save.body/1` = game snapshot + engine snapshot.
 - **Loading**: `nvforever --load <name|path>` reads the header first (its worldspace,
-  cell, position, heading, pitch, hour and weather start the world there; the weather is
+  cell, position, heading, pitch, hour, day and weather start the world there; the weather is
   kept while the weather system lists it there, not pinned as `--weather` pins it,
   spec-notes/world.md §6), then the body
   once the load order is known (remapped if it differs, §4.1); the script runtime restores the
   game and the simulation as it is made, before its first frame, and sends `RefChanged`
   for every reference the save changed so the drawn world follows; the engine part is put
-  back next. Loading while playing (console `load`, F9, the pause and main menus) starts
-  NVForever again with the same arguments and `--load` (those the save decides left out),
+  back next. Those `RefChanged` are marked `restored`: visuals and collision follow them
+  as any, while crime and the world's sounds take what they name as judged and heard
+  before the save, so a load judges no theft and plays no pick-up or drop sound. It is a
+  mark on each notice and not a gate on the frames of the restore, so a real pick-up or a
+  load script's change in those frames has its normal effect [design:
+  `crime::report_deeds`, `world_sounds::objects`; smoke `save-theft-write`,
+  `save-theft-load`].
+  A `MoveToMarkerWithFade` the save caught during its fade is made in the
+  restore, on the world that is played, before any script of the load runs; the reference
+  is drawn where it ends up, without the fade, and its `RefChanged` is marked `restored`
+  too: the move was asked for before the save [design: `Game::restore`,
+  `Runtime::restore_save`; smoke `save-fade-move-write`, `save-fade-move-load`].
+  The sky takes the save's hold and the rolls' random state as it is
+  made, before its first look at the weather lists, not when the engine part is put back:
+  a hold set after that look would hold what its roll chose, and setting them later would
+  undo a load script's release [design: `SkyState::restore_saved`; smoke
+  `save-weather-write`, `save-weather-load`]. The game's clock stays the save's: the residents' start clock goes only into
+  a new game, so `--day` never changes a loaded game's GameDaysPassed [design:
+  `residents::Core::prepare`; smoke `save-days-write`, `save-days-load`]. The sky alone
+  starts on the header's `game_days_passed`, over `--day` (`start_days` in `main.rs`), so
+  its weather rolls see no hours pass at the load. A save made before the header held the
+  day leaves the sky on `--day` or the plugins' day; it takes the game's day once the game's
+  hour has moved half a game minute (about a second of play at TimeScale 30, not while
+  paused or at TimeScale 0), with up to 24
+  volatility checks at once, which can make one weather roll and replace the weather kept
+  from the save [design: `SkyState::follow_climate`, `SkyState::follow_game_clock`]. The
+  sky does not follow the game under two flags: with
+  `--still-sky` its day stays the one it started on, with `--time-scale` its own clock
+  counts on from there. Loading while playing (console `load`, F9, the pause and
+  main menus) starts NVForever again with the same arguments and `--load` (those the save decides left out),
   so a save always lands in a world built fresh from the plugins and nothing of the run
   before carries over.
 - **The change of run is hidden** (`engine/nvforever/src/handoff.rs`) [design, owner
@@ -304,13 +343,21 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   `--size`, `--window-maximized`), and updates only 20 times a second while it waits. The
   new run opens its window hidden; as soon as its own loading screen (or the main menu)
   is up and drawn for 0.25 s, it shows its window over the old one, takes the focus and
-  writes the file, and loads behind its screen alone. The old run sees the file, writes
-  its exit logs and ends the process at once (not taking its world apart, which held its
-  memory about 2 s more). The pause menu's return to the main menu (`--menu`) goes the
+  writes the file, and loads behind its screen alone. The old run sees the file, takes it
+  away, writes its exit logs and ends the process at once (not taking its world apart,
+  which held its memory about 2 s more). The new run makes its game and puts the save
+  back only once the file is gone (or 2 s after writing it, for an old run that died):
+  on a busy machine the screen's first frames were slow enough for the save to go back
+  before the window was shown, the old run still holding its game (#1651). The pause menu's return to the main menu (`--menu`) goes the
   same way. If the new run ends before it is shown (it stops at the start), the screen
   comes down and the old game goes on; a new run that fails later is on its own (its
   crash report). Closing the old window while it waits ends the new run; a new run
-  still hidden after 120 s shows itself. The new run gets none of the old run's test aids
+  still hidden after 120 s shows itself. The old run never waits for ever (#1903, a
+  Linux report of two games playing from one Continue: the new run loaded with its
+  window shown and never took part): the new run writes a marker as it starts, and the
+  old run ends itself, leaving the new run to play, when the new run is running without
+  one after 30 s, or has not said it is up 135 s after it started. The old run logs the
+  new run's whole command line. The new run gets none of the old run's test aids
   (`NVF_PLAY_TEST_*`) except `NVF_PLAY_TEST_HANDOFF_EXIT=1` (end once it has taken over
   and its world or main menu is in; smoke `load-handoff`; the smoke runner waits for the
   processes a launch starts).
@@ -319,7 +366,15 @@ and Lonesome Road dropped, 36 more by the game layer; the base game's changes ba
   main menu instead, and once its window is up a message box says the save could not be
   loaded and why (none in unattended runs; the log line `load: <why>; opening the main
   menu` carries it). The same for `--load` given by hand and for a load while playing
-  (smoke `load-handoff-refused`).
+  (smoke `load-handoff-refused`). All that the restore itself checks (the formats of the
+  body, game, simulation and engine parts, both random-number positions, the co-op
+  players) is asked as the save is read, before the world starts at its place
+  [design: `nvf_play::save::read_for_load`, `GameSnapshot::check`; smoke
+  `save-refused-write`, `save-refused-load`]. No game ever goes on from a save that failed:
+  should a restore still fail after that read, the run keeps no runtime (no script runs,
+  no engine part is put back, nothing can be saved, the loading screen stays up) and
+  starts again on the main menu with the same message [design: `nvf_play::save::LoadRefused`,
+  `--load-refused`; smoke `load-refused-late`, through a test aid, as no save reaches it now].
 - **Memory** (#1357, load-handoff scenario at Goodsprings, private bytes): one run's
   start peak was 6.9 GB, 3.3 GB of it the script data build holding every record's read
   at once (now read a slice at a time, `fnv_game::data`): 4.1 GB. Old and new run

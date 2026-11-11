@@ -77,7 +77,7 @@ fn swap_models(
     mut streamer: ResMut<Streamer>,
     mut models: ModelCtx,
     mut emittance: ResMut<crate::emittance::EmittanceState>,
-    drawn: Query<(Entity, &RefVisual, &ChildOf)>,
+    drawn: Query<(Entity, &RefVisual, &ChildOf), crate::lights::NotLightSource>,
     cells: Query<&Transform, With<CellEntity>>,
 ) {
     *wait -= time.delta_secs();
@@ -86,7 +86,13 @@ fn swap_models(
     }
     *wait = LOOK_EVERY;
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
-    let want: HashMap<u32, String> = game.damaged_refs().filter_map(|r| game.destruction_model(r).map(|m| (r.0, m.to_string()))).collect();
+    let mut want: HashMap<u32, String> = game.damaged_refs().filter_map(|r| game.destruction_model(r).map(|m| (r.0, m.to_string()))).collect();
+    // SetRefrModelPath's models (`fnv_game::nvse_jip14`), before a destruction stage's.
+    for (r, m) in game.ref_models() {
+        if let Some(m) = m {
+            want.insert(r.0, m.clone());
+        }
+    }
     let changed: Vec<u32> = want
         .keys()
         .chain(streamer.model_overrides.keys())

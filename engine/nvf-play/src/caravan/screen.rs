@@ -102,7 +102,7 @@ fn view_key(s: &Session, view_w: f32, table: bool) -> String {
         format!("{}:{}:{}:{}:{}:{:?}", side(0), side(1), g.sides[0].hand.len(), g.sides[1].hand.len(), g.sides[0].deck.len() * 100 + g.sides[1].deck.len(), g.turn)
     });
     format!(
-        "{:?}:{:?}:{:?}:{}:{}:{:?}:{:?}:{}:{:?}:{}:{}:{}:{view_w:.0}",
+        "{:?}:{:?}:{:?}:{}:{}:{:?}:{:?}:{}:{:?}:{}:{}:{}:{view_w:.0}:{:?}",
         s.stage,
         s.bet,
         s.deck,
@@ -115,6 +115,7 @@ fn view_key(s: &Session, view_w: f32, table: bool) -> String {
         s.players_turn(),
         s.record.won,
         s.leaving.is_some(),
+        crate::pad::labels(),
     ) + &s.guide()
         + if table { ":3d" } else { "" }
 }
@@ -132,15 +133,21 @@ pub fn draw(
     view: Option<Res<CaravanView>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<CaravanRoot>>,
     _time: AidTime,
-    (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
+    (mut kit, mut shown, mut hints): (Local<Option<Kit>>, Local<Option<String>>, Local<String>),
 ) {
     let view_w = view_width(window.single().ok());
     let table = view.as_ref().map(|v| v.image.clone()).filter(|_| screen.0.as_ref().is_some_and(|s| s.stage == Stage::Play));
     let key = screen.0.as_ref().map(|s| view_key(s, view_w, table.is_some()));
     if key == *shown {
         return;
+    }
+    // The hints, logged as they change (the device's names, #1662).
+    if let Some(line) = screen.0.as_ref().map(|s| s.hint_line()).filter(|l| *l != *hints) {
+        info!("caravan: hints: {line}");
+        *hints = line;
     }
     for e in &roots {
         commands.entity(e).despawn();
@@ -149,7 +156,7 @@ pub fn draw(
     let Some(s) = screen.0.as_ref() else { return };
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
-    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc, glyphs: &glyphs };
     spawn(&mut commands, &mut c, s, view_w, table);
 }
 
@@ -169,18 +176,22 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view_w: f32, table: 
             }
             None => c.image(r, PLANKS, full.clone(), Color::srgb(0.78 * dim, 0.74 * dim, 0.68 * dim)),
         }
-        // A view narrower than 16:9 (16:10, 4:3) shows the whole frame, smaller.
-        let frame = Node { position_type: PositionType::Absolute, left: u((view_w - FRAME_W) / 2.0), top: u(0.0), width: u(FRAME_W), height: u(960.0), ..default() };
-        let fit = UiTransform { scale: Vec2::splat((view_w / FRAME_W).min(1.0)), ..default() };
-        r.spawn((frame, fit)).with_children(|f| match s.stage {
-            Stage::Bet => bet(f, c, s, dim),
-            Stage::Deck => deck(f, c, s, dim),
-            Stage::Play => play(f, c, s, dim, flat),
-            Stage::Results => results(f, c, s, dim),
+        // The table at the UI scale, in the middle of the view (`crate::interface::menu_frame`,
+        // #1631); the planks (or the 3D table) fill the view.
+        crate::interface::in_menu_frame(r, crate::interface::MIDDLE, |r| {
+            // A view narrower than 16:9 (16:10, 4:3) shows the whole frame, smaller.
+            let frame = Node { position_type: PositionType::Absolute, left: u((view_w - FRAME_W) / 2.0), top: u(0.0), width: u(FRAME_W), height: u(960.0), ..default() };
+            let fit = UiTransform { scale: Vec2::splat((view_w / FRAME_W).min(1.0)), ..default() };
+            r.spawn((frame, fit)).with_children(|f| match s.stage {
+                Stage::Bet => bet(f, c, s, dim),
+                Stage::Deck => deck(f, c, s, dim),
+                Stage::Play => play(f, c, s, dim, flat),
+                Stage::Results => results(f, c, s, dim),
         });
         if let Some(h) = &s.help {
             crate::lockpick::help::spawn(r, c, h, view_w);
         }
+        });
     });
 }
 
@@ -239,10 +250,11 @@ fn bet(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
         c.text_in(p, FontKind::Menu, title, BET_X.0, y, false, b);
         c.text_in(p, FontKind::Menu, &value.to_string(), BET_X.1, y, true, b);
     }
-    let rows: Vec<(&str, &str, f32)> = s.buttons().into_iter().zip(BET_BUTTONS).map(|((l, k, _, _), t)| (l, k, t)).collect();
+    let all = s.buttons();
+    let rows: Vec<(&str, &str, f32)> = all.iter().zip(BET_BUTTONS).map(|((l, k, _, _), t)| (*l, k.as_str(), t)).collect();
     buttons_backdrop(p, c, &rows);
-    for ((label, key, cmd, on), top) in s.buttons().into_iter().zip(BET_BUTTONS) {
-        button(p, c, label, key, BUTTONS_RIGHT, top, cmd, on);
+    for ((label, key, cmd, on), top) in all.into_iter().zip(BET_BUTTONS) {
+        button(p, c, label, &key, BUTTONS_RIGHT, top, cmd, on);
     }
     status(p, c, s, 10.0);
 }
@@ -290,7 +302,7 @@ fn deck(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     }
     c.text_in(p, FontKind::Menu, "Caravan Deck", 87.0, 395.0, false, b);
     c.text_in(p, FontKind::Menu, &s.deck.len().to_string(), 507.0, 395.0, true, b);
-    button(p, c, "Randomize Caravan Deck", "S)", 1380.0, 395.0, CaravanInput::Randomize, true);
+    button(p, c, "Randomize Caravan Deck", &s.hint(&[KeyCode::KeyS]), 1380.0, 395.0, CaravanInput::Randomize, true);
     c.image(p, "interface\\shared\\line\\solid.dds", at(33.0, 480.0, FRAME_W - 66.0, THICK), b);
     c.text_in(p, FontKind::Menu, "<", 33.0, 462.0, false, b);
     c.text_in(p, FontKind::Menu, ">", FRAME_W - 33.0, 462.0, true, b);
@@ -300,9 +312,9 @@ fn deck(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
     c.text_in(p, FontKind::Menu, &s.owned.len().to_string(), 507.0, 515.0, true, b);
     c.text_in(p, FontKind::Menu, "All Cards", 965.0, 527.0, false, b);
     let here = s.owned.get(s.cursor).copied();
-    button(p, c, "Add", "W)", 600.0, 862.0, CaravanInput::Add, here.is_some_and(|f| !s.in_deck(f)));
-    button(p, c, "Remove", "A)", 1330.0, 862.0, CaravanInput::Remove, here.is_some_and(|f| s.in_deck(f)));
-    button(p, c, "Play Caravan", "F)", BUTTONS_RIGHT, 862.0, CaravanInput::PlayDeck, s.deck.len() >= fnv_game::caravan::MIN_DECK);
+    button(p, c, "Add", &s.hint(&[KeyCode::KeyW]), 600.0, 862.0, CaravanInput::Add, here.is_some_and(|f| !s.in_deck(f)));
+    button(p, c, "Remove", &s.hint(&[KeyCode::KeyA]), 1330.0, 862.0, CaravanInput::Remove, here.is_some_and(|f| s.in_deck(f)));
+    button(p, c, "Play Caravan", &s.hint(&[KeyCode::KeyF]), BUTTONS_RIGHT, 862.0, CaravanInput::PlayDeck, s.deck.len() >= fnv_game::caravan::MIN_DECK);
     status(p, c, s, 10.0);
 }
 
@@ -531,10 +543,11 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
         crate::casino_hud::glass(p, BUTTONS_RIGHT - w, GUIDE_BOTTOM - 28.0, w, 32.0);
         c.text_in(p, FontKind::Menu, &thinking, BUTTONS_RIGHT, GUIDE_BOTTOM - 30.0, true, amber(180.0));
     }
-    let rows: Vec<(&str, &str, f32)> = s.buttons().into_iter().zip(PLAY_BUTTONS).map(|((l, k, _, _), t)| (l, k, t)).collect();
+    let all = s.buttons();
+    let rows: Vec<(&str, &str, f32)> = all.iter().zip(PLAY_BUTTONS).map(|((l, k, _, _), t)| (*l, k.as_str(), t)).collect();
     buttons_backdrop(p, c, &rows);
-    for ((label, key, cmd, on), top) in s.buttons().into_iter().zip(PLAY_BUTTONS) {
-        button(p, c, label, key, BUTTONS_RIGHT, top, cmd, on);
+    for ((label, key, cmd, on), top) in all.into_iter().zip(PLAY_BUTTONS) {
+        button(p, c, label, &key, BUTTONS_RIGHT, top, cmd, on);
     }
     // The guide (item 163) in the message area, in place of the short messages; with the
     // guide off, or nothing to say, the game's own line.

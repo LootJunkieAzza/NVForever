@@ -65,6 +65,10 @@ pub const RADIO_HELLO: &str = "RadioHello";
 /// radio.md §2; the same bit as `fnv_world::radio::station_flags::CONTINUOUS`].
 pub const CONTINUOUS: u32 = 0x4000_0000;
 
+/// TACT record-header bit of the editor's "Radio Station" box [hypothesis: radio.md §2,
+/// set on every station a receiver names].
+pub const RADIO_STATION: u32 = 0x0002_0000;
+
 #[derive(Debug, Clone, Default)]
 pub struct Radios {
     /// Default activations whose outcome was "activated", by reference.
@@ -137,8 +141,8 @@ impl Game<'_> {
     /// [`Game::links_after`]) that has a line the station can say now, at random.
     /// `None`: the conversation ends.
     pub fn radio_follow(&mut self, station: FormId, after: FormId) -> Option<(FormId, FormId)> {
-        let data = self.data;
-        let def = data.infos.get(&after)?;
+        let dv = self.dialogue_view();
+        let def = dv.info(&after)?;
         let topic = def.topic?;
         let mut linked: Vec<(FormId, FormId)> = Vec::new();
         for link in self.links_after(topic, def) {
@@ -162,23 +166,28 @@ impl Game<'_> {
     }
 
     /// The station starts saying `info`: Say Once remembers it and its begin result
-    /// script runs, with the station as the script's reference.
+    /// script runs, then its Run Immediately end result, with the station as the script's
+    /// reference (dialogue.md section 3.6 [design]).
     pub fn radio_line_begins(&mut self, station: FormId, info: FormId) {
-        let data = self.data;
-        let Some(def) = data.infos.get(&info) else { return };
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info) else { return };
         self.itr_radio_line(station, info, true);
         self.mark_said(station, info, false);
         if let Some(u) = def.begin {
             self.run_result(u, RunCtx { self_ref: Some(station), action_ref: None, quest: def.quest });
         }
+        if let Some(u) = def.end.filter(|_| def.has(crate::data::info_flag::RUN_IMMEDIATELY)) {
+            self.run_result(u, RunCtx { self_ref: Some(station), action_ref: None, quest: def.quest });
+        }
     }
 
-    /// The station finished saying `info`: its end result script runs.
+    /// The station finished saying `info`: its end result runs unless Run Immediately
+    /// already ran it at the start (dialogue.md section 3.6 [design]).
     pub fn radio_line_ends(&mut self, station: FormId, info: FormId) {
         self.itr_radio_line(station, info, false);
-        let data = self.data;
-        let Some(def) = data.infos.get(&info) else { return };
-        if let Some(u) = def.end {
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info) else { return };
+        if let Some(u) = def.end.filter(|_| !def.has(crate::data::info_flag::RUN_IMMEDIATELY)) {
             self.run_result(u, RunCtx { self_ref: Some(station), action_ref: None, quest: def.quest });
         }
     }

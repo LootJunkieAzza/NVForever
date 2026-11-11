@@ -10,6 +10,7 @@
 use crate::game::{Game, RunCtx};
 use fnv_script::vm::XVal;
 use fnv_sim::FormId;
+use fnv_ui::TileId;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 /// What lasts across a load: the plugin keeps it "in static memory" until the game is
@@ -109,8 +110,6 @@ pub struct ItrState {
     pub key_masks: BTreeMap<u16, BTreeSet<i64>>,
     /// SetEyeMesh's meshes by eyes form: left, right.
     pub eye_meshes: HashMap<FormId, (String, String)>,
-    /// SetDialogueInfoFlags' flags by topic info.
-    pub info_flags: HashMap<FormId, u16>,
     /// The injected radio queue (paths under Data\Sound\), at most 8, and its loop switch.
     pub radio_queue: VecDeque<String>,
     pub radio_loop: bool,
@@ -120,10 +119,13 @@ pub struct ItrState {
     pub radio_playing: Option<RadioPlaying>,
     pub tile_watches: Vec<TileWatch>,
     pub next_watch: u32,
-    /// SetUIAlphaMap's textures and SetUITexOffset's offsets, by tile path, for the
-    /// engine's tile renderer.
-    pub alpha_maps: BTreeMap<String, String>,
-    pub tex_offsets: BTreeMap<String, (f64, f64)>,
+    /// SetUIAlphaMap's textures (as the script names them) and SetUITexOffset's offsets
+    /// (wrapped into 0-1), by tile, for the engine's tile renderer (`nvf-play`'s
+    /// `tiles::texmod`). Kept by the tile's id, not its path, so they follow the tile: one
+    /// unloaded, or replaced by another of the same path, drops them
+    /// ([`Game::itr_drop_gone_tile_textures`]) [design: #1833].
+    pub alpha_maps: BTreeMap<TileId, String>,
+    pub tex_offsets: BTreeMap<TileId, (f64, f64)>,
     /// SetWeaponEmissiveColor's red, green, blue and multiplier while it holds.
     pub emissive: Option<[f64; 4]>,
 }
@@ -161,6 +163,32 @@ fn text(args: &[XVal], k: usize) -> String {
 /// The menu a tile path starts with.
 fn menu_of(path: &str) -> &str {
     path.split(['/', '\\']).next().unwrap_or_default()
+}
+
+/// An offset wrapped into 0-1 [documented: SetUITexOffset]: `rem_euclid` of a tiny
+/// negative number rounds up to 1 itself, which wraps to 0 [design].
+pub fn wrap(x: f64) -> f64 {
+    let w = x.rem_euclid(1.0);
+    if w >= 1.0 {
+        0.0
+    } else {
+        w
+    }
+}
+
+/// The Data path of an alpha map a script named (SetUIAlphaMap): under `textures\`
+/// [documented: SetUIAlphaMap, "relative to Data\Textures\"], `/` read as `\`, in small
+/// letters, a leading separator dropped. A path that already starts with `textures\` is
+/// kept as it is [decision: it would otherwise name `textures\textures\…`, which no mod
+/// ships; how the original treats such a path is not documented]. The script's check
+/// (`mod_files::exists`) and the engine's renderer (`tiles::texmod`) both read it so.
+pub fn alpha_map_path(name: &str) -> String {
+    let p = name.trim().trim_start_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase();
+    if p.starts_with("textures\\") {
+        p
+    } else {
+        format!("textures\\{p}")
+    }
 }
 
 fn yes(b: bool) -> XVal {
@@ -202,9 +230,10 @@ impl Game<'_> {
         self.other.itr.alerts.contains_key(&actor)
     }
 
-    /// A topic info's DATA flags: SetDialogueInfoFlags' change first.
+    /// A topic info's DATA flags as the dialogue reads them: a script's change first
+    /// (`crate::dialogue_edits`).
     pub fn info_flags(&self, info: FormId) -> Option<u16> {
-        self.other.itr.info_flags.get(&info).copied().or_else(|| self.data.infos.get(&info).map(|d| d.flags))
+        self.dialogue_view().info(&info).map(|d| d.flags)
     }
 
     /// The engine tells what the radio plays (a song's sound or a line's info and its
@@ -224,11 +253,25 @@ impl Game<'_> {
         }
     }
 
+    /// The alpha maps and texture offsets of tiles no longer loaded: an unloaded tile's
+    /// id names no tile again, nor does it name a later tile in its slot or at its path
+    /// (`fnv_ui::TileId`) [design: #1833].
+    pub fn itr_drop_gone_tile_textures(&mut self) {
+        let s = &mut self.other.itr;
+        if s.alpha_maps.is_empty() && s.tex_offsets.is_empty() {
+            return;
+        }
+        let ui = &self.ui_tree;
+        s.alpha_maps.retain(|t, _| ui.is_live(*t));
+        s.tex_offsets.retain(|t, _| ui.is_live(*t));
+    }
+
     /// Once a frame: SetAlertNS timers that ran out (kept while the actor still fights
     /// [documented: SetAlertNS]) and the watched tile traits that changed, each firing
     /// ITR:OnTileValueChange (numbers) or ITR:OnTileStrValueChange (text) with the watch
     /// id, the path and the new value [hypothesis: the events' parameters, no page].
     pub(crate) fn itr_tick(&mut self) {
+        self.itr_drop_gone_tile_textures();
         if !self.other.itr.alerts.is_empty() {
             let now = self.time;
             let done: Vec<FormId> = self.other.itr.alerts.iter().filter(|(a, end)| end.is_some_and(|e| now >= e) && !self.awareness.state(**a).in_combat()).map(|(a, _)| *a).collect();
@@ -661,12 +704,12 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ---- dialogue info flags ----
         // `info`: DATA's two flag bytes, the second from bit 8; 0 for anything else
         // [documented: GetDialogueInfoFlags]. SetDialogueInfoFlags `info flags` writes
-        // all 16 bits [documented]: read back here (the dialogue's own rules read the
-        // record, ext-itr.md §2 follow-up).
+        // all 16 bits [documented] for the session (`crate::dialogue_edits`): the dialogue's
+        // Say Once, Goodbye and Random rules read them too (ext-sup2.md §1).
         "getdialogueinfoflags" => XVal::Num(form(args, 0).and_then(|i| g.info_flags(i)).map_or(0.0, f64::from)),
         "setdialogueinfoflags" => {
             let Some(i) = form(args, 0).filter(|i| g.data.infos.contains_key(i)) else { return Some(Ok(zero)) };
-            g.other.itr.info_flags.insert(i, (num(args, 1, 0.0) as i64 as u32 & 0xFFFF) as u16);
+            g.set_info_flags(i, (num(args, 1, 0.0) as i64 as u32 & 0xFFFF) as u16);
             one
         }
         // ---- the radio ----
@@ -757,16 +800,24 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             g.other.itr.tile_watches.retain(|w| i64::from(w.id) != id);
             yes(g.other.itr.tile_watches.len() < before)
         }
-        // `tile texture`: the alpha map for the tile's renderer; 1 when the tile is there
-        // [documented: SetUIAlphaMap]. The texture is not loaded here: the engine's
-        // (follow-up).
+        // `tile texture`: the alpha map for the tile's renderer; 1 on success, 0 when the
+        // tile is not found or the texture fails to load [documented: SetUIAlphaMap]. The
+        // texture is not decoded here: the engine's tile renderer reads it when it draws
+        // the tile (`nvf-play`'s `tiles::texmod`), so a texture not in the data (loose or
+        // in an archive, under `Data\Textures\`) is the failure this side sees
+        // [hypothesis: existence as the test for "texture load failure"; a file there that
+        // does not decode is refused by the renderer only, said in its log]. While the host
+        // gives no answer for the archives (no Data open, or a game made without the
+        // engine) the file is taken as there [decision]. A refused call leaves the tile as
+        // it was [hypothesis].
         "setuialphamap" => {
             let path = text(args, 0);
             let tex = text(args, 1);
-            if tex.is_empty() || g.ui_tree.find_tile(&path).is_none() {
+            let Some(t) = g.ui_tree.find_tile(&path).filter(|_| !tex.trim().is_empty()) else { return Some(Ok(zero)) };
+            if crate::mod_files::knows_archives() && !crate::mod_files::exists(&alpha_map_path(&tex)) {
                 return Some(Ok(zero));
             }
-            g.other.itr.alpha_maps.insert(path, tex);
+            g.other.itr.alpha_maps.insert(t, tex);
             one
         }
         // `tile x y`: wrapped into 0-1; image and radial tiles only [documented:
@@ -782,7 +833,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
             if !matches!(g.ui_tree.tile(t).kind.as_str(), "image" | "radial") {
                 return Some(Ok(zero));
             }
-            g.other.itr.tex_offsets.insert(path, (x.rem_euclid(1.0), y.rem_euclid(1.0)));
+            g.other.itr.tex_offsets.insert(t, (wrap(x), wrap(y)));
             one
         }
         // ---- item mods ----

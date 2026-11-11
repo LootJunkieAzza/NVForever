@@ -276,6 +276,11 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 let new = if num(args, 2, 0.0) != 0.0 { now | (1 << bit) } else { now & !(1 << bit) };
                 g.field_overrides.insert((t, format!("{sub}/{path}")), XVal::Num(new as f64));
                 zero
+            } else if sub == "DNAM" && !g.field_overrides.contains_key(&(t, "DNAM/".to_string())) && landscape_texture_set(g, t) {
+                // A texture set a landscape texture names (LTEX TNAM) reads 1 whatever its
+                // DNAM [observed: jip-records-5.md, flag 0; #2039]; one the scripts set reads
+                // as set [decision: whether SetTextureSetFlag can clear it was not probed].
+                yes(true)
             } else {
                 yes(now & (1 << bit) != 0)
             }
@@ -310,4 +315,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
     };
     let _ = (ctx, subject);
     Some(Ok(v))
+}
+
+/// Whether some landscape texture names the texture set as its texture (LTEX TNAM).
+fn landscape_texture_set(g: &Game, t: FormId) -> bool {
+    g.data.sigs.iter().any(|(&l, s)| s == b"LTEX" && matches!(crate::nvse::record_value(g, l, "TNAM", ""), Some(XVal::Ref(r)) if r == t.0))
 }

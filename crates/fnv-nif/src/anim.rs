@@ -352,6 +352,10 @@ pub struct TransformTrack {
     /// Euler XYZ rotation keys (radians), used instead of `rotation` when present.
     pub euler: Option<[Keys<1>; 3]>,
     pub scale: Channel<1>,
+    /// The turn one cycle of a `BSRotAccumTransfInterpolator` adds to the next (w, x, y,
+    /// z): its last rotation key relative to its first, `conj(first) · last`; `None` for
+    /// every other interpolator. See [`TransformTrack::rotation_after`].
+    pub per_cycle: Option<[f32; 4]>,
 }
 
 impl TransformTrack {
@@ -368,6 +372,53 @@ impl TransformTrack {
         };
         Some(normalize(q)).filter(finite)
     }
+
+    /// Rotation at `t` after `cycles` whole cycles of a looping clip: for a track with a
+    /// [`Self::per_cycle`] turn, the keyed rotation followed by that turn `cycles` times,
+    /// so each loop goes on from where the last one ended instead of jumping back to the
+    /// first key (a wheel that keeps rolling); for any other track [`Self::rotation_at`].
+    ///
+    /// [documented: nif.xml `BSRotAccumTransfInterpolator`, an NiTransformInterpolator
+    /// with no fields of its own; observed: the Securitron's `locomotion\mtforward.kf`
+    /// keys `Bip01 Wheel` as its first key times a turn about the node's own X axis,
+    /// 661° over the 2.67 s cycle, so its last key is 59° on from its first
+    /// (docs/spec-notes/animation.md §9.12); hypothesis: the rotation adds up from cycle
+    /// to cycle, from the name and from the keys, which end where a further cycle would
+    /// go on from without a seam.]
+    pub fn rotation_after(&self, t: f32, cycles: i64) -> Option<[f32; 4]> {
+        let q = self.rotation_at(t)?;
+        match self.per_cycle {
+            Some(d) if cycles != 0 => Some(normalize(quat_mul(q, quat_pow(d, cycles)))).filter(finite),
+            _ => Some(q),
+        }
+    }
+}
+
+/// Hamilton product `a · b` of quaternions (w, x, y, z).
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    let [aw, ax, ay, az] = a;
+    let [bw, bx, by, bz] = b;
+    [
+        aw * bw - ax * bx - ay * by - az * bz,
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+    ]
+}
+
+/// The unit quaternion `d` (w, x, y, z) taken `n` times: the same axis, `n` times the
+/// angle. The angle is worked in f64 and brought into one turn of the half angle, so a
+/// clip looping for years of play (the wheel's 2.67 s cycle, 2^31 cycles in 180 years)
+/// still turns by the right amount.
+fn quat_pow(d: [f32; 4], n: i64) -> [f32; 4] {
+    let [w, x, y, z] = d.map(f64::from);
+    let s = (x * x + y * y + z * z).sqrt();
+    if s == 0.0 {
+        return [1.0, 0.0, 0.0, 0.0];
+    }
+    let half = (s.atan2(w) * n as f64).rem_euclid(std::f64::consts::TAU);
+    let (sn, cs) = half.sin_cos();
+    [cs as f32, (x / s * sn) as f32, (y / s * sn) as f32, (z / s * sn) as f32]
 }
 
 /// `q` at unit length; the identity for a zero or overflowing one. Divided by its largest
@@ -441,6 +492,9 @@ pub fn euler_xyz_to_quat(a: [f32; 3]) -> [f32; 4] {
 }
 
 /// What a controlled block drives.
+// A track is read once when its sequence loads and its transform is then shared behind an
+// `Arc` (`anim_play::Clip`), so the size of the transform variant costs nothing per frame.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum TrackData {
     Transform(TransformTrack),
@@ -656,17 +710,43 @@ fn bspline_channel(
     Some(BSplineChannel { dim, points })
 }
 
+/// The turn a cycle of `track`'s rotation keys makes, `conj(first) · last`, for
+/// [`TransformTrack::per_cycle`]; `None` without at least two keys or for a turn that is
+/// not a finite number.
+fn per_cycle_turn(track: &TransformTrack) -> Option<[f32; 4]> {
+    let (from, to) = match (&track.euler, &track.rotation) {
+        (Some(e), _) => {
+            let times = e.iter().flat_map(|k| k.keys.iter().map(|x| x.time));
+            (times.clone().fold(f32::INFINITY, f32::min), times.fold(f32::NEG_INFINITY, f32::max))
+        }
+        (None, Channel::Keys(k)) => (k.keys.first()?.time, k.keys.last()?.time),
+        _ => return None,
+    };
+    // Keys over no time (or at no finite time) make no cycle.
+    if to.partial_cmp(&from) != Some(std::cmp::Ordering::Greater) {
+        return None;
+    }
+    let [w, x, y, z] = track.rotation_at(from)?;
+    Some(normalize(quat_mul([w, -x, -y, -z], track.rotation_at(to)?))).filter(finite)
+}
+
 /// Build the transform track for an interpolator block, if it is a transform type.
 pub fn transform_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<TransformTrack> {
     let it = dec.get(idx)?;
     let (t0, r0, s0) = quat_transform(it.strukt("transform"));
     match type_name {
-        "NiTransformInterpolator" => {
+        // A `BSRotAccumTransfInterpolator` is an NiTransformInterpolator with no fields of
+        // its own [documented: schemas/nif/anim.json, nif.xml], read as one, whose rotation
+        // adds up from cycle to cycle ([`TransformTrack::rotation_after`]): the
+        // Securitron's wheel in its walk, the first-person saw blade's spin
+        // (docs/spec-notes/animation.md §9.12).
+        "NiTransformInterpolator" | "BSRotAccumTransfInterpolator" => {
             let mut track = TransformTrack {
                 translation: Channel::Static(t0),
                 rotation: Channel::Static(r0),
                 euler: None,
                 scale: Channel::Static(s0),
+                per_cycle: None,
             };
             if let Some(data) = it.block_ref("data").and_then(|d| dec.get(d)) {
                 if let Some(g) = data.strukt("translations").and_then(Keys::<3>::from_group).filter(|k| !k.is_empty()) {
@@ -701,6 +781,9 @@ pub fn transform_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<Trans
                     None => {}
                 }
             }
+            if type_name == "BSRotAccumTransfInterpolator" {
+                track.per_cycle = per_cycle_turn(&track);
+            }
             Some(track)
         }
         // A node aimed at another (a camera at its target): its place comes from its
@@ -714,7 +797,7 @@ pub fn transform_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<Trans
                 Some(ValueTrack::Point3(c)) => c,
                 _ => Channel::Static(t0),
             };
-            Some(TransformTrack { translation, rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) })
+            Some(TransformTrack { translation, rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None })
         }
         // A node moved along a curve: the dust devils' and drifting dust's movers
         // (docs/spec-notes/particles.md §6.8). Its rotation and scale are the node's own.
@@ -728,6 +811,7 @@ pub fn transform_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<Trans
                 rotation: Channel::Static(None),
                 euler: None,
                 scale: Channel::Static(None),
+                per_cycle: None,
             })
         }
         "NiBSplineCompTransformInterpolator" | "NiBSplineTransformInterpolator" => {
@@ -751,6 +835,7 @@ pub fn transform_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<Trans
                     Some(spline) => Channel::BSpline { start, stop, spline },
                     None => Channel::Static(s0),
                 },
+                per_cycle: None,
             })
         }
         _ => None,
@@ -899,7 +984,7 @@ mod tests {
     }
 
     fn track(rotation: Channel<4>) -> TransformTrack {
-        TransformTrack { translation: Channel::Static(None), rotation, euler: None, scale: Channel::Static(None) }
+        TransformTrack { translation: Channel::Static(None), rotation, euler: None, scale: Channel::Static(None), per_cycle: None }
     }
 
     #[test]
@@ -1000,6 +1085,67 @@ mod tests {
 
     fn key<const N: usize>(time: f32, value: [f32; N]) -> Key<N> {
         Key { time, value, forward: [0.0; N], backward: [0.0; N], tbc: [0.0; 3] }
+    }
+
+    /// The turn of `deg` degrees about the unit axis `a`, (w, x, y, z).
+    fn turn(a: [f32; 3], deg: f32) -> [f32; 4] {
+        let (s, c) = (deg.to_radians() / 2.0).sin_cos();
+        [c, a[0] * s, a[1] * s, a[2] * s]
+    }
+
+    /// Whether two quaternions give the same rotation (q and -q do).
+    fn same_turn(a: [f32; 4], b: [f32; 4]) -> bool {
+        a.iter().zip(&b).map(|(x, y)| x * y).sum::<f32>().abs() > 1.0 - 1e-5
+    }
+
+    /// A wheel's track as the Securitron's walk keys it: a slight fixed tilt, then a turn
+    /// about the node's own X axis, 661° backwards over 81 keys in 2.67 s (its last key
+    /// 59° on from the first).
+    fn wheel() -> TransformTrack {
+        let tilt = turn([0.0, 1.0, 0.0], 1.0);
+        let keys = (0..=80).map(|k| key(k as f32 / 30.0, quat_mul(tilt, turn([1.0, 0.0, 0.0], -661.0 * k as f32 / 80.0)))).collect();
+        let mut t = track(Channel::Keys(Keys { kind: KeyKind::Linear, keys }));
+        t.per_cycle = per_cycle_turn(&t);
+        t
+    }
+
+    #[test]
+    fn an_accumulating_rotation_goes_on_from_where_the_last_cycle_ended() {
+        let w = wheel();
+        let (start, stop) = (0.0, 80.0 / 30.0);
+        // One cycle's turn: the last key relative to the first, about X.
+        assert!(same_turn(w.per_cycle.unwrap(), turn([1.0, 0.0, 0.0], -661.0)));
+        // No seam: the end of cycle n is the start of cycle n + 1, either way round.
+        for n in [-2, 0, 1, 7] {
+            assert!(same_turn(w.rotation_after(stop, n).unwrap(), w.rotation_after(start, n + 1).unwrap()), "cycle {n}");
+        }
+        // Three cycles on, the wheel has turned three cycles' worth more.
+        let t = 1.0;
+        let tilt = turn([0.0, 1.0, 0.0], 1.0);
+        let expect = quat_mul(tilt, turn([1.0, 0.0, 0.0], -661.0 * (t * 30.0 / 80.0) - 3.0 * 661.0));
+        assert!(same_turn(w.rotation_after(t, 3).unwrap(), expect));
+        // Cycle 0, and every other track, is the keyed rotation.
+        assert_eq!(w.rotation_after(t, 0), w.rotation_at(t));
+        let plain = TransformTrack { per_cycle: None, ..wheel() };
+        assert_eq!(plain.rotation_after(t, 5), plain.rotation_at(t));
+        // A wheel left rolling for days still turns by a finite, whole amount.
+        assert!(w.rotation_after(t, 1 << 40).is_some_and(|q| finite(&q)));
+        assert!(same_turn(quat_pow(turn([0.0, 0.0, 1.0], 90.0), 4), [1.0, 0.0, 0.0, 0.0]));
+        // Many cycles on (a wheel rolling for a month), the right turn, not only a finite one.
+        assert!(same_turn(quat_pow(turn([0.0, 0.0, 1.0], 90.0), 4_000_001), turn([0.0, 0.0, 1.0], 90.0)));
+        // A tiny turn adds up too.
+        assert!(same_turn(quat_pow(turn([1.0, 0.0, 0.0], 1e-4), 100_000), turn([1.0, 0.0, 0.0], 10.0)));
+        assert!(same_turn(quat_pow(turn([0.0, 0.0, 1.0], 90.0), -1), turn([0.0, 0.0, 1.0], -90.0)));
+    }
+
+    #[test]
+    fn a_turn_per_cycle_needs_two_keys() {
+        let one = track(Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [1.0, 0.0, 0.0, 0.0])] }));
+        assert_eq!(per_cycle_turn(&one), None);
+        assert_eq!(per_cycle_turn(&track(Channel::Static(Some([1.0, 0.0, 0.0, 0.0])))), None);
+        // A NaN key (which `rotation_at` reads as no turn) never gives a NaN turn.
+        let nan = track(Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, [1.0, 0.0, 0.0, 0.0]), key(1.0, [f32::NAN; 4])] }));
+        assert!(per_cycle_turn(&nan).is_none_or(|q| finite(&q)));
     }
 
     #[test]

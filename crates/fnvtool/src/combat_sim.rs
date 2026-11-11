@@ -212,9 +212,9 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
             for e in p.step(&world, dt) {
                 match e {
                     ProjEvent::Hit { actor, point, delay, .. } => pending.push((time + delay, actor, point)),
-                    ProjEvent::Explode { explosion, point } => {
+                    ProjEvent::Explode { explosion, point, normal } => {
                         if let Some(x) = c.explosions.get(&explosion) {
-                            for b in blast(&world, &t, x, point) {
+                            for b in blast(&world, &t, x, point, normal) {
                                 let d = (b.damage - f.dt).max(b.damage * t.dt_floor);
                                 health -= d;
                                 dealt += d;

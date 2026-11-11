@@ -2,7 +2,7 @@
 //! projectiles, on hand-made stats and a toy world. The expected numbers follow from the
 //! documented formulas and our CombatTuning defaults.
 
-use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
+use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Phase, RoundReload, Timing};
 use fnv_combat::damage::{self, Attacker, HitInput, HitPart, NoPerks, Target};
 use fnv_combat::data::{AmmoEffect, ExplosionStats, ProjectileStats, WeaponStats};
 use fnv_combat::melee::NextAttack;
@@ -222,6 +222,36 @@ fn knockdown_knockback_explosion_falloff() {
     assert!(close(damage::explosion_damage(&t, 100.0, 400.0, 200.0), 62.5));
     assert!(close(damage::explosion_damage(&t, 100.0, 400.0, 400.0), 25.0));
     assert_eq!(damage::explosion_damage(&t, 100.0, 400.0, 401.0), 0.0);
+}
+
+fn ops(point: u8, op: damage::PerkOp) -> damage::EntryOps {
+    damage::EntryOps(vec![(point, op, "Perk".into())])
+}
+
+#[test]
+fn a_blast_passes_the_damage_and_dt_entry_points() {
+    use damage::entry::{CALCULATE_WEAPON_DAMAGE, MODIFY_DAMAGE_THRESHOLD_ATTACKER, MODIFY_DAMAGE_THRESHOLD_DEFENDER};
+    use damage::PerkOp::{Add, Mul, Set};
+    let (r, t) = (Rules::defaults(), CombatTuning::default());
+    let blast = |dt, dr, a: &dyn damage::PerkHooks, d: &dyn damage::PerkHooks| damage::blast_hit(&r, &t, 100.0, dt, dr, a, d);
+    let demolition = ops(CALCULATE_WEAPON_DAMAGE, Mul(1.2));
+    let deck = ops(MODIFY_DAMAGE_THRESHOLD_DEFENDER, Add(25.0));
+    // Without perks: DT off the damage, then DR.
+    let plain = blast(10.0, 20.0, &NoPerks, &NoPerks);
+    assert!(close(plain.modified, 100.0) && close(plain.dt, 10.0) && close(plain.dealt, 72.0), "{plain:?}");
+    assert!(close(blast(0.0, 0.0, &NoPerks, &NoPerks).dealt, 100.0));
+    // The damage perk comes before the defender's DT: 100 x 1.2 - 25.
+    let both = blast(0.0, 0.0, &demolition, &deck);
+    assert!(close(both.base, 100.0) && close(both.modified, 120.0) && close(both.dt, 25.0) && close(both.dealt, 95.0), "{both:?}");
+    // The attacker's entry takes DT off, never below 0.
+    let surgeon = ops(MODIFY_DAMAGE_THRESHOLD_ATTACKER, Set(10.0));
+    assert!(close(blast(25.0, 0.0, &surgeon, &NoPerks).dealt, 85.0));
+    assert!(close(blast(4.0, 0.0, &surgeon, &NoPerks).dt, 0.0));
+    // The DT floor holds with a perk's DT; DR scales what is left, under its cap.
+    let floor = blast(0.0, 0.0, &NoPerks, &ops(MODIFY_DAMAGE_THRESHOLD_DEFENDER, Add(500.0)));
+    assert!(close(floor.dealt, 100.0 * t.dt_floor), "{floor:?}");
+    let capped = blast(0.0, 500.0, &NoPerks, &NoPerks);
+    assert!(close(capped.dr, r.max_armor_rating) && close(capped.dealt, 100.0 * (1.0 - r.max_armor_rating / 100.0)), "{capped:?}");
 }
 
 #[test]
@@ -590,6 +620,196 @@ fn a_spinning_weapon_fires_after_its_spin_up() {
     assert_eq!(shots(&run(&mut c, &t, 2, dt, |_| true, 0)), 1, "at once");
 }
 
+/// The cycle fed as the engine feeds the player's: `total` rounds in the inventory, the
+/// magazine's among them, and a shot takes its rounds from there.
+fn run_carrying(c: &mut Cycle, t: &CombatTuning, ticks: usize, dt: f32, trigger: impl Fn(usize) -> bool, total: &mut u32) -> Vec<Event> {
+    let mut ev = Vec::new();
+    for k in 0..ticks {
+        let e = c.step(t, Input { trigger: trigger(k), reload: false, dt, carried: total.saturating_sub(c.magazine) });
+        for x in &e {
+            if let Event::Fired { rounds } = x {
+                *total -= rounds;
+            }
+        }
+        ev.extend(e);
+    }
+    ev
+}
+
+/// An Ammo Swap or a script's RemoveItem during the spin-up (#1613, 196 shots from ten
+/// rounds): the shot it was spinning up for does not leave.
+#[test]
+fn a_magazine_emptied_in_the_spin_up_fires_nothing() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { automatic: true, fire_rate: 20.0, clip_size: 240, ..gun(10) };
+    let timing = Timing::of(&w, &ClipTiming { spin_up: Some(0.967), ..Default::default() }, &t);
+    let dt = 1.0 / 60.0;
+    let spinning = || {
+        let mut c = Cycle::new(&w, timing, false, 5);
+        assert_eq!(c.step(&t, Input { trigger: true, reload: false, dt, carried: 0 }), vec![Event::SpinUp]);
+        c.magazine = 0;
+        c
+    };
+
+    // Five of the other type carried, trigger held: a reload, a new spin-up, those five
+    // and then silence (one click per pull, and this pull was answered by the reload).
+    let mut c = spinning();
+    let mut total = 5;
+    let ev = run_carrying(&mut c, &t, 1200, dt, |_| true, &mut total);
+    assert_eq!(ev[..3], [Event::ReloadStarted, Event::Reloaded { taken: 5 }, Event::SpinUp], "{ev:?}");
+    assert_eq!(shots(&ev), 5, "{ev:?}");
+    assert!(!ev.contains(&Event::DryFire), "{ev:?}");
+    assert_eq!((c.magazine, total), (0, 0));
+    // Let go and pulled again: the click.
+    assert_eq!(run_carrying(&mut c, &t, 10, dt, |k| k >= 5, &mut total), vec![Event::DryFire]);
+
+    // Nothing carried: the pull ends in its one click, whenever the spin-up is over.
+    let mut c = spinning();
+    let mut total = 0;
+    assert_eq!(run_carrying(&mut c, &t, 300, dt, |_| true, &mut total), vec![Event::DryFire]);
+
+    // An Ammo Swap: the reload starts at the next step, not when the spin-up is over.
+    let mut c = spinning();
+    c.swap_ammo();
+    assert_eq!(c.step(&t, Input { trigger: true, reload: false, dt, carried: 5 }), vec![Event::ReloadStarted]);
+}
+
+/// Ammo Swap between shots: the reload comes without another pull, and the next shot no
+/// sooner than the weapon's rate allows, even when the reload is shorter than the wait.
+#[test]
+fn a_swap_between_shots_reloads_when_the_wait_ends() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 12, ..gun(20) };
+    let timing = Timing { interval: 3.0, fire_delay: 0.0, reload: 1.0, spin_up: 0.0, rounds: None, attach: None };
+    let dt = 0.05;
+    let mut c = Cycle::new(&w, timing, false, 5);
+    assert_eq!(run(&mut c, &t, 2, dt, |k| k == 0, 0), vec![Event::Fired { rounds: 1 }]);
+    assert!(matches!(c.phase, Phase::Cooldown { .. }));
+    c.swap_ammo();
+    // Still waiting 2.8 s on: 2.9 s of the 3 s since the shot.
+    assert!(run(&mut c, &t, 56, dt, |_| false, 5).is_empty());
+    assert_eq!(c.magazine, 0);
+    // The wait ends and the reload follows, the trigger untouched.
+    assert_eq!(run(&mut c, &t, 6, dt, |_| false, 5), vec![Event::ReloadStarted]);
+    assert_eq!(run(&mut c, &t, 24, dt, |_| false, 5), vec![Event::Reloaded { taken: 5 }]);
+    assert_eq!(c.magazine, 5);
+    assert_eq!(shots(&run(&mut c, &t, 2, dt, |k| k == 0, 0)), 1);
+
+    // An automatic weapon held through it reloads and does not click.
+    let w = WeaponStats { automatic: true, fire_rate: 2.0, clip_size: 12, ..gun(20) };
+    let mut c = Cycle::new(&w, Timing::of(&w, &ClipTiming::default(), &t), false, 5);
+    assert_eq!(c.step(&t, Input { trigger: true, reload: false, dt, carried: 0 }), vec![Event::Fired { rounds: 1 }]);
+    c.swap_ammo();
+    let ev = run(&mut c, &t, 20, dt, |_| true, 5);
+    assert_eq!(ev, vec![Event::ReloadStarted], "{ev:?}");
+
+    // Nothing to reload into: the wish is dropped and does not fire off later.
+    let w = WeaponStats { clip_size: 12, ..gun(20) };
+    let mut c = Cycle::new(&w, timing, false, 5);
+    assert_eq!(run(&mut c, &t, 2, dt, |k| k == 0, 0), vec![Event::Fired { rounds: 1 }]);
+    c.swap_ammo();
+    assert!(run(&mut c, &t, 70, dt, |_| false, 0).is_empty());
+    assert!(run(&mut c, &t, 10, dt, |_| false, 5).is_empty());
+}
+
+/// Ammo Swap during a reload: it goes on, into the new ammo, on its own clock; while the
+/// weapon closes or is jammed the magazine stays empty until the next pull.
+#[test]
+fn a_swap_leaves_a_reload_and_a_jam_as_they_are() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 12, ..gun(20) };
+    let timing = Timing { interval: 0.5, fire_delay: 0.0, reload: 1.0, spin_up: 0.0, rounds: None, attach: None };
+    let dt = 0.05;
+    let reload = Input { trigger: false, reload: true, dt, carried: 5 };
+
+    // The whole magazine: the time left stands, and the new ammo goes in.
+    let mut c = Cycle::new(&w, timing, false, 4);
+    assert_eq!(c.step(&t, reload), vec![Event::ReloadStarted]);
+    assert!(run(&mut c, &t, 10, dt, |_| false, 5).is_empty());
+    c.swap_ammo();
+    let ev = run(&mut c, &t, 12, dt, |_| false, 5);
+    assert_eq!(ev, vec![Event::Reloaded { taken: 5 }], "{ev:?}");
+    assert_eq!(c.magazine, 5);
+
+    // Round by round, in the closing: nothing more goes in, and the next pull reloads.
+    let rounds = Timing { rounds: Some(RoundReload { open: 0.1, round: 0.1, close: 0.5 }), ..timing };
+    let mut c = Cycle::new(&w, rounds, false, 11);
+    assert_eq!(c.step(&t, reload), vec![Event::ReloadStarted]);
+    let mut closing = run(&mut c, &t, 6, dt, |_| false, 5);
+    closing.retain(|e| matches!(e, Event::ReloadClosing { .. }));
+    assert_eq!(closing.len(), 1);
+    c.swap_ammo();
+    assert_eq!(c.magazine, 0);
+    let ev = run(&mut c, &t, 12, dt, |_| false, 5);
+    assert!(ev.iter().any(|e| matches!(e, Event::Reloaded { .. })), "{ev:?}");
+    assert_eq!(c.magazine, 0);
+    assert_eq!(c.step(&t, Input { trigger: true, reload: false, dt, carried: 5 }), vec![Event::ReloadStarted]);
+
+    // Jammed: cleared with no reload, then the next pull reloads.
+    let mut c = Cycle::new(&w, timing, false, 5);
+    c.jam(0.2);
+    c.swap_ammo();
+    assert_eq!(run(&mut c, &t, 8, dt, |_| false, 5), vec![Event::Cleared]);
+    assert_eq!(c.step(&t, Input { trigger: true, reload: false, dt, carried: 5 }), vec![Event::ReloadStarted]);
+}
+
+/// A gun whose shot waits for the attack clip's `Hit` key, emptied in that wait.
+#[test]
+fn a_magazine_emptied_in_the_wind_up_fires_nothing() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 12, ..gun(20) };
+    let timing = Timing { interval: 0.5, fire_delay: 0.2, reload: 1.0, spin_up: 0.0, rounds: None, attach: None };
+    let dt = 0.05;
+    let winding = |w: &WeaponStats, magazine: u32| {
+        let mut c = Cycle::new(w, timing, false, 5);
+        assert!(c.step(&t, Input { trigger: true, reload: false, dt, carried: 0 }).is_empty());
+        assert!(matches!(c.phase, Phase::WindUp { .. }));
+        c.magazine = magazine;
+        c
+    };
+
+    // Nothing carried, the trigger let go in the wait: still that pull's click.
+    let mut c = winding(&w, 0);
+    assert_eq!(run(&mut c, &t, 10, dt, |_| false, 0), vec![Event::DryFire]);
+    assert_eq!(c.magazine, 0);
+    // Rounds carried: the reload an empty pull starts.
+    let mut c = winding(&w, 0);
+    let ev = run(&mut c, &t, 10, dt, |_| false, 5);
+    assert_eq!(ev[0], Event::ReloadStarted, "{ev:?}");
+    assert_eq!(shots(&ev), 0, "{ev:?}");
+    // Fewer rounds left than a shot uses: no shot and nothing wraps.
+    let two = WeaponStats { ammo_use: 2, ..w.clone() };
+    let mut c = winding(&two, 1);
+    assert_eq!(run(&mut c, &t, 10, dt, |_| false, 0), vec![Event::DryFire]);
+    assert_eq!(c.magazine, 1);
+}
+
+/// The fourth shot of a "Regenerate Ammo (shots)" mod takes no round, so an empty magazine
+/// does not stop it once it is on its way.
+#[test]
+fn a_free_shot_leaves_from_an_emptied_magazine() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { free_fourth_shot: true, clip_size: 12, ..gun(20) };
+    let timing = Timing { interval: 0.5, fire_delay: 0.2, reload: 1.0, spin_up: 0.0, rounds: None, attach: None };
+    let mut c = Cycle::new(&w, timing, false, 4);
+    assert_eq!(shots(&run(&mut c, &t, 36, 0.05, |k| k % 12 == 0, 0)), 3);
+    assert_eq!(c.magazine, 1);
+    assert!(c.step(&t, Input { trigger: true, reload: false, dt: 0.05, carried: 0 }).is_empty());
+    c.magazine = 0;
+    assert_eq!(run(&mut c, &t, 8, 0.05, |_| false, 0), vec![Event::Fired { rounds: 0 }]);
+    assert_eq!(c.magazine, 0);
+    // A shot that did not leave is not counted towards the next free one.
+    let mut c = Cycle::new(&w, timing, false, 4);
+    assert_eq!(shots(&run(&mut c, &t, 24, 0.05, |k| k % 12 == 0, 0)), 2);
+    assert!(c.step(&t, Input { trigger: true, reload: false, dt: 0.05, carried: 0 }).is_empty());
+    c.magazine = 0;
+    assert_eq!(run(&mut c, &t, 8, 0.05, |_| false, 0), vec![Event::DryFire]);
+    c.magazine = 4;
+    let ev = run(&mut c, &t, 24, 0.05, |k| k % 12 == 0, 0);
+    let rounds: Vec<u32> = ev.iter().filter_map(|e| if let Event::Fired { rounds } = e { Some(*rounds) } else { None }).collect();
+    assert_eq!(rounds, vec![1, 0], "shots 3 and 4: {ev:?}");
+}
+
 /// The .357 revolver's clips (`1hpreloadxstart.kf` 1.067 s; `1hpreloadx.kf` 1.767 s,
 /// `Hit` at 0.633 s): it opens, loads a round per pass up to `Hit`, and closes.
 #[test]
@@ -795,13 +1015,13 @@ fn a_blast_catches_a_big_creature_by_its_body() {
     let t = CombatTuning::default();
     let e = ExplosionStats { damage: 100.0, radius: 150.0, force: 300.0, ..ExplosionStats::default() };
     let world = |parts, wall| Scorpion { body: Toy { actors: vec![(7, [120.0, 0.0, 40.0], 60.0)], fence: false, wall }, centre: [120.0, 0.0, 200.0], parts };
-    let b = blast(&world(true, None), &t, &e, [40.0, 0.0, 0.0]);
+    let b = blast(&world(true, None), &t, &e, [40.0, 0.0, 0.0], None);
     assert_eq!(b.len(), 1);
     assert!(b[0].damage > 50.0, "{b:?}");
-    let edge = blast(&world(false, None), &t, &e, [40.0, 0.0, 0.0]);
+    let edge = blast(&world(false, None), &t, &e, [40.0, 0.0, 0.0], None);
     assert_eq!(edge.len(), 1);
     assert!(close(edge[0].damage, 25.0), "{edge:?}");
-    assert!(blast(&world(true, Some(80.0)), &t, &e, [40.0, 0.0, 0.0]).is_empty());
+    assert!(blast(&world(true, Some(80.0)), &t, &e, [40.0, 0.0, 0.0], None).is_empty());
 }
 
 /// A blast on the floor, the centre of an actor's bounds a little below the floor's
@@ -812,8 +1032,124 @@ fn a_blast_on_the_ground_sees_a_body_its_centre_sunk_in_it() {
     let t = CombatTuning::default();
     let e = ExplosionStats { damage: 100.0, radius: 300.0, force: 300.0, ..ExplosionStats::default() };
     let world = |parts| Scorpion { body: Toy { actors: vec![(7, [100.0, 0.0, 20.0], 20.0)], fence: false, wall: None }, centre: [100.0, 0.0, -5.0], parts };
-    assert!(blast(&world(false), &t, &e, [0.0, 0.0, 0.0]).is_empty());
-    assert_eq!(blast(&world(true), &t, &e, [0.0, 0.0, 0.0]).len(), 1);
+    assert!(blast(&world(false), &t, &e, [0.0, 0.0, 0.0], None).is_empty());
+    assert_eq!(blast(&world(true), &t, &e, [0.0, 0.0, 0.0], None).len(), 1);
+}
+
+/// Synthetic solid half-spaces: a ray starting on or inside one reports a hit at
+/// distance zero, including rays travelling out of the ground [design: #1581 fixture].
+#[derive(Clone)]
+struct BlastSurfaces {
+    planes: Vec<(V3, f32)>,
+    actor: V3,
+    impact_depth: f32,
+}
+
+impl CombatWorld for BlastSurfaces {
+    fn ray(&self, from: V3, to: V3, _ignore: &[ActorId]) -> Option<WorldHit> {
+        self.planes.iter().filter_map(|&(normal, offset)| {
+            let start = vec::dot(from, normal) - offset;
+            let end = vec::dot(to, normal) - offset;
+            let share = if start <= 0.0 { 0.0 } else if end <= 0.0 { start / (start - end) } else { return None };
+            let step = vec::sub(to, from);
+            let point = vec::sub(vec::add(from, vec::scale(step, share)), vec::scale(normal, self.impact_depth));
+            Some(WorldHit { point, normal, distance: vec::len(step) * share, actor: None, part: None, object: None, small_transparent: false, material: None })
+        }).min_by(|a, b| a.distance.total_cmp(&b.distance))
+    }
+
+    fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
+        if vec::len(vec::sub(self.actor, point)) <= radius { vec![(7, self.actor)] } else { vec![] }
+    }
+}
+
+fn surface_blast() -> ExplosionStats {
+    ExplosionStats { damage: 100.0, radius: 300.0, force: 300.0, ..ExplosionStats::default() }
+}
+
+#[test]
+fn impact_blasts_clear_ground_slope_wall_and_ceiling_contacts() {
+    let t = CombatTuning::default();
+    let e = surface_blast();
+    for (normal, actor) in [
+        ([0.0, 0.0, 1.0], [30.0, 0.0, 20.0]),
+        ([-0.6, 0.0, 0.8], [30.0, 0.0, 60.0]),
+        ([-1.0, 0.0, 0.0], [-30.0, 0.0, 20.0]),
+        ([0.0, 0.0, -1.0], [30.0, 0.0, -20.0]),
+    ] {
+        let world = BlastSurfaces { planes: vec![(normal, 0.0)], actor, impact_depth: 0.0 };
+        for depth in [-0.01, 0.0, 0.01] {
+            let center = vec::scale(normal, depth);
+            let lifted = vec::add(center, [0.0, 0.0, 16.0]);
+            if depth <= 0.0 {
+                assert!(world.cover_ray(center, lifted).is_some(), "the fixture must report the contacted solid");
+                assert!(blast(&world, &t, &e, center, None).is_empty(), "an uncleared origin is blocked");
+            }
+            // Normalize supplied normals so their magnitude cannot widen the clearance.
+            let hits = blast(&world, &t, &e, center, Some(vec::scale(normal, 3.0)));
+            assert_eq!(hits.len(), 1, "normal {normal:?}, depth {depth}: {hits:?}");
+            assert_eq!(hits[0].actor, 7);
+            assert!(hits[0].damage > 0.0);
+            let distance = vec::len(vec::sub(actor, center));
+            assert!(close(hits[0].distance, distance), "falloff uses the physical impact point");
+            assert!(close(hits[0].damage, damage::explosion_damage(&t, e.damage, e.radius, distance)));
+        }
+        assert!(blast(&world, &t, &e, vec::scale(normal, -0.6), Some(normal)).is_empty(), "clearance remains bounded");
+    }
+}
+
+#[test]
+fn cleared_blasts_keep_cover_ceiling_and_radius_checks() {
+    let t = CombatTuning::default();
+    let e = surface_blast();
+    let up = [0.0, 0.0, 1.0];
+    let ground = BlastSurfaces { planes: vec![(up, 0.0)], actor: [30.0, 0.0, 20.0], impact_depth: 0.0 };
+    let center = [0.0, 0.0, -0.01];
+    let cover = BlastSurfaces { planes: vec![(up, 0.0), ([-1.0, 0.0, 0.0], -15.0)], ..ground };
+    assert!(blast(&cover, &t, &e, center, Some(up)).is_empty(), "a wall still shields the actor");
+    let ignore = ExplosionStats { flags: vec!["Ignore LOS Check".into()], ..e.clone() };
+    assert_eq!(blast(&cover, &t, &ignore, center, Some(up)).len(), 1);
+    // The raised origin must not cross even a low ceiling, with or without contact data.
+    for normal in [None, Some(up)] {
+        let ceiling = BlastSurfaces { planes: vec![(up, 0.0), ([0.0, 0.0, -1.0], -8.0)], ..ground };
+        assert!(blast(&ceiling, &t, &e, [0.0, 0.0, 0.01], normal).is_empty());
+    }
+    let ceiling_contact = BlastSurfaces { planes: vec![([0.0, 0.0, -1.0], 0.0)], ..ground };
+    assert!(blast(&ceiling_contact, &t, &e, [0.0, 0.0, 0.01], Some([0.0, 0.0, -1.0])).is_empty(), "no visibility from above a contacted ceiling");
+    // Moving the LOS origin must neither admit an actor outside the physical radius
+    // nor change the edge damage for one exactly on it.
+    let at = [0.0, 0.0, 0.01];
+    let edge = BlastSurfaces { actor: [300.0, 0.0, 0.01], ..ground.clone() };
+    let hits = blast(&edge, &t, &e, at, Some(up));
+    assert_eq!(hits.len(), 1);
+    assert!(close(hits[0].damage, 25.0));
+    let outside = BlastSurfaces { actor: [300.01, 0.0, 0.01], ..edge };
+    assert!(blast(&outside, &t, &e, at, Some(up)).is_empty());
+    for invalid in [None, Some([0.0; 3]), Some([f32::NAN, 0.0, 1.0]), Some([0.0, f32::INFINITY, 1.0]), Some([f32::MAX; 3])] {
+        assert!(blast(&ground, &t, &e, center, invalid).is_empty(), "invalid normals leave the origin unchanged");
+    }
+}
+
+#[test]
+fn projectile_impact_normal_reaches_blast_visibility() {
+    let t = CombatTuning::default();
+    let world = BlastSurfaces { planes: vec![([0.0, 0.0, 1.0], 0.0)], actor: [30.0, 0.0, 20.0], impact_depth: 0.01 };
+    for flags in [vec!["Explosion"], vec!["Explosion", "Hitscan"]] {
+        let mut p = Projectile::spawn(&proj("Missile", &flags, 100.0, 0.0), Some(BOOM), [0.0, 0.0, 10.0], [0.0, 0.0, -1.0], Some(1), G, &t);
+        let events = p.step(&world, 0.2);
+        let (point, normal) = match events.as_slice() {
+            [ProjEvent::Hit { normal: hit_normal, .. }, ProjEvent::Explode { explosion, point, normal }] => {
+                assert_eq!(*explosion, BOOM);
+                assert_eq!(*normal, Some(*hit_normal));
+                (*point, *normal)
+            }
+            _ => panic!("{events:?}"),
+        };
+        assert_eq!(point, [0.0, 0.0, -0.01]);
+        assert!(blast(&world, &t, &surface_blast(), point, None).is_empty());
+        let hits = blast(&world, &t, &surface_blast(), point, normal);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].damage > 0.0);
+    }
 }
 
 fn proj(kind: &str, flags: &[&str], speed: f32, gravity: f32) -> ProjectileStats {
@@ -894,7 +1230,7 @@ fn lobbers_timer_proximity_detonation() {
     let mut g = Projectile::spawn(&timed, Some(BOOM), [0.0, 0.0, 100.0], [1.0, 0.0, 1.0], Some(1), G, &t);
     let ev = fly(&mut g, &empty, 2.9);
     assert!(ev.is_empty() && g.alive);
-    assert!(matches!(&fly(&mut g, &empty, 0.2)[..], [ProjEvent::Explode { .. }]));
+    assert!(matches!(&fly(&mut g, &empty, 0.2)[..], [ProjEvent::Explode { normal: None, .. }]));
     // Proximity mine: it does not trigger itself, even with an actor beside it; it comes
     // to rest and leaves flight, for the engine to place as a mine.
     let mine = ProjectileStats { alt_trigger_timer: 1.0, alt_trigger_proximity: 100.0, ..proj("Lobber", &["Explosion", "Alt. Trigger"], 0.0, 1.0) };
@@ -910,7 +1246,50 @@ fn lobbers_timer_proximity_detonation() {
     let c4 = proj("Lobber", &["Explosion", "Detonates"], 400.0, 1.0);
     let mut c = Projectile::spawn(&c4, Some(BOOM), [0.0, 0.0, 60.0], [1.0, 0.0, -0.5], Some(1), G, &t);
     assert!(fly(&mut c, &empty, 100.0).is_empty() && c.alive);
-    assert!(matches!(c.detonate(), Some(ProjEvent::Explode { .. })));
+    assert!(matches!(c.detonate(), Some(ProjEvent::Explode { normal: None, .. })));
+}
+
+/// A thrown grenade (a lobber with a fuse) rolls on after it lands, slowing, and goes off
+/// on its fuse; a launcher's round (a missile) goes off where it first lands; both record
+/// where and when they first touched (combat-rules.md §5, issues #1471, #1785).
+#[test]
+fn thrown_grenades_roll_launcher_rounds_do_not() {
+    let t = CombatTuning::default();
+    let floor = Toy { actors: vec![], fence: false, wall: None };
+    let frag = ProjectileStats { alt_trigger_timer: 2.5, ..proj("Lobber", &["Explosion", "Alt. Trigger"], 900.0, 1.0) };
+    let mut g = Projectile::spawn(&frag, Some(BOOM), [0.0, 0.0, 120.0], [1.0, 0.0, 0.0], Some(1), G, &t);
+    assert!(g.rolls);
+    let mut ev = fly(&mut g, &floor, 1.0);
+    let (point, at) = g.first_contact.expect("it landed");
+    // From 120 units up it lands after √(2 × 120 / g) s, at 900 units/s.
+    let fall = (2.0 * 120.0 / G).sqrt();
+    assert!((at - fall).abs() < 0.02 && (point[0] - 900.0 * fall).abs() < 15.0, "{point:?} {at}");
+    assert!(g.rolling && g.alive && g.pos[2] < 2.0, "rolls on the ground: {:?}", g.pos);
+    let rolled = g.pos[0];
+    assert!(rolled > point[0] + 200.0, "{rolled} {point:?}");
+    ev.extend(fly(&mut g, &floor, 2.0));
+    match &ev[..] {
+        [ProjEvent::Explode { point: at_end, .. }] => {
+            // Slowing as it rolls: short of where it would be at the speed it rolled off with.
+            let roll = at_end[0] - point[0];
+            let undamped = t.grenade_roll_keep * 900.0 * (2.5 - fall);
+            assert!(at_end[0] > rolled && roll > 0.5 * undamped && roll < 0.9 * undamped, "{at_end:?} {rolled} {point:?} {undamped}");
+            assert!(at_end[2] < 2.0, "{at_end:?}");
+        }
+        e => panic!("{e:?}"),
+    }
+    // The launcher's round: no roll, it goes off where it lands.
+    let round = proj("Missile", &["Explosion"], 1750.0, 1.5);
+    let mut r = Projectile::spawn(&round, Some(BOOM), [0.0, 0.0, 110.0], [1.0, 0.0, 0.0], Some(1), G, &t);
+    assert!(!r.rolls);
+    let ev = fly(&mut r, &floor, 2.0);
+    let (point, at) = r.first_contact.expect("it landed");
+    let fall = (2.0 * 110.0 / (1.5 * G)).sqrt();
+    assert!((at - fall).abs() < 0.02 && (point[0] - 1750.0 * fall).abs() < 20.0, "{point:?} {at}");
+    assert!(matches!(&ev[..], [ProjEvent::Hit { .. }, ProjEvent::Explode { point: p, .. }] if (p[0] - point[0]).abs() < 1e-3), "{ev:?}");
+    // A frag mine is no thrown grenade: it settles where it lands.
+    let mine = ProjectileStats { alt_trigger_timer: 1.0, alt_trigger_proximity: 100.0, ..proj("Lobber", &["Explosion", "Alt. Trigger"], 0.0, 1.0) };
+    assert!(!Projectile::spawn(&mine, Some(BOOM), [0.0; 3], [1.0, 0.0, 0.0], Some(1), G, &t).rolls);
 }
 
 /// A pond on the toy floor: water 50 deep (its surface at z = 50) from x = 300 on.
@@ -994,22 +1373,22 @@ fn melee_swing_and_blast() {
     assert_eq!(ids, vec![7, 8]);
     let e =ExplosionStats { damage: 100.0, radius: 400.0, force: 300.0, ..ExplosionStats::default() };
     let open = Toy { actors: vec![(7, [200.0, 0.0, 30.0], 30.0)], fence: false, wall: None };
-    let b = blast(&open, &t, &e, [0.0, 0.0, 30.0]);
+    let b = blast(&open, &t, &e, [0.0, 0.0, 30.0], None);
     assert_eq!(b.len(), 1);
     assert!(close(b[0].damage, 62.5) && close(b[0].push[0], 1.0));
     // A wall between the blast and the actor shields it, unless the EXPL ignores LOS.
     let walled = Toy { actors: vec![(7, [200.0, 0.0, 30.0], 30.0)], fence: false, wall: Some(100.0) };
-    assert!(blast(&walled, &t, &e, [0.0, 0.0, 30.0]).is_empty());
+    assert!(blast(&walled, &t, &e, [0.0, 0.0, 30.0], None).is_empty());
     let ignore = ExplosionStats { flags: vec!["Ignore LOS Check".into()], ..e.clone() };
-    assert_eq!(blast(&walled, &t, &ignore, [0.0, 0.0, 30.0]).len(), 1);
+    assert_eq!(blast(&walled, &t, &ignore, [0.0, 0.0, 30.0], None).len(), 1);
     // A pack in a line: the ones behind are not shielded by the bodies in front.
     let pack = Toy { actors: vec![(7, [60.0, 0.0, 30.0], 30.0), (8, [130.0, 0.0, 30.0], 30.0), (9, [200.0, 0.0, 30.0], 30.0)], fence: false, wall: None };
-    let mut ids: Vec<_> = blast(&pack, &t, &e, [0.0, 0.0, 30.0]).iter().map(|b| b.actor).collect();
+    let mut ids: Vec<_> = blast(&pack, &t, &e, [0.0, 0.0, 30.0], None).iter().map(|b| b.actor).collect();
     ids.sort();
     assert_eq!(ids, vec![7, 8, 9]);
     // A wall still shields the pack behind it.
     let behind = Toy { wall: Some(100.0), ..pack };
-    assert_eq!(blast(&behind, &t, &e, [0.0, 0.0, 30.0]).iter().map(|b| b.actor).collect::<Vec<_>>(), vec![7]);
+    assert_eq!(blast(&behind, &t, &e, [0.0, 0.0, 30.0], None).iter().map(|b| b.actor).collect::<Vec<_>>(), vec![7]);
 }
 
 #[test]

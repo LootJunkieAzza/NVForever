@@ -89,20 +89,44 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // [documented: GetNthEffectTraitNumeric; SetNthEffectTraitNumeric] traits 0
         // magnitude, 1 area, 2 duration of the Nth effect entry.
+        // The entry is the scripts' list's (`Game::effect_slot`, #2016): a record entry's
+        // traits are its EFIT's, AddNewEffect's its own.
         "getntheffecttraitnumeric" | "setntheffecttraitnumeric" => {
+            use crate::nvse_jip14::EffectSlot;
             let f = form(args, 0).unwrap_or(FormId(0));
             let (i, t) = (num(args, 1, -1.0) as i64, num(args, 2, -1.0) as i64);
-            let traits = g.effect_traits(f);
-            let ok = usize::try_from(i).ok().filter(|&i| i < traits.len()).zip(usize::try_from(t).ok().filter(|&t| t < 3));
-            match (ok, name) {
-                (Some((i, t)), "getntheffecttraitnumeric") => XVal::Num(traits[i][t]),
-                // Returns 0 [observed: gaps6, setting 77].
-                (Some((i, t)), _) => {
-                    let v = num(args, 3, 0.0).trunc();
-                    g.effect_overrides.insert((f, i, t), v);
-                    XVal::Num(0.0)
+            let slot = usize::try_from(i).ok().and_then(|i| g.effect_slot(f, i));
+            let Some(t) = usize::try_from(t).ok().filter(|&t| t < 3) else { return Some(Ok(XVal::Num(0.0))) };
+            let get = name == "getntheffecttraitnumeric";
+            // Returns 0 [observed: gaps6, setting 77].
+            let v = num(args, 3, 0.0).trunc();
+            match slot {
+                Some(EffectSlot::Own(r)) => {
+                    let traits = g.effect_traits(f);
+                    match traits.get(r) {
+                        Some(x) if get => XVal::Num(x[t]),
+                        Some(_) => {
+                            g.effect_overrides.insert((f, r, t), v);
+                            XVal::Num(0.0)
+                        }
+                        None => XVal::Num(0.0),
+                    }
                 }
-                _ => XVal::Num(0.0),
+                Some(EffectSlot::Added { back, at }) => {
+                    let Some(e) = g.added_effect_mut(f, back, at) else { return Some(Ok(XVal::Num(0.0))) };
+                    let field = match t {
+                        0 => &mut e.magnitude,
+                        1 => &mut e.area,
+                        _ => &mut e.duration,
+                    };
+                    if get {
+                        XVal::Num(f64::from(*field))
+                    } else {
+                        *field = v.max(0.0) as u32;
+                        XVal::Num(0.0)
+                    }
+                }
+                None => XVal::Num(0.0),
             }
         }
         // [documented: GetValueAlt] the base value, ingestibles included (ENIT value).

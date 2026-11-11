@@ -448,8 +448,26 @@ impl Config {
             Err(e) => return Err(InstallError::Io(p, e)),
         };
         std::fs::create_dir_all(&home.root).map_err(|e| InstallError::Io(home.root.clone(), e))?;
-        std::fs::write(&p, self.to_ini(&old)).map_err(|e| InstallError::Io(p, e))
+        write_whole(&p, self.to_ini(&old).as_bytes())
     }
+}
+
+/// Write a small text file whole or not at all: beside its place as `<name>.tmp`,
+/// flushed, then renamed over the old one. A crash or a full disk mid-write leaves the
+/// old file, not a cut one (a cut plugins.txt would come back with the lost plugins
+/// switched off, #1982). The caller has passed `path` through [`guard_write`].
+pub(crate) fn write_whole(path: &Path, bytes: &[u8]) -> Result<(), InstallError> {
+    use std::io::Write;
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    let tmp = path.with_file_name(name);
+    let io = |e| InstallError::Io(path.to_path_buf(), e);
+    {
+        let mut f = std::fs::File::create(&tmp).map_err(io)?;
+        f.write_all(bytes).map_err(io)?;
+        f.sync_all().map_err(io)?;
+    }
+    std::fs::rename(&tmp, path).map_err(io)
 }
 
 /// The name of an INI line's `[section]`, if it is one.

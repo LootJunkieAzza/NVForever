@@ -33,26 +33,34 @@ total = 3488
 # SSHQJacklyn, the Hoover Dam battle's reserves...); 18 of those scripts ran nothing else.
 # lines.said rose 2467 -> 2474 on the same base (1940e8d8b) by other commits, not traced
 # line by line; Jacklyn's OnLoad line (INFO 0x106502) is among the ones no longer said.
-touched = 1176
+# release 0.7.0 merge (co-op 1110 + main a57ae8160): both sides' deltas added; re-measured below if changed
+touched = 1181
 
 [summary.blocks]
 total = 5690
 # 1635 -> 1634: a Nightkin killed by come-fly-with-me no longer starts combat a frame after
 # its death, so REPCONDavisonSCRIPT's OnStartCombat (run on a corpse) is not counted. #1282's
 # runner did it on c665a84b; main a1dcaa54 (after #1287) reads 1634 and info.run 1638 too.
-run = 1622
+# 1651 -> 1652 (lines.said 2481 -> 2490, info.run 1659 -> 1662): #1767 (8c994614) lets a
+# script's Say/SayTo say a fixed speaker's line when no line passes the speaker check, so
+# the Dead Money narrator and the Old World Blues intercoms say Elijah's (+2), Borous's
+# (+4) and Mobius's (+3) lines, and NVDLC03MobiusIntercomSCRIPT runs one more block.
+# release 0.7.0 merge (co-op 1110 + main a57ae8160): both sides' deltas added; re-measured below if changed
+run = 1629
 
 [summary.lines]
 total = 28896
-said = 2474
+# release 0.7.0 merge (co-op 1110 + main a57ae8160): both sides' deltas added; re-measured below if changed
+said = 2497
 
 [summary.actors]
 with_lines = 704
-touched = 266
+# release 0.7.0 merge (co-op 1110 + main a57ae8160): both sides' deltas added; re-measured below if changed
+touched = 267
 
 [summary.results.info]
 total = 8639
-run = 1659
+run = 1662
 
 [summary.results.package]
 total = 558

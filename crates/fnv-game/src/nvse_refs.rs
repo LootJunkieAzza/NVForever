@@ -19,7 +19,7 @@ impl Game<'_> {
         out.extend(self.world.changed().filter(|(_, s)| s.cell == Some(cell)).map(|(r, _)| r));
         out.sort();
         out.dedup();
-        out.retain(|&r| self.cell_of(r) == Some(cell) && (taken || !self.world.peek(r).is_some_and(|s| s.deleted)));
+        out.retain(|&r| self.cell_of(r) == Some(cell) && (taken || !self.world.peek(r).is_some_and(|s| s.deleted())));
         out
     }
 
@@ -46,7 +46,7 @@ impl Game<'_> {
     /// Whether a reference is of GetFirstRef's type `code`: 0 any, 200 actors, 201
     /// inventory items, else the base form's form type code [documented: GetFirstRef,
     /// Form Type IDs].
-    fn ref_of_type(&self, r: FormId, code: i64) -> bool {
+    pub(crate) fn ref_of_type(&self, r: FormId, code: i64) -> bool {
         if code == 0 {
             return true;
         }

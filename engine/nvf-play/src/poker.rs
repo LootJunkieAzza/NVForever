@@ -256,6 +256,13 @@ impl Session {
     }
 
     /// The player's turn, with nothing in the way.
+    /// Where the table is for its controller buttons (`crate::pad::menu_buttons`): between
+    /// hands A deals the next.
+    pub fn hint_at(&self) -> crate::pad::MenuAt {
+        let tab = if self.table.street == Street::Over { crate::pad::POKER_BETWEEN_HANDS } else { 0 };
+        crate::pad::MenuAt { code: Some(crate::pad::POKER_MENU), tab }
+    }
+
     pub fn players_turn(&self) -> bool {
         let guest_ready = match &self.coop {
             Some(Coop::Guest(g)) => g.seat.is_some() && g.sent.is_none() && g.legal.is_some(),

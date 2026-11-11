@@ -41,7 +41,6 @@ use crate::actors::ActorWorld;
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::ragdoll::Corpse;
-use crate::reflection::ReflectionCamera;
 use bevy::prelude::*;
 use fnv_actor::head_look::{choose, limited_leaning, shares, sided, wrap, yaw_limit, yaw_pitch, Ease, Seen, Target, KEEP_RADIUS};
 use fnv_sim::FormId;
@@ -247,7 +246,7 @@ type Free = (With<HeadLook>, Without<LookOverride>);
 fn force_point(
     mut commands: Commands,
     settings: Res<HeadLookSettings>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     free: Query<(Entity, &GlobalTransform), Free>,
 ) {
     let (Some(p), Some(cam)) = (settings.force_point.filter(|_| settings.enabled), camera.iter().next()) else { return };
@@ -493,7 +492,7 @@ pub(crate) fn track(
     script: Option<Res<ScriptState>>,
     sim: Option<Res<nvf_play::sim::SimState>>,
     talk: Option<Res<crate::dialogue_look::Looks>>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut actors: Query<Looker>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,

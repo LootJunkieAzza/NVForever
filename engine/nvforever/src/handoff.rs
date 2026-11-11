@@ -17,7 +17,12 @@
 //!    loading screen (or the main menu) is up and drawn for [`SETTLE_SECS`], it shows its
 //!    window over the old one, takes the focus and writes the file; it loads behind its
 //!    screen from then on, alone. (Holding its script data build until then took the
-//!    swap's peak from 7.6 to 6.1 GB but the load from 6-12 s to 16 s: not done.)
+//!    swap's peak from 7.6 to 6.1 GB but the load from 6-12 s to 16 s: not done.) Only
+//!    the last step, making its game and putting the save back
+//!    (`nvf_play::script::ScriptState::held`), waits until the old run has taken the file
+//!    away as it ends, or [`ACK_WAIT_SECS`] after the file was written: on a busy machine
+//!    the screen's first frames were slow enough for the save to be put back before the
+//!    window was shown, while the old run still held its game (#1651).
 //!    Its world (`world::stream`, `readahead::read_ahead`) waits until the old process
 //!    has ended ([`OldRun`]; at most [`OLD_RUN_WAIT_SECS`] after the file is written),
 //!    so the two runs never hold a world each: before that, streaming went on in the
@@ -31,16 +36,25 @@
 //!    the two runs never have a GPU device each, and the old window goes a few seconds
 //!    before the new one shows. Steps 2 and 3 below are then what is left of the old
 //!    order, kept for a new run that could not wait.
-//! 3. This run sees the file and ends: the frame's exit logs are written (`Last`), then
-//!    the process ends at once ([`EndNow`]) instead of taking its world apart piece by
-//!    piece, which held its memory for about 2 s more.
+//! 3. This run sees the file, takes it away and ends: the frame's exit logs are written
+//!    (`Last`), then the process ends at once ([`EndNow`]) instead of taking its world
+//!    apart piece by piece, which held its memory for about 2 s more.
 //!
 //! If the new run ends before it is shown (it stops at the start: a damaged archive, say),
 //! the screen comes down and this game goes on; when the new run's log says why it
 //! stopped, the player is told in a message box (not in unattended runs) and the log line
 //! carries it. A new run that fails later, behind its own screen, is on its own: its crash
 //! report is the player's. Closing this window while it waits ends the new run too. A new
-//! run still hidden after [`SHOW_AFTER_SECS`] shows itself anyway.
+//! run still hidden after [`SHOW_AFTER_SECS`] shows itself anyway. The new run writes a
+//! marker beside the file as it starts ([`started_marker`]); a new run still running
+//! without one after [`JOIN_WAIT_SECS`] is not taking part (a Linux report, #1903: it
+//! loaded with its window shown and never wrote the file, and the old run waited until
+//! its window was closed, two games playing), and neither is one that has not written the
+//! file [`GIVE_UP_MARGIN_SECS`] past its own time limit: this run then ends, leaving the
+//! new one to play. A run whose restore fails
+//! after the save was read (`nvf_play::save::LoadRefused`) has no game to go on with: it
+//! hands over like the return to the main menu, and gives the new run the reason
+//! (`--load-refused`) for its message box.
 //!
 //! The new run gets this run's arguments but none of its test aids (`NVF_PLAY_TEST_*`:
 //! a console line that loads would load again in every new run), except test aid
@@ -56,7 +70,10 @@
 //! time limit), `handoff: the world waits for the old run (process <pid>) to end`, `handoff: the
 //! old run has ended after <s> s; the world loads` (or `... is still going <s> s after it
 //! was told; the world loads anyway`),
-//! `load: handing over to a new run with --load <path>` (`with --menu`), `load:
+//! `load: handing over to a new run with --load <path>` (`with --menu`), `load: the
+//! new run's command line: <exe> <args>`, `handoff: started as the new run (ready file
+//! <file>)` (the new run's), `load: the new run (process <pid>) is running but <why> after
+//! <s> s; ending this one so one game runs`, `load:
 //! <why>; opening the main menu` (the new run's, a save it could not load), `handoff: window shown after <s>
 //! s` (`, before its screen was up` past the time limit), `load: the new run is up after
 //! <s> s; ending this one`, `load: the new run ended (<status>) before it was ready[:
@@ -79,6 +96,11 @@ use std::time::{Duration, Instant};
 pub const SETTLE_SECS: f64 = 0.25;
 pub const SETTLE_FRAMES: u32 = 3;
 
+/// Seconds the new run waits, after telling the old run, for it to take the file away
+/// before putting the save back anyway (an old run that died) [engineering choice: the
+/// old run looks a few times a second, `WAIT_TICK`].
+pub const ACK_WAIT_SECS: f64 = 2.0;
+
 /// A new run shows its window after this many seconds whatever is still loading
 /// [engineering choice: as long as a loading screen waits, `nvf_play::loading`].
 pub const SHOW_AFTER_SECS: f64 = 120.0;
@@ -86,6 +108,17 @@ pub const SHOW_AFTER_SECS: f64 = 120.0;
 /// Frames the old run's loading screen is up before the new run starts
 /// [engineering choice: the screen is on screen before the long frame of starting it].
 const COVER_FRAMES: u32 = 3;
+
+/// Seconds the old run waits for the new run's start marker ([`started_marker`]) before
+/// taking it for a run that is not taking part in the handoff, and ending itself so one
+/// game runs (#1903) [engineering choice: the marker is written before the data loads,
+/// within the first second or two seen in logs; the rest is room for a slow disk].
+pub const JOIN_WAIT_SECS: f64 = 30.0;
+
+/// Seconds past [`SHOW_AFTER_SECS`] the old run still waits for a new run that has
+/// started but not said it is up, before ending itself all the same (#1903)
+/// [engineering choice].
+pub const GIVE_UP_MARGIN_SECS: f64 = 15.0;
 
 /// The one test aid the new run keeps (module notes).
 const EXIT_AID: &str = "NVF_PLAY_TEST_HANDOFF_EXIT";
@@ -144,6 +177,34 @@ impl Drop for Successor {
         }
         let _ = std::fs::remove_file(&self.file);
         let _ = std::fs::remove_file(gpu_file(&self.file));
+        let _ = std::fs::remove_file(started_marker(&self.file));
+    }
+}
+
+/// The file beside the ready file the new run writes as soon as it starts with
+/// `--handoff` (before its data loads), so the old run knows it is taking part (#1903).
+pub fn started_marker(ready: &Path) -> PathBuf {
+    let mut name = ready.as_os_str().to_owned();
+    name.push(".started");
+    PathBuf::from(name)
+}
+
+/// The new run's first step: say it started as the handoff's new run ([`started_marker`]).
+/// Called before the log is up; the failure is reported again once it is.
+pub fn mark_started(ready: &Path) -> std::io::Result<()> {
+    std::fs::write(started_marker(ready), b"")
+}
+
+/// Whether the old run, still waiting for a new run that is running, stops waiting and
+/// ends (#1903): `Some(why)` when the new run never said it started as a handoff run, or
+/// has not said it is up well past the time it shows itself anyway.
+fn give_up(waited_secs: f64, joined: bool) -> Option<&'static str> {
+    if !joined && waited_secs >= JOIN_WAIT_SECS {
+        Some("it did not start as a handoff run (no start marker)")
+    } else if waited_secs >= SHOW_AFTER_SECS + GIVE_UP_MARGIN_SECS {
+        Some("it never said it was up")
+    } else {
+        None
     }
 }
 
@@ -161,8 +222,10 @@ enum Leaving {
     HandedOver,
 }
 
+/// What this run is doing, and why the load it was started for was refused
+/// (`nvf_play::save::LoadRefused`), for the new run.
 #[derive(Resource, Default)]
-pub struct Handoff(Leaving);
+pub struct Handoff(Leaving, Option<String>);
 
 impl Handoff {
     /// The loading screen of a load (or of the way to the main menu) is up and a new run
@@ -241,7 +304,7 @@ fn ready_file() -> PathBuf {
 #[allow(clippy::too_many_arguments)]
 pub fn leave(
     mut commands: Commands,
-    (mut asked, mut to_menu): (MessageReader<LoadRequest>, MessageReader<nvf_play::pause::MainMenuRequest>),
+    (mut asked, mut to_menu, mut refused): (MessageReader<LoadRequest>, MessageReader<nvf_play::pause::MainMenuRequest>, MessageReader<nvf_play::save::LoadRefused>),
     (writes, hold): (Res<SaveWrites>, Option<Res<crate::coop::HoldLeave>>),
     mut handoff: ResMut<Handoff>,
     (mut cover, mut uncover, mut exit): (MessageWriter<CoverRequest>, MessageWriter<Uncover>, MessageWriter<AppExit>),
@@ -250,7 +313,10 @@ pub fn leave(
     mut winit: ResMut<WinitSettings>,
     _main_thread: NonSendMarker,
 ) {
-    let request = asked.read().last().cloned().map(Some).or(to_menu.read().last().map(|_| None));
+    let handoff = &mut *handoff;
+    let why = refused.read().last().map(|r| r.0.clone());
+    let request = asked.read().last().cloned().map(Some).or(to_menu.read().last().map(|_| None)).or(why.is_some().then_some(None));
+    handoff.1 = why.or(handoff.1.take());
     let h = &mut handoff.0;
     if let Some(r) = request {
         match h {
@@ -272,13 +338,17 @@ pub fn leave(
         Leaving::Covered(r, _) => {
             let file = ready_file();
             let _ = std::fs::remove_file(&file);
+            let _ = std::fs::remove_file(started_marker(&file));
             let keep = crate::restart_args(&crate::command_line());
-            let args = new_run_args(&keep, r.as_ref(), window.single().ok().map(|(e, w)| placement(w, e)), &file);
+            let mut args = new_run_args(&keep, r.as_ref(), window.single().ok().map(|(e, w)| placement(w, e)), &file);
+            args.extend(handoff.1.iter().map(|why| format!("--load-refused={why}")));
             let started = std::env::current_exe()
                 .map_err(|e| format!("cannot find this program to start it again: {e}"))
                 .and_then(|exe| {
                     let mut cmd = std::process::Command::new(&exe);
                     cmd.args(&args);
+                    // The whole line, so a report shows what the new run was given (#1903).
+                    info!("load: the new run's command line: {} {}", exe.display(), args.join(" "));
                     for (k, _) in std::env::vars_os() {
                         if k.to_str().is_some_and(|k| nvf_play::drives_run(k) && k != EXIT_AID) {
                             cmd.env_remove(&k);
@@ -319,6 +389,15 @@ pub fn leave(
             }
             let ended = match s.child.try_wait() {
                 Ok(None) => {
+                    let waited = s.started.elapsed().as_secs_f64();
+                    if let Some(why) = give_up(waited, started_marker(&s.file).exists()) {
+                        // The new run plays on with its own window: one game is left (#1903).
+                        warn!("load: the new run (process {}) is running but {why} after {waited:.0} s; ending this one so one game runs", s.child.id());
+                        s.handed_over = true;
+                        exit.write(AppExit::Success);
+                        *h = Leaving::HandedOver;
+                        return;
+                    }
                     *h = Leaving::Waiting(s);
                     return;
                 }
@@ -389,14 +468,18 @@ pub struct Hidden {
     shown: Option<u32>,
     /// Test aid `NVF_PLAY_TEST_HANDOFF_EXIT`.
     exit_after: bool,
-    /// The file is written: with the test aid, the run waits for its world, then ends.
+    /// The file is written (and when): with the test aid, the run waits for its world,
+    /// then ends.
     told: bool,
+    told_at: Option<Instant>,
+    /// The save may be put back: the old run has ended ([`ACK_WAIT_SECS`]).
+    released: bool,
 }
 
 impl Hidden {
     pub fn new(file: PathBuf, maximize: bool) -> Self {
         let exit_after = std::env::var(EXIT_AID).is_ok_and(|v| v == "1");
-        Hidden { file, maximize, started: Instant::now(), ready: None, shown: None, exit_after, told: false }
+        Hidden { file, maximize, started: Instant::now(), ready: None, shown: None, exit_after, told: false, told_at: None, released: false }
     }
 }
 
@@ -594,6 +677,15 @@ fn settle(h: &mut Hidden, up: bool, now: Instant) -> Option<bool> {
     (now.duration_since(h.started).as_secs_f64() >= SHOW_AFTER_SECS).then_some(true)
 }
 
+/// The new run's save waits while [`Hidden`] says the old run has not ended
+/// (`ScriptState::held`; module notes, step 2).
+pub fn hold_restore(hidden: Option<Res<Hidden>>, script: Option<ResMut<nvf_play::script::ScriptState>>) {
+    let held = hidden.is_some_and(|h| !h.released);
+    if let Some(mut s) = script.filter(|s| s.held != held) {
+        s.held = held;
+    }
+}
+
 /// The new run's side: once its loading screen (or the main menu) is up, show the window
 /// over the old run's, take the focus and tell the old run.
 #[allow(clippy::too_many_arguments)]
@@ -609,6 +701,15 @@ pub fn reveal(
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
     let Some(mut h) = hidden else { return };
+    // The save waits for the old run to end (module notes, step 2).
+    if !h.released {
+        if let Some(t) = h.told_at.filter(|t| !h.file.exists() || t.elapsed().as_secs_f64() >= ACK_WAIT_SECS) {
+            h.released = true;
+            let _ = std::fs::remove_file(started_marker(&h.file));
+            let gone = !h.file.exists();
+            info!("handoff: {} after {:.2} s; the save goes back now", if gone { "the old run has ended" } else { "no word from the old run" }, t.elapsed().as_secs_f64());
+        }
+    }
     let Ok(mut window) = windows.single_mut() else { return };
     match h.shown {
         None => {
@@ -634,7 +735,10 @@ pub fn reveal(
                 warn!("handoff: cannot tell the old run ({}: {e}); it ends when its own window closes", h.file.display());
             }
             h.told = true;
-            if !h.exit_after {
+            h.told_at = Some(Instant::now());
+        }
+        Some(_) if !h.exit_after => {
+            if h.released {
                 commands.remove_resource::<Hidden>();
             }
         }
@@ -728,5 +832,17 @@ mod tests {
         assert_eq!(settle(&mut h, true, late(1.4)), None);
         // Never in: shown at the time limit.
         assert_eq!(settle(&mut h, false, late(SHOW_AFTER_SECS)), Some(true));
+    }
+
+    #[test]
+    fn the_old_run_stops_waiting_for_a_new_run_that_does_not_take_part() {
+        // A new run without its start marker: given time to start, then left alone (#1903).
+        assert_eq!(give_up(JOIN_WAIT_SECS - 1.0, false), None);
+        assert!(give_up(JOIN_WAIT_SECS, false).is_some());
+        // A new run that started as one: waited for until well past its own time limit.
+        assert_eq!(give_up(JOIN_WAIT_SECS, true), None);
+        assert_eq!(give_up(SHOW_AFTER_SECS, true), None);
+        assert!(give_up(SHOW_AFTER_SECS + GIVE_UP_MARGIN_SECS, true).is_some());
+        assert_eq!(started_marker(Path::new("/tmp/nvforever-handoff-1-2.ready")), PathBuf::from("/tmp/nvforever-handoff-1-2.ready.started"));
     }
 }

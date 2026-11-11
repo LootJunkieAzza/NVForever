@@ -87,14 +87,39 @@ fn play(
     settings: Res<VoiceSettings>,
     voice: Res<VoiceState>,
     mut tape_state: ResMut<Holotape>,
-    script: Res<ScriptState>,
+    mut script: ResMut<ScriptState>,
     paused: Res<crate::pause::Paused>,
     mut sounds: Option<ResMut<Assets<AudioSource>>>,
     sinks: Query<&AudioSink, With<HolotapeSound>>,
     mut effects: MessageWriter<PlaySound>,
 ) {
     let st = &mut *tape_state;
-    let Some(rt) = script.rt.as_ref() else { return };
+    let Some(rt) = script.rt.as_mut() else { return };
+    // PlayHolotape and StopHolotape (`fnv_game::nvse_jg9`): a note is played as one
+    // picked, but picking the one playing goes on with it rather than pausing it; a stop
+    // ends the tape as its end does, without its end script [hypothesis: the page says
+    // only that it stops].
+    for r in rt.game.take_holotape_requests() {
+        match r {
+            fnv_game::nvse_jg9::HolotapeRequest::Play(note) if st.playing == Some(note) => {
+                if st.paused {
+                    st.paused = false;
+                    info!("holotape: a script goes on with {}", rt.game.data.name(note));
+                }
+            }
+            fnv_game::nvse_jg9::HolotapeRequest::Play(note) => {
+                info!("holotape: a script plays {}", rt.game.data.name(note));
+                st.picks.push(note);
+            }
+            fnv_game::nvse_jg9::HolotapeRequest::Stop => {
+                st.picks.clear();
+                if let Some(note) = st.playing {
+                    info!("holotape: a script stops {}", rt.game.data.name(note));
+                    st.stop(&mut commands);
+                }
+            }
+        }
+    }
     let g = &rt.game;
     let now = time.elapsed_secs_f64();
     let picks = std::mem::take(&mut st.picks);

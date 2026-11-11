@@ -356,7 +356,11 @@ impl Game<'_> {
     pub fn ingest_on(&mut self, actor: FormId, item: FormId, limb: Option<u16>) -> Ingested {
         // [documented: SetOnUseAidItemEventHandler] this = the actor, the item.
         self.jip_event("useaiditem", Some(actor), vec![fnv_script::vm::XVal::Ref(item.0)]);
-        let def = self.data.ingestibles.get(&item).cloned().unwrap_or_default();
+        let mut def = self.data.ingestibles.get(&item).cloned().unwrap_or_default();
+        // LU's SetIngestibleFlag (`nvse_lu2`).
+        if let Some(f) = crate::nvse::record_value(self, item, "ENIT", "flags").and_then(|v| v.num().ok()) {
+            def.flags = f as u8;
+        }
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
@@ -455,6 +459,18 @@ impl Game<'_> {
     fn change_value(&mut self, actor: FormId, code: u16, amount: f64, parts: bool, limb: Option<u16>, caster: Option<FormId>) {
         if amount < 0.0 && actor == FormId::PLAYER_REF && self.toggles.god_mode {
             return;
+        }
+        // ToggleImmortalMode (`crate::nvse_jip9`): 2 no Health damage, 1 none below 1 HP.
+        let mut amount = amount;
+        if actor == FormId::PLAYER_REF && code == crate::actor_values::HEALTH && amount < 0.0 {
+            match self.immortal_mode() {
+                2 => return,
+                1 => {
+                    let now = fa::actor_value(self, actor, code).unwrap_or(0.0);
+                    amount = amount.max(-(now - 1.0).max(0.0));
+                }
+                _ => {}
+            }
         }
         if code == crate::actor_values::HEALTH && amount < 0.0 {
             // Health damage can kill (a burn, a poison; hit-effects.md §4).
@@ -579,11 +595,13 @@ impl Game<'_> {
     }
 
     /// Addictions are held back while their chem is active, and come back when it ends.
+    /// An effect its conditions hold is left alone: when they pass, [`Game::start_change`]
+    /// looks at the chem itself, and a modifier put in its pool here would go in twice.
     pub(crate) fn refresh_suspended(&mut self, _dt: f64) {
         let ids: Vec<(u32, FormId, FormId)> = self
             .effects
             .iter()
-            .filter(|e| e.permanent && e.change.is_some_and(|c| c.kind == ChangeKind::Modifier))
+            .filter(|e| e.permanent && !e.inactive && e.change.is_some_and(|c| c.kind == ChangeKind::Modifier))
             .filter(|e| self.data.spell_types.get(&e.source) == Some(&SPELL_ADDICTION))
             .map(|e| (e.id, e.target, e.source))
             .collect();

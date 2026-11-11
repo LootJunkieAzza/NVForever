@@ -405,7 +405,7 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         // ForceFireWeapon]; nothing without one.
         "forcefireweapon" => {
             if let Some(w) = crate::functions::items::equipped_weapon(g, a) {
-                g.combat_requests.push(crate::combat::CombatRequest::Fire { from: a, weapon: w });
+                g.combat_requests.push(crate::combat::CombatRequest::Fire { from: a, weapon: w, muzzle: None });
             }
             zero
         }

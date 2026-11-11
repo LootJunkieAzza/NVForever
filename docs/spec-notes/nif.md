@@ -462,11 +462,13 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   the OPEN sign white. The two string-light shapes are the only visible shapes with a
   `_n` texture in slot 2 and a non-black emissive colour; their shader flags equal the
   OPEN sign's (0x82000101), so no flag tells them apart [observed].
-  BSShaderNoLightingProperty shapes are drawn unlit and ignore the emissive colour: 2,663
-  of them have a black emissive colour (hangar lights, casino stairs) yet show in game,
+  The initial reading left BSShaderNoLightingProperty shapes unlit and ignored the
+  emissive colour: 2,663 of them have a black emissive colour (hangar lights, casino
+  stairs) yet show in game,
   so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
   the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
-  BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
+  BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is
+  addressed by the unlit rules below [design: `nif_spawn.rs`, `material_anim.rs`].
 - **Emissive multiplier of unlit shapes** (2026-10-23). Gomorrah's neon
   (`architecture\strip\gomorrahlights.nif`, `gomorrahlightslowerlevel.nif` [observed,
   `crates/fnv-nif/examples/fx_audit.rs`]) is BSShaderNoLightingProperty shapes on
@@ -499,12 +501,51 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   holograms ((0, 0.87, 1) × 6) cyan, grey colours change nothing, Gomorrah's white × 25
   is as before. Without the light glow the result is held to the surface colour. An
   additive shape takes the brightness in display values (raised to the display gamma
-  like its hue; "Additive blend"), as does the image space's Emissive Mult on it.
+  like its hue; "Additive blend"); additive shapes skip the image space's Emissive
+  Mult (2026-10-25, "Additive blend" below).
 
   Until 2026-10-23 neither rule reached unlit shapes: Bevy's
   `pbr_input_from_standard_material` fills the emissive light in only for lit materials
   [observed: bevy_pbr 0.19 `pbr_fragment.wgsl`], so an unlit shape's stayed black. The
   shader now reads the material's emissive light for unlit shapes itself.
+- **Unlit shapes that are pictures, and cut-out signs** (2026-11-06, #1540).
+  [observed: the original and NVForever compared at matching 1280×720
+  views, private jobs `ov_strip_n`, `ov_strip_d`, `ui_talk_house`]: House's screen and
+  the Securitrons' faces retain detail in the original, while main burns them into a
+  white-green blur; holding their colour times multiplier to 1 matches those frames. Their
+  BSShaderNoLightingProperty shapes are opaque, store multipliers 10–45 and lack
+  External Emittance (shader flag bit 29); the Strip neon that must burn has the flag.
+  The Tops marquee (`nv_thetops-casino_neon.nif`, `Yellow_Neon1`, cut-out, yellow ×4,
+  with the flag) has distinct bright stripes and a small halo in the original; main
+  draws a flat yellow blob many times their width. The Lucky 38 stair lights
+  (`lucky38stairlights.nif`, blended, ×1.25, without the flag) become white slabs on
+  main at the Strip's night emissive scale, 2.67 over the worldspace's.
+
+  Rules [hypothesis, fitted to those frames], only for unlit shapes:
+  an opaque surface without External Emittance is a picture, with its colour times
+  multiplier held to at most 1 (a Securitron's screen stores grey 0.05 × 30, and shows
+  its face at the texture's brightness, as the original does); House's authored opaque screen remains a picture when its actor
+  alpha gate selects a mask [design: `nif_spawn.rs` `shape_alpha_mode`].
+  Blended and additive surfaces keep their multipliers: laser sights at ×40, muzzle
+  flashes and beams without the flag must retain their light. Unlit shapes without
+  the flag skip the image space's Emissive Mult, as additive shapes already do.
+  An authored cut-out unlit surface, whatever its multiplier and flag, also skips that
+  scale and is drawn on the plain path of blended shapes instead of `hot_light`, which
+  clips each channel and would turn the Lucky 38's pink letters (`L38sign_anim:0`, × 6)
+  to one neutral white.
+
+  [design: `nif_spawn.rs` `shape_emissive_mult`, `shape_emissive_rule`]: the picture
+  hold applies in `shape_emissive`, to the look a shape is built with; `Props::emissive_parts`
+  gives material animation's `Look` the stored multiplier, so a Securitron's idle track
+  (0.032 × 30) and its screen-change flash (0.99 × 30) draw as authored. `NifSurface` and
+  `NifSurfaceUniform` carry `emissive_rule` (x 1 skips the image-space scale; y 1 takes
+  the plain path). Both shaders read the same struct from
+  `nif_surface_bindings.wesl`, in the Rust uniform's field order. Materials built by
+  hand, including overlays, default to zero and keep their previous behaviour.
+
+  [observed 2026-11-07: the same views, with the light glow off]: the Lucky 38's and the
+  Tops' letters read and the night sky is dark, so what ran them together was the glow;
+  its settings are in world.md section 6 "HDR and bloom".
 - **Emitted light on screen** (2026-10-23). In the original's frames of Dead Money's wall
   lantern (front and three-quarter, private `dm_lamp_front.png`, `dm_lamp_side.png`) the
   glass (lit shape, emissive (0.76, 0.55, 0.20) × 10 × the image space's Emissive Mult)
@@ -1249,22 +1290,46 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   drawn after it and looked pink and see-through from a few metres. Unlit blended shapes
   (glows, dust, smoke; 1,277 set the flag, 1,259 do not) keep writing none: one glow
   hiding another by draw order is the larger risk there. Hair keeps its own cut above.
-- **Hair models are cut-outs** (2026-11-03, #1454): the HAIR record's model is drawn
-  alpha-tested, solid where its alpha is 0.25 or more and absent below (soft edges in a
-  multisampled view), not blended; beards and brows (head parts with the hair shader)
-  stay blended as above. `hairwavy.nif` (Chet) maps its outer layer onto the soft edge
-  of the texture's alpha: sampled per triangle, the outer tenth averages 0.43 where the
-  inner averages 0.92, and the texture's alpha is otherwise near 0 or 1 at every mip
-  level [observed: `characters\hair\hairwavy.dds`]. Blended, that layer drew as a
-  see-through shell around his head against the store's window; in the original his
-  hair is a solid cap with a clean hairline, and his `beardthin.nif` beard is thin
-  [observed: owner's frame of the original, Chet in dialogue in front of the
-  GSGeneralStore window, 2026-11-03]. As a cut-out at 0.5 the beard became a full one,
-  hence beards stay blended. The cut of 0.25 is an engineering choice (0.5 thinned the
-  hair's sides beside the original frame). Whether the game alpha-tests its hair or
-  draws it some other way that comes out solid is not known. A cut-out draws in the
-  opaque passes, so blended glows and rays drawn after it no longer show through it or
-  vanish behind it, and hair now casts a shadow. Smoke check `hair-solid-chet`.
+- **Hair models: a solid core and a blended layer** (2026-11-06, #1576; before that
+  cut-outs, #1454): the HAIR record's model is drawn twice. A cut-out at alpha 0.8 is its
+  solid core: it draws in the opaque passes, writes depth and casts the shadow. The same
+  shape is then drawn blended (SRC_ALPHA / INV_SRC_ALPHA, as its NiAlphaProperty asks),
+  writing no depth, so the fainter texels (shaved scalp, the soft ends and edges of the
+  strands) blend over the core and over what lies behind; over the core it draws the
+  core's own colour again. Beards and brows (head parts with the hair shader) stay
+  blended as in "Hair and depth" above. What was measured:
+  - `hairwavy.nif` (Chet) maps its outer layer onto the soft edge of the texture's
+    alpha: sampled per triangle, the outer tenth averages 0.43 where the inner averages
+    0.92, and the texture's alpha is otherwise near 0 or 1 at every mip level
+    [observed: `characters\hair\hairwavy.dds`, 71% of texels 255, 15% 0]. Blended with
+    the depth write of "Hair and depth", that layer drew as a see-through shell around
+    his head against the store's window; in the original his hair is a solid cap with a
+    clean hairline, and his `beardthin.nif` beard is thin [observed: owner's frame of
+    the original, Chet in dialogue in front of the GSGeneralStore window, 2026-11-03].
+    As a cut-out at 0.5 the beard became a full one, hence beards stay blended.
+  - As a cut-out at 0.25 everywhere (#1458), the Mohawk's shaved sides drew as solid
+    hair [observed: owner, #1576]. `hairraiderspike.nif` (Warhawk; Jessup) maps the
+    sides of the head onto one region of `hairraider01.dds` whose alpha is a flat
+    plateau, 166–190 of 255 (5th to 95th percentile, median 185, about 0.72), and its
+    colour is that of the strands [observed: the texture; the UV layout of the NoHat
+    shape]. 9.7% of the texture's texels lie in 179–191; 28% are 255. The eleven raider
+    hair models (the Mohawks and the female raider styles, among them `HairBaseF`
+    "Shaved") all use that texture [observed: MODL and texture sets of the 67 HAIR
+    records of FalloutNV.esm]. Blended, the plateau lets about a quarter of the scalp
+    show through a dark layer; cut out, it is solid.
+  - `hairbase.dds` (`hairbase.nif`: Buzz Saw, Balding, Combover, Buzz Cut) is a plateau
+    at 217–242 (0.85–0.95) with 7.5% of texels at 0 and none above 242 [observed].
+  - All hair models' NiAlphaProperty blends with no threshold: flags 4333 (0x10ED: blend,
+    no test) or 4845 (0x12ED: blend and test GREATER 0, which drops only alpha 0)
+    [observed over the NoHat shapes of the 67 HAIR records; documented: nif.xml AlphaFlags]. The flags do not
+    tell shaved parts from solid ones; only the texture alpha does.
+  The cut of 0.8 is an engineering choice from those plateaus: below it the raider
+  scalp (≤ 0.75) stays see-through, above it the short hair of `hairbase.dds` (≥ 0.85)
+  keeps a solid core (a cut above 0.85 would leave those hairs no depth and no shadow).
+  Chet's hair stays solid because the core (his texels at 255) is drawn first and his
+  soft outer band blends over it instead of hiding it. Whether the game draws its hair
+  this way, alpha-tests it, or does something else that comes out the same is not known
+  [hypothesis]. Smoke checks `hair-solid-chet`, `hair-shaved-mohawk`.
 
 ## 7. Coverage status
 

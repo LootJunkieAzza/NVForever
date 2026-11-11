@@ -12,10 +12,14 @@
 //!   ([`vertical_fov`], docs/spec-notes/camera.md §3).
 //! - **Timing** [design]: the field of view moves between the two over [`ZOOM_SECONDS`],
 //!   smoothed at both ends; letting go of Block zooms back out at the same pace.
+//! - **Reloads and jams** [design, #1642]: a reload or a jam holds the sights down
+//!   (`Combat::player_sights_held_down`): the view zooms out (a scope goes at once) as
+//!   its clip begins and zooms back in after it while Block is still held.
 //! - The free camera, menus and melee weapons (which block) do not zoom; both points of
 //!   view do. Whatever else sets the field of view (the console's SetCameraFOV,
 //!   chargen) sets the unzoomed angle: a change this module did not make is taken as
-//!   the new base.
+//!   the new base. A conversation's zoom (`crate::dialogue_zoom`) lies over the angle and
+//!   is not one.
 //! - **Scopes** (docs/spec-notes/weapon-scopes.md §2): a scoped gun (WEAP Has Scope, or
 //!   Scope from Mod with an Increase Zoom mod on) at full zoom in first person puts its
 //!   scope up ([`Scope`]); nvforever `scope_view.rs` draws the MOD3 picture, the night
@@ -130,7 +134,7 @@ impl Plugin for AimZoomPlugin {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn zoom(
+pub(crate) fn zoom(
     time: Res<Time<Real>>,
     state: Res<State<PlayState>>,
     control: Res<PlayerControl>,
@@ -140,18 +144,23 @@ fn zoom(
     mut z: ResMut<AimZoom>,
     mut scope: ResMut<Scope>,
     lens: Res<Scope3d>,
+    talk: Option<Res<crate::dialogue_zoom::DialogueZoom>>,
     mut cams: Query<&mut Projection, With<PlayerCamera>>,
 ) {
     let Ok(mut proj) = cams.single_mut() else { return };
     // Read first: a write every frame would mark the projection changed.
     let Projection::Perspective(p) = &*proj else { return };
-    // Someone else set the field of view: that is the unzoomed angle now.
-    if z.applied != Some(p.fov) {
-        z.base = Some(p.fov);
+    // Someone else set the field of view: that is the unzoomed angle now. What a
+    // conversation's zoom laid over it is not.
+    let seen = talk.as_deref().map_or(p.fov, |t| t.underlying(p.fov));
+    if z.applied != Some(seen) {
+        z.base = Some(seen);
         z.applied = None;
     }
     let playing = *state.get() == PlayState::Playing && !free.is_some_and(|f| f.on);
-    let sight = combat.as_deref().and_then(Combat::sight_fov).filter(|_| playing && control.aiming && control.weapon_out && anim.ready);
+    // A reload or a jam holds the sights down (`combat::sights_held_down`): the zoom and a
+    // scope go, and come back after it while Block is still held.
+    let sight = combat.as_deref().filter(|c| !c.player_sights_held_down()).and_then(Combat::sight_fov).filter(|_| playing && control.aiming && control.weapon_out && anim.ready);
     if let Some((_, deg)) = sight {
         z.sight = Some(vertical_fov(deg));
     }

@@ -21,7 +21,9 @@
 //! programs' use counts): when the process uses over 85 % of the GPU budget, or the machine
 //! has under 10 % of its RAM free, the sweep keeps [`PRESSED`] (unused entries go after
 //! 30 s, at most 128 per cache, the longest unused first) until the GPU use is under 75 % and
-//! over 20 % of the RAM is free. Each change is logged.
+//! over 20 % of the RAM is free. Each change is logged. Each check's figures stay on
+//! [`MemoryBudget`] (`vram_use_mb`, `ram_share`) for the performance overlay's VRAM and
+//! RAM rows (`perf_overlay`, issue #1868), which do not read them again.
 //!
 //! **Graphics memory cap** (queue item 97, owner 2026-11-08: "cap texture memory depending
 //! on available resources"; the laptop's RTX 3050 Ti, budget 3367 MB, ran out of memory at
@@ -85,6 +87,13 @@ const MIN_LIMITS: KeepLimits = KeepLimits { secs: 30.0, max: 128 };
 pub struct MemoryBudget {
     /// The GPU budget, `None` when not read (not Vulkan, no extension, an integrated GPU).
     pub vram_mb: Option<u64>,
+    /// The last check's figures, kept for the performance overlay (`perf_overlay`), which
+    /// reads nothing a second time: this process's use of the GPU budget and the budget,
+    /// MB (the test aid's cap applied), and the machine's RAM in use, a share (the test
+    /// aid's RAM taken as RAM the machine does not have, as the press check takes it).
+    /// `None` where not read.
+    pub vram_use_mb: Option<(u64, u64)>,
+    pub ram_share: Option<f64>,
     /// The test aids' caps (MB), applied again at each check.
     aid_vram: Option<u64>,
     aid_ram: Option<u64>,
@@ -348,7 +357,9 @@ fn read_budgets(mut commands: Commands, device: Option<Res<RenderDevice>>, adapt
             slab_max_for(b) / MB
         );
     }
-    *budget = MemoryBudget { vram_mb, aid_vram, aid_ram, base, pressed: false, side_cap, ..Default::default() };
+    let vram_use_mb = vram.as_ref().ok().zip(vram_mb).map(|(&(_, used), b)| (used, b));
+    let ram_in_use = ram.map(|r| ram_share(r, aid_ram));
+    *budget = MemoryBudget { vram_mb, vram_use_mb, ram_share: ram_in_use, aid_vram, aid_ram, base, pressed: false, side_cap, ..Default::default() };
     commands.insert_resource(base);
 }
 
@@ -668,6 +679,8 @@ fn watch_use(
     *last = now;
     let gpu = budget.vram_mb.and_then(|_| read_vram(device.as_deref(), integrated(adapter.as_deref())).ok()).map(|(b, used)| (capped(Some(b), budget.aid_vram).unwrap_or(b), used));
     let ram = read_ram();
+    budget.vram_use_mb = gpu.map(|(b, used)| (used, b));
+    budget.ram_share = ram.map(|r| ram_share(r, budget.aid_ram));
     let mut shares = Vec::new();
     if let Some((b, used)) = gpu {
         shares.push((used as f64 / b.max(1) as f64, GPU_PRESSURE));

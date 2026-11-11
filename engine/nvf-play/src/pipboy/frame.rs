@@ -1,6 +1,7 @@
 //! What every Pip-Boy page shares, drawn into the screen's image
-//! (docs/spec-notes/pipboy.md §2): the background, the heading (the page's title and its
-//! cards of figures) and the tab line along the foot, and the tools the pages draw with.
+//! (docs/spec-notes/pipboy.md §2): the heading (the page's title and its cards of figures)
+//! and the tab line along the foot, and the tools the pages draw with. The screen around
+//! them (background, scanlines) is `device_screen.rs`'s.
 //! Lengths are the canvas's units (1024 × 768), from its top left corner.
 //!
 //! The numbers are the menu files' [documented: `menus\main\inventory_menu.xml` and the
@@ -25,9 +26,6 @@ pub const LINE: f32 = 200.0;
 pub const TEXT: f32 = 255.0;
 pub const DIMMED: f32 = 128.0;
 pub const FILL: (f32, f32) = (128.0, 32.0);
-/// The background picture, drawn at brightness 90 over the whole canvas.
-const BACKGROUND: &str = "Interface\\Shared\\Background\\pipboy.dds";
-const BACKGROUND_BRIGHTNESS: f32 = 90.0;
 /// A vertical fade line is 60 long.
 pub const FADE: f32 = 60.0;
 /// The heading: the title (font 4) 70 in, a line of 50 before it and one from 20 after
@@ -45,6 +43,63 @@ const CARD_VALUE_IN: f32 = 10.0;
 /// [documented: `text_box.xml` `button_text` y; the original's "Maintain R)" sits there
 /// on the owner's ITEMS screenshot].
 pub const BUTTON_TEXT_Y: f32 = 15.0 / 2.0 + 10.0;
+
+/// One button hint of a page: its words, the key's part after them ("R)", with a
+/// controller "Y)"), and whether it is drawn dim (it does nothing now) (#1896, #1897).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hint {
+    pub word: &'static str,
+    pub key: String,
+    pub dim: bool,
+}
+
+impl Hint {
+    pub fn new(word: &'static str, key: String, dim: bool) -> Hint {
+        Hint { word, key, dim }
+    }
+
+    /// As drawn: "Repair R)"; the word alone when it has no key (a button only clicked).
+    pub fn text(&self) -> String {
+        if self.key.is_empty() {
+            return self.word.to_string();
+        }
+        format!("{} {}", self.word, self.key)
+    }
+
+    /// The colour it is drawn in: bright, or dimmed.
+    pub fn color(&self) -> Color {
+        amber(if self.dim { DIMMED } else { TEXT })
+    }
+}
+
+/// A page's hints for the log, in drawing order: "Repair R) (dim), Equip Enter)".
+pub fn hints_line<'a>(hints: impl IntoIterator<Item = &'a Hint>) -> String {
+    hints.into_iter().map(|h| if h.dim { format!("{} (dim)", h.text()) } else { h.text() }).collect::<Vec<_>>().join(", ")
+}
+
+/// A column of hints at the top right (the ITEMS page's, the weapon mod menu's, the DATA
+/// page's): one row under the other 46 apart, each row's word right-aligned on one line
+/// with its key just after it [observed: the original's screenshots on issue #1896, 1920 ×
+/// 1080: rows 42 to 43 px apart, 0.90 of the item list's row step there (47 to 48 px); the
+/// words end at the heading's right end, the button glyph beside them; the mod menu's two
+/// rows 43 px apart too; the DATA page's on issue #1897 the same: rows 43 px apart, the
+/// words ending within 3 px of the heading's right end] [design: 0.90 of our 51-high list
+/// rows is 46].
+pub const HINT_PITCH: f32 = 46.0;
+/// How far right of the menus' rectangle a hint's key may reach on the canvas: the lit
+/// screen ends about 49 past the heading's right end at the first hint's row and further
+/// out lower down [design: measured on NVForever's own 1280 × 720 ITEMS frame].
+pub const HINT_KEY_ROOM: f32 = 45.0;
+
+/// Where a hint column's words end: at `words_right`, unless the widest key part
+/// (`key_widths`: each row's drawn width less its word's) would then run past `limit`;
+/// then the whole column moves left until that key ends at `limit`, the words still
+/// right-aligned on one line [design: some keyboard key names (the mod menu's "Enter)")
+/// are longer than a controller's buttons, which fit].
+pub fn hint_words_right(words_right: f32, limit: f32, key_widths: impl IntoIterator<Item = f32>) -> f32 {
+    let widest = key_widths.into_iter().fold(0.0, f32::max);
+    words_right.min(limit - widest)
+}
 /// The tab line: 650 down, as wide as the menus; a tab is its text and 35 across, 15 up
 /// and down; the lines between the tabs are as long as each other [hypothesis: the files
 /// leave their length to code; it fills the line evenly, as on the owner's screenshots].
@@ -53,14 +108,6 @@ const TAB_HORBUF: f32 = 35.0;
 const TAB_VERBUF: f32 = 15.0;
 /// A text sits 3 under the middle of its box.
 const BOX_TEXT_DROP: f32 = 3.0;
-/// The screen's scanlines: the texture's one dark band, again every 9.5 of the canvas
-/// [observed: the file is 64 × 64 DXT1, white at its top fading to about 0.8 at the
-/// bottom; on the owner's ITEMS screenshot the solid CND bar's rows are bright and dim
-/// by about 15% every 6 pixels, of a menu 379 high for the canvas's 600]; it darkens
-/// what is under it by its texels' shortfall from white [hypothesis: drawn over the
-/// menus, multiplied in].
-const SCANLINES: &str = "textures\\pipboy3000\\pipboyscanlines.dds";
-const SCANLINE_PITCH: f32 = 9.5;
 
 /// The fonts' files by the number the menu files give them [documented:
 /// `Fallout_default.ini`, fonts.md §4].
@@ -86,8 +133,6 @@ pub fn base(font: &Font) -> f32 {
 pub struct Kit {
     faces: Vec<Face>,
     pictures: Option<Pictures>,
-    /// The scanlines: a column of black whose alpha is the band's darkening.
-    scanlines: Option<Handle<Image>>,
     /// The menus are the screen menu: the pages leave out their title, the header of page
     /// names stands in its place ([`heading_title`], [`header`]).
     pub screen: bool,
@@ -98,15 +143,6 @@ impl Kit {
         if self.faces.is_empty() {
             self.faces = FONTS.iter().map(|f| face(f, plain_font(31.0, 13.0), data, images, bc)).collect();
             self.pictures = Some(Pictures::load(data));
-            self.scanlines = data.and_then(|d| d.read(SCANLINES)).and_then(|b| scanline_column(&b)).and_then(|column| {
-                let rgba: Vec<u8> = column.iter().flat_map(|&l| [0, 0, 0, ((1.0 - l).clamp(0.0, 1.0) * 255.0).round() as u8]).collect();
-                // A broken file's size (0 rows, too many) gives no scanlines, not a GPU error.
-                let format = bevy::render::render_resource::TextureFormat::Rgba8Unorm;
-                let mut image = nvf_assets::texture::checked_image(1, column.len() as u32, 1, format, rgba).map_err(|e| warn!("pipboy: {SCANLINES}: {e}")).ok()?;
-                image.asset_usage = bevy::asset::RenderAssetUsages::default();
-                image.sampler = bevy::image::ImageSampler::linear();
-                Some(images.add(image))
-            });
         }
     }
 
@@ -130,13 +166,14 @@ pub struct Ctx<'a> {
     pub data: Option<&'a GameData>,
     pub images: &'a mut Assets<Image>,
     pub bc: bool,
+    pub glyphs: &'a crate::pad::PadGlyphs,
 }
 
 impl<'a> Ctx<'a> {
-    pub fn new(kit: &'a mut Kit, data: Option<&'a GameData>, images: &'a mut Assets<Image>, formats: Option<&CompressedImageFormatSupport>) -> Ctx<'a> {
+    pub fn new(kit: &'a mut Kit, data: Option<&'a GameData>, images: &'a mut Assets<Image>, formats: Option<&CompressedImageFormatSupport>, glyphs: &'a crate::pad::PadGlyphs) -> Ctx<'a> {
         let bc = crate::interface::bc_supported(formats);
         kit.load(data, images, bc);
-        Ctx { kit, data, images, bc }
+        Ctx { kit, data, images, bc, glyphs }
     }
 
     pub fn picture(&mut self, path: &str) -> Option<Picture> {
@@ -200,9 +237,46 @@ impl<'a> Ctx<'a> {
     /// Draw one line of `s` whose top is at `top`; returns its width.
     #[allow(clippy::too_many_arguments)]
     pub fn text(&mut self, p: &mut ChildSpawnerCommands, font: usize, s: &str, x: f32, top: f32, align: Align, color: Color) -> f32 {
-        let line = self.first_line(font, s);
-        self.set(p, font, &line, x, top, align, color);
-        line.width
+        let face = self.kit.face(font);
+        let width = crate::pad::hint_width(face, s, self.glyphs);
+        let x = match align {
+            Align::Left => x,
+            Align::Right => x - width,
+            Align::Centre => x - width / 2.0,
+        };
+        crate::pad::set_hint(p, face, s, x, top + base(&face.font), color, self.glyphs);
+        width
+    }
+
+    /// Draw `hints` as a column ([`HINT_PITCH`], [`hint_words_right`]) in font 2: the
+    /// words end at `words_right` (canvas units), the first row's text top at `top`, the
+    /// keys reaching at most [`HINT_KEY_ROOM`] past the menus' rectangle. Returns each
+    /// row's drawn rectangle (word and key), for its click area.
+    pub fn hint_column(&mut self, p: &mut ChildSpawnerCommands, hints: &[Hint], words_right: f32, top: f32) -> Vec<Rect> {
+        let rects = self.hint_column_rects(hints, words_right, top);
+        for (h, r) in hints.iter().zip(&rects) {
+            self.text(p, 2, &h.text(), r.min.x, r.min.y, Align::Left, h.color());
+        }
+        rects
+    }
+
+    /// Where [`Ctx::hint_column`] draws each row (word and key), without drawing: for a
+    /// page that needs its rows' places before it draws (the DATA page's click areas).
+    pub fn hint_column_rects(&self, hints: &[Hint], words_right: f32, top: f32) -> Vec<Rect> {
+        let face = self.kit.face(2);
+        let height = face.font.size;
+        // The drawn widths, not the text's: a hint that names a button draws its picture.
+        let widths: Vec<(f32, f32)> =
+            hints.iter().map(|h| (crate::pad::hint_width(face, h.word, self.glyphs), crate::pad::hint_width(face, &h.text(), self.glyphs))).collect();
+        let right = hint_words_right(words_right, MAIN.max.x + HINT_KEY_ROOM, widths.iter().map(|(word, all)| all - word));
+        widths
+            .into_iter()
+            .enumerate()
+            .map(|(k, (word, all))| {
+                let (x, y) = (right - word, top + HINT_PITCH * k as f32);
+                Rect::new(x, y, x + all, y + height)
+            })
+            .collect()
     }
 
     /// Draw a line already set, its top at `top`.
@@ -260,6 +334,12 @@ pub fn heading(p: &mut ChildSpawnerCommands, c: &mut Ctx, title: &str, cards: &[
     for k in cards {
         card(p, c, x0 + k.x, y0, k.width, &k.title, &k.value);
     }
+}
+
+/// Where the heading's lead line ends: where the line runs on from in the screen menu, which
+/// has no title ([`heading_title`]).
+pub fn lead_line_end() -> f32 {
+    MAIN.min.x + LEAD_LINE
 }
 
 /// A page's title in its heading (font 4, 70 in, on the heading's line); where the line
@@ -413,7 +493,10 @@ fn on_tab_out(out: On<PointerOut>, nodes: Query<&Clickable>, mut pip: ResMut<Pip
 
 /// Show the hover box of the tab under the pointer (none while the Pip-Boy is down).
 pub fn hover_boxes(mut pip: ResMut<PipBoy>, mut boxes: Query<(&TabHoverBox, &mut Visibility)>) {
-    if !pip.open() && pip.hover_tab.is_some() {
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
+    // A page drawn from its tiles has no hand-built tabs for this to be left over from.
+    if (!pip.open() || boxes.is_empty()) && pip.hover_tab.is_some() {
         pip.hover_tab = None;
     }
     for (b, mut v) in &mut boxes {
@@ -425,7 +508,11 @@ pub fn hover_boxes(mut pip: ResMut<PipBoy>, mut boxes: Query<(&TabHoverBox, &mut
 }
 
 /// Rebuild the frame (and with it every page's body) when the Pip-Boy's page or tab
-/// changed, or it came up.
+/// changed, or it came up, or a page went over to its tiles or back. A page drawn from its
+/// file (`crate::tiles::stats_menu::StatsTiles::ready` or
+/// `crate::tiles::inventory_menu::InventoryTiles::ready`, each the one decision) keeps the shell and
+/// the screen menu's header, and has none of the hand-built page: its heading and tab line are
+/// the tiles', once. The device's background and scanlines are `device_screen.rs`'s either way.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
     mut commands: Commands,
@@ -436,10 +523,22 @@ pub fn draw(
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
-    mut shown: Local<Option<(Page, usize, Frame)>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
+    tiles: Option<Res<crate::tiles::stats_menu::StatsTiles>>,
+    inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
+    repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>,
+    map_tiles: Option<Res<crate::tiles::map_menu::MapTiles>>,
+    mut shown: Local<Option<(Page, usize, Frame, bool)>>,
 ) {
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
     let Some(screen) = screen else { return };
-    let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame));
+    let tiled = tiles.is_some_and(|t| t.ready.is_some()) || inventory.is_some_and(|t| t.ready.is_some());
+    // The repair page likewise (`crate::tiles::repair_menu::RepairTiles::ready`).
+    let tiled = tiled || repair_tiles.is_some_and(|t| t.ready.is_some());
+    // The DATA page likewise, on the tabs it draws (`crate::tiles::map_menu::MapTiles::ready`).
+    let tiled = tiled || map_tiles.is_some_and(|t| t.ready.is_some());
+    let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame, tiled));
     if want == *shown && (want.is_none() || !roots.is_empty()) {
         return;
     }
@@ -447,32 +546,28 @@ pub fn draw(
     for e in &roots {
         commands.entity(e).despawn();
     }
-    let Some((page, tab, frame)) = want else { return };
-    // The screen menu is plain, as the barter menu is: no device background, no
-    // scanlines (docs/design/screen-menu.md §2).
+    let Some((page, tab, frame, tiled)) = want else { return };
+    // The screen menu is plain, as the barter menu is: the device's own screen around the
+    // pages is `device_screen.rs`'s, on the device only (docs/design/screen-menu.md §2).
     let device = frame == Frame::Device;
-    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+    let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref(), &glyphs);
     c.kit.screen = !device;
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((PipBoyRoot, root, UiTargetCamera(screen.camera), Name::new("Pip-Boy menus"))).with_children(|r| {
+        // The shell every view of a page keeps: the screen menu's header.
         if !device {
             header(r, &mut c, page);
         }
-        if device && c.image(r, BACKGROUND, at(0.0, 0.0, CANVAS.x, CANVAS.y), amber(BACKGROUND_BRIGHTNESS)).is_none() {
-            r.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(amber(BACKGROUND_BRIGHTNESS).with_alpha(0.1))));
-        }
-        tab_line(r, &mut c, page, tab);
-        r.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), PageBody { page, tab }, Pickable::IGNORE));
-        if let Some(lines) = c.kit.scanlines.clone().filter(|_| device) {
-            let stretch = SCANLINE_PITCH / c.images.get(&lines).map_or(64.0, |i| i.height() as f32);
-            r.spawn((
-                at(0.0, 0.0, CANVAS.x, CANVAS.y),
-                ImageNode { image_mode: NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: stretch }, ..ImageNode::new(lines) },
-                ZIndex(10),
-                Pickable::IGNORE,
-            ));
+        if !tiled {
+            hand_built_page(r, &mut c, page, tab);
         }
     });
+}
+
+/// What a hand-built page has inside the shell: the tab line and the body its module fills.
+fn hand_built_page(r: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page, tab: usize) {
+    tab_line(r, c, page, tab);
+    r.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), PageBody { page, tab }, Pickable::IGNORE));
 }
 
 // ---- The screen menu's header (docs/design/screen-menu.md §3.1) ---------------------
@@ -586,6 +681,19 @@ impl Ctx<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A hint column's words end at the heading's right end while every key fits in the
+    /// room past it (a controller's short keys); a longer key (the keyboard's "Enter)")
+    /// moves the whole column left until it ends at the limit (#1896).
+    #[test]
+    fn a_hint_column_moves_left_only_for_a_key_that_does_not_fit() {
+        let (right, limit) = (MAIN.max.x, MAIN.max.x + HINT_KEY_ROOM);
+        assert_eq!(hint_words_right(right, limit, [30.0, 40.0, HINT_KEY_ROOM]), right);
+        assert_eq!(hint_words_right(right, limit, [40.0, 160.0, 60.0]), limit - 160.0);
+        assert_eq!(hint_words_right(right, limit, []), right);
+        // The row pitch: 0.90 of the item list's 51-high rows, as the original's.
+        assert!((HINT_PITCH / super::super::items::ROW_H - 0.9).abs() < 0.01);
+    }
 
     #[test]
     fn a_dxt1_column_is_read_row_by_row() {

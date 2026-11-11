@@ -256,6 +256,15 @@ class Locks:
         return not pid_alive(pid)
 
     @staticmethod
+    def _unused_shared(p: Path) -> bool:
+        """A slot runners' shared lock with no slot taken (they died between launches, #1933):
+        removed under the slots' mutex, so a slot runner taking a slot now is not cut off;
+        whether it is gone (the caller then takes it with its own `mkdir`)."""
+        from .slots import clear_unused_shared  # slots imports this module
+
+        return clear_unused_shared(p)
+
+    @staticmethod
     def holder(p: Path) -> str:
         """Who holds a lock, as far as the folder tells (no lock is taken by this)."""
         try:
@@ -275,7 +284,7 @@ class Locks:
             try:
                 p.mkdir()
             except FileExistsError:
-                if self._stale(p):
+                if self._stale(p) or self._unused_shared(p):
                     self.say(f"lock {p}: left by a smoke runner that is gone; cleared")
                     shutil.rmtree(p, ignore_errors=True)
                     try:
