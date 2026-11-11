@@ -56,7 +56,8 @@
 //!   skeleton has the gun's node (before 2026-10-24 embedded guns were never fired: the
 //!   sentry bot only struck) [design: which of several; the first equipped or carried].
 //!   Inside its spread: the documented actor
-//!   spread for its weapon skill, standing, plus an aim that settles over
+//!   spread for its weapon skill and its gait ([`shot_gait`]: walking or running as it
+//!   fires widens it, #2125), plus an aim that settles over
 //!   [`SETTLE_SECONDS`] of firing at the same target [design].
 //! - **Aiming down the sights** (owner's playtest list 2026-10-11: "only if the target
 //!   is at a distance; anything less than 20 metres they fire from the hip"): a gun
@@ -178,7 +179,7 @@ use fnv_nav::Space;
 use nvf_play::Location;
 use crate::idles::ActorIdle;
 use crate::limbs::ActorRig;
-use crate::locomotion::{Dying, Flinch};
+use crate::locomotion::{Dying, Flinch, Locomotion};
 use crate::ragdoll::Corpse;
 use crate::body_weapons::{BodyMelee, BodyWeapon};
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
@@ -1160,6 +1161,50 @@ pub fn engage(arm_reach: Option<f32>, gun: Option<GunReach>) -> (f32, f32) {
     }
 }
 
+/// How an NPC moves as it fires, for its shot's spread: [`Stance::moving`] and
+/// [`Stance::running`] (docs/design/combat-ai.md, aiming down the sights).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ShotGait {
+    pub moving: bool,
+    pub running: bool,
+}
+
+/// The shooter's gait from its locomotion this frame [design]: its velocity (the actor's
+/// axes and own scale, units per second, `Locomotion::velocity`), its clips' pace
+/// (`Locomotion::pace`) and the move its clips play (`Locomotion::blend`). Moving, in
+/// any direction, while the velocity at the clips' pace is at least the speed a walk
+/// clip starts at (`fnv_actor::locomotion::STAND_SPEED`, as `choose` judges it); running
+/// while the move playing is a run clip, the walk/run choice its own clips make (so a
+/// small actor running slowly in world units still runs, and a fast creature at its
+/// walk still walks; no fixed speed cut-off). A velocity of nought is standing, even
+/// while the last walk clip still plays; no locomotion is standing too.
+pub(crate) fn shot_gait(locomotion: Option<([f32; 2], f32, fnv_actor::locomotion::Move)>) -> ShotGait {
+    use fnv_actor::locomotion::{Move as Clip, STAND_SPEED};
+    let Some((v, pace, mv)) = locomotion else { return ShotGait::default() };
+    let pace = if pace > 0.0 { pace } else { 1.0 };
+    let moving = v[0].hypot(v[1]) / pace >= STAND_SPEED;
+    let running = moving && matches!(mv, Clip::FastForward | Clip::FastBackward | Clip::FastLeft | Clip::FastRight);
+    ShotGait { moving, running }
+}
+
+/// An NPC shot's stance for the actor spread: the player's formula (`fnv_combat::spread`)
+/// with its sights, crouch (no standing term, §14.2), gait ([`shot_gait`]), weapon skill,
+/// Strength and crippled left arm, right arm and head; never in the air, no spread perks
+/// [design: NPCs keep the player's formula].
+pub(crate) fn shot_stance(aiming: bool, crouched: bool, gait: ShotGait, skill: f32, strength: f32, [left_arm_crippled, right_arm_crippled, head_crippled]: [bool; 3]) -> Stance {
+    Stance { aiming, moving: gait.moving, running: gait.running, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, strength_req_cut: 0.0, left_arm_crippled, right_arm_crippled, head_crippled }
+}
+
+/// An NPC shot's actor spread for its stance ([`shot_stance`]), spread units; none under
+/// SetNoGunWobble (`fnv_game::nvse_jip14`, `wobble_off`).
+pub(crate) fn shot_spread(r: &fnv_combat::tuning::Rules, t: &fnv_combat::tuning::CombatTuning, ws: &WeaponStats, st: &Stance, wobble_off: bool) -> f32 {
+    if wobble_off {
+        0.0
+    } else {
+        spread::actor_spread(r, t, ws, st)
+    }
+}
+
 /// The extra spread of an actor that has fired at its target for `firing` seconds.
 pub fn settling(firing: f32) -> f32 {
     SETTLE_DEGREES * (1.0 - firing / SETTLE_SECONDS).clamp(0.0, 1.0)
@@ -1180,7 +1225,7 @@ pub(crate) fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
 /// The navmesh, the player's place, the battle's counts, and who the AI moves.
 type Where<'w> = (Option<Res<'w, NavState>>, Option<Res<'w, Location>>, ResMut<'w, Battle>, Option<Res<'w, crate::residents::Residents>>);
 
-type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>, Option<&'w ActorIdle>);
+type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>, Option<&'w ActorIdle>, Option<&'w Locomotion>);
 
 /// The share of its running speed a fighter keeps (`Awarenesses::pace`, read by the AI
 /// that moves it): a two-handed weapon drawn costs `fMove2HBigPenalty` of it (item 61).
@@ -1340,7 +1385,7 @@ pub(crate) fn fight(
                 anims.write(PlayAttack { actor: b.blocker.0, weapon: weapons.get(&b.blocker.0).copied(), melee: true, sights: false, kind: Move::BlockHit, power: None, swing: None });
             }
         }
-        for (rig, global, _, hold, _, _, flinch, idle) in &actors {
+        for (rig, global, _, hold, _, _, flinch, idle, loco) in &actors {
             let id = rig.reference;
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
@@ -2583,10 +2628,10 @@ pub(crate) fn fight(
                                 // crippled-limbs.md §3].
                                 use fnv_game::combat::{HEAD, LEFT_ARM, RIGHT_ARM};
                                 let (left_arm_crippled, right_arm_crippled, head_crippled) = (g.is_crippled(me, LEFT_ARM), g.is_crippled(me, RIGHT_ARM), g.is_crippled(me, HEAD));
-                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, strength_req_cut: 0.0, left_arm_crippled, right_arm_crippled, head_crippled };
-                                // SetNoGunWobble (`fnv_game::nvse_jip14`): no actor spread.
-                                let wobble = if g.gun_wobble_off(me) { 0.0 } else { 1.0 };
-                                let actor_spread = spread::actor_spread(&c.rules, &c.tuning, ws, &st) * wobble;
+                                // Walking or running as it fires widens it as the player's (#2125).
+                                let gait = shot_gait(loco.map(|l| (l.velocity, l.pace, l.blend.cur.mv)));
+                                let st = shot_stance(fighter.sights, crouched, gait, skill, strength, [left_arm_crippled, right_arm_crippled, head_crippled]);
+                                let actor_spread = shot_spread(&c.rules, &c.tuning, ws, &st, g.gun_wobble_off(me));
                                 g.other.jg9.spreads.insert(me, actor_spread);
                                 let cone = spread::cone_deg(actor_spread, 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
@@ -3460,5 +3505,66 @@ mod tests {
         assert_eq!(settling(0.0), SETTLE_DEGREES);
         assert!((settling(SETTLE_SECONDS / 2.0) - SETTLE_DEGREES / 2.0).abs() < 1e-5);
         assert_eq!(settling(10.0), 0.0);
+    }
+
+    /// The actor spread of an NPC shot moving so (#2125), the weapon, skill, Strength,
+    /// sights and limbs held.
+    fn moving_spread(locomotion: Option<([f32; 2], f32, fnv_actor::locomotion::Move)>, aiming: bool, limbs: [bool; 3], wobble_off: bool) -> f32 {
+        let (r, t) = (fnv_combat::tuning::Rules::defaults(), fnv_combat::tuning::CombatTuning::default());
+        let ws = WeaponStats::default();
+        let st = shot_stance(aiming, false, shot_gait(locomotion), 50.0, 5.0, limbs);
+        shot_spread(&r, &t, &ws, &st, wobble_off)
+    }
+
+    #[test]
+    fn an_npc_walking_or_running_as_it_fires_has_the_players_moving_spread() {
+        use fnv_actor::locomotion::Move as Clip;
+        let r = fnv_combat::tuning::Rules::defaults();
+        // The skill's share of the sum (skill 50).
+        let share = 1.0 - r.wobble_to_skill * 0.5;
+        let (walk, run) = (share * r.spread_walking, share * r.spread_running);
+        assert!(walk > 0.0 && run > walk);
+        for aiming in [false, true] {
+            for limbs in [[false; 3], [true, false, true]] {
+                let spread = |lo| moving_spread(lo, aiming, limbs, false);
+                let standing = spread(Some(([0.0; 2], 1.0, Clip::Idle)));
+                let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+                // No locomotion, a creep below a step, or a stop this frame while the run
+                // clip still plays: standing.
+                assert!(near(spread(None), standing));
+                assert!(near(spread(Some(([0.0, 3.0], 1.0, Clip::Forward))), standing));
+                assert!(near(spread(Some(([0.0, 8.0], 2.0, Clip::Forward))), standing), "a step judged at the clips' pace");
+                assert!(near(spread(Some(([0.0; 2], 1.0, Clip::FastForward))), standing), "stopped at the frame boundary");
+                // Walking, forward, backward and sideways.
+                for (v, mv) in [([0.0, 120.0], Clip::Forward), ([0.0, -110.0], Clip::Backward), ([150.0, 0.0], Clip::Right), ([-90.0, 40.0], Clip::Left)] {
+                    assert!(near(spread(Some((v, 1.0, mv))) - standing, walk), "walking {v:?} {mv:?}");
+                }
+                // Running, forward, backward and sideways.
+                for (v, mv) in [([0.0, 380.0], Clip::FastForward), ([0.0, -300.0], Clip::FastBackward), ([360.0, 0.0], Clip::FastRight), ([-340.0, -20.0], Clip::FastLeft)] {
+                    assert!(near(spread(Some((v, 1.0, mv))) - standing, run), "running {v:?} {mv:?}");
+                }
+                // A slow runner (a creature whose clips play at 0.4, slower in world units
+                // than any fixed running cut-off) runs; a fast creature at its walk walks.
+                assert!(near(spread(Some(([0.0, 100.0], 0.4, Clip::FastForward))) - standing, run));
+                assert!(near(spread(Some(([0.0, 600.0], 2.5, Clip::Forward))) - standing, walk));
+                // The run clip playing while it is still is no run; a walk clip at speed
+                // (a set with no run clip) is a walk.
+                assert!(near(spread(Some(([0.0, 500.0], 1.0, Clip::Idle))) - standing, walk));
+                assert!(near(spread(Some(([0.0, 2.0], 1.0, Clip::FastForward))), standing));
+                // SetNoGunWobble: no actor spread whatever the gait.
+                assert_eq!(moving_spread(Some(([0.0, 380.0], 1.0, Clip::FastForward)), aiming, limbs, true), 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn an_npc_shot_stance_keeps_its_sights_crouch_and_limbs() {
+        let gait = shot_gait(Some(([0.0, 120.0], 1.0, fnv_actor::locomotion::Move::Forward)));
+        assert_eq!(gait, ShotGait { moving: true, running: false });
+        let st = shot_stance(true, true, gait, 62.0, 7.0, [true, false, true]);
+        assert!(st.aiming && st.sneaking && st.moving && !st.running && !st.airborne);
+        assert!(st.left_arm_crippled && !st.right_arm_crippled && st.head_crippled);
+        assert_eq!((st.skill, st.strength, st.aiming_move_divisor, st.strength_req_cut), (62.0, 7.0, 1.0, 0.0));
+        assert_eq!(shot_gait(None), ShotGait::default());
     }
 }
