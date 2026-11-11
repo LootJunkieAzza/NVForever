@@ -67,6 +67,9 @@ pub struct Mines {
     /// The weapons that are mines (their projectile is one).
     items: HashSet<FormId>,
     placed: Vec<FormId>,
+    /// Mines to set off at once (a failed disarm under the player's Disarm Requires
+    /// Skill tweak) [design: docs/design/tweaks.md].
+    pub set_off: Vec<FormId>,
     rules: MineRules,
     /// Mines whose fuse burns.
     burning: HashMap<FormId, Burning>,
@@ -126,6 +129,10 @@ pub(crate) fn tick(
 ) {
     let dt = time.delta_secs();
     let m = &mut *mines;
+    for id in std::mem::take(&mut m.set_off) {
+        info!("mines: mine {id} set off by a failed disarm (tweak)");
+        m.burning.insert(id, Burning { fuse: Fuse::new(0.0) });
+    }
     if m.kinds.is_none() {
         let kinds: HashSet<FormId> = c.forms.projectiles.iter().filter(|(_, p)| is_mine(p)).map(|(&id, _)| id).collect();
         m.placed = sim.refs.refs.values().filter(|r| &r.sig == b"PGRE" && kinds.contains(&r.base)).map(|r| r.id).collect();

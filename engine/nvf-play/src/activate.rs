@@ -536,6 +536,7 @@ pub(crate) fn activate(
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
+    (mut mines, mut disarm_rolls): (Option<ResMut<crate::mines::Mines>>, Local<u64>),
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
@@ -620,6 +621,36 @@ pub(crate) fn activate(
     if t.action == Action::Inaccessible {
         info!("activate 0x{:08X} {}: nothing to do (an inaccessible door)", t.form_id, t.name);
         return;
+    }
+    // The player's tweak: a mine's disarm is a roll on the player's skill against the
+    // mine's skill requirement, and a failed one may set it off [design: docs/design/tweaks.md].
+    if t.action == Action::Disarm {
+        let item = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).and_then(|b| match b.data {
+            BaseData::Projectile { item, .. } => item,
+            _ => None,
+        });
+        let chances = item.zip(script.as_deref_mut().and_then(|s| s.rt.as_mut())).and_then(|(item, rt)| crate::script::with_world(rt, &mut sim, |rt| rt.game.disarm_chances(item)));
+        if let Some((disarm, explode)) = chances {
+            let mut roll = || {
+                *disarm_rolls = disarm_rolls.wrapping_add(0x9E37_79B9_7F4A_7C15 ^ u64::from(t.form_id));
+                let mut z = *disarm_rolls;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64 * 100.0
+            };
+            if roll() >= disarm {
+                if roll() < explode {
+                    info!("activate 0x{:08X} {}: the disarm fails and sets it off ({disarm:.0} % to disarm, {explode:.0} % to go off; tweak)", t.form_id, t.name);
+                    if let Some(m) = mines.as_mut() {
+                        m.set_off.push(FormId(t.form_id));
+                    }
+                } else {
+                    info!("activate 0x{:08X} {}: the disarm fails ({disarm:.0} % to disarm; tweak)", t.form_id, t.name);
+                    hud.show(crate::tweaks::DISARM_FAILED_LINE.to_string());
+                }
+                return;
+            }
+        }
     }
     // The actor's place before, to put back if a teleport cannot be followed.
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));

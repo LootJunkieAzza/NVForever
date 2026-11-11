@@ -488,6 +488,11 @@ pub struct Tweaks {
     /// `bLocationalMeleeDamage`/`bNonPlayerAttacks`: an NPC's blow on the player takes
     /// the struck part's damage multiplier.
     pub npc_melee_part_damage: bool,
+    /// `bDisarmRequiresSkill`: disarming a mine is a roll, and a failed one may set it
+    /// off; the multipliers of the two chances.
+    pub disarm_needs_skill: bool,
+    pub disarm_mult: f64,
+    pub disarm_explode_mult: f64,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -509,6 +514,34 @@ impl crate::game::Game<'_> {
     pub fn wears_power_armor(&self, r: fnv_sim::FormId) -> bool {
         use fnv_sim::forms::ItemKind;
         self.world.equipment(r).unwrap_or_default().into_iter().filter_map(|i| self.world.forms.item(i)).any(|it| it.kind == ItemKind::Armor && it.power_armor && it.slots.is_some_and(|s| s & crate::detection::UPPER_BODY != 0))
+    }
+
+    /// The player's Disarm Requires Skill tweak: the chances (percent) that the player
+    /// disarms the mine whose item is `weapon`, and that a failed try sets it off: the
+    /// player's skill (the weapon's, Explosives for the masters' mines) and Perception
+    /// against the weapon's skill requirement, the explosion by how far short the skill
+    /// is and by Luck, each times its multiplier; `None` without the tweak or with no
+    /// requirement [design: docs/design/tweaks.md].
+    pub fn disarm_chances(&mut self, weapon: fnv_sim::FormId) -> Option<(f64, f64)> {
+        use crate::actor_values::{LUCK, PERCEPTION};
+        use fnv_script::vm::XVal;
+        if !self.tweaks.disarm_needs_skill {
+            return None;
+        }
+        let field = |g: &Self, path: &str| match crate::nvse::record_value(g, weapon, "DNAM", path) {
+            Some(XVal::Num(x)) => x,
+            _ => 0.0,
+        };
+        let (required, skill) = (field(self, "skill_req"), field(self, "skill") as u16);
+        if required <= 0.0 || skill == 0 {
+            return None;
+        }
+        let player = fnv_sim::FormId::PLAYER_REF;
+        let mut av = |code: u16| crate::functions::actor::actor_value(self, player, code).unwrap_or(0.0);
+        let (have, perception, luck) = (av(skill), av(PERCEPTION), av(LUCK));
+        let disarm = (self.tweaks.disarm_mult * (have + perception - 5.0) * 100.0 / required).clamp(0.0, 100.0);
+        let explode = (self.tweaks.disarm_explode_mult * (required - have + (5.0 - luck)) * 2.0).clamp(0.0, 100.0);
+        Some((disarm, explode))
     }
 
     /// The player's Weapon Requirements Matter tweak: why the player may not equip
@@ -732,6 +765,9 @@ impl Default for Tweaks {
             hack_dud_when_full: false,
             hack_spare_guessed: false,
             npc_melee_part_damage: false,
+            disarm_needs_skill: false,
+            disarm_mult: 1.0,
+            disarm_explode_mult: 1.0,
         }
     }
 }

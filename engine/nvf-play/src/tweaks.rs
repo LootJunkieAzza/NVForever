@@ -1618,6 +1618,9 @@ impl Plugin for TweaksPlugin {
         amount!(app, "over-run-ap", "Overencumbered Running AP", "Action Points running costs each second while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 20.0, f32, over_run_ap);
         amount!(app, "over-jump-ap", "Overencumbered Jump AP", "Action Points a jump costs while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 50.0, f32, over_jump_ap);
         switch!(app, "npc-melee-part-damage", "Enemy Blows Hit Where They Land", "A melee or unarmed blow on you is multiplied by the body part it lands on (more on the head), as your own blows are. (Stewie's Tweaks bLocationalMeleeDamage)", game.npc_melee_part_damage);
+        switch!(app, "disarm-needs-skill", "Disarming Needs Skill", "Disarming a mine can fail, the more likely the further your Explosives and Perception fall short of what it asks; a failed try may set it off, less likely with more Luck. (Stewie's Tweaks bDisarmRequiresSkill)", game.disarm_needs_skill);
+        amount!(app, "disarm-mult", "Disarm Chance Multiplier", "Multiplies the chance to disarm a mine (Disarming Needs Skill); 1 as the formula gives it. (Stewie's Tweaks bDisarmRequiresSkill)", 3.0, f64, game.disarm_mult);
+        amount!(app, "disarm-explode-mult", "Set-Off Chance Multiplier", "Multiplies the chance that a failed disarm sets the mine off (Disarming Needs Skill); 0 never. (Stewie's Tweaks bDisarmRequiresSkill)", 3.0, f64, game.disarm_explode_mult);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1865,6 +1868,10 @@ pub const NO_PIPBOY_LINE: &str = "The Pip-Boy cannot be used in combat.";
 
 /// What the Pip-Boy says when the No Healing In Combat tweak refuses an item (our words).
 pub const NO_HEALING_LINE: &str = "Healing items cannot be used in combat.";
+
+/// The HUD line when a disarm fails and the mine stays armed (the Disarm Requires Skill
+/// tweak) [design: docs/design/tweaks.md].
+pub const DISARM_FAILED_LINE: &str = "The disarm failed; the mine is still armed.";
 
 /// The No Healing In Combat tweak: whether using `item` now is refused, as it restores
 /// health or a limb and something fights the player (`fighting`,
