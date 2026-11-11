@@ -380,7 +380,19 @@ fn read(
     (hotkeys, mut sim, mut used, mut stats): (Res<Hotkeys>, ResMut<SimState>, MessageWriter<ItemUsed>, ResMut<WheelStats>),
     (mut sounds, anim, mut wait): (MessageWriter<UiSound>, Option<Res<crate::combat::WeaponAnim>>, Local<SwapWait>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
 ) {
+    // The player's Weapon Requirements Matter tweak: a slot whose weapon the player may
+    // not equip says why instead [design: docs/design/tweaks.md].
+    let mut unmet = |n: usize, sim: &mut SimState| -> Option<String> {
+        let item = FormId(hotkeys.0.get(n).copied().flatten()?.item);
+        // One already in hand is drawn or put away as ever.
+        if sim.world.inventory_mut(FormId::PLAYER_REF).is_ok_and(|i| i.is_equipped(item)) {
+            return None;
+        }
+        let rt = script.as_deref_mut().and_then(|s| s.rt.as_mut())?;
+        crate::script::with_world(rt, sim, |rt| rt.game.weapon_requirement_unmet(item))
+    };
     // The player's tweak: no weapon hotkeys while reloading [design: docs/design/tweaks.md].
     let reloading_blocks = tweaks.as_ref().is_some_and(|t| t.no_hotkeys_while_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
     let toggle_in_hand = tweaks.as_ref().is_some_and(|t| t.hotkey_toggles_in_hand);
@@ -390,9 +402,12 @@ fn read(
     // whether it has (`crate::combat::WeaponAnim`; no body to time it: at once).
     let away = anim.as_deref().is_none_or(|a| !a.ready && !a.drawing && !a.holstering);
     match wait.step(clock.delta_secs(), control.weapon_out, away) {
-        Some(SwapStep::Equip(n)) => {
-            act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, true, toggle_in_hand, quiet);
-        }
+        Some(SwapStep::Equip(n)) => match unmet(n, &mut sim) {
+            Some(why) => info!("hotkeys: slot {}: refused, {why} (tweak)", n + 1),
+            None => {
+                act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, true, toggle_in_hand, quiet);
+            }
+        },
         Some(SwapStep::CalledOff(n)) => info!("hotkeys: slot {}: the swap called off, the weapon in hand drawn again", n + 1),
         None => {}
     }
@@ -458,7 +473,13 @@ fn read(
                 } else {
                     stats.chosen.push(n);
                 }
-                let line = act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet);
+                let line = match unmet(n, &mut sim) {
+                    Some(why) => {
+                        info!("hotkeys: slot {}: refused, {why} (tweak)", n + 1);
+                        why
+                    }
+                    None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet),
+                };
                 if matches!(o, Outcome::Chose(_)) {
                     info!("weapon wheel: closed: slot {}: {line}", n + 1);
                 }

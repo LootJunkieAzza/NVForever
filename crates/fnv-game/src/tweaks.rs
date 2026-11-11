@@ -475,6 +475,9 @@ pub struct Tweaks {
     /// `bModConsolePrintsIncludeName`: a script's console line starts with its plugin's
     /// name in brackets.
     pub print_plugin_names: bool,
+    /// `bWeaponRequirementsMatter`: the player cannot equip a weapon without its Strength
+    /// and skill requirements.
+    pub weapon_requirements_matter: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -496,6 +499,31 @@ impl crate::game::Game<'_> {
     pub fn wears_power_armor(&self, r: fnv_sim::FormId) -> bool {
         use fnv_sim::forms::ItemKind;
         self.world.equipment(r).unwrap_or_default().into_iter().filter_map(|i| self.world.forms.item(i)).any(|it| it.kind == ItemKind::Armor && it.power_armor && it.slots.is_some_and(|s| s & crate::detection::UPPER_BODY != 0))
+    }
+
+    /// The player's Weapon Requirements Matter tweak: why the player may not equip
+    /// `weapon` (its DNAM Strength or skill requirement above the player's value now), or
+    /// `None` [design: docs/design/tweaks.md].
+    pub fn weapon_requirement_unmet(&mut self, weapon: fnv_sim::FormId) -> Option<String> {
+        use fnv_script::vm::XVal;
+        use fnv_sim::forms::ItemKind;
+        if !self.tweaks.weapon_requirements_matter || self.world.forms.item(weapon).map(|i| i.kind) != Some(ItemKind::Weapon) {
+            return None;
+        }
+        let field = |g: &Self, path: &str| match crate::nvse::record_value(g, weapon, "DNAM", path) {
+            Some(XVal::Num(x)) => x,
+            _ => 0.0,
+        };
+        let (strength_req, skill_req, skill) = (field(self, "strength_req"), field(self, "skill_req"), field(self, "skill") as u16);
+        let player = fnv_sim::FormId::PLAYER_REF;
+        if strength_req > 0.0 && crate::functions::actor::actor_value(self, player, crate::actor_values::STRENGTH).unwrap_or(0.0) < strength_req {
+            return Some(format!("Needs Strength {strength_req:.0}."));
+        }
+        if skill_req > 0.0 && skill != 0 && crate::functions::actor::actor_value(self, player, skill).unwrap_or(0.0) < skill_req {
+            let name = crate::chargen::skill_name(self, skill);
+            return Some(format!("Needs {name} {skill_req:.0}."));
+        }
+        None
     }
 }
 
@@ -688,6 +716,7 @@ impl Default for Tweaks {
             mark_recurring_challenges: false,
             map_zoom_at_pointer: false,
             print_plugin_names: false,
+            weapon_requirements_matter: false,
         }
     }
 }

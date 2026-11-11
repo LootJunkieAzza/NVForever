@@ -841,6 +841,13 @@ fn apply_input(
                     sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
                     continue;
                 }
+                // The player's tweak: a weapon's requirements must be met [design: docs/design/tweaks.md].
+                if let Some(why) = crate::script::with_world(rt, &mut sim, |rt| rt.game.weapon_requirement_unmet(item)) {
+                    info!("menu: {cmd:?}: refused, {why} (tweak)");
+                    m.status = Some(why);
+                    sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event: crate::ui_sounds::UiEvent::Refused });
+                    continue;
+                }
                 if crate::tweaks::healing_barred(rt, &mut sim, item, fighting) {
                     info!("menu: {cmd:?}: refused, healing in combat (tweak)");
                     m.status = Some(crate::tweaks::NO_HEALING_LINE.into());
