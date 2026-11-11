@@ -1587,6 +1587,7 @@ impl Plugin for TweaksPlugin {
             ),
         );
         switch!(app, "shift-screenshot-hides", "Shift Screenshot Hides the HUD", "Holding Shift as you take a screenshot leaves the HUD, crosshair and messages out of the picture. (Stewie's Tweaks bShiftScreenshotHidesMenus)", shift_screenshot_hides);
+        switch!(app, "print-plugin-names", "Console Lines Name Their Plugin", "A line a script prints to the console starts with the name of the plugin it comes from, in brackets. (Stewie's Tweaks bModConsolePrintsIncludeName)", game.print_plugin_names);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

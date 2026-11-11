@@ -472,6 +472,9 @@ pub struct Tweaks {
     pub mark_recurring_challenges: bool,
     /// `bBetterMapZoom`: the wheel zooms the Pip-Boy's maps about the pointer.
     pub map_zoom_at_pointer: bool,
+    /// `bModConsolePrintsIncludeName`: a script's console line starts with its plugin's
+    /// name in brackets.
+    pub print_plugin_names: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -684,6 +687,7 @@ impl Default for Tweaks {
             no_name_limit: false,
             mark_recurring_challenges: false,
             map_zoom_at_pointer: false,
+            print_plugin_names: false,
         }
     }
 }

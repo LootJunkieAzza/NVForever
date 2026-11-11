@@ -5885,7 +5885,13 @@ impl Host for Exec<'_, '_> {
 
     fn print(&mut self, text: &str) {
         let unit = self.unit.key();
-        self.game.console_out.push(text.to_string());
+        // The player's tweak names the plugin the script is from (the key's first part)
+        // [design: docs/design/tweaks.md].
+        let line = match unit.split_once('|').filter(|_| self.game.tweaks.print_plugin_names) {
+            Some((plugin, _)) => format!("[{plugin}] {text}"),
+            None => text.to_string(),
+        };
+        self.game.console_out.push(line);
         self.game.emit(EventKind::ScriptPrint { unit, text: text.to_string() });
     }
 

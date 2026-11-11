@@ -545,6 +545,7 @@ unless the player binds them, so nothing changes until then.
 | Console Homes | `bAddSetHomeCommand` | `console::typing` takes `sethome`, `home`, `back` and `delhome` (an optional name, "home" without one) while `Console::homes_on`; the homes are travels kept for the session, not saved |
 | Screenshot Key | `iScreenshotKey` | nvforever `keys` takes the picture on `tweaks::screenshot_key`: F12, Print Screen, F11, Scroll Lock or Pause (`SCREENSHOT_KEYS`, keys nothing else takes) |
 | Shift Screenshot Hides the HUD | `bShiftScreenshotHidesMenus` | with Shift held, nvforever `keys` sets `MenusHidden` (what `tm` sets), takes the picture three frames later and puts it back after six; an open menu stays in the picture |
+| Console Lines Name Their Plugin | `bModConsolePrintsIncludeName` | the script runner's `print` puts `[plugin]` (the unit key's first part) before the line; the base game's scripts too |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -566,8 +567,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 471 |
-| to do | 132 |
+| done | 472 |
+| to do | 131 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1157,6 +1158,7 @@ game's Data folder, read-only).
 | `bConsolePrintsIncludeTimestamp` | done | yes | 1 | Console Times (time since the game started; a wall-clock format would need a date crate) |
 | `bConsoleTextShadow` | done | yes |  | Console Text Shadow (our shade and offset) |
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
+| `bModConsolePrintsIncludeName` | done | yes | 1 | Console Lines Name Their Plugin (no script ID option) |
 | `bMoreResponsiveControllerAiming` | done | yes |  | More Responsive Controller Aiming (straight curve past the dead zone, ours) |
 | `bNoInteriorBlackLoadingScreen` | done | yes | 1 | already so: an interior's loading screen shows its picture, never a black one |
 | `bNoPlayerNameLimit` | done | yes |  | No Name Length Limit (256 characters) |
@@ -1215,7 +1217,6 @@ game's Data folder, read-only).
 | `bDontAllowConsoleTillLoadingIsDone` | n/a | yes |  | the original's start-up order |
 | `bHeatbeatSoundsFade` | to do | yes | 2 | NVForever plays no heartbeat yet |
 | `bImprovedWeather` | to do | yes | 1 | the renderer does not know a fast travel happened |
-| `bModConsolePrintsIncludeName` | to do | yes | 1 | console print does not know which plugin printed |
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
 | `bNoDespawnVisibleStuckProjectiles` | to do | yes |  | projectiles do not stick in NVForever yet |
 | `bPartialReloads` | unsure, skipped | yes |  | depends on animation file naming conventions not yet checked |
