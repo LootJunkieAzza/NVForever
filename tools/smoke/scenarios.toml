@@ -25255,3 +25255,21 @@ expect = [
   { re = 'idle: VHeliosStasisProtectron[25]REF plays ProtectronTurnedOff', max = 0, label = "not the switched-off pose: they are awake (GetUnconscious 0 in the original)" },
   { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
 ]
+
+[[scenario]]
+name = "armwrestle-solo"
+source = "Queue item 199 part A: the arm-wrestling table placed in the Prospector Saloon's back hall (a Table02 and two Stool01L, made once and found again), the player sits on stool 0, a stranger is seated on the other, the test aid taps 9 a second against the NPC's about 6, the bout is won, the Strength highlight shows, both get up and the end view plays"
+areas = ["minigames", "furniture"]
+paths = ["crates/fnv-game/src/armwrestle.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvforever/src/armwrestle_world.rs", "engine/nvforever/src/match_end.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/flourish.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "2:266:215:3500", NVF_PLAY_TEST_LOOK = "3:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "4:armwrestle_table.png,8:armwrestle_card.png,12:armwrestle_countdown.png,17:armwrestle_bout.png,23:armwrestle_result.png,28:armwrestle_end.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'arm wrestle: the table (placed|found) in GSProspectorSaloonInterior \(\d made\)', label = "the table and stools are in the saloon" },
+  "arm wrestle: seated on stool 0",
+  { re = 'arm wrestle opponent: [0-9A-F]{8} seated on [0-9A-F]{8}', label = "the stranger is seated on the other stool" },
+  { re = 'arm wrestle: won after (?P<s>[\d.]+)s', range = [3, 30], label = "the bout is won by tapping 9 a second (3-30 s)" },
+  "flourish: ArmWrestle",
+  "match end: arm wrestling at",
+  "arm wrestle: up; closed",
+]

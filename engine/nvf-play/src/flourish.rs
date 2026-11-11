@@ -8,7 +8,8 @@
 //!   - bullseye (Sniper): the picture pops in and kicks back as the dart lands;
 //!   - triple (Splash Damage): three quick pulses, each with a ring;
 //!   - pool, several balls down (the very happy face): rolls in from the side and lands;
-//!   - a hand won (the Luck Implant's cards): the picture hops twice.
+//!   - a hand won (the Luck Implant's cards): the picture hops twice;
+//!   - an arm-wrestling bout won (Strength, item 199): slams down and jolts.
 //!
 //!   Which picture for which moment: the owner's picks, 2026-11-09.
 //! - **The pictures**: first the owner's own (`interface\icons\nvforever\highlight_*.dds`,
@@ -18,7 +19,8 @@
 //! - **Which moments** [owner 2026-11-08]:
 //!   - darts: a bullseye, a triple;
 //!   - pool: two or more balls down in one shot;
-//!   - blackjack and poker: a hand won.
+//!   - blackjack and poker: a hand won;
+//!   - arm wrestling: a bout won (`crate::armwrestle`, which asks for it itself).
 //! - **Everyone in the match sees and hears it.** No new co-op message is needed. Each
 //!   screen finds the moment in the state it already shows: the darts sides' hits, the
 //!   pool table's balls, the blackjack seats' settled rounds, the poker table's winners.
@@ -64,6 +66,7 @@ pub enum Highlight {
     Triple,
     MultiBall,
     HandWon,
+    ArmWrestle,
 }
 
 impl Highlight {
@@ -74,6 +77,7 @@ impl Highlight {
             Highlight::Triple => &["UIPopUpExperienceUp"],
             Highlight::MultiBall => &["AMBPittCrowdAhh01", "AMBPittCrowdAhh02", "AMBPittCrowdAhh03"],
             Highlight::HandWon => &["AMBCasinoChipsOS"],
+            Highlight::ArmWrestle => &["AMBPittCrowdCheer01", "AMBPittCrowdCheer02", "AMBPittCrowdCheer03"],
         }
     }
 
@@ -84,6 +88,8 @@ impl Highlight {
             Highlight::Triple => [r"interface\icons\nvforever\highlight_triple.dds", r"interface\icons\pipboyimages\perks\perk_splash_damage.dds"],
             Highlight::MultiBall => [r"interface\icons\nvforever\highlight_multiball.dds", r"interface\icons\message icons\glow_message_vaultboy_very_happy.dds"],
             Highlight::HandWon => [r"interface\icons\nvforever\highlight_hand_won.dds", r"interface\icons\pipboyimages\perks\perk_probability_calculator.dds"],
+            // The Strength picture [observed: Fallout - Textures.bsa].
+            Highlight::ArmWrestle => [r"interface\icons\nvforever\highlight_armwrestle.dds", r"interface\icons\pipboyimages\s.p.e.c.i.a.l\special_strength.dds"],
         }
     }
 
@@ -94,6 +100,7 @@ impl Highlight {
             Highlight::Triple => &[IN, IN + PULSE, IN + 2.0 * PULSE],
             Highlight::MultiBall => &[ROLL],
             Highlight::HandWon => &[0.0],
+            Highlight::ArmWrestle => &[IN],
         }
     }
 
@@ -103,6 +110,7 @@ impl Highlight {
             "triple" => Some(Highlight::Triple),
             "multiball" => Some(Highlight::MultiBall),
             "handwon" => Some(Highlight::HandWon),
+            "armwrestle" => Some(Highlight::ArmWrestle),
             _ => None,
         }
     }
@@ -113,6 +121,7 @@ impl Highlight {
             Highlight::Triple => "TRIPLE 20",
             Highlight::MultiBall => "TRIPLE",
             Highlight::HandWon => "YOU WIN THE HAND",
+            Highlight::ArmWrestle => "YOU WIN",
         }
     }
 }
@@ -205,6 +214,18 @@ pub fn pose(kind: Highlight, age: f32) -> Pose {
             let b = age - ROLL;
             if (0.0..0.3).contains(&b) {
                 dy = -14.0 * (b / 0.3 * PI).sin();
+            }
+        }
+        // Slams down as an arm is forced to the table: in from above, a jolt on landing.
+        Highlight::ArmWrestle => {
+            let r = ease_out(age / IN);
+            scale = 1.0;
+            dy = -120.0 * (1.0 - r);
+            turn = -18.0 * (1.0 - r);
+            if (0.0..0.5).contains(&after) {
+                let k = (-after * 8.0).exp() * (after * 36.0).sin();
+                dy += 10.0 * k;
+                turn += 3.0 * k;
             }
         }
         Highlight::HandWon => {
@@ -550,7 +571,7 @@ mod tests {
 
     #[test]
     fn a_stamp_comes_in_holds_and_goes() {
-        for kind in [Highlight::Bullseye, Highlight::Triple, Highlight::MultiBall, Highlight::HandWon] {
+        for kind in [Highlight::Bullseye, Highlight::Triple, Highlight::MultiBall, Highlight::HandWon, Highlight::ArmWrestle] {
             assert_eq!(pose(kind, 0.0).alpha, 0.0);
             let held = pose(kind, IN + 1.0);
             assert_eq!((held.alpha, held.scale, held.turn, held.rule), (1.0, 1.0, 0.0, 1.0), "{kind:?}");
