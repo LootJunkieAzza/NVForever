@@ -11805,6 +11805,87 @@ forbid = [
 ]
 
 [[scenario]]
+name = "vats-kill-cam-slowed-60"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion slows the ragdoll and the gore until it ends, at every physics rate: nothing stands still, rests or jumps before it is over (engine/nvf-play/src/kill_cam.rs `TargetMoved`, engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam's setup at the default 60 Hz. The kill camera logs how its target's drawn place moved over the camera (its path, the most in one frame, the frames it stood still while its ragdoll was awake) and in the frame after it. Under the slowed clock the step is never shorter than 1/240 s (`SHORTEST_STEP`): shorter ones left slow bodies standing still far from the worldspace's origin. The ranges are wide against a jump or a freeze, not tuned to one run: which camera path plays varies"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "engine/nvforever/src/wrecks.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at 60 Hz)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at 60 Hz)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at 60 Hz)" },
+]]
+expect = [
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at 60 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at 60 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at 60 Hz)" },
+  { re = '(?P<n>\d+) frames it stood still with its ragdoll awake', range = [0, 20], label = "and never stands still while its ragdoll is awake (at 60 Hz)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at 60 Hz)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 60 Hz)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at 60 Hz)" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-slowed-152"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 152 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam-slowed-60 at 152 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/152 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms)"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "152"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at 152 Hz)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at 152 Hz)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at 152 Hz)" },
+]]
+expect = [
+  { re = 'phys: physics rate 152 Hz \(--physics-hz 152\)', count = 1, label = "at 152 Hz" },
+  { re = 'phys: the clock is back at full speed: the step is [\d.]+ ms again \(the clock was at 0\.\d+ at its slowest, the step 4\.17 ms', min = 1, label = "the slowed step is held at 1/240 s (at 152 Hz)" },
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at 152 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at 152 Hz)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at 152 Hz)" },
+  { re = '(?P<n>\d+) frames it stood still with its ragdoll awake', range = [0, 20], label = "and never stands still while its ragdoll is awake (at 152 Hz)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at 152 Hz)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 152 Hz)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at 152 Hz)" },
+]
+
+[[scenario]]
+name = "vats-kill-cam-slowed-display"
+source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion with --physics-hz display (the display's frame rate) slows the ragdoll and the gore until it ends (docs/spec-notes/physics.md §5.4)"
+note = "vats-kill-cam-slowed-60 with Match display: the rate is the machine's (60 to 240), so the step's length under the camera is not checked, only that the corpse moves, never jumps and nothing reacts to the slow motion"
+areas = ["combat", "vats", "physics"]
+paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/frame_pace.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "display"]
+run_seconds = 28
+order = [[
+  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at Match display)" },
+  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at Match display)" },
+  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at Match display)" },
+]]
+expect = [
+  { re = 'phys: physics rate \d+ Hz( -> \d+ Hz)? \(--physics-hz display, Match display: the display.s \d+ fps\)', min = 1, label = "Match display found the display's frame rate (at Match display)" },
+  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at Match display)" },
+  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at Match display)" },
+  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at Match display)" },
+  { re = '(?P<n>\d+) frames it stood still with its ragdoll awake', range = [0, 20], label = "and never stands still while its ragdoll is awake (at Match display)" },
+  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at Match display)" },
+]
+forbid = [
+  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at Match display)" },
+  { text = "kill camera: skipped", label = "another enemy still fights the player (at Match display)" },
+]
+
+[[scenario]]
 name = "vats-kill-cam-others-fighting"
 source = "owner's playtest request #1035: the VATS kill camera plays only when no other enemy is in combat with the player (engine/nvf-play/src/kill_cam.rs, docs/design/vats-mode.md §19)"
 note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's. A third Fiend dog (0x0013F85F, 1282 units off, out of sight) is killed at 3 s too: it heard the shot and entered combat within 10 to 80 ms of it, before or after the camera's check some 16 ms after the shot, so the line read 1 or 2 enemies by the frame's timing (2 of 4 runs alone failed, 2026-11-10). Which of the two dogs is nearer the crosshair at the click varies with where they have wandered (2026-11-11: Violetta was marked and the check named the other dog), so the view is turned to the Fiend Guard Dog itself (aimref=000F573F) and not to the nearest unmarked actor (aimvats)"
