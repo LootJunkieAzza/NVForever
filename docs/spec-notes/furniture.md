@@ -374,7 +374,7 @@ game]:
   never the inside of the body or the mattress. Before the view was adapted the picture
   lying down was the mattress or the inside of the body, in both modes.
 
-**Furniture the game created** [design: queue item 199]: the arm-wrestling stools
+**Furniture the game created** [design: queue item 199]: the arm-wrestling chairs
 (`fnv_game::armwrestle_table`) are references the game makes, not placed in the plugins.
 `nvforever` furniture.rs plans a use of one from the simulation's state of it (base,
 position, angles, scale) when the plugins have no placement for it (`placed_at`); the

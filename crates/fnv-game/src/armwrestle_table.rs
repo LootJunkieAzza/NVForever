@@ -3,29 +3,44 @@
 //! 2026-11-10; the original game has no arm wrestling]; the bout itself is
 //! `crate::armwrestle`.
 //!
-//! - **The furniture** ([`ensure`]): a table and two stools, references the game creates
-//!   (`fnv_sim::World::place`), not ones moved from the plugins, laid out as the saloon's
-//!   own two-stool table: Table02 (STAT) at scale 1.2 with a Stool01L (FURN) 84 units
-//!   either side along its x axis, 12 lower, each facing it [observed: FalloutNV.esm
-//!   0x00107D1A, 0x00107CED, 0x00107D82 in GSProspectorSaloonInterior]. They are made
-//!   when the saloon loads and they are not there; a save keeps them like any created
-//!   reference. They are made under fixed numbers ([`REFS`]), the same in every game, so
-//!   that in co-op the host's and each guest's table are one reference: the furniture a
-//!   player or the opponent sits on is named alike on every screen (`fnv_sim` numbers a
-//!   guest's own created references apart from the host's) [design: armwrestle-b].
+//! - **The furniture** ([`ensure`]): a table and two chairs, references the game creates
+//!   (`fnv_sim::World::place`), not ones moved from the plugins, laid out as the game
+//!   seats two people facing each other at a diner table: `dinertable01NV` (STAT, 116 by
+//!   56, top 55 above the floor) with a `Chair01TableR` and a `Chair01TableL` (FURN)
+//!   across its narrow side, 59 units from its centre, 26 above the floor it stands on,
+//!   each facing it [observed: FalloutNV.esm, the game's own pairs of that table and
+//!   chair, e.g. in cell 0x00130B8C a Chair01TableR at (24, -57) of the table facing it
+//!   and a Chair01TableL at (23, 60) turned 175 degrees, both 27 higher than the table;
+//!   cells 0x0010067A and 0x0013E5D2 the same with Chair02, at 55 to 68].
+//!   `dinertable01NV` is the saloon's own diner table (0x001083A6, 0x001083A8). The
+//!   chairs are entered from the side, each enabling one side marker (MNAM 0x40000002
+//!   the right one, 0x40000001 the left [observed]); R on one side and L on the other, as
+//!   the game pairs them, are both entered from the same side of the table, here the open
+//!   hall to its south. The seated body lands on the chair's origin facing the table
+//!   (docs/spec-notes/furniture.md section 4), its chest about a forearm from the table's
+//!   edge. The first layout, Table02 at scale 1.2 with a Stool01L at either long end, sat
+//!   the wrestlers too far apart to reach across, and the stool's sitting pose leans
+//!   into the table's edge (owner's run 5, 2026-11-11). They are made when the saloon
+//!   loads and they are not there; a save keeps them like any created reference. They
+//!   are made under fixed numbers ([`REFS`]), the same in every game, so that in co-op
+//!   the host's and each guest's table are one reference: the furniture a player or the
+//!   opponent sits on is named alike on every screen (`fnv_sim` numbers a guest's own
+//!   created references apart from the host's) [design: armwrestle-b]. The first
+//!   layout's table and stools, in a game saved with them, are taken away
+//!   ([`retire_first_layout`]).
 //! - **The spot** ([`TABLE_POS`]): the east end of the back hall to the restrooms, the
-//!   spot armwrestle-a chose (nvf-play `armwrestle.rs`, the same base, place, headings and
-//!   scale, so whichever side runs first, the other finds its references and none is made
-//!   twice): 46 units clear of every navmesh path between the saloon's doors, furniture,
-//!   people and idle markers [observed by armwrestle-a: `fnvtool nav path`, 2026-11-11],
-//!   and rays along the edges, diagonals and midlines of the table-and-stools footprint
-//!   (230 × 84) at 10, 44 and 84 units above the floor hit nothing [observed: `fnvtool
-//!   phys cell`, 2026-11-11]. The main room has no such spot: none of its 2,169
-//!   footprints that fit the floor is off the navmesh. The table does not cut the
-//!   navmesh: the hall's east end is four large triangles (149994, 149995, 150007,
-//!   150009), which a cut under its bounds takes whole, the floor at both stools with
-//!   them, so the opponent could not reach his stool [observed: armwrestle-b's run 4,
-//!   "the goal cannot be reached (0 triangles searched)"]; no path crosses the spot.
+//!   spot armwrestle-a chose, the table turned so that the chairs sit west and east of it.
+//!   The footprint of table, chairs and their entry points (x 267 to 433, y 236 to 358)
+//!   is clear: rays along its edges, diagonals and midlines at 10, 44 and 84 units above
+//!   the floor hit nothing, the floor under the table and both chairs is at 3456, and the
+//!   navmesh paths between the saloon's doors, its stools, bar, idle markers and the
+//!   settler keep at least 27 units from it, besides the 24 units the paths keep from
+//!   walls [observed: `fnvtool phys cell` and `fnvtool nav path`, 2026-11-11; the back
+//!   door 0x00108BD6 has no path]. The table does not cut the navmesh: the hall's east
+//!   end is four large triangles (149994, 149995, 150007, 150009), which a cut under its
+//!   bounds takes whole, the floor at both seats with them, so the opponent could not
+//!   reach his seat [observed: armwrestle-b's run 4, "the goal cannot be reached (0
+//!   triangles searched)"]; no path crosses the spot.
 //! - **The opponent** ([`OPPONENT`]): the Goodsprings Settler (GSSettlerCM), whose package
 //!   GoodspringsSettlerSaloonPackage (Travel, near the bar stool 0x00106192) keeps him on
 //!   a stool at the bar all day; he sleeps from 22:00 for 8 hours
@@ -42,29 +57,43 @@ use fnv_sim::FormId;
 
 /// GSProspectorSaloonInterior [observed: FalloutNV.esm CELL 0x00106185].
 pub const SALOON_EDID: &str = "GSProspectorSaloonInterior";
-/// Table02, the saloon's oblong table [observed: STAT 0x00015832, OBND ±46 × ±32 × ±24].
-pub const TABLE_EDID: &str = "Table02";
-/// Stool01L, the saloon's stool [observed: FURN 0x000157E5].
-pub const STOOL_EDID: &str = "Stool01L";
+/// The diner table [observed: STAT dinertable01NV, OBND x -58 to 58, y -28 to 28, z 0 to
+/// 55: its origin on the floor].
+pub const TABLE_EDID: &str = "dinertable01NV";
+/// The two chairs, seat 0 and seat 1: the game's pair at that table [observed: FURN
+/// 0x0006F8C3 Chair01TableR, 0x0006F8C2 Chair01TableL].
+pub const SEAT_EDIDS: [&str; 2] = ["Chair01TableR", "Chair01TableL"];
 
-/// The table's centre (game units, the cell's frame), heading and scale [design: the
-/// spot, armwrestle-a's; the height and scale those of the cell's Table02, observed].
-pub const TABLE_POS: [f32; 3] = [350.0, 300.0, 3486.0];
-pub const TABLE_HEADING: f32 = 0.0;
-pub const TABLE_SCALE: f32 = 1.2;
-/// The stools' distance from the table's centre along its x axis [observed: 84 and 82 for
-/// the cell's pair].
-pub const STOOL_OFFSET: f32 = 84.0;
-/// The stools' height [observed: the cell's pair stand at 3474, 12 under the table].
-pub const STOOL_Z: f32 = 3474.0;
-/// The numbers the table and its two stools are made under, in every game [design: in
+/// The floor at the spot [observed: `fnvtool phys cell`, rays down at the table and both
+/// chairs hit 3456].
+pub const FLOOR_Z: f32 = 3456.0;
+/// The table's centre (game units, the cell's frame; its origin is on the floor), heading
+/// and scale [design: the spot, armwrestle-a's; heading pi/2 turns its narrow side to
+/// face west and east].
+pub const TABLE_POS: [f32; 3] = [350.0, 300.0, FLOOR_Z];
+pub const TABLE_HEADING: f32 = std::f32::consts::FRAC_PI_2;
+pub const TABLE_SCALE: f32 = 1.0;
+/// How high the table's top is above its origin [observed: OBND max z 55].
+pub const TABLE_TOP: f32 = 55.0;
+/// The game z of the table's top surface (the clasped hands go above it, over the table's
+/// x and y) [observed: the floor and OBND, scale 1].
+pub const TABLE_TOP_Z: f32 = FLOOR_Z + TABLE_TOP * TABLE_SCALE;
+/// The chairs' distance from the table's centre across its narrow side [observed: 57 and
+/// 60 for the game's Chair01 pairs at this table].
+pub const SEAT_OFFSET: f32 = 59.0;
+/// The chairs' height [observed: 26 and 27 over the table's origin for Chair01 at diner
+/// tables; the chair's markers are 26 under its origin].
+pub const SEAT_Z: f32 = FLOOR_Z + 26.0;
+/// The first layout (Table02 at scale 1.2, a Stool01L at either long end), made by games
+/// before 2026-11-11 14:30: base and place [design: retired, see the module notes].
+const FIRST_LAYOUT: [(&str, [f32; 3]); 3] = [("Table02", [350.0, 300.0, 3486.0]), ("Stool01L", [266.0, 300.0, 3474.0]), ("Stool01L", [434.0, 300.0, 3474.0])];
+/// The numbers the table and its two seats are made under, in every game [design: in
 /// the dynamic range, below a co-op guest's own (from 0xFF800000) and far above any count
 /// the host's game reaches; armwrestle-b]. One already taken (never seen) falls back to
 /// the next free number.
 pub const REFS: [FormId; 3] = [FormId(0xFF7F_A000), FormId(0xFF7F_A001), FormId(0xFF7F_A002)];
 
-/// How near its spot a created reference must be to be the table's (or a stool's): as
-/// nvf-play `armwrestle.rs` finds them [design].
+/// How near its spot a created reference must be to be the table's (or a seat's) [design].
 const SAME_SPOT: f32 = 6.0;
 
 /// The Goodsprings Settler's reference [observed: ACHR 0x00104F08 of NPC_ GSSettlerCM,
@@ -74,24 +103,26 @@ pub const OPPONENT: FormId = FormId(0x0010_4F08);
 /// across) [design].
 pub const OPPONENT_REACH: f32 = 1600.0;
 
-/// The table and its two stools, as created.
+/// The table and its two seats, as created.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArmTable {
     pub table: FormId,
-    /// Seat 0 to the table's west (facing east), seat 1 to its east (facing west).
+    /// The seats (chairs; the name is the first layout's): seat 0 to the table's west
+    /// (facing east), seat 1 to its east (facing west).
     pub stools: [FormId; 2],
 }
 
-/// Where stool `seat` stands and its heading (radians, the game's: 0 faces +y, π/2 +x):
-/// each faces the table [observed: the cell's pair, headings 1.57 at the −x stool and 4.54
-/// at the +x one].
+/// Where seat `seat` stands and its heading (radians, the game's: 0 faces +y, pi/2 +x):
+/// across the table's narrow side (its local y axis), each facing the table [observed:
+/// the game's pairs, the chair at local -y turned as the table, the one at +y half
+/// round].
 pub fn stool_spot(seat: u8) -> ([f32; 3], f32) {
     let side = if seat == 0 { -1.0 } else { 1.0 };
     let (s, c) = TABLE_HEADING.sin_cos();
-    // The table's local x axis in the cell's frame: heading 0 has local x along +x.
-    let (ax, ay) = (c, -s);
-    let pos = [TABLE_POS[0] + side * STOOL_OFFSET * ax, TABLE_POS[1] + side * STOOL_OFFSET * ay, STOOL_Z];
-    let face = if seat == 0 { std::f32::consts::FRAC_PI_2 } else { 3.0 * std::f32::consts::FRAC_PI_2 };
+    // The table's local y axis in the cell's frame: heading h turns +y to (sin h, cos h).
+    let (ax, ay) = (s, c);
+    let pos = [TABLE_POS[0] + side * SEAT_OFFSET * ax, TABLE_POS[1] + side * SEAT_OFFSET * ay, SEAT_Z];
+    let face = if seat == 0 { 0.0 } else { std::f32::consts::PI };
     (pos, wrap(TABLE_HEADING + face))
 }
 
@@ -115,9 +146,8 @@ fn created_at(g: &Game, base: FormId, cell: FormId, pos: [f32; 3]) -> Option<For
 pub fn find(g: &Game) -> Option<ArmTable> {
     let cell = saloon(g)?;
     let table = created_at(g, g.data.by_edid(TABLE_EDID)?, cell, TABLE_POS)?;
-    let stool = g.data.by_edid(STOOL_EDID)?;
-    let s0 = created_at(g, stool, cell, stool_spot(0).0)?;
-    let s1 = created_at(g, stool, cell, stool_spot(1).0)?;
+    let s0 = created_at(g, g.data.by_edid(SEAT_EDIDS[0])?, cell, stool_spot(0).0)?;
+    let s1 = created_at(g, g.data.by_edid(SEAT_EDIDS[1])?, cell, stool_spot(1).0)?;
     Some(ArmTable { table, stools: [s0, s1] })
 }
 
@@ -133,14 +163,17 @@ pub fn seat_of(g: &Game, stool: FormId) -> Option<u8> {
 /// Returns what was made.
 pub fn ensure(g: &mut Game) -> Vec<FormId> {
     let mut made = Vec::new();
-    let (Some(cell), Some(table), Some(stool)) = (saloon(g), g.data.by_edid(TABLE_EDID), g.data.by_edid(STOOL_EDID)) else { return made };
+    let (Some(cell), Some(table), Some(seat0), Some(seat1)) = (saloon(g), g.data.by_edid(TABLE_EDID), g.data.by_edid(SEAT_EDIDS[0]), g.data.by_edid(SEAT_EDIDS[1])) else {
+        return made;
+    };
     if !g.loaded_cells.contains(&cell) {
         return made;
     }
+    retire_first_layout(g, cell);
     let mut want = vec![(table, TABLE_POS, TABLE_HEADING)];
-    for seat in 0..2 {
+    for (seat, base) in [(0, seat0), (1, seat1)] {
         let (p, h) = stool_spot(seat);
-        want.push((stool, p, h));
+        want.push((base, p, h));
     }
     for ((base, pos, heading), id) in want.into_iter().zip(REFS) {
         if created_at(g, base, cell, pos).is_some() {
@@ -149,7 +182,7 @@ pub fn ensure(g: &mut Game) -> Vec<FormId> {
         let at = [0.0, 0.0, heading];
         match g.world.place_as(id, base, Some(cell), pos, at).or_else(|_| g.world.place(base, Some(cell), pos, at, 1)) {
             Ok(r) => {
-                if base == table {
+                if base == table && TABLE_SCALE != 1.0 {
                     if let Ok(s) = g.world.get(r) {
                         s.scale = Some(TABLE_SCALE);
                     }
@@ -161,6 +194,19 @@ pub fn ensure(g: &mut Game) -> Vec<FormId> {
         }
     }
     made
+}
+
+/// Take away the first layout's table and stools where a game made them: they stood where
+/// the new table stands, and the fixed numbers they took go to the new pieces once free.
+fn retire_first_layout(g: &mut Game, cell: FormId) {
+    for (edid, pos) in FIRST_LAYOUT {
+        let Some(base) = g.data.by_edid(edid) else { continue };
+        if let Some(r) = created_at(g, base, cell, pos) {
+            if g.world.set_deleted(r, true).is_ok() {
+                tracing::info!("armwrestle: took away the first layout's {edid} {r}");
+            }
+        }
+    }
 }
 
 /// The opponent, when he can come to the table now: present, alive, conscious, not in
@@ -270,14 +316,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_stools_face_the_table_from_either_side() {
+    fn the_chairs_face_the_table_across_its_narrow_side() {
         let ((p0, h0), (p1, h1)) = (stool_spot(0), stool_spot(1));
-        assert!((p0[0] - (TABLE_POS[0] - STOOL_OFFSET)).abs() < 1e-3 && (p0[1] - TABLE_POS[1]).abs() < 1e-3);
-        assert!((p1[0] - (TABLE_POS[0] + STOOL_OFFSET)).abs() < 1e-3 && (p1[1] - TABLE_POS[1]).abs() < 1e-3);
+        assert!((p0[0] - (TABLE_POS[0] - SEAT_OFFSET)).abs() < 1e-3 && (p0[1] - TABLE_POS[1]).abs() < 1e-3);
+        assert!((p1[0] - (TABLE_POS[0] + SEAT_OFFSET)).abs() < 1e-3 && (p1[1] - TABLE_POS[1]).abs() < 1e-3);
         // Heading h faces (sin h, cos h): seat 0 faces +x, seat 1 faces −x, both to the table.
         let towards = |p: [f32; 3], h: f32| (TABLE_POS[0] - p[0]) * h.sin() + (TABLE_POS[1] - p[1]) * h.cos();
-        assert!(towards(p0, h0) > 60.0);
-        assert!(towards(p1, h1) > 60.0);
-        assert_eq!(p0[2], STOOL_Z);
+        assert!(towards(p0, h0) > 58.0);
+        assert!(towards(p1, h1) > 58.0);
+        assert_eq!(p0[2], SEAT_Z);
     }
 }
