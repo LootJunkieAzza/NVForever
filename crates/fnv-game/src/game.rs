@@ -439,6 +439,10 @@ pub struct RefExtra {
     /// The actor has been in a conversation with the player (GetTalkedToPC).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub talked_to_pc: bool,
+    /// The player's bobby pin's health left at the last lock, for the Remember Bobby Pin
+    /// Health tweak (the player's only) [design: docs/design/tweaks.md].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pin_health: Option<f32>,
     /// SetDisposition: the disposition towards an actor, set by a script
     /// (`functions::actor::get_disposition`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]

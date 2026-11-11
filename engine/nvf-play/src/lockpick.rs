@@ -496,7 +496,14 @@ fn open(
             let mut rng = ChaCha8Rng::seed_from_u64(seed(reference, now));
             // The player's tweak: a force chance that grows near the sweet spot [design: docs/design/tweaks.md].
             let settings = Settings { force_near_bonus: rt.game.tweaks.lockpick_force_near_bonus, ..Settings::default() };
-            let game = Picking::new(level, skill, pins, unit(&mut rng), settings);
+            let mut game = Picking::new(level, skill, pins, unit(&mut rng), settings);
+            // The player's tweak: the pin in the lock is as worn as the last one left
+            // (kept in the save) [design: docs/design/tweaks.md].
+            if rt.game.tweaks.remember_pin_health {
+                if let Some(h) = rt.game.extra.get(&FormId::PLAYER_REF).and_then(|e| e.pin_health) {
+                    game.health = h;
+                }
+            }
             info!(
                 "lockpick: open {reference} {name}: {} lock (Lockpick {skill:.0}, {pins} bobby pins): sweet spot {:.1}° ± {:.1}°, Force Lock {:.0}%",
                 level.name(),
@@ -794,6 +801,9 @@ fn step(
     let strained = s.game.stopped;
     let reference = s.reference;
     let events = s.game.step(dt, torque);
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()).filter(|rt| rt.game.tweaks.remember_pin_health) {
+        rt.game.extra.entry(FormId::PLAYER_REF).or_default().pin_health = Some(s.game.health);
+    }
     for e in events {
         match e {
             rules::Event::Turning => {

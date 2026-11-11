@@ -415,6 +415,8 @@ pub struct Tweaks {
     pub travel_costs_bottle: bool,
     /// `bArmorCausesSinking`: medium and heavy body armour pull a swimmer down.
     pub armor_sinks: bool,
+    /// `bRememberBobbyPinHealth`: the bobby pin keeps its wear from lock to lock.
+    pub remember_pin_health: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -605,6 +607,7 @@ impl Default for Tweaks {
             planting_needs_skill: false,
             travel_costs_bottle: false,
             armor_sinks: false,
+            remember_pin_health: false,
         }
     }
 }

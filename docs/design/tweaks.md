@@ -503,6 +503,7 @@ unless the player binds them, so nothing changes until then.
 | Fast Travel Costs a Nuka-Cola | `bFastTravelCostsSpecialNukaBottles` | `pipboy::data::travel`: `Refusal::NoBottle` (our words) without one of `TRAVEL_BOTTLES` (`NukaColaQuantum`, `NukaColaQuartz`, `NukaColaVictory` [observed: FalloutNV.esm]); `go` takes one |
 | Jump Swims Upwards | `bJumpSwimsUpwards` | `player`: Jump held (`JUMP_HELD`) raises the swim velocity's upward part to the walking stroke's speed; `fSpeedScale` and `bSwimUpWhileAutowalking` not offered |
 | Armour Causes Sinking | `bArmorCausesSinking` | `combat::stat_speed` puts a sinking speed by `worn_armor_class` in `StatSpeed`'s third number (heavy 60, medium 25 units/s, ours); the swim step takes it off the upward part |
+| Remember Bobby Pin Wear | `bRememberBobbyPinHealth` | `fnv_game::game::RefExtra::pin_health` on the player (saved), written each lockpicking step and read by the next `Picking` |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -524,8 +525,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 425 |
-| to do | 178 |
+| done | 426 |
+| to do | 177 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -611,6 +612,7 @@ game's Data folder, read-only).
 | `bReloadingWithFullClipSwitchesAmmoType` | done |  |  | Full Reload Swaps Ammo |
 | `bReloadJamsAffectedByAgility` | done |  |  | Jams at Reload Pace |
 | `bReloadWhileFiring` | done |  |  | Reload While Firing (during the last shot's recovery) |
+| `bRememberBobbyPinHealth` | done |  |  | Remember Bobby Pin Wear (kept on the player in the save) |
 | `bRepairScalesCraftingCondition` | done |  |  | Crafting Uses Repair (half condition at Repair 0, whole at 100) |
 | `bRepairsRewardXP` | done |  | 1 | Experience per Repair (slider; Pip-Boy repairs) |
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
@@ -670,7 +672,6 @@ game's Data folder, read-only).
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |
 | `bQuickUse` | to do |  | 9 | two input paths that do not exist yet |
-| `bRememberBobbyPinHealth` | to do |  |  | Picking::new starts a full pin; needs a stored health |
 | `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
