@@ -1060,8 +1060,9 @@ PLAYERLAYMINE 56; the other PLAYER… topics have none.
   [documented: Category:Packages]; "said by actors on a random basis who aren't in
   combat" [documented: Conversation Tab]): one timer for the loaded area, drawn between
   `fIdleChatterCommentTimer` and `…Max` (15 and 60) [hypothesis: the settings'
-  meaning]; when due, an actor within 300 units of the player (the random conversations'
-  distance) is drawn and says its line. Log `ai … <actor>: chatters (<d> units from the
+  meaning]; when due, an actor within 200 units of the player (the hello distance) with a
+  clear line to it is drawn and says its line, under the waits and the memory of lines
+  that hellos have (dialogue.md §5.2; 300 units and neither until 2026-11-11, #2156). Log `ai … <actor>: chatters (<d> units from the
   player), line <info>`.
 - **Reaction To Player Actions** (the Topics Tab's "special topics used to get actors
   responding to player actions" [documented]): when the player's body starts a gun's

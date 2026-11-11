@@ -4779,12 +4779,12 @@ expect = [
 [[scenario]]
 name = "hello-shared-quest-order"
 source = "[hypothesis] #1895: Info Index places shared lines within the listing quest (docs/spec-notes/dialogue.md section 1.2); [design] crates/fnv-game/src/data.rs shared_lines preserves the Powder Ganger Random pool"
-note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM). Four approaches must choose eligible Random lines, never the later plain line. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks. [hypothesis] The approach timing allows each voice to finish; the setup needs its first runtime check."
+note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM), the approaches 65 s apart since #2156: an actor that said an idle line says no other for 60 s (IDLE_LINE_AGAIN). Four approaches must choose eligible Random lines, never the later plain line; a line said in the last 180 s is not said again, so the four are the pool's four lines. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks."
 areas = ["dialogue", "ai", "residents"]
-paths = ["crates/fnv-game/src/data.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/tests/dialogue.rs", "crates/fnv-game/tests/dialogue_data.rs", "docs/spec-notes/dialogue.md"]
+paths = ["crates/fnv-game/src/data.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/tests/dialogue.rs", "crates/fnv-game/tests/dialogue_data.rs", "docs/spec-notes/dialogue.md", "crates/fnv-ai/src/social.rs"]
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F0AF8"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close;8:player.moveto 000F0AF8 0 900 0;8.5:close;15:player.moveto 000F0AF8 0 100 0;15.5:close;28:player.moveto 000F0AF8 0 900 0;28.5:close;35:player.moveto 000F0AF8 0 100 0;35.5:close;48:player.moveto 000F0AF8 0 900 0;48.5:close;55:player.moveto 000F0AF8 0 100 0;55.5:close;68:player.moveto 000F0AF8 0 900 0;68.5:close;75:player.moveto 000F0AF8 0 100 0;75.5:close" }
-run_seconds = 88
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close;8:player.moveto 000F0AF8 0 900 0;8.5:close;15:player.moveto 000F0AF8 0 100 0;15.5:close;73:player.moveto 000F0AF8 0 900 0;73.5:close;80:player.moveto 000F0AF8 0 100 0;80.5:close;138:player.moveto 000F0AF8 0 900 0;138.5:close;145:player.moveto 000F0AF8 0 100 0;145.5:close;203:player.moveto 000F0AF8 0 900 0;203.5:close;210:player.moveto 000F0AF8 0 100 0;210.5:close" }
+run_seconds = 223
 expect = [
   { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x(00151A7B|00151A7A|0015694C|0015694D)\b', min = 4, label = "four approaches select from the eligible Random pool" },
 ]

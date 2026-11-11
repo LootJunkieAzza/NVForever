@@ -1651,6 +1651,10 @@ pub struct Game<'a> {
     /// Actors a script's StartConversation with allowMovement 1 lets go on moving while
     /// they talk to each other ([`Game::conversation_moves`]); not saved.
     pub moving_talkers: BTreeSet<FormId>,
+    /// The hello and idle chatter lines said of late, with when (`Game::time`): no actor
+    /// says one of them again for a while ([`Game::say_hello_fresh`],
+    /// `crate::dialogue::IDLE_LINE_MEMORY`). Not part of the saved state.
+    pub idle_said: BTreeMap<FormId, f64>,
     /// (speaker, line) pairs of the Say Once lines already said, and of every line said
     /// in a conversation with the player (the shading of choices).
     pub said: BTreeSet<(FormId, FormId)>,
@@ -2409,6 +2413,7 @@ impl<'a> Game<'a> {
             speech: Vec::new(),
             say_to_unsaid: Vec::new(),
             moving_talkers: BTreeSet::new(),
+            idle_said: BTreeMap::new(),
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),
             dialogue: None,
