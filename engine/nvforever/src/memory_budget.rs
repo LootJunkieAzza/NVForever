@@ -6,12 +6,7 @@
 //! be read). The GPU budget is `VK_EXT_memory_budget`'s, read through
 //! wgpu's Vulkan device (`Device::as_hal`): wgpu-hal 30 enables that extension whenever the
 //! adapter offers it (except on Mesa's RADV) [documented: wgpu-hal 30.0.1
-//! `vulkan/adapter.rs`, "Optional `VK_EXT_memory_budget`"], so no wgpu patch is needed. Where
-//! the driver does not give it (RADV: wgpu does not enable the extension there), Linux reads
-//! the card's VRAM from amdgpu's sysfs
-//! (`/sys/bus/pci/devices/<pci>/drm/card*/device/mem_info_vram_{total,used}`), chosen by the
-//! adapter's PCI address: those figures are every program's use of the card, not this
-//! process's, and the log line says which source it used. Of
+//! `vulkan/adapter.rs`, "Optional `VK_EXT_memory_budget`"], so no wgpu patch is needed. Of
 //! the device-local heaps ([`device_local`]) it sums `heapBudget`, "an estimate of how much
 //! memory the process can allocate from that heap before allocations may fail or cause
 //! performance degradation", and `heapUsage`, "the estimated heap usage of the process"
@@ -19,6 +14,13 @@
 //! same memory, measured by the driver: what the process holds of it, blocks the allocator
 //! keeps empty included (#898). An integrated GPU's memory is the machine's RAM: it has no
 //! GPU budget here, and the RAM check covers it.
+//!
+//! Where the driver does not give the extension (RADV: wgpu leaves it off there), Linux takes
+//! the card's VRAM from amdgpu's sysfs
+//! (`/sys/bus/pci/devices/<pci>/drm/card*/device/mem_info_vram_{total,used}`), the card chosen
+//! by the adapter's PCI address. Those figures are every program's use of the card, not this
+//! process's, so they set the budget and the keep limits but do not feed the press check,
+//! which stays on RAM on that path; the log's second line says so.
 //!
 //! **Keep limits** ([`nvf_assets::KeepLimits`], read by the release sweep each 2 s) scale
 //! down from five minutes and 2048 unused entries per cache on a machine with less than
