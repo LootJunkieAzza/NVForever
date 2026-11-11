@@ -119,6 +119,7 @@ mod coop;
 // B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
 mod consume_anims;
 mod emote_play;
+mod armwrestle_arm;
 mod darts_arm;
 mod darts_world;
 mod pool_world;
@@ -1729,6 +1730,8 @@ fn main() -> AppExit {
             app.add_plugins(emote_play::EmotePlayPlugin);
             // Darts played at the cabinet: the darts' models in the world (darts_world.rs).
             app.add_plugins(darts_world::DartsWorldPlugin);
+            // Arm wrestling: the wrestlers' right arms posed from the bout (armwrestle_arm.rs).
+            app.add_systems(PostUpdate, armwrestle_arm::arms.before(bevy::transform::TransformSystems::Propagate));
             // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).
             app.add_plugins(pool_world::PoolWorldPlugin);
             // After a darts or pool match: the winner cheers, the loser is beaten, the camera
