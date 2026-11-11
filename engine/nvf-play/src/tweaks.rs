@@ -1415,6 +1415,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "jump-swims-up", "Jump Swims Upwards", "Holding Jump under water swims up, at the walking stroke's speed. (Stewie's Tweaks bJumpSwimsUpwards)", jump_swims_up);
         switch!(app, "armor-sinks", "Armour Causes Sinking", "Medium and heavy body armour pull the player down in water (heavy faster). (Stewie's Tweaks bArmorCausesSinking)", game.armor_sinks);
         switch!(app, "remember-pin-health", "Remember Bobby Pin Wear", "The bobby pin keeps its wear from one lock to the next, kept in the save. (Stewie's Tweaks bRememberBobbyPinHealth)", game.remember_pin_health);
+        switch!(app, "force-spares-lock", "Forcing Breaks the Pin, Not the Lock", "A failed Force Lock breaks the bobby pin in it and the lock can be tried again. (Stewie's Tweaks bForceLockpickNoBreakLock)", game.force_spares_lock);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

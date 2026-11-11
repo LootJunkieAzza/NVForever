@@ -150,6 +150,9 @@ pub struct Settings {
     /// NVForever's tweak (docs/design/tweaks.md): percent added to the force chance with
     /// the pin on the sweet spot's middle, less the further it is, none 90° away.
     pub force_near_bonus: f32,
+    /// NVForever's tweak (docs/design/tweaks.md): a failed Force Lock breaks the pin, not
+    /// the lock.
+    pub force_spares_lock: bool,
 }
 
 impl Default for Settings {
@@ -167,6 +170,7 @@ impl Default for Settings {
             force_per_point: 3.0,
             force_max: 95.0,
             force_near_bonus: 0.0,
+            force_spares_lock: false,
         }
     }
 }
@@ -426,6 +430,13 @@ impl Picking {
             self.turn = FULL_TURN;
             self.phase = Phase::Open;
             Some(true)
+        } else if self.settings.force_spares_lock {
+            // The tweak: only the pin breaks; the next goes in as after a snap [design: docs/design/tweaks.md].
+            self.pins = (self.pins - 1).max(0);
+            self.health = 0.0;
+            self.turn = 0.0;
+            self.phase = if self.pins > 0 { Phase::PinBroken { since: 0.0 } } else { Phase::OutOfPins };
+            Some(false)
         } else {
             self.pins = (self.pins - 1).max(0);
             self.health = 0.0;
@@ -630,6 +641,17 @@ mod tests {
             assert!((p.force_chance() - want).abs() < 1e-3, "{off}: {}", p.force_chance());
         }
         assert_eq!(Picking::new(Level::Easy, 30.0, 3, 0.5, s()).force_chance(), 15.0);
+    }
+
+    #[test]
+    fn the_tweak_keeps_the_lock_when_forcing_fails() {
+        let mut p = Picking::new(Level::Easy, 30.0, 2, 0.5, Settings { force_spares_lock: true, ..s() });
+        assert_eq!(p.force(99.0), Some(false));
+        assert!(matches!(p.phase, Phase::PinBroken { .. }), "{:?}", p.phase);
+        assert_eq!(p.pins, 1);
+        let mut q = Picking::new(Level::Easy, 30.0, 2, 0.5, s());
+        assert_eq!(q.force(99.0), Some(false));
+        assert_eq!(q.phase, Phase::LockBroken);
     }
 
     #[test]

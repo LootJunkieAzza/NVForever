@@ -495,7 +495,7 @@ fn open(
             stats.opened += 1;
             let mut rng = ChaCha8Rng::seed_from_u64(seed(reference, now));
             // The player's tweak: a force chance that grows near the sweet spot [design: docs/design/tweaks.md].
-            let settings = Settings { force_near_bonus: rt.game.tweaks.lockpick_force_near_bonus, ..Settings::default() };
+            let settings = Settings { force_near_bonus: rt.game.tweaks.lockpick_force_near_bonus, force_spares_lock: rt.game.tweaks.force_spares_lock, ..Settings::default() };
             let mut game = Picking::new(level, skill, pins, unit(&mut rng), settings);
             // The player's tweak: the pin in the lock is as worn as the last one left
             // (kept in the save) [design: docs/design/tweaks.md].
@@ -722,6 +722,18 @@ fn apply(
                         s.status = Some("Lock forced open".into());
                         s.ended = Some(now);
                         sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::Unlocked });
+                    }
+                    // The player's tweak: the lock holds, the pin broke [design: docs/design/tweaks.md].
+                    Some(false) if g.phase != Phase::LockBroken => {
+                        stats.pins_broken += 1;
+                        with_world(rt, &mut sim, |rt| rules::pin_broke(&mut rt.game));
+                        info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): failed, the pin broke and the lock holds ({} left, tweak)", g.pins);
+                        s.status = Some(if g.pins > 0 { "The bobby pin broke".into() } else { "You have no bobby pins left".into() });
+                        if g.pins == 0 {
+                            s.ended = Some(now);
+                        }
+                        s.pin(PinClip::Break, now);
+                        sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::PinBroke });
                     }
                     Some(false) => {
                         stats.broken += 1;

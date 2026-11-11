@@ -417,6 +417,8 @@ pub struct Tweaks {
     pub armor_sinks: bool,
     /// `bRememberBobbyPinHealth`: the bobby pin keeps its wear from lock to lock.
     pub remember_pin_health: bool,
+    /// `bForceLockpickNoBreakLock`: a failed Force Lock breaks the pin, not the lock.
+    pub force_spares_lock: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -608,6 +610,7 @@ impl Default for Tweaks {
             travel_costs_bottle: false,
             armor_sinks: false,
             remember_pin_health: false,
+            force_spares_lock: false,
         }
     }
 }

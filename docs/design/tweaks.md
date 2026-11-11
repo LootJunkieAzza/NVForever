@@ -504,6 +504,7 @@ unless the player binds them, so nothing changes until then.
 | Jump Swims Upwards | `bJumpSwimsUpwards` | `player`: Jump held (`JUMP_HELD`) raises the swim velocity's upward part to the walking stroke's speed; `fSpeedScale` and `bSwimUpWhileAutowalking` not offered |
 | Armour Causes Sinking | `bArmorCausesSinking` | `combat::stat_speed` puts a sinking speed by `worn_armor_class` in `StatSpeed`'s third number (heavy 60, medium 25 units/s, ours); the swim step takes it off the upward part |
 | Remember Bobby Pin Wear | `bRememberBobbyPinHealth` | `fnv_game::game::RefExtra::pin_health` on the player (saved), written each lockpicking step and read by the next `Picking` |
+| Forcing Breaks the Pin, Not the Lock | `bForceLockpickNoBreakLock` | `lockpick::Settings::force_spares_lock`: `Picking::force` failing goes to `PinBroken` (or out of pins) instead of `LockBroken`; the engine takes the pin and plays its break |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -525,8 +526,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 426 |
-| to do | 177 |
+| done | 427 |
+| to do | 176 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -563,6 +564,7 @@ game's Data folder, read-only).
 | `bExtendLockpickSpotRange` | done |  |  | already so: the sweet spot can sit anywhere on the half circle |
 | `bFastTravelCostsSpecialNukaBottles` | done |  | 3 | Fast Travel Costs a Nuka-Cola (Quantum, Quartz or Victory by editor ID; our refusal words; the item messages not shown) |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
+| `bForceLockpickNoBreakLock` | done |  | 3 | Forcing Breaks the Pin, Not the Lock (the sub-options not offered; our status words) |
 | `bFreeWildWasteland` | done |  |  | Free Wild Wasteland (editor ID WildWasteland, a trait on offer) |
 | `bFrenzyGrantsPlayerXP` | done |  |  | Frenzied Kills Earn Experience (Aggression 3) |
 | `bGodModePreventsJamAnims` | done |  |  | No Jams in God Mode |
@@ -652,7 +654,6 @@ game's Data folder, read-only).
 | `bExplosionRadiusBuff` | to do |  | 3 | explosion_damage reads CombatTuning (serialized) |
 | `bExplosionsDontPushTakeableItems` | to do |  |  | push_dynamic knows no references |
 | `bFallDeathsCauseDismemberment` | to do |  |  | falls::hurt lacks the dismember queue |
-| `bForceLockpickNoBreakLock` | to do |  | 3 | Picking::force; the engine apply would need the pin-broken path |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
