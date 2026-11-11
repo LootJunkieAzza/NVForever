@@ -564,6 +564,7 @@ unless the player binds them, so nothing changes until then.
 | Armour Rustle From the Body | `bArmorSoundsPlayIn3D` | nvforever `anim_sounds::sound_heard` gives the third-person rig's foley the player's feet as its place (`tweaks::ARMOR_3D`); the first-person rig's stays at the listener |
 | Mine Blasts Are Heard | `bNPCsDetectMineExplosions` | `mines::tick` keeps who set a mine off (`Burning::by`) and, when it goes off, queues an explosion detection event (level 100, ours) owned by whoever laid it, else whoever set it off; nvforever `detection` measures it as any other event |
 | Explosions Leave Items Be | `bExplosionsDontPushTakeableItems` | the explosion's push uses `fnv_phys::World::push_dynamic_but`, sparing bodies whose reference's base is an item |
+| Held Items Weigh | `bEncumbranceIncludesGrabbedItems` | `player::encumbered_walks` adds the grabbed reference's item weight times its count (`GripOn::Ref`) to the carried weight before judging over the limit |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -585,8 +586,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 490 |
-| to do | 113 |
+| done | 491 |
+| to do | 112 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -622,6 +623,7 @@ game's Data folder, read-only).
 | `bDisableReloadingNonEmptyClip` | done |  | 2 | Reload Only When Empty (the energy-only and looping options not built) |
 | `bDisarmRequiresSkill` | done |  | 2 | Disarming Needs Skill, with the two multipliers |
 | `bDrowningDrainsAP` | done |  |  | Drowning Takes AP First |
+| `bEncumbranceIncludesGrabbedItems` | done |  |  | Held Items Weigh |
 | `bEnduranceScalesMinFallHeight` | done |  | 2 | Endurance Softens Falls (slider; the base bonus option not built) |
 | `bExplosionKnockdownAvoidanceUsesStrength` | done |  |  | Strength Resists Blasts |
 | `bExplosionRadiusBuff` | done |  | 3 | Explosion Radius Buff (30% inner, 20% edge as the description gives; bAffectPlayer not offered) |
@@ -720,7 +722,6 @@ game's Data folder, read-only).
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
-| `bEncumbranceIncludesGrabbedItems` | to do |  |  | encumbered_walks plus the grabbed reference weight |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |

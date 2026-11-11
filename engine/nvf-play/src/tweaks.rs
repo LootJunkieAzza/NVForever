@@ -429,6 +429,9 @@ pub struct TweakSettings {
     /// `bArmorSoundsPlayIn3D`: in third person the player's armour and clothing rustle
     /// from the body.
     pub armor_sounds_3d: bool,
+    /// `bEncumbranceIncludesGrabbedItems`: an item held up by the grab counts in the
+    /// carried weight.
+    pub grabbed_weighs: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -672,6 +675,7 @@ impl Default for TweakSettings {
             compass_places_fade: false,
             recent_dead_secs: 0.0,
             armor_sounds_3d: false,
+            grabbed_weighs: false,
         }
     }
 }
@@ -1672,6 +1676,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "armor-sounds-3d", "Armour Rustle From the Body", "In third person your armour and clothing are heard from your character, not at the camera. (Stewie's Tweaks bArmorSoundsPlayIn3D)", armor_sounds_3d);
         switch!(app, "mine-blasts-heard", "Mine Blasts Are Heard", "A mine going off alerts the people near who would fight whoever laid it, or whoever set it off. (Stewie's Tweaks bNPCsDetectMineExplosions)", game.mine_blasts_heard);
         switch!(app, "blasts-spare-items", "Explosions Leave Items Be", "Explosions do not throw about things you can pick up, so loot stays where it lies. (Stewie's Tweaks bExplosionsDontPushTakeableItems)", game.blasts_spare_items);
+        switch!(app, "grabbed-weighs", "Held Items Weigh", "An item you are holding up with the grab counts toward what you carry, so it can leave you overencumbered. (Stewie's Tweaks bEncumbranceIncludesGrabbedItems)", grabbed_weighs);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

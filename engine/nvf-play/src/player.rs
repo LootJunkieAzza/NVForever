@@ -602,12 +602,22 @@ pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>,
 /// `crate::tweaks`) [design: docs/design/tweaks.md].
 pub static OVERENCUMBERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
+pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>, tweaks: Option<Res<crate::tweaks::TweakSettings>>, grab: Option<Res<crate::grab::GrabState>>) {
     let Some(mut sim) = sim else { return };
     st.0 -= time.delta_secs();
     if st.0 <= 0.0 {
         st.0 = ENCUMBRANCE_CHECK;
-        let e = sim.world.encumbrance(fnv_sim::FormId::PLAYER_REF).ok();
+        let mut e = sim.world.encumbrance(fnv_sim::FormId::PLAYER_REF).ok();
+        // The player's tweak: an item held up by the grab weighs as if carried [design: docs/design/tweaks.md].
+        let held = grab.as_ref().and_then(|g| g.held.as_ref()).filter(|_| tweaks.as_ref().is_some_and(|t| t.grabbed_weighs)).map(|h| h.on);
+        if let (Some(e), Some(fnv_phys::GripOn::Ref(id))) = (e.as_mut(), held) {
+            let id = fnv_sim::FormId(id);
+            let base = sim.base_of(id.0);
+            let weight = base.and_then(|b| sim.forms.item(b)).and_then(|i| i.weight).unwrap_or(0.0);
+            let count = sim.world.peek(id).map(|s| s.count).or_else(|| base.map(|b| sim.forms.placed_count(b, sim.refs.get(id).and_then(|p| p.count)))).unwrap_or(1);
+            e.weight += f64::from(weight) * f64::from(count.max(1));
+            e.over |= e.weight > e.capacity;
+        }
         let over = e.as_ref().is_some_and(|e| e.over) && !crate::combat::god_mode();
         if over != st.1 {
             st.1 = over;
