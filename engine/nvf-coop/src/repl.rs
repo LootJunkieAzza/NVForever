@@ -419,6 +419,11 @@ pub enum Effect {
     /// each guest takes it off and throws the same gore (item 176: Jeannie May's head,
     /// KillActor, was whole on the guest).
     Dismember { actor: u32, data: u32, part: u16, location: i32, exploded: bool, point: [f32; 3], dir: [f32; 3] },
+    /// The syncing screen's hand-shake (queue item 186): a guest that has just joined or
+    /// come back after going down asks (`done` false) once it stands in its place; the
+    /// host sends that guest its whole area again and then answers (`done` true) with the
+    /// same `serial`, after those changes on the same ordered stream.
+    Sync { serial: u32, done: bool },
 }
 
 pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
@@ -480,6 +485,11 @@ pub fn pack_effects(effects: &[Effect], max: usize) -> Vec<Vec<u8>> {
                     rec.extend_from_slice(&v.to_le_bytes());
                 }
             }
+            Effect::Sync { serial, done } => {
+                rec.push(8);
+                rec.extend_from_slice(&serial.to_le_bytes());
+                rec.push(u8::from(*done));
+            }
         }
         if cur.len() + rec.len() > max && cur.len() > 1 {
             out.push(std::mem::replace(&mut cur, vec![kind::EFFECTS]));
@@ -517,6 +527,7 @@ pub fn unpack_effects(item: &[u8]) -> Option<Vec<Effect>> {
                 point: [r.f32()?, r.f32()?, r.f32()?],
                 dir: [r.f32()?, r.f32()?, r.f32()?],
             },
+            8 => Effect::Sync { serial: r.u32()?, done: r.u8()? != 0 },
             _ => return None,
         });
     }
@@ -798,6 +809,8 @@ mod tests {
             Effect::Checkpoint { container: 0x0012_795C, code: 40, except: 0x0012_9876, back: false },
             Effect::Checkpoint { container: 0x0012_795C, code: -1, except: 0, back: true },
             Effect::Dismember { actor: 0x0008_D74C, data: 0x0001_3F0B, part: 1, location: 1, exploded: true, point: [26574.0, -33489.0, 7043.0], dir: [0.0, -1.0, 0.0] },
+            Effect::Sync { serial: 7, done: false },
+            Effect::Sync { serial: 7, done: true },
         ];
         let items = pack_effects(&e, 1100);
         assert_eq!(unpack_effects(&items[0]).unwrap(), e);

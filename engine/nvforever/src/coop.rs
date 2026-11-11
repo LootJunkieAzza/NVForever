@@ -184,6 +184,7 @@ pub use leave::HoldLeave;
 mod scene;
 mod revive;
 mod rejoin;
+mod syncing;
 
 /// The port `--join` uses when the address names none (and a code without a port means).
 pub const DEFAULT_PORT: u16 = nvf_coop::code::DEFAULT_PORT;
@@ -371,7 +372,7 @@ impl Plugin for CoopPlugin {
         }
         app.add_plugins((nvf_play::lobby::LobbyPlugin, nvf_play::coop_progress::CoopProgressPlugin))
             .insert_resource(coop)
-            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, (leash, rejoin::rejoin_host).chain(), scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
+            .add_systems(Update, (replication::frame_clock, lobby, send, take_events, share_doors, campfires::share_campfires, tables, social_mates, share_npcs, areas::coop_areas, replication::replicate, follow_looks, follow_npcs, (leash, rejoin::rejoin_host, syncing::syncing).chain(), scene::share_scene, downed, revive::bodies, progress, duel_falls, replication::hud).chain().after(nvf_play::PlaySet::Physics))
             .add_systems(Update, peer_emotes.after(social_mates))
             .add_systems(Update, (replication::dismember_out.before(replication::replicate), replication::dismember_in.after(replication::replicate)))
             .add_systems(Update, far_combat::far_fights.after(areas::coop_areas).before(replication::replicate))
@@ -820,6 +821,8 @@ fn lobby(
                 // token is in TOKEN_ENV); this one leaves without a goodbye, so the host
                 // keeps its place.
                 std::env::set_var(JOIN_ENV, &code);
+                // A first join: the new run holds the syncing screen (item 186).
+                std::env::set_var(nvf_play::coop_progress::SYNC_ENV, "1");
                 if !name.trim().is_empty() {
                     std::env::set_var(NAME_ENV, name.trim());
                 }
@@ -2623,7 +2626,9 @@ fn follow_npcs(
     // NPCs the host draws and the actors hidden here are left to the rest.
     if let Some(sim) = sim.as_deref_mut() {
         let (npcs, hidden) = (&coop.npcs, &coop.hidden);
-        let skip = |r: FormId| npcs.contains_key(&r.0) || hidden.contains(&r);
+        coop.repl.enabled_heard.retain(|_, at| now - *at < STREAM_WINS);
+        let streamed = &coop.repl.enabled_heard;
+        let skip = |r: FormId| npcs.contains_key(&r.0) || hidden.contains(&r) || streamed.contains_key(&r.0);
         let fresh = std::mem::take(&mut coop.presence.fresh);
         let n = follow_presence(&mut sim.world, Flag::Enabled, &fresh, &skip, &mut coop.presence_was);
         if n > 0 {
@@ -2763,6 +2768,13 @@ fn follow_npcs(
         }
         if let Some(mut lo) = lo {
             lo.set_sneaking(s.has(npc_flag::SNEAKING));
+            // The host's NPC sets off when its samples say so, with no warning here: its
+            // walk starts at once, fading from a standing fade, as a creature's does
+            // (item 187: Vulpes at Nipton slid at 69 units/s on Idle as his walk-up
+            // began on the guest) [design].
+            if !lo.blend.set_off_at_once {
+                lo.blend.set_off_at_once = true;
+            }
         }
         if s.has(npc_flag::DEAD) {
             fighters.set_puppet(r, None);
@@ -2877,6 +2889,10 @@ fn take_clock(world: &mut fnv_sim::World, c: net::ClockView) {
 
 /// A host makes its presence list again at least this often (seconds).
 const PRESENCE_REMAKE: f32 = 2.0;
+/// A reference's enabled flag the replication stream set is the host's newest for this
+/// long (seconds): the presence list, made up to [`PRESENCE_REMAKE`] before and paged at
+/// `net::PRESENCE_EVERY`, does not change it in that time (item 181).
+const STREAM_WINS: f32 = 3.0 * PRESENCE_REMAKE;
 
 /// A guest's view of the host's world's presence (`net::Msg::Presence`), page by page.
 #[derive(Default)]
@@ -2889,6 +2905,8 @@ struct HostPresence {
     fresh: Vec<(u32, bool)>,
     /// The whole list (every page of one serial), once, for [`undo_own_presence`].
     whole: Option<HashSet<u32>>,
+    /// A whole list has come since this was made (the syncing screen waits for one).
+    complete: bool,
 }
 
 impl HostPresence {
@@ -2901,6 +2919,7 @@ impl HostPresence {
         self.refs.extend(refs.iter().map(|r| r.0));
         self.fresh.extend(refs);
         if self.got.insert(page) && self.got.len() == pages as usize {
+            self.complete = true;
             self.whole = Some(self.refs.clone());
         }
     }

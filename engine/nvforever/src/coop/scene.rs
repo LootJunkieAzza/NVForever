@@ -107,7 +107,10 @@ pub(super) fn scene_view(g: &fnv_game::Game) -> SceneView {
     // Story locks only (owner, 2026-11-09): the host's own menus and the things it uses
     // hold the host alone (`Game::story_locks`).
     let locks = lock_bits(g.story_locks());
-    let mods = if locks == 0 { Vec::new() } else { g.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)).take(net::SCENE_MODS_MAX).collect() };
+    // Held: every modifier on its screen; else those its scripts put there (item 180: the
+    // REPCONN launch's RepconLaunch, RepRocketLaunch and RepconSwoop flashes, with the
+    // players free), which the guests in the host's place show.
+    let mods = g.image_modifiers.iter().filter(|m| locks != 0 || g.script_image_modifiers.contains(&m.modifier)).map(|m| (m.modifier.0, m.elapsed as f32)).take(net::SCENE_MODS_MAX).collect();
     let worn = g.story_gear().into_iter().map(|(i, l)| (i.0, l)).take(net::SCENE_MODS_MAX).collect();
     let swaps = if locks == 0 { Vec::new() } else { scene_swaps(&g.texture_swaps) };
     SceneView { locks, mods, worn, swaps, waiting: None }
@@ -362,6 +365,9 @@ pub(super) fn share_scene(
         return;
     }
     let (guest, lost) = (coop.is_guest(), coop.host_lost);
+    // In the host's place (its interior, or its worldspace): a script's modifiers on the
+    // host's screen show here too while nobody is held (item 180).
+    let with_host = loc.as_deref().map(super::place_of).is_some_and(|p| coop.host_place.is_some_and(|(h, _)| h == p));
     let s = &mut coop.scene;
     // The host's scene now: none when not a guest (left the lobby), the host is lost or
     // not heard lately, or this game is not yet kept as the guest's own.
@@ -402,7 +408,8 @@ pub(super) fn share_scene(
         s.held = held;
     }
     g.coop_host_locks = held;
-    let (on, off) = follow_mods(&mut s.mods, &view.mods);
+    let mods: &[(u32, f32)] = if view.locks != 0 || with_host { &view.mods } else { &[] };
+    let (on, off) = follow_mods(&mut s.mods, mods);
     for m in on {
         info!("co-op: the host's scene: image space modifier {m:#010X} on this screen");
         g.apply_image_modifier(FormId(m));
