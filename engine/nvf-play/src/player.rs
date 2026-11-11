@@ -1072,7 +1072,11 @@ fn step(
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
 ) {
     if *state.get() != PlayState::Playing {
-        phys.stepper = default();
+        // No time reaches the stepper while not playing, so nothing steps; its remainder is
+        // kept, and with it the share of a step everything is drawn at (`draw_alpha`), so
+        // nothing drawn between steps shifts when a menu opens or closes. (Zeroed, it drew
+        // every actor, corpse and moved clutter at its pose before the last step under a
+        // menu, and a frame later back where it was.)
         return;
     }
     // Measuring: the frame's time, always, for the physics rate's guard (`PhysRate`); with
@@ -1143,8 +1147,8 @@ fn step(
             player.placed = None;
         }
         p.player_lift.reset();
-        let alpha = p.stepper.alpha(dt);
-        player.feet = lerp3(p.prev_feet, c.feet, alpha);
+        let feet = c.feet;
+        player.feet = lerp3(p.prev_feet, feet, p.draw_alpha());
         return;
     }
     // A frame with no player character or waiting for a cell is not a played frame for
@@ -1154,9 +1158,9 @@ fn step(
         return;
     };
     if !phys.ready_at(feet) {
-        // Walked into a cell that is not loaded yet: wait for it.
+        // Walked into a cell that is not loaded yet: wait for it. The frames' time does
+        // not reach the stepper; its remainder, and the drawn blend, stay as they were.
         meter.skip();
-        phys.stepper = default();
         status.waiting_frames += 1;
         return;
     }
@@ -1331,8 +1335,8 @@ fn step(
         lunge.from = None;
         info!("player: lunge done: {:.0} units from where it started", (c.feet[0] - from[0]).hypot(c.feet[1] - from[1]));
     }
-    let alpha = p.stepper.alpha(dt);
-    player.feet = lerp3(p.prev_feet, c.feet, alpha);
+    let feet = c.feet;
+    player.feet = lerp3(p.prev_feet, feet, p.draw_alpha());
     if n > 0 {
         // Where the bodies are drawn after the steps (the drawn ground under each).
         p.update_drawn_sinks();
@@ -1519,6 +1523,39 @@ mod tests {
     use std::f32::consts::{FRAC_PI_2, PI};
 
     const SPEEDS: MoveSpeeds = MoveSpeeds { walk: 77.0, run: 308.0 };
+
+    /// A menu, a conversation or a loading screen keeps the share of a step everything is
+    /// drawn at: nothing drawn between steps shifts when one opens or closes.
+    #[test]
+    fn the_drawn_blend_holds_while_not_playing() {
+        for state in [PlayState::Menu, PlayState::Dialogue, PlayState::Loading] {
+            let mut app = App::new();
+            let player = Player { heading: 0.0, pitch: 0.0, eye_height: 120.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None };
+            app.insert_resource(State::new(state))
+                .insert_resource(crate::script_draw::tests::play_over(&[]))
+                .insert_resource(SPEEDS)
+                .insert_resource(player)
+                .insert_resource(PhysState::default())
+                .init_resource::<Time>()
+                .init_resource::<MoveIntent>()
+                .init_resource::<Status>()
+                .init_resource::<crate::furniture::PlayerSeat>()
+                .init_resource::<NoClip>()
+                .init_resource::<Lunge>()
+                .add_message::<crate::rumble::Landed>()
+                .add_message::<crate::falls::Fell>()
+                .add_systems(Update, step);
+            let dt = app.world().resource::<PhysState>().world.params.dt;
+            app.world_mut().resource_mut::<PhysState>().stepper.accumulated = f64::from(dt) * 0.4;
+            let before = app.world().resource::<PhysState>().draw_alpha();
+            for _ in 0..3 {
+                app.update();
+            }
+            let p = app.world().resource::<PhysState>();
+            assert_eq!(p.draw_alpha(), before, "{state:?}");
+            assert!((before - 0.4).abs() < 1e-5);
+        }
+    }
 
     fn close(a: [f32; 2], b: [f32; 2]) -> bool {
         (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3
