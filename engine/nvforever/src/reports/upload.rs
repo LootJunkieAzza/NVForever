@@ -59,12 +59,14 @@ pub struct Pending {
     pub summary: PathBuf,
     pub log: Option<PathBuf>,
     pub panic: Option<PathBuf>,
+    /// The flight recorder a panic wrote (anomaly.rs), gzip JSONL.
+    pub recorder: Option<PathBuf>,
 }
 
 impl Pending {
     /// Every file of this upload.
     pub fn files(&self) -> impl Iterator<Item = &Path> {
-        std::iter::once(self.summary.as_path()).chain(self.log.as_deref()).chain(self.panic.as_deref())
+        std::iter::once(self.summary.as_path()).chain(self.log.as_deref()).chain(self.panic.as_deref()).chain(self.recorder.as_deref())
     }
 }
 
@@ -81,7 +83,7 @@ pub fn pending_in(dir: &Path, names: &[String]) -> Vec<Pending> {
                 let name = format!("{stem}{ext}");
                 names.contains(&name).then(|| dir.join(name))
             };
-            Pending { summary: dir.join(n), log: part(".log.gz"), panic: part(".panic.txt") }
+            Pending { summary: dir.join(n), log: part(".log.gz"), panic: part(".panic.txt"), recorder: part(".recorder.jsonl.gz") }
         })
         .collect()
 }
@@ -207,6 +209,7 @@ fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
         }
         let log = p.log.as_ref().and_then(|l| std::fs::read(l).ok());
         let panic = p.panic.as_ref().and_then(|l| std::fs::read(l).ok());
+        let recorder = p.recorder.as_ref().filter(|_| is_crash(&end)).and_then(|l| std::fs::read(l).ok());
         let gz = gzip(&summary);
         let mut parts: Vec<(&str, &str, &str, &[u8])> = vec![("summary", "summary.json.gz", "application/gzip", &gz)];
         if let Some(l) = &log {
@@ -214,6 +217,9 @@ fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
         }
         if let Some(t) = &panic {
             parts.push(("panic", "panic.txt", "text/plain", t));
+        }
+        if let Some(r) = &recorder {
+            parts.push(("recorder", "recorder.jsonl.gz", "application/gzip", r));
         }
         let (body, ctype) = multipart(&parts);
         let path = if is_crash(&end) { "/v1/crash" } else { "/v1/session" };

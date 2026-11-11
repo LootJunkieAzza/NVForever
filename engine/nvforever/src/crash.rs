@@ -230,7 +230,11 @@ pub fn install(data: &Path, previous_running: bool) {
     let previous = names.iter().rev().find(|n| n.starts_with("nvforever-") && n.ends_with(".log")).map(|n| dir.join(n));
     let path = dir.join(format!("nvforever-{}-{}.log", stamp(now_secs()), std::process::id()));
     names.push(path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string());
-    for old in old_files(&names, "nvforever-", ".log", KEEP_LOGS).into_iter().chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS)) {
+    for old in old_files(&names, "nvforever-", ".log", KEEP_LOGS)
+        .into_iter()
+        .chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS))
+        .chain(old_files(&names, "recorder-", ".jsonl", KEEP_REPORTS))
+    {
         let _ = std::fs::remove_file(dir.join(old));
     }
     match File::create(&path) {
@@ -302,12 +306,44 @@ impl Write for ConsoleWriter {
 /// One write to the run log, redacted (the layer makes one per line).
 struct RunLogWriter(&'static RunLog);
 
+/// The last line written to the run log without its time stamp, and how many times it came
+/// again since (player-reports.md §4.1: a spammed line folded so it cannot push the useful
+/// lines out).
+static LAST_LINE: Mutex<(String, u64)> = Mutex::new((String::new(), 0));
+
+/// A log line's text without its leading time stamp (`2026-11-10T23:44:31.588916Z  INFO …`).
+fn without_stamp(line: &str) -> &str {
+    match line.split_once(' ') {
+        Some((first, rest)) if first.len() > 10 && first.as_bytes()[0].is_ascii_digit() && first.contains('T') => rest.trim_start(),
+        _ => line,
+    }
+}
+
+/// What to write for `line` given the last one: nothing (a repeat, counted), or the line,
+/// after a note of how many times the one before it came again.
+fn fold(last: &mut (String, u64), line: &str) -> Option<String> {
+    let body = without_stamp(line);
+    if !body.trim().is_empty() && body == last.0 {
+        last.1 += 1;
+        return None;
+    }
+    let note = (last.1 > 0).then(|| format!("… the line above repeated {} more time{}
+", last.1, if last.1 == 1 { "" } else { "s" }));
+    last.0 = body.to_string();
+    last.1 = 0;
+    Some(note.unwrap_or_default() + line)
+}
+
 impl Write for RunLogWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let text = redact(&String::from_utf8_lossy(buf)).into_owned();
+        let Some(out) = fold(&mut LAST_LINE.lock().unwrap_or_else(|e| e.into_inner()), &text) else {
+            return Ok(buf.len());
+        };
         // A panic while the lock was held must not stop the log.
         let mut w = self.0.writer.lock().unwrap_or_else(|e| e.into_inner());
         match w.as_mut() {
-            Some(f) => f.write_all(redact(&String::from_utf8_lossy(buf)).as_bytes()).map(|()| buf.len()),
+            Some(f) => f.write_all(out.as_bytes()).map(|()| buf.len()),
             None => Ok(buf.len()),
         }
     }
@@ -382,6 +418,10 @@ fn set_hook() {
         let text = report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace);
         let written = LOG_DIR.get().map(|dir| {
             let path = dir.join(format!("crash-{}-{}.txt", stamp(now_secs()), std::process::id()));
+            // The flight recorder's last 60 s beside it, when reports are on (reports/anomaly.rs).
+            if crate::reports::active().is_some() {
+                let _ = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{}-{}.jsonl", stamp(now_secs()), std::process::id())));
+            }
             (std::fs::write(&path, redact(&text).as_bytes()).map(|_| path.clone()), path)
         });
         let place = if place.is_empty() { "not known yet" } else { place.as_str() };
@@ -491,6 +531,25 @@ pub fn report_exit(mut exit: MessageReader<AppExit>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_lines_are_folded() {
+        let mut last = (String::new(), 0);
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.1Z  WARN x: spam
+").as_deref(), Some("2026-11-10T23:44:31.1Z  WARN x: spam
+"));
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.2Z  WARN x: spam
+"), None);
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.3Z  WARN x: spam
+"), None);
+        assert_eq!(
+            fold(&mut last, "2026-11-10T23:44:32.0Z  INFO y: other
+").as_deref(),
+            Some("… the line above repeated 2 more times
+2026-11-10T23:44:32.0Z  INFO y: other
+")
+        );
+    }
 
     #[test]
     fn stamps_are_utc_calendar_times() {

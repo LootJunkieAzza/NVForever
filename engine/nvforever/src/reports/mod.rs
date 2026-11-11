@@ -21,6 +21,7 @@
 //! Nothing is sent from the game folder or `Documents\My Games\FalloutNV`: every file is
 //! in the home and passes `fnv_install::guard_write`.
 
+pub mod anomaly;
 pub mod summary;
 pub mod upload;
 mod warnings;
@@ -247,6 +248,62 @@ pub fn folders() -> Option<(PathBuf, PathBuf)> {
 
 // ------------------------------------------------------------------ the collector
 
+/// Per-subsystem log levels from `[Log]` in NVForever.ini (player-reports.md §4.1), e.g.
+/// `script=debug`, so a player asked to reproduce a bug can turn one part up. A name is one
+/// of [`LOG_SUBSYSTEMS`] or a module path (`nvf_play::doors=trace`); levels are trace,
+/// debug, info, warn, error, off. The result is the log plugin's filter: Bevy's default with
+/// these added (`RUST_LOG` still goes on top).
+pub fn log_filter() -> String {
+    let ini = EngineHome::user().and_then(|h| std::fs::read_to_string(h.config_file()).ok()).unwrap_or_default();
+    let extra = log_directives(&ini);
+    if extra.is_empty() {
+        return bevy::log::DEFAULT_FILTER.to_string();
+    }
+    eprintln!("setup: log levels from [Log]: {extra}");
+    format!("{},{extra}", bevy::log::DEFAULT_FILTER)
+}
+
+/// `[Log]` names and the modules they turn up.
+pub const LOG_SUBSYSTEMS: &[(&str, &[&str])] = &[
+    ("script", &["nvf_play::script", "fnv_game", "fnv_script"]),
+    ("ai", &["fnv_ai", "nvforever::residents"]),
+    ("nav", &["fnv_nav"]),
+    ("physics", &["fnv_phys", "nvf_play::phys"]),
+    ("assets", &["nvf_assets"]),
+    ("save", &["nvf_play::save", "fnv_save"]),
+    ("quest", &["nvf_play::script", "fnv_game::quest"]),
+    ("dialogue", &["nvf_play::dialogue"]),
+    ("render", &["nvforever"]),
+    ("audio", &["nvf_play::audio_out", "nvf_play::voice", "nvf_play::music"]),
+    ("ui", &["nvf_play::pipboy", "nvf_play::interface", "nvf_play::settings_view"]),
+    ("reports", &["nvforever::reports"]),
+];
+
+fn log_directives(ini: &str) -> String {
+    let mut out = Vec::new();
+    let mut in_log = false;
+    for line in ini.lines().map(str::trim) {
+        if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            in_log = s.trim().eq_ignore_ascii_case("Log");
+            continue;
+        }
+        if !in_log || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else { continue };
+        let (k, v) = (k.trim(), v.trim().to_ascii_lowercase());
+        if !matches!(v.as_str(), "trace" | "debug" | "info" | "warn" | "error" | "off") {
+            continue;
+        }
+        match LOG_SUBSYSTEMS.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)) {
+            Some((_, modules)) => out.extend(modules.iter().map(|m| format!("{m}={v}"))),
+            None if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':') && !k.is_empty() => out.push(format!("{k}={v}")),
+            None => {}
+        }
+    }
+    out.join(",")
+}
+
 /// The settings page's row (nvf-play's settings_layout names it).
 pub const SETTING_KEY: &str = "send-reports";
 
@@ -290,6 +347,11 @@ struct Collector {
     start_kind: &'static str,
     /// A loading screen up now: (real seconds when it went up, kind).
     load: Option<(f64, &'static str)>,
+    /// Where the player is this frame, for anomaly events.
+    here: anomaly::Here,
+    /// When the last loading screen went down (real seconds).
+    load_ended: f64,
+    detectors: anomaly::Detectors,
 }
 
 impl Plugin for ReportsPlugin {
@@ -342,9 +404,12 @@ impl Plugin for ReportsPlugin {
                 space_time: Default::default(),
                 start_kind: self.start_kind,
                 load: None,
+                here: Default::default(),
+                load_ended: 0.0,
+                detectors: Default::default(),
             })
             .add_systems(Startup, (read_gpu, read_window))
-            .add_systems(Update, (collect, track_loads))
+            .add_systems(Update, (collect, track_loads, detect).chain())
             .add_systems(Last, write_summary);
     }
 }
@@ -430,6 +495,7 @@ fn read_window(windows: Query<&Window, With<bevy::window::PrimaryWindow>>, mut c
 /// Every frame: its time in the camera's place, cells visited, time in each worldspace.
 fn collect(
     time: Res<Time>,
+    player: Option<Res<nvf_play::player::Player>>,
     cam: Query<&GlobalTransform, With<crate::fly::FlyCam>>,
     streamer: Option<Res<crate::world::Streamer>>,
     world: Option<Res<crate::world::WorldData>>,
@@ -455,6 +521,9 @@ fn collect(
         }
     }
     let cell_name = cell.and_then(|c| c.edid.clone()).unwrap_or_default();
+    c.here.place.clone_from(&place);
+    c.here.cell = cell.map(|cl| cl.edid.clone().unwrap_or_else(|| format!("{:08X}", cl.form_id)));
+    c.here.pos = player.as_ref().map_or([g.x, g.y, g.z], |p| p.feet);
     let i = *c.places.entry(place.clone()).or_insert_with(|| {
         c.summary.places.push(Place { name: place.clone(), interior, ..Default::default() });
         c.summary.places.len() - 1
@@ -511,13 +580,75 @@ fn track_loads(
         }
         (false, Some((t, kind))) => {
             c.load = None;
+            c.load_ended = now;
             let ms = ((now - t) * 1000.0) as f32;
+            if ms > anomaly::SLOW_LOAD_MS {
+                let c = &mut *c;
+                let t_s = c.started.elapsed().as_secs();
+                c.detectors.fire(&mut c.summary, &c.here, t_s, "slow_load", serde_json::json!({ "load": kind, "ms": ms.round() }));
+            }
             match c.summary.loads.iter_mut().find(|(k, _)| k == kind) {
                 Some((_, l)) => l.times_ms.push(ms),
                 None => c.summary.loads.push((kind.to_string(), summary::Loads { times_ms: vec![ms] })),
             }
         }
         (false, None) => {}
+    }
+}
+
+/// The Pip-Boy, VATS and the pause menu, for the game state of an event.
+type Menus<'w> = (Option<Res<'w, nvf_play::pipboy::PipBoy>>, Option<Res<'w, nvf_play::vats_mode::VatsMode>>, Option<Res<'w, nvf_play::pause::Paused>>);
+
+/// The anomaly detectors that read the game's state each frame (anomaly.rs), and the ones
+/// the log lines found since the last frame, given where the player is.
+#[allow(clippy::too_many_arguments)]
+fn detect(
+    real: Res<Time<Real>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
+    state: Option<Res<State<nvf_play::PlayState>>>,
+    intent: Option<Res<nvf_play::player::MoveIntent>>,
+    menus: Menus,
+    voice: Option<Res<nvf_play::voice::VoiceState>>,
+    memory: Option<Res<crate::memory_budget::MemoryBudget>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
+    mut c: ResMut<Collector>,
+) {
+    let c = &mut *c;
+    let t_s = c.started.elapsed().as_secs();
+    let (pip, vats, paused) = menus;
+    let loading_now = loading.as_ref().is_some_and(|l| l.active());
+    c.here.hour = sim.as_ref().map(|s| nvf_play::music::game_hour(s));
+    c.here.state = if loading_now {
+        "loading"
+    } else if vats.as_ref().is_some_and(|v| v.active()) {
+        "vats"
+    } else if pip.as_ref().is_some_and(|p| p.open()) {
+        "pipboy"
+    } else if paused.as_ref().is_some_and(|p| p.0) {
+        "paused"
+    } else {
+        match state.as_ref().map(|s| *s.get()) {
+            Some(nvf_play::PlayState::Menu) => "menu",
+            Some(nvf_play::PlayState::Dialogue) => "dialogue",
+            Some(nvf_play::PlayState::Loading) => "loading",
+            Some(nvf_play::PlayState::Playing) => "playing",
+            None => "viewer",
+        }
+    };
+    c.detectors.drain_log(&mut c.summary, &c.here, t_s);
+    // A hitch: a frame over the limit while the world runs (not behind a loading screen).
+    let ms = real.delta_secs() * 1000.0;
+    let settled = real.elapsed_secs_f64() - c.load_ended > anomaly::HITCH_SETTLE_SECS && t_s > 20;
+    if ms > anomaly::HITCH_MS && !loading_now && settled && matches!(c.here.state, "playing" | "viewer") {
+        c.detectors.fire(&mut c.summary, &c.here, t_s, "hitch", serde_json::json!({ "ms": ms.round() }));
+    }
+    let moving = c.here.state == "playing" && intent.as_ref().is_some_and(|i| i.forward.abs() + i.right.abs() > 0.1);
+    c.detectors.check_stuck(&mut c.summary, &c.here, t_s, real.elapsed_secs_f64(), moving);
+    if let Some(m) = memory {
+        c.detectors.check_memory(&mut c.summary, &c.here, t_s, m.vram_use_mb, m.ram_share);
+    }
+    if let Some(v) = voice {
+        c.detectors.check_voice(&mut c.summary, &c.here, t_s, v.missing);
     }
 }
 
@@ -622,6 +753,12 @@ pub fn finish_earlier(summary: &Path, logs: &Path) -> Option<upload::Pending> {
             let _ = std::fs::write(&panic_part, redact(&text));
         }
     }
+    let rec_part = dir.join(format!("{stem}.recorder.jsonl.gz"));
+    if !rec_part.exists() {
+        if let Some(text) = find("recorder-", ".jsonl").and_then(|r| std::fs::read_to_string(r).ok()) {
+            let _ = std::fs::write(&rec_part, upload::gzip(text.as_bytes()));
+        }
+    }
     let log_part = dir.join(format!("{stem}.log.gz"));
     if !log_part.exists() {
         if let Some(text) = find("nvforever-", ".log").and_then(|l| std::fs::read_to_string(l).ok()) {
@@ -674,6 +811,22 @@ mod tests {
         assert_eq!(official_quest(&order, 0x0200_0ABC), Some(("00000ABC".to_string(), "DeadMoney.esm".to_string())));
         assert_eq!(official_quest(&order, 0x0100_0001), None, "a mod's quest");
         assert_eq!(official_quest(&order, 0x0700_0001), None, "past the load order");
+    }
+
+    #[test]
+    fn log_levels_come_from_the_log_section() {
+        let ini = "[Settings]
+script=debug
+[Log]
+script=debug
+nvf_play::doors=TRACE
+ai=loud
+; nav=debug
+";
+        assert_eq!(log_directives(ini), "nvf_play::script=debug,fnv_game=debug,fnv_script=debug,nvf_play::doors=trace");
+        assert_eq!(log_directives("[Game]
+Path=x
+"), "");
     }
 
     #[test]

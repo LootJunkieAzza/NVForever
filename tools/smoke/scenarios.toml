@@ -24370,3 +24370,18 @@ expect = [
   { re = 'idle: VHeliosStasisProtectron[25]REF plays ProtectronTurnedOff', max = 0, label = "not the switched-off pose: they are awake (GetUnconscious 0 in the original)" },
   { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
 ]
+
+[[scenario]]
+name = "reports-anomaly-fell-through"
+source = "#2055, docs/design/player-reports.md section 4.4: the engine's rescue after falling through the land becomes a fell_out_of_world anomaly in the session summary (engine/nvforever/src/reports/anomaly.rs)"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/anomaly.rs", "engine/nvforever/src/reports/warnings.rs"]
+# Dropped 20000 units below the ground in Goodsprings; nvf-play puts the player back on the land.
+env = { NVFOREVER_HOME = "reports-anomaly-home", NVF_REPORTS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setpos z -20000;8.5:close" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  { re = 'player fell through at', label = "the engine's rescue" },
+  { re = 'reports: anomaly fell_out_of_world at WastelandNV', label = "the anomaly with where it happened" },
+  "run log: the game exited normally",
+]
