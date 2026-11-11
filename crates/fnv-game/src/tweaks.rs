@@ -505,6 +505,9 @@ pub struct Tweaks {
     /// `bEnemyHealthbarShowBuffedHP`: a target's health bar counts its raised Health in
     /// the whole.
     pub buffed_health_bars: bool,
+    /// `bNPCsDetectMineExplosions`: a mine going off is an explosion event the actors
+    /// near may hear.
+    pub mine_blasts_heard: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -787,6 +790,7 @@ impl Default for Tweaks {
             skill_cap_most: 100,
             cap_skills_spare_tagged: false,
             buffed_health_bars: false,
+            mine_blasts_heard: false,
         }
     }
 }

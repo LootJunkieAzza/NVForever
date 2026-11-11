@@ -562,6 +562,7 @@ unless the player binds them, so nothing changes until then.
 | Health Bars Count Buffs | `bEnemyHealthbarShowBuffedHP` | `hud_target` adds the target's positive temporary Health modifier (`actor_value_temporary`) to `max_health` for the bar |
 | Recently Dead on the Compass | `bRecentlyDeadNPCIndicator` | `compass::gather` notes when it first finds an actor dead (`DeadSeen`) and keeps a plain pip for it for the slider's seconds, until the crosshair's target has been that body |
 | Armour Rustle From the Body | `bArmorSoundsPlayIn3D` | nvforever `anim_sounds::sound_heard` gives the third-person rig's foley the player's feet as its place (`tweaks::ARMOR_3D`); the first-person rig's stays at the listener |
+| Mine Blasts Are Heard | `bNPCsDetectMineExplosions` | `mines::tick` keeps who set a mine off (`Burning::by`) and, when it goes off, queues an explosion detection event (level 100, ours) owned by whoever laid it, else whoever set it off; nvforever `detection` measures it as any other event |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -583,8 +584,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 488 |
-| to do | 115 |
+| done | 489 |
+| to do | 114 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -661,6 +662,7 @@ game's Data folder, read-only).
 | `bNoLockFailedTerminals` | done |  |  | No Terminal Lockout |
 | `bNoPlayerStaggerAnims` | done |  |  | No Player Stagger |
 | `bNoSkillTags` | done |  | 6 | No Skill Tags (the outline, percent and XP options not built) |
+| `bNPCsDetectMineExplosions` | done |  |  | Mine Blasts Are Heard |
 | `bNPCsEarnAmmoCasings` | done |  |  | NPCs Keep Spent Cases (the ammo's own chance, no perks) |
 | `bNPCsTakeLimbFallDamage` | done |  |  | already so: falls hit a leg for NPCs too |
 | `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
@@ -725,7 +727,6 @@ game's Data folder, read-only).
 | `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
-| `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
 | `bPerBulletLoopingReloads` | to do |  | 2 | a press counter on the attack Cycle |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
