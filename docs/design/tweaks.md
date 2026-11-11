@@ -534,6 +534,8 @@ unless the player binds them, so nothing changes until then.
 | Lockpicking Follows the Time Speed | `bTimescaleAffectsMinigames` | `lockpick::step` multiplies its frame time by SetGlobalTimeMultiplier's speed; the card and slot games keep their pace |
 | No Name Length Limit | `bNoPlayerNameLimit` | the name menu and `chargen::apply_name` take up to `NAME_LONG_CHARS` (256) for 24; the box wraps |
 | Activate Doesn't Stand Up | `bActivatingDoesntStandUp` | nvforever `furniture` and `activate` leave `PlayerSeat::leave` alone on Activate (`tweaks::SEAT_KEEPS_ON_ACTIVATE`); a movement control still gets up (`player.rs`) |
+| Plain Screen Going Outside | `bNoExteriorLoadScreens` | `loading::begin` marks a trip from an interior to a worldspace (`plain_once`); `spawn_screen` then chooses no screen, so black alone; a save's cover is not a trip |
+| (already so) | `bLuckDoesntAffectGambling` | NVForever's blackjack, roulette, slots and Caravan do not read Luck |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -555,8 +557,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 460 |
-| to do | 143 |
+| done | 462 |
+| to do | 141 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -612,6 +614,7 @@ game's Data folder, read-only).
 | `bLockpickForceBonusNearSweetSpot` | done |  | 2 | Force Lock Near the Sweet Spot (our falloff: full bonus on the middle, none 90 degrees away) |
 | `bLockpickRememberBobbyPinAngle` | done |  |  | already so: a new pin keeps the angle |
 | `bLootUnconsciousVictims` | done |  |  | Search the Unconscious |
+| `bLuckDoesntAffectGambling` | done |  | 1 | already so: NVForever's casino games do not read Luck |
 | `bMarkNearbyLocationsOnMap` | done |  | 1 | Mark Nearby Places (slider, game units) |
 | `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
 | `bNoAmmoFromTakingNPCWeapon` | done |  |  | already so: taking a weapon adds only its placed ammo |
@@ -690,7 +693,6 @@ game's Data folder, read-only).
 | `bHostilesPrioritizePlayer` | to do |  | 3 | Awareness::combat_target has no game or rolls |
 | `bImprovedHacking` | to do |  | 10 | each option is its own rule in hacking.rs |
 | `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
-| `bLuckDoesntAffectGambling` | to do |  | 1 | already so? no Luck in the gambling rules found; check the original first |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
 | `bMovementPenalties` | to do |  | 11 | player::step pace chain; seven percentages to choose |
@@ -830,6 +832,7 @@ game's Data folder, read-only).
 | `bNoAutoContinueDialog` | done |  |  | Click to Continue Dialogue |
 | `bNoDropWeaponSoundOnPlayerDeath` | done |  |  | already so: the player weapon is not put away at death |
 | `bNoEquippedWeaponMovementPenalty` | done |  |  | No Weapon Movement Penalty (the two-handed run slowdown) |
+| `bNoExteriorLoadScreens` | done |  |  | Plain Screen Going Outside |
 | `bNoFoodWornOffMessage` | done |  | 1 | already so: no worn-off message is shown |
 | `bNoKillcamKillSound` | done |  |  | already so: NVForever plays no sound when a kill camera starts |
 | `bNoKnockdownInGodmode` | done |  |  | No Knockdowns in God Mode |
@@ -870,7 +873,6 @@ game's Data folder, read-only).
 | `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
 | `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
-| `bNoExteriorLoadScreens` | to do |  |  | the screen covers the cells loading; unsure what the original shows instead (black or the world) |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |

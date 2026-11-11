@@ -129,6 +129,11 @@ pub struct Loading {
     /// The player's Click to Exit Load Screens tweak: a finished screen stays up, saying
     /// so, until a key or a button is pressed [design: docs/design/tweaks.md].
     pub click_to_exit: bool,
+    /// The player's No Exterior Load Screens tweak: a trip out of an interior shows the
+    /// black alone, no picture or tip [design: docs/design/tweaks.md].
+    pub plain_going_out: bool,
+    /// The next screen is the plain one (set for one [`spawn_screen`]).
+    plain_once: bool,
     waiting_click: bool,
     trip: Option<Trip>,
     /// The start of the run, held until the world can be played ([`StartCover`]).
@@ -373,6 +378,7 @@ fn begin(
         return;
     }
     let to = (!std::mem::take(&mut loading.generic_next)).then(|| destination(&travel, *location));
+    loading.plain_once = loading.plain_going_out && location.interior.is_some() && travel.destination(*location).interior.is_none();
     spawn_screen(&mut commands, &mut loading, &mut art, to.as_ref());
     clock.pause();
     next.set(PlayState::Loading);
@@ -432,7 +438,11 @@ fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, t
     let anywhere = Destination { interior: None, exterior: None };
     let to = to.unwrap_or(&anywhere);
     loading.shown += 1;
-    let screen = art.screens.as_deref().and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    let plain = std::mem::take(&mut loading.plain_once);
+    let screen = art.screens.as_deref().filter(|_| !plain).and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    if plain {
+        info!("loading screen: out of an interior, no picture (tweak)");
+    }
     let picture = match (screen.and_then(|s| s.texture.as_deref()), art.data.as_deref(), art.textures.as_mut(), art.images.as_mut()) {
         (Some(path), Some(data), Some(textures), Some(images)) => textures.get(path, true, data, images, art.formats.as_deref()),
         _ => None,

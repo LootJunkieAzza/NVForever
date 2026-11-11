@@ -376,6 +376,9 @@ pub struct TweakSettings {
     /// `bActivatingDoesntStandUp`: Activate does not get the player up from furniture;
     /// moving does.
     pub seat_keeps_on_activate: bool,
+    /// `bNoExteriorLoadScreens`: leaving an interior shows a black screen with no
+    /// picture or tip (not a loaded save).
+    pub plain_going_out: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -588,6 +591,7 @@ impl Default for TweakSettings {
             no_pointer_in_dialogue: false,
             levelup_wheel: false,
             seat_keeps_on_activate: false,
+            plain_going_out: false,
         }
     }
 }
@@ -1527,6 +1531,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "minigames-timescale", "Lockpicking Follows the Time Speed", "When a script speeds up or slows down time, the lock turns and the pick wears at that speed too. (Stewie's Tweaks bTimescaleAffectsMinigames)", game.minigames_timescale);
         switch!(app, "no-name-limit", "No Name Length Limit", "Your character's name may be longer than 24 letters. (Stewie's Tweaks bNoPlayerNameLimit)", game.no_name_limit);
         switch!(app, "seat-keeps-on-activate", "Activate Doesn't Stand Up", "Seated or lying down, the activate key no longer gets you up; a movement key does. (Stewie's Tweaks bActivatingDoesntStandUp)", seat_keeps_on_activate);
+        switch!(app, "plain-going-out", "Plain Screen Going Outside", "Going out of a building shows a plain black screen while the world loads, without a picture or a tip; loading a save is unchanged. (Stewie's Tweaks bNoExteriorLoadScreens)", plain_going_out);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1803,6 +1808,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         }
         if l.click_to_exit != tweaks.click_to_exit_loading {
             l.click_to_exit = tweaks.click_to_exit_loading;
+        }
+        if l.plain_going_out != tweaks.plain_going_out {
+            l.plain_going_out = tweaks.plain_going_out;
         }
     }
     let hidden = crate::quest_messages::Hidden { failed: tweaks.no_quest_failed_popup, discovered: tweaks.no_location_popup, objectives: tweaks.no_objective_popup };
