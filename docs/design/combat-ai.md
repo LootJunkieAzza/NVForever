@@ -86,7 +86,8 @@ fists (the default draws it holstered).
   built: reloading a part-empty magazine in cover or out of sight, the weapon model's
   own reload animation on NPCs (the revolver's cylinder). Smoke `combat-npc-reload`.
 - **Aim**: from its eyes at the target's chest, inside a cone of the documented actor
-  spread for its weapon skill (standing, not aiming down the sights), plus 4° that
+  spread for its weapon skill (its sights, crouch and gait: walking or running as it
+  fires widens it, `npc_combat::shot_stance`, #2125), plus 4° that
   settles away over 3 s of firing at the same target (the first shots of a burst miss
   more).
 - **Melee**: a blow every 1.2 s divided by the weapon's attack speed, while the gap
@@ -358,12 +359,25 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
   sights on a way already planned, `walks on, aiming down the sights at the player`
   (`runs on, sights lowered, at …` when it lowers them). The sights come up only while
   it can fire (it sees its target, its weapon drawn) [design].
+- Its shots fired on the move take the formula's moving terms as the player's do
+  (fWalkingSpreadPenalty walking, fRunningSpreadPenalty running [documented: Gun Spread
+  Formula (New Vegas); docs/design/combat.md, its Gun Spread Formula notes]; before
+  #2125 every NPC shot was spread as if standing). Its gait comes from its locomotion
+  (`npc_combat::shot_gait`): moving, in any direction, while its velocity at its clips'
+  pace reaches the speed a walk clip starts at; running while a run clip plays, the
+  walk/run choice of its own clips, so an actor's scale or a creature's pace moves no
+  fixed cut-off; a velocity of nought stands even while the run clip still plays, and an
+  actor with no locomotion stands. The shot takes the most recent gait `fight` finds,
+  read before `locomotion::drive` chooses the frame's clip and unordered against the
+  walker's velocity update: up to a frame old at a start, a stop or a change between
+  walk and run [design].
 - Not used: the WEAP's Sight Usage ("the percentage of fCombatIronSightsDistance" beyond
   which an actor uses its sights [documented: GECK wiki Weapons]), because the owner's
   20 m rule stands in and fCombatIronSightsDistance is neither in FalloutNV.esm nor on
   the wiki; the NPC spread's fNPCMaxGunWobbleAngle term (Gun Spread Formula (New
   Vegas): spread × fNPCMaxGunWobbleAngle + spread, ×16 with the masters' 15) [design:
-  NPCs keep the player's formula; combat is not a parity target].
+  NPCs keep the player's formula, its walking and running terms with it; combat is not
+  a parity target].
 - Log: `npc combat: … aims down the sights, its target … units away (beyond 1400):
   walks while aiming`, `… fires from the hip …`, and in the summary `… down the sights,
   … from the hip, sights raised … times`.
