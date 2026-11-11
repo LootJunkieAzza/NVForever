@@ -550,6 +550,7 @@ unless the player binds them, so nothing changes until then.
 | Console Shows Models | `bExtraConsoleDetails` | `console::describe` adds the base's MODL path (`MODEL_DETAILS`); the cell's Editor ID and name were already in the details |
 | Backward Pace, Sideways Pace | `bMovementPenalties` | the player's step multiplies the pace by the backward and sideways shares, a diagonal weighted by its forward and side parts; aiming already slows to a walk (`aiming_walks`) |
 | Hacking: Symbols Do Nothing, No Repeat Guesses, Dud When Attempts Full, Duds Spare Tried Words | `bImprovedHacking` | `hacking::Puzzle::rules` (`HackRules`, set by `terminal.rs` from the game's tweaks) in `Puzzle::choose`; `Puzzle::guessed` keeps the words denied; the options about printing are not done |
+| Run While Overencumbered | `bOverencumberedTweak` | `player::encumbered_walks` no longer forces a walk and sets `OVERENCUMBERED`; `tweaks::ap_costs` adds the overencumbered running and jump costs (4 a second and 10 a jump by default, our numbers), walking and refusing the jump without the points |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -571,8 +572,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 476 |
-| to do | 127 |
+| done | 477 |
+| to do | 126 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -648,6 +649,7 @@ game's Data folder, read-only).
 | `bNPCsEarnAmmoCasings` | done |  |  | NPCs Keep Spent Cases (the ammo's own chance, no perks) |
 | `bNPCsTakeLimbFallDamage` | done |  |  | already so: falls hit a leg for NPCs too |
 | `bOnlyAllowWaitWhileSitting` | done |  | 3 | Wait Only When Seated (NVForever's own refusal text) |
+| `bOverencumberedTweak` | done |  | 8 | Run While Overencumbered, with AP a second and a jump (the weight-scaled drain and speed options not built) |
 | `bPerksAffectFistWeaponSpeed` | done |  |  | already so: the fists are the weapon the perks are asked about |
 | `bPickLocksWithoutSkill` | done |  | 1 | Pick Any Lock (the lock plays as before; the difficulty option not built) |
 | `bPickpocketCaughtCausesDetection` | done |  |  | Caught Pickpocketing Means Detected |
@@ -713,7 +715,6 @@ game's Data folder, read-only).
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |
-| `bOverencumberedTweak` | to do |  | 8 | encumbered_walks and ap_costs together, with a timer |
 | `bPerBulletLoopingReloads` | to do |  | 2 | a press counter on the attack Cycle |
 | `bPickpocketOverhaul` | to do |  | 15 | Steal::chance needs weight, Perception and detection |
 | `bPreventRepairIfNotAtWorkbench` | to do |  |  | no notion of a workbench in reach |

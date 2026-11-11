@@ -598,7 +598,11 @@ pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>,
 /// docs/spec-notes/simulation.md §3; the owner's playtest list 5 item 21]. Not in god
 /// mode [hypothesis: the original's tgm lifts the carry limit]. The weight is read twice
 /// a second [design].
-pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>) {
+/// The player is over the carry limit now (for the Overencumbered Running tweak,
+/// `crate::tweaks`) [design: docs/design/tweaks.md].
+pub static OVERENCUMBERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>, tweaks: Option<Res<crate::tweaks::TweakSettings>>) {
     let Some(mut sim) = sim else { return };
     st.0 -= time.delta_secs();
     if st.0 <= 0.0 {
@@ -613,7 +617,9 @@ pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState
             }
         }
     }
-    if st.1 && !intent.walk {
+    OVERENCUMBERED.store(st.1, std::sync::atomic::Ordering::Relaxed);
+    // The player's tweak lets them run, paying Action Points (`crate::tweaks::ap_costs`).
+    if st.1 && !intent.walk && !tweaks.is_some_and(|t| t.run_overencumbered) {
         intent.walk = true;
     }
 }

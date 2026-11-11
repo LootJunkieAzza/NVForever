@@ -400,6 +400,11 @@ pub struct TweakSettings {
     /// part of the usual; 1 changes nothing.
     pub back_pace: f32,
     pub strafe_pace: f32,
+    /// `bOverencumberedTweak`: over the carry limit the player may run and jump, paying
+    /// `over_run_ap` Action Points a second running and `over_jump_ap` a jump.
+    pub run_overencumbered: bool,
+    pub over_run_ap: f32,
+    pub over_jump_ap: f32,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -631,6 +636,9 @@ impl Default for TweakSettings {
             console_model_details: false,
             back_pace: 1.0,
             strafe_pace: 1.0,
+            run_overencumbered: false,
+            over_run_ap: 4.0,
+            over_jump_ap: 10.0,
         }
     }
 }
@@ -1606,6 +1614,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hack-no-repeat-words", "Hacking: No Repeat Guesses", "A word you have already tried cannot be tried again, so it costs no attempt. (Stewie's Tweaks bImprovedHacking)", game.hack_no_repeat_words);
         switch!(app, "hack-dud-when-full", "Hacking: Dud When Attempts Full", "A bracket pair found with all attempts left removes a dud instead of giving attempts back. (Stewie's Tweaks bImprovedHacking)", game.hack_dud_when_full);
         switch!(app, "hack-spare-guessed", "Hacking: Duds Spare Tried Words", "Removing a dud leaves the words you have already tried, unless only they are left. (Stewie's Tweaks bImprovedHacking)", game.hack_spare_guessed);
+        switch!(app, "run-overencumbered", "Run While Overencumbered", "Carrying too much, you can still run and jump by spending Action Points; with none left you walk. (Stewie's Tweaks bOverencumberedTweak)", run_overencumbered);
+        amount!(app, "over-run-ap", "Overencumbered Running AP", "Action Points running costs each second while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 20.0, f32, over_run_ap);
+        amount!(app, "over-jump-ap", "Overencumbered Jump AP", "Action Points a jump costs while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 50.0, f32, over_jump_ap);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1725,7 +1736,13 @@ fn ap_costs(
     sim: Option<ResMut<crate::sim::SimState>>,
     mut jumped: Local<bool>,
 ) {
-    let (jump, run) = (tweaks.jump_ap_cost, tweaks.run_ap_per_second);
+    let (mut jump, mut run) = (tweaks.jump_ap_cost, tweaks.run_ap_per_second);
+    // Over the carry limit under the Overencumbered Running tweak: its own costs too, and
+    // without the points the player walks as without the tweak [design: docs/design/tweaks.md].
+    let over = tweaks.run_overencumbered && crate::player::OVERENCUMBERED.load(std::sync::atomic::Ordering::Relaxed);
+    if over {
+        (jump, run) = (jump + tweaks.over_jump_ap, run + tweaks.over_run_ap);
+    }
     let asked = intent.jump;
     let fresh_jump = asked && !*jumped;
     *jumped = asked;
