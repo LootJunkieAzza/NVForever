@@ -159,7 +159,11 @@ impl Game<'_> {
             return;
         }
         let base = self.speaker_voice_base(speaker);
-        let path = self.voice.as_ref().and_then(|v| v.response_path(info, index, base)).unwrap_or_default();
+        let path = self.voice.as_ref().and_then(|v| match self.voice_override(base) {
+            Some(vt) => v.response_path_in_voice(info, index, vt),
+            None => v.response_path(info, index, base),
+        });
+        let path = path.unwrap_or_default();
         let args = vec![XVal::Str(resp.text.clone()), XVal::Str(path), XVal::Num(f64::from(resp.emotion)), XVal::Num(f64::from(resp.emotion_value)), XVal::Num(f64::from(resp.number))];
         self.jg8_fire(Ev::NpcResponse, &[XVal::Num(f64::from(resp.emotion))], args);
     }

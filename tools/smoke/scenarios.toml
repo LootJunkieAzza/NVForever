@@ -1834,6 +1834,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-voice-female"
+source = "issue #2088 (owner 2026-11-10): a female player said the male player's hurt and power attack sounds; the player speaks with the DefaultObjectManager's Player Voice (Female) while female (crates/fnv-game/src/voice.rs player_voice_type)"
+note = "combat-voice's fight with the player made female by SexChange first: the grunts come from playervoicefemale, none from playervoicemale"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/voice.rs", "crates/fnv-voice/src/bank.rs", "engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:sexchange 1;1.5:close", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicefemale\\genericplayer_hit_', label = "a female player's hurt sound plays" },
+  { re = 'voice: playing \S+playervoicefemale\\genericplayer_powerattack_', label = "her power attack sound plays" },
+  { re = 'voice: playing \S+playervoicefemale\\genericplayer_death_', label = "her death sound plays" },
+]
+forbid = [{ re = 'voice: playing \S+playervoicemale\\', label = "no line from the male player's voice" }]
+
+[[scenario]]
 name = "combat-sights"
 source = "playtest list 2026-10-11 items 32-33 (docs/design/combat-ai.md §10.6): NPCs aim down the sights beyond 20 m (1,400 units) and walk while aiming, fire from the hip nearer"
 note = "Violet (0x000F570B, placed at -46910,64897) starts about 1,900 units from the player, within her hunting rifle's reach (2,000; docs/design/combat-ai.md §16) and beyond the 1,800 at which a gunman sets off again, so she walks in aiming down the sights to about 1,600 units, beyond 20 m; at 38 s the player is put about 1,000 units from her, just above the ground (z 4,400; the ground is about 4,290 there: from z 7,000 the player fell for seconds 2,700 units above her, beyond her reach measured to the chest, and she held fire): from the hip. Until PR #444 the player started 3,000 units off; beyond her reach she now runs in with her sights lowered (combat-sights-beyond-reach)"
