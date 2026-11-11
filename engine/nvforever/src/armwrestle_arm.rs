@@ -191,10 +191,20 @@ pub fn arms(
     };
     // The table's middle and its axis, from this game's references.
     let at = |r: u32| sim.world.peek(FormId(r)).map(|s| to_bevy(s.pos));
-    let (Some(mid), Some(p0), Some(p1)) = (at(shown.table), at(shown.stools[0]), at(shown.stools[1])) else { return };
+    let (Some(mid), Some(p0), Some(p1)) = (at(shown.table), at(shown.stools[0]), at(shown.stools[1])) else {
+        if !std::mem::replace(&mut shown.noted, true) {
+            warn!("arm wrestle arm: the table {:08X} or its seats are not in the world", shown.table);
+        }
+        return;
+    };
     let mut u = p1 - p0;
     u.y = 0.0;
-    let Some(u) = u.try_normalize() else { return };
+    let Some(u) = u.try_normalize() else {
+        if !std::mem::replace(&mut shown.noted, true) {
+            warn!("arm wrestle arm: the seats stand at one spot");
+        }
+        return;
+    };
     // Each side's body: whoever sits on that side's stool here.
     let mine = seat.as_deref().and_then(|s| s.on.filter(|_| s.hold.is_some()));
     let bodies: [Option<(Entity, ActorRig)>; 2] = std::array::from_fn(|k| {
@@ -244,6 +254,9 @@ pub fn arms(
         let b = a.e0.distance(a.h0);
         let (elbow, hand) = clasp(mid, u, b, k, lean);
         let (e, h) = solve(a.s, a.e0, a.h0, hand, elbow - a.s);
+        if (shown.clock * 2.0).fract() < dt * 2.0 {
+            info!("arm wrestle arm: side {k} weight {w:.2} lean {:.2} shoulder {:.0?} elbow {:.0?} wrist {:.0?} -> elbow {:.0?} wrist {:.0?} target {:.0?}", lean, a.s, a.e0, a.h0, e, h, hand);
+        }
         a.apply(e, h, w, &mut transforms);
     }
 }
