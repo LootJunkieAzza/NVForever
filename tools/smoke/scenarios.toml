@@ -11089,6 +11089,26 @@ order = [[
 expect = []
 
 [[scenario]]
+name = "slots-seated-holster"
+source = "queue item 170 part A: The Tops' machine 0x0016546A with its stool 0x0011E62E, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated, through the jackpot's cheer and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Screenshots: the gun drawn, seated, the cheer, up again"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon,26:orbit=150:-10,31:release", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,50:reels:6-6-6,50.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "29:slots_seated_holster_drawn.png,36.5:slots_seated_holster_seated.png,54:slots_seated_holster_cheer.png,64:slots_seated_holster_up.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 66
+order = [[
+  "slots seat: the player sits on stool 0011E62E at machine 0016546A",
+  "furniture: the player is on 0011E62E",
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots seat: the weapon is away (sitting put it away)",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots seat: the player plays Cheer",
+  "slots: closed (the player left)",
+  "slots seat: the player is up",
+]]
+expect = []
+
+[[scenario]]
 name = "slots-mod-standing"
 source = "queue item 170 part A, the owner's Strip mods: HOTM.esm's Silver Palace (cell aaSilverPalaceCasino) has 71 slot machines, 49 of them with no stool (the owner's screenshot of 2026-11-10, rows on wooden bases); machine 0x0F003EF0 in the owner's order, 0x08003EF0 with HOTM.esm's masters alone [observed: the load-order survey]: the player stands at it; needs a Data folder with the owner's mods (NVF_SLOTS_MOD_DATA set, --data the merged MO2 Data)"
 areas = ["slots"]
