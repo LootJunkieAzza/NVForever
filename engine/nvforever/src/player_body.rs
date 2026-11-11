@@ -181,6 +181,8 @@ const OWN_BODY_BACK: f32 = 4.0;
 /// way the body faces, radians [owner decision 2026-10-10: "limited to a real person's
 /// head movement"; engineering choice: 80 degrees, about what a neck turns].
 const NECK_TURN: f32 = 80.0 * std::f32::consts::PI / 180.0;
+/// The same with the player's Turn Further While Seated tweak: 115 degrees [design: docs/design/tweaks.md].
+const NECK_TURN_WIDE: f32 = 115.0 * std::f32::consts::PI / 180.0;
 /// How fast a view turned further than that when the body sits down comes round to it,
 /// radians per second [engineering choice].
 const NECK_RETURN_RATE: f32 = 4.0;
@@ -1726,7 +1728,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
                 want.push((c, TAG_MOVE + i as u32, weight, Mode::Synced));
             }
         }
-    } else if f.turn_rate.abs() > TURN_RATE {
+    } else if f.turn_rate.abs() > TURN_RATE && !nvf_play::tweaks::NO_TURN_CLIP.load(std::sync::atomic::Ordering::Relaxed) {
+        // (The player's No Turning Animation tweak plays none, docs/design/tweaks.md.)
         // Heading grows clockwise: a negative rate turns left.
         if let Some(c) = rig.clip(ctx, ClipKey::Turn(f.stance, f.drawn, f.turn_rate < 0.0, f.limping)) {
             want.push((c, TAG_TURN, 1.0, Mode::Loop));
@@ -2087,7 +2090,8 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleS
 fn seated_heading(heading: f32, facing: f32, settled: &mut bool, dt: f32) -> (f32, bool) {
     use std::f32::consts::{PI, TAU};
     let turned = (heading - facing + PI).rem_euclid(TAU) - PI;
-    let over = turned.abs() - NECK_TURN;
+    let wide = nvf_play::tweaks::SEATED_WIDE.load(std::sync::atomic::Ordering::Relaxed);
+    let over = turned.abs() - if wide { NECK_TURN_WIDE } else { NECK_TURN };
     if over <= 0.0 {
         *settled = true;
         return (heading, true);

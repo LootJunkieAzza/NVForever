@@ -518,6 +518,9 @@ unless the player binds them, so nothing changes until then.
 | No Spent Cases | `bNoAmmoCasings` | the player's shots give no Consumed Ammo item (cases, hulls, drained cells) |
 | Crosshair Down the Sights | `bKeepCrosshairWhenAiming` | the crosshair stays on down the iron sights; a scope still hides it |
 | Move During V.A.T.S. Camera | `bMoveDuringVATSPlayback` | the kill camera leaves walking and running (keys and stick) to the player; jumping, firing, aiming and reloading stay held |
+| Whole-Stack Pickup Figures | `bBetterPickupPrompt` | `reticle::Prompt::of` multiplies the weight and value by the stack's count (`STACK_FIGURES`); the carried total is not shown |
+| Turn Further While Seated | `bTurnFurtherWhileSeated` | nvforever `player_body::seated_heading` uses 115 degrees for 80 (`tweaks::SEATED_WIDE`); third person on furniture had no limit |
+| No Turning Animation | `bNoTurningAnim` | nvforever `player_body` plays no Turn clip (`tweaks::NO_TURN_CLIP`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -539,8 +542,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 444 |
-| to do | 159 |
+| done | 447 |
+| to do | 156 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -744,7 +747,7 @@ game's Data folder, read-only).
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
 | `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
-| `bVATSAutoTargetHead` | to do |  |  | V.A.T.S. picks no target on entry |
+| `bVATSAutoTargetHead` | to do |  |  | NVForever's V.A.T.S. marks the part under the crosshair; there is no default part to make the head |
 | `bWeaponRequirementsMatter` | to do |  | 7 | equip_at has no actor values |
 
 ### Quality-of-life
@@ -752,6 +755,7 @@ game's Data folder, read-only).
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
 | `bBetterAutoWalk` | done | yes | 1 | already so: strafing does not end auto-walk |
+| `bBetterPickupPrompt` | done | yes |  | Whole-Stack Pickup Figures (the stack's weight and value; no carried total) |
 | `bConsoleHistoryNoStoreDuplicates` | done | yes |  | already so: the console keeps no repeated line |
 | `bCrouchWhileEquippingWeapons` | done | yes |  | already so: crouching is never refused while (un)equipping |
 | `bDecreasedDialogueClickDelay` | done | yes |  | already so: topics can be chosen at once |
@@ -831,11 +835,11 @@ game's Data folder, read-only).
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
 | `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
 | `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
+| `bTurnFurtherWhileSeated` | done |  |  | Turn Further While Seated (first person 115 degrees; third person was already free) |
 | `bTurnSlowerWhileAiming` | done |  | 2 | Aiming Turn Speed: Across / Up and Down (two sliders) |
 | `bUnequipBrokenArmor` | done |  | 1 | Unequip Broken Armour (no message, sArmorBreakMessage not done) |
 | `bUnspokenNPCIndicator` | done |  |  | Mark Strangers |
 | `bUseFirstPersonEmptyClipSound` | done |  |  | already so: one empty-clip sound, played at the listener |
-| `bBetterPickupPrompt` | to do | yes |  | the prompt shows one unit; needs the stack count and the encumbrance |
 | `bDoubleTapReloadToChangeAmmoType` | to do | yes | 2 | the owner moved Lower Weapon off a double tap because it held reloads back; ask first |
 | `bReloadingWithNoAmmoSwapsAmmoTypes` | to do | yes |  | combat::fire is at the system parameter limit |
 | `bRestore2Hotkey` | unsure, skipped | yes | 2 | needs the plugin's own menu XML |
@@ -850,7 +854,7 @@ game's Data folder, read-only).
 | `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
 | `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
-| `bNoExteriorLoadScreens` | to do |  |  | loading::begin interior-to-exterior |
+| `bNoExteriorLoadScreens` | to do |  |  | the screen covers the cells loading; unsure what the original shows instead (black or the world) |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
@@ -860,7 +864,6 @@ game's Data folder, read-only).
 | `bScopeVisibilityDelay` | to do |  | 4 | aim_zoom with a held timer |
 | `bSkipVigorTesterSpecialPages` | to do |  |  | chargen vigor page and its pose clip |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
-| `bTurnFurtherWhileSeated` | to do |  |  | nvforever player_body NECK_TURN; drive_body is at 16 params |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | the D-pad is fixed to hotkeys; needs a current slot |
 
 ### HUD
@@ -1164,6 +1167,7 @@ game's Data folder, read-only).
 | `bNoScrollwheelPOVChange` | done |  | 2 | already so: the wheel only zooms the third-person camera |
 | `bNoSkillBooksAbove100` | done |  |  | No Skill Books at 100 (Pip-Boy only; hotkeys and EquipItem still read it) |
 | `bNoSkipDialog` | done |  |  | No Skipping Lines |
+| `bNoTurningAnim` | done |  |  | No Turning Animation |
 | `bOnlyChangeCameraHeightIfPOVKeyHeld` | done |  |  | Wheel Zoom Needs Toggle View (NVForever's wheel moves the camera distance) |
 | `bOpenPipboyToInventoryByDefault` | done |  | 1 | Pip-Boy Opens on Items (the tab option not built) |
 | `bPipBoyTabHotkeysDontCloseMenu` | done |  |  | already so: F1-F3 change page, only Tab or Esc close |
@@ -1205,12 +1209,11 @@ game's Data folder, read-only).
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
-| `bNoTurningAnim` | to do |  |  | nvforever player_body turn_rate; drive_body at 16 params |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
 | `bPrintNewModsOnLoad` | n/a |  |  | the plugin's own load report |
 | `bRadioKeepPositionWhenLoading` | to do |  |  | the radio position is not saved |
 | `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
-| `bReplaceHelpWithConsole` | to do |  |  | no Help entry; a Console entry is new |
+| `bReplaceHelpWithConsole` | to do |  |  | no Help entry; the console opens only from play, so a pause-menu entry needs a state change |
 | `bSilentSneakPowerAttacks` | to do |  |  | unsure whether a grunt plays; anim_sounds player_keys |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
 | `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |

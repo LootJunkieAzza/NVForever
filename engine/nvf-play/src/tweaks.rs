@@ -20,6 +20,12 @@ use fnv_game::tweaks::Tweaks;
 /// The settings page's group (its tab) for the tweaks.
 pub const GROUP: &str = "Tweaks";
 
+/// Turn Further While Seated, for the player's body (the nvforever crate), whose systems
+/// have no room for another parameter [design: docs/design/tweaks.md].
+pub static SEATED_WIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// No Turning Animation, for the player's body [design: docs/design/tweaks.md].
+pub static NO_TURN_CLIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Every tweak's value. `Default`: the original's behaviour.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct TweakSettings {
@@ -337,6 +343,13 @@ pub struct TweakSettings {
     /// `bMoveDuringVATSPlayback`: walking and running stay the player's while
     /// V.A.T.S.'s camera plays.
     pub move_during_kill_cam: bool,
+    /// `bBetterPickupPrompt`: a stack's prompt gives the whole stack's weight and value.
+    pub stack_figures: bool,
+    /// `bTurnFurtherWhileSeated`: seated in first person the view turns 115 degrees to
+    /// either side, not 80.
+    pub seated_wide: bool,
+    /// `bNoTurningAnim`: the player's body plays no turning-in-place clip.
+    pub no_turn_clip: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -538,6 +551,9 @@ impl Default for TweakSettings {
             first_person_vats: false,
             crosshair_when_aiming: false,
             move_during_kill_cam: false,
+            stack_figures: false,
+            seated_wide: false,
+            no_turn_clip: false,
         }
     }
 }
@@ -1462,6 +1478,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-ammo-casings", "No Spent Cases", "The player's shots leave no cases, hulls or drained cells in the inventory. (Stewie's Tweaks bNoAmmoCasings)", game.no_ammo_casings);
         switch!(app, "crosshair-when-aiming", "Crosshair Down the Sights", "The crosshair stays on screen while aiming down iron sights; a scope still hides it. (Stewie's Tweaks bKeepCrosshairWhenAiming)", crosshair_when_aiming);
         switch!(app, "move-during-vats-camera", "Move During V.A.T.S. Camera", "You can still walk and run while V.A.T.S.'s camera plays the shots; jumping, firing and aiming stay held. (Stewie's Tweaks bMoveDuringVATSPlayback)", move_during_kill_cam);
+        switch!(app, "stack-figures", "Whole-Stack Pickup Figures", "Looking at a stack of items, the weight and value shown are the whole stack's, not one item's. (Stewie's Tweaks bBetterPickupPrompt)", stack_figures);
+        switch!(app, "seated-wide", "Turn Further While Seated", "Seated in first person, you can look 115 degrees to either side instead of 80. (Stewie's Tweaks bTurnFurtherWhileSeated)", seated_wide);
+        switch!(app, "no-turn-clip", "No Turning Animation", "Your character's body does not step round when you turn on the spot, so it does not slide on after you stop. (Stewie's Tweaks bNoTurningAnim)", no_turn_clip);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1720,6 +1739,9 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
 fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
     crate::kill_cam::set_move_during(tweaks.move_during_kill_cam);
+    crate::reticle::set_stack_figures(tweaks.stack_figures);
+    SEATED_WIDE.store(tweaks.seated_wide, std::sync::atomic::Ordering::Relaxed);
+    NO_TURN_CLIP.store(tweaks.no_turn_clip, std::sync::atomic::Ordering::Relaxed);
     crate::pad::set_dead_zones(tweaks.custom_dead_zones.then_some((tweaks.left_dead_zone, tweaks.right_dead_zone)));
     crate::wait::model::set_date_style(tweaks.date_style as u8);
     if let Some(mut b) = bindings {

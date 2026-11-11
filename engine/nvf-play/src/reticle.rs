@@ -133,6 +133,14 @@ pub struct Prompt {
 /// Under the name of an empty container or body [owner 2026-10-27].
 const EMPTY: &str = "[Empty]";
 
+/// The player's tweak: a stack's weight and value are the whole stack's [design: docs/design/tweaks.md].
+static STACK_FIGURES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set by the Tweaks tab.
+pub fn set_stack_figures(on: bool) {
+    STACK_FIGURES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The XATO Activation Prompt of reference `form_id`, else of its base (an ACTI).
 pub fn activation_prompt(sim: &SimState, form_id: u32) -> Option<String> {
     let own = sim.refs.get(fnv_sim::FormId(form_id)).and_then(|r| r.prompt.clone());
@@ -170,8 +178,12 @@ impl Prompt {
             Action::Take { .. } => sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)),
             _ => None,
         };
+        let n = match t.action {
+            Action::Take { count } if count > 1 && STACK_FIGURES.load(std::sync::atomic::Ordering::Relaxed) => count,
+            _ => 1,
+        };
         let figures = item.and_then(|b| match &b.data {
-            BaseData::Item(i) => Some([weight_text(i.weight), value_text(i.worth())]),
+            BaseData::Item(i) => Some([weight_text(i.weight.map(|w| w * n as f32)), value_text(i.worth().map(|v| v.saturating_mul(n)))]),
             _ => None,
         });
         let note = t.empty.then(|| EMPTY.to_string());
