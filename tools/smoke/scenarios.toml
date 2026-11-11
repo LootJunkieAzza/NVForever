@@ -25287,7 +25287,7 @@ args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-
 run_seconds = 34
 manual = "armwrestle_table.png: the table and both chairs at the east end of the back hall, standing on the floor; armwrestle_seated.png: the settler on the far chair, facing the player across the table, his body on the chair (not in the table or the air)"
 expect = [
-  { re = 'armwrestle: made dinertable01NV ', label = "the table is made when the saloon loads" },
+  { re = 'armwrestle: made NVCasinoTableG ', label = "the table is made when the saloon loads" },
   { re = 'furniture: the player uses FF[0-9A-F]{6}', label = "the player sits on a created chair" },
   { re = 'armwrestle: GSSettlerCM is called to seat 1', label = "the settler is called to the other chair" },
   { re = 'furniture: 00104F08 goes to FF[0-9A-F]{6}', label = "the settler gets onto the created chair" },

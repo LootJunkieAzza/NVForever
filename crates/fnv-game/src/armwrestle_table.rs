@@ -5,20 +5,26 @@
 //!
 //! - **The furniture** ([`ensure`]): a table and two chairs, references the game creates
 //!   (`fnv_sim::World::place`), not ones moved from the plugins, laid out as the game
-//!   seats two people facing each other at a diner table: `dinertable01NV` (STAT, 116 by
-//!   56, top 55 above the floor) with a `Chair01TableR` and a `Chair01TableL` (FURN)
-//!   across its narrow side, 26 above the floor it stands on, each facing it
-//!   [observed: FalloutNV.esm, the game's own pairs of that table and
-//!   chair, e.g. in cell 0x00130B8C a Chair01TableR at (24, -57) of the table facing it
-//!   and a Chair01TableL at (23, 60) turned 175 degrees, both 27 higher than the table;
-//!   cells 0x0010067A and 0x0013E5D2 the same with Chair02, at 55 to 68].
-//!   `dinertable01NV` is the saloon's own diner table (0x001083A6, 0x001083A8). The
+//!   seats two people facing each other at a table: the round casino table
+//!   `NVCasinoTableG` (STAT, top 25.8 in radius and 52.5 above the floor, on a single
+//!   pedestal) with a `Chair01TableR` and a `Chair01TableL` (FURN) across it, 26 above
+//!   the floor it stands on, each facing it [observed: FalloutNV.esm, the game's own
+//!   pairs of chairs at a table, e.g. in cell 0x00130B8C a Chair01TableR at (24, -57) of
+//!   a dinertable01NV facing it and a Chair01TableL at (23, 60) turned 175 degrees, both
+//!   27 higher than the table; at NVCasinoTableG the game sets HotelChair01TableR/L or
+//!   NVTOPSChair01R/L 50 to 60 from its centre, e.g. cells 0x0010D2D4 and 0x00165E80].
+//!   The table is the narrowest vanilla table with room for the knees under it, so that
+//!   the wrestlers' forearms stand nearer upright (owner, 2026-11-11: the grip over the
+//!   diner table, whose top reaches 28.3 across its narrow side, looked bad). Every mesh
+//!   of the base and DLC archives was measured by its vertices; the only narrower tops at
+//!   that height, SlotMachineTable01 to 03 (18.3 from the centre, 49.5 high), are closed
+//!   cabinets the knees would go into [observed: Fallout - Meshes.bsa, 2026-11-11]. The
 //!   chairs are entered from the side, each enabling one side marker (MNAM 0x40000002
 //!   the right one, 0x40000001 the left [observed]); R on one side and L on the other, as
 //!   the game pairs them, are both entered from the same side of the table, here the open
 //!   hall to its south. The seated body lands on the chair's origin facing the table
 //!   (docs/spec-notes/furniture.md section 4). The chairs stand nearer the table than the
-//!   game sets them, 42 from its centre instead of 55 to 68, so that the wrestlers'
+//!   game sets them, 40 from its centre instead of 50 to 68, so that the wrestlers'
 //!   arms can meet over it ([`SEAT_OFFSET`]). The first layout, Table02 at scale 1.2 with a Stool01L at either long end, sat
 //!   the wrestlers too far apart to reach across, and the stool's sitting pose leans
 //!   into the table's edge (owner's run 5, 2026-11-11). They are made when the saloon
@@ -32,7 +38,8 @@
 //! - **The spot** ([`TABLE_POS`]): the east end of the back hall to the restrooms, the
 //!   spot armwrestle-a chose, the table turned so that the chairs sit west and east of it.
 //!   The footprint of table, chairs and their entry points (x 267 to 433, y 236 to 358,
-//!   checked with the chairs at 59; at 42 they stand inside it)
+//!   checked with the diner table and the chairs at 59; the round table and the chairs
+//!   at 40 stand inside it)
 //!   is clear: rays along its edges, diagonals and midlines at 10, 44 and 84 units above
 //!   the floor hit nothing, the floor under the table and both chairs is at 3456, and the
 //!   navmesh paths between the saloon's doors, its stools, bar, idle markers and the
@@ -59,11 +66,13 @@ use fnv_sim::FormId;
 
 /// GSProspectorSaloonInterior [observed: FalloutNV.esm CELL 0x00106185].
 pub const SALOON_EDID: &str = "GSProspectorSaloonInterior";
-/// The diner table [observed: STAT dinertable01NV, OBND x -58 to 58, y -28 to 28, z 0 to
-/// 55: its origin on the floor].
-pub const TABLE_EDID: &str = "dinertable01NV";
-/// The two chairs, seat 0 and seat 1: the game's pair at that table [observed: FURN
-/// 0x0006F8C3 Chair01TableR, 0x0006F8C2 Chair01TableL].
+/// The round casino table [observed: STAT NVCasinoTableG, furniture/NV_CasinoTableG.NIF,
+/// OBND x -24 to 25, y -24 to 25, z 0 to 52: its origin on the floor; 35 references in
+/// FalloutNV.esm].
+pub const TABLE_EDID: &str = "NVCasinoTableG";
+/// The two chairs, seat 0 and seat 1: the game's pair of diner chairs [observed: FURN
+/// 0x0006F8C3 Chair01TableR, 0x0006F8C2 Chair01TableL], kept from the diner-table layout
+/// [design: the saloon's own kind of chair].
 pub const SEAT_EDIDS: [&str; 2] = ["Chair01TableR", "Chair01TableL"];
 
 /// The floor at the spot [observed: `fnvtool phys cell`, rays down at the table and both
@@ -75,8 +84,9 @@ pub const FLOOR_Z: f32 = 3456.0;
 pub const TABLE_POS: [f32; 3] = [350.0, 300.0, FLOOR_Z];
 pub const TABLE_HEADING: f32 = std::f32::consts::FRAC_PI_2;
 pub const TABLE_SCALE: f32 = 1.0;
-/// How high the table's top is above its origin [observed: OBND max z 55].
-pub const TABLE_TOP: f32 = 55.0;
+/// How high the table's top is above its origin [observed: nv_casinotableg.nif, the top's
+/// vertices at 47.5 to 52.5].
+pub const TABLE_TOP: f32 = 52.5;
 /// The game z of the table's top surface (the clasped hands go above it, over the table's
 /// x and y) [observed: the floor and OBND, scale 1].
 pub const TABLE_TOP_Z: f32 = FLOOR_Z + TABLE_TOP * TABLE_SCALE;
@@ -85,26 +95,30 @@ pub const TABLE_TOP_Z: f32 = FLOOR_Z + TABLE_TOP * TABLE_SCALE;
 /// centre [observed], where the wrestlers' shoulders are about 130 apart and their arms,
 /// about 35 long each, cannot meet [observed by armwrestle-a: the shoulders at x 286
 /// and 415, the run of 2026-11-11 14:10, about 5 units behind each chair's origin].
-/// The table's top reaches 28.3 from its centre and is 50.0 to 55.3 above the floor,
-/// on a stand of 9 by 4.5 at its middle [observed: dinertable01_nv.nif, NiTriStripsData
-/// and the collision strips]. At 42 the chair's seat front (20 in front of its origin,
-/// chair01.nif) goes 6 under the top, the seated chest (taken as about 13 in front of
-/// the shoulders [hypothesis]) stays about 6 clear of the edge, the knees (about 30 in
-/// front of the seat, under 50 high [hypothesis: a seated body]) go under the top,
-/// 24 apart and clear of the stand, and the shoulders are about 74 apart.
-pub const SEAT_OFFSET: f32 = 42.0;
+/// The table's top is round, 25.8 in radius and 47.5 to 52.5 above the floor, on a
+/// pedestal 6.7 in radius with a foot 25 in radius and 2.5 high [observed:
+/// nv_casinotableg.nif, NiTriStripsData]. At 40 the chair's seat front (20 in front of
+/// its origin, chair01.nif) goes 6 under the top, the seated chest (taken as about 8 in
+/// front of the chair's origin [hypothesis], as measured against the diner table at 42)
+/// stays about 6 clear of the edge, the knees (about 30 in front of the seat, under 47
+/// high [hypothesis: a seated body]) go under the top, about 20 apart and clear of the
+/// pedestal, and the shoulders are about 70 apart.
+pub const SEAT_OFFSET: f32 = 40.0;
 /// The chairs' height [observed: 26 and 27 over the table's origin for Chair01 at diner
 /// tables; the chair's markers are 26 under its origin].
 pub const SEAT_Z: f32 = FLOOR_Z + 26.0;
 /// Pieces of earlier layouts, made by games before 2026-11-11 15:00: base and place
 /// [design: retired, see the module notes]. The first layout (Table02 at scale 1.2, a
-/// Stool01L at either long end), then the chairs at 59 from the table's centre.
-const FIRST_LAYOUT: [(&str, [f32; 3]); 5] = [
+/// Stool01L at either long end), then the diner table with the chairs at 59 from its
+/// centre, then at 42 (those chairs are within [`SAME_SPOT`] of the chairs at 40 and
+/// stay as they are; only the diner table goes).
+const FIRST_LAYOUT: [(&str, [f32; 3]); 6] = [
     ("Table02", [350.0, 300.0, 3486.0]),
     ("Stool01L", [266.0, 300.0, 3474.0]),
     ("Stool01L", [434.0, 300.0, 3474.0]),
     ("Chair01TableR", [291.0, 300.0, 3482.0]),
     ("Chair01TableL", [409.0, 300.0, 3482.0]),
+    ("dinertable01NV", [350.0, 300.0, 3456.0]),
 ];
 /// The numbers the table and its two seats are made under, in every game [design: in
 /// the dynamic range, below a co-op guest's own (from 0xFF800000) and far above any count
@@ -341,8 +355,8 @@ mod tests {
         assert!((p1[0] - (TABLE_POS[0] + SEAT_OFFSET)).abs() < 1e-3 && (p1[1] - TABLE_POS[1]).abs() < 1e-3);
         // Heading h faces (sin h, cos h): seat 0 faces +x, seat 1 faces −x, both to the table.
         let towards = |p: [f32; 3], h: f32| (TABLE_POS[0] - p[0]) * h.sin() + (TABLE_POS[1] - p[1]) * h.cos();
-        assert!(towards(p0, h0) > 40.0);
-        assert!(towards(p1, h1) > 40.0);
+        assert!(towards(p0, h0) > 35.0);
+        assert!(towards(p1, h1) > 35.0);
         assert_eq!(p0[2], SEAT_Z);
     }
 }
