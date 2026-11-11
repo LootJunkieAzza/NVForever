@@ -12917,7 +12917,7 @@ args = ["--world", "WastelandNV", "--pos=-60100,-38300,6000", "--play", "--hour"
 run_seconds = 25
 expect = [
   { re = 'ai \[[0-9:]+\] VERT1GSGeckoRoachHunterREF: runs at VERT1GSRoachHuntedREF', label = "the gecko runs at the roach" },
-  { re = 'creature pace: VSpawnSpecialTier1GeckoSmallRoachHunter 0x00168D1C changes to its (walk|run) clip', label = "it moves on its template's clips" },
+  { re = 'npc combat: VERT1GSGeckoRoachHunterREF 0x00168D1C swings at VERT1GSRoachHuntedREF', label = "it crosses the ground and swings at the roach" },
 ]
 forbid = [{ re = 'ai: VERT1GSGeckoRoachHunterREF cannot move', label = "it is rooted by its own placeholder model" }]
 
