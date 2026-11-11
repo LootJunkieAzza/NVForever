@@ -2086,6 +2086,11 @@ pub(crate) fn run_scripts(
         }
         rt.follow_player();
         if std::mem::take(&mut rt.new_game_files) {
+            // The extender's NewGame event (no arguments) [documented: NVSE Event
+            // Handling, session events; ext-events.md], after the restart's files
+            // registered their handlers and before the new game's files, as LoadGame
+            // follows the restart's files after a load (ext-script-runner.md §2).
+            rt.game.dispatch_event("NewGame", Vec::new(), None);
             log_script_runner(rt.game.run_script_runner(Moment::NewGame), Moment::NewGame);
         }
         if std::mem::take(&mut rt.opening_pending) {
@@ -2135,7 +2140,18 @@ pub(crate) fn run_scripts(
             .filter(|(_, t)| *t > 0.0)
             .collect();
         rt.game.no_pause = crate::coop_tables::keeps_world();
+        // The span profile (`NVF_PLAY_TEST_PROFILE`) also times the scripts and functions
+        // (`fnv_game::game::CostTally`): every 10 s two `script cost:` lines.
+        static PROFILED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if rt.game.cost.is_none() && *PROFILED.get_or_init(|| std::env::var_os("NVF_PLAY_TEST_PROFILE").is_some()) {
+            rt.game.cost = Some(Box::default());
+        }
         with_ray_caster(&mut phys, &play.0, location.world, || rt.game.tick());
+        if let Some(report) = rt.game.cost_report() {
+            for line in report.lines() {
+                info!("{line}");
+            }
+        }
         apply_pushes(&mut rt.game, &mut phys);
         rt.ticked = true;
         crate::aid::after_tick(rt, aid_from);
