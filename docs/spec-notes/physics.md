@@ -952,6 +952,10 @@ How many fixed steps a second play takes [design: the owner's approved plan,
 - **A change of rate in play** (the page, Match display following the display, the guard)
   keeps the share of a step the clock is into (`Stepper::rescale`), so nothing drawn
   between steps jumps; the remainder's game time changes by less than a step, once.
+  While not playing (a menu, a conversation, a loading screen, a cell still loading) no
+  time reaches the stepper and its remainder is kept, so the blend (§5.2) holds and
+  nothing shifts when a menu opens or closes; until 2026-11-11 the remainder was zeroed
+  there, which drew everything at its pose before the last step under a menu.
 - **The cost guard** (`phys_rate::Guard`): the time in the player's `step` system (the
   steps and what runs between them) is read every played frame (two `Instant`s). Over half
   the frame time over 2 s, the rate goes down a notch of 60/120/144/160/240 (never under
