@@ -556,6 +556,7 @@ unless the player binds them, so nothing changes until then.
 | Skills Capped by S.P.E.C.I.A.L. | `bCapSkillsBySPECIAL` | `SkillSheet::of_player` fills `SkillSheet::caps` from the readme's formula with the governing attribute (`actor_values::governing_attribute`); `value`, `can_raise` and `complete` read `cap(i)`. The readme gives no default numbers: 50 + 5 a point of the attribute, no Luck, at most 100 are ours |
 | Hold Breath Through a Scope | `bScopeHoldBreath` | `tweaks::hold_breath` sets `BREATH_HELD` while Shift is held with the scope up and pays `breath_ap` a second (let go with no AP left); nvforever `scope_view::sway` multiplies the sway's radius by `breath_sway` (20 % and 5 AP a second by default, ours) |
 | Wheel Zooms Scopes | `bAdjustableScopeZoom` | `aim_zoom::zoom` keeps `AimZoom::scope_zoom`, a share of the Sight FOV the wheel steps by 1.1 a notch between 0.5 and 2 while the scope is up, and forgets it when the scope goes down; the first-person wheel had no other use |
+| Mouse Wheel Changes Weapon | `bMousewheelScrollsWeaponHotkeys` | `weapon_wheel::read` steps from the slot of the weapon in hand to the next (up) or previous slot whose weapon `takes_hand`, and uses it as a tap does; first person only, not with a scope up (Wheel Zooms Scopes) or the wheel open |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -577,8 +578,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 482 |
-| to do | 121 |
+| done | 483 |
+| to do | 120 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -641,6 +642,7 @@ game's Data folder, read-only).
 | `bLuckDoesntAffectGambling` | done |  | 1 | already so: NVForever's casino games do not read Luck |
 | `bMarkNearbyLocationsOnMap` | done |  | 1 | Mark Nearby Places (slider, game units) |
 | `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
+| `bMousewheelScrollsWeaponHotkeys` | done |  | 1 | Mouse Wheel Changes Weapon (no invert option) |
 | `bMovementPenalties` | done |  | 11 | Backward Pace and Sideways Pace (aiming already walks; left and right share one slider) |
 | `bNoAmmoFromTakingNPCWeapon` | done |  |  | already so: taking a weapon adds only its placed ammo |
 | `bNoAPRegenWhileOverencumbered` | done |  | 2 | Action Points Back When Over-Encumbered (slider; the while-moving option not built) |
@@ -717,7 +719,6 @@ game's Data folder, read-only).
 | `bHostilesPrioritizePlayer` | to do |  | 3 | Awareness::combat_target has no game or rolls |
 | `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
-| `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |

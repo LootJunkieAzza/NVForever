@@ -381,6 +381,7 @@ fn read(
     (mut sounds, anim, mut wait): (MessageWriter<UiSound>, Option<Res<crate::combat::WeaponAnim>>, Local<SwapWait>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
     mut script: Option<ResMut<crate::script::ScriptState>>,
+    (scroll, scope): (Option<Res<bevy::input::mouse::AccumulatedMouseScroll>>, Option<Res<crate::aim_zoom::Scope>>),
 ) {
     // The player's Weapon Requirements Matter tweak: a slot whose weapon the player may
     // not equip says why instead [design: docs/design/tweaks.md].
@@ -484,6 +485,24 @@ fn read(
                     info!("weapon wheel: closed: slot {}: {line}", n + 1);
                 }
             }
+        }
+    }
+    // The player's tweak: in first person, with no scope up and the wheel closed, the
+    // mouse wheel steps to the next hotkey (up) or the one before holding a carried
+    // weapon not in hand [design: docs/design/tweaks.md].
+    let notches = scroll.as_ref().map_or(0.0, |s| s.delta.y);
+    let wheel_steps = tweaks.as_ref().is_some_and(|t| t.wheel_cycles_hotkeys) && notches != 0.0;
+    if wheel_steps && !f.blocked && !was_open && !wheel.is_open() && !control.third_person_view() && !scope.is_some_and(|s| s.on) && !hotkeys_off && !reloading_blocks {
+        let in_hand = sim.world.equipment(FormId::PLAYER_REF).unwrap_or_default().into_iter().find(|&e| sim.forms.item(e).is_some_and(|i| i.kind == fnv_sim::forms::ItemKind::Weapon));
+        let from = in_hand.and_then(|w| hotkeys.0.iter().position(|s| s.is_some_and(|s| FormId(s.item) == w))).unwrap_or(0);
+        let step = if notches > 0.0 { 1 } else { hotkeys::SLOTS - 1 };
+        let next = (1..hotkeys::SLOTS).map(|k| (from + step * k) % hotkeys::SLOTS).find(|&n| n != hotkeys::AMMO_SWAP && hotkeys::takes_hand(&mut sim.world, hotkeys.0[n]));
+        if let Some(n) = next {
+            let line = match unmet(n, &mut sim) {
+                Some(why) => why,
+                None => act(n, &hotkeys, &mut sim, &mut control, &mut used, &mut sounds, &mut wait, false, toggle_in_hand, quiet),
+            };
+            info!("hotkeys: the mouse wheel steps to slot {}: {line} (tweak)", n + 1);
         }
     }
     // Once the game clock has followed (`script::time_multiplier` sets it).
