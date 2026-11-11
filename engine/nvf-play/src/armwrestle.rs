@@ -204,6 +204,14 @@ fn look(mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut 
     *table = t;
 }
 
+/// The compass heading (0 north, a quarter turn east: `crate::player::Player::heading`)
+/// from `from` towards `to`. Sat down, the view looks across the table at the other side
+/// [owner (via the lead, 2026-11-11): the guest's view looked along the table's edge,
+/// north, its opponent out of view; laptop ship2 run].
+pub fn facing(from: [f32; 3], to: [f32; 3]) -> f32 {
+    (to[0] - from[0]).atan2(to[1] - from[1])
+}
+
 /// Seated on one of the stools: the card opens.
 #[allow(clippy::too_many_arguments)]
 fn open(
@@ -217,6 +225,7 @@ fn open(
     mut was: Local<Option<u32>>,
     time: AidTime,
     mut arm: ResMut<ArmSeat>,
+    mut player: ResMut<crate::player::Player>,
 ) {
     let on = seat.on.filter(|_| seat.hold.is_some());
     let fresh = on != *was;
@@ -233,6 +242,13 @@ fn open(
         .map(|rt| with_world(rt, &mut sim, |rt| fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::STRENGTH).unwrap_or(5.0)))
         .unwrap_or(5.0) as f32;
     info!("arm wrestle: seated on stool {i} ({stool:08X}), Strength {player_strength}");
+    // The view turns across the table, at the other side's hands; the pitch stays.
+    // From the seat itself: while getting on the body is still at the entry, to the side.
+    let at = |r: FormId| sim.world.peek(r).map(|x| x.pos).or_else(|| sim.world.placed.get(r).map(|p| p.pos));
+    if let (Some(from), Some(to)) = (at(FormId(stool)), table.table.and_then(at)) {
+        player.heading = facing(from, to);
+        info!("arm wrestle: the view turns to the table, heading {:.0} deg", player.heading.to_degrees());
+    }
     screen.0 = Some(Arm {
         stool: FormId(stool),
         other,
@@ -538,6 +554,22 @@ fn prompt_and_meter(p: &mut ChildSpawnerCommands, f: &CasinoFaces, prompt: &str,
         b.spawn((Node { position_type: PositionType::Absolute, left: u(x0), top: u(y), width: u(METER_W * share), height: u(METER_H), ..default() }, BackgroundColor(amber(200.0).with_alpha(0.75))));
         b.spawn((Node { position_type: PositionType::Absolute, left: u(x0 + METER_W / 2.0 - 1.0), top: u(y - 4.0), width: u(2.0), height: u(METER_H + 8.0), ..default() }, BackgroundColor(amber(255.0))));
     });
+}
+
+#[cfg(test)]
+mod facing_tests {
+    use super::facing;
+    use std::f32::consts::FRAC_PI_2;
+
+    /// From the east seat the view faces west across the table, from the west seat east;
+    /// a table to the north is straight ahead.
+    #[test]
+    fn seated_view_faces_the_table() {
+        let table = [350.0, 300.0, 3456.0];
+        assert!((facing([392.0, 300.0, 3482.0], table) + FRAC_PI_2).abs() < 1e-5);
+        assert!((facing([308.0, 300.0, 3482.0], table) - FRAC_PI_2).abs() < 1e-5);
+        assert!(facing([350.0, 250.0, 3482.0], table).abs() < 1e-5);
+    }
 }
 
 #[cfg(test)]
