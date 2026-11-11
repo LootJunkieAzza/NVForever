@@ -20,6 +20,17 @@ pub struct Rules {
     /// SetConditionDamagePenalty (`fnv_game::Game::condition_damage_penalty`)
     /// [documented: GECK wiki SetConditionDamagePenalty].
     pub condition_damage_penalty: f32,
+    /// NVForever's tweaks, set by the engine each frame and left out of the dumps
+    /// (docs/design/tweaks.md): the condition at and above which a weapon deals its full
+    /// damage (0.75; 1 with Remove Weapon Damage Buffer), whether an automatic weapon's
+    /// critical chance is left undivided by its fire rate, and a factor on critical
+    /// damage.
+    #[serde(skip)]
+    pub condition_damage_threshold: f32,
+    #[serde(skip)]
+    pub crit_ignores_fire_rate: bool,
+    #[serde(skip)]
+    pub crit_damage_scale: f32,
     pub damage_skill_base: f32,
     pub damage_skill_mult: f32,
     pub melee_damage_strength_mult: f32,
@@ -282,6 +293,9 @@ impl Rules {
                 concentrated_fire_bonus: n(),
             },
             condition_damage_penalty: crate::damage::CONDITION_DAMAGE_PENALTY,
+            condition_damage_threshold: crate::damage::CONDITION_DAMAGE_THRESHOLD,
+            crit_ignores_fire_rate: false,
+            crit_damage_scale: 1.0,
             defaulted,
         }
     }

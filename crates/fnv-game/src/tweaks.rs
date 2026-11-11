@@ -419,6 +419,16 @@ pub struct Tweaks {
     pub remember_pin_health: bool,
     /// `bForceLockpickNoBreakLock`: a failed Force Lock breaks the pin, not the lock.
     pub force_spares_lock: bool,
+    /// `bNoWeaponConditionDamagePenalty`: weapons deal full damage whatever their
+    /// condition.
+    pub no_condition_damage_penalty: bool,
+    /// `bRemoveWeaponDamageBuffer`: damage falls with condition from full, not from 75%.
+    pub no_condition_damage_buffer: bool,
+    /// `bCritChanceIgnoresFireRate`: automatic weapons' critical chance is not divided by
+    /// their fire rate.
+    pub crit_ignores_fire_rate: bool,
+    /// `bScaleCriticalDamage` (`fCriticalDamageMult`): a factor on critical damage.
+    pub crit_damage_scale: f64,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -611,6 +621,10 @@ impl Default for Tweaks {
             armor_sinks: false,
             remember_pin_health: false,
             force_spares_lock: false,
+            no_condition_damage_penalty: false,
+            no_condition_damage_buffer: false,
+            crit_ignores_fire_rate: false,
+            crit_damage_scale: 1.0,
         }
     }
 }

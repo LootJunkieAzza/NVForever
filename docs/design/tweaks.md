@@ -505,6 +505,7 @@ unless the player binds them, so nothing changes until then.
 | Armour Causes Sinking | `bArmorCausesSinking` | `combat::stat_speed` puts a sinking speed by `worn_armor_class` in `StatSpeed`'s third number (heavy 60, medium 25 units/s, ours); the swim step takes it off the upward part |
 | Remember Bobby Pin Wear | `bRememberBobbyPinHealth` | `fnv_game::game::RefExtra::pin_health` on the player (saved), written each lockpicking step and read by the next `Picking` |
 | Forcing Breaks the Pin, Not the Lock | `bForceLockpickNoBreakLock` | `lockpick::Settings::force_spares_lock`: `Picking::force` failing goes to `PinBroken` (or out of pins) instead of `LockBroken`; the engine takes the pin and plays its break |
+| No Condition Damage Penalty / Buffer, Automatic Criticals, Critical Damage | `bNoWeaponConditionDamagePenalty`, `bRemoveWeaponDamageBuffer`, `bCritChanceIgnoresFireRate`, `bScaleCriticalDamage` | `combat::sync_condition_penalty` sets `fnv_combat::tuning::Rules` each frame: the penalty 0, the threshold 1, `crit_ignores_fire_rate`, `crit_damage_scale` (the new fields are left out of the serialized dumps) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -526,8 +527,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 427 |
-| to do | 176 |
+| done | 431 |
+| to do | 172 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -554,6 +555,7 @@ game's Data folder, read-only).
 | `bContactMines` | done |  | 2 | Contact Mines (Player) and (Others): a mine stood on, within 24 units of the body's axis, goes off with no fuse |
 | `bCrippledLegsScaleJumpHeight` | done |  | 2 | Jumping on a Crippled Leg (one part per crippled leg) |
 | `bCripplingDoesntDisarm` | done |  |  | Crippling Never Disarms |
+| `bCritChanceIgnoresFireRate` | done |  |  | Automatic Criticals Not Cut by Fire Rate |
 | `bCustomArmorConditionPenalty` | done |  | 1 | Armour Condition Penalty (x0 to x2 on the penalty below half condition; the repair menus still show DT at x1) |
 | `bCustomSpecialPoints` | done |  | 1 | S.P.E.C.I.A.L. Points (30 to 70; a script's own total still wins) |
 | `bDisableFastTravel` | done |  |  | No Fast Travel |
@@ -648,7 +650,6 @@ game's Data folder, read-only).
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
-| `bCritChanceIgnoresFireRate` | to do |  |  | crit_chance in fnv-combat; Rules is serialized |
 | `bDisarmRequiresSkill` | to do |  | 2 | disarming happens in fnv_sim World::activate without skill or game |
 | `bEncumbranceIncludesGrabbedItems` | to do |  |  | encumbered_walks plus the grabbed reference weight |
 | `bExplosionRadiusBuff` | to do |  | 3 | explosion_damage reads CombatTuning (serialized) |
@@ -714,9 +715,12 @@ game's Data folder, read-only).
 | `bNoSelfMeltdownDamage` | done |  | 3 | No Self Meltdown Damage (the player and companions; the three sub-options as one) |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
 | `bNoVATSTargetInvisible` | done |  |  | already so: cloaked actors are barred without Enhanced Sensors |
+| `bNoWeaponConditionDamagePenalty` | done |  |  | No Condition Damage Penalty |
 | `bPlayerMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bPlayerNonMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bPowerAttackWhileOverencumbered` | done |  |  | already so: nothing gates power attacks on weight |
+| `bRemoveWeaponDamageBuffer` | done |  |  | No Condition Damage Buffer (full damage only at full condition) |
+| `bScaleCriticalDamage` | done |  | 1 | Critical Damage (x0 to x2) |
 | `bSneakCriticalsHeadshotsOnly` | done |  |  | Sneak Criticals Head Only |
 | `bSneakCriticalsOnlyMeleeWeapons` | done |  |  | Sneak Criticals Melee Only |
 | `bVATSStopBurstIfTargetDead` | done |  |  | V.A.T.S. Burst Stops on a Kill |
@@ -726,11 +730,8 @@ game's Data folder, read-only).
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
 | `bNoScaleNpcDamageResistanceByCondition` | to do |  |  | target_armor computed twice for NPC targets |
 | `bNoScaleNpcDamageThresholdByCondition` | to do |  |  | target_armor computed twice for NPC targets |
-| `bNoWeaponConditionDamagePenalty` | to do |  |  | condition_mult is a free function; needs a Rules field (serialized) |
 | `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
 | `bNPCsCanSneakCritPlayer` | to do |  |  | sneak_attack is player-only |
-| `bRemoveWeaponDamageBuffer` | to do |  |  | condition_mult is a free function; needs a Rules field (serialized) |
-| `bScaleCriticalDamage` | to do |  | 1 | needs a field on fnv-combat Rules; check what its serialized dumps feed first |
 | `bVATSAutoTargetHead` | to do |  |  | V.A.T.S. picks no target on entry |
 | `bWeaponRequirementsMatter` | to do |  | 7 | equip_at has no actor values |
 

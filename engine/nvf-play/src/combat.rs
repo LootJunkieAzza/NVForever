@@ -344,7 +344,12 @@ fn note_armour(script: Option<&mut ScriptState>, target: FormId, d: &damage::Dam
 /// 0.67 (`fnv_game::Game::condition_damage_penalty`).
 fn sync_condition_penalty(c: &mut Combat, script: Option<&ScriptState>) {
     if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
-        c.rules.condition_damage_penalty = rt.game.condition_damage_penalty();
+        let t = &rt.game.tweaks;
+        // The player's tweaks on the damage rules [design: docs/design/tweaks.md].
+        c.rules.condition_damage_penalty = if t.no_condition_damage_penalty { 0.0 } else { rt.game.condition_damage_penalty() };
+        c.rules.condition_damage_threshold = if t.no_condition_damage_buffer { 1.0 } else { fnv_combat::damage::CONDITION_DAMAGE_THRESHOLD };
+        c.rules.crit_ignores_fire_rate = t.crit_ignores_fire_rate;
+        c.rules.crit_damage_scale = t.crit_damage_scale as f32;
     }
 }
 

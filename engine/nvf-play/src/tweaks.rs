@@ -1416,6 +1416,29 @@ impl Plugin for TweaksPlugin {
         switch!(app, "armor-sinks", "Armour Causes Sinking", "Medium and heavy body armour pull the player down in water (heavy faster). (Stewie's Tweaks bArmorCausesSinking)", game.armor_sinks);
         switch!(app, "remember-pin-health", "Remember Bobby Pin Wear", "The bobby pin keeps its wear from one lock to the next, kept in the save. (Stewie's Tweaks bRememberBobbyPinHealth)", game.remember_pin_health);
         switch!(app, "force-spares-lock", "Forcing Breaks the Pin, Not the Lock", "A failed Force Lock breaks the bobby pin in it and the lock can be tried again. (Stewie's Tweaks bForceLockpickNoBreakLock)", game.force_spares_lock);
+        switch!(app, "no-condition-damage-penalty", "No Condition Damage Penalty", "Weapons deal their full damage whatever their condition. (Stewie's Tweaks bNoWeaponConditionDamagePenalty)", game.no_condition_damage_penalty);
+        switch!(app, "no-condition-damage-buffer", "No Condition Damage Buffer", "A weapon's damage falls as soon as its condition is below full, not only below 75%. (Stewie's Tweaks bRemoveWeaponDamageBuffer)", game.no_condition_damage_buffer);
+        switch!(app, "crit-ignores-fire-rate", "Automatic Criticals Not Cut by Fire Rate", "Automatic weapons' critical chance is not divided by their rate of fire. (Stewie's Tweaks bCritChanceIgnoresFireRate)", game.crit_ignores_fire_rate);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-crit-damage-scale",
+                GROUP,
+                "Critical Damage",
+                "Every critical hit's added damage is multiplied by this; x1.0 changes nothing. (Stewie's Tweaks bScaleCriticalDamage)",
+                Slider {
+                    get: |w| part(w.get_resource::<TweakSettings>().map_or(1.0, |t| t.game.crit_damage_scale)),
+                    set: |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.game.crit_damage_scale = factor(v);
+                        }
+                    },
+                    min: 0.0,
+                    step: 0.05,
+                    shown: Some(shown_factor),
+                },
+            ),
+        );
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
