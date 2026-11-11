@@ -25255,3 +25255,51 @@ expect = [
   { re = 'idle: VHeliosStasisProtectron[25]REF plays ProtectronTurnedOff', max = 0, label = "not the switched-off pose: they are awake (GetUnconscious 0 in the original)" },
   { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
 ]
+
+# ------------------------------------------------------------------ overnight queue items 189-192 (2026-11-11)
+
+[[scenario]]
+name = "playgroup-undrawn-counts-playing"
+source = "queue item 192 (docs/spec-notes/activators.md §5): a group asked of an object that is not drawn counts as playing (IsAnimPlaying 1) until it is drawn, so a script waiting for it to end (Kimball's vertibird VHDBearForceOneREF) does not fall through at once"
+note = "the Volare! bomber VMS15RisingPlaneREF (00105868) is disabled when its cell loads and its OnLoad plays Right (b29-rise), so it is not drawn; the console reads IsAnimPlaying Right at 8 s (1), then enables it at 10 s: drawn at run time. A reference disabled after it was drawn keeps its hidden rig and plays the group at once (observed 2026-11-11, first laptop run), so it is not this case"
+areas = ["object-anims"]
+paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "5", NVF_PLAY_TEST_CONSOLE = "8:VMS15RisingPlaneREF.IsAnimPlaying Right;10:VMS15RisingPlaneREF.enable;10.3:close" }
+args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--heading", "75", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'playgroup: VMS15RisingPlaneREF plays Right \(flag 1\): not drawn, shown when it is', label = "the disabled bomber's OnLoad plays Right, not drawn" },
+  { re = 'console: IsAnimPlaying on VMS15RisingPlaneREF >> 1\.00', label = "IsAnimPlaying Right reads 1 while it waits (0 before the fix)" },
+  { re = 'reference 0x00105868 drawn \(enabled at run time\)', label = "enabled, it is drawn" },
+]]
+
+[[scenario]]
+name = "playgroup-missing-said-once"
+source = "queue item 191 (docs/spec-notes/activators.md §5): a group a model lacks, asked again and again between groups it has (the Lonesome Road silo's panel light blinking Right and SpecialIdle), is reported once per reference and group"
+note = "the Goodsprings banana yucca 0x00106B2E has Forward and Backward but no Right [observed 2026-11-11]; Right and Forward are asked in turn at 7-11 s"
+areas = ["object-anims"]
+paths = ["engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "7:play_group:0x00106B2E:Right:1,8:play_group:0x00106B2E:Forward:1,9:play_group:0x00106B2E:Right:1,10:play_group:0x00106B2E:Forward:1,11:play_group:0x00106B2E:Right:1" }
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'playgroup: 0x00106B2E plays Right: its model has no sequence of that name', count = 1, label = "Right is reported once though asked three times between Forwards" },
+  { re = 'playgroup: 0x00106B2E plays Forward \(once', min = 2, label = "Forward plays between them" },
+]
+
+[[scenario]]
+name = "use-weapon-marker"
+source = "queue item 190 (docs/design/use-weapon.md): UseWeapon on a target that is no actor (Lonesome Road's silo reveal has ED-E shoot NVDLC04SiloRevealTargetREF, an XMarker): the shots are fired at where the marker is placed"
+note = "Violet (FiendVioletRef 0x000F570B, -46910,64897, hunting rifle) is told at 5 s to fire 3 harmless shots, not always hitting, at the XMarkerHeading 0x0016581F (-46305,67861,4282, about 3,000 units north of her) from her own place; nobody perceives the player (NVF_PLAY_TEST_UNSEEN). Before the fix the use waited for ever: 0 shots"
+areas = ["combat", "use-weapon"]
+paths = ["engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapHuntingRifle:FiendVioletRef:0x0016581F:3:0:0:0:1" }
+args = ["--cell", "Goodsprings", "--pos=-45500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  { re = 'is to use its weapon on .*: from where it stands', label = "the AI takes up the use where she stands" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapHuntingRifle on .* \(a script\): 3 shots; no damage', label = "Violet uses her rifle on the marker: 3 shots, no damage" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B has fired its 3 shots at', label = "all 3 shots are fired" },
+  { re = 'use weapon summary: 1 actors used a weapon .*?3 shots', label = "the summary counts them" },
+]

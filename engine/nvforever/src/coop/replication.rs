@@ -123,6 +123,8 @@ pub(super) struct Repl {
     effects_sent: u64,
     // The guest's.
     pub inbox: Vec<Event>,
+    /// The guest's: its inbox waits for its own game to be kept (`replicate`), told once.
+    held_for_solo: bool,
     /// Per actor: what its Look, Anim and Life said.
     slow: HashMap<u32, Slow>,
     last_digest: f32,
@@ -301,6 +303,7 @@ pub(super) fn replicate(
     loc: Option<Res<Location>>,
     player: Option<Res<Player>>,
     (grab, mut phys, mut repose, mut changed): (Option<Res<nvf_play::grab::GrabState>>, Option<ResMut<nvf_play::phys::PhysState>>, MessageWriter<nvf_play::RefRepose>, MessageWriter<nvf_play::RefChanged>),
+    solo: Option<Res<nvf_play::save::SoloBase>>,
 ) {
     let started = Instant::now();
     let now = time.elapsed_secs();
@@ -330,7 +333,23 @@ pub(super) fn replicate(
     send_carry(coop, grab.as_deref(), phys.as_deref(), now);
     let moved = if host {
         host_side(coop, sim, script.as_deref_mut(), actor_world.as_deref(), now)
+    } else if solo.is_none() {
+        // Not before this game is kept as the guest's own (`nvf_play::save::SoloBase`,
+        // coop.rs module notes): what the host's stream changes here (an NPC dressed as the
+        // host has it, `World::wear_as`) would be kept in it, and every save this guest
+        // makes is that game. Queue item 165: a Goodsprings Powder Ganger the host had dead
+        // and searched was undressed here (`wear_as` with no items) before the game was
+        // kept, and stood in his underwear when the owner loaded that save solo. The
+        // stream waits in the inbox meanwhile.
+        if !coop.repl.held_for_solo && !coop.repl.inbox.is_empty() {
+            coop.repl.held_for_solo = true;
+            info!("replication: the host's stream waits until this game is kept as the guest's own");
+        }
+        Vec::new()
     } else {
+        if std::mem::take(&mut coop.repl.held_for_solo) {
+            info!("replication: this game is kept as the guest's own; the host's stream ({} messages waiting) is applied", coop.repl.inbox.len());
+        }
         guest_side(&mut commands, coop, sim, script.as_deref_mut(), residents.as_deref_mut(), (loc.as_deref(), player.as_deref(), phys.as_deref()), now)
     };
     // A guest's copies of the objects the host's world moves follow the host: this

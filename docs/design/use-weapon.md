@@ -47,6 +47,13 @@ not done; a package's not while the actor is in combat):
   gunmen: automatic weapons hold the trigger, others wait their semi-auto delay; aimed
   from the eyes at the chest, drawn from the muzzle. Each shot is counted on the use
   (`WeaponUse::shot`): more, a pause, or done.
+- **A target that is no actor** (a marker) is aimed at where it is placed
+  (`fnv_ai::goal::place_of_ref`), and Always Hit does not turn the shot into a hit on it
+  [design]. Lonesome Road's silo reveal has ED-E (0x01004D16) use its weapon 0x0100AB55 on
+  NVDLC04SiloRevealTargetREF (0x0100C1F5), a placed XMarker (base 0x0000003B) [observed:
+  LonesomeRoad.esm, fnvtool esm decode]; until 2026-11-11 a target was looked for only
+  among the drawn actors and the player, so the use waited for ever without a shot or a
+  line (overnight queue item 190). An actor target that is not drawn is still waited for.
 - **Always Hit**: shots are "treated as having hit the target, even if they hit something
   else" [documented: GECK wiki Use Weapon Package, Always Hit]: a shot that strikes the
   world, another actor or the weapon the target holds (§17 of combat: a weapon hit wears

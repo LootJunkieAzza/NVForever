@@ -1611,3 +1611,16 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
       other gun?
     - empty the magazine: do the last two shots play the slide-locked clips of the right
       gun, then the left?
+
+## Added 2026-11-11 (PlayGroup on a disabled reference, a missing group: queue items 191, 192)
+
+113. **Does IsAnimPlaying read 1 after a PlayGroup on a disabled reference, and does a
+    missing group show anything?** (P3; docs/spec-notes/activators.md §5,
+    engine/nvforever/src/object_anims.rs.) NVForever counts a group asked of an object
+    that is not drawn as playing until it is drawn [hypothesis], and a group its model
+    lacks as not playing, said once in the log. Probe in the console, at Hoover Dam before
+    VMQ03aTimerSCRIPT has run: `prid 12FCCD`, `disable`, `playgroup Right 0`, then
+    `IsAnimPlaying Right` at once and again after 10 s: 1 or 0, and does it fall to 0 by
+    itself? `enable`: is the vertibird posed at the end of Right or does Right start
+    then? On NVDLC04SiloBlastDoorControlsREF (Lonesome Road silo), `playgroup Right 1`:
+    does the panel change at all, and what does `IsAnimPlaying Right` read?
