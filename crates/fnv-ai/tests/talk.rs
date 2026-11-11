@@ -427,6 +427,32 @@ fn an_actor_walks_up_to_a_player_who_enters_its_trigger_box_and_greets() {
     assert_eq!(s.events().len(), 4, "{:?}", s.events());
 }
 
+/// ResetAI on an actor whose Dialogue package has talked and is chosen again (#2119):
+/// the package starts over, so it greets once more and is then done again; ResetAI does
+/// not make it greet over and over by itself [design: ResetAI takes the package up
+/// afresh, docs/design/actor-behaviour.md §5; not settled by a capture of the original].
+#[test]
+fn reset_ai_after_a_force_greet_greets_once_more_then_is_done_again() {
+    let f = fixture();
+    let actor = FormId(R_GREET);
+    let mut s = sim(&f, R_GREET, [750.0, 1050.0, 0.0]);
+    s.run(25.0);
+    assert_eq!((s.talks(), s.agent(R_GREET).talk), (1, Some(Talking::Done)), "{:?}", s.events());
+    assert!(s.game.dialogue.is_none());
+    // Done: the package stays and does not start over without ResetAI.
+    s.run(30.0);
+    assert_eq!(s.talks(), 1);
+    let opcode = s.game.data.table.by_name("ResetAI").unwrap();
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    s.game.call_function(&ctx, &[]);
+    s.run(25.0);
+    assert_eq!(s.game.current_package(actor), Some(FormId(P_GREET)));
+    assert_eq!(s.agent(R_GREET).restarts, 1);
+    assert_eq!((s.talks(), s.agent(R_GREET).talk), (2, Some(Talking::Done)), "{:?}", s.events());
+    s.run(60.0);
+    assert_eq!(s.talks(), 2, "no greeting loop: {:?}", s.events());
+}
+
 /// The documented case 2: with a wait location of radius 0 the actor stays until the
 /// target reaches the activate distance, wherever the trigger location is.
 #[test]

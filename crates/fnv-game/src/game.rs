@@ -330,6 +330,12 @@ pub struct RefExtra {
     /// hold it ([`Game::end_timed_packages`]).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub package_ends_by_schedule: bool,
+    /// ResetAI asked the AI to take the actor's package up afresh, even when the same one
+    /// is chosen again; the AI's next update of the actor does and clears this
+    /// ([`Game::take_ai_reset`]; issue #2119). Saved, so that a save made before that
+    /// update cannot bring back the progress the reset dropped (save-load.md §3.3).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub ai_reset: bool,
     /// SetActorsAI 0: the actor's AI does not run (no package choice, no detection, no
     /// walking); its scripts still do.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
