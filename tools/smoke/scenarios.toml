@@ -12722,24 +12722,27 @@ order = [[
 [[scenario]]
 name = "sandbox-no-seat-meals"
 source = "issue #2011, docs/design/actor-behaviour.md §5.5 Choosing step 2: a sandboxer takes a meal only on a free seat; with none it goes on with its choices through the meal window (the original reported no EAT under Sandbox packages, npc-behaviour-compare.md §6a)"
-note = "Goodsprings from 06:00 at 0.025 game hours a second (06:00 to about 09:15 in the run), the two settlers of the issue run by name. Breakfast starts between 06:00 and 09:00 (fSandboxBreakfastMin/Max), so it falls in the run; until the fix a settler without a free seat logged 'has a meal standing' and stood on the spot to the window's end"
+note = "Goodsprings from 06:00, the two settlers of the issue run by name. Under --play the AI's clock is the game's (the TimeScale global, 30: one game hour in 120 s; --time-scale would move only the sky), and the run's seconds count from when the loading screen comes down, so 490 s end at about 10:05: every breakfast window (start 06:00 to 09:00, fSandboxBreakfastMin/Max) begins inside the run. The headless run of main rolled settler 01's breakfast at about 07:53 and settler 03's at about 06:53, both lasting past the next hour (the rolls are the sandbox's own seeded numbers, the same in the game). The exit report's 'ai sandbox meals' line counts each settler's choices made in a meal window with no free seat: at least one each proves the case was met. Until the fix a settler without a free seat logged 'has a meal standing' and stood on the spot to the window's end"
 areas = ["ai"]
 paths = ["crates/fnv-ai/src/sandbox.rs"]
-args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "6", "--time-scale", "0.025", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref,GoodspringsSettler03Ref"]
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "6", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref,GoodspringsSettler03Ref"]
 env = { RUST_LOG = "info", NVF_PLAY_TEST_GOD = "1" }
-run_seconds = 135
+run_seconds = 490
 expect = [
   { re = 'ai \[[0-9:]+\] GoodspringsSettler0[13]Ref: sandbox: has a meal standing', count = 0, label = "no settler holds a meal standing" },
-  { re = 'ai \[0[6-9]:[0-9:]+\] GoodspringsSettler01Ref: sandbox: (wanders|goes to idle marker|goes to sit on|has a meal on|stands)', min = 6, label = "settler 01's sandbox choices go on through the morning" },
-  { re = 'ai \[0[6-9]:[0-9:]+\] GoodspringsSettler03Ref: sandbox: (wanders|goes to idle marker|goes to sit on|has a meal on|stands)', min = 6, label = "settler 03's sandbox choices go on through the morning" },
+  { re = 'ai \[(0[6-9]|10):[0-9:]+\] GoodspringsSettler01Ref: sandbox: (wanders|goes to idle marker|goes to sit on|has a meal on|stands)', min = 6, label = "settler 01's sandbox choices go on through the morning" },
+  { re = 'ai \[(0[6-9]|10):[0-9:]+\] GoodspringsSettler03Ref: sandbox: (wanders|goes to idle marker|goes to sit on|has a meal on|stands)', min = 6, label = "settler 03's sandbox choices go on through the morning" },
+  { re = 'ai sandbox meals: GoodspringsSettler01Ref: (?P<n>\d+) choices in a meal window with no free seat', range = [1, 100000], label = "settler 01 chose on in a meal window without a free seat" },
+  { re = 'ai sandbox meals: GoodspringsSettler03Ref: (?P<n>\d+) choices in a meal window with no free seat', range = [1, 100000], label = "settler 03 chose on in a meal window without a free seat" },
+  { re = 'ai summary at (09:[45]\d|1\d:\d\d)', label = "the run covered the morning to 09:40 or later (about 10:05 expected)" },
 ]
 
 [[scenario]]
 name = "sandbox-no-seat-meals-headless"
 kind = "tool"
-source = "issue #2011, docs/design/actor-behaviour.md §5.5 Choosing step 2: the headless AI run (fnvtool ai run) of the same two settlers over 06:00-10:00, which holds every breakfast window's start (06:00-09:00)"
+source = "issue #2011, docs/design/actor-behaviour.md §5.5 Choosing step 2: the headless AI run (fnvtool ai run) of the same two settlers over 06:00-10:00, which holds every breakfast window's start (06:00-09:00); seatless_meal_choices counts the choices made in a meal window with no free seat"
 areas = ["ai"]
-paths = ["crates/fnv-ai/src/sandbox.rs"]
+paths = ["crates/fnv-ai/src/sandbox.rs", "crates/fnvtool/src/ai_run.rs"]
 commands = [
   ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "4", "--start-hour", "6", "--actor", "GoodspringsSettler01Ref", "--actor", "GoodspringsSettler03Ref"],
 ]
@@ -12748,6 +12751,8 @@ expect = [
   { json = "actors.?actor=GoodspringsSettler03Ref.events.?doing=eating.object", schema = "fnv.ai.run/1", null = true, count = 0, label = "settler 03: no meal without a seat" },
   { json = "actors.?actor=GoodspringsSettler01Ref.event_counts.sandbox", schema = "fnv.ai.run/1", range = [10, 100000], label = "settler 01's choices go on" },
   { json = "actors.?actor=GoodspringsSettler03Ref.event_counts.sandbox", schema = "fnv.ai.run/1", range = [10, 100000], label = "settler 03's choices go on" },
+  { json = "actors.?actor=GoodspringsSettler01Ref.seatless_meal_choices", schema = "fnv.ai.run/1", range = [1, 100000], label = "settler 01 chose on in a meal window without a free seat" },
+  { json = "actors.?actor=GoodspringsSettler03Ref.seatless_meal_choices", schema = "fnv.ai.run/1", range = [1, 100000], label = "settler 03 chose on in a meal window without a free seat" },
 ]
 
 [[scenario]]

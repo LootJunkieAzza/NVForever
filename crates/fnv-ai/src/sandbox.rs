@@ -225,6 +225,9 @@ pub struct Sandbox {
     pub(crate) got_up: bool,
     /// Another behaviour took control; cancellation runs once until the next choice.
     interrupted: bool,
+    /// Choices made in a meal window with no free seat, so no meal (#2011): for reports
+    /// and smoke tests. Not saved.
+    seatless_meals: u32,
 }
 
 /// A sandbox's day as a save keeps it ([`crate::progress`]): where its random numbers
@@ -273,6 +276,7 @@ impl Sandbox {
             got_up: false,
             interrupted: false,
             chosen_at: 0.0,
+            seatless_meals: 0,
         };
         s.roll(game);
         s
@@ -318,6 +322,12 @@ impl Sandbox {
     /// The day's sleep window (start hour, hours) and meals, for reports and tests.
     pub fn times(&self) -> ((f32, f32), [(f32, f32); 3]) {
         (self.sleep, self.meals)
+    }
+
+    /// How many choices this sandbox made inside a meal window with no free seat, so
+    /// without a meal (#2011; reports and smoke tests).
+    pub fn seatless_meal_choices(&self) -> u32 {
+        self.seatless_meals
     }
 
     /// Whether the behaviour in hand is over.
@@ -426,9 +436,12 @@ impl Sandbox {
         // reported no EAT procedure under Sandbox packages that allow eating, ~240
         // actor-hours, observed: docs/spec-notes/npc-behaviour-compare.md §6a; until
         // 2026-11-11 a seatless meal held the actor standing to the window's end].
-        if self.allowed.eating && self.allowed.furniture {
-            if let (Some(left), Some(seat)) = (self.meals.iter().find_map(|m| Self::left(m.0, m.1, hour)), nearest(furniture::SIT)) {
-                return Choice { doing: Doing::Eating(Some(seat.0)), target: place(seat.1), heading: None, until: Until::Day(days + left / 24.0) };
+        if self.allowed.eating {
+            if let Some(left) = self.meals.iter().find_map(|m| Self::left(m.0, m.1, hour)) {
+                if let Some(seat) = nearest(furniture::SIT).filter(|_| self.allowed.furniture) {
+                    return Choice { doing: Doing::Eating(Some(seat.0)), target: place(seat.1), heading: None, until: Until::Day(days + left / 24.0) };
+                }
+                self.seatless_meals += 1;
             }
         }
         // Otherwise one of the behaviours that take turns. Candidates per kind, without

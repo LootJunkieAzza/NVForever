@@ -482,8 +482,10 @@ packages.md §2). Wander packages are treated as sandboxes with their own flags
    that seat until the window ends (breakfast starting 6 to 9, lunch 11 to 14, dinner 17
    to 20, lasting 0.5 to 2 hours, rolled likewise). With no free seat (none in the area,
    each one kept for another actor or waiting out a failed way to it) the meal is not
-   chosen and step 3 goes on; a seat that comes free within the window is taken at the
-   next choice [design, #2011: the original reported no EAT procedure under Sandbox
+   chosen and step 3 goes on (each such choice is counted, `Sandbox::seatless_meal_choices`:
+   the exit report's `ai sandbox meals` line for named residents, `seatless_meal_choices`
+   in `fnvtool ai run`); a seat that comes free within the window is taken at the next
+   choice [design, #2011: the original reported no EAT procedure under Sandbox
    packages that allow eating, observed: npc-behaviour-compare.md §6a; until 2026-11-11
    a seatless meal held the actor standing on the spot to the window's end. Whether the
    original's sandbox eats on a seat at all is observer check 105].

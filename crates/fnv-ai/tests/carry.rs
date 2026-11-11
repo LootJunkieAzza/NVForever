@@ -1653,18 +1653,26 @@ fn a_sandboxer_sleeps_at_night_and_eats_at_mealtimes() {
     s.run(240.0);
     assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().doing, Doing::Eating(Some(FormId(CHAIR_C))));
     assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
+    // With the chair free, no choice was a meal window's without a seat.
+    assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().seatless_meal_choices(), 0);
 }
 
 /// Run `seconds` of a meal window in which `actor` has no seat to eat on, checking each
-/// second that it is not eating (#2011); the choices it made meanwhile.
+/// second that it is not eating (#2011); the choices it made meanwhile. Each of them is
+/// counted as a choice in a meal window with no free seat (`seatless_meal_choices`, what
+/// the engine's report and fnvtool ai run show).
 fn through_a_seatless_meal(s: &mut Sim, actor: u32, seconds: usize) -> Vec<Doing> {
     let before = doings(s, actor).len();
+    let counted = s.ai.agents[&FormId(actor)].sandbox.as_ref().map_or(0, |sb| sb.seatless_meal_choices());
     for _ in 0..seconds {
         s.run(1.0);
         let sb = s.ai.agents[&FormId(actor)].sandbox.as_ref().unwrap();
         assert!(!matches!(sb.doing, Doing::Eating(_)) && sb.phase() != fnv_game::ai::SandboxPhase::Eating, "{:?} at {}", sb.doing, s.game.time);
     }
-    doings(s, actor)[before..].to_vec()
+    let did = doings(s, actor)[before..].to_vec();
+    let counted = s.ai.agents[&FormId(actor)].sandbox.as_ref().unwrap().seatless_meal_choices() - counted;
+    assert!(counted > 0 && counted as usize >= did.len(), "{counted} counted for {did:?}");
+    did
 }
 
 /// With furniture off there is no seat: the meal window passes in wandering and idle
