@@ -296,7 +296,7 @@ pub fn effective_cap(cap: u32, vrr: u32) -> u32 {
     }
 }
 
-/// The frame rate the physics rate's Match display follows (`nvf_play::phys_rate::display_hz`):
+/// The physics rate's Match FPS ceiling (`nvf_play::phys_rate::display_hz`):
 /// the cap the limiter keeps ([`wait_for_cap`]: the page's, variable refresh's and frame
 /// generation's real-frame cap), with vsync and the window's refresh rate. Frame generation's
 /// cap is the one its switch set last frame.

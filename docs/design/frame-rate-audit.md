@@ -115,7 +115,7 @@ cargo build --release -p nvforever --features nvforever/tracy    # or nvforever/
 time (`fnv_phys::Stepper::advance`, kept in `f64`) and runs the fixed steps the frame's
 time owes at the physics rate (60 a second by default; the settings page's Physics rate or
 `--physics-hz`, physics.md §5.4), up to a quarter second of them a frame (15 at 60, 38 at
-152, 60 at 240: `phys_rate::catch_up_steps`; a whole 0.25 s frame of the virtual clock is
+152, 40 at 160: `phys_rate::catch_up_steps`; a whole 0.25 s frame of the virtual clock is
 caught up, deliberately, so actors near the player cover the ground the clock passes). Its
 cost is therefore about *ticks a frame × ms a tick*, grows with the rate, and grows with the
 previous frame's length: a slow frame owes more steps to the next one. With

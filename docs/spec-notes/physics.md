@@ -927,12 +927,41 @@ How many fixed steps a second play takes [design: the owner's approved plan,
 
 - **The choice**: the settings page's Physics rate (Display > Screen, `physics-rate` in
   `[Settings]` of NVForever.ini): 60 (the default, the rate the captures and the parity
-  lab's goldens were taken at), 120, 144, 160, 240, or Match display: the frame rate the
-  display's pace holds, from 60 to 240. That is the cap in effect (the page's limit,
-  variable refresh's, frame generation's real-frame cap, the lowest), no more than the
-  refresh rate with vsync; with no cap, the display's refresh rate (`display_hz`).
-  `--physics-hz <60..240|display>` sets it for one run, over the setting (the row then
-  says so and cannot be changed); it is kept across a load's restart.
+  lab's goldens were taken at), 120, 144, 160, or Match FPS (the owner's name,
+  2026-11-11; Match display before): the frame rate the game holds, from 60 up to a
+  ceiling, the frame rate the display's pace allows. The ceiling is the cap in effect (the
+  page's limit, variable refresh's, frame generation's real-frame cap, the lowest), no
+  more than the refresh rate with vsync; with no cap, the display's refresh rate
+  (`display_hz`); at most 160. `--physics-hz <60..160|fps>` sets it for one run, over the
+  setting (the row then says so and cannot be changed); it is kept across a load's
+  restart. `fps` is stored; `display` (the INI of a build before the rename) is read as it.
+- **240 was taken out** (2026-11-11) [design: the owner, "remove the 240hz option if it
+  would cause issues"]: in battle-50 its steps took 17.8 ms of a 39.5 ms frame (45 %, just
+  under the cost guard's half, so the guard would not step down), pushed objects slid
+  farthest there (+34 %, below) and it gives nothing on a 160 Hz screen. An INI of an older
+  build with `physics-rate=240` (any rate over 160 up to 240) loads as 160 without a
+  complaint and is saved as 160 (`RateChoice::parse_stored`). The measurements at 240
+  below are kept for the record. The slow-motion floor stays 1/240 s (below).
+- **Match FPS follows the frame rate** (`phys_rate::FpsFollow`) [design: the owner's
+  example, 144 fps dropping to 80 in an intense scene, and the coordinator's spec]:
+  - It counts the main world's updates over whole real seconds (`Time<Real>`; under
+    frame generation the rendered frames, not the presented ones), only frames that are
+    played (not a menu, a conversation, a loading screen, a cell not loaded yet), not
+    paused, not under a slowed or sped-up clock (VATS, kill cameras) and not within 3 s
+    of a cell coming into the physics world.
+  - Its target is that frame rate rounded down to tens, between 60 and the ceiling (80
+    fps: 80 Hz; 147: 140; at or over a ceiling of 152: 152).
+  - Down when each of the last 2 seconds ran at least 10 % under the rate in effect, to
+    their target; up when each of the last 5 seconds (the cost guard's wait, doubled by a
+    fall within 30 s of a rise, up to 80) has a target above it, to the lowest of their
+    targets. Rounding down to tens leaves a rise at least 10 % over the target before a
+    fall.
+  - The cost guard stays on top: the rate in effect is the lower of Match FPS's and the
+    guard's limit, never under 60. Each switch goes through `Stepper::rescale` and is
+    logged (`phys: physics rate 152 Hz -> 80 Hz: the frame rate held 84 fps over 2 s
+    (Match FPS, up to 152 Hz)`); the exit line counts the guard's and Match FPS's
+    switches. Smoke `physics-rate-fps` holds the frames down with the test aid
+    `NVF_PLAY_TEST_SLOW_FRAMES` and checks the step down and back up.
 - **The INI and older builds**: the key is read only by builds that know it. The settings
   reader looks up the keys it registered and leaves every other line of the file as it is
   when it writes (`settings::write`, `fnv_install::ini_set`), so an older build sharing
@@ -946,12 +975,12 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   SetGlobalTimeMultiplier) the step grows instead of the steps a real second, which are
   thus never more than four times the rate [design; before 2026-11-11 a faster clock kept
   the step at any speed]. A frame runs at most a quarter second of steps at the rate
-  (`catch_up_steps`: 15 at 60, 38 at 152, 60 at 240), what the virtual clock passes on in
+  (`catch_up_steps`: 15 at 60, 38 at 152, 40 at 160), what the virtual clock passes on in
   its longest frame; time beyond it is dropped, so a slow moment cannot grow a backlog
   (no "spiral of death": the game slows down instead).
 - **Slow motion (VATS, kill cameras)** [observed and design, 2026-11-11]:
   - The step never goes below 1/240 s (`phys::SHORTEST_STEP`), whatever the rate and the
-    clock. rapier keeps positions in f32 metres from the worldspace's origin, and a
+    clock (240 is no longer a menu rate; the floor is the step of the slowed clock). rapier keeps positions in f32 metres from the worldspace's origin, and a
     shorter step moved a slow body by less than its position can show: at Goodsprings a
     body at 5-20 units/s stood still over steps of 1/3000 s (the step of a 2 % clock at
     60 Hz, and of a 5 % one at 152 Hz), 150,000 units out everything under 200 units/s
@@ -975,9 +1004,9 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   - The cost guard leaves out the frames of a slowed or sped-up clock.
   - The kill camera logs how its target's drawn place moved over the camera and in the
     frame after it (`kill camera: the target's drawn place moved …`); smoke
-    `vats-kill-cam-slowed-60`, `-152` and `-display` check that it moves, never jumps
+    `vats-kill-cam-slowed-60`, `-120`, `-144`, `-152`, `-160` and `-display` check that it moves, never jumps
     and is not set at rest before the camera ends.
-- **A change of rate in play** (the page, Match display following the display, the guard)
+- **A change of rate in play** (the page, Match FPS, the guard)
   keeps the share of a step the clock is into (`Stepper::rescale`), so nothing drawn
   between steps jumps; the remainder's game time changes by less than a step, once.
   While not playing (a menu, a conversation, a loading screen, a cell still loading) no
@@ -986,7 +1015,7 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   there, which drew everything at its pose before the last step under a menu.
 - **The cost guard** (`phys_rate::Guard`): the time in the player's `step` system (the
   steps and what runs between them) is read every played frame (two `Instant`s). Over half
-  the frame time over 2 s, the rate goes down a notch of 60/120/144/160/240 (never under
+  the frame time over 2 s, the rate goes down a notch of 60/120/144/160 (never under
   60); under a quarter for 5 s, and foreseen under 40 % at the next notch, it goes back up
   towards the chosen rate. A fall within 30 s of a rise doubles the wait before the next
   rise (up to 80 s), so the rate does not flap. Every switch is logged (`phys: physics rate
@@ -1015,34 +1044,60 @@ How many fixed steps a second play takes [design: the owner's approved plan,
 - **What changes with the rate** [observed: `fnvtool phys walk` with the
   `parity-lab/inputs/layer4/move_*.walk.json` scripts scaled to the same seconds at each
   rate, and `character_rules_hold_at_every_physics_rate` in
-  `crates/fnv-phys/tests/synthetic.rs`, 2026-11-11]:
+  `crates/fnv-phys/tests/synthetic.rs`; with the exact gravity below, 2026-11-11; the air
+  time is the airborne steps over the rate]:
 
   | | 60 | 120 | 144 | 152 | 240 |
   |---|---|---|---|---|---|
-  | jump apex (units) | 59.20 | 60.39 | 60.59 | 60.65 | 61.00 |
-  | running jump: air time (s) | 0.817 | 0.833 | 0.833 | 0.836 | 0.838 |
-  | running jump: landing speed (units/s) | 281.4 | 287.1 | 286.2 | 287.4 | 287.1 |
-  | a box pushed for 1 s at 120 units/s (units) | 33.8 | 45.4 | 42.6 | 39.1 | 37.7 |
-  | 60° ramp, how high a walker gets (units) | 3.0 | 4.2 | 4.0 | 3.8 | 4.1 |
-  | portal wall walk: end vs 60 (units) | 0 | 1.65 | 1.95 | 2.54 | 2.82 |
+  | jump apex (units) | 61.58 | 61.60 | 61.60 | 61.60 | 61.60 |
+  | running jump: air time (s) | 0.833 | 0.842 | 0.840 | 0.842 | 0.842 |
+  | running jump: landing speed (units/s) | 290.9 | 290.9 | 290.9 | 290.9 | 290.9 |
+  | a box pushed for 1 s at 120 units/s (units) | 33.8 | 45.5 | 42.2 | 38.9 | 37.5 |
+  | 60° ramp, how high a walker gets (units) | 3.1 | 4.0 | 3.9 | 3.9 | 4.2 |
+  | portal wall walk: end vs 60 (units) | 0 | 1.19 | 1.19 | 1.27 | 1.17 |
 
-  - The jump, as expected: semi-implicit Euler undershoots the apex by about `v0·dt/2`,
-    less at shorter steps (the original's 61.5, §6). The landing speed and air time follow.
+  - **The jump and falls are the same at every rate** since 2026-11-11: gravity is exact
+    over a step (`character::gravity_step`: the feet move `v·dt − ½·g·dt²`, then the speed
+    drops by `g·dt`). The apex is the jump height, 61.6, within `g·dt²/8` (0.024 at 60),
+    and the air time is within a step of `2·v0/g` (0.847 s): the original's standing jump
+    rose 61.6 and took 0.845 s (§6.3). Before, the speed was lowered first and the feet
+    moved at the new speed (semi-implicit Euler). That undershot the apex by about
+    `v0·dt/2`: 59.20, 60.39, 60.59, 60.65 and 61.00 at the five rates, with air times of
+    0.817-0.838 s and landings at 281.4-287.4 units/s. A fall went `½·g·t·dt` farther
+    than gravity takes it (5.7 units after 1 s at 60).
+  - **The touchdown speed** (`CharacterStep::landed_speed`) is the speed at the height where
+    the feet rest on the support. A fall keeps `v² + 2·g·z`, so it follows from the step's
+    starting speed and height. The speed at the step's end came up to `g·dt` later, and
+    where a step's end fell in rapier's grounded band depended on the step. A walked-off
+    character's step down (§6.4.2) is not a fall and adds no speed. A running jump lands
+    at its take-off speed (290.9); a 300-unit fall lands at 641.9, which is `sqrt(2·g·300)`,
+    at every rate (639-641.5 before).
+  - **A fall onto a static floor** lands up to about 3.4 units above where the feet rest,
+    because rapier calls the capsule grounded that far beyond the small gap kept over
+    statics. The next step puts it on the floor. Before, it sank by a step's gravity from
+    rest each step: about 0.2 s to settle at 60 Hz and 0.8 s at 240. The exact gravity
+    would have halved that speed again [observed: tests].
   - **Pushes differ the most**: a pushed box goes 12-34 % farther at 120-240 than at 60,
     and not in proportion to the rate (rapier's character impulses per step,
     `solve_character_collision_impulses`) [hypothesis].
   - Unchanged within 0.05 units at every rate: rest heights on terrain (3.5) and on a
-    static box (0.5 above it), a 300-unit fall's landing speed (639-641.5 against 641.9
-    analytic) and time, step-ups (0.6 step heights) and the REPCONN stairs, the 25° ramp
-    climbed and the 60° one refused, a level run's distance.
-  - The walk traces stay within 0.5 units of 60's on the fence, hill and porch runs (the
-    porch's 0.25 s observations up to 2.2 at 120, as the step-up lands a step earlier or
-    later); the portal-wall run down a mountainside ends 1.7-2.8 units short and 0.4-0.7
-    higher, and at 152 loses the ground for one step (one landing at 9 units/s). All of
-    these are inside the parity lab's 10-unit tolerance, which judges 60 only.
+    static box (0.5 above it), a 300-unit fall's time (within a step of 0.935 s),
+    step-ups (0.6 step heights) and the REPCONN stairs, the 25° ramp climbed and the 60°
+    one refused, a level run's distance.
+  - The walk traces stay within 0.5 units of 60's on the fence and hill runs, and the
+    porch's 0.25 s observations within 0.9. The portal-wall run down a mountainside ends
+    1.2-1.3 units from 60's (1.7-2.8 before the exact gravity) and no longer loses the
+    ground at 152. All of these are inside the parity lab's 10-unit tolerance, which
+    judges 60 only. The running jump's observations agree within 2 units at every rate.
   - Whether a character in a crease runs out of the controller's sweeps (and is held,
     above) depends on the step: in the groove test fewer walks stick at 120 than at 60
-    [observed: `a_held_character_waits_the_same_seconds_at_any_step_rate`].
+    [observed: `a_held_character_waits_the_same_seconds_at_any_step_rate`]. With the
+    exact gravity a standing character presses into a crease by `½·g·dt²` a step, half as
+    far as before (0.095 units at 60, 0.006 at 240), so fewer walks stick. At 240 almost
+    none do: one walk along the 50° crease, after 1.9 s. Walks into the 70° and 80° walls
+    ride a couple of units up them and creep 0.01 units a step instead. In a probe test
+    (not committed), the held walks in the groove cost the same CPU as before: 0.41 s at
+    60 (0.45 before), 1.21 at 152 (1.13), 1.84 at 240 (1.88) [observed].
   - The drawn-height roughness in the exit report (`vertical acceleration ... units/s2`)
     divides each step's change by dt², so it grows with the rate (5538 units/s² of the
     feet at 144 against hundreds at 60 on similar ground) [observed: smoke

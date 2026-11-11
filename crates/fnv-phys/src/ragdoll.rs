@@ -719,17 +719,29 @@ impl PhysWorld {
         self.center_drawn(form_id, Some(alpha))
     }
 
-    /// The heaviest body's mass centre now (`alpha` `None`) or as drawn.
-    fn center_drawn(&self, form_id: u32, alpha: Option<f32>) -> Option<[f32; 3]> {
+    /// The speed of [`PhysWorld::ragdoll_center`]'s body (its heaviest), game units a
+    /// second: for telling a corpse that should move from one that rests.
+    pub fn ragdoll_center_speed(&self, form_id: u32) -> Option<f32> {
+        let b = self.w.bodies.get(self.heaviest(form_id)?)?;
+        Some(b.linvel().length() / self.k)
+    }
+
+    /// A ragdoll's heaviest body: by the stored masses, the first of equals, the same body
+    /// however it is built.
+    fn heaviest(&self, form_id: u32) -> Option<RigidBodyHandle> {
         let r = self.ragdolls.get(&form_id)?;
-        // By the stored masses, the first of equals: the same body however it is built.
         let mut best: Option<(f32, RigidBodyHandle)> = None;
         for (b, d) in r.bodies.iter().zip(&r.data.bodies) {
             if let Some(h) = b.filter(|_| best.is_none_or(|(m, _)| d.object.mass > m)) {
                 best = Some((d.object.mass, h));
             }
         }
-        let h = best?.1;
+        best.map(|b| b.1)
+    }
+
+    /// The heaviest body's mass centre now (`alpha` `None`) or as drawn.
+    fn center_drawn(&self, form_id: u32, alpha: Option<f32>) -> Option<[f32; 3]> {
+        let h = self.heaviest(form_id)?;
         let b = self.w.bodies.get(h)?;
         let Some(a) = alpha else { return Some(arr3(b.center_of_mass() / self.k)) };
         let pose = self.drawn_pose(h, b, a);
