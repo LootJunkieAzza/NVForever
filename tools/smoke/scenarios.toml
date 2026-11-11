@@ -24905,3 +24905,32 @@ expect = [
   { re = 'events log: (\d+) events written', range = [20, 1000000], label = "the run's events were written to it" },
   "run log: the game exited normally",
 ]
+
+[[scenario]]
+name = "script-sandbox-stays"
+source = "issue #2012: a Sandbox package has no done state, so a script-added one is not done on arrival and stays until it is removed or replaced (PackageType::has_done_state, Game::package_goal_met)"
+note = "the original's side, captured 2026-11-10 (issue #2012): GSChetRef given DefaultSandboxEditorLocation256 by AddScriptPackage in his store at 10:00 kept it for 1.5 game hours with no OnPackageDone. Here he is given it at 4 s and asked at 30 s and 125 s whether it is still his current package; before the fix it was dropped at the first periodic choice after he arrived"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:GSChetRef:AddScriptPackage:DefaultSandboxEditorLocation256,30:call:GSChetRef:GetIsCurrentPackage:DefaultSandboxEditorLocation256,125:call:GSChetRef:GetIsCurrentPackage:DefaultSandboxEditorLocation256" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "10", "--no-voice", "--no-messages", "--npc-packages", "GSChetRef"]
+run_seconds = 130
+order = [[
+  { text = "GSChetRef: package DefaultSandboxEditorLocation256", label = "the script package is taken up" },
+  { text = "script: test aid calls GetIsCurrentPackage on GSChetRef = 1", label = "still his package at 30 s" },
+  { text = "script: test aid calls GetIsCurrentPackage on GSChetRef = 1", label = "and at 125 s, two minutes on" },
+]]
+
+[[scenario]]
+name = "script-follow-stays"
+source = "issue #2012: a Follow package has no done state, so a script-added one is not done when it begins and stays (PackageType::has_done_state, Game::package_goal_met)"
+note = "GoodspringsSettler03Ref is put 300 units from the player and given DefaultFollowPlayerFar at 4 s; at 40 s it is asked whether that is still its package. Before the fix Follow met its goal when it began and the script package was dropped at the next periodic choice"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:300:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,40:call:GoodspringsSettler03Ref:GetIsCurrentPackage:DefaultFollowPlayerFar" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 45
+order = [[
+  { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
+  { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
+]]
