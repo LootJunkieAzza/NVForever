@@ -329,6 +329,12 @@ login, allow-list).
   run. Offline is normal and silent.
 - All files go through `fnv_install::guard_write` under the home; nothing is written to
   the game folder or `Documents\My Games\FalloutNV`.
+- **Developers do not send reports** [owner 2026-11-11]: a development build, a
+  half-finished change or a test session would skew the numbers that are meant to show
+  players' games. Developer and smoke runs (`--data` / `NVFOREVER_DATA`, test aids) never
+  ask or send; a developer starting a build like a player answers Not now or sets
+  `NVF_REPORTS=0` (CONTRIBUTING.md, CLAUDE.md). `NVF_REPORTS=1` sends only to
+  `NVF_REPORTS_ENDPOINT`, never to the project's server.
 - Test aids: `NVF_REPORTS_ENDPOINT` to point at a local `wrangler dev` server; a smoke
   scenario that checks the popup is not shown in a scripted run, that `NVF_REPORTS=0`
   sends nothing, and that a session file is written and is valid `nvf-session/1`.
