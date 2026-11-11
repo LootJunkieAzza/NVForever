@@ -182,6 +182,24 @@ impl NavGraph {
         self.recut();
     }
 
+    /// Learn one more obstacle that was not there when the navmesh was made: a reference
+    /// the game created (the arm-wrestling table, `fnv_game::armwrestle_table`). It cuts
+    /// once enabled ([`NavGraph::sync_obstacles`], polled by `fnv_ai::Ai::apply_obstacles`
+    /// from the game's presence), as an Initially Disabled one does; one already known
+    /// is replaced. False when no triangle lies under it (nothing learnt).
+    pub fn add_obstacle(&mut self, o: Obstacle) -> bool {
+        let (lo, hi) = o.bounds;
+        let reach = o.scale.max(0.0) * (0..3).map(|k| lo[k].abs().max(hi[k].abs())).fold(0.0, f32::max) * 1.5;
+        let tris: Vec<u32> = self.triangles_near(o.space, o.position[0], o.position[1], reach).into_iter().filter(|&t| o.cuts(self.corners(t))).collect();
+        if tris.is_empty() {
+            return false;
+        }
+        self.obstacles_stamp = next_obstacles_stamp();
+        self.obstacles.insert(o.reference, ObstacleCut { tris, enabled: false, placed_enabled: false });
+        self.recut();
+        true
+    }
+
     /// [`NavGraph::set_obstacles`] with the load order's obstacles, each as placed
     /// (enabled unless Initially Disabled).
     pub fn learn_obstacles(&mut self, lo: &LoadOrder, schema: &Schema, ix: &WorldIndex) {

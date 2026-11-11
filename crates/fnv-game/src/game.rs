@@ -275,6 +275,11 @@ pub struct RefExtra {
     /// Saves from before the slot held a list (`packages`); its last entry is read.
     #[serde(skip_serializing_if = "Option::is_none", default, alias = "packages", deserialize_with = "one_script_package")]
     pub script_package: Option<FormId>,
+    /// A seat the actor is sent to, over what its package says: it walks to that
+    /// furniture and sits on it until this is cleared, then takes up its package again
+    /// (`fnv_ai`). Set for the arm-wrestling opponent (`crate::armwrestle_table`) [design].
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub seat_override: Option<FormId>,
     /// The AI package the actor chose when its packages were last evaluated
     /// ([`Game::evaluate_package`]); `None` until then.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -3842,6 +3847,8 @@ impl<'a> Game<'a> {
         self.sup7_tick();
         // SUP's HUD bars: their visibility conditions and fades (`crate::ui_hudbar`).
         crate::ui_hudbar::tick(self);
+        // The arm-wrestling table: its opponent comes to a player sitting there alone.
+        crate::armwrestle_table::tick(self);
         self.expire_aux_timers();
         self.input.next_frame();
         self.turned.clear();
@@ -4994,6 +5001,8 @@ impl<'a> Game<'a> {
             self.fix_cell_levels(c);
         }
         self.loaded_cells = cells;
+        // The arm-wrestling table of the Prospector Saloon (`crate::armwrestle_table`).
+        crate::armwrestle_table::ensure(self);
         // The references of a reset cell run their OnReset blocks, before OnLoad
         // (`crate::respawn`).
         for c in reset {
