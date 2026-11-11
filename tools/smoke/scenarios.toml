@@ -24417,3 +24417,18 @@ expect = [
   "run log: the game exited normally",
 ]
 forbid = [{ text = "the server was asked to delete", label = "a deletion reported done with no server" }]
+
+[[scenario]]
+name = "reports-snapshot-on-panic"
+source = "#2055, docs/design/player-reports.md sections 4.2 and 4.3: with reports on, a panic writes the flight recorder and the world snapshot beside its crash report (engine/nvforever/src/reports/snapshot.rs, crash.rs)"
+areas = ["reports", "crash"]
+paths = ["engine/nvforever/src/reports/snapshot.rs", "engine/nvforever/src/reports/anomaly.rs"]
+# The snapshot is rebuilt every 5 s; the panic comes 12 s after the first frame.
+env = { NVFOREVER_HOME = "reports-snapshot-home", NVF_REPORTS = "1", NVF_PLAY_TEST_PANIC = "12" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 25
+expect = [
+  { re = 'crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the crash report" },
+  "reports: the flight recorder and world snapshot written beside the crash report",
+  "run log: the game exited normally",
+]

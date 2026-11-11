@@ -65,12 +65,14 @@ pub struct Pending {
     pub recorder: Option<PathBuf>,
     /// The minidump a native crash left (native_crash.rs).
     pub dump: Option<PathBuf>,
+    /// The world snapshot a panic wrote (snapshot.rs).
+    pub snapshot: Option<PathBuf>,
 }
 
 impl Pending {
     /// Every file of this upload.
     pub fn files(&self) -> impl Iterator<Item = &Path> {
-        std::iter::once(self.summary.as_path()).chain(self.log.as_deref()).chain(self.panic.as_deref()).chain(self.recorder.as_deref()).chain(self.dump.as_deref())
+        std::iter::once(self.summary.as_path()).chain(self.log.as_deref()).chain(self.panic.as_deref()).chain(self.recorder.as_deref()).chain(self.dump.as_deref()).chain(self.snapshot.as_deref())
     }
 }
 
@@ -87,7 +89,7 @@ pub fn pending_in(dir: &Path, names: &[String]) -> Vec<Pending> {
                 let name = format!("{stem}{ext}");
                 names.contains(&name).then(|| dir.join(name))
             };
-            Pending { summary: dir.join(n), log: part(".log.gz"), panic: part(".panic.txt"), recorder: part(".recorder.jsonl.gz"), dump: part(".dmp") }
+            Pending { summary: dir.join(n), log: part(".log.gz"), panic: part(".panic.txt"), recorder: part(".recorder.jsonl.gz"), dump: part(".dmp"), snapshot: part(".snapshot.json") }
         })
         .collect()
 }
@@ -229,6 +231,10 @@ fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
         }
         if let Some(d) = &dump {
             parts.push(("dump", "crash.dmp", "application/octet-stream", d));
+        }
+        let snapshot = p.snapshot.as_ref().filter(|_| end == "panic").and_then(|s| std::fs::read(s).ok());
+        if let Some(s) = &snapshot {
+            parts.push(("snapshot", "snapshot.json", "application/json", s));
         }
         let (body, ctype) = multipart(&parts);
         let path = if is_crash(&end) { "/v1/crash" } else { "/v1/session" };

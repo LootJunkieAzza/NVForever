@@ -236,6 +236,7 @@ pub fn install(data: &Path, previous_running: bool) {
         .into_iter()
         .chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS))
         .chain(old_files(&names, "recorder-", ".jsonl", KEEP_REPORTS))
+        .chain(old_files(&names, "snapshot-", ".json", KEEP_REPORTS))
         .chain(old_files(&names, "crash-", ".dmp", crate::native_crash::KEEP_DUMPS))
     {
         let _ = std::fs::remove_file(dir.join(old));
@@ -440,7 +441,11 @@ fn set_hook() {
             let path = dir.join(format!("crash-{}-{}.txt", stamp(now_secs()), std::process::id()));
             // The flight recorder's last 60 s beside it, when reports are on (reports/anomaly.rs).
             if crate::reports::active().is_some() {
-                let _ = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{}-{}.jsonl", stamp(now_secs()), std::process::id())));
+                let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{}-{}.jsonl", stamp(now_secs()), std::process::id())));
+                let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{}-{}.json", stamp(now_secs()), std::process::id())));
+                if rec.is_ok() && snap.is_ok() {
+                    info!("reports: the flight recorder and world snapshot written beside the crash report");
+                }
             }
             (std::fs::write(&path, redact(&text).as_bytes()).map(|_| path.clone()), path)
         });

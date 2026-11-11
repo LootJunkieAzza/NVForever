@@ -28,6 +28,7 @@
 //! in the home and passes `fnv_install::guard_write`.
 
 pub mod anomaly;
+pub mod snapshot;
 mod delete;
 pub mod summary;
 pub mod upload;
@@ -435,6 +436,7 @@ impl Plugin for ReportsPlugin {
             })
             .add_systems(Startup, (read_gpu, read_window))
             .add_systems(Update, (collect, track_loads, detect).chain())
+            .add_systems(Update, refresh_snapshot)
             .add_systems(Last, write_summary);
     }
 }
@@ -621,6 +623,36 @@ fn track_loads(
     }
 }
 
+/// Rebuild the world snapshot every [`snapshot::EVERY_SECS`] (snapshot.rs).
+fn refresh_snapshot(
+    real: Res<Time<Real>>,
+    mut last: Local<f64>,
+    script: Option<ResMut<nvf_play::script::ScriptState>>,
+    sim: Option<ResMut<nvf_play::sim::SimState>>,
+    streamer: Option<Res<crate::world::Streamer>>,
+    memory: Option<Res<crate::memory_budget::MemoryBudget>>,
+) {
+    let now = real.elapsed_secs_f64();
+    if now - *last < snapshot::EVERY_SECS {
+        return;
+    }
+    *last = now;
+    let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    let mut defaults: Vec<(fnv_sim::FormId, f32)> = sim.forms.globals.iter().map(|(k, v)| (*k, *v)).collect();
+    defaults.sort_by_key(|(k, _)| k.0);
+    let cells = serde_json::json!({
+        "interior": streamer.as_ref().and_then(|s| s.interior).map(|c| format!("{c:08X}")),
+        "exterior_loaded": streamer.as_ref().map(|s| s.loaded.len()),
+    });
+    let memory = serde_json::json!({
+        "vram_use_mb": memory.as_ref().and_then(|m| m.vram_use_mb),
+        "ram_share": memory.as_ref().and_then(|m| m.ram_share),
+    });
+    let Some(rt) = script.rt.as_mut() else { return };
+    let v = nvf_play::script::with_world(rt, &mut sim, |rt| snapshot::build(&mut rt.game, &defaults, cells, memory));
+    snapshot::keep(v);
+}
+
 /// The Pip-Boy, VATS and the pause menu, for the game state of an event.
 type Menus<'w> = (Option<Res<'w, nvf_play::pipboy::PipBoy>>, Option<Res<'w, nvf_play::vats_mode::VatsMode>>, Option<Res<'w, nvf_play::pause::Paused>>);
 
@@ -784,6 +816,12 @@ pub fn finish_earlier(summary: &Path, logs: &Path) -> Option<upload::Pending> {
     if v["end"] == "native" && !dump_part.exists() {
         if let Some(d) = find("crash-", ".dmp") {
             let _ = std::fs::copy(d, &dump_part);
+        }
+    }
+    let snap_part = dir.join(format!("{stem}.snapshot.json"));
+    if v["end"] == "panic" && !snap_part.exists() {
+        if let Some(s) = find("snapshot-", ".json") {
+            let _ = std::fs::copy(s, &snap_part);
         }
     }
     let rec_part = dir.join(format!("{stem}.recorder.jsonl.gz"));
