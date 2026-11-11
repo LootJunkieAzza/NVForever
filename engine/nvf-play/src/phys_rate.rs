@@ -271,13 +271,20 @@ impl Guard {
     }
 }
 
-/// The settings page's row and the systems.
+/// The resources and systems (`crate::phys::PhysPlugin` adds them).
 pub(crate) fn setup(app: &mut App) {
     app.init_resource::<PhysRate>()
         .init_resource::<DisplayPace>()
         .add_systems(Update, pace.after(crate::PlaySet::Input).before(crate::PlaySet::Physics))
         .add_systems(Last, guard)
         .add_systems(Last, report);
+}
+
+/// The settings page's row, in the Display group. The renderer registers it after its own
+/// Display rows (nvforever `settings::register`), so the rows before it keep the registry's
+/// order and the INI the order its keys had: only the `physics-rate` line is new
+/// [design: an INI shared with builds without the row reads and writes the same].
+pub fn register_setting(app: &mut App) {
     crate::settings::add_choice_list(
         app,
         crate::settings::Setting {
