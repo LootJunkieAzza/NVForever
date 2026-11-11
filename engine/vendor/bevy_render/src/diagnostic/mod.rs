@@ -26,6 +26,8 @@ use crate::{
 };
 
 use self::internal::{sync_diagnostics, Pass, RenderDiagnosticsMutex, WriteTimestamp};
+// NVForever recorded instant.
+pub use self::internal::RenderDiagnosticsRecorded;
 pub use self::{
     erased_render_asset_diagnostic_plugin::ErasedRenderAssetDiagnosticPlugin,
     internal::DiagnosticsRecorder, mesh_allocator_diagnostic_plugin::MeshAllocatorDiagnosticPlugin,
@@ -67,6 +69,8 @@ impl Plugin for RenderDiagnosticsPlugin {
     fn build(&self, app: &mut App) {
         let render_diagnostics_mutex = RenderDiagnosticsMutex::default();
         app.insert_resource(render_diagnostics_mutex.clone())
+            // NVForever recorded instant.
+            .init_resource::<RenderDiagnosticsRecorded>()
             .add_systems(PreUpdate, sync_diagnostics);
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
@@ -107,16 +111,22 @@ impl FromWorld for DiagnosticsRecorder {
 }
 
 /// Starts the diagnostics recorder for the frame.
-pub fn begin_diagnostics_frame(mut recorder: ResMut<DiagnosticsRecorder>) {
+// NVForever recorder gate: the recorder may be taken out of the render world while nothing
+// reads the timestamps (nvforever `perf_overlay::split`); these three systems then do
+// nothing, as every pass already does without it (`RenderContext::diagnostic_recorder`).
+pub fn begin_diagnostics_frame(recorder: Option<ResMut<DiagnosticsRecorder>>) {
+    let Some(mut recorder) = recorder else { return };
     recorder.begin_frame();
 }
 
 /// Resolves the encoder used for diagnostic recording
 pub fn resolve_encoder(
-    mut recorder: ResMut<DiagnosticsRecorder>,
+    recorder: Option<ResMut<DiagnosticsRecorder>>,
     render_device: Res<RenderDevice>,
     mut pending_buffers: ResMut<PendingCommandBuffers>,
 ) {
+    // NVForever recorder gate (begin_diagnostics_frame).
+    let Some(mut recorder) = recorder else { return };
     let mut encoder =
         render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     recorder.resolve(&mut encoder);
@@ -125,10 +135,12 @@ pub fn resolve_encoder(
 
 /// Ends the current frame for the diagnostics recorder and syncs it with the main world.
 fn finish_diagnostics_frame(
-    mut recorder: ResMut<DiagnosticsRecorder>,
+    recorder: Option<ResMut<DiagnosticsRecorder>>,
     render_device: Res<RenderDevice>,
     mutex: Res<RenderDiagnosticsMutex>,
 ) {
+    // NVForever recorder gate (begin_diagnostics_frame).
+    let Some(mut recorder) = recorder else { return };
     let mutex = mutex.0.clone();
     recorder.finish_frame(&render_device, move |diagnostics| {
         *mutex.lock().unwrap() = Some(diagnostics);

@@ -71,6 +71,7 @@ pub fn row_of(forms: &FormStore, item: u32, count: u16) -> Row {
         price: None,
         bartered: false,
         mods: 0,
+        mods_value: 0,
         folder: None,
         reference: None,
     }
@@ -141,6 +142,7 @@ pub fn fill(m: &mut MenuModel, book: &Trade, name: &str, mine: &[(u32, u16)], fo
         balance: -(cost.min(i64::MAX as u64) as i64),
         sells: None,
         withheld: Vec::new(),
+        mult_set: [None; 2],
     };
     let mut changed = false;
     // The selection stays on the same item when the rows move (as the barter menu's).

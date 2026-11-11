@@ -451,8 +451,12 @@ fn grab_cursor(
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
     live: Option<Res<crate::menu::LiveMenu>>,
+    switches: Option<Res<crate::script_switches::ScriptSwitches>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
+    // A script's HUD cursor (ToggleHUDCursor, `crate::script_switches`): the pointer shows
+    // over the world, free.
+    let hud_cursor = switches.is_some_and(|s| s.hud_cursor) && *state.get() == PlayState::Playing;
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
     let boxed = hud.is_some_and(|h| h.front().is_some());
     // Also while an actor speaks in a conversation (free look, `crate::dialogue`), and
@@ -481,7 +485,7 @@ fn grab_cursor(
         info!("pointer: {}{why}", if wanted { "shown" } else { "hidden" });
         *wanted_before = Some((wanted, film));
     }
-    let grab = playing && !driven && !boxed && window.focused;
+    let grab = playing && !driven && !boxed && window.focused && !hud_cursor;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
@@ -490,7 +494,7 @@ fn grab_cursor(
     };
     // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
     // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
-    let visible = !grab && (wanted || driven || !window.focused) && !over_lock.is_some_and(|o| o.0);
+    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0);
     if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
         cursor.visible = visible;
@@ -725,7 +729,7 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
 /// right stick's (`crate::pad`); while Toggle POV is held it circles the camera instead
 /// (control.rs). Not while a script has locked looking: the view stays where it is
 /// [documented: GECK wiki DisablePlayerControls, LookingFlag].
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     (pads, time): (Query<&Gamepad>, Res<Time>),
@@ -741,12 +745,13 @@ fn mouse_look(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
-    hold: Option<Res<crate::bindings::ControlHold>>,
+    (talk, switches, hold): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>, Option<Res<crate::bindings::ControlHold>>),
 ) {
     // The console's free camera takes the mouse (`crate::free_cam`), and so does the
     // weapon wheel while it is open (`crate::weapon_wheel`); a playing kill camera holds
     // it (`crate::kill_cam`), and so does the Pip-Boy open live in co-op (`crate::menu::LiveMenu`).
-    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || hold.is_some_and(|h| h.all) {
+    // A script's HUD cursor has the mouse too (ToggleHUDCursor, `crate::script_switches`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || hold.is_some_and(|h| h.all) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
@@ -763,11 +768,14 @@ fn mouse_look(
         let dt = time.delta_secs() * assist.map_or(1.0, |a| a.look_scale) * bindings.stick_sensitivity;
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
     } else {
-        (motion.delta, bindings.mouse_sensitivity)
+        // The axes ToggleMouseMovement left on (`crate::script_switches`).
+        (switches.as_deref().map_or(motion.delta, |s| s.look(motion.delta)), bindings.mouse_sensitivity)
     };
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
+    // A conversation's zoom: the picture moves as far as it does unzoomed.
+    let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
     let inv = bindings.invert_y;
     if control.orbit.held {
         let o = &mut control.orbit;
@@ -778,7 +786,7 @@ fn mouse_look(
         o.moved = true;
         return;
     }
-    if control.orbit.free {
+    if control.orbit.free && control.talk_camera == 0.0 {
         // The detached camera (`crate::control::detach_camera`): the camera turns, the
         // player does not.
         let (yaw, pitch) = look_with(control.orbit.yaw, player.pitch, delta, s, inv);
@@ -1288,6 +1296,9 @@ fn step(
             landed.write(crate::rumble::Landed { speed });
         }
         // A fall's damage (`crate::falls`).
+        if let Some(f) = falls.as_deref_mut() {
+            f.note_player(c.id);
+        }
         if let Some(height) = falls.as_deref_mut().and_then(|f| f.step(c.id, p.prev_feet[2], &s)) {
             fell.write(crate::falls::Fell { actor: FormId::PLAYER_REF, height, feet: s.feet });
         }

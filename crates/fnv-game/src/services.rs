@@ -113,17 +113,21 @@ fn ingestible_service(i: Option<&IngestibleDef>) -> u32 {
 }
 
 impl Game<'_> {
-    /// `actor`'s service flags (module notes): its AI data's, or its class's with
-    /// "Autocalc Service". 0 for what is no actor.
+    /// `actor`'s service flags (module notes): its class's with "Autocalc Service", else its
+    /// AI data's as SetServiceFlag left them (`nvse_lutana`). 0 for what is no actor.
     pub fn services(&self, actor: FormId) -> u32 {
-        let Some(ai) = self.def_following(actor, |d| d.template_ai) else { return 0 };
+        let Some(b) = crate::functions::base_of(self, actor) else { return 0 };
+        let Some((_, ai)) = self.template_source(b, actor, |d| d.template_ai) else { return 0 };
         if ai.autocalc_service {
             let class = self.traits_def(actor).and_then(|d| d.class);
             if let Some(s) = class.and_then(|c| self.data.class_services.get(&c)) {
                 return *s;
             }
         }
-        ai.services
+        // SetServiceFlag changes the NPC record's flags (a "Use AI Data" template's are
+        // read until then), which "Autocalc Service" overrides [observed: lutana1
+        // actor.setservice.tender2].
+        self.other.lutana.services.get(&b).copied().unwrap_or(ai.services)
     }
 
     /// Whether `vendor` sells `item`: the item's category is among its services. Caps and

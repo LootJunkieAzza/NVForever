@@ -481,6 +481,14 @@ pub enum Action {
     },
 }
 
+/// Close the container menu a step opened (`Game::close_menu`, which opens a message box
+/// a script queued meanwhile); another menu on top since stays.
+fn close_container(g: &mut Game) {
+    if g.menu == Some(CONTAINER_MENU) {
+        g.close_menu();
+    }
+}
+
 /// [`Action::SaveLoad`]: the save's size in bytes.
 fn save_and_load(g: &mut Game) -> Result<usize, String> {
     let snap = g.snapshot();
@@ -562,7 +570,7 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
         // order when several do).
         // `scripted:<script>#<n>`: the n-th (1-based) of them.
         let (script, n) = match script.split_once('#') {
-            Some((s, n)) => (s, n.parse::<usize>().map_err(|_| format!("bad index in {s:?}"))?),
+            Some((s, n)) => (s, n.parse::<usize>().ok().filter(|&n| n > 0).ok_or_else(|| format!("bad index in {s:?} (1-based)"))?),
             None => (script, 1),
         };
         let sc = resolve(g, script)?;
@@ -572,7 +580,7 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
             .refs
             .values()
             .filter(|p| g.data.script_of_base(p.base) == Some(sc))
-            .nth(n.saturating_sub(1))
+            .nth(n - 1)
             .map(|p| p.id)
             .ok_or_else(|| format!("no placed reference number {n} runs {script}"));
     }
@@ -1135,11 +1143,13 @@ fn waited(g: &Game, st: &RunState, obs: &mut Map<String, Json>, found: bool, sto
 /// (a message box a result script showed) holds the conversation: that is an error here,
 /// the input has to close it. A Goodbye greeting said at the player opens no
 /// conversation (`Game::start_dialogue`): the wait goes on until its line has ended and
-/// its end script has run, as the player hears it out (issue #1114).
+/// its end script has run, as the player hears it out (issue #1114). The same for a
+/// chosen Goodbye line, which closes its conversation at once and is said on as a
+/// farewell (`Game::choose`, `Speech::farewell`).
 fn wait_talk(g: &mut Game, max: u64) -> Result<(), String> {
     for _ in 0..=max {
         match &g.dialogue {
-            None if !greeting_at_player(g) => return Ok(()),
+            None if !goodbye_at_player(g) => return Ok(()),
             Some(c) if !c.choices.is_empty() => return Ok(()),
             _ => {}
         }
@@ -1151,10 +1161,10 @@ fn wait_talk(g: &mut Game, max: u64) -> Result<(), String> {
     Err(format!("the actor was still speaking after {max} frames"))
 }
 
-/// Whether a Goodbye greeting is being said at the player outside a conversation
-/// (`Speech::greeting`).
-fn greeting_at_player(g: &Game) -> bool {
-    g.speech.iter().any(|s| s.greeting && s.target == Some(FormId::PLAYER_REF))
+/// Whether a Goodbye line is being said at the player outside a conversation: a greeting
+/// or a farewell (`Speech::goodbye_at_player`).
+fn goodbye_at_player(g: &Game) -> bool {
+    g.speech.iter().any(|s| s.goodbye_at_player())
 }
 
 /// What the engine's detection pass does with a hit an actor lives through (`nvforever`
@@ -1412,13 +1422,13 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             }
             // The menu is open for `frames` frames counting the opening one; the value
             // is read in its last frame, then the menu closes (CloseAllMenus).
-            g.menu = Some(CONTAINER_MENU);
+            g.open_menu(CONTAINER_MENU);
             for _ in 1..*frames {
                 frame(g);
             }
             let v0 = g.var(key, idx).num();
             frame(g);
-            g.menu = None;
+            close_container(g);
             let mut drop = None;
             for _ in 0..*after {
                 frame(g);
@@ -1525,8 +1535,8 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             let mut why = Vec::new();
             for name in infos {
                 let i = resolve(g, name)?;
-                let data = g.data;
-                let def = data.infos.get(&i).ok_or_else(|| format!("{name} is not a dialogue line"))?;
+                let dv = g.dialogue_view();
+                let def = dv.info(&i).ok_or_else(|| format!("{name} is not a dialogue line"))?;
                 let sp = s.or(def.speaker);
                 let pass = g.conditions_pass(&def.conditions, sp, Some(FormId::PLAYER_REF), &format!("INFO {i}"));
                 if pass {
@@ -1899,9 +1909,9 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             if !opened_since(g, since) {
                 return Err(format!("activating {} opened no container menu", g.data.name(via)));
             }
-            g.menu = Some(CONTAINER_MENU);
+            g.open_menu(CONTAINER_MENU);
             g.frames(*frames);
-            g.menu = None;
+            close_container(g);
         }
         Action::DamageAv { of, av, value } | Action::RestoreAv { of, av, value } => {
             let who = actor_or_player(g, of)?;
@@ -2361,15 +2371,13 @@ fn run_as(
                     Ok(())
                 }
                 Ok(None) => Ok(()),
-                Err(e) => {
-                    // A labelled action that fails still answers, with its error.
-                    if let Some(l) = action_label(a) {
-                        observations.push(json!({"label": l, "step": i, "errors": {"action": e.clone()}}));
-                    }
-                    Err(e)
-                }
+                Err(e) => Err(e),
             },
         };
+        // A labelled action that fails still answers, with its error.
+        if let (Err(e), Some(l)) = (&res, action_label(a)) {
+            observations.push(json!({"label": l, "step": i, "errors": {"action": e.clone()}}));
+        }
         let wait = match a {
             Action::WaitFrames { frames } => *frames,
             Action::AdvanceSeconds { seconds } => (seconds / input.frame_seconds).round().max(0.0) as u64,
@@ -2471,6 +2479,8 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleItems { label, .. }
         | Action::MenuGap { label, .. }
         | Action::IsCurrentPackage { label, .. } => Some(label.clone()),
+        Action::Terminal { label, .. } | Action::Consume { label, .. } | Action::PlayNote { label, .. } | Action::SaveLoad { label, .. } => label.clone(),
+        Action::GetQuest { label, .. } | Action::SampleVar { label, .. } => label.clone(),
         _ => None,
     }
 }

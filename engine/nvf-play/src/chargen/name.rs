@@ -49,6 +49,28 @@ pub struct NameMenu {
     pub prompt: String,
     /// The Ok button's word ([`OK_SETTING`]).
     pub ok: String,
+    /// A script's text input menu (ShowTextInputMenu, `fnv_game::nvse_jip12`) in place
+    /// of the character's name: its own title, size and rules.
+    pub script: Option<ScriptInput>,
+}
+
+/// The rules of a script's text input menu.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScriptInput {
+    pub size: Vec2,
+    pub min: usize,
+    pub max: usize,
+    pub digits_only: bool,
+    pub enter_closes: bool,
+}
+
+impl ScriptInput {
+    /// The rules of the script's menu; the box the script's size, the name box's when it
+    /// gives none [hypothesis: the size is the box's].
+    pub fn of(t: &fnv_game::nvse_jip12::TextInput) -> ScriptInput {
+        let size = Vec2::new(if t.size.0 > 0.0 { t.size.0 } else { BOX.x }, if t.size.1 > 0.0 { t.size.1 } else { BOX.y });
+        ScriptInput { size, min: t.min, max: t.max, digits_only: t.digits_only, enter_closes: t.enter_closes }
+    }
 }
 
 /// The Ok button.
@@ -63,15 +85,56 @@ impl NameMenu {
             Some(g) => fnv_game::ui_loading::game_string(g, name),
             None => fnv_ui::strings::built_in(name).unwrap_or_default().to_owned(),
         };
-        NameMenu { text: chargen::clean_name(&offered), hover_ok: false, prompt: word(PROMPT_SETTING), ok: word(OK_SETTING) }
+        NameMenu { text: chargen::clean_name(&offered), hover_ok: false, prompt: word(PROMPT_SETTING), ok: word(OK_SETTING), script: None }
     }
 
-    /// Typed text goes after the name, as far as the name may be long.
+    /// A script's text input menu: the title over an empty text; the box the script's
+    /// size, the name box's when it gives none [hypothesis: the size is the box's].
+    pub fn script(t: &fnv_game::nvse_jip12::TextInput, game: Option<&fnv_game::Game<'_>>) -> NameMenu {
+        let ok = match game {
+            Some(g) => fnv_game::ui_loading::game_string(g, OK_SETTING),
+            None => fnv_ui::strings::built_in(OK_SETTING).unwrap_or_default().to_owned(),
+        };
+        NameMenu { text: String::new(), hover_ok: false, prompt: t.title.clone(), ok, script: Some(ScriptInput::of(t)) }
+    }
+
+    /// The script's rules as they stand now: SetTextInputExtendedProps may change them
+    /// while the box is open (#2018). The text is cut to a shorter limit.
+    pub fn update_rules(&mut self, t: &fnv_game::nvse_jip12::TextInput) -> bool {
+        let now = ScriptInput::of(t);
+        if self.script.as_ref().is_none_or(|r| *r == now) {
+            return false;
+        }
+        self.text = self.text.chars().take(now.max).collect();
+        self.script = Some(now);
+        true
+    }
+
+    /// The box's size.
+    pub fn size(&self) -> Vec2 {
+        self.script.as_ref().map_or(BOX, |s| s.size)
+    }
+
+    /// Typed text goes after the name, as far as the name may be long; in a script's
+    /// menu, as far as its limit, only digits and the point when it says so [documented:
+    /// SetTextInputExtendedProps].
     pub fn type_text(&mut self, s: &str) -> bool {
-        let next = chargen::clean_name(&format!("{}{s}", self.text));
+        let next = match &self.script {
+            Some(r) => {
+                let typed: String = s.chars().filter(|c| !c.is_control() && (!r.digits_only || c.is_ascii_digit() || *c == '.')).collect();
+                format!("{}{typed}", self.text).chars().take(r.max).collect()
+            }
+            None => chargen::clean_name(&format!("{}{s}", self.text)),
+        };
         let changed = next != self.text;
         self.text = next;
         changed
+    }
+
+    /// SetTextInputString's text in place of what is typed.
+    pub fn set_text(&mut self, s: &str) {
+        let max = self.script.as_ref().map_or(usize::MAX, |r| r.max);
+        self.text = s.chars().take(max).collect();
     }
 
     pub fn backspace(&mut self) -> bool {
@@ -79,32 +142,38 @@ impl NameMenu {
     }
 
     pub fn can_finish(&self) -> bool {
-        chargen::name_acceptable(&self.text)
+        match &self.script {
+            Some(r) => self.text.chars().count() >= r.min,
+            None => chargen::name_acceptable(&self.text),
+        }
     }
 }
 
 /// Spawn the box under `root` (a full-screen node that centres its child).
 pub fn spawn(root: &mut ChildSpawnerCommands, m: &NameMenu, c: &mut Ctx) {
     let bright = amber(255.0);
-    root.spawn(Node { width: u(BOX.x), height: u(BOX.y), ..default() }).with_children(|p| {
-        let behind = at(-BEHIND, -BEHIND, BOX.x + 2.0 * BEHIND, BOX.y + 2.0 * BEHIND);
+    let size = m.size();
+    root.spawn(Node { width: u(size.x), height: u(size.y), ..default() }).with_children(|p| {
+        let behind = at(-BEHIND, -BEHIND, size.x + 2.0 * BEHIND, size.y + 2.0 * BEHIND);
         let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
         if c.image(p, "interface\\shared\\background\\solid_black.dds", behind.clone(), shade, ()).is_none() {
             p.spawn((behind, BackgroundColor(shade)));
         }
-        c.top_bracket(p, 0.0, 0.0, BOX.x, TOP_CORNER, bright);
-        c.bottom_bracket(p, 0.0, BOX.y - THICK, BOX.x, bright);
-        c.text(p, Which::Glow, &m.prompt, BOX.x / 2.0, PROMPT_Y, Align::Centre, bright);
-        // The name, each line centred, the whole in the middle of the box's height.
-        let lines = c.kit.glow.font.lines(&m.text, Some(TEXT_WRAP));
+        c.top_bracket(p, 0.0, 0.0, size.x, TOP_CORNER, bright);
+        c.bottom_bracket(p, 0.0, size.y - THICK, size.x, bright);
+        c.text(p, Which::Glow, &m.prompt, size.x / 2.0, PROMPT_Y, Align::Centre, bright);
+        // The name, each line centred, the whole in the middle of the box's height (a
+        // script's text wraps at the box's width less the margins [hypothesis]).
+        let wrap = if m.script.is_some() { (size.x - 2.0 * OK_IN).max(TEXT_WRAP) } else { TEXT_WRAP };
+        let lines = c.kit.glow.font.lines(&m.text, Some(wrap));
         let h = BODY_H + LINE_PITCH * lines.len().saturating_sub(1) as f32;
-        let top = (BOX.y - h) / 2.0;
+        let top = (size.y - h) / 2.0;
         for (k, line) in lines.iter().enumerate() {
-            set_line(p, &c.kit.glow, line, (BOX.x - line.width) / 2.0, top + BODY_BASE + LINE_PITCH * k as f32, bright);
+            set_line(p, &c.kit.glow, line, (size.x - line.width) / 2.0, top + BODY_BASE + LINE_PITCH * k as f32, bright);
         }
         let ok_w = c.width(Which::Body, &m.ok) + 2.0 * BUTTON_PAD;
         let ok_h = BODY_H + 2.0 * BUTTON_PAD;
-        let (ok_x, ok_y) = (BOX.x - OK_IN - ok_w, BOX.y - ok_h - OK_IN);
+        let (ok_x, ok_y) = (size.x - OK_IN - ok_w, size.y - ok_h - OK_IN);
         let color = bright.with_alpha(if m.can_finish() { 1.0 } else { 128.0 / 255.0 });
         if m.hover_ok && m.can_finish() {
             c.outline(p, ok_x, ok_y, ok_w, ok_h, amber(200.0));

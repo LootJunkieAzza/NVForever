@@ -358,9 +358,9 @@ impl<S: Source> Source for GuardedSource<S> {
     }
 }
 
-/// The Sound tab of the settings page: the master volume and each category's, as the
-/// original's audio menu lists them. Called by the binary where the tab belongs among
-/// the others (a group's place is where its first row is added).
+/// The settings page's volumes: the master volume and each category's, as the original's
+/// audio menu lists them, registered in the Sound group and shown on the Audio tab
+/// (`crate::settings_layout`, #1953). Called by the binary after the picture's rows.
 pub fn register_settings(app: &mut App) {
     use crate::settings::{add_setting, Setting, Slider};
     if !app.world().contains_resource::<SoundVolumes>() {

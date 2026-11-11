@@ -19,6 +19,7 @@ fnv-util.workspace = true
 fnv-save.workspace = true
 texpresso.workspace = true
 fnv-spt.workspace = true
+fnv-font.workspace = true
 nvf-play.workspace = true
 nvf-coop.workspace = true
 fnv-actor.workspace = true
@@ -57,9 +58,10 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.15", default-features = false }
 # The generated-terrain bake threads' priority (lodgen.rs) and the span profile's processor time
-# (profile.rs), and the machine's RAM (memory_budget.rs); a version already in the build;
-# MIT/Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_ProcessStatus"] }
+# (profile.rs), the machine's RAM (memory_budget.rs) and the performance overlay's CPU/GPU use
+# and working set (perf_overlay/usage.rs: performance counters, process memory counters); a
+# version already in the build; MIT/Apache-2.0.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Performance", "Win32_System_ProcessStatus"] }
 
 [build-dependencies]
 # The program icon in the Windows executable (build.rs); MIT.
@@ -72,7 +74,7 @@ default = ["intro-video"]
 intro-video = ["nvf-play/intro-video"]
 # Bevy's spans for the in-engine span profile (profile.rs, NVF_PLAY_TEST_PROFILE); not for
 # release builds.
-profile = ["bevy/trace"]
+profile = ["bevy/trace", "fnv-phys/solver-timers"]
 # The same spans sent live to the Tracy profiler (docs/design/frame-rate-audit.md §1: the
 # viewer's version must match the tracy-client in Cargo.lock); not for release builds.
 tracy = ["profile", "bevy/trace_tracy", "dep:tracy-client"]

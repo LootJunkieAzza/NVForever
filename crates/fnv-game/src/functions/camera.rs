@@ -24,7 +24,56 @@ pub struct CameraRequests {
     pub menus_hidden: bool,
     /// The fly camera is on, by the ToggleFlyCam calls so far (GetTFC).
     pub fly_on: bool,
+    /// Where the fly camera is, as SUP's TFC functions read and set it
+    /// (`crate::nvse_sup3`): the engine writes it while the camera flies, and takes it
+    /// when `tfc_set` is up.
+    pub tfc: TfcPose,
+    /// A script set [`CameraRequests::tfc`] since the engine last took it.
+    pub tfc_set: bool,
+    /// The player's camera as the engine placed it this frame (JohnnyGuitar's
+    /// GetCameraTranslation, WorldToScreen, `crate::nvse_jg_nif`);
+    /// `None` while no engine tells it.
+    pub view: Option<CameraView>,
+    /// JohnnyGuitar's SetCameraTranslate: the third-person camera's place relative to
+    /// the player, in the player's frame (x right, y ahead, z up), while set.
+    pub translate_override: Option<[f32; 3]>,
+    /// JohnnyGuitar's SetCameraRotate: the third-person camera's angles in degrees about
+    /// X (pitch, down positive), Y (roll) and Z (heading), each while set; and the
+    /// reference it keeps looking at.
+    pub rotate_override: [Option<f32>; 3],
+    pub rotate_track: Option<fnv_sim::FormId>,
 }
+
+/// The player's camera this frame: its place in game units, its heading (radians,
+/// clockwise from north), its pitch (radians, up positive) and roll, the vertical field
+/// of view (radians) and the width over the height, and whether it is the first-person
+/// view.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CameraView {
+    pub pos: [f32; 3],
+    pub heading: f32,
+    pub pitch: f32,
+    pub roll: f32,
+    pub fov_y: f32,
+    pub aspect: f32,
+    pub first_person: bool,
+}
+
+/// The fly camera's place: position in game units, angle X (down positive) and Z (the
+/// heading, clockwise from north) in degrees, as GetAngle gives them. Kept when the
+/// camera is off and never wrapped [observed: sup3 cam.off2, cam.setangle.wide: 400
+/// read back 400]; all 0 before the camera was ever used [observed: sup3 cam.off.*].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TfcPose {
+    pub pos: [f64; 3],
+    pub angle_x: f64,
+    pub angle_z: f64,
+}
+
+/// The eye above the feet where the fly camera starts while no engine tells the
+/// camera's own place (a headless run) [observed: sup3 cam.on.pos, 118 units above the
+/// standing player in first person].
+pub const TFC_EYE_HEIGHT: f64 = 118.0;
 
 /// `ToggleFlyCam [mode]` (`tfc`): the camera leaves the player and flies, or comes back
 /// [documented: GECK wiki ToggleFlyCam, through the catalogue]. The modes the engine
@@ -32,6 +81,17 @@ pub struct CameraRequests {
 pub fn toggle_fly_cam(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.ui.camera.fly_toggles.push(a.num_or(0, 0.0) as i32);
     g.ui.camera.fly_on = !g.ui.camera.fly_on;
+    // Turned on, it starts at the player's eye with the player's angles [observed: sup3
+    // cam.on.pos and cam.on.angles]; the engine writes the camera's own place over it.
+    if g.ui.camera.fly_on {
+        if let Some((p, r)) = g.ref_pos_rot(fnv_sim::FormId::PLAYER_REF) {
+            g.ui.camera.tfc = TfcPose {
+                pos: [f64::from(p[0]), f64::from(p[1]), f64::from(p[2]) + TFC_EYE_HEIGHT],
+                angle_x: f64::from(r[0]).to_degrees(),
+                angle_z: f64::from(r[2]).to_degrees(),
+            };
+        }
+    }
     none()
 }
 

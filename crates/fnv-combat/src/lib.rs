@@ -26,6 +26,7 @@
 pub mod attack;
 pub mod bash;
 pub mod body_weapon;
+pub mod burst;
 pub mod condition;
 pub mod damage;
 pub mod data;

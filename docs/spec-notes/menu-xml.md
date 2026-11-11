@@ -672,7 +672,7 @@ marked]:
 | `me()` | 1798 | the tile itself |
 | `sibling(name)` | 1660 | the tile of that name under the same parent |
 | `sibling()` | 2 | the tile just before it under the same parent |
-| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine. Width is 960 × window width/height, height 960 and `resolutionconverter` 960 / window height [observed: hud_menus capture 2026-10-31, three window sizes] (1280 x 720, 1920 x 1080 and 1280 x 1024). NVForever uses those interface units only while `[UI] TileMenus` names `MessageMenu` or `QuantityMenu`; otherwise it keeps window pixels and no converter [design: preserve default play; applying the observed units unconditionally is a follow-up]. `fnvtool ui tree --screen` writes the size it is given [design] |
+| `screen()` | 451 | the view: traits `width`, `height`, `cropx`, `cropy`, `resolutionconverter`, set by the engine. Width is 960 × window width/height, height 960 and `resolutionconverter` 960 / window height [observed: hud_menus capture 2026-10-31, three window sizes] (1280 x 720, 1920 x 1080 and 1280 x 1024). NVForever uses those interface units only while `[UI] TileMenus` names a menu drawn from its file (`tiles::interface_screen`), and writes `cropx` and `cropy` only while `DialogMenu` draws a conversation (dialogue-menu.md §6.2); otherwise it keeps window pixels and no converter [design: preserve default play; applying the observed units unconditionally is a follow-up]. `fnvtool ui tree --screen` writes the size it is given [design] |
 | `globals()` | 244 | `globals.xml`'s tile (`gloabls()`, once, read the same) |
 | `io()` | 242 | the menu the tile is in, whose traits the game's code reads and writes (barter reads `io()`'s `_IsContainerListSelected`, which its `<menu>` declares) |
 | `child(name)` | 148 | the child of that name; `child()` the first child |
@@ -933,7 +933,8 @@ What the original can settle (copied to docs/handoff/observer-checks.md):
 (CacheUI), `ui_hudbar` (SUP's bars); tests `crates/fnv-game/tests/ui_more.rs`, the
 units in those files, and `fnv_ui` `a_trait_by_a_path_under_a_tile`
 (`Ui::find_trait_in`). Every page is the GECK wiki export of 2026-10-28; the tags per
-rule are in the code beside it. Smoke: `ui-gradual-in-game`.
+rule are in the code beside it. Smoke: `ui-gradual-in-game`, `ui-string-dimensions`,
+`ui-cursor-inspection`, `ui-typewriter-tile-script`.
 
 | Functions | Page(s) | What NVForever does | Open |
 |---|---|---|---|
@@ -941,15 +942,15 @@ rule are in the code beside it. Smoke: `ui-gradual-in-game`.
 | GetUIFloatGradualActiveForTile, …ForTileTrait, …Mode, …Timer | the four SUP pages [documented] | read JIP's table; Mode -1 when none [documented] | Timer -1 when none, a repeating change's time left is its round's [hypothesis] |
 | SetUIStringReveal, CacheUIStringReveal(Alt) | SetUIStringReveal, CacheUIStringReveal [documented] | letters by the time's share, from the left or right, inverted, ease in as the square [hypothesis for the rounding, the right and the ease] | none |
 | SetUIFloatMultiple | SetUIFloatMultiple [documented] | every tile inside of the type, that has the trait; the count back [design] | whether it makes the trait [hypothesis: not] |
-| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component. Replaces the one attached before to the same (reference, node, rect name), keeps it hidden until placed, drops it when the reference is deleted, disabled or outside the loaded cells [design] | **placing the component at the node on screen** (the engine's 3D projection), and checking the node exists |
+| AttachUIXML, AttachUIComponent | AttachUIXML, AttachUIComponent [documented] | a single `rect` into `HUDMainMenu`'s root, kept in `UiExtra::attached` with the reference and node; 1 or 0; the VM formats the component. Replaces the one attached before to the same (reference, node, rect name), keeps it hidden until placed, drops it when the reference is deleted, disabled or outside the loaded cells [design]; placed over the node on screen each frame, hidden off screen or without the node (`ui_more::place_attachments`, `nvforever` `ui_attach.rs`, #1835) [design] | the rules on screen are our own (below) |
 | AddTraitToTile | AddTraitToTile [documented] | makes or sets the trait; an empty name makes none (0) [design] | the original's list of trait ids it allows is not known: any other name taken [hypothesis] |
-| GetUIValueType, GetUIElementType | the SUP pages [documented] | 1/2/3 and -1; 1-5 by tile kind, `nif` 4 [hypothesis], other kinds 0 [hypothesis] | no path means the cursor's tile: T8, -1 here |
+| GetUIValueType, GetUIElementType | the SUP pages [documented] | 1/2/3 and -1; 1-5 by tile kind; GetUIElementType uses the live cursor tile for a missing or nonexistent path, -1 with none [design: `ui_more::inspection_tile`] | `nif` 4, other kinds 0 [hypothesis] |
 | SortUIListBox | SortUIListBox [documented] | keys `-`, `#`, `@`; `$destination$increment` (default `_y`, `height`); numeric keys in a total order, NaN keys at the ends (`total_cmp`) [design] | which children are items (those with the destination), the first value (the smallest), the case [hypothesis each] |
-| GetStringUIDimensions | GetStringUIDimensions [documented] | `string_dimensions` over a measure; outputs through the VM's out_call | **the engine does not yet set `UiExtra::measure`** (its fonts are in `tiles::draw::TileFonts`): in game the outputs stay unwritten |
-| DumpTileInfo, DumpTileInfoALL, DumpTileInfoToArray | the three SUP pages [documented] | `[ Tilename ] : name` and `[ trait ] : value` lines (the ToArray page's example output) to the console, or to NVForever's log for DumpToFile (never `SUPNVSE.log` in the game folder); ToArray a string map | no path means the cursor's tile (T8); ALL lists the menus, no cursor tile exists |
-| CacheUI, …Float, …String, …ModFloat, …GetFloat, …GetString, …Range, …RangeMod, …Erase, …Dump, …Gradual, …RangeGradual, …GradualDelay, …RangeGradualDelay, each with its Alt | the CacheUI pages (CacheUIModFloat's is `CacheUIMod`) [documented] | caches per calling plugin, Alt per key; delay pulls the value then, flags 0/1/2 and the lock, `match` ends a delay; modes 0-3, 5, 6 | mode 4 (rumble) refused: its shake and decay are not given; RangeMod's page and example differ in argument order, both taken [design]; the script runners' shared cache |
+| GetStringUIDimensions | GetStringUIDimensions [documented] | width, height and actual `Font::lines` count through the VM's output variables; owned metrics installed before startup/load scripts (`tiles::MenuFiles`, `script.rs`), using the renderer's localized `font_file`, font selection and wrapping [design] | unavailable metrics write three zeros; failed reads retry at most once a second on query, successful metrics are cached without GPU atlas uploads [design: NVForever policy, not documented original behavior] |
+| DumpTileInfo, DumpTileInfoALL, DumpTileInfoToArray | the three SUP pages [documented] | `[ Tilename ] : name` and `[ trait ] : value` lines (the ToArray page's example output) to the console, or to NVForever's log for DumpToFile (never `SUPNVSE.log` in the game folder); ToArray a string map; DumpTileInfo uses the live cursor tile for a missing or nonexistent path (path argument 1); ALL lists menus; ToArray still requires a path [design: `ui_more`] | none |
+| CacheUI, …Float, …String, …ModFloat, …GetFloat, …GetString, …Range, …RangeMod, …Erase, …Dump, …Gradual, …RangeGradual, …GradualDelay, …RangeGradualDelay, each with its Alt | the CacheUI pages (CacheUIModFloat's is `CacheUIMod`) [documented] | caches per calling plugin, Alt per key; delay pulls the value then, flags 0/1/2 and the lock, `match` ends a delay; modes 0-3, 5, 6 | mode 4 (rumble) mentioned but insufficiently specified: waveform, frequency, randomness, decay curve and final value are not given; remains refused (`ui_gradients::mode_built`); RangeMod's page and example differ in argument order, both taken [design]; the script runners' shared cache |
 | CUICreateQueue, CUIGetQueue, CUIGetQueueSize, CUIQueueCycle, CUIQueueFloat | the five pages [documented] | per plugin; toggle, forced add and remove, duplicates | cycle direction 0 [hypothesis] |
-| HudBar… (35 functions) | SUP HUD Bar Functions and each HudBar page [documented] | a `rect NVFHudBar<n>` with `Meter`, `Frame`, `Text`, `ImageEx` in `HUDMainMenu`, per plugin (console: first of the name), written after each change and after a load; types 0-5, value/max/percentage, text with prefix, postfix and max, alpha, colour, system colour, depth, zoom, rotation, size, indent, alt size, texture, text font and justify, auto position, bar and meter traits, all-bars arrays, element paths, debug lines to the log | **not built**: HudBarSetValueScriptVar and HudBarSetValueUDF (the VM passes a variable's value, not the variable), the visibility conditions and gradual vanishing (bar traits 0, 21-27, 41-64 kept, not acted on), reading a texture's size (`iCalculateSize`), the rotation on screen (the traits are written, the tile renderer turns no tile yet); the meter's width as indent plus the share of the rest, type 4 without a built-in `%`, the default max 100 and which elements show by default [hypothesis] |
+| HudBar… (35 functions) | SUP HUD Bar Functions and each HudBar page [documented] | a `rect NVFHudBar<n>` with `Meter`, `Frame`, `Text`, `ImageEx` in `HUDMainMenu`, per plugin (console: first of the name), written after each change and after a load; types 0-5, value/max/percentage, text with prefix, postfix and max, alpha, colour, system colour, depth, zoom, rotation, size, indent, alt size, texture, text font and justify, auto position, bar and meter traits, all-bars arrays, element paths, debug lines to the log | bound values (ext-sup7.md §3), the visibility conditions 0 and 21-27 with their fades 41-44/61-64 and HudBarGetVisible's -1: hud-bars.md (#1834); reading a texture's size (`iCalculateSize`), the rotation on screen (the traits are written, the tile renderer turns no tile yet); the meter's width as indent plus the share of the rest, type 4 without a built-in `%`, the default max 100 and which elements show by default [hypothesis] |
 
 [design] Numbers that are not numbers: SetUIFloatMultiple, AddTraitToTile, CacheUIFloat /
 ModFloat / Range / RangeMod (and their Alt forms), a HUD bar's place at creation and its
@@ -957,22 +958,105 @@ element, bar, meter and text setters write 0 for a NaN or an infinity (`ui_more:
 a CacheUI sum that is one too); HudBarSetValueFloat, …Max and …Percentage refuse one with
 -1. The pages say nothing about such numbers; these are NVForever's own safeguards.
 
-[design] DumpTileInfo reads its path from the second argument (`toFile path`), so the HUD's
-kept-back writes are made before a dump of a `HUDMainMenu` path; a dump of another menu
-leaves them kept back.
+[design] `ui_more::inspection_tile` resolves GetUIElementType and DumpTileInfo before
+flushing deferred HUD writes. The resolved tile's menu controls the flush, including a
+cursor fallback from an invalid path; another menu or no live tile leaves writes pending.
+DumpTileInfo retains `toFile path`, with the path at argument 1. `Pointer::active`
+(`fnv-ui/src/input.rs`) rejects unloaded tiles.
 
-Not built, with why:
+Implemented consumers and remaining exclusions:
 
-- **SetUITexOffset, SetUIAlphaMap** [documented: their ITR pages]: texture sampling
-  and a shader stage, the renderer's; nothing in the tree to write.
-- **SetUITypewriter** [documented: SetUITypewriter]: per-letter `_TS?`/`_TA?` traits
-  with fades and Fisher-Yates orders; the page's XML example is cut off and does not say
-  how the text splits into the traits or which random order.
-- **SetTileScript, RemoveTileScript** (CacheUI): a script called each frame while a
-  trait is non-zero; a per-frame script hook, outside this task.
-- **The cursor's tile** for GetUIElementType and DumpTileInfo without a path, and the
-  menu events: T8's pointer (`Game::ui_pointer`, #957) is on main now; these functions
-  do not read it yet.
+- **SetUITypewriter** [documented: [SetUITypewriter](https://geckwiki.com/index.php?title=SetUITypewriter)]
+  requires authored XML linking `_TSn`/`_TAn` into text/alpha. [design: `nvse_small.rs`,
+  `Game::small_tick`; `game.rs`, `Game::tick`] Letters and fades advance each frame;
+  ordinary tile evaluation and drawing consume linked text/alpha (`tiles/mod.rs`,
+  `tiles/draw.rs`). The command generates no XML. Ordering modes retain the hypotheses
+  beside `typewriter_rank` and `typewriter_tick`.
+- **SetTileScript, RemoveTileScript** [documented: [SetTileScript](https://geckwiki.com/index.php?title=SetTileScript)]
+  register/replace/remove a callback per trait. [design: `nvse_small.rs`, `small_tick`]
+  The callback runs each frame while the trait is nonzero and can change drawn traits;
+  registration itself draws nothing. Menu mouseover/click events also have consumers
+  (`ui_input.rs`, `step`), rather than a blanket menu-events exclusion.
+- **SetUITexOffset, SetUIAlphaMap** [design: `nvse_itr1.rs`, dispatch; `tiles/texmod.rs`,
+  #1833] store offsets (wrapped into 0-1) and alpha-map paths by tile id, so a tile
+  unloaded or replaced at its path drops them (`Game::itr_drop_gone_tile_textures`, each
+  frame). The tile renderer bakes a picture with either into one image in its place: its
+  texels (atlas piece or own file) sampled shifted by the offset in whole texels, wrapping
+  inside the piece, nearest texels [design]; the alpha multiplied by the alpha of the
+  mask, an "alpha mask texture" bound beside the unchanged base texture and sampled at
+  "the same UVs as the base texture", clamped to its edge texels (`CLAMP_S_CLAMP_T`)
+  [documented: GECK wiki SetUIAlphaMap]. The offset does not move the mask
+  [documented: SetUIAlphaMap notes; the mask not scrolling is read from its advice to
+  scroll a strip's base texture with SetUITexOffset on a normal-sized quad under a
+  mask, which only works if the scroll leaves the mask's stage alone]. So a picture
+  whose coordinates run 0-1 (stretched, natural, zoomed and cut to the box, clipped)
+  has the mask over it once; a `tile` picture, whose coordinates run past 1 with its
+  repeats [documented: the same note], has it over its first repeat from the box's top
+  left and the mask's edge texels over the rest; an atlas piece, whose coordinates are
+  its part of the atlas (the index gives them as parts of the atlas, corner-messages.md
+  §2.2), has the mask's same part over it [hypothesis: "same UVs" read for an atlas
+  piece]. NVForever reads no `cropoffsetX`, so no tile's coordinates start elsewhere.
+  The image has the picture's texels, more where the mask is more detailed, up to a
+  texel an interface unit of the drawn size (a 1 x 1 picture over a panel keeps the
+  mask's detail). A masked `tile` box too large to bake at its repeats' texels is baked
+  at fewer, at most `repeat::MAX_TEXELS`, so the mask still lies once (its picture
+  coarser); without a mask such a box keeps Bevy's tiling of the shifted piece [design].
+  Radial tiles stay undrawn. The compass strip's texels are moved on by the offset
+  before the heading scrolls them (the two add up) and its window is baked under the
+  mask stretched over it (`compass_strip::StripWindow::masked`) [design]: the documented
+  rule is not applied there, as NVForever's code, not a trait, scrolls the vanilla strip
+  (hud.md §14.4) and the coordinates of the original's window (which part of the strip,
+  scrolled how) are not known [hypothesis]. Textures are decoded
+  only up to `repeat::MAX_TEXELS`, read from the file's header first, by these bakes and
+  by `crate::repeat`'s (the tiled pictures, the compass strip), whose oversized textures
+  keep Bevy's drawing. An offset that changes alone re-bakes the kept image, or moves the
+  compass strip on, in place (same nodes and handle), only when it is another texel
+  shift, within `texmod::BAKE_BUDGET` texels a frame (unspent budget accrues up to three
+  largest images, the most one bake costs: its output and both textures decoded again, or
+  for the compass strip its strip, its window and its source; the piece waiting longest is served first, so scrolling pieces take turns; a
+  texture to decode again is part of the cost checked against that reservation, and a
+  texture still cached is taken first so decoding the other cannot evict it).
+  Decoded textures are kept within 64 MiB a drawing, every decoded texel counted, at each
+  insertion and each frame's prune: those no kept bake names go first, then the least
+  recently used, a kept bake decoding its texture again when it next needs it. Texels held
+  outside the cache (a strip window's mask, a bake under way) are never let go, so the
+  cache can pass 64 MiB only while they are held. Those nothing names any more are
+  released at once [design: #1833 review]. Which way the offset moves (the texel at the
+  coordinate plus the offset) is [hypothesis: no page gives it]. The mask's path is
+  under `Data\Textures\` [documented: SetUIAlphaMap, "relative to Data\Textures\"]; a
+  path already starting `textures\` is kept as one [decision]
+  (`nvse_itr1::alpha_map_path`). SetUIAlphaMap returns 0 when the tile is not found or
+  the texture fails to load [documented]; the script side takes a texture not in the
+  data (loose or in an archive) as the failure [hypothesis], and while the host gives no
+  answer for the archives takes it as there [decision]. A texture there that cannot be
+  read (too large, not decoded) leaves the tile without it, said once (smoke
+  `ui-texoffset-alphamap`, `ui-texoffset-compass`).
+- **Attached components** [documented: [AttachUIComponent](https://geckwiki.com/index.php?title=AttachUIComponent)]
+  require a loaded, case-sensitive model node and one parent rect under HUDMainMenu.
+  [design: `ui_more.rs`, `attach`; `tiles/mod.rs`, update] Attachments remain hidden until
+  placed. Occlusion, clipping, distance scaling and offscreen behavior are not settled by
+  that page. [design: `ui_more.rs`, `place_attachments`; `engine/nvforever/src/ui_attach.rs`,
+  #1835] Each frame, after the animated pose and the camera are worked out, the node (by
+  its exact name: an actor's skeleton node, or a node of the reference's own animated
+  model, `nvf_play::RefNodes`; statics' baked shapes and worn or held models keep none)
+  goes through the player's camera to the HUD's interface units (960 to the window's
+  height divided by NVForever's UI scale, as the HUD is drawn; the view taken to fill the
+  window), and the rect's `x`/`y` (its top left) are put on that point. When it is
+  attached its `x`/`y` lose any expression and stay plain numbers (an authored constant as
+  written, else 0) that scripts can read and write until the next placement; the
+  component centres itself through its children. `visible` is written 1 when it comes on screen and 0 when
+  it leaves. Hidden: behind the camera, nearer than the near plane or farther than the
+  camera's far distance (checked on the camera-space depth: Bevy's perspective matrix
+  has no far plane), the point outside the view's sides, no such node, no drawn model
+  that names nodes or that model hidden, no active camera. A rect whose node is on screen
+  draws whole, cut only by the window's edge; there is no occlusion test and no scaling
+  with distance. The drawing shows the new place a frame behind the model.
+- **HudBar live value bindings and conditional visibility**: built (#1834), choices and
+  tags in docs/spec-notes/hud-bars.md.
+- **CacheUI mode 4** [documented: [CacheUIRangeGradual](https://geckwiki.com/index.php?title=CacheUIRangeGradual)]
+  mentions bounded, decaying rumble but is insufficiently specified: no waveform,
+  frequency, randomness, decay curve or final value. [design: `ui_gradients.rs`,
+  `mode_built`] It remains unimplemented; no waveform is invented.
 
 ## 10. MCM: its places and its menu scripts (tasks T7, T11; issue #976)
 

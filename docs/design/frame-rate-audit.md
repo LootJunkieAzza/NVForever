@@ -159,6 +159,12 @@ before a query). Held by furniture or flying with ToggleCollision the steps stil
   MSAA) held every run. Measure with `NVFOREVER_HOME` set to a home whose `NVForever.ini`
   is a copy without `[Settings]` (with `plugins.txt`); `--graphics-cycle` steps switch at
   run time and hold either way. Test runs (`--run-seconds`) default to `--graphics vanilla`.
+  Since #1382 a switch given on the command line of a test run (`--run-seconds`,
+  `--log-frame-times`, `--screenshot`, `--timelapse`, `--frame-json`) keeps its state over
+  the stored one, and the log says so (`settings: anti-aliasing kept at 4x as --msaa on the
+  command line set it; ...`); outside test runs the stored state is still applied, with a
+  warning naming the switch it overrode (nvf-play `settings.rs` module notes). Switches
+  not given still take the stored states, so a clean home stays the surest base.
 - `tools/profile/tracy-tour.ps1` + `cells.csv`: one launch per cell of a Tracy build, a
   `tracy-capture` after the load, CPU and GPU (`tracy-csvexport -g`) zone CSVs per cell;
   `summarise.py <folder>` gives per cell the main/extract/render-thread split, the GPU passes
@@ -282,6 +288,21 @@ against 34.6 ms a frame, inside the machine's noise. So hiding a third of the me
 does not remove most of the render thread's work here; what does scale is not settled
 (see §4). Smoke: `rooms-repconn`.
 
+**Occlusion planes** (#1434, `engine/nvforever/src/occlusion.rs`, level-design.md §3.2):
+a placed object's mesh wholly behind one plane is hidden as well, and a portal wholly
+behind one is not followed; interiors only by default (`--occlusion-planes-outdoors` for
+the exterior ones, `--no-occlusion-planes` off; `NVF_PLAY_TEST_OCCLUSION_CYCLE=<s>`
+switches them in one run). Hidden from the start [observed, 2026-11-06]: OVWestSewers02
+1,549 of 3,600 meshes, 2EOVault21 1,127 of 4,923 (and 8 portals), RocketLabMid 943 of
+4,134, HooverDamIntLowerLevel 127 of 4,005; outdoors at Primm 1,504 of 3,152. Pictures
+with and without were the same in the sewers (no pixel off by more than 1), Vault 21
+and REPCONN apart from HUD messages and flicker; at Primm a roof sign was hidden, hence
+interiors only. Frame time, the planes switched every 10 s in one run, frame times
+logged every 5 s: in the sewers 16.67 ms both ways (the run held at 60 Hz, so not
+measurable), in an earlier unlocked run 5.0 against 5.0 ms; at Primm (outdoors switch)
+5.9–6.4 ms on against 5.8–6.6 ms off. No measurable gain at these counts: as with rooms,
+hiding a third to a half of the meshes is not what these frames are bound by.
+
 ## 4. Left to do
 
 - **Batching** (REPCONN, and every interior): about one material asset per mesh, and
@@ -335,7 +356,8 @@ Each scenario is one launch of a `profile` build through tools/stress's launcher
 Each launch runs at 1920 × 1080 with `--graphics enhanced` and vsync off, and logs the span
 profile and stress samples every 5 s. The first 15 s after the first frame-time line are
 left out. `NVF_PLAY_TEST_PROFILE_HITCH_MS` (new, `profile.rs`) lists every frame over the
-scenario's `slow_ms` (16 ms; battles 40 or 100) with its spans. The report subtracts each
+scenario's `slow_ms` (16 ms; battles 40 or 100) with its 25 heaviest spans
+(`NVF_PLAY_TEST_PROFILE_HITCH_SPANS=<n>` lists more). The report subtracts each
 span's mean over every frame from its mean in the slow frames, which names what makes the
 slow frames slow.
 
@@ -388,6 +410,78 @@ What it found, each with its issue:
 
 The scenario logs are game-derived and stay private, under `target/profile-campaign/` (not
 committed).
+
+### The ragdoll solver in the 50-a-side battle (#1798, 2026-11-07)
+
+Measured on the bench machine (i9-14900K), `battle-50`, profile builds; logs private in
+`C:/fnv-private/ragsolve-1798/`.
+
+- **Where the time goes** [observed]. The stress sample now prints the solver's load
+  (`bodies awake`, `contact pairs`, `manifolds`, `solver contacts`, `joints`) and, in the
+  profile build, rapier's stage timers summed since the start (`solver ms`, feature
+  `fnv-phys/solver-timers`, turned on by `nvforever/profile`). Over the battle rapier's
+  steps took 14.1 s: 11.9 s in the solve (velocity resolution: the constraint iterations
+  and writeback), 1.2 s in collision detection, 0.08 s in the serial set-up, 0 in CCD. At
+  the peak (45–65 s) about 6–7 ragdolls are moving at once: 70–190 joints, 380–610
+  touching pairs, 1,300–1,500 contact points; the solve takes 3–5 ms a step, at 2.4
+  steps a frame.
+- **Why the ragdolls are moving** [observed: the exit report]. 62 ragdolls came to rest
+  141 times: 79 of the rests followed a shove that woke a corpse already at rest (248
+  shoves by hits), and 92 of the 141 were the 3 s hold (`MAX_AWAKE`) on a corpse still
+  moving. So about half the solver's ragdoll time is corpses woken again by stray shots.
+  That is a look decision ([owner-review](../owner-review.md) item 51).
+- **Lead 1, rapier's `parallel` feature: results unchanged, no gain in the game; not
+  taken.** [observed] With `parallel` (and a 4-thread pool of its own), a pile of 42
+  jointed figures, and 14 or 30 human skeletons (`_male\skeleton.nif`, 18 bodies, 17
+  joints) on flat ground, gave the same state digest bit for bit as the build without
+  it, on 1 to 32 threads; all fnv-phys tests passed. Off the game the step got 1.5–2.2×
+  faster on 4–8 threads (14 skeletons: 1.64 → 0.80 ms a step). In the battle it did
+  not: per frame at 25–75 s `init_and_solve` was 1.9–13.7 ms on main, 2.8–21 ms on
+  1 thread and 1.8–21.7 ms in two runs on 4 threads, following how many ragdolls moved
+  (frames 31–40, 31–53, 27–53 ms); per step in the slow frames 3.5–6.4 ms on 1 thread,
+  2–8.9 ms on 4. [hypothesis] The same load costs about 10× more a step in the game than
+  off it (one or two moving skeletons: about 0.8 ms of solve a step in the game, 0.07 ms
+  off it, 0.16 ms with 200 moving kinematic actor bodies added), which points at the
+  machine (the step's and the pool's threads on efficiency
+  cores, or sharing cores with the render and task-pool threads) more than at the
+  solver's work; not measured (no sampling profiler without administrator rights).
+- **Lead 2, settling settings: not changed.** Solver iterations are global (every
+  physics trace and the character controller's pushes would change), and halving them
+  bought only 10–35 % off the game; joint count and damping did not stop the shiver
+  before ([ragdoll §4](../spec-notes/ragdoll.md)). Shorter wakes and holds change the
+  look, so they are the owner's.
+- **Lead 3, the step off the frame's chain: a design, not built.** The rapier step
+  (`PhysWorld::step` inside `player::step`) would start on a thread of its own once the
+  frame's last fixed step has its inputs (the player's and NPCs' moves, `move_npcs`), and
+  be joined by the first system that reads the world after it (ragdoll bone writes,
+  detection rays, projectile casts, the next frame's character steps). For that:
+  1. `player::step`'s loop hands the last step's world to a task (the `PhysWorld` moved
+     into it and back), so nothing can touch the world before the join.
+  2. Between the start and the join only work that does not read physics can run:
+     animation, audio, UI, render extraction. Today detection, residents, AI and combat
+     all cast rays right after `player::step` and would wait at once, so the gain needs
+     them to read last step's world (a query copy: broad phase and colliders cloned
+     after the previous step, as `PhysWorld::snapshot` does for the whole world) or to
+     run after the join.
+  3. Results stay bit-identical (the same steps in the same order); only when they are
+     read changes. Worth building only if the ragdolls' share is still large after the
+     owner rules on item 51.
+- **Re-shot corpses move for 1 s (2026-11-08)** [observed, battle-50, profile builds,
+  quiet CPU, 2 runs each]. A corpse at rest roused by a hit's shove is held again after
+  1 s instead of 3 s (`MAX_AWAKE_SHOVED`, owner-review item 51). Seconds corpses spent
+  moving: 258 and 360 on main (36 and about 70 re-wakes), 225 and 219 after (46 and 39).
+  `init_and_solve` 4.40 and 6.24 → 3.58 and 3.38 ms a frame; frame mean 30.5 and 30.0 →
+  28.6 and 27.6 ms; slowest frame 115 and 99 → 98 and 94 ms. Fresh corpses still almost
+  all move the full 3 s: 53 of 58 were held still moving in one run, most with a neck or
+  head turning at 0.7–3 rad/s, or calm for under 1.5 s when held.
+- **The stuck actor's retries (#1797) and the hit-volume refresh: left as they are**
+  [observed, the same runs]. One actor was held stuck. Its full retry move ran 10 times
+  in 90 s, at 3–9 ms each. The 6–9 ms ones came after it asked for a new direction (0.3–1.1
+  rad off, 110–464 units/s), so they cannot be skipped without changing where it goes.
+  About one broad-phase refresh a frame is dirtied by hit volumes alone, asked for by a
+  gameplay cast, at about 0.5 ms (`phys::query_refresh` 1.6 ms a frame over 2–3
+  refreshes). Skipping it would leave the broad phase stale for the next detection, the
+  way #1392 changed step results, so it stays.
 
 ### What the submission costs (#1427)
 
@@ -451,3 +545,276 @@ What this says:
 - **Seen on the way:** `Queue::write_buffer` takes 2.2 ms a frame and
   `Device::create_bind_group` 1.0 ms (Bevy's `prepare_preprocess_bind_groups` makes its
   bind groups again every frame). Both are on the render thread before the submission.
+
+#### Moved off the render thread (#1427, done-when 2)
+
+Two changes. Neither changes what is recorded or the order it is submitted in.
+
+- **wgpu's clean-up of finished frames runs on a thread of its own**
+  (`engine/nvforever/src/gpu_poll.rs`). [documented: wgpu-core 30.0.1 `Queue::submit`,
+  `triage_submissions`] Every submit ends by polling the device, which drops the
+  submissions the GPU has finished and every resource reference their command buffers
+  held. Bevy polls nowhere else, so this ran inside every frame's `queue_submit`. A
+  `gpu poll` thread now polls (without waiting) every millisecond, so a frame is cleaned up
+  soon after the GPU finishes it, while the render thread records the next one.
+- **Encoders are finished as soon as their system is done** (a patched `bevy_render`,
+  engine/vendor/README.md), on the compute threads, instead of all at once at submission.
+
+[observed 2026-11-07, main 644fee49, the `profile` build, i9-14900K, RTX 4070, Vulkan,
+1920x1080, enhanced; `campaign.py --only goodsprings-noon novac-noon battle-50`; both off
+and both on are the same exe (switched by a measuring-only environment switch, since
+removed), runs interleaved; two runs each, ms a frame]
+
+| | Goodsprings off | on | Novac off | on | battle-50 off | on |
+|---|---|---|---|---|---|---|
+| render thread | 5.53, 5.53 | 5.23, 5.01 | 6.04, 6.00 | 5.63, 5.69 | 10.37, 9.96 | 9.18 |
+| `submit_pending_command_buffers` | 1.77, 1.80 | 1.44, 1.19 | 1.99, 2.01 | 1.47, 1.50 | 3.20, 3.13 | 2.29 |
+| … `queue_submit` | 0.89, 0.89 | 0.66, 0.62 | 1.02, 1.03 | 0.74, 0.78 | 0.86, 1.09 | 0.07 |
+
+One run each with only one of the two on: the poll thread alone took `queue_submit` to 0.69
+(Goodsprings), 0.77 (Novac) and 0.04 ms (battle-50, where the GPU is done long before the
+next submit); early finishing alone took the encoders' finishing wall time (the span less
+`queue_submit`) from 0.88 to 0.58 ms at Goodsprings and from 2.3 to 1.8 ms in battle-50.
+The second battle-50 run with both on is left out: its physics piled up (`phys::npc_plan`
+and `move_shape` 250-370 ms a frame, main thread 169 ms), which is the battle, not the
+renderer; its render thread was 11.3 ms and its submission 2.56 ms.
+
+The frame time does not move in these three: Goodsprings and Novac are held by the main
+app (6.3 and 7.3 ms against the render thread's 5-6 ms), battle-50 by physics. The render
+thread gains 0.3-0.5 ms in towns and about 1 ms in the battle, room for scenes where it
+is the slower thread.
+
+Screenshots at Goodsprings at 12:00 (free camera, `--graphics enhanced`), both off against
+both on, differ no more than two runs with both off do (mean absolute difference 1.45
+against 1.48 of 765 a pixel: grass, clouds and water move between runs).
+
+Still left in the submission:
+
+- `queue_submit`'s `prepare` (about 0.4 ms in towns): each command buffer's barriers
+  against the device's tracker, which scales with the command buffers (about 23) and
+  the resources each tracks.
+- The blended pass (`main_transparent_pass_3d`) is recorded last among the large passes,
+  and its encoder takes 0.8 ms (towns) to 1.8 ms (battle-50) to finish, so the submission
+  still waits for it. [hypothesis] Splitting its sorted draws over two or more encoders
+  (each a render pass that loads what the one before stored) would let them finish side
+  by side; that needs a patched `bevy_core_pipeline` and costs extra pass starts (and MSAA
+  resolves) on the GPU.
+- Finishing costs about 4-5 ms a frame summed over the compute threads; the opaque pass
+  (about 33 multi-drawn sets) takes as long as the depth prepass, about 0.45 ms, so most
+  of it is not per draw. [hypothesis] It is the bindless material slabs' resources being
+  tracked for each pass (above).
+
+### Particle systems no camera sees (#1417, 2026-11-08)
+
+Every particle system with live particles rebuilt its whole mesh each frame (positions,
+normals, UVs, colours, indices) and handed it to the renderer, seen or not. A counting aid
+on a local branch measured, per frame, the systems whose mesh was written and how many of
+them lay outside every active camera [observed 2026-11-08]:
+
+| Place | Written | Outside every camera |
+|---|---|---|
+| Goodsprings, standing | 20 | 12 |
+| Primm | 8 | 3.5 |
+| Novac | 4 | 4 |
+| The Strip | 7 | 7 |
+| Running through Goodsprings | 25 | 15-18 |
+
+None of them wrote geometry identical to the frame before (ages, spin and the camera's
+turn change it), so leaving out identical writes would save nothing; leaving out the
+unseen ones is the lever.
+
+What is built now [design: `particles.rs` and `effect_particles.rs`, module notes]:
+
+- Emission, simulation, random draws, lifetimes and clean-up are unchanged. Only the
+  geometry build and the mesh write are left out for a system whose live particles' box
+  (squares within half their size × √2, ribbons within their half width of every trail
+  point, effect-shader squares the same) lies outside every active 3D camera drawing its
+  layers: the main camera, the water reflection camera while it is on, a 3D scope's lens
+  camera. The test uses each frustum's four sides only, so a box between a camera and its
+  near plane, or under the reflection's water clip plane, counts as seen.
+- Meanwhile its render entity is hidden, so its old mesh cannot draw; its emitter is not
+  touched. In doubt (no box, no placement, no active camera, a frustum not set) it is built
+  and shown.
+- The build moved from `Update` to `PostUpdate` (`particles::ParticleDrawSet`): after the
+  frusta are updated (and the reflection camera switched on or off), before visibility
+  propagation and before the asset events. A system coming into view is therefore rebuilt
+  and shown in the frame it is first drawn. The camera basis the squares face is still
+  taken in `Update` where the draw took it, so a visible system's vertices, and their
+  order, are bit for bit what they were. Hiding and showing a system takes its blended
+  draw out of and back into the renderer's sorted list, so overlapping blended surfaces at
+  exactly the same sort distance may swap order, as with any visibility change [design:
+  Bevy sorts the blended phase by distance only].
+- The world camera is found by its marker (`FlyCam`) instead of as the only 3D camera
+  beside the reflection's. The draw used to stop, every system frozen as it was, while a
+  scope's or a menu view's camera existed; particles now keep animating, and are culled
+  and shown again, with a scope up (an intended change).
+- No distance cut-off was added, and the fades and `NoFrustumCulling` stay.
+- `NVF_PLAY_TEST_PROFILE` logs `profile particles: <n> frames; per frame: regular <p>
+  published, <c> culled; effect …` (profile.rs). Smoke scenario
+  `particles-culled-off-screen`: Gomorrah's roof fires behind the player, then turned to.
+
+## 6. CPU placement on processors with unequal L3 domains (#1842, 2026-11-08)
+
+Some processors split their L3 cache into domains of different sizes: AMD's dual-CCD X3D
+parts have one CCD with the stacked cache (96 MiB) and one without (32 MiB). Windows
+schedules the game's threads over both. On such a machine the game now runs on the
+logical processors of the largest L3 and sizes Bevy's task pools to them
+(`engine/nvforever/src/cpu_placement.rs`); every other machine is left exactly as before.
+
+**Measurements.** Ryzen 9 7945HX3D (two CCDs; 96 MiB L3 on logical processors 0-15, 32 MiB
+on 16-31), RTX 5070 Ti, profile build of main 01df32361, 1920x1080, enhanced look, vsync
+off, standing 60 s, mean frame time [observed 2026-11-08, Ryzen 9 7945HX3D, the process
+restricted by a hard affinity mask]:
+
+| Scene | Whole CPU | 96 MiB domain only |
+|---|---|---|
+| Goodsprings, noon | 17.50 ms | 12.57 ms |
+| Primm, noon | 17.23 ms | 12.48 ms |
+| The Strip, night | 17.00 ms | 12.18 ms |
+
+Every main- and render-thread span was 30-70 % slower on the whole CPU, as code waiting
+on memory would be [observed, same runs; the cause is a hypothesis]. Earlier on the same
+machine (#1416): 15.37 → 12.09 ms standing at Goodsprings on the 96 MiB domain, and 15.25 ms
+on the 32 MiB domain alone [observed, #1416], so it is the large cache that helps, not
+running on one CCD. Bevy kept sizing its pools for 32 processors when restricted (I/O 4,
+async 4, compute 24: 24 compute threads for 16 processors); a budget of 16 threads (I/O 4,
+async 4, compute 8) screened slightly faster still [observed, #1416, single screens].
+Marking the program as a game in the Xbox Game Bar gives the same on this machine through
+AMD's driver (#1416's closing comment), but only with the chipset driver, Game Mode, the
+Balanced power plan and the player ticking that box [hypothesis: AMD's and Microsoft's
+public material, not checked].
+
+**Rules** (`cpu_placement::decide`, unit tests on synthetic topologies). Windows only; read
+with `GetLogicalProcessorInformationEx` (level-3 unified caches). Nothing is done (no
+affinity or CPU-set call, Bevy's pools exactly as before; only the log line is new)
+unless all hold:
+
+1. one processor group (64 logical processors or fewer);
+2. two or more L3 domains, one strictly larger than every other (two equal 32 MiB L3s, a
+   single-CCD part such as the 7800X3D or 9800X3D, Intel's single L3: nothing);
+3. that domain has at least 8 logical processors (a 7900X3D's cache CCD has 12 and
+   qualifies; 6 with SMT off does not, as the game's own threads and the I/O and async
+   pools would crowd the main and render threads [hypothesis]);
+4. that domain has at least as many logical processors as every other domain, so the game
+   never trades threads for cache: every dual-CCD X3D part has two CCDs of one core count
+   and qualifies, while a Ryzen AI 300 "Strix Point" laptop part (4 full cores sharing
+   16 MiB, 8 compact cores sharing 8 MiB [hypothesis: from AMD's public specifications,
+   not checked here]) is left alone, as moving it would give up 16 of its 24 threads;
+5. the process is not restricted already: its affinity mask is the system's and it has no
+   default CPU sets (`start /affinity`, Process Lasso or the player chose: left alone).
+
+Then the process's default CPU sets (and the running main thread's) become the domain's
+processors and Bevy's `TaskPoolOptions::max_total_threads` the domain's processor count.
+It runs in `main()` right after the command line is read, before any thread starts.
+**CPU sets rather than the affinity mask**: `SetProcessDefaultCpuSets` is the mechanism
+Microsoft documents for games, it is not inherited by the processes the game starts (the
+load hand-off's relaunch decides again), and it leaves the affinity mask as the system's,
+so rule 4 still means someone else chose. The measurements above used a hard affinity
+mask; that CPU sets give the same frame times is to be measured [hypothesis].
+
+**Which CCD on a 7950X3D / 9950X3D.** There the cache CCD clocks lower than the other one
+(a few hundred MHz). The largest L3 is still chosen: on this machine the cache domain beat
+the whole CPU by about 28 % and the small domain alone gained nothing, more than a clock
+lead of under 10 % could give back [hypothesis for those parts; needs one of them].
+`off` is there for a player who measures otherwise.
+
+**Setting.** `cpu-cache-placement=auto|off` in `[Settings]` of NVForever.ini (default
+`auto`, read at start only); `--cpu-cache-placement auto|off` wins over it for one run,
+for A/B runs. The start logs one line, e.g. `cpu placement: L3 domains 96 MiB (16 LPs),
+32 MiB (16 LPs); restricted to the 96 MiB domain (16 LPs), task pools 16`, or `cpu
+placement: one L3 domain, nothing to do`, `... all the same size, nothing to do`, `...
+affinity already set, left alone`, `cpu placement: off by setting (...)`; smoke scenarios
+`cpu-placement` and `cpu-placement-off` match it.
+
+**Left to do.** Linux (`/sys/devices/system/cpu/cpu*/cache/index3`, `sched_setaffinity`,
+same rules). Putting the background threads (generated-terrain bake, read pool) on the
+other domain with `SetThreadSelectedCpuSets`, leaving the cache domain to the main,
+render and compute threads [hypothesis]. A row on the settings page.
+
+## 7. Indirect-parameter build jobs in Bevy's GPU culling (#1887, 2026-11-08)
+
+Measured on a Ryzen 7 7700X with an RTX 3070 (Vulkan) at 2560 × 1440, the owner's
+settings (4x MSAA, ambient occlusion, longer shadows, bloom, light glow, sun shafts, sun
+shadows), vsync off, `--no-actors` unless said. The owner's outdoor frame rate:
+Goodsprings at noon runs at about 90 fps where interiors reach the 180 fps vsync cap.
+
+[observed] Where the frame goes before these changes:
+
+- **The frame waits on the GPU.** The swap chain's acquire waits about 4.5 ms on the frame
+  three back, so the GPU is the limit. Frame latency 1–3 and mailbox or immediate
+  presentation change nothing.
+- **About 3 ms of GPU time falls outside the pass timers** (`--log-frame-times`: 10.2 ms a
+  frame, 6.8 ms timed). It grows with MSAA.
+- **The CPU floor** at 640 × 360 is about 5 ms a frame with no actors. The campaign's
+  main thread is about 7 ms with Goodsprings' residents.
+
+**Bevy's indirect-parameter build jobs are merged** (engine/vendor/README.md,
+bevy_render). An Nsight Graphics GPU Trace (5 frames) showed what the timers missed. The
+graphics engine was busy 93 % of the frame, but the shader units were only 28 % busy. The
+front end waited for the GPU to go idle 37 % of the time, and the frame had 2,518 compute
+dispatches. Bevy's GPU culling builds the indirect draw parameters with one dispatch per
+batch range of each view and phase. That pass has no timer, and wgpu puts a barrier
+between dispatches that write the same buffers. Merging each view's ranges that follow one
+another leaves 904 dispatches. Compute is then active 9 % of the frame instead of 16 %.
+[observed] Interleaved runs of one build with and without it (terrain layers of #1886
+applied in both): 9.0 → 8.5 ms a frame.
+
+[observed 2026-11-08, `tools/profile/campaign.py`, `profile` builds of main at 4eede5348 and
+of this change on it, Ryzen 7 7700X, RTX 3070, Vulkan, enhanced look, with the scenes'
+residents] Frame time a frame, main → with the change:
+
+| scenes | main | with it |
+|---|---|---|
+| 1920 × 1080, the 12 `stand` scenes, mean | 8.47 ms | 7.82 ms (−7.7 %) |
+| 1920 × 1080, Jacobstown (slowest) | 11.02 ms | 9.93 ms |
+| 1920 × 1080, Novac at noon | 10.63 ms | 9.41 ms |
+| 1920 × 1080, Hoover Dam (the only one not faster) | 7.15 ms | 7.30 ms |
+| 2560 × 1440, Goodsprings at noon, two runs | 10.75, 10.62 ms | 10.11, 9.80 ms |
+| 2560 × 1440, Goodsprings at 19:00, two runs | 10.50, 10.57 ms | 9.96, 9.85 ms |
+| 2560 × 1440, Novac at noon, two runs | 13.37, 13.62 ms | 12.32, 12.32 ms |
+
+The pass timers' total barely moves (Goodsprings at noon, 1080p: 5.68 → 5.87 ms): the
+dispatches saved are in the culling pass, which has no timer. Four of the 1080p scenes on
+main first ran capped at 16.67 ms a frame (the window held to 60 Hz); they were run again
+for both builds and those runs are the ones counted.
+
+Not done, measured on the way [observed]:
+
+- **Light glow and sun shadows.** Light glow costs about 0.9 ms of the frame and sun
+  shadows about 1.1 ms, each about half outside their timers.
+- **Uniform allocation and bin unpacking** (Bevy) still make one dispatch per batch set:
+  about 90 each a frame, 0.3–0.5 ms each pass.
+- **The opaque pass** (2.6–4.2 ms) is the largest timed pass.
+- **DX12 does not run** (the bindless NIF material's bind group layout fails validation),
+  so it could not be compared.
+
+## 8. Terrain texture layers drawn only where they paint (#1886, 2026-11-08)
+
+Measured on the same machine and settings as §7.
+
+In `terrain.rs` (`quadrant_mesh`), each texture layer of a quadrant was a blended copy of
+the whole 17 × 17 grid, drawn at full size even where its opacity is 0. A layer mesh now keeps only the triangles with a corner
+the layer paints, and a layer that paints nothing has no mesh. The picture is the same:
+screenshots differ from main by less than two runs of main differ from each other.
+[observed] The blended pass took 1.2 → 0.74 ms looking at the town and 1.7 → 0.48 ms
+looking at the ground; the frame took 10.2 → 9.7 ms and 7.6 → 6.4 ms.
+
+[observed 2026-11-08, `tools/profile/campaign.py`, `profile` builds of main at 4eede5348 and
+of this change on it, Ryzen 7 7700X, RTX 3070, Vulkan, enhanced look, with the scenes'
+residents] Frame time a frame, main → with the change:
+
+| scenes | main | with it |
+|---|---|---|
+| 1920 × 1080, the 12 `stand` scenes, mean | 8.47 ms | 7.56 ms (−10.7 %) |
+| 1920 × 1080, Novac in the morning | 10.94 ms | 8.90 ms |
+| 1920 × 1080, Jacobstown (slowest) | 11.02 ms | 9.57 ms |
+| 1920 × 1080, Hoover Dam (the only one not faster) | 7.15 ms | 7.35 ms |
+| 2560 × 1440, Goodsprings at noon, two runs | 10.98, 10.79 ms | 9.68, 9.62 ms |
+| 2560 × 1440, Goodsprings at 19:00, two runs | 10.89, 10.87 ms | 9.71, 9.63 ms |
+| 2560 × 1440, Novac at noon, two runs | 13.80, 13.83 ms | 11.43, 11.25 ms |
+
+Frames of 16 ms or more in Novac at 1440p: 13 and 16 → 0. The 1080p main runs are those made
+for the merged build jobs (#1887, the same main build); the 1440p ones were run interleaved
+with this change. Screenshots of Goodsprings (the town, the ground below the player) and Novac
+against main: bare ground differs by at most 1 of 255 in any channel; the sky and grass
+differ as much as two runs of main do (clouds drift and grass sways with time since start).

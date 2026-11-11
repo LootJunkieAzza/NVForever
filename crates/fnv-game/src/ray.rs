@@ -13,6 +13,10 @@ pub enum CastKind {
     Terrain,
     /// Everything but the player, the terrain included (GetRayCastPos and its kin).
     World,
+    /// The terrain alone, the hit's `form` the landscape texture (LTEX) showing most
+    /// where it hits, `None` for the default texture (JohnnyGuitar's
+    /// GetLandTextureUnderFeet, `crate::nvse_jg10`).
+    LandTexture,
 }
 
 /// The first thing a cast meets.
@@ -21,7 +25,8 @@ pub struct Hit {
     /// Game units from the start.
     pub distance: f32,
     pub point: [f32; 3],
-    /// The placed reference or actor hit; `None` for the terrain.
+    /// The placed reference or actor hit; `None` for the terrain (for
+    /// [`CastKind::LandTexture`], the landscape texture).
     pub form: Option<u32>,
     /// The Havok material code of what was hit, where the collision gives one.
     pub material: Option<u32>,

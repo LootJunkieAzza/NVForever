@@ -285,6 +285,12 @@ impl RadioPlaces {
 }
 
 fn init(mut commands: Commands, d: Res<PlayWorld>) {
+    let d = d.0;
+    crate::start_read::start(&mut commands, "nvf-radio-read", move || read_places(d));
+}
+
+/// [`RadioPlaces`] from the plugins, on its own thread (`crate::start_read`).
+fn read_places(d: crate::PlayData) -> RadioPlaces {
     let t = std::time::Instant::now();
     let forms = RadioForms::build(d.lo, d.schema);
     let (stations, receivers) = radio::placed(d.lo, d.schema, d.index, &forms, d.index.cells.keys().copied());
@@ -308,7 +314,7 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         places.forms.receivers.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
-    commands.insert_resource(places);
+    places
 }
 
 // ---- the programmes -----------------------------------------------------------------------
@@ -416,7 +422,7 @@ pub struct Radio {
     /// The host's line each station last took (co-op guests).
     adopted: HashMap<u32, crate::coop_audio::HostLine>,
     playing: HashMap<u32, Playing>,
-    files: HashMap<String, Option<Arc<[u8]>>>,
+    pub files: crate::file_bytes::FileBytes,
     lengths: HashMap<String, f64>,
     reported: HashSet<String>,
     space: Option<Space>,
@@ -459,17 +465,14 @@ impl Radio {
     }
 
     fn bytes(&mut self, vfs: &fnv_vfs::Vfs, path: &str) -> Option<Arc<[u8]>> {
-        self.files
-            .entry(path.to_string())
-            .or_insert_with(|| match vfs.read(path) {
-                Some(Ok(b)) => Some(b.into()),
-                Some(Err(e)) => {
-                    warn!("radio: {path}: {e}");
-                    None
-                }
-                None => None,
-            })
-            .clone()
+        self.files.get_or_read(path, || match vfs.read(path) {
+            Some(Ok(b)) => Some(b.into()),
+            Some(Err(e)) => {
+                warn!("radio: {path}: {e}");
+                None
+            }
+            None => None,
+        })
     }
 
     /// Seconds a file lasts: from the Ogg or WAV headers, else by decoding it.
@@ -907,7 +910,7 @@ fn play(
             };
             let t = template(&places, &sfx, base, None);
             let d = distance(s.pos, eye);
-            if !here || !s.enabled || d >= t.max_distance {
+            if !here || !s.enabled() || d >= t.max_distance {
                 continue;
             }
             if radio.npc_heard.insert(actor.0) {
@@ -1293,15 +1296,23 @@ fn load_aids(mut radio: ResMut<Radio>) {
 
 pub struct RadioPlugin;
 
+/// Let go of the radio's files nothing plays ([`crate::file_bytes`]).
+fn release_files(real: Res<Time<Real>>, limits: Option<Res<nvf_assets::KeepLimits>>, x: Option<ResMut<Radio>>) {
+    if let Some(mut x) = x {
+        x.files.sweep(real.elapsed_secs_f64(), crate::file_bytes::limits(limits));
+    }
+}
+
 impl Plugin for RadioPlugin {
     fn build(&self, app: &mut App) {
+        crate::start_read::add_collect::<RadioPlaces>(app);
         app.init_resource::<Radio>()
             .init_resource::<TableStation>()
             .add_audio_source::<RadioSound>()
             .add_audio_source::<Panned<RadioSound>>()
             .add_systems(Startup, (init, load_aids))
             .add_systems(Update, (pipboy_controls, play).chain().after(crate::PlaySet::Scripts))
-            .add_systems(Last, report);
+            .add_systems(Last, (release_files, report));
     }
 }
 

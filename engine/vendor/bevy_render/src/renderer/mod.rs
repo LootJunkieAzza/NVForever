@@ -233,12 +233,19 @@ pub async fn initialize_renderer(
     let instance = Instance::new(instance_descriptor);
     #[cfg(feature = "raw_vulkan_init")]
     let mut additional_vulkan_features = raw_vulkan_init::AdditionalVulkanFeatures::default();
+    // NVForever (2026-11-09): the raw Vulkan instance only when the backends include Vulkan;
+    // otherwise `Instance::new`, as without the feature, so `WGPU_BACKEND=dx12` or `gl` is
+    // honoured. Upstream creates the raw Vulkan instance whatever the backends say.
     #[cfg(feature = "raw_vulkan_init")]
-    let instance = raw_vulkan_init::create_raw_vulkan_instance(
-        instance_descriptor,
-        &raw_vulkan_init_settings,
-        &mut additional_vulkan_features,
-    );
+    let instance = if backends.contains(Backends::VULKAN) {
+        raw_vulkan_init::create_raw_vulkan_instance(
+            instance_descriptor,
+            &raw_vulkan_init_settings,
+            &mut additional_vulkan_features,
+        )
+    } else {
+        Instance::new(instance_descriptor)
+    };
 
     let surface = primary_window.and_then(|wrapper| {
         let maybe_handle = wrapper

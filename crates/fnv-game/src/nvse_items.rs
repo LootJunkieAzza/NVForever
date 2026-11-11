@@ -150,8 +150,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "getcurrenthealth" | "setcurrenthealth" => {
             let r = subject.unwrap_or(FormId(0));
             let Some((c, item)) = g.temp_item(r) else {
-                // A world reference: its base's full health [hypothesis: XHLT not read].
-                return Some(Ok(if name == "getcurrenthealth" { XVal::Num(g.full_health(base(g, r))) } else { XVal::Num(0.0) }));
+                return Some(Ok(world_ref_health(g, r, name == "setcurrenthealth", args)));
             };
             let full = g.full_health(item);
             let Ok(inv) = g.world.inventory_mut(c) else { return Some(Ok(XVal::Num(0.0))) };
@@ -322,7 +321,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
 
 impl Game<'_> {
     /// A reference's position and rotation (radians).
-    pub(crate) fn ref_pos_rot(&mut self, r: FormId) -> Option<([f32; 3], [f32; 3])> {
+    pub fn ref_pos_rot(&mut self, r: FormId) -> Option<([f32; 3], [f32; 3])> {
         self.world.get(r).ok().map(|s| (s.pos, s.rot))
     }
 
@@ -340,6 +339,37 @@ impl Game<'_> {
             }
         }
     }
+}
+
+/// GetCurrentHealth / SetCurrentHealth on a reference in the world (not an inventory
+/// reference): the reference's own condition, a fraction of its base's full health. A
+/// placed weapon or armour starts at its XHLP (docs/spec-notes/simulation.md §3), 1 without
+/// one; the reference's state keeps it (`RefState::extra`, saved with the reference, and
+/// carried into the inventory entry when the item is picked up, `World::activate_as`)
+/// [design: fnv-sim world.rs]. The setter changes only a weapon or armour reference,
+/// the item kinds that carry a condition [hypothesis], and returns 0 like the inventory
+/// reference's.
+fn world_ref_health(g: &mut Game, r: FormId, set: bool, args: &[XVal]) -> XVal {
+    let item = crate::functions::base_of(g, r).unwrap_or(r);
+    let full = g.full_health(item);
+    if !set {
+        let condition = match g.world.peek(r) {
+            Some(s) => s.extra.condition,
+            None => g.world.placed.get(r).and_then(|p| p.health),
+        };
+        return XVal::Num(full * f64::from(condition.unwrap_or(1.0)));
+    }
+    let hp = match args.first() {
+        Some(XVal::Num(x)) => *x,
+        _ => 0.0,
+    };
+    let carries_condition = matches!(g.data.sig(item).as_ref(), Some(b"WEAP" | b"ARMO"));
+    if full > 0.0 && carries_condition {
+        if let Ok(s) = g.world.get(r) {
+            s.extra.condition = Some(((hp / full) as f32).clamp(0.0, 1.0));
+        }
+    }
+    XVal::Num(0.0)
 }
 
 /// The item an actor wears in an equipment slot: 5 the weapon, else the worn item whose

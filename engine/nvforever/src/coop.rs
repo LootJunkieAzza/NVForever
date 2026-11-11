@@ -1599,6 +1599,7 @@ fn is_melee(world: Option<&ActorWorld>, weapon: Option<FormId>) -> bool {
     matches!(kind, Some(AnimType::HandToHand | AnimType::Melee1 | AnimType::Melee2))
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn take_events(
     mut commands: Commands,
     time: Res<Time>,
@@ -1904,6 +1905,7 @@ fn take_events(
 }
 
 /// Guests: go to the host when it is in another space, or too far away outdoors.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn leash(
     time: Res<Time>,
     mut coop: ResMut<Coop>,
@@ -2031,7 +2033,7 @@ fn draw(
         }
         let reference = p.reference(id);
         let base = if p.look.is_some() { PLAYER_BASE } else { base };
-        let who = Who { reference, base, creature: false, scale: 1.0, strafe: true, air: newest.has(flag::AIR) };
+        let who = Who { reference, base, creature: false, scale: 1.0, strafe: true, air: newest.has(flag::AIR), jumped: false };
         let sim_world = sim.as_deref().map(|s| &s.world);
         if let Err(e) = show_actor(&mut commands, world_root, visible, actor_world.as_deref(), sim_world, &mut ahead, &mut stats, &mut parts, &mut models, &roots, &mut actors, who, (&mut p.spawned, &mut p.root), (feet, yaw), moving, dt) {
             warn!("co-op: {} cannot be drawn as {base:#010X}: {e}", label(id, &p.name));
@@ -2555,7 +2557,7 @@ fn follow_npcs(
     if !guest && parting && coop.ai_was_off.is_some() {
         return;
     }
-    let mut game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
+    let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if !guest {
         // Left the lobby: this game's world is its own again.
         if let Some(was) = coop.ai_was_off.take() {
@@ -2598,7 +2600,7 @@ fn follow_npcs(
         }
         return;
     }
-    let Some(g) = game.as_deref_mut() else { return };
+    let Some(g) = game else { return };
     // Where the host's story put the NPCs it draws here, they are here too.
     let here = loc.as_deref().map(place_of);
     let settled = coop.host_place.filter(|(p, _)| Some(*p) == here).map(|(_, since)| since);
@@ -2934,7 +2936,7 @@ impl Flag {
 
     fn of(self, st: &fnv_sim::world::RefState) -> bool {
         match self {
-            Flag::Enabled => st.enabled,
+            Flag::Enabled => st.enabled(),
             Flag::Open => st.open,
         }
     }
@@ -3094,7 +3096,7 @@ fn place_like_host(world: &mut fnv_sim::World, g: &mut fnv_game::Game, npcs: &Ha
         }
         let id = FormId(r);
         let Ok(st) = world.get(id) else { continue };
-        if st.deleted {
+        if st.deleted() {
             continue;
         }
         if g.is_dead(id) {
@@ -3249,6 +3251,7 @@ fn lines_in(lines: &[net::LineView], ago: f32, me: Option<u8>) -> Vec<fnv_game::
             remaining: (l.remaining - ago) as f64,
             say_to: l.has(L::SAY_TO),
             greeting: l.has(L::GREETING),
+            farewell: false,
             conversation: (l.conversation != 0).then_some(l.conversation as u32),
             earlier_topics: Vec::new(),
             hello: l.has(L::HELLO),
@@ -3848,7 +3851,7 @@ mod tests {
             health: None, owner: None, lock: None, teleport: None, enable_parent: None, linked: None,
             patrol_idle: None, patrol_topic: None, merchant_container: None, marker_reputation: None,
             open_by_default: false, primitive: None, activate_parents: Vec::new(), parent_activate_only: false,
-            prompt: None, radiation: None, radius: None, encounter_zone: None, level_modifier: None,
+            prompt: None, radiation: None, radius: None, encounter_zone: None, level_modifier: None, map_marker: None, radio: None,
         }
     }
 

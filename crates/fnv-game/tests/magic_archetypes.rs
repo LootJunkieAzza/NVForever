@@ -32,6 +32,9 @@ const POISON: u32 = 0x865;
 const CURSE: u32 = 0x866;
 const WEAKNESS: u32 = 0x867;
 const TURBO: u32 = 0x870;
+const LONG_PARALYZE: u32 = 0x868;
+const NPC_BASE: u32 = 0x8B0;
+const NPC_REF: FormId = FormId(0x300);
 
 const P: FormId = FormId::PLAYER_REF;
 const STRENGTH: u16 = 5;
@@ -79,6 +82,7 @@ fn plugin_bytes() -> Vec<u8> {
     // SPIT types: 0 Actor Effect, 4 Ability, 5 Poison.
     let spels = [
         spel(PARALYZE, "Paralyze", 0, vec![effect(PARALYSIS_FX, 1, 3, 47)]),
+        spel(LONG_PARALYZE, "LongParalyze", 0, vec![effect(PARALYSIS_FX, 1, 60, 47)]),
         spel(CURE_PARALYSIS, "CureParalysisSpell", 0, vec![effect(CURE_PARALYSIS_FX, 0, 0, -1)]),
         spel(CURE_POISON, "CurePoisonSpell", 0, vec![effect(CURE_POISON_FX, 0, 0, -1)]),
         spel(DISPEL, "DispelSpell", 0, vec![effect(DISPEL_FX, 0, 0, -1)]),
@@ -91,11 +95,17 @@ fn plugin_bytes() -> Vec<u8> {
     .concat();
     let settings = record(b"GMST", 0, 0x8A0, &[sub(b"EDID", z("fConcussionTimer")), sub(b"DATA", f32b(5.0))]);
     let player = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    // An NPC to knock out: ACBS flags 0, fatigue 50 [documented: xEdit].
+    let acbs = [0u32.to_le_bytes().to_vec(), 50u16.to_le_bytes().to_vec(), vec![0u8; 18]].concat();
+    let npc = record(b"NPC_", 0, NPC_BASE, &[sub(b"EDID", z("TestNpc")), sub(b"ACBS", acbs), sub(b"DATA", [30i32.to_le_bytes().to_vec(), vec![5; 7]].concat())]);
+    let at = [100f32, 0.0, 0.0, 0.0, 0.0, 0.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+    let achr = record(b"ACHR", 0, NPC_REF.0, &[sub(b"NAME", NPC_BASE.to_le_bytes().to_vec()), sub(b"DATA", at)]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let cell = [cell, group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &achr))].concat();
     [
         tes4(),
         top(b"GMST", &settings),
-        top(b"NPC_", &player),
+        top(b"NPC_", &[player, npc].concat()),
         top(b"MGEF", &mgefs),
         top(b"SPEL", &spels),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
@@ -165,6 +175,22 @@ fn paralysis_lays_the_target_down_while_it_lasts() {
     g.frames(70);
     assert!(g.knockout(P).is_none_or(|k| !k.lying()), "getting up once it is over");
     assert_eq!(av(&mut g, PARALYSIS), 0.0);
+}
+
+/// A paralysed actor knocked out by fatigue as well stays down until the Paralysis
+/// effect ends, not only for the fatigue's 30 s (#1847).
+#[test]
+fn paralysis_holds_an_actor_down_past_a_fatigue_knockout() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.apply_magic_item(NPC_REF, FormId(LONG_PARALYZE), None, false);
+    assert_eq!(g.knockout(NPC_REF).map(|k| k.cause), Some(Cause::Paralyzed));
+    assert!(g.knock_out(NPC_REF, Cause::Fatigue, None));
+    assert_eq!(g.knockout(NPC_REF).map(|k| k.cause), Some(Cause::Fatigue), "fatigue ranks over paralysis");
+    g.frames(60 * 35);
+    assert!(g.knockout(NPC_REF).is_some_and(|k| k.lying()), "the fatigue's time is over, the paralysis is not");
+    g.frames(60 * 26);
+    assert!(g.knockout(NPC_REF).is_none_or(|k| !k.lying()), "getting up once the paralysis is over");
 }
 
 /// Cure Paralysis ends the paralysis at once; the target gets up at the next frame.

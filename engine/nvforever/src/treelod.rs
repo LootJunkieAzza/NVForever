@@ -179,7 +179,7 @@ pub fn update_distant_trees(
     world: Res<WorldData>,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    camera: Query<&GlobalTransform, crate::fly::WorldCamera>,
     mut models: ModelCtx,
     mut materials: ResMut<Assets<BillboardMaterial>>,
 ) {

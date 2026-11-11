@@ -111,6 +111,9 @@ companion's dialogue quest.
   seed); only its look and its carried items follow the new pick.
 - A cell reset (`fnv_game::respawn`) does not roll the picks again or redraw the body
   (it keeps the drawn entity, `cell_resets.rs`).
-- Dismembered limbs: no dismemberment is built, so "body data not updated" has nothing to
-  keep.
+- Dismembered limbs (`RefExtra::limbs_gone`): `ResurrectActor 0` clears them, so
+  IsLimbGone answers 0 and the engine draws the actor whole again [hypothesis: the wiki
+  says only that with 1 "body data will not be updated", which suggests 0 does update
+  it]; `ResurrectActor 1` keeps them gone [documented, the same note]. Not yet checked
+  with the observer.
 - ResurrectActor on the player.

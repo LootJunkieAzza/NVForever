@@ -16,6 +16,9 @@ pub const ON_EXPLOSION_HIT: &str = "showoff:onexplosionhit";
 
 #[derive(Debug, Default)]
 pub struct ShowOffState {
+    /// Batch 5's state: the level-up and pause menu asks, live explosions, the shot
+    /// switches (`nvse_showoff5`).
+    pub b5: crate::nvse_showoff5::State,
     /// The item a ShowOff:OnAdd handler is running for (GetAddedItemRefShowOff).
     pub added: Option<FormId>,
     /// The damage of the explosion a ShowOff:OnExplosionHit handler is running for.
@@ -23,6 +26,41 @@ pub struct ShowOffState {
     /// SetOnAuxTimerStopHandler's handlers: (the function, the timer's name lower case,
     /// its owner).
     pub timer_stops: Vec<(XVal, String, FormId)>,
+    /// SetOnAuxTimerStartHandler's and SetOnAuxTimerUpdateHandler's handlers, as
+    /// `timer_stops` (`nvse_showoff3`).
+    pub timer_starts: Vec<(XVal, String, FormId)>,
+    pub timer_updates: Vec<(XVal, String, FormId)>,
+    /// Start and update handlers set or removed this frame, applied at the next frame's
+    /// aux timer update: (start, set, the function, the name lower case, the owner)
+    /// (`nvse_showoff3`).
+    pub pending_handlers: Vec<(bool, bool, XVal, String, FormId)>,
+    /// Each running aux timer's countdown and flags as AuxTimerStart gave them, by owner
+    /// and name lower case (AuxTimerTimeToCountdown; the update flag 256).
+    pub countdowns: std::collections::HashMap<(FormId, String), (f64, u32)>,
+    /// The game time of the last aux timer update (`Game::aux_timer_updates`).
+    pub last_update: Option<f64>,
+    /// The seeded randomizer's seeds, by the calling plugin lower case.
+    pub seeds: std::collections::HashMap<String, crate::nvse_showoff3::Seeded>,
+    /// SetAllyTemp's and SetEnemyTemp's reactions: (faction, other) to 0 neutral, 1 enemy,
+    /// 2 ally, 3 friend (`functions::actor::reaction`).
+    pub temp_reactions: std::collections::HashMap<(FormId, FormId), i64>,
+    /// SetRadiationExtraData's levels, by reference (`Game::tick_radiation`).
+    pub radiation: std::collections::HashMap<FormId, f32>,
+    /// The plugin (lower case) that started each aux timer, by owner and name
+    /// (ClearShowoffSavedData, `nvse_showoff4`).
+    pub timer_mods: std::collections::HashMap<(FormId, String), String>,
+    /// SetShowOffOnCornerMessageEventHandler's functions, and the corner messages queued
+    /// since the last frame for them: (text, icon path, seconds) (`nvse_showoff4`).
+    pub corner_handlers: Vec<XVal>,
+    pub corner_pending: Vec<(String, String, f64)>,
+    /// SetItemHotkeyIconPath's paths, by item base.
+    pub hotkey_icons: std::collections::HashMap<FormId, String>,
+    /// FreezeAmmoRegen: no regenerating weapon gains rounds (`fnv_combat::attack::Cycle`).
+    pub ammo_regen_frozen: bool,
+    /// SetOwnershipTemp's targets (a reference or a cell) and the owner each had before:
+    /// a save writes that one (`Game::snapshot`); SetOwnership or SetCellOwnership on the
+    /// target drops the entry [documented: SetOwnershipTemp, session persistent].
+    pub temp_owners: std::collections::HashMap<FormId, Option<FormId>>,
 }
 
 fn num(args: &[XVal], k: usize, dflt: f64) -> f64 {

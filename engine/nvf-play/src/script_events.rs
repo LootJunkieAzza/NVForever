@@ -42,8 +42,9 @@ pub enum ScriptEffect {
     /// player: the player uses it (`crate::furniture`).
     UseFurniture(u32),
     /// A script's `Activate` ran a terminal's default activation for the player: its
-    /// screen opens (`crate::terminal`), as by hand (queue item 79: the Lucky 38's
-    /// terminals, whose OnActivate blocks end in `Activate`, never opened).
+    /// screen opens (`crate::terminal`), as by hand. The Lucky 38 penthouse terminals'
+    /// OnActivate blocks end in `Activate` on every branch [observed: FalloutNV.esm SCPT
+    /// 0x001746C1 on Lucky38MrHouseTerminal]; before, nothing opened (#1532).
     OpenTerminal(u32),
 }
 
@@ -319,8 +320,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                     out.push(ScriptEffect::UseFurniture(reference.0));
                     continue;
                 }
-                // A terminal's default activation: its screen opens, as by hand
-                // (`activate.rs`; the screen asks for the hacking first when it must).
+                // A terminal's default activation, as by hand (`activate.rs`).
                 if *by == player && matches!(a.outcome, Outcome::Activated) && ctx.is_terminal(*reference) {
                     out.push(ScriptEffect::OpenTerminal(reference.0));
                     continue;
@@ -935,6 +935,19 @@ mod tests {
         let done = Some(serde_json::to_value(Activation { outcome: Outcome::Activated, unlocked_with: None, script: None }).unwrap());
         assert_eq!(run(vec![EventKind::Activated { reference: TERMINAL, by: FormId::PLAYER_REF, outcome: done.clone() }]), vec![ScriptEffect::OpenTerminal(TERMINAL.0)]);
         assert!(run(vec![EventKind::Activated { reference: TERMINAL, by: FormId(0x99), outcome: done }]).is_empty(), "only the player's");
+    }
+
+    #[test]
+    fn a_scripted_activate_of_a_terminal_opens_it_for_the_player_only() {
+        // Lucky38MrHouseTerminal's OnActivate ends in `Activate` (#1532): the default
+        // activation of a scripted terminal, by the player.
+        let a = Activation { outcome: Outcome::Activated, unlocked_with: None, script: Some(FormId(0x1746C1)) };
+        let o = Some(serde_json::to_value(&a).unwrap());
+        let e = run(vec![EventKind::Activated { reference: TERMINAL, by: FormId::PLAYER_REF, outcome: o.clone() }]);
+        assert_eq!(e, vec![ScriptEffect::OpenTerminal(TERMINAL.0)]);
+        assert!(run(vec![EventKind::Activated { reference: TERMINAL, by: FormId(0x99), outcome: o.clone() }]).is_empty());
+        // Another scripted activator opens nothing.
+        assert!(run(vec![EventKind::Activated { reference: DOOR, by: FormId::PLAYER_REF, outcome: o }]).is_empty());
     }
 
     #[test]

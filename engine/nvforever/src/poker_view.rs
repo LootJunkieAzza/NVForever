@@ -120,8 +120,8 @@ fn dress(
     *frame = frame.wrapping_add(1);
     let open_at = screen.0.as_ref().and_then(|s| s.table_ref).map(|t| t.0);
     for (r, casino) in nvf_play::poker_tables::SWAPPED {
-        let drawn: Vec<Entity> = if *frame % 20 == 0 || !dressed.contains_key(&r) { refs.iter().filter(|(_, v)| v.0 == r).map(|(e, _)| e).collect() } else { Vec::new() };
-        if *frame % 20 == 0 || !dressed.contains_key(&r) {
+        let drawn: Vec<Entity> = if (*frame).is_multiple_of(20) || !dressed.contains_key(&r) { refs.iter().filter(|(_, v)| v.0 == r).map(|(e, _)| e).collect() } else { Vec::new() };
+        if (*frame).is_multiple_of(20) || !dressed.contains_key(&r) {
             if drawn.is_empty() || !sim.present(r) {
                 if let Some(d) = dressed.remove(&r) {
                     commands.entity(d.holder).despawn();
@@ -135,14 +135,14 @@ fn dress(
                 }
             }
         }
-        if !dressed.contains_key(&r) {
+        if let std::collections::hash_map::Entry::Vacant(e) = dressed.entry(r) {
             let Some(a) = table_place(sim, play, &mut models, fnv_sim::FormId(r)) else { continue };
             let (Some(felt), Some(rail)) = (material(&mut models, casino.felt(), Color::WHITE, AlphaMode::Opaque), material(&mut models, RAIL_TEXTURE, Color::WHITE, AlphaMode::Opaque)) else { continue };
             let ink = models.materials.add(nif_material(StandardMaterial { base_color: Color::srgba(0.93, 0.85, 0.55, 0.35), unlit: true, alpha_mode: AlphaMode::Blend, ..default() }));
             let holder = commands.spawn((Name::new("Poker table (in the world)"), Transform::from_matrix(Mat4::from(a)), Visibility::Inherited, ChildOf(root))).id();
             body(&mut commands, &mut models, (holder, &RenderLayers::layer(0)), casino, felt, rail, ink);
             info!("poker view: {} poker table {r:#010X} drawn in its blackjack table's place ({} entities hidden)", casino.title(), drawn.len());
-            dressed.insert(r, Dressed { holder });
+            e.insert(Dressed { holder });
         }
         if let Some(d) = dressed.get(&r) {
             let want = if open_at == Some(r) { Visibility::Hidden } else { Visibility::Inherited };

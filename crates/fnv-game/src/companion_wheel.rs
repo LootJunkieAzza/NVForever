@@ -216,7 +216,10 @@ impl Game<'_> {
     /// Whether the player activating `actor` opens the wheel: a teammate, alive
     /// [documented: SetPlayerTeammate enables the Companion Wheel].
     pub fn has_companion_wheel(&self, actor: FormId) -> bool {
-        self.is_teammate(actor)
+        // SetWheelDisabled switches it off [documented: GetWheelDisabled, "whether the
+        // companion command wheel is disabled"; hypothesis: activating such a teammate
+        // talks to it] (`crate::nvse_jip12`).
+        self.is_teammate(actor) && !self.wheel_disabled(actor)
     }
 
     /// Open the wheel on `companion`: the open menu from now on. False when it has none or
@@ -387,7 +390,8 @@ Stimpak {}", now.max(0.0).ceil(), full, carried.map_or(0, |(_, n)| n)));
     /// the button is pressed]. It does not run again at the line's end.
     fn run_end_script_now(&mut self, speaker: FormId, info: FormId) {
         let data = self.data;
-        let Some(def) = data.infos.get(&info) else { return };
+        let dv = self.dialogue_view();
+        let Some(def) = dv.info(&info) else { return };
         let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker && s.info == info) else { return };
         let Some(u) = def.end.filter(|_| !s.end_ran) else { return };
         s.end_ran = true;

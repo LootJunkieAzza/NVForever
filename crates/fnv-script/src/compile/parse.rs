@@ -69,8 +69,11 @@ pub enum Kw {
 
 /// The assignments the Let macro takes without `let` [documented: Let Macro], and `/=`
 /// [observed: JustAssortedMods.esp SCPT 0x04A80B, `fAP /= GetNumericGameSetting …`
-/// beside `fAP *= …`, compiled in the original].
-const MACRO_OPS: [&str; 5] = ["=", "+=", "-=", "*=", "/="];
+/// beside `fAP *= …`, compiled in the original], and `:=` [hypothesis: Scaled Recurring
+/// Challenges' UDF, `fNewThreshold := (…)` alone on a line, and its installer check shows
+/// "There was a problem compiling" when CompileScript gives no script, so the line
+/// compiles in the original].
+const MACRO_OPS: [&str; 6] = ["=", ":=", "+=", "-=", "*=", "/="];
 
 /// A line of the extender's grammar, by its first words.
 fn extender(l: &Line) -> Option<Kw> {

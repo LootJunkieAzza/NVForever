@@ -77,7 +77,8 @@
 //! texture's alpha (0–255, read at the shape's own texture coordinates) is at or above
 //! [`NifSurface::holes`]`.x` nothing is drawn, in every pass, and the band of `.y` units
 //! below it is drawn in [`NifSurface::holes_edge`]; `.x` negative (every other shape): no
-//! holes. A shape with holes is drawn alpha-tested, so the depth-only passes run the
+//! holes. With `.z` 1 the test is turned round: alpha below `.x` leaves a hole and there
+//! is no band (an effect shader's overlay cut by an alpha-tested mesh's own texture). A shape with holes is drawn alpha-tested, so the depth-only passes run the
 //! same test (`nif_prepass.wesl`).
 //!
 //! Depth of blended hair: hair-shader shapes (hair, beards, brows) are blended
@@ -295,6 +296,10 @@ pub struct NifSurface {
     /// Seconds for the normal map of a refracting shape to scroll once up its texture,
     /// negative for down (module notes, "Fire refraction"); 0: it does not move.
     pub fire_period: f32,
+    /// Unlit emissive rules: x 1 skips the image-space scale; y holds each light channel
+    /// to that value on the soft path (0: no hold); z, w unused. Zero keeps the default
+    /// [hypothesis, nif.md §6 "Unlit shapes that are pictures, and cut-out signs"].
+    pub emissive_rule: Vec4,
     /// The shape refracts (module notes, "Refraction").
     pub refract: bool,
     /// The shape lies on another surface (a decal shader flag is set): drawn with
@@ -312,13 +317,25 @@ pub struct NifSurface {
     /// drawn with its depth squeezed in front of the world (module notes, "First-person
     /// depth").
     pub first_person: bool,
+    /// An additive shape that adds its colour in linear light, not by [`add_display`]: the
+    /// Pip-Boy's glare over the menus (nvforever `pipboy_arm.rs`), which has to stay on the
+    /// arms' squeezed depth, so Bevy's own unlit additive material cannot draw it [design].
+    pub add_linear: bool,
+    /// The Pip-Boy's screen (nvforever `pipboy_arm.rs`): red stops at a ceiling after the
+    /// tint, so the scanlines dim green and blue and leave bright red where it is, and its
+    /// pixels are marked in alpha so the image-space grade leaves them alone
+    /// (`imagespace.wesl`, `SCREEN_MARK`).
+    pub pipboy_screen: bool,
+    /// A blended shape that draws the same as a cut-out (`nif_spawn::blended_cutout`): its
     /// alpha is a texture's cut-out mask and nothing else. Where [`BlendedCutouts`] is on
     /// (FSR's temporal upscaling) it is drawn alpha-tested at this cut, so it has depth
     /// and motion and is not translucent to the upscaler; otherwise blended. CPU only.
     pub blended_cutout: Option<f32>,
     /// Holes (module notes, "Holes"): x the value in alpha units (0–255) at and above
     /// which the holes texture's alpha leaves a hole, negative for none; y the width of
-    /// the edge band below it; z, w unused.
+    /// the edge band below it; z 1 turns the test round (a hole where the alpha is
+    /// below x, no band: an effect shader's overlay on an alpha-tested mesh, cut by the
+    /// mesh's own texture), 0 otherwise; w unused.
     pub holes: Vec4,
     /// The colour of the holes' edge band (linear, alpha unused).
     pub holes_edge: Vec4,
@@ -340,8 +357,8 @@ pub struct NifSurface {
     pub facegen_offset: Option<Handle<Image>>,
 }
 
-/// The values of a [`NifSurface`] the shaders read (nif_material.wesl and
-/// nif_prepass.wesl `NifSurface`, the same fields in the same order).
+/// The values of a [`NifSurface`] the shaders read (`nif_surface_bindings.wesl`, shared
+/// by nif_material.wesl and nif_prepass.wesl: the same fields in the same order).
 #[derive(Clone, Default, ShaderType)]
 pub struct NifSurfaceUniform {
     pub falloff: Vec4,
@@ -349,6 +366,8 @@ pub struct NifSurfaceUniform {
     pub add_whole: f32,
     pub refraction: f32,
     pub fire_period: f32,
+    /// The image-space bypass and plain path of [`NifSurface::emissive_rule`].
+    pub emissive_rule: Vec4,
     pub holes: Vec4,
     pub holes_edge: Vec4,
     pub soft: Vec4,
@@ -363,7 +382,7 @@ pub const REFRACTION_SCREEN: f32 = 0.1;
 
 impl From<&NifSurface> for NifSurfaceUniform {
     fn from(s: &NifSurface) -> Self {
-        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft }
+        NifSurfaceUniform { falloff: s.falloff, alpha_cut: s.alpha_cut, add_whole: s.add_whole, refraction: s.refraction * REFRACTION_SCREEN, fire_period: s.fire_period, emissive_rule: s.emissive_rule, holes: s.holes, holes_edge: s.holes_edge, soft: s.soft }
     }
 }
 
@@ -415,12 +434,15 @@ impl Default for NifSurface {
             add_whole: 0.0,
             refraction: 0.0,
             fire_period: 0.0,
+            emissive_rule: Vec4::ZERO,
             refract: false,
             decal: false,
             hard_edges: false,
             shade_light: false,
             depth_write: false,
             first_person: false,
+            add_linear: false,
+            pipboy_screen: false,
             blended_cutout: None,
             holes: NO_HOLES,
             holes_edge: Vec4::ONE,
@@ -442,6 +464,8 @@ pub struct NifSurfaceKey {
     pub facegen: bool,
     pub depth_write: bool,
     pub first_person: bool,
+    pub add_linear: bool,
+    pub pipboy_screen: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
@@ -454,6 +478,8 @@ impl From<&NifSurface> for NifSurfaceKey {
             facegen: surface.facegen_offset.is_some(),
             depth_write: surface.depth_write,
             first_person: surface.first_person,
+            add_linear: surface.add_linear,
+            pipboy_screen: surface.pipboy_screen,
         }
     }
 }
@@ -488,6 +514,16 @@ impl MaterialExtension for NifSurface {
         if key.bind_group_data.facegen && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
             if let Some(fragment) = descriptor.fragment.as_mut() {
                 fragment.shader_defs.push("FACEGEN_TINT".into());
+            }
+        }
+        if key.bind_group_data.add_linear && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.push("ADD_LINEAR".into());
+            }
+        }
+        if key.bind_group_data.pipboy_screen && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.push("PIPBOY_SCREEN".into());
             }
         }
         if key.bind_group_data.refract {
@@ -1069,28 +1105,32 @@ mod tests {
         let lod = decal_bias(DepthBiasState { constant: -50, ..default() });
         assert_eq!(lod.constant, DECAL_BIAS - 50);
         assert_eq!(raster_bias(decal.constant), decal.constant);
-        // Only the decal, refraction, hard-edge, shade-light and FaceGen switches select the pipeline; the falloff and the
+        // Only the switches in `NifSurfaceKey` select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
         assert_eq!(surface.alpha_cut, 0.0);
+        assert_eq!(surface.emissive_rule, Vec4::ZERO);
+        assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, Vec4::ZERO);
         surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
         surface.alpha_cut = 0.5;
+        surface.emissive_rule = Vec4::new(1.0, 1.5, 0.0, 0.0);
+        assert_eq!(NifSurfaceUniform::from(&surface).emissive_rule, surface.emissive_rule);
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: false, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: false, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
         surface.shade_light = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
         // The refraction strength is a uniform; whether the shape refracts is the pipeline's.
         surface.refraction = 0.1;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: false, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
         surface.refract = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: false, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
         // A FaceGen offset selects the tinting shader.
         surface.facegen_offset = Some(Handle::default());
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, refract: true, hard_edges: true, shade_light: true, facegen: true, depth_write: false, first_person: false, add_linear: false, pipboy_screen: false });
     }
 
     /// First-person depth (module notes): the squeeze keeps the near plane at 1, puts the
@@ -1107,6 +1147,13 @@ mod tests {
         // Two units apart at 60 units still differ by many steps of an f32 near 1.
         assert!(first_person_squeeze(z(60.0)) - first_person_squeeze(z(62.0)) > 100.0 * f32::EPSILON);
         assert!(include_str!("first_person_depth.wesl").contains("const FIRST_PERSON_DEPTH_SHARE: f32 = 0.015625;"));
+        // The linear add is a pipeline of its own, on the shader's own switch.
+        assert!(NifSurfaceKey::from(&NifSurface { add_linear: true, ..default() }).add_linear);
+        assert!(!NifSurfaceKey::from(&NifSurface::default()).add_linear);
+        assert!(include_str!("nif_material.wesl").contains("@if(ADD_LINEAR)"));
+        assert!(NifSurfaceKey::from(&NifSurface { pipboy_screen: true, ..default() }).pipboy_screen);
+        assert!(!NifSurfaceKey::from(&NifSurface::default()).pipboy_screen);
+        assert!(include_str!("nif_material.wesl").contains("@if(PIPBOY_SCREEN)"));
         assert_eq!(FIRST_PERSON_DEPTH_SHARE, 0.015625);
     }
 

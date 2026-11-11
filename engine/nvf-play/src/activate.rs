@@ -33,7 +33,7 @@
 pub mod outcome;
 pub mod pick;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use crate::phys::PhysState;
 use crate::player::Player;
@@ -163,8 +163,12 @@ impl HudMessage {
 /// Name and action of a reference the player can activate now: present in the
 /// simulation and of an activatable type. Activators and furniture need a display name
 /// (FULL) [hypothesis: unnamed activators are trigger volumes and markers the player is
-/// not meant to use; not captured]; placed leveled items and explosives with no weapon
-/// to give are not offered.
+/// not meant to use; not captured]. So does a door, unless its reference has a teleport
+/// destination (XTEL) or an Activation Prompt (XATO): a nameless door with neither gives
+/// no prompt [hypothesis: #1598, Mick & Ralph's OffDoorHidden01; a nameless door the
+/// player may need to go through, a travel door or one given a prompt, stays offered so
+/// no quest is blocked; cells-refs.md §2]. A primitive is never offered (level-design.md
+/// §4.1). Placed leveled items and explosives with no weapon to give are not offered.
 pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> Option<(String, Action)> {
     if !sim.present(form_id) {
         return None;
@@ -174,7 +178,12 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
     let name = sim.name(base.id)?.to_string();
     let state = sim.world.peek(id);
     let placed = sim.refs.get(id);
-    // A reference with lock data starts locked, a leveled lock at the reference's level
+    // A primitive (XPRM) is a trigger volume or marker, not an object to use, whatever
+    // name its activator has (docs/spec-notes/level-design.md §4.1).
+    if placed.is_some_and(|p| p.primitive.is_some()) {
+        return None;
+    }
+    // A reference with lock data starts locked, a leveled lock at its fixed level
     // [hypothesis, as fnv_sim::World does: `World::lock_of`].
     let lock = sim.world.lock_of(id).filter(|l| l.locked).map(|l| (l.level, l.key));
     let carried = |k: FormId| {
@@ -196,6 +205,15 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
         // A door flagged Inaccessible (REFR header bit 8 [documented: GECK wiki
         // GetFormFlag]) leads nowhere the player may go (cells-refs.md §2).
         BaseData::Door(_) if placed.is_some_and(|p| p.flags & fnv_sim::refs::INACCESSIBLE != 0) => Action::Inaccessible,
+        // A door without a name, leading nowhere and given no Activation Prompt, is not
+        // for the player (above): no prompt.
+        BaseData::Door(_)
+            if base.name.as_deref().is_none_or(|n| n.trim().is_empty())
+                && placed.is_none_or(|p| p.teleport.is_none() && p.prompt.is_none())
+                && base.prompt.is_none() =>
+        {
+            return None
+        }
         BaseData::Door(_) => locked(match placed.and_then(|p| p.teleport) {
             Some(tp) => Action::Travel { to: destination_name(sim, index, tp.door, tp.pos) },
             None if state.is_some_and(|s| s.open) => Action::Close,
@@ -250,6 +268,8 @@ pub(crate) fn find_target(
     // The same ray, far: where PlaceAtReticle puts things (`fnv_game` senses `Reticle`).
     let mut far = None;
     let mut far_ref = None;
+    // The node of what the far ray meets (GetReticleNode, `fnv_game::nvse_jip13`).
+    let mut far_node = None;
     let mut behind = None;
     let hit = phys.and_then(|mut p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
@@ -257,10 +277,20 @@ pub(crate) fn find_target(
         filter.exclude_layers.insert(layers::TRIGGER);
         let far_hit = p.world.queries().ray(eye, dir, fnv_game::functions::senses::RETICLE_REACH, &filter);
         far = far_hit.as_ref().map(|h| h.distance);
+        far_node = far_hit.as_ref().and_then(|h| match h.owner {
+            Owner::Ref { form_id, object, .. } => p.world.object_node(form_id, object).map(str::to_string),
+            _ => None,
+        });
         far_ref = far_hit.and_then(|h| match h.owner {
             Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
             _ => None,
         });
+        // Invisible walls do not take the crosshair: what stands behind one is activated
+        // (#1602: the Gun Runners' kiosk, nv_gunrun_kiosk.nif, is one body on layer 27
+        // Invisible Wall, the Vendortron inside it) [hypothesis: by the layer's name, as
+        // sight (nvforever detection.rs) and blast cover (combat.rs) pass it too]. The far
+        // ray above (PlaceAtReticle) keeps stopping at them.
+        filter.exclude_layers.insert(layers::INVISIBLE_WALL);
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
         let owner = |o: Owner| match o {
             // An actor's hit volume (combat C3) targets the actor.
@@ -294,8 +324,16 @@ pub(crate) fn find_target(
     });
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         rt.game.senses.reticle = Some(fnv_game::functions::senses::Reticle { start: eye, dir, hit: far });
+        if rt.game.other.jip13.reticle_node != far_node {
+            rt.game.set_reticle_node(far_node);
+        }
         // GetCrosshairRef: what is in activation reach; GetCrosshairRefEx: at any range.
-        rt.game.senses.crosshair_ref = hit.as_ref().and_then(|h| h.form_id).map(FormId);
+        let now = hit.as_ref().and_then(|h| h.form_id).map(FormId);
+        // JohnnyGuitar's crosshair handlers hear each reference the prompt comes onto.
+        if let Some(r) = now.filter(|_| now != rt.game.senses.crosshair_ref) {
+            rt.game.jg8_crosshair(r);
+        }
+        rt.game.senses.crosshair_ref = now;
         rt.game.senses.crosshair_far = far_ref.map(FormId);
     }
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
@@ -309,7 +347,9 @@ pub(crate) fn find_target(
             .entry(id)
             .or_insert_with(|| {
                 // A body culled by its critical stage (turned to ash or goo) is gone.
-                if rt.as_deref().is_some_and(|rt| rt.game.activation_refused(FormId(id)) || rt.game.culled(FormId(id))) {
+                // Nor a form type or reference scripts closed to the player
+                // (SetInteractionDisabledType, SetInteractionDisabled).
+                if rt.as_deref().is_some_and(|rt| rt.game.activation_refused(FormId(id)) || rt.game.culled(FormId(id)) || rt.game.player_interaction_disabled(FormId(id))) {
                     return None;
                 }
                 let pile = rt.as_deref().is_some_and(|rt| rt.game.ash_pile_source(FormId(id)).is_some());
@@ -529,7 +569,7 @@ pub(crate) fn holds_nothing(game: Option<&fnv_game::Game>, sim: &mut SimState, f
         _ => return false,
     };
     let forms = sim.forms;
-    let unlisted = |item: FormId| forms.item(item).is_some_and(|i| !i.listed(false));
+    let unlisted = |item: FormId| !crate::menu::model::shown(forms, item, false);
     let Ok(s) = sim.world.get(holder) else { return false };
     if !s.inventory.as_ref().is_none_or(|inv| inv.iter().all(|(item, _)| unlisted(item))) {
         return false;
@@ -587,7 +627,7 @@ fn pickup_aid(aid_time: crate::pause::AidTime, mut aid: ResMut<AutoPickup>, sim:
     let Some(now) = aid_time.world_secs() else { return };
     while aid.0.first().is_some_and(|(t, _)| *t <= now) {
         let (_, item) = aid.0.remove(0);
-        let found = sim.world.created().filter(|(_, s)| !s.deleted && s.enabled && item.is_none_or(|i| s.base.0 == i)).filter(|(_, s)| sim.forms.get(s.base).is_some_and(|b| matches!(b.data, BaseData::Item(_)))).map(|(id, _)| id).last();
+        let found = sim.world.created().filter(|(_, s)| !s.deleted() && s.enabled() && item.is_none_or(|i| s.base.0 == i)).filter(|(_, s)| sim.forms.get(s.base).is_some_and(|b| matches!(b.data, BaseData::Item(_)))).map(|(id, _)| id).last();
         match found {
             Some(id) => {
                 info!("test aid NVF_PLAY_TEST_PICKUP: picks up {id}");
@@ -844,7 +884,7 @@ pub(crate) fn activate(
     for e in effects {
         match e {
             Effect::RefChanged(form_id) => {
-                changed.write(RefChanged { form_id });
+                changed.write(RefChanged::new(form_id));
             }
             Effect::Travel { world, interior, feet, heading_deg } => {
                 let to = match (interior, world) {
@@ -887,7 +927,7 @@ pub fn drawn(sim: &SimState, script: Option<&crate::script::ScriptState>, id: u3
 /// Hide or show `RefVisual` entities from the simulation's state ([`drawn`]): every entity
 /// of a reference named by `RefChanged`, and new entities as cells stream in (a taken item
 /// must not come back when its cell reloads).
-pub(crate) fn sync_visuals(
+pub fn sync_visuals(
     sim: Res<SimState>,
     script: Option<Res<crate::script::ScriptState>>,
     mut changes: MessageReader<RefChanged>,

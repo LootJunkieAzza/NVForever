@@ -123,6 +123,8 @@ fn spawn(
     (data, formats): (Option<Res<GameData>>, Option<Res<CompressedImageFormatSupport>>),
     mut images: ResMut<Assets<Image>>,
 ) {
+    // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
+    let _hud = crate::interface::hud_units();
     if !root.is_empty() {
         return;
     }

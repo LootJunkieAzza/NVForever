@@ -385,7 +385,7 @@ fn spawn_shapes(commands: &mut Commands, m: &PreparedModel, parent: Entity, laye
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn show(
     mut commands: Commands,
     screen: Res<RouletteScreen>,

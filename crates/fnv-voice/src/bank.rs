@@ -91,4 +91,8 @@ impl fnv_game::voice::VoiceLengths for VoiceBank {
         let path = self.file_for_voice(info.0, response, voice_type.0)?;
         self.seconds(&path).filter(|s| s.is_finite() && *s > 0.0)
     }
+
+    fn response_path(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<String> {
+        self.file(info.0, response, speaker_base?.0)
+    }
 }

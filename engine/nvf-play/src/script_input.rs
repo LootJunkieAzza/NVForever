@@ -11,6 +11,7 @@ use bevy::input::mouse::MouseButtonInput;
 use bevy::input::ButtonState;
 use bevy::prelude::*;
 use std::collections::HashSet;
+use fnv_sim::FormId;
 use fnv_game::script_input::MOUSE_BASE;
 
 pub struct ScriptInputPlugin;
@@ -19,7 +20,13 @@ impl Plugin for ScriptInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptBlocked>()
             .add_systems(PreUpdate, (script_input, key_events).chain().after(bevy::input::InputSystems))
-            .add_systems(Update, (tell_magazine, tell_player_state, mod_file_roots, tell_view));
+            // The player's state the scripts read (sights up, for the HUD bars' aiming
+            // condition) is handed over after combat has updated it this frame and before
+            // the scripts run [design]. `tell_magazine` keeps its own place: it also
+            // applies the scripts' pending ammo writes, which must reach combat first.
+            .add_systems(Update, tell_player_state.after(crate::PlaySet::Activation).before(crate::PlaySet::Scripts))
+            .add_systems(Update, (tell_magazine, mod_file_roots, tell_view))
+            .add_systems(Update, script_moves.after(crate::PlaySet::Input));
     }
 }
 
@@ -216,10 +223,96 @@ fn tell_magazine(mut combat: Option<ResMut<crate::combat::Combat>>, mut script: 
     // SetPlayerCurrentAmmoRounds: the rounds go in the weapon in hand.
     if let (Some(n), Some(c)) = (rt.game.other.set_magazine.take(), combat.as_deref_mut()) {
         if let Some((w, _)) = c.magazine_for_save() {
-            c.restore_magazine((w, n));
+            c.restore_magazine((w, n), None);
         }
     }
     rt.game.player_magazine = combat.and_then(|c| c.magazine_for_save()).map(|m| m.1);
+}
+
+/// The player's speed resources script_moves reads back for GetRunSpeed.
+type PlayerSpeeds<'w> = (Option<Res<'w, crate::player::MoveSpeeds>>, Option<Res<'w, crate::player::StatSpeed>>, Option<Res<'w, crate::player::PerkSpeed>>);
+
+/// What scripts ask of the player's and actors' moves (`fnv_game::nvse_jg9`: Jump,
+/// SetAutoMove, SetPlayerMovementFlags, SetVelEx), after the controls are read so this
+/// frame's moves carry them; and what those functions read back: the player's run speed,
+/// spread, grenade hold and view.
+#[allow(clippy::too_many_arguments)]
+fn script_moves(
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+    mut control: Option<ResMut<crate::control::PlayerControl>>,
+    mut intent: Option<ResMut<crate::player::MoveIntent>>,
+    mut phys: Option<ResMut<crate::phys::PhysState>>,
+    mut knocks: Option<ResMut<Messages<crate::combat::Knockback>>>,
+    combat: Option<Res<crate::combat::Combat>>,
+    speeds: PlayerSpeeds,
+) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let st = &mut rt.game.other.jg9;
+    for who in std::mem::take(&mut st.jumps) {
+        if who == FormId::PLAYER_REF {
+            if let Some(i) = intent.as_deref_mut() {
+                i.jump = true;
+            }
+        } else if let Some(b) = phys.as_deref_mut().and_then(|p| p.npcs.get_mut(&who.0)) {
+            b.jump = true;
+        }
+        info!("script moves: {who} jumps");
+    }
+    if let (Some(on), Some(c)) = (st.auto_move.take(), control.as_deref_mut()) {
+        c.auto_move = on;
+        info!("script moves: auto move {}", if on { "on" } else { "off" });
+    }
+    // The flags as the keys: forward and back, left and right, walking, running and
+    // sneaking, jumping (SetPlayerMovementFlags' page lists them).
+    if let (Some(f), Some(i)) = (st.move_flags.take(), intent.as_deref_mut()) {
+        let axis = |plus: u32, minus: u32| f32::from(u8::from(f & plus != 0)) - f32::from(u8::from(f & minus != 0));
+        i.forward = axis(1, 2);
+        i.right = axis(8, 4);
+        if f & (256 | 512) != 0 {
+            i.walk = f & 256 != 0 && f & 512 == 0;
+        }
+        i.sneak = f & 1024 != 0;
+        i.jump |= f & 4096 != 0;
+    }
+    for (who, v) in std::mem::take(&mut st.velocities) {
+        let line = set_vel_ex(who, v, phys.as_deref_mut(), knocks.as_deref_mut());
+        info!("script moves: {line}");
+    }
+    let (moves, stat, perk) = speeds;
+    if let Some(m) = moves {
+        let factor = stat.map_or(1.0, |s| s.0) * perk.map_or(1.0, |p| p.0);
+        st.run_speeds.insert(FormId::PLAYER_REF, m.run * factor);
+    }
+    if let Some(c) = combat {
+        if let Some(s) = c.player_spread {
+            st.spreads.insert(FormId::PLAYER_REF, s);
+        }
+        st.grenade_hold = c.grenade_hold;
+    }
+    st.third_person = control.as_deref().is_some_and(|c| c.pov != crate::control::Pov::First);
+}
+
+/// SetVelEx's velocity on `who`: a character goes up or down at z and is pushed along
+/// the ground at (x, y) as the console's SetVel pushes it (`crate::console::set_vel`, one
+/// push along the two axes together); a loose object's bodies take all three.
+fn set_vel_ex(who: FormId, v: [f32; 3], phys: Option<&mut crate::phys::PhysState>, knocks: Option<&mut Messages<crate::combat::Knockback>>) -> String {
+    let Some(p) = phys else { return "SetVelEx: no physics in this run".into() };
+    let id = who.0;
+    let ch = if who == FormId::PLAYER_REF { p.player.as_mut() } else { p.npcs.get_mut(&id).map(|n| &mut n.ch) };
+    let Some(ch) = ch else {
+        let n: usize = (0..3).map(|axis| p.world.set_ref_velocity(id, axis, v[axis])).max().unwrap_or(0);
+        return format!("SetVelEx: {who} at ({:.0}, {:.0}, {:.0}) units/s ({n} bodies)", v[0], v[1], v[2]);
+    };
+    if v[2] != 0.0 {
+        ch.vertical_speed = v[2];
+        ch.grounded = false;
+    }
+    let along = v[0].hypot(v[1]);
+    if let (true, Some(k)) = (along > 0.0, knocks) {
+        let dir = [v[0] / along, v[1] / along];
+        k.write(crate::combat::Knockback { form_id: id, dir, speed: along, secs: crate::console::SET_VEL_SECS, attacker: 0, blow: 0, power: false });
+    }
+    format!("SetVelEx: {who} {:.0} units/s up, pushed {along:.0} units/s along the ground", v[2])
 }
 
 /// The pad's buttons as the extender's controller functions number them
@@ -242,13 +335,25 @@ const PAD_BITS: [(GamepadButton, u32); 14] = [
 ];
 
 /// Tell the scripts the player's auto-move and aiming and the first connected pad
-/// (GetAutoMove, GetPCUsingScope/IronSights, the controller functions).
-fn tell_player_state(control: Option<Res<crate::control::PlayerControl>>, pads: Query<&Gamepad>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+/// (GetAutoMove, GetPCUsingScope/IronSights, the controller functions), and whether the
+/// sights are up (`Combat::player_sights_up`: not while blocking with a melee weapon or
+/// while a reload holds them down), for SUP's HUD bars' aiming condition.
+fn tell_player_state(
+    control: Option<Res<crate::control::PlayerControl>>,
+    combat: Option<Res<crate::combat::Combat>>,
+    anim: Option<Res<crate::combat::WeaponAnim>>,
+    pads: Query<&Gamepad>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let told = &mut rt.game.jip2.told;
     if let Some(c) = control {
         told.auto_move = c.auto_move;
         told.aiming = c.aiming && c.weapon_out;
+        told.sights_up = match (combat.as_deref(), anim.as_deref()) {
+            (Some(cb), Some(a)) => cb.player_sights_up(a, told.aiming),
+            _ => false,
+        };
     }
     let pad = &mut told.pad;
     match pads.iter().next() {
@@ -295,8 +400,10 @@ fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>
     }));
     let mods = fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods());
     let data_dir = vfs.data_dir().to_path_buf();
+    let archives: Vec<String> = vfs.archives().map(str::to_string).collect();
     fnv_game::mod_files::update_roots(move |r| {
         r.read = mods.into_iter().chain(std::iter::once(data_dir)).collect();
+        r.archives = archives;
         r.reader = Some(std::sync::Arc::new(move |p: &str| reader_vfs.read(p).and_then(Result::ok)));
         r.lookup = Some(std::sync::Arc::new(move |p: &str| {
             if vfs.loose_path(p).is_some() {

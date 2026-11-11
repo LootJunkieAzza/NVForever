@@ -102,14 +102,13 @@ the spec it links to.
     formula's base force). Our reading of the formula, not measured in the original:
     more, less, only on power attacks, and should a block take the push too?
     ([combat-rules, Knockback](spec-notes/combat-rules.md))
-41. **Explosions hit every limb in full (#1338).** A blast that leaves its target alive
-    takes its damage after armour (× the weapon's Limb Dmg Mult) off every limb at once,
-    so nearly any frag mine or grenade cripples most of an NPC's limbs, head included;
-    the player's limbs take half. The original does damage limbs with blasts, but how it
-    shares the damage is not known yet (observer check 74). Until then: keep it, or
-    spread a share (say a sixth) over the limbs? A crippling blast staggers once (no
-    stagger when it knocks the actor down) and a crippled arm disarms.
-    ([crippled-limbs §5](spec-notes/crippled-limbs.md))
+46. **NPC automatic fire comes in bursts (#1448).** An NPC's automatic gun (Securitrons'
+    and other embedded weapons too) fires a V.A.T.S.-sized burst (0.4 s of its fire rate,
+    3 to 8 rounds), then lets go for 0.5–1.5 s (scaled by the combat style's semi-auto
+    delay multipliers) before the next. Before, it held the trigger for as long as it saw
+    its target. The original's rule is unknown (the WEAP Short/Long Burst flags are not
+    understood). Longer or shorter bursts, longer pauses, or Long Burst weapons firing
+    longer? ([combat-ai](design/combat-ai.md), `fnv_combat::burst`)
 
 ## Tier 2: movement and controls feel
 
@@ -117,8 +116,14 @@ the spec it links to.
     lagging 90 units and is thrown at up to 600 units/s. Nothing over 100 kg can be
     picked up, and you can only walk while holding over 25 kg. All guessed.
     ([grab](spec-notes/grab.md))
-14. **Steps.** Body and view lag over a step (95 % in 0.19 s, up to 24 units; over 48
-    counts as a teleport). A step-up counts from 0.25 units of rise. Smooth enough?
+14. **Steps and road bumps.** Body and view follow the ground through a 0.2 s speed
+    prediction and a spring (2026-11-07, after "every bump" on roads): road ripples are
+    about 2.5-3x smoother, but running onto a steep hill the body is drawn up to 8 units
+    below the feet for a moment (up to 24 units allowed; over 48 counts as a teleport). A
+    step-up counts from 0.25 units of rise. Where a slope or stairs end the body carries
+    on up: up to 9.9 units over the top of a 30° slope and 4.2 over the top stair at a
+    run (6.1 and 1.2 walking; the old rule never overshot) [observed: replays, physics
+    §6.11]; cutting it halves the slope's overshoot but doubles the road roughness. Smooth enough, or too floaty?
     ([physics §6.8.1, §6.9.1](spec-notes/physics.md))
 15. **Third-person aim.** Shots and the activate prompt go to what is under the
     third-person crosshair, but the shot still leaves from the eye, so cover near you
@@ -155,6 +160,22 @@ the spec it links to.
     original's PC file gives it; the controller drops with X. A keyboard-only player can't
     drop. If you want a key, name it and it drops one (Shift with it the stack); free on
     that page are, for example, G or Delete. ([pipboy §6](spec-notes/pipboy.md))
+48. **Controller buttons for menus whose files are not read (#1662).** Menu hints now
+    name the controller button that presses their key. Where no menu file gives a button,
+    these are guesses: Caravan bet Accept A, Auto Match Y, Raise RT, Exit B; deck Add A,
+    Remove X, Randomize Y, Play Caravan RT (B leaves); game Select A, Discard Card X,
+    Discard Track Y, Cancel B. Poker Check/Call A, Raise RT, All In Y, Fold X, Next Hand
+    A, Leave B. The pause menu's X deletes (a save on the Load page, a binding on the
+    Controls tab). The STATS page's RAD view: RadAway A, Rad-X X. Right buttons?
+    ([controller §3](design/controller.md))
+49. **PlayStation button names (#1452).** With a controller, Button style Auto (settings
+    page, Controller group) shows Cross/Circle/Square/Triangle, L1-R3, Select/Start when
+    the pad says it is a PlayStation one (DualSense, DualShock, "Wireless Controller",
+    PS3/PS4/PS5, Sony), else the Xbox names; Xbox or PlayStation forces them. The INI keeps
+    the Xbox names. The crosshair prompt draws NVForever's own outline glyphs for the four
+    face buttons; menu hints write the names (the game fonts have no symbols). Select and
+    Start rather than Share/Create and Options. Right choices, and do the glyphs look
+    right? ([controller §3a](design/controller.md))
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
@@ -257,6 +278,26 @@ the spec it links to.
     `story guard:` warning, so if it ever fires in your games, send that log: it is the
     stall coming back. Smoke: hh-arrival-guard.
     (overnight-results/scene-stalls-1109.md)
+47. **Nobody picks a cross on their own (#1522).** Sandboxes and Sleep or Eat searches leave
+    the crucifix (marker 10) out for everyone, people as well as creatures. A package that
+    names a cross or links to one still works, so the crucified stay on theirs. This is
+    [design]: whether a person in the original sandboxes onto an empty cross is still
+    unanswered ([observer check 86](handoff/observer-checks.md)). If you want people choosing
+    crosses again, the exclusion can apply to creatures alone.
+    ([furniture.md §9](spec-notes/furniture.md))
+50. **Every thrown grenade with a fuse rolls (#1785).** You said only thrown frag
+    grenades roll. The rule takes every hand-thrown projectile with a fuse (a Lobber
+    with an Alt. Trigger timer and no proximity), not mines, C-4 or launcher rounds, since
+    nothing in the data sets the frag grenade apart. If you want the frag grenade alone, the rule can key on
+    its PROJ. ([combat-rules §5](spec-notes/combat-rules.md))
+
+51. **Corpses shot again move for 1 s (#1798), decided 2026-11-08.** A corpse moves for at
+   most 3 s and is then held. A shot or blow on a held corpse now shoves it and lets it
+   move for at most 1 s (`MAX_AWAKE_SHOVED`; it was 3 s). A blast, a fresh death, a body
+   in water or one carried keep their limits. In the 50-a-side battle the ragdoll solver
+   went from 4.4–6.2 to 3.4–3.6 ms a frame. Say if re-shot corpses should move longer
+   (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
+   [frame-rate-audit §5](design/frame-rate-audit.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
@@ -316,10 +357,11 @@ by runtime-compiled queries (tools/capture/jip_probes.py), results in the jip-* 
 - **`GetLNVersion` returns 57.3** in your game, where the wiki says it always returns 0;
   NVForever follows the game.
 - **UI functions (J8):** *answered 2026-10-26*, a tile tree (extender-compat.md §5.6 A).
-- **Three wiki pages missing from the export:** *Auxiliary Variables*, *RefMap Array* and
-  *Template:ModIndexOverride*. The game showed that a `*` name prefix makes an auxiliary
-  variable temporary. It did not show how a variable becomes private or public
-  (docs/spec-notes/jip-variable-stores.md §1). Exporting those three pages settles it.
+- **Two wiki pages missing from the export:** *Auxiliary Variables* and *RefMap Array*
+  (export them by exact title: the 2026-11-08 category exports held only the function
+  pages). *Template:ModIndexOverride* came in 2026-11-08: a private variable belongs to its
+  plugin's mod index. The `*` name prefix makes a variable temporary [observed]; what makes
+  it public is still open (docs/spec-notes/jip-variable-stores.md §1).
 - **JIP implementation choices (J4–J7, branch claude/ext-compiler, 2026-10-26).**
   *Check* any you would rather have differently:
   - An invalid regular expression is an extender run-time error (the statement fails,
