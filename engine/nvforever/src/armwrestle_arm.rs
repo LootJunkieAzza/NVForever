@@ -271,11 +271,11 @@ pub fn arms(
 /// The bone the upper body bends at, and the one above it if the skeleton lacks it
 /// [observed: the human skeleton's node names].
 const SPINE: [&str; 2] = ["Bip01 Spine", "Bip01 Spine1"];
-/// The upper body's lean in at most, radians [design: about 50 degrees].
-const MAX_BEND: f32 = 0.87;
+/// The upper body's lean in at most, radians [design: about 25 degrees; 50 hunched them head to head, desktop run 2026-11-11].
+const MAX_BEND: f32 = 0.45;
 /// How near the clasp (level) the shoulder is to come, in arm lengths [design: the
 /// elbow then goes down onto the table with the forearm up].
-const SHOULDER_IN: f32 = 0.45;
+const SHOULDER_IN: f32 = 0.8;
 
 /// Bend the upper body forward (towards `toward`, level) so the right shoulder comes in
 /// towards the clasp at `clasp` (level: its y is ignored), by `w`.
