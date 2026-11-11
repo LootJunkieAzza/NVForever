@@ -405,6 +405,11 @@ pub struct TweakSettings {
     pub run_overencumbered: bool,
     pub over_run_ap: f32,
     pub over_jump_ap: f32,
+    /// `bScopeHoldBreath`: Shift through a scope steadies it to `breath_sway` of its
+    /// sway, paying `breath_ap` Action Points a second.
+    pub hold_breath: bool,
+    pub breath_sway: f32,
+    pub breath_ap: f32,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -639,6 +644,9 @@ impl Default for TweakSettings {
             run_overencumbered: false,
             over_run_ap: 4.0,
             over_jump_ap: 10.0,
+            hold_breath: false,
+            breath_sway: 0.2,
+            breath_ap: 5.0,
         }
     }
 }
@@ -775,7 +783,7 @@ impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath).in_set(crate::PlaySet::Input))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
@@ -1627,6 +1635,9 @@ impl Plugin for TweaksPlugin {
         amount!(app, "skill-cap-per-luck", "Skill Cap per Luck Point", "What each point of Luck adds to every skill's cap. (Stewie's Tweaks bCapSkillsBySPECIAL)", 10.0, f64, game.skill_cap_per_luck);
         amount!(app, "skill-cap-most", "Skill Cap Most", "No skill's cap goes above this (Skills Capped by S.P.E.C.I.A.L.). (Stewie's Tweaks bCapSkillsBySPECIAL)", 100.0, i32, game.skill_cap_most);
         switch!(app, "cap-skills-spare-tagged", "Skill Cap Spares Tagged Skills", "Tagged skills are not capped by Skills Capped by S.P.E.C.I.A.L. (Stewie's Tweaks bCapSkillsBySPECIAL)", game.cap_skills_spare_tagged);
+        switch!(app, "hold-breath", "Hold Breath Through a Scope", "Holding Shift while looking through a scope steadies it, costing Action Points while held; with none left the breath goes. (Stewie's Tweaks bScopeHoldBreath)", hold_breath);
+        part!(app, "breath-sway", "Held Breath Sway", "How much a scope still sways while the breath is held, as a part of its usual sway. (Stewie's Tweaks bScopeHoldBreath)", breath_sway);
+        amount!(app, "breath-ap", "Held Breath AP", "Action Points holding the breath costs each second (Hold Breath Through a Scope). (Stewie's Tweaks bScopeHoldBreath)", 20.0, f32, breath_ap);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1731,6 +1742,42 @@ fn drop_weapon(input: crate::bindings::ControlInput, state: Res<State<crate::Pla
             }
         }
         Err(e) => info!("tweaks: Drop Weapon: {item} not dropped: {e}"),
+    }
+}
+
+/// The player holds their breath through a scope (the Scope Hold Breath tweak): the
+/// scope's sway (nvforever `scope_view`) is multiplied by [`TweakSettings::breath_sway`]
+/// [design: docs/design/tweaks.md].
+pub static BREATH_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Shift held with a scope up holds the breath, paying [`TweakSettings::breath_ap`]
+/// Action Points a second; with none left it is let go. In god mode nothing is paid.
+fn hold_breath(
+    time: Res<Time>,
+    tweaks: Res<TweakSettings>,
+    keys: Res<ButtonInput<KeyCode>>,
+    scope: Option<Res<crate::aim_zoom::Scope>>,
+    mut script: Option<ResMut<ScriptState>>,
+    sim: Option<ResMut<crate::sim::SimState>>,
+) {
+    let asked = tweaks.hold_breath && scope.is_some_and(|s| s.on) && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let mut held = asked;
+    if asked && !crate::combat::god_mode() && tweaks.breath_ap > 0.0 {
+        if let (Some(rt), Some(mut sim)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), sim) {
+            let cost = f64::from(tweaks.breath_ap * time.delta_secs());
+            held = crate::script::with_world(rt, &mut sim, |rt| {
+                use fnv_game::actor_values::ACTION_POINTS;
+                let p = fnv_sim::FormId::PLAYER_REF;
+                let ap = fnv_game::functions::actor_value(&mut rt.game, p, ACTION_POINTS).unwrap_or(0.0);
+                if ap > 0.0 {
+                    fnv_game::functions::add_actor_value_damage(&mut rt.game, p, ACTION_POINTS, cost.min(ap));
+                }
+                ap > 0.0
+            });
+        }
+    }
+    if BREATH_HELD.swap(held, std::sync::atomic::Ordering::Relaxed) != held {
+        info!("tweaks: breath {}", if held { "held through the scope" } else { "let go" });
     }
 }
 

@@ -554,6 +554,7 @@ unless the player binds them, so nothing changes until then.
 | Enemy Blows Hit Where They Land | `bLocationalMeleeDamage` | an NPC's blow on the player takes `player_body_part`'s `hit_part` in place of `HitPart::default()`; the player's blows already used the struck part's; NPC on NPC has no part lookup yet |
 | Disarming Needs Skill | `bDisarmRequiresSkill` | `Game::disarm_chances` (the readme's formulas: disarm = mult × (skill + Perception − 5) × 100 / required; set off = mult × (required − skill + 5 − Luck) × 2, each held to 0–100); `activate` rolls before the disarm and on a failure either queues the mine in `Mines::set_off` (no fuse) or says it is still armed |
 | Skills Capped by S.P.E.C.I.A.L. | `bCapSkillsBySPECIAL` | `SkillSheet::of_player` fills `SkillSheet::caps` from the readme's formula with the governing attribute (`actor_values::governing_attribute`); `value`, `can_raise` and `complete` read `cap(i)`. The readme gives no default numbers: 50 + 5 a point of the attribute, no Luck, at most 100 are ours |
+| Hold Breath Through a Scope | `bScopeHoldBreath` | `tweaks::hold_breath` sets `BREATH_HELD` while Shift is held with the scope up and pays `breath_ap` a second (let go with no AP left); nvforever `scope_view::sway` multiplies the sway's radius by `breath_sway` (20 % and 5 AP a second by default, ours) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -575,8 +576,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 480 |
-| to do | 123 |
+| done | 481 |
+| to do | 122 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -679,6 +680,7 @@ game's Data folder, read-only).
 | `bRunningCostsAP` | done |  | 8 | Action Points per Second Running (slider 0-20, a flat rate; the Endurance formula not built) |
 | `bRunSlowerInWater` | done |  | 1 | Wading Pace (slider; deeper water slows more) |
 | `bScalePlayerMeleeReach` | done |  | 3 | Melee Reach (multiplier slider; the min and max options not built) |
+| `bScopeHoldBreath` | done |  | 7 | Hold Breath Through a Scope (Shift; the weapon requirement and key options not built) |
 | `bSellStolenItems` | done |  |  | already so: barter never checks stolen items |
 | `bSemiAutoQueue` | done |  | 2 | Semi-Auto Shot Queue (slider, up to 0.5 s before the weapon is ready) |
 | `bSeparateAlcoholEffects` | done |  |  | already so: effects are kept per item, so different drinks stack |
@@ -725,7 +727,6 @@ game's Data folder, read-only).
 | `bReviveUnconsciousCompanions` | to do |  | 3 | not built: no revive action |
 | `bRunAndGunAPInCombatOnly` | to do |  |  | not built: no run-and-gun AP rule |
 | `bScaleWeaponVolume` | to do |  | 2 | PlaySound has no volume |
-| `bScopeHoldBreath` | to do |  | 7 | scope_view has no input or AP |
 | `bSneakingDoesntForcePowerAttacks` | unsure, skipped |  |  | depends on separate animations |
 | `bStrengthAffectsAllThrowables` | to do |  |  | not built: fThrowingStrengthPenalty is not read |
 | `bTargetProjectilesInVATS` | to do |  | 1 | not built: projectiles in flight are not targetable |
