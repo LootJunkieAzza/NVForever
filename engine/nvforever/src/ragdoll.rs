@@ -549,6 +549,7 @@ pub(crate) fn net_motion(a: &[Option<Iso>], b: &[Option<Iso>], seconds: f32) -> 
 /// whose ground or whose actor is gone.
 pub(crate) fn pose(
     time: Res<Time>,
+    virt: Res<Time<Virtual>>,
     mut phys: ResMut<PhysState>,
     mut ragdolls: ResMut<Ragdolls>,
     mut corpses: Query<(AnyRig, &mut Corpse, &InheritedVisibility)>,
@@ -562,6 +563,16 @@ pub(crate) fn pose(
     let last = ragdolls.last_steps.replace(steps);
     let stepped = last.map_or(0, |last| steps.saturating_sub(last));
     let dt = last.map_or(time.delta_secs(), |_| stepped as f32 * phys.world.params.dt);
+    // The awake guard counts full-speed time only: under a slowed clock (VATS, a kill
+    // camera) a corpse moves on, slowed, until the clock is back, and is not held at rest
+    // in the middle of the slow motion [design: the owner, 2026-11-11, make sure it works
+    // with the VATS slow motion cutscenes/kill cams and correctly slows down the
+    // ragdoll/gore effects until it exits; a kill camera of 8 real seconds at half speed
+    // held its corpse at rest 3 game seconds in, observed: smoke vats-kill-cam-slowed-display].
+    // Nor does one settle then: none starts, and one settling when the clock slows moves
+    // on freely; it settles again once the clock is back.
+    let slowed = !virt.is_paused() && virt.relative_speed() < 1.0;
+    let awake_dt = if slowed { 0.0 } else { dt };
     // The fresh ragdolls moving now, youngest first: the first [`FULL_TIME`] of them get
     // [`MAX_AWAKE`], the rest [`MAX_AWAKE_CROWDED`]. By their reference among equals, so
     // the same corpses are picked whatever order the query gives.
@@ -649,7 +660,7 @@ pub(crate) fn pose(
                 ragdolls.shoved_awake += 1;
             }
         }
-        c.awake += dt;
+        c.awake += awake_dt;
         c.window += dt;
         if c.since.len() != now.len() {
             (c.since, c.window) = (now, 0.0);
@@ -687,6 +698,11 @@ pub(crate) fn pose(
         if phys.world.ragdoll_asleep(id) {
             // The physics engine put every body to sleep: nothing moves.
             phys.world.set_ragdoll_at_rest(id);
+        } else if slowed {
+            // Slow motion: it moves on freely, neither settling nor held (above).
+            if c.settle.take().is_some() {
+                phys.world.unsettle_ragdoll(id);
+            }
         } else if let Some(s) = c.settle.as_mut() {
             s.elapsed += dt;
             if s.elapsed < s.length {

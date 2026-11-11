@@ -941,7 +941,7 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   whatever the rate, in either build.
 - **Fixed steps at every rate**: each step is `1/rate` s of the game's clock, so each rate
   is reproducible on its own. While the clock runs slow (VATS, a kill camera) the step
-  shrinks with it, `1/rate × speed` down to `SLOWEST_PACED` (2 %), so the steps a real
+  shrinks with it, `1/rate × speed` down to `SLOWEST_PACED` (2 %) and never under 1/240 s (below), so the steps a real
   second stay the rate's; faster than `FASTEST_PACED` (4×, a script's
   SetGlobalTimeMultiplier) the step grows instead of the steps a real second, which are
   thus never more than four times the rate [design; before 2026-11-11 a faster clock kept
@@ -949,6 +949,34 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   (`catch_up_steps`: 15 at 60, 38 at 152, 60 at 240), what the virtual clock passes on in
   its longest frame; time beyond it is dropped, so a slow moment cannot grow a backlog
   (no "spiral of death": the game slows down instead).
+- **Slow motion (VATS, kill cameras)** [observed and design, 2026-11-11]:
+  - The step never goes below 1/240 s (`phys::SHORTEST_STEP`), whatever the rate and the
+    clock. rapier keeps positions in f32 metres from the worldspace's origin, and a
+    shorter step moved a slow body by less than its position can show: at Goodsprings a
+    body at 5-20 units/s stood still over steps of 1/3000 s (the step of a 2 % clock at
+    60 Hz, and of a 5 % one at 152 Hz), 150,000 units out everything under 200 units/s
+    did [observed: `slow_bodies_far_from_the_origin_move_at_the_shortest_step` and the
+    ignored `probe_slow_steps_far_from_the_origin` in crates/fnv-phys/tests/synthetic.rs].
+    So under a clock slower than a quarter there are fewer steps a real second than the
+    rate (a kill camera at 0.25: 60; VATS marking at 0.05: 12); what moves is drawn
+    between steps (§5.2), so it still moves smoothly. Moving everything relative to an
+    origin near the player would let shorter steps resolve [hypothesis: not done].
+  - Every timer that judges a body counts the game time stepped
+    (`PhysWorld::stepped_secs`, or the steps since the last frame times their step): the
+    corpses' calm and awake timers, the wrecks' calm and fall timers (they counted the
+    frames' time until 2026-11-11), the dropped items' log marks (they counted the steps
+    times the step now). rapier's own sleep compares a body's motion per step with
+    0.05 m/s times the step and counts the steps' time [documented: rapier3d 0.36.1
+    `RigidBodyActivation::update_energy`], so it holds under any step.
+  - The corpses' awake guard (`ragdoll::MAX_AWAKE`) counts full-speed time only: a
+    corpse is not held at rest while the clock is slowed, and moves on, slowed, until
+    the clock is back [design: the owner, 2026-11-11; a kill camera of 8 real seconds at
+    half speed had held its corpse at rest 3 game seconds in].
+  - The cost guard leaves out the frames of a slowed or sped-up clock.
+  - The kill camera logs how its target's drawn place moved over the camera and in the
+    frame after it (`kill camera: the target's drawn place moved …`); smoke
+    `vats-kill-cam-slowed-60`, `-152` and `-display` check that it moves, never jumps
+    and is not set at rest before the camera ends.
 - **A change of rate in play** (the page, Match display following the display, the guard)
   keeps the share of a step the clock is into (`Stepper::rescale`), so nothing drawn
   between steps jumps; the remainder's game time changes by less than a step, once.

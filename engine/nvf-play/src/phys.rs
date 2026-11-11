@@ -399,8 +399,8 @@ pub struct CreatedBody {
     pub dynamic: bool,
     /// Its position when its collision was added.
     pub start: [f32; 3],
-    /// The world's step count then.
-    pub added_step: u64,
+    /// The game seconds the world had stepped then (`PhysWorld::stepped_secs`).
+    pub added_at: f64,
     /// At rest (its body asleep) since it last moved.
     pub settled: bool,
     /// How many of the pose marks (`CREATED_MARKS`) were logged.
@@ -1451,8 +1451,8 @@ impl PhysState {
             s.pos[2],
             joined.map_or_else(String::new, |(n, _)| format!(": the model's {n} dynamic bodies joined into one"))
         );
-        let added_step = self.world.steps();
-        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_step, settled: false, marks: 0 });
+        let added_at = self.world.stepped_secs();
+        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_at, settled: false, marks: 0 });
         true
     }
 
@@ -1463,12 +1463,14 @@ impl PhysState {
     pub fn settle_created(&mut self, index: &WorldIndex, world_id: u32, sim: &mut World) -> Vec<u32> {
         let mut moved = Vec::new();
         let mut lost = Vec::new();
-        let elapsed = |since: u64| (self.world.steps() - since) as f32 * self.world.params.dt;
+        // Game seconds stepped since: under a slowed clock the steps are shorter, so the steps
+        // times the step now would count the ones before at the wrong length.
+        let elapsed = |since: f64| (self.world.stepped_secs() - since) as f32;
         for (&id, cb) in self.created.iter_mut() {
             let Some(local) = cb.local.filter(|_| cb.dynamic) else { continue };
             let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
             let (pos, rot) = dropped::ref_pose_from_body(&b, &local, 1.0);
-            let t = elapsed(cb.added_step);
+            let t = elapsed(cb.added_at);
             if CREATED_MARKS.get(cb.marks).is_some_and(|&m| t >= m) {
                 cb.marks += 1;
                 info!(
@@ -1506,7 +1508,7 @@ impl PhysState {
                     pos[1],
                     pos[2],
                     cb.start[2] - pos[2],
-                    elapsed(cb.added_step)
+                    elapsed(cb.added_at)
                 );
             } else if !b.sleeping {
                 cb.settled = false;
@@ -1831,13 +1833,27 @@ pub const SLOWEST_PACED: f32 = 0.02;
 /// steps a real second].
 pub const FASTEST_PACED: f32 = 4.0;
 
+/// The shortest step the physics takes, seconds: the full-speed step of the highest rate
+/// (1/240 s, `crate::phys_rate::MAX_HZ`). rapier keeps positions in f32 metres from the
+/// worldspace's origin, and a shorter step moves a slow body by less than the position can
+/// show, so it stands still [observed: `probe_slow_steps_far_from_the_origin`,
+/// crates/fnv-phys/tests/synthetic.rs, 2026-11-11: at Goodsprings (x -68,000) a body at
+/// 5-20 units/s did not move at all over steps of 1/3000 s, the step of a 2 % kill camera
+/// at 60 Hz; at 1/240 s it moved 82-102 % of its way; 150,000 units out, 1/3000 s stopped
+/// everything under 200 units/s]. Under a clock slower than a quarter (VATS, kill cameras)
+/// there are fewer steps a real second than the rate: what moves is drawn between steps
+/// (`fnv_phys::drawn`), so it moves smoothly still, and each step stays one the positions
+/// can resolve.
+pub const SHORTEST_STEP: f32 = 1.0 / 240.0;
+
 /// The fixed step for a clock running at `speed` of full speed, the usual step `full`
 /// (`1/rate`, `crate::phys_rate`): that share of it while the clock runs slow, so the
-/// physics takes as many steps a real second as at full speed; the usual one at full speed,
-/// stopped or up to [`FASTEST_PACED`]; past that, longer by what the clock is over it.
+/// physics takes as many steps a real second as at full speed, down to [`SHORTEST_STEP`];
+/// the usual one at full speed, stopped or up to [`FASTEST_PACED`]; past that, longer by
+/// what the clock is over it.
 pub fn paced_step(full: f32, speed: f32) -> f32 {
     if speed > 0.0 && speed < 1.0 {
-        full * speed.max(SLOWEST_PACED)
+        (full * speed.max(SLOWEST_PACED)).max(SHORTEST_STEP.min(full))
     } else if speed > FASTEST_PACED {
         full * speed / FASTEST_PACED
     } else {

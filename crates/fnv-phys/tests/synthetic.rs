@@ -655,6 +655,61 @@ fn character_rules_hold_at_every_physics_rate() {
     }
 }
 
+/// A body moving at `speed` units/s along x from `x0` (game units), stepped for 0.25 s of
+/// game time in steps of `dt`: the share of its way it went.
+fn share_moved(x0: f32, speed: f32, dt: f32) -> f32 {
+    let mut w = PhysWorld::new(PhysParams::default());
+    w.set_step(dt);
+    w.add_ref(&at(0x99, [x0, 4800.0, 9000.0]), &[object(boxed([3.0, 3.0, 3.0]), Motion::Dynamic)]);
+    w.step();
+    w.set_ref_velocity(0x99, 0, speed);
+    let b0 = w.ref_bodies(0x99)[0];
+    let n = (0.25 / dt).round() as usize;
+    for _ in 0..n {
+        w.step();
+    }
+    (w.ref_bodies(0x99)[0].translation[0] - b0.translation[0]) / (speed * n as f32 * dt)
+}
+
+/// rapier keeps positions in f32 metres from the worldspace's origin: a step too short
+/// moves a slow body by less than its position can show far from it, and the body stands
+/// still. The game's shortest step (`nvf_play::phys::SHORTEST_STEP`, 1/240 s, also under
+/// a slowed clock) still moves slow bodies at Goodsprings; steps of 1/3000 s (a 2 % kill
+/// camera at 60 Hz before it) did not move them at all [observed: this test].
+#[test]
+fn slow_bodies_far_from_the_origin_move_at_the_shortest_step() {
+    for speed in [5.0f32, 10.0, 20.0, 50.0] {
+        let share = share_moved(-68000.0, speed, 1.0 / 240.0);
+        assert!((0.7..1.3).contains(&share), "{speed} units/s at 1/240 s: {share}");
+    }
+    assert_eq!(share_moved(-68000.0, 10.0, 1.0 / 3000.0), 0.0, "1/3000 s steps leave a body at 10 units/s where it is");
+}
+
+#[test]
+#[ignore]
+fn probe_slow_steps_far_from_the_origin() {
+    for (x0, label) in [(-68000.0f32, "goodsprings"), (-150000.0, "far")] {
+        for dt in [1.0 / 60.0f32, 1.0 / 240.0, 1.0 / 500.0, 1.0 / 1000.0, 1.0 / 3000.0] {
+            let mut line = format!("{label} dt 1/{:.0}:", 1.0 / dt);
+            for speed in [5.0f32, 10.0, 20.0, 50.0, 100.0, 200.0] {
+                let mut w = PhysWorld::new(PhysParams::default());
+                w.set_step(dt);
+                w.add_ref(&at(0x99, [x0, 4800.0, 9000.0]), &[object(boxed([3.0, 3.0, 3.0]), Motion::Dynamic)]);
+                w.step();
+                w.set_ref_velocity(0x99, 0, speed);
+                let b0 = w.ref_bodies(0x99)[0];
+                let n = (0.25 / dt).round() as usize;
+                for _ in 0..n {
+                    w.step();
+                }
+                let b = w.ref_bodies(0x99)[0];
+                line += &format!(" {speed}u/s {:.0}%", (b.translation[0] - b0.translation[0]) / (speed * n as f32 * dt) * 100.0);
+            }
+            eprintln!("{line}");
+        }
+    }
+}
+
 #[test]
 fn character_ceiling_stops_jump() {
     let mut w = ground();

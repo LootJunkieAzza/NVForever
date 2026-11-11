@@ -90,6 +90,8 @@ struct Wrecks {
     /// The models' bodies, by model path (read once; `None`: not read).
     cache: HashMap<String, Option<Arc<Ragdoll>>>,
     count: u32,
+    /// The world's stepped game seconds when [`follow`] last ran (`PhysWorld::stepped_secs`).
+    stepped: Option<f64>,
 }
 
 pub struct WrecksPlugin;
@@ -201,7 +203,6 @@ fn fall(
 
 /// The fallen wrecks' bodies move their nodes.
 fn follow(
-    time: Res<Time>,
     mut wrecks: ResMut<Wrecks>,
     phys: Option<ResMut<PhysState>>,
     parents: Query<&ChildOf>,
@@ -209,7 +210,12 @@ fn follow(
     mut transforms: Query<&mut Transform>,
 ) {
     let Some(mut phys) = phys else { return };
-    let dt = time.delta_secs();
+    // The game time physics stepped since the last frame (as for corpses, `ragdoll::pose`):
+    // none while a menu holds the world, and under a slowed clock the steps' own length.
+    // Counting the frame's time, a part judged calm or held could be set at rest while no
+    // step had moved it.
+    let now = phys.world.stepped_secs();
+    let dt = wrecks.stepped.replace(now).map_or(0.0, |was| (now - was).max(0.0) as f32);
     for (&id, f) in wrecks.fallen.iter_mut() {
         let Some(bodies) = phys.world.ragdoll_nodes(id) else { continue };
         // Drawn between the last two physics steps (`fnv_phys::drawn`); judged where the
