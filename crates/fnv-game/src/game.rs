@@ -1743,6 +1743,8 @@ pub struct Game<'a> {
     /// Where the stack stood when the outermost run (or this thread's part of the nesting)
     /// began ([`Game::nested`]).
     stack_base: usize,
+    /// [`STACK_HOP`]; lower only in tests ([`Game::set_stack_hop`]).
+    stack_hop: usize,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
     /// The (script record, opcode) pairs whose call on an empty reference was already
@@ -2432,6 +2434,7 @@ impl<'a> Game<'a> {
             runs_open: 0,
             run_steps: 0,
             stack_base: 0,
+            stack_hop: STACK_HOP,
             stop_run: false,
             empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
@@ -2778,24 +2781,51 @@ impl<'a> Game<'a> {
         self.runs_open = self.runs_open.saturating_sub(1);
     }
 
+    /// Tests: the stack the nesting may use before a nested run moves to a thread of its
+    /// own ([`STACK_HOP`] otherwise; 0 moves every nested run).
+    #[doc(hidden)]
+    pub fn set_stack_hop(&mut self, bytes: usize) {
+        self.stack_hop = bytes;
+    }
+
     /// Run a nested script run `f`: here, or, when this thread's script nesting has used
     /// more than [`STACK_HOP`] of its stack, on a new thread of [`STACK_SEGMENT`] while this
-    /// one waits (#1991, the deepest nesting needs more than a 1 MiB main thread). A
-    /// panic in it goes on in the caller; if no thread can be started it runs here.
+    /// one waits (#1991, the deepest nesting needs more than a 1 MiB main thread). The
+    /// host's answerers lent on this thread ([`crate::ray::with_caster`],
+    /// [`crate::nav_ask::with_nav`]) are lent on that one too, so a ray cast or a navmesh
+    /// question gets the same answer however deep it is asked. A panic in it goes on in
+    /// the caller; if no thread can be started it runs here.
     fn nested<R: Send>(&mut self, f: impl FnOnce(&mut Self) -> R + Send) -> R
     where
         Self: Send,
     {
-        if self.runs_open == 0 || self.stack_base.abs_diff(stack_here()) <= STACK_HOP {
+        if self.runs_open == 0 || self.stack_base.abs_diff(stack_here()) <= self.stack_hop {
             return f(self);
         }
+        /// The caller's lent answerers, carried to the new thread.
+        struct Lent(Option<*const crate::ray::Cast<'static>>, Option<*const (dyn crate::nav_ask::NavAsk + 'static)>);
+        // SAFETY: the pointers are only used on the new thread while this one is blocked
+        // in its `join` (the scope below ends before `with_caster` / `with_nav` on this
+        // thread can return), so their referents are alive and nothing else uses them
+        // meanwhile; the spawn and the join order the two threads' accesses.
+        unsafe impl Send for Lent {}
+        impl Lent {
+            /// The pointers out (a method on the whole, so the closure below moves the
+            /// whole `Lent`, not its fields one by one).
+            fn into_parts(self) -> (Option<*const crate::ray::Cast<'static>>, Option<*const (dyn crate::nav_ask::NavAsk + 'static)>) {
+                (self.0, self.1)
+            }
+        }
+        let lent = Lent(crate::ray::lent(), crate::nav_ask::lent());
         let mut f = Some(f);
         let hopped = std::thread::scope(|s| {
             let (game, f) = (&mut *self, &mut f);
             let spawned = std::thread::Builder::new().name("nvf-script-nest".into()).stack_size(STACK_SEGMENT).spawn_scoped(s, move || {
+                let (caster, nav) = lent.into_parts();
                 let f = f.take().expect("the nested run is taken once");
                 let base = std::mem::replace(&mut game.stack_base, stack_here());
-                let r = f(game);
+                // SAFETY: as for `Lent` above: lent only while the caller waits.
+                let r = unsafe { crate::ray::lend(caster, || crate::nav_ask::lend(nav, || f(&mut *game))) };
                 game.stack_base = base;
                 r
             });
