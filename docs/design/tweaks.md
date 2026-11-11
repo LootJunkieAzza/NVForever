@@ -543,6 +543,7 @@ unless the player binds them, so nothing changes until then.
 | (already so) | `bDisplayItemEffectTotals` | `Game::aid_preview` counts an effect over time whole, so the EFFECTS figure is the total; the per-second breakdown is not shown |
 | Map Zooms at the Pointer | `bBetterMapZoom` | `pipboy::data::take_input` adds a drag of the pointer's offset from `MAP_MID` times (1 − growth) after a wheel zoom, so the place under it stays (both maps; the world map's edge clamp still applies) |
 | Console Homes | `bAddSetHomeCommand` | `console::typing` takes `sethome`, `home`, `back` and `delhome` (an optional name, "home" without one) while `Console::homes_on`; the homes are travels kept for the session, not saved |
+| Screenshot Key | `iScreenshotKey` | nvforever `keys` takes the picture on `tweaks::screenshot_key`: F12, Print Screen, F11, Scroll Lock or Pause (`SCREENSHOT_KEYS`, keys nothing else takes) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -564,8 +565,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 469 |
-| to do | 134 |
+| done | 470 |
+| to do | 133 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1113,6 +1114,7 @@ game's Data folder, read-only).
 | `iPrevRadioStationKey` | done |  | 1 | already so: [ steps to the previous station in the Pip-Boy |
 | `iRadioVolumeDownKey` | done |  | 1 | Radio Volume Down key |
 | `iRadioVolumeUpKey` | done |  | 1 | Radio Volume Up key (a tenth of the Radio volume) |
+| `iScreenshotKey` | done |  | 1 | Screenshot Key (a choice of five) |
 | `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
 | `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |
 | `iTogglePipboyLightKey` | done |  | 2 | a Controls key: Pip-Boy Light (the night vision part not built) |
@@ -1123,7 +1125,6 @@ game's Data folder, read-only).
 | `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
 | `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
 | `iRepeatActivateKey` | to do |  | 2 | activate is at 16 params; a timer in a tuple |
-| `iScreenshotKey` | to do |  | 1 | not built: no player screenshot key outside F12 in nvforever |
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
 | `iToggleSightingNodeHotkey` | to do |  | 2 | a second sighting node path per weapon |
 

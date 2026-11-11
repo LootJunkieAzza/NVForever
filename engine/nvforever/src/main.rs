@@ -2028,13 +2028,15 @@ fn keys(
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
     mut n: Local<u32>,
+    tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
 ) {
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
-    if input.just_pressed(KeyCode::F12) {
+    // The player's Screenshot Key tweak picks the key (docs/design/tweaks.md).
+    if input.just_pressed(nvf_play::tweaks::screenshot_key(tweaks.as_deref())) {
         *n += 1;
         let path = format!("nvforever-{:03}.png", *n);
         commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));

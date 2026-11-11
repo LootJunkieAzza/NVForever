@@ -389,6 +389,8 @@ pub struct TweakSettings {
     pub hide_hotkeyed_repair: bool,
     /// `bAddSetHomeCommand`: the console's `sethome`, `home`, `back` and `delhome`.
     pub console_homes: bool,
+    /// `iScreenshotKey`: which of [`SCREENSHOT_KEYS`] takes a screenshot.
+    pub screenshot_key: usize,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -410,6 +412,15 @@ pub const CONSOLE_KEYS: [(KeyCode, &str); 6] = [(KeyCode::Backquote, "` (default
 /// The key that opens the console under the iConsoleKey tweak.
 pub fn console_key(t: Option<&TweakSettings>) -> KeyCode {
     CONSOLE_KEYS[t.map_or(0, |t| t.console_key).min(CONSOLE_KEYS.len() - 1)].0
+}
+
+/// The keys a screenshot may be taken with, NVForever's own first; ones nothing else in
+/// the game takes [design: docs/design/tweaks.md].
+pub const SCREENSHOT_KEYS: [(KeyCode, &str); 5] = [(KeyCode::F12, "F12 (default)"), (KeyCode::PrintScreen, "Print Screen"), (KeyCode::F11, "F11"), (KeyCode::ScrollLock, "Scroll Lock"), (KeyCode::Pause, "Pause")];
+
+/// The key that takes a screenshot under the iScreenshotKey tweak.
+pub fn screenshot_key(t: Option<&TweakSettings>) -> KeyCode {
+    SCREENSHOT_KEYS[t.map_or(0, |t| t.screenshot_key).min(SCREENSHOT_KEYS.len() - 1)].0
 }
 
 /// The walk-angle choices: 30 to 80 degrees by 5; 45 is the physics' own.
@@ -606,6 +617,7 @@ impl Default for TweakSettings {
             hide_hotkeyed_barter: false,
             hide_hotkeyed_repair: false,
             console_homes: false,
+            screenshot_key: 0,
         }
     }
 }
@@ -1552,6 +1564,25 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hide-hotkeyed-repair", "Hide Hotkeyed Items in Repair", "Things on a hotkey are not offered as parts when repairing in the Pip-Boy. (Stewie's Tweaks bHideHotkeyedItemsInRepairLists)", hide_hotkeyed_repair);
         switch!(app, "map-zoom-at-pointer", "Map Zooms at the Pointer", "The mouse wheel zooms the Pip-Boy's maps in and out about the place under the pointer, not the middle. (Stewie's Tweaks bBetterMapZoom)", game.map_zoom_at_pointer);
         switch!(app, "console-homes", "Console Homes", "The console gets sethome [name] (remember this spot), home [name] (go there), back (return from where home or back left) and delhome [name]; homes last until you quit. (Stewie's Tweaks bAddSetHomeCommand)", console_homes);
+        add_setting(
+            app,
+            Setting::slider(
+                "tweak-screenshot-key",
+                GROUP,
+                "Screenshot Key",
+                "The key that saves a picture of the screen. (Stewie's Tweaks iScreenshotKey)",
+                Slider::choice(
+                    SCREENSHOT_KEYS.len(),
+                    |w| choice_part(w.get_resource::<TweakSettings>().map_or(0, |t| t.screenshot_key).min(SCREENSHOT_KEYS.len() - 1), SCREENSHOT_KEYS.len()),
+                    |w, v| {
+                        if let Some(mut t) = w.get_resource_mut::<TweakSettings>() {
+                            t.screenshot_key = choice_index(v, SCREENSHOT_KEYS.len());
+                        }
+                    },
+                    |v| SCREENSHOT_KEYS[choice_index(v, SCREENSHOT_KEYS.len())].1.to_string(),
+                ),
+            ),
+        );
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
