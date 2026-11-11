@@ -150,6 +150,9 @@ pub struct PhysRate {
     pub frame_secs: Option<f64>,
     /// The guard's switches since the start (for the exit report).
     pub switches: u32,
+    /// The clock runs slow or fast and the step follows it ([`crate::phys::paced_step`]): the
+    /// guard leaves such frames out, their cost is not the rate's.
+    pub paced: bool,
 }
 
 /// The most steps one frame runs at `hz` steps a second: [`MAX_FRAME_SECONDS`] of them
@@ -334,7 +337,7 @@ fn source(forced: Option<RateChoice>, choice: RateChoice, display: Option<u32>) 
 
 /// The rate in effect and the step for the game's clock, before the physics steps
 /// (module notes): the choice, the guard's limit, the clock's speed.
-fn pace(virt: Res<Time<Virtual>>, forced: Option<Res<ForcedRate>>, screen: Res<DisplayPace>, mut rate: ResMut<PhysRate>, mut phys: ResMut<PhysState>, mut told: Local<Option<f32>>) {
+fn pace(virt: Res<Time<Virtual>>, forced: Option<Res<ForcedRate>>, screen: Res<DisplayPace>, mut rate: ResMut<PhysRate>, mut phys: ResMut<PhysState>, mut told: Local<Option<(f32, f32)>>) {
     let forced = forced.map(|f| f.0);
     let choice = forced.unwrap_or(rate.setting);
     let wanted = choice.hz(screen.0);
@@ -360,15 +363,24 @@ fn pace(virt: Res<Time<Virtual>>, forced: Option<Res<ForcedRate>>, screen: Res<D
         phys.stepper.rescale(phys.world.params.dt, dt);
         phys.world.set_step(dt);
     }
-    // Once a change of pace, not every frame of an easing clock.
+    // Once a change of pace, not every frame of an easing clock; at its end, the slowest
+    // clock it reached and the step then.
     let paced = dt != full;
+    rate.paced = paced;
     if told.is_some() != paced {
-        *told = paced.then_some(dt);
         if paced {
             info!("phys: the clock runs at {speed:.2}: the step follows it, {:.2} ms ({:.0} steps a real second)", dt * 1000.0, speed / dt);
-        } else {
-            info!("phys: the clock is back at full speed: the step is {:.2} ms again", dt * 1000.0);
+        } else if let Some((slowest, step)) = *told {
+            info!(
+                "phys: the clock is back at full speed: the step is {:.2} ms again (the clock was at {slowest:.2} at its slowest, the step {:.2} ms, {:.0} steps a real second)",
+                dt * 1000.0,
+                step * 1000.0,
+                slowest / step
+            );
         }
+        *told = paced.then_some((speed, dt));
+    } else if let Some(t) = told.as_mut().filter(|t| speed < t.0) {
+        *t = (speed, dt);
     }
 }
 
@@ -381,7 +393,9 @@ pub const GUARD_VAR: &str = "NVF_PHYS_RATE_GUARD";
 fn guard(real: Res<Time<Real>>, mut rate: ResMut<PhysRate>, mut off: Local<Option<bool>>) {
     let Some(physics) = rate.frame_secs.take() else { return };
     let (hz, wanted) = (rate.hz, rate.wanted);
-    if hz == 0 {
+    // A slowed clock (VATS, a kill camera) takes fewer or shorter steps: its frames say
+    // nothing about what the rate costs, and are not judged.
+    if hz == 0 || rate.paced {
         return;
     }
     let off = *off.get_or_insert_with(|| {
@@ -468,6 +482,26 @@ mod tests {
         assert_eq!(catch_up_steps(240), 60);
         // As play_params has at 60.
         assert_eq!(catch_up_steps(60), crate::phys::play_params().max_substeps);
+    }
+
+    #[test]
+    fn a_slowed_clock_shortens_the_step_down_to_the_shortest_one() {
+        use crate::phys::{paced_step, SHORTEST_STEP};
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-9;
+        // At 60: half speed halves the step; a quarter is the shortest step itself.
+        assert!(close(paced_step(1.0 / 60.0, 0.5), 1.0 / 120.0));
+        assert!(close(paced_step(1.0 / 60.0, 0.25), SHORTEST_STEP));
+        // A kill camera's 0.12, VATS marking's 0.05 and the slowest 0.02: never shorter.
+        for full in [1.0 / 60.0f32, 1.0 / 152.0, 1.0 / 240.0] {
+            for speed in [0.12f32, 0.05, 0.02, 0.001] {
+                let dt = paced_step(full, speed);
+                assert!(dt >= SHORTEST_STEP - 1e-9 && dt <= full, "{full} at {speed}: {dt}");
+            }
+        }
+        // Full speed, stopped, a faster clock: as before.
+        assert_eq!(paced_step(1.0 / 152.0, 1.0), 1.0 / 152.0);
+        assert_eq!(paced_step(1.0 / 152.0, 0.0), 1.0 / 152.0);
+        assert!(close(paced_step(1.0 / 60.0, 8.0), 2.0 / 60.0));
     }
 
     #[test]

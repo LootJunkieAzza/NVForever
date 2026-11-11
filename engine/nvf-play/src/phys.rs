@@ -1833,13 +1833,27 @@ pub const SLOWEST_PACED: f32 = 0.02;
 /// steps a real second].
 pub const FASTEST_PACED: f32 = 4.0;
 
+/// The shortest step the physics takes, seconds: the full-speed step of the highest rate
+/// (1/240 s, `crate::phys_rate::MAX_HZ`). rapier keeps positions in f32 metres from the
+/// worldspace's origin, and a shorter step moves a slow body by less than the position can
+/// show, so it stands still [observed: `probe_slow_steps_far_from_the_origin`,
+/// crates/fnv-phys/tests/synthetic.rs, 2026-11-11: at Goodsprings (x -68,000) a body at
+/// 5-20 units/s did not move at all over steps of 1/3000 s, the step of a 2 % kill camera
+/// at 60 Hz; at 1/240 s it moved 82-102 % of its way; 150,000 units out, 1/3000 s stopped
+/// everything under 200 units/s]. Under a clock slower than a quarter (VATS, kill cameras)
+/// there are fewer steps a real second than the rate: what moves is drawn between steps
+/// (`fnv_phys::drawn`), so it moves smoothly still, and each step stays one the positions
+/// can resolve.
+pub const SHORTEST_STEP: f32 = 1.0 / 240.0;
+
 /// The fixed step for a clock running at `speed` of full speed, the usual step `full`
 /// (`1/rate`, `crate::phys_rate`): that share of it while the clock runs slow, so the
-/// physics takes as many steps a real second as at full speed; the usual one at full speed,
-/// stopped or up to [`FASTEST_PACED`]; past that, longer by what the clock is over it.
+/// physics takes as many steps a real second as at full speed, down to [`SHORTEST_STEP`];
+/// the usual one at full speed, stopped or up to [`FASTEST_PACED`]; past that, longer by
+/// what the clock is over it.
 pub fn paced_step(full: f32, speed: f32) -> f32 {
     if speed > 0.0 && speed < 1.0 {
-        full * speed.max(SLOWEST_PACED)
+        (full * speed.max(SLOWEST_PACED)).max(SHORTEST_STEP.min(full))
     } else if speed > FASTEST_PACED {
         full * speed / FASTEST_PACED
     } else {
