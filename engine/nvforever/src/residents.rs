@@ -279,6 +279,36 @@ fn hop_or_obstacle(phys: &mut PhysState, id: u32, f: &fnv_nav::Follower, walker:
 /// The walker takes the last stretch of a walk, game units [our choice].
 const LAST_STRETCH: f32 = 64.0;
 
+/// A co-op guest's drawn copy of the host's actor a frame's move longer than its run
+/// would cover, up to this far (units), is caught up over a few frames rather than put
+/// on at once [design: the Nipton survivor, running about 516 units/s between his
+/// patrol points, was "put 49-57 units on in one frame" on a guest 10 times in a run
+/// (laptop ship5 s187-nipton) [observed]; a script's move goes further].
+const CATCH_UP_MAX: f32 = 128.0;
+/// A drawn body's move in one frame longer than this (units) is logged as a jump
+/// (`draw_and_place`) [design: as `nav::PLACED_STEP`].
+const PLACED_JUMP: f32 = 48.0;
+/// The run speed (units/s) taken for an actor with none known.
+const CATCH_UP_SPEED: f32 = 500.0;
+/// How much faster than its run a guest's copy catches up [design: a 50-unit lag at a
+/// 516 units/s run is gone in three frames at 60 fps].
+const CATCH_UP_RATE: f32 = 2.0;
+
+/// Where a guest draws the host's actor this frame: from where it was drawn (`from`)
+/// towards where the host has it (`to`), at most [`CATCH_UP_RATE`] times its run speed
+/// (`run`, units/s) in `dt` seconds; at `to` at once when that is further than
+/// [`CATCH_UP_MAX`] (a placement) or within a frame's catch-up.
+fn catch_up(from: [f32; 3], to: [f32; 3], run: f32, dt: f32) -> [f32; 3] {
+    let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    let far = (d[0] * d[0] + d[1] * d[1]).sqrt();
+    let reach = CATCH_UP_RATE * run.max(1.0) * dt.max(0.0);
+    if far > CATCH_UP_MAX || far <= reach {
+        return to;
+    }
+    let k = reach / far;
+    [from[0] + d[0] * k, from[1] + d[1] * k, from[2] + d[2] * k]
+}
+
 /// The length of one update of the walks of an hour passed in the Wait menu, seconds
 /// [our choice].
 const WAITED_STEP: f32 = 0.25;
@@ -3408,12 +3438,36 @@ pub fn drive(
         // collision as a character's would.
         // A co-op guest's actor the host draws: where the host draws it.
         let feet = if remote.is_some_and(|m| m.contains_key(&r.actor.0)) {
-            w.feet
+            // A short jump of where the host has it is caught up at a run's pace
+            // ([`catch_up`]), not put on in one frame; a long one (a script's move) is.
+            let drawn_last = r.spawned && visible && r.last_space == Some(w.space);
+            let top = if core.ai.agents.contains_key(&r.actor) { core.ai.alert_speeds(r.actor).run.max(core.ai.calm_speeds(r.actor).run) } else { CATCH_UP_SPEED };
+            if drawn_last {
+                catch_up(r.drawn_feet, w.feet, top, dt)
+            } else {
+                w.feet
+            }
         } else {
             phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet)))
         };
         let step = [feet[0] - r.drawn_feet[0], feet[1] - r.drawn_feet[1]];
         let moving = agent.activity == Activity::Travelling && step[0].hypot(step[1]) > 1e-4;
+        // Its own actor's drawn body put further on in a frame than any run goes (not a
+        // guest's copy, not through a door or a script's move): what the AI was doing,
+        // to find where a host's jump comes from (the Nipton survivor on a guest, item 187).
+        if remote.is_none() && visible && r.spawned && !on && !moved && r.last_space == Some(w.space) && step[0].hypot(step[1]) > PLACED_JUMP.max(2000.0 * dt) {
+            let in_phys = phys.as_deref().is_some_and(|p| p.npcs.contains_key(&r.actor.0));
+            info!(
+                "ai: {} ({:08X}) drawn {:.0} units on in one frame: {:?}, {}, walker moving {}, follower {}",
+                r.label,
+                r.actor.0,
+                step[0].hypot(step[1]),
+                agent.activity,
+                if in_phys { "physics character" } else { "no physics character" },
+                w.moving,
+                w.follower.is_some()
+            );
+        }
         if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {
             let unmoved = (w.feet[0] - r.last_feet[0]).hypot(w.feet[1] - r.last_feet[1]) <= 1e-4;
             core.walk_frames[0] += 1;
@@ -3910,6 +3964,28 @@ mod tests {
         let other = Now { wants: Some(8), ..now };
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, true), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
         assert_eq!(next_seat(Seat::Ordered(7, true), true, true, &other, false), (Seat::GettingUp(7), Some(SeatOrder::GetUp)));
+    }
+
+    /// A guest's copy of a runner the host's state puts 52 units on is caught up over a
+    /// few frames, never more than a frame's run-and-a-bit at once; a script's move of
+    /// 1000 units is put there at once (item 187, the Nipton survivor).
+    #[test]
+    fn a_guests_copy_catches_up_a_short_jump_and_takes_a_long_one() {
+        use super::catch_up;
+        let dt = 1.0 / 60.0;
+        let mut drawn = [0.0, 0.0, 0.0];
+        let mut frames = 0;
+        while drawn != [52.0, 0.0, 0.0] {
+            let next = catch_up(drawn, [52.0, 0.0, 0.0], 516.0, dt);
+            assert!(next[0] - drawn[0] < 48.0, "put {} units on in one frame", next[0] - drawn[0]);
+            drawn = next;
+            frames += 1;
+            assert!(frames < 10, "still not there after {frames} frames");
+        }
+        assert!(frames >= 3, "caught up in {frames} frames");
+        assert_eq!(catch_up([0.0; 3], [1000.0, 0.0, 0.0], 516.0, dt), [1000.0, 0.0, 0.0]);
+        // A frame's own run is drawn as it comes.
+        assert_eq!(catch_up([0.0; 3], [8.0, 0.0, 0.0], 516.0, dt), [8.0, 0.0, 0.0]);
     }
 
     #[test]
