@@ -196,23 +196,29 @@ pub struct FosItem {
     /// The change against the base form's inventory [hypothesis: the Pip-Boy, which the
     /// player's base carries, is listed worn with 0].
     pub count: i32,
+    /// An extra data list carries the worn marker (type 0x16) [hypothesis: worn].
+    pub worn: bool,
 }
 
 /// The player's state that the lab reads.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FosPlayer {
     /// The worldspace (outdoors) or interior cell, position and rotation (radians).
-    pub place: Option<(u32, [f32; 3], [f32; 3])>,
+    pub place: Option<Place>,
     /// Strength … Luck from the player's base form (NPC_ 0x7, change flag 2).
     pub special: Option<[u8; 7]>,
     /// Tag skills, as actor value codes (PlayerClass, change flag 1).
     pub tag_skills: Vec<u32>,
-    /// The first array of actor-value modifiers by code (§6.2), non-zero entries
-    /// [hypothesis: the permanent modifiers; skill points spent are here].
+    /// The first array of actor-value modifiers by code (§6.4), non-zero entries
+    /// [observed: nvfairport's equal the worn Vault 21 Jumpsuit's enchantment; hypothesis:
+    /// active effects' modifiers].
     pub av_modifiers: Vec<(u32, f32)>,
     /// The inventory changes, `None` when the record's layout was not understood.
     pub inventory: Option<Vec<FosItem>>,
 }
+
+/// A cell or worldspace, a position and a rotation (radians).
+pub type Place = (u32, [f32; 3], [f32; 3]);
 
 /// Form flag bits in a reference's saved flag word (change flag 0, save-files.md §6.2)
 /// [hypothesis, each from the references that carry it]: removed from the world (the
@@ -231,7 +237,7 @@ pub struct FosRefChange {
     /// The reference's whole form flag word, when the save lists it (change flag 0).
     pub form_flags: Option<u32>,
     /// The cell or worldspace, position and rotation (radians), when moved.
-    pub place: Option<(u32, [f32; 3], [f32; 3])>,
+    pub place: Option<Place>,
 }
 
 /// A faction's saved relation list (FACT change flag 2) [observed: nvfairport's
@@ -568,7 +574,7 @@ impl Fos {
     }
 
     /// A place: a cell or worldspace reference, six f32 (position, rotation), `|`.
-    fn place(&self, c: &mut Cur<'_>) -> Result<Option<(u32, [f32; 3], [f32; 3])>, FosError> {
+    fn place(&self, c: &mut Cur<'_>) -> Result<Option<Place>, FosError> {
         let at = self.reference(c.ref3()?)?;
         let mut v = [0f32; 6];
         for x in &mut v {
@@ -663,13 +669,17 @@ impl Fos {
             c.bar()?;
             let lists = c.vsval()?;
             c.bar()?;
+            let mut worn = false;
             for _ in 0..lists {
                 let extras = c.vsval()?;
                 c.bar()?;
                 for _ in 0..extras {
                     let size = match c.u8()? {
                         // worn
-                        0x16 => 0,
+                        0x16 => {
+                            worn = true;
+                            0
+                        }
                         // a reference (an owner)
                         0x21 => 3,
                         // condition (f32)
@@ -683,7 +693,7 @@ impl Fos {
                     }
                 }
             }
-            items.push(FosItem { item, count });
+            items.push(FosItem { item, count, worn });
         }
         Ok(items)
     }
@@ -870,7 +880,7 @@ mod tests {
         assert_eq!(p.special, Some([5, 6, 5, 5, 5, 5, 10]));
         assert_eq!(p.tag_skills, [38, 43, 44]);
         assert_eq!(p.av_modifiers, [(38, 2.0)]);
-        assert_eq!(p.inventory.unwrap(), [FosItem { item: Some(0x15169), count: 9 }, FosItem { item: Some(0x15169), count: 1 }]);
+        assert_eq!(p.inventory.unwrap(), [FosItem { item: Some(0x15169), count: 9, worn: false }, FosItem { item: Some(0x15169), count: 1, worn: true }]);
     }
 
     /// The player record with other data in place of the test save's.

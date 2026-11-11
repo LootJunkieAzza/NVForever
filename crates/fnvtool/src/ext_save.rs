@@ -12,8 +12,6 @@ use fnv_save::{PluginEntry, PluginRemap};
 use fnv_sim::{FormId, FormStore, RefTable};
 use serde_json::{json, Map, Value};
 
-/// Skill actor value codes, Barter … Unarmed.
-const SKILLS: std::ops::RangeInclusive<u32> = 32..=45;
 /// Strength's actor value code; SPECIAL follow in order.
 const STRENGTH: u32 = 5;
 
@@ -149,6 +147,11 @@ pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> an
         }
     }
 
+    // The player's name: the header's, which is also the player base's (save-files.md §6.2).
+    if !fos.header.player_name.is_empty() {
+        given.push(json!({"kind": "name", "of": hex(fnv_save::fos::PLAYER_BASE), "name": fos.header.player_name}));
+    }
+
     let p = fos.player()?;
     if let Some(special) = p.special {
         for (i, v) in special.iter().enumerate() {
@@ -158,12 +161,11 @@ pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> an
     if !p.tag_skills.is_empty() {
         given.push(json!({"kind": "tag_skills", "skills": p.tag_skills.iter().map(u32::to_string).collect::<Vec<_>>()}));
     }
-    for (code, v) in &p.av_modifiers {
-        if SKILLS.contains(code) {
-            given.push(json!({"kind": "skill_points", "skill": code.to_string(), "value": *v as f64}));
-        } else {
-            skip("actor value modifier", "not a skill");
-        }
+    // The first modifier array holds active effects' modifiers, such as the worn Vault 21
+    // Jumpsuit's Speech +2 and Melee Weapons +2 (save-files.md §6.4): the worn items put
+    // on below bring them, so they are not given again.
+    for _ in &p.av_modifiers {
+        skip("actor value modifier", "an active effect's, brought by what is worn");
     }
     match &p.inventory {
         Some(items) => {
@@ -171,6 +173,13 @@ pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> an
                 match it.item.ok_or("not in the save's form ID array").and_then(map) {
                     Ok(id) => given.push(json!({"kind": "item_change", "of": "player", "item": hex(id), "change": it.count})),
                     Err(why) => skip("item", why),
+                }
+            }
+            // Worn after every count is in place.
+            for it in items.iter().filter(|it| it.worn) {
+                match it.item.ok_or("not in the save's form ID array").and_then(map) {
+                    Ok(id) => given.push(json!({"kind": "equip", "of": "player", "item": hex(id)})),
+                    Err(why) => skip("worn item", why),
                 }
             }
         }

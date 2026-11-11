@@ -125,6 +125,10 @@ pub enum Given {
     FactionReaction { faction: String, other: String, reaction: i64 },
     /// The Pip-Boy's active quest, as ForceActiveQuest leaves it.
     ActiveQuest { quest: String },
+    /// An item the actor carries, worn or held (a save's worn items).
+    Equip { of: String, item: String },
+    /// A base form's name, as SetName leaves it (the player's name in a save).
+    Name { of: String, name: String },
     /// The player's fame and infamy with a reputation (round 3, layer5-captures.md §9.2).
     Reputation {
         rep: String,
@@ -941,6 +945,16 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             let (f, o) = (resolve(g, faction)?, resolve(g, other)?);
             g.forms.faction_reactions.entry(f).or_default().insert(o, *reaction);
             crate::functions::actor::forget_relations(g);
+        }
+        Given::Equip { of, item } => {
+            let (of, item) = (resolve(g, of)?, resolve(g, item)?);
+            if !g.world.peek(of).and_then(|s| s.inventory.as_ref()).is_some_and(|i| i.is_equipped(item)) {
+                g.world.equip(of, item).map_err(|e| e.to_string())?;
+            }
+        }
+        Given::Name { of, name } => {
+            let f = resolve(g, of)?;
+            g.name_overrides.insert(f, name.clone());
         }
         Given::ActiveQuest { quest: name } => {
             let q = quest(g, name)?;

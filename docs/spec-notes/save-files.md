@@ -345,7 +345,7 @@ Read in the 19 `nvf*.fos` saves of the owner's `Saves` folder (2026-11-01; flags
 | Part | Encoding | Notes |
 |---|---|---|
 | place | ref, six f32, `\|` | the worldspace outdoors (WastelandNV, TheStripWorldNew) or the interior cell (GSDocMitchellHouse), position, rotation in radians (nvfairport: z 1.309 = 75°) |
-| actor values | 232 × (f32, `\|`) | three arrays of 77 (the actor value count) and one more entry. First array: 2.0 at codes 38 (Melee Weapons) and 43 (Speech) in 17 saves, 2.0 at code 5 (Strength) in the two level-50 saves (nvfLanius, nvfSlides). Second array: code 24 holds 10 in nvfairport, 143 to 3,419 in mid-game saves and 186,200 in the level-50 ones, code 23 holds 50 to 1,000 [hypothesis: the first is the permanent modifiers, where skill points spent go; the second the base values that play changes, experience (24) and karma (23)]. nvfairport's Melee is 34 = 2 + 2 × 5 + ⌈10 × 0.5⌉ + 15 tag + 2, which matches its probe |
+| actor values | 232 × (f32, `\|`) | three arrays of 77 (the actor value count) and one more entry. First array: 2.0 at codes 38 (Melee Weapons) and 43 (Speech) in 17 saves, 2.0 at code 5 (Strength) in the two level-50 saves (nvfLanius, nvfSlides). Second array: code 24 holds 10 in nvfairport, 143 to 3,419 in mid-game saves and 186,200 in the level-50 ones, code 23 holds 50 to 1,000 [hypothesis: the second is the base values that play changes, experience (24) and karma (23)]. The first is not skill points spent, as read on 2026-11-01: nvfairport's +2 Melee Weapons and +2 Speech are exactly the enchantment of the Vault 21 Jumpsuit it wears (VaultSuit21's EITM EnchClothingVaultSuitNormal, Speech 2 and Melee Weapons 2) [observed, 2026-11-11]: giving them as skill points and putting the suit on counted them twice (Melee 36 against the probe's 34). [hypothesis: active effects' modifiers.] nvfairport's Melee is 34 = 2 + 2 × 5 + ⌈10 × 0.5⌉ + 15 tag + 2 (the suit), which matches its probe |
 | unknown | u8, `\|`, f32 (1.0), `\|`, vsval, `\|`, u8 (0x5E), `\|`, vsval n, `\|`, n × (ref, `\|`, u8, `\|`), u8 (0x18), `\|`, ref, `\|`, three f32, `\|`, f32, `\|` | the same shape in every save but nvfLanius, whose entries do not fit it |
 | bit 29 | `74 \|` ref `\|` | present when change flag 29 is set; in four saves (nvf1topsym, nvf38door, nvf47suite, nvfBoone) it is followed by more entries (`1D \| 04 \| …`) whose sizes are not known, and the reader stops there |
 | inventory | vsval count, `\|`, then per item: ref, `\|`, i32 count, `\|`, vsval lists, `\|`, per list: vsval extras, `\|`, per extra: type byte, `\|`, payload, `\|` | nvfairport: 27 items, the same 27 kinds its probes counted |
@@ -365,13 +365,15 @@ skills as actor value codes and −1 (38, 43, 44: Melee Weapons, Speech, Surviva
 Global table 1 type 1, decoded further: next created ID `|`, world ref `|`, grid x (i32)
 `|`, grid y (i32) `|`, world or cell ref `|`, three f32 `|`, quest ref `|`, u32 `|`, f32 `|`,
 u32 `|`. nvfairport: grid (9, −29), which holds the player's position (37000, −117160)
-[observed].
+[observed]. Its quest ref is 0x0010A214, the quest GetActiveQuest gave in nvfairport's
+gaps4 probe [observed], so it is the active quest.
 
 `fnvtool ext queries --save` gives the runner, in this order: the globals, each quest's
 running/completed bits, stages done and not done, objectives and variables (by the
-script's variable names), SPECIAL as the player's actor values, the tag skills, the skill
-entries of the first modifier array as skill points spent, the inventory as changes on
-top of the new game's, and the place. What it leaves out is counted in its output
+script's variable names), the active quest (global type 1, §6.4), the player's name
+(the header's), SPECIAL as the player's actor values, the tag skills, the inventory as changes on top
+of the new game's, the items it marks worn (extra 0x16) put on, the place, and the references'
+and factions' changes of §6.5. What it leaves out is counted in its output
 (`save.skipped`, by reason): a quest record the reader does not understand (bytes left
 over, a non-empty list after the variables), a form of a plugin not loaded, a form the save
 created (0xFF...), a reference past the form ID array. The inventory's fixed markers
