@@ -699,9 +699,14 @@ pub(crate) fn pose(
             // The physics engine put every body to sleep: nothing moves.
             phys.world.set_ragdoll_at_rest(id);
         } else if slowed {
-            // Slow motion: it moves on freely, neither settling nor held (above).
+            // Slow motion: it moves on freely, not settling (above); calm long enough it is
+            // held as it lies, as before the settle (under 12 units and 0.6 radians a game
+            // second is a twentieth to a quarter of that on screen).
             if c.settle.take().is_some() {
                 phys.world.unsettle_ragdoll(id);
+            }
+            if calm_for >= CALM_TIME {
+                phys.world.set_ragdoll_at_rest(id);
             }
         } else if let Some(s) = c.settle.as_mut() {
             s.elapsed += dt;

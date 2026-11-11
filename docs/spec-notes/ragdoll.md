@@ -212,9 +212,9 @@ does not.
 rest at the end of a time limit (`engine/nvforever/src/ragdoll.rs`), counted in game
 seconds of physics since it started or was roused, so it lasts as long at every physics
 rate. Under a slowed clock (VATS, a kill camera) the limit does not count, no settle
-starts, one settling moves on freely and nothing is held but by the physics engine's own
-sleep, so a corpse moves on, slowed, through the whole slow motion and settles once the
-clock is back [design: the owner, 2026-11-11]:
+starts and one settling moves on freely; only the physics engine's own sleep and the calm
+rule (held at once, no settle) set it at rest, so a corpse moves on, slowed, through the
+whole slow motion and settles once the clock is back [design: the owner, 2026-11-11]:
 
 | What set it moving | Limit | Settle (its last part) |
 |---|---|---|
