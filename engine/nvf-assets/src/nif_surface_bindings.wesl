@@ -36,6 +36,13 @@ struct NifSurface {
     holes_edge: vec4<f32>,
     // Soft intersections: x the fade distance (game units), 0 for none.
     soft: vec4<f32>,
+    // PIPBOY_SCREEN (nif_material.rs NifSurface::pipboy_a): x the roll up (share of the
+    // canvas's height), y the wash (gain 1 - y on display values), z display value added,
+    // w the canvas's share of the texture's height.
+    pipboy_a: vec4<f32>,
+    // PIPBOY_SCREEN (NifSurface::pipboy_b): x the softening's reach (view pixels), y the
+    // noise's reach (display values), z the canvas's share of the texture's width; w unused.
+    pipboy_b: vec4<f32>,
 }
 
 // The extension's index table (indices 50-53 of NifSurface's bindless attribute).
@@ -92,6 +99,21 @@ fn base_color_texel(instance_index: u32, uv: vec2<f32>, bias: f32) -> vec4<f32> 
     @if(BINDLESS) let i = material_indices[material_slot(instance_index)];
     @if(BINDLESS) return textureSampleBias(bindless_textures_2d[i.base_color_texture], bindless_samplers_filtering[i.base_color_sampler], uv, bias);
     @if(!BINDLESS) return textureSampleBias(pbr_bindings::base_color_texture, pbr_bindings::base_color_sampler, uv, bias);
+}
+
+// The base colour texture sampled at `uv` at mip level `level`, with no implicit
+// derivatives (the Pip-Boy screen's taps, nif_material.wesl `pipboy_picture`).
+fn base_color_texel_level(instance_index: u32, uv: vec2<f32>, level: f32) -> vec4<f32> {
+    @if(BINDLESS) let i = material_indices[material_slot(instance_index)];
+    @if(BINDLESS) return textureSampleLevel(bindless_textures_2d[i.base_color_texture], bindless_samplers_filtering[i.base_color_sampler], uv, level);
+    @if(!BINDLESS) return textureSampleLevel(pbr_bindings::base_color_texture, pbr_bindings::base_color_sampler, uv, level);
+}
+
+// The size of the base colour texture (the Pip-Boy screen's taps, nif_material.wesl
+// `pipboy_picture`).
+fn base_color_size(instance_index: u32) -> vec2<u32> {
+    @if(BINDLESS) return textureDimensions(bindless_textures_2d[material_indices[material_slot(instance_index)].base_color_texture]);
+    @if(!BINDLESS) return textureDimensions(pbr_bindings::base_color_texture);
 }
 
 // The normal map sampled at `uv`.

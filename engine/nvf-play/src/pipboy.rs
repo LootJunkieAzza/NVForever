@@ -58,6 +58,7 @@ pub mod repair;
 pub mod sounds;
 pub mod stats;
 mod test_aid;
+pub mod transition;
 
 use crate::control::{PlayerControl, Pov};
 use crate::interface::u;
@@ -502,6 +503,8 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<frame::Kit>()
             .init_resource::<stats::Prepared>()
             .init_resource::<device_screen::ScreenFx>()
+            .init_resource::<transition::PageChange>()
+            .init_resource::<transition::ScreenLook>()
             .init_resource::<repair::PipRepair>()
             .add_message::<repair::RepairInput>()
             .init_resource::<item_mod::PipItemMod>()
@@ -534,7 +537,7 @@ impl Plugin for PipBoyPlugin {
                     // decisions and the frame (`data::prepare`); off, it does nothing.
                     (stats::prepare, data::prepare).chain(),
                     frame::draw,
-                    (device_screen::draw, device_screen::sweep).chain(),
+                    (device_screen::draw, device_screen::sweep, transition::run).chain(),
                     (stats::draw, items::draw, data::draw),
                     (hotkey_panel::draw_over_tiles, data::wave_moves).chain(),
                     stats::use_hints,

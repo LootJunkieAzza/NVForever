@@ -60,7 +60,7 @@ mod outline;
 pub(crate) mod read;
 pub mod travel;
 
-use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
+use super::frame::{Align, Ctx, Hint, Kit, FADE, FILL, LINE, MAIN, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{pipboy_amber as amber, at, u};
 use crate::menu::model::Command;
@@ -2591,7 +2591,7 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
                 }
                 Right::Text { text, first } => st.text_max = note_text(p, c, data + TEXT_AT, text, *first),
                 Right::Image(path) => {
-                    c.image(p, path, at(data.x + DATA_W - IMAGE, data.y + TEXT_AT.y, IMAGE, IMAGE), amber(TEXT));
+                    c.image(p, path, at(data.x + DATA_W - IMAGE, data.y + TEXT_AT.y, IMAGE, IMAGE), c.bright());
                 }
                 Right::Audio { left, played } => audio_meter(p, c, data + Vec2::new(0.0, TEXT_AT.y), *left, *played),
                 Right::Wave { on } => wave(p, c, *on),
@@ -2623,7 +2623,7 @@ fn popup(p: &mut ChildSpawnerCommands, c: &mut Ctx, q: &Popup) {
     p.spawn((at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y), Pickable::default()));
     c.boxed(p, r, amber(LINE), Some(Color::BLACK));
     for (i, l) in lines.iter().enumerate() {
-        c.set(p, 2, l, mid.x, r.min.y + POPUP_PAD + pitch * i as f32, Align::Centre, amber(TEXT));
+        c.set(p, 2, l, mid.x, r.min.y + POPUP_PAD + pitch * i as f32, Align::Centre, c.bright());
     }
     let frame_w = q.buttons.iter().map(|b| c.width(2, b)).fold(0.0, f32::max) + POPUP_FRAME_PAD;
     let top = r.min.y + POPUP_PAD + text_h + POPUP_PAD;
@@ -2635,7 +2635,7 @@ fn popup(p: &mut ChildSpawnerCommands, c: &mut Ctx, q: &Popup) {
         }
         // The text stands at the bottom of its row, as the message box's buttons do
         // (message-menu.md section 2: a row is the text and 20, the text at its bottom).
-        c.text(p, 2, b, mid.x, y + POPUP_ROW_PAD, Align::Centre, amber(TEXT));
+        c.text(p, 2, b, mid.x, y + POPUP_ROW_PAD, Align::Centre, c.bright());
         p.spawn((at(frame.min.x, frame.min.y, frame.width(), frame.height()), PopupHit(i), Pickable::default())).observe(on_popup_over).observe(on_popup_out).observe(on_popup_click);
     }
 }
@@ -2644,7 +2644,7 @@ fn popup(p: &mut ChildSpawnerCommands, c: &mut Ctx, q: &Popup) {
 fn heading(p: &mut ChildSpawnerCommands, c: &mut Ctx, place: &str, when: &str) {
     let (x0, y0) = (MAIN.min.x, MAIN.min.y);
     let line = amber(LINE);
-    let bright = amber(TEXT);
+    let bright = c.bright();
     c.fade(p, x0, y0, FADE, false, line);
     c.line(p, x0, y0, LEAD_LINE, THICK, line);
     // The title, or in the screen menu nothing (the header stands there) and the line
@@ -2739,7 +2739,7 @@ fn row_height(lines: &[fnv_font::Line]) -> f32 {
 /// `lines`, boxed when selected.
 #[allow(clippy::too_many_arguments)]
 fn row(p: &mut ChildSpawnerCommands, c: &mut Ctx, x0: f32, y: f32, h: f32, r: &Row, lines: &[fnv_font::Line], boxed: bool) {
-    let bright = amber(TEXT);
+    let bright = c.bright();
     let row_w = LIST_W - SCROLLBAR - ROW_SHORT;
     let colour = if r.done { bright.with_alpha(DONE_ALPHA) } else { bright };
     if boxed {
@@ -2844,7 +2844,7 @@ pub(super) fn scroll_bar(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, heig
 /// A note's text from `first` down, in a window at `origin`; returns how far it can
 /// scroll.
 fn note_text(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, text: &str, first: f32) -> f32 {
-    let bright = amber(TEXT);
+    let bright = c.bright();
     let text = text.replace("\r\n", "\n");
     let pitch = c.line_height(1);
     let mut lines = Vec::new();
@@ -2892,11 +2892,11 @@ fn note_arrows(origin: Vec2) -> Vec<(Rect, BarPart)> {
 
 /// An audio note's time remaining and meter, the box's top left at `o`.
 fn audio_meter(p: &mut ChildSpawnerCommands, c: &mut Ctx, o: Vec2, left: u32, played: u16) {
-    c.text(p, 1, &remaining(left), o.x + DATA_W, o.y, Align::Right, amber(TEXT));
+    c.text(p, 1, &remaining(left), o.x + DATA_W, o.y, Align::Right, c.bright());
     let top = o.y + c.line_height(1);
     c.image(p, "Interface\\Shared\\Meter\\tickmark_horiz.dds", at(o.x, top, DATA_W, AUDIO_METER - AUDIO_METER_CROP), amber(LINE));
     let x = (DATA_W - AUDIO_MARKER) * played as f32 / 1000.0;
-    c.line(p, o.x + x, top + AUDIO_METER / 4.0, AUDIO_MARKER, AUDIO_METER, amber(TEXT));
+    c.line(p, o.x + x, top + AUDIO_METER / 4.0, AUDIO_MARKER, AUDIO_METER, c.bright());
 }
 
 /// The time remaining as the original writes it: minutes, seconds and tenths
@@ -3021,10 +3021,10 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
     let o = MAIN.min + MAP.min;
     p.spawn((Node { overflow: Overflow::clip(), ..at(o.x, o.y, MAP.width(), MAP.height()) }, Pickable::IGNORE)).with_children(|p| {
         if let Some((path, r)) = &m.picture {
-            c.image(p, path, at(r.min.x, r.min.y, r.width(), r.height()), amber(TEXT).with_alpha(MAP_ALPHA / 255.0));
+            c.image(p, path, at(r.min.x, r.min.y, r.width(), r.height()), c.bright().with_alpha(MAP_ALPHA / 255.0));
         }
         if let Some((image, r)) = &m.outline {
-            p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), ImageNode { color: amber(TEXT), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }, Pickable::IGNORE));
+            p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), ImageNode { color: c.bright(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }, Pickable::IGNORE));
         }
         // In the menu file's depth order: markers 1, quest markers 4, the player's arrow
         // 7, the highlighted marker 11 [documented: map_menu.xml].
@@ -3041,20 +3041,20 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
             path_piece(p, c, piece);
         }
         for n in m.nodes.iter() {
-            c.image(p, NODE_FILE, at(n.x - NODE / 2.0, n.y - NODE / 2.0, NODE, NODE), amber(TEXT));
+            c.image(p, NODE_FILE, at(n.x - NODE / 2.0, n.y - NODE / 2.0, NODE, NODE), c.bright());
         }
         for q in &m.quests {
-            c.image(p, QUEST_FILE, at(q.x, q.y, QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT), amber(TEXT));
+            c.image(p, QUEST_FILE, at(q.x, q.y, QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT), c.bright());
         }
         if let Some(q) = m.custom {
-            c.image(p, PC_MARKER_FILE, at(q.x, q.y, QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT), amber(TEXT));
+            c.image(p, PC_MARKER_FILE, at(q.x, q.y, QUEST_MARKER, QUEST_MARKER * QUEST_ASPECT), c.bright());
         }
         if let Some((spot, heading)) = m.player {
             if let Some((image, rect)) = c.picture(CURSOR_FILE) {
                 let (w, h) = (CURSOR, CURSOR * CURSOR_ASPECT);
                 p.spawn((
                     at(spot.x - w / 2.0, spot.y - h / 2.0, w, h),
-                    ImageNode { rect, color: amber(TEXT), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) },
+                    ImageNode { rect, color: c.bright(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) },
                     UiTransform::from_rotation(Rot2::radians(heading)),
                 ));
             }
@@ -3078,7 +3078,7 @@ fn path_piece(p: &mut ChildSpawnerCommands, c: &mut Ctx, piece: &Piece) {
     };
     p.spawn((
         at(piece.middle.x - piece.len / 2.0, piece.middle.y - PATH_H / 2.0, piece.len, PATH_H),
-        ImageNode { rect, color: amber(TEXT), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) },
+        ImageNode { rect, color: c.bright(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) },
         UiTransform::from_rotation(Rot2::radians(piece.angle)),
         Pickable::IGNORE,
     ));
@@ -3106,10 +3106,10 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
     }
     c.image(p, "Interface\\Worldmap\\waypoint_node.dds", at(centre.x - DOT / 2.0, centre.y - DOT / 2.0, DOT, DOT), line);
     if let Some(name) = label {
-        c.text(p, 1, name, centre.x, o.y + HBOX_NAME_Y, Align::Centre, amber(TEXT));
+        c.text(p, 1, name, centre.x, o.y + HBOX_NAME_Y, Align::Centre, c.bright());
         if let Some(d) = detail {
             let below = o.y + HBOX_NAME_Y + c.line_height(1);
-            c.text(p, 1, d, centre.x, below, Align::Centre, amber(TEXT));
+            c.text(p, 1, d, centre.x, below, Align::Centre, c.bright());
         }
     }
 }
