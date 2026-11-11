@@ -259,7 +259,8 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     comes to rest from below at 250 to 290 ms: once through its whole height.
   - The shudder: the same steps every time within a row or two: 14 rows up at about 50 ms, 15
     down at 95, 10 down at 120, then 7 and 9 up, 5 up, 3 down twice, still by about 250 ms; never
-    sideways.
+    sideways. What fills the rows the jump uncovers at the top or the foot (the canvas's far
+    edge wrapping in, the undercoat, or black) was not looked at.
   - A tab change is a small brighten and nothing more: a gain of about 1.05 and +3.5 levels at
     once, +2 at 100 ms, gone by about 200 ms, the new tab there from the first shot.
   NVForever (`pipboy/transition.rs`, all its numbers there): when the page on the arm changes, a
@@ -272,7 +273,9 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   `pipboy_arm.rs` `upload_look`, in the same frame as the change, after it is decided;
   `nif_material.wesl` `pipboy_picture`, which reads every tap inside the canvas, wrapped while
   it rolls and half a texel in from its edges), so it covers whichever painter drew the
-  page; the flat image where the model is missing and the screen menu have none [design].
+  page. The shudder moves the picture through the same wrap as the hold, so the rows it
+  uncovers at one edge come in from the canvas's other edge [hypothesis: not compared with
+  the original]. The flat image where the model is missing and the screen menu have none [design].
   Logged `pipboy: page change transition <plain|shudder|vertical hold> (<ms> ms)` and `pipboy:
   tab change transition brighten (200 ms)`; the test aid's `glitch=` forces the kind as the
   forced job did.
@@ -304,8 +307,8 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   measured. Only the device was measured, so the screen menu (Use Pip-Boy off) keeps the menu
   files' 255 (`frame.rs` `TEXT`). The flat image shown when the Pip-Boy model has no screen
   is the device's drawing and keeps its 213 [design].
-  The pages drawn from their menu files (`[UI] TileMenus=StatsMenu`, `InventoryMenu`, and
-  `MapMenu` behind #2032's switch; all off by default) take their file's brightness, 255, on
+  The pages drawn from their menu files (`[UI] TileMenus=StatsMenu`, `InventoryMenu`,
+  `RepairMenu`, `MapMenu`; all off by default) take their file's brightness, 255, on
   the device too. By default every page on the device is hand-built, so all of them are at
   213. With a tile-drawn page switched on, its text and pictures stand about a fifth brighter
   than the hand-built pages next to it (255 against 213, so a text-to-line ratio near the

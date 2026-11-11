@@ -155,7 +155,9 @@ import nvf_assets::nif_surface_bindings::{NifSurface, nif_surface, standard_mate
 // PIPBOY_SCREEN (NifSurface::pipboy_a, pipboy_b; nvf-play pipboy/transition.rs and
 // pipboy/device_screen.rs): the menus' picture at `uv` (texture coordinates; `dx`, `dy` their
 // change across one view pixel), in linear light. Rolled up by a.x of the canvas, wrapping
-// inside it (a.w and b.z its share of the texture's height and width); softened by a 3 x 3
+// inside it (a.w and b.z its share of the texture's height and width; a shudder is the same
+// roll, so the rows it uncovers come in from the canvas's other edge [hypothesis: what the
+// original shows there is not known, docs/spec-notes/pipboy.md §3]); softened by a 3 x 3
 // tent of taps b.x view pixels apart; its display values scaled by 1 - a.y with a.z added; and
 // triangular noise of reach b.y added to them, new on every frame, at the view pixel `pixel`.
 // Every tap is read inside the canvas: wrapped up and down while it rolls, then held half a

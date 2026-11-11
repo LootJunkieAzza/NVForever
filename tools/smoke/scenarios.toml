@@ -4107,7 +4107,7 @@ order = [[
   "pipboy: DATA",
   "pipboy: down",
 ]]
-manual = "the edges: python C:/fnv-private/hud-capture/tools/analyze_pipboy_screen_fx.py edges --files 'target/smoke/…/pipboy_text_special_*.png' (and status, skills, items, data); the original's text measures about 1.6 px from 10 to 90 %, titles 1.8 to 2.1 (pipboy.md section 3)"
+manual = "the edges: in target/smoke/…/pipboy_text_*.png (special, status, skills, items, data), on the median of the stills, the median 10-to-90 % width in pixels of every text edge with enough contrast, along rows and columns (a hard one-pixel step measures 0.8); the original's text measures about 1.6 px, titles 1.8 to 2.1 (pipboy.md section 3)"
 forbid = [
   { text = "up, but the menus are not on the arm", label = "the arm up with nowhere to show the menus (#1330)" },
 ]
