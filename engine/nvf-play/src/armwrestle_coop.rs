@@ -190,6 +190,9 @@ pub enum ArmAction {
     Taps { round: u32, total: u32 },
     /// This player gets up from the table (a match under way is lost by it).
     Leave,
+    /// This player, seated alone, asks for the NPC opponent on the other stool (the
+    /// deciding game brings it: part A's stranger).
+    Npc,
 }
 
 impl ArmAction {
@@ -205,6 +208,9 @@ impl ArmAction {
             ArmAction::Leave => {
                 w.u8(2);
             }
+            ArmAction::Npc => {
+                w.u8(3);
+            }
         }
         w.0
     }
@@ -215,6 +221,7 @@ impl ArmAction {
             0 => ArmAction::Sit { side: r.u8()?.min(1), strength: r.u8()? },
             1 => ArmAction::Taps { round: r.u32()?, total: r.u32()? },
             2 => ArmAction::Leave,
+            3 => ArmAction::Npc,
             _ => return None,
         };
         r.done().then_some(a)
@@ -259,6 +266,9 @@ pub struct Decided {
     pub who: [Wrestler; 2],
     /// The NPC side's tapping, when an NPC wrestles.
     pub npc: Option<(u8, NpcTapper)>,
+    /// A player seated alone asked for the NPC opponent: the stool it is wanted on, until
+    /// the deciding game seats one there ([`Decider::wants_npc`]).
+    pub want_npc: Option<u8>,
     counts: HashMap<u8, TapCount>,
 }
 
@@ -291,7 +301,7 @@ impl Decider {
         let i = match self.tables.iter().position(|d| d.table == table) {
             Some(i) => i,
             None => {
-                self.tables.push(Decided { table, round: 0, seats: [None, None], bout: None, who: [who, who], npc: None, counts: HashMap::new() });
+                self.tables.push(Decided { table, round: 0, seats: [None, None], bout: None, who: [who, who], npc: None, want_npc: None, counts: HashMap::new() });
                 self.tables.len() - 1
             }
         };
@@ -303,6 +313,9 @@ impl Decider {
             d.seats[1 - side] = None;
         }
         d.seats[side] = Some((who, strength));
+        if d.want_npc == Some(side as u8) {
+            d.want_npc = None;
+        }
         let live = d.bout.as_ref().is_some_and(|b| b.phase != BoutPhase::Done);
         let (Some((a, sa)), Some((b, sb))) = (d.seats[0], d.seats[1]) else { return false };
         if live {
@@ -313,6 +326,37 @@ impl Decider {
         d.npc = [(0u8, a, sa), (1, b, sb)].into_iter().find(|(_, w, _)| matches!(w, Wrestler::Npc(_))).map(|(s, _, st)| (s, NpcTapper::new(st as f32, now + COUNTDOWN, seed)));
         d.bout = Some(Bout::new([sa as f32, sb as f32], now));
         true
+    }
+
+    /// Player `from` asks for the NPC opponent at `table`: wanted on the free stool when
+    /// it sits there alone.
+    pub fn ask_npc(&mut self, from: u8, table: u32) {
+        if let Some(d) = self.tables.iter_mut().find(|d| d.table == table) {
+            let mine = d.seats.iter().position(|s| s.is_some_and(|(w, _)| w == Wrestler::Player(from)));
+            if let Some(side) = mine.filter(|s| d.seats[1 - s].is_none()) {
+                d.want_npc = Some(1 - side as u8);
+            }
+        }
+    }
+
+    /// The tables waiting for the NPC opponent: (table, stool).
+    pub fn wants_npc(&self) -> Vec<(u32, u8)> {
+        self.tables.iter().filter_map(|d| d.want_npc.filter(|s| d.seats[*s as usize].is_none()).map(|s| (d.table, s))).collect()
+    }
+
+    /// The NPCs who wrestled at the tables and whose players got up: (table, NPC), for
+    /// the deciding game to send off.
+    pub fn npcs_left_alone(&self) -> Vec<(u32, u32)> {
+        let mut out = Vec::new();
+        for d in &self.tables {
+            let players = d.seats.iter().filter(|s| s.is_some_and(|(w, _)| w.player().is_some())).count();
+            for s in d.seats.iter().flatten() {
+                if let (Wrestler::Npc(r), 0) = (s.0, players) {
+                    out.push((d.table, r));
+                }
+            }
+        }
+        out
     }
 
     /// `who` gets up: a match under way goes to the other side.
@@ -408,6 +452,68 @@ pub fn summary(name_of: impl Fn(Wrestler) -> String, v: &ArmView) -> String {
 
 // ---- the game side ------------------------------------------------------------------
 
+/// Where the wrestlers' bodies sit on this game's screen: the table's stools are
+/// references each game made itself (a guest's are numbered apart from the host's,
+/// nvforever `coop.rs`), so the other games' furniture numbers do not name them here.
+/// Each wrestler of a match at the table (a player, or the host's NPC opponent) sits on
+/// this game's stool of its side; nvforever `coop.rs` seats the other players' bodies and
+/// the host's NPCs by it.
+#[derive(Resource, Default, Debug, Clone, PartialEq)]
+pub struct ArmBodies {
+    /// This game's stools, side 0 and 1 (part A's table, filled where it is found).
+    pub stools: [Option<u32>; 2],
+    /// The table's key the matches are under (see [`TABLE_KEY`]).
+    pub table: Option<u32>,
+    /// A player wrestling here: this game's stool for it, and whether its match is under
+    /// way (not yet won).
+    pub players: HashMap<u8, (u32, bool)>,
+    /// An NPC wrestling here: this game's stool for it.
+    pub npcs: HashMap<u32, u32>,
+}
+
+impl ArmBodies {
+    /// The furniture to seat player `id`'s body on, from what its game says (`f`, 0 for
+    /// none): this game's stool while it wrestles here.
+    pub fn player_furniture(&self, id: u8, f: u32) -> u32 {
+        match self.players.get(&id) {
+            Some(&(stool, live)) if f != 0 || live => stool,
+            _ => f,
+        }
+    }
+
+    /// The furniture to seat NPC `r` on, from the host's (`f`).
+    pub fn npc_furniture(&self, r: u32, f: u32) -> u32 {
+        self.npcs.get(&r).copied().filter(|_| f != 0).unwrap_or(f)
+    }
+
+    fn fill(&mut self, views: &[ArmView]) {
+        let mut players = HashMap::new();
+        let mut npcs = HashMap::new();
+        for v in views {
+            let live = !matches!(v.phase, ArmPhase::Won(_));
+            for (side, s) in v.sides.iter().enumerate() {
+                let Some(stool) = self.stools[side] else { continue };
+                match s.who {
+                    Wrestler::Player(p) => {
+                        players.insert(p, (stool, live));
+                    }
+                    Wrestler::Npc(r) => {
+                        npcs.insert(r, stool);
+                    }
+                }
+            }
+        }
+        self.players = players;
+        self.npcs = npcs;
+    }
+}
+
+/// The key matches at the Prospector Saloon's table go under in co-op: the saloon's cell
+/// (FalloutNV.esm 0x00106185, part A's `armwrestle::CELL`), the same in every game, where
+/// the table's own reference is not (each game made its own).
+pub const TABLE_KEY: u32 = 0x0010_6185;
+
+
 /// The host's co-op id ([`nvf_coop`]'s `Session::id`).
 pub const HOST: u8 = 0;
 /// How often a wrestler's running count of taps goes out while it changes, and again
@@ -434,6 +540,10 @@ pub struct ArmSeat {
     pub taps: u32,
     /// Asks for another match (taken here).
     pub again: bool,
+    /// Seated alone: asks for the NPC opponent (taken here).
+    pub want_npc: bool,
+    /// The screen asked for the NPC already this time seated (the screen's own note).
+    pub asked_npc: bool,
     /// A co-op session is on: the match below is the one to draw.
     pub coop: bool,
     /// The match at this player's table: round, the bout on this game's clock, who
@@ -474,7 +584,7 @@ pub struct ArmCoopPlugin;
 
 impl Plugin for ArmCoopPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ArmSeat>().init_resource::<ArmOut>().init_resource::<ArmWatch>().init_resource::<Decider>().add_systems(Update, (arm_aid, arm_coop, watch_meter).chain().in_set(crate::PlaySet::Ui).before(crate::coop_tables::publish));
+        app.init_resource::<ArmSeat>().init_resource::<ArmOut>().init_resource::<ArmWatch>().init_resource::<Decider>().init_resource::<ArmBodies>().add_systems(Update, (arm_aid, arm_coop, arm_npc, watch_meter).chain().in_set(crate::PlaySet::Ui).before(crate::coop_tables::publish));
     }
 }
 
@@ -484,12 +594,17 @@ fn decides_here(t: &Tables) -> bool {
     t.host || !t.near.contains(&HOST)
 }
 
-fn arm_coop(time: crate::pause::AidTime, tables: Option<ResMut<Tables>>, mut seat: ResMut<ArmSeat>, mut decider: ResMut<Decider>, mut out: ResMut<ArmOut>, mut watch: ResMut<ArmWatch>, mut sent: Local<Sent>) {
+#[allow(clippy::too_many_arguments)]
+fn arm_coop(time: crate::pause::AidTime, tables: Option<ResMut<Tables>>, mut seat: ResMut<ArmSeat>, mut decider: ResMut<Decider>, mut out: ResMut<ArmOut>, mut watch: ResMut<ArmWatch>, mut bodies: ResMut<ArmBodies>, mut sent: Local<Sent>) {
     let now = time.elapsed_secs();
     let Some(mut tables) = tables.filter(|t| t.on) else {
         seat.coop = false;
         out.set_if_neq(ArmOut(None));
         watch.set_if_neq(ArmWatch(None));
+        if !bodies.players.is_empty() || !bodies.npcs.is_empty() {
+            bodies.players.clear();
+            bodies.npcs.clear();
+        }
         return;
     };
     seat.coop = true;
@@ -523,6 +638,17 @@ fn arm_coop(time: crate::pause::AidTime, tables: Option<ResMut<Tables>>, mut sea
         sent.sit_at = now;
     }
 
+    if std::mem::take(&mut seat.want_npc) {
+        if let Some((table, _, _)) = seat.at {
+            info!("arm wrestling: {} asks for the NPC opponent", tables.name(me));
+            if here {
+                decider.ask_npc(me, table);
+            } else {
+                tables.send(table, game::ARMWRESTLE, ArmAction::Npc.encode());
+            }
+        }
+    }
+
     // The others' moves at the tables this game decides.
     let actions = tables.take_actions(game::ARMWRESTLE);
     if here {
@@ -535,6 +661,7 @@ fn arm_coop(time: crate::pause::AidTime, tables: Option<ResMut<Tables>>, mut sea
                 }
                 Some(ArmAction::Taps { round, total }) => decider.taps(from, round, total, now),
                 Some(ArmAction::Leave) => decider.leave(Wrestler::Player(from), now),
+                Some(ArmAction::Npc) => decider.ask_npc(from, table),
                 None => {}
             }
         }
@@ -605,12 +732,68 @@ fn arm_coop(time: crate::pause::AidTime, tables: Option<ResMut<Tables>>, mut sea
         }
     }
     watch.set_if_neq(ArmWatch(w));
+
+    // The wrestlers' bodies on this game's stools.
+    if let Some(key) = bodies.table {
+        let mut views: Vec<ArmView> = Vec::new();
+        if here {
+            views.extend(decider.view(me, now).filter(|(t, _)| *t == key).map(|(_, v)| v));
+        }
+        for p in tables.seen.keys().copied().collect::<Vec<_>>() {
+            if let Some(v) = tables.view(p).filter(|(t, g, _)| *t == key && *g == game::ARMWRESTLE).and_then(|(_, _, b)| ArmView::decode(b)) {
+                views.push(v);
+            }
+        }
+        let before = (bodies.players.clone(), bodies.npcs.clone());
+        bodies.fill(&views);
+        if before != (bodies.players.clone(), bodies.npcs.clone()) {
+            info!("arm wrestling: bodies on this game's stools: players {:?}, NPCs {:?}", bodies.players, bodies.npcs);
+        }
+    }
 }
 
 fn who_name(t: &Tables, w: Wrestler) -> String {
     match w {
         Wrestler::Player(p) => t.name(p),
         Wrestler::Npc(r) => format!("NPC 0x{r:08X}"),
+    }
+}
+
+/// The stranger in co-op, on the deciding game: brought onto the free stool when a player
+/// seated alone asks for it (part A's `armwrestle::bring`, the same stranger as alone),
+/// seated in the match, and sent off once its player got up. The other games draw it as
+/// the host's NPC (nvforever `coop.rs`), on their own stool of its side ([`ArmBodies`]).
+#[allow(clippy::too_many_arguments)]
+fn arm_npc(
+    time: crate::pause::AidTime,
+    tables: Option<Res<Tables>>,
+    mut decider: ResMut<Decider>,
+    bodies: Res<ArmBodies>,
+    mut opp: ResMut<crate::armwrestle::ArmOpponent>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
+    mut sim: ResMut<crate::sim::SimState>,
+) {
+    let Some(tables) = tables.filter(|t| t.on) else { return };
+    if !decides_here(&tables) {
+        return;
+    }
+    let now = time.elapsed_secs();
+    for (table, side) in decider.wants_npc() {
+        let Some(stool) = bodies.stools[side as usize].filter(|_| bodies.table == Some(table) && opp.actor.is_none()) else { continue };
+        let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
+        let seed = crate::minigames::seed(stool, now);
+        let Some((r, name, strength)) = crate::armwrestle::bring(rt, &mut sim, fnv_sim::FormId(stool), seed) else { continue };
+        *opp = crate::armwrestle::ArmOpponent { actor: Some(r), stool: Some(fnv_sim::FormId(stool)), strength, up: false, gone_at: None };
+        info!("arm wrestling: {name} ({:08X}, Strength {strength}) sits on stool {side} for the match", r.0);
+        decider.sit(table, side, Wrestler::Npc(r.0), strength.round().clamp(0.0, 255.0) as u8, now, seed);
+    }
+    for (_, r) in decider.npcs_left_alone() {
+        if opp.actor.is_some_and(|a| a.0 == r) && !opp.up {
+            opp.up = true;
+            opp.gone_at = Some(now + crate::armwrestle::SEND_OFF_AFTER);
+            info!("arm wrestling: the stranger {r:08X} gets up, its player gone");
+        }
+        decider.leave(Wrestler::Npc(r), now);
     }
 }
 
@@ -670,7 +853,7 @@ fn watch_meter(mut commands: Commands, watch: Res<ArmWatch>, tables: Option<Res<
     }
 }
 
-/// Test aid `NVF_PLAY_TEST_ARMWRESTLE`: comma-separated `key=value`, times in seconds of
+/// Test aid `NVF_PLAY_TEST_ARMWRESTLE_COOP`: comma-separated `key=value`, times in seconds of
 /// the run. `table=<ref, hex>` the table, `side=0|1` the stool, `str=<n>` the Strength,
 /// `sit=<t>` sits at `t`, `rate=<n>` taps a second while a match of this player's pulls,
 /// `again=<t>` asks for another match at `t`, `up=<t>` gets up at `t`. Without `sit` the
@@ -717,7 +900,7 @@ struct AidState {
 /// Plays [`Aid`]: sits, taps at its rate while this player's match pulls, asks again,
 /// gets up (what the table's screen does for a player at the keys).
 fn arm_aid(time: Res<Time<Real>>, mut seat: ResMut<ArmSeat>, tables: Option<Res<Tables>>, mut st: Local<AidState>) {
-    let aid = st.aid.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_ARMWRESTLE").ok().and_then(|v| Aid::parse(&v))).clone();
+    let aid = st.aid.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_ARMWRESTLE_COOP").ok().and_then(|v| Aid::parse(&v))).clone();
     let Some(aid) = aid else { return };
     let now = time.elapsed_secs();
     if let Some(t) = aid.sit.filter(|t| now >= *t && !st.did[0]) {
@@ -810,7 +993,7 @@ mod tests {
 
     #[test]
     fn actions_come_back_as_they_went() {
-        for a in [ArmAction::Sit { side: 1, strength: 7 }, ArmAction::Sit { side: 0, strength: 0 }, ArmAction::Taps { round: 3, total: 40 }, ArmAction::Leave] {
+        for a in [ArmAction::Sit { side: 1, strength: 7 }, ArmAction::Sit { side: 0, strength: 0 }, ArmAction::Taps { round: 3, total: 40 }, ArmAction::Leave, ArmAction::Npc] {
             assert_eq!(ArmAction::decode(&a.encode()), Some(a));
         }
         assert_eq!(ArmAction::decode(&[9]), None);
@@ -903,6 +1086,37 @@ mod tests {
         assert_eq!(a, Aid { table: 0x00AB_C123, side: 1, strength: 7, sit: Some(20.0), rate: 9.5, again: Some(60.0), up: Some(90.0) });
         assert_eq!(Aid::parse("table=0x10").unwrap().sit, None);
         assert!(Aid::parse("seat=1").is_none());
+    }
+
+    #[test]
+    fn each_wrestler_sits_on_this_games_stool_of_its_side() {
+        let mut b = ArmBodies { stools: [Some(0xFF80_0002), Some(0xFF80_0003)], table: Some(TABLE_KEY), ..Default::default() };
+        let v = ArmView { phase: ArmPhase::Pulling(10.0), sides: [ArmSide { who: Wrestler::Npc(0xFF00_0010), taps: 0, strength: 5 }, ArmSide { who: Wrestler::Player(1), taps: 0, strength: 5 }], ..view() };
+        b.fill(&[v]);
+        // The host's stranger, on the host's stool 0xFF000002: here on this game's own.
+        assert_eq!(b.npc_furniture(0xFF00_0010, 0xFF00_0002), 0xFF80_0002);
+        assert_eq!(b.npc_furniture(0xFF00_0010, 0), 0, "standing up is not overridden");
+        assert_eq!(b.player_furniture(1, 0xFF00_0003), 0xFF80_0003);
+        assert_eq!(b.player_furniture(1, 0), 0xFF80_0003, "seated while the match is under way");
+        assert_eq!(b.player_furniture(2, 0x1234), 0x1234, "a player not wrestling keeps its own");
+        b.fill(&[ArmView { phase: ArmPhase::Won(0), ..v }]);
+        assert_eq!(b.player_furniture(1, 0), 0, "after the match it gets up with its game");
+    }
+
+    #[test]
+    fn a_player_alone_asks_for_the_npc_and_it_goes_after() {
+        let mut d = Decider::default();
+        d.sit(9, 1, Wrestler::Player(2), 5, 0.0, 1);
+        assert!(d.wants_npc().is_empty());
+        d.ask_npc(2, 9);
+        assert_eq!(d.wants_npc(), vec![(9, 0)]);
+        assert!(d.sit(9, 0, Wrestler::Npc(0xFF00_0001), 6, 1.0, 1), "the NPC seated starts the match");
+        assert!(d.wants_npc().is_empty());
+        assert!(d.npcs_left_alone().is_empty());
+        d.leave(Wrestler::Player(2), 2.0);
+        assert_eq!(d.npcs_left_alone(), vec![(9, 0xFF00_0001)]);
+        d.leave(Wrestler::Npc(0xFF00_0001), 3.0);
+        assert!(d.npcs_left_alone().is_empty());
     }
 
     #[test]

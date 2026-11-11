@@ -999,7 +999,7 @@ pub(crate) fn publish(
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
     (pvp, foe): (Option<Res<crate::caravan::PvpWire>>, Option<Res<crate::darts_foes::DartsOpponent>>),
-    (pool, arm): (Option<Res<crate::pool::PoolScreen>>, Option<Res<crate::armwrestle_coop::ArmOut>>),
+    (pool, arm, arm_seat): (Option<Res<crate::pool::PoolScreen>>, Option<Res<crate::armwrestle_coop::ArmOut>>, Option<Res<crate::armwrestle_coop::ArmSeat>>),
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);
@@ -1056,6 +1056,10 @@ pub(crate) fn publish(
     if let (None, Some((table, blob))) = (out.as_ref(), arm.as_deref().and_then(|a| a.0.clone())) {
         at = at.or(Some((game::ARMWRESTLE, table)));
         out = Some((table, game::ARMWRESTLE, blob));
+    }
+    // Seated at the arm wrestling table: its match is on this player's screen already.
+    if let Some((table, _, _)) = arm_seat.as_deref().and_then(|s| s.at) {
+        at = at.or(Some((game::ARMWRESTLE, table)));
     }
     open.set_if_neq(OpenTable(at));
     if tables.out != out {

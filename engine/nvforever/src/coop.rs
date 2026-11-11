@@ -1025,6 +1025,10 @@ fn tables(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location
     tables.me = link.id();
     tables.host = link.is_host();
     tables.names = coop.peers.iter().map(|(&id, p)| (id, p.name.clone())).collect();
+    // This player's own name too, for lines about a game it plays in (arm wrestling).
+    if let Some(me) = tables.me.filter(|_| !coop.name.is_empty()) {
+        tables.names.insert(me, coop.name.clone());
+    }
     let here = loc.as_deref().map(place_of);
     tables.near = coop
         .peers
@@ -1956,7 +1960,7 @@ fn draw(
     mut holds: Query<&mut WeaponHold>,
     dressed: Query<(Option<&PuppetEquipment>, Has<Puppet>)>,
     (mut fighters, mut attacks, main_menu, mut shots): (ResMut<Fighters>, MessageWriter<PlayAttack>, Option<Res<nvf_play::main_menu::MainMenu>>, MessageWriter<PuppetShot>),
-    (sfx, listener, mut sounds, lying, seats): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>, Query<(Has<crate::furniture::SitOn>, Has<crate::furniture::OnFurniture>, Has<crate::furniture::GetUp>)>),
+    (sfx, listener, mut sounds, lying, seats, arm): (Option<Res<Sfx>>, Option<Res<Player>>, MessageWriter<PlaySound>, Query<(), Or<(With<Dying>, With<crate::ragdoll::Corpse>)>>, Query<(Has<crate::furniture::SitOn>, Has<crate::furniture::OnFurniture>, Has<crate::furniture::GetUp>)>, Option<Res<nvf_play::armwrestle_coop::ArmBodies>>),
 ) {
     let (Ok(world_root), Some(loc)) = (root.single(), loc) else { return };
     if at_main_menu(main_menu.as_deref()) {
@@ -2049,7 +2053,9 @@ fn draw(
         // were seen standing on beds, chairs and couches). Meanwhile the furniture, not
         // the network, places the body (`actors` leaves it out).
         if let Ok((sitting, on, leaving)) = seats.get(e) {
-            match newest.furniture {
+            // At the arm wrestling table: this game's stool of its side, its game's own
+            // stool numbered apart (`nvf_play::armwrestle_coop::ArmBodies`).
+            match arm.as_deref().map_or(newest.furniture, |a| a.player_furniture(id, newest.furniture)) {
                 0 if on && !leaving => {
                     commands.entity(e).insert(crate::furniture::GetUp);
                     info!("co-op: {} gets off its furniture", label(id, &p.name));
@@ -2537,6 +2543,7 @@ fn follow_npcs(
     solo: Option<Res<nvf_play::save::SoloBase>>,
     mut knocked: Local<HashSet<u32>>,
     mut streamed_since: Local<Option<f32>>,
+    arm: Option<Res<nvf_play::armwrestle_coop::ArmBodies>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -2720,7 +2727,7 @@ fn follow_npcs(
             // Its furniture as the host has it now (a chair, a bed, a cross: module notes).
             // Not a dead one's: Chet, killed on the host, sat down on his chair again on a
             // guest (desktop run for item 195).
-            let furniture = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0 && !s.has(npc_flag::DEAD)).map(|s| (s.furniture, s.has(npc_flag::SEATED)));
+            let furniture = t.samples.back().map(|(_, s)| s).filter(|s| s.furniture != 0 && !s.has(npc_flag::DEAD)).map(|s| (arm.as_deref().map_or(s.furniture, |a| a.npc_furniture(r, s.furniture)), s.has(npc_flag::SEATED)));
             let space = t.samples.back().map_or(0, |(_, s)| s.space);
             // Faster than it runs (with room for a run's speed-ups) is a jump; Kimball's
             // and the Legion sniper's enables and first states at the Hoover Dam were
