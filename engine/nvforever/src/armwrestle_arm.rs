@@ -131,11 +131,15 @@ fn live(screen: &ArmScreen, watch: &ArmWatch, table: &ArmTable) -> Option<Live> 
     Some(Live { table: table.table.map_or(0, |t| t.0), meter: v.meter, winner, stools: [s0.0, s1.0] })
 }
 
+/// The match resources the arms are posed from: the player's own screen, the watched match
+/// and the table's stools.
+type Matches<'w> = (Option<Res<'w, ArmScreen>>, Option<Res<'w, ArmWatch>>, Option<Res<'w, ArmTable>>);
+
 /// Each frame: the wrestlers' arms posed from the match shown.
 #[allow(clippy::too_many_arguments)]
 pub fn arms(
     time: Res<Time>,
-    (screen, watch, table): (Option<Res<ArmScreen>>, Option<Res<ArmWatch>>, Option<Res<ArmTable>>),
+    (screen, watch, table): Matches,
     seat: Option<Res<PlayerSeat>>,
     sim: Option<Res<SimState>>,
     body: Option<Res<crate::player_body::PlayerBody>>,
