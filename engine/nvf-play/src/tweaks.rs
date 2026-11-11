@@ -1671,6 +1671,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "recent-dead-secs", "Recently Dead on the Compass (s)", "For how many seconds, up to 120, someone killed nearby stays on the compass, until you look at them; 0 none. (Stewie's Tweaks bRecentlyDeadNPCIndicator)", 120.0, f32, recent_dead_secs);
         switch!(app, "armor-sounds-3d", "Armour Rustle From the Body", "In third person your armour and clothing are heard from your character, not at the camera. (Stewie's Tweaks bArmorSoundsPlayIn3D)", armor_sounds_3d);
         switch!(app, "mine-blasts-heard", "Mine Blasts Are Heard", "A mine going off alerts the people near who would fight whoever laid it, or whoever set it off. (Stewie's Tweaks bNPCsDetectMineExplosions)", game.mine_blasts_heard);
+        switch!(app, "blasts-spare-items", "Explosions Leave Items Be", "Explosions do not throw about things you can pick up, so loot stays where it lies. (Stewie's Tweaks bExplosionsDontPushTakeableItems)", game.blasts_spare_items);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

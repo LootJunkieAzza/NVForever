@@ -4937,7 +4937,14 @@ fn fly(
             let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
             damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg, cause);
         }
-        let pushed = phys.world.push_dynamic(at, x.radius, x.force);
+        // The player's tweak: things that can be taken stay where they lie [design: docs/design/tweaks.md].
+        let keep_items = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.blasts_spare_items);
+        let pushed = if keep_items {
+            let takeable = |form: u32| sim.base_of(form).is_some_and(|b| sim.forms.item(b).is_some());
+            phys.world.push_dynamic_but(at, x.radius, x.force, &takeable)
+        } else {
+            phys.world.push_dynamic(at, x.radius, x.force)
+        };
         c.marks.push(Mark::at(at, 0.6, MarkKind::Impact));
         info!(
             "combat: explosion {} at ({:.0}, {:.0}, {:.0}), {pushed} loose object(s) pushed{}",

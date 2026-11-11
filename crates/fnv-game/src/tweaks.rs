@@ -508,6 +508,9 @@ pub struct Tweaks {
     /// `bNPCsDetectMineExplosions`: a mine going off is an explosion event the actors
     /// near may hear.
     pub mine_blasts_heard: bool,
+    /// `bExplosionsDontPushTakeableItems`: explosions leave items that can be taken where
+    /// they lie.
+    pub blasts_spare_items: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -791,6 +794,7 @@ impl Default for Tweaks {
             cap_skills_spare_tagged: false,
             buffed_health_bars: false,
             mine_blasts_heard: false,
+            blasts_spare_items: false,
         }
     }
 }
