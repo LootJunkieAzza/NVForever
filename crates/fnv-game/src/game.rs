@@ -4128,6 +4128,10 @@ impl<'a> Game<'a> {
                 mb.pressed = Some(0);
             }
         }
+        if m == menus::RACE {
+            // ShowBarberMenuEx's filter is that menu's alone (#2018).
+            self.other.jg10.barber_filter = None;
+        }
         self.emit(EventKind::MenuClosed { menu: m });
         self.jip_menu_event("menuclose", m);
         if !self.boxes.is_empty() {

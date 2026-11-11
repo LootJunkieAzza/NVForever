@@ -37,9 +37,9 @@ DisableMuzzleFlashLights "does not persist through saves" and HighlightBodyPartA
 | GetLandTextureUnderFeet | The land texture (LTEX) under the reference; nothing indoors [documented], though the original gave LRockCanyonRubbleDirt01 (00038A28) inside Doc Mitchell's house [observed: §4 underfeet], taken as the last texture found under the reference outside [hypothesis]. A cast straight down from 64 units above (`ray::CastKind::LandTexture`). The engine answers with the texture showing most where it meets the terrain, from the LAND's BTXT/ATXT layers, as footsteps choose their sound. It gives 0 where the default texture shows more [hypothesis]. |
 | RemapLand `land world x y` / `land` | The LAND takes the cell's landscape; the form alone puts it back [documented]. Returns 1 when done. It returns 0 for a source cell that does not exist, or a reset of a LAND never remapped [hypothesis]. The game's data keeps no LAND record types, so any form of no other known type is taken as a LAND [hypothesis]. The terrain is not redrawn yet (§3). |
 | RefreshIdle `[stop]` | The actor picks its own idles again after PlayIdle; 1 stops the one playing at once [documented]. NVForever's PlayIdle holds no override past its idle, so the stop (StopIdle's) is all that is left to do [hypothesis]. |
-| ShowBarberMenuEx `flag list` | The barber menu (1036). 0 blacklists hairs and beards, 1 blacklists beards and whitelists hairs, 2 the reverse, 3 whitelists both [documented]. `Game::barber_allows` answers for the menu. A flag outside 0–3 or no list opens it unfiltered [hypothesis]. |
+| ShowBarberMenuEx `flag list` | The barber menu (1036). 0 blacklists hairs and beards, 1 blacklists beards and whitelists hairs, 2 the reverse, 3 whitelists both [documented]. `Game::barber_allows` answers for the menu. A flag outside 0–3 or no list opens it unfiltered [hypothesis]. The filter is cleared when menu 1036 closes and by a plain ShowBarberMenu, so a later barber menu is unfiltered (#2018) [design]. |
 | TriggerScreenSplatterEx `count duration size opacity alpha colour flare fade` | TriggerScreenSplatter's splats; the textures and the fade are kept for the engine [documented]. Returns 1 when splats are asked for, 0 for a count of 0 [hypothesis: 0/1 is documented, not when]. |
-| UpdateCrosshairPrompt, UpdateRepairMenu | Counted (`Game::ui_refreshes`); the engine works the prompt or the repair list out again on each new count [documented: what they do]. |
+| UpdateCrosshairPrompt, UpdateRepairMenu | Counted (`Game::ui_refreshes`) [documented: what they do]. The engine is to work the prompt or the repair list out again on each new count; it does not read the counts yet (§3, settled in #2018: no engine code reads `ui_refreshes`). |
 
 The functions that change something and document no return value return 0.
 
@@ -88,7 +88,7 @@ On the player at Doc Mitchell's (an interior), in the original game with the ext
 | `scope.remove`: the 10mm pistol, no scope | `0` | `0` |
 | `remapland`: a reset of nothing | `0` | `0` |
 
-FaceGen stays open [observed: the answers above]. The original's values are not the
+FaceGen stays open [observed: the answers above; #2018 rechecked, the golden holds only these rows, so it cannot settle the type mapping]. The original's values are not the
 record's (Doc's FGGS starts 0.309, 0.508), not his race's defaults (CaucasianOld's male
 FGGS starts -0.204, 0.715), and types 0 and 2 both read -0.228 at index 0. So the types may
 not be FGGS/FGGA/FGTS, or the values may be ones the game works out for the loaded face

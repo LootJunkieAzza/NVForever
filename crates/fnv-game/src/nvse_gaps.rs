@@ -298,31 +298,36 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // RestoreHealth, past the end 0].
         // Less RemoveNthEffect's (`crate::nvse_jip11`).
         // AddNewEffect's entries too (`crate::nvse_jip14`).
-        "getnumeffects" => XVal::Num(form(args, 0).map_or(0, |f| {
-            let (a, b) = g.added_effect_counts(f);
-            g.effect_indices(f).len() + a + b
-        }) as f64),
+        // One index space for every Nth-effect function (`Game::effect_slot`, #2016).
+        "getnumeffects" => XVal::Num(form(args, 0).map_or(0, |f| g.effect_count(f)) as f64),
         "getntheffectbase" => {
-            let n = num(args, 1, 0.0);
+            use crate::nvse_jip14::EffectSlot;
             let f = form(args, 0).unwrap_or(FormId(0));
-            let i = match (n >= 0.0).then(|| g.added_effect_at(f, n as usize)).flatten() {
-                Some(Ok(added)) => return Some(Ok(XVal::Ref(added.0))),
-                Some(Err(own)) => own as f64,
-                None => -1.0,
-            };
-            let e = g.data.effect_items.get(&f).and_then(|l| if i >= 0.0 { l.get(i as usize) } else { None });
-            match e {
-                Some(e) => XVal::Ref(g.gaps.effect_bases.get(&(f, i as usize)).copied().unwrap_or(e.effect).0),
-                None => XVal::Ref(0),
-            }
+            let slot = usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| g.effect_slot(f, i));
+            XVal::Ref(match slot {
+                Some(EffectSlot::Added { back, at }) => g.added_effect(f, back, at).map_or(0, |e| e.effect.0),
+                Some(EffectSlot::Own(r)) => {
+                    let e = g.data.effect_items.get(&f).and_then(|l| l.get(r));
+                    e.map_or(0, |e| g.gaps.effect_bases.get(&(f, r)).copied().unwrap_or(e.effect).0)
+                }
+                None => 0,
+            })
         }
         // Returns 0 (not the old base), for the session [observed: gaps10, the stimpak's
         // first effect set to Silver Sting's reads 00033595, and back].
         "setntheffectbase" => {
+            use crate::nvse_jip14::EffectSlot;
             let (Some(f), Some(b)) = (form(args, 0), form(args, 2)) else { return Some(Ok(zero)) };
-            let i = num(args, 1, -1.0);
-            if i >= 0.0 && g.data.effect_items.get(&f).is_some_and(|l| (i as usize) < l.len()) {
-                g.gaps.effect_bases.insert((f, i as usize), b);
+            match usize::try_from(num(args, 1, -1.0) as i64).ok().and_then(|i| g.effect_slot(f, i)) {
+                Some(EffectSlot::Own(r)) => {
+                    g.gaps.effect_bases.insert((f, r), b);
+                }
+                Some(EffectSlot::Added { back, at }) => {
+                    if let Some(e) = g.added_effect_mut(f, back, at) {
+                        e.effect = b;
+                    }
+                }
+                None => {}
             }
             XVal::Ref(0)
         }
