@@ -467,6 +467,9 @@ pub struct Tweaks {
     /// `bNoPlayerNameLimit`: the player's name may be as long as
     /// `chargen::NAME_LONG_CHARS`.
     pub no_name_limit: bool,
+    /// `bRecurringChallengeIndicator`: a challenge that starts again when done says so in
+    /// the Pip-Boy.
+    pub mark_recurring_challenges: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -677,6 +680,7 @@ impl Default for Tweaks {
             detailed_stats: false,
             minigames_timescale: false,
             no_name_limit: false,
+            mark_recurring_challenges: false,
         }
     }
 }

@@ -1312,6 +1312,8 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             let rows = list.iter().map(|c| Row { text: c.name.clone(), mark: Mark::None, done: c.completed }).collect();
             let right = list.get(st.sel[NOTES]).map_or(Right::None, |c| {
                 let state = if c.completed { "Completed".to_string() } else { format!("{}/{}", c.progress, c.threshold) };
+                // The player's tweak says a challenge repeats [design: docs/design/tweaks.md].
+                let state = if c.recurring { format!("{state} (repeats)") } else { state };
                 Right::Text { text: format!("{}\n\n{state}", c.description), first: st.text_first }
             });
             Body::List { rows, first: st.first[NOTES], boxed: st.boxed.then_some(st.sel[NOTES]), right }

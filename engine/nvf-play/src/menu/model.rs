@@ -745,6 +745,12 @@ pub struct MenuModel {
     pub barter_caps_change: bool,
     pub hide_equipped_barter: bool,
     pub hide_equipped_containers: bool,
+    /// The player's tweaks: items on a hotkey kept off the player's side of a container
+    /// and of a barter [design: docs/design/tweaks.md].
+    pub hide_hotkeyed_containers: bool,
+    pub hide_hotkeyed_barter: bool,
+    /// The items on the hotkeys (base forms), for those tweaks.
+    pub hotkeyed: Vec<FormId>,
     pub title_case_categories: bool,
     /// The price of things worth nothing in a barter (the tweak; 0: as they are).
     pub free_item_price: f32,
@@ -928,6 +934,9 @@ impl MenuModel {
             barter_caps_change: false,
             hide_equipped_barter: false,
             hide_equipped_containers: false,
+            hide_hotkeyed_containers: false,
+            hide_hotkeyed_barter: false,
+            hotkeyed: Vec::new(),
             title_case_categories: false,
             free_item_price: 0.0,
             warn_encumbrance: false,
@@ -1002,6 +1011,10 @@ impl MenuModel {
                 if side == Side::Player && self.hide_equipped_containers && matches!(self.mode, Mode::Container(_)) {
                     l.rows.retain(|r| !r.equipped);
                 }
+                // And things on a hotkey [design: docs/design/tweaks.md].
+                if side == Side::Player && self.hide_hotkeyed_containers && matches!(self.mode, Mode::Container(_)) {
+                    l.rows.retain(|r| !self.hotkeyed.contains(&r.item));
+                }
                 if self.mode == Mode::Inventory && self.category[side as usize] == Category::Misc {
                     // The player's tweak leaves quest items out of Misc [design: docs/design/tweaks.md].
                     if self.hide_misc_quest {
@@ -1028,6 +1041,7 @@ impl MenuModel {
     fn refresh_trade(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
         let both_sides = self.vendor_lists_both;
         let hide_equipped = self.hide_equipped_barter;
+        let hotkeyed: Vec<FormId> = if self.hide_hotkeyed_barter { self.hotkeyed.clone() } else { Vec::new() };
         let free_price = self.free_item_price;
         let Some(t) = self.trade.as_mut() else { return Ok(()) };
         let mut own: [Vec<Row>; 2] = [Vec::new(), Vec::new()];
@@ -1043,7 +1057,7 @@ impl MenuModel {
             own[i] = l
                 .rows
                 .into_iter()
-                .filter(|r| r.item != t.caps && !r.quest && !(side == Side::Player && hide_equipped && r.equipped))
+                .filter(|r| r.item != t.caps && !r.quest && !(side == Side::Player && hide_equipped && r.equipped) && !(side == Side::Player && hotkeyed.contains(&r.item)))
                 .filter(|r| {
                     // The player's tweak holds the player's side to the merchant's list too [design: docs/design/tweaks.md].
                     let why = (side == Side::Container || both_sides).then(|| t.sells.as_ref().and_then(|s| (s.0)(r.item))).flatten();

@@ -536,6 +536,9 @@ unless the player binds them, so nothing changes until then.
 | Activate Doesn't Stand Up | `bActivatingDoesntStandUp` | nvforever `furniture` and `activate` leave `PlayerSeat::leave` alone on Activate (`tweaks::SEAT_KEEPS_ON_ACTIVATE`); a movement control still gets up (`player.rs`) |
 | Plain Screen Going Outside | `bNoExteriorLoadScreens` | `loading::begin` marks a trip from an interior to a worldspace (`plain_once`); `spawn_screen` then chooses no screen, so black alone; a save's cover is not a trip |
 | (already so) | `bLuckDoesntAffectGambling` | NVForever's blackjack, roulette, slots and Caravan do not read Luck |
+| Mark Repeating Challenges | `bRecurringChallengeIndicator` | `challenges::rows` sets `Row::recurring` from the CHAL Recurring flag (less SetChallengeRecurring 0); the Pip-Boy adds "(repeats)", our word |
+| Hide Hotkeyed Items in Containers | `bHideHotkeyedItemsInContainers` | `MenuModel::refresh` drops the player's rows whose item is on a hotkey (`MenuModel::hotkeyed`, from `Hotkeys` in `tweaks::sync`) |
+| Hide Hotkeyed Items in Barter | `bHideHotkeyedItemsInBarter` | the same in `refresh_trade` for the player's side; the repair list's version is not done |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -557,8 +560,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 462 |
-| to do | 141 |
+| done | 465 |
+| to do | 138 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -969,6 +972,7 @@ game's Data folder, read-only).
 | `bMapRemembersPosition` | done | yes | 1 | Map Remembers Its Place (in the session; the save-persistent option not built) |
 | `bNumberedComputerHotkeys` | done | yes | 1 | Number Keys on Terminals (1-9, 0 the tenth; the number prefix option not built) |
 | `bNumberedDialogHotkeys` | done | yes | 2 | already so for 1-9 (the 0 key and number prefixes not built) |
+| `bRecurringChallengeIndicator` | done | yes | 1 | Mark Repeating Challenges |
 | `bSeparateHorizontalSensitivity` | done | yes |  | Horizontal Look Speed (a factor on left and right, on the Tweaks tab) |
 | `bShowBookEffects` | done | yes | 1 | Skill Book Effects |
 | `bShowWeaponAmmoUseInMenus` | done | yes |  | Rounds per Shot |
@@ -996,6 +1000,8 @@ game's Data folder, read-only).
 | `bHideCursorInMessageMenu` | done |  |  | No Pointer Over Message Boxes |
 | `bHideEquippedItemsInBarter` | done |  |  | Hide Worn Items in Barter |
 | `bHideEquippedItemsInContainers` | done |  |  | Hide Worn Items in Containers |
+| `bHideHotkeyedItemsInBarter` | done |  |  | Hide Hotkeyed Items in Barter |
+| `bHideHotkeyedItemsInContainers` | done |  |  | Hide Hotkeyed Items in Containers |
 | `bHideMapMarkerFactionReputation` | done |  |  | No Reputation on Map Markers |
 | `bHideQuestItemWeightAndValue` | done |  |  | No Figures for Quest Items |
 | `bHideRanksInTraitMenu` | done |  |  | No Ranks for Traits |
@@ -1050,7 +1056,6 @@ game's Data folder, read-only).
 | `bDisplayItemEffectTotals` | to do | yes |  | aid_preview returns totals only; the per-second part is lost |
 | `bMainMenuContinueIcon` | to do | yes |  | thumbnails are on the load page only |
 | `bPlaceMarkersAtLocations` | to do | yes | 1 | placing a marker on the map is not built |
-| `bRecurringChallengeIndicator` | to do | yes | 1 | challenges::Row has no recurring flag yet |
 | `bRememberPipboyScrollPositions` | to do | yes |  | the inventory is a new MenuModel on each opening |
 | `bRemoveDownloadsButton` | n/a | yes |  | NVForever has no Downloads button |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
@@ -1065,8 +1070,6 @@ game's Data folder, read-only).
 | `bCustomHackingAnswerLength` | to do |  | 8 | Difficulty::word_lengths and the perk |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
-| `bHideHotkeyedItemsInBarter` | to do |  |  | the menu model has no hotkey view |
-| `bHideHotkeyedItemsInContainers` | to do |  |  | the menu model has no hotkey view |
 | `bHideHotkeyedItemsInRepairLists` | to do |  |  | repair offer has no hotkeys |
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |

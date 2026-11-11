@@ -379,6 +379,11 @@ pub struct TweakSettings {
     /// `bNoExteriorLoadScreens`: leaving an interior shows a black screen with no
     /// picture or tip (not a loaded save).
     pub plain_going_out: bool,
+    /// `bHideHotkeyedItemsInContainers`: items on a hotkey are not listed on the player's
+    /// side of a container.
+    pub hide_hotkeyed_containers: bool,
+    /// `bHideHotkeyedItemsInBarter`: items on a hotkey are not offered in barter.
+    pub hide_hotkeyed_barter: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -592,6 +597,8 @@ impl Default for TweakSettings {
             levelup_wheel: false,
             seat_keeps_on_activate: false,
             plain_going_out: false,
+            hide_hotkeyed_containers: false,
+            hide_hotkeyed_barter: false,
         }
     }
 }
@@ -1532,6 +1539,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-name-limit", "No Name Length Limit", "Your character's name may be longer than 24 letters. (Stewie's Tweaks bNoPlayerNameLimit)", game.no_name_limit);
         switch!(app, "seat-keeps-on-activate", "Activate Doesn't Stand Up", "Seated or lying down, the activate key no longer gets you up; a movement key does. (Stewie's Tweaks bActivatingDoesntStandUp)", seat_keeps_on_activate);
         switch!(app, "plain-going-out", "Plain Screen Going Outside", "Going out of a building shows a plain black screen while the world loads, without a picture or a tip; loading a save is unchanged. (Stewie's Tweaks bNoExteriorLoadScreens)", plain_going_out);
+        switch!(app, "mark-recurring-challenges", "Mark Repeating Challenges", "A challenge that starts again each time it is done says \"(repeats)\" beside its progress in the Pip-Boy. (Stewie's Tweaks bRecurringChallengeIndicator)", game.mark_recurring_challenges);
+        switch!(app, "hide-hotkeyed-containers", "Hide Hotkeyed Items in Containers", "Things on a hotkey are not listed on your side of a container. (Stewie's Tweaks bHideHotkeyedItemsInContainers)", hide_hotkeyed_containers);
+        switch!(app, "hide-hotkeyed-barter", "Hide Hotkeyed Items in Barter", "Things on a hotkey are not offered when trading. (Stewie's Tweaks bHideHotkeyedItemsInBarter)", hide_hotkeyed_barter);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1787,7 +1797,7 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
 
 /// Hand the game's part to the running game when it differs, and log the change.
 #[allow(clippy::too_many_arguments)]
-fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>) {
+fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>, hotkeys: Option<Res<crate::hotkeys::Hotkeys>>) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
     crate::kill_cam::set_move_during(tweaks.move_during_kill_cam);
     crate::reticle::set_stack_figures(tweaks.stack_figures);
@@ -1845,6 +1855,10 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         let menu = (tweaks.take_all_stays, tweaks.hide_equipped_barter, tweaks.hide_equipped_containers, tweaks.title_case_categories);
         if (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) != menu {
             (m.take_all_stays, m.hide_equipped_barter, m.hide_equipped_containers, m.title_case_categories) = menu;
+        }
+        let hotkeyed: Vec<fnv_sim::FormId> = hotkeys.as_deref().map(|h| h.0.iter().flatten().map(|s| fnv_sim::FormId(s.item)).collect()).unwrap_or_default();
+        if (m.hide_hotkeyed_containers, m.hide_hotkeyed_barter) != (tweaks.hide_hotkeyed_containers, tweaks.hide_hotkeyed_barter) || m.hotkeyed != hotkeyed {
+            (m.hide_hotkeyed_containers, m.hide_hotkeyed_barter, m.hotkeyed) = (tweaks.hide_hotkeyed_containers, tweaks.hide_hotkeyed_barter, hotkeyed);
         }
     }
     if let Some(mut c) = console {
