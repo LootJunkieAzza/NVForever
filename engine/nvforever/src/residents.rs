@@ -1940,24 +1940,6 @@ impl Core {
             let who: Vec<String> = again.iter().map(|a| format!("{:08X}", a.0)).collect();
             info!("nav: door locks changed; {} actors choose their package again [{}]", again.len(), who.join(", "));
         }
-        // The arm-wrestling table the game made in the Prospector Saloon cuts the navmesh
-        // under it like an obstacle (`fnv_game::armwrestle_table`) [design].
-        if let Some(t) = fnv_game::armwrestle_table::find(game).filter(|t| !nav.graph.obstacles.contains_key(&t.table.0)) {
-            if let (Some(s), Some(cell)) = (game.world.peek(t.table), game.data.by_edid(fnv_game::armwrestle_table::SALOON_EDID)) {
-                let o = fnv_nav::obstacles::Obstacle {
-                    reference: t.table.0,
-                    space: fnv_nav::graph::Space::Interior(cell.0),
-                    position: s.pos,
-                    rotation: fnv_world::transform::ref_rotation(s.rot),
-                    scale: s.scale.unwrap_or(1.0),
-                    bounds: fnv_game::armwrestle_table::TABLE_BOUNDS,
-                    initially_enabled: false,
-                };
-                if nav.graph.add_obstacle(o) {
-                    info!("nav: the arm-wrestling table {:08X} cuts the navmesh under it", t.table.0);
-                }
-            }
-        }
         // Obstacles enabled or disabled since cut or free the navmesh under them
         // (`fnv_ai::Ai::apply_obstacles`, docs/spec-notes/navmesh.md §7).
         ai_count(AiCount::ObstaclesPolled, nav.graph.obstacles.len());
