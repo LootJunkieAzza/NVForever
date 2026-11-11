@@ -927,14 +927,21 @@ How many fixed steps a second play takes [design: the owner's approved plan,
 
 - **The choice**: the settings page's Physics rate (Display > Screen, `physics-rate` in
   `[Settings]` of NVForever.ini): 60 (the default, the rate the captures and the parity
-  lab's goldens were taken at), 120, 144, 160, 240, or Match FPS (the owner's name,
+  lab's goldens were taken at), 120, 144, 160, or Match FPS (the owner's name,
   2026-11-11; Match display before): the frame rate the game holds, from 60 up to a
   ceiling, the frame rate the display's pace allows. The ceiling is the cap in effect (the
   page's limit, variable refresh's, frame generation's real-frame cap, the lowest), no
   more than the refresh rate with vsync; with no cap, the display's refresh rate
-  (`display_hz`); at most 240. `--physics-hz <60..240|fps>` sets it for one run, over the
+  (`display_hz`); at most 160. `--physics-hz <60..160|fps>` sets it for one run, over the
   setting (the row then says so and cannot be changed); it is kept across a load's
   restart. `fps` is stored; `display` (the INI of a build before the rename) is read as it.
+- **240 was taken out** (2026-11-11) [design: the owner, "remove the 240hz option if it
+  would cause issues"]: in battle-50 its steps took 17.8 ms of a 39.5 ms frame (45 %, just
+  under the cost guard's half, so the guard would not step down), pushed objects slid
+  farthest there (+34 %, below) and it gives nothing on a 160 Hz screen. An INI of an older
+  build with `physics-rate=240` (any rate over 160 up to 240) loads as 160 without a
+  complaint and is saved as 160 (`RateChoice::parse_stored`). The measurements at 240
+  below are kept for the record. The slow-motion floor stays 1/240 s (below).
 - **Match FPS follows the frame rate** (`phys_rate::FpsFollow`) [design: the owner's
   example, 144 fps dropping to 80 in an intense scene, and the coordinator's spec]:
   - It counts the main world's updates over whole real seconds (`Time<Real>`; under
@@ -968,12 +975,12 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   SetGlobalTimeMultiplier) the step grows instead of the steps a real second, which are
   thus never more than four times the rate [design; before 2026-11-11 a faster clock kept
   the step at any speed]. A frame runs at most a quarter second of steps at the rate
-  (`catch_up_steps`: 15 at 60, 38 at 152, 60 at 240), what the virtual clock passes on in
+  (`catch_up_steps`: 15 at 60, 38 at 152, 40 at 160), what the virtual clock passes on in
   its longest frame; time beyond it is dropped, so a slow moment cannot grow a backlog
   (no "spiral of death": the game slows down instead).
 - **Slow motion (VATS, kill cameras)** [observed and design, 2026-11-11]:
   - The step never goes below 1/240 s (`phys::SHORTEST_STEP`), whatever the rate and the
-    clock. rapier keeps positions in f32 metres from the worldspace's origin, and a
+    clock (240 is no longer a menu rate; the floor is the step of the slowed clock). rapier keeps positions in f32 metres from the worldspace's origin, and a
     shorter step moved a slow body by less than its position can show: at Goodsprings a
     body at 5-20 units/s stood still over steps of 1/3000 s (the step of a 2 % clock at
     60 Hz, and of a 5 % one at 152 Hz), 150,000 units out everything under 200 units/s
@@ -997,7 +1004,7 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   - The cost guard leaves out the frames of a slowed or sped-up clock.
   - The kill camera logs how its target's drawn place moved over the camera and in the
     frame after it (`kill camera: the target's drawn place moved …`); smoke
-    `vats-kill-cam-slowed-60`, `-152` and `-display` check that it moves, never jumps
+    `vats-kill-cam-slowed-60`, `-120`, `-144`, `-152`, `-160` and `-display` check that it moves, never jumps
     and is not set at rest before the camera ends.
 - **A change of rate in play** (the page, Match FPS, the guard)
   keeps the share of a step the clock is into (`Stepper::rescale`), so nothing drawn
@@ -1008,7 +1015,7 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   there, which drew everything at its pose before the last step under a menu.
 - **The cost guard** (`phys_rate::Guard`): the time in the player's `step` system (the
   steps and what runs between them) is read every played frame (two `Instant`s). Over half
-  the frame time over 2 s, the rate goes down a notch of 60/120/144/160/240 (never under
+  the frame time over 2 s, the rate goes down a notch of 60/120/144/160 (never under
   60); under a quarter for 5 s, and foreseen under 40 % at the next notch, it goes back up
   towards the chosen rate. A fall within 30 s of a rise doubles the wait before the next
   rise (up to 80 s), so the rate does not flap. Every switch is logged (`phys: physics rate

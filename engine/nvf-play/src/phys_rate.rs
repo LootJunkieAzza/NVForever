@@ -3,12 +3,17 @@
 //! NVForever.ini) or for one run with `--physics-hz`, and lowered by a guard while the steps
 //! cost too much of the frame [design: the owner's approved plan, 2026-11-11].
 //!
-//! - **Choices**: 60 (the default, the rate the captures were taken at), 120, 144, 160 and
-//!   240 steps a second, or Match FPS: the frame rate the game holds, from 60 up to what
+//! - **Choices**: 60 (the default, the rate the captures were taken at), 120, 144 and 160
+//!   steps a second, or Match FPS: the frame rate the game holds, from 60 up to what
 //!   the display's pace allows ([`display_hz`]: the frame-rate cap in effect, else the
-//!   refresh rate; at most 240), following it down when the frames stay slow and back up
-//!   when they recover ([`FpsFollow`]). `--physics-hz` takes any whole rate from 60 to 240
+//!   refresh rate; at most 160), following it down when the frames stay slow and back up
+//!   when they recover ([`FpsFollow`]). `--physics-hz` takes any whole rate from 60 to 160
 //!   or `fps` (`display`, the choice's old name, too), and wins over the setting for its run.
+//!   240 was offered until 2026-11-11 and taken out [design: the owner, "remove the 240hz
+//!   option if it would cause issues"]: in battle-50 its steps took 45 % of the frame, just
+//!   under the guard's [`DOWN_SHARE`], pushes slid farthest there, and it gave nothing on a
+//!   160 Hz screen; an INI line of a rate over 160 from then reads as 160
+//!   ([`RateChoice::parse_stored`]).
 //! - **Steps stay fixed**: each step is `1/rate` s of the game's clock, so a rate gives the
 //!   same results every time (the parity lab and the tests stay at 60). While the clock
 //!   runs slow (VATS, a kill camera) the step shrinks with it, `dt = 1/rate × speed`, never
@@ -19,7 +24,7 @@
 //!   instead of adding steps, so the steps a real second never pass that many times the
 //!   rate ([`crate::phys::paced_step`]).
 //! - **Catch-up**: one frame runs at most [`crate::phys::MAX_FRAME_SECONDS`] of steps at the
-//!   rate (15 at 60, 60 at 240), what the virtual clock passes on in its longest frame;
+//!   rate (15 at 60, 40 at 160), what the virtual clock passes on in its longest frame;
 //!   time beyond is dropped. A frame longer than that cannot grow the backlog, so a busy
 //!   moment slows the game down instead of spiralling.
 //! - **The guard** ([`Guard`]): each frame the time spent in the player's `step` system
@@ -41,10 +46,13 @@ use bevy::prelude::*;
 use std::collections::VecDeque;
 
 /// The rates the settings page offers, and the guard's notches, steps a second.
-pub const RATES: [u32; 5] = [60, 120, 144, 160, 240];
+pub const RATES: [u32; 4] = [60, 120, 144, 160];
 /// The lowest and the highest rate.
 pub const MIN_HZ: u32 = 60;
-pub const MAX_HZ: u32 = 240;
+pub const MAX_HZ: u32 = 160;
+/// The highest rate builds before 2026-11-11 offered (module notes): an INI's rate up to it
+/// reads as [`MAX_HZ`].
+const OLD_MAX_HZ: u32 = 240;
 
 /// The settings page's key.
 pub const KEY: &str = "physics-rate";
@@ -66,7 +74,7 @@ impl Default for RateChoice {
 
 impl RateChoice {
     /// The settings page's choices, in order.
-    pub const LISTED: [RateChoice; 6] = [RateChoice::Fixed(60), RateChoice::Fixed(120), RateChoice::Fixed(144), RateChoice::Fixed(160), RateChoice::Fixed(240), RateChoice::Fps];
+    pub const LISTED: [RateChoice; 5] = [RateChoice::Fixed(60), RateChoice::Fixed(120), RateChoice::Fixed(144), RateChoice::Fixed(160), RateChoice::Fps];
 
     /// The name the page shows.
     pub fn name(self) -> String {
@@ -101,6 +109,17 @@ impl RateChoice {
         RateChoice::parse(t).filter(|c| RateChoice::LISTED.contains(c))
     }
 
+    /// [`RateChoice::parse_listed`] for the INI: a rate over [`MAX_HZ`] up to the old
+    /// highest (`240` from a build before 2026-11-11) reads as [`MAX_HZ`], so such an INI
+    /// loads without a complaint and is saved as `160` from then on.
+    pub fn parse_stored(t: &str) -> Option<RateChoice> {
+        RateChoice::parse_listed(t).or_else(|| {
+            let t = t.trim().to_ascii_lowercase();
+            let n = t.strip_suffix("hz").map_or(t.as_str(), str::trim_end);
+            n.parse::<u32>().ok().filter(|hz| (MAX_HZ + 1..=OLD_MAX_HZ).contains(hz)).map(|_| RateChoice::Fixed(MAX_HZ))
+        })
+    }
+
     /// The rate it asks for at most, steps a second: Match FPS's ceiling is `display` (the
     /// frame rate [`display_hz`] found; [`MIN_HZ`] while that is not known).
     pub fn hz(self, display: Option<u32>) -> u32 {
@@ -116,7 +135,7 @@ pub fn parse_arg(t: &str) -> Result<RateChoice, String> {
     RateChoice::parse(t).ok_or_else(|| format!("{t:?}: a whole number of steps a second from {MIN_HZ} to {MAX_HZ}, or fps"))
 }
 
-/// Match FPS's ceiling, before it is held to 60-240: the frame-rate cap
+/// Match FPS's ceiling, before it is held to 60-160: the frame-rate cap
 /// in effect (`cap`: the page's limit, variable refresh's and frame generation's
 /// real-frame cap, the lowest of them; 0 for none); with vertical sync no more than the
 /// refresh rate; with no cap the display's refresh rate (`refresh_mhz`, millihertz),
@@ -323,7 +342,7 @@ pub const UP_SHARE: f64 = 0.25;
 pub const UP_SECS: usize = 5;
 pub const UP_SECS_MOST: usize = 80;
 /// A rise is only taken when the share it is foreseen to cost (the share now × the higher
-/// rate / the rate now) stays under this, so a rise from 60 straight to 240-worth of cost
+/// rate / the rate now) stays under this, so a rise from 60 straight to 160-worth of cost
 /// is not tried [design].
 pub const UP_FORESEEN: f64 = 0.4;
 /// A fall within this many seconds of a rise counts as flapping [design].
@@ -493,7 +512,7 @@ pub fn register_setting(app: &mut App) {
             key: KEY,
             group: "Display",
             label: "Physics rate",
-            note: "How many times a second the physics moves the world on: the player, the people, what falls and what is pushed. A higher rate answers the keys sooner and meets collisions more finely; its cost to the processor grows with the rate. Match FPS: as many as the frames a second the game draws, from 60 up to what the display sync and the frame rate limit allow (at most 240); it follows the frame rate down when it stays low and back up when it recovers. When the physics takes over half of each frame, the rate goes down a step (never under 60) until there is room again.",
+            note: "How many times a second the physics moves the world on: the player, the people, what falls and what is pushed. A higher rate answers the keys sooner and meets collisions more finely; its cost to the processor grows with the rate. Match FPS: as many as the frames a second the game draws, from 60 up to what the display sync and the frame rate limit allow (at most 160); it follows the frame rate down when it stays low and back up when it recovers. When the physics takes over half of each frame, the rate goes down a step (never under 60) until there is room again.",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -512,7 +531,7 @@ pub fn register_setting(app: &mut App) {
 
 /// The page's choice of this name or INI text; false: not one of its choices.
 fn pick_setting(w: &mut World, name: &str) -> bool {
-    let choice = RateChoice::LISTED.into_iter().find(|c| c.name().eq_ignore_ascii_case(name.trim())).or_else(|| RateChoice::parse_listed(name));
+    let choice = RateChoice::LISTED.into_iter().find(|c| c.name().eq_ignore_ascii_case(name.trim())).or_else(|| RateChoice::parse_stored(name));
     match choice {
         Some(c) => {
             w.resource_mut::<PhysRate>().setting = c;
@@ -668,10 +687,11 @@ mod tests {
         assert_eq!(RateChoice::parse_listed("display"), Some(RateChoice::Fps));
         assert_eq!(RateChoice::Fps.stored(), "fps");
         assert_eq!(RateChoice::Fps.name(), "Match FPS");
-        for bad in ["59", "241", "0", "-60", "60.5", "fast", ""] {
+        for bad in ["59", "161", "240", "241", "0", "-60", "60.5", "fast", ""] {
             assert_eq!(RateChoice::parse(bad), None, "{bad}");
         }
         assert!(parse_arg("30").is_err());
+        assert!(parse_arg("240").is_err(), "--physics-hz goes up to 160");
         assert_eq!(parse_arg("display"), Ok(RateChoice::Fps));
         assert_eq!(parse_arg("fps"), Ok(RateChoice::Fps));
         // The page and the INI keep to the listed choices.
@@ -681,6 +701,24 @@ mod tests {
             assert_eq!(RateChoice::parse_listed(&c.name()), Some(c));
         }
         assert_eq!(RateChoice::default(), RateChoice::Fixed(60));
+    }
+
+    #[test]
+    fn an_ini_rate_of_the_old_240_loads_and_saves_as_160() {
+        assert_eq!(RateChoice::parse_stored("240"), Some(RateChoice::Fixed(160)));
+        assert_eq!(RateChoice::parse_stored("240 Hz"), Some(RateChoice::Fixed(160)));
+        assert_eq!(RateChoice::parse_stored("144"), Some(RateChoice::Fixed(144)));
+        assert_eq!(RateChoice::parse_stored("fps"), Some(RateChoice::Fps));
+        for bad in ["152", "241", "30", "fast"] {
+            assert_eq!(RateChoice::parse_stored(bad), None, "{bad}");
+        }
+        // The page's load: no complaint, and what it saves from then on.
+        let mut w = World::new();
+        w.init_resource::<PhysRate>();
+        assert!(pick_setting(&mut w, "240"));
+        assert_eq!(w.resource::<PhysRate>().setting, RateChoice::Fixed(160));
+        assert_eq!(w.resource::<PhysRate>().setting.stored(), "160");
+        assert!(!pick_setting(&mut w, "300"));
     }
 
     #[test]
@@ -698,9 +736,9 @@ mod tests {
         assert_eq!(display_hz(90, false, Some(165_000)), Some(90));
         // Nothing known.
         assert_eq!(display_hz(0, true, None), None);
-        // Held to 60-240.
+        // Held to 60-160.
         assert_eq!(RateChoice::Fps.hz(Some(30)), 60);
-        assert_eq!(RateChoice::Fps.hz(Some(360)), 240);
+        assert_eq!(RateChoice::Fps.hz(Some(360)), 160);
         assert_eq!(RateChoice::Fps.hz(None), 60);
         assert_eq!(RateChoice::Fixed(152).hz(None), 152);
     }
@@ -709,7 +747,7 @@ mod tests {
     fn the_catch_up_covers_a_quarter_second_at_any_rate() {
         assert_eq!(catch_up_steps(60), 15);
         assert_eq!(catch_up_steps(152), 38);
-        assert_eq!(catch_up_steps(240), 60);
+        assert_eq!(catch_up_steps(160), 40);
         // As play_params has at 60.
         assert_eq!(catch_up_steps(60), crate::phys::play_params().max_substeps);
     }
@@ -722,7 +760,7 @@ mod tests {
         assert!(close(paced_step(1.0 / 60.0, 0.5), 1.0 / 120.0));
         assert!(close(paced_step(1.0 / 60.0, 0.25), SHORTEST_STEP));
         // A kill camera's 0.12, VATS marking's 0.05 and the slowest 0.02: never shorter.
-        for full in [1.0 / 60.0f32, 1.0 / 152.0, 1.0 / 240.0] {
+        for full in [1.0 / 60.0f32, 1.0 / 152.0, 1.0 / 160.0] {
             for speed in [0.12f32, 0.05, 0.02, 0.001] {
                 let dt = paced_step(full, speed);
                 assert!(dt >= SHORTEST_STEP - 1e-9 && dt <= full, "{full} at {speed}: {dt}");
@@ -736,7 +774,7 @@ mod tests {
 
     /// Every rate the menu offers, and Match display at 152: under every clock VATS and the
     /// kill cameras use, the step is never shorter than the shortest one, the steps a real
-    /// second are the rate's or 240 times the clock's, and a body crawling at 5 units/s at
+    /// second are the rate's or the shortest step's (240) times the clock's, and a body crawling at 5 units/s at
     /// Goodsprings moves at every step (the positions resolve it).
     #[test]
     fn every_rate_keeps_slow_bodies_moving_under_a_slowed_clock() {
@@ -748,7 +786,7 @@ mod tests {
                 let dt = paced_step(full, speed);
                 assert!(dt >= SHORTEST_STEP - 1e-9, "{hz} Hz at {speed}: step {dt}");
                 let per_second = speed / dt;
-                let want = (hz as f32).min(240.0 * speed);
+                let want = (hz as f32).min(speed / SHORTEST_STEP);
                 assert!((per_second - want).abs() < want * 1e-4, "{hz} Hz at {speed}: {per_second} steps a real second, {want} wanted");
                 let mut w = fnv_phys::PhysWorld::new(fnv_phys::PhysParams::default());
                 w.set_step(dt);
@@ -789,8 +827,8 @@ mod tests {
         assert_eq!(fps_target(147.0, 152), 140);
         assert_eq!(fps_target(152.0, 152), 152);
         assert_eq!(fps_target(400.0, 152), 152);
-        assert_eq!(fps_target(400.0, 240), 240);
-        assert_eq!(fps_target(400.0, 300), 240, "never over 240");
+        assert_eq!(fps_target(400.0, 160), 160);
+        assert_eq!(fps_target(400.0, 300), 160, "never over 160");
         assert_eq!(fps_target(45.0, 152), 60, "never under 60");
         assert_eq!(fps_target(f64::NAN, 152), 60);
         assert_eq!(fps_target(0.0, 152), 60);
@@ -867,11 +905,11 @@ mod tests {
 
     #[test]
     fn notches_step_through_the_listed_rates() {
-        assert_eq!(notch_below(240), Some(160));
+        assert_eq!(notch_below(160), Some(144));
         assert_eq!(notch_below(152), Some(144));
         assert_eq!(notch_below(120), Some(60));
         assert_eq!(notch_below(60), None);
-        assert_eq!(notch_above(60, 240), Some(120));
+        assert_eq!(notch_above(60, 160), Some(120));
         assert_eq!(notch_above(144, 152), Some(152));
         assert_eq!(notch_above(160, 160), None);
     }
@@ -896,13 +934,13 @@ mod tests {
     #[test]
     fn the_guard_steps_down_under_load_and_never_under_60() {
         let mut g = Guard::default();
-        let mut hz = 240;
+        let mut hz = 160;
         // Light load: nothing moves.
-        assert!(run(&mut g, &mut hz, 240, 0.3, 10.0).is_empty());
+        assert!(run(&mut g, &mut hz, 160, 0.3, 10.0).is_empty());
         // Over half the frame: a notch every 2 s, down to 60 and no further.
-        let moves = run(&mut g, &mut hz, 240, 0.7, 30.0);
+        let moves = run(&mut g, &mut hz, 160, 0.7, 30.0);
         let tos: Vec<u32> = moves.iter().map(|m| if let GuardMove::Down { to, .. } = m { *to } else { 0 }).collect();
-        assert_eq!(tos, [160, 144, 120, 60]);
+        assert_eq!(tos, [144, 120, 60]);
         assert_eq!(hz, 60);
         // A brief spike does not count: the share is over 2 s.
         let mut g = Guard::default();
@@ -956,12 +994,12 @@ mod tests {
     #[test]
     fn a_new_choice_starts_the_guard_again() {
         let mut g = Guard::default();
-        let mut hz = 240;
-        run(&mut g, &mut hz, 240, 0.9, 2.5);
-        assert_eq!(g.limit(240), 160);
+        let mut hz = 160;
+        run(&mut g, &mut hz, 160, 0.9, 2.5);
+        assert_eq!(g.limit(160), 144);
         g.reset();
         assert_eq!(g.limit(120), 120);
-        assert_eq!(g.limit(240), 240);
+        assert_eq!(g.limit(160), 160);
         assert_eq!(g.frame(60, 60, f64::NAN, 0.01), None);
         assert_eq!(g.frame(60, 60, 0.001, 0.0), None);
     }

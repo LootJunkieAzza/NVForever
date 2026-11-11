@@ -612,16 +612,16 @@ expect = [
 
 [[scenario]]
 name = "physics-rate-display"
-source = "docs/spec-notes/physics.md §5 (the physics rate): --physics-hz display follows the frame rate the display's pace holds (the cap in effect, else the refresh rate), within 60 to 240"
+source = "docs/spec-notes/physics.md §5 (the physics rate): --physics-hz display follows the frame rate the display's pace holds (the cap in effect, else the refresh rate), within 60 to 160"
 areas = ["physics"]
 paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/main.rs"]
 env = { NVF_PLAY_TEST_GOD = "1" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--physics-hz", "display"]
 run_seconds = 15
-note = "The display's rate is the machine's: the line checks that Match FPS found one and held it to 60-240, not which"
+note = "The display's rate is the machine's: the line checks that Match FPS found one and held it to 60-160, not which"
 expect = [
   { re = 'phys: physics rate (?P<n>\d+) Hz( -> \d+ Hz)? \(--physics-hz fps, Match FPS: up to the display.s \d+ fps\)', min = 1, label = "Match FPS found the display's frame rate" },
-  { re = 'physics rate: (?P<n>\d+) Hz at exit', range = [60, 240], label = "held to 60-240" },
+  { re = 'physics rate: (?P<n>\d+) Hz at exit', range = [60, 160], label = "held to 60-160" },
 ]
 
 [[scenario]]
@@ -11881,7 +11881,7 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-slowed-display"
 source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion with --physics-hz display (the display's frame rate) slows the ragdoll and the gore until it ends (docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam-slowed-60 with Match FPS: the rate is the machine's (60 to 240), so the step's length under the camera is not checked, only that the corpse moves, never jumps and nothing reacts to the slow motion. The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
+note = "vats-kill-cam-slowed-60 with Match FPS: the rate is the machine's (60 to 160), so the step's length under the camera is not checked, only that the corpse moves, never jumps and nothing reacts to the slow motion. The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
 areas = ["combat", "vats", "physics"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/frame_pace.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
@@ -11987,34 +11987,6 @@ expect = [
 forbid = [
   { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 160 Hz)" },
   { text = "kill camera: skipped", label = "another enemy still fights the player (at 160 Hz)" },
-]
-
-[[scenario]]
-name = "vats-kill-cam-slowed-240"
-source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 240 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam-slowed-60 at 240 steps a second: the full-speed step is already the shortest one (1/240 s, 4.17 ms), so under the camera's slowed clock the step stays 1/240 s and there are fewer steps a real second. The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
-areas = ["combat", "vats", "physics"]
-paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
-args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "240"]
-run_seconds = 28
-order = [[
-  { re = 'kill camera: .* killed by the last mark: path ', label = "the kill camera starts (at 240 Hz)" },
-  { re = 'kill camera: done \([\d.]+ s\)', label = "the kill camera ends by itself (at 240 Hz)" },
-  { re = 'ragdoll: actor 000F573F (held at rest|at rest)', label = "the dog's corpse is not set at rest before the camera ends (at 240 Hz)" },
-]]
-expect = [
-  { re = 'phys: physics rate 240 Hz \(--physics-hz 240\)', count = 1, label = "at 240 Hz" },
-  { re = 'phys: the clock is back at full speed: the step is [\d.]+ ms again \(the clock was at 0\.\d+ at its slowest, the step 4\.17 ms', min = 1, label = "the slowed step is held at 1/240 s (at 240 Hz)" },
-  { re = 'kill camera summary: 1 shown, 0 skipped, 0 off', label = "one kill camera shown (at 240 Hz)" },
-  { re = 'kill camera: the target.s drawn place moved (?P<n>\d+) units over', range = [20, 100000], label = "the corpse moves under the camera (no freeze) (at 240 Hz)" },
-  { re = 'kill camera: the target.s drawn place moved \d+ units over \d+ frames and \d+ physics steps, at most (?P<n>[\d.]+) units in a frame', range = [0, 40], label = "and never jumps in a frame (at 240 Hz)" },
-  { re = '(?P<n>\d+) frames it stood still while its body went at 5 units/s or more', range = [0, 5], label = "and never stands still while its body moves (at 240 Hz)" },
-  { re = 'kill camera: in the frame after it the target.s drawn place moved (?P<n>[\d.]+) units', range = [0, 10], label = "no jump as the clock comes back (at 240 Hz)" },
-]
-forbid = [
-  { re = 'phys: physics rate \d+ Hz -> \d+ Hz: the physics took', label = "the cost guard reacts to the slow motion (at 240 Hz)" },
-  { text = "kill camera: skipped", label = "another enemy still fights the player (at 240 Hz)" },
 ]
 
 [[scenario]]

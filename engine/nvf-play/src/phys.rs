@@ -1861,8 +1861,9 @@ pub const SLOWEST_PACED: f32 = 0.02;
 /// steps a real second].
 pub const FASTEST_PACED: f32 = 4.0;
 
-/// The shortest step the physics takes, seconds: the full-speed step of the highest rate
-/// (1/240 s, `crate::phys_rate::MAX_HZ`). rapier keeps positions in f32 metres from the
+/// The shortest step the physics takes, seconds: 1/240 s, the full-speed step of the
+/// highest rate the menu offered until 2026-11-11 (it now stops at 160,
+/// `crate::phys_rate::MAX_HZ`); it stays as the floor of a slowed clock's step. rapier keeps positions in f32 metres from the
 /// worldspace's origin, and a shorter step moves a slow body by less than the position can
 /// show, so it stands still [observed: `probe_slow_steps_far_from_the_origin`,
 /// crates/fnv-phys/tests/synthetic.rs, 2026-11-11: at Goodsprings (x -68,000) a body at

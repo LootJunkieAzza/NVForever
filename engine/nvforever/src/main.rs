@@ -493,7 +493,7 @@ struct Args {
     #[arg(long)]
     play: bool,
     /// With --play: the physics rate for this run, over the settings page's Physics rate:
-    /// fixed steps a second, a whole number from 60 to 240, or `fps` for Match FPS: the
+    /// fixed steps a second, a whole number from 60 to 160, or `fps` for Match FPS: the
     /// game's frame rate, up to what the display's pace allows (`display`, its old name, is
     /// read as it too; nvf_play::phys_rate). For quick tests; not kept.
     #[arg(long, value_name = "HZ|fps", value_parser = nvf_play::phys_rate::parse_arg)]
