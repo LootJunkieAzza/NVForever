@@ -103,6 +103,9 @@ const P_TO_FAR: u32 = 0x827;
 const P_GUARD_32: u32 = 0x828;
 const P_GUARD_64: u32 = 0x829;
 const P_GUARD_IN_CELL: u32 = 0x82A;
+const P_GUARD_1: u32 = 0x82B;
+const P_GUARD_15: u32 = 0x82C;
+const P_GUARD_16: u32 = 0x82D;
 
 const N_GUARD: u32 = 0x840;
 const N_ZERO: u32 = 0x841;
@@ -115,6 +118,9 @@ const N_FOE: u32 = 0x847;
 const N_SMALL_32: u32 = 0x848;
 const N_SMALL_64: u32 = 0x849;
 const N_IN_CELL: u32 = 0x84A;
+const N_TINY_1: u32 = 0x84B;
+const N_TINY_15: u32 = 0x84C;
+const N_TINY_16: u32 = 0x84D;
 
 const YARD: u32 = 0x860;
 const WALLED: u32 = 0x861;
@@ -141,6 +147,9 @@ const R_FOE: u32 = 0x888;
 const R_SMALL_32: u32 = 0x889;
 const R_SMALL_64: u32 = 0x88A;
 const R_IN_CELL: u32 = 0x88B;
+const R_TINY_1: u32 = 0x88C;
+const R_TINY_15: u32 = 0x88D;
+const R_TINY_16: u32 = 0x88E;
 /// The yard's door to the shed (in its far corner) and the shed's back to the yard.
 const DOOR_YARD: u32 = 0x8D0;
 const DOOR_SHED: u32 = 0x8D1;
@@ -181,6 +190,10 @@ fn plugin_bytes() -> Vec<u8> {
         pack(P_GUARD_32, "GuardThePostClosely", GUARD, 0, (NEAR_REF, MARK_POST, 32), None),
         pack(P_GUARD_64, "GuardThePostNear", GUARD, 0, (NEAR_REF, MARK_POST, 64), None),
         pack(P_GUARD_IN_CELL, "GuardTheYard", GUARD, 0, (IN_CELL, YARD, 128), None),
+        // Round the floor (`GUARD_WANDER_MIN_RADIUS`, 16).
+        pack(P_GUARD_1, "GuardThePostOnTheSpot", GUARD, 0, (NEAR_REF, MARK_POST, 1), None),
+        pack(P_GUARD_15, "GuardThePostAlmost", GUARD, 0, (NEAR_REF, MARK_POST, 15), None),
+        pack(P_GUARD_16, "GuardThePostJust", GUARD, 0, (NEAR_REF, MARK_POST, 16), None),
     ]
     .concat();
     let npcs = [
@@ -196,6 +209,9 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_SMALL_32, "CloseGuard", &[P_GUARD_32]),
         npc(N_SMALL_64, "NearGuard", &[P_GUARD_64]),
         npc(N_IN_CELL, "YardGuard", &[P_GUARD_IN_CELL]),
+        npc(N_TINY_1, "SpotGuard", &[P_GUARD_1]),
+        npc(N_TINY_15, "AlmostGuard", &[P_GUARD_15]),
+        npc(N_TINY_16, "JustGuard", &[P_GUARD_16]),
     ]
     .concat();
     // A chair (marker flags bit 30), a bed (bit 31) and an idle marker inside the post's
@@ -223,6 +239,9 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_SMALL_32, "CloseGuardRef", N_SMALL_32, POST),
         placed(b"ACHR", R_SMALL_64, "NearGuardRef", N_SMALL_64, POST),
         placed(b"ACHR", R_IN_CELL, "YardGuardRef", N_IN_CELL, [400.0, 1000.0, 0.0]),
+        placed(b"ACHR", R_TINY_1, "SpotGuardRef", N_TINY_1, POST),
+        placed(b"ACHR", R_TINY_15, "AlmostGuardRef", N_TINY_15, POST),
+        placed(b"ACHR", R_TINY_16, "JustGuardRef", N_TINY_16, POST),
         // The door the graph's door link names, placed so the game knows it.
         placed(b"REFR", DOOR_YARD, "YardDoor", STAT, [1950.0, 1950.0, 0.0]),
     ]
@@ -411,6 +430,7 @@ fn the_fixture_reads_without_issues() {
     assert_eq!(radius(P_TRAVEL_NEAR), None, "a Travel package is no guard");
     assert_eq!(radius(P_GUARD_IN_CELL), None, "an \"in cell\" location has no radius, whatever is stored");
     assert_eq!((radius(P_GUARD_32), radius(P_GUARD_64)), (Some(32.0), Some(64.0)));
+    assert_eq!((radius(P_GUARD_1), radius(P_GUARD_15), radius(P_GUARD_16)), (None, None, Some(16.0)), "the floor");
 }
 
 /// A guard at its post keeps walking about inside the location's radius (128), never
@@ -644,19 +664,27 @@ fn an_in_cell_guard_ignores_its_stored_radius() {
     assert!(dist(s.feet(R_IN_CELL), here) < 1.0, "moved from {here:?} to {:?}", s.feet(R_IN_CELL));
 }
 
-/// A guard that fled through a door (#2027 review): its wander is round the post in the
+/// A guard that fled through a door (#2027 review): its wander is round its area in the
 /// yard, so in the shed it neither wanders nor stands for ever; when the fight is over it
-/// goes back through the door to its post and wanders there again.
+/// goes back through the door to that area and wanders there again. Near its post, and
+/// "near current location" too: that one keeps the area it began in, not the shed.
 #[test]
-fn a_guard_that_fled_through_a_door_goes_back_to_its_post() {
+fn a_guard_that_fled_through_a_door_goes_back_to_its_area() {
+    for actor in [R_GUARD, R_HERE] {
+        fled_through_the_door_and_back(actor);
+    }
+}
+
+fn fled_through_the_door_and_back(actor: u32) {
     use fnv_game::awareness::{State, Timers};
     use fnv_game::combat_group::{FleeBy, Flight};
     use fnv_game::detection::{Band, Detection};
     let f = fixture();
-    let mut s = sim(&f, &[R_GUARD]);
-    let guard = FormId(R_GUARD);
+    let mut s = sim(&f, &[actor]);
+    let guard = FormId(actor);
     s.run(30.0);
-    assert!(s.ai.agents[&guard].sandbox.is_some());
+    let (centre, radius) = s.ai.agents[&guard].sandbox.as_ref().expect("wandering").area();
+    assert_eq!(centre.space, Space::Interior(YARD));
     // In combat with the player at the yard's near corner; the door, in the far corner,
     // is the way away from it.
     let threat = [0.0, 0.0, 0.0];
@@ -668,22 +696,53 @@ fn a_guard_that_fled_through_a_door_goes_back_to_its_post() {
     a.combat_began = Some(now - fnv_ai::alert::COMBAT_REACTION_SECONDS - 1.0);
     s.game.awareness.tactics.flights.insert(guard, Flight { from: FormId::PLAYER_REF, from_at: threat, since: now, spot: None, arrived: None });
     s.run(15.0);
-    assert!(s.events(R_GUARD).iter().any(|e| matches!(e, AiEvent::Flee { how: FleeBy::Door { door }, .. } if door.0 == DOOR_YARD)), "{:?}", s.events(R_GUARD));
-    assert_eq!(s.ai.agents[&guard].walker.space, Space::Interior(SHED), "fled into the shed: {:?}", s.events(R_GUARD));
+    assert!(s.events(actor).iter().any(|e| matches!(e, AiEvent::Flee { how: FleeBy::Door { door }, .. } if door.0 == DOOR_YARD)), "{actor:X}: {:?}", s.events(actor));
+    assert_eq!(s.ai.agents[&guard].walker.space, Space::Interior(SHED), "{actor:X} fled into the shed: {:?}", s.events(actor));
     // The fight is over.
     s.game.awareness.actors.remove(&guard);
     s.game.awareness.tactics.flights.remove(&guard);
-    let before = doings(&s, R_GUARD).len();
+    let before = doings(&s, actor).len();
     s.run(60.0);
-    let ev = s.events(R_GUARD);
-    assert!(ev.iter().any(|e| matches!(e, AiEvent::SearchBack { .. })), "{ev:?}");
-    assert_eq!(s.ai.agents[&guard].walker.space, Space::Interior(YARD), "back in the yard: {ev:?}");
+    let ev = s.events(actor);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::SearchBack { .. })), "{actor:X}: {ev:?}");
+    assert_eq!(s.ai.agents[&guard].walker.space, Space::Interior(YARD), "{actor:X} back in the yard: {ev:?}");
     let mut farthest = 0.0f32;
     for _ in 0..120 {
         s.run(0.5);
-        farthest = farthest.max(dist(s.feet(R_GUARD), POST));
+        farthest = farthest.max(dist(s.feet(actor), centre.pos));
     }
-    assert!(farthest <= RADIUS + 1.0, "went {farthest} from the post");
-    assert!(doings(&s, R_GUARD)[before..].iter().filter(|d| **d == Doing::Wandering).count() >= 3, "{:?}", &doings(&s, R_GUARD)[before..]);
-    assert_eq!(s.ai.agents[&guard].sandbox.as_ref().map(|sb| sb.area().0.space), Some(Space::Interior(YARD)));
+    assert!(farthest <= radius + 1.0, "{actor:X} went {farthest} from its area's centre");
+    assert!(doings(&s, actor)[before..].iter().filter(|d| **d == Doing::Wandering).count() >= 3, "{actor:X}: {:?}", &doings(&s, actor)[before..]);
+    let again = s.ai.agents[&guard].sandbox.as_ref().expect("wandering again").area();
+    assert_eq!(again.0.space, centre.space, "{actor:X}");
+    assert!(dist(again.0.pos, centre.pos) < 1.0 && again.1 == radius, "{actor:X}: {again:?} against {centre:?}, {radius}");
+}
+
+/// The floor (`GUARD_WANDER_MIN_RADIUS`, 16) [design, #2027 review]: a location radius of
+/// 1 or 15 is too small to walk in, and its guard stands on its post like one of 0 (a
+/// radius of 1 had spots within a unit, which a walk counts as reached at once); 16
+/// wanders, within it.
+#[test]
+fn a_radius_below_the_floor_stands_and_the_floor_wanders() {
+    let f = fixture();
+    for actor in [R_TINY_1, R_TINY_15] {
+        let mut s = sim(&f, &[actor]);
+        s.run(120.0);
+        let a = &s.ai.agents[&FormId(actor)];
+        assert!(a.sandbox.is_none(), "{actor:X}");
+        assert!(doings(&s, actor).is_empty(), "{actor:X}: {:?}", doings(&s, actor));
+        assert!(a.walker.travelled < 1.0, "{actor:X} walked {}", a.walker.travelled);
+        assert_eq!(s.procedure(actor), GUARD_PROCEDURE);
+    }
+    let mut s = sim(&f, &[R_TINY_16]);
+    let mut farthest = 0.0f32;
+    for _ in 0..240 {
+        s.run(0.5);
+        farthest = farthest.max(dist(s.feet(R_TINY_16), POST));
+    }
+    let did = doings(&s, R_TINY_16);
+    assert!(did.iter().filter(|d| **d == Doing::Wandering).count() >= 6, "{did:?}");
+    let walked = s.ai.agents[&FormId(R_TINY_16)].walker.travelled;
+    assert!(walked > 48.0, "walked {walked}");
+    assert!(farthest <= 16.0 + 1.0, "went {farthest} from the post");
 }
