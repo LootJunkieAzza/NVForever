@@ -22184,10 +22184,10 @@ expect = [
 [[scenario]]
 name = "script-runner-tool"
 kind = "tool"
-source = "issue #1460, docs/spec-notes/ext-script-runner.md: JIP's Script Runner files of the fixture home's mods layer compiled and run headless (game restart, new game)"
+source = "issue #1460, docs/spec-notes/ext-script-runner.md: JIP's Script Runner files of the fixture home's mods layer compiled and run headless (game restart, new game); --no-data-files keeps the Script Runner files the player installed in Data out (#2080)"
 areas = ["scripts", "extender"]
 paths = ["crates/fnv-game/src/script_runner.rs", "crates/fnv-game/src/mod_files.rs", "crates/fnvtool/src/ext_cmd.rs", "crates/fnv-script/src/compile/", "tools/smoke/fixtures/script-runner-home/"]
-commands = [["ext", "script-runner", "{data}", "{masters}", "--schema", "schemas/fnv", "--root", "{repo}/tools/smoke/fixtures/script-runner-home/mods", "--run"]]
+commands = [["ext", "script-runner", "{data}", "{masters}", "--schema", "schemas/fnv", "--root", "{repo}/tools/smoke/fixtures/script-runner-home/mods", "--no-data-files", "--run"]]
 expect = [
   { json = "files", schema = "fnv.ext.script_runner/1", equals = 3, label = "the folder's three files (the registered one is in a subfolder)" },
   { json = "compiled", schema = "fnv.ext.script_runner/1", equals = 2 },
