@@ -775,7 +775,10 @@ fn step(
 ) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
-    let dt = time.delta_secs_f64() as f32;
+    // The player's tweak runs the lock at the world clock's speed (a script's
+    // SetGlobalTimeMultiplier) [design: docs/design/tweaks.md].
+    let speed = script.as_deref().and_then(|s| s.rt.as_ref()).filter(|rt| rt.game.tweaks.minigames_timescale).map_or(1.0, |rt| rt.game.ui.time_multiplier.unwrap_or(1.0).max(0.0) as f32);
+    let dt = time.delta_secs_f64() as f32 * speed;
     if let Some((since, why)) = s.leaving {
         if now - since >= LEAVE_SECONDS {
             leave(&mut next, why);

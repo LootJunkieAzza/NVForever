@@ -531,6 +531,8 @@ unless the player binds them, so nothing changes until then.
 | Compare Armor | `bCompareArmorStats` | `pipboy::items::info_of` adds the difference from the DT of the worn pieces sharing a biped slot, for armour not worn |
 | (already so) | `bSilentSneakPowerAttacks` | the player makes no sound of effort on any attack, so nothing to silence |
 | Detailed Stats | `bMoreDetailedStatsMenu` | `pipboy::stats::read` leaves the values uncapped and writes the mark as the signed difference from the permanent value (`Row::mark` is a `String` now) |
+| Lockpicking Follows the Time Speed | `bTimescaleAffectsMinigames` | `lockpick::step` multiplies its frame time by SetGlobalTimeMultiplier's speed; the card and slot games keep their pace |
+| No Name Length Limit | `bNoPlayerNameLimit` | the name menu and `chargen::apply_name` take up to `NAME_LONG_CHARS` (256) for 24; the box wraps |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -552,8 +554,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 457 |
-| to do | 146 |
+| done | 459 |
+| to do | 144 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1039,6 +1041,7 @@ game's Data folder, read-only).
 | `bTabClosesPipboyFromKeyAndLimbMenus` | done |  |  | already so: Tab closes the Pip-Boy from every page |
 | `bTabClosesTerminals` | done |  |  | Tab Closes Terminals (Backspace still goes back) |
 | `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
+| `bTimescaleAffectsMinigames` | done |  |  | Lockpicking Follows the Time Speed (the lock only; the card and slot games keep their pace) |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bColorRecentlyAddedMapMarkers` | to do | yes |  | needs a per-session found set (newly_found is drained by the compass) |
 | `bDisplayItemEffectTotals` | to do | yes |  | aid_preview returns totals only; the per-second part is lost |
@@ -1076,7 +1079,6 @@ game's Data folder, read-only).
 | `bShowInventorySortButton` | unsure, skipped |  | 11 | needs the plugin's own menu XML |
 | `bTakeAllConfirmation` | to do |  | 2 | a confirmation prompt in the menu model |
 | `bTerminalGreyReadNotes` | to do |  |  | no record of entries read |
-| `bTimescaleAffectsMinigames` | to do |  |  | each minigame steps on AidTime |
 | `bVATSAPDisplayIncludesReloadCost` | to do |  |  | not built: V.A.T.S. queues never reload |
 
 ### Hotkeys
@@ -1145,6 +1147,7 @@ game's Data folder, read-only).
 | `bMeleeImpactEffectsFollowTarget` | done | yes |  | already so: decals on actors hang from a bone |
 | `bMoreResponsiveControllerAiming` | done | yes |  | More Responsive Controller Aiming (straight curve past the dead zone, ours) |
 | `bNoInteriorBlackLoadingScreen` | done | yes | 1 | already so: an interior's loading screen shows its picture, never a black one |
+| `bNoPlayerNameLimit` | done | yes |  | No Name Length Limit (256 characters) |
 | `bPowerArmorPreventsScreenBlood` | done | yes |  | No Screen Blood in Power Armor (any hit while power armor is worn on the body; hits are not told apart by body part here) |
 | `bRadioStaticDecreasesSongVolume` | done | yes |  | already so: the song fades as the static rises |
 | `bRememberConsoleHistory` | done | yes | 1 | Remember Console History (ConsoleHistory.txt in NVForever's folder, last 100 lines) |
@@ -1203,7 +1206,6 @@ game's Data folder, read-only).
 | `bModConsolePrintsIncludeName` | to do | yes | 1 | console print does not know which plugin printed |
 | `bMultithreadedHackingMenu` | n/a | yes |  | performance work on the original |
 | `bNoDespawnVisibleStuckProjectiles` | to do | yes |  | projectiles do not stick in NVForever yet |
-| `bNoPlayerNameLimit` | to do | yes |  | the name box is laid out for 24 characters; check its drawing first |
 | `bPartialReloads` | unsure, skipped | yes |  | depends on animation file naming conventions not yet checked |
 | `bUseAnimVariants` | unsure, skipped | yes | 3 | depends on animation file naming conventions not yet checked |
 | `bVATSStopFollowingDeadTargets` | to do | yes |  | needs the kill camera shot's start frame kept |

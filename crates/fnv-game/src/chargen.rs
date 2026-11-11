@@ -39,6 +39,18 @@ pub const DEFAULT_NAME: &str = "Courier";
 /// The longest name the name menu takes [hypothesis: the original's limit is not
 /// captured; long enough for any name the box shows on one line].
 pub const NAME_MAX_CHARS: usize = 24;
+/// The longest name under the player's No Name Limit tweak: a bound only so a name stays
+/// a sensible size in saves; the name box wraps [design: docs/design/tweaks.md].
+pub const NAME_LONG_CHARS: usize = 256;
+
+/// The longest name the name menu takes in this game.
+pub fn name_limit(g: &Game) -> usize {
+    if g.tweaks.no_name_limit {
+        NAME_LONG_CHARS
+    } else {
+        NAME_MAX_CHARS
+    }
+}
 
 /// A string game setting.
 fn setting_str(g: &Game, name: &str) -> Option<String> {
@@ -58,7 +70,12 @@ pub fn name_offered(g: &Game) -> String {
 /// A typed name as the menu keeps it: printable characters only, at most
 /// [`NAME_MAX_CHARS`].
 pub fn clean_name(s: &str) -> String {
-    s.chars().filter(|c| !c.is_control()).take(NAME_MAX_CHARS).collect()
+    clean_name_to(s, NAME_MAX_CHARS)
+}
+
+/// A typed name with printable characters only, at most `max` of them.
+pub fn clean_name_to(s: &str, max: usize) -> String {
+    s.chars().filter(|c| !c.is_control()).take(max).collect()
 }
 
 /// Whether Ok takes the name: not empty once the spaces around it are taken off
@@ -69,7 +86,7 @@ pub fn name_acceptable(s: &str) -> bool {
 
 /// Done in the name menu: the player is called `name` (spaces around it taken off).
 pub fn apply_name(g: &mut Game, name: &str) {
-    g.player.name = Some(clean_name(name).trim().to_string());
+    g.player.name = Some(clean_name_to(name, name_limit(g)).trim().to_string());
 }
 
 // ---- the look (the race menu) ------------------------------------------------------------
@@ -586,6 +603,7 @@ mod tests {
     fn names_are_cleaned() {
         assert_eq!(clean_name("Cou\nrier"), "Courier");
         assert_eq!(clean_name(&"x".repeat(40)).len(), NAME_MAX_CHARS);
+        assert_eq!(clean_name_to(&"x".repeat(40), NAME_LONG_CHARS).len(), 40);
         assert!(!name_acceptable("   "));
         assert!(name_acceptable(" Six "));
     }

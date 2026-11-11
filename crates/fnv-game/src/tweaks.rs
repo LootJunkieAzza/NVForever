@@ -461,6 +461,12 @@ pub struct Tweaks {
     /// `bMoreDetailedStatsMenu`: the Pip-Boy's (+) and (-) give the amount, and values
     /// show past their caps.
     pub detailed_stats: bool,
+    /// `bTimescaleAffectsMinigames`: the lock's turning runs at the world clock's speed
+    /// (SetGlobalTimeMultiplier).
+    pub minigames_timescale: bool,
+    /// `bNoPlayerNameLimit`: the player's name may be as long as
+    /// `chargen::NAME_LONG_CHARS`.
+    pub no_name_limit: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -669,6 +675,8 @@ impl Default for Tweaks {
             no_ammo_casings: false,
             compare_armor: false,
             detailed_stats: false,
+            minigames_timescale: false,
+            no_name_limit: false,
         }
     }
 }

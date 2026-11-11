@@ -52,6 +52,8 @@ pub struct NameMenu {
     /// A script's text input menu (ShowTextInputMenu, `fnv_game::nvse_jip12`) in place
     /// of the character's name: its own title, size and rules.
     pub script: Option<ScriptInput>,
+    /// The longest name taken (`fnv_game::chargen::name_limit`).
+    pub limit: usize,
 }
 
 /// The rules of a script's text input menu.
@@ -76,7 +78,8 @@ impl NameMenu {
             Some(g) => fnv_game::ui_loading::game_string(g, name),
             None => fnv_ui::strings::built_in(name).unwrap_or_default().to_owned(),
         };
-        NameMenu { text: chargen::clean_name(&offered), hover_ok: false, prompt: word(PROMPT_SETTING), ok: word(OK_SETTING), script: None }
+        let limit = game.map_or(chargen::NAME_MAX_CHARS, chargen::name_limit);
+        NameMenu { text: chargen::clean_name_to(&offered, limit), hover_ok: false, prompt: word(PROMPT_SETTING), ok: word(OK_SETTING), script: None, limit }
     }
 
     /// A script's text input menu: the title over an empty text; the box the script's
@@ -87,7 +90,7 @@ impl NameMenu {
             None => fnv_ui::strings::built_in(OK_SETTING).unwrap_or_default().to_owned(),
         };
         let size = Vec2::new(if t.size.0 > 0.0 { t.size.0 } else { BOX.x }, if t.size.1 > 0.0 { t.size.1 } else { BOX.y });
-        NameMenu { text: String::new(), hover_ok: false, prompt: t.title.clone(), ok, script: Some(ScriptInput { size, min: t.min, max: t.max, digits_only: t.digits_only, enter_closes: t.enter_closes }) }
+        NameMenu { text: String::new(), hover_ok: false, prompt: t.title.clone(), ok, script: Some(ScriptInput { size, min: t.min, max: t.max, digits_only: t.digits_only, enter_closes: t.enter_closes }), limit: t.max }
     }
 
     /// The box's size.
@@ -104,7 +107,7 @@ impl NameMenu {
                 let typed: String = s.chars().filter(|c| !c.is_control() && (!r.digits_only || c.is_ascii_digit() || *c == '.')).collect();
                 format!("{}{typed}", self.text).chars().take(r.max).collect()
             }
-            None => chargen::clean_name(&format!("{}{s}", self.text)),
+            None => chargen::clean_name_to(&format!("{}{s}", self.text), self.limit),
         };
         let changed = next != self.text;
         self.text = next;
