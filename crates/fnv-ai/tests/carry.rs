@@ -1642,6 +1642,38 @@ fn an_alerted_actor_searches_where_the_alarm_is_and_goes_back_after() {
     assert!(s.ai.agents[&FormId(R_RADIUS)].search.is_none());
 }
 
+/// An alert takes an actor off its bed or chair; when the search ends inside its
+/// package's place it settles again (issue #2013) [observed: Easy Pete, fought off his
+/// chair, sat again about 5 real seconds after the fight, AI observer 2026-11-10].
+#[test]
+fn an_actor_taken_off_its_furniture_by_an_alert_settles_again() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR, R_SLEEP_C]);
+    s.run(30.0);
+    assert_eq!(s.ai.agents[&FormId(R_SLEEP_C)].using, Some(FormId(BED_C)));
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+    for r in [R_SLEEP_C, R_TO_CHAIR] {
+        let at = s.feet(r);
+        alert(&mut s, r, [at[0] + 40.0, at[1], 0.0]);
+    }
+    s.run(2.0);
+    assert_eq!(s.ai.agents[&FormId(R_SLEEP_C)].using, None, "the alert gets it up");
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, None, "the alert gets it up");
+    for r in [R_SLEEP_C, R_TO_CHAIR] {
+        s.game.awareness.actors.remove(&FormId(r));
+    }
+    s.run(30.0);
+    // The Sleep package "in cell": anywhere in the cell is its place, so nothing to walk
+    // back to; it goes back to its bed.
+    let ev = s.events(R_SLEEP_C);
+    let over = ev.iter().rposition(|e| matches!(e, AiEvent::SearchOver { .. })).expect("search over");
+    assert!(ev[over..].iter().any(|e| matches!(e, AiEvent::Resettles { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&FormId(R_SLEEP_C)].using, Some(FormId(BED_C)), "{ev:?}");
+    // The chair's sitter sits again, walking back first if the search took it out of
+    // its package's place.
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)), "{:?}", s.events(R_TO_CHAIR));
+}
+
 /// An actor without packages (Ranger Ghost, playtest list 5 item 29) walks back to where
 /// it was placed after a search.
 #[test]
