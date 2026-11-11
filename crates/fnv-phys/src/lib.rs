@@ -16,6 +16,8 @@
 //!   game)
 //! - [`ragdoll`]: ragdolls, the jointed bodies of dead actors
 //! - [`grab`]: a body held by the player's grab
+//! - [`drawn`]: the moving bodies' poses before the last step, for drawing between steps
+//! - [`quarantine`]: bodies and colliders whose state went NaN or infinite
 //! - [`water`]: water areas (cell water surfaces) the character swims in
 //! - [`buoyancy`]: ragdolls and gore pieces float in water
 //! - [`swim`]: swimming speeds (the stroke cycle)
@@ -31,11 +33,13 @@ pub mod arrival;
 pub mod buoyancy;
 pub mod character;
 pub mod convert;
+pub mod drawn;
 pub mod gore;
 pub mod grab;
 pub mod layers;
 pub mod placed;
 pub mod primitive;
+pub mod quarantine;
 pub mod ragdoll;
 pub mod script;
 pub mod swim;
@@ -47,10 +51,12 @@ pub use actors::{HitVolume, PartCapsule};
 pub use arrival::Arrival;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep, Push, SpotRefused, STUCK_RETRY};
 pub use convert::ConvertError;
+pub use drawn::DRAWN_JUMP;
 pub use grab::{Grip, GripOn, HoldParams};
 pub use layers::LayerSet;
 pub use ragdoll::{RagdollReport, RagdollStart};
 pub use placed::{ref_collision, ref_collision_with, ModelCollision, RefCollision, RefCollisionOptions};
+pub use quarantine::{QuarantineReport, Remedy};
 pub use swim::Stroke;
 pub use water::{PlacedWater, WaterArea};
 pub use world::{
