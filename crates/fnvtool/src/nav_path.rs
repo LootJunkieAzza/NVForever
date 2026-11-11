@@ -455,7 +455,7 @@ impl WalkDoor {
         let seq = if want.0 { open } else { close };
         for (object, block, body) in &self.objects {
             if let Some(node) = self.anim.node_to_root(Some(seq), want.1, *block) {
-                world.pose_ref_object(&self.pose, *object, &node.iso, body, false);
+                world.pose_ref_object(&self.pose, *object, &node.iso, body);
             }
         }
         self.shown = Some(want);

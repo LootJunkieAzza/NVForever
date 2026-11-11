@@ -17,10 +17,9 @@
 //!   missing constraints and the thrown-out poses suggest; not seen in the original yet].
 //! - The parts start still and do not hurt actors [design]; the stage's explosion
 //!   pushes them as it pushes loose objects (`combat: explosion … loose object(s)
-//!   pushed`). Calm for `ragdoll::CALM_TIME` as a corpse is and all but still over the
-//!   last second (`ragdoll::CALM_QUIET`, [`QUIET_WINDOWS`]; `NVF_WRECK_QUIET=0` drops
-//!   that), or still moving after [`MAX_FALLING`], the wreck is held at rest where it
-//!   lies (`PhysWorld::set_ragdoll_at_rest`) until a blast or a push rouses it.
+//!   pushed`). Calm for `ragdoll::CALM_TIME` as a corpse is, or still moving after
+//!   [`MAX_FALLING`], the wreck is held at rest where it lies
+//!   (`PhysWorld::set_ragdoll_at_rest`) until a blast or a push rouses it.
 //! - A wreck whose rig leaves the world (its cell unloads, ClearDestruction) loses its
 //!   ragdoll; drawn again, its parts fall again from the file's poses [design: where they
 //!   came to rest is not kept]. A change of drawn model (a later stage with another
@@ -29,9 +28,8 @@
 //!
 //! Log: `wrecks: <ref> <model>: <n> parts fall (<m> moving)`, `wrecks: <ref> falling:
 //! fastest part <v> units/s, <w> rad/s` (once a second), `wrecks: <ref> came to rest
-//! after <s> s; farthest part <node> <d> units from its start (<dz> in height); fastest
-//! part over the last <w> s <v> units/s, <r> rad/s` (or `held at rest still moving
-//! after`).
+//! after <s> s; farthest part <node> <d> units from its start (<dz> in height)` (or
+//! `held at rest still moving after`).
 
 use crate::ragdoll::game_iso;
 use bevy::prelude::*;
@@ -84,22 +82,6 @@ struct Fallen {
     since: Vec<Option<Iso>>,
     window: f32,
     calm: f32,
-    /// The poses at the start of the last windows and their lengths (up to
-    /// [`QUIET_WINDOWS`]), and the fastest part's net motion over them, units/s and rad/s.
-    windows: std::collections::VecDeque<(Vec<Option<Iso>>, f32)>,
-    last: (f32, f32),
-}
-
-/// How many calm windows (`ragdoll::CALM_WINDOW`) the parts' net motion is judged over
-/// before the wreck is held: a second, so that a part rocking in place (a bumper on its
-/// edge, a hubcap) counts as still and one crawling away does not.
-const QUIET_WINDOWS: usize = 4;
-
-/// Whether a calm wreck waits for quiet before it is held (`NVF_WRECK_QUIET=0`: held when
-/// calm, as before 2026-11-11; a test aid for comparing the two, read once).
-fn quiet_rule() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("NVF_WRECK_QUIET").map_or(true, |v| v != "0"))
 }
 
 #[derive(Resource, Default)]
@@ -215,7 +197,7 @@ fn fall(
         let nodes = rag.bodies.iter().map(|b| node(b).filter(|_| b.object.motion == Motion::Dynamic)).collect();
         let start = poses.iter().map(|p| p.translation).collect();
         let names = rag.bodies.iter().map(|b| b.object.node.clone().unwrap_or_default()).collect();
-        wrecks.fallen.insert(r, Fallen { root, nodes, scale, falling: Some(0.0), log_in: 1.0, start, names, since: Vec::new(), window: 0.0, calm: 0.0, windows: Default::default(), last: (f32::INFINITY, f32::INFINITY), built: phys.refs_built });
+        wrecks.fallen.insert(r, Fallen { root, nodes, scale, falling: Some(0.0), log_in: 1.0, start, names, since: Vec::new(), window: 0.0, calm: 0.0, built: phys.refs_built });
     }
 }
 
@@ -244,7 +226,6 @@ fn follow(
             // Roused by a blast or a push: it falls again.
             (f.falling, f.calm, f.window) = (Some(0.0), 0.0, 0.0);
             f.since.clear();
-            f.windows.clear();
         }
         // Calm as a corpse is (`ragdoll::CALM_SPEED`, `CALM_SPIN`, `CALM_TIME`): the parts'
         // net motion over short windows, not their velocities. A hubcap (`CarPort01`, a
@@ -255,22 +236,10 @@ fn follow(
             f.window += dt;
             if f.since.len() != now.len() {
                 (f.since, f.window) = (now, 0.0);
-                f.windows.clear();
             } else if f.window >= crate::ragdoll::CALM_WINDOW {
                 let moved = crate::ragdoll::net_motion(&f.since, &now, f.window);
                 let calm = moved.iter().all(|&(v, w)| v < crate::ragdoll::CALM_SPEED && w < crate::ragdoll::CALM_SPIN);
                 f.calm = if calm { f.calm + f.window } else { 0.0 };
-                f.windows.push_back((std::mem::take(&mut f.since), f.window));
-                if f.windows.len() > QUIET_WINDOWS {
-                    f.windows.pop_front();
-                }
-                f.last = match f.windows.front() {
-                    Some((from, _)) if f.windows.len() == QUIET_WINDOWS => {
-                        let secs = f.windows.iter().map(|w| w.1).sum();
-                        crate::ragdoll::net_motion(from, &now, secs).iter().fold((0.0f32, 0.0f32), |a, &(v, w)| (a.0.max(v), a.1.max(w)))
-                    }
-                    _ => (f32::INFINITY, f32::INFINITY),
-                };
                 (f.since, f.window) = (now, 0.0);
             }
         }
@@ -278,13 +247,7 @@ fn follow(
             *t += dt;
             f.log_in -= dt;
             let held = *t >= MAX_FALLING;
-            // Calm, and its parts all but still over the last second ([`QUIET_WINDOWS`]),
-            // so that nothing is seen to stop (`ragdoll::CALM_QUIET`, as a calm corpse is
-            // held at once): a part still crawling at up to `CALM_SPEED` waits [design,
-            // 2026-11-11; parts were held at 9-14 units/s, smoke wreck-car-parts-fall].
-            let quiet = !quiet_rule()
-                || (f.last.0 < crate::ragdoll::CALM_QUIET * crate::ragdoll::CALM_SPEED && f.last.1 < crate::ragdoll::CALM_QUIET * crate::ragdoll::CALM_SPIN);
-            if (f.calm >= crate::ragdoll::CALM_TIME && quiet) || held || phys.world.ragdoll_asleep(id) {
+            if f.calm >= crate::ragdoll::CALM_TIME || held || phys.world.ragdoll_asleep(id) {
                 phys.world.set_ragdoll_at_rest(id);
                 // The part that ended farthest from where it started.
                 let moved = bodies.iter().zip(&f.start).enumerate().filter_map(|(i, (b, s))| {
@@ -295,7 +258,7 @@ fn follow(
                 let (d, dz, i) = moved.fold((0.0f32, 0.0f32, 0), |a, m| if m.0 > a.0 { m } else { a });
                 let name = f.names.get(i).map_or("", String::as_str);
                 let how = if held { "held at rest still moving" } else { "came to rest" };
-                info!("wrecks: {id:08X} {how} after {:.1} s; farthest part {name} {d:.0} units from its start ({dz:+.0} in height); fastest part over the last {:.2} s {:.1} units/s, {:.2} rad/s", *t, crate::ragdoll::CALM_WINDOW * QUIET_WINDOWS as f32, f.last.0, f.last.1);
+                info!("wrecks: {id:08X} {how} after {:.1} s; farthest part {name} {d:.0} units from its start ({dz:+.0} in height)", *t);
                 f.falling = None;
             } else if f.log_in <= 0.0 && *t < FALL_LOG_SECONDS {
                 // Its fall in the log: the fastest part, once a second.

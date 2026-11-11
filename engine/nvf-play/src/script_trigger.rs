@@ -177,28 +177,6 @@ fn actors(rt: &mut Runtime, phys: &PhysState, player: Capsule) -> Vec<(FormId, C
     out
 }
 
-/// Whether an actor's capsule comes within reach of a volume's bounding sphere: never false
-/// for a capsule that touches the volume ([`TriggerShape::touches`]), so it only spares
-/// the exact test (a golden-section search along the capsule's axis for a box) the pairs
-/// that cannot touch. Testing every actor against every volume exactly cost about 0.1 µs
-/// a pair, 0.4 ms a frame for 100 volumes and 50 actors, 2.6 ms for 300 and 100; with
-/// this first, 10 µs and 58 µs, the same pairs [observed: a benchmark of the two,
-/// 2026-11-11, not committed; docs/spec-notes/level-design.md §11.2 T6].
-fn near(s: &TriggerShape, c: &Capsule) -> bool {
-    let scale = if s.scale > 0.0 { s.scale } else { 1.0 };
-    let bound = match s.kind {
-        TriggerKind::Box { half_extents: h } => (h[0] * h[0] + h[1] * h[1] + h[2] * h[2]).sqrt(),
-        TriggerKind::Sphere { radius } => radius.abs(),
-    } * scale;
-    // The capsule lies within its radius of the upright segment from its feet to its top
-    // (its axis is a part of that segment); a unit to spare for rounding.
-    let top = c.feet[2] + c.height.max(0.0);
-    let dz = (c.feet[2] - s.pos[2]).max(s.pos[2] - top).max(0.0);
-    let d2 = (s.pos[0] - c.feet[0]).powi(2) + (s.pos[1] - c.feet[1]).powi(2) + dz * dz;
-    let reach = bound + c.radius.max(0.0) + 1.0;
-    d2 <= reach * reach
-}
-
 /// Test the actors against the triggers of the loaded cells and run the blocks. `player`
 /// is the player's capsule; `None` when the player has no position yet.
 pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Option<Capsule>) {
@@ -259,7 +237,7 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
     if !shapes.is_empty() {
         for (a, cap) in actors(rt, phys, player) {
             for (t, s) in &shapes {
-                if near(s, &cap) && s.touches(&cap) {
+                if s.touches(&cap) {
                     now.insert((*t, a));
                 }
             }
@@ -290,42 +268,4 @@ pub fn update(rt: &mut Runtime, play: &PlayWorld, phys: &PhysState, player: Opti
         }
     }
     rt.triggers.inside = now;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Lcg(u64);
-    impl Lcg {
-        fn f(&mut self) -> f32 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            ((self.0 >> 40) as f32) / ((1u64 << 24) as f32)
-        }
-    }
-
-    #[test]
-    fn the_bounding_check_never_drops_a_touching_pair() {
-        let mut r = Lcg(7);
-        let (mut touching, mut spared) = (0, 0);
-        for i in 0..20_000 {
-            // A volume turned about every axis, scaled, near the origin; a capsule around it.
-            let (a, b, g) = (r.f() * 6.3, r.f() * 6.3, r.f() * 6.3);
-            let rot = fnv_world::transform::ref_rotation([a, b, g]);
-            let scale = if i % 7 == 0 { 0.0 } else { 0.3 + 2.0 * r.f() };
-            let kind = if i % 3 == 0 {
-                TriggerKind::Sphere { radius: 5.0 + 150.0 * r.f() }
-            } else {
-                TriggerKind::Box { half_extents: [5.0 + 200.0 * r.f(), 5.0 + 200.0 * r.f(), 2.0 + 100.0 * r.f()] }
-            };
-            let s = TriggerShape { pos: [0.0, 0.0, 0.0], rot, scale, kind };
-            let c = Capsule { feet: [(r.f() - 0.5) * 600.0, (r.f() - 0.5) * 600.0, (r.f() - 0.5) * 500.0 - 60.0], radius: 22.0 * (0.2 + r.f()), height: 128.9 * (0.1 + r.f()) };
-            let t = s.touches(&c);
-            assert!(!t || near(&s, &c), "{s:?} {c:?}");
-            touching += t as usize;
-            spared += !near(&s, &c) as usize;
-        }
-        // The cases cover both sides.
-        assert!(touching > 1000 && spared > 5000, "{touching} touching, {spared} spared");
-    }
 }

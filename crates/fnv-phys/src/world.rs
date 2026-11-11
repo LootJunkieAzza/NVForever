@@ -185,17 +185,9 @@ pub struct Stats {
     /// the `solver-timers` feature): the solver's serial set-up (velocity assembly), its
     /// solve (velocity resolution: the constraint iterations and writeback), collision
     /// detection, island construction, CCD, the whole rapier step. Not serialized (timings
-    /// differ run to run). The CCD one is rapier's `ccd.toi_computation_time`, the sweeps and
-    /// clamps of the fast bodies: rapier 0.36 never starts its `stages.ccd_time`, which read 0
-    /// before (#1798) [documented: rapier3d 0.36.1 `counters/mod.rs`, `substep.rs`].
+    /// differ run to run).
     #[serde(skip)]
     pub solver_us: [u64; 6],
-    /// With `solver-timers`, summed over every step so far: the steps in which CCD swept a
-    /// body, and the fast bodies it swept (one count per body per step). Not serialized.
-    #[serde(skip)]
-    pub ccd_steps: u64,
-    #[serde(skip)]
-    pub ccd_bodies: u64,
     /// Bodies and colliders rapier disabled so far for state that went NaN or infinite,
     /// each counted once (`crate::quarantine`).
     pub quarantined_bodies: usize,
@@ -414,8 +406,7 @@ pub struct PhysWorld {
     /// The node each body of a reference hangs on, in `refs`' order (`crate::script`).
     pub(crate) ref_nodes: BTreeMap<u32, Vec<Option<String>>>,
     /// The keyframed bodies of each reference (a subset of `refs`), kept because they are
-    /// fixed bodies like the static ones (velocity-based kinematic only during a step that
-    /// moves them, `crate::movers`) and so cannot be told apart by body type. A door's
+    /// fixed bodies like the static ones and so cannot be told apart by body type. A door's
     /// moving parts are keyframed; its static frame is not.
     pub(crate) keyframed: BTreeMap<u32, Vec<RigidBodyHandle>>,
     /// The dynamic bodies of each reference that respond to the wind ([`PhysWorld::blow`]).
@@ -467,22 +458,12 @@ pub struct PhysWorld {
     pub(crate) hitvol_pending: Vec<(ColliderHandle, RigidBodyHandle, Pose)>,
     /// [`Stats::solver_us`], milliseconds.
     pub(crate) solver_ms: [f64; 6],
-    /// [`Stats::ccd_steps`] and [`Stats::ccd_bodies`].
-    pub(crate) ccd_counts: [u64; 2],
-    /// The CCD new ragdoll bones and gore pieces get (`crate::ccd`).
-    pub(crate) ccd: crate::ccd::CcdChoice,
     /// The moving bodies' poses before the last step, for drawing between steps
     /// (`crate::drawn`).
     pub(crate) before: crate::drawn::Before,
     /// Bodies and colliders rapier disabled for state that went NaN or infinite
     /// (`crate::quarantine`).
     pub(crate) quarantined: crate::quarantine::Quarantined,
-    /// Keyframed bodies on their way to a pose (`crate::movers`).
-    pub(crate) movers: crate::movers::Movers,
-    /// How actors' ragdolls are solved ([`PhysWorld::set_ragdoll_solver`]).
-    pub(crate) ragdoll_solver: crate::ragdoll::RagdollSolver,
-    /// Loose bodies judged for rest (`crate::rest`).
-    pub(crate) rest: crate::rest::Rest,
 }
 
 impl PhysWorld {
@@ -498,10 +479,7 @@ impl PhysWorld {
         // motorcycles and crates; a skin of 1.4 rested, 2 crept; test
         // `clutter_on_the_terrain_shell_falls_asleep`]. Why is not known; a prediction
         // distance of the default plus the skin rests them (asleep within 2 s).
-        // With `NVF_PHYS_INDOOR_PREDICTION=1` it waits for terrain (`fit_prediction`).
-        if !crate::rest::indoor_prediction() {
-            w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
-        }
+        w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
         #[cfg(feature = "solver-timers")]
         w.physics_pipeline.counters.enable();
         PhysWorld {
@@ -533,13 +511,8 @@ impl PhysWorld {
             standalone_hit_volumes: true,
             hitvol_pending: Vec::new(),
             solver_ms: [0.0; 6],
-            ccd_counts: [0; 2],
-            ccd: Default::default(),
             before: Default::default(),
             quarantined: Default::default(),
-            movers: Default::default(),
-            ragdoll_solver: Default::default(),
-            rest: Default::default(),
         }
     }
 
@@ -558,28 +531,13 @@ impl PhysWorld {
         let h = self.w.insert_collider(c, None);
         self.terrain.insert(grid, h);
         self.mark_dirty(DirtyBy::Bodies);
-        self.fit_prediction();
     }
 
     pub fn remove_terrain(&mut self, grid: (i32, i32)) -> bool {
         let Some(h) = self.terrain.remove(&grid) else { return false };
         self.w.remove_collider(h);
         self.mark_dirty(DirtyBy::Bodies);
-        self.fit_prediction();
         true
-    }
-
-    /// With `NVF_PHYS_INDOOR_PREDICTION=1` (a test aid, off by default): rapier's own
-    /// prediction distance while the world holds no terrain, the terrain's raised one
-    /// (`PhysWorld::new`) while it does. Indoors the raised distance kept clutter
-    /// trembling and awake (docs/spec-notes/physics.md §5.5).
-    fn fit_prediction(&mut self) {
-        if !crate::rest::indoor_prediction() {
-            return;
-        }
-        let own = IntegrationParameters::default().normalized_prediction_distance;
-        let terrain = if self.terrain.is_empty() { 0.0 } else { TERRAIN_SHELL * self.k };
-        self.w.integration_parameters.normalized_prediction_distance = own + terrain;
     }
 
     /// Add the collision objects of a placed reference: one body per object, placed at
@@ -602,14 +560,12 @@ impl PhysWorld {
         let mut handles = Vec::new();
         for o in p.objects {
             let owner = Owner::Ref { form_id: p.form_id, object: o.index, layer: o.layer };
-            // Keyframed bodies are fixed between steps; a step that moves one makes it a
-            // velocity-based kinematic body for that step only (`crate::movers`). A kinematic
-            // body between steps broke the character controller: rapier derived a phantom
-            // velocity from a degenerate collision mesh's centre of mass and flung a
-            // character standing on it, and its "carried by a kinematic body" rule froze a
-            // character walking down the slope, at rest too [observed: the Prospector
-            // Saloon's broken door 0x00108BD7, issue #1485; test
-            // `keyframed_slope_does_not_freeze_the_character`].
+            // Keyframed bodies are teleported into place (`pose_ref_object` sets the
+            // position), never moved smoothly, so a fixed body is the right model. A
+            // kinematic body made rapier derive a phantom velocity from a degenerate
+            // collision mesh's centre of mass and fling a character standing on it, and its
+            // "carried by a kinematic body" rule froze a character walking down the slope
+            // [observed: the Prospector Saloon's broken door 0x00108BD7, issue #1485].
             let builder = match o.motion {
                 Motion::Static | Motion::Keyframed => RigidBodyBuilder::fixed(),
                 Motion::Dynamic => RigidBodyBuilder::dynamic().sleeping(p.asleep),
@@ -760,7 +716,6 @@ impl PhysWorld {
         }
         self.w.remove_body(b);
         self.before.forget(b);
-        self.movers.forget(b);
         self.mark_dirty(DirtyBy::Bodies);
     }
 
@@ -768,12 +723,10 @@ impl PhysWorld {
     /// to [`PhysWorld::add_ref`]) of the reference placed by `pose`, as if its node's
     /// transform in the model root's frame were `node`: to `pose ∘ node ∘ body_transform`
     /// (`add_ref` uses the stored node transform). For collision that follows an animation
-    /// (an opening door, `fnv_collide::anim`). `sweep`: the pose continues the body's
-    /// motion, and it moves there over the coming steps with a velocity (`crate::movers`;
-    /// queries see it where it is until then); otherwise, or with swept movers off, it is
-    /// put there at once, so queries and the character controller see it before the next
-    /// step. Returns false when the reference has no keyframed body for that object.
-    pub fn pose_ref_object(&mut self, pose: &RefPose, object: u16, node: &Iso, body_transform: &Iso, sweep: bool) -> bool {
+    /// (an opening door, `fnv_collide::anim`). The body is moved at once, so queries and
+    /// the character controller see it before the next step. Returns false when the
+    /// reference has no keyframed body for that object.
+    pub fn pose_ref_object(&mut self, pose: &RefPose, object: u16, node: &Iso, body_transform: &Iso) -> bool {
         let Some(bodies) = self.keyframed.get(&pose.form_id) else { return false };
         let found = bodies.iter().copied().find(|&b| {
             matches!(Owner::decode(self.w.bodies[b].user_data), Some(Owner::Ref { object: o, .. }) if o == object)
@@ -786,10 +739,13 @@ impl PhysWorld {
         if !p.translation.is_finite() {
             return false;
         }
-        if self.move_keyframed(b, p, sweep) {
-            self.before.forget(b);
-            self.mark_dirty(DirtyBy::Transform);
+        let body = &mut self.w.bodies[b];
+        if *body.position() == p {
+            return true;
         }
+        body.set_position(p, true);
+        self.before.forget(b);
+        self.mark_dirty(DirtyBy::Transform);
         true
     }
 
@@ -1058,8 +1014,6 @@ impl PhysWorld {
             self.drive_grip();
             self.buoy();
         }
-        // Keyframed bodies on their way to a pose get the step's velocity (`crate::movers`).
-        self.drive_movers();
         // The poses the coming step starts from, for drawing between steps (`crate::drawn`):
         // read only by the drawing.
         self.keep_poses_before();
@@ -1067,25 +1021,14 @@ impl PhysWorld {
             let _span = tracing::info_span!("phys::rapier_step").entered();
             self.step_world();
             let c = &self.w.physics_pipeline.counters;
-            for (a, t) in self.solver_ms.iter_mut().zip([c.solver.velocity_assembly_time, c.solver.velocity_resolution_time, c.stages.collision_detection_time, c.stages.island_construction_time, c.ccd.toi_computation_time, c.step_time]) {
+            for (a, t) in self.solver_ms.iter_mut().zip([c.solver.velocity_assembly_time, c.solver.velocity_resolution_time, c.stages.collision_detection_time, c.stages.island_construction_time, c.stages.ccd_time, c.step_time]) {
                 *a += t.time_ms();
             }
-            // Only with the counters on: rapier leaves `num_substeps` as it was on steps
-            // where CCD did nothing when its counters are off (never reset).
-            #[cfg(feature = "solver-timers")]
-            if c.ccd.num_substeps > 0 {
-                self.ccd_counts[0] += 1;
-                self.ccd_counts[1] += self.w.islands.active_bodies().filter(|h| self.w.bodies.get(*h).is_some_and(|b| b.is_ccd_active())).count() as u64;
-            }
         }
-        // The movers that moved are fixed again between steps (`crate::movers`).
-        self.movers_stepped();
         // Bodies and colliders rapier took out for NaN or infinite state (`crate::quarantine`).
         if !self.w.quarantine().is_empty() {
             self.handle_quarantine();
         }
-        // Loose bodies trembling in place are let sleep (`crate::rest`).
-        self.rest_step(self.params.dt);
         // Diagnostics: marks the step's own detection took, with no refresh between.
         if self.dirty {
             self.refresh_stats.step_absorbed += 1;
@@ -1274,7 +1217,6 @@ impl PhysWorld {
         s.joints = self.w.impulse_joints.len();
         (s.quarantined_bodies, s.quarantined_colliders) = self.quarantined.counts();
         s.solver_us = self.solver_ms.map(|v| (v * 1000.0) as u64);
-        [s.ccd_steps, s.ccd_bodies] = self.ccd_counts;
         s
     }
 
@@ -1327,13 +1269,8 @@ impl PhysWorld {
             standalone_hit_volumes: self.standalone_hit_volumes,
             hitvol_pending: self.hitvol_pending.clone(),
             solver_ms: self.solver_ms,
-            ccd_counts: self.ccd_counts,
-            ccd: self.ccd,
             before: self.before.clone(),
             quarantined: self.quarantined.clone(),
-            movers: self.movers.clone(),
-            ragdoll_solver: self.ragdoll_solver,
-            rest: self.rest.clone(),
         }
     }
 

@@ -120,9 +120,8 @@ corpses when their cell loads.]
 
 **Bodies** (`PhysWorld::add_ragdoll`). One dynamic body per ragdoll body with the stored
 shape (scaled by the actor's scale), mass and damping; friction capped at 1; no bounce;
-continuous collision detection against fixed colliders (`fnv_phys::ccd`: rapier's plain
-CCD, not bullets since 2026-11-11, #1798; `NVF_PHYS_CCD` switches it for comparing).
-Colliders carry `Owner::Actor` on DEAD_BIP with the body part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
+continuous collision detection. Colliders carry `Owner::Actor` on DEAD_BIP with the body
+part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
 on its ragdoll; the actor's kinematic hit volume is removed while the ragdoll is in the
 world.
 
@@ -136,55 +135,8 @@ world.
 - Limited hinge → a revolute joint with the angle range; hinge → without.
 - A range of zero width locks the axis (the human neck's twist). Limits are kept within
   ±3 radians.
-- Every free angular axis has **dry friction** (`JOINT_FRICTION`, since #2083): a motor
-  holds the two bodies' relative turning still, with a damping of 200 a second, up to a
-  torque of 0.5 N·m per kilogram of the lighter body. A limb that gravity or a blow swings
-  goes past it; the slow turning a neck or a hand kept up against its limits stops. It
-  stands in for `max_friction`; `strength` is not used. Before #2083 each axis was only
-  damped (`JOINT_DAMPING`, 6 per second, so limbs do not swing like chains); placed
-  objects' joints (traps, wrecks) still are. Why [observed 2026-11-11, a scratch program
-  on `fnv_phys` with the shipped `_male\skeleton.nif`, not kept: 100 drops each from random
-  tilts, headings, heights and shoves, rest by the calm rule below]:
-
-  | | 60 Hz, flat | 60 Hz, 15° slope | 120 Hz, slope | 152 Hz, slope | 240 Hz, slope |
-  |---|---|---|---|---|---|
-  | damper only: mean rest (s) | 3.41 | 4.41 | 3.75 | 3.52 | 4.35 (10 never) |
-  | friction: mean rest (s) | 2.99 | 3.47 | 3.30 | 3.04 | 3.24 |
-  | still moving at 8 s, damper → friction | 1 → 0 | 4 → 0 | 0 → 0 | 0 → 0 | 15 → 0 |
-
-  On the slope 66-87 % of the drops were still moving 3 s after they started, most with
-  the head or the neck breaking their calm, as fresh corpses in the 50-a-side battle did.
-  Where they lay did not change: the pelvis over the floor, the hands' and feet's reach
-  from it and how far they slid all within 1.5 units of the same drops with the damper
-  alone; a step cost the same. Tried and not taken: rapier's joint warm start (no change),
-  1-4 extra solver iterations for the ragdoll's island (better at 60 Hz, a quarter dearer
-  a step, and at 152 Hz the head broke every calm), a neck raised to a third or a half of
-  the spine's mass (the human neck is 1 kg between a 9 kg spine and a 3 kg head: little
-  better, or much worse), and other friction strengths (0.25-1 N·m/kg, damping 50-1000:
-  3.54-4.22 s on the slope at 60 Hz).
-- **The settle switch** `NVF_RAGDOLL_SETTLE` (for comparing in game; `fnv_phys::
-  RagdollSolver`): `friction` (the above, the default), `warm` (rapier's joint warm start,
-  `IntegrationParameters::warmstart_joints`, and 2 extra PGS iterations a substep for
-  each ragdoll body's island, `RigidBody::set_additional_pgs_iterations`, with the plain
-  damper) or `both`; finer parts too (`fric0.5d200+pgs1`, `off`, `warmstart`, `it2`). The
-  warm start is a world setting: placed objects' joints (swinging traps, a globe on its
-  stand) get it as well. The game logs `ragdoll settle: …` at the start. Why `friction`
-  is the default [observed 2026-11-11, the same drops, 15° slope, 100 each]:
-
-  | | 60 Hz: rest (s) | moving at 3 s | largest stretch (units) | step (µs) | 152 Hz: rest (s) | moving at 3 s | largest stretch | step (µs) |
-  |---|---|---|---|---|---|---|---|---|
-  | damper only | 4.41 | 83 | 6.97 | 85 | 3.52 | 66 | 2.03 | 80 |
-  | `friction` | 3.47 | 69 | 5.39 | 86 | 3.04 | 41 | 1.90 | 79 |
-  | `warm` | 4.13 | 76 | 2.65 | 107 | | | | |
-  | `both` | 3.25 | 48 | 2.51 | 106 | 3.15 | 48 | 1.07 | 103 |
-  | `friction` + warm start alone | 3.68 | 72 | 5.39 | 90 | 3.04 | 45 | 1.90 | 83 |
-
-  "Largest stretch" is the most two joined bodies' pivots came apart in a drop. The warm
-  start alone changed nothing measurable. The extra passes halve the stretch at every rate
-  and settle sooner at 60 Hz, but at 120 and 152 Hz they settled no sooner, cost a
-  quarter to a third more a step, and the head broke its calm two to three times as often.
-  So `friction` is the default, cheapest and as good at 152 Hz; `both` is to be weighed in
-  game at 60 Hz, for limbs that stretch at their joints in hard falls.
+- Every free angular axis is damped (`JOINT_DAMPING`, 6 per second) so limbs do not
+  swing like chains; it stands in for `max_friction`. `strength` is not used.
 - Tests (`crates/fnv-phys/tests/ragdoll.rs`) hold an arm on a hinge and on a ragdoll
   joint under gravity and check it stops at the stored limit on the side §3 says.
 
@@ -280,9 +232,9 @@ ragdoll still rolling at 22 units/s and 2.6 rad/s when its settle began was down
 0.7 units/s and 0.09 rad/s when held (`sever-chet`). A turn the joints and contacts drive
 anew every step keeps most of its speed (rapier damps once a step, after the solve):
 mantis nymphs' antennae and legs were held turning at 0.3-3 rad/s, a hand at 0.15 rad/s;
-raising the joints' damping motors during the settle did not change that (measured before
-the joints' dry friction, above, which keeps such turning from starting). A hit's shove
-or a blast that strikes it ends the settle and it moves again (a shove: 1 s). Before 2026-11-11 a ragdoll was held
+raising the joints' damping motors during the settle did not change that. That shiver is
+#2083's. A hit's shove or a blast that strikes
+it ends the settle and it moves again (a shove: 1 s). Before 2026-11-11 a ragdoll was held
 3 s after it started with no settle, and one still moving stopped dead: in the 50-a-side
 battle 53 of 58 fresh corpses were held while still moving, most with a neck or head
 turning at 0.7-3 rad/s [observed, frame-rate-audit.md §5]. The owner saw it: "when you

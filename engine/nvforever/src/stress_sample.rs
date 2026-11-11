@@ -5,8 +5,7 @@
 //! refs drawn <n>, meshes <n>, images <n>, materials <n>, models cached <n>, textures
 //! cached <n>, audio <n>, cells <n>,
 //! bodies <fixed>/<kinematic>/<dynamic>, bodies awake <n>, contact pairs <n>, manifolds <n>,
-//! solver contacts <n>, joints <n>, solver ms <a>/<r>/<d>/<i>/<c>/<s>, ccd steps <n>,
-//! ccd bodies <n>, physics steps <n>, actors <n>,
+//! solver contacts <n>, joints <n>, solver ms <a>/<r>/<d>/<i>/<c>/<s>, actors <n>,
 //! nan actors <n>, ragdolls <n>,
 //! projectiles <n>[, gpu allocated <MB>, gpu reserved <MB>, gpu blocks <n>], startup frames
 //! <n>, hidden frames <n>, phase changes <n>, window <ms> ms, at <place>`
@@ -14,9 +13,6 @@
 //! `bodies awake` to `joints` are the physics solver's load now, and `solver ms` rapier's
 //! stage timers summed since the start (`fnv_phys::Stats::solver_us`: set-up, solve,
 //! collision detection, islands, CCD, the whole step; 0 outside the profile build) (#1798),
-//! `ccd steps` and `ccd bodies` the steps in which CCD swept a fast body and the bodies it
-//! swept, summed since the start (`Stats::ccd_steps`, `ccd_bodies`; 0 outside the profile
-//! build), and `physics steps` the fixed steps taken since the start,
 //! and `stress gpu labels: <label> <MB> in <n>; …` (the GPU allocator's report, where the
 //! backend gives one: [`gpu_memory`]). At the exit, `stress frames: <n> frames, mean <m> ms,
 //! 1% low <l> ms (<fps> fps), worst <w> ms` over the run after its start-up ([`frame_stats`]),
@@ -576,7 +572,7 @@ fn sample(
     let cells = loaded.cells;
     let (bodies, ragdolls) = phys.as_deref().map_or(("0/0/0".to_string(), 0), |p| {
         let st = p.world.stats();
-        let solver = format!(", bodies awake {}, contact pairs {}, manifolds {}, solver contacts {}, joints {}, solver ms {:.0}/{:.0}/{:.0}/{:.0}/{:.1}/{:.0}, ccd steps {}, ccd bodies {}, physics steps {}", st.bodies_awake, st.contact_pairs, st.manifolds, st.solver_contacts, st.joints, st.solver_us[0] as f64 / 1000.0, st.solver_us[1] as f64 / 1000.0, st.solver_us[2] as f64 / 1000.0, st.solver_us[3] as f64 / 1000.0, st.solver_us[4] as f64 / 1000.0, st.solver_us[5] as f64 / 1000.0, st.ccd_steps, st.ccd_bodies, st.steps);
+        let solver = format!(", bodies awake {}, contact pairs {}, manifolds {}, solver contacts {}, joints {}, solver ms {:.0}/{:.0}/{:.0}/{:.0}/{:.0}/{:.0}", st.bodies_awake, st.contact_pairs, st.manifolds, st.solver_contacts, st.joints, st.solver_us[0] as f64 / 1000.0, st.solver_us[1] as f64 / 1000.0, st.solver_us[2] as f64 / 1000.0, st.solver_us[3] as f64 / 1000.0, st.solver_us[4] as f64 / 1000.0, st.solver_us[5] as f64 / 1000.0);
         (format!("{}/{}/{}{solver}", st.bodies_fixed, st.bodies_kinematic, st.bodies_dynamic), p.world.ragdolls().count())
     });
     let gpu = cached.2.as_deref().map_or(String::new(), gpu_memory);

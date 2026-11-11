@@ -429,8 +429,7 @@ The engine (`engine/nvforever/src/dismember.rs`) [design]:
 - Each piece is a dynamic physics body (`fnv_phys::gore`): a box from its model's bounds, 0.5 kg.
   It starts at 150–350 units/s in a random direction biased along the hit and up, with a
   random spin up to 12 rad/s. Pieces collide with the world and each other. They do not collide
-  with characters, living actors or corpses. A fast piece is swept against the world's fixed
-  colliders so it cannot pass through a thin floor or wall (`fnv_phys::ccd`, plain CCD; #1798).
+  with characters, living actors or corpses.
 - **Lootable**: a piece belongs to its actor. Its collider is owned by the actor
   (`Owner::Actor`, layer of the corpse), so the crosshair names the dead actor and
   activating a piece opens its inventory (Search) [observed: owner].

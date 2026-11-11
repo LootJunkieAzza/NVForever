@@ -4067,40 +4067,6 @@ expect = [
 ]
 
 [[scenario]]
-name = "movers-bear-trap-carries"
-source = "owner 2026-11-11 (rapier work: kinematic velocity-based movers; physics.md §5.5): a keyframed body an animation moves goes from pose to pose with a velocity, so what rests on it rides along and what it meets is pushed, not found inside it after a jump"
-note = "South of Goodsprings by the bear trap 0x0015834D (7 keyframed bodies its Forward moves, as in traps-bear; the gecko hunters and geckos disabled at 1 s). At 3 s a mole rat meat is placed at the trap and falls onto it; at 7 s the trap springs (play_group Forward, the jaws close): its bodies sweep with a velocity and touch the meat. Written 2026-11-11 and not run yet (in-game testing waits for the owner): whether the meat lands on the jaws' bodies is a guess from the trap's size, and the expected lines may need the placement adjusted"
-areas = ["physics", "traps"]
-paths = ["crates/fnv-phys/src/movers.rs", "engine/nvf-play/src/phys.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "1:call:0x00165185:Disable,1:call:0x00165186:Disable,1:call:0x00165187:Disable,1:call:0x00157B3D:Disable,1:call:0x00157B3E:Disable,3:call:0x0015834D:PlaceAtMe:MoleRatMeat:1,7:play_group:0x0015834D:Forward:1" }
-args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
-run_seconds = 14
-expect = [
-  { text = "movers: keyframed bodies move with a velocity", label = "movers swept (the default)" },
-  { re = 'collision of dropped 0xFF[0-9A-F]{6} added: ', label = "the meat is placed with its own body" },
-  { re = 'phys: 0x0015834D: 7 animated collision bodies follow Forward at', label = "the trap's bodies follow its Forward" },
-  { re = 'movers: 0x0015834D moving carries or pushes the body of 0xFF[0-9A-F]{6}', label = "the closing jaws push or carry the meat" },
-  { re = 'movers: (?P<n>\d+) poses swept, \d+ put', range = [1, 100000], label = "the jaws' poses were swept" },
-]
-forbid = [{ re = 'dropped 0x[0-9A-F]{8} fell through the world', label = "the meat does not fall through" }]
-
-[[scenario]]
-name = "movers-bear-trap-put"
-source = "owner 2026-11-11 (rapier work; physics.md §5.5): NVF_PHYS_MOVERS_PUT=1 switches back to the behaviour before: keyframed bodies fixed and put at each pose, for comparing with movers-bear-trap-carries without a rebuild"
-note = "movers-bear-trap-carries with NVF_PHYS_MOVERS_PUT=1: the jaws are put at each pose, so they give nothing a velocity and no carry or push is told. Written 2026-11-11 and not run yet (in-game testing waits for the owner)"
-areas = ["physics", "traps"]
-paths = ["crates/fnv-phys/src/movers.rs", "engine/nvf-play/src/phys.rs"]
-env = { NVF_PHYS_MOVERS_PUT = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "1:call:0x00165185:Disable,1:call:0x00165186:Disable,1:call:0x00165187:Disable,1:call:0x00157B3D:Disable,1:call:0x00157B3E:Disable,3:call:0x0015834D:PlaceAtMe:MoleRatMeat:1,7:play_group:0x0015834D:Forward:1" }
-args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
-run_seconds = 14
-expect = [
-  { text = "movers: keyframed bodies are put at each pose (NVF_PHYS_MOVERS_PUT)", label = "movers put (switched back)" },
-  { re = 'phys: 0x0015834D: 7 animated collision bodies follow Forward at', label = "the trap's bodies follow its Forward (put)" },
-  { re = 'movers: 0 poses swept, (?P<n>\d+) put', range = [1, 100000], label = "every pose put, none swept" },
-]
-forbid = [{ re = 'movers: 0x[0-9A-F]{8} moving carries or pushes', label = "a put mover carries or pushes nothing" }]
-
-[[scenario]]
 name = "trigger-seconds-passed"
 source = "B-29 spot check 2026-10-24: GetSecondsPassed in an OnTrigger block counts from the previous frame's OnTrigger run when the script has no GameMode (Game::trigger_frame); VMS15's detonator spot (SCPT 0x0014F50D) beeps when its timer is 0 and resets it after 0.5 s, and beeped every frame before"
 note = "Lake Mead: VMS15 started and objective 45 shown at 1-2 s; at 5 s the player is moved onto the Ballast Detonator (one SCRIPT list, so after the objective) (0x0010063C), inside the spot's trigger box: OnTriggerEnter shows 'Loyal's detonator begins to beep.', then OnTrigger plays WPNMineTick (0x00040D4F) about twice a second for the rest of the run (about 15 s: some 30 beeps; every frame was some 1,000)"
@@ -13659,7 +13625,7 @@ name = "dismember-chet"
 source = "dismemberment (docs/spec-notes/dismemberment.md): a killing head shot with an Explode Only weapon (.308) explodes the head (75 %, the fixed rolls) [observed: dismember_odds], a blade severs a corpse's limb (Dismember Only) [observed: owner; FalloutNV.esm WEAP on_hit], KillActor's limb dismembers a dead actor [documented: GECK wiki KillActor]; an exploded part throws its limb replacement model's pieces and its debris, owned by the corpse [observed: owner]"
 note = "the hit aid kills Chet with a sniper rifle on the head (500 damage, so the overkill passes the head's share: the explode chance is 100 %), then knifes his corpse's left arm four times (50 % each, seeded rolls), then the console has KillActor explode his left leg; screenshots before and after for a look"
 areas = ["combat"]
-paths = ["crates/fnv-combat/src/dismember.rs", "engine/nvf-play/src/dismember.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/gore.rs", "crates/fnv-phys/src/ccd.rs", "engine/nvf-assets/src/actor.rs"]
+paths = ["crates/fnv-combat/src/dismember.rs", "engine/nvf-play/src/dismember.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/gore.rs", "engine/nvf-assets/src/actor.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition,11:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,11.5:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,12:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,12.5:GSChetRef:30:WeapKnife:limb=LeftAttackCondition", NVF_PLAY_TEST_CONSOLE = "15:GSChetRef.KillActor player 7;15.5:close;16:GSChetRef.IsLimbGone 1;16.5:close", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35", NVF_PLAY_TEST_SHOTS = "7:dismember_before.png,8.15:dismember_burst.png,10:dismember_head.png,15.15:dismember_leg_burst.png,18:dismember_after.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 22
@@ -13671,28 +13637,8 @@ expect = [
   { re = 'dismember: .* 0x00104C79: Left Leg exploded \(KillActor\)', label = "KillActor's limb explodes the left leg" },
   { re = 'console: IsLimbGone on GSChetRef >> 1', label = "IsLimbGone reads the head gone" },
   { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest (how far from the corpse: the line)" },
-  { re = 'ragdoll bones: plain CCD, gore pieces: plain CCD', label = "bones and gore get plain CCD by default (fnv_phys::ccd, #1798)" },
-  { re = 'ragdoll: actor .* fell through', max = 0, label = "no corpse falls through the floor" },
 ]
 manual = "dismember_head.png and dismember_after.png: Chet's head gone with a neck cap, bits about; his left arm lying apart with caps at both ends; his left leg gone with a cap"
-
-[[scenario]]
-name = "ccd-switch-gore"
-source = "the CCD of ragdoll bones and gore pieces is switchable for comparing (fnv_phys::ccd, #1798): NVF_PHYS_CCD=<bones>[,<gore>], each plain, soft[:<units>] or bullet [design]"
-note = "dismember-chet's hits with bones as bullets and gore with soft CCD out to 20 units: the head's bits still fly and come to rest, the severed arm leaves, nothing falls through"
-areas = ["combat"]
-paths = ["crates/fnv-phys/src/ccd.rs", "crates/fnv-phys/src/gore.rs", "engine/nvf-play/src/phys.rs"]
-env = { NVF_PHYS_CCD = "bullet,soft:20", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_HIT = "8:GSChetRef:500:WeapSniperRifle:limb=PerceptionCondition,11:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,11.5:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,12:GSChetRef:30:WeapKnife:limb=LeftAttackCondition,12.5:GSChetRef:30:WeapKnife:limb=LeftAttackCondition", NVF_PLAY_TEST_CONSOLE = "15:GSChetRef.KillActor player 7;15.5:close;16:GSChetRef.IsLimbGone 1;16.5:close", NVF_PLAY_TEST_GOTO = "5:-583:440:700", NVF_PLAY_TEST_LOOK = "5.5:0:-10,9:0:-35" }
-args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
-run_seconds = 22
-expect = [
-  { re = 'ragdoll bones: bullet CCD, gore pieces: soft:20 CCD', label = "the switch sets bones and gore apart" },
-  { re = 'dismember: gore for 00104C79 Head exploded: [1-9][0-9]* pieces', label = "the head's bits fly" },
-  { re = 'dismember: 00104C79 part at location 3 cut from its ragdoll', label = "the arm leaves the ragdoll" },
-  { re = 'dismember: gore of 00104C79 at rest: [0-9]+ pieces lie', label = "the pieces come to rest" },
-  { re = 'ragdoll: actor .* fell through', max = 0, label = "no corpse falls through the floor" },
-  { re = 'NVF_PHYS_CCD=.* not understood', max = 0, label = "the value is understood" },
-]
 
 [[scenario]]
 name = "b3-killing-blow"
@@ -13844,22 +13790,6 @@ expect = [
   "Screenshot saved to wreck_car_1.png",
 ]
 forbid = [{ re = 'wrecks: \S+ .*a body.s node is not drawn', label = "a wreck's body has no drawn node" }]
-
-[[scenario]]
-name = "wreck-parts-held-quiet"
-source = "docs/spec-notes/physics.md §5.5 (2026-11-11): a calm wreck is held at rest only once its parts are all but still over the last second (under 3 units/s and 0.15 rad/s net), so that no part is seen to stop; before, parts still crawling at 9-14 units/s were held. NVF_WRECK_QUIET=0 brings the old rule back for a comparison. Written unrun (owner rule 2026-11-11: in-game tests run jointly)"
-note = "as wreck-car-parts-fall: the lone Car01 0013DA2F north of the player is taken to its hulk at 8 s; its blast also wrecks the cars 0013DA34 and 0013DA2E beside it. Long enough for MAX_FALLING (20 s after a wreck's parts start to fall) to show a wreck still moving"
-areas = ["destruction", "physics"]
-paths = ["engine/nvforever/src/wrecks.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:prid 0013DA2F;8.2:damageobject 200;8.4:close" }
-args = ["--world", "WastelandNV", "--pos=-42000,36500,4500", "--heading", "0", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 34
-expect = [
-  { re = 'wrecks: 0013DA2F came to rest after', label = "the car's parts come to rest" },
-  { re = 'wrecks: \S+ came to rest after .*fastest part over the last 1\.00 s (?P<n>[\d.]+) units/s', range = [0, 3], all = true, label = "each wreck is held only once its parts move under 3 units/s over the last second" },
-  { re = 'wrecks: \S+ came to rest after .*fastest part over the last 1\.00 s [\d.]+ units/s, (?P<n>[\d.]+) rad/s', range = [0, 0.15], all = true, label = "and turn under 0.15 rad/s" },
-]
-forbid = [{ re = 'wrecks: \S+ held at rest still moving', label = "no wreck is still moving when its 20 s run out" }]
 
 [[scenario]]
 name = "vertex-morphs"
@@ -22414,20 +22344,6 @@ expect = [
   { re = 'collision of dropped 0xFF00000[0-3] added: meshes.armor.\S+.go\.nif, 1 bodies \(dynamic\).*: the model.s [24] dynamic bodies joined into one', count = 4, label = "their bodies are joined into one" },
   { re = 'dropped 0xFF00000[0-3] came to rest at', count = 4, label = "each piece of clothing comes to rest" },
   { re = 'dropped 0xFF00000[0-4] came to rest at .*, (?P<n>[\d.]+) below where its collision was added', range = [60, 120], all = true, label = "on the ground, about 85 units below the drop point, as the pistol" },
-]
-
-[[scenario]]
-name = "clutter-dropped-comes-to-rest"
-source = "docs/spec-notes/physics.md §5.5 (2026-11-11): loose clutter the solver keeps trembling in place (pots, pans, books and bottles shook at 10-15 units/s while staying within a unit) is let sleep once it has stayed within 2 units for a second and within 0.75 units over the last quarter (fnv_phys::rest); NVF_PHYS_REST=0 turns that off for a comparison. Written unrun (owner rule 2026-11-11: in-game tests run jointly)"
-note = "Doc Mitchell's house: a metal cooking pot, a metal cooking pan, a pre-war book, a small ruined book, an empty whiskey bottle and a tin can dropped from chest height one a second from 8 s onto the wooden floor"
-areas = ["physics", "items"]
-paths = ["crates/fnv-phys/src/rest.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "000340A7:1,0003409C:1,000FC9BA:1,000A9E69:1,0005B6CE:1,00022104:1", NVF_PLAY_TEST_DROP = "8:000340A7,9:0003409C,10:000FC9BA,11:000A9E69,12:0005B6CE,13:00022104" }
-args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
-run_seconds = 30
-expect = [
-  { re = 'dropped 0xFF00000[0-5] came to rest at', min = 6, label = "each item comes to rest" },
-  { re = 'dropped 0xFF00000[0-5] came to rest at .*, (?P<n>[\d.]+) s after', range = [0, 8], all = true, label = "within 8 s of being dropped" },
 ]
 
 [[scenario]]
