@@ -833,8 +833,10 @@ pub(crate) fn arm_weapon(
 ) -> Option<WeaponHold> {
     let w = weapon.and_then(|id| world.actors.weapons.get(&id))?;
     let prefix = w.anim_type.as_deref().and_then(AnimType::from_name)?.prefix();
-    // A modded weapon's own model (weapon-mods.md §3 "In the world").
-    let model = w.model_for(false, weapon_mods)?;
+    // A modded weapon's own model (weapon-mods.md §3 "In the world"); the player's tweak
+    // gives NPCs the first-person (finer) model (docs/design/tweaks.md).
+    let fine = nvf_play::tweaks::HI_RES_NPC_WEAPONS.load(std::sync::atomic::Ordering::Relaxed);
+    let model = w.model_for(fine, weapon_mods)?;
     // A stance without a `Weapon` node is for body weapons only (`Stance::no_weapon_node`).
     let stance = world.anims.stance(ctx, skeleton, skel, prefix).filter(|s| !s.no_weapon_node);
     // With the weapon's alternate textures (texture-swaps.md §4).

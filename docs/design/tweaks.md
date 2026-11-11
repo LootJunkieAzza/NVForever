@@ -570,6 +570,8 @@ unless the player binds them, so nothing changes until then.
 | New Places Red on the Map | `bColorRecentlyAddedMapMarkers` | `DataState::found_this_run` keeps the markers found since the program started (a loaded save starts it again); the world map draws those red; markers a script shows are not counted |
 | Repeat Activate | `iRepeatActivateKey` | a new unbound control, `Control::RepeatActivate`; held while playing, `tweaks::repeat_activate` queues the crosshair's target in `ActivateNext` every 0.25 s (ours), only things to take unless the switch is off |
 | Second Iron Sights | `iToggleSightingNodeHotkey` | a new unbound control, `Control::ToggleSightingNode`, flips `tweaks::SECOND_SIGHT`; nvforever `player_body` finds `##SightingNode2` beside the first sighting node, aims down it while set, and clears the flag for each new weapon model |
+| Fine Weapon Models for Everyone | `bForceHiResWeaponModels` | nvforever `actors::arm_weapon` asks `model_for(true, …)` (the WEAP's first-person model) while `tweaks::HI_RES_NPC_WEAPONS` is set; not checked in game |
+| (already so) | `bAllowActivateWhileAnimPlays` | `activate` refuses nothing for a clip playing (reload, shot, jump, landing) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -591,8 +593,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 496 |
-| to do | 107 |
+| done | 498 |
+| to do | 105 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -831,6 +833,7 @@ game's Data folder, read-only).
 | `bSkipIntroVideo` | done | yes |  | already so: the intro plays only after New Game and any key skips it |
 | `bVatsExitKey` | done | yes | 1 | Skip Kill Camera (right click; Tab is the Pip-Boy key here) |
 | `bActivatingDoesntStandUp` | done |  |  | Activate Doesn't Stand Up (moving already stood up) |
+| `bAllowActivateWhileAnimPlays` | done |  |  | already so: activating is never refused for a clip playing |
 | `bAllowFiringWhileLanding` | done |  |  | already so: firing waits only for the weapon to be ready |
 | `bAllowOpenPipboyDuringCameraShake` | done |  |  | already so: no camera shake blocks the Pip-Boy |
 | `bAllowUnsafeFastTravel` | done |  | 1 | Fast Travel From Anywhere (no warning; bShowWarning not done) |
@@ -849,6 +852,7 @@ game's Data folder, read-only).
 | `bDontSetQuestWhenObjectivesAdded` | done |  |  | No Active Quest From New Objectives (both quest tweaks keep the Pip-Boy from picking one) |
 | `bEnteringVATSDoesntUnholsterWeapon` | done |  |  | V.A.T.S. Puts the Weapon Back (when it drew it and nothing was fired) |
 | `bFireWhileAiming` | done |  |  | already so: the trigger does not wait for the zoom |
+| `bForceHiResWeaponModels` | done |  |  | Fine Weapon Models for Everyone (not checked in game) |
 | `bHideMiscQuestItems` | done |  | 1 | Hide Quest Items in Misc (the star caps option not built) |
 | `bHoldCrouchToSneak` | done |  |  | Hold to Sneak |
 | `bHoldWaitKeyToShowMenu` | done |  | 1 | Hold to Wait (half a second; the hold time option not built) |
@@ -902,9 +906,7 @@ game's Data folder, read-only).
 | `bSkipDeathcamHotkey` | to do | yes | 2 | the death camera (nvforever death_cam) has no end but a load yet |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
-| `bAllowActivateWhileAnimPlays` | to do |  |  | NVForever never refuses activating during a reload; check what the original refuses |
 | `bEquipBrokenItems` | to do |  |  | broken weapons are refused in fnv_sim equip_at; needs a World flag like power armour |
-| `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
 | `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
@@ -1150,7 +1152,7 @@ game's Data folder, read-only).
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
-| `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
+| `iHideHUDKey` | to do |  | 6 | the HUD parts have no roots of their own to hide; Toggle Menus already hides the whole HUD |
 | `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
 

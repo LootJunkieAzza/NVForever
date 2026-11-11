@@ -35,6 +35,8 @@ pub static ARMOR_3D: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// The Toggle Sighting Node key has the iron sights on the weapon's second sighting node
 /// (nvforever `player_body`, which clears it for a new weapon) [design: docs/design/tweaks.md].
 pub static SECOND_SIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Force Hi-Res Weapon Models, for the actors' weapons (nvforever `actors`) [design: docs/design/tweaks.md].
+pub static HI_RES_NPC_WEAPONS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Every tweak's value. `Default`: the original's behaviour.
 #[derive(Resource, Debug, Clone, PartialEq)]
@@ -442,6 +444,8 @@ pub struct TweakSettings {
     pub better_flycam: bool,
     /// `iRepeatActivateKey`/`bOnlyTakeItems`: the Repeat Activate key takes only items.
     pub repeat_activate_takes_only: bool,
+    /// `bForceHiResWeaponModels`: NPCs hold their weapons' first-person models.
+    pub hi_res_npc_weapons: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -689,6 +693,7 @@ impl Default for TweakSettings {
             usable_ammo_first: false,
             better_flycam: false,
             repeat_activate_takes_only: true,
+            hi_res_npc_weapons: false,
         }
     }
 }
@@ -1694,6 +1699,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "better-flycam", "Better Free Camera", "The console's free camera (tfc) flies up with Space and down with Ctrl, keeps flying forward after Q (S stops it) and turns with Z and C; the wheel still sets its speed. (Stewie's Tweaks bBetterFlycam)", better_flycam);
         switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
         switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "The Repeat Activate key (on the Controls page, unbound until you bind it), held, takes things again and again; off, it activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
+        switch!(app, "hi-res-npc-weapons", "Fine Weapon Models for Everyone", "People hold the detailed first-person models of their weapons; weapons drawn after the change. (Stewie's Tweaks bForceHiResWeaponModels)", hi_res_npc_weapons);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -2061,6 +2067,7 @@ fn sync(
     NO_LAND_CLIP.store(tweaks.no_land_clip, std::sync::atomic::Ordering::Relaxed);
     SEAT_KEEPS_ON_ACTIVATE.store(tweaks.seat_keeps_on_activate, std::sync::atomic::Ordering::Relaxed);
     ARMOR_3D.store(tweaks.armor_sounds_3d, std::sync::atomic::Ordering::Relaxed);
+    HI_RES_NPC_WEAPONS.store(tweaks.hi_res_npc_weapons, std::sync::atomic::Ordering::Relaxed);
     crate::pad::set_dead_zones(tweaks.custom_dead_zones.then_some((tweaks.left_dead_zone, tweaks.right_dead_zone)));
     crate::wait::model::set_date_style(tweaks.date_style as u8);
     if let Some(mut b) = bindings {
