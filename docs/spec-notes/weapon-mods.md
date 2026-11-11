@@ -88,8 +88,8 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
 | Increase Rate of Fire | A: extra multiplier, 0.2 = 20 % faster | `fire_rate`, `attack_shots_per_sec` and `attack_mult` × (1 + A) [hypothesis: which figures "rate of fire" means] |
 | Increase Zoom | A: flat value subtracted from the zoom field of view | `sight_fov − A`, not below 1 |
 | Split Beam | A: projectiles added (negative: taken); B: min spread multiplier (1 keeps it); "the 30% bonus the modification already applies" | `projectile_count + A` (at least 1), `min_spread × B` when B ≠ 0; the 30 % is not applied [hypothesis: the wiki does not say what it applies to] |
-| Silence | no values; silences the weapon | `sound_level` "Silent" [hypothesis: the weapon's own noise, the wiki calls it untested] |
-| Suppressor | (no description) | as Silence [hypothesis] |
+| Silence | no values; "Sets the weapon's Sound Detection Level to Silent and switches to a new set of firing sounds" | `sound_level` "Silent"; detection hears each shot at the level of the weapon as fired, the unit's mod flags carried on the shot (`ShotFired::mods`, nvforever `detection::hear_shot`), the player's and other actors' alike (§7) |
+| Suppressor | "Sets the weapon's Sound Detection Level to Normal and switches to a new set of firing sounds" | as Silence: `sound_level` "Silent" [hypothesis], which detection now hears (#2117). A retained discrepancy with the documented rule (the wiki: Normal; ours: Silent), unchanged here and a separate question |
 | Increase Projectile Speed | A: multiplier of the projectile speed | the shot's speed × A, not for hitscan projectiles ([weapon-data-fields](weapon-data-fields.md) §5) |
 | Regenerate Ammo (shots / seconds) | shots: every 4th shot is free; seconds: A added to the recharge time | shots: the player's every fourth shot uses no ammunition; seconds: `regen_rate + A` on a recharging weapon, at least 0.1 s (weapon-data-fields.md §5) |
 | Decrease Equip Time, VATS Bonus | (VATS Bonus "unused in game") | kept, not applied (no master mod uses either) |
@@ -138,7 +138,8 @@ WeaponHasModType's list], with what the values do [documented: GECK wiki Weapon 
   model" (GECK wiki Weapon Mods) holds for every view of the weapon; the `MWD` fields are
   the third-person ones]. An NPC holding a modded weapon (the unit it has equipped, else
   the one it would take) draws the same model in its hand [hypothesis, as above]. Its
-  shots use the plain figures (only the player's weapon is modded in combat yet).
+  shots use the plain figures (only the player's weapon is modded in combat yet), but
+  for their sound and their loudness for detection, which take the unit's mods (§7).
 
 ## 4. The ITEMS page's Mod hint and key
 
@@ -286,6 +287,17 @@ being modded (Inventory Reference)"]. NVForever counts it among the Pip-Boy's co
   those of the unit it has equipped, else the one it would take
   (`Inventory::mods_in_use`), so an NPC with a silenced pistol sounds silenced
   [hypothesis: the same rule as the player's; its other figures stay plain, §3].
+- **Detection hears the same unit**: each shot's message (`ShotFired`) carries the mod
+  flags of the unit that fired it, as they were at the shot (the player's equipped unit;
+  another actor's or a script shot's `Inventory::mods_in_use`), and detection takes the
+  shot's loudness from the modded weapon (`WeaponStats::modded(mods).sound_level`, §2),
+  not from whatever is equipped when the shot is measured: with a Silence mod on the
+  shot is Silent (iSoundLevelSilent), as the shooter's action sound and as the impact
+  fallback when the impact has no level of its own (an impact with an IPCT sound level
+  keeps it; detection.md §8) [documented: the Silence effect above; design: docs/design/
+  detection.md §3]. A Suppressor mod gives Silent too, against the wiki's Normal
+  [hypothesis, retained, a separate question; §2]. Before #2117 detection read the base
+  weapon's level.
 - **Log**: `combat: <weapon> shoots its silenced sound <SOUN>` once each time the
   player's sound changes to a mod sound [design], and at debug level each NPC
   shot's choice (`combat: npc <ref> shot sound <SOUN> (silenced|plain, 3D|distant)`).

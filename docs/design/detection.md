@@ -56,7 +56,7 @@ Each is also listed in the module notes of `detection.rs`.
 | Light at the target, 0–100 | outdoors 100 × the brightest channel of the weather's sunlight colour ÷ 255, its times of day blended on the stored bytes, day and night alike (the ambient is not counted); indoors the brightest channel of the cell's ambient colour; plus each point or spot light that reaches the target, its brightest channel × (1 − (d/r)²); capped at 100. Outdoors the sunlight counts only when a ray from the target's chest towards the sun meets nothing within 8,192 units (§8); a shaded target gets the weather's ambient instead. While the Pip-Boy light is on, the game's PipboyLight640 counts as a light at the player's chest (§9) | the sun and ambient terms: [observed: fitted to the original, below]; the lamps, the shade and the Pip-Boy light: [hypothesis] |
 | Moving, running | from the distance moved since the last measurement: moving above 10 units/s; actors run above 215 units/s; the player runs when moving without holding Walk, sneaking or not | [engineering choice]; sneak-running counts as running: [hypothesis] |
 | Sneaking | the player's sneak toggle; actors never sneak (Always Sneak packages are not acted on) | — |
-| Action sound | the player's shots since the last measurement, at the weapon's VNAM sound level (100 / 50 / 10) | [documented] |
+| Action sound | the player's shots since the last measurement, at the weapon's VNAM sound level (100 / 50 / 10), of the weapon as fired: the unit's mod flags travel on the shot (`ShotFired::mods`) and a Silence mod makes the shot Silent (`WeaponStats::modded`, `hear_shot`; weapon-mods.md §7) | [documented]; the Silence mod: [documented: GECK wiki Weapons, mod effects] |
 | Movement sound of a creature | the boot term × the creature's NAM5 sound level ÷ Normal: Loud × 2, Normal × 1, Silent × 0.2 (§8) | [hypothesis] |
 | Detector asleep | lying on a bed (marker 1–10, state "on it") | [hypothesis] |
 | Detector alert, or on its target | alert in a combat state (Alert, Combat, Lost); fSneakCombatMod when the detector is in Combat and the target is on its target list (IsCombatTarget), so 0.8 against its foes and 1.2 against anyone else (§9) | [documented] |
@@ -273,7 +273,8 @@ Silent (100 / 50 / 10), as a shot's.
 
 - **Impacts** raise their detection event (alert.md §4) at the impact record's (IPCT)
   sound level [hypothesis: the impact's own loudness, its field's name]; an impact
-  without one at the firing weapon's, as before. 85 weapons are Silent while their
+  without one at the firing weapon's, as before (the weapon as fired, its mods on: a
+  silenced shot's impact is Silent too). 85 weapons are Silent while their
   projectiles are Normal, so the PROJ level is not the shot's.
 - **Projectiles in flight** raise an event where they are, at the PROJ's sound level,
   owned by the shooter, once a measurement (0.25 s) for each projectile seen since the

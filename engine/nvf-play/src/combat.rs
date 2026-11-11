@@ -221,6 +221,10 @@ pub struct ShotFired {
     pub projectile: FormId,
     /// The weapon that fired it (nvforever `detection` hears its sound level).
     pub weapon: FormId,
+    /// The mod flags of the unit that fired it, as they were at the shot (`Extra::mods`;
+    /// slots 1-3 as `fnv_combat::data::mod_flag`): detection hears the modded weapon
+    /// (`WeaponStats::modded`), a Silence mod's Silent level (weapon-mods.md §2, §7).
+    pub mods: u8,
     /// Who fired it.
     pub shooter: FormId,
     /// Where it left, for a shot of an actor other than the player (the player's
@@ -3005,7 +3009,10 @@ pub(crate) fn fire(
                     debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
                 };
-                fired.write(ShotFired { projectile: proj, weapon: id, shooter: FormId::PLAYER_REF, at: None, dir: None });
+                // The equipped unit's mods; none for a weapon that is not the equipped
+                // one (the Fists) [design].
+                let mods = if c.equipped.flatten() == Some(id) { c.mods } else { 0 };
+                fired.write(ShotFired { projectile: proj, weapon: id, mods, shooter: FormId::PLAYER_REF, at: None, dir: None });
                 // A casing for each shot of a weapon with a casing model, from its
                 // `ShellCasingNode` at the game's eject speed (`fGunShellEjectSpeed`):
                 // at the shot, unless the attack clip has an `Eject` key (a bolt, lever
@@ -3027,7 +3034,7 @@ pub(crate) fn fire(
                 }
                 // The player's own shot: the 2D sound where the weapon has one, the mod
                 // set's with a Silence or Suppressor mod on (weapon-mods.md §7).
-                let silenced = c.equipped.flatten() == Some(id) && w.sound_mod_on(c.mods);
+                let silenced = w.sound_mod_on(mods);
                 let shoot = weapon_fx.map(|f| f.shoot_sounds(silenced)).unwrap_or_default();
                 if let Some(sound) = shoot.own {
                     if shoot.silenced && c.silenced_logged != Some((id, sound)) {
@@ -4197,12 +4204,14 @@ fn actor_attacks(
             shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(own), false)
         };
         let seen_from = leaving.seen.at(leaving.origin, 0.0);
-        fired.write(ShotFired { projectile: proj, weapon: s.weapon, shooter: s.shooter, at: Some(seen_from), dir: Some(leaving.aim) });
+        // The mods of the unit in use (the equipped one, else the next to equip), as
+        // they are at the shot: its sound and its loudness for detection.
+        let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
+        fired.write(ShotFired { projectile: proj, weapon: s.weapon, mods, shooter: s.shooter, at: Some(seen_from), dir: Some(leaving.aim) });
         // Heard where it is fired: the weapon's 3D shoot sound, its distant one beyond
         // the 3D sound's reach, the mod set's with a Silence or Suppressor mod on the
         // unit in use (weapon-mods.md §7).
         if let Some(fx) = sfx.as_deref().and_then(|x| x.forms.weapons.get(&s.weapon)) {
-            let mods = sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).map_or(0, |i| i.mods_in_use(s.weapon));
             let silenced = mods != 0 && c.forms.weapons.get(&s.weapon).is_some_and(|w| w.sound_mod_on(mods));
             let shoot = fx.shoot_sounds(silenced);
             let near_max = shoot.near.and_then(|n| sfx.as_deref().and_then(|x| x.forms.sounds.get(&n))).map_or(0.0, |n| n.max_distance);
