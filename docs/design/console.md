@@ -66,6 +66,7 @@ Console commands of its own:
 | `cow <world> <x> <y>` (`CenterOnWorld`), `coe <x> <y>` (`CenterOnExterior`) | travel to the exterior cell at grid square (x, y) of the worldspace named (Editor ID or FormID), or of the current one for `coe` (inside an interior, the one last walked in) [documented: GECK wiki]; arriving at the cell's centre on its landscape (no landscape: the worldspace's default land height; water above it: its surface) [hypothesis: where in the cell is undocumented], settled by the arrival rule; a square the worldspace has no cell at prints `No exterior cell at …` |
 | `tgm` | god mode on or off while no script runs (with scripts running it is ToggleGodMode, below) |
 | `cls`, `clear` | empty the scrollback |
+| `tcg [radius]` (ToggleCollisionGeometry) | the collision view: every physics collider's outline drawn as lines, coloured by kind (terrain, static, keyframed, dynamic awake and asleep, characters, hit volumes, ragdolls, gore, triggers), within the radius of the camera (3000 game units unless given); again: off. The original's command for a colour-coded view of collision geometry [documented: Fallout Wiki "Fallout: New Vegas console commands", GECK wiki ToggleCollisionGeometry]; not in the function catalogue, so the console handles the word itself; our colours, by kind not by modelled layer [design]. At start: `NVF_COLLISION_VIEW=1` or `=<radius>`. Log: `console: Collision geometry on (within … units of the camera)` / `off`, then `collision view: <n> segments …`. Details: docs/spec-notes/physics.md §9 |
 
 ## Console-only functions
 

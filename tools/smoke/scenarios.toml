@@ -594,6 +594,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "collision-view"
+source = "docs/spec-notes/physics.md §9 (the collision view, tcg): NVF_COLLISION_VIEW switches it on at start and the collider outlines around the camera are drawn (terrain, static collision, actors' hit volumes); tcg switches it off, on, and on with a radius; the game keeps stepping physics and logging frame times"
+areas = ["physics", "console"]
+paths = ["crates/fnv-phys/src/debug_lines.rs", "engine/nvf-play/src/collision_view.rs", "engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_COLLISION_VIEW = "2500", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "14:tcg;14.5:tcg;15:tcg 1500;15.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--log-frame-times", "5"]
+run_seconds = 25
+expect = [
+  "collision view: on (NVF_COLLISION_VIEW, radius 2500 units)",
+  { re = 'collision view: (?P<n>\d+) segments within 2500 units', range = [100, 200000], label = "segments are drawn around the camera" },
+  { re = 'collision view: \d+ segments within 2500 units .*: terrain (?P<n>\d+),', range = [1, 200000], label = "the terrain is outlined" },
+  { re = 'collision view: \d+ segments within 2500 units .*, static (?P<n>\d+),', range = [1, 200000], label = "Goodsprings' static collision is outlined" },
+  { re = 'collision view: \d+ segments within 2500 units .*, hit volumes (?P<n>\d+),', range = [1, 200000], label = "actors' hit volumes are outlined" },
+  "console: Collision geometry off",
+  "console: Collision geometry on (within 2500 units of the camera)",
+  "console: Collision geometry on (within 1500 units of the camera)",
+  { re = 'collision view: (?P<n>\d+) segments within 1500 units', range = [1, 200000], label = "tcg <radius> draws within the new radius" },
+  { re = '\bframe time: \d', min = 2, label = "frames go on with the view on" },
+  { re = 'physics: (?P<n>[\d.]+) ticks a frame \(max \d+\) over [1-9]\d* frames', range = [0.01, 100], label = "physics keeps stepping with the view on" },
+]
+
+[[scenario]]
 name = "hitvol-standalone"
 source = "docs/spec-notes/physics.md §5.1 (issue #1436, PR #1437): actor hit volumes are colliders of no body by default, placed at the next query refresh or step; NVF_PHYS_HITVOL_ATTACHED switches back. The startup line says which is in use and the phys-refresh count line (NVF_PLAY_TEST_PROFILE_COUNTS) carries the setting and the capsules written or skipped"
 areas = ["physics", "profiling", "actors"]

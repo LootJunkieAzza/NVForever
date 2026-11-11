@@ -2707,3 +2707,46 @@ A self-consistency check of the terrain colliders against the LAND data (no orac
   `fnvtool phys cell` calls it per model (fnv-phys itself reads no NIF blocks).
 - Open: whether mesh collision objects use the XTRI layer numbering (§4), and which
   layers the original lets the player pass.
+
+## 9. Collision view (`tcg`, 2026-11-11)
+
+A developer view of what physics sees: every collider's outline drawn in the world as
+lines, coloured by what it belongs to, within a radius of the camera (default 3000
+units). Code: `crates/fnv-phys/src/debug_lines.rs` (the segments, feature `debug-lines`,
+on by default), `engine/nvf-play/src/collision_view.rs` (drawing, Bevy gizmos).
+
+- **Switch**: the console's `tcg` (ToggleCollisionGeometry), the original's console
+  command for a colour-coded view of collision geometry [documented: Fallout Wiki,
+  "Fallout: New Vegas console commands", `tcg`; GECK wiki ToggleCollisionGeometry, seen in
+  search summaries; the command is not in our function catalogue]. `tcg <radius>` switches
+  it on with that radius. At start: `NVF_COLLISION_VIEW=1` (default radius) or
+  `=<radius>` (game units, above 1). The original colours by the layer a modeller gave a
+  shape; ours by what the shape is in our physics [design]:
+
+  | Colour | What |
+  |---|---|
+  | brown | terrain heightfields |
+  | light grey | static collision of references |
+  | cyan | keyframed parts (doors, animated collision) |
+  | bright green / dark green | dynamic bodies awake / asleep |
+  | yellow | character controllers (player, walking NPCs) |
+  | orange | actor hit volumes (whole or part capsules) |
+  | magenta | ragdoll bones |
+  | red | gore pieces |
+  | blue | volumes the character passes (the trigger-like layers of `layers::character_ignores` less small debris and shell casings), rapier sensors, and the script trigger volumes (`script_trigger`, which physics does not hold) |
+
+- **How**: rapier's debug-render pipeline outlines the colliders (heightfields and
+  meshes triangle by triangle, hulls by their edges, boxes, balls and capsules by
+  rapier's outlines); a collider whose bounding box misses the sphere is skipped, and of
+  the rest only segments passing within the radius are kept, at most 200,000. A character
+  whose bounding box holds the camera (the player's own capsule in first person) is left
+  out [design]. It only
+  reads the world: `state_digest` and traces are unchanged (unit test). The poses are the
+  last step's, so a moving body's outline can trail its interpolated model by up to a
+  step.
+- **Cost**: off, a run condition a frame and a disabled gizmo group. On, terrain and static
+  outlines are a retained gizmo, gathered and rebuilt only when the camera moved 32 units,
+  a collider came or went, or every 2 s; the rest are gathered after each physics step and
+  drawn each frame. The log line `collision view: <n> segments within <r> units …` (at the first
+  draw, then every 10 s) gives the counts per kind and the mean gather time.
+- Smoke: `collision-view` in `tools/smoke/scenarios.toml`.
