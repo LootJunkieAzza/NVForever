@@ -114,7 +114,7 @@ cargo build --release -p nvforever --features nvforever/tracy    # or nvforever/
 `graphics.rs`, `phys_rate.rs`] `nvf_play::player::step` advances an accumulator of game
 time (`fnv_phys::Stepper::advance`, kept in `f64`) and runs the fixed steps the frame's
 time owes at the physics rate (60 a second by default; the settings page's Physics rate or
-`--physics-hz`, physics.md §5.2), up to a quarter second of them a frame (15 at 60, 38 at
+`--physics-hz`, physics.md §5.4), up to a quarter second of them a frame (15 at 60, 38 at
 152, 60 at 240: `phys_rate::catch_up_steps`; a whole 0.25 s frame of the virtual clock is
 caught up, deliberately, so actors near the player cover the ground the clock passes). Its
 cost is therefore about *ticks a frame × ms a tick*, grows with the rate, and grows with the
@@ -126,7 +126,7 @@ previous frame's length: a slow frame owes more steps to the next one. With
 
 (an example of the format, not a measurement). The rate at the end is the one in effect
 over the period, or the range it ran over (`at 120-152 Hz`) when the cost guard switched it
-(physics.md §5.2). Frames are those in which the system ran
+(physics.md §5.4). Frames are those in which the system ran
 while playing; frames with no player character or waiting for a cell to load are not
 counted (`Meter::skip`). Controller moves are the player's (on the walking path) and each
 walked actor's per step; blocks is the mean length of the actor block list

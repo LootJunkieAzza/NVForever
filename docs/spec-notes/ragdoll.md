@@ -165,8 +165,11 @@ the ragdoll body nearest the hit point gets an impulse there along the shot (140
 per second for a shot, 220 for a blow, × 1.6 for a power attack). The killing hit's shove
 is the ragdoll's first.
 
-**Bones.** After each physics step the bodies' poses are written to their bones. Bones
-without a body (fingers, clavicles, twist bones, the weapon node) keep the pose they
+**Bones.** Every frame the bodies' poses are written to their bones: while the ragdoll
+moves, each body drawn between its poses before and after the last physics step, by the
+share of a step the clock has gone since (physics.md §5.2; the pose before the step is
+the one the physics world kept, so a frame that ran several steps draws it exactly).
+Bones without a body (fingers, clavicles, twist bones, the weapon node) keep the pose they
 died in under their parent. The actor's own transform stays where it died.
 
 **Rest.** A ragdoll is at rest when the physics engine puts its bodies to sleep, or when

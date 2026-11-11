@@ -16,9 +16,13 @@
 //!   game)
 //! - [`ragdoll`]: ragdolls, the jointed bodies of dead actors
 //! - [`grab`]: a body held by the player's grab
+//! - [`drawn`]: the moving bodies' poses before the last step, for drawing between steps
+//! - [`quarantine`]: bodies and colliders whose state went NaN or infinite
 //! - [`water`]: water areas (cell water surfaces) the character swims in
 //! - [`buoyancy`]: ragdolls and gore pieces float in water
 //! - [`swim`]: swimming speeds (the stroke cycle)
+//! - `debug_lines` (feature `debug-lines`, on by default): the collision shapes as line
+//!   segments, for the engine's collision view
 //!
 //! Units and axes are the game's: lengths in game units, Z up, rotations row-major 3×3
 //! rotating column vectors (as in `fnv_collide::shape` and `fnv_world::transform`).
@@ -31,11 +35,15 @@ pub mod arrival;
 pub mod buoyancy;
 pub mod character;
 pub mod convert;
+#[cfg(feature = "debug-lines")]
+pub mod debug_lines;
+pub mod drawn;
 pub mod gore;
 pub mod grab;
 pub mod layers;
 pub mod placed;
 pub mod primitive;
+pub mod quarantine;
 pub mod ragdoll;
 pub mod script;
 pub mod swim;
@@ -47,10 +55,12 @@ pub use actors::{HitVolume, PartCapsule};
 pub use arrival::Arrival;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep, Push, SpotRefused, secs_reached, STUCK_RETRY_SECS};
 pub use convert::ConvertError;
+pub use drawn::DRAWN_JUMP;
 pub use grab::{Grip, GripOn, HoldParams};
 pub use layers::LayerSet;
 pub use ragdoll::{RagdollReport, RagdollStart};
 pub use placed::{ref_collision, ref_collision_with, ModelCollision, RefCollision, RefCollisionOptions};
+pub use quarantine::{QuarantineReport, Remedy};
 pub use swim::Stroke;
 pub use water::{PlacedWater, WaterArea};
 pub use world::{

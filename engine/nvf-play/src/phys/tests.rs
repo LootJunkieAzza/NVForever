@@ -546,6 +546,62 @@ fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
     assert!(!p.placed_dynamic[&id].moved, "a fresh start from where it rests");
 }
 
+/// Placed clutter falling under physics is drawn between its last two steps
+/// (`PhysState::drawn_ref_pose`, `fnv_phys::drawn`): at the share of a step the stepper
+/// holds, from the pose before the step to the one after it, while the simulation holds
+/// the stepped pose; it is listed for drawing while it moves and for one frame after.
+#[test]
+fn falling_clutter_is_drawn_between_its_last_two_steps() {
+    let d = play_data();
+    let (mut sim, id, _) = sim_with_crate();
+    let mut p = state(true);
+    p.load(&LoadCtx { d: &d, sim: &sim, data: None }, PhysCell::Exterior(0, 0));
+    let dt = p.world.params.dt;
+    let frame = |p: &mut PhysState, sim: &mut SimState| {
+        p.world.step();
+        p.settle_placed(&mut sim.world);
+        p.update_between();
+    };
+    for _ in 0..20 {
+        frame(&mut p, &mut sim);
+    }
+    assert!(p.placed_dynamic[&id].moved, "falling");
+    let pd = &p.placed_dynamic[&id];
+    let (local, scale) = (pd.local, pd.scale);
+    let before = dropped::ref_pose_from_body(&p.world.ref_bodies(id)[0], &local, scale);
+    frame(&mut p, &mut sim);
+    let after = dropped::ref_pose_from_body(&p.world.ref_bodies(id)[0], &local, scale);
+    assert!(after.0[2] < before.0[2] - 1.0, "{before:?} {after:?}");
+    assert_eq!((p.between.now.clone(), p.between.redraw.clone()), (vec![id], vec![id]));
+    // The one place the share of a step is worked out.
+    p.stepper.accumulated = 0.0;
+    assert_eq!(p.draw_alpha(), 0.0);
+    assert_eq!(p.drawn_ref_pose(id), Some(before));
+    p.stepper.accumulated = f64::from(dt);
+    assert_eq!(p.draw_alpha(), 1.0);
+    assert_eq!(p.drawn_ref_pose(id), Some(after));
+    p.stepper.accumulated = f64::from(dt) * 0.25;
+    let quarter = p.drawn_ref_pose(id).unwrap().0[2];
+    assert!((quarter - (before.0[2] * 0.75 + after.0[2] * 0.25)).abs() < 1e-2, "{quarter}");
+    // The simulation holds the stepped pose.
+    let (pos, _) = sim.moved_pose(id).expect("written back");
+    assert!((pos[2] - after.0[2]).abs() < 0.02, "{pos:?} {after:?}");
+    // At rest: listed once more, then no longer.
+    let mut frames = 0;
+    while !p.world.ref_bodies(id)[0].sleeping {
+        frame(&mut p, &mut sim);
+        frames += 1;
+        assert!(frames < 1200, "comes to rest");
+    }
+    frame(&mut p, &mut sim);
+    assert!(p.between.now.is_empty());
+    frame(&mut p, &mut sim);
+    assert!(p.between.redraw.is_empty());
+    assert!(p.between.most >= 1 && p.between.frames > 20, "{:?}", p.between);
+    // A placed reference physics has not moved is drawn at its placement.
+    assert!(p.drawn_ref_pose(fake_ref(0, 0, 1)).is_none());
+}
+
 /// A script's move of a reference whose collision physics never moves (a fixed box, as
 /// a STAT's) builds it again at the simulation's pose, not left at the old one (issue
 /// #1466); a repose where it already stands builds nothing.

@@ -537,7 +537,10 @@ fn middle(phys: &PhysState, player: &Player, actor: FormId) -> Option<Vec3> {
     if actor == FormId::PLAYER_REF {
         return Some(player_middle(player));
     }
-    phys.world.actor_aim_point(actor.0).or_else(|| phys.world.ragdoll_center(actor.0)).map(Vec3::from_array)
+    // The corpse as drawn between the last two physics steps (`fnv_phys::drawn`): under
+    // the slowed clock a step comes every few frames, and the view would follow the
+    // stepped centre in jumps [hypothesis: not compared in play].
+    phys.world.actor_aim_point(actor.0).or_else(|| phys.world.drawn_ragdoll_center(actor.0, phys.draw_alpha())).map(Vec3::from_array)
 }
 
 /// Watch the last mark, start and run the kill camera.

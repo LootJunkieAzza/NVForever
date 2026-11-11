@@ -20,6 +20,7 @@ pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
 pub mod chargen;
+pub mod collision_view;
 pub mod creator;
 pub mod combat;
 pub mod compass;
@@ -397,6 +398,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin, after_combat::AfterCombatPlugin))
             .add_plugins(console::ConsolePlugin)
             .add_plugins(location_markers::LocationMarkersPlugin)
+            .add_plugins(collision_view::CollisionViewPlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(script_camera::ScriptCameraPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)

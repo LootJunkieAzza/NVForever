@@ -551,6 +551,18 @@ impl PhysWorld {
     /// The pose of each ragdoll body's bone now, in the ragdoll's body order (`None` for
     /// a body that was not built), and its velocity and sleep state.
     pub fn ragdoll_nodes(&self, form_id: u32) -> Option<Vec<Option<BodyState>>> {
+        self.nodes_drawn(form_id, None)
+    }
+
+    /// [`PhysWorld::ragdoll_nodes`] as drawn this frame, `alpha` of a step after the last
+    /// one: each body's pose blended between before and after the last step
+    /// (`crate::drawn`). For drawing only.
+    pub fn drawn_ragdoll_nodes(&self, form_id: u32, alpha: f32) -> Option<Vec<Option<BodyState>>> {
+        self.nodes_drawn(form_id, Some(alpha))
+    }
+
+    /// The bones' poses from the bodies' poses now (`alpha` `None`) or as drawn.
+    fn nodes_drawn(&self, form_id: u32, alpha: Option<f32>) -> Option<Vec<Option<BodyState>>> {
         let r = self.ragdolls.get(&form_id)?;
         let k = self.k;
         Some(
@@ -558,8 +570,10 @@ impl PhysWorld {
                 .iter()
                 .zip(&r.local)
                 .map(|(b, local)| {
-                    let body = self.w.bodies.get((*b)?)?;
-                    let node = iso_of(body.position(), k).compose(&local.inverse());
+                    let h = (*b)?;
+                    let body = self.w.bodies.get(h)?;
+                    let pose = alpha.map_or(*body.position(), |a| self.drawn_pose(h, body, a));
+                    let node = iso_of(&pose, k).compose(&local.inverse());
                     Some(BodyState { translation: node.translation, rotation: node.rotation, ..body_state(body, k) })
                 })
                 .collect(),
@@ -588,6 +602,17 @@ impl PhysWorld {
 
     /// The mass centre of the ragdoll's heaviest body (the trunk of a person), game units.
     pub fn ragdoll_center(&self, form_id: u32) -> Option<[f32; 3]> {
+        self.center_drawn(form_id, None)
+    }
+
+    /// [`PhysWorld::ragdoll_center`] as drawn this frame, `alpha` of a step after the last
+    /// one (`crate::drawn`): for what follows a corpse on screen (the kill camera).
+    pub fn drawn_ragdoll_center(&self, form_id: u32, alpha: f32) -> Option<[f32; 3]> {
+        self.center_drawn(form_id, Some(alpha))
+    }
+
+    /// The heaviest body's mass centre now (`alpha` `None`) or as drawn.
+    fn center_drawn(&self, form_id: u32, alpha: Option<f32>) -> Option<[f32; 3]> {
         let r = self.ragdolls.get(&form_id)?;
         // By the stored masses, the first of equals: the same body however it is built.
         let mut best: Option<(f32, RigidBodyHandle)> = None;
@@ -596,7 +621,11 @@ impl PhysWorld {
                 best = Some((d.object.mass, h));
             }
         }
-        Some(arr3(self.w.bodies.get(best?.1)?.center_of_mass() / self.k))
+        let h = best?.1;
+        let b = self.w.bodies.get(h)?;
+        let Some(a) = alpha else { return Some(arr3(b.center_of_mass() / self.k)) };
+        let pose = self.drawn_pose(h, b, a);
+        Some(arr3((pose.rotation * b.local_center_of_mass() + pose.translation) / self.k))
     }
 
     /// Change the velocity of the ragdoll body nearest to `at` by `dv` (game units per

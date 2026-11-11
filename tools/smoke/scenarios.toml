@@ -626,7 +626,7 @@ expect = [
 
 [[scenario]]
 name = "physics-rate-setting"
-source = "docs/spec-notes/physics.md §5.2 (the physics rate): the settings page's Physics rate changes the rate in play, at once, keeping the share of a step the clock is into"
+source = "docs/spec-notes/physics.md §5.4 (the physics rate): the settings page's Physics rate changes the rate in play, at once, keeping the share of a step the clock is into"
 areas = ["physics", "settings"]
 paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/settings_layout.rs", "lang/*.toml"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_PAUSE = "8:11", NVF_PLAY_TEST_SETTINGS = "9:physics-rate=144 Hz", NVF_PLAY_TEST_MOVE = "12:1:0,15:0:0" }
@@ -650,6 +650,28 @@ run_seconds = 15
 expect = [
   { re = 'phys: physics rate 60 Hz \(the setting\)', count = 1, label = "60 by default" },
   { re = 'physics rate: 60 Hz at exit, 60 Hz asked for; 0 switches by the guard', count = 1, label = "and no fallback" },
+]
+
+[[scenario]]
+name = "collision-view"
+source = "docs/spec-notes/physics.md §9 (the collision view, tcg): NVF_COLLISION_VIEW switches it on at start and the collider outlines around the camera are drawn (terrain, static collision, actors' hit volumes); tcg switches it off, on, and on with a radius; the game keeps stepping physics and logging frame times"
+areas = ["physics", "console"]
+paths = ["crates/fnv-phys/src/debug_lines.rs", "engine/nvf-play/src/collision_view.rs", "engine/nvf-play/src/script_trigger.rs"]
+env = { NVF_COLLISION_VIEW = "2500", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "14:tcg;14.5:tcg;15:tcg 1500;15.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--log-frame-times", "5"]
+run_seconds = 25
+expect = [
+  "collision view: on (NVF_COLLISION_VIEW, radius 2500 units)",
+  { re = 'collision view: (?P<n>\d+) segments within 2500 units', range = [100, 200000], label = "segments are drawn around the camera" },
+  { re = 'collision view: \d+ segments within 2500 units .*: terrain (?P<n>\d+),', range = [1, 200000], label = "the terrain is outlined" },
+  { re = 'collision view: \d+ segments within 2500 units .*, static (?P<n>\d+),', range = [1, 200000], label = "Goodsprings' static collision is outlined" },
+  { re = 'collision view: \d+ segments within 2500 units .*, hit volumes (?P<n>\d+),', range = [1, 200000], label = "actors' hit volumes are outlined" },
+  "console: Collision geometry off",
+  "console: Collision geometry on (within 2500 units of the camera)",
+  "console: Collision geometry on (within 1500 units of the camera)",
+  { re = 'collision view: (?P<n>\d+) segments within 1500 units', range = [1, 200000], label = "tcg <radius> draws within the new radius" },
+  { re = '\bframe time: \d', min = 2, label = "frames go on with the view on" },
+  { re = 'physics: (?P<n>[\d.]+) ticks a frame \(max \d+\) over [1-9]\d* frames', range = [0.01, 100], label = "physics keeps stepping with the view on" },
 ]
 
 [[scenario]]
@@ -13659,6 +13681,25 @@ order = [[
 expect = [
   { re = 'grab: .*\(it caught on something\)', count = 0, label = "never caught while carried" },
 ]
+
+[[scenario]]
+name = "physics-drawn-between-steps"
+source = "docs/spec-notes/physics.md §5.2-§5.3: what physics moves is drawn between its last two fixed steps (fnv_phys::drawn, PhysState::draw_alpha); the tutorial's brahmin skull in Doc Mitchell's house (ref 00104C10) picked up with Grab (Z), carried and let go is placed clutter physics moves, so it is drawn between steps while it moves, and the exit report counts it; no body or collider goes NaN (rapier's quarantine, reported once each)"
+areas = ["physics", "grab"]
+paths = ["crates/fnv-phys/src/drawn.rs", "crates/fnv-phys/src/quarantine.rs", "crates/fnv-phys/src/world.rs", "engine/nvf-play/src/moved.rs", "engine/nvf-play/src/dropped.rs", "engine/nvf-play/src/script_draw.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C10", NVF_PLAY_TEST_GRAB = "16:z:2:0:at=00104C10" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 26
+order = [[
+  { re = 'grab: picked up loose object .*00104C10\) by Aid', label = "Z picks up the skull" },
+  { re = 'grab: dropped .*00104C10\) after', label = "let go" },
+  { re = 'grab: .*00104C10\) came to rest at', label = "it comes to rest" },
+]]
+expect = [
+  { re = 'physics: drawn between steps: (?P<n>\d+) references at most in a frame, over [1-9]\d* frames', range = [1, 20], label = "the carried and dropped skull is drawn between steps while it moves" },
+  { re = 'physics: drawn between steps: .*; quarantined 0 bodies and 0 colliders', label = "no NaN state in the run" },
+]
+forbid = [{ re = 'physics: quarantined ', label = "no body or collider quarantined" }]
 
 [[scenario]]
 name = "weather-roll"

@@ -212,7 +212,10 @@ fn follow(
     let dt = time.delta_secs();
     for (&id, f) in wrecks.fallen.iter_mut() {
         let Some(bodies) = phys.world.ragdoll_nodes(id) else { continue };
-        crate::swing_traps::follow_bodies(&bodies, &f.nodes, f.scale, f.root, &parents, &globals, &mut transforms);
+        // Drawn between the last two physics steps (`fnv_phys::drawn`); judged where the
+        // steps put them.
+        let drawn = phys.world.drawn_ragdoll_nodes(id, phys.draw_alpha());
+        crate::swing_traps::follow_bodies(drawn.as_deref().unwrap_or(&bodies), &f.nodes, f.scale, f.root, &parents, &globals, &mut transforms);
         if f.falling.is_none() && !phys.world.ragdoll_asleep(id) {
             // Roused by a blast or a push: it falls again.
             (f.falling, f.calm, f.window) = (Some(0.0), 0.0, 0.0);

@@ -188,6 +188,10 @@ pub struct Stats {
     /// differ run to run).
     #[serde(skip)]
     pub solver_us: [u64; 6],
+    /// Bodies and colliders rapier disabled so far for state that went NaN or infinite,
+    /// each counted once (`crate::quarantine`).
+    pub quarantined_bodies: usize,
+    pub quarantined_colliders: usize,
 }
 
 /// State of one body, for readback (e.g. dynamic clutter positions).
@@ -432,7 +436,7 @@ pub struct PhysWorld {
     /// Diagnostics only ([`PhysWorld::refresh_stats`]).
     refresh_stats: RefreshStats,
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
-    new_bodies: Vec<RigidBodyHandle>,
+    pub(crate) new_bodies: Vec<RigidBodyHandle>,
     /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
     /// setting their position ([`PhysWorld::body_placed`]) since the last step (see
     /// [`PhysWorld::update_queries`]).
@@ -440,7 +444,7 @@ pub struct PhysWorld {
     /// Dynamic bodies added asleep ([`PreparedRef::asleep`]) whose contacts have not been
     /// found yet (see [`PhysWorld::update_queries`]).
     pending_sleep: Vec<RigidBodyHandle>,
-    steps: u64,
+    pub(crate) steps: u64,
     /// Water: cell surfaces by area and placed volumes (`crate::water`).
     pub(crate) water: crate::water::Waters,
     /// The body held by the player's grab (`crate::grab`), driven before every step.
@@ -452,6 +456,12 @@ pub struct PhysWorld {
     pub(crate) hitvol_pending: Vec<(ColliderHandle, RigidBodyHandle, Pose)>,
     /// [`Stats::solver_us`], milliseconds.
     pub(crate) solver_ms: [f64; 6],
+    /// The moving bodies' poses before the last step, for drawing between steps
+    /// (`crate::drawn`).
+    pub(crate) before: crate::drawn::Before,
+    /// Bodies and colliders rapier disabled for state that went NaN or infinite
+    /// (`crate::quarantine`).
+    pub(crate) quarantined: crate::quarantine::Quarantined,
 }
 
 impl PhysWorld {
@@ -498,6 +508,8 @@ impl PhysWorld {
             standalone_hit_volumes: true,
             hitvol_pending: Vec::new(),
             solver_ms: [0.0; 6],
+            before: Default::default(),
+            quarantined: Default::default(),
         }
     }
 
@@ -700,6 +712,7 @@ impl PhysWorld {
             }
         }
         self.w.remove_body(b);
+        self.before.forget(b);
         self.mark_dirty(DirtyBy::Bodies);
     }
 
@@ -728,6 +741,7 @@ impl PhysWorld {
             return true;
         }
         body.set_position(p, true);
+        self.before.forget(b);
         self.mark_dirty(DirtyBy::Transform);
         true
     }
@@ -937,6 +951,8 @@ impl PhysWorld {
     /// the step ([`PhysWorld::update_queries`]).
     pub(crate) fn body_placed(&mut self, h: RigidBodyHandle) {
         self.struck.push(h);
+        // Drawn where it was put, not on the way there (`crate::drawn`).
+        self.before.forget(h);
         self.mark_dirty(DirtyBy::Transform);
     }
 
@@ -956,6 +972,9 @@ impl PhysWorld {
             self.drive_grip();
             self.buoy();
         }
+        // The poses the coming step starts from, for drawing between steps (`crate::drawn`):
+        // read only by the drawing.
+        self.keep_poses_before();
         {
             let _span = tracing::info_span!("phys::rapier_step").entered();
             self.step_world();
@@ -963,6 +982,10 @@ impl PhysWorld {
             for (a, t) in self.solver_ms.iter_mut().zip([c.solver.velocity_assembly_time, c.solver.velocity_resolution_time, c.stages.collision_detection_time, c.stages.island_construction_time, c.stages.ccd_time, c.step_time]) {
                 *a += t.time_ms();
             }
+        }
+        // Bodies and colliders rapier took out for NaN or infinite state (`crate::quarantine`).
+        if !self.w.quarantine().is_empty() {
+            self.handle_quarantine();
         }
         // Diagnostics: marks the step's own detection took, with no refresh between.
         if self.dirty {
@@ -1141,6 +1164,7 @@ impl PhysWorld {
             }
         }
         s.joints = self.w.impulse_joints.len();
+        (s.quarantined_bodies, s.quarantined_colliders) = self.quarantined.counts();
         s.solver_us = self.solver_ms.map(|v| (v * 1000.0) as u64);
         s
     }
@@ -1193,6 +1217,8 @@ impl PhysWorld {
             standalone_hit_volumes: self.standalone_hit_volumes,
             hitvol_pending: self.hitvol_pending.clone(),
             solver_ms: self.solver_ms,
+            before: self.before.clone(),
+            quarantined: self.quarantined.clone(),
         }
     }
 
@@ -1241,7 +1267,11 @@ fn shape_name(t: ShapeType) -> String {
 }
 
 pub(crate) fn body_state(b: &RigidBody, k: f32) -> BodyState {
-    let p = b.position();
+    body_state_at(b, b.position(), k)
+}
+
+/// [`body_state`] with the body at `p` (`crate::drawn`).
+pub(crate) fn body_state_at(b: &RigidBody, p: &Pose, k: f32) -> BodyState {
     let m = rapier3d::math::Matrix::from_quat(p.rotation).transpose().to_cols_array();
     BodyState { translation: arr3(p.translation / k), rotation: m, linvel: arr3(b.linvel() / k), sleeping: b.is_sleeping() }
 }
