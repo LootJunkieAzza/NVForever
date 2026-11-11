@@ -634,6 +634,10 @@ pub struct Ai {
     pub(crate) script_moved: BTreeMap<FormId, f64>,
     /// Actors whose walk under way stands because their speeds are 0 (a Speed Mult of 0),
     /// with the gait it goes on in when they come back ([`Ai::set_speeds`], issue #2118).
+    /// Not saved, as the walks are not (`crate::progress`): after a load the walk is
+    /// planned again at 0, and when the speeds come back a package's goes on in the gait
+    /// `Ai::plan` chose, any other at the calm walk until it is planned again, whatever
+    /// gait it stood in before the save [design].
     stalled: BTreeMap<FormId, Stall>,
 }
 

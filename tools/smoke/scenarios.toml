@@ -13982,12 +13982,12 @@ expect = [
 [[scenario]]
 name = "npc-speed-mult-changes"
 source = "LootJunkieAzza/NVForever#2118: a script's SetAV SpeedMult (or ModAV, an effect, damage) on an NPC changes its speed, as it does the player's (docs/spec-notes/actors.md §8.10, People and creatures)"
-note = "GoodspringsSettler03Ref is put 150 units from the player at 6 s and follows it (DefaultFollowPlayerFar) from 7 s; SetAV SpeedMult 200 at 9 s, GetRunSpeed at 11 s; put 2,500 units off at 12 s so it runs back; SetAV SpeedMult 50 at 15 s, GetRunSpeed at 17 s. It wears no armour that slows it, so its run is 344 × Speed Mult / 100 (688, then 172); the ranges allow the medium and heavy armour shares. Before the fix its speeds were given once from the record's 100 and GetRunSpeed read 0"
+note = "GoodspringsSettler03Ref is put 150 units from the player at 6 s and follows it (DefaultFollowPlayerFar) from 7 s; SetAV SpeedMult 200 at 9 s, GetRunSpeed at 11 s; put 2,500 units off at 12 s so it runs back; SetAV SpeedMult 50 at 15 s, GetRunSpeed at 17 s; SetAV SpeedMult 100 at 18 s, put 2,500 units off again at 19 s so it runs back, SetAV SpeedMult 0 at 20 s with the walk under way, held five seconds, SetAV SpeedMult 100 at 25 s and it runs on. It wears no armour that slows it, so its run is 344 × Speed Mult / 100 (688, then 172); the ranges allow the medium and heavy armour shares. Before the fix its speeds were given once from the record's 100 and GetRunSpeed read 0. At Speed Mult 0 it stands on its walk near the player, not counted as stuck: before the review fix of #2143 the physics mover's stuck rule kept the walk's first speed, detoured it on the spot after about a second and moved it on along its path (SKIP_AHEAD) about every second; only the settler lives by its packages here (--npc-packages), so no actor may be moved on along its path"
 areas = ["actors", "ai"]
-paths = ["engine/nvforever/src/creature_pace.rs", "crates/fnv-ai/src/carry.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:moveto:GoodspringsSettler03Ref:player:150:0:0,7:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,9:set_av:GoodspringsSettler03Ref:SpeedMult:200,11:call:GoodspringsSettler03Ref:GetRunSpeed,12:moveto:GoodspringsSettler03Ref:player:2500:0:0,15:set_av:GoodspringsSettler03Ref:SpeedMult:50,17:call:GoodspringsSettler03Ref:GetRunSpeed" }
+paths = ["engine/nvforever/src/creature_pace.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/follow.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:moveto:GoodspringsSettler03Ref:player:150:0:0,7:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultFollowPlayerFar,9:set_av:GoodspringsSettler03Ref:SpeedMult:200,11:call:GoodspringsSettler03Ref:GetRunSpeed,12:moveto:GoodspringsSettler03Ref:player:2500:0:0,15:set_av:GoodspringsSettler03Ref:SpeedMult:50,17:call:GoodspringsSettler03Ref:GetRunSpeed,18:set_av:GoodspringsSettler03Ref:SpeedMult:100,19:moveto:GoodspringsSettler03Ref:player:2500:0:0,20:set_av:GoodspringsSettler03Ref:SpeedMult:0,25:set_av:GoodspringsSettler03Ref:SpeedMult:100" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "12", "--npc-packages", "GoodspringsSettler03Ref", "--no-voice", "--no-messages"]
-run_seconds = 25
+run_seconds = 32
 order = [[
   { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 200', label = "SetAV SpeedMult 200" },
   { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks \d+ and runs (?P<n>\d+) units/s \(Speed Mult 200 now, 100 before', range = [580, 690], label = "its speeds given again at 200" },
@@ -13995,10 +13995,16 @@ order = [[
   { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 50', label = "SetAV SpeedMult 50" },
   { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks \d+ and runs (?P<n>\d+) units/s \(Speed Mult 50 now, 200 before', range = [140, 175], label = "its speeds given again at 50" },
   { re = 'test aid calls GetRunSpeed on GoodspringsSettler03Ref = (?:Num\()?(?P<n>[\d.]+)', range = [140, 175], label = "GetRunSpeed reads the halved run" },
+  { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 0\b', label = "SetAV SpeedMult 0 while it runs back" },
+  { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks 0 and runs 0 units/s \(Speed Mult 0 now, 100 before', label = "its speeds given again at 0" },
+  { re = 'actor [0-9A-F]{8} stands on its walk at .*: its speed is 0, not stuck', label = "it stands on its walk under physics, not counted as stuck" },
+  { re = 'test aid: GoodspringsSettler03Ref SpeedMult set to 100', label = "SetAV SpeedMult 100 again" },
+  { re = 'npc pace: GoodspringsSettler03Ref 0x\w+ walks \d+ and runs (?P<n>\d+) units/s \(Speed Mult 100 now, 0 before', range = [290, 345], label = "its speeds given again at 100" },
 ]]
 expect = [
   { re = 'creature pace summary: .*speeds given again for a new Speed Mult (?P<n>\d+) times', range = [2, 10000], label = "counted in the summary" },
 ]
+forbid = [{ re = 'actor [0-9A-F]{8} stuck at .*moved on along its path', label = "an actor moved on along its path (the settler standing at Speed Mult 0, or slowed, counted as stuck: the maintainer's review of #2143)" }]
 
 [[scenario]]
 name = "pickpocket-steal"

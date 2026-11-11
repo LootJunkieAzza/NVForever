@@ -189,6 +189,21 @@ fn unstuck(speed: f32) -> Unstuck {
     u
 }
 
+/// Actor `id`'s stuck rule, kept in step with the speed it moves at now (`speed`:
+/// `Walker::moving_speed`, its package's or fight's speed times its crippled legs' share,
+/// so the progress asked of it is what it can make; `Unstuck::set_speed`). `None` at a
+/// speed of 0 (a Speed Mult of 0, issue #2118): the actor stands where it is and is never
+/// stuck, and its rule forgets the second before, so the time it stood does not count when
+/// its speed comes back. Before, the rule kept the speed its walk had when the rule was
+/// made: an actor at Speed Mult 0, or slowed under a fifth of that, was moved on along its
+/// path every second, and one whose rule was made at 0 was never found stuck.
+fn stuck_rule(rules: &mut HashMap<u32, Unstuck>, id: u32, speed: f32) -> Option<&mut Unstuck> {
+    let moving = speed.is_finite() && speed > 0.0;
+    let rule = rules.entry(id).or_insert_with(|| unstuck(0.0));
+    rule.set_speed(if moving { speed } else { 0.0 });
+    moving.then_some(rule)
+}
+
 /// Horizontal speed over a ledge at the most, game units per second [design: the arc's
 /// own speed lands it on the landing point (`fnv_nav::jump::Flight`); a short wide drop
 /// asks for more than any run].
@@ -388,6 +403,7 @@ impl Mover for PhysMover<'_> {
         // frame below goes as if it fitted, so a body that never lands is not held up by
         // it (docs/design/navmesh.md §4.1).
         let judged = phys.npcs[&id].ch.grounded && !phys.npcs[&id].ch.swimming;
+        let airborne = !phys.npcs[&id].ch.grounded;
         let mut f = walker.follower.take()?;
         // Back to the walker: where physics left the actor, on the same path.
         let give_up = |phys: &mut PhysState, walker: &mut Walker, f| {
@@ -446,6 +462,21 @@ impl Mover for PhysMover<'_> {
                 phys.remove_npc(id);
                 return Some(WalkEvent::UsedDoor(d));
             }
+            // At a speed of 0 (a Speed Mult of 0, issue #2118) it stands where it is, its
+            // walk and its body kept, as the walker does on the navmesh (no step, no turn
+            // on the spot): not counted as stuck and not moved on along its path
+            // (`stuck_rule`), nor handed to the walker for its last steps. Already in the
+            // air over a ledge, the flight lands it first (`hop_or_obstacle`, which only
+            // takes off from the ground).
+            Steer::Walk { .. } if walker.moving_speed().is_nan() || walker.moving_speed() <= 0.0 => {
+                if self.unstuck.get(&id).is_none_or(|u| u.speed > 0.0) {
+                    info!("actor {id:08X} stands on its walk at ({:.0}, {:.0}, {:.0}): its speed is 0, not stuck", feet[0], feet[1], feet[2]);
+                }
+                let _ = stuck_rule(self.unstuck, id, 0.0);
+                walker.turning = false;
+                let v = if airborne && f.hop().is_some() { hop_or_obstacle(phys, id, &f, walker, [0.0, 0.0], self.stats, self.hopped).0 } else { [0.0, 0.0] };
+                (if v == [0.0, 0.0] { WalkEvent::Idle } else { WalkEvent::Moved }, v)
+            }
             // The last steps to the place itself are the walker's: packages send actors
             // to chairs, beds and markers, which the character cannot stand in. Not a
             // fighter's: its posts (cover, a peek point, a flank) are places to stand, and
@@ -476,7 +507,7 @@ impl Mover for PhysMover<'_> {
                 walker.turning = !walker.face(heading_of(dir), dt);
                 (WalkEvent::Turned, [0.0, 0.0])
             }
-            Steer::Walk { dir, remaining, .. } => match self.unstuck.entry(id).or_insert_with(|| unstuck(walker.speed)).advise_moved(feet, dir, dt) {
+            Steer::Walk { dir, remaining, .. } => match stuck_rule(self.unstuck, id, walker.moving_speed()).map_or(Advice::Head(dir), |u| u.advise_moved(feet, dir, dt)) {
                 Advice::Head(h) => {
                     // The heading turns at the walking rate and the actor walks along it
                     // (an arc round a corner), slowing while it is off the way to go
@@ -540,7 +571,7 @@ impl Mover for PhysMover<'_> {
                         phys.place_npc(id, to);
                         // Stuck again where it was put down, it is moved on again without
                         // the detours that failed already (`Unstuck::after_skip`).
-                        let mut u = unstuck(walker.speed);
+                        let mut u = unstuck(walker.moving_speed());
                         u.after_skip();
                         self.unstuck.insert(id, u);
                         return Some(WalkEvent::Moved);
@@ -3362,6 +3393,44 @@ mod tests {
         assert_eq!(r.note(1, 14.0), 2);
         assert_eq!(r.note(1, 14.0 + SKIP_REFUSED_FORGET + 1.0), 1);
         assert_eq!(r.total, 7);
+    }
+
+    /// The maintainer's review of #2143: a walk under way at Speed Mult 0 (speeds of 0, the
+    /// walk kept) stands and is never moved on along its path; one slowed under a fifth of
+    /// the speed its walk started at is judged by its new speed; and a rule made while the
+    /// speed was 0 still finds the actor stuck once its speed is back. Each frame as
+    /// `PhysMover::walk` asks it: no advice at 0, else `advise_moved` with the feet.
+    #[test]
+    fn a_walk_at_speed_zero_is_never_moved_on_along_its_path() {
+        use super::stuck_rule;
+        use fnv_nav::follow::Advice;
+        let dt = 1.0 / 60.0;
+        let mut rules = HashMap::new();
+        // Frames at `speed` (the feet moving at `moves` units/s along +x): any skip advised.
+        let frames = |rules: &mut HashMap<u32, fnv_nav::follow::Unstuck>, x: &mut f32, speed: f32, moves: f32, seconds: f32| {
+            let mut skipped = false;
+            for _ in 0..(seconds / dt).round() as usize {
+                *x += moves * dt;
+                if let Some(u) = stuck_rule(rules, 7, speed) {
+                    skipped |= matches!(u.advise_moved([*x, 0.0, 0.0], [1.0, 0.0], dt), Advice::Skip | Advice::GiveUp);
+                }
+            }
+            skipped
+        };
+        let mut x = 0.0;
+        assert!(!frames(&mut rules, &mut x, 100.0, 100.0, 2.0));
+        // SetAV SpeedMult 0 mid-walk, held ten seconds: the rule is not asked, its speed is 0.
+        assert!(!frames(&mut rules, &mut x, 0.0, 0.0, 10.0));
+        assert_eq!((rules[&7].speed, rules[&7].detours, rules[&7].replans), (0.0, 0, 0));
+        // Back to 100, then down to 15 (under a fifth of 100) and walking at 15.
+        assert!(!frames(&mut rules, &mut x, 100.0, 100.0, 3.0));
+        assert!(!frames(&mut rules, &mut x, 15.0, 15.0, 5.0));
+        assert_eq!((rules[&7].detours, rules[&7].replans), (0, 0));
+        // A rule first made at 0 finds a blocked actor stuck once its speed is back.
+        let mut late = HashMap::new();
+        let mut y = 0.0;
+        assert!(!frames(&mut late, &mut y, 0.0, 0.0, 3.0));
+        assert!(frames(&mut late, &mut y, 100.0, 0.0, 10.0), "stuck at 100 and moved on");
     }
 
     #[test]
