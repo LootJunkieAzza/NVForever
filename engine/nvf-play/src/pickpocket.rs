@@ -15,10 +15,13 @@
 //!   (`Game::explosive_harms`: a pulse grenade kills a robot, not a man); its blast hurts
 //!   others as a thrown one's does [hypothesis]. Until then the victim panics: it plays
 //!   the idle tree's panic idle (`Game::panic_idle`, `nvforever`'s idles) and stands
-//!   where it is (`nvforever`'s residents).
+//!   where it is (`nvforever`'s residents). Each plant reserves its unit in the pocket
+//!   (`Extra::live`): the pocket lists it as "<item> (Armed)" (`menu::model::LIVE_NOTE`)
+//!   and nobody takes, uses or drops it until its blast (#1640 item 5).
 //!
 //! Logged: `pickpocket: open on …`, `pickpocket: took …`, `pickpocket: caught by …`,
-//! `pickpocket: planted …` (or `placed … not live on …`), `pickpocket: … explodes in …'s
+//! `pickpocket: planted …` (or `placed … not live on …`), then `pickpocket live check: <item>
+//! (Armed) on …: reserved=<live units> ordinary=<other units>`, `pickpocket: … explodes in …'s
 //! pocket: it dies` (or `: it lives, the explosion does not hurt its kind`), and at exit
 //! `pickpocket summary: …`.
 
@@ -116,13 +119,16 @@ fn results(
             match combat.as_deref().and_then(|c| live_explosive(c, item)) {
                 Some(explosion) => {
                     let blast = combat.as_deref().map(|c| blast_of(c, item, explosion)).unwrap_or_default();
-                    let mut refused = None;
-                    for _ in 0..n {
-                        if let Err(why) = rt.game.plant_explosive(victim, item, blast) {
-                            refused = Some(why);
-                            break;
+                    // On the played world: each plant reserves its unit in the pocket
+                    // (`Extra::live`, #1640).
+                    let refused = crate::script::with_world(rt, &mut sim, |rt| {
+                        for _ in 0..n {
+                            if let Err(why) = rt.game.plant_explosive(victim, item, blast) {
+                                return Some(why);
+                            }
                         }
-                    }
+                        None
+                    });
                     match refused {
                         Some(why) => info!("pickpocket: placed {} x{n} not live on {name} {victim} ({})", item_name(&sim, item), match why {
                             fnv_game::pickpocket::NotLive::Child => "a child",
@@ -131,6 +137,8 @@ fn results(
                         None => {
                             stats.planted += n.max(0) as u32;
                             info!("pickpocket: planted {} x{n} (live, explosion {explosion}) on {name} {victim}", item_name(&sim, item));
+                            let (live, ordinary) = sim.world.peek(victim).and_then(|s| s.inventory.as_ref()).map_or((0, 0), |inv| (inv.live_count(item), inv.free_count(item)));
+                            info!("pickpocket live check: {} on {name} {victim}: reserved={live} ordinary={ordinary}", crate::menu::model::live_name(item_name(&sim, item)));
                         }
                     }
                 }

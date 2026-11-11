@@ -2451,7 +2451,8 @@ pub(crate) fn fight(
                         &mut deadline,
                         input,
                         g,
-                        |g| g.world.peek(me).and_then(|s| s.inventory.as_ref()).and_then(|inv| npc_grenades::carried(&c.forms, inv.iter())),
+                        // Not a live unit planted on it (`Extra::live`, #1640).
+                        |g| g.world.peek(me).and_then(|s| s.inventory.as_ref()).and_then(|inv| npc_grenades::carried(&c.forms, inv.free_iter())),
                         |g, gr| {
                             let spares = style.is_none_or(|s| g.spares_spectators(me, s));
                             let ignores_group = style.is_some_and(|s| s.ignore_damaging_group);
@@ -2483,7 +2484,7 @@ pub(crate) fn fight(
                                 let gr = throw.grenade;
                                 fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: throw.origin, aim: throw.aim, cone: GRENADE_CONE, muzzle: None, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(gr.weapon), melee: false, sights: false, kind: Move::Attack, power: None, swing: None });
-                                let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(gr.weapon));
+                                let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.free_count(gr.weapon));
                                 f.stats.grenades += 1;
                                 info!("npc combat: {me_name} throws {} at {target_name} ({away_feet:.0} units, blast {:.0}); {left} left", g.data.name(gr.weapon), gr.blast);
                                 g.attack_line(me, Some(target), false, true);

@@ -14,6 +14,10 @@
 //! menus list a stack as one row per condition and mods, and moving or equipping a row
 //! takes its own units [owner, 2026-10-16: six Varmint Rifles, one at 95 %, show as a row
 //! of five and a row of one; weapon-mods.md §3 for the mods].
+//!
+//! A live unit ([`Extra::live`], a planted explosive) is in its own group: counted and
+//! weighed with the rest, but no [`Pick`] names it, so nothing takes, equips or moves it
+//! but the blast ([`Inventory::take_live`]) [design, #1640; pickpocket.md §5].
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,6 +38,13 @@ pub struct Extra {
     /// GECK wiki GetEquippedWeaponModFlags; docs/spec-notes/weapon-mods.md §3].
     #[serde(skip_serializing_if = "is_zero", default)]
     pub mods: u8,
+    /// A live explosive the player planted in this holder's pocket (`fnv_game::pickpocket`,
+    /// docs/spec-notes/pickpocket.md §5): reserved for its blast, so no [`Pick`] names it
+    /// and no equip, use, drop, transfer or removal takes it; only
+    /// [`Inventory::take_live`] (the blast) and [`Inventory::set_live_count`] touch it
+    /// [design, #1640]. Absent from saves when false, so older saves read as before.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub live: bool,
 }
 
 fn is_zero(m: &u8) -> bool {
@@ -82,9 +93,10 @@ impl Extra {
         at.is_none_or(|c| self.condition_or_whole() == c)
     }
 
-    /// Whether this unit is one of those `pick` names.
+    /// Whether this unit is one of those `pick` names. A live unit ([`Extra::live`]) is
+    /// never picked.
     pub fn picked(&self, pick: Pick) -> bool {
-        self.is_at(pick.condition) && pick.mods.is_none_or(|m| self.mods == m)
+        !self.live && self.is_at(pick.condition) && pick.mods.is_none_or(|m| self.mods == m)
     }
 }
 
@@ -286,8 +298,69 @@ impl Inventory {
         self.take(item, n).iter().map(|g| g.1).sum()
     }
 
+    /// Every unit of `item` carried, live ones ([`Extra::live`]) included.
     pub fn count(&self, item: FormId) -> i32 {
         self.items.get(&item).map_or(0, Stack::total)
+    }
+
+    /// The units of `item` an action may take: all but the live ones.
+    pub fn free_count(&self, item: FormId) -> i32 {
+        self.items.get(&item).map_or(0, |s| s.groups.iter().filter(|g| !g.0.live).map(|g| g.1).sum())
+    }
+
+    /// The live units of `item` ([`Extra::live`]).
+    pub fn live_count(&self, item: FormId) -> i32 {
+        self.items.get(&item).map_or(0, |s| s.groups.iter().filter(|g| g.0.live).map(|g| g.1).sum())
+    }
+
+    /// [`Inventory::free_count`] per base item in FormID order, items with none left out:
+    /// what an actor may choose to use (a grenade to throw, a weapon to hold).
+    pub fn free_iter(&self) -> impl Iterator<Item = (FormId, i32)> + '_ {
+        self.items.keys().map(|&k| (k, self.free_count(k))).filter(|&(_, n)| n > 0)
+    }
+
+    /// Reserve one unequipped unit of `item` as live (a planted explosive), plain units
+    /// first, then the others in arrival order, keeping its other extra data. Returns false
+    /// when no such unit is carried.
+    pub fn mark_live(&mut self, item: FormId) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let Some(i) = (0..s.groups.len()).filter(|&i| !s.groups[i].0.live && !s.groups[i].0.equipped).min_by_key(|&i| (!s.groups[i].0.is_plain(), i)) else {
+            return false;
+        };
+        let e = s.groups[i].0;
+        s.groups[i].1 -= 1;
+        s.groups.retain(|g| g.1 > 0);
+        s.add(Extra { live: true, ..e }, 1);
+        true
+    }
+
+    /// Remove one live unit of `item` (its blast). Returns false when none is live.
+    pub fn take_live(&mut self, item: FormId) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let Some(g) = s.groups.iter_mut().find(|g| g.0.live) else { return false };
+        g.1 -= 1;
+        s.groups.retain(|g| g.1 > 0);
+        if s.groups.is_empty() {
+            self.items.remove(&item);
+        }
+        true
+    }
+
+    /// Make `n` units of `item` live, as far as the carried units allow: more are
+    /// reserved ([`Inventory::mark_live`]) or live ones turned back into ordinary units
+    /// (merging with their like). Returns how many are live after.
+    pub fn set_live_count(&mut self, item: FormId, n: i32) -> i32 {
+        let n = n.max(0);
+        while self.live_count(item) < n && self.mark_live(item) {}
+        while self.live_count(item) > n {
+            let Some(s) = self.items.get_mut(&item) else { break };
+            let Some(g) = s.groups.iter_mut().find(|g| g.0.live) else { break };
+            let e = g.0;
+            g.1 -= 1;
+            s.groups.retain(|g| g.1 > 0);
+            s.add(Extra { live: false, ..e }, 1);
+        }
+        self.live_count(item)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -708,6 +781,53 @@ mod tests {
         assert!(!inv.clear_equipped(gun));
         assert_eq!(serde_json::to_string(&inv).unwrap(), r#"{"0x00000020":2}"#);
         assert!(!Inventory::new().set_equipped(gun));
+    }
+
+    #[test]
+    fn a_live_unit_is_reserved_from_every_pick() {
+        let id = FormId(0x10);
+        let mut inv = Inventory::new();
+        inv.add(id, 2);
+        assert!(inv.mark_live(id));
+        assert_eq!((inv.count(id), inv.free_count(id), inv.live_count(id)), (2, 1, 1));
+        assert_eq!(inv.free_iter().collect::<Vec<_>>(), vec![(id, 1)]);
+        // Only the ordinary unit is taken, equipped or moved.
+        assert!(inv.set_equipped(id));
+        assert!(!inv.can_equip_at(id, Pick::ANY, false));
+        assert_eq!(inv.take(id, 5), vec![(Extra { equipped: true, ..Extra::default() }, 1)]);
+        assert_eq!(inv.take(id, 5), vec![]);
+        assert!(!inv.set_equipped(id) && !inv.has_sound(id));
+        assert_eq!(inv.count(id), 1);
+        assert_eq!(inv.free_iter().count(), 0);
+        // Kept through the serde form; absent when false.
+        let json = serde_json::to_string(&inv).unwrap();
+        assert!(json.contains("\"live\":true"), "{json}");
+        assert_eq!(serde_json::from_str::<Inventory>(&json).unwrap(), inv);
+        assert!(!serde_json::to_string(&Extra::default()).unwrap().contains("live"));
+        // The blast takes it once.
+        assert!(inv.take_live(id));
+        assert!(!inv.take_live(id));
+        assert!(inv.is_empty());
+    }
+
+    #[test]
+    fn the_live_count_is_set_from_the_plants() {
+        let id = FormId(0x10);
+        let worn = Extra { condition: Some(0.5), ..Extra::default() };
+        let mut inv = Inventory::new();
+        inv.add_extra(id, 1, worn);
+        inv.add(id, 1);
+        // The plain unit is reserved first, the worn one keeps its condition when it is.
+        assert!(inv.mark_live(id));
+        assert!(inv.groups().any(|g| g.1 == Extra { live: true, ..Extra::default() }));
+        assert_eq!(inv.set_live_count(id, 5), 2, "only what is carried");
+        assert!(inv.groups().any(|g| g.1 == Extra { live: true, ..worn }));
+        assert_eq!(inv.set_live_count(id, 0), 0);
+        assert_eq!((inv.count(id), inv.free_count(id)), (2, 2));
+        // Back to ordinary units, merged with their like.
+        assert_eq!(serde_json::to_value(&inv).unwrap()["0x00000010"]["groups"].as_array().unwrap().len(), 2);
+        assert!(!inv.mark_live(FormId(0x11)));
+        assert_eq!(inv.set_live_count(FormId(0x11), 1), 0);
     }
 
     proptest! {

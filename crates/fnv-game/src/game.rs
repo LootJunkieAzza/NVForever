@@ -5713,6 +5713,8 @@ impl<'a> Game<'a> {
         g.align_queued();
         g.speech = s.speech.clone();
         g.pickpocket.planted = s.planted.clone();
+        // The live units in the restored inventories agree with the plants (#1640).
+        g.reconcile_live_explosives();
         g.said = s.said.clone();
         if s.said_day_days_clock {
             g.said_day = s.said_day.clone();

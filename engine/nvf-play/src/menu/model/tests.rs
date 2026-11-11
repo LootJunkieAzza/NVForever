@@ -268,6 +268,41 @@ fn take_all_and_encumbrance() {
 }
 
 #[test]
+fn a_live_explosive_is_a_row_of_its_own_that_stays() {
+    // #1640: a planted explosive's unit (`Extra::live`) is listed apart, marked, and no
+    // command takes it; the ordinary units of the same item are taken as usual.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let inv = w.inventory_mut(FormId(BOX_REF)).unwrap();
+    inv.add(FormId(RIFLE), 1);
+    assert!(inv.mark_live(FormId(RIFLE)));
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    let armed = super::live_name("Varmint Rifle".into());
+    assert_eq!(armed, format!("Varmint Rifle ({})", super::LIVE_NOTE));
+    assert_eq!(names(m.list(Side::Container)), vec![("Bottle Cap", 200), ("Varmint Rifle", 1), (armed.as_str(), 1), ("anvil", 1), ("tin can", 2)]);
+    assert!(m.list(Side::Container).rows[2].live && !m.list(Side::Container).rows[1].live);
+    // Refused, nothing moves; the selection stays on it.
+    select(&mut m, Side::Container, &armed);
+    let a = m.apply(&mut w, Command::Stack);
+    assert!(!a.changed && a.taken.is_empty());
+    assert_eq!(m.status.as_deref(), Some(super::live_refusal(&armed).as_str()));
+    assert_eq!((count(&mut w, BOX_REF, RIFLE), count(&mut w, 0x14, RIFLE)), (2, 0));
+    assert_eq!(m.selected_row(Side::Container).unwrap().name, armed);
+    // The ordinary rifle is taken; Take All leaves the live one.
+    select(&mut m, Side::Container, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert_eq!((count(&mut w, BOX_REF, RIFLE), count(&mut w, 0x14, RIFLE)), (1, 1));
+    m.apply(&mut w, Command::TakeAll);
+    assert_eq!(names(m.list(Side::Container)), vec![(armed.as_str(), 1)]);
+    assert_eq!(count(&mut w, BOX_REF, RIFLE), 1);
+    // Storing the player's rifle back adds an ordinary row beside it.
+    m.apply(&mut w, Command::Focus(Side::Player));
+    select(&mut m, Side::Player, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert_eq!(names(m.list(Side::Container)), vec![("Varmint Rifle", 1), (armed.as_str(), 1)]);
+}
+
+#[test]
 fn stored_equipped_items_are_unequipped() {
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
