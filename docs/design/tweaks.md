@@ -559,6 +559,8 @@ unless the player binds them, so nothing changes until then.
 | Mouse Wheel Changes Weapon | `bMousewheelScrollsWeaponHotkeys` | `weapon_wheel::read` steps from the slot of the weapon in hand to the next (up) or previous slot whose weapon `takes_hand`, and uses it as a tap does; first person only, not with a scope up (Wheel Zooms Scopes) or the wheel open |
 | Fade Pips by Distance | `bCompassNPCDistanceBasedAlpha` | `compass::place` keeps `CompassAlpha` beside `CompassView` (from `marks_far`'s distances): an actor's pip at 1 − distance / (fSneakMaxDistance, times fSneakExteriorDistanceMult outdoors), no fainter than 25 %; `draw` applies it |
 | Fade Places by Distance | `bCompassLocationDistanceBasedAlpha` | the same for places found and not, over the reach `gather` shows them at (Perception × the per-point reach, `PLACE_RANGE`) |
+| Health Bars Count Buffs | `bEnemyHealthbarShowBuffedHP` | `hud_target` adds the target's positive temporary Health modifier (`actor_value_temporary`) to `max_health` for the bar |
+| Recently Dead on the Compass | `bRecentlyDeadNPCIndicator` | `compass::gather` notes when it first finds an actor dead (`DeadSeen`) and keeps a plain pip for it for the slider's seconds, until the crosshair's target has been that body |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -580,8 +582,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 486 |
-| to do | 117 |
+| done | 487 |
+| to do | 116 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -946,6 +948,7 @@ game's Data folder, read-only).
 | `bNoXPMessages` | done |  | 7 | Quiet Experience (all sources at once; LEVEL UP still shows) |
 | `bPatchUnseenCellName` | done |  | 3 | Mark Unvisited Doors (a star; the rename and respawn options not built) |
 | `bRaceMenuAllowFemaleFacialHair` | done |  |  | Facial Hair for Women (creator and barber rows) |
+| `bRecentlyDeadNPCIndicator` | done |  | 4 | Recently Dead on the Compass (seconds slider; the killer filters not built) |
 | `bRemoveDeadNPCCrippleCriticalMessages` | done |  |  | already so: no cripple or critical messages |
 | `bRemoveQuestObjectiveAddedText` | done |  | 1 | No Objective List |
 | `bRemoveSneakLabel` | done |  |  | No Sneak Label (native and tile HUD) |
@@ -971,7 +974,6 @@ game's Data folder, read-only).
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bPlacedMarkerHeightIndicator` | to do |  | 1 | not built: no player-placed markers |
-| `bRecentlyDeadNPCIndicator` | to do |  | 4 | the compass skips the dead; needs per-actor state |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
 | `bShowQuestObjectivesOnCellChange` | to do |  | 1 | cell change detection and objectives for the active quest |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
