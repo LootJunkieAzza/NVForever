@@ -240,8 +240,6 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
     let may_send = may_send(SendCase {
         test_on,
         test_run,
-        official: OFFICIAL_BUILD,
-        production: production_allowed(),
         endpoint_env: endpoint_env.is_some(),
         ini_endpoint,
     });
@@ -256,28 +254,22 @@ struct SendCase {
     test_on: bool,
     /// `NVF_REPORTS=1` in a run that would otherwise be off (`--data`, a test aid, `NVF_REPORTS=0`).
     test_run: bool,
-    /// A release workflow build (`OFFICIAL_BUILD`).
-    official: bool,
-    /// `NVF_REPORTS_PRODUCTION=1`.
-    production: bool,
     /// `NVF_REPORTS_ENDPOINT` is set.
     endpoint_env: bool,
     /// `[Reports] Endpoint` is set (a self-hosted server).
     ini_endpoint: bool,
 }
 
-/// `NVF_REPORTS=1` sends only to a server it is pointed at (`NVF_REPORTS_ENDPOINT`, or the
-/// INI's own `Endpoint`), never to the project's server, unless the build is official or
-/// `NVF_REPORTS_PRODUCTION=1` and the run is not a test run (§8). Without `NVF_REPORTS=1`,
-/// `choose` has already turned a local build with no server of its own off.
+/// `NVF_REPORTS=1` sends only to a server it is pointed at, never to the project's server,
+/// whatever the build (§8): `NVF_REPORTS_ENDPOINT`, or, outside a test run, the INI's own
+/// `Endpoint`. Without `NVF_REPORTS=1`, `choose` has already turned a local build with no
+/// server of its own off (`OFFICIAL_BUILD` and `NVF_REPORTS_PRODUCTION` decide there); they
+/// do not open the project's server to `NVF_REPORTS=1`, which skips the popup.
 fn may_send(c: SendCase) -> bool {
     if !c.test_on {
         return true;
     }
-    if c.endpoint_env {
-        return true;
-    }
-    !c.test_run && (c.ini_endpoint || c.official || c.production)
+    c.endpoint_env || (!c.test_run && c.ini_endpoint)
 }
 
 /// Made by the release workflow (`.github/workflows/release.yml` sets it at build time).
@@ -898,8 +890,9 @@ pub fn finish_earlier(summary: &Path, logs: &Path) -> Option<upload::Pending> {
             let _ = std::fs::write(&panic_part, redact(&text));
         }
     }
-    // A native crash's minidump (native_crash.rs), copied as it is: the server scrubs the
-    // user name from its module paths.
+    // A native crash's minidump (native_crash.rs), copied as it is: binary, it cannot be
+    // redacted here. The server scrubs the user name from its module paths; stack memory can
+    // still hold other text, so dumps stay private (player-reports.md §3.2).
     let dump_part = dir.join(format!("{stem}.dmp"));
     if v["end"] == "native" && !dump_part.exists() {
         if let Some(d) = find("crash-", ".dmp") {
@@ -960,11 +953,9 @@ mod tests {
         assert!(!may_send(on));
         assert!(may_send(SendCase { endpoint_env: true, ..on }));
         assert!(may_send(SendCase { ini_endpoint: true, ..on }));
-        assert!(may_send(SendCase { official: true, ..on }));
-        assert!(may_send(SendCase { production: true, ..on }));
         // A test run (--data, a test aid) only ever sends to NVF_REPORTS_ENDPOINT.
         let test_run = SendCase { test_run: true, ..on };
-        assert!(!may_send(SendCase { official: true, production: true, ini_endpoint: true, ..test_run }));
+        assert!(!may_send(SendCase { ini_endpoint: true, ..test_run }));
         assert!(may_send(SendCase { endpoint_env: true, ..test_run }));
         // Without NVF_REPORTS=1 the local-build gate in `choose` has already decided.
         assert!(may_send(SendCase::default()));

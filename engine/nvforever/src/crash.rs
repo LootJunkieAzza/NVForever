@@ -460,8 +460,11 @@ fn set_hook() {
             if crate::reports::active().is_some() {
                 let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{}-{}.jsonl", stamp(now_secs()), std::process::id())));
                 let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{}-{}.json", stamp(now_secs()), std::process::id())));
-                if rec.is_ok() && snap.is_ok() {
-                    info!("reports: the flight recorder and world snapshot written beside the crash report");
+                match (rec.is_ok(), snap.is_ok()) {
+                    (true, true) => info!("reports: the flight recorder and world snapshot written beside the crash report"),
+                    (true, false) => info!("reports: the flight recorder written beside the crash report (no world snapshot yet)"),
+                    (false, true) => info!("reports: the world snapshot written beside the crash report (no flight recorder)"),
+                    (false, false) => {}
                 }
             }
             (std::fs::write(&path, redact(&text).as_bytes()).map(|_| path.clone()), path)

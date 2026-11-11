@@ -7,8 +7,9 @@
 //!
 //! An unhandled-exception filter (`SetUnhandledExceptionFilter`): it runs only for an
 //! exception nothing else handled, writes the dump, and lets the process end as Windows
-//! would have ended it. Rust panics never reach it (crash.rs's panic hook has those), and
-//! neither does a stack overflow (Rust's own handler reports and aborts).
+//! would have ended it. Rust panics never reach it (crash.rs's panic hook has those). A stack
+//! overflow does (Rust's own handler prints its message and lets the exception go on), but on
+//! a stack with no room left, so the filter returns at once for one: no dump, no line.
 //!
 //! Limits [our notes]: the dump is written on the crashing thread, as is common; after heap
 //! corruption creating the file or `MiniDumpWriteDump` itself can fail or hang there (a
@@ -61,6 +62,8 @@ mod win {
 
     /// Let the exception go on to Windows' own handling (the process ends).
     const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
+    /// STATUS_STACK_OVERFLOW [documented: Microsoft's NTSTATUS values, ntstatus.h].
+    const EXCEPTION_STACK_OVERFLOW: u32 = 0xC000_00FD;
 
     pub fn install() {
         // SAFETY: setting a process-wide filter; `filter` has the signature Windows calls.
@@ -76,6 +79,10 @@ mod win {
             let c = unsafe { (*(*info).ExceptionRecord).ExceptionCode };
             c as u32
         };
+        // A stack overflow: no stack left to write a file with (module notes).
+        if code == EXCEPTION_STACK_OVERFLOW {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
         let written = std::fs::File::create(path).ok().is_some_and(|file| {
             let ex = MINIDUMP_EXCEPTION_INFORMATION { ThreadId: unsafe { GetCurrentThreadId() }, ExceptionPointers: info as *mut _, ClientPointers: 0 };
             // SAFETY: the handle is a file opened for writing above; `ex` lives across the call.

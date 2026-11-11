@@ -52,6 +52,24 @@ static FRAME: AtomicU64 = AtomicU64::new(0);
 static HOUR: AtomicU64 = AtomicU64::new(u64::MAX);
 static STATE: Mutex<&'static str> = Mutex::new("");
 
+thread_local! {
+    /// This thread is writing to the file now: an event it logs meanwhile (a panic inside a
+    /// write, the panic hook's own lines) is left out rather than wait on itself.
+    static WRITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `f` with the file locked, unless this thread already holds it (then `None`). Other
+/// threads wait their turn: the lock is held only for one line's write.
+fn with_file<R>(f: impl FnOnce(&mut EventsFile) -> R) -> Option<R> {
+    if WRITING.with(std::cell::Cell::get) {
+        return None;
+    }
+    WRITING.with(|w| w.set(true));
+    let r = FILE.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(f);
+    WRITING.with(|w| w.set(false));
+    r
+}
+
 fn start() -> Instant {
     static START: OnceLock<Instant> = OnceLock::new();
     *START.get_or_init(Instant::now)
@@ -84,7 +102,7 @@ pub fn path() -> Option<&'static Path> {
 pub fn context() -> (Option<f32>, &'static str) {
     let h = HOUR.load(Ordering::Relaxed);
     let hour = (h != u64::MAX).then(|| h as f32 / 100.0);
-    (hour, STATE.try_lock().map(|s| *s).unwrap_or(""))
+    (hour, *STATE.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 /// The Pip-Boy, VATS and the pause menu, for the game state.
@@ -114,14 +132,8 @@ pub fn note_context(loading: Option<Res<nvf_play::loading::Loading>>, state: Opt
             None => "viewer",
         }
     };
-    if let Ok(mut s) = STATE.try_lock() {
-        *s = now;
-    }
-    if let Ok(mut f) = FILE.try_lock() {
-        if let Some(f) = f.as_mut() {
-            let _ = f.out.flush();
-        }
-    }
+    *STATE.lock().unwrap_or_else(|e| e.into_inner()) = now;
+    with_file(|f| f.out.flush());
 }
 
 /// The message and the other fields of an event.
@@ -222,26 +234,24 @@ impl<S: tracing::Subscriber> Layer<S> for EventsLayer {
         let frame = FRAME.load(Ordering::Relaxed);
         let (hour, state) = context();
         let place = crate::crash::place_text();
-        // Never waits: an event logged while the file is being written (a panic in a write)
-        // is left out rather than hang.
-        let Ok(mut guard) = FILE.try_lock() else { return };
-        let Some(f) = guard.as_mut() else { return };
-        if f.full {
-            return;
-        }
-        let Some(text) = fold(f, key, || line(t_ms, frame, body, &place, hour, state)) else { return };
-        if f.bytes + text.len() as u64 > MAX_BYTES {
-            f.full = true;
-            let _ = writeln!(f.out, "{{\"t\":{t_ms},\"frame\":{frame},\"level\":\"WARN\",\"target\":\"nvforever::events_log\",\"msg\":\"events file full ({} MiB): the rest of this run is in the run log only\"}}", MAX_BYTES >> 20);
-            let _ = f.out.flush();
-            return;
-        }
-        f.bytes += text.len() as u64;
-        f.events += 1;
-        let _ = f.out.write_all(text.as_bytes());
-        if *meta.level() <= tracing::Level::WARN {
-            let _ = f.out.flush();
-        }
+        with_file(|f| {
+            if f.full {
+                return;
+            }
+            let Some(text) = fold(f, key, || line(t_ms, frame, body, &place, hour, state)) else { return };
+            if f.bytes + text.len() as u64 > MAX_BYTES {
+                f.full = true;
+                let _ = writeln!(f.out, "{{\"t\":{t_ms},\"frame\":{frame},\"level\":\"WARN\",\"target\":\"nvforever::events_log\",\"msg\":\"events file full ({} MiB): the rest of this run is in the run log only\"}}", MAX_BYTES >> 20);
+                let _ = f.out.flush();
+                return;
+            }
+            f.bytes += text.len() as u64;
+            f.events += 1;
+            let _ = f.out.write_all(text.as_bytes());
+            if *meta.level() <= tracing::Level::WARN {
+                let _ = f.out.flush();
+            }
+        });
     }
 }
 
@@ -253,15 +263,15 @@ pub fn layer() -> Option<BoxedLayer> {
 /// Flushed at a panic and at exit (crash.rs). Returns the events written so far, when the
 /// file could be reached.
 pub fn flush() -> Option<u64> {
-    let mut f = FILE.try_lock().ok()?;
-    let f = f.as_mut()?;
-    if f.repeats > 0 {
-        let _ = writeln!(f.out, "{{\"repeated\":{}}}", f.repeats);
-        f.repeats = 0;
-        f.last.clear();
-    }
-    let _ = f.out.flush();
-    Some(f.events)
+    with_file(|f| {
+        if f.repeats > 0 {
+            let _ = writeln!(f.out, "{{\"repeated\":{}}}", f.repeats);
+            f.repeats = 0;
+            f.last.clear();
+        }
+        let _ = f.out.flush();
+        f.events
+    })
 }
 
 #[cfg(test)]

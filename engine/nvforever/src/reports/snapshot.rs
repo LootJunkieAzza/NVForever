@@ -34,11 +34,11 @@ pub fn latest() -> String {
     LATEST.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-/// Write the latest snapshot to `path` (a panic, crash.rs); nothing when there is none.
+/// Write the latest snapshot to `path` (a panic, crash.rs); an error when there is none yet.
 pub fn dump(path: &std::path::Path) -> std::io::Result<()> {
     let text = latest();
     if text.is_empty() {
-        return Ok(());
+        return Err(std::io::Error::other("no world snapshot yet"));
     }
     std::fs::write(path, super::redact(&text))
 }

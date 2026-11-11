@@ -135,13 +135,15 @@ Not in it: save names, character name, screenshots, typed console text (console
 [design] When a session ends `panic` or `native`, the next start sends with its summary:
 
 - the panic report that `crash.rs` already writes (already redacted), now with the
-  flight recorder's last 30 s and a world snapshot (§4.3);
+  flight recorder's last 60 s and a world snapshot (§4.3);
 - the session's run log (as in §3.1);
 - for `native`: a **minidump** — new work. Windows: a vectored/unhandled-exception
   handler writes a small minidump (thread stacks and module list only, no heap:
   `MiniDumpNormal`-sized, typically < 1 MiB) to `<home>\logs\crash-<time>-<pid>.dmp`, so
   start-up access violations (#1425), shutdown faults (#1825) and driver crashes are
-  covered. Writing the dump does not depend on opting in (it helps players who send
+  covered. The dump is binary and is sent as written: the server scrubs the user name
+  from its module paths [documented: LootJunkieAzza/NVForever-Data, #2109], but thread
+  stacks can still hold other text, so dumps are private like logs (§6). Writing the dump does not depend on opting in (it helps players who send
   files by hand); sending it does. Symbols (PDBs) for each release are uploaded to the
   server's private store at release time (§5.4), never shipped.
 
