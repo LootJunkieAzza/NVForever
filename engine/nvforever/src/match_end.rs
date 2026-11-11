@@ -526,7 +526,7 @@ fn ends(
     mut st: ResMut<MatchEnd>,
     fillet: Option<Res<nvf_play::minigames::FilletScreen>>,
     (bj, rl, sl): (Option<Res<nvf_play::blackjack::BlackjackScreen>>, Option<Res<nvf_play::roulette::RouletteScreen>>, Option<Res<nvf_play::slots::SlotsScreen>>),
-    (pk, cv): (Option<Res<nvf_play::poker::PokerScreen>>, Option<Res<nvf_play::caravan::CaravanScreen>>),
+    (pk, cv, slots_seat): (Option<Res<nvf_play::poker::PokerScreen>>, Option<Res<nvf_play::caravan::CaravanScreen>>, Option<Res<nvf_play::slots::SlotsSeat>>),
     mut fillet_seen: Local<Option<(u32, bool)>>,
     mut visit: Local<Option<Visit>>,
 ) {
@@ -563,6 +563,11 @@ fn ends(
     } else {
         None
     };
+    // Getting up from a slot machine's stool (item 170): the visit ends once the player
+    // is up, so the end view does not cheer over the getting-off clip.
+    if open.is_none() && visit.as_ref().is_some_and(|v| v.kind == Kind::Slots) && slots_seat.as_deref().is_some_and(|s| s.busy()) {
+        return;
+    }
     match (open, visit.as_mut()) {
         (Some(o), Some(v)) if v.kind == o.kind && v.table == o.table => {
             v.now = o.now;

@@ -534,7 +534,8 @@ fn puppets(
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     let mut want_heads = HashMap::new();
     for &(reference, e) in &peers.0 {
-        if e.id == 0 {
+        // A slot machine's idle is `slots_seat.rs`'s.
+        if e.id == 0 || crate::slots_seat::is_slot_emote(e.id) {
             continue;
         }
         let Some((ent, rig, idle)) = rigs.iter_mut().find(|(_, r, _)| r.reference == reference) else { continue };
@@ -582,7 +583,7 @@ fn puppets(
         }
     }
     // Those whose emote ended (or who left).
-    let ended: Vec<u32> = st.puppets.keys().copied().filter(|r| !peers.0.iter().any(|(p, e)| p == r && e.id != 0)).collect();
+    let ended: Vec<u32> = st.puppets.keys().copied().filter(|r| !peers.0.iter().any(|(p, e)| p == r && e.id != 0 && !crate::slots_seat::is_slot_emote(e.id))).collect();
     for reference in ended {
         let Some(p) = st.puppets.remove(&reference) else { continue };
         if let Some((_, _, Some(mut idle))) = rigs.iter_mut().find(|(_, r, _)| r.reference == reference) {

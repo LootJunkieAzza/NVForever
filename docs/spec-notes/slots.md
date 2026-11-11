@@ -152,6 +152,32 @@ observed: the five casinos]:
   drum models, the challenge `ChallengeSlotsSCRIPT`, the Atomic Wrangler's jackpot
   message `AtomicWranglerSlotsMsg` (its trigger is not read).
 
+## 6a. At the machine in the world (queue item 170, part A)
+
+- **Every machine, seated or standing** [observed: `fnvtool world refs` over every cell
+  and worldspace of the owner's 51-plugin load order; full list
+  `C:\NVForever\morning-report\overnight-results\slots-170-A\survey.md`, not committed]:
+  207 activators whose script calls `ShowSlotMachineMenuParams`, all in interiors, in 9
+  cells of 4 plugins (FalloutNV.esm 94, DeadMoney.esm's Sierra Madre 4, HOTM.esm's Silver
+  Palace 73 and Monte Carlo 31, Long15Reloaded.esm's Black Chip 5). The machines carry
+  no furniture marker; 105 have a FURN (a stool) 43 to 110 units straight out from the
+  machine's front (local -y), about 0 to the side; the other 102 have none.
+  [hypothesis: the original seats the player on that stool; nothing in the data says the
+  player sits to play.] NVForever seats the player on it, else stands them 44 units out
+  in front facing the machine [design].
+- **The idles** [observed: IDLE records]: `NVSlotMachine` (0x0015AB98) is a group with no
+  file under the no-lean stool tree; `NVSlotMachineInsertCoin` (`SpecialIdle_NVinsertCoin.kf`,
+  5.33 s) and `NVSlotMachineLoose` (`SpecialIdle_NVLoose.kf`, 3.33 s) are under it. Their
+  conditions (functions 72, 163, 77) are not decoded; NVForever plays InsertCoin as a spin
+  starts and Loose on a losing spin [design], on the upper body only, over the stool's
+  own loop or the standing idle.
+- **A win** plays item 127's cheer on the upper body for 0.8 s (2 x) to 3 s (160 x), on a
+  log scale [owner: up to 3 s, small wins short].
+- **Co-op**: the stool goes out as furniture; the idle in the emote's place (ids 240 to
+  242), played on the puppet's upper body.
+- The engine side: nvf-play `slots/seat.rs` (where; the spin goes out as `SlotsSpin`:
+  started, result with the celebration's length, closed) and nvforever `slots_seat.rs`.
+
 ## 7. Tests
 
 - `fnv_game::slots` unit tests: the record's stops dealt onto a reel, every payout row,
@@ -161,6 +187,10 @@ observed: the five casinos]:
   the help the first time, a spin of 5 made to stop on three oranges pays 800, a spin
   made to stop on a cherry in the left place pays 10, a losing spin; screenshots of the
   help, the reels turning, a result and the payout list.
+- Smoke `slots-seated`, `slots-standing` (The Tops' 0x0016546A on its stool, Gomorrah's
+  0x0015EB86 standing) and `slots-mod-standing`, `slots-mod-seated` (HOTM.esm's Silver
+  Palace and Monte Carlo; they need a Data folder with the owner's mods,
+  `NVF_SLOTS_MOD_DATA`).
 - Test aid `NVF_PLAY_TEST_SLOTS` (nvf-play `slots.rs`).
 
 ## 8. Open questions for the owner

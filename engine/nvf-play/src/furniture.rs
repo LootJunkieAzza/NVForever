@@ -30,6 +30,9 @@ pub struct PlayerSeat {
     pub bed: bool,
     /// The furniture reference holding the player.
     pub on: Option<u32>,
+    /// On it: neither getting on nor getting off (a slot machine's menu opens then,
+    /// `crate::slots::seat`).
+    pub seated: bool,
 }
 
 /// Tell the script runtime which furniture `actor` uses, so GetSitting and the other

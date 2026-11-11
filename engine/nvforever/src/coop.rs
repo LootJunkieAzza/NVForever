@@ -1314,6 +1314,8 @@ struct Doing<'w> {
     head: Option<Res<'w, nvf_play::coop_heads::MapHead>>,
     /// The emote this player plays (`crate::emote_play`).
     emote: Option<Res<'w, crate::emote_play::LocalEmote>>,
+    /// A slot machine's idle this player plays (`crate::slots_seat`), in the emote's place.
+    slot_idle: Option<Res<'w, crate::slots_seat::SlotIdle>>,
 }
 
 /// The others' Pip-Boys for this game: each puppet's check (`crate::pipboy_check`), where
@@ -1437,6 +1439,9 @@ fn send(coop: Res<Coop>, player: Option<Res<Player>>, loc: Option<Res<Location>>
         if let Some(h) = e.heading {
             s.yaw = h;
         }
+    }
+    if let Some(e) = doing.slot_idle.as_deref().map(|x| x.state).filter(|e| e.id != 0) {
+        s.emote = e;
     }
     if let Some(a) = doing.anim.as_deref() {
         s.attacks = a.attacks as u16;
