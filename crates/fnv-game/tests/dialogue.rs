@@ -848,6 +848,16 @@ fn game(f: &Fixture) -> Game<'_> {
     game_seeded(f, 0)
 }
 
+/// The fixture with `topic` as its GOODBYE topic: the line the player chooses of it is
+/// the plain goodbye, which closes the conversation at once and goes on in the world
+/// (`Game::say_farewell`). The farewell tests use TestBye's line and the hand-off lines
+/// this way, for their end scripts and Add Topics.
+fn fixture_goodbye(topic: u32) -> Fixture {
+    let mut f = fixture();
+    f.data.goodbye = Some(FormId(topic));
+    f
+}
+
 fn actor() -> FormId {
     FormId(NPC1_REF)
 }
@@ -1052,9 +1062,10 @@ fn a_conversation_pauses_the_game_behind_it() {
     assert!(spoken > 60.0);
     assert_eq!(ticks(&g), (15.0, spoken));
     assert_eq!(g.time, t0);
-    // Choosing an answer does not unpause; a chosen Goodbye line ends the conversation,
-    // and the pause, at once (its line goes on in the world).
+    // Choosing an answer does not unpause, a Goodbye line neither: it holds the pause
+    // until it is said, then ends the conversation (#2157).
     pick(&mut g, T_BYE);
+    assert!(g.dialogue.is_some() && g.paused() && g.in_menu());
     listen(&mut g);
     assert!(g.dialogue.is_none() && !g.paused());
     assert_eq!(g.time, t0);
@@ -1422,28 +1433,63 @@ fn a_goodbye_line_ends_the_conversation() {
     let mut g = game(&f);
     g.start_dialogue(actor(), None).unwrap();
     listen(&mut g);
-    // Chosen, the Goodbye line ends the conversation at once; the actor finishes it in
-    // the world and its end script runs when it is over.
+    // Chosen, the Goodbye line is said in the conversation; when it is over its end
+    // script runs and the conversation ends.
     assert_eq!(pick(&mut g, T_BYE), FormId(C_BYE));
+    assert!(g.dialogue.is_some() && g.speech.is_empty());
+    assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[ArgValue::Value(Value::Num(1009.0))]), 1.0);
+    assert_eq!(out(&g), 2.0);
+    listen(&mut g);
     assert!(g.dialogue.is_none());
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", lines: 2, .. })));
     assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[ArgValue::Value(Value::Num(1009.0))]), 0.0);
-    assert_eq!(out(&g), 2.0);
-    hear_out(&mut g);
     assert_eq!(out(&g), 9.0);
-    // The generic GOODBYE of the topic list ends it too.
+    // The generic GOODBYE of the topic list ends it at once and is finished in the world.
     let mut h = at_topic_list(&f);
     assert_eq!(pick(&mut h, GOODBYE), FormId(I_BYE));
     assert!(h.dialogue.is_none());
     assert!(h.speech.iter().any(|s| s.farewell && s.info == FormId(I_BYE)));
 }
 
+/// Owner's playtest 2026-11-11 (#2157): the last line of a conversation holds the player
+/// like the lines before it. A chosen line with the Goodbye flag that is not of the
+/// GOODBYE topic stays in the conversation, the game paused, and ends it when it is
+/// over: end script, Add Topics, then `dialogue_ended`. Nothing of it is said in the
+/// world.
+#[test]
+fn a_chosen_goodbye_line_of_another_topic_holds_the_player_until_it_is_said() {
+    let mut f = fixture();
+    f.data.infos.get_mut(&FormId(C_BYE)).unwrap().add_topics = vec![FormId(T_ADDED)];
+    let mut g = game(&f);
+    g.start_dialogue(actor(), None).unwrap();
+    listen(&mut g);
+    assert_eq!(pick(&mut g, T_BYE), FormId(C_BYE));
+    let t0 = g.time;
+    for _ in 0..30 {
+        g.tick();
+        assert!(g.dialogue.as_ref().is_some_and(|c| c.line.as_ref().is_some_and(|l| l.info == FormId(C_BYE))));
+        assert!(g.in_menu() && g.paused() && g.speech.is_empty());
+    }
+    // Neither the end script nor the Add Topics before the line is over.
+    assert_eq!(out(&g), 2.0);
+    assert!(!g.player.topics.contains(&FormId(T_ADDED)));
+    listen(&mut g);
+    assert!(g.dialogue.is_none() && g.speech.is_empty() && g.farewell_said.is_none());
+    assert_eq!((out(&g), g.time), (9.0, t0));
+    assert!(g.player.topics.contains(&FormId(T_ADDED)));
+    let line_end = event_at(&g, |k| matches!(k, EventKind::LineEnded { info, cut: false, .. } if *info == FormId(C_BYE)));
+    let added = event_at(&g, |k| matches!(k, EventKind::TopicAdded { by: Some(by), .. } if *by == FormId(C_BYE)));
+    let ended = event_at(&g, |k| matches!(k, EventKind::DialogueEnded { reason: "goodbye", lines: 2, .. }));
+    assert!(line_end < added && added < ended, "{line_end} {added} {ended}");
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. })));
+}
+
 /// Owner's playtest 2026-11-05 against the original: choosing a Goodbye closes the menu
 /// at once and the actor finishes the line as the player walks away (`Game::choose`,
-/// `Speech::farewell`).
+/// `Speech::farewell`). The plain goodbye only, a line of the GOODBYE topic (#2157).
 #[test]
 fn a_chosen_goodbye_closes_the_conversation_at_once_and_the_line_goes_on_in_the_world() {
-    let mut f = fixture();
+    let mut f = fixture_goodbye(T_BYE);
     // The line gets Add Topics, and a begin script that counts its runs in TestCount
     // (TestByeB's end script).
     let count = f.data.infos[&FormId(B_BYE)].end;
@@ -1494,7 +1540,7 @@ fn a_chosen_goodbye_closes_the_conversation_at_once_and_the_line_goes_on_in_the_
 /// script runs once.
 #[test]
 fn a_farewell_ending_inside_another_farewells_end_script_keeps_the_outer_hand_off() {
-    let mut f = fixture();
+    let mut f = fixture_goodbye(T_RELAY);
     f.data.infos.get_mut(&FormId(S_DEAD_END)).unwrap().choices = vec![FormId(T_RELAY)];
     let mut g = game(&f);
     g.start_dialogue(actor(), Some(FormId(T_DEAD_END))).unwrap();
@@ -1615,7 +1661,7 @@ fn a_goodbye_whose_begin_script_makes_its_speaker_say_a_line_stays_in_the_conver
 /// in the conversation.
 #[test]
 fn a_two_response_farewell_lasts_as_long_as_both_responses() {
-    let mut f = fixture();
+    let mut f = fixture_goodbye(T_BYE);
     let first = f.data.infos[&FormId(A_FIRST)].clone();
     let bye = f.data.infos.get_mut(&FormId(C_BYE)).unwrap();
     (bye.responses, bye.response_chars) = (first.responses, first.response_chars);
@@ -1637,7 +1683,7 @@ fn a_two_response_farewell_lasts_as_long_as_both_responses() {
 /// not run again when the farewell ends.
 #[test]
 fn a_run_immediately_farewell_runs_its_end_script_once() {
-    let mut f = fixture();
+    let mut f = fixture_goodbye(T_BYE);
     f.data.infos.get_mut(&FormId(C_BYE)).unwrap().flags |= info_flag::RUN_IMMEDIATELY;
     let mut g = game(&f);
     g.start_dialogue(actor(), None).unwrap();
@@ -1652,12 +1698,12 @@ fn a_run_immediately_farewell_runs_its_end_script_once() {
     assert_eq!(ends, 1);
 }
 
-/// Issue #1107 with a chosen Goodbye line: its end script's `StartConversation player`
+/// Issue #1107 with the plain goodbye chosen: its end script's `StartConversation player`
 /// starts the next conversation when the farewell ends, after its end script and its
 /// Add Topics (`Game::hold_force_greet`).
 #[test]
 fn a_chosen_goodbyes_end_script_starts_the_next_conversation_after_its_add_topics() {
-    let mut f = fixture();
+    let mut f = fixture_goodbye(T_HANDOFF);
     f.data.infos.get_mut(&FormId(S_DEAD_END)).unwrap().choices = vec![FormId(T_HANDOFF)];
     f.data.infos.get_mut(&FormId(H_HANDOFF)).unwrap().add_topics = vec![FormId(T_ADDED)];
     let mut g = game(&f);
@@ -1681,7 +1727,7 @@ fn a_chosen_goodbyes_end_script_starts_the_next_conversation_after_its_add_topic
 /// included; so does its speaker going away.
 #[test]
 fn a_farewell_cut_by_another_line_of_its_speaker_still_runs_its_end_script() {
-    let f = fixture();
+    let f = fixture_goodbye(T_BYE);
     let mut g = game(&f);
     g.start_dialogue(actor(), None).unwrap();
     listen(&mut g);
@@ -1708,7 +1754,7 @@ fn a_farewell_cut_by_another_line_of_its_speaker_still_runs_its_end_script() {
 /// A save made while the farewell is heard keeps it; its end script runs after the load.
 #[test]
 fn a_farewell_survives_a_snapshot_and_runs_its_end_script_after_the_load() {
-    let f = fixture();
+    let f = fixture_goodbye(T_BYE);
     let mut g = game(&f);
     g.start_dialogue(actor(), None).unwrap();
     listen(&mut g);
@@ -1964,15 +2010,17 @@ fn skipping_a_response_ends_it_early_and_the_line_still_runs_its_end_script() {
     assert_eq!(said, vec![1, 2]);
     // Nothing to skip while the player chooses.
     assert!(!g.skip_response());
-    // A chosen Goodbye line ends the conversation at once and goes on in the world,
-    // where there is nothing to skip; its end script runs when it is over.
+    // A chosen Goodbye line is said in the conversation and skipped like any other:
+    // its end script runs and the conversation ends, the line not cut.
     pick(&mut g, T_BYE);
+    assert!(g.dialogue.is_some());
+    assert_eq!(out(&g), 2.0);
+    assert!(g.skip_response());
     assert!(g.dialogue.is_none());
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", lines: 2, .. })));
-    assert!(!g.skip_response());
-    assert_eq!(out(&g), 2.0);
-    hear_out(&mut g);
     assert_eq!(out(&g), 9.0);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. })));
+    assert!(!g.skip_response());
     // A menu holds the conversation: nothing is skipped under it.
     let mut h = game(&f);
     h.start_dialogue(actor(), None).unwrap();
