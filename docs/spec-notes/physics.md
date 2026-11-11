@@ -927,12 +927,34 @@ How many fixed steps a second play takes [design: the owner's approved plan,
 
 - **The choice**: the settings page's Physics rate (Display > Screen, `physics-rate` in
   `[Settings]` of NVForever.ini): 60 (the default, the rate the captures and the parity
-  lab's goldens were taken at), 120, 144, 160, 240, or Match display: the frame rate the
-  display's pace holds, from 60 to 240. That is the cap in effect (the page's limit,
-  variable refresh's, frame generation's real-frame cap, the lowest), no more than the
-  refresh rate with vsync; with no cap, the display's refresh rate (`display_hz`).
-  `--physics-hz <60..240|display>` sets it for one run, over the setting (the row then
-  says so and cannot be changed); it is kept across a load's restart.
+  lab's goldens were taken at), 120, 144, 160, 240, or Match FPS (the owner's name,
+  2026-11-11; Match display before): the frame rate the game holds, from 60 up to a
+  ceiling, the frame rate the display's pace allows. The ceiling is the cap in effect (the
+  page's limit, variable refresh's, frame generation's real-frame cap, the lowest), no
+  more than the refresh rate with vsync; with no cap, the display's refresh rate
+  (`display_hz`); at most 240. `--physics-hz <60..240|fps>` sets it for one run, over the
+  setting (the row then says so and cannot be changed); it is kept across a load's
+  restart. `fps` is stored; `display` (the INI of a build before the rename) is read as it.
+- **Match FPS follows the frame rate** (`phys_rate::FpsFollow`) [design: the owner's
+  example, 144 fps dropping to 80 in an intense scene, and the coordinator's spec]:
+  - It counts the main world's updates over whole real seconds (`Time<Real>`; under
+    frame generation the rendered frames, not the presented ones), only frames that are
+    played (not a menu, a conversation, a loading screen, a cell not loaded yet), not
+    paused, not under a slowed or sped-up clock (VATS, kill cameras) and not within 3 s
+    of a cell coming into the physics world.
+  - Its target is that frame rate rounded down to tens, between 60 and the ceiling (80
+    fps: 80 Hz; 147: 140; at or over a ceiling of 152: 152).
+  - Down when each of the last 2 seconds ran at least 10 % under the rate in effect, to
+    their target; up when each of the last 5 seconds (the cost guard's wait, doubled by a
+    fall within 30 s of a rise, up to 80) has a target above it, to the lowest of their
+    targets. Rounding down to tens leaves a rise at least 10 % over the target before a
+    fall.
+  - The cost guard stays on top: the rate in effect is the lower of Match FPS's and the
+    guard's limit, never under 60. Each switch goes through `Stepper::rescale` and is
+    logged (`phys: physics rate 152 Hz -> 80 Hz: the frame rate held 84 fps over 2 s
+    (Match FPS, up to 152 Hz)`); the exit line counts the guard's and Match FPS's
+    switches. Smoke `physics-rate-fps` holds the frames down with the test aid
+    `NVF_PLAY_TEST_SLOW_FRAMES` and checks the step down and back up.
 - **The INI and older builds**: the key is read only by builds that know it. The settings
   reader looks up the keys it registered and leaves every other line of the file as it is
   when it writes (`settings::write`, `fnv_install::ini_set`), so an older build sharing
@@ -977,7 +999,7 @@ How many fixed steps a second play takes [design: the owner's approved plan,
     frame after it (`kill camera: the target's drawn place moved …`); smoke
     `vats-kill-cam-slowed-60`, `-152` and `-display` check that it moves, never jumps
     and is not set at rest before the camera ends.
-- **A change of rate in play** (the page, Match display following the display, the guard)
+- **A change of rate in play** (the page, Match FPS, the guard)
   keeps the share of a step the clock is into (`Stepper::rescale`), so nothing drawn
   between steps jumps; the remainder's game time changes by less than a step, once.
   While not playing (a menu, a conversation, a loading screen, a cell still loading) no
