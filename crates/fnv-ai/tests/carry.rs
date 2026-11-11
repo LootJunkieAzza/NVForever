@@ -4635,3 +4635,253 @@ fn a_failed_object_can_be_chosen_from_the_moment_its_wait_ends() {
     assert_eq!(choosing_at(60.0), (Vec::new(), Some((60.0, Doing::Standing))), "half a second before the deadline");
     assert_eq!(choosing_at(60.5), (vec![60.5], Some((60.5, Doing::Sitting(FormId(CHAIR_C))))), "at the deadline");
 }
+
+// ---- a sandbox's only object is used again after a while (#1505) --------------------
+
+use fnv_ai::sandbox::SOLE_OBJECT_AGAIN_AFTER;
+
+const SOLE_MARKER: u32 = 0x8A3;
+const SOLE_MARKER_AT: [f32; 3] = [10500.0, 10250.0, 0.0];
+
+/// The sandboxer's choices with their times, in order.
+fn timed_doings(s: &Sim) -> Vec<(f64, Doing)> {
+    s.ai.events.iter().filter(|e| e.actor == FormId(R_SB_OBJECTS)).filter_map(|e| match e.event {
+        AiEvent::Sandbox { doing, .. } => Some((e.time, doing)),
+        _ => None,
+    }).collect()
+}
+
+/// The times the sandboxer got off furniture.
+fn got_up_times(s: &Sim) -> Vec<f64> {
+    s.ai.events.iter().filter(|e| e.actor == FormId(R_SB_OBJECTS) && matches!(e.event, AiEvent::Furniture { furniture: None })).map(|e| e.time).collect()
+}
+
+/// For each use of `object` after the first: the first standing choice after the use before
+/// it ended (`ended`) and the use itself. Asserts that only standing came between.
+fn sole_object_gaps(did: &[(f64, Doing)], object: Doing, ended: &[f64]) -> Vec<(f64, f64)> {
+    let uses: Vec<f64> = did.iter().filter(|d| d.1 == object).map(|d| d.0).collect();
+    assert!(ended.len() + 1 >= uses.len(), "{ended:?} {uses:?}");
+    uses.iter().enumerate().skip(1).map(|(i, again)| {
+        let between: Vec<&(f64, Doing)> = did.iter().filter(|d| d.0 >= ended[i - 1] && d.0 < *again).collect();
+        assert!(!between.is_empty() && between.iter().all(|d| d.1 == Doing::Standing), "{between:?}");
+        (between[0].0, *again)
+    }).collect()
+}
+
+/// A sandboxer in cell C with a chair, an idle marker or both, its package leaving on only
+/// what is there (no wandering, eating, sleeping or conversation).
+fn sole_object_sandboxer(chair: bool, marker: bool) -> Fixture {
+    let globs = [
+        glob(0x801, "GameYear", 2281.0),
+        glob(0x802, "GameMonth", 9.0),
+        glob(0x803, "GameDay", 19.0),
+        glob(0x804, "GameHour", 12.0),
+        glob(G_DAYS, "GameDaysPassed", 5.0),
+        glob(0x806, "TimeScale", 30.0),
+    ]
+    .concat();
+    let mut off = type_flags::NO_WANDERING | type_flags::NO_EATING | type_flags::NO_SLEEPING | type_flags::NO_CONVERSATION;
+    if !chair {
+        off |= type_flags::NO_FURNITURE;
+    }
+    if !marker {
+        off |= type_flags::NO_IDLE_MARKERS;
+    }
+    let mut refs = [placed(b"REFR", MARK_C, "MarkC", STAT, MIDDLE_C, None), placed(b"ACHR", R_SB_OBJECTS, "SitterRef", N_SB_OBJECTS, SANDBOXER_AT, None)].concat();
+    if chair {
+        refs.extend(placed(b"REFR", CHAIR_C, "ChairC", CHAIR, CHAIR_AT, None));
+    }
+    if marker {
+        refs.extend(placed_with(b"REFR", SOLE_MARKER, "SoleMarker", IDLE_MARKER, SOLE_MARKER_AT, 1.25, None, None));
+    }
+    let cell = [record(b"CELL", CELL_C, &[sub(b"EDID", z("CellC"))]), group(CELL_C.to_le_bytes(), 6, &group(CELL_C.to_le_bytes(), 9, &refs))].concat();
+    let top = |sig: &[u8; 4], body: &[u8]| group(*sig, 0, body);
+    // A marker timing two idles ten seconds apart (no IDLE records: any skeleton fits).
+    let idlm = record(b"IDLM", IDLE_MARKER, &[sub(b"EDID", z("LeanMarker")), sub(b"IDLF", vec![0]), sub(b"IDLC", vec![2]), sub(b"IDLT", 10f32.to_le_bytes().to_vec()), sub(b"IDLA", [0x8F0u32.to_le_bytes(), 0x8F1u32.to_le_bytes()].concat())]);
+    fixture_of(
+        [
+            tes4(),
+            top(b"GLOB", &globs),
+            top(b"STAT", &record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))])),
+            top(b"FURN", &record(b"FURN", CHAIR, &[sub(b"EDID", z("Chair")), sub(b"MNAM", 0x4000_0001u32.to_le_bytes().to_vec())])),
+            top(b"IDLM", &idlm),
+            top(b"NPC_", &npc(N_SB_OBJECTS, "Sitter", &[P_SB_OBJECTS])),
+            top(b"PACK", &pack_with(P_SB_OBJECTS, "SandboxSole", 0, SANDBOX, off, (0, MARK_C, 450), None)),
+            top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+        ]
+        .concat(),
+    )
+}
+
+/// The issue's case: one chair and nothing else on. Once it has been sat on, it is not
+/// chosen at the next look, but after a minute of standing it is again, and so on, in the
+/// same sandbox (no new package).
+#[test]
+fn a_sandboxs_only_chair_is_sat_on_again_after_a_minute_of_something_else() {
+    let f = lone_sandboxer(false);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    assert!(way_to(&s, CHAIR_AT));
+    let actor = FormId(R_SB_OBJECTS);
+    let chair = Doing::Sitting(FormId(CHAIR_C));
+    s.run(900.0);
+    let allowed = s.ai.agents[&actor].sandbox.as_ref().unwrap().allowed;
+    assert!(allowed.furniture && !allowed.wandering && !allowed.idle_markers && !allowed.eating && !allowed.sleeping && !allowed.conversation);
+    let did = timed_doings(&s);
+    // Before #1505: one sit, then only standing (50 times in 600 seconds).
+    assert!(did.iter().filter(|d| d.1 == chair).count() >= 3, "{did:?}");
+    assert!(did.iter().all(|d| d.1 == chair || d.1 == Doing::Standing), "{did:?}");
+    let ups = got_up_times(&s);
+    for (first_stand, again) in sole_object_gaps(&did, chair, &ups) {
+        // Never at once: the look on getting up stands, and so does every look for the
+        // next minute; the first look a minute after that first stand takes the chair.
+        assert!(ups.contains(&first_stand), "the look on getting up stands: {first_stand} {ups:?}");
+        assert!(again - first_stand >= SOLE_OBJECT_AGAIN_AFTER, "{first_stand} to {again}");
+        assert!(again - first_stand < SOLE_OBJECT_AGAIN_AFTER + 10.0, "the first look after the minute: {first_stand} to {again}");
+    }
+    let furniture: Vec<Option<FormId>> = s.events(R_SB_OBJECTS).iter().filter_map(|e| match e {
+        AiEvent::Furniture { furniture } => Some(*furniture),
+        _ => None,
+    }).collect();
+    assert!(furniture.iter().filter(|f| **f == Some(FormId(CHAIR_C))).count() >= 3, "really sat on: {furniture:?}");
+    assert_eq!(package_events(&s), 1, "no new package or sandbox was needed");
+}
+
+/// The rule against choosing the object just used again at once still holds for the only
+/// object: an interruption right after getting up does not let it through early.
+#[test]
+fn a_sandboxs_only_chair_is_not_chosen_again_at_once() {
+    let f = lone_sandboxer(false);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    let chair = Doing::Sitting(FormId(CHAIR_C));
+    // Until it gets up from the first sit.
+    for _ in 0..1200 {
+        s.run(0.5);
+        if !got_up_times(&s).is_empty() {
+            break;
+        }
+    }
+    let up = got_up_times(&s)[0];
+    assert_eq!(timed_doings(&s).last(), Some(&(up, Doing::Standing)));
+    // Combat for an update brings an early look: still standing.
+    s.run(20.0);
+    interrupt_for_one_update(&mut s);
+    s.run(0.5);
+    let did = timed_doings(&s);
+    assert!(did.iter().filter(|d| d.0 > up).all(|d| d.1 == Doing::Standing), "{did:?}");
+    assert_eq!(did.iter().filter(|d| d.1 == chair).count(), 1, "{did:?}");
+    // Up to the minute's end, no sit.
+    let until = up + SOLE_OBJECT_AGAIN_AFTER - 0.5 - s.game.time;
+    s.run(until);
+    assert_eq!(timed_doings(&s).iter().filter(|d| d.1 == chair).count(), 1, "{:?}", timed_doings(&s));
+    s.run(10.5);
+    assert_eq!(timed_doings(&s).iter().filter(|d| d.1 == chair).count(), 2, "{:?}", timed_doings(&s));
+    assert_eq!(package_events(&s), 1);
+}
+
+/// With two chairs the sandboxer goes from one to the other, never standing between and
+/// never on the same one twice running, as before #1505.
+#[test]
+fn two_chairs_still_take_turns() {
+    let f = lone_sandboxer(true);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    s.run(900.0);
+    let did = doings(&s, R_SB_OBJECTS);
+    assert!(did.len() >= 4, "{did:?}");
+    let chairs = [Doing::Sitting(FormId(CHAIR_C)), Doing::Sitting(FormId(SECOND_CHAIR))];
+    assert!(did.iter().all(|d| chairs.contains(d)), "{did:?}");
+    assert!(did.windows(2).all(|w| w[0] != w[1]), "{did:?}");
+}
+
+/// A second chair that is disabled is no other object: the first is the only one open,
+/// and comes back after the minute as a lone chair does.
+#[test]
+fn a_disabled_second_chair_leaves_the_first_as_the_only_one() {
+    let f = lone_sandboxer(true);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    s.game.world.set_enabled(FormId(SECOND_CHAIR), false).unwrap();
+    let chair = Doing::Sitting(FormId(CHAIR_C));
+    s.run(900.0);
+    let did = timed_doings(&s);
+    assert!(did.iter().all(|d| d.1 == chair || d.1 == Doing::Standing), "{did:?}");
+    assert!(did.iter().filter(|d| d.1 == chair).count() >= 3, "{did:?}");
+    for (first_stand, again) in sole_object_gaps(&did, chair, &got_up_times(&s)) {
+        assert!(again - first_stand >= SOLE_OBJECT_AGAIN_AFTER, "{first_stand} to {again}");
+    }
+}
+
+/// An idle marker as the only object: the same minute of standing between its uses, never
+/// the look right after one.
+#[test]
+fn a_sandboxs_only_idle_marker_is_used_again_after_a_minute_of_something_else() {
+    let f = sole_object_sandboxer(false, true);
+    assert!(f.data.issues.is_empty(), "{:?}", f.data.issues.to_json());
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    let marker = Doing::AtIdleMarker(FormId(SOLE_MARKER));
+    s.run(900.0);
+    let allowed = s.ai.agents[&FormId(R_SB_OBJECTS)].sandbox.as_ref().unwrap().allowed;
+    assert!(allowed.idle_markers && !allowed.furniture && !allowed.wandering);
+    let did = timed_doings(&s);
+    assert!(did.iter().all(|d| d.1 == marker || d.1 == Doing::Standing), "{did:?}");
+    assert!(did.iter().filter(|d| d.1 == marker).count() >= 3, "{did:?}");
+    // A marker's stint ends at a look, which stands: the time it ended is that look.
+    let ended: Vec<f64> = did.windows(2).filter(|w| w[0].1 == marker).map(|w| w[1].0).collect();
+    for (first_stand, again) in sole_object_gaps(&did, marker, &ended) {
+        assert!(again - first_stand >= SOLE_OBJECT_AGAIN_AFTER, "{first_stand} to {again}");
+        assert!(again - first_stand < SOLE_OBJECT_AGAIN_AFTER + 10.0, "{first_stand} to {again}");
+    }
+    assert_eq!(package_events(&s), 1);
+}
+
+/// A chair and an idle marker: each is the other's "something else", so the actor goes
+/// from one to the other without standing between, as before #1505.
+#[test]
+fn a_chair_and_an_idle_marker_still_take_turns_without_standing() {
+    let f = sole_object_sandboxer(true, true);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.nav = way_restored();
+    s.run(900.0);
+    let did = doings(&s, R_SB_OBJECTS);
+    assert!(did.len() >= 4, "{did:?}");
+    let both = [Doing::Sitting(FormId(CHAIR_C)), Doing::AtIdleMarker(FormId(SOLE_MARKER))];
+    assert!(did.iter().all(|d| both.contains(d)), "{did:?}");
+    assert!(did.windows(2).all(|w| w[0] != w[1]), "{did:?}");
+}
+
+/// A second chair with no way to it is out of the choices while it waits out its delay
+/// (#1504); in those waits the first chair is the only one open and comes back after the
+/// minute. The cut-off chair is never used and the backoff goes on.
+#[test]
+fn a_cut_off_second_chair_leaves_the_first_as_the_only_one_between_its_tries() {
+    let f = lone_sandboxer(true);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    // The sandboxer and the first chair on one walkable area, the second chair on its own.
+    let main = grid(1, [10400.0, 10400.0], 4, 0.0);
+    let apart = grid(2, [10250.0, 10450.0], 1, 0.0);
+    s.nav = NavGraph::assemble(&[(&main, Some(CELL_C), Some(C)), (&apart, Some(CELL_C), Some(C))]);
+    assert!(way_to(&s, CHAIR_AT));
+    assert!(!way_to(&s, SECOND_CHAIR_AT));
+    let chair = Doing::Sitting(FormId(CHAIR_C));
+    let tries = run_noting_choices(&mut s, 1800.0);
+    let did = timed_doings(&s);
+    assert!(did.iter().all(|d| d.1 == chair || d.1 == Doing::Standing), "the second chair never begun: {did:?}");
+    assert!(did.iter().filter(|d| d.1 == chair).count() >= 4, "{did:?}");
+    for (first_stand, again) in sole_object_gaps(&did, chair, &got_up_times(&s)) {
+        assert!(again - first_stand >= SOLE_OBJECT_AGAIN_AFTER, "{first_stand} to {again}");
+    }
+    // The choices that were neither a stand nor the first chair begun are the second
+    // chair's failed tries; their gaps grow with its delays (60, 120, 240, ...).
+    let begun: Vec<f64> = did.iter().map(|d| d.0).collect();
+    let failed: Vec<f64> = tries.iter().copied().filter(|t| !begun.contains(t)).collect();
+    assert!(failed.len() >= 3, "{failed:?} of {tries:?}");
+    for (i, w) in failed.windows(2).enumerate() {
+        let delay = [60.0, 120.0, 240.0, 480.0, 600.0][i.min(4)];
+        assert!(w[1] - w[0] >= delay, "try {} after {}: {failed:?}", i + 1, w[0]);
+    }
+    assert!(!s.events(R_SB_OBJECTS).iter().any(|e| matches!(e, AiEvent::Furniture { furniture: Some(c) } if c.0 == SECOND_CHAIR)));
+    assert_eq!(package_events(&s), 1);
+}

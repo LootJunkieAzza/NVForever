@@ -309,6 +309,17 @@ the spec it links to.
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
 
+52. **A sandbox's only object comes back after 60 s (#1505).** Your handed-off rule: the
+    object just used stays out while any other seat or idle marker is open, and when it is
+    the only one it comes back 60 s after the actor began standing or wandering
+    (`SOLE_OBJECT_AGAIN_AFTER`). The GECK wiki documents a setting for this,
+    `iSandBoxPreventRepeatedActionTime`, default 30 s, which reads as a wait on every object
+    rather than a rule for the last one left; NVForever does not read it. Keep 60 s and the
+    sole-object rule, or follow the setting (30 s, from the data's GMST when a load order
+    sets one)? ([actor-behaviour §5.5](design/actor-behaviour.md),
+    [packages §3](spec-notes/packages.md); what the original does:
+    [observer check 108](handoff/observer-checks.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 

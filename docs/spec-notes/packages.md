@@ -271,6 +271,14 @@ location, in cell (radius ignored), near reference; the radius is editable.
   19:00–01:00 and duration 6–10 h rolled when the package starts; breakfast 6–9, lunch
   11–14, dinner 17–20, meals 0.5–2 h (defaults of the fSandbox… settings); a sandbox
   near the start of a linked patrol route sandboxes at each point for its idle time.
+  Repeating an action: the setting `iSandBoxPreventRepeatedActionTime` (default 30)
+  keeps a sandboxing NPC from repeating an action on the same object until that many
+  seconds have passed [documented: GECK wiki, iSandBoxPreventRepeatedActionTime]. The
+  page does not say when the seconds start (the action's start or its end) or what the
+  NPC does in the meantime when nothing else is open. NVForever does not read this
+  setting: its own rule for the object just used, and for the only object open
+  (60 s, issue #1505), is a design choice under the maintainer's review
+  (docs/design/actor-behaviour.md §5.5, docs/owner-review.md; observer check 108 asks the original).
 - **Patrol**: walk the chain of linked references; repeatable patrols loop (or go back
   and forth) and start at the nearest point; non-repeatable ones start at the first point
   and are done at the last; data on the points (Idle Markers, XMarkerHeading: idle time,
