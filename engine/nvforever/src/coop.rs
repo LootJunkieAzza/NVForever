@@ -1907,7 +1907,7 @@ fn take_events(
 fn leash(
     time: Res<Time>,
     mut coop: ResMut<Coop>,
-    player: Option<Res<Player>>,
+    (mut player, mut phys): (Option<ResMut<Player>>, Option<ResMut<nvf_play::phys::PhysState>>),
     loc: Option<Res<Location>>,
     loading: Option<Res<Loading>>,
     main_menu: Option<Res<nvf_play::main_menu::MainMenu>>,
@@ -1919,7 +1919,6 @@ fn leash(
     if !coop.is_guest() || coop.host_lost || at_main_menu(main_menu.as_deref()) || coop.downed_at.is_some() || solo.is_none() {
         return;
     }
-    let _ = (player, loc, &coop.host);
     if loading.is_some_and(|l| l.active()) {
         return;
     }
@@ -1935,10 +1934,24 @@ fn leash(
     // Each guest its own place (item 154: every guest landed on one spot at Zion).
     let slot = coop.link.as_ref().and_then(|l| l.id()).unwrap_or(1);
     let feet = scene::beside_slot(feet, yaw, slot);
+    coop.last_leash = Some(now);
+    // Already in the host's place: put there at once, with no loading screen (queue item
+    // 185: the Dead Money summon within the bunker showed a loading screen for a step).
+    let there = if interior != 0 { Place::Interior(interior) } else { Place::Exterior(w) };
+    if loc.as_deref().map(place_of) == Some(there) {
+        if let (Some(player), Some(phys)) = (player.as_deref_mut(), phys.as_deref_mut().filter(|p| p.player.is_some() && p.ready_at(feet))) {
+            phys.place_player(feet, 60.0, 200.0);
+            let at = phys.player.as_ref().map_or(feet, |c| c.feet);
+            player.feet = at;
+            player.placed = Some(at);
+            player.heading = yaw;
+            info!("co-op: summoned: to the host at {there:?} {at:?} (guest place {slot}): put there, same place");
+            return;
+        }
+    }
     let (world, interior) = if interior != 0 { (None, Some(interior)) } else { (Some(w), None) };
     info!("co-op: summoned: to the host at {:?} {:?} {feet:?} (guest place {slot})", world, interior);
     travel.write(TravelRequest(Travel { world, interior, feet, heading_deg: yaw.to_degrees() }));
-    coop.last_leash = Some(now);
 }
 
 /// Draw each other player where the link last put it, in this game's space only.

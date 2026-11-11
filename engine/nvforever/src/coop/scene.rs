@@ -325,6 +325,7 @@ pub(super) fn share_scene(
     mut travel: MessageWriter<TravelRequest>,
     solo: Option<Res<nvf_play::save::SoloBase>>,
     mut sim: Option<ResMut<nvf_play::sim::SimState>>,
+    mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
 ) {
     let now = time.elapsed_secs();
     let coop = &mut *coop;
@@ -452,13 +453,25 @@ pub(super) fn share_scene(
     // players' bodies are hidden and in nobody's way meanwhile
     // ([`hide_players_in_scene`]).
     if scene_holds_view(held) && place_of(&loc) == host.place && dx * dx + dy * dy > ON_SPOT * ON_SPOT {
+        coop.last_leash = Some(now);
+        // Already in the host's place: put there at once, as the test aids' go-to does,
+        // with no loading screen (queue item 185: after the Dead Money summon the guest had
+        // a second loading screen for this step of a few hundred units in the same cell).
+        if let Some(phys) = phys.as_deref_mut().filter(|p| p.player.is_some() && p.ready_at(host.feet)) {
+            phys.place_player(host.feet, 60.0, 200.0);
+            let feet = phys.player.as_ref().map_or(host.feet, |c| c.feet);
+            player.feet = feet;
+            player.placed = Some(feet);
+            player.heading = host.yaw;
+            info!("co-op: scene: on the host's spot at {:?} {feet:?}: the scene holds the view (put there, same place)", host.place);
+            return;
+        }
         let (world, interior) = match host.place {
             Place::Interior(c) => (None, Some(c)),
             Place::Exterior(w) => (Some(w), None),
         };
         info!("co-op: scene: on the host's spot at {:?} {:?}: the scene holds the view", host.place, host.feet);
         travel.write(TravelRequest(Travel { world, interior, feet: host.feet, heading_deg: host.yaw.to_degrees() }));
-        coop.last_leash = Some(now);
         return;
     }
     if coop.last_leash.is_some_and(|t| now - t < super::LEASH_EVERY) {
