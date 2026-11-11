@@ -523,6 +523,7 @@ unless the player binds them, so nothing changes until then.
 | No Turning Animation | `bNoTurningAnim` | nvforever `player_body` plays no Turn clip (`tweaks::NO_TURN_CLIP`) |
 | No Landing Animation | `bRemoveLandingAnim` | nvforever `player_body` plays no landing clip for the player (`tweaks::NO_LAND_CLIP`); NPCs' landings (`actor_jumps`) are unchanged |
 | Compass: Only Mapped Places | `bHideInvisibleUndiscoveredLocations` | `compass::gather` leaves out unfound markers that `DataState::unmapped_of` finds neither Visible-flagged nor shown by a script, the nearest-unfound tweak's pick too |
+| S.P.E.C.I.A.L. Machine: Straight to the Summary | `bSkipVigorTesterSpecialPages` | `chargen::vigor::open_close` starts on `Page::Review` in the end pose of the turn from Charisma's page; the earlier pages are still there with ← |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -544,8 +545,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 449 |
-| to do | 154 |
+| done | 450 |
+| to do | 153 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -836,6 +837,7 @@ game's Data folder, read-only).
 | `bRemoveLandingAnim` | done |  |  | No Landing Animation (the player) |
 | `bRepairRequiresWeaponSkill` | done |  |  | Repair Needs the Weapon's Skill (Pip-Boy repair) |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
+| `bSkipVigorTesterSpecialPages` | done |  |  | S.P.E.C.I.A.L. Machine: Straight to the Summary |
 | `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
 | `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
 | `bTurnFurtherWhileSeated` | done |  |  | Turn Further While Seated (first person 115 degrees; third person was already free) |
@@ -864,7 +866,6 @@ game's Data folder, read-only).
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
 | `bScaleExplosionShake` | to do |  | 2 | not built: explosions do not shake the camera |
 | `bScopeVisibilityDelay` | to do |  | 4 | aim_zoom with a held timer |
-| `bSkipVigorTesterSpecialPages` | to do |  |  | chargen vigor page and its pose clip |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | the D-pad is fixed to hotkeys; needs a current slot |
 

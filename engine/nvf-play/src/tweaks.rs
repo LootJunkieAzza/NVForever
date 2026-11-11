@@ -357,6 +357,9 @@ pub struct TweakSettings {
     /// `bHideInvisibleUndiscoveredLocations`: a place not found yet is on the compass only
     /// when the map shows it.
     pub hide_unmapped_places: bool,
+    /// `bSkipVigorTesterSpecialPages`: the S.P.E.C.I.A.L. machine opens on its review
+    /// page.
+    pub vigor_review_first: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -563,6 +566,7 @@ impl Default for TweakSettings {
             no_turn_clip: false,
             no_land_clip: false,
             hide_unmapped_places: false,
+            vigor_review_first: false,
         }
     }
 }
@@ -1492,6 +1496,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-turn-clip", "No Turning Animation", "Your character's body does not step round when you turn on the spot, so it does not slide on after you stop. (Stewie's Tweaks bNoTurningAnim)", no_turn_clip);
         switch!(app, "no-land-clip", "No Landing Animation", "Your character does not play a landing movement after a jump or a fall. (Stewie's Tweaks bRemoveLandingAnim)", no_land_clip);
         switch!(app, "hide-unmapped-places", "Compass: Only Mapped Places", "A place you have not found yet shows on the compass only if it is already marked on your map. (Stewie's Tweaks bHideInvisibleUndiscoveredLocations)", hide_unmapped_places);
+        switch!(app, "vigor-review-first", "S.P.E.C.I.A.L. Machine: Straight to the Summary", "The machine that sets your S.P.E.C.I.A.L. opens on its last page, all seven at once, instead of one page each. (Stewie's Tweaks bSkipVigorTesterSpecialPages)", vigor_review_first);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
