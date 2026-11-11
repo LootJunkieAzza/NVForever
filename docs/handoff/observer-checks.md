@@ -1514,3 +1514,19 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-11 (a Use Weapon package with Continue During Combat, issue #2120)
+
+105. **Attacked, does a Use Weapon package's actor with Continue During Combat keep firing at
+    its package's target, or turn on its attacker?** (P3; use-weapon.md §3, spec note.) The
+    GECK wiki's Use Weapon Package page says the actor "will continue to fire and stand at the
+    designated position, even during Combat" [documented], not at whom. NVForever keeps it at
+    its stand firing the package's volleys at the package's target, ignoring its attacker
+    [design, #2145]; the other reading is that it holds its stand and fights its attacker
+    (owner-review item 52). Pick a package with the flag whose target 2 is an actor and whose
+    conditions hold from a save (`fnvtool ai packages` lists the flag), watch the actor fire at
+    its target, then attack it from the side: (a) does it keep firing
+    at the package's target, turn to the player and fight from its stand, or leave its stand;
+    (b) for a Repeat Fire package, does that last, or does it go back to the package's target
+    after a while? A package aiming at a marker (the Ultra-Luxe kitchen's) is worth the same
+    look: does it fire at the marker in combat at all?

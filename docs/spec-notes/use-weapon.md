@@ -52,9 +52,11 @@ next to StartCombat, and ResetAI is used to end it.
   Weapon Package) is not in the owner's export; the offline GECK wiki copy has it.
 - "Continue During Combat: Actor will continue to fire and stand at the designated
   position, even during Combat. Great for setting up immobile enemies." [documented: GECK
-  wiki Use Weapon Package, Flags (offline snapshot 2026-10-28)]. The page does not say at
-  whom it fires once in combat; the general flag page says a Travel package with the flag
-  fires "at their target" on the way [documented: GECK wiki Combat Package Flags], and its
+  wiki page "Use Weapon Package", section Flags, revision 35491 of 2024-08-04,
+  https://geckwiki.com/index.php?oldid=35491]. The page does not say at whom it fires
+  once in combat; the general flag page says a Travel package with the flag fires "at
+  their target" on the way [documented: GECK wiki page "Combat Package Flags", revision
+  34683 of 2024-02-17, https://geckwiki.com/index.php?oldid=34683], and its
   per-type chart has no Use Weapon row. We keep the package's target 2 [design;
   docs/design/use-weapon.md §3, #2120]. 43 of FalloutNV.esm's 82 Use Weapon packages set
   the flag (sniper posts, scripted kills, the Ultra-Luxe kitchen's flamers, the Hoover Dam

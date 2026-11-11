@@ -309,6 +309,20 @@ the spec it links to.
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
 
+52. **A Use Weapon package with Continue During Combat keeps firing at its own target
+    when attacked (#2120, #2145).** With the flag, an actor attacked by the player (or
+    anyone) stays at its stand and goes on firing its package's volleys at the package's
+    target, not at its attacker; with Repeat Fire it never turns on whoever attacks it.
+    The alternative: it holds its position and fights its attacker from there. This is
+    [design]: the GECK wiki's Use Weapon Package page says only "Actor will continue to
+    fire and stand at the designated position, even during Combat. Great for setting up
+    immobile enemies", not at whom. 43 of FalloutNV.esm's 82 Use Weapon packages set the
+    flag, by the PR's count (sniper posts, scripted kills, the Ultra-Luxe kitchen's
+    flamers); one whose target the shooter does not fire at (a marker) fights its attacker
+    either way. The question is for the maintainer; what the original does is
+    [observer check 105](handoff/observer-checks.md).
+    ([use-weapon spec §3](spec-notes/use-weapon.md), [use-weapon design §3](design/use-weapon.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
