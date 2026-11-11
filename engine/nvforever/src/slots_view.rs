@@ -251,9 +251,10 @@ fn flat_mesh(points: &[[f32; 2]], tris: &[u32], radius: f32, lift: f32) -> Mesh 
         .with_inserted_indices(Indices::U32(tris.to_vec()))
 }
 
-/// A mesh's bounds from its positions.
+/// A mesh's bounds from its positions; `None` when the mesh keeps none in the main world
+/// (a GPU mesh already extracted to the render world: reading it there panics).
 fn mesh_bounds(m: &Mesh) -> Option<(Vec3, Vec3)> {
-    let Some(bevy::mesh::VertexAttributeValues::Float32x3(p)) = m.attribute(Mesh::ATTRIBUTE_POSITION) else { return None };
+    let Ok(Some(bevy::mesh::VertexAttributeValues::Float32x3(p))) = m.try_attribute_option(Mesh::ATTRIBUTE_POSITION) else { return None };
     let lo = p.iter().fold(Vec3::splat(f32::MAX), |a, v| a.min(Vec3::from(*v)));
     let hi = p.iter().fold(Vec3::splat(f32::MIN), |a, v| a.max(Vec3::from(*v)));
     (!p.is_empty()).then_some((lo, hi))
@@ -320,7 +321,14 @@ fn fit_of(
                 let local = if shape.node == r { Transform::IDENTITY } else { rig.nodes[shape.node].local };
                 // The drum's size from its vertices; the vanilla drum's when the mesh keeps
                 // none on the CPU.
-                let (centre, half) = match models.meshes.get(&shape.mesh).and_then(mesh_bounds) {
+                // Placed models' GPU meshes are render-world only once drawn, so the
+                // bounds come from a CPU copy of the same file, by shape name.
+                let bounds = models.meshes.get(&shape.mesh).and_then(mesh_bounds).or_else(|| {
+                    let cpu = models.model_with_cpu(g.source())?;
+                    let named = cpu.shapes.iter().find(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&shape.look.0)))?;
+                    named.cpu.as_deref().and_then(mesh_bounds)
+                });
+                let (centre, half) = match bounds {
                     Some((lo, hi)) => (local.transform_point((lo + hi) / 2.0), (hi - lo) / 2.0 * local.scale),
                     None => (Vec3::new(DRUM_X[i] - DRUM_X[1], 0.0, 0.0), Vec3::new(DRUM_W / 2.0, DRUM_R, DRUM_R)),
                 };
@@ -716,6 +724,16 @@ mod tests {
         assert!((arm_angle(0.33) - 0.774).abs() < 1e-4);
         assert!((arm_angle(0.7) - 0.861).abs() < 1e-4);
         assert!(arm_angle(0.83 + PULL_BACK + 0.01).abs() < 1e-4);
+    }
+
+    #[test]
+    fn an_extracted_mesh_has_no_bounds_and_does_not_panic() {
+        // A placed machine's reel mesh is render-world only: once drawn, its vertex data
+        // is gone from the main world (the 103dbf51 crash at The Tops).
+        let mut m = face_mesh(8.0, 4.0, 0.3, 4, SYMBOL_U, (0.0, 1.0));
+        assert!(mesh_bounds(&m).is_some());
+        m.take_gpu_data().unwrap();
+        assert!(mesh_bounds(&m).is_none());
     }
 
     #[test]
