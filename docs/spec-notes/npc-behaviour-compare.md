@@ -880,7 +880,8 @@ are GetAnimAction entering 2. Hits are OnHit events on the player.
   - **Once the player stopped.** He came to 177 units behind (15 left) and stood there.
     So he came in well inside his package's 330. Ours stops once within the distance, so
     about 330 off [hypothesis: the original stops at about half the distance; one
-    arrival].
+    arrival]. (Since #2122 ours stops 150 units inside the distance, 180 for Boone:
+    docs/design/actor-behaviour.md, Follow.)
 - **Sneaking.** The player was force-sneaked for 600 samples (about 20 s, most of it
   standing after the walk). Boone's IsSneaking stayed 0 throughout [observed]. A follower
   does not crouch with the player, at least not when standing. (Withdrawn as a general

@@ -233,8 +233,9 @@ pub enum AiEvent {
     /// A Follow or Accompany package: it sets off after `target`, `away` units from it
     /// (`None`: in another space), a way of `length` units through `doors`.
     Follow { package: FormId, target: FormId, away: Option<f32>, length: f32, doors: Vec<FormId>, running: bool },
-    /// It has caught up with the one it follows and stands.
-    CaughtUp { package: FormId, target: FormId },
+    /// It has caught up with the one it follows and stands, `away` units from it, having
+    /// been to stop within `stop_at` ([`follow_stop_at`]).
+    CaughtUp { package: FormId, target: FormId, away: f32, stop_at: f32 },
     /// It was to talk and did not (it has no line to say).
     NoTalk { package: FormId, why: String },
     /// It is near enough to force-greet `target`, `away` units off, but something solid
@@ -404,6 +405,29 @@ fn greets(game: &Game, actor: FormId) -> bool {
 /// A follower stands until its target is this much farther than its distance, so that
 /// it does not set off at every step the target takes, game units [our choice].
 pub const FOLLOW_SLACK: f32 = 64.0;
+/// A follower on its way stops only this much nearer than its package's distance, though
+/// not nearer than [`COLUMN_GAP`] (nor farther than the distance itself), so that it
+/// comes in well inside the distance once its target stands ([`follow_stop_at`])
+/// [design, #2122: in the original Boone (distance 330) came to 177 units once the player
+/// stopped, docs/spec-notes/npc-behaviour-compare.md, and the Novac pack brahmin (about
+/// 450) closed to about 300 when its merchant stopped, docs/spec-notes/actors.md §8.10,
+/// both about 150 inside [observed]; the original's own rule is not known, and a share
+/// fits the two less well (0.54 and 0.67)].
+pub const FOLLOW_STOP_INSET: f32 = 150.0;
+
+/// How near to the one it walks after a follower on its way stops, its distance being
+/// `keep` (at least the AI's arrive distance, `arrive`); `in_step`: with a target on the
+/// move; `in_column`: walking after the one ahead of it in a column. One walking after
+/// the leader itself stops [`FOLLOW_STOP_INSET`] inside its distance ([design, #2122]); it starts again
+/// only past the distance plus [`FOLLOW_SLACK`]. In a column the gap to the one ahead
+/// stays as it was: the distance, or [`FOLLOW_SLACK`] inside it while in step.
+pub fn follow_stop_at(keep: f32, arrive: f32, in_step: bool, in_column: bool) -> f32 {
+    let slack = if in_step { (keep - FOLLOW_SLACK).max(arrive) } else { keep };
+    if in_column {
+        return slack;
+    }
+    slack.min((keep - FOLLOW_STOP_INSET).max(COLUMN_GAP).min(keep))
+}
 /// A follower this much farther from its target than its distance runs, game units
 /// [our choice: 512 from the target at the usual distance of 128; owner's playtest
 /// 2026-10-24: the Novac pack brahmin, whose package keeps it about 450 units back,
@@ -1504,11 +1528,12 @@ impl Ai {
     /// stands sets off after its target once the target is more than its distance away
     /// (in another space: through the doors between), and the way is planned again when
     /// the target has moved [`REPLAN_DISTANCE`] since, at most every
-    /// [`REPLAN_SECONDS`]; it stops once within the distance. It runs when the package
+    /// [`REPLAN_SECONDS`]; it stops once [`FOLLOW_STOP_INSET`] inside the distance
+    /// ([`follow_stop_at`], [design, #2122]). It runs when the package
     /// says Always Run or it is more than [`FOLLOW_RUN_BEHIND`] beyond its distance, else
     /// walks; on its way after a target that moves it keeps step with it
-    /// ([`keep_step_speed`]), and stops only once the target stops or it is
-    /// [`FOLLOW_SLACK`] nearer than its distance [our choice]. A target that is gone or dead is not followed: the actor stands.
+    /// ([`keep_step_speed`]) near its distance, so it stops only once the target stops or
+    /// slows [our choice]. A target that is gone or dead is not followed: the actor stands.
     /// Without a way to the target the package is set aside like any other that cannot
     /// be reached. Several actors following one target walk after it in a line, each
     /// after the one ahead of it ([`Ai::ahead_in_column`]).
@@ -1559,11 +1584,11 @@ impl Ai {
             // In step with a target on the move: one that went at least FOLLOW_MOVING and
             // has not stood about since (a second more without the way planned again).
             let in_step = following.is_some_and(|(_, replan, pace)| pace.is_some_and(|v| v >= FOLLOW_MOVING) && (moved || game.time < replan + 1.0));
-            let stop_at = if in_step { (keep - FOLLOW_SLACK).max(self.cfg.arrive) } else { keep };
+            let stop_at = follow_stop_at(keep, self.cfg.arrive, in_step, ahead.is_some());
             if away <= stop_at && (feet.pos[2] - target.pos[2]).abs() <= 256.0 {
                 let a = self.agents.get_mut(&actor).expect("listed");
                 (a.walker.follower, a.activity, a.following) = (None, Activity::There, None);
-                self.log(game, actor, AiEvent::CaughtUp { package, target: f.target });
+                self.log(game, actor, AiEvent::CaughtUp { package, target: f.target, away, stop_at });
                 return;
             }
             let Some((to, replan, pace)) = following else { return };
