@@ -11120,7 +11120,7 @@ run_seconds = 62
 order = [[
   "slots: the machine is 0016546A",
   "slots view: the reel model has 28 faces (radius 7.",
-  "slots view: drums on 0016546A (its own reel nodes;",
+  "slots view: drums on 0016546A (its own reel nodes; radius 8.",
   "slots: spin: bet 5, 195 chips left; the reels will stop on Orange Orange Orange",
   "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
   "slots: the reels stop on Cherry Bell BAR: One cherry pays 2 x 5 = 10 chips",
@@ -11129,7 +11129,6 @@ order = [[
   "slots view: drums on 0016546A taken away",
 ]]
 expect = [
-  { text = "slots view: drums on 0016546A (its own reel nodes; radius 8.", label = "the drums are the reel shape's radius, 8.19 in the spec note", known_failing = "release 0.7.1 ship merge: since the crash fix 2c2f83f1e the drum is measured from a CPU copy of the model and logs radius 7.91; whether 7.91 or 8.19 is right is slots-reels' call (asked by slots-coop, 2026-11-11)" },
   "arm found",
   "faces as the reel model)",
   "slots view summary: drums built on 1 machines",
