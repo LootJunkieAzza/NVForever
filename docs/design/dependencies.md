@@ -27,7 +27,6 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | — | `cargo-deny` | `deny.toml`: licences, RustSec advisories, sources; runs in CI |
 | — | `fancy-regex` 0.14 (MIT) | JIP's Sv_RegexMatch/Search/Replace and ValidateRegex in fnv-script (jip-strings.md §1): ECMAScript-style patterns need back-references, which the `regex` crate lacks |
 | — | `toml` 1 (MIT/Apache-2.0), `parse` + `serde` only, the version the engine already has through Bevy | fnv-util `words` (#1443): the language files of NVForever's own words (`lang/<id>.toml`) |
-| — | `stacker` 0.1 (MIT/Apache-2.0; with `psm`, the same) | fnv-game `game.rs` (#1991): a nested script run (a result script a statement started, a user-defined function) moves to a new stack segment when less than 256 KiB is left, so the deepest nesting the limits allow (1166 KiB measured) cannot overflow the 1 MiB Windows main thread; rustc's own guard against deep recursion |
 | — | `chrono` 0.4 (MIT/Apache-2.0), `clock` only | xNVSE GetUserTime in fnv-game (the computer's local time); the standard library has no time zones |
 | — | `png` 0.18 (MIT/Apache-2.0), the version the engine already builds, and `qrcodegen` 1.8 (MIT) | fnv-game `image_files.rs` (#1008, SUP batch 5): CaptureScreenshot's PNG files and TextToQRCode's code (ext-sup5.md) |
 | — | `wgpu` 30 (`vulkan`) + `ash` 0.38, MIT/Apache-2.0, the versions Bevy already uses | nvforever `memory_budget.rs` (#1170): the GPU's `VK_EXT_memory_budget` through wgpu's Vulkan device (`Device::as_hal`); no wgpu patch |

@@ -109,21 +109,31 @@ pub mod event {
 /// (`tests/script_stack.rs`, 2026-11-11) [observed]: 256 nested SetStage result scripts
 /// 911 KiB (768 KiB was enough on 2026-10-24); the 30-deep function recursion 271 KiB;
 /// the mixed chain 1166 KiB, more than the 1 MiB Windows main thread a frame's script
-/// system may run on. So each nested run ([`Game::exec_at`], [`Game::run_function`])
-/// moves to a new stack segment of [`STACK_SEGMENT`] when less than [`STACK_RED_ZONE`]
-/// is left (`stacker`); the limits stay as documented, and the stack no longer bounds
-/// them. With that all three ran in a 128 KiB thread, five times out of five [observed: same
-/// test].
+/// system may run on. So a nested run ([`Game::exec_at`], [`Game::run_function`]) that
+/// starts with more than [`STACK_HOP`] of stack used since the outermost run began runs
+/// on a new thread of [`STACK_SEGMENT`] (the calling one waits for it): the limits stay
+/// as documented, and the caller's stack no longer bounds them. With that all three ran
+/// in a 192 KiB thread, five times out of five (the test runs them at 384 KiB)
+/// [observed: same test].
 pub const MAX_DEPTH: u32 = 256;
 
-/// The stack a nested script run needs left before it starts, else it runs on a new
-/// segment: one level takes about 3.5 KiB (a result script) to 9 KiB (a function)
-/// [observed: the measurement above], so this leaves room for many levels' worth of a
-/// host call between two runs.
-pub const STACK_RED_ZONE: usize = 256 * 1024;
+/// The stack the script nesting may use on one thread before a nested run moves to a
+/// thread of its own: one level takes about 3.5 KiB (a result script) to 9 KiB (a
+/// function) [observed: the measurement above], so a 128 KiB step is 14 to 36 levels,
+/// and a game that never nests that deep never starts a thread.
+pub const STACK_HOP: usize = 128 * 1024;
 
-/// The size of each stack segment a deep nesting moves to.
-pub const STACK_SEGMENT: usize = 2 * 1024 * 1024;
+/// The stack of each thread a deep nesting moves to: eight times [`STACK_HOP`], room for
+/// whatever a host call between two runs takes.
+pub const STACK_SEGMENT: usize = 1024 * 1024;
+
+/// Where the calling thread's stack is now (the address of a local; the distance between
+/// two such readings on one thread is the stack used between them).
+#[inline(never)]
+fn stack_here() -> usize {
+    let marker = 0u8;
+    std::hint::black_box(&marker) as *const u8 as usize
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GameConfig {
@@ -1730,6 +1740,9 @@ pub struct Game<'a> {
     /// of [`GameConfig::max_steps`] for the whole call tree ([`Game::open_run`], #1991).
     runs_open: u32,
     run_steps: u64,
+    /// Where the stack stood when the outermost run (or this thread's part of the nesting)
+    /// began ([`Game::nested`]).
+    stack_base: usize,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
     /// The (script record, opcode) pairs whose call on an empty reference was already
@@ -2418,6 +2431,7 @@ impl<'a> Game<'a> {
             depth: 0,
             runs_open: 0,
             run_steps: 0,
+            stack_base: 0,
             stop_run: false,
             empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
@@ -2755,12 +2769,42 @@ impl<'a> Game<'a> {
     fn open_run(&mut self) {
         if self.runs_open == 0 {
             self.run_steps = 0;
+            self.stack_base = stack_here();
         }
         self.runs_open += 1;
     }
 
     fn close_run(&mut self) {
         self.runs_open = self.runs_open.saturating_sub(1);
+    }
+
+    /// Run a nested script run `f`: here, or, when this thread's script nesting has used
+    /// more than [`STACK_HOP`] of its stack, on a new thread of [`STACK_SEGMENT`] while this
+    /// one waits (#1991, the deepest nesting needs more than a 1 MiB main thread). A
+    /// panic in it goes on in the caller; if no thread can be started it runs here.
+    fn nested<R: Send>(&mut self, f: impl FnOnce(&mut Self) -> R + Send) -> R
+    where
+        Self: Send,
+    {
+        if self.runs_open == 0 || self.stack_base.abs_diff(stack_here()) <= STACK_HOP {
+            return f(self);
+        }
+        let mut f = Some(f);
+        let hopped = std::thread::scope(|s| {
+            let (game, f) = (&mut *self, &mut f);
+            let spawned = std::thread::Builder::new().name("nvf-script-nest".into()).stack_size(STACK_SEGMENT).spawn_scoped(s, move || {
+                let f = f.take().expect("the nested run is taken once");
+                let base = std::mem::replace(&mut game.stack_base, stack_here());
+                let r = f(game);
+                game.stack_base = base;
+                r
+            });
+            spawned.ok().map(|h| h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
+        });
+        match hopped {
+            Some(r) => r,
+            None => (f.take().expect("not run: the thread did not start"))(self),
+        }
     }
 
     /// Run statements; returns whether the run ended with `Return` (or a function that
@@ -2772,7 +2816,7 @@ impl<'a> Game<'a> {
     /// [`Game::exec`], from the start or (`resume`) after the place a ScriptWait left;
     /// with the wait the run ended on, if it did.
     fn exec_at(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx, resume: Option<&[(usize, usize)]>) -> (bool, Option<(u32, fnv_script::vm::WaitPoint)>) {
-        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || self.exec_at_here(unit, stmts, locals, ctx, resume))
+        self.nested(move |g| g.exec_at_here(unit, stmts, locals, ctx, resume))
     }
 
     fn exec_at_here(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx, resume: Option<&[(usize, usize)]>) -> (bool, Option<(u32, fnv_script::vm::WaitPoint)>) {
@@ -3012,7 +3056,7 @@ impl<'a> Game<'a> {
     /// Defined Function; Lambda]. The function's strings and arrays go when it ends
     /// [documented: Ar Null, arrays of a function script are freed].
     pub fn run_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
-        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || self.run_function_here(f, on, args, caller, ctx))
+        self.nested(move |g| g.run_function_here(f, on, args, caller, ctx))
     }
 
     fn run_function_here(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {

@@ -5,9 +5,10 @@
 //! that holds is found from outside, by running the ignored test
 //! `nesting_on_a_stack_of_env_kib` with `NVF_STACK_KIB` set (release build). The size
 //! found is recorded beside the limits (`fnv_game::game::MAX_DEPTH`): the mixed chain
-//! needed more than the 1 MiB Windows main thread, so nested runs now move to a new stack
-//! segment when little is left. The release-only test below runs both on that 1 MiB
-//! stack and on 128 KiB, where only the new segments hold them.
+//! needed more than the 1 MiB Windows main thread, so a nested run now moves to a new
+//! thread of its own once the nesting has used 128 KiB (`STACK_HOP`). The release-only
+//! test below runs both on that 1 MiB stack and on 384 KiB, where only those threads
+//! hold them.
 
 mod common;
 
@@ -160,7 +161,7 @@ fn on_stack(kib: usize, udf: bool, mixed: bool) {
 #[cfg(not(debug_assertions))]
 #[test]
 fn the_deepest_nestings_fit_a_small_stack() {
-    for kib in [1024, 128] {
+    for kib in [1024, 384] {
         on_stack(kib, true, true);
     }
 }

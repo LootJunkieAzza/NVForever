@@ -29,8 +29,6 @@ png = "0.18"
 qrcodegen = "1.8"
 # The runner's save_load op writes and reads the save container.
 fnv-save = { path = "../fnv-save" }
-# Nested script runs grow the stack when little is left (game.rs, MAX_DEPTH; #1991).
-stacker = "0.1"
 
 [dev-dependencies]
 tracing-subscriber = "0.3"
