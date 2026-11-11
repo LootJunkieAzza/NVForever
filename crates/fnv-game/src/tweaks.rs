@@ -493,6 +493,15 @@ pub struct Tweaks {
     pub disarm_needs_skill: bool,
     pub disarm_mult: f64,
     pub disarm_explode_mult: f64,
+    /// `bCapSkillsBySPECIAL`: in the level-up menu a skill goes no higher than
+    /// `skill_cap_base` + its attribute × `skill_cap_per_special` + Luck ×
+    /// `skill_cap_per_luck`, at most `skill_cap_most`; tagged skills spared when asked.
+    pub cap_skills_by_special: bool,
+    pub skill_cap_base: f64,
+    pub skill_cap_per_special: f64,
+    pub skill_cap_per_luck: f64,
+    pub skill_cap_most: i32,
+    pub cap_skills_spare_tagged: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -768,6 +777,12 @@ impl Default for Tweaks {
             disarm_needs_skill: false,
             disarm_mult: 1.0,
             disarm_explode_mult: 1.0,
+            cap_skills_by_special: false,
+            skill_cap_base: 50.0,
+            skill_cap_per_special: 5.0,
+            skill_cap_per_luck: 0.0,
+            skill_cap_most: 100,
+            cap_skills_spare_tagged: false,
         }
     }
 }

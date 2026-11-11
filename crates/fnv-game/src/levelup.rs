@@ -119,12 +119,21 @@ pub struct SkillSheet {
     pub per_point: Vec<i32>,
     /// The points the level brings.
     pub points: i32,
+    /// The most each skill may reach in this menu: [`SKILL_MAX`], or under the player's
+    /// Cap Skills by S.P.E.C.I.A.L. tweak less [design: docs/design/tweaks.md].
+    pub caps: Vec<i32>,
 }
 
 impl SkillSheet {
     pub fn new(skills: Vec<u16>, start: Vec<i32>, per_point: Vec<i32>, points: i32) -> SkillSheet {
         let spent = vec![0; skills.len()];
-        SkillSheet { skills, start, spent, per_point, points }
+        let caps = vec![SKILL_MAX; skills.len()];
+        SkillSheet { skills, start, spent, per_point, points, caps }
+    }
+
+    /// Row `i`'s most ([`SkillSheet::caps`]).
+    pub fn cap(&self, i: usize) -> i32 {
+        self.caps.get(i).copied().unwrap_or(SKILL_MAX)
     }
 
     /// The sheet for `level`, from the player as the game holds them.
@@ -133,7 +142,23 @@ impl SkillSheet {
         let tag_mult = setting(g, "iSkillPointsTagSkillMult", 1.0).max(1.0) as i32;
         let start = skills.iter().map(|&s| actor::actor_value(g, FormId::PLAYER_REF, s).unwrap_or(0.0).round() as i32).collect();
         let per_point = skills.iter().map(|s| if g.player.tag_skills.contains(s) { tag_mult } else { 1 }).collect();
-        SkillSheet::new(skills, start, per_point, points_for(g, level))
+        let mut sheet = SkillSheet::new(skills, start, per_point, points_for(g, level));
+        // The player's tweak: each skill's most is its base and its governing attribute's
+        // share and Luck's, at most the cap, tagged skills spared when asked [design: docs/design/tweaks.md].
+        let t = g.tweaks.clone();
+        if t.cap_skills_by_special {
+            for (i, &skill) in sheet.skills.clone().iter().enumerate() {
+                if t.cap_skills_spare_tagged && g.player.tag_skills.contains(&skill) {
+                    continue;
+                }
+                let Some(attribute) = crate::actor_values::governing_attribute(skill) else { continue };
+                let special = actor::actor_value(g, FormId::PLAYER_REF, attribute).unwrap_or(0.0);
+                let luck = actor::actor_value(g, FormId::PLAYER_REF, crate::actor_values::LUCK).unwrap_or(0.0);
+                let cap = (t.skill_cap_base + special * t.skill_cap_per_special + luck * t.skill_cap_per_luck).round() as i32;
+                sheet.caps[i] = cap.min(t.skill_cap_most).min(SKILL_MAX);
+            }
+        }
+        sheet
     }
 
     pub fn remaining(&self) -> i32 {
@@ -144,13 +169,13 @@ impl SkillSheet {
     /// push it over are kept but add nothing [documented: the row's `_OverflowValue`]).
     pub fn value(&self, i: usize) -> i32 {
         let raised = self.start[i] + self.spent[i] * self.per_point[i];
-        raised.min(SKILL_MAX.max(self.start[i]))
+        raised.min(self.cap(i).max(self.start[i]))
     }
 
     /// Whether row `i`'s "+" is shown: points are left and the skill is under the most
     /// [documented: LUM_Template_RightArrow's `visible`].
     pub fn can_raise(&self, i: usize) -> bool {
-        i < self.skills.len() && self.remaining() > 0 && self.value(i) < SKILL_MAX
+        i < self.skills.len() && self.remaining() > 0 && self.value(i) < self.cap(i)
     }
 
     /// Whether row `i`'s "−" is shown: points were spent on it in this menu (a skill
@@ -186,7 +211,7 @@ impl SkillSheet {
     /// LUM_ContinueButton's `target`, the points assigned equal to the most], or no skill
     /// left to raise [design: else a player with every skill at 100 could not leave].
     pub fn complete(&self) -> bool {
-        self.remaining() <= 0 || !(0..self.skills.len()).any(|i| self.value(i) < SKILL_MAX)
+        self.remaining() <= 0 || !(0..self.skills.len()).any(|i| self.value(i) < self.cap(i))
     }
 
     /// What each skill gains, as (skill, amount), leaving out those that gain nothing.
@@ -371,6 +396,21 @@ mod tests {
         assert_eq!(skill_points(4, 3), 12);
         assert_eq!(skill_points(5, 4), 12);
         assert_eq!(skill_points(10, 2), 15);
+    }
+
+    /// A row capped by the Cap Skills by S.P.E.C.I.A.L. tweak stops there; Done lights
+    /// once every row is at its own cap.
+    #[test]
+    fn a_capped_row_stops_at_its_cap() {
+        let mut s = SkillSheet::new(vec![32, 40], vec![17, 17], vec![1, 1], 12);
+        s.caps = vec![20, 18];
+        for _ in 0..3 {
+            assert!(s.raise(0));
+        }
+        assert!(!s.can_raise(0) && !s.raise(0));
+        assert!(s.raise(1) && !s.can_raise(1));
+        assert_eq!((s.value(0), s.value(1)), (20, 18));
+        assert!(s.complete());
     }
 
     /// The owner's screenshots: twelve points, all spent on Science (17 → 22 with seven

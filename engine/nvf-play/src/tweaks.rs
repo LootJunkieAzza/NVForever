@@ -1621,6 +1621,12 @@ impl Plugin for TweaksPlugin {
         switch!(app, "disarm-needs-skill", "Disarming Needs Skill", "Disarming a mine can fail, the more likely the further your Explosives and Perception fall short of what it asks; a failed try may set it off, less likely with more Luck. (Stewie's Tweaks bDisarmRequiresSkill)", game.disarm_needs_skill);
         amount!(app, "disarm-mult", "Disarm Chance Multiplier", "Multiplies the chance to disarm a mine (Disarming Needs Skill); 1 as the formula gives it. (Stewie's Tweaks bDisarmRequiresSkill)", 3.0, f64, game.disarm_mult);
         amount!(app, "disarm-explode-mult", "Set-Off Chance Multiplier", "Multiplies the chance that a failed disarm sets the mine off (Disarming Needs Skill); 0 never. (Stewie's Tweaks bDisarmRequiresSkill)", 3.0, f64, game.disarm_explode_mult);
+        switch!(app, "cap-skills-by-special", "Skills Capped by S.P.E.C.I.A.L.", "On leveling up a skill can be raised only as far as its base plus its governing attribute's share (and Luck's), up to the cap below. (Stewie's Tweaks bCapSkillsBySPECIAL)", game.cap_skills_by_special);
+        amount!(app, "skill-cap-base", "Skill Cap Base", "The part of every skill's cap before attributes (Skills Capped by S.P.E.C.I.A.L.). (Stewie's Tweaks bCapSkillsBySPECIAL)", 100.0, f64, game.skill_cap_base);
+        amount!(app, "skill-cap-per-special", "Skill Cap per Attribute Point", "What each point of the governing attribute adds to a skill's cap. (Stewie's Tweaks bCapSkillsBySPECIAL)", 10.0, f64, game.skill_cap_per_special);
+        amount!(app, "skill-cap-per-luck", "Skill Cap per Luck Point", "What each point of Luck adds to every skill's cap. (Stewie's Tweaks bCapSkillsBySPECIAL)", 10.0, f64, game.skill_cap_per_luck);
+        amount!(app, "skill-cap-most", "Skill Cap Most", "No skill's cap goes above this (Skills Capped by S.P.E.C.I.A.L.). (Stewie's Tweaks bCapSkillsBySPECIAL)", 100.0, i32, game.skill_cap_most);
+        switch!(app, "cap-skills-spare-tagged", "Skill Cap Spares Tagged Skills", "Tagged skills are not capped by Skills Capped by S.P.E.C.I.A.L. (Stewie's Tweaks bCapSkillsBySPECIAL)", game.cap_skills_spare_tagged);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
