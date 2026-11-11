@@ -49,6 +49,10 @@ pub const SLAM: f32 = 0.25;
 pub const FOLLOW: f32 = 5.0;
 /// Seconds for the pose to ease in or out [design].
 const EASE: f32 = 0.3;
+/// Seconds the loser's hand stays down before the arms let go [design: the celebration].
+const HOLD: f32 = 3.0;
+/// How near a chair a body sits to be taken for its wrestler, game units [design].
+const ON_SEAT: f32 = 40.0;
 /// The elbow's place on the table from the middle, in forearm lengths [design].
 const ELBOW_IN: f32 = 0.45;
 /// The tremble: within this much of even, at most this lean (radians) [design].
@@ -111,7 +115,7 @@ pub struct Shown {
 /// The match this game shows: this player's own bout (after the card), else the one it
 /// watches.
 fn live(screen: &ArmScreen, watch: &ArmWatch, table: &ArmTable) -> Option<Live> {
-    if let Some(a) = screen.0.as_ref().filter(|a| a.page != Page::Offer && a.left_at.is_none()) {
+    if let Some(a) = screen.0.as_ref().filter(|a| a.page != Page::Offer && !a.leaving && a.left_at.is_none()) {
         let b = a.bout.as_ref()?;
         let mut stools = [0; 2];
         stools[a.side as usize & 1] = a.stool.0;
@@ -135,7 +139,7 @@ pub fn arms(
     seat: Option<Res<PlayerSeat>>,
     sim: Option<Res<SimState>>,
     body: Option<Res<crate::player_body::PlayerBody>>,
-    rigs: Query<(Entity, &ActorRig, Option<&OnFurniture>)>,
+    rigs: Query<(Entity, &ActorRig, Option<&OnFurniture>, &GlobalTransform)>,
     parents: Query<&ChildOf>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
@@ -144,7 +148,11 @@ pub fn arms(
     let dt = time.delta_secs();
     shown.clock += dt;
     let (Some(screen), Some(watch), Some(table), Some(sim)) = (screen, watch, table, sim) else { return };
-    let now_live = live(&screen, &watch, &table);
+    let mut now_live = live(&screen, &watch, &table);
+    // Getting up, or a while after the win: the arms let go.
+    if screen.0.as_ref().is_some_and(|a| a.leaving) || (now_live.is_some_and(|l| l.winner.is_some()) && shown.won.is_some_and(|(_, at, _)| shown.clock - at > HOLD)) {
+        now_live = None;
+    }
     match now_live {
         Some(l) => {
             if l.table != shown.table || l.stools != shown.stools {
@@ -194,8 +202,24 @@ pub fn arms(
         if mine == Some(stool) {
             return body.as_deref().and_then(|b| b.third_rig());
         }
-        rigs.iter().find(|(_, _, on)| on.is_some_and(|o| o.furniture() == stool && o.seated())).map(|(e, r, _)| (e, r.clone()))
+        if let Some((e, r, _, _)) = rigs.iter().find(|(_, _, on, _)| on.is_some_and(|o| o.furniture() == stool && o.seated())) {
+            return Some((e, r.clone()));
+        }
+        // Seated some other way (an NPC its AI sat down): the body nearest the chair.
+        let local = body.as_deref().and_then(|b| b.third_rig()).map(|r| r.0);
+        let seat_at = at(stool)?;
+        rigs.iter()
+            .filter(|(e, r, _, _)| Some(*e) != local && r.reference != FormId::PLAYER_REF.0)
+            .map(|(e, r, _, g)| (e, r, Vec2::new(g.translation().x - seat_at.x, g.translation().z - seat_at.z).length()))
+            .filter(|(_, _, d)| *d < ON_SEAT)
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(e, r, _)| (e, r.clone()))
     });
+    for (k, b) in bodies.iter().enumerate() {
+        if b.is_none() && !std::mem::replace(&mut shown.noted, true) {
+            warn!("arm wrestle arm: no body on side {k}'s seat {:08X}", shown.stools[k]);
+        }
+    }
     // The middle of the table's top: the table's x/y, its top's height
     // (`fnv_game::armwrestle_table::TABLE_TOP_Z`, game z is Bevy y).
     let mut arms = Vec::new();
@@ -213,7 +237,9 @@ pub fn arms(
     if arms.is_empty() {
         return;
     }
-    let mid = Vec3::new(mid.x, fnv_game::armwrestle_table::TABLE_TOP_Z, mid.z);
+    // Over the table's top, half way between the two shoulders (where both arms reach).
+    let (mx, mz) = if arms.len() == 2 { ((arms[0].1.s.x + arms[1].1.s.x) / 2.0, (arms[0].1.s.z + arms[1].1.s.z) / 2.0) } else { (mid.x, mid.z) };
+    let mid = Vec3::new(mx, fnv_game::armwrestle_table::TABLE_TOP_Z, mz);
     for (k, a) in arms {
         let b = a.e0.distance(a.h0);
         let (elbow, hand) = clasp(mid, u, b, k, lean);
