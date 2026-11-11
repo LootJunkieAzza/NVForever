@@ -154,8 +154,9 @@ pub struct PhysState {
 /// default `max_delta`): longer frames are slowed down to it.
 pub const MAX_FRAME_SECONDS: f32 = 0.25;
 
-/// The physics settings of play: as `PhysParams::default`, with enough fixed steps for a
-/// whole frame of the virtual clock ([`MAX_FRAME_SECONDS`]). With the default 8 steps of
+/// The physics settings play starts with: as `PhysParams::default` (60 steps a second;
+/// `crate::phys_rate` sets the step and the catch-up for the chosen rate each frame), with
+/// enough fixed steps for a whole frame of the virtual clock ([`MAX_FRAME_SECONDS`]). With the default 8 steps of
 /// 1/60 s a frame longer than 0.133 s lost the rest, so on a busy machine (6 frames a
 /// second) the player and the actors walking near it covered less ground than the game's
 /// clock passed: Goodsprings' settlers came into view seconds of game time late
@@ -1742,8 +1743,9 @@ impl Plugin for PhysPlugin {
             .add_systems(Last, (frame_times, report).chain())
             .add_message::<crate::RefRepose>()
             .add_systems(Update, (travel, ref_changed, destruction_models, stream, pose_doors, pose_groups).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
-            .add_systems(Update, pace_steps.after(crate::PlaySet::Input).before(crate::PlaySet::Physics))
             .add_systems(PostUpdate, trace::trace);
+        // The physics rate, the slow clock's pace and the cost guard (`crate::phys_rate`).
+        crate::phys_rate::setup(app);
     }
 }
 
@@ -1752,40 +1754,24 @@ impl Plugin for PhysPlugin {
 /// `kill_cam::SLOWEST`].
 pub const SLOWEST_PACED: f32 = 0.02;
 
-/// The fixed step for a clock running at `speed` of full speed, the usual step `full`:
-/// that share of it while the clock runs slow, so the physics takes as many steps a real
-/// second as at full speed; the usual one otherwise (a stopped or a faster clock).
+/// The fastest clock the physics adds steps for: faster than this many times full speed
+/// (a script's SetGlobalTimeMultiplier) the step grows instead, so the steps a real second
+/// never pass this many times the rate [design: bounds the physics' cost at any clock;
+/// until 2026-11-11 a faster clock kept the usual step at any speed, which at 10× ran 600
+/// steps a real second].
+pub const FASTEST_PACED: f32 = 4.0;
+
+/// The fixed step for a clock running at `speed` of full speed, the usual step `full`
+/// (`1/rate`, `crate::phys_rate`): that share of it while the clock runs slow, so the
+/// physics takes as many steps a real second as at full speed; the usual one at full speed,
+/// stopped or up to [`FASTEST_PACED`]; past that, longer by what the clock is over it.
 pub fn paced_step(full: f32, speed: f32) -> f32 {
     if speed > 0.0 && speed < 1.0 {
         full * speed.max(SLOWEST_PACED)
+    } else if speed > FASTEST_PACED {
+        full * speed / FASTEST_PACED
     } else {
         full
-    }
-}
-
-/// The physics keeps its steps a real second while the game's clock runs slow
-/// ([`paced_step`]). The step is 1/60 s of the game's clock; with that clock at an eighth
-/// (VATS mode's shots, a kill camera) a step came every eighth frame, and what the
-/// physics moves, a falling corpse, its severed parts, a head's pieces, went in jerks
-/// [design: the fork owner 2026-11-10, "vats slows down time by X in the shooting/kill
-/// slowmo cutscenes so the physics ticks are increased by X"].
-fn pace_steps(virt: Res<Time<Virtual>>, mut phys: ResMut<PhysState>, mut told: Local<Option<f32>>) {
-    let full = play_params().dt;
-    let speed = if virt.is_paused() { 1.0 } else { virt.relative_speed() };
-    let dt = paced_step(full, speed);
-    if (phys.world.params.dt - dt).abs() <= f32::EPSILON * dt {
-        return;
-    }
-    phys.world.set_step(dt);
-    // Once a change of pace, not every frame of an easing clock.
-    let paced = dt < full;
-    if told.is_some() != paced {
-        *told = paced.then_some(dt);
-        if paced {
-            info!("phys: the clock runs at {speed:.2}: the step follows it, {:.2} ms ({:.0} steps a real second)", dt * 1000.0, speed / dt);
-        } else {
-            info!("phys: the clock is back at full speed: the step is {:.2} ms again", dt * 1000.0);
-        }
     }
 }
 

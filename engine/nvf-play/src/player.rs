@@ -649,6 +649,10 @@ impl Default for ReloadPace {
 /// Modify Run Speed perks, a reload, Speed Mult and body armour.
 type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, RunPace>>, Option<Res<'w, PerkSpeed>>, Option<Res<'w, ReloadPace>>, Option<Res<'w, StatSpeed>>);
 
+/// Turbo's clock for the player, and where the steps' cost is measured: `--log-frame-times`'
+/// counts and the physics rate's guard (`crate::phys_load::Meter`).
+type Meters<'w> = (Option<Res<'w, crate::script::PlayerTimeScale>>, Option<ResMut<'w, crate::phys_load::PhysLoad>>, Option<ResMut<'w, crate::phys_rate::PhysRate>>);
+
 /// The player's Speed Mult and body armour's factor on its movement, walking, running
 /// and sneaking, as people's (`fnv_game::Game::move_speed_mult`, `crate::combat`'s
 /// `stat_speed`; actors.md §8.10, issue #1364).
@@ -1062,7 +1066,7 @@ fn step(
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
     (limbs, pace, perk_pace, reload_pace, stat_pace): Paces,
-    (turbo, mut load): (Option<Res<crate::script::PlayerTimeScale>>, Option<ResMut<crate::phys_load::PhysLoad>>),
+    (turbo, mut load, mut rate): Meters,
     (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
     (mut falls, mut fell, mut lunge): (Option<ResMut<crate::falls::Falls>>, MessageWriter<crate::falls::Fell>, ResMut<Lunge>),
@@ -1071,9 +1075,9 @@ fn step(
         phys.stepper = default();
         return;
     }
-    // Measuring (`--log-frame-times`): the frame's and each step's time and counts, into
-    // `PhysLoad` (nothing is timed without it).
-    let mut meter = crate::phys_load::Meter::start(load.as_deref_mut());
+    // Measuring: the frame's time, always, for the physics rate's guard (`PhysRate`); with
+    // `--log-frame-times` each step's time and the counts too, into `PhysLoad`.
+    let mut meter = crate::phys_load::Meter::start(load.as_deref_mut(), rate.as_deref_mut());
     if let Some(at) = seat.hold.filter(|_| phys.player.is_some()) {
         // Held by furniture (`crate::furniture`): the world steps on, the character
         // stays where the furniture has it and collides with nothing. Movement asked

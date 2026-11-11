@@ -111,23 +111,30 @@ cargo build --release -p nvforever --features nvforever/tracy    # or nvforever/
 ### The physics line and the `phys::*` zones
 
 [design: `engine/nvf-play/src/phys_load.rs`, `player.rs` `step` and `move_npcs`,
-`graphics.rs`] `nvf_play::player::step` advances a 1/60 s accumulator
-(`fnv_phys::Stepper::advance`) and runs the fixed steps the frame's time owes, up to 15 a
-frame (`phys::play_params`: a whole 0.25 s frame of the virtual clock is caught up,
-deliberately, so actors near the player cover the ground the clock passes). Its cost is
-therefore about *ticks a frame × ms a tick*, and grows with the previous frame's length:
-a slow frame owes more steps to the next one. With `--log-frame-times <s>` the system
-counts and times itself, and each period logs, beside `frame time:`:
+`graphics.rs`, `phys_rate.rs`] `nvf_play::player::step` advances an accumulator of game
+time (`fnv_phys::Stepper::advance`, kept in `f64`) and runs the fixed steps the frame's
+time owes at the physics rate (60 a second by default; the settings page's Physics rate or
+`--physics-hz`, physics.md §5.2), up to a quarter second of them a frame (15 at 60, 38 at
+152, 60 at 240: `phys_rate::catch_up_steps`; a whole 0.25 s frame of the virtual clock is
+caught up, deliberately, so actors near the player cover the ground the clock passes). Its
+cost is therefore about *ticks a frame × ms a tick*, grows with the rate, and grows with the
+previous frame's length: a slow frame owes more steps to the next one. With
+`--log-frame-times <s>` the system counts and times itself, and each period logs, beside
+`frame time:`:
 
-`physics: 2.00 ticks a frame (max 4) over 600 frames, 7.1 controller moves a tick (max 12), 31 blocks, 5.68 ms a frame in player::step, 2.84 ms a tick`
+`physics: 2.00 ticks a frame (max 4) over 600 frames, 7.1 controller moves a tick (max 12), 31 blocks, 5.68 ms a frame in player::step, 2.84 ms a tick, at 152 Hz`
 
-(an example of the format, not a measurement). Frames are those in which the system ran
+(an example of the format, not a measurement). The rate at the end is the one in effect
+over the period, or the range it ran over (`at 120-152 Hz`) when the cost guard switched it
+(physics.md §5.2). Frames are those in which the system ran
 while playing; frames with no player character or waiting for a cell to load are not
 counted (`Meter::skip`). Controller moves are the player's (on the walking path) and each
 walked actor's per step; blocks is the mean length of the actor block list
 (`crate::blocking`); the two times are `Instant`-based, the whole system per frame and the
-steps alone per step. Without frame-time logging no `PhysLoad` statistics are kept, no
-`Instant` is read and the line is not logged (the `phys::*` spans are independent of it).
+steps alone per step. Without frame-time logging no `PhysLoad` statistics are kept, the
+steps are not timed one by one and the line is not logged (the `phys::*` spans are
+independent of it); the system's whole time is still read, two `Instant`s a frame, for the
+physics rate's cost guard (`phys_rate::Guard`).
 The two lines do not count the same frames: the physics counts cover the frames of the
 period in which the game was playing (less those skipped above), while the
 `frame time:` mean also counts frames that were not (menus, loading) and, only with

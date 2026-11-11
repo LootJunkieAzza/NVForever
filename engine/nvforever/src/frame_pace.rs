@@ -257,7 +257,11 @@ pub struct ApplyFramePace;
 
 impl Plugin for FramePacePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.0).init_resource::<Refresh>().init_resource::<CapClock>().add_systems(Update, (apply_vsync, watch_refresh).chain().in_set(ApplyFramePace)).add_systems(Last, cap_rate);
+        app.insert_resource(self.0)
+            .init_resource::<Refresh>()
+            .init_resource::<CapClock>()
+            .add_systems(Update, (apply_vsync, watch_refresh, tell_physics).chain().in_set(ApplyFramePace))
+            .add_systems(Last, cap_rate);
         if *PACE_LOG {
             app.init_resource::<PaceLog>().add_systems(First, pace_log_frame_start.before(bevy::time::TimeSystems));
         }
@@ -290,6 +294,17 @@ pub fn effective_cap(cap: u32, vrr: u32) -> u32 {
         (c, 0) => c,
         (c, v) => c.min(v),
     }
+}
+
+/// The frame rate the physics rate's Match display follows (`nvf_play::phys_rate::display_hz`):
+/// the cap the limiter keeps ([`wait_for_cap`]: the page's, variable refresh's and frame
+/// generation's real-frame cap), with vsync and the window's refresh rate. Frame generation's
+/// cap is the one its switch set last frame.
+fn tell_physics(pace: Res<FramePace>, refresh: Res<Refresh>, fg: Option<Res<crate::frame_gen::FrameGenCap>>, physics: Option<ResMut<nvf_play::phys_rate::DisplayPace>>) {
+    let Some(mut physics) = physics else { return };
+    let cap = effective_cap(effective_cap(pace.cap, refresh.vrr_cap), fg.map_or(0, |c| c.0));
+    let hz = nvf_play::phys_rate::display_hz(cap, pace.sync.vsync(), refresh.millihertz);
+    physics.set_if_neq(nvf_play::phys_rate::DisplayPace(hz));
 }
 
 /// The window's present mode as `sync` asks, when that changes.

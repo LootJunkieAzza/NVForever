@@ -594,6 +594,65 @@ expect = [
 ]
 
 [[scenario]]
+name = "physics-rate-152"
+source = "docs/spec-notes/physics.md §5 (the physics rate): --physics-hz sets the rate for a run over the settings page's Physics rate; the start's log names it, the physics line carries it, and the steps a second of a run follow it"
+areas = ["physics", "profiling"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys_load.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/phys/step_lift.rs", "engine/nvforever/src/frame_pace.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/character.rs"]
+# A test aid makes the run unattended, so the player's own NVForever.ini is not read.
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "5:1:0,10:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14", "--log-frame-times", "5", "--physics-hz", "152"]
+run_seconds = 25
+note = "The walking-steps range counts the steps of the 5 s run on the ground (step_lift's roughness tally, walking over 30 units/s): about 760 at 152 Hz, about 300 at 60. A guard fallback in this light scene would be a fault of its own (the exit line counts the switches)"
+expect = [
+  { re = 'phys: physics rate 152 Hz \(--physics-hz 152\)', count = 1, label = "the start names the rate and that the command line set it" },
+  { re = 'physics: [\d.]+ ticks a frame \(max \d+\) over [1-9]\d* frames, .* ms a tick, at 152 Hz', min = 1, label = "the physics line carries the rate" },
+  { re = 'physics: walking on the ground for (?P<n>\d+) steps', range = [450, 1200], label = "5 s of running at 152 steps a second, not 60" },
+  { re = 'physics rate: 152 Hz at exit, 152 Hz asked for; 0 switches by the guard', count = 1, label = "no fallback in Goodsprings at 152 Hz" },
+]
+
+[[scenario]]
+name = "physics-rate-display"
+source = "docs/spec-notes/physics.md §5 (the physics rate): --physics-hz display follows the frame rate the display's pace holds (the cap in effect, else the refresh rate), within 60 to 240"
+areas = ["physics"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--physics-hz", "display"]
+run_seconds = 15
+note = "The display's rate is the machine's: the line checks that Match display found one and held it to 60-240, not which"
+expect = [
+  { re = 'phys: physics rate (?P<n>\d+) Hz( -> \d+ Hz)? \(--physics-hz display, Match display: the display.s \d+ fps\)', min = 1, label = "Match display found the display's frame rate" },
+  { re = 'physics rate: (?P<n>\d+) Hz at exit', range = [60, 240], label = "held to 60-240" },
+]
+
+[[scenario]]
+name = "physics-rate-setting"
+source = "docs/spec-notes/physics.md §5.2 (the physics rate): the settings page's Physics rate changes the rate in play, at once, keeping the share of a step the clock is into"
+areas = ["physics", "settings"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/settings_layout.rs", "lang/*.toml"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_PAUSE = "8:11", NVF_PLAY_TEST_SETTINGS = "9:physics-rate=144 Hz", NVF_PLAY_TEST_MOVE = "12:1:0,15:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "14"]
+run_seconds = 18
+expect = [
+  { re = 'phys: physics rate 60 Hz \(the setting\)', count = 1, label = "60 at the start" },
+  { re = 'settings: physics-rate 144 Hz', count = 1, label = "the page takes the choice" },
+  { re = 'phys: physics rate 60 Hz -> 144 Hz \(the setting\)', count = 1, label = "and the rate follows it" },
+  { re = 'physics rate: 144 Hz at exit, 144 Hz asked for', count = 1, label = "still 144 at the end" },
+]
+
+[[scenario]]
+name = "physics-rate-default"
+source = "docs/spec-notes/physics.md §5 (the physics rate): without --physics-hz and with no INI (an unattended run) the rate is the setting's default, 60"
+areas = ["physics"]
+paths = ["engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/settings_layout.rs"]
+env = { NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { re = 'phys: physics rate 60 Hz \(the setting\)', count = 1, label = "60 by default" },
+  { re = 'physics rate: 60 Hz at exit, 60 Hz asked for; 0 switches by the guard', count = 1, label = "and no fallback" },
+]
+
+[[scenario]]
 name = "hitvol-standalone"
 source = "docs/spec-notes/physics.md §5.1 (issue #1436, PR #1437): actor hit volumes are colliders of no body by default, placed at the next query refresh or step; NVF_PHYS_HITVOL_ATTACHED switches back. The startup line says which is in use and the phys-refresh count line (NVF_PLAY_TEST_PROFILE_COUNTS) carries the setting and the capsules written or skipped"
 areas = ["physics", "profiling", "actors"]
