@@ -6,7 +6,9 @@ resolution from this frame and its history. It is the temporal follow-up that #1
 (FSR 1, spatial) leaves out of scope: it brings the per-object motion vectors that issue
 names as missing. The upscaler is the MIT-licensed wgpu-ffx port of the FidelityFX SDK 1.1.4
 shaders, as SPIR-V, vendored with its shader sources and compile tool
-(engine/vendor/README.md). No AMD DLL is used. Frame generation, built on top of it, is
+(engine/vendor/README.md). No AMD DLL is used or shipped; a player's own FidelityFX API library
+is called when one is in the game's folder ("The FidelityFX API path"). Frame generation,
+built on top of it, is
 [frame-generation](frame-generation.md). What FSR
 needs and what the engine gives it: [spec notes](../spec-notes/fsr-upscaling.md).
 
@@ -436,6 +438,72 @@ against FSR off at 2560x1440 with 8x MSAA scaled down, `dev\tools\town-capture.p
   turns that into a step: Primm 3 % darker, Goodsprings 1 % brighter than without it (with
   the light glow and eye adaptation off, the occlusion darkens exactly as after FSR). The
   steps come from the curve, not the occlusion ("Limits").
+
+## The FidelityFX API path
+
+Tools that replace a game's upscaler (OptiScaler) take over the calls a game makes into an
+upscaler's library. The wgpu-ffx port makes no such call, so such a tool finds nothing to
+take over [observed 2026-11-11, a player's report: OptiScaler's overlay read "FSR Hooks: Don't
+Exist"] (#2169). When a FidelityFX API library is in the game's folder, the upscale goes
+through it instead, the way a game built on AMD's SDK calls it (`ffx_api.rs`). **State
+2026-11-12: built and unit-tested; not yet run against OptiScaler or AMD's library**, so
+every claim below about what they do with the calls is from their sources, not from a run.
+
+- **What is loaded.** `amd_fidelityfx_vk.dll`, by that bare name, the first time a view uses
+  FSR: from the executable's folder only, never the working directory or `PATH` (the
+  library's own imports may come from System32). The bare name is what a tool that hooks
+  the load compares [observed 2026-11-12: OptiScaler's source, `LibraryLoad_Hooks.cpp`,
+  `DllNames.h`], and such a tool may answer the load with a library of its own. NVForever
+  ships no such file; without one the port runs as before. `NVF_FFX_API=0` keeps the port
+  whatever is in the folder.
+- **The calls.** The five entry points of FidelityFX SDK 1.1.4's `ffx_api.h`. One upscale
+  context for each view and pair of sizes (`ffxCreateContext`: the upscale descriptor with
+  the port's flags, and the Vulkan backend descriptor with the device's handles from wgpu's
+  `as_hal`), `ffxDispatch` once a frame, `ffxDestroyContext` when the sizes change or the
+  view goes. The declarations follow the SDK's MIT headers; a test holds their layout.
+- **The inputs** are the port's: the colour (the display-sized main texture, the render
+  rectangle top-left), Bevy's motion vectors, both masks, the jitter, the motion scale, the
+  frame time, the reset, reversed infinite depth. The depth goes as an `R32Float` colour
+  copy (`fsr_depth.wgsl` `depth_as_color`): the API has no depth formats, and OptiScaler
+  makes its view under the format the API names, which a depth image does not allow
+  [observed: OptiScaler's source, `FfxApi_Vk.cpp` `CreateIVandNVRes`].
+- **Three command buffers a frame.** wgpu 30 allows no raw commands in an encoder that has
+  commands of its own [documented: wgpu-core 30.0.1 `EncodingApi::set` panics]. So the
+  library records into an encoder used only through `as_hal_mut`, and Bevy gets ours before,
+  the library's, and ours after, in that order (`RenderContext::add_command_buffer`).
+- **Image states.** wgpu does not track the library's commands. The last thing in ours
+  before them is `transition_resources`: the inputs to `RESOURCE`
+  (`SHADER_READ_ONLY_OPTIMAL`), the output to `STORAGE_READ_WRITE` (`GENERAL`), and the API
+  is told `COMPUTE_READ` and `UNORDERED_ACCESS`. AMD's library returns every image to the
+  state it was given [documented: SDK 1.1.4 `ffx_vk.cpp` `UnregisterResourcesVK`], and
+  OptiScaler assumes exactly these layouts whatever a game names [observed: its source,
+  `IFeature_VkwDx12.cpp`, `FFXFeature_Vk.cpp`], so wgpu's tracking holds afterwards
+  [hypothesis until a run under the validation layer]. wgpu clears a texture it has seen no
+  write to before its first read, and it does not see the library's write: a main texture
+  given to the library for the first time is cleared by us first.
+- **Alpha.** The port's output has alpha 1; what another upscaler behind the API leaves there
+  is not known, so on this path the scene's own alpha always comes back (`restore_alpha`,
+  one display-sized pass the port only needs with the Pip-Boy's screen).
+- **When it fails.** A context that cannot be created, or a dispatch that fails three frames
+  in a row, ends the library's use for the session: the log says why, and the port takes the
+  view over. A frame whose dispatch failed shows the spatial fallback.
+- **Destroying a context** waits for the GPU first (at most two seconds): the library frees
+  its Vulkan objects at once, and wgpu cannot hold them for commands it does not know.
+- **Frame generation** is unchanged: it works from the engine's depth and motion vectors and
+  the upscaled frame, not from the upscaler's own textures
+  ([frame-generation](frame-generation.md)).
+- **Licence.** No AMD file is in the build or the package; what a player puts in the folder
+  is theirs. LEGAL.md and [dependencies](dependencies.md) stand as they are.
+- **Not covered.** FSR SDK 2.x's file names (`amd_fidelityfx_loader_vk.dll`) and its backend
+  descriptor; a settings row; the library's GPU memory in the memory budget. AMD's backend
+  picks its shader variants from what the GPU supports, not from what the device enabled
+  [documented: SDK 1.1.4 `ffx_vk.cpp` `GetDeviceCapabilitiesVK`]: untested on an AMD GPU.
+- **The development trace** (`ffx_api_trace.rs`, temporary, to be removed before a release):
+  lines starting `ffx-trace:` in the run log say what was loaded and from where, which
+  module each entry point's first instruction leads to (a hook's detour), the versions the
+  library offers, every call's arguments and result, and whether the output was written (it
+  is cleared to magenta before each dispatch and a few texels are read back).
+  `NVF_FFX_API_TRACE=0` turns it off.
 
 ## Limits
 
