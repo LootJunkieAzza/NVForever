@@ -391,6 +391,8 @@ pub struct TweakSettings {
     pub console_homes: bool,
     /// `iScreenshotKey`: which of [`SCREENSHOT_KEYS`] takes a screenshot.
     pub screenshot_key: usize,
+    /// `bShiftScreenshotHidesMenus`: with Shift held, a screenshot leaves out the HUD.
+    pub shift_screenshot_hides: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -618,6 +620,7 @@ impl Default for TweakSettings {
             hide_hotkeyed_repair: false,
             console_homes: false,
             screenshot_key: 0,
+            shift_screenshot_hides: false,
         }
     }
 }
@@ -1583,6 +1586,7 @@ impl Plugin for TweaksPlugin {
                 ),
             ),
         );
+        switch!(app, "shift-screenshot-hides", "Shift Screenshot Hides the HUD", "Holding Shift as you take a screenshot leaves the HUD, crosshair and messages out of the picture. (Stewie's Tweaks bShiftScreenshotHidesMenus)", shift_screenshot_hides);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

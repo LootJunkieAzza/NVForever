@@ -2029,7 +2029,24 @@ fn keys(
     mut commands: Commands,
     mut n: Local<u32>,
     tweaks: Option<Res<nvf_play::tweaks::TweakSettings>>,
+    mut hidden: Option<ResMut<nvf_play::free_cam::MenusHidden>>,
+    mut held: Local<Option<(u8, bool, String)>>,
 ) {
+    // A screenshot under the Shift Hides Menus tweak: the HUD goes for a few frames, the
+    // picture is taken in the third, and the HUD comes back as it was (docs/design/tweaks.md).
+    if let Some((frame, was, path)) = held.as_mut() {
+        *frame += 1;
+        if *frame == 3 {
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+        }
+        if *frame >= 6 {
+            if let Some(h) = hidden.as_mut() {
+                h.0 = *was;
+            }
+            *held = None;
+        }
+        return;
+    }
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
@@ -2039,7 +2056,16 @@ fn keys(
     if input.just_pressed(nvf_play::tweaks::screenshot_key(tweaks.as_deref())) {
         *n += 1;
         let path = format!("nvforever-{:03}.png", *n);
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        let shift = input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        match hidden.as_mut().filter(|_| shift && tweaks.as_ref().is_some_and(|t| t.shift_screenshot_hides)) {
+            Some(h) => {
+                *held = Some((0, h.0, path));
+                h.0 = true;
+            }
+            None => {
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+            }
+        }
     }
 }
 
