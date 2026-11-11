@@ -1163,6 +1163,22 @@ pub struct RemotePose {
     pub space: u32,
 }
 
+impl RemotePose {
+    /// What a guest takes the actor to be doing: there (its furniture wanted, so kept on
+    /// it) when standing, or when the host has it seated on furniture even as its feet
+    /// move: getting on moves the body (a chair's enter clip carries it about 50 units),
+    /// and taken as a walk that got it up again at once and sat it down off its seat
+    /// (armwrestle-c's laptop run, 2026-11-11: the Settler on the table's chair and the
+    /// saloon's bar stool) [observed; the rule: design].
+    pub fn activity(&self) -> Activity {
+        if self.moving && !self.furniture.is_some_and(|(_, on)| on) {
+            Activity::Travelling
+        } else {
+            Activity::There
+        }
+    }
+}
+
 /// Standalone packages own their simulation; in play mode `SimState` owns it
 /// [design: `drive`]. Shared by drawing and prefetch so neither selects a stale world.
 pub(crate) fn equipment_world<'a, 'w>(private: Option<&'a World<'w>>, shared: Option<&'a World<'w>>) -> Option<&'a World<'w>> {
@@ -2552,7 +2568,7 @@ impl Core {
             a.walker.turning = false;
             a.walker.air = None;
             a.walker.tri = fnv_nav::graph::NONE;
-            a.activity = if pose.moving { Activity::Travelling } else { Activity::There };
+            a.activity = pose.activity();
             let place = fnv_nav::path::Place { space: a.walker.space, pos: pose.feet };
             // Its cell as the walker's space gives it, or the one it has (no cell found).
             let cell = fnv_ai::goal::cell_of_place(game.world.placed, &place).or_else(|| game.world.peek(FormId(id)).and_then(|s| s.cell));
@@ -3622,6 +3638,19 @@ mod tests {
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
+
+    /// A guest keeps a host's actor seated while getting on moves it (no get up and
+    /// sit again at once off the seat); a walk-up and a walk are still walks.
+    #[test]
+    fn remote_pose_seated_and_moving_is_there() {
+        use fnv_ai::Activity;
+        let pose = |moving: bool, furniture: Option<(u32, bool)>| super::RemotePose { feet: [0.0; 3], heading: 0.0, moving, furniture, space: 0 };
+        assert_eq!(pose(true, Some((0xFF7F_A002, true))).activity(), Activity::There);
+        assert_eq!(pose(false, Some((0x0010_6192, true))).activity(), Activity::There);
+        assert_eq!(pose(false, None).activity(), Activity::There);
+        assert_eq!(pose(true, Some((0xFF7F_A002, false))).activity(), Activity::Travelling);
+        assert_eq!(pose(true, None).activity(), Activity::Travelling);
+    }
 
     #[test]
     fn refused_skips_add_up_over_one_blocked_episode_only() {
