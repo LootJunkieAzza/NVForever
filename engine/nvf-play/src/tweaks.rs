@@ -1602,6 +1602,10 @@ impl Plugin for TweaksPlugin {
         switch!(app, "console-model-details", "Console Shows Models", "Selecting something in the console also prints the path of its model; its cell's Editor ID and name are always shown. (Stewie's Tweaks bExtraConsoleDetails)", console_model_details);
         part!(app, "back-pace", "Backward Pace", "How fast you move backwards, as a part of your usual pace; 100% changes nothing. (Stewie's Tweaks bMovementPenalties)", back_pace);
         part!(app, "strafe-pace", "Sideways Pace", "How fast you move sideways, as a part of your usual pace; 100% changes nothing. Diagonals fall between. (Stewie's Tweaks bMovementPenalties)", strafe_pace);
+        switch!(app, "hack-no-single-chars", "Hacking: Symbols Do Nothing", "Clicking a lone symbol while hacking does nothing and prints nothing. (Stewie's Tweaks bImprovedHacking)", game.hack_no_single_chars);
+        switch!(app, "hack-no-repeat-words", "Hacking: No Repeat Guesses", "A word you have already tried cannot be tried again, so it costs no attempt. (Stewie's Tweaks bImprovedHacking)", game.hack_no_repeat_words);
+        switch!(app, "hack-dud-when-full", "Hacking: Dud When Attempts Full", "A bracket pair found with all attempts left removes a dud instead of giving attempts back. (Stewie's Tweaks bImprovedHacking)", game.hack_dud_when_full);
+        switch!(app, "hack-spare-guessed", "Hacking: Duds Spare Tried Words", "Removing a dud leaves the words you have already tried, unless only they are left. (Stewie's Tweaks bImprovedHacking)", game.hack_spare_guessed);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

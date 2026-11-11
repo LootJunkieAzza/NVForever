@@ -478,6 +478,13 @@ pub struct Tweaks {
     /// `bWeaponRequirementsMatter`: the player cannot equip a weapon without its Strength
     /// and skill requirements.
     pub weapon_requirements_matter: bool,
+    /// `bImprovedHacking`'s options: a lone symbol does nothing; a word tried before
+    /// does nothing; a bracket pair with full attempts removes a dud; removing a dud
+    /// spares the words tried.
+    pub hack_no_single_chars: bool,
+    pub hack_no_repeat_words: bool,
+    pub hack_dud_when_full: bool,
+    pub hack_spare_guessed: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -717,6 +724,10 @@ impl Default for Tweaks {
             map_zoom_at_pointer: false,
             print_plugin_names: false,
             weapon_requirements_matter: false,
+            hack_no_single_chars: false,
+            hack_no_repeat_words: false,
+            hack_dud_when_full: false,
+            hack_spare_guessed: false,
         }
     }
 }

@@ -564,10 +564,13 @@ fn open(
         }
         Opening::Hack { difficulty, words: n } => {
             let mut rng = ChaCha8Rng::seed_from_u64(seed(reference, now));
-            let Some(puzzle) = Puzzle::new(&words.0, difficulty, n, &mut rng) else {
+            let Some(mut puzzle) = Puzzle::new(&words.0, difficulty, n, &mut rng) else {
                 warn!("terminal: {reference} {name}: the word list has too few words for {}", difficulty.name());
                 return;
             };
+            // The player's hacking tweaks [design: docs/design/tweaks.md].
+            let t = &rt.game.tweaks;
+            puzzle.rules = fnv_game::hacking::HackRules { no_single_chars: t.hack_no_single_chars, no_repeat_words: t.hack_no_repeat_words, dud_when_full: t.hack_dud_when_full, spare_guessed: t.hack_spare_guessed };
             stats.hacks += 1;
             info!(
                 "terminal: open {reference} {name}: hacking, {} (Science {sci:.0}): {} words of {} letters, {} bracket pairs",
@@ -1172,7 +1175,7 @@ mod tests {
             }
         }
         let words = vec![Word { text: "LOOTING".into(), len: 7, start: 9, removed: false }, Word { text: "MEETING".into(), len: 7, start: 204, removed: false }];
-        Puzzle { chars, address: 0xF650, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: GameState::Guessing }
+        Puzzle { chars, address: 0xF650, words, password: 1, attempts: ATTEMPTS, used: Vec::new(), log: Vec::new(), state: GameState::Guessing, rules: Default::default(), guessed: Vec::new() }
     }
 
     #[test]

@@ -549,6 +549,7 @@ unless the player binds them, so nothing changes until then.
 | Weapon Requirements Matter | `bWeaponRequirementsMatter` | `Game::weapon_requirement_unmet` compares the weapon's DNAM Strength and skill requirements with the player's values now; the Pip-Boy (`menu.rs`) and the hotkeys (`weapon_wheel::read`, not for the weapon already equipped) refuse with "Needs <stat> <n>." |
 | Console Shows Models | `bExtraConsoleDetails` | `console::describe` adds the base's MODL path (`MODEL_DETAILS`); the cell's Editor ID and name were already in the details |
 | Backward Pace, Sideways Pace | `bMovementPenalties` | the player's step multiplies the pace by the backward and sideways shares, a diagonal weighted by its forward and side parts; aiming already slows to a walk (`aiming_walks`) |
+| Hacking: Symbols Do Nothing, No Repeat Guesses, Dud When Attempts Full, Duds Spare Tried Words | `bImprovedHacking` | `hacking::Puzzle::rules` (`HackRules`, set by `terminal.rs` from the game's tweaks) in `Puzzle::choose`; `Puzzle::guessed` keeps the words denied; the options about printing are not done |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -570,8 +571,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 475 |
-| to do | 128 |
+| done | 476 |
+| to do | 127 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -618,6 +619,7 @@ game's Data folder, read-only).
 | `bGrabbingItemsIsCrime` | done |  | 1 | Grabbing Is Stealing (any value; the minimum-value option not built) |
 | `bHittingWeaponsDoesntDamageThem` | done |  |  | Shots Spare Weapons |
 | `bHoldToHolsterMeleeWeapons` | done |  |  | already so: a tap reloads, holstering needs the hold, and melee drops the reload |
+| `bImprovedHacking` | done |  | 10 | four Hacking switches (symbols do nothing, no repeat guesses, dud when attempts full, duds spare tried words); the print options not built |
 | `bJumpingCostsAP` | done |  | 3 | Action Points per Jump (slider 0-50; the combat-only and jump-anyway options not built) |
 | `bJumpSwimsUpwards` | done |  | 2 | Jump Swims Upwards (at the walking stroke speed; the sub-options not offered) |
 | `bJumpWhileOverencumbered` | done |  |  | already so: NVForever never refuses the jump when over-encumbered |
@@ -705,7 +707,6 @@ game's Data folder, read-only).
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |
 | `bHostilesPrioritizePlayer` | to do |  | 3 | Awareness::combat_target has no game or rolls |
-| `bImprovedHacking` | to do |  | 10 | each option is its own rule in hacking.rs |
 | `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
