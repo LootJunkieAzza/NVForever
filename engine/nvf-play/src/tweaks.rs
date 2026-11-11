@@ -421,6 +421,9 @@ pub struct TweakSettings {
     /// `bCompassLocationDistanceBasedAlpha`: places on the compass fade with distance
     /// over the reach they show at.
     pub compass_places_fade: bool,
+    /// `bRecentlyDeadNPCIndicator`: seconds the newly dead stay on the compass, until the
+    /// crosshair has been on them; 0 none.
+    pub recent_dead_secs: f32,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -662,6 +665,7 @@ impl Default for TweakSettings {
             wheel_cycles_hotkeys: false,
             compass_pips_fade: false,
             compass_places_fade: false,
+            recent_dead_secs: 0.0,
         }
     }
 }
@@ -1658,6 +1662,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
         switch!(app, "buffed-health-bars", "Health Bars Count Buffs", "A target's health bar includes Health raised by chems and effects, so a buffed enemy's bar shows how much it can take. (Stewie's Tweaks bEnemyHealthbarShowBuffedHP)", game.buffed_health_bars);
+        amount!(app, "recent-dead-secs", "Recently Dead on the Compass (s)", "For how many seconds, up to 120, someone killed nearby stays on the compass, until you look at them; 0 none. (Stewie's Tweaks bRecentlyDeadNPCIndicator)", 120.0, f32, recent_dead_secs);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

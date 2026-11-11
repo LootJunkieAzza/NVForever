@@ -195,6 +195,10 @@ pub fn marks_far(near: &[Near], heading: f32, here: [f32; 2], bodies: &dyn Fn(u3
 #[derive(Resource, Default, Debug, PartialEq, Clone)]
 pub struct CompassAlpha(pub Vec<f32>);
 
+/// The newly dead the compass has seen: since when, and whether the crosshair has been
+/// on them (the Recently Dead tweak) [design: docs/design/tweaks.md].
+type DeadSeen = std::collections::HashMap<u32, (f32, bool)>;
+
 /// How faint an actor's pip at the sneak range's end gets (the tweak) [design].
 const FARTHEST_PIP: f32 = 0.25;
 
@@ -333,6 +337,7 @@ fn gather(
     mut graph: Local<Option<DoorGraph>>,
     mut logged_quest: Local<Option<(usize, usize)>>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (mut dead_seen, target): (Local<DeadSeen>, Option<Res<crate::activate::Target>>),
 ) {
     // The player's tweak leaves hostile actors off the compass [design: docs/design/tweaks.md].
     let hide_foes = tweaks.as_ref().is_some_and(|t| t.hide_enemy_markers);
@@ -341,6 +346,11 @@ fn gather(
     let neutral_foes = tweaks.as_ref().is_some_and(|t| t.neutral_foes_on_compass);
     let companion_pips = tweaks.as_ref().is_some_and(|t| t.companion_pip > 0);
     let nearest_unfound = tweaks.as_ref().is_some_and(|t| t.nearest_unfound_on_compass);
+    // The player's tweak keeps the newly dead on the compass for a while, until the
+    // crosshair has been on them [design: docs/design/tweaks.md].
+    let dead_secs = tweaks.as_ref().map_or(0.0, |t| t.recent_dead_secs);
+    let now = time.elapsed_secs();
+    let looked = target.as_ref().and_then(|t| t.0.as_ref()).map(|t| t.form_id);
     *poll += time.delta_secs();
     if *poll < POLL || *state.get() != PlayState::Playing {
         return;
@@ -370,7 +380,18 @@ fn gather(
             let mut nearest: [Option<(f32, f32)>; 2] = [None; 2];
             for (r, at) in actors_near(g, &bodies) {
                 let d = ((at[0] - feet[0]).powi(2) + (at[1] - feet[1]).powi(2) + (at[2] - feet[2]).powi(2)).sqrt();
-                if d > range || g.is_dead(r) || !g.present(r) {
+                if d > range || !g.present(r) {
+                    continue;
+                }
+                if g.is_dead(r) {
+                    if dead_secs > 0.0 {
+                        let (since, seen) = dead_seen.entry(r.0).or_insert((now, false));
+                        *seen |= looked == Some(r.0);
+                        if !*seen && now - *since < dead_secs {
+                            let shown = on_compass(offset(heading, here, [at[0], at[1]]));
+                            out.push((Near { mark: Mark::Actor, at: [at[0], at[1]], body: None }, shown));
+                        }
+                    }
                     continue;
                 }
                 let shown = on_compass(offset(heading, here, [at[0], at[1]]));
