@@ -1514,3 +1514,13 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-11 (a regenerating weapon's ammo counter)
+
+105. **What do the HUD counter's two figures show with a Recharger Rifle out?** (P3;
+    hud.md §5, #2170.) NVForever shows the weapon's charge as the first figure and the
+    carried count of its ammo type, with nothing taken off, as the second [hypothesis].
+    Equip a Recharger Rifle, screenshot the counter at full charge, after three shots and
+    again once it has recharged; the same with a Recharger Pistol and the MF Hyperbreeder
+    Alpha. Note whether the second figure is 0, the clip size or something else, and
+    whether an ammo label stands left of the counter.
