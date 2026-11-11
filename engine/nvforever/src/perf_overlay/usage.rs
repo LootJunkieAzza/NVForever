@@ -120,7 +120,7 @@ impl Shared {
         self.want.store(bit(cpu, WANT_CPU) | bit(gpu, WANT_GPU) | bit(process_cpu, WANT_PROCESS_CPU) | bit(ram, WANT_RAM), Ordering::Relaxed);
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn wants(&self, part: u8) -> bool {
         self.want.load(Ordering::Relaxed) & part != 0
     }
@@ -145,7 +145,7 @@ impl Shared {
 
     /// Store a collection made under `generation`, tagged with it (the sampler thread's,
     /// none off Windows but in the tests).
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn publish(&self, generation: u32, u: Usage) {
         let percent = |v: Option<f32>| v.map_or(NONE, |p| (p.clamp(0.0, 100.0) * 10.0).round() as u32);
         self.cpu.store(percent(u.cpu), Ordering::Relaxed);
@@ -158,7 +158,7 @@ impl Shared {
 
 /// Where the sampler's readings come from: Windows' counters on the sampler thread
 /// (`windows::Counters`), a stand-in in the tests.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub trait Source {
     /// Collect the machine's CPU counter and read it: a rate, so none until the second
     /// collection since it was last forgotten.
@@ -177,7 +177,7 @@ pub trait Source {
 
 /// The sampler's own state between collections: the generation it last collected under
 /// and the game's processor time at its last collection (seconds, and when).
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 #[derive(Default)]
 pub struct Baselines {
     generation: Option<u32>,
@@ -188,7 +188,7 @@ pub struct Baselines {
 /// them under the generation they were collected for; a new generation (a new showing,
 /// even one that began and ended between two turns) starts every rate afresh. False: the
 /// overlay is hidden, nothing was collected.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub fn step(shared: &Shared, b: &mut Baselines, src: &mut impl Source) -> bool {
     if !shared.is_on() {
         src.forget(true, true);
@@ -457,10 +457,12 @@ mod windows {
 /// - The machine's CPU use: the `cpu` line of `/proc/stat`, the busy share over the sample
 ///   period (`total - idle - iowait`), the figure `top` shows [documented: proc(5)].
 /// - A GPU's use: amdgpu's `gpu_busy_percent` under each `/sys/class/drm/card*/device/`,
-///   the busiest card, as Windows takes the busiest engine. Intel and NVIDIA expose no
-///   such file, so their cards read none [observed on an RX 7700S].
+///   the busiest card, as Windows takes the busiest engine. Intel and NVIDIA's drivers
+///   expose no such file, so their cards read none [hypothesis]; the RX 7700S on this
+///   machine is the only card with one [observed].
 /// - The game's own CPU use, as cores kept busy: utime+stime from `/proc/self/stat` over
-///   the processor time passed [documented: proc(5); `USER_HZ` is 100 for these files].
+///   the processor time passed [documented: proc(5)], the ticks taken as 100 a second on
+///   x86-64 and ARM (`sysconf(_SC_CLK_TCK)`; see `USER_HZ`).
 /// - The game's RAM: `VmRSS` from `/proc/self/status`, MB [documented: proc(5)].
 ///
 /// Where a file is missing that part reads none, as a Windows counter that cannot be
@@ -476,16 +478,19 @@ mod linux {
     /// As on Windows: a collection a second while the overlay shows.
     const PERIOD: Duration = Duration::from_secs(1);
 
-    /// `/proc/stat` and `/proc/<pid>/stat` time is in these ticks a second, 100 on every
-    /// Linux build [documented: proc(5), time(7)].
+    /// `/proc/stat` and `/proc/<pid>/stat` time is in these ticks a second. proc(5) says
+    /// to take the rate from `sysconf(_SC_CLK_TCK)`; it is 100 on x86-64 and ARM Linux
+    /// [documented: proc(5), time(7); observed 100 here], which are the architectures
+    /// this build runs on. No other architecture is claimed to read the right seconds.
     const USER_HZ: f64 = 100.0;
 
     pub fn run(shared: &Shared) {
         let mut src = Counters { cpu: None, cards: gpu_cards(), start: Instant::now() };
+        // The same line on every machine, as Windows logs it whether or not its counters
+        // opened; a machine without an amdgpu says so on the next line.
+        bevy::log::info!("fps counter: usage counters cpu true gpu {}", src.cards.len());
         if src.cards.is_empty() {
             bevy::log::warn!("fps counter: no amdgpu gpu_busy_percent, GPU use not shown");
-        } else {
-            bevy::log::info!("fps counter: usage counters cpu true gpu {}", src.cards.len());
         }
         let mut baselines = Baselines::default();
         loop {
@@ -563,7 +568,9 @@ mod linux {
 
     /// The machine's busy and total ticks from `/proc/stat`'s `cpu` line: idle and iowait
     /// are not busy, everything else is [documented: proc(5)]. The guest figures are
-    /// already in user and nice, so the first eight numbers are the whole line.
+    /// already in user and nice, so the first eight numbers are the whole line
+    /// [documented: kernel/sched/cputime.c, `account_guest_time` adds guest time to
+    /// `CPUTIME_USER` or `CPUTIME_NICE` as well as to `CPUTIME_GUEST`].
     fn cpu_ticks(stat: &str) -> Option<(u64, u64)> {
         let line = stat.lines().find(|l| l.starts_with("cpu "))?;
         let mut fields = line.split_whitespace();
