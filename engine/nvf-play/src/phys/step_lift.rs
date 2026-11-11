@@ -70,8 +70,13 @@ pub struct StepLift {
     pub rough: Roughness,
 }
 
+/// Over this horizontal speed on the ground a character counts as walking for
+/// [`Roughness`], units/s [design: half a unit a step at 60 steps a second, as it was
+/// counted per step before the physics rate became a setting].
+pub const ROUGH_WALKING: f32 = 30.0;
+
 /// The vertical acceleration of the feet and of the drawn height over consecutive fixed
-/// steps on the ground while walking (moving over half a unit a step).
+/// steps on the ground while walking (faster than [`ROUGH_WALKING`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Roughness {
     /// Last step's change of the feet's and the drawn height, while counting.
@@ -142,7 +147,7 @@ impl StepLift {
             let bound = MAX_GRADE * horizontal / dt;
             self.speed = self.speed.clamp(-bound, bound);
         }
-        self.rough.step(dz, dz + self.lift - self.prev, on_ground && horizontal > 0.5, dt);
+        self.rough.step(dz, dz + self.lift - self.prev, on_ground && horizontal > ROUGH_WALKING * dt, dt);
         self.most = self.most.max(self.prev.abs());
     }
 

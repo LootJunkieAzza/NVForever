@@ -1242,8 +1242,8 @@ fn step(
         }
         if let Some(b) = blocks.as_deref_mut() {
             use crate::blocking::{clip, Block, Push, PLAYER};
-            b.player_held = b.player_held.saturating_sub(1);
-            let standing = go == [0.0, 0.0] && c.grounded && !c.swimming && b.player_held == 0;
+            b.player_held = (b.player_held - dt).max(0.0);
+            let standing = go == [0.0, 0.0] && c.grounded && !c.swimming && b.player_held <= dt * 0.5;
             let placed = b.list.len();
             let mut all = std::mem::take(&mut b.list);
             all.extend(p.npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
@@ -1306,7 +1306,7 @@ fn step(
         if want > 1e-4 {
             let got = ((c.feet[0] - p.prev_feet[0]) * pushed[0] + (c.feet[1] - p.prev_feet[1]) * pushed[1]) / want;
             if let Some(b) = blocks.as_deref_mut().filter(|_| got < crate::blocking::HELD_SHARE * want) {
-                b.player_held = crate::blocking::HELD_STEPS;
+                b.player_held = crate::blocking::HELD_SECS;
             }
         }
         drop(move_span);

@@ -229,8 +229,8 @@ pub struct Character {
     /// Steps climbed by [`step_up_move`] (a count for reports).
     pub stepped: u32,
     /// Hold this character where it is while it is stuck ([`Held`]): a step whose sweep
-    /// ran out of the controller's sweeps without moving it is not swept again for the
-    /// next [`STUCK_RETRY`] − 1 steps. Off by default (the player, the tools' probes);
+    /// ran out of the controller's sweeps without moving it is not swept again until
+    /// [`STUCK_RETRY_SECS`] have passed. Off by default (the player, the tools' probes);
     /// the game turns it on for the actors it walks.
     pub hold_when_stuck: bool,
     held: Option<Held>,
@@ -248,14 +248,14 @@ pub struct Character {
 /// mesh took 3 ms a step, one between two yuccas' meshes 22 ms, against about 0.1 ms,
 /// 20 sweeps every step and the feet not moved, issue #1797]. The step that finds it so
 /// holds it: the steps after it return the same standing result without sweeping, and
-/// every [`STUCK_RETRY`]-th step is a full move again, which moves it on when the way is
-/// free (or holds it again).
+/// the step [`STUCK_RETRY_SECS`] after the one that held it is a full move again, which
+/// moves it on when the way is free (or holds it again).
 #[derive(Debug, Clone)]
 struct Held {
     /// Where it stands; moved elsewhere (placed, or its feet set), it is not held.
     feet: [f32; 3],
-    /// Steps held since the move that found it stuck.
-    steps: u32,
+    /// Seconds held since the move that found it stuck (the steps' `dt` summed).
+    secs: f32,
     touched: Vec<Owner>,
 }
 
@@ -264,10 +264,19 @@ struct Held {
 /// that met something on each of them used them all.
 const CONTROLLER_SWEEPS: usize = 20;
 
-/// A held character's full move comes every this many steps, a third of a second at the
-/// 60 steps a second [engineering choice: the residents' own stuck rule moves an actor
-/// on along its path after a second; a stuck actor's move was 3-22 ms, issue #1797].
-pub const STUCK_RETRY: u32 = 20;
+/// A held character's full move comes this long after the move that held it, seconds: a
+/// third of a second, which was 20 steps at 60 a second [engineering choice: the residents'
+/// own stuck rule moves an actor on along its path after a second; a stuck actor's move
+/// was 3-22 ms, issue #1797]. In seconds, so a held character waits as long at any step
+/// rate (`PhysParams::dt`: 40 steps at 120 a second).
+pub const STUCK_RETRY_SECS: f32 = 1.0 / 3.0;
+
+/// Whether `elapsed` seconds, summed from steps of `dt`, have reached `secs`: true from the
+/// step that brings the sum within half a step of it, so the sum's rounding never adds or
+/// drops a step (20 steps of 1/60 s reach a third of a second however the sum rounds).
+pub fn secs_reached(elapsed: f32, secs: f32, dt: f32) -> bool {
+    elapsed + dt * 0.5 >= secs
+}
 
 
 impl Character {
@@ -868,22 +877,23 @@ impl PhysWorld {
             touched,
         };
         let stuck = c.hold_when_stuck && sweeps >= CONTROLLER_SWEEPS && c.feet == start_feet && c.grounded && !c.swimming && !jumping;
-        c.held = stuck.then(|| Held { feet: c.feet, steps: 0, touched: step.touched.clone() });
+        c.held = stuck.then(|| Held { feet: c.feet, secs: 0.0, touched: step.touched.clone() });
         (step, push)
     }
 
     /// The step of a character [`Held`] where it got stuck: standing where it is, as the
     /// move that found it stuck left it, without sweeping; `None` when it is not held, or
-    /// when this step is a full move (every [`STUCK_RETRY`]-th, a jump, moved elsewhere).
+    /// when this step is a full move ([`STUCK_RETRY_SECS`] after the hold, a jump, moved
+    /// elsewhere).
     fn held_move(&self, c: &mut Character, input: &CharacterInput) -> Option<(CharacterStep, Push)> {
+        let dt = self.params.dt;
         let held = c.held.as_mut()?;
-        held.steps += 1;
-        if !c.hold_when_stuck || input.jump || c.swimming || !c.grounded || c.feet != held.feet || held.steps >= STUCK_RETRY {
+        held.secs += dt;
+        if !c.hold_when_stuck || input.jump || c.swimming || !c.grounded || c.feet != held.feet || secs_reached(held.secs, STUCK_RETRY_SECS, dt) {
             c.held = None;
             return None;
         }
         let touched = held.touched.clone();
-        let dt = self.params.dt;
         // As the stuck move left it: on the ground, not moving.
         c.vertical_speed = 0.0;
         c.velocity = [0.0, 0.0];

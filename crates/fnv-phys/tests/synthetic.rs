@@ -3157,9 +3157,63 @@ fn a_held_character_moves_on_when_the_way_is_free() {
     let z = c.feet[2];
     // The groove gone, it falls to the ground within a retry's steps.
     w.remove_ref(1);
-    let steps = walk(&mut w, &mut c, [150.0, 0.0], STUCK_RETRY as usize + 60);
-    assert!(steps[..STUCK_RETRY as usize].iter().any(|s| s.feet[2] < z - 1.0), "{:?}", c.feet);
+    let retry = (STUCK_RETRY_SECS * 60.0).round() as usize;
+    let steps = walk(&mut w, &mut c, [150.0, 0.0], retry + 60);
+    assert!(steps[..retry].iter().any(|s| s.feet[2] < z - 1.0), "{:?}", c.feet);
     assert!(c.grounded && c.feet[2] < TERRAIN_SHELL + 1.0 && c.feet[0] > 50.0, "{:?}", c.feet);
+}
+
+#[test]
+fn a_held_character_waits_the_same_seconds_at_any_step_rate() {
+    // The retry is a third of a second: 20 steps at 60 a second, 40 at 120, 80 at 240.
+    // Whether a walk in the groove sticks at all depends on the step's length (a shorter
+    // move ran out of the controller's sweeps in fewer of these walks [observed: this
+    // test, rapier 0.36.0]), so each rate takes the first walk that sticks.
+    for hz in [60.0f32, 120.0, 152.0, 240.0] {
+        let stuck = [50.0f32, 60.0, 70.0, 80.0].into_iter().flat_map(|deg| [[150.0, 0.0], [150.0, 150.0], [-150.0, 30.0], [300.0, 0.0]].map(|v| (deg, v))).find_map(|(deg, v)| {
+            let mut w = groove(deg);
+            w.set_step(1.0 / hz);
+            let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 400.0]);
+            c.hold_when_stuck = true;
+            settle(&mut w, &mut c, (2.0 * hz) as usize);
+            let mut steps = 0;
+            while c.held_steps == 0 && steps < (2.0 * hz) as usize {
+                walk(&mut w, &mut c, v, 1);
+                steps += 1;
+            }
+            (c.held_steps > 0).then_some((w, c, v))
+        });
+        let Some((mut w, mut c, v)) = stuck else { panic!("{hz} Hz: no walk in the groove stuck") };
+        // Held, then the groove goes: the steps are held until the full move a retry after
+        // the move that stuck, R steps at this rate (the R - 1 between are held).
+        assert_eq!(c.held_steps, 1, "{hz} Hz");
+        w.remove_ref(1);
+        let z = c.feet[2];
+        let mut n = 0;
+        while c.held_steps as usize == n + 1 && n < hz as usize {
+            walk(&mut w, &mut c, v, 1);
+            n += 1;
+        }
+        let r = (STUCK_RETRY_SECS * hz).round() as u32;
+        assert_eq!(c.held_steps, r - 1, "{hz} Hz: held {} steps", c.held_steps);
+        // And the full move went on: down to the ground, where the groove was.
+        walk(&mut w, &mut c, v, hz as usize);
+        assert!(c.feet[2] < z - 1.0, "{hz} Hz: {:?}", c.feet);
+    }
+}
+
+#[test]
+fn a_duration_summed_from_steps_is_reached_on_the_step_that_makes_it() {
+    for hz in [60.0f32, 120.0, 144.0, 152.0, 160.0, 240.0] {
+        let dt = 1.0 / hz;
+        let want = (STUCK_RETRY_SECS * hz).round() as usize;
+        let mut t = 0.0f32;
+        let n = (1..1000).find(|_| {
+            t += dt;
+            secs_reached(t, STUCK_RETRY_SECS, dt)
+        });
+        assert_eq!(n, Some(want), "{hz} Hz");
+    }
 }
 
 #[test]
