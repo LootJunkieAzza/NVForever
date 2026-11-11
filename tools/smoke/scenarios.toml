@@ -25255,3 +25255,39 @@ expect = [
   { re = 'idle: VHeliosStasisProtectron[25]REF plays ProtectronTurnedOff', max = 0, label = "not the switched-off pose: they are awake (GetUnconscious 0 in the original)" },
   { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
 ]
+
+[[scenario]]
+name = "armwrestle-solo"
+source = "Queue item 199 part A: the player sits on the west stool of the arm-wrestling table in the Prospector Saloon's back hall (armwrestle_table), the card waits for the Goodsprings Settler to walk over and sit, the test aid starts the bout 2 s later and taps 9 a second against his about 6, the bout is won, the Strength highlight shows, the player gets up and the end view plays"
+areas = ["minigames", "furniture"]
+paths = ["crates/fnv-game/src/armwrestle.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvforever/src/match_end.rs", "engine/nvf-play/src/flourish.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:200:300:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:90:-30", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "8:armwrestle_card.png,20:armwrestle_coming.png,34:armwrestle_bout.png,40:armwrestle_bout2.png,46:armwrestle_result.png,52:armwrestle_end.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 60
+manual = "armwrestle_card.png: the card says the settler is coming over; armwrestle_bout*.png: the countdown or TAP SPACE prompt over the meter, the score panel with taps and STR; armwrestle_result.png: the leaderboard and the Strength highlight; armwrestle_end.png: the end view"
+expect = [
+  { re = 'arm wrestle: the table found: table Some', label = "the screen finds the table the game made" },
+  "arm wrestle: seated on stool 0",
+  { re = 'arm wrestle: opponent .* \(00104F08\) Seated', label = "the card sees the settler on the other stool" },
+  { re = 'arm wrestle: won after (?P<s>[\d.]+)s', range = [3, 30], label = "the bout is won by tapping 9 a second (3-30 s)" },
+  "flourish: ArmWrestle",
+  "match end: ArmWrestle at",
+  "arm wrestle: up; closed",
+]
+
+[[scenario]]
+name = "armwrestle-table"
+source = "queue item 199 (owner 2026-11-10): an arm-wrestling table with two stools in the Prospector Saloon, new references in an unoccupied spot, not blocking NPC paths. fnv-game armwrestle_table.rs: Table02 and two Stool01L made in the back hall (armwrestle-a's spot and layout) when the saloon loads; the table cuts the navmesh (fnv-nav add_obstacle); the player sits on the west stool and the Goodsprings Settler (GSSettlerCM, 0x00104F08) walks over from the bar and sits on the east one (fnv-ai seat override, nvforever furniture.rs created furniture)"
+areas = ["minigames", "ai", "furniture"]
+paths = ["crates/fnv-game/src/armwrestle_table.rs", "crates/fnv-nav/src/obstacles.rs", "engine/nvforever/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:200:300:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:90:-30", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SHOTS = "2.5:armwrestle_table.png,30:armwrestle_seated.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 34
+manual = "armwrestle_table.png: the table and both stools at the east end of the back hall, standing on the floor; armwrestle_seated.png: the settler on the far stool, facing the player across the table"
+expect = [
+  { re = 'armwrestle: made Table02 ', label = "the table is made when the saloon loads" },
+  { re = 'nav: the arm-wrestling table [0-9A-F]{8} cuts the navmesh under it', label = "the table cuts the navmesh" },
+  { re = 'furniture: the player uses FF[0-9A-F]{6}', label = "the player sits on a created stool" },
+  { re = 'armwrestle: Goodsprings Settler is called to seat 1', label = "the settler is called to the other stool" },
+  { re = 'furniture: 00104F08 goes to FF[0-9A-F]{6}', label = "the settler gets onto the created stool" },
+]

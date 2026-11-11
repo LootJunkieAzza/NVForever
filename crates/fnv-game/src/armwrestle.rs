@@ -9,8 +9,9 @@
 //!   [`PUSH`] its way, times that side's Strength factor. Two sides tapping as fast as each
 //!   other hold it still; the faster one wins ground at the difference of the rates.
 //! - **Strength is the smaller part** ([`strength_factor`]) [design, owner]: a factor
-//!   from 1 - [`STRENGTH_WEIGHT`] at Strength 1 to 1 + [`STRENGTH_WEIGHT`] at Strength
-//!   10 (×1.0 at 5). Tapping 10 % faster beats any Strength gap of 4 or less.
+//!   of 1 at Strength 5 that moves [`STRENGTH_WEIGHT`] for every 5 points: 0.88 at
+//!   Strength 1, 1.15 at 10. Tapping 15 % faster beats any Strength gap of 4 or less;
+//!   Strength 10 against Strength 1 is worth tapping about 31 % faster.
 //! - **The bout** ([`Phase`]): a [`COUNTDOWN`] in which taps do nothing, then the pull,
 //!   until the meter reaches an end or [`TIME_LIMIT`] runs out; then the side the meter
 //!   leans to wins (a dead-centre meter: the side with more taps, then side 0) [design].
@@ -29,7 +30,7 @@ pub const TIME_LIMIT: f32 = 30.0;
 /// How far one tap at Strength 5 moves the meter (of the 2 from end to end) [design:
 /// 8 taps a second against 6 wins from the centre in about 12 s].
 pub const PUSH: f32 = 0.04;
-/// How much Strength 1 or 10 takes from or adds to a tap's push [design].
+/// How much 5 points of Strength add to or take from a tap's push [design].
 pub const STRENGTH_WEIGHT: f32 = 0.15;
 
 /// A tap's push factor from the tapper's Strength (clamped to 1..=10).
@@ -230,8 +231,12 @@ mod tests {
         assert!((strength_factor(10.0) - 1.15).abs() < 1e-6);
         assert!((strength_factor(1.0) - (1.0 - 0.12)).abs() < 1e-6);
         assert_eq!(strength_factor(20.0), strength_factor(10.0));
-        // 10 % faster tapping beats a Strength gap of 4 (9 against 5).
-        assert!(1.1 * strength_factor(5.0) > strength_factor(9.0));
+        // 15 % faster tapping beats any Strength gap of 4.
+        for weak in 1..=6 {
+            let w = weak as f32;
+            assert!(1.15 * strength_factor(w) > strength_factor(w + 4.0), "{weak}");
+        }
+        assert!((strength_factor(10.0) / strength_factor(1.0) - 1.307).abs() < 0.01);
         // Equal tapping: the stronger side wins ground.
         let mut b = Bout::new([8.0, 3.0], 0.0);
         b.step(COUNTDOWN);
