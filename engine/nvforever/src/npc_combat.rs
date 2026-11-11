@@ -3154,7 +3154,10 @@ mod tests {
         let gun = WeaponStats { clip_size: 2, ..Default::default() };
         execution = RangedAttack::for_weapon(&gun, Some(execution), || ranged_cycle(&gun));
         let (cycle, _) = execution.firearm_mut().unwrap();
-        assert!(cycle.step(&Default::default(), Input { trigger: true, dt: 0.3, carried: 20, ..Default::default() }).iter().any(|e| matches!(e, Event::Fired { .. })));
+        // A shot with a wind-up leaves no earlier than the tick after its pull (co-op's
+        // Another Millenia rule in `fnv_combat::attack::Cycle::step`), so two ticks.
+        let fired = (0..2).any(|_| cycle.step(&Default::default(), Input { trigger: true, dt: 0.3, carried: 20, ..Default::default() }).iter().any(|e| matches!(e, Event::Fired { .. })));
+        assert!(fired);
     }
 
     #[test]

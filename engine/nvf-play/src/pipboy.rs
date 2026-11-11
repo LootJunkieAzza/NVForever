@@ -1176,6 +1176,7 @@ mod tests {
         let camera = world.spawn(Camera { is_active: false, ..default() }).id();
         world.insert_resource(PipBoyScreen { camera, image: Handle::default(), on_model: false, pointer: None, scale: 1.0 });
         world.insert_resource(device_screen::ScreenFx::default());
+        world.insert_resource(glance::Glance::default());
         world.insert_resource(PipBoy { warming: Some(warming(true, true)), ..default() });
         world.run_system_once(camera_on).unwrap();
         assert!(world.get::<Camera>(camera).unwrap().is_active);

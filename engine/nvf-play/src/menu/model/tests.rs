@@ -1034,6 +1034,7 @@ fn app_on_the_box() -> App {
         .insert_resource(crate::sim::SimState { forms: &f.forms, refs: &f.refs, world })
         .insert_resource(crate::menu::ActiveMenu(Some(m)))
         .init_resource::<crate::menu::PromptKeys>()
+        .init_resource::<crate::menu::LiveMenu>()
         .add_message::<crate::menu::MenuInput>()
         .add_message::<crate::RefChanged>()
         .add_message::<crate::ItemUsed>()

@@ -284,6 +284,9 @@ fn children_context(tile: &Tile, mut context: Context, above: Context) -> Contex
     if tile.get(fnv_ui::input::NO_ORIGIN).is_some_and(Value::truthy) {
         context.rect.left = above.rect.left;
         context.rect.top = above.rect.top;
+        // Its children stand where it stands, from its parent's origin (co-op's locus
+        // origins, `fnv_ui::input::places_children`).
+        context.origin = above.origin;
     }
     context
 }
