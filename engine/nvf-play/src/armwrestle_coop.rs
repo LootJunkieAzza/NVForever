@@ -156,8 +156,11 @@ impl ArmView {
                 b.phase = BoutPhase::Pull;
                 b.started = now - COUNTDOWN - (TIME_LIMIT - left.min(TIME_LIMIT));
             }
+            // When it was won is not sent: first seen won, it counts as won the moment
+            // its pull began; [`keep_clock`] keeps the times of a bout seen before.
             ArmPhase::Won(s) => {
                 b.phase = BoutPhase::Done;
+                b.started = now - COUNTDOWN;
                 b.winner = Some(s);
                 b.ended = Some(now);
             }
@@ -177,6 +180,20 @@ impl ArmView {
             _ => None,
         }
     }
+}
+
+/// The match rebuilt this frame ([`ArmView::bout`]) keeps the start and end this game
+/// gave the same round before: its start (on this game's clock) through the result, and
+/// the moment it was first seen won. Rebuilt afresh, a won bout began and ended now: the
+/// screen logged "won after -3.0s", and its result never held long enough to close
+/// (`armwrestle.rs`, `RESULT_HOLD` from the end) [laptop ship run, 2026-11-11].
+pub fn keep_clock(b: &mut Bout, old: Option<&Bout>, now: f32) {
+    let Some(old) = old else { return };
+    if b.phase != BoutPhase::Done {
+        return;
+    }
+    b.started = old.started;
+    b.ended = Some(old.ended.unwrap_or(now));
 }
 
 /// A player's move for the deciding game's table.
@@ -681,7 +698,12 @@ fn arm_coop(time: crate::pause::AidTime, tables: Option<ResMut<Tables>>, mut sea
     };
     let shown = table.and_then(view);
     let was = seat.bout.as_ref().map(|b| (b.0, b.1.phase, b.1.winner));
-    seat.bout = shown.map(|v| (v.round, v.bout(now), [v.sides[0].who, v.sides[1].who]));
+    let old = seat.bout.take();
+    seat.bout = shown.map(|v| {
+        let mut b = v.bout(now);
+        keep_clock(&mut b, old.as_ref().filter(|o| o.0 == v.round).map(|o| &o.1), now);
+        (v.round, b, [v.sides[0].who, v.sides[1].who])
+    });
     let is = seat.bout.as_ref().map(|b| (b.0, b.1.phase, b.1.winner));
     if is != was {
         if let Some(v) = shown {
@@ -924,6 +946,35 @@ fn arm_aid(time: Res<Time<Real>>, mut seat: ResMut<ArmSeat>, tables: Option<Res<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A bout seen pulling and then won keeps its start, and its end from the frame it
+    /// was first seen won: the time is the pull's, never negative, and the result's
+    /// hold runs from that end.
+    #[test]
+    fn won_bout_keeps_its_clock() {
+        let side = |who| ArmSide { who, taps: 0, strength: 5 };
+        let view = |phase| ArmView { owner: HOST, round: 1, meter: 1.0, phase, sides: [side(Wrestler::Player(0)), side(Wrestler::Player(1))] };
+        // Seen pulling at 20 s with 25 s left: the pull began at 15, the bout at 12.
+        let pulling = view(ArmPhase::Pulling(TIME_LIMIT - 5.0)).bout(20.0);
+        assert!((pulling.started - (20.0 - COUNTDOWN - 5.0)).abs() < 1e-4);
+        // Won at 21, then the frames after.
+        let mut won = view(ArmPhase::Won(0)).bout(21.0);
+        keep_clock(&mut won, Some(&pulling), 21.0);
+        assert!((won.started - pulling.started).abs() < 1e-4);
+        assert_eq!(won.ended, Some(21.0));
+        let mut later = view(ArmPhase::Won(0)).bout(25.0);
+        keep_clock(&mut later, Some(&won), 25.0);
+        assert_eq!(later.ended, Some(21.0));
+        let pulled = later.ended.unwrap() - later.started - COUNTDOWN;
+        assert!((pulled - 6.0).abs() < 1e-3, "{pulled}");
+        // First seen won (joined late): no time of its own, but none below nothing.
+        let fresh = view(ArmPhase::Won(1)).bout(30.0);
+        assert!(fresh.ended.unwrap() - fresh.started - COUNTDOWN >= 0.0);
+        // Still pulling: the clock is the view's, rebuilt.
+        let mut again = view(ArmPhase::Pulling(TIME_LIMIT - 6.0)).bout(21.0);
+        keep_clock(&mut again, Some(&pulling), 21.0);
+        assert!((again.started - pulling.started).abs() < 1e-4);
+    }
 
     fn view() -> ArmView {
         ArmView {
