@@ -2674,8 +2674,8 @@ expect = [
 
 [[scenario]]
 name = "goodbye-at-once"
-source = "owner's playtest 2026-11-05 against the original (issue #1606; docs/spec-notes/dialogue.md §5): choosing a Goodbye closes the menu at once and the actor finishes the line as the player walks away (Game::choose, Speech::farewell)"
-note = "Chet's conversation of talk-gestures-menu, left by Tab (the Goodbye choice) once he offers choices. Before #1606 the line was said in the dialogue screen and the conversation ended after it (its line ended before the conversation did); now the conversation ends first and the line ends in the world, not cut, with its subtitle drawn as a SayTo line's"
+source = "owner's playtest 2026-11-05 against the original (issue #1606; docs/spec-notes/dialogue.md §5): choosing a Goodbye closes the menu at once and the actor finishes the line as the player walks away (Game::choose, Speech::farewell); since #2157 only for the plain goodbye, a line of the GOODBYE topic (goodbye-line-holds has the other lines)"
+note = "Chet's conversation of talk-gestures-menu, left by Tab (the Goodbye choice, his line of the GOODBYE topic) once he offers choices. Before #1606 the line was said in the dialogue screen and the conversation ended after it (its line ended before the conversation did); now the conversation ends first and the line ends in the world, not cut, with its subtitle drawn as a SayTo line's"
 areas = ["dialogue"]
 paths = ["crates/fnv-game/src/dialogue.rs", "engine/nvf-play/src/dialogue.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:GSChetRef=leave" }
@@ -2690,6 +2690,25 @@ order = [[
 ]]
 expect = [
   { re = 'script: GSChetRef cut line', count = 0, label = "the line is not cut" },
+]
+
+[[scenario]]
+name = "goodbye-line-holds"
+source = "owner's playtest 2026-11-11 (issue #2157; docs/spec-notes/dialogue.md §5): the last line of a conversation holds the player like the lines before it. A chosen line with the Goodbye flag that is not of the GOODBYE topic is said in the conversation and ends it when it is over (Game::say_farewell, Game::finish_line); between #1606 and #2157 it closed the conversation at once and was finished in the world"
+note = "sunny-wells' start: in the saloon the aid answers Sunny with VFreeformGoodspringsGSSunnySmilesTopic019 (INFO of quest VFreeformGoodsprings, flags Goodbye and Say Once, its own topic). Her line ends before the conversation does, and nothing is finished in the world"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/dialogue.rs", "engine/nvf-play/src/dialogue.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25", NVF_PLAY_TEST_TALK = "0:*=VFreeformGoodspringsGSSunnySmilesTopic019" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 60
+order = [[
+  { re = 'dialogue: choice \d+ made: .*, SunnyRef answers with ', label = "the aid picks Sunny's Goodbye line" },
+  { re = 'script: SunnyRef ended line ', label = "the line is said to the end in the conversation" },
+  { re = 'dialogue: conversation with SunnyRef ended \(goodbye, \d+ lines\)', label = "and only then the conversation ends" },
+]]
+expect = [
+  { re = 'finishes the line \S+ in the world', count = 0, label = "no line is finished in the world" },
+  { re = 'script: SunnyRef cut line', count = 0, label = "the line is not cut" },
 ]
 
 [[scenario]]
