@@ -13,11 +13,22 @@ use bevy::prelude::*;
 const UPPER: &str = "Bip01 L UpperArm";
 const FORE: &str = "Bip01 L Forearm";
 const HAND: &str = "Bip01 L Hand";
-/// The left hand's fingers' first bones, to measure the hand's length and frame [observed:
-/// node names].
-const KNUCKLES: [&str; 4] = ["Bip01 L Finger1", "Bip01 L Finger2", "Bip01 L Finger3", "Bip01 L Finger4"];
-/// The thumb's first bone [observed: node name].
-const THUMB: &str = "Bip01 L Thumb1";
+/// The left hand's fingers, index to little, knuckle to tip; the first bones measure the
+/// hand's length and frame [observed: the human skeleton's node names].
+const FINGERS: [[&str; 3]; 4] = [
+    ["Bip01 L Finger1", "Bip01 L Finger11", "Bip01 L Finger12"],
+    ["Bip01 L Finger2", "Bip01 L Finger21", "Bip01 L Finger22"],
+    ["Bip01 L Finger3", "Bip01 L Finger31", "Bip01 L Finger32"],
+    ["Bip01 L Finger4", "Bip01 L Finger41", "Bip01 L Finger42"],
+];
+/// Each finger joint's bend towards the palm, radians [design: a hand at rest on a table,
+/// the fingers nearly straight, the tips just touching].
+const REST_CURL: [f32; 3] = [0.12, 0.18, 0.12];
+/// The thumb's bones, base to tip [observed: node names], and where each segment points
+/// flat on the table, in the hand's frame (along, thumb side, palm) [design: out to the
+/// side and forward, lying down].
+const THUMB: [&str; 3] = ["Bip01 L Thumb1", "Bip01 L Thumb11", "Bip01 L Thumb12"];
+const THUMB_DIRS: [[f32; 3]; 3] = [[0.5, 0.75, 0.45], [0.75, 0.6, 0.25], [0.9, 0.4, 0.15]];
 /// Where the palm's middle lies on the table, from the table's middle: back towards the
 /// wrestler and out to the left, game units [design: beside the right elbow, which is
 /// about 8 back from the middle, `armwrestle_arm::ELBOW_IN`].
@@ -59,16 +70,16 @@ pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f3
         (parents.get(e).ok()?.parent() == hand).then_some(())?;
         Some(transforms.get(e).ok()?.translation)
     };
-    let knuckles: Vec<Vec3> = KNUCKLES.iter().filter_map(|n| node(n).and_then(at)).collect();
+    let knuckles: Vec<Vec3> = FINGERS.iter().filter_map(|f| node(f[0]).and_then(at)).collect();
     let frame = if knuckles.len() >= 2 {
         let k = knuckles.iter().sum::<Vec3>() / knuckles.len() as f32;
-        node(THUMB).and_then(at).and_then(|t| {
+        node(THUMB[0]).and_then(at).and_then(|t| {
             let a = k.try_normalize()?;
             let t = (t - a * t.dot(a)).try_normalize()?;
             let n = t.cross(a).normalize();
             let hr = rot(&gh);
             let p = if (hr * n).y < 0.0 { n } else { -n };
-            Some((a, p, k.length() * PALM_MID))
+            Some((a, p, k.length() * PALM_MID, t))
         })
     } else {
         None
@@ -98,7 +109,7 @@ pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f3
         t.rotation = f2;
     }
     // The hand flat, palm down, fingers along `along_w`.
-    if let Some((a, p, _)) = frame {
+    if let Some((a, p, _, thumb_side)) = frame {
         let t = p.cross(a).normalize();
         let palm_w = Vec3::NEG_Y;
         let thumb_w = palm_w.cross(along_w).normalize();
@@ -108,8 +119,42 @@ pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f3
         if let Ok(mut tr) = transforms.get_mut(hand) {
             tr.rotation = lh.rotation.slerp(to, w);
         }
+        // The fingers laid out nearly straight along the hand, keeping their own spread,
+        // and the thumb out to its own side: turning about along x palm bends towards the
+        // palm.
+        let bend = a.cross(p).normalize();
+        for f in FINGERS {
+            let bones = f.map(node);
+            let Some(first) = bones[0] else { continue };
+            let Ok(l0) = transforms.get(first).copied() else { continue };
+            let spread = l0.rotation * Vec3::X;
+            let straight = (spread - p * spread.dot(p)).normalize_or(a);
+            let dirs = REST_CURL.iter().scan(0.0, |sum, c| {
+                *sum += c;
+                Some(Quat::from_axis_angle(bend, *sum) * straight)
+            });
+            lay(&bones, dirs, w, transforms);
+        }
+        let dirs = THUMB_DIRS.iter().map(|d| (a * d[0] + thumb_side * d[1] + p * d[2]).normalize());
+        lay(&THUMB.map(node), dirs, w, transforms);
     }
     Ok(())
+}
+
+/// Point each bone of a chain hung from the hand (each running along its own +X [observed:
+/// the finger bones' children are offset only in X, as in `darts_arm`]) along its
+/// direction in the hand's space, by `w`.
+fn lay(bones: &[Option<Entity>; 3], dirs: impl Iterator<Item = Vec3>, w: f32, transforms: &mut Query<&mut Transform>) {
+    let mut parent = Quat::IDENTITY;
+    for (bone, dir) in bones.iter().zip(dirs) {
+        let Some(bone) = *bone else { return };
+        let Ok(mut tr) = transforms.get_mut(bone) else { return };
+        let now = parent * tr.rotation;
+        let to = Quat::from_rotation_arc((now * Vec3::X).normalize_or(Vec3::X), dir) * now;
+        let local = (parent.inverse() * to).normalize();
+        tr.rotation = tr.rotation.slerp(local, w);
+        parent *= tr.rotation;
+    }
 }
 
 #[cfg(test)]
