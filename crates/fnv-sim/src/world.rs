@@ -101,8 +101,6 @@ enum Placing {
     Ring,
 }
 
-/// Whether putting on `it` takes `other` off ([`World::equip_at`]): a weapon replaces the
-/// equipped weapon, armour equipped armour that shares a body slot (BMDT biped flags).
 /// An inventory `new` rebuilt in place of `old`, with `old`'s live units (planted
 /// explosives, `Extra::live`) kept: a rebuild never takes a planted explosive away from its
 /// plant [design, #1640]. `None` stays `None` only when `old` had no live unit.
@@ -117,6 +115,8 @@ fn with_live(old: Option<&Inventory>, new: Option<Inventory>) -> Option<Inventor
     }
 }
 
+/// Whether putting on `it` takes `other` off ([`World::equip_at`]): a weapon replaces the
+/// equipped weapon, armour equipped armour that shares a body slot (BMDT biped flags).
 fn equip_clashes(forms: &FormStore, it: &crate::forms::Item, other: FormId) -> bool {
     let Some(o) = forms.item(other) else { return false };
     match (it.kind, o.kind) {
