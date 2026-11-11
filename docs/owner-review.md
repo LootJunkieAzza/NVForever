@@ -309,7 +309,7 @@ the spec it links to.
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
 
-52. **Holstered fidgets come rarer than in the original (#2026).** NPCs standing with the
+54. **Holstered fidgets come rarer than in the original (#2026).** NPCs standing with the
     weapon away now bite their nails, smoke and so on, by the idle tree's factions and
     chances. The tree is asked every 2 s, the drawn-weapon fidgets' pace
     (`FIDGET_CHECK_SECONDS`); a merchant then begins a general fidget about every 200 s,
