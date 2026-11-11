@@ -100,8 +100,10 @@ const THIRD_FOV: f32 = 55.0;
 /// (0.25 to 0.8 s) "a little fast/jarring", 2026-11-11]: the pan in from the player's
 /// view, the zoom out for a win and the way back in.
 const OPEN_PAN: f32 = 1.6;
-const ZOOM_OUT: f32 = 1.2;
-const BACK_IN: f32 = 1.4;
+/// The win's two moves are the game's (`nvf_play::slots::win_hold` holds the next spin
+/// until they are over).
+const ZOOM_OUT: f32 = nvf_play::slots::WIN_CAMERA_OUT;
+const BACK_IN: f32 = nvf_play::slots::WIN_CAMERA_BACK;
 
 pub struct SlotsViewPlugin;
 
