@@ -1444,6 +1444,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "explosion-radius-buff", "Explosion Radius Buff", "The inner 30% of an explosion's radius deals full damage, falling to 20% at the edge. (Stewie's Tweaks bExplosionRadiusBuff)", game.explosion_radius_buff);
         switch!(app, "npcs-sneak-crit-player", "NPCs Sneak Attack the Player", "An NPC the player has not detected lands sneak attack criticals on them, as the player does. (Stewie's Tweaks bNPCsCanSneakCritPlayer)", game.npcs_sneak_crit_player);
         switch!(app, "fatal-crits-gib", "Fatal Criticals Always Gib", "A killing critical hit that is no sneak attack always blows off or severs the part struck. (Stewie's Tweaks bFatalNonSneakCritsAlwaysGib)", game.fatal_crits_gib);
+        switch!(app, "fall-deaths-dismember", "Deadly Falls Take the Legs", "An actor killed by a fall loses its legs, blown off where they can be. (Stewie's Tweaks bFallDeathsCauseDismemberment)", game.fall_deaths_dismember);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

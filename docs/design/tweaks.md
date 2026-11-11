@@ -510,6 +510,7 @@ unless the player binds them, so nothing changes until then.
 | Explosion Radius Buff | `bExplosionRadiusBuff` | `CombatTuning::explosion_inner` / `explosion_inner_edge` (left out of the dumps) in `damage::explosion_damage`: the inner 30% whole, 20% at the edge; `bAffectPlayer` not offered |
 | NPCs Sneak Attack the Player | `bNPCsCanSneakCritPlayer` | `combat::sneak_attack` lets an NPC's hit on the player count when the player's measurement of that NPC is below Detected (an unmeasured pair never counts); NPC blows and shots |
 | Fatal Criticals Always Gib | `bFatalNonSneakCritsAlwaysGib` | `combat::crit_gib` gives a killing non-sneak critical's dismember check a set fate (`fnv_combat::dismember::scripted`: explode where it can, else sever); player melee and shots |
+| Deadly Falls Take the Legs | `bFallDeathsCauseDismemberment` | `falls::hurt` queues `dismember::scripted_check` for Left Leg 1 and Right Leg 1 when a fall kills an NPC (exploded where the part can be, else severed) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -531,8 +532,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 436 |
-| to do | 167 |
+| done | 437 |
+| to do | 166 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -569,6 +570,7 @@ game's Data folder, read-only).
 | `bExplosionKnockdownAvoidanceUsesStrength` | done |  |  | Strength Resists Blasts |
 | `bExplosionRadiusBuff` | done |  | 3 | Explosion Radius Buff (30% inner, 20% edge as the description gives; bAffectPlayer not offered) |
 | `bExtendLockpickSpotRange` | done |  |  | already so: the sweet spot can sit anywhere on the half circle |
+| `bFallDeathsCauseDismemberment` | done |  |  | Deadly Falls Take the Legs (both legs, the part's own fate) |
 | `bFastTravelCostsSpecialNukaBottles` | done |  | 3 | Fast Travel Costs a Nuka-Cola (Quantum, Quartz or Victory by editor ID; our refusal words; the item messages not shown) |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
 | `bForceLockpickNoBreakLock` | done |  | 3 | Forcing Breaks the Pin, Not the Lock (the sub-options not offered; our status words) |
@@ -658,7 +660,6 @@ game's Data folder, read-only).
 | `bDisarmRequiresSkill` | to do |  | 2 | disarming happens in fnv_sim World::activate without skill or game |
 | `bEncumbranceIncludesGrabbedItems` | to do |  |  | encumbered_walks plus the grabbed reference weight |
 | `bExplosionsDontPushTakeableItems` | to do |  |  | push_dynamic knows no references |
-| `bFallDeathsCauseDismemberment` | to do |  |  | falls::hurt lacks the dismember queue |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
 | `bHoldToActivate` | to do |  | 9 | a hold on E is taken by grab; needs a timer and per-kind choices |

@@ -201,8 +201,12 @@ impl Plugin for FallsPlugin {
     }
 }
 
+/// The body part locations a deadly fall takes off with the Fall Deaths Cause
+/// Dismemberment tweak: Left Leg 1 and Right Leg 1 (`fnv_combat::data` part types) [design: docs/design/tweaks.md].
+const FALL_DISMEMBER_LOCATIONS: [i32; 2] = [7, 10];
+
 /// Apply the falls' damage.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn hurt(
     mut falls: ResMut<Falls>,
     mut fell: MessageReader<Fell>,
@@ -214,6 +218,7 @@ fn hurt(
     play: Option<Res<crate::PlayWorld>>,
     (sfx, mut sounds): (Option<Res<Sfx>>, MessageWriter<PlaySound>),
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    (mut dm, combat, parts): (Option<ResMut<crate::dismember::Dismemberment>>, Option<Res<crate::combat::Combat>>, Option<Res<crate::hitvol::ActorParts>>),
 ) {
     // The player's tweak: no hard-landing sound for the player in god mode [design: docs/design/tweaks.md].
     let quiet_god = tweaks.as_ref().is_some_and(|t| t.god_mode_quiet_landing) && crate::combat::god_mode();
@@ -282,6 +287,18 @@ fn hurt(
                 if r.immune { " (immune: god mode)" } else if r.died { ", dead" } else { "" }
             ),
             None => info!("falls: {} lands from {:.0} units: {dmg:.1} fall damage (no script runtime)", f.actor, f.height),
+        }
+        // The player's tweak: a fall that kills takes the legs off [design: docs/design/tweaks.md].
+        let killed = r.as_ref().is_some_and(|r| r.died);
+        if killed && f.actor != FormId::PLAYER_REF && script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.fall_deaths_dismember) {
+            if let (Some(dm), Some(c), Some(parts)) = (dm.as_deref_mut(), combat.as_deref(), parts.as_deref()) {
+                for location in FALL_DISMEMBER_LOCATIONS {
+                    if let Some(check) = crate::dismember::scripted_check(c, parts, &sim, f.actor, location, None, None) {
+                        dm.checks.push(check);
+                    }
+                }
+                info!("falls: {} died of the fall: its legs go (tweak)", f.actor);
+            }
         }
         if let Some(((code, condition), crippled)) = r.and_then(|r| r.limb.map(|l| (l, r.crippled))) {
             let side = if code == fnv_game::combat::LEFT_MOBILITY { "left" } else { "right" };

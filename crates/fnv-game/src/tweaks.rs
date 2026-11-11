@@ -441,6 +441,8 @@ pub struct Tweaks {
     /// `bFatalNonSneakCritsAlwaysGib`: a killing critical that is no sneak attack always
     /// takes the struck part off.
     pub fatal_crits_gib: bool,
+    /// `bFallDeathsCauseDismemberment`: an actor killed by a fall loses its legs.
+    pub fall_deaths_dismember: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -642,6 +644,7 @@ impl Default for Tweaks {
             explosion_radius_buff: false,
             npcs_sneak_crit_player: false,
             fatal_crits_gib: false,
+            fall_deaths_dismember: false,
         }
     }
 }
