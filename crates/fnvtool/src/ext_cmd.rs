@@ -284,6 +284,9 @@ pub(crate) fn units_to_dump<'a>(units: &'a [ScriptUnit], plugin: Option<&str>, a
 }
 
 fn dump_units(units: &[ScriptUnit], table: &FunctionTable, plugin: Option<&str>, all: bool, dir: &Path) -> anyhow::Result<Value> {
+    // The folder is guarded before anything is made: the files used to be written first and
+    // only units.json refused, inside the game's Data folder [#1987].
+    fnv_install::guard_write(dir, None)?;
     std::fs::create_dir_all(dir).with_context(|| dir.display().to_string())?;
     let mut index = Vec::new();
     for (n, u) in units_to_dump(units, plugin, all).into_iter().enumerate() {

@@ -618,7 +618,7 @@ fn forget_factions(g: &Game, r: FormId) {
 pub fn get_is_voice_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let v = a.form(0)?;
-    let Some(voice) = g.traits_def(r).and_then(|d| d.voice) else { return yes(false) };
+    let Some(voice) = g.voice_type_of(r) else { return yes(false) };
     yes(voice == v || super::refs::list_members(g, v).contains(&voice))
 }
 

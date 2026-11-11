@@ -860,14 +860,21 @@ module notes).
   - mines land, arm after their timer and go off when an actor other than the thrower
     comes within their proximity radius;
   - C-4 (Explosion + Detonates, no Alt. Trigger) lands and waits. It no longer explodes
-    on impact [documented: GECK wiki Projectile, Detonates].
+    on impact [documented: GECK wiki Projectile, Detonates]. At rest it leaves flight as
+    a mine does: a reference of its PROJ, placed in the thrower's cell and owned by the
+    thrower, so a save keeps it and it stays in its cell (#1986) [design]. The player's
+    activation makes it the C-4 item again, as a disarmed mine.
+  - A door travel drops what is still in flight, the hits on their way and the blasts
+    not yet gone off: they stand at the old space's coordinates (#1986) [design].
 - **OnFire and detonation.** Every shot runs the weapon's OnFire blocks
   (`Game::weapon_fired`, block 0x24).
   - The detonator's script, `DetonatorOnFire`, calls `player.DetonatePlacedExplosives`
     and has main-quest hooks: the Hoover Dam generators (`vHDGenerator0N.do 50000`) and
     VMQ03b [observed: its SCTX].
   - `DetonatePlacedExplosives` is implemented: it asks the engine
-    (`Game::combat_requests`), which sets off that actor's detonating projectiles.
+    (`Game::combat_requests`), which sets off that actor's detonating projectiles: those
+    in flight, and the charges at rest it owns in the loaded cells (removed as they go
+    off; one in a cell that is not loaded stays) [design].
   - Ranged weapons without a projectile (the detonator, binoculars) cycle without ammo.
 - **Explosions** (`fly`). A queue of up to 64 per frame takes impacts, detonations and
   destruction stages [design]. Each explosion:

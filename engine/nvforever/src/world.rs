@@ -114,6 +114,12 @@ impl WorldData {
         self.index.cells.get(w.grid.get(&g)?)
     }
 
+    /// The LAND of the grid squares around `g` ([`crate::terrain::NEIGHBOURS`]): a cell's
+    /// texture layers are stitched to theirs along its edges.
+    pub fn neighbour_lands(&self, g: (i32, i32)) -> [Option<u32>; 4] {
+        crate::terrain::NEIGHBOURS.map(|(dx, dy)| self.grid_cell((g.0 + dx, g.1 + dy)).and_then(|c| c.land))
+    }
+
     /// Whether a reference is enabled at the start of a game: not deleted, and its enable
     /// parent in the required state, or with no parent not initially disabled [documented:
     /// XESP; the parent chain is followed, cycles count as disabled]. Under a parent its
@@ -586,11 +592,12 @@ fn read_ahead(world: &WorldData, streamer: &mut Streamer, centre: (i32, i32), ri
             let mut refs = cell.refs.clone();
             refs.extend(world.persistent_by_grid.get(&c).into_iter().flatten());
             let land = cell.land;
+            let around = world.neighbour_lands(c);
             let (lo, schema, hide) = (world.lo, world.schema, hide.clone());
             let task = nvf_assets::read_pool::read_pool().spawn(async move {
                 CellAhead {
                     models: cell_models(lo, schema, &refs, &hide),
-                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile)),
+                    terrain: land.and_then(|l| prepare_terrain(lo, schema, l, c, tile, around)),
                     ready: false,
                 }
             });
@@ -1007,7 +1014,7 @@ fn begin_cell(
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
     if let CellKey::Exterior(g) = key {
         if let Some((c, land_id)) = cell.and_then(|c| Some((c, c.land?))) {
-            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile));
+            let prep = prep.or_else(|| prepare_terrain(world.lo, world.schema, land_id, g, tile, world.neighbour_lands(g)));
             if let Some(prep) = prep {
                 let land = spawn_terrain(commands, cell_e, world, prep, &mut TerrainCtx { tm: terrain, assets: models });
                 // Grass grows on the landscape's textures (grass.rs); the water surface
