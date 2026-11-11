@@ -493,9 +493,10 @@ struct Args {
     #[arg(long)]
     play: bool,
     /// With --play: the physics rate for this run, over the settings page's Physics rate:
-    /// fixed steps a second, a whole number from 60 to 240, or `display` for the frame
-    /// rate the display's pace holds (nvf_play::phys_rate). For quick tests; not kept.
-    #[arg(long, value_name = "HZ|display", value_parser = nvf_play::phys_rate::parse_arg)]
+    /// fixed steps a second, a whole number from 60 to 240, or `fps` for Match FPS: the
+    /// game's frame rate, up to what the display's pace allows (`display`, its old name, is
+    /// read as it too; nvf_play::phys_rate). For quick tests; not kept.
+    #[arg(long, value_name = "HZ|fps", value_parser = nvf_play::phys_rate::parse_arg)]
     physics_hz: Option<nvf_play::phys_rate::RateChoice>,
     /// The free-camera explorer (a developer's view, no player) even when no other
     /// argument chooses a world; with no such argument the game opens on its main menu.
