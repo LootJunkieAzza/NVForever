@@ -123,6 +123,7 @@ mod emote_play;
 mod mate_heads;
 mod slots_seat;
 mod armwrestle_arm;
+mod armwrestle_free_arm;
 mod darts_arm;
 mod darts_world;
 mod pool_world;
