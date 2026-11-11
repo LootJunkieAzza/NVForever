@@ -309,7 +309,7 @@ the spec it links to.
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
 
-52. **A planted explosive is "Armed" and stays in the pocket (#1640).** Each live plant
+56. **A planted explosive is "Armed" and stays in the pocket (#1640).** Each live plant
     reserves one unit of the item. The victim's other units of that item stay usable.
     Nothing takes the reserved unit until its blast: not the victim (equip, use, drop,
     a grenade throw), not a script's RemoveItem or RemoveAllItems, and not the player
