@@ -81,6 +81,10 @@ pub struct ImageSpaceGrade {
     /// VATS mode: the swipe's edge (a share of the screen width, graded to its left), the
     /// band on the edge, the wash over the screen, the grade's strength (all 0: none).
     pub vats: Vec4,
+    /// VATS mode: the grade's colour ([`vats_tint`]), what a picture's lightness is
+    /// multiplied by (rgb); and, above 0, that the picture is darkened to this part of
+    /// its brightness instead of graded (the classic style).
+    pub vats_tint: Vec4,
     /// Depth of field: strength, distance, range (game units), the target's distance
     /// along the view (below 0: the point under the screen's centre).
     pub dof: Vec4,
@@ -93,6 +97,22 @@ pub struct ImageSpaceGrade {
     pub motion: Vec4,
     /// Clip space of this frame to clip space of the last one (`update_motion`).
     pub reproject: Mat4,
+}
+
+/// VATS mode's grade for the interface's colour `rgb` (the settings page's HUD colour):
+/// the amber's own figures for amber (docs/design/vats-mode.md §5), and for another
+/// colour that colour with its strongest channel lifted as far as amber's red is, so the
+/// picture is as bright [design: the fork owner 2026-11-10, the VATS colour "should follow
+/// the UI color selected in the menu like the rest of the HUD"].
+pub fn vats_tint(rgb: [u8; 3]) -> Vec4 {
+    const AMBER: [f32; 3] = [1.45, 0.92, 0.42];
+    if rgb == nvf_play::interface::AMBER_RGB {
+        return Vec4::new(AMBER[0], AMBER[1], AMBER[2], 0.0);
+    }
+    let c = rgb.map(|v| f32::from(v) / 255.0);
+    let most = c[0].max(c[1]).max(c[2]).max(1e-3);
+    let k = AMBER[0] / most;
+    Vec4::new(c[0] * k, c[1] * k, c[2] * k, 0.0)
 }
 
 impl Default for ImageSpaceGrade {
@@ -110,6 +130,7 @@ impl Default for ImageSpaceGrade {
             time: 0.0,
             sharp: 0.0,
             vats: Vec4::ZERO,
+            vats_tint: vats_tint(nvf_play::interface::AMBER_RGB),
             dof: Vec4::new(0.0, 0.0, 0.0, -1.0),
             dof_mode: Vec4::ZERO,
             motion: Vec4::ZERO,
@@ -640,6 +661,12 @@ fn update_grade(
         time: now,
         sharp,
         vats: Vec4::from_array(vats_look),
+        // The mode's own amber, whatever the HUD's colour [design: the fork owner
+        // 2026-11-10, after trying it with a white HUD: "revert ... back to the previous
+        // orange"]: Dead Eye's grade. The classic style has no colour over the picture:
+        // the fourth figure is how dark it goes instead (`vats_classic::DARKEN`; 0 for
+        // the grade).
+        vats_tint: vats_tint(nvf_play::interface::AMBER_RGB).with_w(if vats.as_deref().is_some_and(|v| v.style() == nvf_play::vats_classic::VatsStyle::Classic) { nvf_play::vats_classic::DARKEN } else { 0.0 }),
         dof: Vec4::new(dof.strength, dof.distance, dof.range, focus),
         dof_mode: Vec4::new(if dof.use_target { 1.0 } else { 0.0 }, f32::from(dof.flags), near.unwrap_or(1.0), 0.0),
         motion: Vec4::new(motion, near.map_or(0.0, |n| n / MOTION_SHARP), MOTION_MAX_REACH, 0.0),
