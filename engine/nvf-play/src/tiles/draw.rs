@@ -1012,6 +1012,8 @@ pub(crate) struct View<'w, 's> {
     /// The trait menu, when this frame's writer has it drawn from its tiles.
     traits: Option<Res<'w, super::trait_menu::TraitTiles>>,
     tags: Option<Res<'w, super::tag_menu::TagTiles>>,
+    /// The classic VATS screen, when this frame's writer has it drawn from its file.
+    vats: Option<Res<'w, super::vats_menu::VatsTiles>>,
     /// The open character menu, for the same decision as the hand-built trait menu's.
     chargen: Option<Res<'w, crate::chargen::ChargenMenus>>,
 }
@@ -1056,6 +1058,8 @@ pub(crate) struct MenusDrawn {
     traits: Drawn,
     tags: Drawn,
     dialog: Drawn,
+    /// The classic VATS target screen (`super::vats_menu`).
+    vats: Drawn,
 }
 
 /// The stacking levels of the menus drawn from tiles besides the HUD: their hand-built
@@ -1120,6 +1124,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         (super::trait_menu::TRAIT_MENU, view.traits.as_ref().is_some_and(|t| super::trait_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.traits_open()), game).is_some()), TRAIT_Z, &mut others.traits),
         (super::tag_menu::TAG_MENU, view.tags.as_ref().is_some_and(|t| super::tag_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.tags_open()), game).is_some()), TRAIT_Z, &mut others.tags),
         (super::dialog_menu::DIALOG_MENU, view.dialog.as_ref().is_some_and(|d| d.drawn()), DIALOG_Z, &mut others.dialog),
+        (super::vats_menu::VATS_MENU, view.vats.as_ref().is_some_and(|v| v.drawn), super::vats_menu::VATS_Z, &mut others.vats),
     ] {
         let ui = game.map(|g| &g.ui_tree);
         let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));
@@ -1138,7 +1143,8 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch));
+                // The VATS screen writes `screen()` in interface units itself while it is up.
+                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch) || name == super::vats_menu::VATS_MENU);
                 // Marked as `paint` marks them, so a modified picture is not told as a change
                 // every frame (#1833).
                 super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
@@ -1152,6 +1158,18 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         // At the menus' scale (#1631, the UI scale at most 100%): the units `scale × it` logical pixels, in a frame
         // kept at the menu's anchor.
         let anchor = menu_anchor(name == super::dialog_menu::DIALOG_MENU);
+        if name == super::vats_menu::VATS_MENU {
+            // The VATS target screen is a piece of the HUD: its arrows, buttons and queue
+            // keep to the view's edges and its boxes stand on the target, so it takes the
+            // UI scale in the view's own frame, as the HUD does, with `screen()` written
+            // for the scaled view (`super::write_screen_scaled`). Above 100 % it stays at
+            // the original's size, as the menus do: the file sets its buttons and its
+            // queue out for a view 960 units high, and in a lower one they run into each
+            // other (seen at 150 %).
+            let _units = interface::units_at(interface::menu_scale());
+            paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z), heading, ui, &mut kit, &mut nodes, &glyphs);
+            continue;
+        }
         paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;

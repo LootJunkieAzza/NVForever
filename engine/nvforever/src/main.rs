@@ -165,6 +165,7 @@ mod terrain;
 mod texture_swap;
 mod effect_particles;
 mod effect_shaders;
+mod vats_highlight;
 mod tree;
 mod treelod;
 mod underwater;
@@ -1561,6 +1562,7 @@ fn main() -> AppExit {
         app.add_plugins(texture_swap::TextureSwapPlugin);
         // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
         app.add_plugins(effect_shaders::EffectShadersPlugin);
+        app.add_plugins(vats_highlight::VatsHighlightPlugin);
         // How many refracting meshes are in view, for the log (refraction.rs).
         app.add_plugins(refraction::RefractionPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
@@ -1755,7 +1757,10 @@ fn main() -> AppExit {
             // The start's loading screen does not count: the run's seconds are counted
             // from when it comes down (nvf_play::loading::StartCover).
             if !clocks.3.as_deref().is_some_and(|l| l.starting()) {
-                t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+                // (A clock running at no speed, the classic VATS style's full stop, counts
+                // real time as well.)
+                let still = clocks.0.is_paused() || nvf_play::pause::stands_still(false, clocks.0.relative_speed());
+                t.0 += if still { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
             }
             t.1 += 1;
             // The seconds a late start held the world test aids back (`--play` with

@@ -137,6 +137,7 @@ pub mod ui_colour;
 pub mod language;
 pub mod ui_sounds;
 pub mod stress;
+pub mod vats_classic;
 pub mod vats_mode;
 pub mod kill_cam;
 pub mod weapon_wheel;

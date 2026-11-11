@@ -69,7 +69,7 @@ const fn section(tab: &'static str, heading: Option<&'static str>, keys: &'stati
 /// Every named row's tab and heading, in the order the page shows them [design: #1953's
 /// table; the colours' red, green and blue each after their colour].
 pub const SECTIONS: &[Section] = &[
-    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "reload-slows", "UsePipBoy"]),
+    section("Gameplay", Some("Game"), &["difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy"]),
     section("Gameplay", Some("Saving"), &["autosave-travel", "autosave-fast-travel", "autosave-wait", "autosave-sleep", "autosave-scripts"]),
     section("Gameplay", Some("Dialogue"), &["menu-pause", "dialogue-goodbye-hint", "dialogue-look", "dialogue-recentre", "dialogue-zoom", "lip-sync"]),
     section("Gameplay", Some("Reports"), &["send-reports"]),
@@ -301,8 +301,9 @@ mod tests {
     }
 
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
-    /// quality and enhanced rows and #2014's counter rows), by the group it registers with.
-    const KNOWN: [(&str, &str); 101] = [
+    /// quality and enhanced rows, #2014's counter rows and the two VATS rows), by the group it
+    /// registers with.
+    const KNOWN: [(&str, &str); 103] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -317,6 +318,8 @@ mod tests {
         ("sneak-gauges", "Gameplay"),
         ("UsePipBoy", "Gameplay"),
         ("kill-camera", "Gameplay"),
+        ("vats-style", "Gameplay"),
+        ("vats-slowdown", "Gameplay"),
         ("difficulty", "Gameplay"),
         ("hardcore", "Gameplay"),
         ("lip-sync", "Gameplay"),
@@ -431,7 +434,7 @@ mod tests {
         assert_eq!(all.len(), list.len());
         all.sort_unstable();
         assert_eq!(all, (0..list.len()).collect::<Vec<_>>(), "each registered row once");
-        assert_eq!(keys(&list, &l, "Gameplay")[..7], ["[Game]", "difficulty", "hardcore", "kill-camera", "reload-slows", "UsePipBoy", "[Saving]"]);
+        assert_eq!(keys(&list, &l, "Gameplay")[..9], ["[Game]", "difficulty", "hardcore", "kill-camera", "vats-style", "vats-slowdown", "reload-slows", "UsePipBoy", "[Saving]"]);
         assert_eq!(keys(&list, &l, "Audio"), ["volume-master", "volume-music", "volume-footstep", "volume-voice", "volume-effects", "volume-radio", "music", "voice", "reverb", "voice-reverb"]);
         assert_eq!(keys(&list, &l, "Controls"), CONTROLLER_KEYS);
         assert_eq!(keys(&list, &l, "Debug"), ["overlay", "hit-markers", "god-mode", "navmesh", "scope-3d"]);

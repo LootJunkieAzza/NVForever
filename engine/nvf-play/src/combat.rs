@@ -898,8 +898,31 @@ pub struct LiveGrenade {
     pub age: f32,
 }
 
+/// VATS mode's explosive projectiles this frame (`crate::vats_mode` holds its slow time
+/// for them, docs/design/vats-mode.md §9): how many fly toward the point they were sent
+/// at, how many fly off from it (further from it than they have been by more than
+/// [`VATS_FLY_OFF`]), and how many have gone off since the game began.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VatsBlast {
+    pub toward: u32,
+    pub off: u32,
+    pub went_off: u32,
+}
+
+/// An explosive sent by VATS mode is flying off once it is this much further from the
+/// point it was sent at than the nearest it has been, units [design: the fork owner
+/// 2026-11-10, the mode is not to wait for "a projectile flying away from the target ...
+/// until the projectile hits an invisible wall"; about a grenade's blast radius, so one
+/// that bounces and rolls beside its mark still counts as coming].
+pub const VATS_FLY_OFF: f32 = 384.0;
+
 struct Flying {
     p: Projectile,
+    /// The point VATS mode sent it at, for an explosive of the player's ([`VatsBlast`]),
+    /// the nearest it has been to it, and whether it was told that it flies off.
+    vats_aim: Option<V3>,
+    nearest: f32,
+    told_off: bool,
     /// Its number among the drawn projectiles ([`ShotVisual::id`]) and its PROJ.
     id: u64,
     proj: FormId,
@@ -1084,6 +1107,8 @@ pub struct Combat {
     /// The last [`WeaponAnim::ejects`] seen, and when (`time`) the last shot was fired.
     ejects_seen: u32,
     last_shot: f32,
+    /// The point VATS mode's throw goes at, while its clip winds up to the `Hit` key.
+    vats_throw: Option<[f32; 3]>,
     /// The next [`ShotVisual::id`].
     next_visual: u64,
     pending: Vec<Pending>,
@@ -1134,6 +1159,8 @@ pub struct Combat {
     /// (docs/design/vats-mode.md §17.2): the spread with the sights up, no bloom, before
     /// `fVATSSpreadMult`; kept from the last frame a gun was ready, `None` without one.
     pub vats_cone: Option<f32>,
+    /// VATS mode's explosives in flight and gone off ([`VatsBlast`]).
+    pub vats_blast: VatsBlast,
     /// The weapon and factor of the last Modify Throwing Velocity line (one a change).
     throw_logged: Option<(FormId, u32)>,
     /// The spread perks last logged, with their weapon ([`spread_perks`]).
@@ -1307,6 +1334,11 @@ impl Combat {
 
     /// The weapon in use and its Sight FOV (degrees), when it is a gun with sights (Sight
     /// FOV above 0; melee weapons block instead) (`crate::aim_zoom`).
+    /// Weapon `id`'s VATS special attack, when its record has one (WEAP `VATS`).
+    pub fn vats_special(&self, id: FormId) -> Option<fnv_combat::vats::SpecialAttack> {
+        self.forms.weapons.get(&id)?.vats_special
+    }
+
     pub fn sight_fov(&self) -> Option<(FormId, f32)> {
         let w = self.weapon.filter(|_| !self.melee)?;
         let fov = self.player_stats(w)?.sight_fov;
@@ -2045,6 +2077,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         ghosts: Vec::new(),
         looping: None,
         ejects_seen: 0,
+        vats_throw: None,
         last_shot: 0.0,
         next_visual: 0,
         pending: Vec::new(),
@@ -2066,6 +2099,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         grenade_hold: 0.0,
         grenade_held: false,
         vats_cone: None,
+        vats_blast: VatsBlast::default(),
         player_blocked_at: None,
         special_swing: None,
         throw_logged: None,
@@ -2748,7 +2782,14 @@ pub(crate) fn fire(
     let eject_now = anim.ejects != c.ejects_seen;
     c.ejects_seen = anim.ejects;
     // VATS mode's marked shot due now: the point it goes straight at (vats-mode.md §9.1).
-    let vats_shot = vats.as_deref_mut().and_then(|v| v.take_shot());
+    let mut vats_shot = vats.as_deref_mut().and_then(|v| v.take_shot());
+    // A throw still winding up for the mode when the mode has ended (a jump, a menu) is
+    // the mode's no longer: it leaves as any throw does, where the player looks, and not
+    // at the point kept for it as a VATS shot [the owner's review of #2102].
+    if c.vats_throw.is_some() && !vats.as_deref().is_some_and(|v| v.playing_back()) {
+        c.vats_throw = None;
+        info!("combat: the VATS mode throw is the mode's no longer (the mode ended while it wound up)");
+    }
     // The looping shoot sound stops a moment after the last shot.
     if let Some((sound, left)) = c.looping.as_mut() {
         *left -= dt;
@@ -2786,6 +2827,9 @@ pub(crate) fn fire(
     if !anim.ready {
         if vats_shot.is_some() {
             info!("combat: the VATS mode shot could not leave (the weapon is not out)");
+            if let Some(v) = vats.as_deref_mut() {
+                v.throw_left();
+            }
         }
         return;
     }
@@ -2815,9 +2859,23 @@ pub(crate) fn fire(
     cycle.timing = Timing::of(&w, &anim.timing, &c.tuning).with_reload_rate(rate).with_attack_rate(atk);
     // A VATS mode shot leaves now, whatever the weapon's cooldown or wind-up (the owner's
     // "faster than the weapon's normal rate"), unless it is reloading, jammed or empty.
-    if vats_shot.is_some() {
+    // A throw is the exception: its clip starts now and it leaves the hand at the clip's
+    // `Hit` key, as a throw outside the mode does, at the point kept till then
+    // (`vats_throw`); the mode waits for it (`VatsMode::throw_left`). [observed: the fork
+    // owner's playtest 2026-11-10: let go at once, the throw was seen twice, the clip from
+    // its start in the mode's slow time and the rest of it after the mode; design.]
+    if let Some(point) = vats_shot {
         if cycle.reloading() || cycle.jammed() || (!cycle.no_ammo && cycle.magazine < cycle.ammo_use) {
             info!("combat: the VATS mode shot could not leave (reloading, jammed or empty)");
+            if let Some(v) = vats.as_deref_mut() {
+                v.throw_left();
+            }
+        } else if c.self_ammo && cycle.timing.fire_delay > 0.0 {
+            cycle.phase = fnv_combat::attack::Phase::WindUp { left: cycle.timing.fire_delay };
+            anim.wind_ups += 1;
+            c.vats_throw = Some(point);
+            vats_shot = None;
+            info!("combat: {} winds up for the VATS mode throw, it leaves at the clip's Hit key in {:.2} s", w.edid.as_deref().unwrap_or("?"), cycle.timing.fire_delay);
         } else {
             cycle.phase = fnv_combat::attack::Phase::WindUp { left: 0.0 };
         }
@@ -2854,7 +2912,20 @@ pub(crate) fn fire(
     } else {
         c.grenade_held = false;
     }
-    let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt, carried });
+    // The weapon's cycle goes at the player's own pace while a VATS camera shot plays (its
+    // Player time multiplier), as the body's clips do: a throw leaves at its clip's key.
+    let own_dt = dt * vats.as_deref().map_or(1.0, |v| v.player_rate());
+    let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt: own_dt, carried });
+    // VATS mode's throw that wound up leaves now, at its point; one that no longer winds
+    // up (the weapon went) is forgotten. Either way the mode goes on.
+    let fired_now = events.iter().any(|e| matches!(e, Event::Fired { .. }));
+    let throw_out = c.vats_throw.is_some() && (fired_now || !matches!(cycle.phase, fnv_combat::attack::Phase::WindUp { .. }));
+    if throw_out || (fired_now && vats_shot.is_some()) {
+        if let Some(v) = vats.as_deref_mut() {
+            v.throw_left();
+        }
+    }
+    let vats_shot = if throw_out { c.vats_throw.take().filter(|_| fired_now) } else { vats_shot };
     // A pull whose shot waits for the clip's `Hit` key: the clip starts now (`wind_ups`).
     if !was_winding && cycle.timing.fire_delay > 0.0 && matches!(cycle.phase, fnv_combat::attack::Phase::WindUp { .. }) {
         anim.wind_ups += 1;
@@ -3072,7 +3143,8 @@ pub(crate) fn fire(
                     c.next_visual += 1;
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
                     let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false, vats: vats_shot.is_some(), sneaking: control.sneak };
-                    c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
+                    let vats_aim = vats_shot.filter(|_| p.explosion.is_some() && !p.mine);
+                    c.flying.push(Flying { p, vats_aim, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
                 // The flash itself is the renderer's (`ShotFired`); the test aid marks
@@ -3211,6 +3283,37 @@ fn worn_armor(forms: &CombatForms, sim: &mut SimState, target: FormId) -> Vec<(F
         None => inv.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect(),
     };
     forms.worn_armor(items).into_iter().map(|id| (id, inv.condition_in_use(id).unwrap_or(1.0))).collect()
+}
+
+/// What one hit of the player's `weapon` on `target`'s `part` would take off its Health,
+/// with no critical: the rules a landed shot goes through (`damage::hit`: the weapon's
+/// figures with its mods and its condition, the player's skill and perks, the part's
+/// damage multiplier, the target's DT, DR or resistance and its perks), with `power` as a
+/// power or special attack's multiplier. For VATS' target screen (`crate::vats_mode`, the
+/// enemy bar's damage in sight); a shot of several projectiles counts whole, as if all
+/// of them hit. A weapon whose shot goes off (a launcher, a grenade) counts its explosion
+/// too, as at the blast's middle, through the same armour (`damage::blast_hit`) [observed:
+/// the fork owner's playtest 2026-11-10, a launcher showed no damage in sight: its own hit
+/// is next to nothing, the blast is the damage]. `None` for a weapon without stats.
+#[allow(clippy::too_many_arguments)]
+pub fn vats_hit_estimate(c: &Combat, parts: &ActorParts, mut script: Option<&mut ScriptState>, sim: &mut SimState, weapon: FormId, target: u32, part: Option<u8>, power: f32) -> Option<f32> {
+    let w = c.player_stats(weapon)?;
+    let shooter = FormId::PLAYER_REF;
+    let a = attacker(script.as_deref_mut(), sim, &c.rules, shooter, &w, true);
+    let bp = c.vats_part(parts, target, part);
+    let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(sim, shooter, weapon), ammo_effects: &[], part: bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part), power };
+    let t = FormId(target);
+    let (ap, tp) = hit_perks(script.as_deref_mut(), sim, shooter, weapon, Some(t));
+    let (dt, dr) = target_armor(c, script.as_deref_mut(), sim, t);
+    let resist = target_resist(script.as_deref_mut(), sim, t, &w);
+    // A roll of 1 is never a critical.
+    let hit = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt, dr, resist, ..Target::default() }, &ap, &tp, 1.0).dealt;
+    let blast = c.forms.chain_with(weapon, &w, c.ammo).explosion.and_then(|e| c.forms.explosions.get(&e)).map_or(0.0, |x| {
+        let raw = damage::explosion_damage(&c.tuning, x.damage, x.radius, 0.0);
+        let (ap, tp) = blast_perks(script, sim, Some(Cause { actor: shooter, weapon }), t);
+        damage::blast_hit(&c.rules, &c.tuning, raw, dt, dr, &ap, &tp).dealt
+    });
+    Some(hit + blast)
 }
 
 /// The condition of the unit of `item` that `actor` uses; 1 when it carries none (the
@@ -3480,6 +3583,16 @@ fn hit_actor(
     let mine = info.attacker == Some(FormId::PLAYER_REF);
     let rt = script.and_then(|s| s.rt.as_mut())?;
     if target == FormId::PLAYER_REF {
+        // While the classic VATS style plays its queued attacks the player takes a share
+        // of a hit, `fVATSPlayerDamageMult` (`crate::vats_mode`, vats-classic.md §7).
+        let dealt = match rt.game.vats.player_damage_mult {
+            Some(m) => {
+                let less = fnv_combat::vats::playback_damage(dealt, &fnv_combat::vats::ClassicTuning { player_damage_mult: m, ..Default::default() });
+                info!("combat: vats playback: the player takes {less:.1} of {dealt:.1} (fVATSPlayerDamageMult {m:.2})");
+                less
+            }
+            None => dealt,
+        };
         return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback, blast).map(|r| (r, None));
     }
     // The hit's effects go on before its damage (`hit_effects`).
@@ -3757,6 +3870,13 @@ fn melee(
         // VATS mode's swing lands on its mark when the mark is still close and the first
         // thing on the line from the eye to it (100 % accuracy, vats-mode.md §16.2).
         let vats_mark = vats.as_deref().and_then(|v| v.melee_mark());
+        // The blow is a queued special attack of the classic style: its damage multiplier
+        // and the effect it puts on the target (docs/design/vats-classic.md §9).
+        let vats_special = vats.as_deref().and_then(|v| v.swing_special());
+        if let Some(s) = vats_special {
+            info!("combat: vats special attack: the blow's damage times {:.2}{}", s.dam_mult, s.effect.map_or_else(String::new, |e| format!(", effect {e}")));
+        }
+        let power_mult = power_mult * vats_special.map_or(1.0, |s| s.dam_mult);
         let hits = {
             let world = view(&mut phys, script.as_deref(), Some(&sim));
             let straight = vats_mark.and_then(|(target, point, close, lands)| {
@@ -3874,6 +3994,7 @@ fn melee(
             if let Some(spell) = special.and_then(|m| m.spell) {
                 items.push(spell);
             }
+            items.extend(vats_special.and_then(|s| s.effect));
             note_hit_point(script.as_deref_mut(), target, hit.point);
             note_armour(script.as_deref_mut(), target, &d);
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken, crit_effect(c, Some(id)));
@@ -4111,7 +4232,7 @@ fn actor_attacks(
             let tracer = rolled || (shown && instant(&p));
             let dir = vec::normalize(p.vel);
             c.next_visual += 1;
-            c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
+            c.flying.push(Flying { p, vats_aim: None, nearest: f32::INFINITY, told_off: false, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by, rref: None, registered: false, speed_mult: 1.0, ended_at: None });
             if let Some(flying) = c.flying.last() {
                 grenade_probe.accepted(probe_request, s, &flying.p, flying.proj, flying.id);
             }
@@ -4462,6 +4583,7 @@ fn fly(
             }
         });
     }
+    (c.vats_blast.toward, c.vats_blast.off) = (0, 0);
     if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() {
         if !visuals.flying.is_empty() {
             visuals.flying.clear();
@@ -4500,6 +4622,23 @@ fn fly(
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             let touched_before = f.p.first_contact.is_some();
             let events = f.p.step(&world, dt);
+            // VATS mode's explosive ([`VatsBlast`]): gone off, coming, or flying off.
+            if let Some(aim) = f.vats_aim {
+                if events.iter().any(|e| matches!(e, ProjEvent::Explode { .. })) {
+                    c.vats_blast.went_off += 1;
+                } else if f.p.alive {
+                    let far = vec::len(vec::sub(f.p.pos, aim));
+                    f.nearest = f.nearest.min(far);
+                    if far > f.nearest + VATS_FLY_OFF {
+                        c.vats_blast.off += 1;
+                        if !std::mem::replace(&mut f.told_off, true) {
+                            info!("combat: the VATS mode explosive flies off, {far:.0} units from its mark and {:.0} at the nearest", f.nearest);
+                        }
+                    } else {
+                        c.vats_blast.toward += 1;
+                    }
+                }
+            }
             // An explosive's arc, for comparing with the original's (combat-rules.md §5,
             // issue #1471): where it left and how, and where it first touched something.
             if let (false, Some((point, age)), Some((from, v)), Some(_)) = (touched_before, f.p.first_contact, f.p.launch, f.p.explosion) {

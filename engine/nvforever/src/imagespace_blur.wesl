@@ -20,6 +20,8 @@ struct Grade {
     time: f32,
     sharp: f32,
     vats: vec4<f32>,
+    // VATS mode: the grade's colour, what a picture's lightness is multiplied by.
+    vats_tint: vec4<f32>,
     // Depth of field: strength, distance, range, the target's distance (< 0: the screen
     // centre's); use target, flags, the camera's near plane (imagespace.rs).
     dof: vec4<f32>,
