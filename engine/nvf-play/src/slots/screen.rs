@@ -98,7 +98,8 @@ pub fn draw(
     glyphs: Res<crate::pad::PadGlyphs>,
     roots: Query<Entity, With<SlotsRoot>>,
     time: AidTime,
-    (mut kit, mut shown, reels3d): (Local<Option<Kit>>, Local<Option<String>>, Option<Res<SlotsReels3d>>),
+    (mut kit, mut shown): (Local<Option<Kit>>, Local<Option<String>>),
+    reels3d: Option<Res<SlotsReels3d>>,
 ) {
     let view_w = view_width(window.single().ok());
     let now = time.elapsed_secs();
