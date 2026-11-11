@@ -62,10 +62,17 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
 - A script's use comes before the combat AI (`npc_combat` skips the actor), as the shipped
   scripts call StartCombat with UseWeapon (spec note §2). ResetAI drops the use.
 - A package's use with Continue During Combat also keeps the combat AI off while it is
-  active, on the way to its stand as well as there (`npc_combat::weapon_use_holds_fight`):
-  the actor fires the package's pattern at the package's target, never that and the
-  ordinary attacks together. Spent (or its package changed), the use is no longer active
-  and the fight takes the actor back. Keeping the package's target in combat, rather than
+  active, on the way to its stand as well as there, and through a melee use's last blow
+  until it lands (`npc_combat::weapon_use_holds_fight`, `use_weapon::Shooters::landing`):
+  the actor fires the package's pattern at the package's target instead of the ordinary
+  attacks. Spent (or its package changed), the use is no longer active and the fight
+  takes the actor back. `shoot` and `fight` run in no set order, so in the frame a use
+  begins or ends one of them may still act on the state the other has just left.
+- In Combat the actor is drawn facing the target of the use it carries out, a script's
+  or a package's, not its combat target, and a lock on its enemy from the fight does not
+  turn it (`residents::aim_target`, `keeps_lock`): the shooter fires only facing the
+  use's target. During a melee use's last blow (no longer active) it faces its combat
+  target again. Keeping the package's target in combat, rather than
   turning on whoever attacks it, is our reading of the flag's "continue to fire" (spec
   note §3) [design]; a held package use (no flag) waits as before, its target and volleys
   kept.

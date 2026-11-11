@@ -1211,13 +1211,16 @@ pub fn embedded_node_index(names: &[Option<String>], node: &str) -> Option<usize
 }
 
 /// Whether a weapon use keeps `fight` off an actor (`use_weapon`): a script's use for
-/// as long as it lasts (it comes first), and any use still to be carried out
+/// as long as it lasts (it comes first); any use still to be carried out
 /// (`Game::active_weapon_use`), which in a combat state is a package's only when the
-/// package continues during combat (#2120). The shooter fires only such a use, so
-/// package fire and the ordinary attacks are never both on; once the use is spent or
-/// let go, the fight takes the actor back [design].
-fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>) -> bool {
-    any.is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) || active.is_some()
+/// package continues during combat (#2120); and a melee use whose last blow is still
+/// to land (`landing`, `use_weapon::Shooters::landing`), which the shooter goes on with.
+/// These are the uses the shooter acts on, so it and the ordinary attacks do not take
+/// turns on one actor; once the use is spent and landed, or let go, the fight takes the
+/// actor back. `shoot` and `fight` are not ordered, so in the frame a use begins or ends
+/// one of them may still act on the state the other has just left [design].
+fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, landing: bool) -> bool {
+    any.is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) || active.is_some() || landing
 }
 
 /// One frame of every fight (module notes).
@@ -1235,7 +1238,7 @@ pub(crate) fn fight(
     (held, body, body_melee): (Query<&HeldWeapon>, Query<&BodyWeapon>, Query<&ActorRig, With<BodyMelee>>),
     (muzzles, nodes): (Query<(&Muzzle, &GlobalTransform)>, Query<&GlobalTransform>),
     (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
-    mut times: ResMut<AttackTimes>,
+    (mut times, shooters): (ResMut<AttackTimes>, Option<Res<crate::use_weapon::Shooters>>),
     (cstats, control, mut grenade_probe): (Option<Res<CombatStats>>, Option<Res<PlayerControl>>, ResMut<nvf_play::combat::held_grenade_probe::Probe>),
 ) {
     let dt = time.delta_secs();
@@ -1359,7 +1362,8 @@ pub(crate) fn fight(
                 continue;
             }
             // A weapon use being carried out fires instead (`use_weapon`).
-            if weapon_use_holds_fight(g.weapon_use(me), g.active_weapon_use(me)) {
+            let landing = g.weapon_use(me).is_some_and(|w| shooters.as_deref().is_some_and(|s| s.landing(id, w.seq)));
+            if weapon_use_holds_fight(g.weapon_use(me), g.active_weapon_use(me), landing) {
                 continue;
             }
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
@@ -3107,30 +3111,32 @@ mod tests {
         Cycle::new(ws, Timing { interval: 0.1, fire_delay: 0.2, reload: 1.0, spin_up: 0.0, rounds: None, attach: None }, false, 2)
     }
 
-    /// #2120: the shooter (`use_weapon`) fires only what `Game::active_weapon_use` gives;
-    /// whatever it gives keeps the ordinary attacks off, so the two never fire together,
-    /// and a script's use comes first as before.
+    /// #2120: the shooter (`use_weapon`) acts on what `Game::active_weapon_use` gives and
+    /// on a melee use's last blow still to land; each keeps the ordinary attacks off, and a
+    /// script's use comes first as before.
     #[test]
     fn a_weapon_use_being_carried_out_keeps_the_ordinary_attacks_off() {
         use fnv_game::use_weapon::{Source, WeaponUse};
         let script = WeaponUse::of_script(None, None, FormId(0x7), 3, true, true, false, false, None);
         let package = WeaponUse { source: Source::Package(FormId(0x9)), volleys: Some(2), shots_per_volley: [1, 1], ..script.clone() };
         // No weapon use: the actor fights.
-        assert!(!weapon_use_holds_fight(None, None));
+        assert!(!weapon_use_holds_fight(None, None, false));
         // A script's use, walking to its place or firing.
-        assert!(weapon_use_holds_fight(Some(&script), Some(&script)));
-        assert!(weapon_use_holds_fight(Some(&script), None), "a script's use comes first whatever its state");
+        assert!(weapon_use_holds_fight(Some(&script), Some(&script), false));
+        assert!(weapon_use_holds_fight(Some(&script), None, false), "a script's use comes first whatever its state");
         // A package's use held in combat (no Continue During Combat): no package fire, the
         // actor fights.
-        assert!(!weapon_use_holds_fight(Some(&package), None));
+        assert!(!weapon_use_holds_fight(Some(&package), None, false));
         // Its package continues during combat: package fire is on, the attacks are off,
         // on the way to its stand as well as there.
-        assert!(weapon_use_holds_fight(Some(&package), Some(&package)));
+        assert!(weapon_use_holds_fight(Some(&package), Some(&package), false));
         let there = WeaponUse { in_place: true, ..package.clone() };
-        assert!(weapon_use_holds_fight(Some(&there), Some(&there)));
-        // Spent (kept, done, until the package changes) or let go: the actor fights again.
+        assert!(weapon_use_holds_fight(Some(&there), Some(&there), false));
+        // Spent (kept, done, until the package changes) or let go: the actor fights again,
+        // but not while the last blow of a melee use is still to land.
         let spent = WeaponUse { done: true, ..there.clone() };
-        assert!(!weapon_use_holds_fight(Some(&spent), None));
+        assert!(weapon_use_holds_fight(Some(&spent), None, true), "the shooter still lands its last blow");
+        assert!(!weapon_use_holds_fight(Some(&spent), None, false));
     }
 
     #[test]

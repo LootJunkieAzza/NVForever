@@ -140,6 +140,14 @@ pub struct Shooters {
     rng: u64,
 }
 
+impl Shooters {
+    /// Whether `actor`'s melee use `seq` has begun its last blow and that blow has yet to
+    /// land: the use is done (`WeaponUse::shot`), but `shoot` goes on with it until then.
+    pub fn landing(&self, actor: u32, seq: u64) -> bool {
+        self.swingers.get(&actor).is_some_and(|x| x.spent && x.seq == seq)
+    }
+}
+
 #[derive(Default)]
 struct Stats {
     actors: BTreeMap<u32, String>,
@@ -243,7 +251,7 @@ pub(crate) fn shoot(
             let Some(&(feet, eyes)) = places.get(&id) else { continue };
             // A melee use whose last blow is begun is done, but goes on here until that
             // blow has landed.
-            let landing = |w: &fnv_game::use_weapon::WeaponUse| s.swingers.get(&id).is_some_and(|x| x.spent && x.seq == w.seq);
+            let landing = |w: &fnv_game::use_weapon::WeaponUse| s.landing(id, w.seq);
             let Some(w) = g.active_weapon_use(me).or(g.weapon_use(me).filter(|w| landing(w))).filter(|w| w.in_place).cloned() else { continue };
             let name = g.data.name(me);
             let target_name = if w.target == FormId::PLAYER_REF { "the player".to_string() } else { g.data.name(w.target) };

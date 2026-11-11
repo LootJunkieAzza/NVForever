@@ -1009,6 +1009,9 @@ struct Core {
     /// and step sideways or back as they go, so they can fire on the move (owner's
     /// playtest list 5 item 33; owner 2026-10-16, strafing and backing away) [design].
     aims: HashMap<FormId, [f32; 3]>,
+    /// Of those, the ones whose aim a weapon use owns, with the use's target
+    /// ([`aim_target`]): no combat lock on another target turns them ([`keeps_lock`]).
+    use_aims: HashMap<FormId, FormId>,
     /// The player's trip behind a loading screen under way (a fast travel, a load door):
     /// the actors coming into the loaded area are put at their package's place
     /// ([`Core::arrive`], issue #1208).
@@ -1220,6 +1223,7 @@ impl Residents {
             knocked: (0, 0.0),
             door_uses: Vec::new(),
             aims: HashMap::new(),
+            use_aims: HashMap::new(),
             trip: None,
             loaded_at: HashMap::new(),
             clock_hours: 0.0,
@@ -2208,6 +2212,7 @@ impl Core {
         // a fighter turned to its way to cover); out to its peek point and back behind
         // its cover it strafes (`PostKind::Duck`).
         self.aims.clear();
+        self.use_aims.clear();
         self.to_cover.clear();
         for r in self.list.iter().filter(|r| !r.creature) {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
@@ -2221,9 +2226,14 @@ impl Core {
             if fnv_ai::alert::reacting(game, r.actor) {
                 continue;
             }
-            let Some((target, _)) = aw.and_then(|x| x.combat_target()) else { continue };
+            let Some(aw) = aw else { continue };
+            let use_target = game.active_weapon_use(r.actor).map(|w| w.target);
+            let Some(target) = aim_target(use_target, aw.combat_target().map(|(t, _)| t)) else { continue };
             if let Some(p) = fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space) {
                 self.aims.insert(r.actor, p.pos);
+                if let Some(t) = use_target {
+                    self.use_aims.insert(r.actor, t);
+                }
                 if tactics.posts.get(&r.actor).is_some_and(|p| p.kind == fnv_game::combat_group::PostKind::Cover) {
                     self.to_cover.insert(r.actor);
                 }
@@ -3089,7 +3099,9 @@ pub fn drive(
         // frame, not where the AI last placed it (a charging Fiend was drawn 110 units
         // from its AI place, and the trooper shooting at it faced 16° off), and once
         // turned to it, it stays on it.
-        let lock = fighters.as_deref().and_then(|f| f.lock_on(r.actor.0));
+        // A weapon use's aim is not turned by a lock on another target (one left from
+        // before the use took the actor over, [`keeps_lock`]).
+        let lock = fighters.as_deref().and_then(|f| f.lock_on(r.actor.0)).filter(|(t, _)| keeps_lock(*t, core.use_aims.get(&r.actor).copied()));
         let lock_target = lock.map(|(t, _)| t);
         let held = lock_target.is_some() && r.lock_held == lock_target;
         let lock = lock.map(|(_, at)| at);
@@ -3341,12 +3353,48 @@ fn level_for(high: bool, coming: bool, buffered: bool) -> fnv_ai::ProcessLevel {
     }
 }
 
+/// Whom a person in Combat is drawn facing (`Core::aims`): the target of a weapon use
+/// it is carrying out (`Game::active_weapon_use`), else its combat target. The shooter
+/// (`use_weapon`) fires only once the body faces the use's target, and the use keeps
+/// the ordinary attacks off (`npc_combat::weapon_use_holds_fight`), so facing the combat
+/// target instead would leave neither firing (#2120) [design].
+fn aim_target(use_target: Option<FormId>, combat_target: Option<FormId>) -> Option<FormId> {
+    use_target.or(combat_target)
+}
+
+/// Whether a combat lock on `lock_target` (`npc_combat::Fighters::lock_on`) may hold a
+/// person's drawn heading: not when a weapon use owns its aim at another target
+/// (`use_target`, [`aim_target`]).
+fn keeps_lock(lock_target: u32, use_target: Option<FormId>) -> bool {
+    use_target.is_none_or(|t| t.0 == lock_target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{carries_cell, level_for, recently_loaded, RunEnd, StopRun, RECENTLY_LOADED_HOURS};
     use fnv_ai::ProcessLevel;
     use fnv_sim::FormId;
     use std::collections::HashMap;
+
+    /// #2120: a person carrying out a weapon use (a Use Weapon package with Continue
+    /// During Combat, or a script's) is drawn facing the use's target, not its combat
+    /// enemy, and a lock on the enemy left from its fight does not turn it back: the
+    /// shooter fires only facing the use's target, and the fight is held meanwhile.
+    #[test]
+    fn a_weapon_use_owns_the_aim_over_the_combat_target_and_its_lock() {
+        use super::{aim_target, keeps_lock};
+        let (package_target, enemy) = (FormId(0x11), FormId(0x22));
+        // No weapon use: its combat target, and its lock holds.
+        assert_eq!(aim_target(None, Some(enemy)), Some(enemy));
+        assert!(keeps_lock(enemy.0, None));
+        // A weapon use being carried out: its target, though the enemy is elsewhere.
+        assert_eq!(aim_target(Some(package_target), Some(enemy)), Some(package_target));
+        assert_eq!(aim_target(Some(package_target), None), Some(package_target), "no combat target needed");
+        assert!(!keeps_lock(enemy.0, Some(package_target)), "a stale lock on the enemy is let go");
+        assert!(keeps_lock(package_target.0, Some(package_target)), "a lock on the use's own target holds");
+        // Neither: nothing to face.
+        assert_eq!(aim_target(None, None), None);
+    }
 
     #[test]
     fn refused_skips_add_up_over_one_blocked_episode_only() {
