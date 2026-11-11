@@ -78,6 +78,16 @@ pub const RESULT_SECONDS: f32 = 2.0;
 /// The result stays up this long after a win's celebration ends, seconds [design: room
 /// for the camera to come back, part B of item 170].
 pub const CELEBRATION_MARGIN: f32 = 0.5;
+/// A win's camera (nvforever `slots_view.rs`): its eased zoom out to third person of the
+/// player and its way back in to the reels after the celebration, seconds [design].
+pub const WIN_CAMERA_OUT: f32 = 1.2;
+pub const WIN_CAMERA_BACK: f32 = 1.4;
+/// After a win no spin starts until its whole sequence is over: the zoom out, the
+/// celebration and the way back in [design: owner 2026-11-11, "make it blocked from
+/// playing wile the win animation is playing"]. The bet and Exit stay usable.
+pub fn win_hold(celebrate: f32) -> f32 {
+    celebrate + WIN_CAMERA_OUT + WIN_CAMERA_BACK
+}
 /// How long a request waits for the player to be back in the world, seconds [design].
 pub const REQUEST_WAIT: f32 = 3.0;
 
@@ -162,6 +172,8 @@ pub struct Session {
     pub stance: Option<Stance>,
     /// A win's celebration ends then (aid seconds).
     pub celebrating: Option<f32>,
+    /// No spin starts before then (aid seconds): a win's whole sequence ([`win_hold`]).
+    pub win_hold: Option<f32>,
     /// Spins made at this machine since the menu opened (co-op: the others see a new one).
     pub spins: u32,
     pub casino_name: String,
@@ -210,6 +222,11 @@ impl Session {
 
     pub fn betting(&self) -> bool {
         self.phase == Phase::Betting && self.help.is_none() && self.asked.is_none()
+    }
+
+    /// A win's sequence still holds the next spin at `now` ([`win_hold`]).
+    pub fn held(&self, now: f32) -> bool {
+        self.win_hold.is_some_and(|until| now < until)
     }
 
     /// The lever pulled to `to` (stops): the reels turn from where they stand; the message
@@ -569,6 +586,7 @@ fn open(
         machine,
         stance: stance.map(|s| s.1),
         celebrating: None,
+        win_hold: None,
         spins: 0,
         asked: None,
         casino_name: def.name.clone(),
@@ -674,8 +692,10 @@ fn apply(
             }
             _ if s.help.is_some() => {}
             SlotsInput::Line(l) => s.forced = Some(l),
+            // Exit also while a result shows, a win's sequence too: closing ends it (the
+            // camera, the seat and the celebration go with the menu).
             SlotsInput::Exit => {
-                if s.phase == Phase::Betting {
+                if matches!(s.phase, Phase::Betting | Phase::Paid { .. }) && s.asked.is_none() {
                     info!("slots: closed (the player left)");
                     next.set(PlayState::Playing);
                 }
@@ -702,6 +722,10 @@ fn apply(
                     s.bet = b;
                     info!("slots: bet {}", s.bet);
                 }
+            }
+            SlotsInput::Spin if s.held(now) => {
+                let left = s.win_hold.map_or(0.0, |t| t - now);
+                info!("slots: spin ignored: the win's sequence has {left:.1}s to go");
             }
             SlotsInput::Spin => {
                 let bet = s.bet;
@@ -754,6 +778,10 @@ fn step(
     if s.celebrating.is_some_and(|until| now >= until) {
         s.celebrating = None;
         info!("slots seat: celebration ended");
+    }
+    if s.win_hold.is_some_and(|until| now >= until) {
+        s.win_hold = None;
+        info!("slots: spins open again (the win's sequence is over)");
     }
     match s.phase {
         Phase::Spinning { since, .. } if now - since >= REEL_STOPS[REELS - 1] => {
@@ -809,9 +837,14 @@ fn step(
             if party > 0.0 {
                 s.celebrating = Some(now + party);
                 info!("slots seat: celebration {party:.2}s ({multiple} x)");
+                s.win_hold = Some(now + win_hold(party));
+                info!("slots: the next spin waits {:.1}s for the win's sequence", win_hold(party));
             }
             spin_out.write(SlotsSpin { machine: s.machine, phase: SpinPhase::Result { multiple, back, celebrate: party } });
-            s.phase = Phase::Paid { until: now + RESULT_SECONDS.max(party + CELEBRATION_MARGIN) };
+            // The bet and Exit come back after the result's own time; a win holds only the
+            // next spin ([`win_hold`]). Banned, the menu closes after the celebration.
+            let shown = if s.banned { RESULT_SECONDS.max(party + CELEBRATION_MARGIN) } else { RESULT_SECONDS };
+            s.phase = Phase::Paid { until: now + shown };
         }
         Phase::Paid { until } if now >= until => {
             if s.banned {
@@ -933,6 +966,14 @@ mod tests {
         let mid = reel_positions(14, from, to, REEL_STOPS[0]);
         assert_eq!(mid[0], end[0]);
         assert!(mid[2] < end[2]);
+    }
+
+    #[test]
+    fn a_win_holds_the_next_spin_through_its_sequence() {
+        // The zoom out, the celebration (3 s at 160 x, 0.8 s at 2 x) and the way back in.
+        assert!((win_hold(3.0) - 5.6).abs() < 1e-5);
+        assert!((win_hold(fnv_game::slots::celebration(2)) - 3.4).abs() < 1e-5);
+        assert_eq!(win_hold(0.0), WIN_CAMERA_OUT + WIN_CAMERA_BACK);
     }
 
     #[test]

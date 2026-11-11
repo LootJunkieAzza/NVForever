@@ -70,7 +70,7 @@ fn view_key(s: &Session, now: f32, view_w: f32, in_world: bool) -> String {
     // the machine in the world).
     let reels = if in_world { [0; 3] } else { s.positions(now).map(|p| (p * 6.0).round() as i64) };
     format!(
-        "{}:{}:{}:{:?}:{:?}:{:?}:{}:{}:{view_w:.0}:{:?}:{in_world}",
+        "{}:{}:{}:{:?}:{:?}:{:?}:{}:{}:{view_w:.0}:{:?}:{in_world}:{}",
         s.bet,
         s.chips,
         s.earnings,
@@ -80,6 +80,7 @@ fn view_key(s: &Session, now: f32, view_w: f32, in_world: bool) -> String {
         s.help.is_some(),
         s.payouts,
         crate::pad::labels(),
+        s.held(now),
     )
 }
 
@@ -158,12 +159,13 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, now: f32, view_w: f3
             let top = s.limits.top(s.chips);
             let h = |k: KeyCode| crate::pad::hint(&[k], crate::pad::at_menu(fnv_game::slots::MENU_CODE));
             let buttons = [
-                ("Spin", h(KeyCode::KeyW), SlotsInput::Spin, betting && s.chips >= s.bet && s.chips > 0),
+                // Greyed while a win's sequence holds the next spin.
+                ("Spin", h(KeyCode::KeyW), SlotsInput::Spin, betting && !s.held(now) && s.chips >= s.bet && s.chips > 0),
                 ("Increase Bet", h(KeyCode::KeyE), SlotsInput::Increase, betting && s.bet < top),
                 ("Decrease Bet", h(KeyCode::KeyQ), SlotsInput::Decrease, betting && s.bet > s.limits.min_bet),
                 ("Payout List", h(KeyCode::KeyF), SlotsInput::Payouts, betting),
                 ("Bet Max", h(KeyCode::KeyS), SlotsInput::Max, betting && s.bet < top),
-                ("Exit", h(KeyCode::KeyR), SlotsInput::Exit, betting),
+                ("Exit", h(KeyCode::KeyR), SlotsInput::Exit, (betting || matches!(s.phase, super::Phase::Paid { .. })) && s.asked.is_none()),
             ];
             let column = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), top: u(BUTTONS_TOP), width: u(0.0), height: u(6.0 * BUTTON_H), ..default() };
             m.spawn(column).with_children(|b| {
