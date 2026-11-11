@@ -20,6 +20,10 @@ thiserror.workspace = true
 tracing = "0.1"
 
 [features]
+default = ["debug-lines"]
+# The collision wireframe (`debug_lines`, the engine's collision view): rapier's
+# debug-render pipeline, which adds no crates and only reads the world.
+debug-lines = ["rapier3d/debug-render"]
 # rapier's own stage timers, summed in `Stats::solver_us` (the engine's profile build turns
 # it on; results are unchanged, only timers are read).
 solver-timers = ["rapier3d/profiler"]

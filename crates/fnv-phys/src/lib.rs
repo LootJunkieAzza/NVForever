@@ -21,6 +21,8 @@
 //! - [`water`]: water areas (cell water surfaces) the character swims in
 //! - [`buoyancy`]: ragdolls and gore pieces float in water
 //! - [`swim`]: swimming speeds (the stroke cycle)
+//! - `debug_lines` (feature `debug-lines`, on by default): the collision shapes as line
+//!   segments, for the engine's collision view
 //!
 //! Units and axes are the game's: lengths in game units, Z up, rotations row-major 3×3
 //! rotating column vectors (as in `fnv_collide::shape` and `fnv_world::transform`).
@@ -33,6 +35,8 @@ pub mod arrival;
 pub mod buoyancy;
 pub mod character;
 pub mod convert;
+#[cfg(feature = "debug-lines")]
+pub mod debug_lines;
 pub mod drawn;
 pub mod gore;
 pub mod grab;
