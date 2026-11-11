@@ -260,7 +260,18 @@ pub(crate) fn shoot(
                 s.stats.done += 1;
                 continue;
             }
-            let Some(&(tfeet, teyes)) = places.get(&w.target.0) else { continue };
+            // A target that is no actor (a marker: Lonesome Road's NVDLC04SiloRevealTargetREF,
+            // an XMarker ED-E shoots at the silo reveal, queue item 190) is aimed at where it
+            // is placed; an actor not drawn is waited for [design].
+            let placed = || {
+                let b = fnv_game::functions::base_of(g, w.target).and_then(|b| g.data.sig(b));
+                if matches!(b.as_ref(), Some(b"NPC_") | Some(b"CREA")) {
+                    return None;
+                }
+                fnv_ai::goal::place_of_ref(g, w.target).map(|p| (p.pos, p.pos))
+            };
+            let at_actor = places.contains_key(&w.target.0);
+            let Some((tfeet, teyes)) = places.get(&w.target.0).copied().or_else(placed) else { continue };
             // What it uses: the weapon named, else the one drawn on it, else its fists or
             // a creature's own attack (module notes).
             let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.1);
@@ -399,7 +410,7 @@ pub(crate) fn shoot(
                             let stance = Stance { aiming: false, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, ..Stance::default() };
                             spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[])
                         };
-                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage, always_hit: w.always_hit.then_some(w.target) });
+                        fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage, always_hit: (w.always_hit && at_actor).then_some(w.target) });
                         anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default(), power: None, swing: None });
                         s.stats.shots += 1;
                         s.stats.sure += usize::from(w.always_hit);

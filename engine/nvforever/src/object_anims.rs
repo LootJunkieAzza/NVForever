@@ -120,6 +120,10 @@ pub struct ObjectAnims {
     waiting: HashMap<u32, (AnimRequest, f32)>,
     /// The last request logged per reference (a script repeating it is not logged again).
     logged: HashMap<u32, (u16, i32)>,
+    /// The groups a reference's model was found to lack, reported once each (a script
+    /// that alternates such a group with another, the Lonesome Road silo's panel light
+    /// blinking Right and SpecialIdle, is not logged on every pass; item 191).
+    missing: std::collections::HashSet<(u32, u16)>,
     stats: Stats,
 }
 
@@ -240,8 +244,12 @@ pub fn drive(
             info!("playgroup: {} drawn again, shows {name} {}", game.data.name(FormId(rig.form_id)), if once { "at its end" } else { "from its start" });
             continue;
         };
-        let Some(name) = r.name.as_deref() else { continue };
-        let Some(i) = rig.find(name) else { continue };
+        // Drawn, and its model lacks what was asked: no longer counted as playing.
+        let Some(i) = r.name.as_deref().and_then(|n| rig.find(n)) else {
+            game.anims.set_playing(r.on, None);
+            continue;
+        };
+        let name = r.name.as_deref().unwrap_or_default();
         let once = rig.clip(i).is_some_and(|c| c.cycle_type == CLAMP);
         let from = match (once, rig.run_time) {
             (false, _) => StartAt::Start,
@@ -294,15 +302,18 @@ pub fn drive(
             if fresh {
                 info!("playgroup: {who} plays {group} (flag {}): not drawn, shown when it is", r.start.flag());
             }
-            game.anims.set_playing(r.on, None);
+            // Counted as playing until it is drawn (IsAnimPlaying 1), so a script waiting
+            // for the group to end waits for it to be shown (item 192, Kimball's vertibird;
+            // activators.md §5) [hypothesis].
+            game.anims.set_playing(r.on, Some(r.group));
             st.waiting.insert(r.on.0, (r, now));
             continue;
         };
         let Ok((root, mut rig, playing, mats, _)) = rigs.get_mut(e) else { continue };
         let Some(i) = r.name.as_deref().and_then(|n| rig.find(n)) else {
             st.stats.no_sequence += 1;
-            if fresh {
-                info!("playgroup: {who} plays {group}: its model has no sequence of that name");
+            if st.missing.insert((r.on.0, r.group)) {
+                info!("playgroup: {who} plays {group}: its model has no sequence of that name (said once for this reference and group)");
             }
             game.anims.set_playing(r.on, None);
             continue;

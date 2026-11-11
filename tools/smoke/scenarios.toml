@@ -25255,3 +25255,41 @@ expect = [
   { re = 'idle: VHeliosStasisProtectron[25]REF plays ProtectronTurnedOff', max = 0, label = "not the switched-off pose: they are awake (GetUnconscious 0 in the original)" },
   { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
 ]
+
+# ------------------------------------------------------------------ overnight queue items 189-192 (2026-11-11)
+
+[[scenario]]
+name = "playgroup-disabled-waits"
+source = "queue item 192 (docs/spec-notes/activators.md §5): a group asked of an object that is not drawn counts as playing (IsAnimPlaying 1) until it is drawn, so a script waiting for it to end (Kimball's vertibird VHDBearForceOneREF) does not fall through at once; drawn later, a group played once shows where it would be by now and has ended"
+note = "the Goodsprings banana yucca 0x00106B2E (Forward, once, 0.47 s; animated-collision-write) is disabled by the console at 5 s, asked to play Forward at 7 s, read at 8 s (1), enabled at 10 s and read again at 13 s (0: ended). Queue item 191 on the same plant: Right (which its model lacks) and Forward asked in turn at 15-19 s are reported missing once"
+areas = ["object-anims"]
+paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "7:play_group:0x00106B2E:Forward:1,15:play_group:0x00106B2E:Right:1,16:play_group:0x00106B2E:Forward:1,17:play_group:0x00106B2E:Right:1,18:play_group:0x00106B2E:Forward:1,19:play_group:0x00106B2E:Right:1", NVF_PLAY_TEST_CONSOLE = "5:00106B2E.disable;8:00106B2E.IsAnimPlaying Forward;10:00106B2E.enable;13:00106B2E.IsAnimPlaying Forward;13.3:close" }
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'playgroup: .*plays Forward \(flag 1\): not drawn, shown when it is', label = "Forward asked of the disabled plant waits to be shown" },
+  { re = 'console: IsAnimPlaying on .*>> 1\.00', label = "IsAnimPlaying Forward reads 1 while it waits" },
+  { re = 'playgroup: .*drawn \(enabled at run time\), plays Forward from', label = "enabled, it is drawn and plays Forward where it would be by now" },
+  { re = 'console: IsAnimPlaying on .*>> 0\.00', label = "and has ended 3 s later" },
+]]
+expect = [
+  { re = 'playgroup: .*plays Right: its model has no sequence of that name', count = 1, label = "Right, which the plant lacks, is reported once though asked three times between Forwards (item 191)" },
+]
+
+[[scenario]]
+name = "use-weapon-marker"
+source = "queue item 190 (docs/design/use-weapon.md): UseWeapon on a target that is no actor (Lonesome Road's silo reveal has ED-E shoot NVDLC04SiloRevealTargetREF, an XMarker): the shots are fired at where the marker is placed"
+note = "Violet (FiendVioletRef 0x000F570B, -46910,64897, hunting rifle) is told at 5 s to fire 3 harmless shots, not always hitting, at the XMarkerHeading 0x0016581F (-46305,67861,4282, about 3,000 units north of her) from her own place; nobody perceives the player (NVF_PLAY_TEST_UNSEEN). Before the fix the use waited for ever: 0 shots"
+areas = ["combat", "use-weapon"]
+paths = ["engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapHuntingRifle:FiendVioletRef:0x0016581F:3:0:0:0:1" }
+args = ["--cell", "Goodsprings", "--pos=-45500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  { re = 'is to use its weapon on .*: from where it stands', label = "the AI takes up the use where she stands" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapHuntingRifle on .* \(a script\): 3 shots; no damage', label = "Violet uses her rifle on the marker: 3 shots, no damage" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B has fired its 3 shots at', label = "all 3 shots are fired" },
+  { re = 'use weapon summary: 1 actors used a weapon .*?3 shots', label = "the summary counts them" },
+]
