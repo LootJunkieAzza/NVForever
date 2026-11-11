@@ -9,7 +9,10 @@
 //!   either side along its x axis, 12 lower, each facing it [observed: FalloutNV.esm
 //!   0x00107D1A, 0x00107CED, 0x00107D82 in GSProspectorSaloonInterior]. They are made
 //!   when the saloon loads and they are not there; a save keeps them like any created
-//!   reference. A co-op guest makes none: the host's are copied to it.
+//!   reference. They are made under fixed numbers ([`REFS`]), the same in every game, so
+//!   that in co-op the host's and each guest's table are one reference: the furniture a
+//!   player or the opponent sits on is named alike on every screen (`fnv_sim` numbers a
+//!   guest's own created references apart from the host's) [design: armwrestle-b].
 //! - **The spot** ([`TABLE_POS`]): the east end of the back hall to the restrooms, the
 //!   spot armwrestle-a chose (nvf-play `armwrestle.rs`, the same base, place, headings and
 //!   scale, so whichever side runs first, the other finds its references and none is made
@@ -55,6 +58,12 @@ pub const STOOL_Z: f32 = 3474.0;
 /// What the table cuts out of the navmesh, in its own frame before its scale: Table02's
 /// object bounds (OBND), the stools left walkable round [design].
 pub const TABLE_BOUNDS: ([f32; 3], [f32; 3]) = ([-46.0, -32.0, -24.0], [46.0, 32.0, 24.0]);
+/// The numbers the table and its two stools are made under, in every game [design: in
+/// the dynamic range, below a co-op guest's own (from 0xFF800000) and far above any count
+/// the host's game reaches; armwrestle-b]. One already taken (never seen) falls back to
+/// the next free number.
+pub const REFS: [FormId; 3] = [FormId(0xFF7F_A000), FormId(0xFF7F_A001), FormId(0xFF7F_A002)];
+
 /// How near its spot a created reference must be to be the table's (or a stool's): as
 /// nvf-play `armwrestle.rs` finds them [design].
 const SAME_SPOT: f32 = 6.0;
@@ -120,13 +129,11 @@ pub fn seat_of(g: &Game, stool: FormId) -> Option<u8> {
 }
 
 /// Make the table and stools when the saloon is loaded and they are not there (any one
-/// missing is made again). Nothing on a co-op guest, or with a load order lacking the
-/// cell or the bases. Returns what was made.
+/// missing is made again), under [`REFS`]: a co-op guest makes its own under the same
+/// numbers as the host's. Nothing with a load order lacking the cell or the bases.
+/// Returns what was made.
 pub fn ensure(g: &mut Game) -> Vec<FormId> {
     let mut made = Vec::new();
-    if g.coop_guest {
-        return made;
-    }
     let (Some(cell), Some(table), Some(stool)) = (saloon(g), g.data.by_edid(TABLE_EDID), g.data.by_edid(STOOL_EDID)) else { return made };
     if !g.loaded_cells.contains(&cell) {
         return made;
@@ -136,11 +143,12 @@ pub fn ensure(g: &mut Game) -> Vec<FormId> {
         let (p, h) = stool_spot(seat);
         want.push((stool, p, h));
     }
-    for (base, pos, heading) in want {
+    for ((base, pos, heading), id) in want.into_iter().zip(REFS) {
         if created_at(g, base, cell, pos).is_some() {
             continue;
         }
-        match g.world.place(base, Some(cell), pos, [0.0, 0.0, heading], 1) {
+        let at = [0.0, 0.0, heading];
+        match g.world.place_as(id, base, Some(cell), pos, at).or_else(|_| g.world.place(base, Some(cell), pos, at, 1)) {
             Ok(r) => {
                 if base == table {
                     if let Ok(s) = g.world.get(r) {

@@ -22,12 +22,17 @@
 //!   highlight (`flourish::Highlight::ArmWrestle`); after [`RESULT_HOLD`] the player gets
 //!   up, the game lets the Settler go back to his package, and the end view (nvforever
 //!   `match_end`, item 166) shows the winner cheering.
-//! - **Co-op** (part B, `armwrestle-b`): the [`Bout`] in [`Arm::bout`] is the whole
-//!   host-authoritative state; side 0 is whoever sat first.
+//! - **Co-op** (part B, `crate::armwrestle_coop`): the match is the deciding game's (the
+//!   host's). This screen sits the player down (`ArmSeat::at`, its side the stool's),
+//!   sends its taps (`ArmSeat::taps`), asks for a bout against the opponent once he sits
+//!   (`ArmSeat::want_npc`) and draws the bout it is sent (`ArmSeat::bout`) instead of
+//!   running its own. Two players on the two stools wrestle each other.
 //!
 //! Log lines start `arm wrestle:`.
 
+use crate::armwrestle_coop::{ArmBodies, ArmSeat, Wrestler, TABLE_KEY};
 use crate::casino_hud::CasinoFaces;
+use crate::coop_tables::Tables;
 use crate::furniture::PlayerSeat;
 use crate::pause::AidTime;
 use crate::script::{with_world, ScriptState};
@@ -165,7 +170,7 @@ impl Plugin for ArmWrestlePlugin {
 
 /// In the saloon: the table and stools the game made, found (looked for again while not
 /// there, and when the ones found are gone, as after loading a save).
-fn look(mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut table: ResMut<ArmTable>, mut frames: Local<u32>, mut was: Local<Option<FormId>>) {
+fn look(mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut table: ResMut<ArmTable>, mut frames: Local<u32>, mut was: Local<Option<FormId>>, mut bodies: ResMut<ArmBodies>) {
     let Some(cell) = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.cell) else { return };
     let here = |r: Option<FormId>| r.is_some_and(|r| sim.world.peek(r).is_some_and(|s| !s.deleted()));
     let fresh = *was != Some(cell);
@@ -174,7 +179,7 @@ fn look(mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut 
         return;
     }
     *frames = frames.wrapping_add(1);
-    if !fresh && *frames % LOOK_EVERY != 0 {
+    if !fresh && !frames.is_multiple_of(LOOK_EVERY) {
         return;
     }
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -194,6 +199,8 @@ fn look(mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut 
             t.stools.map(|s| s.map(|r| format!("{:08X}", r.0)))
         );
     }
+    bodies.stools = t.stools.map(|s| s.map(|r| r.0));
+    bodies.table = t.table.map(|_| TABLE_KEY);
     *table = t;
 }
 
@@ -209,6 +216,7 @@ fn open(
     mut sim: ResMut<SimState>,
     mut was: Local<Option<u32>>,
     time: AidTime,
+    mut arm: ResMut<ArmSeat>,
 ) {
     let on = seat.on.filter(|_| seat.hold.is_some());
     let fresh = on != *was;
@@ -236,12 +244,17 @@ fn open(
         foe_strength: 5.0,
         foe_state: Foe::Coming,
         foe_seated_at: None,
-        side: 0,
+        // In co-op the stool's side: the match is the table's, not this player's.
+        side: if arm.coop { i as u8 } else { 0 },
         player_strength,
         leaving: false,
         left_at: None,
         opened: time.elapsed_secs(),
     });
+    if arm.coop {
+        arm.at = Some((TABLE_KEY, i as u8, player_strength.round().clamp(0.0, 255.0) as u8));
+        arm.asked_npc = false;
+    }
     next.set(PlayState::Menu);
 }
 
@@ -274,11 +287,46 @@ fn watch_foe(time: AidTime, mut screen: ResMut<ArmScreen>, mut script: Option<Re
     }
 }
 
-fn keys(input: Res<ButtonInput<KeyCode>>, time: AidTime, mut screen: ResMut<ArmScreen>) {
+fn keys(input: Res<ButtonInput<KeyCode>>, time: AidTime, mut screen: ResMut<ArmScreen>, mut arm: ResMut<ArmSeat>, mut aid_taps: Local<u32>) {
     let Some(a) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
     let test = test_aid();
     let test_taps = test.map(|t| t.0);
+    if arm.coop {
+        // The deciding game runs the bout: this screen sends what the player does. With a
+        // player on the other stool the bout starts by itself; with the opponent seated
+        // there, the start key asks for it.
+        match a.page {
+            Page::Offer | Page::Bout if input.just_pressed(KeyCode::Tab) => a.leaving = true,
+            Page::Offer => {
+                let seated = a.foe_seated_at.filter(|_| a.foe.is_some());
+                let start = input.just_pressed(TAP) || input.just_pressed(KeyCode::Enter) || seated.is_some_and(|t| test.is_some_and(|aid| now - t >= aid.1));
+                if seated.is_some() && start && !arm.asked_npc {
+                    info!("arm wrestle: asks for the bout against {} (co-op)", a.foe_name);
+                    arm.want_npc = true;
+                    arm.asked_npc = true;
+                }
+            }
+            Page::Bout => {
+                if input.just_pressed(TAP) {
+                    arm.taps += 1;
+                }
+                // The test aid taps steadily at its rate from the pull.
+                match (test_taps, a.bout.as_ref().filter(|b| b.phase == Phase::Pull)) {
+                    (Some(rate), Some(b)) => {
+                        let due = ((now - b.started - fnv_game::armwrestle::COUNTDOWN).max(0.0) * rate) as u32;
+                        while *aid_taps < due {
+                            *aid_taps += 1;
+                            arm.taps += 1;
+                        }
+                    }
+                    _ => *aid_taps = 0,
+                }
+            }
+            Page::Result => {}
+        }
+        return;
+    }
     match a.page {
         Page::Offer => {
             if input.just_pressed(KeyCode::Tab) {
@@ -333,13 +381,35 @@ fn test_aid() -> Option<(f32, f32)> {
     Some((rate, after))
 }
 
-fn step(time: AidTime, mut screen: ResMut<ArmScreen>, mut flourish: MessageWriter<crate::flourish::Flourish>) {
+fn step(time: AidTime, mut screen: ResMut<ArmScreen>, mut flourish: MessageWriter<crate::flourish::Flourish>, arm: Res<ArmSeat>, tables: Option<Res<Tables>>, sim: Res<SimState>) {
     let Some(a) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    if arm.coop {
+        // The match the deciding game sends, while this player wrestles in it.
+        let me = tables.as_deref().and_then(|t| t.me).unwrap_or(crate::armwrestle_coop::HOST);
+        if let (Some((_, b, who)), Some(side)) = (arm.bout.as_ref(), arm.my_side(me)) {
+            a.side = side;
+            a.npc = None;
+            a.foe_name = match who[1 - side as usize] {
+                Wrestler::Player(p) => tables.as_deref().map_or_else(|| format!("Player {p}"), |t| t.name(p)),
+                Wrestler::Npc(r) => sim.ref_name(None, r).map(str::to_string).filter(|n| !n.is_empty()).unwrap_or_else(|| a.foe_name.clone()),
+            };
+            a.foe_strength = b.strength[1 - side as usize];
+            if a.page == Page::Offer && b.phase != Phase::Done {
+                info!("arm wrestle: the bout begins against {} (co-op, side {side})", a.foe_name);
+                a.page = Page::Bout;
+            }
+            if a.page != Page::Offer {
+                a.bout = Some(b.clone());
+            }
+        }
+    }
     let Some(b) = a.bout.as_mut() else { return };
-    b.step(now);
-    if let Some(npc) = a.npc.as_mut() {
-        npc.drive(b, 1 - a.side, now);
+    if !arm.coop {
+        b.step(now);
+        if let Some(npc) = a.npc.as_mut() {
+            npc.drive(b, 1 - a.side, now);
+        }
     }
     if a.page == Page::Bout && b.phase == Phase::Done {
         a.page = Page::Result;
@@ -356,6 +426,7 @@ fn step(time: AidTime, mut screen: ResMut<ArmScreen>, mut flourish: MessageWrite
 
 /// Getting up: the screen closes and the player stands (the furniture). The game lets the
 /// opponent go once nobody sits across from him (`armwrestle_table::tick`).
+#[allow(clippy::too_many_arguments)]
 fn leave(
     time: AidTime,
     table: Res<ArmTable>,
@@ -364,6 +435,7 @@ fn leave(
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
     mut ended: MessageWriter<ArmEnded>,
+    mut arm: ResMut<ArmSeat>,
 ) {
     let now = time.elapsed_secs();
     let Some(a) = screen.0.as_mut() else { return };
@@ -376,6 +448,8 @@ fn leave(
             next.set(PlayState::Playing);
         }
         info!("arm wrestle: getting up");
+        arm.at = None;
+        arm.asked_npc = false;
     }
     // Up: the screen is done; a settled bout gets its end view.
     if a.left_at.is_some() && seat.hold.is_none() {
@@ -393,9 +467,13 @@ const METER_H: f32 = 14.0;
 /// The tap prompt's place: the view's middle, a little low [design].
 const PROMPT_TOP: f32 = 560.0;
 
-fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: Option<Res<CasinoFaces>>, old: Query<Entity, With<ArmRoot>>) {
+fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: Option<Res<CasinoFaces>>, old: Query<Entity, With<ArmRoot>>, mut arm: ResMut<ArmSeat>) {
     for e in &old {
         commands.entity(e).despawn();
+    }
+    let hud = screen.0.as_ref().is_some_and(|a| a.page != Page::Offer);
+    if arm.hud != hud {
+        arm.hud = hud;
     }
     let Some(a) = screen.0.as_ref() else { return };
     let now = time.elapsed_secs();

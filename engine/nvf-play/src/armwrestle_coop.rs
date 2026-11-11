@@ -191,7 +191,7 @@ pub enum ArmAction {
     /// This player gets up from the table (a match under way is lost by it).
     Leave,
     /// This player, seated alone, asks for the NPC opponent on the other stool (the
-    /// deciding game brings it: part A's stranger).
+    /// deciding game seats the opponent with it once he sits across: part A's Settler).
     Npc,
 }
 
@@ -759,40 +759,31 @@ fn who_name(t: &Tables, w: Wrestler) -> String {
     }
 }
 
-/// The stranger in co-op, on the deciding game: brought onto the free stool when a player
-/// seated alone asks for it (part A's `armwrestle::bring`, the same stranger as alone),
-/// seated in the match, and sent off once its player got up. The other games draw it as
-/// the host's NPC (nvforever `coop.rs`), on their own stool of its side ([`ArmBodies`]).
-#[allow(clippy::too_many_arguments)]
-fn arm_npc(
-    time: crate::pause::AidTime,
-    tables: Option<Res<Tables>>,
-    mut decider: ResMut<Decider>,
-    bodies: Res<ArmBodies>,
-    mut opp: ResMut<crate::armwrestle::ArmOpponent>,
-    mut script: Option<ResMut<crate::script::ScriptState>>,
-    mut sim: ResMut<crate::sim::SimState>,
-) {
+/// The opponent in co-op, on the deciding game: when a player seated alone asks for the
+/// bout and the opponent sits on the other stool in this game's world (the game calls him
+/// over to a player sitting alone, `fnv_game::armwrestle_table::tick`, the guests' bodies
+/// counted), he joins the match on that side; once his player is up he leaves it (the
+/// game lets him go).
+fn arm_npc(time: crate::pause::AidTime, tables: Option<Res<Tables>>, mut decider: ResMut<Decider>, bodies: Res<ArmBodies>, mut script: Option<ResMut<crate::script::ScriptState>>, mut sim: ResMut<crate::sim::SimState>) {
+    use fnv_game::armwrestle_table as at;
     let Some(tables) = tables.filter(|t| t.on) else { return };
     if !decides_here(&tables) {
         return;
     }
     let now = time.elapsed_secs();
     for (table, side) in decider.wants_npc() {
-        let Some(stool) = bodies.stools[side as usize].filter(|_| bodies.table == Some(table) && opp.actor.is_none()) else { continue };
+        let Some(stool) = bodies.stools[side as usize].filter(|_| bodies.table == Some(table)) else { continue };
         let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
-        let seed = crate::minigames::seed(stool, now);
-        let Some((r, name, strength)) = crate::armwrestle::bring(rt, &mut sim, fnv_sim::FormId(stool), seed) else { continue };
-        *opp = crate::armwrestle::ArmOpponent { actor: Some(r), stool: Some(fnv_sim::FormId(stool)), strength, up: false, gone_at: None };
-        info!("arm wrestling: {name} ({:08X}, Strength {strength}) sits on stool {side} for the match", r.0);
-        decider.sit(table, side, Wrestler::Npc(r.0), strength.round().clamp(0.0, 255.0) as u8, now, seed);
+        let seated = crate::script::with_world(rt, &mut sim, |rt| {
+            let g = &mut rt.game;
+            (at::called_to(g, at::OPPONENT) == Some(fnv_sim::FormId(stool)) && at::opponent_seated(g, at::OPPONENT)).then(|| at::opponent_strength(g, at::OPPONENT))
+        });
+        if let Some(strength) = seated {
+            info!("arm wrestling: the opponent {:08X} (Strength {strength}) joins the match on stool {side}", at::OPPONENT.0);
+            decider.sit(table, side, Wrestler::Npc(at::OPPONENT.0), strength.round().clamp(0.0, 255.0) as u8, now, crate::minigames::seed(stool, now));
+        }
     }
     for (_, r) in decider.npcs_left_alone() {
-        if opp.actor.is_some_and(|a| a.0 == r) && !opp.up {
-            opp.up = true;
-            opp.gone_at = Some(now + crate::armwrestle::SEND_OFF_AFTER);
-            info!("arm wrestling: the stranger {r:08X} gets up, its player gone");
-        }
         decider.leave(Wrestler::Npc(r), now);
     }
 }
