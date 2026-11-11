@@ -913,7 +913,7 @@ fn object_sources(
     // Scripts' loops at references (`objects`): until the reference is gone.
     ws.script_loops.retain(|&(id, sound, at)| {
         let stands = match sim.world.peek(at) {
-            Some(s) => s.enabled && !s.deleted,
+            Some(s) => s.enabled() && !s.deleted(),
             None => sim.world.is_enabled(at).unwrap_or(false),
         };
         if !stands {

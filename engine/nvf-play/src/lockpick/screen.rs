@@ -261,7 +261,7 @@ impl Ctx<'_> {
 
     /// How wide one line of text is in a font.
     pub fn text_width(&self, kind: FontKind, s: &str) -> f32 {
-        text_line(self.face(kind).0, s).width
+        crate::pad::hint_width(self.face(kind).0, s, self.glyphs)
     }
 
     /// Text in font 7 with its top at `top`; `right`: `x` is its right end. Its width.

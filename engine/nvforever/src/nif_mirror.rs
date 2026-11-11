@@ -259,7 +259,7 @@ fn mirror(
             // A child by its place under the node, in the order `walk` told the mirror
             // (a switch's children, #2017).
             SceneEdit::ChildFlags { node, child, flags, .. } => {
-                let kid = find(root, &node, &nodes, &rig).and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _)| ch.and_then(|c| c.iter().nth(child))));
+                let kid = find(root, &node, &nodes, &rig).and_then(|p| nodes.get(p).ok().and_then(|(_, _, ch, _, _)| ch.and_then(|c| c.iter().nth(child))));
                 if let Some(e) = kid {
                     if flags & 1 != 0 {
                         commands.entity(e).insert((NifHidden, Visibility::Hidden));

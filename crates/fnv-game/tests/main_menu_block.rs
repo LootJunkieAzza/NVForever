@@ -83,7 +83,7 @@ fn a_main_menu_block_runs_in_the_main_menu_frames_only() {
     std::fs::write(dir.join("Config").join("Test Config.ini"), "[Test Settings]
 bBag=1
 ").unwrap();
-    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![dir.clone()], config: None, write: None, lookup: None, reader: None });
+    fnv_game::mod_files::set_roots(fnv_game::mod_files::Roots { read: vec![dir.clone()], ..Default::default() });
     let f = fixture();
     assert!(f.data.script(FormId(SCRIPT)).is_some(), "the script loads from its source");
     let mut g = Game::new(&f.data, World::new(&f.forms, &f.refs, SimConfig::default()), GameConfig::default());

@@ -627,7 +627,7 @@ fn pickup_aid(aid_time: crate::pause::AidTime, mut aid: ResMut<AutoPickup>, sim:
     let Some(now) = aid_time.world_secs() else { return };
     while aid.0.first().is_some_and(|(t, _)| *t <= now) {
         let (_, item) = aid.0.remove(0);
-        let found = sim.world.created().filter(|(_, s)| !s.deleted && s.enabled && item.is_none_or(|i| s.base.0 == i)).filter(|(_, s)| sim.forms.get(s.base).is_some_and(|b| matches!(b.data, BaseData::Item(_)))).map(|(id, _)| id).last();
+        let found = sim.world.created().filter(|(_, s)| !s.deleted() && s.enabled() && item.is_none_or(|i| s.base.0 == i)).filter(|(_, s)| sim.forms.get(s.base).is_some_and(|b| matches!(b.data, BaseData::Item(_)))).map(|(id, _)| id).last();
         match found {
             Some(id) => {
                 info!("test aid NVF_PLAY_TEST_PICKUP: picks up {id}");

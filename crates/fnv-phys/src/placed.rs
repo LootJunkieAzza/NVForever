@@ -112,15 +112,6 @@ pub fn ref_collision_with(
             None => tally("bad_primitive"),
         }
     }
-    if pl.volume && pl.base != Some(COLLISION_MARKER) {
-        // A placed volume (a trigger box or sphere) whose base names a model: the model is
-        // not in the world there, neither drawn nor solid (`Placement::volume`,
-        // cells-refs.md §6). Vault 34's `v34AmbushVolume` triggers stood as solid water
-        // tower pipes across its corridors [observed: `fnvtool phys cell --cell Vault34b
-        // --list-refs`, 2026-11-05]. Its trigger box is script_trigger's, not this.
-        tally("volume");
-        return out;
-    }
     if is_actor_base(&base.sig) {
         // The skeleton's bodies are keyframed and on the Biped layer [observed:
         // `fnvtool phys cell --list-refs`]: added at the placement, they stayed in the

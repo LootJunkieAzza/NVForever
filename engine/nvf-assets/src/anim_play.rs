@@ -1865,8 +1865,8 @@ mod tests {
     fn the_accumulation_root_keeps_its_own_scale() {
         // AG_ChinFlick.kf: Bip01 at a scale of 10, the other bones at none.
         let (mut player, ix) = player();
-        let root = Arc::new(TransformTrack { translation: Channel::Static(Some([0.0; 3])), rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])), euler: None, scale: Channel::Static(Some([10.0])) });
-        let other = Arc::new(TransformTrack { translation: Channel::Static(Some([9.0, 0.0, 0.0])), rotation: Channel::Static(None), euler: None, scale: Channel::Static(Some([1.5])) });
+        let root = Arc::new(TransformTrack { translation: Channel::Static(Some([0.0; 3])), rotation: Channel::Static(Some([1.0, 0.0, 0.0, 0.0])), euler: None, scale: Channel::Static(Some([10.0])), per_cycle: None });
+        let other = Arc::new(TransformTrack { translation: Channel::Static(Some([9.0, 0.0, 0.0])), rotation: Channel::Static(None), euler: None, scale: Channel::Static(Some([1.5])), per_cycle: None });
         let c = clip(1.0, vec![("Bip01", root), ("Other", other)]);
         player.layers[0] = Some(Layer { clip: Arc::new(BoundClip::bind(c, &ix)), phase: 0.5, weight: 1.0 });
         let mut out = Vec::new();

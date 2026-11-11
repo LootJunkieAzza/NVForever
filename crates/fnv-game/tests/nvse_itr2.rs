@@ -493,7 +493,7 @@ fn a_nif_block_translation_in_the_world() {
     use fnv_game::nif_blocks::SceneNode;
     let f = fixture();
     let mut g = game(&f);
-    let node = |name: &str, parent, translation, world| SceneNode { name: name.into(), parent, translation, rotation: [0.0; 3], scale: 1.0, flags: 0, world };
+    let node = |name: &str, parent, translation, world| SceneNode { name: name.into(), parent, translation, rotation: [0.0; 3], scale: 1.0, flags: 0, world, material: None, info: None };
     g.scene.set_tree(FormId(NPC_REF), vec![node("Bip01", None, [0.0, 0.0, 60.0], [100.0, 200.0, 60.0]), node("Bip01 Head", Some(0), [5.59, 0.0, 0.0], [100.0, 200.0, 120.0])]);
     assert_eq!(num(&mut g, "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" X"), f64::from(5.59f32));
     assert_eq!(num(&mut g, "TestNpcRef.GetNifBlockTranslation \"Bip01 Head\" Z 1"), 120.0);

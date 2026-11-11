@@ -683,7 +683,7 @@ impl Game<'_> {
         // Another player of a co-op game is attacked whenever the player would be
         // (`crate::coop`) [design].
         if self.is_coop_actor(other) {
-            return self.hostile_to(actor, FormId::PLAYER_REF);
+            return self.hostility(actor, FormId::PLAYER_REF, aggression);
         }
         // The player's teammates "act and react as if in the player faction for the
         // purposes of combat. Other actors will treat the actor as if he were in the

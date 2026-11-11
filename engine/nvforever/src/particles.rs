@@ -1414,7 +1414,7 @@ mod tests {
             d.emitter.size = Vec3::splat(15.0);
             d.emitter.radius = 34.0;
             d.emitter.life = 0.4;
-            d.gravity.push(Gravity { direction: Vec3::Z, origin: Vec3::ZERO, strength: 180.0, strength_keys: None, spherical: false, active: Default::default() });
+            d.gravity.push(Gravity { direction: Vec3::Z, origin: Vec3::ZERO, strength: 180.0, decay: 0.0, strength_keys: None, spherical: false, active: Default::default() });
             d
         };
         let fire = [named("pFlames02"), named("pSparks")];

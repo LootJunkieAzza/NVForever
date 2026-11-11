@@ -174,7 +174,6 @@ mod taa;
 mod fsr;
 mod fg_presenter;
 mod frame_gen;
-mod fsr;
 mod speech_look;
 mod stress_sample;
 mod profile;

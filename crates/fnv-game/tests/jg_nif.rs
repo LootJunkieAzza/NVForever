@@ -42,7 +42,7 @@ fn fixture() -> Fixture {
 }
 
 fn node(name: &str, parent: Option<usize>, translation: [f32; 3], info: NodeInfo) -> SceneNode {
-    SceneNode { name: name.into(), parent, translation, rotation: [0.0; 3], scale: 1.0, flags: 0, material: None, info: Some(Box::new(info)) }
+    SceneNode { name: name.into(), parent, translation, rotation: [0.0; 3], scale: 1.0, flags: 0, world: [0.0; 3], material: None, info: Some(Box::new(info)) }
 }
 
 fn emitter() -> [f32; 21] {

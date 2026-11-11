@@ -650,7 +650,7 @@ impl<'a> Game<'a> {
                 return Err(format!("{} has nothing to trade or play with a co-op guest", data.name(actor)));
             }
             let first = choices[0].info;
-            self.dialogue = Some(Conversation { actor, through, line: None, choices, lines: 0, then: None, ending: false });
+            self.dialogue = Some(Conversation { actor, through, line: None, choices, topic_list: true, lines: 0, then: None, ending: false });
             self.emit(EventKind::DialogueStarted { actor, topic });
             return Ok(first);
         }
@@ -1247,6 +1247,7 @@ impl<'a> Game<'a> {
             hello: false,
             // Who turns to whom as for a Goodbye greeting at the player
             // ([`Game::facings`]) [design].
+            remote: false,
             look: LineLook::Both,
             response: line.response,
             force_subtitles: false,

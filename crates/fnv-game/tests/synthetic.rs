@@ -4432,7 +4432,7 @@ fn a_campfire_is_lit_once_and_its_fires_do_not_stack() {
     let again: Vec<FormId> = (0..5).map(|_| g.create_at(FormId(QUIET), None, [100.0, 200.0, 0.0], [0.0; 3]).unwrap()).collect();
     assert_eq!(g.keep_first_fires(fire_place, &before), again);
     assert_eq!(g.campfire_fires(fire_place), placed, "the first fires burn on, alone");
-    assert!(again.iter().all(|&f| g.world.peek(f).is_none_or(|s| s.deleted && !s.enabled)));
+    assert!(again.iter().all(|&f| g.world.peek(f).is_none_or(|s| s.deleted() && !s.enabled())));
     // Unlit before: nothing is taken away.
     assert!(g.keep_first_fires(other, &[]).is_empty());
     // Co-op: held, its silent fires out as the host's are, then all out.

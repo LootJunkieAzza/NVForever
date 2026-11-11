@@ -278,7 +278,7 @@ pub fn created_placement(reference: u32, base: u32, position: [f32; 3]) -> Place
         teleport: false,
         emittance: None,
         imposter: false,
-        volume: false,
+        primitive: false,
     }
 }
 

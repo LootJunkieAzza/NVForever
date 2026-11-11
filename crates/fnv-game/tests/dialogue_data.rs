@@ -68,6 +68,8 @@ fn the_masters_dialogue() {
     sunny_opens_conversations_with_conversation_lines(&l);
     a_dim_player_gets_the_dumb_responses_and_lines(&l);
     a_guest_changes_chips_at_every_cashier(&l);
+    powder_ganger_hellos_keep_their_shared_random_pool(&l);
+    vms07_shared_greetings_remain_selectable_with_controlled_eligibility(&mut l);
 }
 
 /// A co-op guest's lines (`Game::guest_lines`) hold the casino cashiers' chip exchange
@@ -92,8 +94,6 @@ fn a_guest_changes_chips_at_every_cashier(l: &Loaded) {
     for i in [0x0011985F, 0x00154479, 0x00163183] {
         assert!(!lines.contains(&FormId(i)), "0x{i:08X}");
     }
-    powder_ganger_hellos_keep_their_shared_random_pool(&l);
-    vms07_shared_greetings_remain_selectable_with_controlled_eligibility(&mut l);
 }
 
 /// [observed: fnvtool dialogue topics/lines over FalloutNV.esm, issue #1895] The eligible

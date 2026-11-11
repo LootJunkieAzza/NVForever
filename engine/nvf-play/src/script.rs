@@ -2203,7 +2203,7 @@ pub(crate) fn run_scripts(
     let feet = phys.player.as_ref().map(|c| c.feet);
     // A co-op guest's quests are the host's: the guest's game shows those messages
     // (nvforever `coop`), not its own.
-    let guest = st.rt.as_ref().is_some_and(|rt| rt.game.coop_guest);
+    let guest = rt.game.coop_guest;
     for e in effects {
         // The player's own trip through a door, not a script's MoveTo (`Loading::arriving`).
         let door = matches!(e, ScriptEffect::DoorTravel(_));
