@@ -437,6 +437,8 @@ pub struct TweakSettings {
     /// `bBetterFlycam`: the free camera flies up and down on Space and Ctrl, on by
     /// itself with Q, and turns with Z and C.
     pub better_flycam: bool,
+    /// `iRepeatActivateKey`/`bOnlyTakeItems`: the Repeat Activate key takes only items.
+    pub repeat_activate_takes_only: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -683,6 +685,7 @@ impl Default for TweakSettings {
             grabbed_weighs: false,
             usable_ammo_first: false,
             better_flycam: false,
+            repeat_activate_takes_only: true,
         }
     }
 }
@@ -819,7 +822,7 @@ impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate).in_set(crate::PlaySet::Input))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
@@ -1687,6 +1690,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "usable-ammo-first", "Usable Ammo First", "In the Pip-Boy's ammo list, ammo that a weapon you carry can fire comes first. (Stewie's Tweaks bSortEquipableAmmo)", usable_ammo_first);
         switch!(app, "better-flycam", "Better Free Camera", "The console's free camera (tfc) flies up with Space and down with Ctrl, keeps flying forward after Q (S stops it) and turns with Z and C; the wheel still sets its speed. (Stewie's Tweaks bBetterFlycam)", better_flycam);
         switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
+        switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "The Repeat Activate key (on the Controls page, unbound until you bind it), held, takes things again and again; off, it activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1791,6 +1795,41 @@ fn drop_weapon(input: crate::bindings::ControlInput, state: Res<State<crate::Pla
             }
         }
         Err(e) => info!("tweaks: Drop Weapon: {item} not dropped: {e}"),
+    }
+}
+
+/// Seconds between the Repeat Activate key's activations [design: docs/design/tweaks.md].
+const REPEAT_ACTIVATE_SECS: f32 = 0.25;
+
+/// The Repeat Activate key (`crate::bindings::Control::RepeatActivate`), held while
+/// playing, activates what is under the crosshair every [`REPEAT_ACTIVATE_SECS`] as E
+/// would (`crate::activate::ActivateNext`); only things to take when the tweak's switch
+/// says so [design: docs/design/tweaks.md].
+fn repeat_activate(
+    input: crate::bindings::ControlInput,
+    time: Res<Time>,
+    state: Res<State<crate::PlayState>>,
+    tweaks: Res<TweakSettings>,
+    target: Option<Res<crate::activate::Target>>,
+    next: Option<ResMut<crate::activate::ActivateNext>>,
+    mut wait: Local<f32>,
+) {
+    if *state.get() != crate::PlayState::Playing || !input.pressed(crate::bindings::Control::RepeatActivate) {
+        *wait = 0.0;
+        return;
+    }
+    *wait -= time.delta_secs();
+    if *wait > 0.0 {
+        return;
+    }
+    let Some(t) = target.as_ref().and_then(|t| t.0.as_ref()) else { return };
+    if tweaks.repeat_activate_takes_only && !matches!(t.action, crate::activate::outcome::Action::Take { .. }) {
+        return;
+    }
+    if let Some(mut n) = next.filter(|n| n.0.is_none()) {
+        n.0 = Some(t.form_id);
+        *wait = REPEAT_ACTIVATE_SECS;
+        info!("tweaks: Repeat Activate on 0x{:08X} {}", t.form_id, t.name);
     }
 }
 

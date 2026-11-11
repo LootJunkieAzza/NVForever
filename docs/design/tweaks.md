@@ -568,6 +568,7 @@ unless the player binds them, so nothing changes until then.
 | Usable Ammo First | `bSortEquipableAmmo` | `tweaks::sync` puts the ammo choices of the player's carried weapons in `MenuModel::usable_ammo`; `MenuModel::refresh` sorts those rows first in the inventory, a stable sort that keeps the names' order |
 | Better Free Camera | `bBetterFlycam` | `free_cam::fly` takes Space / left Ctrl for up and down in place of E / Q, toggles `FreeCam::auto` (forward by itself) on Q, ends it on S, and turns on Z / C at 1.5 rad/s (ours); the wheel already set the speed |
 | New Places Red on the Map | `bColorRecentlyAddedMapMarkers` | `DataState::found_this_run` keeps the markers found since the program started (a loaded save starts it again); the world map draws those red; markers a script shows are not counted |
+| Repeat Activate | `iRepeatActivateKey` | a new unbound control, `Control::RepeatActivate`; held while playing, `tweaks::repeat_activate` queues the crosshair's target in `ActivateNext` every 0.25 s (ours), only things to take unless the switch is off |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -589,8 +590,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 494 |
-| to do | 109 |
+| done | 495 |
+| to do | 108 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1138,6 +1139,7 @@ game's Data folder, read-only).
 | `iPrevRadioStationKey` | done |  | 1 | already so: [ steps to the previous station in the Pip-Boy |
 | `iRadioVolumeDownKey` | done |  | 1 | Radio Volume Down key |
 | `iRadioVolumeUpKey` | done |  | 1 | Radio Volume Up key (a tenth of the Radio volume) |
+| `iRepeatActivateKey` | done |  | 2 | Repeat Activate key (Controls page) and Repeat Activate Takes Only |
 | `iScreenshotKey` | done |  | 1 | Screenshot Key (a choice of five) |
 | `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
 | `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |
@@ -1148,7 +1150,6 @@ game's Data folder, read-only).
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
 | `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
 | `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
-| `iRepeatActivateKey` | to do |  | 2 | activate is at 16 params; a timer in a tuple |
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
 | `iToggleSightingNodeHotkey` | to do |  | 2 | a second sighting node path per weapon |
 

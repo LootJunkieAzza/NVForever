@@ -125,13 +125,15 @@ pub enum Control {
     LastWeapon,
     /// Smoothed looking on or off (iToggleSmoothCameraKey).
     SmoothCamera,
+    /// Activate again and again while held (iRepeatActivateKey).
+    RepeatActivate,
 }
 
 /// `[Controls]` of the owner's `FalloutPrefs.ini`: (control, INI name, value)
 /// [observed 2026-10-09], then NVForever's own controls (after [`GAME_INI_CONTROLS`],
 /// coded the same way): Lower Weapon on H [design: the owner 2026-10-27, moved off Ready
 /// Item tapped twice so a reload is not held back waiting for a second tap].
-pub const GAME_CONTROLS: [(Control, &str, u32); 50] = [
+pub const GAME_CONTROLS: [(Control, &str, u32); 51] = [
     (Control::Forward, "Forward", 0x0011FF13),
     (Control::Back, "Back", 0x001FFF14),
     (Control::SlideLeft, "Slide Left", 0x001EFF17),
@@ -182,6 +184,7 @@ pub const GAME_CONTROLS: [(Control, &str, u32); 50] = [
     (Control::RadioVolumeDown, "Radio Volume Down", 0xFFFFFFFF),
     (Control::LastWeapon, "Last Weapon", 0xFFFFFFFF),
     (Control::SmoothCamera, "Smooth Camera", 0xFFFFFFFF),
+    (Control::RepeatActivate, "Repeat Activate", 0xFFFFFFFF),
 ];
 
 /// Where the Tweaks tab's keys start in [`GAME_CONTROLS`]: none is bound unless the
@@ -574,6 +577,7 @@ pub fn label(c: Control) -> &'static str {
         RadioVolumeDown => "Radio Volume Down",
         LastWeapon => "Last Weapon",
         SmoothCamera => "Smooth Camera",
+        RepeatActivate => "Repeat Activate",
     }
 }
 
