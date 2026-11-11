@@ -359,6 +359,10 @@ fn sound_heard(
             }
             s.counts.rustles += 1;
             debug!("anim sounds: {:?} rustle {} {gait:?}", h.who, if armor { "armour" } else { "cloth" });
+            // The player's tweak: in third person the player's own rustle is heard from the
+            // body, not at the ear (docs/design/tweaks.md).
+            let body = h.who == Who::Player(false) && nvf_play::tweaks::ARMOR_3D.load(std::sync::atomic::Ordering::Relaxed);
+            let at = if body { at.or(Some(feet)) } else { at };
             out.write(PlaySound { sound: FormId(f.sound), at });
         }
     }

@@ -30,6 +30,8 @@ pub static NO_LAND_CLIP: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 /// Activating Doesn't Stand Up: on furniture only a movement control gets the player up
 /// [design: docs/design/tweaks.md].
 pub static SEAT_KEEPS_ON_ACTIVATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Armor Sounds Play in 3D, for the player's foley (nvforever `anim_sounds`) [design: docs/design/tweaks.md].
+pub static ARMOR_3D: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Every tweak's value. `Default`: the original's behaviour.
 #[derive(Resource, Debug, Clone, PartialEq)]
@@ -424,6 +426,9 @@ pub struct TweakSettings {
     /// `bRecentlyDeadNPCIndicator`: seconds the newly dead stay on the compass, until the
     /// crosshair has been on them; 0 none.
     pub recent_dead_secs: f32,
+    /// `bArmorSoundsPlayIn3D`: in third person the player's armour and clothing rustle
+    /// from the body.
+    pub armor_sounds_3d: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -666,6 +671,7 @@ impl Default for TweakSettings {
             compass_pips_fade: false,
             compass_places_fade: false,
             recent_dead_secs: 0.0,
+            armor_sounds_3d: false,
         }
     }
 }
@@ -1663,6 +1669,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
         switch!(app, "buffed-health-bars", "Health Bars Count Buffs", "A target's health bar includes Health raised by chems and effects, so a buffed enemy's bar shows how much it can take. (Stewie's Tweaks bEnemyHealthbarShowBuffedHP)", game.buffed_health_bars);
         amount!(app, "recent-dead-secs", "Recently Dead on the Compass (s)", "For how many seconds, up to 120, someone killed nearby stays on the compass, until you look at them; 0 none. (Stewie's Tweaks bRecentlyDeadNPCIndicator)", 120.0, f32, recent_dead_secs);
+        switch!(app, "armor-sounds-3d", "Armour Rustle From the Body", "In third person your armour and clothing are heard from your character, not at the camera. (Stewie's Tweaks bArmorSoundsPlayIn3D)", armor_sounds_3d);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1973,6 +1980,7 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
     NO_TURN_CLIP.store(tweaks.no_turn_clip, std::sync::atomic::Ordering::Relaxed);
     NO_LAND_CLIP.store(tweaks.no_land_clip, std::sync::atomic::Ordering::Relaxed);
     SEAT_KEEPS_ON_ACTIVATE.store(tweaks.seat_keeps_on_activate, std::sync::atomic::Ordering::Relaxed);
+    ARMOR_3D.store(tweaks.armor_sounds_3d, std::sync::atomic::Ordering::Relaxed);
     crate::pad::set_dead_zones(tweaks.custom_dead_zones.then_some((tweaks.left_dead_zone, tweaks.right_dead_zone)));
     crate::wait::model::set_date_style(tweaks.date_style as u8);
     if let Some(mut b) = bindings {

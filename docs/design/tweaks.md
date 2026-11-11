@@ -561,6 +561,7 @@ unless the player binds them, so nothing changes until then.
 | Fade Places by Distance | `bCompassLocationDistanceBasedAlpha` | the same for places found and not, over the reach `gather` shows them at (Perception × the per-point reach, `PLACE_RANGE`) |
 | Health Bars Count Buffs | `bEnemyHealthbarShowBuffedHP` | `hud_target` adds the target's positive temporary Health modifier (`actor_value_temporary`) to `max_health` for the bar |
 | Recently Dead on the Compass | `bRecentlyDeadNPCIndicator` | `compass::gather` notes when it first finds an actor dead (`DeadSeen`) and keeps a plain pip for it for the slider's seconds, until the crosshair's target has been that body |
+| Armour Rustle From the Body | `bArmorSoundsPlayIn3D` | nvforever `anim_sounds::sound_heard` gives the third-person rig's foley the player's feet as its place (`tweaks::ARMOR_3D`); the first-person rig's stays at the listener |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -582,8 +583,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 487 |
-| to do | 116 |
+| done | 488 |
+| to do | 115 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1169,6 +1170,7 @@ game's Data folder, read-only).
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
+| `bArmorSoundsPlayIn3D` | done | yes |  | Armour Rustle From the Body |
 | `bCompressDuplicateConsoleMessages` | done | yes |  | Count Repeated Console Lines |
 | `bConsolePrintsIncludeTimestamp` | done | yes | 1 | Console Times (time since the game started; a wall-clock format would need a date crate) |
 | `bConsoleTextShadow` | done | yes |  | Console Text Shadow (our shade and offset) |
@@ -1226,7 +1228,6 @@ game's Data folder, read-only).
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
 | `bAllowKeyboardAndMouseWithControllerConnected` | to do | yes |  | the Input Device setting picks one device; needs both at once |
 | `bArmorPreventsBloodDecals` | to do | yes |  | the impact is sent before DT is worked out |
-| `bArmorSoundsPlayIn3D` | to do | yes |  | the player's foley plays at the listener (anim_sounds player_keys) |
 | `bBetterFlycam` | to do | yes | 5 | up/down and wheel speed are already there; auto-move is not |
 | `bConsoleBackground` | unsure, skipped | yes |  | needs the plugin's own menu XML |
 | `bCustomScreenshotFormat` | n/a | yes | 1 | NVForever writes its own screenshots |
