@@ -418,6 +418,9 @@ pub struct TweakSettings {
     /// `bCompassNPCDistanceBasedAlpha`: actors' compass pips fade with distance over the
     /// sneak range.
     pub compass_pips_fade: bool,
+    /// `bCompassLocationDistanceBasedAlpha`: places on the compass fade with distance
+    /// over the reach they show at.
+    pub compass_places_fade: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -658,6 +661,7 @@ impl Default for TweakSettings {
             scope_wheel_zoom: false,
             wheel_cycles_hotkeys: false,
             compass_pips_fade: false,
+            compass_places_fade: false,
         }
     }
 }
@@ -1652,6 +1656,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "scope-wheel-zoom", "Wheel Zooms Scopes", "Through a scope the mouse wheel zooms in (up) and out, from half to double its usual magnification; it starts as usual each time. (Stewie's Tweaks bAdjustableScopeZoom)", scope_wheel_zoom);
         switch!(app, "wheel-cycles-hotkeys", "Mouse Wheel Changes Weapon", "In first person, rolling the mouse wheel takes out the next (up) or previous weapon on your hotkeys. (Stewie's Tweaks bMousewheelScrollsWeaponHotkeys)", wheel_cycles_hotkeys);
         switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
+        switch!(app, "compass-places-fade", "Fade Places by Distance", "Places on the compass grow fainter the further away they are, over the distance they show at. (Stewie's Tweaks bCompassLocationDistanceBasedAlpha)", compass_places_fade);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

@@ -558,6 +558,7 @@ unless the player binds them, so nothing changes until then.
 | Wheel Zooms Scopes | `bAdjustableScopeZoom` | `aim_zoom::zoom` keeps `AimZoom::scope_zoom`, a share of the Sight FOV the wheel steps by 1.1 a notch between 0.5 and 2 while the scope is up, and forgets it when the scope goes down; the first-person wheel had no other use |
 | Mouse Wheel Changes Weapon | `bMousewheelScrollsWeaponHotkeys` | `weapon_wheel::read` steps from the slot of the weapon in hand to the next (up) or previous slot whose weapon `takes_hand`, and uses it as a tap does; first person only, not with a scope up (Wheel Zooms Scopes) or the wheel open |
 | Fade Pips by Distance | `bCompassNPCDistanceBasedAlpha` | `compass::place` keeps `CompassAlpha` beside `CompassView` (from `marks_far`'s distances): an actor's pip at 1 − distance / (fSneakMaxDistance, times fSneakExteriorDistanceMult outdoors), no fainter than 25 %; `draw` applies it |
+| Fade Places by Distance | `bCompassLocationDistanceBasedAlpha` | the same for places found and not, over the reach `gather` shows them at (Perception × the per-point reach, `PLACE_RANGE`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -579,8 +580,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 484 |
-| to do | 119 |
+| done | 485 |
+| to do | 118 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -913,6 +914,7 @@ game's Data folder, read-only).
 | `bColorWeaponCndLabel` | done |  | 2 | Red / Flashing Weapon Condition Below (the bar, the HUD has no label) |
 | `bCompanionPipColorChange` | done |  | 1 | Companion Compass Colour (five colours of ours instead of an RGB value) |
 | `bCompassFadeLeftSide` | done |  |  | Compass Fades on the Left (down to a fifth at the left end, ours; quest marks stay whole) |
+| `bCompassLocationDistanceBasedAlpha` | done |  |  | Fade Places by Distance |
 | `bCompassNPCDistanceBasedAlpha` | done |  |  | Fade Pips by Distance |
 | `bCustomAddToInventoryMessageTimer` | done |  | 1 | Item Added Line Time (slider, seconds) |
 | `bCustomSubtitleDistance` | done |  | 1 | Subtitle Distance (slider, game units) |
@@ -959,7 +961,6 @@ game's Data folder, read-only).
 | `bHideGrenadeIndicatorForNoDamageExplosions` | to do | yes |  | not built: no grenade indicator |
 | `bMorePreciseRadMeter` | to do | yes | 1 | unclear whether the HUD gain or the Pip-Boy total is meant |
 | `bArmorConditionLabel` | to do |  | 9 | no armour condition text on the HUD yet |
-| `bCompassLocationDistanceBasedAlpha` | to do |  |  | the compass view carries no distance |
 | `bCompassQuestHeightIndicator` | to do |  |  | the compass marks are 2D; needs art |
 | `bCriticalHitMessagesIncludeLimbName` | to do |  |  | not built: no critical-hit messages |
 | `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |

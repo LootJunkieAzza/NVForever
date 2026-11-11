@@ -198,6 +198,10 @@ pub struct CompassAlpha(pub Vec<f32>);
 /// How faint an actor's pip at the sneak range's end gets (the tweak) [design].
 const FARTHEST_PIP: f32 = 0.25;
 
+/// The reach places show on the compass at the last look (game units, as `f32` bits),
+/// for the Fade Places by Distance tweak [design: docs/design/tweaks.md].
+static PLACE_RANGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 pub struct CompassPlugin;
 
 impl Plugin for CompassPlugin {
@@ -414,6 +418,7 @@ fn gather(
     if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
         if loc.interior.is_none() {
             let range = perception.max(1.0) * MARKER_RANGE_PER_PERCEPTION;
+            PLACE_RANGE.store(range.to_bits(), std::sync::atomic::Ordering::Relaxed);
             // The player's tweak: a place not found yet shows only when the map shows it
             // [design: docs/design/tweaks.md].
             let unmapped = if tweaks.as_ref().is_some_and(|t| t.hide_unmapped_places) {
@@ -513,8 +518,11 @@ pub(crate) fn place(
     } else {
         0.0
     };
+    // And its other tweak fades places over the reach they show at.
+    let places = if tweaks.as_ref().is_some_and(|t| t.compass_places_fade) { f32::from_bits(PLACE_RANGE.load(std::sync::atomic::Ordering::Relaxed)) } else { 0.0 };
     let shade = |&(m, _, d): &(Mark, f32, f32)| match m {
         Mark::Actor | Mark::Hostile | Mark::Companion if range > 0.0 => (1.0 - d / range).clamp(FARTHEST_PIP, 1.0),
+        Mark::Place | Mark::Found if places > 0.0 => (1.0 - d / places).clamp(FARTHEST_PIP, 1.0),
         _ => 1.0,
     };
     alpha.set_if_neq(CompassAlpha(far.iter().map(shade).collect()));
