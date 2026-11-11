@@ -1098,7 +1098,9 @@ pub struct Speech {
     /// Topics are applied and no SayToDone block runs [hypothesis for both].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub greeting: bool,
-    /// A Goodbye line the player chose, said at the player after its conversation closed
+    /// The plain goodbye the player chose (a Goodbye line of the GOODBYE topic; any other
+    /// chosen Goodbye line stays in its conversation, #2157), said at the player after
+    /// its conversation closed
     /// at once (`Game::choose`, docs/spec-notes/dialogue.md §5) [observed: owner's
     /// playtest 2026-11-05, against the original: choosing a Goodbye closes the menu at
     /// once and the actor finishes the line as the player walks away]. It ends as a

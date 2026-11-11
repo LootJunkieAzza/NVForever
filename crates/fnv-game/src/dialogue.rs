@@ -91,8 +91,9 @@ pub struct Choice {
     /// The text is the line's prompt (else the topic's name).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub prompt: bool,
-    /// The line has the Goodbye flag: choosing it ends the conversation at once, and the
-    /// actor finishes the line in the world (`Game::choose`).
+    /// The line has the Goodbye flag: it ends the conversation, when it has been said,
+    /// or at once if it is the plain goodbye of the GOODBYE topic, which the actor
+    /// finishes in the world (`Game::choose`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub goodbye: bool,
     /// The entry is shaded as already chosen: the actor said this line before and the
