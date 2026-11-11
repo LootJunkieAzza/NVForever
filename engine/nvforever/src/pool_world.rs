@@ -223,7 +223,7 @@ fn on_cloth(f: &TableFrame, at: [f32; 3]) -> bool {
 
 /// The loose things on each table being played are out of sight (found once as its game
 /// starts), and shown again once it is over.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn clear_cloth(screen: Res<PoolScreen>, watch: Res<PoolWatch>, sim: Option<Res<nvf_play::sim::SimState>>, script: Option<Res<nvf_play::script::ScriptState>>, mut cleared: Local<Vec<(u32, Vec<(Entity, u32)>)>>, refs: Query<(Entity, &nvf_play::RefVisual, &GlobalTransform)>, mut shown: Query<&mut Visibility>) {
     let live = played_tables(&screen, &watch);
     // Whether the game draws a reference now (enabled, not culled by a script): what is put

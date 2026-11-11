@@ -527,7 +527,7 @@ pub(super) fn keys(
             if let Ok(s) = sim.world.get(*id) {
                 s.rot = [0.0, 0.0, heading];
             }
-            changed.write(RefChanged { form_id: id.0 });
+            changed.write(RefChanged::new(id.0));
         }
     }
 }
@@ -554,6 +554,7 @@ pub(super) struct Reads<'w> {
     data: Option<Res<'w, GameData>>,
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
     time: Res<'w, Time<Real>>,
+    glyphs: Res<'w, crate::pad::PadGlyphs>,
 }
 
 /// Draw the glance's screen into the Pip-Boy's image while the arm shows (the screen's
@@ -631,7 +632,7 @@ pub(super) fn draw(
         commands.entity(e).despawn();
     }
     let map = reads.map_image.as_ref().map(|m| m.0.clone());
-    let mut c = Ctx::new(&mut reads.kit, reads.data.as_deref(), &mut images, reads.formats.as_deref());
+    let mut c = Ctx::new(&mut reads.kit, reads.data.as_deref(), &mut images, reads.formats.as_deref(), &reads.glyphs);
     let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
     commands.spawn((GlanceRoot, root, UiTargetCamera(screen.camera), Name::new("Pip-Boy glance"))).with_children(|r| {
         // The heading: the tab's name and its figure.

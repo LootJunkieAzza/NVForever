@@ -287,7 +287,9 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let path = text(args, 0);
             let f = args.get(1).cloned().unwrap_or(XVal::Num(0.0));
             g.small.tile_scripts.retain(|(p, _)| !p.eq_ignore_ascii_case(&path));
-            if !matches!(f, XVal::Num(_) | XVal::Ref(0)) {
+            let callable = !matches!(f, XVal::Num(_) | XVal::Ref(0));
+            tracing::info!("tile script: path={path:?} callable={callable}");
+            if callable {
                 g.small.tile_scripts.push((path, f));
             }
             zero
@@ -535,14 +537,18 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
             let skill = w.and_then(|w| crate::nvse::record_value(g, w, "DNAM", "skill"));
             yes(matches!(skill, Some(XVal::Num(s)) if s == num(args, 0, -1.0)))
         }
-        // Each loaded plugin as [name, version, description] [documented: TTW_GetPlugins;
-        // decision: version 0 and an empty description, NVForever keeps no plugin
-        // header's version or description].
+        // Each loaded plugin as [name, version, description] [documented: TTW_GetPlugins]:
+        // the version is the TES4 HEDR version, as GetPluginHeaderVersion gives it
+        // (`GameData::plugin_versions`); the description is empty [decision: no plugin
+        // header's description is kept]. TTW's start-up check (`TTWGenericHandlerScript`)
+        // calls a plugin below 1.3 an unconverted Fallout 3 mod (Fallout 3's plugins are
+        // 0.94 [observed: Fallout3.esm as TTW converts it is 1.34]); with version 0 it
+        // showed "you have Fallout 3 mods installed" for every load order.
         "ttw_getplugins" => {
-            let names = g.data.load_order.clone();
+            let plugins: Vec<(String, f32)> = g.data.load_order.iter().cloned().zip(g.data.plugin_versions.iter().copied()).collect();
             let mut rows = Vec::new();
-            for n in names {
-                rows.push(list(g, vec![XVal::Str(n), XVal::Num(0.0), XVal::Str(String::new())]));
+            for (n, v) in plugins {
+                rows.push(list(g, vec![XVal::Str(n), XVal::Num(f64::from(v)), XVal::Str(String::new())]));
             }
             list(g, rows)
         }
@@ -554,6 +560,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         // creator"; before, nothing opened and the birth scene went on without it].
         "ttw_showgeneprojector" => {
             g.race_menu = crate::game::RaceMenu::Creator;
+            g.race_menu_studio = true;
             g.open_menu(crate::game::menus::RACE);
             zero
         }
@@ -565,8 +572,21 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         "stewiegetvalue" | "stewval" => {
             let ks = text(args, 0);
             let Some((key, section)) = ks.split_once(':') else { return Some(Ok(zero)) };
-            let ini = g.mod_files.read_text("NVSE\\Plugins\\nvse_stewie_tweaks.ini");
-            match ini.and_then(|t| crate::mod_files::ini_get(&t, &section.trim().to_ascii_lowercase(), key.trim())) {
+            // The INIs in Tweaks\INIs override the main one, read in name order, the last
+            // that sets the key winning [hypothesis: Stewie's Tweaks' description, "INIs in
+            // Data\NVSE\Plugins\Tweaks\INIs" override; Keybinder writes its own there
+            // (zzzzKeybinder.ini, its name to come last) and compares StewVal with it].
+            let sec = section.trim().to_ascii_lowercase();
+            let mut files = vec!["NVSE\\Plugins\\nvse_stewie_tweaks.ini".to_string()];
+            files.extend(crate::mod_files::files_in("NVSE\\Plugins\\Tweaks\\INIs").into_iter().filter(|f| f.to_ascii_lowercase().ends_with(".ini")).map(|f| format!("NVSE\\Plugins\\Tweaks\\INIs\\{f}")));
+            for w in g.mod_files.written_in("NVSE\\Plugins\\Tweaks\\INIs") {
+                if !files.iter().any(|f| f.eq_ignore_ascii_case(&w)) {
+                    files.push(w);
+                }
+            }
+            files[1..].sort_by_key(|f| f.to_ascii_lowercase());
+            let found = files.iter().rev().find_map(|f| g.mod_files.read_text(f).and_then(|t| crate::mod_files::ini_get(&t, &sec, key.trim())));
+            match found {
                 Some(v) => v.parse::<f64>().map(XVal::Num).unwrap_or(XVal::Str(v.trim_matches('"').to_string())),
                 None => zero,
             }

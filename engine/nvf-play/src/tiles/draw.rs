@@ -73,10 +73,49 @@ pub fn font_number(font: f64) -> u8 {
 /// line after the first [observed: hud_menus capture 2026-10-31, the text tiles' `height`
 /// in fonts 1-8 at one to three lines, fonts.md §3.1]; an empty string is one line high.
 pub fn measure(font: &Font, number: u8, text: &str, wrap: Option<f64>) -> (f64, f64) {
+    let (width, height, _) = dimensions(font, number, text, wrap);
+    (width, height)
+}
+
+/// The renderer's text layout including its actual line count [design: shared by
+/// GetStringUIDimensions; height includes glyph extents and is not a line counter].
+pub fn dimensions(font: &Font, number: u8, text: &str, wrap: Option<f64>) -> (f64, f64, f64) {
     let lines = font.lines(text, wrap.filter(|w| *w > 0.0).map(|w| w as f32));
     let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
     let height = tallest_glyph(font) + lines.len().saturating_sub(1) as f32 * line_pitch(number, font);
-    (f64::from(width), f64::from(height))
+    (f64::from(width), f64::from(height), lines.len() as f64)
+}
+
+/// Owned metrics, independent of font atlas uploads. Failed reads are retried at most
+/// once a second when queried; successful fonts are parsed once [design].
+#[derive(Default)]
+struct StringMetrics {
+    fonts: HashMap<u8, Font>,
+    retry_after: HashMap<u8, std::time::Duration>,
+}
+
+impl StringMetrics {
+    fn measure(&mut self, number: u8, text: &str, wrap: f64, now: std::time::Duration, load: &impl Fn(u8) -> Option<Font>) -> (f64, f64, f64) {
+        if !self.fonts.contains_key(&number) && self.retry_after.get(&number).is_none_or(|&after| now >= after) {
+            if let Some(font) = load(number) {
+                self.fonts.insert(number, font);
+                self.retry_after.remove(&number);
+            } else {
+                self.retry_after.insert(number, now + std::time::Duration::from_secs(1));
+            }
+        }
+        self.fonts.get(&number).map_or((0.0, 0.0, 0.0), |f| dimensions(f, number, text, Some(wrap)))
+    }
+}
+
+/// A session's owned font source and metrics for script queries. No Bevy resources or
+/// texture handles enter the callback [design]. All font IDs use the renderer's selector.
+pub(crate) fn string_measure(load: impl Fn(u8) -> Option<Font> + Send + Sync + 'static) -> fnv_game::ui_more::Measure {
+    let cache = std::sync::Mutex::new(StringMetrics::default());
+    let start = std::time::Instant::now();
+    Box::new(move |font, text, wrap| {
+        cache.lock().map_or((0.0, 0.0, 0.0), |mut cache| cache.measure(font_number(font), text, wrap, start.elapsed(), &load))
+    })
 }
 
 /// A text tile's size as the code writes it into a tile-drawn menu (T15a,
@@ -134,6 +173,10 @@ impl FontKit<'_> {
     fn load(&mut self, font: f64) {
         let n = font_number(font);
         if !self.fonts.faces.contains_key(&n) {
+            // Only when a face is made: entries in a `profile hitch` line are the faces made in
+            // that frame, whether read or the stand-in (`interface::face`; a tile-drawn menu's
+            // own first use in `draw` counts here too, outside `tiles::write`).
+            let _span = info_span!("tiles::write::font_load").entered();
             let bc = bc_supported(self.formats.as_deref());
             let f = face(FONT_FILES[n as usize - 1], plain_font(31.0, 15.0), self.data.as_deref(), &mut self.images, bc);
             self.fonts.faces.insert(n, f);
@@ -144,6 +187,12 @@ impl FontKit<'_> {
 
     fn face(&self, font: f64) -> Option<&Face> {
         self.fonts.faces.get(&font_number(font))
+    }
+
+    /// The faces made so far, the game's fonts and stand-ins alike
+    /// (`NVF_PLAY_TEST_TILE_COUNTS`).
+    pub(crate) fn faces_made(&self) -> usize {
+        self.fonts.faces.len()
     }
 
     /// The hand-built HUD's corner label places (`crate::hud::label_places`) in font 7, the
@@ -457,6 +506,9 @@ pub struct Piece {
     pub depth: f64,
     /// The tile's `rotateangle` about its `rotateaxisx`/`rotateaxisy` ([`Turn`]).
     pub turn: Option<Turn>,
+    /// A picture's SetUITexOffset offset and SetUIAlphaMap mask, put on by
+    /// [`super::texmod::mark`] as the pieces are painted (#1833); none from [`pieces`].
+    pub tex: Option<super::texmod::TexMod>,
 }
 
 /// A tile turned by its `rotateangle`, in radians and clockwise on the screen, about the
@@ -611,6 +663,8 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
         let tile = ui.tile(item.tile);
         let look = match &item.kind {
             Kind::Rect if ["red", "green", "blue"].iter().any(|n| tile.get(n).is_some()) => Look::Box,
+            // A hotrect a model marked (`layout::HOTRECT_FILL`): its box filled.
+            Kind::Hotrect => Look::Box,
             Kind::Image(image) if !image.filename.trim().is_empty() => {
                 let strip = matches!(select, Select::Whole { strip: Some(s), .. } if s == item.tile);
                 let fit = match () {
@@ -644,8 +698,14 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
         // interface's `amber(brightness)`]; clamped to 0..=255 [design].
         let b = (c.brightness.clamp(0.0, 255.0) / 255.0) as f32;
         let [r, g, bl] = base_colour(ui, item.tile, own).map(|x| x * b);
-        let alpha = (item.alpha / 255.0).clamp(0.0, 1.0) as f32;
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, turn: Turn::of(tile) });
+        let mut alpha = (item.alpha / 255.0).clamp(0.0, 1.0) as f32;
+        // A faint fill reads as the hand-built highlights' does, whose alpha is put through
+        // the same curve (`crate::menu::look`, `crate::message_menu`) [design: not compared
+        // with a shot of the original, none shows a highlight yet].
+        if matches!(item.kind, Kind::Hotrect) {
+            alpha = alpha.powf(2.2);
+        }
+        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, turn: Turn::of(tile), tex: None });
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
@@ -671,6 +731,70 @@ pub(crate) struct TileStrip(StripNode);
 pub(crate) enum Ink {
     Fill,
     Drawn,
+}
+
+/// Where a menu's pieces are painted: the window (every menu until the Pip-Boy's pages), or
+/// an image a camera renders ([`Target::canvas`]). A root node and the pieces' slots belong
+/// to one target, so its fields are part of what a drawing is compared with ([`paint`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Target {
+    /// The camera the pieces are drawn by; none: the window's.
+    pub camera: Option<Entity>,
+    /// The pieces' area in the view's units, from its top left and cut off there; none: the
+    /// whole view.
+    pub canvas: Option<Vec2>,
+    /// Logical pixels to an interface unit (the tiled pictures').
+    pub scale: f32,
+    /// The camera's image's pixels to a logical pixel: 1 in the window. Layout does not
+    /// read it (the units are logical: the camera's target already scales them).
+    pub image_scale: f32,
+    /// The stacking level of the root.
+    pub z: i32,
+    /// Where a menu in the window keeps its place at the UI scale (its root a
+    /// `crate::interface::menu_frame` kept there); none: the root is the whole view (the
+    /// HUD, whose places are written for the scaled view, and a camera's image, which keeps
+    /// its size: its picture is what scales) [design: #1631].
+    pub frame: Option<Vec2>,
+}
+
+impl Target {
+    /// In the window, at `scale` logical pixels to an interface unit.
+    pub fn window(scale: f32, z: i32) -> Target {
+        Target { camera: None, canvas: None, scale, image_scale: 1.0, z, frame: None }
+    }
+
+    /// An image a camera renders: `canvas` is the part of it the pieces lie on. The image
+    /// is as many logical pixels as interface units (`crate::pipboy::TARGET`), so one unit
+    /// is one logical pixel whatever `image_scale` is [design: pipboy.rs, its module notes].
+    pub fn image(camera: Entity, canvas: Vec2, image_scale: f32, z: i32) -> Target {
+        Target { camera: Some(camera), canvas: Some(canvas), scale: 1.0, image_scale, z, frame: None }
+    }
+
+    /// A menu in the window drawn at the UI scale in a frame kept at `anchor`
+    /// ([`Target::frame`]).
+    pub fn in_frame(self, anchor: Vec2) -> Target {
+        Target { frame: Some(anchor), ..self }
+    }
+
+    /// Whether a root made for `self` serves `other`: the same camera, area, level and frame.
+    fn same_root(&self, other: &Target) -> bool {
+        self.camera == other.camera && self.canvas == other.canvas && self.z == other.z && self.frame == other.frame
+    }
+}
+
+/// The root node of a menu's pieces on `target`.
+fn spawn_root(commands: &mut Commands, target: &Target) -> Entity {
+    let node = match target.canvas {
+        Some(c) => Node { overflow: Overflow::clip(), ..at(0.0, 0.0, c.x, c.y) },
+        None => Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+    };
+    let node = target.frame.map_or(node.clone(), |anchor| interface::framed_root(node, anchor));
+    // Kept out of the safe zone's HUD boxes (`crate::safe_zone::SafeZoneIgnore`).
+    let mut root = commands.spawn((TileRoot, crate::safe_zone::SafeZoneIgnore, node, GlobalZIndex(target.z), Pickable::IGNORE));
+    if let Some(camera) = target.camera {
+        root.insert(UiTargetCamera(camera));
+    }
+    root.id()
 }
 
 /// A piece's nodes: its slot (over the whole view, stacked by the piece's place in the
@@ -701,8 +825,9 @@ fn keys(pieces: &[Piece]) -> Vec<Key> {
 pub(crate) struct Drawn {
     root: Option<Entity>,
     pieces: Vec<Piece>,
-    /// Logical pixels to an interface unit the pieces were set for (the tiled pictures').
-    scale: f32,
+    /// Where the pieces were set out for: the camera, the area and the scale (the tiled
+    /// pictures').
+    target: Option<Target>,
     counts: (usize, usize),
     /// The whole menu's start line is written (T12a).
     told: bool,
@@ -720,6 +845,9 @@ pub(crate) struct Drawn {
     /// loose replacement's own tiles are told from (`fnv_ui::Ui::archived_name_paths`,
     /// #975).
     vanilla: Option<(String, Option<HashSet<String>>)>,
+    /// The texture offsets' and alpha maps' textures, baked images, budget and told lines
+    /// (`super::texmod`).
+    tex: super::texmod::State,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -745,7 +873,7 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
     if old == new {
         Change::Same
-    } else if old.look == new.look && old.turn == new.turn && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+    } else if old.look == new.look && old.turn == new.turn && old.tex == new.tex && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
         // A model's parts take no Ink: spawned again in its new colour.
         if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
             Change::Spawn
@@ -791,6 +919,8 @@ fn f(v: f64) -> f32 {
 /// What setting a piece out reads besides the piece.
 struct Ctx<'a> {
     fonts: &'a TileFonts,
+    /// The PlayStation button pictures, drawn in a hint's place [design, #1829].
+    glyphs: &'a crate::pad::PadGlyphs,
     /// Logical pixels to an interface unit.
     scale: f32,
     heading: f32,
@@ -866,13 +996,25 @@ fn spawn_look(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, pictur
             })
         }
         Look::Model { .. } => Some(model::spawn(p, node, piece.tile, model?, colour)),
-        Look::Text { font, .. } => {
+        Look::Text { string, font, wrap, alignment } => {
             let face = ctx.fonts.faces.get(font)?;
             let id = p
                 .spawn((node, Pickable::IGNORE))
                 .with_children(|t| {
-                    for (line, x, base) in piece_lines(piece, &face.font) {
-                        set_marked(t, face, &line, x, base, colour, Ink::Drawn);
+                    // A hint on one line names a button: draw its glyph in the name's place
+                    // (`set_hint_marked`, so the glyph recolours with its piece).
+                    if crate::pad::has_glyph(string) && face.font.lines(string, wrap.map(|w| w as f32)).len() == 1 {
+                        let w = crate::pad::hint_width(face, string, ctx.glyphs);
+                        let x = match alignment {
+                            Alignment::Left => 0.0,
+                            Alignment::Center => (piece.rect.width as f32 - w) / 2.0,
+                            Alignment::Right => piece.rect.width as f32 - w,
+                        };
+                        crate::pad::set_hint_marked(t, face, string, x, text_base(*font), colour, ctx.glyphs, Ink::Drawn);
+                    } else {
+                        for (line, x, base) in piece_lines(piece, &face.font) {
+                            set_marked(t, face, &line, x, base, colour, Ink::Drawn);
+                        }
                     }
                 })
                 .id();
@@ -907,9 +1049,31 @@ pub(crate) struct View<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     /// The container, barter or inventory menu, for whether its prompt is open (T15a).
     active: Option<Res<'w, crate::menu::ActiveMenu>>,
+    /// The dialogue menu's one decision (`super::dialog_menu`).
+    dialog: Option<Res<'w, super::dialog_menu::DialogTiles>>,
     /// The pause menu and its page, for the Mods page (T11, `super::mods`).
     paused: Option<Res<'w, crate::pause::Paused>>,
     page: Option<Res<'w, crate::pause::Page>>,
+    /// The Pip-Boy's image and the STATS tiles' one decision (`super::stats_menu`).
+    screen: Option<Res<'w, crate::pipboy::PipBoyScreen>>,
+    stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
+    /// The ITEMS page's one decision (`super::inventory_menu`).
+    inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
+    /// The Pip-Boy's repair page's one decision (`super::repair_menu`).
+    repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
+    /// The DATA page's one decision (`super::map_menu`).
+    map: Option<ResMut<'w, super::map_menu::MapTiles>>,
+    /// T15c: the container menu, when this frame's writer has it drawn from its tiles.
+    container: Option<Res<'w, super::container_menu::ContainerTiles>>,
+    barter: Option<Res<'w, super::barter_menu::BarterTiles>>,
+    recipe: Option<Res<'w, super::recipe_menu::RecipeTiles>>,
+    /// The vendor's repair menu, when this frame's writer has it drawn from its tiles.
+    repair_services: Option<Res<'w, super::repair_services_menu::RepairServicesTiles>>,
+    /// The trait menu, when this frame's writer has it drawn from its tiles.
+    traits: Option<Res<'w, super::trait_menu::TraitTiles>>,
+    tags: Option<Res<'w, super::tag_menu::TagTiles>>,
+    /// The open character menu, for the same decision as the hand-built trait menu's.
+    chargen: Option<Res<'w, crate::chargen::ChargenMenus>>,
     /// The Pip-Boy and its glance, which hide the mods' HUD tiles ([`mods_hidden`]).
     pipboy: Option<Res<'w, crate::pipboy::PipBoy>>,
     glance: Option<Res<'w, crate::pipboy::glance::Glance>>,
@@ -936,6 +1100,10 @@ pub(crate) struct Nodes<'w, 's> {
     place: Query<'w, 's, &'static mut Node>,
     children: Query<'w, 's, &'static Children>,
     ink: Query<'w, 's, (&'static Ink, InkNodes)>,
+    /// The game, for the pictures' texture offsets and alpha maps (`super::texmod`, #1833).
+    script: Res<'w, ScriptState>,
+    /// The compass strips' windows, moved on in place by a new offset (#1833).
+    strips: Query<'w, 's, &'static mut TileStrip>,
 }
 
 /// The menus drawn from tiles besides the HUD (T15a, `super::menus`), each in its own
@@ -948,6 +1116,21 @@ pub(crate) struct MenusDrawn {
     start: Drawn,
     sleep_wait: Drawn,
     tutorial: Drawn,
+    /// The Pip-Boy's STATS page, in the Pip-Boy's image.
+    stats: Drawn,
+    /// The Pip-Boy's ITEMS page, in the Pip-Boy's image.
+    inventory: Drawn,
+    /// The Pip-Boy's repair page, in the Pip-Boy's image.
+    repair_page: Drawn,
+    /// The Pip-Boy's DATA page, in the Pip-Boy's image.
+    map: Drawn,
+    container: Drawn,
+    barter: Drawn,
+    recipe: Drawn,
+    repair_services: Drawn,
+    traits: Drawn,
+    tags: Drawn,
+    dialog: Drawn,
 }
 
 /// The stacking levels of the menus drawn from tiles besides the HUD: their hand-built
@@ -957,11 +1140,35 @@ pub const MESSAGE_Z: i32 = 108;
 pub const QUANTITY_Z: i32 = 101;
 /// T15b: the Wait / Sleep menu's, its hand-built drawing's 105 (`crate::wait`) [design].
 pub const SLEEP_WAIT_Z: i32 = 105;
+/// The dialogue menu's, its hand-built drawing's 90 (`crate::dialogue_menu`) [design].
+pub const DIALOG_Z: i32 = 90;
 /// T15b: the tutorial menu's, over the other menus as its hand-built drawing is
 /// (`crate::tutorial_menu`) [design].
 pub const TUTORIAL_Z: i32 = 109;
+/// The Pip-Boy's page drawn from tiles, in the Pip-Boy's image: over the shell's root (no
+/// level, 0), whose header it leaves the pointer to, and under the beam and the scanlines
+/// (`crate::pipboy::device_screen`) [design].
+pub const PIPBOY_TILES_Z: i32 = 1;
+/// T15c: the container menu's, its hand-built drawing's 100 (`crate::menu`), under its prompt
+/// [design].
+pub const CONTAINER_Z: i32 = 100;
+/// The trait menu's, its hand-built drawing's (`crate::chargen`) [design].
+pub const TRAIT_Z: i32 = crate::interface::TOP_MENU_Z;
 
-pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View, mut kit: FontKit, (mut drawn, mut others): (Local<Drawn>, Local<MenusDrawn>), mut nodes: Nodes, mut blur: ResMut<super::menus::TileMenuBlur>) {
+/// Where a tile menu keeps its place at the UI scale (`crate::interface::menu_frame`): the
+/// dialogue menu at the view's bottom, as its hand-built drawing does
+/// (`crate::dialogue_menu`), the others in its middle [design: #1631]. The pointer reads
+/// the same (`super::input`).
+pub fn menu_anchor(dialog: bool) -> Vec2 {
+    if dialog {
+        interface::BOTTOM_MIDDLE
+    } else {
+        interface::MIDDLE
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: View, mut kit: FontKit, (mut drawn, mut others): (Local<Drawn>, Local<MenusDrawn>), mut nodes: Nodes, mut blur: ResMut<super::menus::TileMenuBlur>, glyphs: Res<crate::pad::PadGlyphs>) {
     let scale = view.windows.single().map_or(1.0, |w| w.height() / 960.0);
     let heading = view.hud.as_ref().map_or(0.0, |h| h.heading);
     // T15a: the message box and the prompt, when switched on and in the tree (their
@@ -971,17 +1178,34 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
     let others = &mut *others;
     // The prompt drawn only while open: its tree drops at the next frame's sync.
     let prompt_open = view.active.as_ref().and_then(|a| a.0.as_ref()).is_some_and(|m| m.quantity.is_some());
+    let container_on = view.container.as_ref().is_some_and(|c| c.menu.is_some());
+    let barter_on = view.barter.as_ref().is_some_and(|b| b.menu().is_some());
+    let inventory_on = view.inventory.as_ref().is_some_and(|i| i.ready.is_some());
     let mut blur_now = super::menus::TileMenuBlur::default();
     for (name, on, z, drawn) in [
         (super::menus::MESSAGE_MENU, game.is_some_and(|g| super::menus::message_tiled(switch.message, g)), MESSAGE_Z, &mut others.message),
-        (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open)), QUANTITY_Z, &mut others.quantity),
+        (super::menus::QUANTITY_MENU, game.is_some_and(|g| super::menus::quantity_tiled(switch.quantity, g, prompt_open, container_on || barter_on || inventory_on)), QUANTITY_Z, &mut others.quantity),
         (super::wait_menu::SLEEP_WAIT_MENU, game.is_some_and(|g| super::wait_menu::tiled(switch.sleep_wait, g)), SLEEP_WAIT_Z, &mut others.sleep_wait),
         (super::tutorial_menu::TUTORIAL_MENU, game.is_some_and(|g| super::tutorial_menu::tiled(switch.tutorial, g)), TUTORIAL_Z, &mut others.tutorial),
+        (super::container_menu::CONTAINER_MENU, container_on, CONTAINER_Z, &mut others.container),
+        (super::barter_menu::BARTER_MENU, barter_on, CONTAINER_Z, &mut others.barter),
+        (super::recipe_menu::RECIPE_MENU, view.recipe.as_ref().is_some_and(|r| r.menu.is_some()), CONTAINER_Z, &mut others.recipe),
+        (super::repair_services_menu::REPAIR_SERVICES_MENU, view.repair_services.as_ref().is_some_and(|r| r.menu.is_some()), CONTAINER_Z, &mut others.repair_services),
+        // One decision with the hand-built menu's and, below, the blur's (`trait_menu::drawn`).
+        (super::trait_menu::TRAIT_MENU, view.traits.as_ref().is_some_and(|t| super::trait_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.traits_open()), game).is_some()), TRAIT_Z, &mut others.traits),
+        (super::tag_menu::TAG_MENU, view.tags.as_ref().is_some_and(|t| super::tag_menu::drawn(t, view.chargen.as_ref().and_then(|c| c.tags_open()), game).is_some()), TRAIT_Z, &mut others.tags),
+        (super::dialog_menu::DIALOG_MENU, view.dialog.as_ref().is_some_and(|d| d.drawn()), DIALOG_Z, &mut others.dialog),
     ] {
         let ui = game.map(|g| &g.ui_tree);
         let menu = ui.filter(|_| on).and_then(|ui| ui.menu(name).map(|m| (ui, m)));
         // The blur behind the menu follows this very decision, not the switch or the menu's id.
         blur_now.tutorial |= name == super::tutorial_menu::TUTORIAL_MENU && menu.is_some();
+        blur_now.container |= name == super::container_menu::CONTAINER_MENU && menu.is_some();
+        blur_now.barter |= name == super::barter_menu::BARTER_MENU && menu.is_some();
+        blur_now.recipe |= name == super::recipe_menu::RECIPE_MENU && menu.is_some();
+        blur_now.repair_services |= name == super::repair_services_menu::REPAIR_SERVICES_MENU && menu.is_some();
+        blur_now.traits |= name == super::trait_menu::TRAIT_MENU && menu.is_some();
+        blur_now.tags |= name == super::tag_menu::TAG_MENU && menu.is_some();
         let pieces = match menu {
             Some((ui, menu)) => {
                 if drawn.told_menu != Some(menu) {
@@ -989,17 +1213,127 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
                     info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
                     drawn.told_menu = Some(menu);
                 }
-                whole_pieces(ui, menu, &mut kit, super::interface_screen(switch))
+                let mut pieces = whole_pieces(ui, menu, &mut kit, super::interface_screen(switch));
+                // Marked as `paint` marks them, so a modified picture is not told as a change
+                // every frame (#1833).
+                super::texmod::mark(&mut pieces, game.map(|g| &g.other.itr));
+                if name == super::dialog_menu::DIALOG_MENU && pieces != drawn.pieces {
+                    info!("{}", super::dialog_menu::painted(ui, &pieces));
+                }
+                pieces
             }
             None => Vec::new(),
         };
-        paint(&mut commands, drawn, pieces, scale, z, heading, ui, &mut kit, &mut nodes);
+        // At the menus' scale (#1631, the UI scale at most 100%): the units `scale × it` logical pixels, in a frame
+        // kept at the menu's anchor.
+        let anchor = menu_anchor(name == super::dialog_menu::DIALOG_MENU);
+        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
+    pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
+    repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
     // T11: the Mods page, the start menu's mod tiles over the pause menu.
     let mods_on = switch.start && view.paused.as_ref().zip(view.page.as_ref()).is_some_and(|(p, page)| crate::pause::mods_open(p, page));
-    mods_page(&mut commands, &script, mods_on, &mut kit, &mut others.start, &mut nodes, scale, heading);
-    hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale, heading);
+    mods_page(&mut commands, &script, mods_on, &mut kit, &mut others.start, &mut nodes, scale * interface::menu_scale(), heading, &glyphs);
+    // The HUD at the UI scale (#1631): its places are written for a view 960 / scale units
+    // high (`fnv_game::ui_hud::write`), a unit `scale` times the size it is in the menus.
+    let _hud = crate::interface::hud_units();
+    hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale * interface::ui_scale(), heading, &glyphs);
+}
+
+/// The Pip-Boy's pages drawn from their files, in the Pip-Boy's image, each while it is ready
+/// (`super::stats_menu::StatsTiles::ready`, `super::inventory_menu::InventoryTiles::ready`,
+/// decided before this drawing). What was painted is published for the next frame's tile input,
+/// which acts on what the player saw.
+#[allow(clippy::too_many_arguments)]
+fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, (stats_drawn, inventory_drawn, map_drawn): (&mut Drawn, &mut Drawn, &mut Drawn), nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+    let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let ui = game.map(|g| &g.ui_tree);
+    let live = |ready: Option<TileId>| ready.filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
+    // The one measured layout each decision checked; worked out again next frame.
+    let menu = live(view.stats.as_ref().and_then(|s| s.ready));
+    let pieces = menu.and(view.stats.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::stats_menu::STATS_MENU, menu, pieces, target, kit, stats_drawn, nodes, heading, glyphs);
+    if let Some(stats) = view.stats.as_mut().filter(|s| s.shown != menu) {
+        stats.shown = menu;
+    }
+    let menu = live(view.inventory.as_ref().and_then(|s| s.ready));
+    let pieces = menu.and(view.inventory.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::inventory_menu::INVENTORY_MENU, menu, pieces, target, kit, inventory_drawn, nodes, heading, glyphs);
+    if let Some(inventory) = view.inventory.as_mut().filter(|s| s.shown != menu) {
+        inventory.shown = menu;
+    }
+    let menu = live(view.map.as_ref().and_then(|s| s.ready));
+    let pieces = menu.and(view.map.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::map_menu::MAP_MENU, menu, pieces, target, kit, map_drawn, nodes, heading, glyphs);
+    if let Some(map) = view.map.as_mut().filter(|s| s.shown != menu) {
+        map.shown = menu;
+    }
+}
+
+/// One page of [`pipboy_pages`]; `menu` while it is ready, `pieces` what its decision checked.
+/// Logged when it changes: how many pieces go to the painter, and how many of them are the rows'
+/// names. That is structure, before painting: it says nothing of the pixels, which only shots can.
+#[allow(clippy::too_many_arguments)]
+fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Option<TileId>, pieces: Vec<Piece>, target: Target, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+    match ui.zip(menu) {
+        Some((ui, menu)) => {
+            // The STATS page is told once its rows are there, on whichever tab first has some:
+            // Status with no effects has no code tile to count (#1944); the others at once.
+            if drawn.told_menu != Some(menu) {
+                let (file, code) = origins(ui, menu);
+                if code > 0 || name != super::stats_menu::STATS_MENU {
+                    info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
+                    drawn.told_menu = Some(menu);
+                }
+            }
+            let names = pieces.iter().filter(|p| matches!(p.look, Look::Text { .. }) && ui.tile(p.tile).name.eq_ignore_ascii_case("ListItemText")).count();
+            let counts = (pieces.len(), names);
+            if counts != drawn.counts {
+                info!("tiles: {name} set out for the Pip-Boy's image: {} pieces, {} row names", counts.0, counts.1);
+                drawn.counts = counts;
+            }
+        }
+        None => drawn.counts = (0, 0),
+    }
+    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
+}
+
+/// The Pip-Boy's repair page, in the Pip-Boy's image, while it is ready
+/// (`super::repair_menu::RepairTiles::ready`, decided before this drawing), as [`pipboy_page`].
+#[allow(clippy::too_many_arguments)]
+fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+    let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let name = super::repair_menu::REPAIR_MENU;
+    let ui = game.map(|g| &g.ui_tree);
+    let ready = view.repair_page.as_ref().and_then(|s| s.ready);
+    let menu = ui.zip(ready).filter(|(ui, m)| ui.is_live(*m));
+    let pieces = match (menu, view.repair_page.as_mut()) {
+        (Some((ui, menu)), Some(page)) => {
+            if drawn.told_menu != Some(menu) {
+                let (file, code) = origins(ui, menu);
+                info!("tiles: {name} drawn from tiles ({file} file tiles, {code} code tiles)");
+                drawn.told_menu = Some(menu);
+            }
+            let pieces = std::mem::take(&mut page.pieces);
+            let names = pieces.iter().filter(|p| matches!(p.look, Look::Text { .. }) && ui.tile(p.tile).name.eq_ignore_ascii_case("ListItemText")).count();
+            let counts = (pieces.len(), names);
+            if counts != drawn.counts {
+                info!("tiles: {name} set out for the Pip-Boy's image: {} pieces, {} row names", counts.0, counts.1);
+                drawn.counts = counts;
+            }
+            pieces
+        }
+        _ => {
+            drawn.counts = (0, 0);
+            Vec::new()
+        }
+    };
+    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
+    let shown = menu.map(|(_, m)| m);
+    if let Some(page) = view.repair_page.as_mut().filter(|s| s.shown != shown) {
+        page.shown = shown;
+    }
 }
 
 /// The pause menu's Mods page (T11, `super::mods`): the tiles mods added to `StartMenu`,
@@ -1007,7 +1341,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, view: View,
 /// archived file's), in interface units, at [`super::mods::MODS_Z`]; nothing while `on` is
 /// false.
 #[allow(clippy::too_many_arguments)]
-fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, scale: f32, heading: f32) {
+fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, scale: f32, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let files = script.rt.as_ref().and_then(|rt| rt.game.ui_files.as_deref());
     let ui = script.rt.as_ref().filter(|rt| rt.game.ui_files.is_some()).map(|rt| &rt.game.ui_tree);
     let menu = ui.filter(|_| on).and_then(|ui| ui.menu(super::mods::START_MENU).map(|m| (ui, m)));
@@ -1032,7 +1366,8 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
         info!("tiles: {}: Mods page, {} mod tiles drawn ({} items)", super::mods::START_MENU, counts.0, counts.1);
         drawn.counts = counts;
     }
-    paint(commands, drawn, pieces, scale, super::mods::MODS_Z, heading, ui, kit, nodes);
+    // In the middle of the view, as the pause menu's page under it (`crate::pause`).
+    paint(commands, drawn, pieces, Target::window(scale, super::mods::MODS_Z).in_frame(interface::MIDDLE), heading, ui, kit, nodes, glyphs);
 }
 
 /// The fonts of `pieces`' texts that are not loaded (`loaded` says which are), each once:
@@ -1105,7 +1440,7 @@ pub(super) fn archived_names<'a>(ui: &Ui, menu: TileId, files: &dyn fnv_ui::Sour
 /// The HUD's pieces (T5's mods' tiles, or with `[UI] TileMenus=HUDMainMenu` the whole menu)
 /// drawn ([`paint`]).
 #[allow(clippy::too_many_arguments)]
-fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, scale: f32, heading: f32) {
+fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, scale: f32, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let whole = view.menus.as_ref().is_some_and(|m| m.hud);
     let t15 = view.menus.as_deref().copied().is_some_and(super::interface_screen);
     let files = script.rt.as_ref().and_then(|rt| rt.game.ui_files.as_deref());
@@ -1151,32 +1486,43 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
         }
         drawn.counts = counts;
     }
-    paint(commands, drawn, pieces, scale, TILES_Z, heading, ui, kit, nodes);
+    // The HUD keeps the view's own frame: its places are written for the scaled view.
+    paint(commands, drawn, pieces, Target::window(scale, TILES_Z), heading, ui, kit, nodes, glyphs);
 }
 
-/// Bring one menu's drawn nodes in line with its `pieces`, at stacking level `z`: nothing
-/// when they and the scale are as last drawn; otherwise each piece's slot kept, moved and
-/// recoloured in place, spawned again or removed ([`change`]).
+/// Bring one menu's drawn nodes in line with its `pieces` on `target`: nothing when they and
+/// the target are as last drawn; otherwise each piece's slot kept, moved and recoloured in
+/// place, spawned again or removed ([`change`]).
 #[allow(clippy::too_many_arguments)]
-fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: f32, z: i32, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes) {
-    if pieces == drawn.pieces && scale == drawn.scale {
+fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+    let scale = target.scale;
+    // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
+    super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
+    drawn.tex.frame();
+    drawn.tex.prune(&pieces, ui);
+    // A camera's image is laid out at its own size whatever the UI scale (#1631).
+    let _canvas = target.camera.map(|_| interface::original_units());
+    if pieces == drawn.pieces && drawn.target == Some(target) {
         return;
     }
     // Nothing drawn yet and nothing to draw (a menu switched off): no root node either.
     if pieces.is_empty() && drawn.root.is_none() {
-        drawn.scale = scale;
+        drawn.target = Some(target);
         return;
     }
-    let root = *drawn.root.get_or_insert_with(|| {
-        let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-        commands.spawn((TileRoot, crate::safe_zone::SafeZoneIgnore, full, GlobalZIndex(z), Pickable::IGNORE)).id()
-    });
+    // Another camera, area or level: the root is made again for it.
+    if drawn.target.is_some_and(|was| !was.same_root(&target)) {
+        if let Some(root) = drawn.root.take() {
+            commands.entity(root).despawn();
+        }
+    }
+    let root = *drawn.root.get_or_insert_with(|| spawn_root(commands, &target));
     // A new size: the tiled pictures are set for the old one, so every piece again.
-    if scale != drawn.scale {
+    if drawn.target != Some(target) {
         commands.entity(root).despawn_related::<Children>();
         drawn.slots.clear();
         drawn.pieces.clear();
-        drawn.scale = scale;
+        drawn.target = Some(target);
     }
     let keys = keys(&pieces);
     let old: HashMap<Key, &Piece> = self::keys(&drawn.pieces).into_iter().zip(&drawn.pieces).collect();
@@ -1190,6 +1536,9 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: 
         keep
     });
     let mut spawn = Vec::new();
+    // Pieces whose new offset waits for the bake budget: kept as last shown, so the next
+    // frame tries again (`super::texmod::State::shift_in_place`).
+    let mut waiting = Vec::new();
     for (i, (key, piece)) in keys.iter().zip(&pieces).enumerate() {
         let (Some(slot), Some(was)) = (drawn.slots.get_mut(key), old.get(key)) else {
             spawn.push(i);
@@ -1199,7 +1548,25 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: 
             commands.entity(slot.node).insert(ZIndex(i as i32));
             slot.order = i;
         }
-        match change(was, piece) {
+        let mut how = change(was, piece);
+        // Only the offset changed: its image baked again in place, its nodes kept (#1833).
+        if how == Change::Spawn && super::texmod::only_offset_differs(was, piece) {
+            let strip = nodes.children.iter_descendants(slot.node).find(|e| nodes.strips.contains(*e));
+            let mut strip = strip.and_then(|e| nodes.strips.get_mut(e).ok());
+            let window = strip.as_mut().and_then(|s| match &mut s.0 {
+                StripNode::Baked(w) => Some(w),
+                StripNode::Moving => None,
+            });
+            let data = kit.data.as_deref();
+            let read = |p: &str| data.and_then(|d| d.read(p));
+            if let Some(shown) = drawn.tex.shift_in_place(piece, &mut kit.images, Some(&read), window) {
+                if !shown {
+                    waiting.push((i, was.tex.clone()));
+                }
+                how = change(&Piece { tex: piece.tex.clone(), ..(*was).clone() }, piece);
+            }
+        }
+        match how {
             Change::Same => {}
             Change::Spawn => spawn.push(i),
             Change::InPlace => {
@@ -1263,6 +1630,26 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: 
                 }
                 _ => None,
             };
+            // SetUITexOffset's offset and SetUIAlphaMap's mask, baked into the picture's
+            // place; the compass strip's below (`super::texmod`, #1833).
+            let (picture, baked) = match (&piece.tex, &piece.look, &picture, data) {
+                (Some(tex), Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) if *fit != Fit::Strip => {
+                    let atlas = match source {
+                        Source::Index(a) => Some(a.as_str()),
+                        _ => None,
+                    };
+                    let path = pictures.texture_path(name, atlas, rect.is_some(), data);
+                    let texels = (f64::from(size.x), f64::from(size.y));
+                    let repeat = match placed(*fit, rect.is_some(), texels) {
+                        Placed::Repeat { width, height } => repeat::texels_for((piece.rect.width, piece.rect.height), (width, height), texels),
+                        _ => None,
+                    };
+                    let bake = super::texmod::Bake { state: &mut drawn.tex, data, images: &mut kit.images, ui };
+                    let drawing = super::texmod::Drawing { path: &path, placed: placed(*fit, rect.is_some(), texels), repeat };
+                    super::texmod::apply(tex, piece, drawing, picture.clone(), baked, bake)
+                }
+                _ => (picture, baked),
+            };
             // The compass strip's window, baked into one image (`crate::compass_strip`).
             let strip = match (&piece.look, &picture, data) {
                 (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) => {
@@ -1270,7 +1657,15 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: 
                         Source::Index(a) => Some(a.as_str()),
                         _ => None,
                     };
-                    let window = StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images));
+                    // With an offset or a mask: the strip moved on and its window masked
+                    // (`super::texmod::strip`, #1833); as it was when their texels are not read.
+                    let modded = piece.tex.as_ref().and_then(|tex| {
+                        let path = pictures.texture_path(name, atlas, rect.is_some(), data);
+                        let bake = super::texmod::Bake { state: &mut drawn.tex, data, images: &mut kit.images, ui };
+                        let (texels, mask) = super::texmod::strip(tex, piece, &path, *rect, bake)?;
+                        StripWindow::new(texels, f(piece.rect.width), heading, &mut kit.images).map(|w| w.masked(mask, &mut kit.images))
+                    });
+                    let window = modded.or_else(|| StripTexels::read(pictures, name, atlas, *rect, &mut drawn.repeats, data).and_then(|t| StripWindow::new(t, f(piece.rect.width), heading, &mut kit.images)));
                     if !drawn.strip_told {
                         match &window {
                             Some(w) => info!("tiles: the compass strip baked into one window image of {} x {} texels", w.texels().0, w.texels().1),
@@ -1292,7 +1687,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: 
             };
             made.push((i, picture, baked, strip, model));
         }
-        let ctx = Ctx { fonts: &kit.fonts, scale, heading };
+        let ctx = Ctx { fonts: &kit.fonts, glyphs, scale, heading };
         for (i, picture, baked, strip, model) in made {
             let piece = &pieces[i];
             let key = keys[i];
@@ -1314,6 +1709,9 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, pieces: Vec<Piece>, scale: 
                 }
             }
         }
+    }
+    for (i, shown) in waiting {
+        pieces[i].tex = shown;
     }
     drawn.pieces = pieces;
 }
@@ -1352,6 +1750,28 @@ mod tests {
         (10.0 * text.chars().count() as f64, 20.0)
     }
 
+    /// [design] A window's target is told by its scale and level alone; an image's by its
+    /// camera, area and scale too, so a drawing kept for one is never kept for another.
+    #[test]
+    fn a_target_is_part_of_what_a_drawing_is_kept_for() {
+        let mut world = World::new();
+        let (a, b) = (world.spawn_empty().id(), world.spawn_empty().id());
+        let canvas = Vec2::new(400.0, 300.0);
+        assert_eq!(Target::window(1.5, 7), Target::window(1.5, 7));
+        assert_ne!(Target::window(1.5, 7), Target::window(2.0, 7));
+        assert!(Target::window(1.5, 7).same_root(&Target::window(2.0, 7)), "a new window size keeps its root");
+        assert!(!Target::window(1.5, 7).same_root(&Target::window(1.5, 8)));
+        let image = Target::image(a, canvas, 1.0, 1);
+        assert!(!image.same_root(&Target::window(1.0, 1)), "the window's root cannot serve a camera");
+        assert!(!image.same_root(&Target::image(b, canvas, 1.0, 1)), "nor another camera's");
+        assert!(!image.same_root(&Target::image(a, Vec2::new(500.0, 300.0), 1.0, 1)), "nor another area's");
+        // A sharper image keeps the root and its units, and is another drawing.
+        let sharper = Target::image(a, canvas, 1.5, 1);
+        assert!(image.same_root(&sharper));
+        assert_ne!(image, sharper);
+        assert_eq!(sharper.scale, 1.0, "layout is not scaled twice: the camera's target does it");
+    }
+
     /// [design] The real drawing system over a runtime with the menu files read, the tutorial
     /// menu's switch `on`, nothing open.
     fn tutorial_drawing(on: bool) -> App {
@@ -1360,6 +1780,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<Assets<Image>>()
             .init_resource::<TileFonts>()
+            .init_resource::<crate::pad::PadGlyphs>()
             .init_resource::<super::super::menus::TileMenuBlur>()
             .insert_resource(TileMenus { tutorial: on, ..Default::default() })
             .insert_resource(state)
@@ -1496,6 +1917,27 @@ mod tests {
     }
 
     #[test]
+    fn highlight_fill_is_drawn() {
+        let src = MemSource::default().with(
+            "h.xml",
+            r#"<menu name="M"><rect name="R"><systemcolor>1</systemcolor>
+              <hotrect name="H"><alpha>40</alpha><brightness>128</brightness><width>100</width><height>50</height></hotrect></rect></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "h.xml").unwrap();
+        ui.update();
+        let select = || Select::Whole { kept: &[], strip: None };
+        assert!(pieces(&ui, menu, &plain, select(), true).0.is_empty(), "unmarked, a hotrect draws nothing");
+        let h = ui.find_tile("M/R/H").unwrap();
+        ui.set_trait(h, layout::HOTRECT_FILL, Value::Num(1.0));
+        ui.set_trait(h, layout::OWN_ALPHA, Value::Num(1.0));
+        let (drawn, _) = pieces(&ui, menu, &plain, select(), true);
+        assert_eq!(drawn.len(), 1);
+        assert_eq!(drawn[0].look, Look::Box);
+        assert!((drawn[0].colour[3] - (40.0f32 / 255.0).powf(2.2)).abs() < 1e-6, "the hand-built fill's curve");
+    }
+
+    #[test]
     fn only_the_mods_tiles_draw_and_code_copies_never() {
         let (mut ui, src) = hud();
         let menu = ui.menu(HUD_MENU).unwrap();
@@ -1622,6 +2064,39 @@ mod tests {
         assert_eq!(measure(&font, 7, "ab cd", Some(40.0)), (30.0, 31.0 + 38.0));
         assert_eq!(measure(&font, 9, "ab cd", Some(40.0)), (30.0, 62.0));
         assert_eq!(measure(&font, 7, "", None), (0.0, 31.0));
+    }
+
+    #[test]
+    fn string_dimensions_share_layout_and_count_lines_directly() {
+        let font = tall_font(36.0, 42.0);
+        assert_eq!(dimensions(&font, 7, "ab cd", Some(40.0)), (30.0, 80.0, 2.0));
+        assert_eq!(dimensions(&font, 7, "ab\n\ncd", None), (30.0, 118.0, 3.0));
+        assert_eq!(dimensions(&font, 7, "", None), (0.0, 42.0, 1.0));
+        let other = tall_font(52.0, 64.0);
+        assert_eq!(dimensions(&other, 8, "ab\ncd", None), (30.0, 116.0, 2.0));
+        let measure = string_measure(move |n| Some(if n == 8 { other.clone() } else { font.clone() }));
+        assert_eq!(measure(8.0, "ab\ncd", 0.0), (30.0, 116.0, 2.0));
+        assert_eq!(measure(0.0, "ab", -1.0), (30.0, 42.0, 1.0));
+    }
+
+    #[test]
+    fn unavailable_metrics_retry_without_reparsing_every_frame() {
+        use std::cell::Cell;
+        use std::time::Duration;
+        let mut cache = StringMetrics::default();
+        let available = Cell::new(false);
+        let reads = Cell::new(0);
+        let load = |_: u8| {
+            reads.set(reads.get() + 1);
+            available.get().then(|| plain_font(29.0, 10.0))
+        };
+        assert_eq!(cache.measure(9, "ab", 0.0, Duration::ZERO, &load), (0.0, 0.0, 0.0));
+        available.set(true);
+        assert_eq!(cache.measure(9, "ab", 0.0, Duration::from_millis(500), &load), (0.0, 0.0, 0.0));
+        assert_eq!(reads.get(), 1);
+        assert_eq!(cache.measure(9, "ab", 0.0, Duration::from_secs(1), &load), (20.0, 29.0, 1.0));
+        assert_eq!(cache.measure(9, "ab cd", 25.0, Duration::from_secs(2), &load), (20.0, 58.0, 2.0));
+        assert_eq!(reads.get(), 2);
     }
 
     /// A stand-in font whose tallest glyph picture is `tallest` high.
@@ -1989,6 +2464,7 @@ mod tests {
             colour: [1.0, 0.7, 0.3, 1.0],
             depth: 0.0,
             turn: None,
+            tex: None,
         };
         let mut dimmer = model.clone();
         dimmer.colour[3] = 0.5;

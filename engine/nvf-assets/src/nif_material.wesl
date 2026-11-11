@@ -33,7 +33,9 @@
 //
 // Holes (nif_material.rs "Holes"): where `surface.holes.x` is 0 or more, the holes
 // texture's alpha (0-255) at or above it leaves a hole and the band of `surface.holes.y`
-// below it is drawn in `surface.holes_edge`; at 255 or more there are none.
+// below it is drawn in `surface.holes_edge`; at 255 or more there are none. With
+// `surface.holes.z` 1 the test is turned round (a cut-out): alpha below it leaves a
+// hole, and there is no band.
 //
 // FACEGEN_TINT (an NPC's face and skin shapes, main pass; nif_material.rs "FaceGen tint"):
 // the `.egt` colour offset is added to the diffuse texture's stored sRGB value (0-255)
@@ -436,10 +438,11 @@ fn nif_fragment(
     var holes_band = 0.0;
     @if(VERTEX_UVS_A) if surface.holes.x >= 0.0 && surface.holes.x < 255.0 {
         let h = holes_alpha(in.instance_index, in.uv) * 255.0;
-        if h >= surface.holes.x {
+        let cut_out = (surface.holes.z > 0.5);
+        if select((h >= surface.holes.x), (h < surface.holes.x), cut_out) {
             discard;
         }
-        holes_band = select(0.0, 1.0, h >= surface.holes.x - surface.holes.y);
+        holes_band = select(select(0.0, 1.0, h >= surface.holes.x - surface.holes.y), 0.0, cut_out);
     }
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     @if(FACEGEN_TINT && VERTEX_UVS_A) if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_BASE_COLOR_TEXTURE_BIT) != 0u {
@@ -502,7 +505,9 @@ fn nif_fragment(
     // the Strip's night adapter raises it to 4 (×2.67 over the Mojave's), and the
     // original's Strip lamp beams stay a faint haze under it where ours, scaled in
     // display values, blew out white (nif.md §6 "Additive blend", 2026-10-25).
-    let emissive_scale = select(view_emissive_scale(), 1.0, (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
+    // Unlit shapes without External Emittance and authored cut-out signs also bypass the scale [hypothesis, fitted
+    // to the 2026-11-06 frames; nif.md §6 "Unlit shapes that are pictures, and cut-out signs"].
+    let emissive_scale = select(view_emissive_scale(), 1.0, surface.emissive_rule.x > 0.5 || (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD);
     let e = vec4(pbr_input.material.emissive.rgb * emissive_scale, pbr_input.material.emissive.a);
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
 
@@ -547,11 +552,13 @@ fn nif_fragment(
         @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) let unlit_e = pbr_input.material.emissive.rgb;
         @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) if any(unlit_e > vec3(0.0)) {
             @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && TONEMAP_IN_SHADER) out.color = vec4(min(unlit_e, out.color.rgb), out.color.a);
-            // Solid emitters (opaque or cut-out: neon tubes, lit signs) burn as hot sources;
+            // Opaque solid emitters burn as hot sources; authored cut-out signs (emissive_rule.y)
+            // keep their texture on the plain path [hypothesis, nif.md §6 "Unlit shapes that
+            // are pictures, and cut-out signs"];
             // glows and beams that blend or add over the frame stay soft (hot_light), or a
             // lamp's glow card burns into a hard disc on the wall behind it.
             @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) let unlit_blend = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-            @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
+            @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !TONEMAP_IN_SHADER) if surface.emissive_rule.y > 0.0 || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
                 out.color = vec4(unlit_e, out.color.a);
             } else if unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND || unlit_blend == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED {
                 // A glow that blends over the frame covers it by its alpha: its colour is
@@ -577,16 +584,25 @@ fn nif_fragment(
         // faded only by the view-angle falloff.
         let add_a = select(out.color.a, falloff, surface.add_whole > 0.5);
         let fogged = main_pass_post_lighting_processing(pbr_input, vec4(out.color.rgb, 1.0));
-        let behind = textureSampleLevel(view_transmission_texture, view_transmission_sampler, transmission_uv(frag_coord_to_uv(in.position.xy)), 0.0).rgb;
-        out.color = vec4(add_display(fogged.rgb, add_a, behind), 0.0);
+        @if(!ADD_LINEAR) let behind = textureSampleLevel(view_transmission_texture, view_transmission_sampler, transmission_uv(frag_coord_to_uv(in.position.xy)), 0.0).rgb;
+        @if(!ADD_LINEAR) out.color = vec4(add_display(fogged.rgb, add_a, behind), 0.0);
+        // NifSurface::add_linear: the colour added as it is, in linear light.
+        @if(ADD_LINEAR) out.color = vec4(fogged.rgb * saturate(add_a), 0.0);
     } else {
         out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     }
+    // NifSurface::pipboy_screen: linear red's ceiling, fitted so a bar's red stays near the
+    // original's 206 (nvf-play pipboy/device_screen.rs). Before the post-lighting step, which
+    // tone maps here when the view has no HDR (the Glow setting off).
+    @if(PIPBOY_SCREEN) out.color.r = min(out.color.r, 0.67);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && !BLEND_PREMULTIPLIED_ALPHA) out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) let blend_mode = pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY) if blend_mode == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND && (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u {
         out.color = vec4(out.color.rgb * blend_colour_scale(out.color.a), out.color.a);
     }
+    // NifSurface::pipboy_screen: the mark that keeps these pixels out of the image-space grade
+    // (imagespace.wesl SCREEN_MARK).
+    @if(PIPBOY_SCREEN) out.color.a = 0.25;
     @if(!PREPASS_PIPELINE && !BLEND_MULTIPLY && SOFT_EDGES) out.color.a = edge;
     return out;
 }

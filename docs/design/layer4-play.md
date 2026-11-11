@@ -30,7 +30,25 @@ fly camera, screenshots and the lab's frame captures keep working).
 - Game space is the game's (Z up, game units); Bevy space is Y up. Conversions:
   `nvf_play::space`. The sim and physics never see Bevy types.
 - The player is the `Camera3d` entity (marked `PlayerCamera`): physics moves its feet,
-  the camera sits at eye height. Render streaming already follows the `Camera3d`.
+  the camera sits at eye height. Render streaming follows that camera.
+- **The main view** [design: issue #1753, `engine/nvforever/src/fly.rs`]: the main world
+  camera is the one `setup` spawns (main.rs), marked `FlyCam` with or without `--play`
+  (`PlayerCamera` joins it with `--play`); the marker stays on that one entity for the
+  whole run (free camera, death camera, VATS and third person move it, none replaces it).
+  It is not the only `Camera3d`: the water reflection, a scope's lens and reticle, and the
+  menus that draw a model of their own (lockpicking, terminals, the Vigor Tester,
+  blackjack, poker, roulette) spawn 3D cameras beside it. So a system that means "where
+  the player looks from" takes the camera by the filter `fly::WorldCamera`, never as the
+  only `Camera3d` (`.single()` stopped while a menu camera existed, `.iter().next()`
+  could take the menu's): streaming and tree billboards (world.rs), level of detail
+  (lod.rs, treelod.rs, imposters.rs), grass, particles' births and squares, effect
+  billboards (shot_fx.rs), water, distant water, ripples, the reflection's mirror,
+  underwater fog, the navmesh overlay, actors' feet, heads, lips and turning. Systems
+  that mean every camera keep their own queries: particle culling tests each active 3D
+  camera's frustum (particles.rs), per-view shadow and pointer code looks a camera up by
+  its entity. World systems therefore keep running behind a menu's camera; world.rs
+  `note_other_cameras` logs it (`world: streaming runs with another 3D camera active
+  (<name>)`, smoke scenario `menu-camera-world-runs`).
 - Physics streams its own cells around the player (radius 1, i.e. 3×3 exterior cells, or
   the current interior); render streaming (radius 2+) is unchanged and independent.
 - The simulation (`SimState`) owns the truth about references (taken, disabled, open,
@@ -390,14 +408,18 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
   pause menu is Continue / Save / Load / Settings / Quit in the original's look
   (`start_menu.rs`, from `start_menu.xml`), Quit asks Main Menu / Exit Game / Cancel, and
   Settings groups the switches by category (Gameplay, World, Display, Graphics, Debug,
-  Saving) as ON/OFF rows; the entries are still NVForever's own switches.
+  Saving) as ON/OFF rows; the entries are still NVForever's own switches. Since #1953
+  (2026-11-09) the page shows the rows in seven tabs, Gameplay, Display, Audio,
+  Controls, Graphics, Tweaks and Debug, under headings, from a table that only says
+  where a row is drawn (`settings_layout.rs`; the registry, its groups and its order are
+  unchanged): [settings-page.md](settings-page.md).
   - A switch is an `nvf_play::settings::Setting`: a key, a label, a note, and a `get` and
     `set` over the state its module already uses (so there is no second copy to keep in
     step). The owning module registers it (`add_setting`): nvf-play its own in its
     plugins, nvforever the renderer's in `nvforever/src/settings.rs`.
   - The switches: `menu-pause` (the picture stands still in dialogue and menus,
     `--menu-pause`), `voice` (`--no-voice`), `dialogue-look` (`--no-dialogue-look`),
-    `dialogue-recentre` (`--dialogue-recentre`), `lip-sync` (`--no-lip`),
+    `dialogue-recentre` (`--dialogue-recentre`), `dialogue-zoom` (`--no-dialogue-zoom`), `lip-sync` (`--no-lip`),
     `head-tracking` (`--no-head-tracking`), `sky-clock` (`--still-sky`),
     `first-person-body` (`--first-person-body`, player-body.md §1.5), `weapon-sway`
     (`--no-weapon-sway`, player-body.md §1.4a), `sun-shadows`

@@ -19,6 +19,8 @@
 //! the world too) and `_AUDIO_REOPEN`; `_VIGOR` counts from its menu's first frame and
 //! `_RADIO` on the radio's own clock. Without the switch every aid counts from the start.
 //!
+//! - `NVF_PLAY_TEST_SHOT_FLATNESS=1`: each of those shots also logs how much of the view is
+//!   one colour ([`one_colour_percent`]), for a scenario to check without reading the file.
 //! - `NVF_PLAY_TEST_SHOTS=<seconds>[:<path.png>][,...]`: save a screenshot at each time,
 //!   to the path given, else as `play-<seconds>s.png` in `NVF_PLAY_TEST_SHOT_DIR`
 //!   (default: the current folder).
@@ -60,7 +62,9 @@
 //!   object, e.g. a bottle to shoot, or at a placed actor's aim point), `equip=<FormID hex>` (give one unless carried and
 //!   equip it, as `NVF_PLAY_TEST_EQUIP`) and `condition=<percent>` (set the condition of
 //!   everything the player has equipped, e.g. a weapon about to break). `aimpart=254`
-//!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`). The `aim…`
+//!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`);
+//!   `aimcreaturepart=<n>` aims at the nearest creature's body part `n` (its BPTD index,
+//!   e.g. a bighorner's calf, which its head does not hide when it faces the player). The `aim…`
 //!   presses put the point under the crosshair: in third person the view turns so the
 //!   over-the-shoulder camera's line passes through it (`control::Crosshair::aim_at`).
 //!   `flashlight` switches the flashlight as a hold of Menu Mode does (`crate::flashlight`).
@@ -73,7 +77,14 @@
 //!   digit (`e`, `2`), `f1`..`f12`, an arrow (`up`, `down`, `left`, `right`), `backspace`,
 //!   `delete`, `mouse-left` / `mouse-right` / `mouse-middle`, or a notch of the wheel
 //!   (`wheel-up`, `wheel-down`).
+//!   `pad-X` (or another button named by `crate::pad::parse_pad`) presses a synthetic
+//!   controller's button through `pad::menu_keys`; select Controller in the settings.
 //!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
+//!
+//! - `NVF_PLAY_TEST_MELEE_KNOCKBACK=<target FormID hex>:<x>:<y>:<z>`: one player power blow
+//!   on one actor put `x`, `y` from the player and `z` over the ground there (it may start
+//!   far away and unloaded) and left standing, gated on readiness
+//!   ([`melee_knockback`], with nvforever `residents::melee_knockback`).
 //!
 //! The aids that stand in for the keys and the mouse (`NVF_PLAY_TEST_MOVE`,
 //! `NVF_PLAY_TEST_CONTROL`'s presses, `NVF_PLAY_TEST_LOOK`, `NVF_PLAY_TEST_ACTIVATE`) are
@@ -97,7 +108,9 @@
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
 //! view (as with `--auto-walk`). Not the aids that only measure ([`MEASURING_AIDS`]:
 //! `NVF_PLAY_TEST_SAMPLE`, `NVF_PLAY_TEST_PROFILE`, `NVF_PLAY_TEST_PROFILE_COUNTS`,
-//! `NVF_PLAY_TEST_HITVOL_SCAN`, `NVF_PLAY_TEST_HITVOL_COMPARE`): with them alone the run is played by
+//! `NVF_PLAY_TEST_PROFILE_HITCH_MS`, `NVF_PLAY_TEST_PROFILE_HITCH_SPANS`,
+//! `NVF_PLAY_TEST_TILE_COUNTS`, `NVF_PLAY_TEST_HITVOL_SCAN`,
+//! `NVF_PLAY_TEST_HITVOL_COMPARE`): with them alone the run is played by
 //! hand as usual and only logs its frame times, and a load's new run keeps them
 //! (nvforever handoff.rs) [owner 2026-10-27: hitch logging for a session played from MO2].
 //!
@@ -114,9 +127,11 @@ use crate::player::{MoveIntent, Player};
 use crate::sim::SimState;
 use crate::PlaySet;
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{save_to_disk, Screenshot};
+use bevy::render::view::screenshot::{save_to_disk, Screenshot, ScreenshotCaptured};
 use fnv_sim::FormId;
 use std::path::{Path, PathBuf};
+
+pub mod melee_knockback;
 
 /// How far in front of the reference `NVF_PLAY_TEST_FACE` puts the feet (game units;
 /// inside the activation reach).
@@ -197,6 +212,8 @@ enum Press {
     /// A share of the NPC's height, over a body part's centre.
     AimNpcOver(f32, u8),
     AimPart(u8),
+    /// `aimcreaturepart=<n>`: the nearest creature's body part `n` (its BPTD index).
+    AimCreaturePart(u8),
     AimRef(u32),
     Equip(FormId),
     Condition(f32),
@@ -232,6 +249,8 @@ fn press(rest: &str) -> Result<Press, String> {
                 Press::AimNpcOver(h, n)
             } else if let Some(Ok(h)) = rest.strip_prefix("aimnpc=").map(|h| h.trim().parse::<f32>()) {
                 Press::AimNpcAt(h)
+            } else if let Some(Ok(n)) = rest.strip_prefix("aimcreaturepart=").map(|n| n.trim().parse::<u8>()) {
+                Press::AimCreaturePart(n)
             } else if let Some(Ok(n)) = rest.strip_prefix("aimpart=").map(|n| n.trim().parse::<u8>()) {
                 Press::AimPart(n)
             } else if let Some(Ok(id)) = rest.strip_prefix("aimref=").map(|h| u32::from_str_radix(h.trim().trim_start_matches("0x"), 16)) {
@@ -252,6 +271,8 @@ fn press(rest: &str) -> Result<Press, String> {
 pub enum RealInput {
     Key(KeyCode),
     Mouse(MouseButton),
+    /// [design] A synthetic controller's button, routed by crate::pad::menu_keys.
+    Pad(GamepadButton),
     /// A notch of the wheel: up is positive.
     Wheel(f32),
 }
@@ -286,6 +307,11 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
         "down" => RealInput::Key(KeyCode::ArrowDown),
         "left" => RealInput::Key(KeyCode::ArrowLeft),
         "right" => RealInput::Key(KeyCode::ArrowRight),
+        // [design] Names for the item-menu smoke scenarios' existing keyboard controls.
+        "pageup" => RealInput::Key(KeyCode::PageUp),
+        "pagedown" => RealInput::Key(KeyCode::PageDown),
+        "bracketleft" => RealInput::Key(KeyCode::BracketLeft),
+        "bracketright" => RealInput::Key(KeyCode::BracketRight),
         "wheel-up" => RealInput::Wheel(1.0),
         "wheel-down" => RealInput::Wheel(-1.0),
         "backspace" => RealInput::Key(KeyCode::Backspace),
@@ -293,6 +319,10 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
         "mouse-left" => RealInput::Mouse(MouseButton::Left),
         "mouse-right" => RealInput::Mouse(MouseButton::Right),
         "mouse-middle" => RealInput::Mouse(MouseButton::Middle),
+        l if l.starts_with("pad-") => match crate::pad::parse_pad(&l[4..]) {
+            Some(crate::pad::PadInput::Button(b)) => RealInput::Pad(b),
+            _ => return Err(format!("{rest:?}: unknown pad button {name:?}")),
+        },
         l if l.len() == 1 && l.as_bytes()[0].is_ascii_lowercase() => RealInput::Key(letters[(l.as_bytes()[0] - b'a') as usize]),
         l if l.len() == 1 && l.as_bytes()[0].is_ascii_digit() => RealInput::Key(digits[(l.as_bytes()[0] - b'0') as usize]),
         l => match l.strip_prefix('f').and_then(|n| n.parse::<usize>().ok()).filter(|n| (1..=12).contains(n)) {
@@ -308,12 +338,17 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
 pub(crate) struct RealPresses {
     due: Vec<(f32, (RealInput, f32))>,
     down: Vec<(RealInput, f32)>,
+    pad: Option<Entity>,
 }
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
-pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>, mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>) {
+pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>, mut wheel: MessageWriter<bevy::input::mouse::MouseWheel>, mut pads: Query<&mut Gamepad>) {
     let Some(now) = time.world_secs() else { return };
     let p = &mut *p;
+    let mut pad = p.pad.and_then(|e| pads.get_mut(e).ok());
+    if let Some(g) = pad.as_mut() {
+        g.digital_mut().clear();
+    }
     p.down.retain(|&(input, until)| {
         if now < until {
             return true;
@@ -321,6 +356,11 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
         match input {
             RealInput::Key(k) => keys.release(k),
             RealInput::Mouse(m) => mouse.release(m),
+            RealInput::Pad(b) => {
+                if let Some(g) = pad.as_mut() {
+                    g.digital_mut().release(b);
+                }
+            }
             RealInput::Wheel(_) => {}
         }
         info!("test aid: real input {input:?} let go");
@@ -330,6 +370,11 @@ pub(crate) fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresse
         match input {
             RealInput::Key(k) => keys.press(k),
             RealInput::Mouse(m) => mouse.press(m),
+            RealInput::Pad(b) => {
+                if let Some(g) = pad.as_mut() {
+                    g.digital_mut().press(b);
+                }
+            }
             RealInput::Wheel(y) => {
                 wheel.write(bevy::input::mouse::MouseWheel { unit: bevy::input::mouse::MouseScrollUnit::Line, x: 0.0, y, window: Entity::PLACEHOLDER, phase: bevy::input::touch::TouchPhase::Moved });
             }
@@ -374,9 +419,21 @@ fn take_due<T: Clone>(due: &mut Vec<(f32, T)>, now: f32) -> Vec<T> {
 }
 
 /// The test aids that only log what the run costs or does (nvforever stress_sample.rs and
-/// profile.rs, [`crate::hitvol`]): they leave the run attended, and a load's new run keeps
-/// them.
-pub const MEASURING_AIDS: [&str; 5] = ["NVF_PLAY_TEST_SAMPLE", "NVF_PLAY_TEST_PROFILE", "NVF_PLAY_TEST_PROFILE_COUNTS", "NVF_PLAY_TEST_HITVOL_SCAN", "NVF_PLAY_TEST_HITVOL_COMPARE"];
+/// profile.rs, [`crate::tiles`], [`crate::hitvol`]): they leave the run attended, and a
+/// load's new run keeps them. A run that only measures and must not wait for anyone also
+/// sets `NVF_PLAY_TEST_UNATTENDED`, which does nothing but drive the run: `drives_run` looks
+/// at the name alone, so any value counts, and a load's new run drops it like any driving
+/// aid (`profile-slow-frames`).
+pub const MEASURING_AIDS: [&str; 8] = [
+    "NVF_PLAY_TEST_SAMPLE",
+    "NVF_PLAY_TEST_PROFILE",
+    "NVF_PLAY_TEST_PROFILE_COUNTS",
+    "NVF_PLAY_TEST_PROFILE_HITCH_MS",
+    "NVF_PLAY_TEST_PROFILE_HITCH_SPANS",
+    "NVF_PLAY_TEST_TILE_COUNTS",
+    "NVF_PLAY_TEST_HITVOL_SCAN",
+    "NVF_PLAY_TEST_HITVOL_COMPARE",
+];
 
 /// Whether this environment variable is a test aid that drives the run (any
 /// `NVF_PLAY_TEST_*` but the [`MEASURING_AIDS`]).
@@ -454,12 +511,14 @@ pub(crate) fn setup(app: &mut App) {
             Err(e) => warn!("{name}: {e}"),
         }
     }
+    melee_knockback::setup(app);
     let var = |name: &str| std::env::var(name).ok();
     if let Some(v) = var("NVF_PLAY_TEST_KEYS") {
-        match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect()) {
+        match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect::<Result<Vec<_>, _>>()) {
             Ok(due) => {
-                app.insert_resource(RealPresses { due, down: Vec::new() })
-                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus));
+                let pad = due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_))).then(|| app.world_mut().spawn((Gamepad::default(), Name::new("Scripted controller"))).id());
+                app.insert_resource(RealPresses { due, down: Vec::new(), pad })
+                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(crate::pad::menu_keys).before(bevy::ui::UiSystems::Focus));
             }
             Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
         }
@@ -561,6 +620,7 @@ fn keys_and_controls(
             Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
             Press::AimNpcOver(h, n) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::ShareOver(h, n))),
             Press::AimPart(n) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Part(n))),
+            Press::AimCreaturePart(n) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACRE"), Some(Aim::Part(n))),
             Press::AimRef(id) => aim_at_ref(&phys, &mut player, cross.as_ref(), id),
             Press::AimVats => {
                 let marked = vats.marked();
@@ -632,11 +692,11 @@ fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, cross: Option<&Cr
     info!("test aid: aiming at actor {id:08X} ({:.0} units away{line})", d2(c).sqrt());
 }
 
-/// Aim at the collision body of a placed object (its first body's centre of mass), else
-/// at the aim point of the actor it is (`PhysWorld::actor_aim_point`).
+/// Aim at an actor's aim point (`PhysWorld::actor_aim_point`), else at the collision body
+/// of a placed object (its first body's centre of mass).
 fn aim_at_ref(phys: &PhysState, player: &mut Player, cross: Option<&Crosshair>, id: u32) {
-    let Some(c) = phys.world.ref_center(id).or_else(|| phys.world.actor_aim_point(id)) else {
-        warn!("test aid: aimref: {id:08X} has no collision body and is no actor with a hit volume");
+    let Some(c) = phys.world.actor_aim_point(id).or_else(|| phys.world.ref_center(id)) else {
+        warn!("test aid: aimref: {id:08X} has no hit volume or collision body");
         return;
     };
     let eye = player.eye();
@@ -677,8 +737,35 @@ fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands:
             let _ = std::fs::create_dir_all(dir);
         }
         info!("test aid: screenshot {}", path.display());
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let mut shot = commands.spawn(Screenshot::primary_window());
+        shot.observe(save_to_disk(path));
+        if std::env::var_os("NVF_PLAY_TEST_SHOT_FLATNESS").is_some() {
+            shot.observe(move |ev: On<ScreenshotCaptured>| {
+                let size = ev.image.texture_descriptor.size;
+                if let Some(data) = ev.image.data.as_deref() {
+                    info!("test aid: {name}: {} % of the view is one colour", one_colour_percent(data, size.width as usize, size.height as usize));
+                }
+            });
+        }
     }
+}
+
+/// Test aid `NVF_PLAY_TEST_SHOT_FLATNESS`: the share of the view, its lower fifth left out
+/// (the HUD), taken by its commonest colour at 32 levels a channel. A view the world has not
+/// been drawn into is one colour (#1520). `pixels`: four bytes each, row by row.
+fn one_colour_percent(pixels: &[u8], width: usize, height: usize) -> u32 {
+    let mut counts = std::collections::HashMap::<[u8; 3], u32>::new();
+    let mut seen = 0u32;
+    for y in (0..height * 4 / 5).step_by(4) {
+        for x in (0..width).step_by(4) {
+            if let Some(p) = pixels.get((y * width + x) * 4..(y * width + x) * 4 + 3) {
+                *counts.entry([p[0] >> 3, p[1] >> 3, p[2] >> 3]).or_default() += 1;
+                seen += 1;
+            }
+        }
+    }
+    counts.values().max().map_or(0, |n| n * 100 / seen.max(1))
 }
 
 fn face_reference(time: crate::pause::AidTime, mut aids: ResMut<Aids>, sim: Res<SimState>, mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
@@ -765,15 +852,67 @@ fn goto_and_look(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_flat_view_is_one_colour_and_a_varied_one_is_not() {
+        let (w, h) = (64, 40);
+        let flat = [92u8, 116, 148, 255].repeat(w * h);
+        assert_eq!(one_colour_percent(&flat, w, h), 100);
+        let varied: Vec<u8> = (0..w * h).flat_map(|i| [(i % 251) as u8, (i % 127) as u8 * 2, (i % 61) as u8 * 4, 255]).collect();
+        assert!(one_colour_percent(&varied, w, h) < 10);
+        // The lower fifth is the HUD's: not counted.
+        let mut hud = flat.clone();
+        hud[(h * 4 / 5) * w * 4..].fill(0);
+        assert_eq!(one_colour_percent(&hud, w, h), 100);
+    }
+
     use super::*;
 
     #[test]
     fn the_key_aid_names_arrows_and_wheel_notches() {
         assert_eq!(real_input("down"), Ok((RealInput::Key(KeyCode::ArrowDown), 0.0)));
+        for (name, key) in [("pageup", KeyCode::PageUp), ("pagedown", KeyCode::PageDown), ("bracketleft", KeyCode::BracketLeft), ("bracketright", KeyCode::BracketRight)] {
+            assert_eq!(real_input(name), Ok((RealInput::Key(key), 0.0)));
+        }
         assert_eq!(real_input("left:0.5"), Ok((RealInput::Key(KeyCode::ArrowLeft), 0.5)));
         assert_eq!(real_input("wheel-down"), Ok((RealInput::Wheel(-1.0), 0.0)));
         assert_eq!(real_input("wheel-up"), Ok((RealInput::Wheel(1.0), 0.0)));
         assert_eq!(real_input("e"), Ok((RealInput::Key(KeyCode::KeyE), 0.0)));
+        assert_eq!(real_input("pad-X:0.2"), Ok((RealInput::Pad(GamepadButton::West), 0.2)));
+        assert_eq!(real_input("pad-A"), Ok((RealInput::Pad(GamepadButton::South), 0.0)));
+        assert!(real_input("pad-unknown").is_err());
+    }
+
+    #[test]
+    fn scripted_pad_presses_hold_release_and_press_again() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(Time::<()>::default());
+        world.init_resource::<crate::pause::PlayClock>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<ButtonInput<MouseButton>>();
+        world.init_resource::<Messages<bevy::input::mouse::MouseWheel>>();
+        let pad = world.spawn(Gamepad::default()).id();
+        world.insert_resource(RealPresses {
+            due: vec![(0.0, (RealInput::Pad(GamepadButton::West), 0.5)), (1.0, (RealInput::Pad(GamepadButton::West), 0.0))],
+            down: Vec::new(), pad: Some(pad),
+        });
+        world.run_system_once(real_presses).unwrap();
+        assert!(world.get::<Gamepad>(pad).unwrap().just_pressed(GamepadButton::West));
+        world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(0.25));
+        world.run_system_once(real_presses).unwrap();
+        let g = world.get::<Gamepad>(pad).unwrap();
+        assert!(g.pressed(GamepadButton::West));
+        assert!(!g.just_pressed(GamepadButton::West));
+        world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(0.25));
+        world.run_system_once(real_presses).unwrap();
+        assert!(world.get::<Gamepad>(pad).unwrap().just_released(GamepadButton::West));
+        world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(0.5));
+        world.run_system_once(real_presses).unwrap();
+        assert!(world.get::<Gamepad>(pad).unwrap().just_pressed(GamepadButton::West));
+        world.resource_mut::<Time>().advance_by(std::time::Duration::from_millis(1));
+        world.run_system_once(real_presses).unwrap();
+        assert!(!world.get::<Gamepad>(pad).unwrap().pressed(GamepadButton::West));
+        assert!(world.resource::<RealPresses>().down.is_empty());
     }
 
     #[test]
@@ -797,6 +936,10 @@ mod tests {
     fn measuring_aids_leave_the_run_attended() {
         assert!(!drives_run("NVF_PLAY_TEST_SAMPLE"));
         assert!(!drives_run("NVF_PLAY_TEST_PROFILE"));
+        assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_MS"));
+        assert!(!drives_run("NVF_PLAY_TEST_PROFILE_HITCH_SPANS"));
+        assert!(!drives_run("NVF_PLAY_TEST_TILE_COUNTS"));
+        assert!(drives_run("NVF_PLAY_TEST_UNATTENDED"));
         assert!(drives_run("NVF_PLAY_TEST_GOD"));
         assert!(drives_run("NVF_PLAY_TEST_SAMPLE_X"), "only the exact names measure");
         assert!(!drives_run("NVF_PLAY_DEBUG_GIVE"));
@@ -827,6 +970,7 @@ mod tests {
         assert_eq!(press("aimnpc=0.95@0").unwrap(), Press::AimNpcOver(0.95, 0));
         assert_eq!(press("aimref=0010A202").unwrap(), Press::AimRef(0x10A202));
         assert_eq!(press("aimpart=4").unwrap(), Press::AimPart(4));
+        assert_eq!(press("aimcreaturepart=1").unwrap(), Press::AimCreaturePart(1));
         assert_eq!(press("condition=2.5").unwrap(), Press::Condition(2.5));
         assert!(press("shoot").is_err());
         assert_eq!(press("orbit=180:0").unwrap(), Press::Orbit(std::f32::consts::PI, 0.0));

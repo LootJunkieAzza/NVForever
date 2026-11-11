@@ -68,6 +68,8 @@ pub struct OtherState {
     pub cell_zones: HashMap<FormId, Option<FormId>>,
     /// LandTextureAddGrass's and LandTextureRemoveGrass's grass lists (`nvse_jip5`).
     pub ltex_grasses: HashMap<FormId, Vec<FormId>>,
+    /// Lutana batch 1's record changes (`nvse_lutana`).
+    pub lutana: crate::nvse_lutana::LutanaState,
     /// SetCasinoChip's chips, by casino (`nvse_jg3`, read through `crate::casino::chip`).
     pub casino_chips: HashMap<FormId, FormId>,
     /// The Set…TerminalMenuItem… changes, by terminal and item (`nvse_jg3`, read through
@@ -77,6 +79,9 @@ pub struct OtherState {
     /// the record's (`nvse_jg4`, read through `nvse_jg4::idle_marker` and
     /// `nvse_jg4::region_weathers`).
     pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
+    /// SetIdleMarkerTraitNumeric's flags, the whole byte as set (the collection keeps
+    /// only the two bits it plays by; `nvse_jg4`).
+    pub idle_marker_flags: HashMap<FormId, u8>,
     pub region_weathers: HashMap<FormId, crate::data::RegionWeathers>,
     /// ITR NVSE's state (`nvse_itr1`).
     pub itr: crate::nvse_itr1::ItrState,
@@ -86,6 +91,35 @@ pub struct OtherState {
     pub jip6: crate::nvse_jip6::Jip6State,
     /// JIP batch 7's lists and settings: ammo effects, climate weathers, armour (`nvse_jip7`).
     pub jip7: crate::nvse_jip7::Jip7State,
+    /// JIP batch 8's changes: actor effects, base effects, water effects, excluded combat
+    /// actions (`nvse_jip8`).
+    pub jip8: crate::nvse_jip8::Jip8State,
+    /// JIP batch 9's switches and what the engine tells: the HUD cursor, volumes, fonts,
+    /// colours, immortal mode, disabled interaction types (`nvse_jip9`).
+    pub jip9: crate::nvse_jip9::Jip9State,
+    /// JIP batch 10's objectives, added variables, disabled scripts, extra data, map
+    /// markers (`nvse_jip10`).
+    pub jip10: crate::nvse_jip10::Jip10State,
+    /// JIP batch 14's effects, primitives, models, VATS, fuses and frequencies (`nvse_jip14`).
+    pub jip14: crate::nvse_jip14::Jip14State,
+    /// JIP batch 11's actor overrides and engine requests (`nvse_jip11`).
+    pub jip11: crate::nvse_jip11::Jip11State,
+    /// JIP batch 13's physics view, requests and follows (`nvse_jip13`).
+    pub jip13: crate::nvse_jip13::Jip13State,
+    /// JIP batch 12's sky, world, barter and menu state (`nvse_jip12`).
+    pub jip12: crate::nvse_jip12::Jip12State,
+    /// JohnnyGuitar batch 5's record changes (`nvse_jg5`).
+    pub jg5: crate::nvse_jg5::Jg5State,
+    /// JohnnyGuitar batch 6's state (`nvse_jg6`).
+    pub jg6: crate::nvse_jg6::Jg6State,
+    /// JohnnyGuitar batch 7's switches, settings and queued texts (`nvse_jg7`).
+    pub jg7: crate::nvse_jg7::Jg7State,
+    /// JohnnyGuitar batch 8's handlers, custom map marker and radio tuning (`nvse_jg8`).
+    pub jg8: crate::nvse_jg8::Jg8State,
+    /// JohnnyGuitar batch 9's sounds from files and scripted holotapes (`nvse_jg9`).
+    pub jg9: crate::nvse_jg9::Jg9State,
+    /// JohnnyGuitar batch 10's requests and switches for the engine (`nvse_jg10`).
+    pub jg10: crate::nvse_jg10::Jg10State,
 }
 
 /// The bit of DisablePlayerControlsAltEx's flags for each control group, in the order of

@@ -22,6 +22,14 @@
 //!   tint taken as display values as `particles.rs` does, blended by the destination
 //!   blend (One: added).
 //! - **End**: no births once the play ends; the particles alive live out their time.
+//! - **Built only where a camera may see it** (issue #1417), as `particles.rs`'s systems
+//!   are (its module notes, "Built only where a camera may see it" and "When"): births and
+//!   motion stay in [`draw`] in `Update`, which ends by taking the world camera's basis
+//!   (`particles::WorldCamera`; it no longer stops while a scope's camera is up) where it
+//!   took it before; [`build`] makes the squares in `PostUpdate`
+//!   (`particles::ParticleDrawSet`) only for a burst whose live particles' box
+//!   ([`burst_bounds`]) some active camera drawing its layers may see this frame, and
+//!   hides the others' render entities meanwhile.
 //!
 //! Log: `effect particles: <EDID> on <who> (<texture>, …)` when a play starts drawing,
 //! and at exit `effect particles summary: …`.
@@ -88,11 +96,21 @@ pub struct EffectParticles {
     born: u64,
     plays: u32,
     most_alive: usize,
+    /// The main camera's right, up and backward in game space taken this frame by
+    /// [`draw`] for [`build`]; `None`: nothing is drawn.
+    basis: Option<[Vec3; 3]>,
 }
 
 impl Default for EffectParticles {
     fn default() -> Self {
-        EffectParticles { bursts: HashMap::new(), missing: Vec::new(), rng: SplitMix(0x5eed_f1a3), born: 0, plays: 0, most_alive: 0 }
+        EffectParticles { bursts: HashMap::new(), missing: Vec::new(), rng: SplitMix(0x5eed_f1a3), born: 0, plays: 0, most_alive: 0, basis: None }
+    }
+}
+
+impl EffectParticles {
+    /// The bursts' meshes (the profile aid's `profile change sources:` line).
+    pub fn mesh_ids(&self) -> impl Iterator<Item = AssetId<Mesh>> + '_ {
+        self.bursts.values().map(|b| b.mesh.id())
     }
 }
 
@@ -124,7 +142,8 @@ fn display_colour(c: [f32; 4]) -> [f32; 4] {
     [l.red, l.green, l.blue, c[3]]
 }
 
-/// Births, motion and drawing of every play's particles.
+/// Births and motion of every play's particles, then the camera basis [`build`] draws
+/// them with this frame.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn draw(
     mut commands: Commands,
@@ -138,8 +157,10 @@ pub fn draw(
     globals: Query<&GlobalTransform>,
     bounds: Query<&Aabb>,
     shown: Query<&InheritedVisibility>,
-    camera: Query<&Transform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    layers: Query<&bevy::camera::visibility::RenderLayers>,
+    camera: Query<&Transform, crate::particles::WorldCamera>,
 ) {
+    st.basis = None;
     let Ok((root, root_at)) = root.single() else { return };
     let st = &mut *st;
     let (now, dt) = (time.elapsed_secs(), time.delta_secs());
@@ -217,8 +238,9 @@ pub fn draw(
         let mut bones: Vec<Entity> = Vec::new();
         let mut boxes: Vec<(Entity, Aabb)> = Vec::new();
         for &e in a.covered.keys() {
-            // A hidden mesh (the player's body in first person) gives off none.
-            if shown.get(e).is_ok_and(|v| !v.get()) {
+            // [design: player_body::show_rigs] Hidden meshes still give off none;
+            // the player's shadow-only meshes also have no births in the camera.
+            if shown.get(e).is_ok_and(|v| !v.get()) || (a.on == FormId::PLAYER_REF.0 && !crate::effect_shaders::player_mesh_seen(layers.get(e).ok())) {
                 continue;
             }
             match skins.get(e) {
@@ -293,44 +315,98 @@ pub fn draw(
         }
     }
 
-    // Drawing: a square facing the camera per particle.
+    // The basis the squares face this frame, taken where the draw took it before it
+    // moved to `build`.
     let Ok(cam) = camera.single() else { return };
-    let right = to_game.transform_vector3(cam.rotation * Vec3::X).normalize_or(Vec3::X);
-    let up = to_game.transform_vector3(cam.rotation * Vec3::Y).normalize_or(Vec3::Z);
-    let back = to_game.transform_vector3(cam.rotation * Vec3::Z).normalize_or(Vec3::Y);
+    st.basis = Some(crate::particles::camera_basis(cam.rotation, &to_game));
+}
+
+/// Drawing: a square facing the camera per particle, built only for a burst some camera
+/// may see this frame (module notes); the others' render entities are hidden.
+pub fn build(
+    mut st: ResMut<EffectParticles>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut visibility: Query<&mut Visibility>,
+    views: crate::particles::ParticleViews,
+    mut counts: Option<ResMut<crate::profile::ParticleCull>>,
+) {
+    // Taken: a frame whose `draw` did not get this far draws nothing, as before.
+    let Some(basis) = st.basis.take() else { return };
+    let frame = views.frame();
     for b in st.bursts.values() {
-        let shown = !b.particles.is_empty();
+        let alive = !b.particles.is_empty();
+        let seen = alive && frame.may_see(burst_bounds(b), b.entity, &views);
         // The burst's entity may have gone with the world root (a load); nothing to show then.
-        commands.entity(b.entity).try_insert(if shown { Visibility::Inherited } else { Visibility::Hidden });
-        if !shown {
+        if let Ok(mut v) = visibility.get_mut(b.entity) {
+            let want = if seen { Visibility::Inherited } else { Visibility::Hidden };
+            if *v != want {
+                *v = want;
+            }
+        }
+        if !alive {
             continue;
         }
-        let Some(mut mesh) = models.meshes.get_mut(&b.mesh) else { continue };
-        let d = &b.def;
-        let n = b.particles.len();
-        let (mut positions, mut uvs, mut colors, mut indices) = (Vec::with_capacity(n * 4), Vec::with_capacity(n * 4), Vec::with_capacity(n * 4), Vec::with_capacity(n * 6));
-        let [fu, fv] = d.frames;
-        let (w, h) = (1.0 / fu as f32, 1.0 / fv as f32);
-        for (k, q) in b.particles.iter().enumerate() {
-            let f = (q.age / q.life).clamp(0.0, 1.0);
-            let half = 0.5 * d.scale(f).max(0.0);
-            let (s, c) = q.angle.sin_cos();
-            let (x, y) = ((right * c + up * s) * half, (up * c - right * s) * half);
-            for corner in [-x - y, x - y, x + y, -x + y] {
-                positions.push((q.pos + corner).to_array());
-            }
-            let (u, v) = ((q.frame % fu) as f32 * w, (q.frame / fu % fv) as f32 * h);
-            uvs.extend([[u, v + h], [u + w, v + h], [u + w, v], [u, v]]);
-            colors.extend([display_colour(d.tint(f)); 4]);
-            let i = (k * 4) as u32;
-            indices.extend([i, i + 1, i + 2, i, i + 2, i + 3]);
+        if let Some(c) = counts.as_deref_mut() {
+            c.count(crate::profile::ParticleKind::Effect, seen);
         }
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![back.to_array(); n * 4]);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-        mesh.insert_indices(Indices::U32(indices));
+        if !seen {
+            // Its mesh keeps its last squares, hidden, until a camera may see it again.
+            continue;
+        }
+        let Some(mut mesh) = meshes.get_mut(&b.mesh) else { continue };
+        let g = squares(b, basis);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, g.normals);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, g.positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, g.colors);
+        mesh.insert_indices(Indices::U32(g.indices));
     }
+}
+
+/// A burst's squares: the mesh attributes and indices.
+struct Squares {
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
+    colors: Vec<[f32; 4]>,
+    indices: Vec<u32>,
+}
+
+/// A square facing the camera (`basis`: its right, up and backward in game space) per
+/// particle of `b`.
+fn squares(b: &Burst, [right, up, back]: [Vec3; 3]) -> Squares {
+    let d = &b.def;
+    let n = b.particles.len();
+    let (mut positions, mut uvs, mut colors, mut indices) = (Vec::with_capacity(n * 4), Vec::with_capacity(n * 4), Vec::with_capacity(n * 4), Vec::with_capacity(n * 6));
+    let [fu, fv] = d.frames;
+    let (w, h) = (1.0 / fu as f32, 1.0 / fv as f32);
+    for (k, q) in b.particles.iter().enumerate() {
+        let f = (q.age / q.life).clamp(0.0, 1.0);
+        let half = 0.5 * d.scale(f).max(0.0);
+        let (s, c) = q.angle.sin_cos();
+        let (x, y) = ((right * c + up * s) * half, (up * c - right * s) * half);
+        for corner in [-x - y, x - y, x + y, -x + y] {
+            positions.push((q.pos + corner).to_array());
+        }
+        let (u, v) = ((q.frame % fu) as f32 * w, (q.frame / fu % fv) as f32 * h);
+        uvs.extend([[u, v + h], [u + w, v + h], [u + w, v], [u, v]]);
+        colors.extend([display_colour(d.tint(f)); 4]);
+        let i = (k * 4) as u32;
+        indices.extend([i, i + 1, i + 2, i, i + 2, i + 3]);
+    }
+    Squares { positions, normals: vec![back.to_array(); n * 4], uvs, colors, indices }
+}
+
+/// A game-space box holding every corner [`squares`] makes of the burst, whatever the
+/// camera's basis: within half the width × √2 of each particle (the camera's right and
+/// up are orthonormal, as for `particles.rs`'s `particle_bounds`). `None` without a
+/// particle or with a value not finite (then drawn as before).
+fn burst_bounds(b: &Burst) -> Option<Aabb> {
+    let d = &b.def;
+    crate::particles::sphere_bounds(b.particles.iter().map(|q| {
+        let half = 0.5 * d.scale((q.age / q.life).clamp(0.0, 1.0)).max(0.0);
+        (q.pos, half * std::f32::consts::SQRT_2)
+    }))
 }
 
 pub fn report(mut exit: MessageReader<AppExit>, st: Res<EffectParticles>) {
@@ -353,5 +429,192 @@ mod tests {
             sum += d;
         }
         assert!(sum.length() / 2000.0 < 0.1, "{sum:?}");
+    }
+
+    /// A burst of `n` particles ahead of a camera with no turn (game +y is Bevy -z), growing
+    /// to 40 units, turned and framed differently.
+    fn test_burst(n: usize, mesh: Handle<Mesh>, entity: Entity) -> Burst {
+        let def = ParticleShader { scale_keys: [(1.0, 0.0), (40.0, 1.0)], lifetime: 2.0, frames: [2, 2], ..default() };
+        let particles = (0..n)
+            .map(|i| Particle {
+                pos: Vec3::new(i as f32 * 15.0 - 30.0, 500.0 + i as f32, 20.0),
+                vel: Vec3::ZERO,
+                normal: Vec3::Z,
+                age: 0.1 + i as f32 * 0.3,
+                life: 2.0,
+                angle: i as f32 * 0.7,
+                spin: 0.0,
+                frame: i as u32,
+            })
+            .collect();
+        Burst { def, edid: "TestShader".into(), particles, mesh, entity, owed: 0.0, playing: true }
+    }
+
+    /// The burst's box holds every corner of its squares whatever way the camera faces.
+    #[test]
+    fn burst_bounds_hold_every_corner_for_any_camera() {
+        let to_game = crate::world::game_to_bevy().compute_affine().inverse();
+        let b = test_burst(6, Handle::default(), Entity::PLACEHOLDER);
+        let bx = burst_bounds(&b).expect("bounds");
+        let (lo, hi) = (Vec3::from(bx.min()), Vec3::from(bx.max()));
+        for k in 0..48 {
+            let rot = Quat::from_euler(EulerRot::YXZ, k as f32 * 0.61, (k as f32 * 0.37).sin() * 1.5, k as f32 * 0.11);
+            let g = squares(&b, crate::particles::camera_basis(rot, &to_game));
+            assert_eq!(g.positions.len(), 24);
+            for p in &g.positions {
+                let p = Vec3::from_array(*p);
+                assert!(p.cmpge(lo).all() && p.cmple(hi).all(), "{p} outside {lo}..{hi}");
+            }
+        }
+        assert!(burst_bounds(&test_burst(0, Handle::default(), Entity::PLACEHOLDER)).is_none());
+    }
+
+    /// A burst in view is built and shown; out of view hidden with its mesh left alone;
+    /// back in view rebuilt and shown in that same frame.
+    #[test]
+    fn a_burst_out_of_view_is_hidden_and_not_rebuilt() {
+        use bevy::camera::primitives::Frustum;
+        use bevy::ecs::system::RunSystemOnce;
+        let projection = Projection::Perspective(PerspectiveProjection { fov: 75f32.to_radians(), aspect_ratio: 16.0 / 9.0, near: 5.0, ..default() });
+        let placed = |rotation: Quat| {
+            let t = Transform::from_rotation(rotation);
+            let g = GlobalTransform::from(t);
+            let f: Frustum = projection.compute_frustum(&g);
+            (t, g, f)
+        };
+        let mut world = World::new();
+        world.init_resource::<Assets<Mesh>>();
+        let root_t = crate::world::game_to_bevy();
+        let to_game = root_t.compute_affine().inverse();
+        let camera = world.spawn((Camera3d::default(), Camera::default(), projection.clone(), placed(Quat::IDENTITY))).id();
+        let mesh = world.resource_mut::<Assets<Mesh>>().add(particle_mesh());
+        let entity = world.spawn((Visibility::Hidden, Transform::IDENTITY, GlobalTransform::from(root_t))).id();
+        let mut st = EffectParticles::default();
+        st.bursts.insert(Source::Script(1), test_burst(4, mesh.clone(), entity));
+        world.insert_resource(st);
+        let positions = |w: &World| w.resource::<Assets<Mesh>>().get(&mesh).unwrap().attribute(Mesh::ATTRIBUTE_POSITION).unwrap().as_float3().unwrap().to_vec();
+        let shown = |w: &World| *w.get::<Visibility>(entity).unwrap() == Visibility::Inherited;
+        // One frame: the basis `draw` would take, a little motion, then the build.
+        let frame = |w: &mut World, rotation: Quat| {
+            let mut st = w.resource_mut::<EffectParticles>();
+            for b in st.bursts.values_mut() {
+                for q in &mut b.particles {
+                    q.pos.z += 1.0;
+                }
+            }
+            st.basis = Some(crate::particles::camera_basis(rotation, &to_game));
+            w.run_system_once(build).unwrap();
+        };
+        let expected = |w: &World, rotation: Quat| squares(w.resource::<EffectParticles>().bursts.values().next().unwrap(), crate::particles::camera_basis(rotation, &to_game)).positions;
+        frame(&mut world, Quat::IDENTITY);
+        assert!(shown(&world));
+        assert_eq!(positions(&world), expected(&world, Quat::IDENTITY), "in view: the squares as before, bit for bit");
+        let before = positions(&world);
+        let away = Quat::from_rotation_y(std::f32::consts::PI);
+        world.entity_mut(camera).insert(placed(away));
+        frame(&mut world, away);
+        assert!(!shown(&world), "out of view: hidden");
+        assert_eq!(positions(&world), before, "out of view: not rebuilt");
+        world.entity_mut(camera).insert(placed(Quat::IDENTITY));
+        frame(&mut world, Quat::IDENTITY);
+        assert!(shown(&world), "back in view: shown at once");
+        assert_eq!(positions(&world), expected(&world, Quat::IDENTITY), "back in view: this frame's squares");
+        // A frame whose `draw` took no basis (no single main camera): left as it was.
+        let now = positions(&world);
+        world.run_system_once(build).unwrap();
+        assert_eq!(positions(&world), now);
+    }
+
+    /// Culling changes nothing of the bursts' births, motion and deaths: a play giving
+    /// birth all the time on a covered mesh, its particles living 0.1-0.5 s, run with the
+    /// world camera facing it and facing away; the particles, the random state and the
+    /// counts are the same, and only the one facing it is drawn.
+    #[test]
+    fn effect_simulation_is_the_same_with_the_burst_culled_or_drawn() {
+        use bevy::camera::primitives::Frustum;
+        use bevy::ecs::system::RunSystemOnce;
+        use fnv_world::effect_shader::{AlphaCycle, EffectShader};
+        let run = |facing: Quat| {
+            let mut world = World::new();
+            crate::particles::model_ctx_resources(&mut world);
+            world.insert_resource(Time::<()>::default());
+            let root_t = crate::world::game_to_bevy();
+            let root = world.spawn((WorldRoot, root_t, GlobalTransform::from(root_t))).id();
+            let projection = Projection::Perspective(PerspectiveProjection { fov: 75f32.to_radians(), aspect_ratio: 16.0 / 9.0, near: 5.0, ..default() });
+            let t = Transform::from_rotation(facing);
+            let g = GlobalTransform::from(t);
+            let f: Frustum = projection.compute_frustum(&g);
+            world.spawn((Camera3d::default(), Camera::default(), projection.clone(), t, g, f, crate::fly::FlyCam { yaw: 0.0, pitch: 0.0, speed: 0.0 }));
+            // The covered mesh 500 units ahead of a camera with no turn (Bevy -z), a box
+            // for the births.
+            let covered = world.spawn((GlobalTransform::from_translation(Vec3::new(0.0, 0.0, -500.0)), Aabb::from_min_max(Vec3::splat(-20.0), Vec3::splat(20.0)))).id();
+            let mesh = world.resource_mut::<Assets<Mesh>>().add(particle_mesh());
+            let entity = world.spawn((Visibility::Hidden, Transform::IDENTITY, GlobalTransform::from(root_t), ChildOf(root))).id();
+            let def = ParticleShader {
+                full_ratio: 25.0,
+                persistent_ratio: 25.0,
+                full_time: 1000.0,
+                lifetime: 0.3,
+                lifetime_range: 0.2,
+                speed_normal: 30.0,
+                speed_normal_range: 10.0,
+                accel: [0.0, 0.0, 15.0],
+                scale_keys: [(5.0, 0.2), (30.0, 1.0)],
+                rotation_range: 90.0,
+                spin: 20.0,
+                spin_range: 10.0,
+                frames: [2, 2],
+                ..default()
+            };
+            let shader = EffectShader {
+                form_id: 1,
+                edid: "TestShader".into(),
+                flags: 0,
+                fill_texture: None,
+                particle_texture: Some("fx\\test.dds".into()),
+                source_blend: 0,
+                blend_op: 0,
+                z_test: 0,
+                dest_blend: 0,
+                fill_color: [0; 3],
+                fill: AlphaCycle::default(),
+                fill_speed: [0.0; 2],
+                edge_color: [0; 3],
+                edge: AlphaCycle::default(),
+                edge_fall_off: 0.0,
+                particles: Some(def.clone()),
+                holes: None,
+                addons: None,
+            };
+            let key = Source::Script(1);
+            let mut shaders = Shaders::default();
+            shaders.active.insert(key, crate::effect_shaders::Active::for_test(0x0001_2345, shader, 0.0, &[covered]));
+            world.insert_resource(shaders);
+            let mut st = EffectParticles::default();
+            // The burst made already (its texture is not looked up again).
+            st.bursts.insert(key, Burst { def, edid: "TestShader".into(), particles: Vec::new(), mesh, entity, owed: 0.0, playing: true });
+            world.insert_resource(st);
+            let mut most = 0;
+            for k in 0..150 {
+                let dt = 0.004 + (k % 7) as f32 * 0.003;
+                world.resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(dt));
+                world.run_system_once(draw).unwrap();
+                world.run_system_once(build).unwrap();
+                most = most.max(world.resource::<EffectParticles>().bursts.values().next().map_or(0, |b| b.particles.len()));
+            }
+            let st = world.resource::<EffectParticles>();
+            let b = st.bursts.values().next().expect("the burst lives on while it plays");
+            let particles: Vec<_> = b.particles.iter().map(|q| (q.pos.to_array().map(f32::to_bits), q.vel.to_array().map(f32::to_bits), q.age.to_bits(), q.life.to_bits(), q.angle.to_bits(), q.spin.to_bits(), q.frame)).collect();
+            let shown = *world.get::<Visibility>(entity).unwrap() == Visibility::Inherited;
+            ((particles, st.rng.0, st.born, st.most_alive, b.owed.to_bits()), shown, most)
+        };
+        let (seen, seen_shown, most) = run(Quat::IDENTITY);
+        let (culled, culled_shown, _) = run(Quat::from_rotation_y(std::f32::consts::PI));
+        assert!(seen_shown && !culled_shown, "drawn facing it, culled facing away");
+        assert_eq!(seen, culled);
+        // Births and deaths both happened: far more born than ever alive at once.
+        let born = seen.2;
+        assert!(born > 40 && (most as u64) < born, "born {born}, most alive {most}");
+        assert!(!seen.0.is_empty());
     }
 }

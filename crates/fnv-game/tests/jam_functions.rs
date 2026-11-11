@@ -75,6 +75,7 @@ fn key_down_and_up_reach_jip_handlers_with_the_code() {
 }
 
 #[test]
+#[ignore = "release 0.7.0: main's JIP 9 / JohnnyGuitar 7, 10 and NIF modules answer these names first (owner, 1110 + mod support: their version wins); tested in jip9.rs, jg7.rs, jg10.rs, jg_nif.rs"]
 fn toggles_and_highlights() {
     let f = fixture();
     let mut g = game(&f);
@@ -98,6 +99,7 @@ fn north() -> ViewTold {
 }
 
 #[test]
+#[ignore = "release 0.7.0: main's JIP 9 / JohnnyGuitar 7, 10 and NIF modules answer these names first (owner, 1110 + mod support: their version wins); tested in jip9.rs, jg7.rs, jg10.rs, jg_nif.rs"]
 fn world_to_screen_writes_the_screen_fractions() {
     let f = fixture();
     let mut g = game(&f);

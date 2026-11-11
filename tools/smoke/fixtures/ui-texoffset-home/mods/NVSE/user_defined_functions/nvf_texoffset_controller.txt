@@ -1,0 +1,7 @@
+Begin Function { }
+if (GetSessionTime > 8)
+  PrintC "nvf texoffset unloaded %g", (UnloadUIComponent "HUDMainMenu/NVFTex/B")
+  PrintC "nvf texoffset replaced %g", (InjectUIComponent "HUDMainMenu/NVFTex" "<image name=%qB%q><x>0</x><y>80</y><width>256</width><height>64</height><filename>interface\hud\hud_compass_alphamap.dds</filename><alpha>255</alpha></image>")
+  RemoveTileScript "HUDMainMenu/NVFTex/_controller"
+endif
+End

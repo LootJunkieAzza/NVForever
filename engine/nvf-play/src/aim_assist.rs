@@ -49,7 +49,8 @@ use fnv_phys::{layers, Filter, Key, Owner};
 use fnv_sim::settings::Setting as GameSetting;
 use fnv_sim::FormId;
 
-/// The settings page's group of the controller's aim assist.
+/// The group the controller's rows register with (shown on the Controls tab with a
+/// controller only, `crate::settings_layout`).
 pub const GROUP: &str = "Controller";
 
 /// The range when the load order has no `fAutoAimMaxDistance` [documented: GECK wiki
@@ -266,12 +267,12 @@ impl Guards {
     }
 }
 
-/// The sight ray's filter: what a walking character passes (water, triggers, zones,
-/// `layers::character_ignores`), the player's character, and every NPC's walking capsule
+/// The sight ray's filter: what a shot passes (water, triggers, zones, invisible walls:
+/// `layers::shot_ignores`), the player's character, and every NPC's walking capsule
 /// (`Key::Character`): a capsule is not the body, its hit volumes are, as for shots
 /// (`crate::combat`'s rays).
 pub fn sight_filter(player: Option<Key>, npcs: impl Iterator<Item = u32>) -> Filter {
-    let mut f = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+    let mut f = Filter { exclude_layers: layers::shot_ignores(), ..Default::default() };
     f.exclude.extend(player);
     f.exclude.extend(npcs.map(Key::Character));
     f
@@ -638,6 +639,7 @@ mod tests {
             shape: Shape::Box { half_extents: [half; 3] }.into(),
             shell: 0.0,
             material: None,
+            wind: false,
         };
         world.add_ref(&fnv_phys::RefPose { form_id: id, position: at, rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 }, &[wall]);
     }
@@ -680,9 +682,9 @@ mod tests {
     }
 
     #[test]
-    fn the_sight_filter_passes_what_a_character_passes() {
+    fn the_sight_filter_passes_what_a_shot_passes() {
         let f = sight_filter(Some(Key::Character(1)), [7u32].into_iter());
-        assert_eq!(f.exclude_layers, layers::character_ignores());
+        assert_eq!(f.exclude_layers, layers::shot_ignores());
         assert!(f.exclude.contains(&Key::Character(1)) && f.exclude.contains(&Key::Character(7)));
         assert!(!f.exclude.contains(&Key::Actor(7)), "the hit volume is the body");
     }

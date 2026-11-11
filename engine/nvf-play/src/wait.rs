@@ -575,6 +575,8 @@ fn open(
     }
     // Scripts run MenuMode 1012 from now on.
     if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+        // GetSleepWaitMenuState tells the sleep from the wait (`fnv_game::nvse_jg8`).
+        rt.game.other.jg8.sleep_menu = m.sleep;
         rt.game.open_menu(crate::script::MENU_SLEEP_WAIT);
         // The bed's own script learns that the player sleeps on it.
         if let Some(bed) = bed.filter(|_| sleep) {
@@ -861,9 +863,10 @@ const MARKER_GAP: f32 = 17.0;
 /// A button's width: room for its label, which ends at its right [design].
 const BUTTON_WIDTH: f32 = 200.0;
 
-/// A length of the screenshot (720 pixels high) as a part of the view's height.
+/// A length of the screenshot (720 pixels high) as a part of the view's height, at the UI
+/// scale (`crate::interface::unit_scale`, #1631; at 100% `px / 7.2` exactly).
 fn u(px: f32) -> Val {
-    Val::Vh(px / 7.2)
+    Val::Vh(px * crate::interface::unit_scale() / 7.2)
 }
 
 fn shade(part: f32) -> Color {
@@ -1044,6 +1047,7 @@ fn set_glyphs(
     data: Option<Res<nvf_assets::GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+    glyphs: Res<crate::pad::PadGlyphs>,
 ) {
     if texts.is_empty() {
         return;
@@ -1067,20 +1071,20 @@ fn set_glyphs(
             continue;
         }
         let Some(face) = faces.get(g.font) else { continue };
-        // The node's size in interface units (960 to the view's height).
+        // The node's size in interface units (960 to the view's height), at the original's
+        // size: the text's own lengths take the UI scale again.
         let size = |v: Val| match v {
-            Val::Vh(x) => x * 9.6,
+            Val::Vh(x) => x * 9.6 / crate::interface::unit_scale(),
             _ => 0.0,
         };
         let (w, h) = (size(node.width), size(node.height));
         let mut entity = commands.entity(e);
         entity.despawn_related::<Children>();
-        if let Some(line) = face.font.lines(&g.text, None).into_iter().next() {
-            let x = if g.right { w - line.width } else { (w - line.width) / 2.0 };
-            // The glyphs stand on a line a little below the middle [design].
-            let base = h / 2.0 + face.font.size * 0.3;
-            entity.with_children(|p| crate::interface::set_line(p, face, &line, x, base, now.1));
-        }
+        let width = crate::pad::hint_width(face, &g.text, &glyphs);
+        let x = if g.right { w - width } else { (w - width) / 2.0 };
+        // The glyphs stand on a line a little below the middle [design].
+        let base = h / 2.0 + face.font.size * 0.3;
+        entity.with_children(|p| { crate::pad::set_hint(p, face, &g.text, x, base, now.1, &glyphs); });
         g.drawn = Some(now);
     }
 }

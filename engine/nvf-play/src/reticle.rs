@@ -248,13 +248,19 @@ pub fn value_text(v: Option<i32>) -> String {
 pub struct Layout {
     pub texts: Vec<Set>,
     pub divider: Option<Vec2>,
+    /// A PlayStation face button's glyph in the key's place ("Cross)" drawn as the cross
+    /// and ")"): the glyph, its top left corner and its side [design, #1452].
+    pub glyph: Option<(crate::pad::Glyph, Vec2, f32)>,
 }
 
 pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let line = |s: &str| font.lines(s, None).into_iter().next().unwrap_or_default();
     let set = |line: Line, x: f32, base: f32| Set { line, x, base };
     let action = line(&p.action);
-    let key = line(p.key_text());
+    // A face button under the PlayStation names: its glyph, then ")" [design, #1452]. The
+    // labelled buttons (L1, Select…) are drawn by the menu hints, not the crosshair.
+    let glyph = p.key_text().strip_suffix(')').and_then(crate::pad::Glyph::named).filter(|g| g.is_face()).filter(|_| !p.action.is_empty());
+    let key = line(if glyph.is_some() { ")" } else { p.key_text() });
     let name = line(&p.name);
     let action_x = ACTION_X - action.width / 2.0;
     let name_base = ACTION_BASE + LINE_PITCH;
@@ -302,8 +308,21 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
         texts.push(set(value.clone(), STEM_X + VALUE_END - value.width, base));
         Vec2::new(STEM_X - STEM_IN_PICTURE, top)
     });
-    Layout { texts, divider }
+    let glyph = glyph.map(|g| {
+        let side = font.size * GLYPH_SHARE;
+        let x = action_x - KEY_GAP - key.width - GLYPH_GAP - side;
+        (g, Vec2::new(x, ACTION_BASE - side * GLYPH_RISE), side)
+    });
+    Layout { texts, divider, glyph }
 }
+
+/// A glyph's side as a share of the font's size, how much of it stands above the line
+/// and the room between it and its ")" [design, #1452].
+const GLYPH_SHARE: f32 = 0.7;
+const GLYPH_RISE: f32 = 0.92;
+const GLYPH_GAP: f32 = 0.5;
+/// The glyph pictures' side in pixels (drawn smaller) [design].
+const GLYPH_PIXELS: u32 = 64;
 
 /// The crime colour: the prompt over something another owns, and the crosshair with it
 /// [documented: GECK wiki IsCrimeOrEnemy, the "red color of the crosshair or the
@@ -448,6 +467,8 @@ struct Kit {
     divider: Option<Picture>,
     /// The gun cross's bars, all four or none.
     bars: Option<[Picture; 4]>,
+    /// NVForever's PlayStation face button glyphs, in [`crate::pad::Glyph::FACES`]'s order.
+    glyphs: Vec<Handle<Image>>,
 }
 
 impl Kit {
@@ -457,7 +478,8 @@ impl Kit {
         let (plain, filled, divider) = (picture(PLAIN), picture(FILLED), picture(DIVIDER));
         let bars: Vec<Picture> = BARS.iter().filter_map(|(path, _)| picture(path)).collect();
         let bars = bars.try_into().ok();
-        Kit { face: face(FONT, plain_font(36.0, 17.0), data, images, bc), plain, filled, divider, bars }
+        let glyphs = crate::pad::Glyph::FACES.iter().map(|g| images.add(g.image(GLYPH_PIXELS))).collect();
+        Kit { face: face(FONT, plain_font(36.0, 17.0), data, images, bc), plain, filled, divider, bars, glyphs }
     }
 }
 
@@ -573,6 +595,12 @@ fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
     for set in &l.texts {
         set_text(p, &kit.face, set, Vec2::ZERO, color, ());
     }
+    if let Some((g, corner, side)) = l.glyph {
+        let i = crate::pad::Glyph::FACES.iter().position(|x| *x == g).unwrap_or(0);
+        if let Some(image) = kit.glyphs.get(i) {
+            p.spawn((at(corner.x, corner.y, side, side), ImageNode { color, ..ImageNode::new(image.clone()) }));
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -605,6 +633,8 @@ fn draw(
     ),
     (texts, pipboy, glance, menu, modded, no_prompt, campfires): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>),
 ) {
+    // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
+    let _hud = crate::interface::hud_units();
     // Not over the character creator, whatever state the opening leaves the game in
     // [owner 2026-10-17: "E) Talk" stayed under it]. Nor while an idle holds the camera
     // (the opening's wake-up, `crate::player::ViewDriven`): only subtitles then [owner
@@ -812,6 +842,17 @@ mod tests {
         assert!(l.texts[..4].iter().all(|t| t.base == ACTION_BASE));
         let (left, right) = (l.texts[0].x, l.texts[3].x + l.texts[3].line.width);
         assert!(((left + right) / 2.0 - ACTION_X).abs() < 0.01);
+        assert_eq!(layout(&prompt("Open", "Footlocker", None), &font()).glyph, None);
+        // A PlayStation face button: its glyph left of a lone ")" (#1452).
+        let ps = Prompt { key: "Cross)".into(), ..prompt("Open", "Footlocker", None) };
+        let l = layout(&ps, &font());
+        let (g, corner, side) = l.glyph.expect("a glyph");
+        assert_eq!(g, crate::pad::Glyph::Cross);
+        assert_eq!(l.texts[0].line.text(), ")");
+        assert!(corner.x + side <= l.texts[0].x && side > 0.0);
+        // "L2)" has no glyph: written as it is.
+        let l2 = Prompt { key: "L2)".into(), ..prompt("Open", "Footlocker", None) };
+        assert_eq!(layout(&l2, &font()).glyph, None);
     }
 
     #[test]

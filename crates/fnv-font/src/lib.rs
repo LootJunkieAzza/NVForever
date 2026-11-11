@@ -22,6 +22,52 @@ const GLYPH: usize = 56;
 /// The size of every font file (§2).
 pub const FILE_SIZE: usize = HEADER + NAME_ROOM + 256 * GLYPH;
 
+/// A font's picture as a `.tex` file (docs/spec-notes/fonts.md §2.2): the width and the
+/// height as little-endian u32, then four bytes a texel, rows from the top, the colour in
+/// the first three bytes and the alpha in the fourth [observed: the English and Russian
+/// installs' font `.tex` files against their `.dds`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tex {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height` texels, four bytes each: red, green, blue, alpha.
+    pub rgba: Vec<u8>,
+}
+
+/// Bytes before a `.tex` file's texels.
+const TEX_HEADER: usize = 8;
+
+/// The largest side a `.tex` is read with (512 in every file seen; a larger one is a
+/// broken header).
+pub const TEX_MAX_SIDE: u32 = 8192;
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TexError {
+    #[error(".tex file is {0} bytes, shorter than its header")]
+    Short(usize),
+    #[error(".tex size {0}x{1} out of range (1 to {TEX_MAX_SIDE})")]
+    Side(u32, u32),
+    #[error(".tex file is {found} bytes, expected {expected} for its size")]
+    Size { found: usize, expected: usize },
+}
+
+impl Tex {
+    pub fn parse(bytes: &[u8]) -> Result<Tex, TexError> {
+        if bytes.len() < TEX_HEADER {
+            return Err(TexError::Short(bytes.len()));
+        }
+        let (width, height) = (u32_at(bytes, 0), u32_at(bytes, 4));
+        if width == 0 || height == 0 || width > TEX_MAX_SIDE || height > TEX_MAX_SIDE {
+            return Err(TexError::Side(width, height));
+        }
+        let expected = TEX_HEADER + width as usize * height as usize * 4;
+        if bytes.len() != expected {
+            return Err(TexError::Size { found: bytes.len(), expected });
+        }
+        Ok(Tex { width, height, rgba: bytes[TEX_HEADER..].to_vec() })
+    }
+}
+
 /// One character's picture and measures (§2).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Glyph {
@@ -72,6 +118,19 @@ pub struct Line {
     pub width: f32,
 }
 
+impl Line {
+    /// The line's characters, its codes read back in this run's code page (the spaces it
+    /// was broken at are not in it).
+    pub fn text(&self) -> String {
+        self.text_in(fnv_util::text::code_page())
+    }
+
+    /// The line's characters, its codes read back in a given code page.
+    pub fn text_in(&self, page: fnv_util::text::CodePage) -> String {
+        self.glyphs.iter().map(|g| page.char_of(g.code)).collect()
+    }
+}
+
 fn f32_at(b: &[u8], at: usize) -> f32 {
     f32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
 }
@@ -120,6 +179,12 @@ impl Font {
     /// The texture's path in the game's files.
     pub fn texture_path(&self) -> String {
         format!("textures\\fonts\\{}.dds", self.texture.to_ascii_lowercase())
+    }
+
+    /// The same picture as a `.tex` file ([`Tex`], fonts.md §2.2): the one whose letters
+    /// the glyph table describes, where a localized install left the English `.dds` beside it.
+    pub fn tex_path(&self) -> String {
+        format!("textures\\fonts\\{}.tex", self.texture.to_ascii_lowercase())
     }
 
     pub fn glyph(&self, code: u8) -> &Glyph {
@@ -198,6 +263,7 @@ mod tests {
         assert_eq!(f.size, 31.0);
         assert_eq!(f.texture, "Test_Lod");
         assert_eq!(f.texture_path(), "textures\\fonts\\test_lod.dds");
+        assert_eq!(f.tex_path(), "textures\\fonts\\test_lod.tex");
         let a = f.glyph(b'A');
         assert_eq!(a.uv, [0.25, 0.5, 0.3, 0.6]);
         assert_eq!((a.width, a.height, a.after, a.ascent), (10.0, 26.0, 1.0, 24.0));
@@ -215,6 +281,23 @@ mod tests {
         let mut b = file();
         b[12] = 0;
         assert_eq!(Font::parse(&b), Err(FontError::NoTexture));
+    }
+
+    #[test]
+    fn a_tex_file_is_read() {
+        let mut b = Vec::new();
+        b.extend(2u32.to_le_bytes());
+        b.extend(1u32.to_le_bytes());
+        b.extend([255, 255, 255, 200, 0, 0, 0, 7]);
+        let t = Tex::parse(&b).unwrap();
+        assert_eq!((t.width, t.height), (2, 1));
+        assert_eq!(t.rgba, [255, 255, 255, 200, 0, 0, 0, 7]);
+        assert_eq!(Tex::parse(&b[..5]), Err(TexError::Short(5)));
+        assert_eq!(Tex::parse(&b[..12]), Err(TexError::Size { found: 12, expected: 16 }));
+        b[0..4].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(Tex::parse(&b), Err(TexError::Side(0, 1)));
+        b[0..4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(Tex::parse(&b), Err(TexError::Side(u32::MAX, 1)));
     }
 
     #[test]
@@ -255,5 +338,16 @@ mod tests {
         assert_eq!(code_in('ż', Windows1250), 0xBF);
         assert_eq!(code_in('é', Windows1252), 0xE9);
         assert_eq!(code_in('\u{2019}', Windows1251), 0x92);
+    }
+
+    #[test]
+    fn a_line_reads_back_in_its_code_page() {
+        use fnv_util::text::CodePage::*;
+        let line = |s: &str, page| Line { glyphs: s.chars().map(|c| Placed { code: code_in(c, page), x: 0.0 }).collect(), width: 0.0 };
+        assert_eq!(line("Привет", Windows1251).text_in(Windows1251), "Привет");
+        assert_eq!(line("Łódź", Windows1250).text_in(Windows1250), "Łódź");
+        assert_eq!(line("café", Windows1252).text_in(Windows1252), "café");
+        // Read as Latin-1 the same codes were other letters (the old stand-in text).
+        assert_ne!(line("Привет", Windows1251).text_in(Windows1252), "Привет");
     }
 }

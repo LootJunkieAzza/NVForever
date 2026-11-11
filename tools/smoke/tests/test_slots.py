@@ -132,6 +132,44 @@ class SlotTests(unittest.TestCase):
             self.assertFalse(m.shared.exists())
             r.finish()
 
+    def test_an_exclusive_runner_clears_a_shared_lock_with_no_slot_taken(self):
+        # #1933: slot runners died between launches; a --slots 1 runner first in the queue
+        # waited for ever on the shared lock they left.
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            m.shared.mkdir(parents=True)
+            (m.shared / OWNER).write_text("shared by smoke slots, first taken by 999999999\n")
+            said = []
+            alone = Locks([m.gate, m.shared], poll=0.01, wait_max=0.05, say=said.append,
+                          queue=Queue(m.root / "other-queue", pid=2, alive=lambda p: True))
+            self.assertIsNone(alone.try_take())
+            self.assertTrue(m.gate.is_dir() and m.shared.is_dir())
+            self.assertTrue((m.shared / OWNER).read_text().split()[0].isdigit())  # its own now
+            self.assertTrue(any("cleared" in x for x in said))
+            alone.release()
+            self.assertFalse(m.shared.exists())
+
+    def test_a_shared_lock_is_kept_while_a_slot_is_taken_or_the_mutex_held(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Machine(d)
+            r = m.runner(1)
+            s = r.acquire()  # a live slot runner: its shared lock stays
+            alone = Locks([m.shared], poll=0.01, wait_max=0.05, say=quiet,
+                          queue=Queue(m.root / "other-queue", pid=2, alive=lambda p: True))
+            self.assertEqual(alone.try_take(), m.shared)
+            r.release(s)
+            r.finish()
+            # A slot runner between taking the mutex and a slot: not touched either.
+            m.shared.mkdir(parents=True)
+            (m.shared / OWNER).write_text("shared by smoke slots, being taken\n")
+            mutex = FileLock(m.shared.parent / "smoke-slots" / "mutex.lock")
+            self.assertTrue(mutex.try_lock())
+            self.assertEqual(alone.try_take(), m.shared)
+            self.assertTrue(m.shared.is_dir())
+            mutex.unlock()
+            self.assertIsNone(alone.try_take())
+            alone.release()
+
     def test_runners_share_the_slots_oldest_first(self):
         with tempfile.TemporaryDirectory() as d:
             m = Machine(d)

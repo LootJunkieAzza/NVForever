@@ -137,9 +137,10 @@ impl Default for WgpuSettings {
                 instance_flags.remove(InstanceFlags::VALIDATION_INDIRECT_CALL);
             }
         }
-        #[cfg(all(not(debug_assertions), feature = "raw_vulkan_init"))]
-        // intending to use vulkan even if backends may contain DX12
-        instance_flags.remove(InstanceFlags::VALIDATION_INDIRECT_CALL);
+        // NVForever (2026-11-09): upstream also removes `VALIDATION_INDIRECT_CALL` in every
+        // release build when `raw_vulkan_init` is on, whatever the backends. Left out: the flag
+        // follows the rule above, as without the feature, so a DX12 fallback keeps the
+        // validation it needs and Vulkan with the default backends keeps what it had before.
 
         instance_flags = instance_flags.with_env();
 

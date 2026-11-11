@@ -65,6 +65,10 @@ pub struct Frame {
     pub need_stages: [usize; 4],
     pub crippled: [bool; 6],
     pub animation: super::AnimationFrame,
+    /// The HUD's size as a part of the original's (NVForever's UI scale setting, 1 the
+    /// original's): the places are written for a view `960 / ui_scale` units high, each
+    /// piece kept as far from its edge ([`super::write`]) [design: #1631].
+    pub ui_scale: f64,
 }
 
 impl Default for Frame {
@@ -83,6 +87,7 @@ impl Default for Frame {
             need_stages: [0; 4],
             crippled: [false; 6],
             animation: Default::default(),
+            ui_scale: 1.0,
         }
     }
 }
@@ -190,7 +195,7 @@ pub fn build(ui: &mut Ui) {
         num(ui, tile, "depth", 1.0);
         // A `visible` of its own, 1, which only a script changes after this [hypothesis:
         // JAM's crosshair (JDCMainLoopEventHandler) writes
-        // `ReticleCentereticle_centerisible` 0 to hide the game's crosshair while it
+        // `ReticleCenter\reticle_center\visible` 0 to hide the game's crosshair while it
         // draws its own and 1 to give it back, so the original's copy carries one].
         num(ui, tile, "visible", 1.0);
     }
@@ -288,7 +293,7 @@ pub(super) fn write(ui: &mut Ui, shown: Shown, texts: &Texts) {
     }
     if let Some(tile) = find(ui, "ReticleCenter/reticle_center") {
         // An alpha, 255 while the crosshair shows and 0 when not [hypothesis: JAM's
-        // crosshair copies `ReticleCentereticle_centerlpha` into its own every frame
+        // crosshair copies `ReticleCenter\reticle_center\alpha` into its own every frame
         // (JDCMainLoopEventHandler); its fading with the HUD is not captured].
         num(ui, tile, "alpha", if shown.root && shown.reticle { 255.0 } else { 0.0 });
         // Keep user0/user1 as the template's strings: their numeric reads are 0
@@ -369,7 +374,10 @@ fn write_prompt(ui: &mut Ui, shown: Shown, input: &Frame) {
         // [hypothesis] A later prompt height replaces the previous offset.
         let y = prompt.map_or_else(|| ui.tile(tile).get("_NVFSubtitleY").map_or(660.0, Value::num), |p| 660.0 - (p.height.max(0.0) + 8.0));
         num(ui, tile, "_NVFSubtitleY", y);
-        num(ui, tile, "y", y);
+        // Kept to the view's middle as the prompt it rises over (`Info`) at a UI scale
+        // other than 1 (`super::write`), as the hand-built subtitles [design: #1631].
+        let scale = if input.ui_scale.is_finite() { input.ui_scale.max(0.1) } else { 1.0 };
+        num(ui, tile, "y", y + 0.5 * (960.0 / scale - 960.0));
     }
 }
 

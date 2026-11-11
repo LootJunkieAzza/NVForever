@@ -1,0 +1,6 @@
+; A test fixture written for NVForever's smoke scenario ui-hudbar-bound-conditions
+; (issue #1834): a probe tile whose frame callback makes one HUD bar bound to a function
+; and samples it over time. The bar is made by the callback so that every HudBar call
+; comes from one script (bars belong to the calling script's plugin).
+PrintC "nvf hudbar probe %g", (InjectUIComponent "HUDMainMenu" "<rect name=%qNVFHudBarProbe%q><_controller>1</_controller><_phase>0</_phase><_w1>0</_w1></rect>")
+SetTileScript "HUDMainMenu/NVFHudBarProbe/_controller" (CompileScript "nvf_hudbar_controller.txt")

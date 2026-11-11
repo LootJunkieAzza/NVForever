@@ -9,6 +9,7 @@
 //!   out of a Misc folder);
 //! - `point=<x>:<y>`: put the pointer on that point of the canvas (1024 x 768 from its
 //!   top left), through the model's screen where it is shown, as the mouse would be;
+//!   `point=stats|items|data` puts it on that page's button on the device, with no click;
 //!   `point=off` gives the pointer back to the mouse;
 //! - `click=<x>:<y>`: the same, then a left click there;
 //! - `click=stats|items|data`: a left click on the page's button on the device;
@@ -27,6 +28,9 @@
 //!   closes); `heads=<n>`: a click on the box's head `n` (0-based, `crate::coop_heads`).
 //! - `note=<note FormID>`: on the DATA page's Notes tab, select that note and use it as a
 //!   click on its row would (a holotape plays or stops, `crate::holotape`).
+//! - `placemarker`: on the DATA page's maps, Place Marker (X, a click on its hint): the
+//!   custom marker's question for the place under the highlight box (#1954); `key=use`
+//!   takes the chosen answer (the first at first), `key=down` moves down the answers.
 //! - `hotkey=<1-8>`: hold that hotkey's key on the ITEMS page (its panel shows and a
 //!   click assigns, `super::hotkey_panel`) until `hotkey=off`.
 //! - `frame=screen|device`: the Gameplay setting Use Pip-Boy off or on, as the settings
@@ -47,7 +51,7 @@ enum Step {
     Page(Page),
     Tab(usize),
     Key(Command),
-    Point(Option<Vec2>),
+    Point(Option<AidTarget>),
     /// A click on the target; true with the right button.
     Click(AidTarget, bool),
     Drag(Vec2),
@@ -57,6 +61,7 @@ enum Step {
     /// The Map Icon button (`None`), or a click on a head of its box.
     Heads(Option<usize>),
     Note(u32),
+    PlaceMarker,
     Repair(super::repair::RepairInput),
     Mod(super::item_mod::ModInput),
     /// Hold a hotkey's key (its slot), or let go.
@@ -87,10 +92,11 @@ fn step(s: &str) -> Option<Step> {
     Some(match s {
         "open" => Step::Open,
         "close" => Step::Close,
+        "placemarker" => Step::PlaceMarker,
         _ => match s.split_once('=')? {
             ("page", p) => Step::Page(page(p)?),
             ("point", "off") => Step::Point(None),
-            ("point", p) => Step::Point(Some(canvas(p)?)),
+            ("point", p) => Step::Point(Some(page(p).map(AidTarget::Button).or_else(|| canvas(p).map(AidTarget::Canvas))?)),
             ("drag", p) => Step::Drag(canvas(p)?),
             ("travel", "mate") => Step::TravelMate,
             ("heads", "open") => Step::Heads(None),
@@ -200,7 +206,7 @@ fn run(
                 }
             }
             Step::Point(p) => {
-                aid.target = p.map(AidTarget::Canvas);
+                aid.target = p;
             }
             Step::Click(t, right) => {
                 aid.target = Some(t);
@@ -228,6 +234,9 @@ fn run(
             Step::Note(n) => {
                 aid.note = Some(n);
             }
+            Step::PlaceMarker => {
+                aid.place_marker = true;
+            }
             Step::Repair(r) => {
                 repair.write(r);
             }
@@ -250,7 +259,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.6:rclick=260:150, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up, 9:travel=mate, 9.1:heads=open, 9.2:heads=12");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.6:rclick=260:150, 8.7:point=off, 8.8:point=1:2, 8.85:point=items, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.96:note=001618BF, 8.97:repair=use, 8.98:mod=open, 8.99:hotkey=3, 8.995:hotkey=off, 8.996:hotkey=9, 8.9965:placemarker, 8.997:frame=screen, 8.998:frame=device, 8.999:frame=up, 9:travel=mate, 9.1:heads=open, 9.2:heads=12");
         assert_eq!(
             s,
             vec![
@@ -262,7 +271,8 @@ mod tests {
                 (8.5, Step::Click(AidTarget::Canvas(Vec2::new(100.0, 650.0)), false)),
                 (8.6, Step::Click(AidTarget::Canvas(Vec2::new(260.0, 150.0)), true)),
                 (8.7, Step::Point(None)),
-                (8.8, Step::Point(Some(Vec2::new(1.0, 2.0)))),
+                (8.8, Step::Point(Some(AidTarget::Canvas(Vec2::new(1.0, 2.0))))),
+                (8.85, Step::Point(Some(AidTarget::Button(Page::Items)))),
                 (8.9, Step::Drag(Vec2::new(-40.0, 25.0))),
                 (8.95, Step::Travel(0x000C_DF51)),
                 (8.96, Step::Note(0x0016_18BF)),
@@ -270,6 +280,7 @@ mod tests {
                 (8.98, Step::Mod(super::super::item_mod::ModInput::Open)),
                 (8.99, Step::Hotkey(Some(2))),
                 (8.995, Step::Hotkey(None)),
+                (8.9965, Step::PlaceMarker),
                 (8.997, Step::Frame(true)),
                 (8.998, Step::Frame(false)),
                 (9.0, Step::Close),

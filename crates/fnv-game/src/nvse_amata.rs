@@ -89,20 +89,44 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         }
         // [documented: GetNthEffectTraitNumeric; SetNthEffectTraitNumeric] traits 0
         // magnitude, 1 area, 2 duration of the Nth effect entry.
+        // The entry is the scripts' list's (`Game::effect_slot`, #2016): a record entry's
+        // traits are its EFIT's, AddNewEffect's its own.
         "getntheffecttraitnumeric" | "setntheffecttraitnumeric" => {
+            use crate::nvse_jip14::EffectSlot;
             let f = form(args, 0).unwrap_or(FormId(0));
             let (i, t) = (num(args, 1, -1.0) as i64, num(args, 2, -1.0) as i64);
-            let traits = g.effect_traits(f);
-            let ok = usize::try_from(i).ok().filter(|&i| i < traits.len()).zip(usize::try_from(t).ok().filter(|&t| t < 3));
-            match (ok, name) {
-                (Some((i, t)), "getntheffecttraitnumeric") => XVal::Num(traits[i][t]),
-                // Returns 0 [observed: gaps6, setting 77].
-                (Some((i, t)), _) => {
-                    let v = num(args, 3, 0.0).trunc();
-                    g.effect_overrides.insert((f, i, t), v);
-                    XVal::Num(0.0)
+            let slot = usize::try_from(i).ok().and_then(|i| g.effect_slot(f, i));
+            let Some(t) = usize::try_from(t).ok().filter(|&t| t < 3) else { return Some(Ok(XVal::Num(0.0))) };
+            let get = name == "getntheffecttraitnumeric";
+            // Returns 0 [observed: gaps6, setting 77].
+            let v = num(args, 3, 0.0).trunc();
+            match slot {
+                Some(EffectSlot::Own(r)) => {
+                    let traits = g.effect_traits(f);
+                    match traits.get(r) {
+                        Some(x) if get => XVal::Num(x[t]),
+                        Some(_) => {
+                            g.effect_overrides.insert((f, r, t), v);
+                            XVal::Num(0.0)
+                        }
+                        None => XVal::Num(0.0),
+                    }
                 }
-                _ => XVal::Num(0.0),
+                Some(EffectSlot::Added { back, at }) => {
+                    let Some(e) = g.added_effect_mut(f, back, at) else { return Some(Ok(XVal::Num(0.0))) };
+                    let field = match t {
+                        0 => &mut e.magnitude,
+                        1 => &mut e.area,
+                        _ => &mut e.duration,
+                    };
+                    if get {
+                        XVal::Num(f64::from(*field))
+                    } else {
+                        *field = v.max(0.0) as u32;
+                        XVal::Num(0.0)
+                    }
+                }
+                None => XVal::Num(0.0),
             }
         }
         // [documented: GetValueAlt] the base value, ingestibles included (ENIT value).
@@ -151,8 +175,8 @@ pub(crate) fn call(g: &mut Game, name: &str, subject: Option<FormId>, args: &[XV
         // [documented: Update3D] the 3D is rebuilt [hypothesis: the engine redraws an
         // actor's look from the game state each time it loads; nothing to do here].
         // Update3DAlt (JohnnyGuitar) is the same refresh with flags; Heart of the Mojave
-        // calls it after SetModelPath.
-        "update3d" | "update3dalt" => XVal::Num(0.0),
+        // calls it after SetModelPath; Update3DAlt is built in `crate::nvse_jg_nif`.
+        "update3d" => XVal::Num(0.0),
         // [documented: IsSpellTargetAlt] the reference is under an effect of that form.
         "isspelltargetalt" => {
             let (Some(r), Some(s)) = (subject, form(args, 0)) else { return Some(Ok(XVal::Num(0.0))) };
@@ -215,6 +239,13 @@ impl Game<'_> {
     /// MessageBoxExAlt's callback, once its box has a button: the UDF runs with the
     /// button's index and the box closes [documented: MessageBoxExAlt].
     pub(crate) fn run_box_callback(&mut self) {
+        // The callbacks of queued boxes, each for its own box ([`Game::box_callbacks`]).
+        for (func, b) in std::mem::take(&mut self.box_callbacks_due) {
+            let ctx = crate::game::RunCtx::default();
+            if let Err(error) = self.run_function(&func, None, vec![XVal::Num(f64::from(b))], None, ctx) {
+                self.emit(crate::trace::EventKind::ScriptError { unit: "MessageBoxExAlt callback".into(), error });
+            }
+        }
         let Some(b) = self.message_box.as_ref().filter(|_| self.box_callback.is_some()).and_then(|m| m.pressed) else { return };
         let Some(func) = self.box_callback.take() else { return };
         self.message_box = None;

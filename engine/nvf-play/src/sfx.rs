@@ -127,6 +127,56 @@ pub struct ScriptSounds {
     pub plays: Vec<(u32, FormId, Option<[f32; 3]>)>,
     pub stops: Vec<(FormId, u32)>,
     pub heard: Vec<(u32, Option<f32>)>,
+    /// Sounds made for files (`fnv_game::nvse_jg9`, PlaySoundFromPath and the like): the
+    /// id, the Data path and whether it goes round; played as SOUNs from then on.
+    pub paths: Vec<(FormId, String, bool)>,
+    /// Script sounds (request ids) that fade in, over seconds (PlaySoundFade, a fade time).
+    pub fades_in: Vec<(u32, f32)>,
+    /// Sounds whose stop fades them out over seconds instead of at once.
+    pub fades_out: Vec<(FormId, f32)>,
+}
+
+/// A script's sound fading in or out (`fnv_game::nvse_jg9`): seconds in all and so far,
+/// and its full volume (read from its player the first frame it has one). One fading out
+/// is gone at its end.
+#[derive(Component, Debug)]
+pub struct ScriptFade {
+    pub seconds: f32,
+    pub elapsed: f32,
+    pub out: bool,
+    full: Option<f32>,
+}
+
+impl ScriptFade {
+    fn new(seconds: f32, out: bool) -> ScriptFade {
+        ScriptFade { seconds: seconds.max(0.001), elapsed: 0.0, out, full: None }
+    }
+
+    /// The share of the full volume now: rising from 0 or falling to 0 in a straight line
+    /// [hypothesis: the pages give no curve].
+    pub fn share(&self) -> f32 {
+        let t = (self.elapsed / self.seconds).clamp(0.0, 1.0);
+        if self.out { 1.0 - t } else { t }
+    }
+}
+
+/// Fades on: each fading sound's volume set from its share, those faded in left at full
+/// volume, those faded out gone.
+fn script_fades(mut commands: Commands, time: Res<Time>, mut fading: Query<(Entity, &mut ScriptFade, Option<&mut AudioSink>)>) {
+    let dt = time.delta_secs();
+    for (e, mut f, sink) in &mut fading {
+        let Some(mut sink) = sink else { continue };
+        let full = *f.full.get_or_insert_with(|| sink.volume().to_linear());
+        f.elapsed += dt;
+        sink.set_volume(Volume::Linear(full * f.share()));
+        if f.elapsed >= f.seconds {
+            if f.out {
+                commands.entity(e).try_despawn();
+            } else {
+                commands.entity(e).remove::<ScriptFade>();
+            }
+        }
+    }
 }
 
 /// Something that sounds as long as it is there, at a place (game space): sent every
@@ -447,6 +497,23 @@ impl PcmSound {
         self.samples.len() as f64 / (self.channels.max(1) as f64 * self.rate.max(1) as f64)
     }
 
+    /// Interleaved samples (`channels` per frame, `rate` frames per second), unplaced.
+    pub fn from_samples(samples: Vec<f32>, channels: u16, rate: u32) -> PcmSound {
+        PcmSound { samples: samples.into(), channels, rate, pan: None, reverb: None }
+    }
+
+    pub fn samples(&self) -> &[f32] {
+        &self.samples
+    }
+
+    pub fn channels(&self) -> u16 {
+        self.channels
+    }
+
+    pub fn rate(&self) -> u32 {
+        self.rate
+    }
+
     /// Decode a whole file of another encoding (Ogg Vorbis) with rodio.
     pub fn from_encoded(bytes: Vec<u8>) -> Result<PcmSound, String> {
         let d = rodio::Decoder::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
@@ -599,6 +666,15 @@ pub struct Sfx {
     pub voice_stolen: u32,
     /// Per SOUN: one-shots started, those started over its oldest voice, refused.
     per_sound: HashMap<FormId, [u32; 3]>,
+    /// Decoded files nothing plays, and when each was first seen so ([`release_files`]).
+    unused: nvf_assets::release::Unused<String>,
+    /// Real seconds of the last [`release_files`] sweep, and the files it has let go of.
+    swept_at: f64,
+    pub files_released: u64,
+    /// The files of the sounds made for files ([`ScriptSounds::paths`]), by their id.
+    path_files: HashMap<FormId, String>,
+    /// Script sounds (request ids) to fade in once they start ([`ScriptSounds::fades_in`]).
+    fades_in: HashMap<u32, f32>,
 }
 
 impl Sfx {
@@ -636,7 +712,23 @@ impl Sfx {
             voice_limited: 0,
             voice_stolen: 0,
             per_sound: HashMap::new(),
+            unused: nvf_assets::release::Unused::default(),
+            swept_at: 0.0,
+            files_released: 0,
+            path_files: HashMap::new(),
+            fades_in: HashMap::new(),
         }
+    }
+
+    /// A sound made for a file: a SOUN of its own from now on, its file that path, no
+    /// flags but Loop for one that goes round, the GECK's default curve and a reach of
+    /// 100 to 2,000 units [engineering choice: the pages name no reach].
+    fn add_path_sound(&mut self, id: FormId, path: &str, looping: bool) {
+        let name = format!("file {path}");
+        let flags = if looping { vec!["Loop".to_string()] } else { Vec::new() };
+        let s = Sound { edid: Some(name), flags, min_distance: 100.0, max_distance: 2000.0, ..Default::default() };
+        self.forms.sounds.insert(id, s);
+        self.path_files.insert(id, path.to_string());
     }
 }
 
@@ -910,6 +1002,9 @@ pub(crate) struct Resolved {
 pub(crate) fn resolve(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, sound: FormId) -> Option<Resolved> {
     let s = sfx.forms.sounds.get(&sound).cloned()?;
     let name = s.edid.clone().unwrap_or_else(|| sound.to_string());
+    if let Some(path) = sfx.path_files.get(&sound) {
+        return Some(Resolved { s, name, path: path.clone() });
+    }
     let Some(path) = s.file.as_deref().and_then(|f| pick_file(sfx, vfs, f)) else {
         sfx.failed += 1;
         if sfx.reported.insert(name.clone()) {
@@ -950,14 +1045,15 @@ pub(crate) fn prefetch(sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, path: &str, name:
         return;
     }
     let (vfs, owned) = (vfs.clone(), path.to_string());
-    // On the I/O pool, not the compute pool, which reads cells, models and actors on its
-    // few threads [engineering choice; hypothesis: a sound asked for while a cell streams
-    // in waits behind those reads, the smoke runs of 2026-11-03 had starts up to about
-    // 100 frames late on the compute pool]. Bevy's `AssetServer` loads on the I/O pool
+    // On the I/O pool, away from the reads of cells, models and actors, which were on the
+    // async compute pool then and have their own pool now (`nvf_assets::read_pool`)
+    // [engineering choice; hypothesis: a sound asked for while a cell streams in waits
+    // behind those reads, the smoke runs of 2026-11-03 had starts up to about 100 frames
+    // late on the compute pool]. Bevy's `AssetServer` loads on the I/O pool
     // too, but this engine loads only its embedded shaders through it, at start-up (the
     // `RenderStartup` systems, e.g. engine/nvforever/src/post.rs `init_pipelines`, and
     // the materials' shaders when their plugins are built, grass.rs, tree.rs, sky.rs);
-    // the game's files are read by nvf-assets on the async compute pool and added to
+    // the game's files are read by nvf-assets on its read pool and added to
     // `Assets` directly (nvf-assets/src/model.rs, actor.rs) [design]. During play the
     // I/O pool holds this module's decodes and its folder index only.
     let task = IoTaskPool::get_or_init(TaskPool::default).spawn(async move { decode_file(&vfs, &owned) });
@@ -973,6 +1069,58 @@ fn file_now(sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, path: &str, name: &str) -> F
         Some(FileState::Decoding(..)) => FileNow::Pending,
         Some(FileState::Broken) | None => FileNow::Broken,
     }
+}
+
+/// Whether a decoded file is in use: a playing holds its handle or shares its samples
+/// (a placed or reverbed playing is an asset of its own over the same samples).
+fn file_in_use(h: &Handle<PcmSound>, assets: &Assets<PcmSound>) -> bool {
+    nvf_assets::release::held_beyond(h, 1) || assets.get(h).is_some_and(|p| Arc::strong_count(&p.samples) > 1)
+}
+
+impl Sfx {
+    /// The decoded files kept: (files, those nothing plays, their samples' bytes).
+    pub fn file_share(&self, assets: &Assets<PcmSound>) -> (usize, usize, u64) {
+        let (mut n, mut idle, mut bytes) = (0, 0, 0u64);
+        for state in self.files.values() {
+            if let FileState::Ready(h) = state {
+                n += 1;
+                idle += usize::from(!file_in_use(h, assets));
+                bytes += assets.get(h).map_or(0, |p| (p.samples.len() * size_of::<f32>()) as u64);
+            }
+        }
+        (n, idle, bytes)
+    }
+}
+
+/// Let go of decoded sound files nothing has played for a while, as the asset caches do
+/// with models and textures (nvf_assets `release.rs`, the same [`KeepLimits`]). Without
+/// it every file heard stayed decoded for the whole session: decoded samples are 32-bit,
+/// about 170 KB a second of mono 44.1 kHz sound, and the RAM a long session used only
+/// grew [observed 2026-11-06, the stress tour; design]. A file asked for again is decoded
+/// again; a playing keeps its own samples, so dropping the cache's entry never cuts one.
+///
+/// [`KeepLimits`]: nvf_assets::KeepLimits
+fn release_files(real: Res<Time<Real>>, limits: Option<Res<nvf_assets::KeepLimits>>, sfx: Option<ResMut<Sfx>>, assets: Res<Assets<PcmSound>>) {
+    let Some(mut sfx) = sfx else { return };
+    let now = real.elapsed_secs_f64();
+    if now - sfx.swept_at < nvf_assets::release::SWEEP_SECS as f64 {
+        return;
+    }
+    sfx.swept_at = now;
+    let limits = limits.map_or_else(nvf_assets::KeepLimits::default, |l| *l);
+    let Sfx { files, unused, .. } = &mut *sfx;
+    let entries: Vec<(String, bool)> = files
+        .iter()
+        .filter_map(|(path, state)| match state {
+            FileState::Ready(h) => Some((path.clone(), file_in_use(h, &assets))),
+            _ => None,
+        })
+        .collect();
+    let drop = unused.sweep(now, entries, limits.secs, limits.max);
+    for path in &drop {
+        files.remove(path);
+    }
+    sfx.files_released += drop.len() as u64;
 }
 
 /// Take in the decodes the worker threads have finished: a sound ready to play, or a
@@ -1080,6 +1228,11 @@ fn begin(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, r: &
         }
         Wanted::Once(at) => one_shot_ready(out, sfx, r, handle, sound, at).1,
     };
+    if let (Wanted::Script { id, .. }, Some(e)) = (wanted, e) {
+        if let Some(seconds) = sfx.fades_in.remove(&id) {
+            out.commands.entity(e).insert(ScriptFade::new(seconds, false));
+        }
+    }
     sfx.waits.decided(waited.unwrap_or(0), e.is_some());
     e
 }
@@ -1173,11 +1326,22 @@ fn play(
     // frame's asked for before the stop (`PlaySound X; StopSound X`); one asked for after
     // it (`StopSound X; PlaySound X`, a higher id) plays [engineering choice; hypothesis:
     // the original's order in one frame is not known, audio.md §11.5, observer check 82].
+    for (id, path, looping) in std::mem::take(&mut ss.paths) {
+        sfx.add_path_sound(id, &path, looping);
+    }
+    sfx.fades_in.extend(std::mem::take(&mut ss.fades_in));
     let stops = std::mem::take(&mut ss.stops);
+    let fades_out = std::mem::take(&mut ss.fades_out);
     for &(s, _) in &stops {
+        let fade = fades_out.iter().find(|f| f.0 == s).map(|f| f.1);
         for (e, p) in &scripted {
             if p.0 == s {
-                out.commands.entity(e).try_despawn();
+                match fade {
+                    Some(seconds) => {
+                        out.commands.entity(e).remove::<ScriptPlayed>().insert(ScriptFade::new(seconds, true));
+                    }
+                    None => out.commands.entity(e).try_despawn(),
+                }
             }
         }
         sfx.waits.cancelled += cancel(&mut sfx.waiting, |w| w.sound == s && matches!(w.wanted, Wanted::Script { .. }));
@@ -1536,8 +1700,8 @@ impl Plugin for SfxPlugin {
             .configure_sets(Update, SfxSet.after(crate::PlaySet::Sync))
             .configure_sets(Update, (SfxStep::Prepare, SfxStep::Ambient, SfxStep::Play).chain().in_set(SfxSet))
             .add_systems(Update, (listener_submerged, prepare).chain().in_set(SfxStep::Prepare))
-            .add_systems(Update, (play, pan_sounds).chain().in_set(SfxStep::Play))
-            .add_systems(Last, report);
+            .add_systems(Update, (play, pan_sounds, script_fades).chain().in_set(SfxStep::Play))
+            .add_systems(Last, (release_files, report));
         add_late_start(app);
         crate::reverb::build(app);
     }

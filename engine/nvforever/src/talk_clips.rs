@@ -239,7 +239,7 @@ mod tests {
     fn the_body_carriers_are_left_out() {
         let mut c = Clip::from_controllers(Vec::new(), Vec::new(), Vec::new());
         use fnv_nif::anim::{Channel, TransformTrack};
-        let t = Arc::new(TransformTrack { translation: Channel::Static(None), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) });
+        let t = Arc::new(TransformTrack { translation: Channel::Static(None), rotation: Channel::Static(None), euler: None, scale: Channel::Static(None), per_cycle: None });
         c.tracks = vec![("Bip01".into(), t.clone()), ("Bip01 NonAccum".into(), t.clone()), ("Bip01 Speaker".into(), t)];
         c.priorities = vec![10, 20, 97];
         c.accum_root = Some("Bip01".into());

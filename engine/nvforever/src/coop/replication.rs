@@ -229,7 +229,7 @@ fn world_values(world: &fnv_sim::World, r: FormId) -> Option<Vec<Value>> {
     let item = matches!(data, Some(fnv_sim::forms::BaseData::Item(_)));
     let mut out = Vec::with_capacity(5);
     let (enabled, deleted) = match st {
-        Some(s) => (s.enabled, s.deleted),
+        Some(s) => (s.enabled(), s.deleted()),
         None => (!placed.is_some_and(|p| p.initially_disabled()), false),
     };
     // A player's dropped item is made first on a guest that has not got it (module notes).
@@ -358,7 +358,7 @@ pub(super) fn replicate(
     // host, stayed drawn on a guest whose world had it disabled (item 186, laptop run
     // q171-lm-volare-plane-2).
     for form_id in std::mem::take(&mut coop.repl.refreshed) {
-        changed.write(nvf_play::RefChanged { form_id });
+        changed.write(nvf_play::RefChanged::new(form_id));
     }
     let ms = started.elapsed().as_secs_f32() * 1000.0;
     coop.repl.perf.add_spent(ms);
@@ -730,7 +730,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                         }
                         match c.value {
                             // Not one this player has already taken (a digest sends it again).
-                            Value::Item { base, count, .. } if !sim.world.peek(FormId(c.reference)).is_some_and(|s| s.deleted) => {
+                            Value::Item { base, count, .. } if !sim.world.peek(FormId(c.reference)).is_some_and(|s| s.deleted()) => {
                                 r.shared.insert(c.reference, (base, count));
                             }
                             Value::Enabled { deleted: true, .. } if r.shared.contains_key(&c.reference) => {
@@ -766,7 +766,7 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                             let g = &mut rt.game;
                             r.effects_played += 1;
                             match e {
-                                Effect::Sound { sound, at_ref, .. } => g.sound_requests.push(fnv_game::sound::SoundRequest { sound: FormId(sound), at: Some(FormId(at_ref)), system: false, id: 0 }),
+                                Effect::Sound { sound, at_ref, .. } => g.sound_requests.push(fnv_game::sound::SoundRequest { sound: FormId(sound), at: Some(FormId(at_ref)), system: false, id: 0, point: None }),
                                 Effect::Music { music } => g.music_requests.push(FormId(music)),
                                 Effect::Summon { interior, world, pos, yaw } => {
                                     info!("replication: the host's script moved it: this player goes too");
@@ -881,14 +881,14 @@ fn apply(sim: &mut nvf_play::sim::SimState, slow: &mut HashMap<u32, Slow>, c: &C
             let item = w.peek(rf).map(|s| s.base).or_else(|| w.placed.get(rf).map(|p| p.base)).and_then(|b| w.forms.item(b)).is_some();
             let shared = w.peek(rf).is_some_and(|s| s.player_drop);
             let Ok(st) = w.get(rf) else { return false };
-            let was = (st.enabled, st.deleted);
+            let was = (st.enabled(), st.deleted());
             let _ = w.set_enabled(rf, *enabled);
             // A loose item this player took stays taken here (per-player loot); a player's
             // dropped item is the host's world's.
             if !item || shared {
                 let _ = w.set_deleted(rf, *deleted);
             }
-            w.peek(rf).is_some_and(|s| (s.enabled, s.deleted) != was)
+            w.peek(rf).is_some_and(|s| (s.enabled(), s.deleted()) != was)
         }
         Value::Place { cell, pos, rot, scale } => {
             let Ok(st) = w.get(rf) else { return false };
@@ -1004,7 +1004,7 @@ fn host_loose(link: &Link, r: &mut Repl, sim: &mut nvf_play::sim::SimState, id: 
         },
         Loose::Took { reference } => {
             let rf = FormId(reference);
-            let lying = sim.world.peek(rf).filter(|s| s.player_drop).map(|s| (s.base.0, s.count, !s.deleted && s.enabled));
+            let lying = sim.world.peek(rf).filter(|s| s.player_drop).map(|s| (s.base.0, s.count, !s.deleted() && s.enabled()));
             r.loose += 1;
             match lying {
                 Some((_, count, true)) => {
@@ -1028,7 +1028,7 @@ fn guest_loose(link: &Link, r: &mut Repl, sim: &mut nvf_play::sim::SimState, l: 
         Loose::Made { local, host } => {
             let (lf, hf) = (FormId(local), FormId(host));
             r.loose += 1;
-            match sim.world.peek(lf).filter(|s| !s.deleted && s.enabled).cloned() {
+            match sim.world.peek(lf).filter(|s| !s.deleted() && s.enabled()).cloned() {
                 Some(s) => {
                     // This game's copy takes the host's number: the same item for everyone.
                     let _ = sim.world.set_deleted(lf, true);
@@ -1068,7 +1068,7 @@ fn guest_drops(link: &Link, r: &mut Repl, sim: &nvf_play::sim::SimState, phys: O
     let mine: Vec<Mine> = sim
         .world
         .created()
-        .filter(|(k, s)| k.0 >= GUEST_CREATED && s.player_drop && !s.deleted && s.enabled && !r.drops_sent.contains(&k.0))
+        .filter(|(k, s)| k.0 >= GUEST_CREATED && s.player_drop && !s.deleted() && s.enabled() && !r.drops_sent.contains(&k.0))
         .map(|(k, s)| (k, s.base.0, s.count, s.cell.map_or(0, |c| c.0), s.pos, s.rot))
         .collect();
     r.drops_waiting.retain(|k, _| mine.iter().any(|m| m.0 .0 == *k));
@@ -1088,7 +1088,7 @@ fn guest_drops(link: &Link, r: &mut Repl, sim: &nvf_play::sim::SimState, phys: O
         r.loose += 1;
         info!("replication: this player dropped {} x{count} {k}, at rest at {pos:?}: it goes to the host", sim.name(FormId(base)).unwrap_or("?"));
     }
-    let gone: Vec<u32> = r.shared.keys().copied().filter(|&k| sim.world.peek(FormId(k)).is_none_or(|s| s.deleted || !s.enabled)).collect();
+    let gone: Vec<u32> = r.shared.keys().copied().filter(|&k| sim.world.peek(FormId(k)).is_none_or(|s| s.deleted() || !s.enabled())).collect();
     for k in gone {
         r.shared.remove(&k);
         if r.host_took.remove(&k) {

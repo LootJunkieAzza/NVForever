@@ -87,7 +87,7 @@ impl Game<'_> {
         let (cell, pos) = (at.cell, at.pos);
         self.world
             .created()
-            .filter(|(_, s)| (s.base == f.fire || s.base == f.quiet) && s.enabled && !s.deleted && s.cell == cell)
+            .filter(|(_, s)| (s.base == f.fire || s.base == f.quiet) && s.enabled() && !s.deleted() && s.cell == cell)
             .filter(|(_, s)| (0..3).map(|k| (s.pos[k] - pos[k]).powi(2)).sum::<f32>().sqrt() <= AT_CAMPFIRE)
             .map(|(id, _)| id)
             .collect()
@@ -175,7 +175,7 @@ impl Game<'_> {
 
     /// Disabled and deleted, as the fire's own script ends it.
     fn remove_placed(&mut self, r: FormId) {
-        if self.world.peek(r).is_some_and(|s| s.enabled) && self.world.set_enabled(r, false).is_ok() {
+        if self.world.peek(r).is_some_and(|s| s.enabled()) && self.world.set_enabled(r, false).is_ok() {
             self.emit(EventKind::RefDisabled { reference: r, fade: false });
         }
         self.extra.entry(r).or_default().marked_for_delete = true;

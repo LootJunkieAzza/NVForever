@@ -1008,7 +1008,7 @@ fn interact(
 fn loot_grip(loot: &b42::LootSet, world: &WorldData, script: Option<&nvf_play::script::ScriptState>, item: FormId) -> Option<Transform> {
     let base = fnv_world::placed::base_object(world.lo, world.schema, item.0)?;
     let anim = (&base.sig == b"WEAP").then(|| script.and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.data.weapon_anim_types.get(&item).copied())).flatten();
-    let code = b42::loot_type(&base.sig, anim.map(i64::from), None, false);
+    let code = b42::loot_type(&base.sig, anim, None, false);
     let g = loot.grip(base.model_path().as_deref(), code.as_deref())?;
     let [rx, ry, rz] = g.turn.map(f32::to_radians);
     Some(Transform { translation: Vec3::from(g.at), rotation: Quat::from_euler(EulerRot::XYZ, rx, ry, rz), scale: Vec3::splat(g.scale) })
@@ -1040,7 +1040,7 @@ fn loot(
         let drawn = now.control.as_deref().is_some_and(|c| c.weapon_out);
         let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
         let anim = drawn.then(|| game.and_then(|g| g.weapon_equipped(P).and_then(|w| g.data.weapon_anim_types.get(&w).copied())).unwrap_or(0));
-        let Some(clip) = st.loot.clip(view, anim.map(i64::from)).map(str::to_string) else { continue };
+        let Some(clip) = st.loot.clip(view, anim).map(str::to_string) else { continue };
         let grip = loot_grip(&st.loot, &world, script.as_deref(), p.item);
         let edid = fnv_world::placed::base_object(world.lo, world.schema, p.item.0).and_then(|b| b.edid).unwrap_or_else(|| p.item.to_string());
         info!("consume anim: {edid} picked up: B42 Loot {clip}{}", if grip.is_some() { "" } else { " (no grip for it: held as the clip has it)" });

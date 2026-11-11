@@ -103,7 +103,12 @@ pub const MAIN_MENU_FRAME_SECONDS: f64 = 1.0 / 60.0;
 /// ListAddForm page's session-only changes; NVForever starts in the played game, with no
 /// main menu of its own scripts]. A second of those frames, run once a new runtime is
 /// made, before its first GameMode frame; with `[UI] TileMenus=StartMenu` on only, so a
-/// game without it is unchanged [design].
+/// game without it is unchanged [design]. A run that starts in a save has them before the
+/// save is restored, on the plugins' state as the original's main menu has it, and the
+/// list edits they make outlast the restore (`crate::script::run_scripts`) [observed: the
+/// owner's runs of 2026-11-11; run after the restore, JAM's saved `fTimerStart` skipped
+/// joining MCM's list, MCM's check after GetGameLoaded found no mods, and its tile stayed
+/// hidden].
 ///
 /// The start menu's tiles are built first, as the original's main menu has them: MCM's
 /// install check reads its own tiles there (`GetMCMFloat 0 0 "_MCM"`), and a save made

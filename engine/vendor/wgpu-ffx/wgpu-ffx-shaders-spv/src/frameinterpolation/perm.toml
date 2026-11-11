@@ -1,0 +1,29 @@
+[path]
+subdirectory = "frameinterpolation"
+prefix = "ffx_frameinterpolation_"
+suffix = "_pass"
+
+# Base defines from AMD's CMakeCompileFrameinterpolationShaders.txt (SDK 1.1.4).
+[base]
+FFX_GPU = 1
+FFX_GLSL = 1
+
+FFX_FRAMEINTERPOLATION_OPTION_UPSAMPLE_SAMPLERS_USE_DATA_HALF = 0
+FFX_FRAMEINTERPOLATION_OPTION_ACCUMULATE_SAMPLERS_USE_DATA_HALF = 0
+FFX_FRAMEINTERPOLATION_OPTION_REPROJECT_SAMPLERS_USE_DATA_HALF = 1
+FFX_FRAMEINTERPOLATION_OPTION_POSTPROCESSLOCKSTATUS_SAMPLERS_USE_DATA_HALF = 0
+FFX_FRAMEINTERPOLATION_OPTION_UPSAMPLE_USE_LANCZOS_TYPE = 2
+
+[permutations]
+# Shaders currently require u16 support to use f16
+FFX_HALF = [0]
+# No way for subgroup size control currently.
+FFX_WAVE64 = [0]
+
+FFX_FRAMEINTERPOLATION_OPTION_LOW_RES_MOTION_VECTORS = [0, 1]
+# Not permuted: jittered motion vectors. AMD's CMake list sets
+# FFX_FRAMEINTERPOLATION_OPTION_JITTER_MOTION_VECTORS, which no shader reads; the shaders test
+# FFX_FRAMEINTERPOLATION_OPTION_JITTERED_MOTION_VECTORS, and that branch does not compile
+# (ffx_frameinterpolation_callbacks_glsl.h calls MotionVectorJitterCancellation with no matching
+# overload). So AMD's own SDK 1.1.4 build always runs with it off; this does the same.
+FFX_FRAMEINTERPOLATION_OPTION_INVERTED_DEPTH = [0, 1]

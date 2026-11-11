@@ -345,6 +345,15 @@ fn modifier_sounds(mods: &mut ScreenModifiers, world: &WorldData, forms: &[u32],
     }
 }
 
+/// The depth of field in a conversation (image-modifiers.md §8.4), behind the speaker only:
+/// the mix towards the blur at full zoom (past 1 it turns into the contrast effect of §8.5),
+/// what stays clean behind the face (the speaker's own body), and where the blur is full,
+/// game units [design: to tune against the original's shots: a wall close behind the
+/// speaker a little blurred, a far background strongly].
+const TALK_DOF_STRENGTH: f32 = 1.0;
+const TALK_DOF_DISTANCE: f32 = 32.0;
+const TALK_DOF_RANGE: f32 = 512.0;
+
 /// The game settings of the engine's own depth of field (image-modifiers.md §8.2, §8.4)
 /// [observed values: FalloutNV.esm GMST; the fallbacks are those values].
 #[derive(Debug, Clone, Copy)]
@@ -375,18 +384,20 @@ impl DofSettings {
 /// The engine's own depth of field (image-modifiers.md §8.4) [hypothesis]: VATS focused
 /// on the mark (`vats_focus`, its distance along the view), beyond it only, faded with
 /// the mode's look (`vats_grade`, 0 … 1); aiming down the sights by the zoom's
-/// `aim_blend`. The stronger, with the target's distance (below 0: none) and its name.
-fn engine_dof(s: &DofSettings, vats_grade: f32, vats_focus: Option<f32>, aim_blend: f32) -> Option<(Dof, f32, &'static str)> {
+/// `aim_blend`; a conversation on the speaker's face (`talk`: the zoom's blend and the face's
+/// distance from the camera), beyond it only. The strongest, with the target's distance
+/// (below 0: none) and its name.
+fn engine_dof(s: &DofSettings, vats_grade: f32, vats_focus: Option<f32>, aim_blend: f32, talk: Option<(f32, f32)>) -> Option<(Dof, f32, &'static str)> {
     let vats = vats_focus
         .filter(|_| vats_grade > 0.0 && s.vats_strength > 0.0)
         .map(|f| (Dof { strength: s.vats_strength * vats_grade, distance: 0.0, range: s.vats_range, use_target: true, flags: DOF_BACK }, f.max(0.0), "VATS"));
     let sights = (aim_blend > 0.0 && s.sights_strength > 0.0).then(|| {
         (Dof { strength: s.sights_strength * aim_blend, distance: s.sights_distance, range: s.sights_range, use_target: false, flags: 0 }, -1.0, "iron sights")
     });
-    match (vats, sights) {
-        (Some(a), Some(b)) => Some(if b.0.strength > a.0.strength { b } else { a }),
-        (a, b) => a.or(b),
-    }
+    let talk = talk.filter(|(blend, _)| *blend > 0.0).map(|(blend, f)| {
+        (Dof { strength: TALK_DOF_STRENGTH * blend, distance: TALK_DOF_DISTANCE, range: TALK_DOF_RANGE, use_target: true, flags: DOF_BACK }, f.max(0.0), "dialogue")
+    });
+    [vats, sights, talk].into_iter().flatten().reduce(|a, b| if b.0.strength > a.0.strength { b } else { a })
 }
 
 /// The log line's text for a depth of field (rounded, so a fade logs a few lines).
@@ -505,7 +516,7 @@ const PIPBOY_SHARP: f32 = 40.0;
 /// A fade colour and amount (`ScreenEffect::fade`) with black laid over it to `f` (0 …
 /// 1): the share of the screen covered grows to `f` of what was left, and the colour
 /// darkens with it.
-fn black_over(fade: [f32; 4], f: f32) -> [f32; 4] {
+pub(crate) fn black_over(fade: [f32; 4], f: f32) -> [f32; 4] {
     let f = f.clamp(0.0, 1.0);
     let a = fade[3].clamp(0.0, 1.0);
     let covered = a + (1.0 - a) * f;
@@ -529,7 +540,7 @@ fn update_grade(
         Option<Res<crate::death_cam::DeathCam>>,
         Option<Res<nvf_play::vats_mode::VatsMode>>,
     ),
-    (sim, aim, wheel, duel, real): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::coop_social::Social>>, Res<Time<Real>>),
+    (sim, aim, wheel, duel, real, talk, creator): (Option<Res<nvf_play::sim::SimState>>, Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::weapon_wheel::WeaponWheel>>, Option<Res<nvf_play::coop_social::Social>>, Res<Time<Real>>, Option<Res<nvf_play::dialogue_zoom::DialogueZoom>>, Option<Res<nvf_play::creator::CreatorMenu>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<(&mut ImageSpaceGrade, Has<LensGrade>)>,
     sounds: Option<ResMut<Messages<nvf_play::sfx::PlaySound>>>,
@@ -539,6 +550,15 @@ fn update_grade(
         Some(w) => screen_effect(&mut mods, w, script.as_deref(), now),
         None => (ScreenEffect::default(), Vec::new(), String::new(), String::new()),
     };
+    // The gene projector's studio (`creator_view.rs`) is a picture of its own, not the
+    // scene: the scene's modifiers are left off it (they go on playing and come back when
+    // it closes) [design: owner 2026-11-08, the studio was pure black in Tale of Two
+    // Wastelands' birth scene, where CG00BirthBaseISFX (Bright Scale x2, Bright Clamp
+    // x0.2) and the eye adaptation it drives left the player a silhouette on black]. The
+    // cell's own grade stays.
+    if creator.as_deref().is_some_and(nvf_play::creator::CreatorMenu::in_studio) {
+        effect = ScreenEffect::default();
+    }
     // A new game shows nothing of the world before its opening runs: until the scripts
     // have started the screen is white, as the opening's first modifier then holds it
     // [engineering choice: the script data loads while the room is already drawn].
@@ -574,8 +594,10 @@ fn update_grade(
     let vats_look = vats.as_deref().map_or([0.0; 4], |v| v.look());
     let vats_focus = vats.as_deref().and_then(|v| v.focus()).zip(camera).map(|(p, (_, t))| (nvf_play::space::to_bevy(p) - t.translation()).dot(*t.forward()));
     let aim_blend = aim.as_deref().map_or(0.0, |a| if a.sight.is_some() { a.blend } else { 0.0 });
+    // Straight to the face, not along the view: looking around does not move the focus.
+    let talk_focus = talk.as_deref().and_then(|z| z.face().map(|p| (z.blend(), p))).zip(camera).map(|((blend, p), (_, t))| (blend, (nvf_play::space::to_bevy(p) - t.translation()).length()));
     let (mut dof, mut focus, mut source) = (effect.dof, -1.0f32, dof_source);
-    if let Some((d, f, name)) = mods.dof_settings.as_ref().and_then(|s| engine_dof(s, vats_look[3], vats_focus, aim_blend)) {
+    if let Some((d, f, name)) = mods.dof_settings.as_ref().and_then(|s| engine_dof(s, vats_look[3], vats_focus, aim_blend, talk_focus)) {
         if d.strength > dof.strength {
             (dof, focus, source) = (d, f, name.to_string());
         }
@@ -653,7 +675,8 @@ fn update_grade(
 
 /// What [`tile_menu_blur`] tells of a state: this contribution, not the screen's whole blur.
 fn tile_menu_blur_text(now: TileMenuBlur) -> String {
-    let names: Vec<&str> = [(now.tutorial, nvf_play::tiles::tutorial_menu::TUTORIAL_MENU), (now.container, "ContainerMenu")].into_iter().filter(|m| m.0).map(|m| m.1).collect();
+    let names: Vec<&str> = [(now.tutorial, nvf_play::tiles::tutorial_menu::TUTORIAL_MENU), (now.container, "ContainerMenu"), (now.barter, nvf_play::tiles::barter_menu::BARTER_MENU), (now.recipe, nvf_play::tiles::recipe_menu::RECIPE_MENU), (now.traits, nvf_play::tiles::trait_menu::TRAIT_MENU), (now.tags, nvf_play::tiles::tag_menu::TAG_MENU)].into_iter().filter(|m| m.0).map(|m| m.1).collect();
+    let names: Vec<&str> = names.into_iter().chain(now.repair_services.then_some(nvf_play::tiles::repair_services_menu::REPAIR_SERVICES_MENU)).collect();
     if names.is_empty() {
         "off".to_string()
     } else {
@@ -794,7 +817,7 @@ pub(crate) fn blur_pass(
 
 #[cfg(test)]
 mod tests {
-    use super::{black_over, dof_text, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, WAIT_MENU_BLUR};
+    use super::{black_over, dof_text, engine_dof, motion_blur, motion_frames, tile_menu_blur, tile_menu_blur_text, DofSettings, ImageSpaceGrade, LensGrade, TileMenuBlur, MOTION_EXPOSURE, PIPBOY_BLUR, TALK_DOF_DISTANCE, TALK_DOF_RANGE, TALK_DOF_STRENGTH, WAIT_MENU_BLUR};
     use bevy::prelude::*;
 
     /// What `update_grade` writes this frame: the screen's own blur and what stays sharp.
@@ -886,29 +909,51 @@ mod tests {
 
     #[test]
     fn the_tile_menu_blur_lines() {
-        let tutorial = TileMenuBlur { tutorial: true, container: false };
-        let container = TileMenuBlur { tutorial: false, container: true };
+        let tutorial = TileMenuBlur { tutorial: true, ..Default::default() };
+        let container = TileMenuBlur { container: true, ..Default::default() };
         assert_eq!(tile_menu_blur_text(TileMenuBlur::default()), "off");
         assert_eq!(tile_menu_blur_text(tutorial), "TutorialMenu radius 3");
         assert_eq!(tile_menu_blur_text(container), "ContainerMenu radius 3");
-        assert_eq!(tile_menu_blur_text(TileMenuBlur { tutorial: true, container: true }), "TutorialMenu, ContainerMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { barter: true, ..Default::default() }), "BarterMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { recipe: true, ..Default::default() }), "RecipeMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { repair_services: true, ..Default::default() }), "RepairServicesMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { tutorial: true, container: true, ..Default::default() }), "TutorialMenu, ContainerMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { traits: true, ..Default::default() }), "TraitMenu radius 3");
+        assert_eq!(tile_menu_blur_text(TileMenuBlur { tags: true, ..Default::default() }), "CharGenMenu radius 3");
     }
 
     #[test]
     fn the_engine_focuses_vats_on_the_mark() {
         let s = DofSettings { vats_range: 500.0, vats_strength: 0.6, sights_distance: 275.0, sights_range: 650.0, sights_strength: 0.0, sights_motion_blur: 0.0 };
         // No mark, or the look gone: none.
-        assert!(engine_dof(&s, 1.0, None, 0.0).is_none());
-        assert!(engine_dof(&s, 0.0, Some(800.0), 0.0).is_none());
-        let (d, f, name) = engine_dof(&s, 1.0, Some(812.0), 0.0).unwrap();
+        assert!(engine_dof(&s, 1.0, None, 0.0, None).is_none());
+        assert!(engine_dof(&s, 0.0, Some(800.0), 0.0, None).is_none());
+        let (d, f, name) = engine_dof(&s, 1.0, Some(812.0), 0.0, None).unwrap();
         assert_eq!((d.strength, d.range, f, name), (0.6, 500.0, 812.0, "VATS"));
         assert_eq!(dof_text(&d, f, name), "strength 0.6, distance 0, range 500, focus 800, back (VATS)");
         // The shipped iron sights cap is 0: no depth of field down the sights.
-        assert!(engine_dof(&s, 0.0, None, 1.0).is_none());
+        assert!(engine_dof(&s, 0.0, None, 1.0, None).is_none());
         let raised = DofSettings { sights_strength: 0.5, ..s };
-        let (d, _, name) = engine_dof(&raised, 0.0, None, 1.0).unwrap();
+        let (d, _, name) = engine_dof(&raised, 0.0, None, 1.0, None).unwrap();
         assert_eq!((d.strength, d.distance, d.range, name), (0.5, 275.0, 650.0, "iron sights"));
         assert_eq!(dof_text(&fnv_world::image_modifier::Dof::default(), -1.0, ""), "off");
+    }
+
+    #[test]
+    fn a_conversation_focuses_on_the_face_faded_with_the_zoom() {
+        let s = DofSettings { vats_range: 500.0, vats_strength: 0.6, sights_distance: 275.0, sights_range: 650.0, sights_strength: 0.0, sights_motion_blur: 0.0 };
+        // No zoom, none.
+        assert!(engine_dof(&s, 0.0, None, 0.0, Some((0.0, 90.0))).is_none());
+        let (d, f, name) = engine_dof(&s, 0.0, None, 0.0, Some((1.0, 90.0))).unwrap();
+        assert_eq!((d.strength, d.distance, d.range, f, name), (TALK_DOF_STRENGTH, TALK_DOF_DISTANCE, TALK_DOF_RANGE, 90.0, "dialogue"));
+        // Only what is behind the speaker.
+        assert_eq!(d.flags, fnv_world::image_modifier::DOF_BACK);
+        assert!(d.use_target);
+        assert_eq!(dof_text(&d, f, name), "strength 1.0, distance 32, range 512, focus 100, back (dialogue)");
+        let (half, _, _) = engine_dof(&s, 0.0, None, 0.0, Some((0.5, 90.0))).unwrap();
+        assert_eq!(half.strength, TALK_DOF_STRENGTH * 0.5);
+        // The stronger of it and VATS.
+        assert_eq!(engine_dof(&s, 1.0, Some(800.0), 0.0, Some((0.5, 90.0))).unwrap().2, "VATS");
     }
 
     #[test]

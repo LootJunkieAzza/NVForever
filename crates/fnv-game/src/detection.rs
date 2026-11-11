@@ -300,6 +300,13 @@ pub struct Round {
     /// round: they change only by script (AddToFaction and the like) and crimes, which
     /// forget them (`functions::actor::FactionKeep`).
     pub(crate) kept: crate::functions::actor::FactionKeep,
+    /// Each actor's kinship facts ([`crate::awareness::KinFacts`]) and Aggression, kept
+    /// while `hostile` is: asked again for every pair, `Game::kin` was half the hostility
+    /// of a 50-a-side battle's measurement (5.6-9.4 ms of 14.5-18.4 for ~11,000 pairs),
+    /// the Aggression a fifth [observed 2026-11-07, #1799]. Nothing the pairs do changes
+    /// them; they go with the hostility at [`Game::end_detection_hostility`].
+    pub(crate) kin: HashMap<FormId, crate::awareness::KinFacts>,
+    pub(crate) aggression: HashMap<FormId, i64>,
 }
 
 /// One actor's detection inputs ([`Pair`]'s detector and target fields).
@@ -596,6 +603,8 @@ impl Game<'_> {
     pub fn end_detection_hostility(&mut self) {
         if let Some(r) = self.detection_round.as_mut() {
             r.hostile = None;
+            r.kin.clear();
+            r.aggression.clear();
         }
     }
 
@@ -661,6 +670,13 @@ impl Game<'_> {
     pub fn detect(&mut self, settings: &Settings, detector: FormId, target: FormId, s: &Situation) -> (Detection, Option<Band>) {
         let p = self.detection_pair(detector, target);
         let mut d = settings.evaluate(&p, s);
+        // ForceActorDetectionValue, and the light GetActorLightAmount reads
+        // (`crate::nvse_jip11`).
+        self.other.jip11.light.insert(target, s.light);
+        if self.other.jip11.forced_detection.contains_key(&target) {
+            d.value = self.forced_detection(target, d.value);
+            d.band = if d.value > 0.0 { Band::Detected } else if d.value > settings.noticed_min { Band::Noticed } else { Band::Hidden };
+        }
         if self.ghost_hidden_from(detector, target) {
             d.value = d.value.min(settings.noticed_min);
             d.band = Band::Hidden;

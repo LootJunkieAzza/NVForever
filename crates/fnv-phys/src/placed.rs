@@ -52,7 +52,8 @@ pub struct RefCollision {
 /// `tally` is called once for each outcome, with the names of the `refs.counts` of
 /// `fnv.phys.cell/1` (physics.md §7): `no_base`, `collision_primitive`, `bad_primitive`,
 /// `actor`, `no_model`, `speedtree`, `awaiting_collision`, `model_without_collision`,
-/// `model_unreadable`, `open_door_moving_parts` (an open-by-default door whose keyframed
+/// `model_unreadable`, `primitive_model` (a primitive whose base names a model: the
+/// model is left out, level-design.md §4.1), `open_door_moving_parts` (an open-by-default door whose keyframed
 /// parts were left out), `water_volume` (a model with water volumes; then not also
 /// `model_without_collision`), `volume` (a placed volume, XPRM, whose base's model is
 /// left out; cells-refs.md §6).
@@ -111,15 +112,6 @@ pub fn ref_collision_with(
             None => tally("bad_primitive"),
         }
     }
-    if pl.volume && pl.base != Some(COLLISION_MARKER) {
-        // A placed volume (a trigger box or sphere) whose base names a model: the model is
-        // not in the world there, neither drawn nor solid (`Placement::volume`,
-        // cells-refs.md §6). Vault 34's `v34AmbushVolume` triggers stood as solid water
-        // tower pipes across its corridors [observed: `fnvtool phys cell --cell Vault34b
-        // --list-refs`, 2026-11-05]. Its trigger box is script_trigger's, not this.
-        tally("volume");
-        return out;
-    }
     if is_actor_base(&base.sig) {
         // The skeleton's bodies are keyframed and on the Biped layer [observed:
         // `fnvtool phys cell --list-refs`]: added at the placement, they stayed in the
@@ -130,6 +122,9 @@ pub fn ref_collision_with(
     match options.model.map_or_else(|| base.world_model_path(), fnv_world::placed::archive_path) {
         None if out.objects.is_empty() => tally("no_model"),
         None => {}
+        // A trigger copied from an activator with a model keeps the model in its record;
+        // the game shows and collides with only the primitive (level-design.md §4.1).
+        Some(_) if !pl.draws_base_model() => tally("primitive_model"),
         Some(m) if m.ends_with(".spt") => tally("speedtree"),
         Some(m) => match models {
             None => tally("awaiting_collision"),

@@ -278,6 +278,20 @@ fn weather_fx(
         }
     }
 
+    // A script's flash (TriggerLightningFX, `fnv_game::nvse_jip12`): outdoors in the rain
+    // only [documented: TriggerLightningFX], in the weather's lightning colour, white
+    // without one [hypothesis], with the weather's thunder.
+    if std::mem::take(&mut sky.lightning_request) && outdoors && sky.raining() {
+        let colour = if current.lightning_color.iter().all(|&c| c == 0) { [255; 3] } else { current.lightning_color }.map(srgb_to_linear);
+        fx.flash = Some((0.0, colour));
+        fx.flashes += 1;
+        info!("weather fx: lightning flash asked by a script in {} (colour {:?})", name(&current), current.lightning_color);
+        if let Some(pick) = lightning.as_ref().and_then(|(_, thunder)| thunder.first().copied()) {
+            let delay = THUNDER_DELAY.0 + (THUNDER_DELAY.1 - THUNDER_DELAY.0) * fx.rng.next_f32();
+            fx.thunder.push((delay, pick));
+        }
+    }
+
     // Lightning and thunder.
     match &lightning {
         Some((w, thunder)) => {

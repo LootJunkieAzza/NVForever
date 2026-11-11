@@ -41,7 +41,10 @@ extender source read): `docs/design/extender-compat.md`, core tasks in
   quotes the clone; it implements from the notes. Never copy, translate or paraphrase its code,
   never build it or run its tools, and never commit any of it.
 - Strings the original shows that are not in the data files are not transcribed: the
-  load order's GMST wins, otherwise NVForever writes its own words (LEGAL.md).
+  load order's GMST wins, otherwise NVForever writes its own words (LEGAL.md). A name or
+  term the data files' own shown text already uses may be the label, spelled as the data
+  spells it, citing the record (owner decision 2026-11-06, #1740: "S.P.E.C.I.A.L.");
+  abbreviations or phrases seen only on the original's screen still get our own words.
 - NVForever never writes into the game folder or `Documents\My Games\FalloutNV`
   (`crates/fnv-install`, docs/design/install-layout.md).
 - Use the Rust ecosystem fully (owner decision); plan in docs/design/dependencies.md.

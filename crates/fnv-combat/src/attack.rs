@@ -243,6 +243,9 @@ pub struct Cycle {
     /// [documented: GECK wiki Weapons, Regen Rate].
     pub regen: Option<f32>,
     regen_acc: f32,
+    /// No round regenerates while set (ShowOff's FreezeAmmoRegen, the game's
+    /// `ShowOffState::ammo_regen_frozen`) [documented: FreezeAmmoRegen].
+    pub regen_frozen: bool,
     /// Every fourth shot uses no ammunition (a "Regenerate Ammo (shots)" mod,
     /// docs/spec-notes/weapon-data-fields.md §5); shots fired so far.
     free_fourth: bool,
@@ -254,6 +257,8 @@ pub struct Cycle {
     /// Seconds since a pull made while a round-by-round reload was stopped or closing:
     /// the shot it asks for, kept for [`SHOT_GRACE`].
     queued: Option<f32>,
+    /// An Ammo Swap's reload, waiting for the cycle to be `Ready` ([`Cycle::swap_ammo`]).
+    swap_reload: bool,
     pub timing: Timing,
 }
 
@@ -269,13 +274,29 @@ impl Cycle {
             no_ammo,
             regen: (w.regen_rate > 0.0).then_some(w.regen_rate),
             regen_acc: 0.0,
+            regen_frozen: false,
             free_fourth: w.free_fourth_shot,
             shots: 0,
             held: false,
             spun: false,
             queued: None,
+            swap_reload: false,
             timing,
         }
+    }
+
+    /// The loaded ammo changed: the magazine is empty and a reload follows. A shot still
+    /// on its way (a spin-up, a wind-up) has no round now and is dropped. The reload starts
+    /// at the next step, or between shots when the wait ends: starting it at once would
+    /// fire the next shot early when the wait is longer than the reload. A reload under
+    /// way goes on and takes the new ammo; a closing or jammed weapon reloads on its next
+    /// pull [design].
+    pub fn swap_ammo(&mut self) {
+        self.magazine = 0;
+        if matches!(self.phase, Phase::SpinUp { .. } | Phase::WindUp { .. }) {
+            self.phase = Phase::Ready;
+        }
+        self.swap_reload = matches!(self.phase, Phase::Ready | Phase::Cooldown { .. });
     }
 
     /// A reload is under way (whole, or any part of a round-by-round one).
@@ -319,12 +340,14 @@ impl Cycle {
     pub fn step(&mut self, t: &CombatTuning, i: Input) -> Vec<Event> {
         let mut out = Vec::new();
         let fresh = i.trigger && !self.held;
-        let pulled = fresh || (i.trigger && self.automatic);
+        let mut pulled = fresh || (i.trigger && self.automatic);
+        // Whether an empty magazine answers this tick's pull with a click.
+        let mut click = fresh;
         self.held = i.trigger;
         if !i.trigger {
             self.spun = false;
         }
-        if let Some(r) = self.regen {
+        if let Some(r) = self.regen.filter(|_| !self.regen_frozen) {
             if self.magazine < self.clip_size {
                 self.regen_acc += i.dt;
                 while self.regen_acc >= r && self.magazine < self.clip_size {
@@ -353,7 +376,8 @@ impl Cycle {
         for _ in 0..8 {
             match self.phase {
                 Phase::Ready => {
-                    if i.reload && self.can_reload(i.carried) {
+                    let swapped = std::mem::take(&mut self.swap_reload);
+                    if (i.reload || swapped) && self.can_reload(i.carried) {
                         self.phase = self.start_reload();
                         stop_pull = false;
                         out.push(Event::ReloadStarted);
@@ -382,7 +406,7 @@ impl Cycle {
                             out.push(Event::ReloadStarted);
                         } else {
                             // One click per pull, also for automatic weapons.
-                            if fresh {
+                            if click {
                                 out.push(Event::DryFire);
                             }
                             break;
@@ -411,8 +435,17 @@ impl Cycle {
                         break;
                     }
                     dt -= left;
+                    let free = self.free_fourth && (self.shots + 1).is_multiple_of(4);
+                    // The magazine emptied after the pull (an Ammo Swap, its rounds taken
+                    // from the inventory): no shot, and the pull is answered as one on an
+                    // empty magazine.
+                    if !free && !self.has_round() {
+                        self.phase = Phase::Ready;
+                        pulled = true;
+                        click = true;
+                        continue;
+                    }
                     self.shots += 1;
-                    let free = self.free_fourth && self.shots.is_multiple_of(4);
                     let rounds = if self.no_ammo || free { 0 } else { self.ammo_use };
                     self.magazine -= rounds;
                     out.push(Event::Fired { rounds });

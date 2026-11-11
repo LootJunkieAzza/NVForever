@@ -57,6 +57,9 @@ pub struct WorkerTextures {
     entries: Mutex<HashMap<(String, bool), WorkerTexture>>,
     /// Textures a worker could not load, with why, until the cache remembers them.
     failed: Mutex<HashMap<(String, bool), String>>,
+    /// Whether a texture's alpha is a cut-out mask, by resolved path
+    /// ([`Self::alpha_is_mask`]).
+    masks: Mutex<HashMap<String, bool>>,
 }
 
 struct WorkerTexture {
@@ -182,15 +185,23 @@ pub fn levels_to_skip(w: u32, h: u32, levels: usize, cap: u32, block: bool) -> u
 pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
     let cap = side_cap();
     // A panic while decoding is this texture's failure, not the game's (guard.rs).
-    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, cap))
+    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, cap, false))
 }
 
 /// [`dds_image`] at the file's full size whatever the side cap (the interface's pictures).
 pub fn dds_image_full(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
-    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, MAX_TEXTURE_SIDE))
+    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, MAX_TEXTURE_SIDE, false))
 }
 
-fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32) -> Result<Image, String> {
+/// [`dds_image`] with the largest level only, its smaller ones left out: for a sheet of
+/// pictures cut out by rectangles (a font's glyphs), where a smaller level blends each
+/// picture with its neighbours. The base game's font textures have one level
+/// [observed: fonts.md §2]; a localized or modded one may have more (#1439).
+pub fn dds_image_top(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, String> {
+    crate::guard::guarded(|| dds_image_unguarded(bytes, srgb, bc_supported, MAX_TEXTURE_SIDE, true))
+}
+
+fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32, top_only: bool) -> Result<Image, String> {
     let dds = Dds::parse(bytes).map_err(|e| e.to_string())?;
     if dds.header.is_cubemap() {
         return Err("cube map (not used by the viewer)".into());
@@ -198,7 +209,7 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, cap: u32) -
     let block = matches!(dds.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5 | Format::Bc7);
     let skip = levels_to_skip(dds.header.width, dds.header.height, dds.levels[0].len(), cap, block);
     let (w, h) = (dds.header.width >> skip, dds.header.height >> skip);
-    let levels = &dds.levels[0][skip..];
+    let levels = if top_only { &dds.levels[0][skip..skip + 1] } else { &dds.levels[0][skip..] };
     let (format, data) = match dds.format {
         Format::Dxt1 | Format::Dxt3 | Format::Dxt5 | Format::Bc7 => {
             if !bc_supported {
@@ -414,6 +425,15 @@ impl TextureCache {
         }
     }
 
+    /// Whether the texture at the resolved path `path` is loaded (or failed to load), being
+    /// put in from a worker thread, or its file read ahead ([`Self::offer`]): loading it
+    /// reads no file.
+    pub fn has_or_ahead(&self, path: &str) -> bool {
+        let key = |srgb: bool| (path.to_string(), srgb);
+        self.ahead.contains_key(path)
+            || [true, false].iter().any(|&srgb| self.map.contains_key(&key(srgb)) || self.workers.entries.lock().expect("worker textures").contains_key(&key(srgb)))
+    }
+
     /// Textures loaded and held now (failures not counted).
     pub fn len(&self) -> usize {
         self.map.values().chain(self.clamped.values()).filter(|h| h.is_some()).count()
@@ -480,11 +500,15 @@ impl TextureCache {
             }
         }
         let bc = formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
+        let read_span = bevy::log::info_span!("texture::read").entered();
         let read = self.ahead.remove(&path).map(|(bytes, _)| bytes).or_else(|| data.read(&path));
+        drop(read_span);
+        let decode_span = bevy::log::info_span!("texture::decode").entered();
         let result = match read {
             None => Err("not in any archive".to_string()),
             Some(bytes) => dds_image(&bytes, srgb, bc),
         };
+        drop(decode_span);
         let handle = match result {
             Ok(mut img) => {
                 img.texture_descriptor.label = Some(folder_label(&path));
@@ -590,7 +614,7 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
                 }
             }
         }
-        Format::A8R8G8B8 | Format::A4R4G4B4 | Format::A8B8G8R8 => {
+        Format::A8R8G8B8 | Format::A4R4G4B4 | Format::A8B8G8R8 | Format::A1R5G5B5 | Format::A8L8 => {
             let rgba = to_rgba8(dds.format, top)?;
             let texels = rgba.len() / 4;
             let step = texels.div_ceil(262_144).max(1);
@@ -599,7 +623,7 @@ pub fn alpha_shares(bytes: &[u8]) -> Option<AlphaShares> {
             }
         }
         // BC7 alpha is not decoded on the CPU: no shares (as for layouts without alpha).
-        Format::R8G8B8 | Format::Bc7 => return None,
+        Format::R8G8B8 | Format::X8R8G8B8 | Format::X8B8G8R8 | Format::R5G6B5 | Format::X1R5G5B5 | Format::L8 | Format::Bc7 => return None,
     }
     let n = counts.iter().sum::<usize>().max(1) as f32;
     Some(AlphaShares { clear: counts[0] as f32 / n, opaque: counts[1] as f32 / n, partial: counts[2] as f32 / n })
@@ -628,17 +652,42 @@ fn block_alpha(format: Format, b: &[u8]) -> [u8; 16] {
     }
 }
 
-/// [`alpha_shares`] of the texture at a NIF texture path, read from the archives.
+/// [`alpha_shares`] of the texture at a NIF texture path, read from the archives (not
+/// remembered: asked only for the few shapes `nif_spawn::solid_cutout` concerns).
 pub fn texture_alpha_shares(raw_path: &str, data: &GameData) -> Option<AlphaShares> {
     let path = resolved_path(raw_path, |p| data.vfs.exists(p));
     alpha_shares(&data.read(&path)?)
+}
+
+impl WorkerTextures {
+    /// Whether the texture at a NIF texture path has a cut-out mask in its alpha
+    /// ([`AlphaShares::is_mask`]). Each file is read and its alpha counted once, then
+    /// remembered by resolved path for the main thread and the workers alike: many shapes
+    /// share a texture.
+    pub fn alpha_is_mask(&self, raw_path: &str, data: &GameData) -> bool {
+        let path = resolved_path(raw_path, |p| data.vfs.exists(p));
+        remembered(&self.masks, path, |path| data.read(path).and_then(|bytes| alpha_shares(&bytes)).is_some_and(|s| s.is_mask()))
+    }
+}
+
+/// `compute`'s answer for `key`, worked out the first time only. The map is not held while
+/// it is worked out, so two threads asking at once may both compute it, to the same answer.
+fn remembered(known: &Mutex<HashMap<String, bool>>, key: String, compute: impl FnOnce(&str) -> bool) -> bool {
+    if let Some(&answer) = known.lock().expect("alpha masks").get(&key) {
+        return answer;
+    }
+    let answer = compute(&key);
+    known.lock().expect("alpha masks").insert(key, answer);
+    answer
 }
 
 #[cfg(test)]
 mod tests {
     use super::first_person_texture;
     use super::levels_to_skip;
-    use super::{alpha_shares, AlphaShares};
+    use super::{alpha_shares, remembered, AlphaShares};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
     #[test]
     fn a_capped_texture_starts_at_its_first_level_within_the_cap() {
@@ -649,6 +698,16 @@ mod tests {
         assert_eq!(levels_to_skip(4096, 4096, 2, 512, true), 1, "never the last level");
         assert_eq!(levels_to_skip(1028, 8, 3, 256, true), 0, "a smaller level not of whole blocks is not used");
         assert_eq!(levels_to_skip(1028, 8, 3, 256, false), 2, "uncompressed: any size");
+    }
+
+    #[test]
+    fn a_mask_is_worked_out_once_per_path() {
+        let known = Mutex::new(HashMap::new());
+        let mut asked = Vec::new();
+        assert!(remembered(&known, "a.dds".into(), |p| { asked.push(p.to_string()); true }));
+        assert!(remembered(&known, "a.dds".into(), |p| { asked.push(p.to_string()); false }), "the first answer is kept");
+        assert!(!remembered(&known, "b.dds".into(), |p| { asked.push(p.to_string()); false }));
+        assert_eq!(asked, ["a.dds", "b.dds"]);
     }
 
     /// A DDS file of one level: the header (fnv-dds layout) and `payload`.
