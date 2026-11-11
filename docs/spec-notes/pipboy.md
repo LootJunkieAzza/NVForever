@@ -226,12 +226,14 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
     median (runs of 1.6 rows on average), and a quarter of its steps go down while the wave
     rises. An empty stretch varies by 0.61 levels from frame to frame (standard deviation) without
     the beam. Noise or a dither breaks the steps up [hypothesis: which, and where, is not known].
-  NVForever (`device_screen.rs`): 172 canvas units high with an edge of 44, the Pip-Boy's colour
+  NVForever (`device_screen.rs`): a rise of 130 canvas units and a leading edge of 43, 173 in
+  all (`BEAM_RISE`, `BEAM_EDGE`, `BEAM_HEIGHT`: the measured 72 and 24 rows at the 1.8 a row
+  above, 129.6 and 43.2, rounded), the Pip-Boy's colour
   lightened 0.2 towards white at a fitted alpha of 0.016 at the peak, over the pages and under
   the scanlines, 2.3 s from above the top edge to off the foot every 5.12 s on the real clock,
   hidden between sweeps and held with the pause menu; not in the screen menu. The earlier 224
   and 24 units and 1.3 s every 5 s were fitted to single frames and a whole-second clock and are
-  replaced. Its picture is 2048 x 172 with a triangular dither of up to a display level on the
+  replaced. Its picture is 2048 x 173 with a triangular dither of up to a display level on the
   alpha (less near either end, so it never clips), read texel for texel from a new column every
   frame, so the 8-bit image holds the rise as a mix of neighbouring levels, not as bands
   [design]. The screen's noise (below) adds the frame-to-frame variation.
@@ -295,11 +297,20 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   the pictures the text's brightness tints: the S.P.E.C.I.A.L. Vault Boy reads 191 red at its
   99th percentile and 80.7 on average in the original, 212 and 96.2 at 255; the Status page's
   bright parts 114 at the 95th percentile, 169 at 255; the bars sit at the screen's red ceiling
-  (about 205 to 212) either way. NVForever draws the hand-built pages' text (and so their
-  pictures) at 213 (`frame.rs` `TEXT`): names 167, Vault Boy 190 and 85.5, Status 144, lines
-  unchanged [observed: the same scenario]. Why the original's drawn picture comes out dimmer is
-  [hypothesis]; the dimmed text (128) is not measured. The tile-drawn pages take their file's
-  brightness and are not dimmed (open).
+  (about 205 to 212) either way. On the device NVForever draws the hand-built pages' text (and
+  so their pictures) at 213 (`frame.rs` `DEVICE_TEXT`, chosen by `Kit::text`): names 167, Vault
+  Boy 190 and 85.5, Status 144, lines unchanged [observed: the same scenario]. Why the
+  original's drawn picture comes out dimmer is [hypothesis]; the dimmed text (128) is not
+  measured. Only the device was measured, so the screen menu (Use Pip-Boy off) keeps the menu
+  files' 255 (`frame.rs` `TEXT`). The flat image shown when the Pip-Boy model has no screen
+  is the device's drawing and keeps its 213 [design].
+  The pages drawn from their menu files (`[UI] TileMenus=StatsMenu`, `InventoryMenu`, and
+  `MapMenu` behind #2032's switch; all off by default) take their file's brightness, 255, on
+  the device too. By default every page on the device is hand-built, so all of them are at
+  213. With a tile-drawn page switched on, its text and pictures stand about a fifth brighter
+  than the hand-built pages next to it (255 against 213, so a text-to-line ratio near the
+  earlier 1.57 rather than the original's 1.31) [design: the arithmetic; not measured on the
+  tile pages]. Putting the same factor on the tile-drawn text on the device is open.
 - **Background**: `Interface\Shared\Background\pipboy.dds` over the whole canvas at
   brightness 90 [documented: inventory_menu.xml]; `ScreenGlare.dds` and this picture are
   512 × 512 DXT1, alpha 1 throughout [observed].
