@@ -110,10 +110,10 @@ const U_PLAIN: u32 = 0xF60;
 const U_ONLY: u32 = 0xF61;
 // A SayTo topic whose first Conversation line has the next speaker Self (item 26, Stella
 // at Zion): the speaker goes on with the next line.
-const T_SELF: u32 = 0x960;
-const V_SELF: u32 = 0xF62;
-const V_BYE: u32 = 0xF63;
-const V_AFTER: u32 = 0xF64;
+const T_SELF: u32 = 0x964;
+const V_SELF: u32 = 0xF70;
+const V_BYE: u32 = 0xF71;
+const V_AFTER: u32 = 0xF72;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
