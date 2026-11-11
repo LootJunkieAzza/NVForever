@@ -164,7 +164,7 @@ impl Plugin for ArmWrestlePlugin {
             .add_message::<ArmEnded>()
             .add_systems(Update, (look, open).chain().after(PlaySet::Activation).before(PlaySet::Ui))
             .add_systems(Update, (watch_foe, keys, step, draw).chain().in_set(PlaySet::Ui))
-            .add_systems(Update, leave.after(PlaySet::Ui));
+            .add_systems(Update, (leave, match_camera).chain().after(PlaySet::Ui));
     }
 }
 
@@ -440,6 +440,75 @@ fn step(time: AidTime, mut screen: ResMut<ArmScreen>, mut flourish: MessageWrite
     }
 }
 
+/// The match view's pitch: down onto the clasp, the opponent's face in the upper part of
+/// the screen over the shoulder (run9: -39 degrees framed it so) [design].
+pub const MATCH_PITCH: f32 = -0.61;
+
+/// How long a match waits for the player to be on the seat before it aims anyway
+/// (seconds) [design].
+const AIM_WAIT: f32 = 4.0;
+
+/// Whether the player is on `stool` (GetSitting 3 there), not still getting on: aimed
+/// while getting on, from the side entry, the camera's line was off the table (run9,
+/// run10) [design].
+pub fn seated_on(using: Option<fnv_game::game::FurnitureUse>, stool: FormId) -> bool {
+    using.is_some_and(|u| u.reference == stool && u.state == fnv_actor::furniture::state::ON)
+}
+
+/// The match's view: seated at the table the camera goes to third person, over the
+/// shoulder, where the player's own body wrestles (its arms posed to the clasp, nvforever
+/// `armwrestle_arm`; the first-person arms are not), and turns once to look across the table
+/// down onto the clasped hands, the opponent above them; the mouse looks around after. Up again,
+/// the view it had comes back [owner (via the lead, 2026-11-11): in first person the
+/// table filled the screen, the opponent cut off at the chest, the player's own arm not
+/// there; laptop ship5 run].
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn match_camera(
+    time: AidTime,
+    screen: Res<ArmScreen>,
+    table: Res<ArmTable>,
+    sim: Res<SimState>,
+    mut control: ResMut<crate::control::PlayerControl>,
+    mut player: ResMut<crate::player::Player>,
+    mut st: Local<Option<(FormId, crate::control::Pov, Option<f32>)>>,
+    script: Option<Res<ScriptState>>,
+) {
+    use crate::control::Pov;
+    let now = time.elapsed_secs();
+    let seated = screen.0.as_ref().filter(|a| a.left_at.is_none()).map(|a| a.stool);
+    match (seated, st.as_mut()) {
+        (Some(stool), None) => {
+            info!("arm wrestle: the match's view: third person (was {:?})", control.pov);
+            *st = Some((stool, control.pov, Some(now)));
+            control.pov = Pov::Third;
+        }
+        (Some(stool), Some((_, _, since))) => {
+            let Some(started) = *since else { return };
+            let at = |r: FormId| sim.world.peek(r).map(|x| x.pos).or_else(|| sim.world.placed.get(r).map(|p| p.pos));
+            let using = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.furniture_use(FormId::PLAYER_REF));
+            if !seated_on(using, stool) && now - started < AIM_WAIT {
+                return;
+            }
+            // Straight across the table from the seat, looking down onto the clasp: the
+            // camera over the shoulder behind (its pivot is not the seated body's, run11).
+            if let (Some(seat), Some(t)) = (at(stool), table.table.and_then(at)) {
+                player.heading = facing(seat, t);
+                player.pitch = MATCH_PITCH;
+                info!("arm wrestle: the view looks across the table, heading {:.0} pitch {:.0} deg", player.heading.to_degrees(), player.pitch.to_degrees());
+            }
+            *since = None;
+        }
+        (None, Some((_, was, _))) => {
+            if *was != Pov::Third && control.pov == Pov::Third {
+                control.pov = *was;
+            }
+            info!("arm wrestle: the match's view ends ({:?} again)", control.pov);
+            *st = None;
+        }
+        (None, None) => {}
+    }
+}
+
 /// Getting up: the screen closes and the player stands (the furniture). The game lets the
 /// opponent go once nobody sits across from him (`armwrestle_table::tick`).
 #[allow(clippy::too_many_arguments)]
@@ -560,6 +629,19 @@ fn prompt_and_meter(p: &mut ChildSpawnerCommands, f: &CasinoFaces, prompt: &str,
 mod facing_tests {
     use super::facing;
     use std::f32::consts::FRAC_PI_2;
+
+    /// The camera aims once the player is on the seat, not while getting on.
+    #[test]
+    fn the_view_waits_for_the_seat() {
+        use fnv_game::game::FurnitureUse;
+        use fnv_sim::FormId;
+        let stool = FormId(0xFF7F_A001);
+        let using = |reference, state| Some(FurnitureUse { reference, marker_id: 12, state });
+        assert!(!super::seated_on(None, stool));
+        assert!(!super::seated_on(using(stool, 2), stool), "getting on");
+        assert!(!super::seated_on(using(FormId(0xFF7F_A002), 3), stool), "the other seat");
+        assert!(super::seated_on(using(stool, 3), stool));
+    }
 
     /// From the east seat the view faces west across the table, from the west seat east;
     /// a table to the north is straight ahead.
