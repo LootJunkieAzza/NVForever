@@ -3217,7 +3217,8 @@ mod tests {
         // Spent (kept, done, until the package changes) or let go: the actor fights again,
         // but not while the last blow of a melee use is still to land.
         let spent = WeaponUse { done: true, ..there.clone() };
-        assert!(weapon_use_holds_fight(Some(&spent), None, true, true, true), "the shooter still lands its last blow");        assert!(!weapon_use_holds_fight(Some(&spent), None, true, true, false));
+        assert!(weapon_use_holds_fight(Some(&spent), None, true, true, true), "the shooter still lands its last blow");
+        assert!(!weapon_use_holds_fight(Some(&spent), None, true, true, false));
     }
 
     #[test]
