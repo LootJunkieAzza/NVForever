@@ -25259,22 +25259,32 @@ expect = [
 # ------------------------------------------------------------------ overnight queue items 189-192 (2026-11-11)
 
 [[scenario]]
-name = "playgroup-disabled-waits"
-source = "queue item 192 (docs/spec-notes/activators.md §5): a group asked of an object that is not drawn counts as playing (IsAnimPlaying 1) until it is drawn, so a script waiting for it to end (Kimball's vertibird VHDBearForceOneREF) does not fall through at once; drawn later, a group played once shows where it would be by now and has ended"
-note = "the Goodsprings banana yucca 0x00106B2E (Forward, once, 0.47 s; animated-collision-write) is disabled by the console at 5 s, asked to play Forward at 7 s, read at 8 s (1), enabled at 10 s and read again at 13 s (0: ended). Queue item 191 on the same plant: Right (which its model lacks) and Forward asked in turn at 15-19 s are reported missing once"
+name = "playgroup-undrawn-counts-playing"
+source = "queue item 192 (docs/spec-notes/activators.md §5): a group asked of an object that is not drawn counts as playing (IsAnimPlaying 1) until it is drawn, so a script waiting for it to end (Kimball's vertibird VHDBearForceOneREF) does not fall through at once"
+note = "the Volare! bomber VMS15RisingPlaneREF (00105868) is disabled when its cell loads and its OnLoad plays Right (b29-rise), so it is not drawn; the console reads IsAnimPlaying Right at 8 s (1), then enables it at 10 s: drawn at run time. A reference disabled after it was drawn keeps its hidden rig and plays the group at once (observed 2026-11-11, first laptop run), so it is not this case"
 areas = ["object-anims"]
 paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "7:play_group:0x00106B2E:Forward:1,15:play_group:0x00106B2E:Right:1,16:play_group:0x00106B2E:Forward:1,17:play_group:0x00106B2E:Right:1,18:play_group:0x00106B2E:Forward:1,19:play_group:0x00106B2E:Right:1", NVF_PLAY_TEST_CONSOLE = "5:00106B2E.disable;8:00106B2E.IsAnimPlaying Forward;10:00106B2E.enable;13:00106B2E.IsAnimPlaying Forward;13.3:close" }
-args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
-run_seconds = 22
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "5", NVF_PLAY_TEST_CONSOLE = "8:VMS15RisingPlaneREF.IsAnimPlaying Right;10:VMS15RisingPlaneREF.enable;10.3:close" }
+args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--heading", "75", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
 order = [[
-  { re = 'playgroup: .*plays Forward \(flag 1\): not drawn, shown when it is', label = "Forward asked of the disabled plant waits to be shown" },
-  { re = 'console: IsAnimPlaying on .*>> 1\.00', label = "IsAnimPlaying Forward reads 1 while it waits" },
-  { re = 'playgroup: .*drawn \(enabled at run time\), plays Forward from', label = "enabled, it is drawn and plays Forward where it would be by now" },
-  { re = 'console: IsAnimPlaying on .*>> 0\.00', label = "and has ended 3 s later" },
+  { re = 'playgroup: VMS15RisingPlaneREF plays Right \(flag 1\): not drawn, shown when it is', label = "the disabled bomber's OnLoad plays Right, not drawn" },
+  { re = 'console: IsAnimPlaying on VMS15RisingPlaneREF >> 1\.00', label = "IsAnimPlaying Right reads 1 while it waits (0 before the fix)" },
+  { re = 'reference 0x00105868 drawn \(enabled at run time\)', label = "enabled, it is drawn" },
 ]]
+
+[[scenario]]
+name = "playgroup-missing-said-once"
+source = "queue item 191 (docs/spec-notes/activators.md §5): a group a model lacks, asked again and again between groups it has (the Lonesome Road silo's panel light blinking Right and SpecialIdle), is reported once per reference and group"
+note = "the Goodsprings banana yucca 0x00106B2E has Forward and Backward but no Right [observed 2026-11-11]; Right and Forward are asked in turn at 7-11 s"
+areas = ["object-anims"]
+paths = ["engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "7:play_group:0x00106B2E:Right:1,8:play_group:0x00106B2E:Forward:1,9:play_group:0x00106B2E:Right:1,10:play_group:0x00106B2E:Forward:1,11:play_group:0x00106B2E:Right:1" }
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+run_seconds = 14
 expect = [
-  { re = 'playgroup: .*plays Right: its model has no sequence of that name', count = 1, label = "Right, which the plant lacks, is reported once though asked three times between Forwards (item 191)" },
+  { re = 'playgroup: 0x00106B2E plays Right: its model has no sequence of that name', count = 1, label = "Right is reported once though asked three times between Forwards" },
+  { re = 'playgroup: 0x00106B2E plays Forward \(once', min = 2, label = "Forward plays between them" },
 ]
 
 [[scenario]]
