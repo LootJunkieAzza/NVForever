@@ -325,6 +325,10 @@ struct Show {
     moved: TargetMoved,
 }
 
+/// A kill camera's target counts as moving at this speed of its ragdoll's heaviest body,
+/// game units a second (`TargetMoved::still`) [design: well over a resting corpse's creep].
+const STILL_SPEED: f32 = 5.0;
+
 /// How a kill camera's target was drawn while it played, frame by frame (the `kill
 /// camera:` lines at its end and in the frame after it): whether the slowed corpse moved
 /// all along, never stood still while its ragdoll was awake, and never jumped.
@@ -336,22 +340,24 @@ struct TargetMoved {
     path: f32,
     most: f32,
     frames: u32,
-    /// Frames its ragdoll was awake and its drawn place did not move.
+    /// Frames its drawn place did not move while its ragdoll's heaviest body went at
+    /// [`STILL_SPEED`] or faster: a body that should move but stood (a freeze).
     still: u32,
     /// The world's steps when it was first seen.
     steps_at: u64,
 }
 
 impl TargetMoved {
-    /// This frame's drawn place; `awake`: its ragdoll is in the world and not at rest.
-    fn frame(&mut self, at: Vec3, awake: bool, steps: u64) {
+    /// This frame's drawn place; `moving`: its ragdoll is in the world, awake, and its
+    /// heaviest body goes at [`STILL_SPEED`] or faster.
+    fn frame(&mut self, at: Vec3, moving: bool, steps: u64) {
         match self.last {
             Some(was) => {
                 let d = was.distance(at);
                 self.path += d;
                 self.most = self.most.max(d);
                 self.frames += 1;
-                self.still += u32::from(awake && d == 0.0);
+                self.still += u32::from(moving && d == 0.0);
             }
             None => self.steps_at = steps,
         }
@@ -766,8 +772,9 @@ fn update(
     // [observed: the fork owner's playtest 2026-11-10, "the kill camera jitters a lot"].
     if let Some(at) = middle(&phys, &player, show.target) {
         if show.kind == Kind::Kill {
-            let awake = phys.world.ragdoll_nodes(show.target.0).is_some() && !phys.world.ragdoll_asleep(show.target.0);
-            show.moved.frame(at, awake, phys.world.steps());
+            let id = show.target.0;
+            let moving = !phys.world.ragdoll_asleep(id) && phys.world.ragdoll_center_speed(id).is_some_and(|v| v >= STILL_SPEED);
+            show.moved.frame(at, moving, phys.world.steps());
         }
         show.seen = Some(match show.seen {
             Some(was) if was.distance(at) <= FOLLOW_JUMP => was.lerp(at, 1.0 - (-real.delta_secs().min(0.25) / FOLLOW_SECONDS).exp()),
@@ -875,7 +882,7 @@ fn update(
                 if show.kind == Kind::Kill {
                     let m = show.moved;
                     info!(
-                        "kill camera: the target's drawn place moved {:.0} units over {} frames and {} physics steps, at most {:.1} units in a frame; {} frames it stood still with its ragdoll awake",
+                        "kill camera: the target's drawn place moved {:.0} units over {} frames and {} physics steps, at most {:.1} units in a frame; {} frames it stood still while its body went at {STILL_SPEED:.0} units/s or more",
                         m.path,
                         m.frames,
                         phys.world.steps().saturating_sub(m.steps_at),
