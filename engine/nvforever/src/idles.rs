@@ -27,6 +27,13 @@
 //! - The slot also plays the animation groups scripts ask of actors (`PlayGroup`,
 //!   `actor_groups.rs`); those are not idles for `IsIdlePlaying`.
 //!
+//! - **Weapon away first** (playtest 119 item 155). Before an NPC with its weapon out
+//!   plays an idle asked for by a script, a package, a marker, a dialogue response or a
+//!   talking gesture, the idle is checked: one that neither it nor a node above it in the
+//!   IDLE tree made for a drawn weapon (`Game::idle_fits_weapon_out`) waits while the
+//!   weapon goes away with its stance's unequip clip (`alert.rs`), at most
+//!   [`HOLSTER_WAIT`]; the weapon may come out again once the idle has ended [design:
+//!   owner 2026-11-11].
 //! - **Drawn-weapon fidgets** (idles.md §11). An NPC standing still with its weapon out
 //!   (a rifle loitering, lifting it one-handed to rest the arm, shifting its weight; an
 //!   automatic rifle scanning), and the player standing still in third person with a
@@ -542,6 +549,10 @@ impl Rng {
 
 #[derive(Resource)]
 pub struct Idles {
+    /// The NPCs putting their weapon away (or holding it away) for an idle that is not
+    /// played with a weapon out (`Game::idle_fits_weapon_out`), and since when (seconds of
+    /// `clock`); `alert.rs` keeps the weapon away while an actor is here and not fighting.
+    pub holstering: HashMap<u32, f32>,
     collections: HashMap<u32, Collection>,
     /// Seconds until each actor's next look for a fidget, and for its cower idle.
     fidget_check: HashMap<u32, f32>,
@@ -1222,6 +1233,25 @@ pub fn drive(
                 failed(st, "the actor is not drawn");
                 continue;
             }
+            // An idle not made for a drawn weapon: the weapon goes away first, with its
+            // stance's unequip clip (`alert.rs`, `weapons.rs`), and the idle waits for it,
+            // at most `HOLSTER_WAIT` (playtest 119 item 155).
+            if actor.0 != player_ref && checks_weapon(source) {
+                let hold = actors.get(drawn[&actor.0]).ok().and_then(|(.., h)| h);
+                let out = hold.filter(|h| !h.body && (h.drawn || h.anim.stage != Stage::Holstered));
+                if let Some(h) = out.filter(|_| !game.idle_fits_weapon_out(idle)) {
+                    let clock = st.clock;
+                    let put_at = *st.holstering.entry(actor.0).or_insert_with(|| {
+                        info!("idle: {name} puts its weapon away before {} ({source:?}): not an idle for a drawn weapon", game.data.name(idle));
+                        clock
+                    });
+                    if h.anim.stage != Stage::Holstered && clock - put_at < HOLSTER_WAIT {
+                        held_up.insert(actor.0);
+                        st.waiting.push((request, since.unwrap_or_else(std::time::Instant::now)));
+                        continue;
+                    }
+                }
+            }
             // Its clip read on a worker thread rather than in this frame (#1429).
             let ready = clip_ready(&mut ctx, game, idle);
             let waited = since.map_or(std::time::Duration::ZERO, |t| t.elapsed());
@@ -1397,6 +1427,17 @@ pub fn drive(
     for actor in st.told.keys().filter(|a| !now.contains_key(a)) {
         game.set_idle_playing(FormId(*actor), None);
     }
+    // An idle played without the weapon has ended (or never started): the weapon may
+    // come out again as the actor's state says (`alert.rs`).
+    let waiting: HashSet<u32> = st.waiting.iter().map(|(r, _)| r.actor.0).collect();
+    let clock = st.clock;
+    st.holstering.retain(|a, put_at| {
+        let keep = now.contains_key(a) || waiting.contains(a) || clock - *put_at < HOLSTER_WAIT;
+        if !keep {
+            info!("idle: {} ({a:08X}) may draw its weapon again: its idle has ended", game.data.name(FormId(*a)));
+        }
+        keep
+    });
     st.told = now;
     for a in holding.difference(&holds.held) {
         info!("idle hold: {} ({a:08X}) stands while its idle shows", game.data.name(FormId(*a)));
@@ -1406,6 +1447,21 @@ pub fn drive(
     }
     holds.held = holding;
     holds.carried_off = carried_off;
+}
+
+/// The longest an idle waits for its actor to put its weapon away (seconds): one whose
+/// weapon does not go away (a fight, a guest's copy of the host's actor) plays anyway.
+const HOLSTER_WAIT: f32 = 3.0;
+
+/// Whether an idle from `source` is checked against a drawn weapon before it plays
+/// (`Game::idle_fits_weapon_out`): not the drawn-weapon fidgets, combat and calm idles,
+/// stimpaks, cowering, panic, furniture fidgets or pick-ups, which are chosen for the
+/// state the actor is in.
+fn checks_weapon(source: IdleSource) -> bool {
+    matches!(
+        source,
+        IdleSource::Script | IdleSource::Picked | IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange | IdleSource::PackageIdles | IdleSource::MarkerIdles | IdleSource::Speaker | IdleSource::Listener | IdleSource::Gesture | IdleSource::Standing
+    )
 }
 
 /// Whether `actor` flees from a fight (`GetCurrentAIProcedure` 16).

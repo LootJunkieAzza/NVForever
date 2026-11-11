@@ -12,7 +12,10 @@
 //!   state [hypothesis: a fight comes first] (owner's playtest list 5 item 34: Sunny ran
 //!   to the geckos without her weapon drawn; VCG02SunnyTravelToWell1 has Weapon Drawn).
 //!   An actor fleeing a fight holsters it until it fights again [owner 2026-10-17;
-//!   docs/design/combat-ai.md §12.2.1].
+//!   docs/design/combat-ai.md §12.2.1]. Out of a fight, an actor about to play an idle
+//!   that is not made for a drawn weapon (a talking gesture, a response's or a package's
+//!   idle: `Game::idle_fits_weapon_out`) puts it away first and keeps it away while the
+//!   idle plays (`idles.rs`) [design: owner 2026-11-11, playtest 119 item 155].
 //! - **Warning** (`Game::warning_to`, not alerted): the actor draws its weapon and holds
 //!   it while it says its warnings (GuardTrespass) [owner decision 2026-10-25: the
 //!   original's warning guard drew and holstered his gun every 2.5 s (Gomorrah's
@@ -58,7 +61,7 @@ const CHEST: f32 = 0.75;
 type Actors<'w> = (Entity, &'w ActorRig, Option<&'w mut WeaponHold>, Option<&'w LookOverride>, Option<&'w AlertLook>, Has<WeaponHidden>);
 
 // Co-op puppets (coop.rs) draw and holster as their player does.
-fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, mut actors: Query<Actors, (Without<crate::coop::Puppet>, Without<crate::coop::Remote>)>) {
+fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, idles: Option<Res<crate::idles::Idles>>, mut actors: Query<Actors, (Without<crate::coop::Puppet>, Without<crate::coop::Remote>)>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let drawn_by_default = world.is_some_and(|w| w.weapon_mode == WeaponMode::Drawn);
     for (e, rig, hold, forced, ours, hidden) in &mut actors {
@@ -67,10 +70,14 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
             let fighting = game.awareness.state(id).in_combat();
             let unequipped = !fighting && game.package_has(id, flags::WEAPONS_UNEQUIPPED);
             let fleeing = fighting && game.awareness.tactics.flights.contains_key(&id);
-            let want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing);
+            // Put away for an idle not played with a weapon out (`idles.rs`), out of a fight.
+            let for_idle = !fighting && idles.as_deref().is_some_and(|i| i.holstering.contains_key(&id.0));
+            let want = !for_idle && (game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing));
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
-                let why = if fleeing {
+                let why = if for_idle {
+                    " (for an idle played without it)"
+                } else if fleeing {
                     " (it flees)"
                 } else if game.active_weapon_use(id).is_some() {
                     " (a weapon use)"

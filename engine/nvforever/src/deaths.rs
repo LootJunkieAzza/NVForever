@@ -96,7 +96,8 @@ fn show_hits_and_deaths(
             let mut ec = commands.entity(e);
             ec.insert(Dying { clip, t: start });
             ec.remove::<Flinch>();
-            if let Some(c) = corpse {
+            if let Some(mut c) = corpse {
+                c.fell_here = falls;
                 ec.insert(c);
             }
         } else if let Some(lo) = lo {
