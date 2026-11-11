@@ -406,7 +406,8 @@ pub struct PhysWorld {
     /// The node each body of a reference hangs on, in `refs`' order (`crate::script`).
     pub(crate) ref_nodes: BTreeMap<u32, Vec<Option<String>>>,
     /// The keyframed bodies of each reference (a subset of `refs`), kept because they are
-    /// fixed bodies like the static ones and so cannot be told apart by body type. A door's
+    /// fixed bodies like the static ones (velocity-based kinematic only during a step that
+    /// moves them, `crate::movers`) and so cannot be told apart by body type. A door's
     /// moving parts are keyframed; its static frame is not.
     pub(crate) keyframed: BTreeMap<u32, Vec<RigidBodyHandle>>,
     /// The dynamic bodies of each reference that respond to the wind ([`PhysWorld::blow`]).
@@ -464,6 +465,8 @@ pub struct PhysWorld {
     /// Bodies and colliders rapier disabled for state that went NaN or infinite
     /// (`crate::quarantine`).
     pub(crate) quarantined: crate::quarantine::Quarantined,
+    /// Keyframed bodies on their way to a pose (`crate::movers`).
+    pub(crate) movers: crate::movers::Movers,
 }
 
 impl PhysWorld {
@@ -513,6 +516,7 @@ impl PhysWorld {
             solver_ms: [0.0; 6],
             before: Default::default(),
             quarantined: Default::default(),
+            movers: Default::default(),
         }
     }
 
@@ -560,12 +564,14 @@ impl PhysWorld {
         let mut handles = Vec::new();
         for o in p.objects {
             let owner = Owner::Ref { form_id: p.form_id, object: o.index, layer: o.layer };
-            // Keyframed bodies are teleported into place (`pose_ref_object` sets the
-            // position), never moved smoothly, so a fixed body is the right model. A
-            // kinematic body made rapier derive a phantom velocity from a degenerate
-            // collision mesh's centre of mass and fling a character standing on it, and its
-            // "carried by a kinematic body" rule froze a character walking down the slope
-            // [observed: the Prospector Saloon's broken door 0x00108BD7, issue #1485].
+            // Keyframed bodies are fixed between steps; a step that moves one makes it a
+            // velocity-based kinematic body for that step only (`crate::movers`). A kinematic
+            // body between steps broke the character controller: rapier derived a phantom
+            // velocity from a degenerate collision mesh's centre of mass and flung a
+            // character standing on it, and its "carried by a kinematic body" rule froze a
+            // character walking down the slope, at rest too [observed: the Prospector
+            // Saloon's broken door 0x00108BD7, issue #1485; test
+            // `keyframed_slope_does_not_freeze_the_character`].
             let builder = match o.motion {
                 Motion::Static | Motion::Keyframed => RigidBodyBuilder::fixed(),
                 Motion::Dynamic => RigidBodyBuilder::dynamic().sleeping(p.asleep),
@@ -716,6 +722,7 @@ impl PhysWorld {
         }
         self.w.remove_body(b);
         self.before.forget(b);
+        self.movers.forget(b);
         self.mark_dirty(DirtyBy::Bodies);
     }
 
@@ -723,10 +730,12 @@ impl PhysWorld {
     /// to [`PhysWorld::add_ref`]) of the reference placed by `pose`, as if its node's
     /// transform in the model root's frame were `node`: to `pose ∘ node ∘ body_transform`
     /// (`add_ref` uses the stored node transform). For collision that follows an animation
-    /// (an opening door, `fnv_collide::anim`). The body is moved at once, so queries and
-    /// the character controller see it before the next step. Returns false when the
-    /// reference has no keyframed body for that object.
-    pub fn pose_ref_object(&mut self, pose: &RefPose, object: u16, node: &Iso, body_transform: &Iso) -> bool {
+    /// (an opening door, `fnv_collide::anim`). `sweep`: the pose continues the body's
+    /// motion, and it moves there over the coming steps with a velocity (`crate::movers`;
+    /// queries see it where it is until then); otherwise, or with swept movers off, it is
+    /// put there at once, so queries and the character controller see it before the next
+    /// step. Returns false when the reference has no keyframed body for that object.
+    pub fn pose_ref_object(&mut self, pose: &RefPose, object: u16, node: &Iso, body_transform: &Iso, sweep: bool) -> bool {
         let Some(bodies) = self.keyframed.get(&pose.form_id) else { return false };
         let found = bodies.iter().copied().find(|&b| {
             matches!(Owner::decode(self.w.bodies[b].user_data), Some(Owner::Ref { object: o, .. }) if o == object)
@@ -739,13 +748,10 @@ impl PhysWorld {
         if !p.translation.is_finite() {
             return false;
         }
-        let body = &mut self.w.bodies[b];
-        if *body.position() == p {
-            return true;
+        if self.move_keyframed(b, p, sweep) {
+            self.before.forget(b);
+            self.mark_dirty(DirtyBy::Transform);
         }
-        body.set_position(p, true);
-        self.before.forget(b);
-        self.mark_dirty(DirtyBy::Transform);
         true
     }
 
@@ -1014,6 +1020,8 @@ impl PhysWorld {
             self.drive_grip();
             self.buoy();
         }
+        // Keyframed bodies on their way to a pose get the step's velocity (`crate::movers`).
+        self.drive_movers();
         // The poses the coming step starts from, for drawing between steps (`crate::drawn`):
         // read only by the drawing.
         self.keep_poses_before();
@@ -1025,6 +1033,8 @@ impl PhysWorld {
                 *a += t.time_ms();
             }
         }
+        // The movers that moved are fixed again between steps (`crate::movers`).
+        self.movers_stepped();
         // Bodies and colliders rapier took out for NaN or infinite state (`crate::quarantine`).
         if !self.w.quarantine().is_empty() {
             self.handle_quarantine();
@@ -1271,6 +1281,7 @@ impl PhysWorld {
             solver_ms: self.solver_ms,
             before: self.before.clone(),
             quarantined: self.quarantined.clone(),
+            movers: self.movers.clone(),
         }
     }
 

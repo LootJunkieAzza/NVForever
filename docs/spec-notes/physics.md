@@ -1133,6 +1133,62 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   - `Stats::solver_us[4]` (rapier's `ccd_time`) reads 0 in rapier 0.36.0 whatever CCD
     costs (its timer is never started); CCD's work is in `counters.ccd` (#1798).
 
+### 5.5 Keyframed bodies move with a velocity (2026-11-11)
+
+[design: the owner's rapier work, 2026-11-11; `crates/fnv-phys/src/movers.rs`]
+
+- **Before**: the bodies an animation moves (animated collision of activators and statics,
+  issue #1396: lifts, gates, drawbridges, traps' jaws; doors' leaves, doors.md) were fixed
+  bodies put at each frame's pose (`set_position`). rapier saw no velocity: a loose object
+  resting on one stayed where it was while the body slid out from under it, and one the body
+  moved into was found inside it after the jump and pushed out by the depenetration.
+- **Now** a pose that continues the motion (the same sequence, no more than `SWEEP_SECS`,
+  0.5 s, further on) is swept: the engine says how many steps the frame takes
+  (`PhysWorld::spread_moves`), and for each of them the body becomes a velocity-based
+  kinematic body with the velocity that takes it its share of the rest of the way
+  (`drive_movers`, rapier's own `interpolate_velocity` about its centre of mass), and a
+  fixed body again after the step (`movers_stepped`). The step's contacts see that
+  velocity: loose bodies and ragdolls on it ride along by friction, and
+  what it meets is pushed out of its way at its speed. Its speed is the animation's at any
+  physics rate and slowed with the clock in slow motion (shorter steps, smaller moves); a
+  rate change (`Stepper::rescale`) changes neither the poses asked for nor where the steps
+  take the body; what stands on it is drawn between steps (§5.2) as before.
+- **Fixed between steps**: rapier's character controller treats any kinematic body it
+  touches as a moving platform, at rest too: it takes the body's velocity at the contact as
+  the character's along the contact's normal and adds its sideways part
+  (`detect_grounded_status_and_apply_friction`, rapier3d 0.36.1) [documented: its source].
+  That rule carried the player with Easy Pete (§6.8) and froze a character walking down a
+  keyframed slope (issue #1485); with the keyframed bodies kinematic between steps, at rest
+  and with no velocity, the test `keyframed_slope_does_not_freeze_the_character` froze
+  again (0 units/s) [observed, 2026-11-11]. A position-based kinematic body would also have
+  rapier derive the velocity itself, from a centre of mass a degenerate mesh puts anywhere
+  (#1485's phantom velocity). The characters move between steps and see the bodies fixed,
+  as before, so the player and the people are not carried by movers: their
+  own controller keeps them on a lift's floor as it rises (the lift moves into the capsule
+  and the controller stands it on the floor), and a sideways mover slides out from under
+  them [design: making characters ride is a change of its own, not taken here].
+- **Put, not swept**: the first pose after a body is built, a pose in another sequence, time
+  going back (a loop's wrap) or more than 0.5 s ahead, a door posed closed in its stored
+  pose, and a swept move over `SWEEP_MOST` (200 units in one frame). Building a reference
+  always puts it: a cell loading, a load, a script's SetPos or MoveTo of the reference
+  (`repose_ref` builds its collision again, §4.3.2 and issue #1466), so a teleport stays a
+  teleport.
+- **Not movers**: a door's leaf is not solid while it swings (doors.md), so sweeping it
+  changes nothing for what it would meet; swing traps (traps.md §4) and wrecks' parts,
+  once let go, are dynamic object ragdolls that rapier moves itself, and their anchors are
+  fixed; held wreck parts (`hold_jointed`) are keyframed but never posed, so they stand.
+- **Log**: `movers: 0x<mover> moving carries or pushes the body of [actor] 0x<ref>` the first
+  time a moving body touches another; at exit `movers: <n> poses swept, <m> put; bodies
+  moved with a velocity in <s> steps, at most <v> units/s; <t> bodies carried or pushed`.
+- **Switch back**: `NVF_PHYS_MOVERS_PUT=1` puts every pose, as before, for comparing
+  without a rebuild.
+- **Tests**: `crates/fnv-phys/tests/movers.rs` (a box rides a swept platform over 105 of
+  120 units and stays behind a put one; the same ride at 60, 120 and 240 steps a second; a wall
+  pushes a box ahead of it, never through it, at no more than 1.5 times its speed; a pose
+  spread over a frame's four steps, the mover at rest between them; jumps put; a character
+  on a swept platform not carried; contacts told once; the bodies fixed between steps). Smoke: `movers-bear-trap-carries`
+  (not run yet: in-game testing waits for the owner).
+
 ## 6. Character controller and capture questions
 
 A kinematic vertical body standing on its feet point, over rapier's

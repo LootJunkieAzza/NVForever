@@ -4067,6 +4067,40 @@ expect = [
 ]
 
 [[scenario]]
+name = "movers-bear-trap-carries"
+source = "owner 2026-11-11 (rapier work: kinematic velocity-based movers; physics.md §5.5): a keyframed body an animation moves goes from pose to pose with a velocity, so what rests on it rides along and what it meets is pushed, not found inside it after a jump"
+note = "South of Goodsprings by the bear trap 0x0015834D (7 keyframed bodies its Forward moves, as in traps-bear; the gecko hunters and geckos disabled at 1 s). At 3 s a mole rat meat is placed at the trap and falls onto it; at 7 s the trap springs (play_group Forward, the jaws close): its bodies sweep with a velocity and touch the meat. Written 2026-11-11 and not run yet (in-game testing waits for the owner): whether the meat lands on the jaws' bodies is a guess from the trap's size, and the expected lines may need the placement adjusted"
+areas = ["physics", "traps"]
+paths = ["crates/fnv-phys/src/movers.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "1:call:0x00165185:Disable,1:call:0x00165186:Disable,1:call:0x00165187:Disable,1:call:0x00157B3D:Disable,1:call:0x00157B3E:Disable,3:call:0x0015834D:PlaceAtMe:MoleRatMeat:1,7:play_group:0x0015834D:Forward:1" }
+args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
+run_seconds = 14
+expect = [
+  { text = "movers: keyframed bodies move with a velocity", label = "movers swept (the default)" },
+  { re = 'collision of dropped 0xFF[0-9A-F]{6} added: ', label = "the meat is placed with its own body" },
+  { re = 'phys: 0x0015834D: 7 animated collision bodies follow Forward at', label = "the trap's bodies follow its Forward" },
+  { re = 'movers: 0x0015834D moving carries or pushes the body of 0xFF[0-9A-F]{6}', label = "the closing jaws push or carry the meat" },
+  { re = 'movers: (?P<n>\d+) poses swept, \d+ put', range = [1, 100000], label = "the jaws' poses were swept" },
+]
+forbid = [{ re = 'dropped 0x[0-9A-F]{8} fell through the world', label = "the meat does not fall through" }]
+
+[[scenario]]
+name = "movers-bear-trap-put"
+source = "owner 2026-11-11 (rapier work; physics.md §5.5): NVF_PHYS_MOVERS_PUT=1 switches back to the behaviour before: keyframed bodies fixed and put at each pose, for comparing with movers-bear-trap-carries without a rebuild"
+note = "movers-bear-trap-carries with NVF_PHYS_MOVERS_PUT=1: the jaws are put at each pose, so they give nothing a velocity and no carry or push is told. Written 2026-11-11 and not run yet (in-game testing waits for the owner)"
+areas = ["physics", "traps"]
+paths = ["crates/fnv-phys/src/movers.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PHYS_MOVERS_PUT = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "1:call:0x00165185:Disable,1:call:0x00165186:Disable,1:call:0x00165187:Disable,1:call:0x00157B3D:Disable,1:call:0x00157B3E:Disable,3:call:0x0015834D:PlaceAtMe:MoleRatMeat:1,7:play_group:0x0015834D:Forward:1" }
+args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
+run_seconds = 14
+expect = [
+  { text = "movers: keyframed bodies are put at each pose (NVF_PHYS_MOVERS_PUT)", label = "movers put (switched back)" },
+  { re = 'phys: 0x0015834D: 7 animated collision bodies follow Forward at', label = "the trap's bodies follow its Forward (put)" },
+  { re = 'movers: 0 poses swept, (?P<n>\d+) put', range = [1, 100000], label = "every pose put, none swept" },
+]
+forbid = [{ re = 'movers: 0x[0-9A-F]{8} moving carries or pushes', label = "a put mover carries or pushes nothing" }]
+
+[[scenario]]
 name = "trigger-seconds-passed"
 source = "B-29 spot check 2026-10-24: GetSecondsPassed in an OnTrigger block counts from the previous frame's OnTrigger run when the script has no GameMode (Game::trigger_frame); VMS15's detonator spot (SCPT 0x0014F50D) beeps when its timer is 0 and resets it after 0.5 s, and beeped every frame before"
 note = "Lake Mead: VMS15 started and objective 45 shown at 1-2 s; at 5 s the player is moved onto the Ballast Detonator (one SCRIPT list, so after the objective) (0x0010063C), inside the spot's trigger box: OnTriggerEnter shows 'Loyal's detonator begins to beep.', then OnTrigger plays WPNMineTick (0x00040D4F) about twice a second for the rest of the run (about 15 s: some 30 beeps; every frame was some 1,000)"

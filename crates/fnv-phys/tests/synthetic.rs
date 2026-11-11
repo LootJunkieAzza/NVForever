@@ -1615,10 +1615,10 @@ fn keyframed_door_blocks_until_posed_open() {
     walk(&mut w, &mut c, [80.0, 0.0], 150);
     assert!(c.feet[0] < 100.0 - 20.0, "blocked by the closed door: {:?}", c.feet);
     // A static object cannot be posed; a missing object index is refused.
-    assert!(!w.pose_ref_object(&pose, 3, &panel.node_transform, &panel.body_transform));
+    assert!(!w.pose_ref_object(&pose, 3, &panel.node_transform, &panel.body_transform, false));
     // Swing the hinge 90° (the panel now runs along +x from the hinge, out of the path).
     let open = Iso { translation: [0.0, -50.0, 0.0], rotation: rz(-std::f32::consts::FRAC_PI_2) };
-    assert!(w.pose_ref_object(&pose, 0, &open, &panel.body_transform));
+    assert!(w.pose_ref_object(&pose, 0, &open, &panel.body_transform, false));
     let b = &w.ref_bodies(7)[0];
     assert!((b.translation[0] - 150.0).abs() < 0.5 && (b.translation[1] + 50.0).abs() < 0.5, "{:?}", b.translation);
     walk(&mut w, &mut c, [80.0, 0.0], 150);
@@ -1629,12 +1629,13 @@ fn keyframed_door_blocks_until_posed_open() {
     assert!((b.translation[0] - 150.0).abs() < 0.5, "{:?}", b.translation);
 }
 
-/// A keyframed body is teleported into place (never moved smoothly), so it is a fixed
-/// body. As a kinematic body it broke the character controller: rapier's "carried by a
-/// kinematic body" rule froze a character walking down its slope (the Prospector Saloon's
-/// broken door 0x00108BD7, issue #1485; the same model also let a degenerate collision
-/// mesh's centre of mass become a phantom velocity that flung a character). A character
-/// walking down a keyframed slope must move normally.
+/// A keyframed body at rest. As a position-based kinematic body it broke the character
+/// controller: rapier's "carried by a kinematic body" rule froze a character walking down
+/// its slope (the Prospector Saloon's broken door 0x00108BD7, issue #1485; the same model
+/// also let a degenerate collision mesh's centre of mass become a phantom velocity that
+/// flung a character). Keyframed bodies are velocity-based kinematic bodies now, with a
+/// velocity only during a step that moves them (`fnv_phys::movers`, tests/movers.rs). A
+/// character walking down a keyframed slope must move normally.
 #[test]
 fn keyframed_slope_does_not_freeze_the_character() {
     // A slab tilted so its top descends eastward, keyframed as door parts are.

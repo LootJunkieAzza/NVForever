@@ -847,7 +847,13 @@ fn an_animated_objects_collision_follows_its_group() {
     // At its end: out of the way, solid where it is drawn open.
     poses.playing.insert(GATE, ("Forward".into(), 1.0));
     p.pose_animated(Some(&poses), |_| None);
+    // The same group 0.5 s on continues the motion: swept (`fnv_phys::movers`), so it
+    // moves in the coming step, not at once.
+    assert!((x(&p) - (GATE_X + 150.0)).abs() < 1e-2, "swept: {}", x(&p));
+    p.world.spread_moves(1);
+    p.world.step();
     assert!((x(&p) - (GATE_X + 300.0)).abs() < 1e-2, "{}", x(&p));
+    assert_eq!((p.world.mover_stats().swept, p.world.mover_stats().put), (1, 1), "the first pose put, the next swept");
     assert!(!blocks(&mut p, GATE_X), "the way through is open");
     assert!(blocks(&mut p, GATE_X + 300.0), "the open panel is solid");
     // Reloaded (the cell and its collision built again, nothing drawn yet): posed at the

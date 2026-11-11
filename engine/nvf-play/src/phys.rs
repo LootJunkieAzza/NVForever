@@ -175,10 +175,24 @@ pub fn play_params() -> PhysParams {
 /// physics.md §5.1). For comparing; not a test aid: it does not make the run unattended.
 pub const HITVOL_ATTACHED_VAR: &str = "NVF_PHYS_HITVOL_ATTACHED";
 
+/// Switch back (any value but empty or `0`, e.g. `1`): keyframed bodies an animation moves
+/// (lifts, gates, traps, doors' leaves) are fixed bodies put at each pose, the behaviour
+/// before 2026-11-11, instead of moving with a velocity (`fnv_phys::movers`): loose bodies
+/// on them do not ride along and are pushed in jumps. For comparing in the joint testing,
+/// without a rebuild; not a test aid.
+pub const MOVERS_PUT_VAR: &str = "NVF_PHYS_MOVERS_PUT";
+
 /// The physics world of play: [`play_params`], hit volumes standalone unless
-/// [`HITVOL_ATTACHED_VAR`] is set.
+/// [`HITVOL_ATTACHED_VAR`] is set, movers swept unless [`MOVERS_PUT_VAR`] is.
 fn play_world() -> PhysWorld {
     let mut w = PhysWorld::new(play_params());
+    let put = std::env::var(MOVERS_PUT_VAR).is_ok_and(|v| !v.is_empty() && v != "0");
+    if put {
+        info!("movers: keyframed bodies are put at each pose ({MOVERS_PUT_VAR})");
+    } else {
+        info!("movers: keyframed bodies move with a velocity ({MOVERS_PUT_VAR}=1 puts them at each pose)");
+    }
+    w.set_swept_movers(!put);
     let attached = std::env::var(HITVOL_ATTACHED_VAR).is_ok_and(|v| !v.is_empty() && v != "0");
     if attached {
         info!("actor hit volumes: attached to their bodies ({HITVOL_ATTACHED_VAR})");
@@ -439,9 +453,11 @@ impl PosedDoor {
         let anim = &self.bodies.anim;
         let Some((o, c)) = anim.door() else { return };
         let seq = (!stored).then_some(if open { o } else { c });
+        // The same sequence a little later: swept (`fnv_phys::movers`); otherwise put.
+        let sweep = !stored && self.shown.is_some_and(|(was, t)| was == open && continues(t, time));
         for (object, block, body) in &self.bodies.objects {
             if let Some(node) = anim.node_to_root(seq, time, *block) {
-                world.pose_ref_object(&self.pose, *object, &node.iso, body);
+                world.pose_ref_object(&self.pose, *object, &node.iso, body, sweep);
             }
         }
         self.shown = Some((open, time));
@@ -451,6 +467,17 @@ impl PosedDoor {
     pub fn timing(&self) -> Option<crate::doors::DoorTiming> {
         self.bodies.anim.door().map(|(o, c)| crate::doors::DoorTiming::from_sequences(o, c))
     }
+}
+
+/// Seconds a pose may be ahead of the last in the same sequence and still continue its
+/// motion (swept, `fnv_phys::movers`), not jump [design: twice the longest frame the
+/// virtual clock passes on, `MAX_FRAME_SECONDS`].
+pub const SWEEP_SECS: f32 = 0.5;
+
+/// Whether a pose at `now` seconds into a sequence continues one at `was` (later, by no
+/// more than [`SWEEP_SECS`]): a loop's wrap or time going back jumps.
+pub fn continues(was: f32, now: f32) -> bool {
+    now >= was && now - was <= SWEEP_SECS
 }
 
 /// A reference (not a door that opens in place) whose keyframed bodies follow the
@@ -473,9 +500,12 @@ impl PosedGroup {
         }
         let anim = &self.bodies.anim;
         let sequence = seq.and_then(|i| anim.sequences.get(i));
+        // The same sequence a little later: swept (`fnv_phys::movers`); the first pose, a
+        // sequence of its own or a jump in time: put.
+        let sweep = seq.is_some() && self.shown.is_some_and(|(was, t)| was == seq && continues(t, time));
         for (object, block, body) in &self.bodies.objects {
             if let Some(node) = anim.node_to_root(sequence, time, *block) {
-                world.pose_ref_object(&self.pose, *object, &node.iso, body);
+                world.pose_ref_object(&self.pose, *object, &node.iso, body, sweep);
             }
         }
         self.shown = Some((seq, time));
@@ -1842,7 +1872,7 @@ impl Plugin for PhysPlugin {
             .add_systems(Startup, init_phys)
             .add_systems(Last, (frame_times, report).chain())
             .add_message::<crate::RefRepose>()
-            .add_systems(Update, (travel, ref_changed, destruction_models, stream, pose_doors, pose_groups).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
+            .add_systems(Update, (travel, ref_changed, destruction_models, stream, pose_doors, pose_groups, tell_movers).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
             .add_systems(PostUpdate, trace::trace);
         // The physics rate, the slow clock's pace and the cost guard (`crate::phys_rate`).
         crate::phys_rate::setup(app);
@@ -2100,10 +2130,23 @@ fn frame_times(time: Res<Time>, phys: Res<PhysState>, mut f: ResMut<FrameTimes>)
     }
 }
 
+/// Log what the movers carried or pushed (`fnv_phys::movers`), each body once per mover.
+fn tell_movers(mut phys: ResMut<PhysState>) {
+    for c in phys.world.take_mover_contacts() {
+        let what = if c.actor { "the body of actor" } else { "the body of" };
+        info!("movers: 0x{:08X} moving carries or pushes {what} 0x{:08X}", c.mover, c.other);
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTimes>) {
     if exit.read().last().is_none() {
         return;
     }
+    let m = phys.world.mover_stats();
+    info!(
+        "movers: {} poses swept, {} put; bodies moved with a velocity in {} steps, at most {:.0} units/s; {} bodies carried or pushed",
+        m.swept, m.put, m.body_steps, m.fastest, m.touched
+    );
     let s = &phys.stats;
     info!(
         "physics streaming: {} cells loaded in {:.0} ms ({}), {} on the main thread for the player; longest streaming frame while playing {:.1} ms on the main thread; frames while playing {} (longest {:.1} ms, {} over 33 ms)",
