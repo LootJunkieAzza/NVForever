@@ -524,6 +524,9 @@ unless the player binds them, so nothing changes until then.
 | No Landing Animation | `bRemoveLandingAnim` | nvforever `player_body` plays no landing clip for the player (`tweaks::NO_LAND_CLIP`); NPCs' landings (`actor_jumps`) are unchanged |
 | Compass: Only Mapped Places | `bHideInvisibleUndiscoveredLocations` | `compass::gather` leaves out unfound markers that `DataState::unmapped_of` finds neither Visible-flagged nor shown by a script, the nearest-unfound tweak's pick too |
 | S.P.E.C.I.A.L. Machine: Straight to the Summary | `bSkipVigorTesterSpecialPages` | `chargen::vigor::open_close` starts on `Page::Review` in the end pose of the turn from Charisma's page; the earlier pages are still there with ← |
+| Scope Delay (ms) | `bScopeVisibilityDelay` | `aim_zoom::zoom` counts the time at full zoom (`AimZoom::full_for`) and puts the scope up only after the slider's milliseconds; a reload already took the sights down |
+| No Pointer Over Message Boxes | `bHideCursorInMessageMenu` | `player::grab_cursor` hides the pointer (without capturing it) while `MessagePanel` has a box |
+| No Pointer in Conversations | `bHideCursorInDialog` | the same while `DialogueMenu` shows choices |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -545,8 +548,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 450 |
-| to do | 153 |
+| done | 453 |
+| to do | 150 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -837,6 +840,7 @@ game's Data folder, read-only).
 | `bRemoveLandingAnim` | done |  |  | No Landing Animation (the player) |
 | `bRepairRequiresWeaponSkill` | done |  |  | Repair Needs the Weapon's Skill (Pip-Boy repair) |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
+| `bScopeVisibilityDelay` | done |  | 4 | Scope Delay (ms) (stops aiming while reloading was already so; the other options not built) |
 | `bSkipVigorTesterSpecialPages` | done |  |  | S.P.E.C.I.A.L. Machine: Straight to the Summary |
 | `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
 | `bSwapAmmoWithWeaponHolstered` | done |  |  | Swap Ammo While Holstered (reloads when drawn) |
@@ -865,7 +869,6 @@ game's Data folder, read-only).
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
 | `bScaleExplosionShake` | to do |  | 2 | not built: explosions do not shake the camera |
-| `bScopeVisibilityDelay` | to do |  | 4 | aim_zoom with a held timer |
 | `bToggleControllerIfAttackPressed` | to do |  | 1 | not built: the device changes only by setting |
 | `bWeaponCycleUpDownHotkeys` | to do |  |  | the D-pad is fixed to hotkeys; needs a current slot |
 
@@ -949,6 +952,7 @@ game's Data folder, read-only).
 | `bCapitalizeRecipeCategories` | done | yes |  | Recipe Categories in Capitals |
 | `bClickingShowsTerminalText` | done | yes |  | already so: terminal text is shown whole at once |
 | `bConsoleNumpadSupport` | done | yes |  | already so: numpad digits type into the console (with Num Lock) |
+| `bHideCursorInDialog` | done | yes | 1 | No Pointer in Conversations |
 | `bImprovedRaceMenu` | done | yes | 3 | already so: the creator camera pans and zooms close |
 | `bInstantContinueButton` | done | yes |  | already so: Continue loads at once |
 | `bLivingAnatomyShowDR` | done | yes | 1 | Living Anatomy Shows DR (the decimal and zero-hiding options not built) |
@@ -978,6 +982,7 @@ game's Data folder, read-only).
 | `bDisableLoadingScreenTips` | done |  |  | No Loading Tips |
 | `bDisableShowQuestLocation` | done |  |  | No Show Location |
 | `bHideCompletedQuests` | done |  |  | Hide Finished Quests |
+| `bHideCursorInMessageMenu` | done |  |  | No Pointer Over Message Boxes |
 | `bHideEquippedItemsInBarter` | done |  |  | Hide Worn Items in Barter |
 | `bHideEquippedItemsInContainers` | done |  |  | Hide Worn Items in Containers |
 | `bHideMapMarkerFactionReputation` | done |  |  | No Reputation on Map Markers |
@@ -1030,7 +1035,6 @@ game's Data folder, read-only).
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bColorRecentlyAddedMapMarkers` | to do | yes |  | needs a per-session found set (newly_found is drained by the compass) |
 | `bDisplayItemEffectTotals` | to do | yes |  | aid_preview returns totals only; the per-second part is lost |
-| `bHideCursorInDialog` | to do | yes | 1 | the pointer logic (player::grab_cursor) is shared with every menu |
 | `bLevelUpScrollWheelSupport` | to do | yes |  | the wheel scrolls the rows; needs the hovered row to take it |
 | `bMainMenuContinueIcon` | to do | yes |  | thumbnails are on the load page only |
 | `bPlaceMarkersAtLocations` | to do | yes | 1 | placing a marker on the map is not built |
@@ -1050,7 +1054,6 @@ game's Data folder, read-only).
 | `bCustomHackingAnswerLength` | to do |  | 8 | Difficulty::word_lengths and the perk |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
-| `bHideCursorInMessageMenu` | to do |  |  | player::grab_cursor with the message panel |
 | `bHideHotkeyedItemsInBarter` | to do |  |  | the menu model has no hotkey view |
 | `bHideHotkeyedItemsInContainers` | to do |  |  | the menu model has no hotkey view |
 | `bHideHotkeyedItemsInRepairLists` | to do |  |  | repair offer has no hotkeys |

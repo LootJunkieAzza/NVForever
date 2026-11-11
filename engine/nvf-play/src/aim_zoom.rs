@@ -55,6 +55,8 @@ pub struct AimZoom {
     applied: Option<f32>,
     /// The full zoom has been reported (smoke tests read the line).
     told: bool,
+    /// How long the zoom has been full, seconds (the Scope Delay tweak).
+    full_for: f32,
 }
 
 /// With a 3D scope (`Scope3d`) the main view goes only this share of the way to the
@@ -186,7 +188,10 @@ pub(crate) fn zoom(
     } else if sight.is_some() || z.main == 0.0 {
         z.main = 1.0;
     }
-    let scoped = scoped.filter(|_| z.blend >= 1.0).unwrap_or_default();
+    // The player's tweak holds the scope back a while after the zoom is full [design: docs/design/tweaks.md].
+    z.full_for = if z.blend >= 1.0 { z.full_for + time.delta_secs().min(0.25) } else { 0.0 };
+    let delay = tweaks.as_ref().map_or(0.0, |t| t.scope_delay_ms) / 1000.0;
+    let scoped = scoped.filter(|_| z.blend >= 1.0 && (delay <= 0.0 || z.full_for >= delay)).unwrap_or_default();
     if scoped != *scope {
         if scoped.on && (scope.weapon != scoped.weapon || !scope.on) {
             let edid = combat.as_deref().and_then(|c| c.forms.weapons.get(&scoped.weapon?)).and_then(|ws| ws.edid.clone()).unwrap_or_else(|| "?".into());

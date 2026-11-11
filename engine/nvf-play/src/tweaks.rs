@@ -360,6 +360,13 @@ pub struct TweakSettings {
     /// `bSkipVigorTesterSpecialPages`: the S.P.E.C.I.A.L. machine opens on its review
     /// page.
     pub vigor_review_first: bool,
+    /// `bScopeVisibilityDelay`: milliseconds a scope waits after the zoom is full before
+    /// it shows; 0 none.
+    pub scope_delay_ms: f32,
+    /// `bHideCursorInMessageMenu`: no mouse pointer over a message box.
+    pub no_pointer_in_message_box: bool,
+    /// `bHideCursorInDialog`: no mouse pointer over a conversation's choices.
+    pub no_pointer_in_dialogue: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -567,6 +574,9 @@ impl Default for TweakSettings {
             no_land_clip: false,
             hide_unmapped_places: false,
             vigor_review_first: false,
+            scope_delay_ms: 0.0,
+            no_pointer_in_message_box: false,
+            no_pointer_in_dialogue: false,
         }
     }
 }
@@ -1497,6 +1507,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-land-clip", "No Landing Animation", "Your character does not play a landing movement after a jump or a fall. (Stewie's Tweaks bRemoveLandingAnim)", no_land_clip);
         switch!(app, "hide-unmapped-places", "Compass: Only Mapped Places", "A place you have not found yet shows on the compass only if it is already marked on your map. (Stewie's Tweaks bHideInvisibleUndiscoveredLocations)", hide_unmapped_places);
         switch!(app, "vigor-review-first", "S.P.E.C.I.A.L. Machine: Straight to the Summary", "The machine that sets your S.P.E.C.I.A.L. opens on its last page, all seven at once, instead of one page each. (Stewie's Tweaks bSkipVigorTesterSpecialPages)", vigor_review_first);
+        amount!(app, "scope-delay", "Scope Delay (ms)", "How long, in milliseconds up to 1000, a scope waits after the view has zoomed before it covers the screen; 0 shows it at once. (Stewie's Tweaks bScopeVisibilityDelay)", 1000.0, f32, scope_delay_ms);
+        switch!(app, "no-pointer-message-box", "No Pointer Over Message Boxes", "The mouse pointer is hidden while a message box is up; choose with the keys or the controller. (Stewie's Tweaks bHideCursorInMessageMenu)", no_pointer_in_message_box);
+        switch!(app, "no-pointer-dialogue", "No Pointer in Conversations", "The mouse pointer is hidden over a conversation's choices; choose with the number keys, the arrows, the wheel or the controller. (Stewie's Tweaks bHideCursorInDialog)", no_pointer_in_dialogue);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

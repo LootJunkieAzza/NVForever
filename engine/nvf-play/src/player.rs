@@ -450,7 +450,14 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view, creator): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>),
+    (intro, view, creator, panel, talk, tweaks): (
+        Option<Res<crate::intro::Intro>>,
+        Option<Res<ViewDriven>>,
+        Option<Res<crate::creator::CreatorMenu>>,
+        Option<Res<crate::message_menu::MessagePanel>>,
+        Option<Res<crate::dialogue_menu::DialogueMenu>>,
+        Option<Res<crate::tweaks::TweakSettings>>,
+    ),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<(bool, bool)>>,
     switches: Option<Res<crate::script_switches::ScriptSwitches>>,
@@ -494,7 +501,11 @@ fn grab_cursor(
     };
     // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
     // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
-    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0);
+    // The player's tweak hides it over a message box, worked with the keys then [design: docs/design/tweaks.md].
+    // So does its other tweak over a conversation's choices.
+    let message_box = tweaks.as_ref().is_some_and(|t| t.no_pointer_in_message_box) && panel.is_some_and(|p| p.view.is_some()) && window.focused && !driven;
+    let message_box = message_box || (tweaks.as_ref().is_some_and(|t| t.no_pointer_in_dialogue) && talk.is_some_and(|t| t.view.is_some()) && window.focused && !driven);
+    let visible = !grab && (wanted || driven || !window.focused || hud_cursor) && !over_lock.is_some_and(|o| o.0) && !message_box;
     if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
         cursor.visible = visible;
