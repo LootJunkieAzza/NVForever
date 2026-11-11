@@ -24967,3 +24967,17 @@ order = [[
   { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
   { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
 ]]
+
+[[scenario]]
+name = "house-screen-never-turns"
+source = "#2150 (owner's playtest 2026-11-11): Mr. House's screen turned when a conversation ended and in a fight. An Immobile creature with a Turning Speed of 0 never turns (fnv-ai carry.rs fix_heading and face, nvforever residents.rs never_turns and the drawn aim heading); turrets (Turning Speed 30 and more) turn as before (helios-ceiling-turrets)"
+note = "Lucky38World (the penthouse): Lucky38MrHouseREF (0x001264C5, base MrHouse 0x00125BB5: Immobile, TNAM 0) placed at (-1039, 5335, 18949) facing 135 degrees; the player due south of it (a turn to the player would read 180), the console sets it on the player and reads its angle before and after"
+areas = ["combat", "creatures", "dialogue"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/social.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "9:Lucky38MrHouseREF.getangle z;10:Lucky38MrHouseREF.startcombat player;16:Lucky38MrHouseREF.isincombat;16.5:Lucky38MrHouseREF.getangle z;17:close" }
+args = ["--play", "--world", "Lucky38World", "--pos=-1039,5035,18990", "--heading", "0", "--no-voice"]
+run_seconds = 21
+expect = [
+  { re = 'ai: Lucky38MrHouseREF never turns \(flagged Immobile, Turning Speed 0\)', label = "the screen is marked as never turning" },
+  { re = 'console: GetAngle on Lucky38MrHouseREF >> 135\.00', min = 2, label = "its heading is the placed 135 degrees before the fight and 6 s into it" },
+]
