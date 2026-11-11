@@ -174,7 +174,7 @@ fn own(
         }
     };
     if idle.cheer_until.is_some_and(|t| now >= t) {
-        fade(&mut *idle, &mut *pi);
+        fade(&mut idle, &mut pi);
     }
     for ev in spins.read() {
         let (act, passes, cheer) = match ev.phase {
@@ -185,7 +185,7 @@ fn own(
             SpinPhase::Result { .. } => continue,
             SpinPhase::Opened => continue,
             SpinPhase::Closed => {
-                fade(&mut *idle, &mut *pi);
+                fade(&mut idle, &mut pi);
                 continue;
             }
         };
