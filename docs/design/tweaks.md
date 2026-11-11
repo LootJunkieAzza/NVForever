@@ -521,6 +521,8 @@ unless the player binds them, so nothing changes until then.
 | Whole-Stack Pickup Figures | `bBetterPickupPrompt` | `reticle::Prompt::of` multiplies the weight and value by the stack's count (`STACK_FIGURES`); the carried total is not shown |
 | Turn Further While Seated | `bTurnFurtherWhileSeated` | nvforever `player_body::seated_heading` uses 115 degrees for 80 (`tweaks::SEATED_WIDE`); third person on furniture had no limit |
 | No Turning Animation | `bNoTurningAnim` | nvforever `player_body` plays no Turn clip (`tweaks::NO_TURN_CLIP`) |
+| No Landing Animation | `bRemoveLandingAnim` | nvforever `player_body` plays no landing clip for the player (`tweaks::NO_LAND_CLIP`); NPCs' landings (`actor_jumps`) are unchanged |
+| Compass: Only Mapped Places | `bHideInvisibleUndiscoveredLocations` | `compass::gather` leaves out unfound markers that `DataState::unmapped_of` finds neither Visible-flagged nor shown by a script, the nearest-unfound tweak's pick too |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -542,8 +544,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 447 |
-| to do | 156 |
+| done | 449 |
+| to do | 154 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -831,6 +833,7 @@ game's Data folder, read-only).
 | `bQuestTextVisibleWhileAiming` | done |  |  | already so: aiming hides only the reticle |
 | `bRandomizeKillcamMode` | done |  |  | n/a: NVForever has one kill camera kind |
 | `bRemoveChemWarnOffIMOD` | done |  |  | No Chem Wore-Off Effect |
+| `bRemoveLandingAnim` | done |  |  | No Landing Animation (the player) |
 | `bRepairRequiresWeaponSkill` | done |  |  | Repair Needs the Weapon's Skill (Pip-Boy repair) |
 | `bRepeatJumping` | done |  |  | Hold to Keep Jumping |
 | `bSlotsAutoSpinHotkey` | done |  |  | Slots: Hold to Spin (W held) |
@@ -858,7 +861,6 @@ game's Data folder, read-only).
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
-| `bRemoveLandingAnim` | to do |  |  | fnv_actor jump::JumpState plays the landing clip |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
 | `bScaleExplosionShake` | to do |  | 2 | not built: explosions do not shake the camera |
 | `bScopeVisibilityDelay` | to do |  | 4 | aim_zoom with a held timer |
@@ -887,6 +889,7 @@ game's Data folder, read-only).
 | `bHideCrosshairInFirstPerson` | done |  |  | No Crosshair in First Person (the prompt stays) |
 | `bHideCrosshairInThirdPerson` | done |  |  | No Crosshair in Third Person (the prompt stays) |
 | `bHideCrosshairWhileReloading` | done |  |  | No Crosshair While Reloading |
+| `bHideInvisibleUndiscoveredLocations` | done |  |  | Compass: Only Mapped Places |
 | `bHideUnknownNPCNames` | done |  | 1 | Hide Unknown Names (bodies are named, as bShowNameOnDeadNPCs) |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
 | `bKeepCrosshairWhenAiming` | done |  |  | Crosshair Down the Sights |
@@ -927,7 +930,6 @@ game's Data folder, read-only).
 | `bDetectedByWhom` | to do |  | 5 | Sneak is a Copy enum; names need a new type |
 | `bDisableNeedsMessages` | to do |  | 4 | those messages are the game's own scripts; needs a filter by message |
 | `bExplodingDestructibleIndicator` | to do |  |  | not built: no grenade indicator |
-| `bHideInvisibleUndiscoveredLocations` | to do |  |  | compass::gather marker loop; markers_of does not carry the map rule |
 | `bHUDFatigueIndicator` | to do |  |  | the needs words are a fixed five |
 | `bHUDMarkerNameIndicator` | to do |  | 7 | no such HUD text yet |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |

@@ -25,6 +25,8 @@ pub const GROUP: &str = "Tweaks";
 pub static SEATED_WIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// No Turning Animation, for the player's body [design: docs/design/tweaks.md].
 pub static NO_TURN_CLIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Remove Landing Animation, for the player's body [design: docs/design/tweaks.md].
+pub static NO_LAND_CLIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Every tweak's value. `Default`: the original's behaviour.
 #[derive(Resource, Debug, Clone, PartialEq)]
@@ -350,6 +352,11 @@ pub struct TweakSettings {
     pub seated_wide: bool,
     /// `bNoTurningAnim`: the player's body plays no turning-in-place clip.
     pub no_turn_clip: bool,
+    /// `bRemoveLandingAnim`: the player's body plays no landing clip.
+    pub no_land_clip: bool,
+    /// `bHideInvisibleUndiscoveredLocations`: a place not found yet is on the compass only
+    /// when the map shows it.
+    pub hide_unmapped_places: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -554,6 +561,8 @@ impl Default for TweakSettings {
             stack_figures: false,
             seated_wide: false,
             no_turn_clip: false,
+            no_land_clip: false,
+            hide_unmapped_places: false,
         }
     }
 }
@@ -1481,6 +1490,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "stack-figures", "Whole-Stack Pickup Figures", "Looking at a stack of items, the weight and value shown are the whole stack's, not one item's. (Stewie's Tweaks bBetterPickupPrompt)", stack_figures);
         switch!(app, "seated-wide", "Turn Further While Seated", "Seated in first person, you can look 115 degrees to either side instead of 80. (Stewie's Tweaks bTurnFurtherWhileSeated)", seated_wide);
         switch!(app, "no-turn-clip", "No Turning Animation", "Your character's body does not step round when you turn on the spot, so it does not slide on after you stop. (Stewie's Tweaks bNoTurningAnim)", no_turn_clip);
+        switch!(app, "no-land-clip", "No Landing Animation", "Your character does not play a landing movement after a jump or a fall. (Stewie's Tweaks bRemoveLandingAnim)", no_land_clip);
+        switch!(app, "hide-unmapped-places", "Compass: Only Mapped Places", "A place you have not found yet shows on the compass only if it is already marked on your map. (Stewie's Tweaks bHideInvisibleUndiscoveredLocations)", hide_unmapped_places);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1742,6 +1753,7 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
     crate::reticle::set_stack_figures(tweaks.stack_figures);
     SEATED_WIDE.store(tweaks.seated_wide, std::sync::atomic::Ordering::Relaxed);
     NO_TURN_CLIP.store(tweaks.no_turn_clip, std::sync::atomic::Ordering::Relaxed);
+    NO_LAND_CLIP.store(tweaks.no_land_clip, std::sync::atomic::Ordering::Relaxed);
     crate::pad::set_dead_zones(tweaks.custom_dead_zones.then_some((tweaks.left_dead_zone, tweaks.right_dead_zone)));
     crate::wait::model::set_date_style(tweaks.date_style as u8);
     if let Some(mut b) = bindings {

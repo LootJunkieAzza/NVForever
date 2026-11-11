@@ -1735,7 +1735,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             want.push((c, TAG_TURN, 1.0, Mode::Loop));
         }
     }
-    if f.landing {
+    // The player's No Landing Animation tweak plays none (docs/design/tweaks.md).
+    if f.landing && !nvf_play::tweaks::NO_LAND_CLIP.load(std::sync::atomic::Ordering::Relaxed) {
         if let Some(c) = rig.clip(ctx, ClipKey::Jump(f.stance, f.drawn, main_dir, true)) {
             rig.animator.restart(&c.clip, TAG_LAND, 1.0, Mode::Once, c.fade());
         }

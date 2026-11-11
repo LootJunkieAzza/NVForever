@@ -398,8 +398,15 @@ fn gather(
     if let (Some(loc), Some(st)) = (location.as_deref(), markers.as_deref()) {
         if loc.interior.is_none() {
             let range = perception.max(1.0) * MARKER_RANGE_PER_PERCEPTION;
+            // The player's tweak: a place not found yet shows only when the map shows it
+            // [design: docs/design/tweaks.md].
+            let unmapped = if tweaks.as_ref().is_some_and(|t| t.hide_unmapped_places) {
+                st.unmapped_of(loc.world, script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game))
+            } else {
+                Default::default()
+            };
             for (form, pos, found) in st.markers_of(loc.world) {
-                if !sim.present(form) || (pos[0] - feet[0]).hypot(pos[1] - feet[1]) > range {
+                if !sim.present(form) || unmapped.contains(&form) || (pos[0] - feet[0]).hypot(pos[1] - feet[1]) > range {
                     continue;
                 }
                 let mark = if found { Mark::Found } else { Mark::Place };
@@ -412,7 +419,7 @@ fn gather(
             // [design: docs/design/tweaks.md].
             if nearest_unfound {
                 let away = |pos: [f32; 3]| (pos[0] - feet[0]).hypot(pos[1] - feet[1]);
-                let nearest = st.markers_of(loc.world).into_iter().filter(|(form, _, found)| !found && sim.present(*form)).min_by(|a, b| away(a.1).total_cmp(&away(b.1)));
+                let nearest = st.markers_of(loc.world).into_iter().filter(|(form, _, found)| !found && sim.present(*form) && !unmapped.contains(form)).min_by(|a, b| away(a.1).total_cmp(&away(b.1)));
                 if let Some((_, pos, _)) = nearest.filter(|n| away(n.1) > range) {
                     if on_compass(offset(heading, here, [pos[0], pos[1]])) {
                         marks.push(Mark::Place);

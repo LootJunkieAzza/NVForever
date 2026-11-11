@@ -665,6 +665,19 @@ impl DataState {
     pub fn markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], bool)> {
         self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, self.discovered.contains(&m.form))).collect()
     }
+
+    /// The markers of `world` not found yet that the map does not show either (no
+    /// Visible flag, not shown by a script), for the compass's Hide Unmapped Places tweak
+    /// [design: docs/design/tweaks.md].
+    pub fn unmapped_of(&self, world: u32, game: Option<&fnv_game::Game>) -> std::collections::HashSet<u32> {
+        self.markers
+            .iter()
+            .flatten()
+            .filter(|m| m.world == world && !self.discovered.contains(&m.form) && m.flags & 1 == 0)
+            .filter(|m| !game.is_some_and(|g| g.map_marker_shown(FormId(m.form), m.flags & 4 != 0)))
+            .map(|m| m.form)
+            .collect()
+    }
 }
 
 fn track(st: &mut DataState, game: &Game) {
@@ -2327,6 +2340,15 @@ fn highlight(p: &mut ChildSpawnerCommands, c: &mut Ctx, centre: Vec2, label: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unmapped_places_are_the_unfound_ones_without_the_visible_flag() {
+        let marker = |form, world, flags| read::Marker { form, world, pos: [0.0; 3], name: format!("Place {form}"), kind: 1, flags, radius: 10.0, reputation: None };
+        let mut st = DataState { markers: Some(vec![marker(10, 1, 0), marker(20, 1, 1), marker(30, 1, 0), marker(40, 2, 0)]), ..DataState::default() };
+        st.discovered.insert(30);
+        assert_eq!(st.unmapped_of(1, None), [10].into_iter().collect());
+        assert_eq!(st.unmapped_of(2, None), [40].into_iter().collect());
+    }
 
     #[test]
     fn family_markers_share_the_map_but_discovery_and_the_local_map_stay_in_their_worldspace() {
