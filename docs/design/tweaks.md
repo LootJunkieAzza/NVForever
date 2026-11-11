@@ -530,6 +530,7 @@ unless the player binds them, so nothing changes until then.
 | Level Up: Wheel Sets Skills | `bLevelUpScrollWheelSupport` | `levelup::input` turns the wheel into Raise / Lower of the chosen row on the skills page; the perks page still scrolls |
 | Compare Armor | `bCompareArmorStats` | `pipboy::items::info_of` adds the difference from the DT of the worn pieces sharing a biped slot, for armour not worn |
 | (already so) | `bSilentSneakPowerAttacks` | the player makes no sound of effort on any attack, so nothing to silence |
+| Detailed Stats | `bMoreDetailedStatsMenu` | `pipboy::stats::read` leaves the values uncapped and writes the mark as the signed difference from the permanent value (`Row::mark` is a `String` now) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -551,8 +552,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 456 |
-| to do | 147 |
+| done | 457 |
+| to do | 146 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1006,6 +1007,7 @@ game's Data folder, read-only).
 | `bMapMarkersShowFactionName` | done |  | 1 | already so: the reputation line names the faction (worded "Goodsprings: Neutral") |
 | `bMapRecenterHotkey` | done |  | 2 | Map Recentre Key (C, at once; no easing) |
 | `bMarkNotesUnread` | done |  |  | Mark Notes Unread (right click on the Pip-Boy notes list) |
+| `bMoreDetailedStatsMenu` | done |  | 1 | Detailed Stats |
 | `bNoCapitaliseContainerCategories` | done |  |  | Quiet Category Titles |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
 | `bNoExitHacking` | done |  | 1 | No Leaving a Hack (the fail-on-exit option not built) |
@@ -1064,7 +1066,6 @@ game's Data folder, read-only).
 | `bKeyRepeatAcceleration` | to do |  | 4 | not built: menu keys do not repeat |
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
-| `bMoreDetailedStatsMenu` | to do |  | 1 | stats read value and cap |
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoPlaceMarkerPopup` | to do |  | 2 | not built: no custom markers |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |

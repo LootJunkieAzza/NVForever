@@ -458,6 +458,9 @@ pub struct Tweaks {
     /// `bCompareArmorStats`: a piece of armour's DT in the Pip-Boy shows the difference
     /// from the worn pieces it would replace.
     pub compare_armor: bool,
+    /// `bMoreDetailedStatsMenu`: the Pip-Boy's (+) and (-) give the amount, and values
+    /// show past their caps.
+    pub detailed_stats: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -665,6 +668,7 @@ impl Default for Tweaks {
             npcs_earn_casings: false,
             no_ammo_casings: false,
             compare_armor: false,
+            detailed_stats: false,
         }
     }
 }

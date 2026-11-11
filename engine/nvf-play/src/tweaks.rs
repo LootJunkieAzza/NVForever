@@ -1516,6 +1516,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-pointer-dialogue", "No Pointer in Conversations", "The mouse pointer is hidden over a conversation's choices; choose with the number keys, the arrows, the wheel or the controller. (Stewie's Tweaks bHideCursorInDialog)", no_pointer_in_dialogue);
         switch!(app, "levelup-wheel", "Level Up: Wheel Sets Skills", "On the level-up skills page, the mouse wheel raises (up) or lowers (down) the skill under the pointer instead of scrolling the list. (Stewie's Tweaks bLevelUpScrollWheelSupport)", levelup_wheel);
         switch!(app, "compare-armor", "Compare Armor", "A piece of armour's DT in the Pip-Boy shows the difference from what you wear in the same places. (Stewie's Tweaks bCompareArmorStats)", game.compare_armor);
+        switch!(app, "detailed-stats", "Detailed Stats", "In the Pip-Boy's stats, a raised or lowered value says by how much, as (+5) for (+), and values show past 10 and 100. (Stewie's Tweaks bMoreDetailedStatsMenu)", game.detailed_stats);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

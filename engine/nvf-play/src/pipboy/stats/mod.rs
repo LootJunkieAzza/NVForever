@@ -650,7 +650,7 @@ fn describe(view: &StatsView, snap: &Snapshot, tab: usize) -> String {
             };
             match rows.get(view.selected[tab]) {
                 Some(r) => {
-                    let figure: Vec<&str> = [Some(r.name.as_str()), r.value.as_deref(), r.mark].into_iter().flatten().collect();
+                    let figure: Vec<&str> = [Some(r.name.as_str()), r.value.as_deref(), r.mark.as_deref()].into_iter().flatten().collect();
                     format!("{name}{mode}: {} selected", figure.join(" "))
                 }
                 None => format!("{name}{mode}: empty"),
@@ -1022,7 +1022,7 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &StatsView, tab: usize, ro
         if let Some(n) = &row.value {
             c.text(p, 2, n, num_x, y + NAME_Y, Align::Right, bright());
         }
-        if let Some(m) = row.mark {
+        if let Some(m) = &row.mark {
             c.text(p, 2, m, num_x + 10.0, y + NAME_Y, Align::Left, bright());
         }
         spots.push((Rect::new(item_x, y, item_x + item_w, y + row_h), Spot::Row(i)));

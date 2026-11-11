@@ -137,7 +137,7 @@ pub struct Row {
     pub key: RowKey,
     pub name: String,
     pub value: Option<String>,
-    pub mark: Option<&'static str>,
+    pub mark: Option<String>,
     pub description: String,
     /// The picture, a path under `textures\`.
     pub icon: Option<String>,

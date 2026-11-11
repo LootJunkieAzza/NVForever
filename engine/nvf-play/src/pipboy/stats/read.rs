@@ -294,9 +294,12 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         for (rows, codes) in [(&mut s.special, SPECIALS.collect::<Vec<_>>()), (&mut skills, SKILLS.filter(|&c| c != av::BIG_GUNS).collect())] {
             for (row, code) in rows.iter_mut().zip(codes) {
                 if let Some((shown, permanent)) = value(g, code) {
-                    let shown = av::capped(code, shown);
+                    // The player's tweak: past the cap, and the amount in the mark [design: docs/design/tweaks.md].
+                    let detailed = g.tweaks.detailed_stats;
+                    let cap = |v: f64| if detailed { v } else { av::capped(code, v) };
+                    let (shown, permanent) = (cap(shown), cap(permanent));
                     row.value = Some(model::whole(shown));
-                    row.mark = model::modified_mark(shown, av::capped(code, permanent));
+                    row.mark = model::modified_mark(shown, permanent).map(|m| if detailed { format!("({:+})", (shown.round() - permanent.round()) as i64) } else { m.to_string() });
                 }
             }
         }
