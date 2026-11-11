@@ -486,6 +486,23 @@ fn a_form_already_on_a_list_is_not_added_again() {
     assert_eq!(num(&mut g, "ListGetCount GunList"), 2.0);
 }
 
+/// ListAddForm's edits are the session's: a game taken over after a load
+/// (`Game::take_session` / `put_session`, as `restore_save` does) keeps them. MCM's list
+/// keeps the mods that joined it in the main menu before the save was loaded (owner's
+/// runs of 2026-11-11: MCM missing after a load).
+#[test]
+fn list_edits_outlast_a_load() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(num(&mut g, "ListAddForm GunList Scrap"), 1.0);
+    assert_eq!(num(&mut g, "ListGetCount GunList"), 2.0);
+    let session = g.take_session();
+    let mut loaded = game(&f);
+    loaded.put_session(session);
+    assert_eq!(num(&mut loaded, "ListGetCount GunList"), 2.0);
+    assert_eq!(num(&mut loaded, "ListAddForm GunList Scrap"), -1.0, "still on it");
+}
+
 /// GetNifBlockTranslation with `getWorld` 1 gives the node's place in the world, not its
 /// own offset (JVO's marker over an actor's head); either form of the call.
 #[test]

@@ -1856,7 +1856,28 @@ pub(crate) fn run_scripts(
                 rt.start = st.start.clone();
                 tiles.install_measure(&mut rt.game);
                 let mut restored = false;
-                if let Some(PendingGame(snap, path)) = st.pending_game.take() {
+                let pending = st.pending_game.take();
+                // A run that starts in a save (a load while playing hands off to a new
+                // run, `crate::save`) has the main menu's frames before the save is in
+                // place, as the original's main menu comes before its Load: the start
+                // menu's MenuMode blocks see the plugins' state, not the save's
+                // (`crate::tiles::mods::main_menu_frames`) [hypothesis]. A mod that
+                // joins MCM's list there once per load, behind a timer kept in its
+                // saved variables (JAM's MCM scripts: `fTimerStart`), would otherwise
+                // skip it, and MCM's install check, run again on the first Mods page
+                // after GetGameLoaded, finds no mods and leaves its tile hidden for the
+                // run [observed: the owner's runs of 2026-11-11, MCM on a new game but
+                // not after a load]. ListAddForm's edits outlast the restore
+                // (`fnv_game::Game::take_session`).
+                let frames_first = pending.is_some() && tile_menus.as_ref().is_some_and(|t| t.start);
+                if frames_first {
+                    if rt.game.ui_files.is_none() {
+                        tiles.load(&mut rt.game, &sim.world);
+                    }
+                    with_world(&mut rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::main_menu_frames(&mut rt.game)));
+                    info!("scripts: {} main-menu frames of the MenuMode {} and {} blocks, before the save", crate::tiles::mods::MAIN_MENU_FRAMES, fnv_game::game::menus::START, fnv_game::game::menus::MAIN_MENU);
+                }
+                if let Some(PendingGame(snap, path)) = pending {
                     // Test aid: `save::read_for_load` lets no save through that fails here.
                     let restore = if std::env::var_os("NVF_PLAY_TEST_LOAD_FAILS_LATE").is_some() { Err("test aid NVF_PLAY_TEST_LOAD_FAILS_LATE".to_string()) } else { rt.restore_save(&mut sim, *snap) };
                     match restore {
@@ -1922,7 +1943,7 @@ pub(crate) fn run_scripts(
                 }
                 // The main menu's frames of the start menu's MenuMode blocks, before the
                 // first GameMode frame (`crate::tiles::mods::main_menu_frames`).
-                if tile_menus.is_some_and(|t| t.start) {
+                if !frames_first && tile_menus.is_some_and(|t| t.start) {
                     with_world(&mut rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::main_menu_frames(&mut rt.game)));
                     info!("scripts: {} main-menu frames of the MenuMode {} and {} blocks", crate::tiles::mods::MAIN_MENU_FRAMES, fnv_game::game::menus::START, fnv_game::game::menus::MAIN_MENU);
                 }

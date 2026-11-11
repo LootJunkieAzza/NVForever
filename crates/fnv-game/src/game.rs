@@ -2255,6 +2255,12 @@ pub struct Session {
     save_files: crate::nvse_sup4::SaveFiles,
     /// SUP's CallFunctionNextFrame calls with removeOnLoad 0 (`crate::delayed`).
     kept_calls: Vec<crate::delayed::Delayed>,
+    /// Form lists as ListAddForm and the ListRemove… functions left them: those edits are
+    /// the session's, not the save's, so they outlast a load [documented: ListAddForm,
+    /// "will not persist across savegames"; hypothesis: the list in memory is kept by a
+    /// load, as MCM's list is when a mod joins it in the main menu before a save is
+    /// loaded].
+    list_edits: std::collections::HashMap<FormId, Vec<FormId>>,
 }
 
 /// An event handler: the event (lower case), the function or lambda, the filters by
@@ -3427,7 +3433,7 @@ impl<'a> Game<'a> {
             .collect();
         let pp = self.pp_take_session();
         let sr_registered = self.sr.take_registered();
-        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls() }
+        Session { handlers, main_loop, restarted_seen: std::mem::take(&mut self.restarted_seen), handler_seq: self.handler_seq, pp, itr_kept: std::mem::take(&mut self.other.itr.kept), sr_registered, jip_kept: std::mem::take(&mut self.jip.kept), dialogue_edits: self.dialogue_edits.for_session(), save_files: std::mem::take(&mut self.save_files), kept_calls: self.take_kept_calls(), list_edits: std::mem::take(&mut self.list_edits) }
     }
 
     /// Take over what lasts for the session ([`Game::take_session`]).
@@ -3443,6 +3449,16 @@ impl<'a> Game<'a> {
         self.dialogue_edits = s.dialogue_edits;
         self.save_files = s.save_files;
         self.put_kept_calls(s.kept_calls);
+        // The loaded game's own additions (AddFormToFormList, saved) join a list the
+        // session edited [hypothesis].
+        self.list_edits = s.list_edits;
+        for (list, members) in &mut self.list_edits {
+            for f in self.form_lists.get(list).into_iter().flatten() {
+                if !members.contains(f) {
+                    members.push(*f);
+                }
+            }
+        }
     }
 
     /// Run every handler registered for `event` whose filters match, highest priority
