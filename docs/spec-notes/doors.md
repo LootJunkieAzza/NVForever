@@ -203,7 +203,11 @@ to the player.
   when it is called off (the way cleared or planned without that door next, the walk
   ended, another package taken up; not when a shorter frame leaves it just outside the
   asking distance), and the next walk through it is dispatched again, whether the door's answer is kept or
-  not. A crossing never closed counts as a new one 10 s after it was dispatched. The
+  not. A crossing never closed counts as a new one 10 s after it was dispatched. Not
+  handled: one update long enough to carry the actor through two doors that open in place
+  (an actor updated rarely, out of the high process) asks only the first, so the second
+  fires no event; its block is not run either, as before #2123 (the AI asks the door
+  ahead once per update) [design: crates/fnv-ai/src/carry.rs ask_door]. The
   record is kept apart from the answers (which are as before: 10 s, 120 s for a refusal,
   none for a door without a block) and expired entries are dropped. A block's
   `Activate` of the door for that actor is the same activation and is not dispatched
