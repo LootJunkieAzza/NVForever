@@ -502,6 +502,9 @@ pub struct Tweaks {
     pub skill_cap_per_luck: f64,
     pub skill_cap_most: i32,
     pub cap_skills_spare_tagged: bool,
+    /// `bEnemyHealthbarShowBuffedHP`: a target's health bar counts its raised Health in
+    /// the whole.
+    pub buffed_health_bars: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -783,6 +786,7 @@ impl Default for Tweaks {
             skill_cap_per_luck: 0.0,
             skill_cap_most: 100,
             cap_skills_spare_tagged: false,
+            buffed_health_bars: false,
         }
     }
 }

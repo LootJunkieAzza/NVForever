@@ -320,6 +320,9 @@ fn aim(
             let gone = !(g.present(r) && g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)));
             let fighting = g.awareness.get(r).and_then(|a| a.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
             let max = g.max_health(r);
+            // The player's tweak counts a raised Health (Buffout and the like) in the
+            // bar's whole [design: docs/design/tweaks.md].
+            let max = if g.tweaks.buffed_health_bars { max + fnv_game::functions::actor_value_temporary(g, r, fnv_game::actor_values::HEALTH).max(0.0) } else { max };
             let health = fnv_game::functions::actor_health(g, r).unwrap_or(max);
             let hostile = fighting || g.would_attack(r, FormId::PLAYER_REF);
             let case = Case {
