@@ -288,6 +288,16 @@ pub fn arms(
                 info!("arm wrestle arm: side {k} hand along {along:.2?} thumb {thumb:.2?} palm {palm:.2?}; palm middle {:.1?}", h + along * pm);
             }
             g.grip(fore, (along, thumb, palm), w, &mut transforms);
+            if log {
+                // How it came out, from the bones as drawn last frame: the elbow over the
+                // top, the fingertips' side (+ towards the other wrestler, round the other
+                // hand), the knuckles' place.
+                let at = |e: Option<Entity>| e.and_then(|e| globals.get(e).ok()).map(|g| g.translation());
+                let top = fnv_game::armwrestle_table::TABLE_TOP_Z;
+                if let (Some(el), Some(k2), Some(t2)) = (at(Some(a.fore)), at(g.fingers[1][0]), at(g.fingers[1][2])) {
+                    info!("arm wrestle arm: check side {k}: elbow {:.1} over the top, fingertips {:+.1} towards the other, knuckles {:.1?}", el.y - top, (t2 - k2).dot(toward), k2);
+                }
+            }
         } else if !std::mem::replace(&mut shown.noted, true) {
             warn!("arm wrestle arm: side {k}'s hand has no fingers or thumb to grip with");
         }
@@ -301,8 +311,8 @@ pub fn arms(
 /// upright one), the palm faces the other wrestler, and the hand turns `deviate` radians
 /// towards the little finger, which puts the thumb on top and crosses the two right
 /// hands [design: the arm wrestling grip].
-/// For a right hand, palm = thumb x along [design: the right-hand rule, checked on the
-/// bones by `Grip::of`].
+/// The thumb side is palm x along [observed: these hands' thumbs, desktop run 2026-11-11
+/// 17:33; along x palm put the thumbs underneath].
 pub fn hand_frame(fore: Vec3, toward: Vec3, deviate: f32) -> (Vec3, Vec3, Vec3) {
     let f = fore.normalize_or(Vec3::Y);
     let up = f.angle_between(Vec3::Y).min(WRIST_UP);
@@ -311,18 +321,23 @@ pub fn hand_frame(fore: Vec3, toward: Vec3, deviate: f32) -> (Vec3, Vec3, Vec3) 
         None => f,
     };
     let p0 = (toward - a0 * toward.dot(a0)).normalize_or(toward);
-    let t0 = a0.cross(p0);
+    let t0 = p0.cross(a0);
     let along = (a0 * deviate.cos() - t0 * deviate.sin()).normalize();
-    let thumb = along.cross(p0).normalize();
+    let thumb = p0.cross(along).normalize();
     (along, thumb, p0)
 }
 
 /// The bone the upper body bends at, and the one above it if the skeleton lacks it
 /// [observed: the human skeleton's node names].
 const SPINE: [&str; 2] = ["Bip01 Spine", "Bip01 Spine1"];
-/// The upper body's lean in at most, radians [design: about 25 degrees; 40 put the head
-/// down at the table and 50 hunched them head to head, desktop runs 2026-11-11].
-const MAX_BEND: f32 = 0.45;
+/// The upper body's lean in at most, radians [design: about 43 degrees, with the head
+/// turned back up ([`HEAD_UP`]): the shoulders must come over the elbows for the elbows
+/// to rest on the table with the hands touching (owner, 2026-11-11 17:0x)].
+const MAX_BEND: f32 = 0.75;
+/// The neck: turned back up by this share of the lean [observed: the node name; design:
+/// a 0.7 lean without it put the head down at the table, run 2026-11-11 15:3x].
+const NECK: &str = "Bip01 Neck";
+const HEAD_UP: f32 = 0.8;
 /// How far (level) behind the elbow the shoulder may stay, as a share of what the upper
 /// arm allows [design: the shoulder over the elbow, the upper arm sloping a little].
 const SHOULDER_IN: f32 = 1.0;
@@ -332,25 +347,26 @@ const ELBOW_UP: f32 = 2.0;
 /// [design: about 20 degrees, the thumbs on top; a wrist bends about 30 that way].
 const DEVIATE: f32 = 0.35;
 /// How far the wrist bends back to stand the hand up on a sloping forearm, radians
-/// [design: about 35 degrees; a wrist bends back about 70].
-const WRIST_UP: f32 = 0.6;
-/// Half the gap between the two palms' middles, game units [design: a hand is about 2.5
-/// thick].
-const PALM_GAP: f32 = 1.1;
+/// [design: up to about 57 degrees, the hand upright on the forearms this table allows;
+/// a wrist bends back about 70; 0.6 left the palms facing half down, run 16:48].
+const WRIST_UP: f32 = 1.0;
+/// Half the gap between the two hands' bones at the palms, game units [design: the palms
+/// touching; 1.1 left them apart, run 16:48].
+const PALM_GAP: f32 = 0.7;
 /// The palm's middle from the wrist, as a share of the knuckles' distance [design].
 const PALM_MID: f32 = 0.6;
 /// The fingers' bones, index to little, knuckle to tip [observed: the human skeleton's
 /// node names]; each joint's curl towards the palm about the knuckles' line, radians
-/// [design: the first joints nearly straight across the other hand's palm, the middle and
-/// end ones wrapped round its back; all three curled hard made two fists knuckle to
-/// knuckle, desktop run 2026-11-11 16:04].
+/// [design: rounded as round a hand about 3 through; all three curled hard made two fists
+/// knuckle to knuckle (run 16:04), the first joints straight and the rest hard made claws
+/// (run 16:48)].
 const GRIP: [[&str; 3]; 4] = [
     ["Bip01 R Finger1", "Bip01 R Finger11", "Bip01 R Finger12"],
     ["Bip01 R Finger2", "Bip01 R Finger21", "Bip01 R Finger22"],
     ["Bip01 R Finger3", "Bip01 R Finger31", "Bip01 R Finger32"],
     ["Bip01 R Finger4", "Bip01 R Finger41", "Bip01 R Finger42"],
 ];
-const GRIP_CURL: [[f32; 3]; 4] = [[0.3, 1.35, 1.0], [0.35, 1.4, 1.0], [0.45, 1.4, 1.0], [0.55, 1.4, 1.0]];
+const GRIP_CURL: [[f32; 3]; 4] = [[0.7, 0.95, 0.6], [0.75, 1.0, 0.6], [0.8, 1.05, 0.65], [0.85, 1.05, 0.65]];
 /// The thumb's bones, base to tip [observed: node names], and where each segment points
 /// in the grip, in the hand's frame (along, thumb side, palm) [design: up and forward over
 /// the other hand, the tip curled down round the other thumb].
@@ -390,6 +406,17 @@ fn lean_in(root: Entity, rig: &ActorRig, (top, u, k): (Vec3, Vec3, usize), towar
     if let Ok(mut t) = transforms.get_mut(spine) {
         t.rotation = (rp.inverse() * q * rp * t.rotation).normalize();
     }
+    // The head turned back up by most of it, looking at the other wrestler and not down at
+    // the table.
+    if let Some(neck) = node(NECK) {
+        let above = parents.get(neck).map_err(|_| "the neck hangs from nothing")?.parent();
+        let gn = world_of(above, root, parents, transforms, globals).ok_or("the neck is not under the body")?;
+        let rn = rot(&gn);
+        let back = Quat::from_axis_angle(axis, -bend * HEAD_UP);
+        if let Ok(mut t) = transforms.get_mut(neck) {
+            t.rotation = (rn.inverse() * back * rn * t.rotation).normalize();
+        }
+    }
     Ok(())
 }
 
@@ -408,8 +435,8 @@ struct Arm {
 }
 
 /// One hand's bones for the grip, and its own frame measured from them: along (wrist to
-/// the knuckles' middle), thumb side and palm (thumb x along, a right hand), as columns,
-/// in the hand bone's local space.
+/// the knuckles' middle), thumb side (palm x along, as `hand_frame`) and palm, as
+/// columns, in the hand bone's local space.
 struct Grip {
     hand: Entity,
     fingers: [[Option<Entity>; 3]; 4],
@@ -434,10 +461,13 @@ impl Grip {
         }
         let k = knuckles.iter().sum::<Vec3>() / knuckles.len() as f32;
         let a = k.try_normalize()?;
-        let t = thumb[0].and_then(at)?;
-        let t = (t - a * t.dot(a)).try_normalize()?;
-        let p = t.cross(a).normalize();
-        let t = a.cross(p);
+        // The palm's side, against the finger bones' own +Y [observed: with the palm taken
+        // as the knuckle bones' +Y (or as thumb x along from Thumb1's place) the posed palms
+        // faced away from each other, the fingers hooked back towards their own wrestler
+        // (owner and armwrestle-a, desktop runs 2026-11-11 17:09 and 17:21)].
+        let ys: Vec3 = fingers.iter().filter_map(|f| f[0].and_then(|e| transforms.get(e).ok())).map(|t| t.rotation * Vec3::Y).sum();
+        let p = -(ys - a * ys.dot(a)).try_normalize()?;
+        let t = p.cross(a);
         Some(Grip { hand, fingers, thumb, axes: Mat3::from_cols(a, t, p), palm: k.length() * PALM_MID })
     }
 
@@ -460,7 +490,8 @@ impl Grip {
             let straight = (spread - p * spread.dot(p)).normalize_or(a);
             let dirs = curls.iter().scan(0.0, |sum, c| {
                 *sum += c;
-                Some(Quat::from_axis_angle(t, *sum) * straight)
+                // About the thumb axis (palm x along) a negative turn takes along towards palm.
+                Some(Quat::from_axis_angle(t, -*sum) * straight)
             });
             pose_chain(bones, dirs, w, transforms);
         }
@@ -561,8 +592,8 @@ mod tests {
         assert!(a.y > 0.85 && p.x > 0.95, "{a} {p}");
         for (a, t, p) in [(a0, t0, p0), (a1, t1, p1)] {
             assert!(a.dot(t).abs() < 1e-5 && a.dot(p).abs() < 1e-5 && t.dot(p).abs() < 1e-5);
-            // A right hand: palm = thumb x along.
-            assert!(t.cross(a).distance(p) < 1e-5);
+            // The frame turns as the hand's own: palm = along x thumb.
+            assert!(a.cross(t).distance(p) < 1e-5);
             // The thumb is on top, the hand still mostly upright.
             assert!(t.y > 0.2 && a.y > 0.9);
         }
