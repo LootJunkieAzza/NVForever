@@ -209,9 +209,13 @@ pub fn call(g: &mut Game, name: &str, args: &[XVal]) -> Option<Result<XVal, Stri
         // The HUD's writes kept back while nothing read the HUD, made now; the engine
         // writes them every frame from here on (`crate::ui_hud::defer`) [design].
         g.ui_used = true;
+        let started = g.cost.is_some().then(std::time::Instant::now);
         crate::ui_hud::flush(g);
         if lname.starts_with("getui") {
             crate::ui_hud::size_texts(g);
+        }
+        if let (Some(t), Some(c)) = (started, g.cost.as_mut()) {
+            c.add_named("(HUD writes and text sizes before a UI call)", t.elapsed());
         }
     }
     Some(Ok(match lname.as_str() {

@@ -6181,7 +6181,10 @@ impl<'a> Game<'a> {
         funcs.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
         let data = self.data;
         let fname = |op: u16| data.table.get(op).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{op:04X}"));
-        let topf: Vec<String> = funcs.iter().take(25).map(|(op, (n, d))| format!("{} {:.2} ms/s ({n})", fname(*op), ms(*d))).collect();
+        let mut topf: Vec<(String, u64, std::time::Duration)> = funcs.iter().map(|(op, (n, d))| (fname(*op), *n, *d)).collect();
+        topf.extend(c.named.into_iter().map(|(k, (n, d))| (k, n, d)));
+        topf.sort_by(|a, b| b.2.cmp(&a.2));
+        let topf: Vec<String> = topf.iter().take(25).map(|(f, n, d)| format!("{f} {:.2} ms/s ({n})", ms(*d))).collect();
         Some(format!("script cost: {secs:.1} s; scripts (ms a second, runs): {}
 script cost: functions (ms a second, calls): {}", top.join(", "), topf.join(", ")))
     }
@@ -6976,7 +6979,12 @@ impl Host for Exec<'_, '_> {
         // reads the calling script.
         self.game.other.plugin = self.calling_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
-        crate::nvse::call(self.game, &ctx, name, on, args)
+        let started = self.game.cost.is_some().then(std::time::Instant::now);
+        let r = crate::nvse::call(self.game, &ctx, name, on, args);
+        if let (Some(t), Some(c)) = (started, self.game.cost.as_mut()) {
+            c.add_named(name, t.elapsed());
+        }
+        r
     }
 
     fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {
@@ -7069,11 +7077,13 @@ pub struct CostTally {
     pub since: std::time::Instant,
     pub scripts: std::collections::HashMap<u32, (u64, std::time::Duration)>,
     pub functions: std::collections::HashMap<u16, (u64, std::time::Duration)>,
+    /// The extender's functions called by name (`crate::nvse::call`).
+    pub named: std::collections::HashMap<String, (u64, std::time::Duration)>,
 }
 
 impl Default for CostTally {
     fn default() -> CostTally {
-        CostTally { since: std::time::Instant::now(), scripts: std::collections::HashMap::new(), functions: std::collections::HashMap::new() }
+        CostTally { since: std::time::Instant::now(), scripts: std::collections::HashMap::new(), functions: std::collections::HashMap::new(), named: std::collections::HashMap::new() }
     }
 }
 
@@ -7083,6 +7093,15 @@ impl CostTally {
 
     fn add_script(&mut self, id: u32, d: std::time::Duration) {
         let e = self.scripts.entry(id).or_default();
+        e.0 += 1;
+        e.1 += d;
+    }
+
+    pub(crate) fn add_named(&mut self, name: &str, d: std::time::Duration) {
+        let e = match self.named.get_mut(name) {
+            Some(e) => e,
+            None => self.named.entry(name.to_string()).or_default(),
+        };
         e.0 += 1;
         e.1 += d;
     }
