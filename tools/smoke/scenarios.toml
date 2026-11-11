@@ -12910,6 +12910,20 @@ order = [[
 ]]
 
 [[scenario]]
+name = "gecko-template-walks"
+source = "#1917: the Young Gecko Hunter VERT1GSGeckoRoachHunterREF (0x00168D1C, base VSpawnSpecialTier1GeckoSmallRoachHunter 0x00168D0B) has only the placeholder marker_creature.nif of its own; its model and animations come from its template, so it walks and runs and goes for the Radroach it hunts"
+note = "Wasteland south-southwest of Goodsprings, beside the gecko vs. roach fight, noon"
+areas = ["ai", "creatures"]
+paths = ["engine/nvforever/src/residents.rs"]
+args = ["--world", "WastelandNV", "--pos=-60100,-38300,6000", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 25
+expect = [
+  { re = 'ai \[[0-9:]+\] VERT1GSGeckoRoachHunterREF: runs at VERT1GSRoachHuntedREF', label = "the gecko runs at the roach" },
+  { re = 'npc combat: VERT1GSGeckoRoachHunterREF 0x00168D1C swings at VERT1GSRoachHuntedREF', label = "it crosses the ground and swings at the roach" },
+]
+forbid = [{ re = 'ai: VERT1GSGeckoRoachHunterREF cannot move', label = "it is rooted by its own placeholder model" }]
+
+[[scenario]]
 name = "mines-placed"
 source = "owner 2026-10-19: the Primm bridge's mines were invisible and not armed; a mine starts beeping at about 2 m, the Explosives skill sets the fuse, one activation disarms it (even beeping) into a loose item, a shot blows it up (docs/spec-notes/combat-rules.md §11a)"
 note = "God mode, at the three frag mines on the bridge north of Primm (0x00172DB5, DDA, DDC). Explosives 100 (3 s fuse): put 60 units from DDC along the bridge (within reach), it starts its fuse; aimed at and activated at once, it is disarmed, and the Frag Mine left lying is taken. Then 450 units from DDA along the bridge, the 10mm pistol shoots it: its destruction stage sets off MediumExplosion. Then at Explosives 20, put on DB5: it goes off after 1.44 s (0.6 s before #1659's longer fuse)"

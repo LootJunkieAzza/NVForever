@@ -860,9 +860,18 @@ fn flies(world: &WorldData, base: u32) -> bool {
 /// without one an actor has no way to move; the ravens outside Doc Mitchell's house
 /// (NVCrRaven, `creatures\nvraven`: an idle and its fly-away idle only) sandboxed about
 /// the editor location, sliding along the ground (owner's playtest, 2026-10-11).
-fn cannot_walk(world: &WorldData, data: &nvf_assets::GameData, base: u32) -> bool {
+///
+/// The skeleton is the one the creature is drawn with: its Model/Animation source, a
+/// template's pick when that flag is set ([`ActorWorld::resolve_creature`]). Its own model
+/// may be only the editor's placeholder (`marker_creature.nif`): the Young Gecko Hunter
+/// VSpawnSpecialTier1GeckoSmallRoachHunter (0x00168D0B) takes its model and animations
+/// from its template 0x00159783 and was rooted by its placeholder (#1917) [observed:
+/// fnvtool, the issue]. Without the actors' data, or when the creature does not resolve,
+/// its own model is used.
+fn cannot_walk(world: &WorldData, data: &nvf_assets::GameData, actors: Option<&ActorWorld>, base: u32, reference: u32) -> bool {
     use fnv_actor::locomotion::{Body, LocomotionSet, Move};
-    let Some(skeleton) = fnv_world::placed::base_object(world.lo, world.schema, base).and_then(|b| b.model_path()) else { return false };
+    let drawn = actors.and_then(|w| w.resolve_creature(base, reference).ok()).map(|c| c.skeleton);
+    let Some(skeleton) = drawn.or_else(|| fnv_world::placed::base_object(world.lo, world.schema, base).and_then(|b| b.model_path())) else { return false };
     if !skeleton.to_ascii_lowercase().ends_with(".nif") {
         return false;
     }
@@ -1324,13 +1333,16 @@ fn held_by_talk(game: &Game, ai: &Ai, actor: FormId) -> bool {
 impl Core {
     /// Look up who of the listed creatures cannot walk ([`cannot_walk`], or flagged
     /// Immobile), before they are handed to the AI.
-    fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData) {
+    fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData, actors: Option<&ActorWorld>) {
         let mut by_base: HashMap<u32, (bool, bool)> = HashMap::new();
         for r in self.list.iter_mut().filter(|r| r.rooted.is_none()) {
+            let reference = r.actor.0;
             let (rooted, perched) = *by_base.entry(r.base).or_insert_with(|| {
                 // An Immobile creature (the turrets, Mr. House's screens) is held too:
                 // the flag "prevents movement" [documented: GECK wiki Animation Tab].
-                let rooted = cannot_walk(world, data, r.base) || acbs_flag(world, r.base, ACBS_IMMOBILE);
+                // A leveled template's pick is the first resident's of that base
+                // [hypothesis: the picks of one base share a skeleton family].
+                let rooted = cannot_walk(world, data, actors, r.base, reference) || acbs_flag(world, r.base, ACBS_IMMOBILE);
                 (rooted, rooted && flies(world, r.base))
             });
             r.rooted = Some(rooted);
@@ -2829,7 +2841,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
             }
-            res.core.check_rooted(&world, &models.data);
+            res.core.check_rooted(&world, &models.data, actor_world.as_deref());
             res.core.take_moved(game, all, None);
             if all {
                 res.core.take_placed_elsewhere(game);
@@ -2853,7 +2865,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
-            res.core.check_rooted(&world, &models.data);
+            res.core.check_rooted(&world, &models.data, actor_world.as_deref());
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             let (world_ref, streamer_ref) = (&*world, &*streamer);
