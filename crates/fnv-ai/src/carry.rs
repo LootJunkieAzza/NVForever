@@ -2281,7 +2281,8 @@ impl Ai {
     /// where it is to stand (it stays where it is when it is there already, is to stand
     /// on its own reference, or has no way there); one that is over sends it back to its
     /// package. In place, a weapon use (a script's, or its package's while it is not in
-    /// combat) turns it to its target at the standing turn rate. Returns whether a
+    /// combat or the package continues during combat) turns it to its target at the
+    /// standing turn rate. Returns whether a
     /// script's use holds the actor (its package's own doings and its fight wait).
     fn weapon_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) -> bool {
         let script = game.weapon_use(actor).filter(|w| w.source == Source::Script).map(|w| (w.seq, w.stand, w.target));

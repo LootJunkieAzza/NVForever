@@ -30,12 +30,17 @@ no damage off.
   package's doings, its search and its fight wait (`alert_step` is skipped). When the
   use is gone, the actor takes up its package again (`AiEvent::WeaponUseOver`).
 - **In place** the actor turns to its target at the standing turn rate (a package's use
-  only out of combat).
+  only out of combat, unless the package has Continue During Combat).
+- **Continue During Combat** (#2120): with the flag, `alert_step` hands the actor back to
+  its package in a combat state (`Game::continues_during_combat`; docs/design/alert.md §5),
+  so a Use Weapon package keeps walking it to its stand and keeping it there, and its use
+  stays active (§3).
 
 ## 3. Firing (nvforever `use_weapon.rs`)
 
 For each actor whose use is in place and still to be carried out (`Game::active_weapon_use`:
-not done; a package's not while the actor is in combat):
+not done; a package's not while the actor is in combat, unless the package has Continue
+During Combat, read from the use's own package as `Game::package_def` gives it):
 
 - **The gun**: the use's weapon if it is a gun, else the gun drawn on it; a melee or
   unarmed weapon, or none, swings instead (§3.1).
@@ -56,6 +61,14 @@ not done; a package's not while the actor is in combat):
   end script runs; the use stays, done, until the package changes).
 - A script's use comes before the combat AI (`npc_combat` skips the actor), as the shipped
   scripts call StartCombat with UseWeapon (spec note §2). ResetAI drops the use.
+- A package's use with Continue During Combat also keeps the combat AI off while it is
+  active, on the way to its stand as well as there (`npc_combat::weapon_use_holds_fight`):
+  the actor fires the package's pattern at the package's target, never that and the
+  ordinary attacks together. Spent (or its package changed), the use is no longer active
+  and the fight takes the actor back. Keeping the package's target in combat, rather than
+  turning on whoever attacks it, is our reading of the flag's "continue to fire" (spec
+  note §3) [design]; a held package use (no flag) waits as before, its target and volleys
+  kept.
 
 ### 3.1 Melee (claude/q5-melee-useweapon, 2026-10-20)
 

@@ -1210,6 +1210,16 @@ pub fn embedded_node_index(names: &[Option<String>], node: &str) -> Option<usize
     names.iter().position(|n| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(node)))
 }
 
+/// Whether a weapon use keeps `fight` off an actor (`use_weapon`): a script's use for
+/// as long as it lasts (it comes first), and any use still to be carried out
+/// (`Game::active_weapon_use`), which in a combat state is a package's only when the
+/// package continues during combat (#2120). The shooter fires only such a use, so
+/// package fire and the ordinary attacks are never both on; once the use is spent or
+/// let go, the fight takes the actor back [design].
+fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>) -> bool {
+    any.is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) || active.is_some()
+}
+
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fight(
@@ -1348,8 +1358,8 @@ pub(crate) fn fight(
             if g.ai_off(me) {
                 continue;
             }
-            // A script's weapon use comes first (`use_weapon`).
-            if g.weapon_use(me).is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) {
+            // A weapon use being carried out fires instead (`use_weapon`).
+            if weapon_use_holds_fight(g.weapon_use(me), g.active_weapon_use(me)) {
                 continue;
             }
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
@@ -3095,6 +3105,32 @@ mod tests {
 
     fn ranged_cycle(ws: &WeaponStats) -> Cycle {
         Cycle::new(ws, Timing { interval: 0.1, fire_delay: 0.2, reload: 1.0, spin_up: 0.0, rounds: None, attach: None }, false, 2)
+    }
+
+    /// #2120: the shooter (`use_weapon`) fires only what `Game::active_weapon_use` gives;
+    /// whatever it gives keeps the ordinary attacks off, so the two never fire together,
+    /// and a script's use comes first as before.
+    #[test]
+    fn a_weapon_use_being_carried_out_keeps_the_ordinary_attacks_off() {
+        use fnv_game::use_weapon::{Source, WeaponUse};
+        let script = WeaponUse::of_script(None, None, FormId(0x7), 3, true, true, false, false, None);
+        let package = WeaponUse { source: Source::Package(FormId(0x9)), volleys: Some(2), shots_per_volley: [1, 1], ..script.clone() };
+        // No weapon use: the actor fights.
+        assert!(!weapon_use_holds_fight(None, None));
+        // A script's use, walking to its place or firing.
+        assert!(weapon_use_holds_fight(Some(&script), Some(&script)));
+        assert!(weapon_use_holds_fight(Some(&script), None), "a script's use comes first whatever its state");
+        // A package's use held in combat (no Continue During Combat): no package fire, the
+        // actor fights.
+        assert!(!weapon_use_holds_fight(Some(&package), None));
+        // Its package continues during combat: package fire is on, the attacks are off,
+        // on the way to its stand as well as there.
+        assert!(weapon_use_holds_fight(Some(&package), Some(&package)));
+        let there = WeaponUse { in_place: true, ..package.clone() };
+        assert!(weapon_use_holds_fight(Some(&there), Some(&there)));
+        // Spent (kept, done, until the package changes) or let go: the actor fights again.
+        let spent = WeaponUse { done: true, ..there.clone() };
+        assert!(!weapon_use_holds_fight(Some(&spent), None));
     }
 
     #[test]

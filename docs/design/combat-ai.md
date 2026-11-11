@@ -446,7 +446,7 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Confidence | Frenzied actors never flee | missing | with fleeing (next) |
 | Combat Flee | Door, cover or run away; at the flee spot wait, more confident when hurt or cornered | missing | next (fleeing); `would flee` logged |
 | Combat Package Flags | No Combat Alert | have | alert.md §2 |
-| Combat Package Flags | Continue During Combat | partial | alert.md §5: the package goes on and the actor fights as any other; no cover on the way |
+| Combat Package Flags | Continue During Combat | partial | alert.md §5: the package goes on and the actor fights as any other; no cover on the way; a Use Weapon package fires its own volleys at its own target instead of the ordinary attacks (use-weapon.md §3, #2120) |
 | Combat Package Flags | Pretend In Combat | missing | next |
 | Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next |
 | Combat Search | Alert and Lost actors search | partial | alert.md §5: each alone, not the combat group splitting the navmesh |

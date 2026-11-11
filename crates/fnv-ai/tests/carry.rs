@@ -2663,6 +2663,66 @@ fn a_use_weapon_package_stands_at_its_place_and_meets_its_goal_when_its_shots_ar
     assert!(s.game.active_weapon_use(actor).is_none());
 }
 
+/// #2120: a Use Weapon package's fire waits while the actor is in a combat state (Alert,
+/// Combat, Lost), unless the package has Continue During Combat: then it goes on, at the
+/// package's own target, from its stand. A script's use goes on in every state; a spent
+/// use in none.
+#[test]
+fn a_use_weapon_package_fires_on_in_combat_only_with_continue_during_combat() {
+    use fnv_game::package::flags::CONTINUE_DURING_COMBAT;
+    use fnv_game::use_weapon::{After, Source, WeaponUse};
+    let actor = FormId(R_SHOOTER);
+    let stand = [350.0, 350.0, 0.0];
+    for continues in [false, true] {
+        let mut f = fixture();
+        if continues {
+            f.data.package_defs.get_mut(&FormId(P_SHOOT)).unwrap().flags |= CONTINUE_DURING_COMBAT;
+        }
+        let mut s = sim(&f, &[R_SHOOTER]);
+        s.run(15.0);
+        assert!(dist(s.feet(R_SHOOTER), stand) < 40.0);
+        // The first of its two volleys fired: one left.
+        assert_eq!(s.game.weapon_uses.get_mut(&actor).unwrap().shot(0.3), After::Pause(0.5));
+        for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+            s.game.awareness.actors.entry(actor).or_default().state = state;
+            let active = s.game.active_weapon_use(actor).map(|w| (w.source, w.target, w.volleys.unwrap() - w.volleys_done, w.in_place));
+            if !state.in_combat() || continues {
+                assert_eq!(active, Some((Source::Package(FormId(P_SHOOT)), FormId(R_LONER), 1, true)), "{state:?}, continues {continues}");
+            } else {
+                assert_eq!(active, None, "{state:?}: the package's fire waits for the fight to end");
+                // Held, not lost: the same target and volleys wait.
+                let w = s.game.weapon_use(actor).unwrap();
+                assert_eq!((w.target, w.volleys.unwrap() - w.volleys_done, w.done), (FormId(R_LONER), 1, false));
+            }
+        }
+        s.game.awareness.actors.remove(&actor);
+        if continues {
+            // In a real fight with the player (not its package's target), it keeps its
+            // stand and its package's target, its fire still on.
+            fighting(&mut s, R_SHOOTER, [stand[0] + 300.0, stand[1], 0.0]);
+            s.run(2.0);
+            assert_eq!(s.game.awareness.state(actor), State::Combat);
+            assert!(dist(s.feet(R_SHOOTER), stand) < 40.0, "{:?}", s.events(R_SHOOTER));
+            let w = s.game.active_weapon_use(actor).expect("its fire goes on in combat");
+            assert_eq!((w.target, w.volleys.unwrap() - w.volleys_done), (FormId(R_LONER), 1));
+            // Spent: the goal is met and the use stays, done; the fight takes over.
+            assert_eq!(s.game.weapon_uses.get_mut(&actor).unwrap().shot(0.3), After::Done);
+            s.game.end_weapon_use(actor);
+            assert!(s.game.weapon_use(actor).is_some_and(|w| w.done));
+            for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+                s.game.awareness.actors.entry(actor).or_default().state = state;
+                assert!(s.game.active_weapon_use(actor).is_none(), "{state:?}: a spent use is over");
+            }
+        }
+        // A script's use goes on in every state, the package's flag or not.
+        s.game.give_weapon_use(actor, WeaponUse::of_script(None, None, FormId(R_LONER), 2, true, true, false, false, None));
+        for state in [State::Normal, State::Alert, State::Combat, State::Lost] {
+            s.game.awareness.actors.entry(actor).or_default().state = state;
+            assert!(s.game.active_weapon_use(actor).is_some_and(|w| w.source == Source::Script && w.target == FormId(R_LONER)), "{state:?}");
+        }
+    }
+}
+
 /// The UseWeapon function (`fnv_game::use_weapon`): the actor walks to where it is to
 /// stand, and once the use is over goes back to its package.
 #[test]

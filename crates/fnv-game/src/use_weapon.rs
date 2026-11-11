@@ -29,7 +29,13 @@
 //!   [hypothesis]. Spent, the package's goal is met (its end script runs) and the actor
 //!   stays in it until it chooses again [design, as a Dialogue package that has
 //!   talked]. A package's use waits while the actor is in combat, as other package
-//!   doings do [design].
+//!   doings do [design]; with the package flag Continue During Combat its other doings
+//!   go on in combat (`Game::continues_during_combat`), and so does its fire, at the
+//!   package's own target from its stand ("Actor will continue to fire and stand at the
+//!   designated position, even during Combat" [documented: GECK wiki Use Weapon
+//!   Package, Flags]; that the target stays the package's, not whoever attacks it, is
+//!   our reading [design]). The combat AI's own attacks wait meanwhile, so the two never
+//!   fire together (#2120).
 //! - **Weapon**: the function equips the named weapon when the actor carries it; the
 //!   page's "or grab one if one was nearby" is not built [design].
 //! - **Melee** (docs/design/use-weapon.md §3.1): with a melee weapon, fists or a
@@ -40,7 +46,7 @@
 //! - Not part of the saved state: a use in progress is lost with a load [design].
 
 use crate::game::Game;
-use crate::package::{PackageType, TargetKind};
+use crate::package::{flags, PackageType, TargetKind};
 use fnv_sim::FormId;
 use serde::Serialize;
 
@@ -225,9 +231,16 @@ impl Game<'_> {
     }
 
     /// An actor's weapon use that is still to be carried out: not spent, and, from a
-    /// package, not waiting for a fight to end (module notes).
+    /// package, not waiting for a fight to end, which a package with Continue During
+    /// Combat does not do (module notes).
     pub fn active_weapon_use(&self, actor: FormId) -> Option<&WeaponUse> {
-        self.weapon_uses.get(&actor).filter(|w| !w.done && (w.source == Source::Script || !self.awareness.state(actor).in_combat()))
+        self.weapon_uses.get(&actor).filter(|w| {
+            !w.done
+                && match w.source {
+                    Source::Script => true,
+                    Source::Package(p) => !self.awareness.state(actor).in_combat() || self.package_def(&p).is_some_and(|d| d.has(flags::CONTINUE_DURING_COMBAT)),
+                }
+        })
     }
 
     /// The actor is where its weapon use wants it.
