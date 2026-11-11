@@ -413,6 +413,9 @@ pub struct PhysWorld {
     /// bodies is (`crate::ragdoll`).
     pub(crate) ragdolls: BTreeMap<u32, crate::ragdoll::RagdollBodies>,
     pub(crate) ragdoll_of: HashMap<RigidBodyHandle, (u32, u16)>,
+    /// References whose bodies pass through one actor's ragdoll, by reference FormID:
+    /// that actor's ([`PhysWorld::set_ref_passes_ragdoll`]).
+    pub(crate) passes_ragdoll: HashMap<u32, u32>,
     /// Gore pieces by their id (`crate::gore`).
     pub(crate) gore: BTreeMap<u32, RigidBodyHandle>,
     /// Per-triangle material codes of triangle-mesh colliders; one code for a convex
@@ -479,6 +482,7 @@ impl PhysWorld {
             actors: BTreeMap::new(),
             ragdolls: BTreeMap::new(),
             ragdoll_of: HashMap::new(),
+            passes_ragdoll: HashMap::new(),
             gore: BTreeMap::new(),
             materials: HashMap::new(),
             shells: HashMap::new(),
@@ -657,6 +661,7 @@ impl PhysWorld {
 
     /// Remove a reference's bodies only.
     fn remove_bodies(&mut self, form_id: u32) -> bool {
+        self.passes_ragdoll.remove(&form_id);
         let Some(bodies) = self.refs.remove(&form_id) else { return false };
         self.ref_nodes.remove(&form_id);
         self.keyframed.remove(&form_id);
@@ -666,6 +671,20 @@ impl PhysWorld {
         }
         self.mark_dirty(DirtyBy::Bodies);
         true
+    }
+
+    /// Let reference `form_id`'s bodies pass through actor `actor`'s ragdoll (no contacts
+    /// between them) until the reference's bodies are removed. An ash pile starts where
+    /// its source's body lies and would otherwise be shoved by it (ash-piles.md §3).
+    pub fn set_ref_passes_ragdoll(&mut self, form_id: u32, actor: u32) {
+        if self.refs.contains_key(&form_id) {
+            self.passes_ragdoll.insert(form_id, actor);
+        }
+    }
+
+    /// The actor whose ragdoll reference `form_id`'s bodies pass through, if any.
+    pub fn ref_passes_ragdoll(&self, form_id: u32) -> Option<u32> {
+        self.passes_ragdoll.get(&form_id).copied()
     }
 
     /// The colliders changed (the scripts' layer and collision switches, `crate::script`).
@@ -1158,6 +1177,7 @@ impl PhysWorld {
             actors: self.actors.clone(),
             ragdolls: self.ragdolls.clone(),
             ragdoll_of: self.ragdoll_of.clone(),
+            passes_ragdoll: self.passes_ragdoll.clone(),
             gore: self.gore.clone(),
             materials: self.materials.clone(),
             shells: self.shells.clone(),

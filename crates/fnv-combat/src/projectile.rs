@@ -9,7 +9,8 @@
 //! the explosion goes off on impact, or with Alt. Trigger on a timer or proximity, or on
 //! detonation for Detonates. A mine (`crate::mine::is_mine`) does not trigger itself in
 //! flight: once it comes to rest it is [`ProjEvent::Settled`] and the engine places it
-//! as a mine in the world (`nvf_play::mines`), armed at once [owner 2026-10-19: "your own
+//! as a mine in the world (`nvf_play::mines`), armed at once; a Detonates charge (C-4)
+//! settles the same way and waits there for its detonator (#1986) [owner 2026-10-19: "your own
 //! mines arm immediately after leaving the player hand"]. How gravity scales is a hypothesis: the PROJ value
 //! multiplies the world's gravity (9.81 m/s² at 70 units per metre, `fnv-phys`).
 //!
@@ -424,7 +425,10 @@ impl Projectile {
                     if vec::len(self.vel) < REST_SPEED {
                         self.vel = [0.0; 3];
                         self.landed = true;
-                        if self.mine {
+                        // A mine, and a charge that waits for its detonator (C-4), leave
+                        // flight at rest: the engine places them as references, which are
+                        // saved and belong to a cell (#1986) [design].
+                        if self.mine || self.detonates {
                             self.alive = false;
                             out.push(ProjEvent::Settled { point: self.pos, normal: n });
                         }

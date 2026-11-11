@@ -369,7 +369,7 @@ impl Plugin for PlayerPlugin {
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
-                (place_initial, interior_net, step, crate::phys::settle_created, sync_sim, log_status)
+                (place_initial, interior_net, crate::phys::piles_pass_their_corpses, step, crate::phys::settle_created, sync_sim, log_status)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),

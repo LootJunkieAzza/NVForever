@@ -89,9 +89,9 @@ The engine tells the game what only it knows, and takes back what the scripts as
 
 | Function | NVForever |
 |---|---|
-| ShowQuantityMenu `callback max [initial]` | menu 1016, the item menus' "How many?" prompt on its own, 1 to `max` from `initial` (`max` without one [hypothesis]); the callback gets the amount next frame, -1 for Cancel [documented] |
+| ShowQuantityMenu `callback max [initial]` | menu 1016, the item menus' "How many?" prompt on its own, 1 to `max` from `initial` (`max` without one [hypothesis]); the callback gets the amount next frame, -1 for Cancel [documented]. Not while another menu is open, its own included: 0 and no callback, as ShowTextInputMenu [hypothesis; #2018] |
 | ShowTextInputMenu `callback width height title …` | the name menu's box (menu 1051) with the formatted title and the box's size [documented]; Ok gives the callback the text [documented]; 1 when it opened, 0 while another menu is open [hypothesis] |
-| SetTextInputExtendedProps `x y [min] [max] [switches]` | the length limits (1 and 32,767 by default), digits and the point only (1), Enter closes (2) [documented]; without switch 2 Enter does nothing [decision: the box is one line]; the box stays centred [decision: the offsets are kept, not drawn] |
+| SetTextInputExtendedProps `x y [min] [max] [switches]` | the length limits (1 and 32,767 by default), digits and the point only (1), Enter closes (2) [documented]; without switch 2 Enter does nothing [decision: the box is one line]; the box stays centred [decision: the offsets are kept, not drawn]; a call while the box is open changes it at once, the text cut to a shorter limit [decision: #2018] |
 | SetTextInputString `text …` | the box's text, formatted [documented] |
 | GetWheelDisabled | SetWheelDisabled's flag, 0 for a non-actor [documented]; NVForever's wheel now stays shut for such an actor |
 

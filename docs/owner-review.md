@@ -406,7 +406,11 @@ The L5.ext.nvse.* lab run of the extender branch (ext-compiler 1d2ee60b) matched
 the player's inventory (27 item kinds). `fnvtool ext probes` loads no save, so it cannot
 match them. Nothing is marked or loosened in the lab: they stay failing until the lab
 can start from a save. *Answered 2026-10-26:* the lab may read your save (read-only,
-private, like the goldens).
+private, like the goldens). *Done 2026-11-11 (#1023):* every `L5.ext.*` scenario now
+starts from the save its golden was recorded in: `--save {save_path}`, a documented input
+of the probe sets like the load order, with the path in `lab.local.json` (gitignored;
+nvfairport.fos, only read, never copied into the repo). A machine without `save_path`
+gets those scenarios as errors naming the variable; nothing else changes.
 
 ## Two GECK compile cases for when you are back (2026-10-26)
 

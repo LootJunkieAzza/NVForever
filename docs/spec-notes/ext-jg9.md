@@ -54,7 +54,10 @@ AddTerminalMenuItem `terminal` adds a new, empty item [documented], at the end
 [hypothesis]. RemoveTerminalMenuItem `terminal index` removes one [documented]; the items
 after it move up, with a script's changes to them (Set…TerminalMenuItem…, `nvse_jg3`).
 What stands at each position is kept for the session (`terminal::slots`); every reader of
-a terminal's items goes through it. RefreshTerminalMenu (`rtm`) reads the open menu's
+a terminal's items goes through it. An open menu holds positions, so a removal also asks
+for the redraw RefreshTerminalMenu gives: otherwise picking an item the menu still shows
+would run the one that moved into its place (#2018) [design: whether the original
+redraws by itself is not observed]. RefreshTerminalMenu (`rtm`) reads the open menu's
 list again [documented: "Redraws Terminal menu if it's currently open"]; with no
 terminal open it does nothing. It returns 0 [hypothesis: the page gives no value].
 

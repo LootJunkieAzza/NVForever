@@ -101,11 +101,39 @@ pub mod event {
 
 /// Nested script runs allowed (a stage result script setting another stage, an
 /// `Activate` running an OnActivate block) [documented: GECK wiki SetStage, at least 250
-/// recursive SetStage calls work]. Stack: 256 nested SetStage result scripts ran in a
-/// 768 KiB thread stack and overflowed 640 KiB [observed: release build, synthetic
-/// quest, 2026-10-24], so they fit a 2 MiB worker thread and, with less room, the 1 MiB
-/// Windows main thread; deeper frames of other nestings are not measured.
+/// recursive SetStage calls work]. It and [`MAX_UDF_DEPTH`] count apart, so the deepest
+/// chain is both: 29 user-defined function calls under a query, the innermost setting a
+/// stage whose result script sets it again 256 deep.
+///
+/// Stack, release build, the smallest thread stack each ran in five times out of five
+/// (`tests/script_stack.rs`, 2026-11-11) [observed]: 256 nested SetStage result scripts
+/// 911 KiB (768 KiB was enough on 2026-10-24); the 30-deep function recursion 271 KiB;
+/// the mixed chain 1166 KiB, more than the 1 MiB Windows main thread a frame's script
+/// system may run on. So a nested run ([`Game::exec_at`], [`Game::run_function`]) that
+/// starts with more than [`STACK_HOP`] of stack used since the outermost run began runs
+/// on a new thread of [`STACK_SEGMENT`] (the calling one waits for it): the limits stay
+/// as documented, and the caller's stack no longer bounds them. With that all three ran
+/// in a 192 KiB thread, five times out of five (the test runs them at 384 KiB)
+/// [observed: same test].
 pub const MAX_DEPTH: u32 = 256;
+
+/// The stack the script nesting may use on one thread before a nested run moves to a
+/// thread of its own: one level takes about 3.5 KiB (a result script) to 9 KiB (a
+/// function) [observed: the measurement above], so a 128 KiB step is 14 to 36 levels,
+/// and a game that never nests that deep never starts a thread.
+pub const STACK_HOP: usize = 128 * 1024;
+
+/// The stack of each thread a deep nesting moves to: eight times [`STACK_HOP`], room for
+/// whatever a host call between two runs takes.
+pub const STACK_SEGMENT: usize = 1024 * 1024;
+
+/// Where the calling thread's stack is now (the address of a local; the distance between
+/// two such readings on one thread is the stack used between them).
+#[inline(never)]
+fn stack_here() -> usize {
+    let marker = 0u8;
+    std::hint::black_box(&marker) as *const u8 as usize
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GameConfig {
@@ -1713,6 +1741,16 @@ pub struct Game<'a> {
     /// ScriptEffectElapsedSeconds inside a ScriptEffectUpdate block (0 elsewhere).
     pub effect_elapsed: f64,
     pub(crate) depth: u32,
+    /// Script runs open now (result scripts, blocks, user-defined functions, queries)
+    /// and the steps the outermost of them and every run under it have taken: one budget
+    /// of [`GameConfig::max_steps`] for the whole call tree ([`Game::open_run`], #1991).
+    runs_open: u32,
+    run_steps: u64,
+    /// Where the stack stood when the outermost run (or this thread's part of the nesting)
+    /// began ([`Game::nested`]).
+    stack_base: usize,
+    /// [`STACK_HOP`]; lower only in tests ([`Game::set_stack_hop`]).
+    stack_hop: usize,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
     /// The (script record, opcode) pairs whose call on an empty reference was already
@@ -2400,6 +2438,10 @@ impl<'a> Game<'a> {
             image_modifiers: Vec::new(),
             effect_elapsed: 0.0,
             depth: 0,
+            runs_open: 0,
+            run_steps: 0,
+            stack_base: 0,
+            stack_hop: STACK_HOP,
             stop_run: false,
             empty_ref_traced: BTreeSet::new(),
             package_scan_due: 0.0,
@@ -2729,6 +2771,79 @@ impl<'a> Game<'a> {
         RunOpts { strict: self.cfg.strict, max_steps: self.cfg.max_steps }
     }
 
+    /// A script run starts: the outermost one (no run open) starts the shared step count
+    /// from 0; a run nested under it (a user-defined function, a result script one of its
+    /// statements started) draws on the same count, so a loop calling a function that
+    /// loops for ever stops at one budget, not one per call [#1991]. Paired with
+    /// [`Game::close_run`].
+    fn open_run(&mut self) {
+        if self.runs_open == 0 {
+            self.run_steps = 0;
+            self.stack_base = stack_here();
+        }
+        self.runs_open += 1;
+    }
+
+    fn close_run(&mut self) {
+        self.runs_open = self.runs_open.saturating_sub(1);
+    }
+
+    /// Tests: the stack the nesting may use before a nested run moves to a thread of its
+    /// own ([`STACK_HOP`] otherwise; 0 moves every nested run).
+    #[doc(hidden)]
+    pub fn set_stack_hop(&mut self, bytes: usize) {
+        self.stack_hop = bytes;
+    }
+
+    /// Run a nested script run `f`: here, or, when this thread's script nesting has used
+    /// more than [`STACK_HOP`] of its stack, on a new thread of [`STACK_SEGMENT`] while this
+    /// one waits (#1991, the deepest nesting needs more than a 1 MiB main thread). The
+    /// host's answerers lent on this thread ([`crate::ray::with_caster`],
+    /// [`crate::nav_ask::with_nav`]) are lent on that one too, so a ray cast or a navmesh
+    /// question gets the same answer however deep it is asked. A panic in it goes on in
+    /// the caller; if no thread can be started it runs here.
+    fn nested<R: Send>(&mut self, f: impl FnOnce(&mut Self) -> R + Send) -> R
+    where
+        Self: Send,
+    {
+        if self.runs_open == 0 || self.stack_base.abs_diff(stack_here()) <= self.stack_hop {
+            return f(self);
+        }
+        /// The caller's lent answerers, carried to the new thread.
+        struct Lent(Option<*const crate::ray::Cast<'static>>, Option<*const (dyn crate::nav_ask::NavAsk + 'static)>);
+        // SAFETY: the pointers are only used on the new thread while this one is blocked
+        // in its `join` (the scope below ends before `with_caster` / `with_nav` on this
+        // thread can return), so their referents are alive and nothing else uses them
+        // meanwhile; the spawn and the join order the two threads' accesses.
+        unsafe impl Send for Lent {}
+        impl Lent {
+            /// The pointers out (a method on the whole, so the closure below moves the
+            /// whole `Lent`, not its fields one by one).
+            fn into_parts(self) -> (Option<*const crate::ray::Cast<'static>>, Option<*const (dyn crate::nav_ask::NavAsk + 'static)>) {
+                (self.0, self.1)
+            }
+        }
+        let lent = Lent(crate::ray::lent(), crate::nav_ask::lent());
+        let mut f = Some(f);
+        let hopped = std::thread::scope(|s| {
+            let (game, f) = (&mut *self, &mut f);
+            let spawned = std::thread::Builder::new().name("nvf-script-nest".into()).stack_size(STACK_SEGMENT).spawn_scoped(s, move || {
+                let (caster, nav) = lent.into_parts();
+                let f = f.take().expect("the nested run is taken once");
+                let base = std::mem::replace(&mut game.stack_base, stack_here());
+                // SAFETY: as for `Lent` above: lent only while the caller waits.
+                let r = unsafe { crate::ray::lend(caster, || crate::nav_ask::lend(nav, || f(&mut *game))) };
+                game.stack_base = base;
+                r
+            });
+            spawned.ok().map(|h| h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
+        });
+        match hopped {
+            Some(r) => r,
+            None => (f.take().expect("not run: the thread did not start"))(self),
+        }
+    }
+
     /// Run statements; returns whether the run ended with `Return` (or a function that
     /// acts as one).
     fn exec(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx) -> bool {
@@ -2738,11 +2853,16 @@ impl<'a> Game<'a> {
     /// [`Game::exec`], from the start or (`resume`) after the place a ScriptWait left;
     /// with the wait the run ended on, if it did.
     fn exec_at(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx, resume: Option<&[(usize, usize)]>) -> (bool, Option<(u32, fnv_script::vm::WaitPoint)>) {
+        self.nested(move |g| g.exec_at_here(unit, stmts, locals, ctx, resume))
+    }
+
+    fn exec_at_here(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx, resume: Option<&[(usize, usize)]>) -> (bool, Option<(u32, fnv_script::vm::WaitPoint)>) {
         if self.depth >= MAX_DEPTH {
             self.emit(EventKind::ScriptError { unit: unit.key(), error: format!("nesting deeper than {MAX_DEPTH}") });
             return (false, None);
         }
         self.depth += 1;
+        self.open_run();
         let opts = self.opts();
         let data = self.data;
         let table = &data.table;
@@ -2753,6 +2873,7 @@ impl<'a> Game<'a> {
             None => vm.run(stmts),
         };
         let wait = vm.take_wait();
+        self.close_run();
         self.depth -= 1;
         if self.depth == 0 {
             self.run_deferred_deaths();
@@ -2863,6 +2984,7 @@ impl<'a> Game<'a> {
         let data = self.data;
         let opts = self.opts();
         self.udf.push(UdfFrame { value: None, caller: None });
+        self.open_run();
         let mut ex = Exec { game: self, unit, locals: Locals::Temp(BTreeMap::new()), ctx };
         let result = Vm::new(&data.table, &mut ex, opts).run(&block.body).map_err(|e| e.to_string());
         if let Locals::Temp(m) = &ex.locals {
@@ -2874,6 +2996,7 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        self.close_run();
         let frame = self.udf.pop();
         let v = frame.and_then(|f| f.value).unwrap_or(XVal::Num(0.0));
         self.ext.hand_over(&v);
@@ -2970,6 +3093,10 @@ impl<'a> Game<'a> {
     /// Defined Function; Lambda]. The function's strings and arrays go when it ends
     /// [documented: Ar Null, arrays of a function script are freed].
     pub fn run_function(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
+        self.nested(move |g| g.run_function_here(f, on, args, caller, ctx))
+    }
+
+    fn run_function_here(&mut self, f: &fnv_script::vm::XVal, on: Option<Value>, args: Vec<fnv_script::vm::XVal>, caller: Option<FormId>, ctx: RunCtx) -> Result<fnv_script::vm::XVal, String> {
         use fnv_script::vm::XVal;
         let id = match f {
             XVal::Ref(id) => *id,
@@ -3002,6 +3129,7 @@ impl<'a> Game<'a> {
             (unit, params, block.body.clone(), None, Locals::Temp(BTreeMap::new()))
         };
         self.udf.push(UdfFrame { value: None, caller });
+        self.open_run();
         let ctx = RunCtx { self_ref: self_ref.or(ctx.self_ref), ..ctx };
         let mut ex = Exec { game: self, unit, locals, ctx };
         let mut vm = Vm::new(&data.table, &mut ex, opts);
@@ -3037,6 +3165,7 @@ impl<'a> Game<'a> {
                 }
             }
         }
+        self.close_run();
         let frame = self.udf.pop();
         self.udf_value_set = frame.as_ref().is_some_and(|f| f.value.is_some());
         let v = match lambda_value {
@@ -4079,6 +4208,10 @@ impl<'a> Game<'a> {
             if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
                 mb.pressed = Some(0);
             }
+        }
+        if m == menus::RACE {
+            // ShowBarberMenuEx's filter is that menu's alone (#2018).
+            self.other.jg10.barber_filter = None;
         }
         self.emit(EventKind::MenuClosed { menu: m });
         self.jip_menu_event("menuclose", m);
@@ -5732,6 +5865,9 @@ impl Exec<'_, '_> {
 }
 
 impl Host for Exec<'_, '_> {
+    fn shared_steps(&mut self) -> Option<&mut u64> {
+        Some(&mut self.game.run_steps)
+    }
     fn var_kind(&mut self, var: &VarRef) -> fnv_script::vm::VarKind {
         use fnv_script::vm::VarKind;
         let VarSlot::Local { index, .. } = var.var else { return VarKind::Value };

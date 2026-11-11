@@ -399,11 +399,13 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
                 14 => {
                     // past 0-255255255 nothing is set [observed: jip7b ipct.setcolour.255255256, .m1]
                     let Some(c) = take(v, Take::Int).filter(|c| (0.0..=255_255_255.0).contains(c)) else { return Some(Ok(zero)) };
-                    let c = c as u64;
-                    for (k, p) in [(c / 1_000_000) % 1000, (c / 1000) % 1000, c % 1000].into_iter().zip(["color.red", "color.green", "color.blue"]) {
-                        // a channel past 255 is kept as given (300 reads 300) [observed: jip7b
-                        // ipct.setcolour.300]
-                        g.set_field(i, "DODT", p, XVal::Num(k as f64));
+                    let c = c as u32;
+                    // RRRGGGBBB packed as R + G × 256 + B × 65536 into the colour's four
+                    // bytes, a channel past 255 carrying into the next (16777215 reads back
+                    // 16009218) [observed: jip-records-7.md, the colour's packing; #2039].
+                    let word = (c / 1_000_000) + (c / 1000 % 1000) * 256 + (c % 1000) * 65536;
+                    for (k, p) in COLOUR_BYTES.iter().enumerate() {
+                        g.set_field(i, "DODT", p, XVal::Num(f64::from((word >> (8 * k)) & 0xFF)));
                     }
                 }
                 _ => {}
@@ -546,8 +548,25 @@ fn impact_flags(g: &Game, i: FormId) -> u64 {
     data | (decal << 1)
 }
 
-/// The decal colour as R × 1000000 + G × 1000 + B [documented: "Color (RRRGGGBBB)"].
+/// The decal colour's four bytes, the last ByteColor's unused one.
+const COLOUR_BYTES: [&str; 4] = ["color.red", "color.green", "color.blue", "color.unused"];
+
+/// A record's decal colour as one 32-bit word; `None` without decal data.
+fn colour_word(g: &Game, f: FormId) -> Option<u32> {
+    crate::nvse::record_value(g, f, "DODT", "color.red")?;
+    Some(COLOUR_BYTES.iter().enumerate().fold(0, |w, (k, p)| w | ((g.num_field(f, "DODT", p) as u32 & 0xFF) << (8 * k))))
+}
+
+/// The decal colour as R × 1000000 + G × 1000 + B [documented: "Color (RRRGGGBBB)"]: R
+/// the first byte, G the second, B the upper 16 bits unmasked. An impact without decal
+/// data reads its texture set's; with no texture set all four bytes are FF, 255320535
+/// [observed: jip-records-7.md, the colour's packing; #2039; hypothesis: a texture set
+/// without decal data reads the same].
 fn impact_colour(g: &Game, i: FormId) -> f64 {
-    let c: Vec<f64> = ["color.red", "color.green", "color.blue"].iter().map(|p| g.num_field(i, "DODT", p)).collect();
-    c[0] * 1_000_000.0 + c[1] * 1000.0 + c[2]
+    let set = || match crate::nvse::record_value(g, i, "DNAM", "") {
+        Some(XVal::Ref(t)) if t != 0 => colour_word(g, FormId(t)),
+        _ => None,
+    };
+    let w = colour_word(g, i).or_else(set).unwrap_or(u32::MAX);
+    f64::from(w & 0xFF) * 1_000_000.0 + f64::from((w >> 8) & 0xFF) * 1000.0 + f64::from(w >> 16)
 }

@@ -172,6 +172,13 @@ pub trait Host {
     fn take_return(&mut self) -> bool {
         false
     }
+    /// The step counter of the outermost run, which every run nested under it (a
+    /// user-defined function, a result script a statement started) draws on, so the
+    /// budget ([`RunOpts::max_steps`]) holds for the whole call tree [#1991]; `None`: each
+    /// run counts its own.
+    fn shared_steps(&mut self) -> Option<&mut u64> {
+        None
+    }
     /// How a variable is stored (the extender's `string_var` and `array_var` hold ids).
     fn var_kind(&mut self, _var: &VarRef) -> VarKind {
         VarKind::Value
@@ -328,7 +335,8 @@ pub struct RunOpts {
     /// Unknown opcodes and undecodable pieces fail the run (tests) instead of being
     /// logged and skipped (the game).
     pub strict: bool,
-    /// Statements (and calls) one run may execute: a runaway loop of the extender's
+    /// Statements (and calls) one run may execute, with the runs nested under it when the
+    /// host shares its counter ([`Host::shared_steps`]): a runaway loop of the extender's
     /// (`while`, each round counted) or runaway recursion through the host (a stage that
     /// sets itself) stops there.
     pub max_steps: u64,
@@ -438,7 +446,7 @@ impl<'t, 'h> Vm<'t, 'h> {
         self.list_from(stmts, in_else, i + 1)
     }
 
-    /// Statements executed so far.
+    /// Statements executed so far by this run (not counting the runs nested under it).
     pub fn steps(&self) -> u64 {
         self.steps
     }
@@ -504,7 +512,14 @@ impl<'t, 'h> Vm<'t, 'h> {
 
     fn step(&mut self) -> Result<(), VmError> {
         self.steps += 1;
-        if self.steps > self.opts.max_steps {
+        let used = match self.host.shared_steps() {
+            Some(shared) => {
+                *shared += 1;
+                *shared
+            }
+            None => self.steps,
+        };
+        if used > self.opts.max_steps {
             return Err(VmError::Budget(self.opts.max_steps));
         }
         Ok(())

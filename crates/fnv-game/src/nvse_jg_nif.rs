@@ -195,17 +195,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // `block index [pc]`: the NiSwitchNode shows its child of that index alone
         // [documented: "Sets the active index"]; the others are hidden by their flag
-        // (bit 0) through the NIF block edits. An index past the children hides them all
-        // [hypothesis].
+        // (bit 0), each child by its place under the switch, not by its name: a switch's
+        // children are often unnamed or share names (#2017). An index past the children
+        // hides them all [hypothesis].
         "setswitchnodeindex" => {
             let Some(r) = on else { return Some(Ok(zero)) };
             let k = num(args, 1, -1.0) as i64;
-            if let Some((_, kids)) = crate::nif_blocks::node_and_children(g, r, &text(args, 0)) {
-                for (i, child) in kids.iter().enumerate() {
-                    let hide = i as i64 != k;
-                    let _ = crate::nif_blocks::call(g, "setnifblockflag", Some(r), &[XVal::Str(child.clone()), XVal::Num(0.0), XVal::Num(f64::from(u8::from(hide)))]);
-                }
-            }
+            crate::nif_blocks::show_one_child(g, r, &text(args, 0), usize::try_from(k).ok());
             zero
         }
         // `sequence [block] [pc]`: a sequence of that name playing on the reference: its

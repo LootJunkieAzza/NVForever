@@ -33,8 +33,14 @@ nothing and gives -1 [hypothesis]. A health percentage takes any whole number: i
 unsigned 32-bit value and is kept modulo 101 (150 reads 49, 1000 reads 91, -1 reads 67)
 [observed: jip6 dest.settrait.1.0.*, jip6b dest.hp.*]. The self damage and the debris count
 take what they are given [observed: jip6b dest.selfdmg.*, dest.debris.*]. The model damage
-stage takes 2, 3 and 4 but refuses 10, and 255, 256, 300 and -1 read 3, 4, 3 and 3
-afterwards (jip6b dest.stage.*): no rule found, so NVForever still keeps a byte there. The int arguments reach the
+stage works the same way, modulo 9: the value wraps as an unsigned 32-bit number and is kept
+modulo 9, so 9 reads 0, 10 reads 1, 255 reads 3, 256 reads 4, 300 reads 3, 1000 reads 1,
+-1 (4294967295) reads 3 and -5 reads 8. No value is refused: the old "10 is refused" read
+was 10 modulo 9, the stage's own 1. Records with 1, 2, 3, 4 and 6 stages, first and last
+stage alike, give the same results [observed 2026-11-11: VHDExplosiveGeneratorActivator,
+TrapBabyCarriage, V22MushroomDoorBusterTrap01, FusionGenerator01 and Truck08, 40 values from
+-5 to 1000, each set over 2 and again over 3; probe job `rules2039`, results private].
+Read as the field's range 0-8, as the health percentage's modulo 101 is 0-100 [hypothesis]. The int arguments reach the
 functions already made whole (the VM's int conversion), so a number past the i32 field
 arrives as its nearest end.
 The setters return 0, except SetNthDestructionStageReplacement, which returns 1 [observed:
@@ -85,7 +91,8 @@ Sets jip6 (92 rows) and jip6b (37 rows) of `tools/capture/jip_probes.py`, run fr
 CrSuperMutantDeadMinigunRubyHill, Craig Boone and VCGTutorialJump; goldens private (lab
 L5.ext.jip6, L5.ext.jip6b). The values the tables above now tag [observed] come from them.
 Equal after the fixes: jip6 90 of 92, jip6b 32 of 37. Left:
-- the model damage stage's out-of-range values (above: five rows, no rule found);
+- the model damage stage's out-of-range values: settled on 2026-11-11 (§1: modulo 9; #2039)
+  and built (`nvse_jip6.rs`): jip6 91 of 91, jip6b 37 of 37 since;
 - `SetNthDestructionStageTrait rObj 1 1 3.5` did not compile in the game ("script did not
   compile"): a fractional literal for this argument is refused by the game's compiler
   [observed], and by NVForever's runtime compile since #2037 (ext-syntax.md §11).

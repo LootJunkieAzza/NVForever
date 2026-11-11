@@ -446,15 +446,23 @@ pub(crate) fn call(g: &mut Game, _ctx: &RunCtx, name: &str, subject: Option<Form
         }
         // `item index`: the entry goes from the item's list; the new count, -1 when
         // there is none or it is the last one [documented].
+        // The index is the scripts' list's (`Game::effect_slot`, #2016): AddNewEffect's
+        // entries can go too.
         "removentheffect" => {
+            use crate::nvse_jip14::EffectSlot;
             let (Some(f), Some(i)) = (form(args, 0), num(args, 1)) else { return Some(Ok(XVal::Num(-1.0))) };
-            let left = g.effect_indices(f);
-            let Some(&index) = usize::try_from(i as i64).ok().and_then(|i| left.get(i)) else { return Some(Ok(XVal::Num(-1.0))) };
-            if left.len() < 2 {
+            let count = g.effect_count(f);
+            let Some(slot) = usize::try_from(i as i64).ok().and_then(|i| g.effect_slot(f, i)) else { return Some(Ok(XVal::Num(-1.0))) };
+            if count < 2 {
                 return Some(Ok(XVal::Num(-1.0)));
             }
-            g.other.jip11.removed_effects.entry(f).or_default().insert(index);
-            XVal::Num((left.len() - 1) as f64)
+            match slot {
+                EffectSlot::Own(r) => {
+                    g.other.jip11.removed_effects.entry(f).or_default().insert(r);
+                }
+                EffectSlot::Added { back, at } => g.remove_added_effect(f, back, at),
+            }
+            XVal::Num(g.effect_count(f) as f64)
         }
         // `index` into GetTempEffects' list: that effect is dispelled [documented].
         "removenthtempeffect" => {

@@ -1594,7 +1594,7 @@ impl Plugin for CombatPlugin {
                 Update,
                 (track_limbs, (perk_speed, stat_speed), player_flinch, arm_sway, weapon_state, equip_sync, run_pace, reload_pace, weapon_sounds, fire, melee, actor_attacks, fly, crate::dismember::resolve, crate::mines::tick, crate::thrown::land, disarm, death_drops, meltdown, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
-            .add_systems(Update, (draw_marks, watch_hit_effects).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (draw_marks, watch_hit_effects, leave_space_shots).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -4139,7 +4139,7 @@ fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&Scri
 
 /// What a shot sends out: sounds, impact effects, explosions, broken weapons, and what
 /// each impact picked (for `crate::world_sounds`).
-type ShotEffects<'w> = (MessageWriter<'w, PlaySound>, MessageWriter<'w, ImpactFx>, MessageWriter<'w, ExplosionFx>, MessageWriter<'w, WeaponBroken>, MessageWriter<'w, crate::world_sounds::ImpactPicked>);
+type ShotEffects<'w> = (MessageWriter<'w, PlaySound>, MessageWriter<'w, ImpactFx>, MessageWriter<'w, ExplosionFx>, MessageWriter<'w, WeaponBroken>, MessageWriter<'w, crate::world_sounds::ImpactPicked>, MessageWriter<'w, crate::RefChanged>);
 
 /// Fly the projectiles, deliver hits when due, set off explosions (and what they set
 /// off: destruction stages, detonations).
@@ -4404,6 +4404,51 @@ fn script_shot(sim: &SimState, from: FormId, weapon: FormId, muzzle: Option<[f32
     Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false })
 }
 
+/// A door travel leaves the shots of the space left behind: what is in flight, the hits
+/// on their way and the blasts not yet gone off stand at coordinates of that space, and
+/// would go on in the new one at the same numbers (#1986). They are dropped, their script
+/// references with them [design]. A charge or mine at rest is a reference of its cell and
+/// stays there. Not gated on play, as the loading screen is up when the travel goes out.
+fn leave_space_shots(mut travel: MessageReader<crate::Travel>, mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut visuals: ResMut<ShotVisuals>) {
+    if travel.read().count() == 0 {
+        return;
+    }
+    let n = c.flying.len() + c.pending.len() + c.boom.len();
+    if n == 0 {
+        return;
+    }
+    let gone: Vec<FormId> = c.flying.iter().filter_map(|f| f.rref).chain(c.pending.iter().filter_map(|p| p.rref)).collect();
+    c.flying.clear();
+    c.pending.clear();
+    c.boom.clear();
+    c.ghosts.clear();
+    visuals.flying.clear();
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        with_world(rt, &mut sim, |rt| {
+            for r in gone {
+                rt.game.projectile_gone(r);
+            }
+        });
+    }
+    info!("combat: a door travel drops {n} shot(s) and blast(s) of the space left");
+}
+
+/// The charges `actor` put down that wait for their detonator (#1986): the references
+/// made where a Detonates projectile (C-4) came to rest ([`SettledMine`], placed by
+/// `crate::mines`), owned by `actor`, not taken or gone off, in the loaded cells (one in a
+/// cell that is not loaded stays where it is [design]). With where each lies, its
+/// explosion and the weapon it came from (its PROJ's default weapon).
+fn placed_charges(forms: &CombatForms, sim: &SimState, phys: &PhysState, actor: FormId) -> Vec<(FormId, V3, FormId, FormId)> {
+    sim.world
+        .created()
+        .filter(|(id, r)| !r.deleted() && r.extra.owner == Some(actor) && phys.created.contains_key(&id.0) && sim.present(id.0))
+        .filter_map(|(id, r)| {
+            let p = forms.projectiles.get(&r.base).filter(|p| p.has("Detonates"))?;
+            Some((id, r.pos, p.explodes()?, p.default_weapon.unwrap_or(FormId(0))))
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fly(
     time: Res<Time>,
@@ -4465,6 +4510,16 @@ fn fly(
                 }
             }
             c.flying.retain(|f| f.p.alive);
+            // Charges at rest are references ([`placed_charges`], #1986).
+            for (id, pos, explosion, weapon) in placed_charges(&c.forms, &sim, &phys, actor) {
+                if let Err(e) = sim.world.set_deleted(id, true) {
+                    warn!("combat: charge {id} could not be removed: {e}");
+                    continue;
+                }
+                effects.5.write(crate::RefChanged::new(id.0));
+                c.boom.push((explosion, pos, Some(Cause { actor, weapon }), None));
+                n += 1;
+            }
             info!("combat: {actor} detonates placed explosives: {n}");
         }
         for (r, ch) in burning {

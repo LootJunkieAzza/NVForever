@@ -108,6 +108,49 @@ fn a_function_frames_later() {
     assert_eq!(n(&mut g, "PlayerREF.AuxVarGetFlt \"*sup4\""), 1.0);
 }
 
+/// GetNearCells' rule at the three outdoor spots of ext-sup4.md §5 (#2039): only loaded
+/// cells; a cell with y < 0 is counted at x + 1, the player's own cell as it is; each
+/// axis apart.
+#[test]
+fn near_cells_rule() {
+    use fnv_game::nvse_sup4::near_in_grid;
+    // A loaded grid, x and y ranges inclusive; each cell's id packs its coordinates.
+    let grid = |xs: std::ops::RangeInclusive<i32>, ys: std::ops::RangeInclusive<i32>| -> Vec<((i32, i32), FormId)> {
+        ys.flat_map(|y| xs.clone().map(move |x| ((x, y), FormId(((x + 100) as u32) << 8 | (y + 100) as u32)))).collect()
+    };
+    let coords = |cells: Vec<FormId>| -> Vec<(i32, i32)> { cells.into_iter().map(|c| ((c.0 >> 8) as i32 - 100, (c.0 & 0xFF) as i32 - 100)).collect() };
+    let near = |g: &[((i32, i32), FormId)], at, d: f64| coords(near_in_grid(g.iter().copied(), at, d));
+    let xs = |cells: &[(i32, i32)], y: i32| -> Vec<i32> { cells.iter().filter(|c| c.1 == y).map(|c| c.0).collect() };
+
+    // At 9,-29, every cell south of the origin: depth 1 x 7..9, depth 2 x 7..10 (20 cells,
+    // the sup4 row), depth 3, 4 and -1 the 25 loaded.
+    let at_airport = grid(7..=11, -31..=-27);
+    let d1 = near(&at_airport, (9, -29), 1.0);
+    assert_eq!((d1.len(), xs(&d1, -29)), (9, vec![7, 8, 9]));
+    let d2 = near(&at_airport, (9, -29), 2.0);
+    assert_eq!((d2.len(), xs(&d2, -29)), (20, vec![7, 8, 9, 10]));
+    for d in [3.0, 4.0, -1.0] {
+        assert_eq!(near(&at_airport, (9, -29), d).len(), 25, "depth {d}");
+    }
+    assert_eq!(near(&at_airport, (9, -29), 0.0).len(), 1);
+
+    // At 0,0: depth 1 gives row -1 as x -2..0 and rows 0 and 1 as -1..1; depth 2 gives 23,
+    // rows -2 and -1 losing x 2.
+    let at_origin = grid(-2..=2, -2..=2);
+    let d1 = near(&at_origin, (0, 0), 1.0);
+    assert_eq!((xs(&d1, -1), xs(&d1, 0), xs(&d1, 1)), (vec![-2, -1, 0], vec![-1, 0, 1], vec![-1, 0, 1]));
+    let d2 = near(&at_origin, (0, 0), 2.0);
+    assert_eq!((d2.len(), xs(&d2, -2), xs(&d2, -1)), (23, vec![-2, -1, 0, 1], vec![-2, -1, 0, 1]));
+
+    // At -10,4 no cell has y < 0: a centred square cut to the 5 × 6 loaded grid.
+    let north = grid(-12..=-8, 2..=7);
+    assert_eq!(near(&north, (-10, 4), 1.0).len(), 9);
+    assert_eq!(near(&north, (-10, 4), 2.0).len(), 25);
+    for d in [3.0, 4.0, -1.0] {
+        assert_eq!(near(&north, (-10, 4), d).len(), 30, "depth {d}");
+    }
+}
+
 #[test]
 fn saves_cells_and_the_rest() {
     let f = fixture();

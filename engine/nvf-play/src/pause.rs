@@ -215,7 +215,7 @@ use crate::interface::{bc_supported, u, Face, Picture, Pictures};
 use crate::settings::{add_setting, Setting, Settings};
 use crate::settings_layout::{ResolvedLayout, CONTROLS_TAB};
 use crate::settings_view::{ControlRow, Found, RailItem, RowId, SettingsFocus, SettingsLayout, SettingsScope, ViewEntry, Visibility, NO_ROW_SOUND, SEARCH, WINDOW_ROWS};
-use fnv_util::words::tr;
+use fnv_util::words::{tr, tr_str};
 use crate::start_menu::{color, highlight_colors, text as sm_text, Faces, Shade, BASE, COLUMN, ITEM, LINE, RIGHT, SUB_RIGHT, SUB_WIDTH};
 use crate::{PlaySet, PlayState};
 use bevy::ecs::system::SystemParam;
@@ -1353,20 +1353,21 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
             let lit = d.page_entry();
             for (i, (label, ok)) in d.column.iter().enumerate() {
                 let shade = if (on_column && *ok) || (!on_column && i == lit) { Shade::Bright } else { Shade::Dim };
-                right_entry(root, &f.entry, label, from_right(RIGHT, top + i as f32 * ITEM, COLUMN - 5.0, ITEM), COLUMN - 5.0, shade, on_column && i == d.main_selected, PauseButton::Column(i), glyphs);
+                right_entry(root, &f.entry, tr_str(label), from_right(RIGHT, top + i as f32 * ITEM, COLUMN - 5.0, ITEM), COLUMN - 5.0, shade, on_column && i == d.main_selected, PauseButton::Column(i), glyphs);
             }
             match d.page {
                 Page::Main => {
                     if let Some(sel) = d.confirm {
                         // The question: its lines end left of the choices [observed: the owner's screenshot].
-                        let qw = f.entry.font.width(QUESTION);
+                        let (warning, question) = (tr(WARNING), tr(QUESTION));
+                        let qw = f.entry.font.width(question);
                         let at = 280.0;
-                        root.spawn(from_middle(at - 20.0 - qw, 480.0 - ITEM, 900.0, ITEM)).with_children(|t| sm_text(t, &f.entry, WARNING, 0.0, BASE, color(Shade::Bright)));
-                        root.spawn(from_middle(at - 20.0 - qw, 480.0, qw, ITEM)).with_children(|t| sm_text(t, &f.entry, QUESTION, 0.0, BASE, color(Shade::Bright)));
-                        let width = CONFIRM.iter().map(|c| f.entry.font.width(c)).fold(0.0, f32::max) + 30.0;
+                        root.spawn(from_middle(at - 20.0 - qw, 480.0 - ITEM, 900.0, ITEM)).with_children(|t| sm_text(t, &f.entry, warning, 0.0, BASE, color(Shade::Bright)));
+                        root.spawn(from_middle(at - 20.0 - qw, 480.0, qw, ITEM)).with_children(|t| sm_text(t, &f.entry, question, 0.0, BASE, color(Shade::Bright)));
+                        let width = CONFIRM.iter().map(|c| f.entry.font.width(tr(c))).fold(0.0, f32::max) + 30.0;
                         for (i, c) in CONFIRM.iter().enumerate() {
                             root.spawn((Button, PauseButton::Confirm(i), boxed(from_middle(at, 480.0 + i as f32 * ITEM, width, ITEM), i == sel)))
-                            .with_children(|t| sm_text(t, &f.entry, c, 10.0, BASE, color(Shade::Bright)));
+                            .with_children(|t| sm_text(t, &f.entry, tr(c), 10.0, BASE, color(Shade::Bright)));
                         }
                     } else if !d.status.is_empty() {
                         root.spawn((PauseStatusText, from_right(RIGHT, top + d.column.len() as f32 * ITEM + 10.0, 700.0, ITEM))).with_children(|t| {
@@ -1382,9 +1383,9 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
             // Back (and Defaults) at the bottom right.
             if d.page != Page::Main {
                 let on = |item| matches!(d.page, Page::Settings { .. }) && d.focus == SettingsFocus::Rail(item);
-                right_entry(root, &f.entry, "Back", from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
+                right_entry(root, &f.entry, tr("Back"), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
                 if matches!(d.page, Page::Settings { .. }) {
-                    right_entry(root, &f.entry, "Defaults", from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
+                    right_entry(root, &f.entry, tr("Defaults"), from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
                 }
             }
             if let Some((label, left, sel)) = d.keep {
@@ -1401,8 +1402,11 @@ fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: 
     root.spawn((crate::interface::over_view(full(), crate::interface::MIDDLE, true), BackgroundColor(Color::BLACK.with_alpha(0.6)), Button, GlobalZIndex(112)));
     let (w, h) = (640.0, 4.0 * ITEM + 40.0);
     let (line, _) = highlight_colors();
-    let question = format!("Keep this {}?", label.to_lowercase());
-    let count = format!("Going back in {left} s.");
+    // The row's name as the language writes it; English's in lower case ("Keep this resolution?").
+    let row = tr_str(label);
+    let row = if row == label { label.to_lowercase() } else { row.to_string() };
+    let question = fnv_util::words::trf("Keep this {row}?", &[("row", &row)]);
+    let count = fnv_util::words::trf("Going back in {left} s.", &[("left", &left)]);
     root.spawn((KeepLine, Text::new(format!("{question} {count}")), Node { display: Display::None, ..default() }));
     root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(-w / 2.0, 480.0 - h / 2.0, w, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(113))).with_children(|b| {
         for (k, t) in [&question, &count].into_iter().enumerate() {
@@ -1412,6 +1416,7 @@ fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: 
         let bw = 180.0;
         for (k, a) in KEEP_ANSWERS.iter().enumerate() {
             let x = w / 2.0 + if k == 0 { -bw - 20.0 } else { 20.0 };
+            let a = tr(a);
             let aw = f.entry.font.width(a);
             b.spawn((Button, PauseButton::Keep(k), boxed(at(x, 20.0 + 2.0 * ITEM + 20.0, bw, ITEM), k == sel))).with_children(|r| sm_text(r, &f.entry, a, (bw - aw) / 2.0, BASE, color(Shade::Bright)));
         }
@@ -1466,6 +1471,7 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let (line, _) = highlight_colors();
     root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(left + LIST_LEFT, y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
         for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
+            let name = tr_str(name);
             let nw = f.entry.font.width(name);
             b.spawn((Button, PauseButton::Choice(o.row, k), boxed(at(0.0, (k - o.first) as f32 * DROP_ITEM, LIST_WIDTH - 2.0 * LINE, DROP_ITEM), k == o.at)))
             .with_children(|r| sm_text(r, &f.entry, name, (LIST_WIDTH - nw) / 2.0 - LINE, DROP_ITEM * 0.72, color(Shade::Bright)));
@@ -1645,8 +1651,11 @@ fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, chosen: &s
     let bright = color(Shade::Bright);
     let (line, fill) = highlight_colors();
     r.spawn((Node { border: UiRect::all(u(LINE)), ..at(LIST_LEFT, 6.0, LIST_WIDTH, OPTION_ROW - 12.0) }, BorderColor::all(line.with_alpha(if open { 1.0 } else { 0.6 })), BackgroundColor(if open { fill } else { Color::NONE })));
-    let vw = look.faces.entry.font.width(chosen);
+    // The state kept as text stays the English name (tests and aids read it); the page
+    // shows it in the language chosen.
     r.spawn((SwitchState(i), Text::new(chosen), Node { display: Display::None, ..default() }));
+    let chosen = tr_str(chosen);
+    let vw = look.faces.entry.font.width(chosen);
     sm_text(r, &look.faces.entry, chosen, LIST_LEFT + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, bright);
     // The right arrow turned to point down.
     let node = at(LIST_LEFT + LIST_WIDTH - 30.0, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
@@ -1792,8 +1801,10 @@ fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: RowId, v: f32, 
             None => r.spawn((Button, PauseButton::SliderStep(i, step), node, BackgroundColor(bright.with_alpha(0.5)))),
         };
     }
-    let vw = look.faces.entry.font.width(value);
     r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
+    // A value with words ("Off" on the frame rate limit) in the language shown.
+    let value = tr_str(value);
+    let vw = look.faces.entry.font.width(value);
     sm_text(r, &look.faces.entry, value, PERCENT_AT - vw / 2.0, BASE + 2.0, bright);
 }
 
