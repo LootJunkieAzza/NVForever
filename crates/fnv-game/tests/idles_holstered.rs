@@ -6,12 +6,13 @@
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::functions::Ctx;
-use fnv_game::game::{Game, GameConfig};
+use fnv_game::game::{FurnitureUse, Game, GameConfig};
 use fnv_game::idles::FidgetKind;
 use fnv_game::GameData;
 use fnv_script::vm::{ArgValue, Value};
 use fnv_script::FunctionTable;
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+use rand_core::RngCore;
 use serde_json::Value as Json;
 
 fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
@@ -95,6 +96,10 @@ const L_NAILS: u32 = 0xA18;
 const L_SCRATCH: u32 = 0xA19;
 
 const P_EAT: u32 = 0xB01;
+/// A Travel package with an idle collection, and one flagged No Idle Anims (PKDT flag
+/// bit 24).
+const P_COLLECTION: u32 = 0xB02;
+const P_QUIET: u32 = 0xB03;
 
 /// Actor bases and their placed references (base + 0x100): in both factions, the
 /// smokers' only, the general one only, in neither.
@@ -111,7 +116,8 @@ fn plugin_bytes() -> Vec<u8> {
         idle(L_DRINK, "TestDrink", true, R_EAT, 0, vec![]),
         idle(R_GENERAL, "TestGeneralRoot", false, 0, R_EAT, vec![]),
         idle(N_NPC, "TestNpcOnly", false, R_GENERAL, 0, vec![ctda(EQ, GET_IS_ID, 0x7, 0.0)]),
-        idle(N_WEAPON, "TestWeaponOut", false, N_NPC, 0, vec![ctda(EQ, IS_WEAPON_OUT, 0, 1.0)]),
+        // The weapon-out node rolls a random percentage too (it always passes).
+        idle(N_WEAPON, "TestWeaponOut", false, N_NPC, 0, vec![ctda(EQ, IS_WEAPON_OUT, 0, 1.0), always()]),
         idle(L_WEAPON, "TestWeaponLeaf", true, N_WEAPON, 0, vec![]),
         idle(N_AWAY, "TestWeaponAway", false, N_NPC, N_WEAPON, vec![ctda(EQ, IS_WEAPON_OUT, 0, 0.0)]),
         idle(L_NEVER, "TestNever", true, N_AWAY, 0, vec![ctda(LT, GET_RANDOM_PERCENT, 0, 0.0)]),
@@ -122,17 +128,21 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let factions = [F_SMOKER, F_GENERAL].map(|f| record(b"FACT", f, &[sub(b"EDID", z(&format!("TestFaction{f:X}"))), sub(b"DATA", vec![0, 0, 0, 0])])).concat();
-    // An Eat package (PKDT type 3), at the editor location.
-    let eat = record(
-        b"PACK",
-        P_EAT,
-        &[
-            sub(b"EDID", z("TestEat")),
-            sub(b"PKDT", [&0u32.to_le_bytes()[..], &[3, 0], &[0; 6]].concat()),
+    // An Eat package (PKDT type 3), a Travel one (6) with an idle collection, and a
+    // Travel one flagged No Idle Anims, at the editor location.
+    let pack = |fid: u32, edid: &str, flags: u32, ty: u8, collection: bool| {
+        let mut subs = vec![
+            sub(b"EDID", z(edid)),
+            sub(b"PKDT", [&flags.to_le_bytes()[..], &[ty, 0], &[0; 6]].concat()),
             sub(b"PLDT", [0i32.to_le_bytes(), 0u32.to_le_bytes(), 0i32.to_le_bytes()].concat()),
             sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
-        ],
-    );
+        ];
+        if collection {
+            subs.extend([sub(b"IDLF", vec![1]), sub(b"IDLC", vec![1]), sub(b"IDLT", 0f32.to_le_bytes().to_vec()), sub(b"IDLA", L_DRINK.to_le_bytes().to_vec())]);
+        }
+        record(b"PACK", fid, &subs)
+    };
+    let eat = [pack(P_EAT, "TestEat", 0, 3, false), pack(P_COLLECTION, "TestCollection", 0, 6, true), pack(P_QUIET, "TestQuiet", 1 << 24, 6, false)].concat();
     let snam = |f: u32| sub(b"SNAM", [f.to_le_bytes().to_vec(), vec![0, 0, 0, 0]].concat());
     let npcs = [
         record(b"NPC_", 0x7, &[sub(b"EDID", z("Player"))]),
@@ -226,15 +236,80 @@ fn the_weapon_out_takes_the_other_branch() {
     assert_eq!(g.fidget(actor, FOLDER, FidgetKind::WeaponAway, &|_| false), Some(FormId(L_SMOKE)));
 }
 
+fn add_script_package(g: &mut Game, actor: FormId, package: u32) {
+    let ctx = Ctx { unit: "test".into(), opcode: 0x1097, on: Some(actor), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(package))]);
+    assert_eq!(g.extra[&actor].current_package, Some(FormId(package)));
+}
+
+/// The weapon-away walks roll on the idle tree's own generator: polling every
+/// holstered NPC leaves the scripts' random numbers as they were. (The drawn-weapon
+/// walks still roll on the scripts' generator.)
+#[test]
+fn holstered_polling_leaves_the_script_random_numbers_alone() {
+    let f = fixture();
+    let mut g = game(&f);
+    let before = g.rng.clone();
+    for _ in 0..50 {
+        for base in [BOTH, SMOKER, GENERAL, NEITHER] {
+            away(&mut g, base);
+        }
+    }
+    let (mut a, mut b) = (before, g.rng.clone());
+    assert_eq!((0..8).map(|_| a.next_u32()).collect::<Vec<_>>(), (0..8).map(|_| b.next_u32()).collect::<Vec<_>>(), "the scripts' generator did not move");
+    // The test sees a walk that rolls: the weapon-out node's random percentage.
+    let actor = FormId(BOTH + 0x100);
+    g.set_weapon_out(actor, true);
+    let before = g.rng.clone();
+    assert_eq!(g.fidget(actor, FOLDER, FidgetKind::WeaponOut, &|_| false), Some(FormId(L_WEAPON)));
+    let (mut a, mut b) = (before, g.rng.clone());
+    assert_ne!(a.next_u32(), b.next_u32(), "a drawn-weapon walk rolls on the scripts' generator");
+}
+
+/// The test aid's fixed percentage: GetRandomPercent reads it while set.
+#[test]
+fn a_fixed_random_percent_is_read_while_set() {
+    let f = fixture();
+    let mut g = game(&f);
+    let ctx = Ctx { unit: "test".into(), opcode: 0x104D, on: Some(FormId(BOTH + 0x100)), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.fixed_random_percent = Some(42);
+    assert_eq!(g.call_function(&ctx, &[]).num(), 42.0);
+    g.fixed_random_percent = Some(250);
+    assert_eq!(g.call_function(&ctx, &[]).num(), 99.0, "held to a percentage");
+    g.fixed_random_percent = None;
+    let rolled = g.call_function(&ctx, &[]).num();
+    assert!((0.0..100.0).contains(&rolled));
+}
+
+/// What has idles of its own holds off the weapon-away fidgets (`Game::fidget_held_off`):
+/// furniture, a package with an idle collection, a package flagged No Idle Anims.
+#[test]
+fn furniture_and_packages_with_their_own_idles_hold_off_holstered_fidgets() {
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(GENERAL + 0x100);
+    assert!(!g.fidget_held_off(actor), "no package, on its feet");
+    add_script_package(&mut g, actor, P_EAT);
+    assert!(!g.fidget_held_off(actor), "an Eat package without idles of its own");
+    add_script_package(&mut g, actor, P_COLLECTION);
+    assert!(g.fidget_held_off(actor), "a package with an idle collection");
+    add_script_package(&mut g, actor, P_QUIET);
+    assert!(g.fidget_held_off(actor), "a package flagged No Idle Anims");
+    let other = FormId(SMOKER + 0x100);
+    assert!(!g.fidget_held_off(other));
+    g.set_furniture_use(other, Some(FurnitureUse { reference: FormId(CELL), marker_id: 1, state: 2 }));
+    assert!(g.fidget_held_off(other), "getting on furniture");
+    g.set_furniture_use(other, None);
+    assert!(!g.fidget_held_off(other));
+}
+
 #[test]
 fn an_actor_eating_drinks_whatever_its_factions() {
     let f = fixture();
     let mut g = game(&f);
     let actor = FormId(NEITHER + 0x100);
     assert_eq!(away(&mut g, NEITHER), None);
-    let ctx = Ctx { unit: "test".into(), opcode: 0x1097, on: Some(actor), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
-    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(P_EAT))]);
-    assert_eq!(g.extra[&actor].current_package, Some(FormId(P_EAT)));
+    add_script_package(&mut g, actor, P_EAT);
     // The eat root comes first in the chain and wants the eat procedure (10).
     assert_eq!(away(&mut g, NEITHER), Some(L_DRINK));
     // With the weapon out the eat root's `IsWeaponOut != 1` fails.

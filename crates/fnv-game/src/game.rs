@@ -1728,6 +1728,11 @@ pub struct Game<'a> {
     /// The random numbers of the idle tree's talking gestures (`crate::idles`), kept
     /// apart so that picking them does not move the scripts' `rng`. Not saved.
     pub(crate) idle_rng: ChaCha8Rng,
+    /// Test aid: while set, `GetRandomPercent` reads this (0 to 99) instead of a roll.
+    /// The engine sets it only around the walks for fidgets with the weapon away
+    /// (`NVF_PLAY_TEST_HOLSTERED_ROLL`), so a smoke run can make the idle tree's random
+    /// branches pass and check their clips play (#2026). Not saved.
+    pub fixed_random_percent: Option<u32>,
     /// Run-time changes to base forms and cells.
     pub forms: FormChanges,
     /// Magic effects active on actors, in the order they started.
@@ -2436,6 +2441,7 @@ impl<'a> Game<'a> {
             stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
             idle_rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x1D1E_7A1C),
+            fixed_random_percent: None,
             forms: FormChanges::default(),
             effects: Vec::new(),
             next_effect: 1,

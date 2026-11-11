@@ -307,11 +307,38 @@ impl<'a> Game<'a> {
     ///   under an NPC-only node, the player's under a node that wants the weapon away),
     ///   so the walk starts at each node that requires the weapon out, its own
     ///   conditions and those below it judged, those above it not.
+    ///
+    /// The weapon-away walks ([`FidgetKind::WeaponAway`], asked of every NPC standing
+    /// holstered) draw `GetRandomPercent` from the idle tree's own generator, as the
+    /// talking gestures do, so they do not move the scripts' random numbers [engineering
+    /// choice, #2026]. The other kinds still draw from the scripts' generator.
     pub fn fidget(&mut self, actor: FormId, folder: &str, kind: FidgetKind, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
-        // The player standing with the weapon away fidgets not ([`FidgetKind::WeaponAway`]).
-        if actor == FormId::PLAYER_REF && kind == FidgetKind::WeaponAway {
+        if kind != FidgetKind::WeaponAway {
+            return self.fidget_walk(actor, folder, kind, held_back);
+        }
+        // The player standing with the weapon away fidgets not.
+        if actor == FormId::PLAYER_REF {
             return None;
         }
+        std::mem::swap(&mut self.rng, &mut self.idle_rng);
+        let pick = self.fidget_walk(actor, folder, kind, held_back);
+        std::mem::swap(&mut self.rng, &mut self.idle_rng);
+        pick
+    }
+
+    /// Whether what `actor` does now has idles of its own, or none, so it gets no fidget
+    /// with the weapon away and one playing ends (#2026) [design]: on furniture (getting
+    /// on, on it or getting off: the furniture's fidgets are its own, furniture.md §8),
+    /// its current package has an idle collection (whose idles play instead, §5), or its
+    /// current package is flagged No Idle Anims ("Turns off Idle animations during
+    /// package" [documented: GECK wiki, Category:Packages]). An idle marker's collection
+    /// is the animating layer's to tell.
+    pub fn fidget_held_off(&self, actor: FormId) -> bool {
+        let quiet = self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| self.package_def(&p)).is_some_and(|d| d.has(crate::package::flags::NO_IDLE_ANIMS));
+        self.furniture_use(actor).is_some() || self.package_idles(actor).is_some() || quiet
+    }
+
+    fn fidget_walk(&mut self, actor: FormId, folder: &str, kind: FidgetKind, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
         let data = self.data;
         let folder = folder.to_ascii_lowercase();
         let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));

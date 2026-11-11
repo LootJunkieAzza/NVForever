@@ -517,8 +517,15 @@ nails) and never smoked, a Goodsprings settler (neither) none.
   standing fidgets are the drawn-weapon ones, owner 2026-10-16]) standing still, its
   weapon away (the rules' `IsWeaponOut` 0 and its hand not drawing, holding or putting
   one away), not alerted or warning, not dead, not in a conversation, not cowering, not
-  in an idle collection, and not under a package flagged No Idle Anims ("Turns off Idle
-  animations during package" [documented: GECK wiki, Category:Packages]).
+  in an idle collection, and nothing with idles of its own (`Game::fidget_held_off`): not
+  on furniture, no current package with an idle collection, none flagged No Idle Anims
+  ("Turns off Idle animations during package" [documented: GECK wiki,
+  Category:Packages]).
+- **Random numbers** [engineering choice]: the walk's `GetRandomPercent` draws from the
+  idle tree's own generator, as the talking gestures' does (§12.2), so polling every
+  holstered NPC does not move the scripts' rolls (random dialogue, addiction checks).
+  The drawn-weapon and furniture walks still draw from the scripts' generator (as
+  before #2026).
 - **When** [design, #2026]: every 2 s with the other fidgets (§11.2), not calibrated: the
   general node passes one check in a hundred, so an NPC in GeneralIdleFaction alone
   begins a general fidget about every 200 s here, against three in 360 s in the original
@@ -528,12 +535,23 @@ nails) and never smoked, a Goodsprings settler (neither) none.
   used here. Observer check 107 asks the original's cadence; `docs/owner-review.md`
   has the choice.
 - **Ends** [design]: the fidget fades out when its actor moves, draws its weapon (or
-  starts to), is alerted, dies or is drawn into a conversation (so it can turn to the
-  other and gesture, as a collection's idle does).
-- Checks: unit tests (`crates/fnv-game/tests/idles_holstered.rs`, written fixtures),
-  `fnvtool actor fidgets --weapon-away` (headless), smoke tests
-  `holstered-fidgets-tree` and `holstered-fidgets` (tools/smoke/scenarios.toml); the run
-  summary names each NPC looked at and the fidgets it began (`holstered fidgets: …`).
+  starts to), is alerted, dies, is drawn into a conversation (so it can turn to the
+  other and gesture, as a collection's idle does), or something with idles of its own
+  takes over: furniture, a package with an idle collection or flagged No Idle Anims, an
+  idle marker with a collection. One still waiting for its clip is dropped then, so the
+  collection's idle starts at once.
+- **First look** [engineering choice]: within one 2 s period of the actor standing
+  still, spread by its ID, so actors that stop together do not walk the tree in the
+  same frame (all fidget kinds).
+- Checks: unit tests (`crates/fnv-game/tests/idles_holstered.rs`, written fixtures;
+  the engine's `idles::tests`), `fnvtool actor fidgets --weapon-away` (headless), smoke
+  tests `holstered-fidgets-tree`, `holstered-fidgets` and `holstered-fidgets-playback`
+  (tools/smoke/scenarios.toml); the run summary names each NPC looked at and the
+  fidgets it began (`holstered fidgets: …`), counted once the clip has started.
+- Test aid `NVF_PLAY_TEST_HOLSTERED_ROLL=N` (0 to 99): every `GetRandomPercent` in the
+  weapon-away walks reads N (`Game::fixed_random_percent`, set around those walks only),
+  so a run can make the random branches pass and check the general fidgets' clips play
+  (`holstered-fidgets-playback`) without changing the chances a player gets.
 
 ## 12. Talking gestures from the IDLE tree
 
