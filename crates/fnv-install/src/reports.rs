@@ -8,6 +8,7 @@
 //! InstallId=          ; random UUID made when the player says yes; empty while off
 //! DeleteToken=        ; random, made with InstallId; lets only this install delete its reports
 //! Endpoint=           ; empty = the project's server
+//! PastInstalls=       ; id:token,… of earlier installs (turned off), kept so their reports can still be deleted
 //! ```
 //!
 //! Saving changes only these keys and keeps every other line of the file.
@@ -26,6 +27,9 @@ pub struct Reports {
     pub delete_token: Option<String>,
     /// A self-hosted server; `None` the project's own.
     pub endpoint: Option<String>,
+    /// Earlier install IDs with their delete tokens (reports turned off since), so "Delete
+    /// my reports" still reaches what they sent.
+    pub past: Vec<(String, String)>,
 }
 
 const SECTION: &str = "Reports";
@@ -42,6 +46,9 @@ impl Reports {
             install_id: get(text, "InstallId"),
             delete_token: get(text, "DeleteToken"),
             endpoint: get(text, "Endpoint"),
+            past: get(text, "PastInstalls")
+                .map(|v| v.split(',').filter_map(|p| p.trim().split_once(':')).map(|(i, t)| (i.to_string(), t.to_string())).collect())
+                .unwrap_or_default(),
         }
     }
 
@@ -56,6 +63,10 @@ impl Reports {
         t = ini_set(&t, SECTION, "DeleteToken", self.delete_token.as_deref().unwrap_or(""));
         if let Some(e) = &self.endpoint {
             t = ini_set(&t, SECTION, "Endpoint", e);
+        }
+        if !self.past.is_empty() || get(&t, "PastInstalls").is_some() {
+            let past: Vec<String> = self.past.iter().map(|(i, k)| format!("{i}:{k}")).collect();
+            t = ini_set(&t, SECTION, "PastInstalls", &past.join(","));
         }
         t
     }
@@ -97,12 +108,13 @@ mod tests {
             install_id: Some("3f2b8c1e-7a4d-4e2b-9c1a-0d5e6f7a8b9c".into()),
             delete_token: Some("abc".into()),
             endpoint: None,
+            past: vec![("old-id".into(), "old-token".into())],
         };
         let text = r.to_ini(old);
         assert!(text.contains("Path=F:\\Games\\FNV") && text.contains("menu-pause=1") && text.starts_with("; comment"));
         assert_eq!(Reports::from_ini(&text), r);
         // Turned off: the id and token are cleared.
-        let off = Reports { send: Some(false), install_id: None, delete_token: None, ..r }.to_ini(&text);
+        let off = Reports { send: Some(false), install_id: None, delete_token: None, past: Vec::new(), ..r }.to_ini(&text);
         let back = Reports::from_ini(&off);
         assert_eq!((back.send, back.install_id, back.delete_token), (Some(false), None, None));
         assert_eq!(Reports::from_ini("[Game]\nPath=x\n"), Reports::default());

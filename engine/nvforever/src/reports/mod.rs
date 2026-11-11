@@ -28,6 +28,7 @@
 //! in the home and passes `fnv_install::guard_write`.
 
 pub mod anomaly;
+mod delete;
 pub mod summary;
 pub mod upload;
 mod warnings;
@@ -112,12 +113,12 @@ pub fn active() -> Option<&'static Active> {
 }
 
 /// A random UUID v4, as text.
-fn new_uuid() -> String {
+pub(crate) fn new_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
 /// A random token for deleting this install's reports (§5.1).
-fn new_token() -> String {
+pub(crate) fn new_token() -> String {
     format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
 }
 
@@ -132,8 +133,12 @@ pub fn store_choice(home: &EngineHome, on: bool) -> Result<Reports, String> {
         r.install_id = r.install_id.or_else(|| Some(new_uuid()));
         r.delete_token = r.delete_token.or_else(|| Some(new_token()));
     } else {
-        r.install_id = None;
-        r.delete_token = None;
+        // Kept, so "Delete my reports" can still reach what this ID sent (delete.rs).
+        if let (Some(id), Some(token)) = (r.install_id.take(), r.delete_token.take()) {
+            if !r.past.iter().any(|(i, _)| *i == id) {
+                r.past.push((id, token));
+            }
+        }
     }
     r.save(home).map_err(|e| e.to_string())?;
     // The settings page stores its rows in [Settings]; its row for this must agree, or the
@@ -396,6 +401,7 @@ impl Plugin for ReportsPlugin {
                 slider: None,
             },
         );
+        delete::add_row(app);
         let Some(active) = active().cloned() else { return };
         let Some((pending, sent)) = folders() else { return };
         let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
@@ -770,6 +776,14 @@ pub fn finish_earlier(summary: &Path, logs: &Path) -> Option<upload::Pending> {
     if let Some(c) = crash.filter(|_| v["end"] == "panic" && !panic_part.exists()) {
         if let Ok(text) = std::fs::read_to_string(c) {
             let _ = std::fs::write(&panic_part, redact(&text));
+        }
+    }
+    // A native crash's minidump (native_crash.rs), copied as it is: the server scrubs the
+    // user name from its module paths.
+    let dump_part = dir.join(format!("{stem}.dmp"));
+    if v["end"] == "native" && !dump_part.exists() {
+        if let Some(d) = find("crash-", ".dmp") {
+            let _ = std::fs::copy(d, &dump_part);
         }
     }
     let rec_part = dir.join(format!("{stem}.recorder.jsonl.gz"));

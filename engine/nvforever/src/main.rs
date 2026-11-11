@@ -25,6 +25,7 @@ macro_rules! eprintln {
 
 mod activators;
 mod reports;
+mod native_crash;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;

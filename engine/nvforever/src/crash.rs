@@ -20,7 +20,8 @@
 //! the words Rust's default hook prints, redacted (the default hook is not called: it would
 //! print the home folder).
 //!
-//! Not covered: native crashes (they skip Rust's panic hook; see the run log check above).
+//! **Native crashes** skip Rust's panic hook; on Windows they leave a minidump
+//! (native_crash.rs) and a line in the run log, and the run log check above still names them.
 //!
 //! **Privacy.** Players send these files to us, so the player's home folder (which holds
 //! their account name: `C:\Users\<name>`) is written as `%USERPROFILE%` (`~` off Windows)
@@ -228,12 +229,14 @@ pub fn install(data: &Path, previous_running: bool) {
     let mut names: Vec<String> = std::fs::read_dir(&dir).map(|r| r.flatten().filter_map(|e| e.file_name().into_string().ok()).collect()).unwrap_or_default();
     names.sort();
     let previous = names.iter().rev().find(|n| n.starts_with("nvforever-") && n.ends_with(".log")).map(|n| dir.join(n));
-    let path = dir.join(format!("nvforever-{}-{}.log", stamp(now_secs()), std::process::id()));
+    let run_stamp = stamp(now_secs());
+    let path = dir.join(format!("nvforever-{run_stamp}-{}.log", std::process::id()));
     names.push(path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string());
     for old in old_files(&names, "nvforever-", ".log", KEEP_LOGS)
         .into_iter()
         .chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS))
         .chain(old_files(&names, "recorder-", ".jsonl", KEEP_REPORTS))
+        .chain(old_files(&names, "crash-", ".dmp", crate::native_crash::KEEP_DUMPS))
     {
         let _ = std::fs::remove_file(dir.join(old));
     }
@@ -245,6 +248,7 @@ pub fn install(data: &Path, previous_running: bool) {
     }
     set_hook();
     test_panic();
+    crate::native_crash::install(&dir, &run_stamp);
     // Said once the log plugin is up (`report_start`).
     let unclean = previous.filter(|p| !previous_running && std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
     let _ = UNCLEAN.set(unclean);
@@ -351,6 +355,22 @@ impl Write for RunLogWriter {
     fn flush(&mut self) -> std::io::Result<()> {
         let mut w = self.0.writer.lock().unwrap_or_else(|e| e.into_inner());
         w.as_mut().map_or(Ok(()), |f| f.flush())
+    }
+}
+
+/// A native crash (native_crash.rs): a line in the run log naming the exception and the
+/// dump, written straight to the file (the log plugin may be where it crashed). Never waits
+/// on the log's lock: a crash while it was held writes nothing rather than hang.
+pub fn native_crash_line(code: u32, dump: Option<&Path>) {
+    let dump = dump.map_or_else(|| "no dump written".to_string(), |p| format!("dump written to {}", redact(&p.display().to_string())));
+    let line = format!("native crash, exception 0x{code:08X}; {dump}");
+    // The console too (stderr is not locked by the log plugin): the smoke runner reads it.
+    let _ = writeln!(std::io::stderr(), "{line}");
+    let Some(log) = RUN_LOG.get() else { return };
+    let Ok(mut w) = log.writer.try_lock() else { return };
+    if let Some(f) = w.as_mut() {
+        let _ = writeln!(f, "{} ERROR nvforever::crash: {line}", stamp(now_secs()));
+        let _ = f.flush();
     }
 }
 
