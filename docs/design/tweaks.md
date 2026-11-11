@@ -506,6 +506,8 @@ unless the player binds them, so nothing changes until then.
 | Remember Bobby Pin Wear | `bRememberBobbyPinHealth` | `fnv_game::game::RefExtra::pin_health` on the player (saved), written each lockpicking step and read by the next `Picking` |
 | Forcing Breaks the Pin, Not the Lock | `bForceLockpickNoBreakLock` | `lockpick::Settings::force_spares_lock`: `Picking::force` failing goes to `PinBroken` (or out of pins) instead of `LockBroken`; the engine takes the pin and plays its break |
 | No Condition Damage Penalty / Buffer, Automatic Criticals, Critical Damage | `bNoWeaponConditionDamagePenalty`, `bRemoveWeaponDamageBuffer`, `bCritChanceIgnoresFireRate`, `bScaleCriticalDamage` | `combat::sync_condition_penalty` sets `fnv_combat::tuning::Rules` each frame: the penalty 0, the threshold 1, `crit_ignores_fire_rate`, `crit_damage_scale` (the new fields are left out of the serialized dumps) |
+| NPC Armour DR / DT Ignores Condition | `bNoScaleNpcDamageResistanceByCondition`, `bNoScaleNpcDamageThresholdByCondition` | `combat::target_armor` takes an NPC's DR or DT from its armour at no condition penalty |
+| Explosion Radius Buff | `bExplosionRadiusBuff` | `CombatTuning::explosion_inner` / `explosion_inner_edge` (left out of the dumps) in `damage::explosion_damage`: the inner 30% whole, 20% at the edge; `bAffectPlayer` not offered |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -527,8 +529,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 431 |
-| to do | 172 |
+| done | 434 |
+| to do | 169 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -563,6 +565,7 @@ game's Data folder, read-only).
 | `bDrowningDrainsAP` | done |  |  | Drowning Takes AP First |
 | `bEnduranceScalesMinFallHeight` | done |  | 2 | Endurance Softens Falls (slider; the base bonus option not built) |
 | `bExplosionKnockdownAvoidanceUsesStrength` | done |  |  | Strength Resists Blasts |
+| `bExplosionRadiusBuff` | done |  | 3 | Explosion Radius Buff (30% inner, 20% edge as the description gives; bAffectPlayer not offered) |
 | `bExtendLockpickSpotRange` | done |  |  | already so: the sweet spot can sit anywhere on the half circle |
 | `bFastTravelCostsSpecialNukaBottles` | done |  | 3 | Fast Travel Costs a Nuka-Cola (Quantum, Quartz or Victory by editor ID; our refusal words; the item messages not shown) |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
@@ -652,7 +655,6 @@ game's Data folder, read-only).
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
 | `bDisarmRequiresSkill` | to do |  | 2 | disarming happens in fnv_sim World::activate without skill or game |
 | `bEncumbranceIncludesGrabbedItems` | to do |  |  | encumbered_walks plus the grabbed reference weight |
-| `bExplosionRadiusBuff` | to do |  | 3 | explosion_damage reads CombatTuning (serialized) |
 | `bExplosionsDontPushTakeableItems` | to do |  |  | push_dynamic knows no references |
 | `bFallDeathsCauseDismemberment` | to do |  |  | falls::hurt lacks the dismember queue |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
@@ -711,6 +713,8 @@ game's Data folder, read-only).
 | `bNoHealingInCombat` | done |  | 1 | No Healing In Combat (Pip-Boy inventory and Stats page; the weapon hotkeys still use aid) |
 | `bNoPipBoyInCombat` | done |  | 5 | No Pip-Boy In Combat (a corner message; the AP option bAllowPipboyUsingActionPoints not done) |
 | `bNoScaleNpcDamageByCondition` | done |  |  | NPC Weapons Hit Whole |
+| `bNoScaleNpcDamageResistanceByCondition` | done |  |  | NPC Armour DR Ignores Condition |
+| `bNoScaleNpcDamageThresholdByCondition` | done |  |  | NPC Armour DT Ignores Condition |
 | `bNoSelfExplosionDamage` | done |  |  | Own Blasts Spare the Player |
 | `bNoSelfMeltdownDamage` | done |  | 3 | No Self Meltdown Damage (the player and companions; the three sub-options as one) |
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
@@ -728,8 +732,6 @@ game's Data folder, read-only).
 | `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
-| `bNoScaleNpcDamageResistanceByCondition` | to do |  |  | target_armor computed twice for NPC targets |
-| `bNoScaleNpcDamageThresholdByCondition` | to do |  |  | target_armor computed twice for NPC targets |
 | `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
 | `bNPCsCanSneakCritPlayer` | to do |  |  | sneak_attack is player-only |
 | `bVATSAutoTargetHead` | to do |  |  | V.A.T.S. picks no target on entry |

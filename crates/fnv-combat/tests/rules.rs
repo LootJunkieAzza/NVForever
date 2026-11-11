@@ -1581,3 +1581,13 @@ fn companion_nerve_raises_damage_and_armour() {
     let d = hit(&w, 1, &skilled(), &t, &[], HitPart::default(), 0.99);
     assert!(close(d.dt, 10.0) && close(d.dr, 12.5) && close(d.dealt, 10.0 * 0.875), "{d:?}");
 }
+
+#[test]
+fn the_radius_buff_keeps_the_inner_part_whole() {
+    // bExplosionRadiusBuff (docs/design/tweaks.md): full damage to 30% of the radius,
+    // 20% at its edge.
+    let t = CombatTuning { explosion_inner: 0.3, explosion_inner_edge: 0.2, ..CombatTuning::default() };
+    assert_eq!(fnv_combat::damage::explosion_damage(&t, 100.0, 100.0, 20.0), 100.0);
+    assert!((fnv_combat::damage::explosion_damage(&t, 100.0, 100.0, 100.0) - 20.0).abs() < 1e-3);
+    assert!((fnv_combat::damage::explosion_damage(&CombatTuning::default(), 100.0, 100.0, 100.0) - 25.0).abs() < 1e-3);
+}

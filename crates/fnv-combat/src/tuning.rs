@@ -340,6 +340,13 @@ pub struct CombatTuning {
     pub melee_arc_deg: f32,
     /// Explosion damage at the edge of the radius as a share of the centre's.
     pub explosion_edge: f32,
+    /// NVForever's Explosion Radius Buff tweak, set by the engine and left out of the
+    /// dumps (docs/design/tweaks.md): the inner share of the radius that takes full
+    /// damage (0: none) and the edge's share with it on.
+    #[serde(skip)]
+    pub explosion_inner: f32,
+    #[serde(skip)]
+    pub explosion_inner_edge: f32,
     /// The share of its speed a lobber keeps at a bounce, before its PROJ's Bouncy Mult.
     pub default_bounce: f32,
     /// A thrown grenade's contacts (combat-rules.md §5): the share of the speed into a
@@ -419,6 +426,8 @@ impl Default for CombatTuning {
             melee_rays: 5,
             melee_arc_deg: 35.0,
             explosion_edge: 0.25,
+            explosion_inner: 0.0,
+            explosion_inner_edge: 0.2,
             default_bounce: 0.3,
             grenade_restitution: 0.01,
             grenade_roll_keep: 0.9,

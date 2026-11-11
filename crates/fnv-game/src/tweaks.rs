@@ -429,6 +429,12 @@ pub struct Tweaks {
     pub crit_ignores_fire_rate: bool,
     /// `bScaleCriticalDamage` (`fCriticalDamageMult`): a factor on critical damage.
     pub crit_damage_scale: f64,
+    /// `bNoScaleNpcDamageResistanceByCondition`, `bNoScaleNpcDamageThresholdByCondition`:
+    /// an NPC's armour keeps its whole DR, or DT, however worn.
+    pub npc_dr_ignores_condition: bool,
+    pub npc_dt_ignores_condition: bool,
+    /// `bExplosionRadiusBuff`: an explosion's inner 30% deals full damage, its edge 20%.
+    pub explosion_radius_buff: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -625,6 +631,9 @@ impl Default for Tweaks {
             no_condition_damage_buffer: false,
             crit_ignores_fire_rate: false,
             crit_damage_scale: 1.0,
+            npc_dr_ignores_condition: false,
+            npc_dt_ignores_condition: false,
+            explosion_radius_buff: false,
         }
     }
 }

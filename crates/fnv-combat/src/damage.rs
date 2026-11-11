@@ -494,6 +494,10 @@ pub fn explosion_damage(t: &CombatTuning, damage: f32, radius: f32, distance: f3
         return 0.0;
     }
     let k = (distance / radius).clamp(0.0, 1.0);
+    if t.explosion_inner > 0.0 {
+        let k = ((k - t.explosion_inner) / (1.0 - t.explosion_inner).max(0.01)).clamp(0.0, 1.0);
+        return damage * (1.0 - k * (1.0 - t.explosion_inner_edge));
+    }
     damage * (1.0 - k * (1.0 - t.explosion_edge))
 }
 

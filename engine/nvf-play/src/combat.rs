@@ -350,6 +350,10 @@ fn sync_condition_penalty(c: &mut Combat, script: Option<&ScriptState>) {
         c.rules.condition_damage_threshold = if t.no_condition_damage_buffer { 1.0 } else { fnv_combat::damage::CONDITION_DAMAGE_THRESHOLD };
         c.rules.crit_ignores_fire_rate = t.crit_ignores_fire_rate;
         c.rules.crit_damage_scale = t.crit_damage_scale as f32;
+        // The Explosion Radius Buff: the inner 30% at full damage, 20% at the edge (the
+        // tweak's own numbers as its description gives them).
+        c.tuning.explosion_inner = if t.explosion_radius_buff { 0.3 } else { 0.0 };
+        c.tuning.explosion_inner_edge = 0.2;
     }
 }
 
@@ -3261,7 +3265,16 @@ pub(crate) fn fire(
 pub(crate) fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
     // The player's tweak: how fast worn-down armour loses its DT and DR [design: docs/design/tweaks.md].
     let penalty = script.as_deref().and_then(|s| s.rt.as_ref()).map_or(1.0, |rt| rt.game.tweaks.armor_condition_penalty as f32);
-    let (dt, dr) = c.forms.armor_values_worn_with(&worn_armor(&c.forms, sim, target), penalty);
+    let worn = worn_armor(&c.forms, sim, target);
+    let (dt, dr) = c.forms.armor_values_worn_with(&worn, penalty);
+    // The player's tweaks: an NPC's armour keeps its whole DR or DT however worn [design: docs/design/tweaks.md].
+    let (whole_dr, whole_dt) = script.as_deref().and_then(|s| s.rt.as_ref()).map_or((false, false), |rt| (rt.game.tweaks.npc_dr_ignores_condition, rt.game.tweaks.npc_dt_ignores_condition));
+    let (dt, dr) = if target != FormId::PLAYER_REF && (whole_dr || whole_dt) {
+        let (dt_whole, dr_whole) = c.forms.armor_values_worn_with(&worn, 0.0);
+        (if whole_dt { dt_whole } else { dt }, if whole_dr { dr_whole } else { dr })
+    } else {
+        (dt, dr)
+    };
     // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
     // nothing until a script changes them (abilities are not applied yet).
     let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
