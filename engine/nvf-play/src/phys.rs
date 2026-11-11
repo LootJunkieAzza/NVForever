@@ -399,8 +399,8 @@ pub struct CreatedBody {
     pub dynamic: bool,
     /// Its position when its collision was added.
     pub start: [f32; 3],
-    /// The world's step count then.
-    pub added_step: u64,
+    /// The game seconds the world had stepped then (`PhysWorld::stepped_secs`).
+    pub added_at: f64,
     /// At rest (its body asleep) since it last moved.
     pub settled: bool,
     /// How many of the pose marks (`CREATED_MARKS`) were logged.
@@ -1451,8 +1451,8 @@ impl PhysState {
             s.pos[2],
             joined.map_or_else(String::new, |(n, _)| format!(": the model's {n} dynamic bodies joined into one"))
         );
-        let added_step = self.world.steps();
-        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_step, settled: false, marks: 0 });
+        let added_at = self.world.stepped_secs();
+        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_at, settled: false, marks: 0 });
         true
     }
 
@@ -1463,12 +1463,14 @@ impl PhysState {
     pub fn settle_created(&mut self, index: &WorldIndex, world_id: u32, sim: &mut World) -> Vec<u32> {
         let mut moved = Vec::new();
         let mut lost = Vec::new();
-        let elapsed = |since: u64| (self.world.steps() - since) as f32 * self.world.params.dt;
+        // Game seconds stepped since: under a slowed clock the steps are shorter, so the steps
+        // times the step now would count the ones before at the wrong length.
+        let elapsed = |since: f64| (self.world.stepped_secs() - since) as f32;
         for (&id, cb) in self.created.iter_mut() {
             let Some(local) = cb.local.filter(|_| cb.dynamic) else { continue };
             let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
             let (pos, rot) = dropped::ref_pose_from_body(&b, &local, 1.0);
-            let t = elapsed(cb.added_step);
+            let t = elapsed(cb.added_at);
             if CREATED_MARKS.get(cb.marks).is_some_and(|&m| t >= m) {
                 cb.marks += 1;
                 info!(
@@ -1506,7 +1508,7 @@ impl PhysState {
                     pos[1],
                     pos[2],
                     cb.start[2] - pos[2],
-                    elapsed(cb.added_step)
+                    elapsed(cb.added_at)
                 );
             } else if !b.sleeping {
                 cb.settled = false;

@@ -445,6 +445,8 @@ pub struct PhysWorld {
     /// found yet (see [`PhysWorld::update_queries`]).
     pending_sleep: Vec<RigidBodyHandle>,
     pub(crate) steps: u64,
+    /// Game seconds stepped: each step's `dt` summed ([`PhysWorld::stepped_secs`]).
+    stepped_secs: f64,
     /// Water: cell surfaces by area and placed volumes (`crate::water`).
     pub(crate) water: crate::water::Waters,
     /// The body held by the player's grab (`crate::grab`), driven before every step.
@@ -503,6 +505,7 @@ impl PhysWorld {
             struck: Vec::new(),
             pending_sleep: Vec::new(),
             steps: 0,
+            stepped_secs: 0.0,
             water: Default::default(),
             grip: None,
             standalone_hit_volumes: true,
@@ -996,10 +999,19 @@ impl PhysWorld {
         self.new_bodies.clear();
         self.struck.clear();
         self.steps += 1;
+        self.stepped_secs += f64::from(self.params.dt);
     }
 
     pub fn steps(&self) -> u64 {
         self.steps
+    }
+
+    /// Game seconds the world has stepped: every step's `dt` summed, so a step made short
+    /// by a slowed clock counts for what it was. The time base for anything that judges
+    /// how long physics has had (a body settling, a corpse calming): not the frames' time,
+    /// which also runs while no step is taken, nor the steps times the step now.
+    pub fn stepped_secs(&self) -> f64 {
+        self.stepped_secs
     }
 
     /// Change the fixed step, seconds (`PhysParams::dt`): the next [`PhysWorld::step`] and
@@ -1212,6 +1224,7 @@ impl PhysWorld {
             struck: self.struck.clone(),
             pending_sleep: self.pending_sleep.clone(),
             steps: self.steps,
+            stepped_secs: self.stepped_secs,
             water: self.water.clone(),
             grip: self.grip.clone(),
             standalone_hit_volumes: self.standalone_hit_volumes,
