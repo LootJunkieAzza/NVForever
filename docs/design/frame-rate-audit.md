@@ -428,7 +428,9 @@ Measured on the bench machine (i9-14900K), `battle-50`, profile builds; logs pri
   profile build, rapier's stage timers summed since the start (`solver ms`, feature
   `fnv-phys/solver-timers`, turned on by `nvforever/profile`). Over the battle rapier's
   steps took 14.1 s: 11.9 s in the solve (velocity resolution: the constraint iterations
-  and writeback), 1.2 s in collision detection, 0.08 s in the serial set-up, 0 in CCD. At
+  and writeback), 1.2 s in collision detection, 0.08 s in the serial set-up, 0 in CCD
+  (that 0 was a timer rapier never starts; the CCD time is measured since 2026-11-11,
+  physics.md §5). At
   the peak (45–65 s) about 6–7 ragdolls are moving at once: 70–190 joints, 380–610
   touching pairs, 1,300–1,500 contact points; the solve takes 3–5 ms a step, at 2.4
   steps a frame.
@@ -481,6 +483,31 @@ Measured on the bench machine (i9-14900K), `battle-50`, profile builds; logs pri
   28.6 and 27.6 ms; slowest frame 115 and 99 → 98 and 94 ms. Fresh corpses still almost
   all move the full 3 s: 53 of 58 were held still moving in one run, most with a neck or
   head turning at 0.7–3 rad/s, or calm for under 1.5 s when held.
+- **Continuous collision of bones and gore (2026-11-11): plain, not bullets.** Every
+  ragdoll bone and gore piece was a rapier "bullet" (`ccd_enabled`): swept against every
+  body but other bullets, through the whole broad phase. Since rapier 0.35 every fast
+  dynamic body is swept against fixed colliders anyway [documented: rapier CHANGELOG
+  v0.35.0-beta.0]. `fnv_phys::ccd` makes the choice switchable
+  (`NVF_PHYS_CCD=<bones>[,<gore>]`, each `plain`, `soft[:<units>]` or `bullet`). The CCD
+  timer was dead until then (`solver ms`'s fifth figure, physics.md §5); it now reads
+  rapier's sweep time.
+  - Safety [observed: fnv-phys `tests/ccd.rs`]: at 300 to 3,000 units a second, at 60 and
+    152 Hz, plain, soft and bullet all stop bones, severed heads and gore pieces at a
+    2-unit floor and wall, a triangle floor and terrain, and corpses stay put on stairs
+    and a 15° ramp; soft does not hold a corpse off the ground. With CCD off the same
+    tests fail (bodies 2,000 to 4,500 units under the floor).
+  - Cost [observed: `ccd_cost_in_a_battle`, headless: 100 walking characters, 30 crates,
+    8 corpses, 4 heads and 24 gore pieces thrown every half second, 200 or 2,000 static
+    colliders, least of 3 runs of 6 s]: CCD took 0.05–0.11 ms of a 0.66–0.99 ms step, about
+    a tenth, at every choice. The choices differed by less than the run-to-run spread and
+    in no fixed order: with 2,000 statics bullet was the dearest at 60 Hz (0.111 against
+    0.089 ms for plain) and the cheapest at 152 Hz (0.058 against 0.067). Soft was a little
+    dearer than plain in three of the four setups.
+  - Chosen: plain for both, the cheaper of the owner's two candidates (soft or plain). It
+    gives up sweeps against dynamic clutter and kinematic bodies, so a fast bone or piece
+    can pass through a crate; ragdolls and gore never touch characters. Whether it saves
+    anything in battle-50 is for the game's runs. CCD is not where #1798's time goes: the
+    solve is.
 - **The stuck actor's retries (#1797) and the hit-volume refresh: left as they are**
   [observed, the same runs]. One actor was held stuck. Its full retry move ran 10 times
   in 90 s, at 3–9 ms each. The 6–9 ms ones came after it asked for a new direction (0.3–1.1

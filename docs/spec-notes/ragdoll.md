@@ -120,8 +120,9 @@ corpses when their cell loads.]
 
 **Bodies** (`PhysWorld::add_ragdoll`). One dynamic body per ragdoll body with the stored
 shape (scaled by the actor's scale), mass and damping; friction capped at 1; no bounce;
-continuous collision detection. Colliders carry `Owner::Actor` on DEAD_BIP with the body
-part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
+continuous collision detection against fixed colliders (`fnv_phys::ccd`: rapier's plain
+CCD, not bullets since 2026-11-11, #1798; `NVF_PHYS_CCD` switches it for comparing).
+Colliders carry `Owner::Actor` on DEAD_BIP with the body part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
 on its ragdoll; the actor's kinematic hit volume is removed while the ragdoll is in the
 world.
 
