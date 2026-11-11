@@ -20,8 +20,11 @@
 //!   named NPCs, are among the scripted doors with no OnActivate block [observed: the
 //!   door survey, doors.md §5.1, read with script-function-coverage.md §3.3]. Heard once
 //!   per attempt: a block's `Activate` of the door for the actor is that same
-//!   activation, not heard again, and an answer kept ([`ASKED_SECONDS`],
-//!   [`REFUSED_SECONDS`]) is not asked or heard again [design]. Whether the original
+//!   activation, not heard again; an answer kept ([`ASKED_SECONDS`],
+//!   [`REFUSED_SECONDS`]) is not asked or heard again, and a door without a block (which
+//!   keeps no answer) is heard again only [`ASKED_SECONDS`] after it was last heard for
+//!   that actor; an extender handler is no part of the block, so its own `Activate` of
+//!   the door is heard and does not let the actor through [design]. Whether the original
 //!   fires it at doors with no script at all is not known [hypothesis: as at those
 //!   two, whose scripts have no block; observer check 109].
 //! - **The block decides.** An OnActivate block runs instead of the default activation;
@@ -113,12 +116,9 @@ impl Game<'_> {
             return g.answer;
         }
         // The extender hears the attempt first, block or none, refused or not (module
-        // notes), before the block's run is set up: a handler's own `Activate` of the
-        // door is an activation of its own [design, #2123].
-        self.activation_heard(actor, door);
+        // notes), before the block's run is set up [design, #2123].
+        self.hear_npc_door(actor, door);
         if !self.door_has_activate_block(door) || self.activation_refused(door) {
-            // Kept as an answer like the others, so that the attempt is heard once.
-            self.door_gates.insert((actor, door), Gate { answer: DoorAnswer::NoBlock, until: self.time + ASKED_SECONDS });
             return DoorAnswer::NoBlock;
         }
         let outer = self.npc_door_run.replace(DoorRun { actor, door, let_through: false });
@@ -135,6 +135,21 @@ impl Game<'_> {
         tracing::info!("npc doors: {} at door {door} ({base}): {answer:?}", self.data.name(actor));
         self.door_gates.insert((actor, door), Gate { answer, until: self.time + keep });
         answer
+    }
+
+    /// The extender's OnActivate for `actor` at `door`, unless this attempt was heard
+    /// within [`ASKED_SECONDS`]: a door without a block keeps no answer (its passage is
+    /// decided afresh each time it is asked), so the attempt is remembered apart from the
+    /// answers, and only while it stands; expired attempts are dropped here [design,
+    /// #2123].
+    fn hear_npc_door(&mut self, actor: FormId, door: FormId) {
+        let now = self.time;
+        if self.door_heard.get(&(actor, door)).is_some_and(|&until| now < until) {
+            return;
+        }
+        self.door_heard.retain(|_, until| now < *until);
+        self.door_heard.insert((actor, door), now + ASKED_SECONDS);
+        self.activation_heard(actor, door);
     }
 
     /// Whether [`Game::npc_door`] is running `target`'s block for `actor`.

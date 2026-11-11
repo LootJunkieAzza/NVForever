@@ -197,9 +197,12 @@ to the player.
   vCCHQDoor, where the original's events named NPCs (script-function-coverage.md §3.3),
   have no OnActivate block (§5.1) [observed]. Once per asking: a block's `Activate` of
   the door for that actor is the same activation and is not dispatched again, and an
-  answer kept (10 s, 120 s for a refusal; a door without a block now keeps its answer
-  10 s too) is neither asked nor dispatched again [design]. A handler's own `Activate`
-  of the door is an activation of its own (dispatched, not taken as the block's). The
+  answer kept (10 s, 120 s for a refusal) is neither asked nor dispatched again; a door
+  without a block keeps no answer (its passage is decided each time, as before) and is
+  dispatched again only 10 s after it was last dispatched for that actor, a record kept
+  apart from the answers and dropped once expired [design]. An extender handler is no
+  part of the block: its own `Activate` of the door, even one set off from inside the
+  block, is an activation of its own (dispatched, not taken as the block's). The
   passage rules above are unchanged. Not known: whether the original fires it at doors
   with no script at all, and whether its OnActivate block's reference (`Begin OnActivate
   player`) is honoured at all: the GECK wiki's OnActivate page (Bugs) says the reference

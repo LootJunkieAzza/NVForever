@@ -125,11 +125,13 @@ const SCRIPT_LETS: u32 = 0x901;
 const SCRIPT_PLAYER: u32 = 0x902;
 const SCRIPT_PLAYER_BLOCK: u32 = 0x903;
 const SCRIPT_NO_ACTIVATE: u32 = 0x904;
+const SCRIPT_NEST: u32 = 0x905;
 const DOOR_LETS: u32 = 0x911;
 const DOOR_PLAYER: u32 = 0x912;
 const DOOR_PLAYER_BLOCK: u32 = 0x913;
 const DOOR_PLAIN: u32 = 0x914;
 const DOOR_NO_ACTIVATE: u32 = 0x915;
+const DOOR_NEST: u32 = 0x916;
 const GLOBAL: u32 = 0x800;
 const NPC: u32 = 0x920;
 const CELL: u32 = 0x930;
@@ -139,6 +141,7 @@ const REF_PLAYER_BLOCK: u32 = 0x303;
 const REF_PLAYER_LOAD: u32 = 0x304;
 const REF_PLAIN: u32 = 0x305;
 const REF_NO_ACTIVATE: u32 = 0x306;
+const REF_NEST: u32 = 0x307;
 const NPC_REF: u32 = 0x310;
 
 /// `IsActionRef player == want`: the expression token.
@@ -147,29 +150,41 @@ fn is_player(want: &str) -> Vec<u8> {
 }
 
 fn plugin_bytes() -> Vec<u8> {
-    // nUsed (1, short) counts the block's runs in each script.
+    // nUsed (1, short) counts the block's runs in each script; nSeen (2, short) is
+    // TestGlobal (SCRO 2) as the block starts: what the extender's handlers had counted.
     let count = || set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
+    let seen = || set(var(b's', 2), ex(&[[vec![b'G'], le16(2)].concat()]));
     let activate = || st(ACTIVATE, &le16(0));
     // begin OnActivate
+    //   set nSeen to TestGlobal
     //   set nUsed to nUsed + 1
     //   if IsActionRef player == 0
     //     Activate
     //   endif
     // end
-    let lets = [count(), if_(1, is_player("0")), activate(), endif()].concat();
+    let lets = [seen(), count(), if_(1, is_player("0")), activate(), endif()].concat();
     // begin OnActivate
+    //   set nSeen to TestGlobal
     //   set nUsed to nUsed + 1
     //   if IsActionRef player == 1
     //     Activate
     //   endif
     // end
-    let player = [count(), if_(1, is_player("1")), activate(), endif()].concat();
+    let player = [seen(), count(), if_(1, is_player("1")), activate(), endif()].concat();
+    // begin OnActivate
+    //   set nUsed to nUsed + 1
+    //   DoorPlainREF.Activate          ; SCRO 3, for the action reference
+    //   if IsActionRef player == 0
+    //     Activate
+    //   endif
+    // end
+    let nest = [count(), [le16(0x1C), le16(3)].concat(), activate(), if_(1, is_player("0")), activate(), endif()].concat();
     // begin OnActivate player
     //   set nUsed to nUsed + 1
     // end
     let player_block = count();
     let scpt = |id: u32, edid: &str, blocks: &[BlockBytes]| {
-        record(b"SCPT", 0, id, &[vec![sub(b"EDID", z(edid))], unit(&script(blocks), &[(1, "nUsed", 1)], &[0x14])].concat())
+        record(b"SCPT", 0, id, &[vec![sub(b"EDID", z(edid))], unit(&script(blocks), &[(1, "nUsed", 1), (2, "nSeen", 1)], &[0x14, GLOBAL, REF_PLAIN])].concat())
     };
     let scripts = [
         scpt(SCRIPT_LETS, "DoorLetsScript", &[(ON_ACTIVATE, None, lets)]),
@@ -179,6 +194,7 @@ fn plugin_bytes() -> Vec<u8> {
         //   set nUsed to nUsed + 1
         // end
         scpt(SCRIPT_NO_ACTIVATE, "DoorNoActivateScript", &[(GAME_MODE, None, count())]),
+        scpt(SCRIPT_NEST, "DoorNestScript", &[(ON_ACTIVATE, None, nest)]),
     ]
     .concat();
     let door = |id: u32, edid: &str, script: u32| record(b"DOOR", 0, id, &[sub(b"EDID", z(edid)), sub(b"SCRI", script.to_le_bytes().to_vec())]);
@@ -188,6 +204,7 @@ fn plugin_bytes() -> Vec<u8> {
         door(DOOR_PLAYER_BLOCK, "DoorPlayerBlock", SCRIPT_PLAYER_BLOCK),
         record(b"DOOR", 0, DOOR_PLAIN, &[sub(b"EDID", z("DoorPlain"))]),
         door(DOOR_NO_ACTIVATE, "DoorNoActivate", SCRIPT_NO_ACTIVATE),
+        door(DOOR_NEST, "DoorNest", SCRIPT_NEST),
     ]
     .concat();
     let npc = record(
@@ -212,6 +229,7 @@ fn plugin_bytes() -> Vec<u8> {
         load,
         placed(b"REFR", REF_PLAIN, "DoorPlainREF", DOOR_PLAIN),
         placed(b"REFR", REF_NO_ACTIVATE, "DoorNoActivateREF", DOOR_NO_ACTIVATE),
+        placed(b"REFR", REF_NEST, "DoorNestREF", DOOR_NEST),
         placed(b"ACHR", NPC_REF, "WalkerREF", NPC),
     ]
     .concat();
@@ -343,11 +361,9 @@ fn heard(g: &Game) -> f32 {
     g.world.global(FormId(GLOBAL)).unwrap()
 }
 
-/// Where in the trace the handler first counted and where `door`'s block first ran.
-fn handler_then_block(g: &Game, door: u32) -> (usize, usize) {
-    let handler = g.events.iter().position(|e| matches!(e.kind, EventKind::GlobalSet { global, .. } if global.0 == GLOBAL)).expect("the handler ran");
-    let block = g.events.iter().position(|e| matches!(e.kind, EventKind::BlockRun { on: Some(r), .. } if r.0 == door)).expect("the block ran");
-    (handler, block)
+/// What the handlers had counted when `door`'s block started (its nSeen).
+fn seen_by_block(g: &Game, door: u32) -> Value {
+    g.var(InstKey::Ref { reference: FormId(door) }, 2)
 }
 
 #[test]
@@ -392,8 +408,7 @@ fn a_block_that_lets_the_npc_through_is_heard_once_and_first() {
     assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
     // The block's own `Activate` is the same activation: heard once.
     assert_eq!(heard(&g), 1.0);
-    let (handler, block) = handler_then_block(&g, REF_LETS);
-    assert!(handler < block, "the handler runs before the block");
+    assert_eq!(seen_by_block(&g, REF_LETS), Value::Num(1.0), "the handler ran before the block started");
     // The let-through is unchanged: the activation event and no default action.
     assert_eq!(g.events.iter().filter(|e| matches!(e.kind, EventKind::Activated { reference, by, .. } if reference.0 == REF_LETS && by == npc)).count(), 1);
     assert!(!g.world.peek(FormId(REF_LETS)).is_some_and(|s| s.open));
@@ -412,8 +427,7 @@ fn a_refusing_block_is_heard_first_and_once_while_the_refusal_stands() {
     listen(&mut g, "DoorPlayerREF");
     assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
     assert_eq!(heard(&g), 1.0);
-    let (handler, block) = handler_then_block(&g, REF_PLAYER);
-    assert!(handler < block);
+    assert_eq!(seen_by_block(&g, REF_PLAYER), Value::Num(1.0), "the handler ran before the block started");
     assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
     assert_eq!(heard(&g), 1.0);
     g.time += REFUSED_SECONDS + 0.1;
@@ -467,4 +481,66 @@ fn a_scripts_activate_of_a_door_for_an_npc_is_still_heard() {
     listen(&mut g, "DoorPlainREF");
     g.activate(FormId(NPC_REF), FormId(REF_PLAIN), ActMode::Default).unwrap();
     assert_eq!(heard(&g), 1.0);
+}
+
+/// A door's NoBlock answer is not kept: a door asked while destroyed and repaired at once
+/// is asked again (its block runs and refuses), while the extender heard that walk once.
+#[test]
+fn a_repaired_door_is_asked_again_at_once() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorPlayerREF");
+    g.extra.entry(FormId(REF_PLAYER)).or_default().destroyed = true;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::NoBlock);
+    assert_eq!(heard(&g), 1.0);
+    g.extra.entry(FormId(REF_PLAYER)).or_default().destroyed = false;
+    assert_eq!(g.npc_door(npc, FormId(REF_PLAYER)), DoorAnswer::Refused);
+    assert_eq!(used(&g, REF_PLAYER), Value::Num(1.0));
+    assert_eq!(heard(&g), 1.0, "the same walk");
+    // Doors without a block keep no answer.
+    assert!(!g.door_gates.contains_key(&(npc, FormId(REF_PLAIN))));
+    g.npc_door(npc, FormId(REF_PLAIN));
+    assert!(!g.door_gates.contains_key(&(npc, FormId(REF_PLAIN))));
+}
+
+/// The record of heard walks keeps only those that stand.
+#[test]
+fn heard_walks_are_dropped_once_they_expire() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    g.npc_door(npc, FormId(REF_PLAIN));
+    g.npc_door(FormId::PLAYER_REF, FormId(REF_PLAIN));
+    assert_eq!(g.door_heard.len(), 2);
+    g.time += ASKED_SECONDS + 0.1;
+    g.npc_door(npc, FormId(REF_NO_ACTIVATE));
+    assert_eq!(g.door_heard.keys().copied().collect::<Vec<_>>(), vec![(npc, FormId(REF_NO_ACTIVATE))]);
+}
+
+/// Review of #2123: while DoorNest's block runs for the walker it activates DoorPlain for
+/// it; DoorPlain's handler activates DoorNest for the walker. That handler's activation is
+/// one of its own: heard (not taken for the block's), and the block's own `Activate`
+/// still lets the walker through, unheard.
+#[test]
+fn a_handlers_activation_inside_the_block_is_heard() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    g.run_source(
+        "SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorPlainREF
+let TestGlobal := TestGlobal + 10
+DoorNestREF.Activate rA
+elseif rT == DoorNestREF
+let TestGlobal := TestGlobal + 1
+endif
+end)",
+        Default::default(),
+    )
+    .expect("compiles");
+    assert_eq!(g.npc_door(npc, FormId(REF_NEST)), DoorAnswer::Let);
+    // The walk (1), DoorPlain (10), the handler's DoorNest activation (1).
+    assert_eq!(heard(&g), 12.0);
+    assert_eq!(used(&g, REF_NEST), Value::Num(1.0), "the handler's activation was the default one, no block");
 }

@@ -1693,6 +1693,9 @@ pub struct Game<'a> {
     /// Scripted doors' last answers to the NPCs walking through them, by (actor, door)
     /// (`crate::npc_doors`). Not part of the saved state.
     pub door_gates: std::collections::HashMap<(FormId, FormId), crate::npc_doors::Gate>,
+    /// When each (actor, door) attempt the extender heard stops counting as the same
+    /// attempt, game seconds (`crate::npc_doors`); expired entries are dropped. Not saved.
+    pub door_heard: std::collections::HashMap<(FormId, FormId), f64>,
     /// The door block being run for an NPC walking through it (`Game::npc_door`).
     pub npc_door_run: Option<crate::npc_doors::DoorRun>,
     /// Reference events the engine reported outside a script run (a container menu
@@ -2421,6 +2424,7 @@ impl<'a> Game<'a> {
             time: 0.0,
             pending_onload: Vec::new(),
             door_gates: Default::default(),
+            door_heard: Default::default(),
             npc_door_run: None,
             queued_ref_events: Vec::new(),
             action_refs: Default::default(),
@@ -3386,11 +3390,15 @@ impl<'a> Game<'a> {
         hs.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.seq.cmp(&b.seq)));
         self.event_names.push(event.to_string());
         let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
+        // A handler is no part of a door block being run for an NPC (`crate::npc_doors`):
+        // its own `Activate` of that door is an activation of its own [design, #2123].
+        let door_run = self.npc_door_run.take();
         for h in &hs {
             if let Err(error) = self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
                 self.emit(EventKind::ScriptError { unit: format!("event handler for {event}"), error });
             }
         }
+        self.npc_door_run = door_run;
         self.event_names.pop();
         hs.len()
     }
