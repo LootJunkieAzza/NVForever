@@ -103,6 +103,20 @@ enum Placing {
 
 /// Whether putting on `it` takes `other` off ([`World::equip_at`]): a weapon replaces the
 /// equipped weapon, armour equipped armour that shares a body slot (BMDT biped flags).
+/// An inventory `new` rebuilt in place of `old`, with `old`'s live units (planted
+/// explosives, `Extra::live`) kept: a rebuild never takes a planted explosive away from its
+/// plant [design, #1640]. `None` stays `None` only when `old` had no live unit.
+fn with_live(old: Option<&Inventory>, new: Option<Inventory>) -> Option<Inventory> {
+    match old.filter(|o| o.has_live()) {
+        None => new,
+        Some(o) => {
+            let mut inv = new.unwrap_or_default();
+            inv.keep_live_of(o);
+            Some(inv)
+        }
+    }
+}
+
 fn equip_clashes(forms: &FormStore, it: &crate::forms::Item, other: FormId) -> bool {
     let Some(o) = forms.item(other) else { return false };
     match (it.kind, o.kind) {
@@ -945,7 +959,7 @@ impl<'a> World<'a> {
         for (id, base) in due {
             let inv = self.roll_inventory(base, self.item_level(id))?;
             let s = self.get(id)?;
-            s.inventory = inv;
+            s.inventory = with_live(s.inventory.as_ref(), inv);
             s.last_restock = Some(day as f32);
         }
         Ok(())
@@ -1978,14 +1992,16 @@ impl<'a> World<'a> {
         let mut inv = self.roll_inventory(source, self.item_level(id))?;
         let outfitted = self.equip_default(source, &mut inv);
         let s = self.get(id)?;
-        s.inventory = inv;
+        s.inventory = with_live(s.inventory.as_ref(), inv);
         s.outfitted = outfitted;
         Ok(())
     }
 
     /// A fresh roll of the base's carried items replaces the reference's inventory
-    /// (ResetInventory, Layer 5). `false` when the base carries no items. A death item
-    /// still owed is dropped: the actor starts again.
+    /// (ResetInventory, Layer 5; respawns and resurrections call it too). `false` when the
+    /// base carries no items. A death item still owed is dropped: the actor starts again.
+    /// A live unit (a planted explosive, `Extra::live`) stays: its plant still goes off
+    /// [design, #1640].
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
         self.death_items.remove(&id);
         let base = self.get(id)?.base;
@@ -1997,9 +2013,18 @@ impl<'a> World<'a> {
         let s = self.get(id)?;
         let had = inv.is_some();
         if had {
-            s.inventory = inv;
+            s.inventory = with_live(s.inventory.as_ref(), inv);
         }
         Ok(had)
+    }
+
+    /// Empty `id`'s inventory (no inventory at all), but for its live units (planted
+    /// explosives, `Extra::live`), which stay [design, #1640]: a resurrected actor whose
+    /// new pick carries nothing.
+    pub fn clear_inventory_but_live(&mut self, id: FormId) -> Result<(), SimError> {
+        let s = self.get(id)?;
+        s.inventory = with_live(s.inventory.as_ref(), None);
+        Ok(())
     }
 
     /// References created at run time (drops), in FormID order, taken ones included

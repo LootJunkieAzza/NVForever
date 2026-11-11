@@ -1349,6 +1349,18 @@ impl MenuModel {
                     self.amount = None;
                     return Ok(live_refusal(&r.name));
                 }
+                // Picking a pocket, nothing is rolled for a row whose units the simulation
+                // will not move (one listed before its explosive was armed, #1640).
+                if self.steal.is_some() && r.reference.is_none() {
+                    let inv = world.peek(from).and_then(|s| s.inventory.as_ref());
+                    if inv.map_or(0, |i| i.count_at(r.item, r.pick())) == 0 {
+                        self.amount = None;
+                        return Ok(match inv.is_some_and(|i| i.live_count(r.item) > 0) {
+                            true => live_refusal(&live_name(r.name.clone())),
+                            false => format!("Cannot find {} in the inventory", r.name),
+                        });
+                    }
+                }
                 let want = self.want(cmd == Command::One, &r);
                 if let Some(st) = self.steal.as_mut() {
                     let chance = st.chance(&r, want);

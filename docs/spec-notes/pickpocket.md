@@ -170,7 +170,14 @@ FalloutNV.esm: timer 2.0 s, freak-out 0.1 s [observed].
   - Each plant that goes live reserves one unit of the item in the victim's inventory at
     once (before the freak-out time): a unit apart from the victim's own units of the same
     item, kept as the extra data `live` (`fnv_sim::inventory::Extra::live`). Ordinary
-    units of the item stay the victim's to use; the item type is not locked.
+    units of the item stay the victim's to use; the item type is not locked. The menu
+    arms it as the command that placed it is applied (`pickpocket::arm_given`, called by
+    `menu::apply_input`), and lists the open pocket again before the next command, so the
+    pocket shows the reserved row at once. A take on a row whose units the simulation
+    would not move (`Inventory::count_at` 0) is refused before the roll.
+  - An inventory rebuilt in place (ResetInventory, a cell respawn, a resurrection's new
+    pick, a merchant restock, `World::give_items_of`) keeps its live units
+    (`Inventory::keep_live_of`), so the plant still finds its unit.
   - No action takes a live unit: no equip or use (`World::equip_at`), removal
     (`RemoveItem`, `RemoveAllItems`, which leaves it as it leaves non-playable items),
     drop, transfer (the container menu, `RemoveAllItems` with a target) or trade; an
@@ -205,17 +212,20 @@ processing, starts empty. A witness seen earlier in the fuse still counts after 
 explosion object effect after `fnv_save::remap_json` remaps the serialized FormIDs. It also
 removes plants on references dropped because their saved base or cell disappeared, and
 removes missing or dropped witnesses. Older snapshots without `planted` load with no live
-plants; inventory alone cannot reconstruct their historical fuse times.
+plants; inventory alone cannot reconstruct their historical fuse times. This additive
+JSON field changes none of the container version 1, `nvf.save.body/1`,
+`nvf.engine.state/1` or `fnv.game.state/1` identifiers (`engine/nvf-play/src/save.rs`,
+`crates/fnv-save/src/lib.rs`, `crates/fnv-game/src/game.rs`).
 
 [design, #1640] The live units are saved with the inventory (`"live": true` on the unit's
 group, omitted when false, so older saves read unchanged). After a load,
 `Game::reconcile_live_explosives` makes each holder's live units of an item equal to its
 saved plants of that item, as far as it carries the item: a save from before live units
 gets its plants' units reserved, and a live unit whose plant was dropped (its plugin gone,
-`drop_gone`) is an ordinary unit again. No other migration is needed. This additive
-JSON field changes none of the container version 1, `nvf.save.body/1`,
-`nvf.engine.state/1` or `fnv.game.state/1` identifiers (`engine/nvf-play/src/save.rs`,
-`crates/fnv-save/src/lib.rs`, `crates/fnv-game/src/game.rs`).
+`drop_gone`) is an ordinary unit again. A save from before live units whose victim had
+put the planted grenade on (its only unit equipped) gets that unit taken off and reserved
+(`Inventory::mark_live` takes an equipped unit last). No other migration is needed; the
+field is additive like `planted`, and changes none of the identifiers above.
 
 ## 6. Checks
 
@@ -228,11 +238,16 @@ Unit tests: `fnv_game::pickpocket::tests::chance_follows_the_wiki`; in
 `a_planted_kill_counts_for_the_weapon_the_player_holds`,
 `each_plant_reserves_one_unit_that_its_blast_takes`,
 `a_plant_on_an_essential_actor_stays_an_ordinary_item`,
-`live_units_follow_the_saved_plants`; in `fnv_sim::inventory::tests`:
-`a_live_unit_is_reserved_from_every_pick`, `the_live_count_is_set_from_the_plants`; in
-`crates/fnv-sim/tests/synthetic.rs`: `a_live_unit_is_not_equipped_removed_dropped_or_moved`;
-in `engine/nvf-play/src/menu/model/tests.rs`:
-`a_live_explosive_is_a_row_of_its_own_that_stays`; in
+`live_units_follow_the_saved_plants`,
+`an_old_save_reserves_a_planted_grenade_its_victim_had_put_on`,
+`reset_inventory_keeps_a_planted_explosive`; in `fnv_sim::inventory::tests`:
+`a_live_unit_is_reserved_from_every_pick`, `the_live_count_is_set_from_the_plants`,
+`an_equipped_unit_is_reserved_last_and_taken_off`; in
+`crates/fnv-sim/tests/synthetic.rs`: `a_live_unit_is_not_equipped_removed_dropped_or_moved`,
+`a_reset_inventory_keeps_live_units`; in `engine/nvf-play/src/menu/model/tests.rs`:
+`a_live_explosive_is_a_row_of_its_own_that_stays`,
+`an_explosive_armed_in_the_open_pocket_is_listed_and_refused_at_once`,
+`a_pocket_row_listed_before_its_arming_is_not_rolled_for`; in
 `crates/fnv-game/tests/idles.rs`: `the_panic_idle_is_the_root_naming_get_planted_explosive`. Smoke:
 `pickpocket-live-item` (the planted Dynamite's unit is reserved; Chet's scripted
 EquipItem, Drop and RemoveItem leave it; its blast takes it);
