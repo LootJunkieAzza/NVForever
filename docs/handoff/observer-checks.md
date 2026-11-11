@@ -1522,8 +1522,10 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     GECK wiki's Use Weapon Package page says the actor "will continue to fire and stand at the
     designated position, even during Combat" [documented], not at whom. NVForever keeps it at
     its stand firing the package's volleys at the package's target, ignoring its attacker,
-    while it can fire at that target (in place, the target an actor drawn); when it cannot
-    (a marker target, the target out of view) it fights its attacker from its stand
+    while the use is one the shooter can act on (in place, its target among the drawn
+    standing actors); when it is not (a marker target, a target not drawn, not yet at its
+    stand) it fights its attacker with the ordinary attacks while its package still moves
+    it
     [design, #2145]; the other reading is that it holds its stand and fights its attacker
     (owner-review item 52). Pick a package with the flag whose target 2 is an actor and whose
     conditions hold from a save (`fnvtool ai packages` lists the flag), watch the actor fire at

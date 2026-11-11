@@ -312,10 +312,11 @@ the spec it links to.
 52. **A Use Weapon package with Continue During Combat keeps firing at its own target
     when attacked (#2120, #2145).** With the flag, an actor attacked by the player (or
     anyone) stays at its stand and goes on firing its package's volleys at the package's
-    target, not at its attacker, for as long as it can fire at that target (in place, the
-    target an actor drawn); with Repeat Fire that can be for good. When it cannot (a marker
-    target, the target out of view, not yet at its stand) it turns on its attacker with the
-    ordinary attacks, still keeping to its stand.
+    target, not at its attacker, for as long as the use is one the shooter can act on (in
+    place, its target among the drawn standing actors); with Repeat Fire that can be for
+    good. When it is not (a marker target, a target not drawn, not yet at its stand) it
+    turns on its attacker with the ordinary attacks, while its package still moves it (on
+    to its stand, or keeping it there), not the ordinary combat movement.
     The alternative: it holds its position and fights its attacker from there. This is
     [design]: the GECK wiki's Use Weapon Package page says only "Actor will continue to
     fire and stand at the designated position, even during Combat. Great for setting up
