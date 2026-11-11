@@ -97,10 +97,24 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 /// missing" messages although NVForever runs the functions TTW calls from them
 /// (`TTW_GetPlugins` and the other `TTW_*`, StewieGetValue; `fnv_game::nvse_small`)
 /// [design, owner 2026-11-08: "technically the dll is present, just in engine"]:
-/// Stewie's Tweaks is reported at 941, the lowest TTW 3.4 accepts, and ttw_nvse at 1,
+/// Stewie's Tweaks was reported at 941, the lowest TTW 3.4 accepts, and ttw_nvse at 1,
 /// as TTW only asks whether it is there. Most of Stewie's tweaks themselves are not
 /// built (ext-small.md).
-pub const PLUGINS: [(&str, f64); 9] = [
+///
+/// The Nuclear Sunset mod list (owner, 2026-11-11: "if it cant fake anything build it")
+/// gates mods on four more, each a DLL whose work NVForever does itself or does not need:
+/// - Stewie's Tweaks at 980, the owner's installed 9.80 [observed: nvse_stewie_tweaks.dll
+///   file version 9.80, 2026-11-11] (Item Cards, Pip-Boy UI Tweaks, Character Build
+///   Presets and Companion Map Icons ask for 960, Casino Rewards Fix for 945).
+/// - "Engine Optimizations" at 100 [observed: EngineOptimizations.dll 1.00]: speed-ups
+///   of the original's engine, nothing a script sees (Modern Minimap asks for 100).
+/// - "HighResLocalMaps" at 12 [hypothesis: the lowest Modern Minimap accepts; the DLL
+///   has no version resource]: NVForever draws its local map itself, at the screen's size.
+/// - "yUI" at 140 [hypothesis: the lowest ySI - Contextual Prompts accepts]: its script
+///   functions (ySIGetTrait, ySISetTrait) are built (`fnv_game::nvse_small`).
+/// - "Improved Console" at 1.6 [hypothesis: Quick Trade's message names 1.6; it only asks
+///   IsPluginInstalled]: console conveniences, no function a script calls.
+pub const PLUGINS: [(&str, f64); 13] = [
     ("JIP NVSE Plugin", JIP_VERSION),
     ("JIP LN NVSE", JIP_VERSION),
     ("ShowOffNVSE Plugin", 184.0),
@@ -111,8 +125,12 @@ pub const PLUGINS: [(&str, f64); 9] = [
     // (`nvf_play::tiles`, uio\public\*.txt). Mods gate on its version (Heartbeat
     // Sensor Framework wants 230 or more) [hypothesis: 240, the newest release's].
     ("UI Organizer Plugin", 240.0),
-    ("lStewieAl's Tweaks", 941.0),
+    ("lStewieAl's Tweaks", 980.0),
     ("ttw_nvse", 1.0),
+    ("Engine Optimizations", 100.0),
+    ("HighResLocalMaps", 12.0),
+    ("yUI", 140.0),
+    ("Improved Console", 1.6),
 ];
 
 impl Vm<'_, '_> {

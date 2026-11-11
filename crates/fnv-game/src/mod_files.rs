@@ -388,6 +388,12 @@ impl ModFiles {
         true
     }
 
+    /// The Data files this session wrote directly in a folder, by Data path (lower case).
+    pub(crate) fn written_in(&self, folder: &str) -> Vec<String> {
+        let dir = format!("{}\\", norm(folder));
+        self.written.keys().filter(|k| k.strip_prefix(&dir).is_some_and(|rest| !rest.contains('\\'))).cloned().collect()
+    }
+
     /// [`ModFiles::read_root`] for the other files of the crate.
     pub(crate) fn read_root_text(&self, rel: &str) -> Option<String> {
         self.read_root(rel)
@@ -461,7 +467,26 @@ fn ini_path(g: &Game, file: Option<&str>) -> String {
         }
     };
     let f = if f.to_ascii_lowercase().ends_with(".ini") { f } else { format!("{f}.ini") };
-    format!("Config\\{f}")
+    data_relative(&format!("Config\\{f}"))
+}
+
+/// A Data-relative path with its `..` parts taken out (`Config\..\NVSE\Plugins\x.ini` is
+/// `NVSE\Plugins\x.ini`): mods name INIs outside Config this way, as Titans of the New
+/// West does JIP's (`..\nvse\plugins\JIP_NVSE.ini`) [documented: GetINIFloat, the path is
+/// relative to Data\Config]. One that would leave Data keeps its `..`, which every reader
+/// refuses ([`on_disk`]).
+fn data_relative(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for p in path.split(['\\', '/']).filter(|p| !p.is_empty() && *p != ".") {
+        if p == ".." {
+            if parts.pop().is_none() {
+                return path.to_string();
+            }
+        } else {
+            parts.push(p);
+        }
+    }
+    parts.join("\\")
 }
 
 /// `Section:Key` with ":", "/" or "\" between [observed: all three work], lower case.
@@ -1276,7 +1301,7 @@ fn glob(pat: &str, s: &str) -> bool {
 
 #[cfg(test)]
 mod path_tests {
-    use super::{on_disk, on_disk_any_case};
+    use super::{data_relative, on_disk, on_disk_any_case};
     use std::path::Path;
 
     #[test]
@@ -1289,6 +1314,15 @@ mod path_tests {
         assert_eq!(on_disk_any_case(&base, "nvse\\plugins\\missing.txt"), None);
         assert_eq!(on_disk_any_case(&base, "..\\x"), None, "the plain-name rule of on_disk still holds");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_ini_named_from_config_with_dot_dot_is_read_where_it_is() {
+        assert_eq!(data_relative("Config\\..\\nvse\\plugins\\JIP_NVSE.ini"), "nvse\\plugins\\JIP_NVSE.ini");
+        assert_eq!(data_relative("Config\\../nvse/plugins/tweaks/inis/zzzzKeybinder.ini"), "nvse\\plugins\\tweaks\\inis\\zzzzKeybinder.ini");
+        assert_eq!(data_relative("Config\\keybinder/Keybinder.ini"), "Config\\keybinder\\Keybinder.ini");
+        // Out of Data: kept as it is, for on_disk to refuse.
+        assert_eq!(on_disk(Path::new("layer"), &data_relative("Config\\..\\..\\x.ini")), None);
     }
 
     #[test]

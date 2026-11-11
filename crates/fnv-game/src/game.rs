@@ -1307,8 +1307,19 @@ pub struct Game<'a> {
     /// Whether the last [`Game::run_function`] call's function set its value
     /// (SetFunctionValue), for callers that tell "set to 0" from "not set" (CallLoop).
     pub(crate) udf_value_set: bool,
-    /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`).
+    /// MessageBoxExAlt's callback, run with the pressed button (`Game::tick`); with
+    /// modal boxes it moves to [`Game::box_callbacks`] once its box is queued.
     pub(crate) box_callback: Option<fnv_script::vm::XVal>,
+    /// The callbacks of queued MessageBoxExAlt boxes, by the box's showing
+    /// ([`QueuedBox::serial`]): each runs for its own box only. With one slot, every box
+    /// shown after it replaced it, and closing the first box of a start-up's queue ran
+    /// the last one's, Titans of the New West's "Restart Game", which quits [observed:
+    /// owner's Nuclear Sunset run 2026-11-11, `console: quit` with no button picked].
+    pub(crate) box_callbacks: Vec<(u64, fnv_script::vm::XVal)>,
+    /// Callbacks whose box closed, with the button, to run in the next tick.
+    pub(crate) box_callbacks_due: Vec<(fnv_script::vm::XVal, i32)>,
+    /// The button [`Game::press_button`] is closing the front box with.
+    box_press: Option<i32>,
     /// The rounds in the player's magazine, as the engine's combat has them (None without
     /// the engine).
     pub player_magazine: Option<u32>,
@@ -2377,6 +2388,9 @@ impl<'a> Game<'a> {
             effect_overrides: std::collections::HashMap::new(),
             jip_flags: std::collections::HashSet::new(),
             box_callback: None,
+            box_callbacks: Vec::new(),
+            box_callbacks_due: Vec::new(),
+            box_press: None,
             other: Default::default(),
             dialogue_edits: Default::default(),
             one111: Default::default(),
@@ -4413,8 +4427,13 @@ impl<'a> Game<'a> {
         }
         if m == menus::MESSAGE && !self.boxes.is_empty() {
             self.align_queued();
-            self.queued.remove(0);
+            let q = self.queued.remove(0);
             let b = self.boxes.remove(0);
+            let button = self.box_press.take().unwrap_or(0);
+            if let Some(i) = self.box_callbacks.iter().position(|(serial, _)| *serial == q.serial) {
+                let (_, f) = self.box_callbacks.remove(i);
+                self.box_callbacks_due.push((f, button));
+            }
             if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
                 mb.pressed = Some(0);
             }
@@ -4451,7 +4470,9 @@ impl<'a> Game<'a> {
         m.pressed = Some(button);
         let message = m.message;
         if self.menu == Some(menus::MESSAGE) && self.boxes.first() == Some(&message) {
+            self.box_press = Some(button);
             self.close_menu();
+            self.box_press = None;
         }
         Ok(())
     }
@@ -6433,7 +6454,14 @@ impl Host for Exec<'_, '_> {
         self.game.emit(EventKind::MessageShown { message: none, text: Some(text.to_string()), buttons, hidden: Vec::new() });
         if is_box {
             // Its own buttons: no Message form to count them from (`Game::queued`).
+            let serial = self.game.box_serial;
             self.game.show_box_buttons(none, count);
+            // MessageBoxExAlt's callback belongs to this box alone.
+            if self.game.box_serial != serial {
+                if let Some(f) = self.game.box_callback.take() {
+                    self.game.box_callbacks.push((self.game.box_serial, f));
+                }
+            }
         } else {
             self.game.queue_corner_message(text, "", crate::nvse_hud::CORNER_SECONDS);
         }

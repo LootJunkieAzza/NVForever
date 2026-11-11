@@ -24,6 +24,16 @@
 //! [observed: TaleOfTwoWastelands.esm, SCPT 0x0C010FAD]). Unattended runs (test aids)
 //! read the INI only under their own `NVFOREVER_HOME`, as `crate::settings` does.
 //!
+//! The game's own INIs come first (owner, 2026-11-11: a mod list set up for the original,
+//! such as an MO2 profile with TTW, must start the way it does there): `Fallout.ini`, then
+//! `FalloutCustom.ini` over it, read (never written) from `Documents\My Games\FalloutNV`,
+//! which MO2 maps to the profile's own INIs when the profile has local settings
+//! [documented: MO2 profile local INIs; hypothesis: FalloutCustom.ini's keys win over
+//! Fallout.ini's, as TTW's install guide relies on]. `NVForever.ini` gives what neither
+//! sets. The original's default film name (`Fallout INTRO Vsk.bik`, which New Vegas does
+//! not ship) counts as not set, so the owner's default above stays. Unattended runs read
+//! none of the game's INIs unless `NVF_PLAY_GAME_INIS=1`.
+//!
 //! Log: `game start: sCharGenQuest=… sIntroMovie=… (<where from>)`.
 
 use crate::settings::SettingsFile;
@@ -41,6 +51,9 @@ pub const INTRO_KEY: &str = "sIntroMovie";
 pub const DEFAULT_CHARGEN_QUEST: &str = "VCG00";
 /// The intro film without `sIntroMovie` [owner, 2026-10-15].
 pub const DEFAULT_INTRO: &str = "video\\fnvintro.bik";
+/// The original's default film name [documented: Fallout_default.ini], which New Vegas
+/// does not ship: a game INI naming it sets nothing here.
+const ORIGINAL_DEFAULT_INTRO: &str = "Fallout INTRO Vsk.bik";
 
 /// What a new game starts with (module notes).
 #[derive(Resource, Clone, Debug, PartialEq)]
@@ -61,13 +74,51 @@ impl GameStart {
     /// The keys of an INI's text; a key not there keeps its default.
     pub fn parse(text: &str) -> GameStart {
         let mut s = GameStart::default();
-        if let Some(q) = ini_get(text, SECTION, CHARGEN_KEY).map(|v| unquote(&v).to_string()).filter(|v| !v.is_empty()) {
-            s.chargen_quest = q;
-        }
-        if let Some(v) = ini_get(text, SECTION, INTRO_KEY) {
-            s.intro = film_path(unquote(&v));
-        }
+        s.apply(text);
         s
+    }
+
+    /// The keys an INI's text sets, over what is there; true when it set one.
+    pub fn apply(&mut self, text: &str) -> bool {
+        let mut set = false;
+        if let Some(q) = ini_get(text, SECTION, CHARGEN_KEY).map(|v| unquote(&v).to_string()).filter(|v| !v.is_empty()) {
+            self.chargen_quest = q;
+            set = true;
+        }
+        if let Some(v) = ini_get(text, SECTION, INTRO_KEY).filter(|v| !unquote(v).eq_ignore_ascii_case(ORIGINAL_DEFAULT_INTRO)) {
+            self.intro = film_path(unquote(&v));
+            set = true;
+        }
+        set
+    }
+
+    /// NVForever.ini's keys, then the game's `Fallout.ini` and `FalloutCustom.ini` over
+    /// them (module notes); the names of the game INIs that set a key, in order.
+    pub fn chain(nvf: Option<&str>, game: &[(String, String)]) -> (GameStart, Vec<String>) {
+        let mut s = GameStart::default();
+        let mut from = Vec::new();
+        if let Some(t) = nvf {
+            s.apply(t);
+        }
+        for (name, text) in game {
+            if s.apply(text) {
+                from.push(name.clone());
+            }
+        }
+        (s, from)
+    }
+
+    /// The game's `Fallout.ini` and `FalloutCustom.ini` that exist, by path, as text.
+    fn game_inis() -> Vec<(String, String)> {
+        let Some(dir) = fnv_install::original_user_dir() else { return Vec::new() };
+        ["Fallout.ini", "FalloutCustom.ini"]
+            .iter()
+            .filter_map(|n| {
+                let p = dir.join(n);
+                let b = std::fs::read(&p).ok()?;
+                Some((p.display().to_string(), String::from_utf8_lossy(&b).trim_start_matches('\u{feff}').to_string()))
+            })
+            .collect()
     }
 
     /// The start-up's: the INI this run reads ([`SettingsFile::for_run`]), else the
@@ -75,12 +126,19 @@ impl GameStart {
     pub fn for_run(unattended: bool) -> GameStart {
         let file = SettingsFile::for_run(unattended).0;
         let text = file.as_deref().and_then(|p| std::fs::read_to_string(p).ok());
-        let s = text.as_deref().map(GameStart::parse).unwrap_or_default();
-        let from = match (&file, &text) {
+        // An unattended run reads them only when asked (`NVF_PLAY_GAME_INIS=1`: a test of a
+        // mod list's start through MO2, which maps them to its profile).
+        let asked = std::env::var("NVF_PLAY_GAME_INIS").is_ok_and(|v| v == "1");
+        let game = if unattended && !asked { Vec::new() } else { GameStart::game_inis() };
+        let (s, game_from) = GameStart::chain(text.as_deref(), &game);
+        let mut from = match (&file, &text) {
             (Some(p), Some(_)) => p.display().to_string(),
             (Some(p), None) => format!("defaults, no {}", p.display()),
             (None, _) => "defaults, unattended run".into(),
         };
+        if !game_from.is_empty() {
+            from = format!("{} over {from}", game_from.join(" over "));
+        }
         info!("game start: {CHARGEN_KEY}={} {INTRO_KEY}={} ({from})", s.chargen_quest, s.intro.as_deref().unwrap_or("(none)"));
         s
     }
@@ -162,6 +220,21 @@ mod tests {
         let s = GameStart::parse(ini);
         assert_eq!(s.chargen_quest, "001FFFF8");
         assert_eq!(s.intro, None);
+    }
+
+    #[test]
+    fn the_game_inis_win_over_nvforever_ini_and_custom_over_fallout_ini() {
+        let nvf = "[General]\nsCharGenQuest=VCG00\nsIntroMovie=video\\fnvintro.bik\n";
+        let fallout = ("Fallout.ini".to_string(), "[General]\nSCharGenQuest=00102037\nsIntroMovie=Fallout INTRO Vsk.bik\n".to_string());
+        let custom = ("FalloutCustom.ini".to_string(), "[General]\nSCharGenQuest=001FFFF8\nSIntroMovie=\n".to_string());
+        let (s, from) = GameStart::chain(Some(nvf), &[fallout.clone(), custom]);
+        assert_eq!((s.chargen_quest.as_str(), s.intro.as_deref()), ("001FFFF8", None));
+        assert_eq!(from, ["Fallout.ini", "FalloutCustom.ini"]);
+        // The original's default film name is not a film New Vegas has: NVForever's stays.
+        let (s, _) = GameStart::chain(Some(nvf), &[fallout]);
+        assert_eq!((s.chargen_quest.as_str(), s.intro.as_deref()), ("00102037", Some("video\\fnvintro.bik")));
+        // Without the game's INIs, NVForever.ini's.
+        assert_eq!(GameStart::chain(Some(nvf), &[]).0.chargen_quest, "VCG00");
     }
 
     #[test]

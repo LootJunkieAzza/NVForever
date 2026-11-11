@@ -128,6 +128,12 @@ const POSTFIX: u8 = 31;
 const ARG: u8 = 25;
 /// An argument of an NVSE-aware function: everything but the assignments.
 const ARG_OVERRIDE: u8 = 2;
+/// The aware commands whose argument is one whole expression [documented: NVSE
+/// Expressions; Let; TestExpr; While; Print; SetFunctionValue; Assert]: only these take
+/// a comparison into their argument; the other aware functions' arguments stop at one.
+/// Call keeps whole-expression arguments as before [hypothesis: not observed either way].
+const EXPRESSION_COMMANDS: [&str; 10] = ["let", "eval", "testexpr", "while", "foreach", "print", "printdebug", "setfunctionvalue", "assert", "call"];
+
 /// An argument inside a compiler-override block: arithmetic and the bitwise operators,
 /// not the comparisons (`Abs -3 + 1` is Abs(-3 + 1), `Sin 90 > 0.5` is (Sin 90) > 0.5)
 /// [observed: probes expressions/08, 09 in the original game; bitwise operators
@@ -535,7 +541,17 @@ impl Gen<'_> {
             // On a vanilla line an aware function's argument stops at a comparison, as
             // inside a compiler-override block ([`super::Gen::vanilla_x`]); arithmetic
             // still binds into it [hypothesis: only the comparison was seen].
+            // The other aware functions' arguments (the ar_* family, the INI cache
+            // functions…) stop at a comparison in an `if eval` too: Keybinder's
+            // `if eval (Ar_Find (svControl) (Goo1.AuxVarGetAsArr "*mappedControls") ==
+            // Ar_BadNumericIndex)` compares Ar_Find's result, or every key it maps would be
+            // a duplicate in the original [observed: its warning does not show there for a
+            // config without a repeated key, owner 2026-11-11; the vanilla-line and override
+            // observations above stop at the comparison the same way].
+            let expression_command = matches!(&f.func, FuncId::Name(n) if EXPRESSION_COMMANDS.iter().any(|c| n.eq_ignore_ascii_case(c)));
             let min = if f.aware && self.vanilla_x {
+                ARG_IN_OVERRIDE
+            } else if f.aware && !expression_command {
                 ARG_IN_OVERRIDE
             } else if f.aware {
                 ARG_OVERRIDE
@@ -546,7 +562,18 @@ impl Gen<'_> {
             };
             let was = std::mem::replace(&mut self.in_args, true);
             let was_any = std::mem::replace(&mut self.in_arg_any, true);
-            let a = self.xarg(p, &enc, min);
+            let mut a = self.xarg(p, &enc, min);
+            // An aware function's argument that stops at a comparison still takes a key-value
+            // pair or a range (`Ar_Map "b"::2`, `Ar_Erase a, 1:2`), which bind looser than a
+            // comparison [documented: NVSE Expressions, `::` and `:`].
+            if f.aware && min == ARG_IN_OVERRIDE {
+                while let (Some(l), Some(t)) = (a.as_ref(), p.peek().filter(|t| t.is(XKind::Op, ":") || t.is(XKind::Op, "::"))) {
+                    let op = if t.text == "::" { XOp::Pair } else { XOp::Slice };
+                    let l = l.clone();
+                    p.next();
+                    a = self.xexpr(p, ARG_IN_OVERRIDE).map(|r| XExpr::Binary { op, l: Box::new(l), r: Box::new(r) });
+                }
+            }
             self.in_args = was;
             self.in_arg_any = was_any;
             let a = a?;

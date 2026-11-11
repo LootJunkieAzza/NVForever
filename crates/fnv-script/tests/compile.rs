@@ -1020,7 +1020,8 @@ end",
 }
 
 /// Tale of Two Wastelands' start-up checks pass for the plugins built into the engine:
-/// Stewie's Tweaks at TTW's minimum 941 and its own ttw_nvse (ext-version.md §5).
+/// Stewie's Tweaks (at the owner's 9.80, above TTW's minimum 941) and its own ttw_nvse
+/// (ext-version.md §5); the Nuclear Sunset list's yUI and Improved Console.
 #[test]
 fn ttws_plugin_checks_find_the_plugins_built_in() {
     let h = run(
@@ -1030,12 +1031,12 @@ float u
 begin GameMode
 let s := GetPluginVersion \"lStewieAl's Tweaks\"
 let t := IsPluginInstalled \"ttw_nvse\"
-let u := IsPluginInstalled \"Not A Plugin\"
+let u := IsPluginInstalled \"Not A Plugin\" + 10 * (IsPluginInstalled \"Improved Console\") + 100 * (GetPluginVersion \"yUI\" >= 140)
 end",
     );
-    assert_eq!(h.0[&1], Value::Num(941.0));
+    assert_eq!(h.0[&1], Value::Num(980.0));
     assert_eq!(h.0[&2], Value::Num(1.0));
-    assert_eq!(h.0[&3], Value::Num(0.0));
+    assert_eq!(h.0[&3], Value::Num(110.0));
 }
 
 #[test]
@@ -1488,3 +1489,14 @@ fn runtime_refuses_an_untyped_result_for_a_form_parameter() {
     // A typed form getter under GetFormIDString compiles [observed: nvse.misc pkg.nth0].
     assert_eq!(runtime_errors("SetFunctionValue (GetFormIDString (rObj.GetNthPackage 0))"), Vec::<&str>::new());
 }
+
+/// `name := value` alone on a line is an assignment, as `name = value` (the Let macro;
+/// Scaled Recurring Challenges' UDF), and an ar_* function's arguments stop at a
+/// comparison in an `if eval` (Keybinder's duplicate-key check) but take a pair or range.
+#[test]
+fn macro_colon_assign_and_aware_arguments_stop_at_a_comparison() {
+    let h = run("float f\nfloat g\narray_var a\nbegin GameMode\nf := 2 + 3\nlet a := Ar_List 1, 2\nif eval Ar_Find 3 a == Ar_BadNumericIndex\n  let g := 1\nendif\nend");
+    assert_eq!(h.0[&1], Value::Num(5.0));
+    assert_eq!(h.0[&2], Value::Num(1.0));
+}
+
