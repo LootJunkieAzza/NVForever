@@ -310,8 +310,9 @@ pub enum EmoteAsk {
     Cancel,
 }
 
-/// Where the other players' heads are while they emote (game space, by their puppets'
-/// references), for their name tags (`crate::world_marks`): written by nvforever.
+/// Where the other players' heads are (game space, by their puppets' references): their
+/// drawn head bones, standing, in an emote or seated on furniture, for their name tags
+/// (`crate::world_marks`): written by nvforever `mate_heads.rs`.
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
 pub struct MateHeads(pub HashMap<u32, [f32; 3]>);
 

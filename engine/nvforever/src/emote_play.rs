@@ -19,8 +19,8 @@
 //! **The others**: what this player plays goes out in its state (`PlayerState::emote`:
 //! the emote, its clip, phase and time, `coop.rs`), its yaw the emote's heading; each
 //! puppet plays what its player sends as a full-body idle, from where its player is in
-//! it when first seen (one who joins late sees it under way). While a puppet emotes its
-//! name tag follows its head bone (`nvf_play::emotes::MateHeads`).
+//! it when first seen (one who joins late sees it under way). Its name tag follows its head
+//! bone, in an emote or not (`crate::mate_heads`).
 //!
 //! **On the ground**: every emote clip, the player's and the puppets', is first set on the
 //! ground ([`EmoteGround`]): its lowest bone at its first frame level with the standing
@@ -48,7 +48,7 @@ use nvf_assets::model::ModelCtx;
 use nvf_coop::net::{emote as phase, EmoteState};
 use nvf_play::bindings::{Control, ControlInput};
 use nvf_play::control::Pov;
-use nvf_play::emotes::{vanilla, EmoteAsk, EmoteBook, MateHeads, Shape, CATALOG};
+use nvf_play::emotes::{vanilla, EmoteAsk, EmoteBook, Shape, CATALOG};
 use nvf_play::PlayState;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -518,7 +518,7 @@ fn drive(
     local.heading = Some(r.frame.heading);
 }
 
-/// The other players' emotes on their puppets, and where their heads are meanwhile.
+/// The other players' emotes on their puppets.
 #[allow(clippy::too_many_arguments)]
 fn puppets(
     mut commands: Commands,
@@ -526,13 +526,10 @@ fn puppets(
     mut st: ResMut<EmotePlay>,
     book: Res<EmoteBook>,
     mut rigs: Query<(Entity, &ActorRig, Option<&mut ActorIdle>)>,
-    globals: Query<&GlobalTransform>,
     (mut parts, mut models, mut ground): (ResMut<ActorParts>, ModelCtx, ResMut<EmoteGround>),
-    mut heads: ResMut<MateHeads>,
 ) {
     let st = &mut *st;
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-    let mut want_heads = HashMap::new();
     for &(reference, e) in &peers.0 {
         // A slot machine's idle is `slots_seat.rs`'s.
         if e.id == 0 || crate::slots_seat::is_slot_emote(e.id) {
@@ -577,10 +574,6 @@ fn puppets(
             info!("emotes: puppet {reference:08X} plays {} {}{}: {path}{}", CATALOG.get(emote).map_or("?", |c| c.key), phase_name(e.phase), if e.phase == phase::STAY { format!(" {}", e.step) } else { String::new() }, if late { format!(" from {:.2}s (under way)", e.t) } else { String::new() });
             st.puppets.insert(reference, Puppet { key, serial });
         }
-        if let Some(h) = crate::knockouts::bone(rig, &globals, "Bip01 Head") {
-            let g = nvf_play::space::to_game(h);
-            want_heads.insert(reference, [g[0], g[1], g[2]]);
-        }
     }
     // Those whose emote ended (or who left).
     let ended: Vec<u32> = st.puppets.keys().copied().filter(|r| !peers.0.iter().any(|(p, e)| p == r && e.id != 0 && !crate::slots_seat::is_slot_emote(e.id))).collect();
@@ -592,9 +585,6 @@ fn puppets(
             }
         }
         info!("emotes: puppet {reference:08X} ended emote {}", CATALOG.get(p.key.0 as usize - 1).map_or("?", |c| c.key));
-    }
-    if heads.0 != want_heads {
-        heads.0 = want_heads;
     }
 }
 
