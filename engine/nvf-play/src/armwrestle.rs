@@ -174,7 +174,7 @@ fn look(mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut 
         return;
     }
     *frames = frames.wrapping_add(1);
-    if !fresh && *frames % LOOK_EVERY != 0 {
+    if !fresh && !frames.is_multiple_of(LOOK_EVERY) {
         return;
     }
     let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
