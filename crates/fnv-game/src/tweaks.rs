@@ -410,6 +410,9 @@ pub struct Tweaks {
     /// `bPlantingLiveGrenadesRequiresWeaponSkill`: an explosive placed in a pocket goes
     /// live only for a player who meets its skill requirement.
     pub planting_needs_skill: bool,
+    /// `bFastTravelCostsSpecialNukaBottles`: fast travel takes a Nuka-Cola Quantum,
+    /// Quartz or Victory, and is refused without one.
+    pub travel_costs_bottle: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -598,6 +601,7 @@ impl Default for Tweaks {
             no_companion_item_damage: false,
             modding_needs_skill: false,
             planting_needs_skill: false,
+            travel_costs_bottle: false,
         }
     }
 }

@@ -47,10 +47,12 @@ pub enum Refusal {
     Encumbered,
     /// The player's No Travel on a Crippled Leg tweak [design: docs/design/tweaks.md].
     CrippledLeg,
+    /// The player's Fast Travel Costs a Nuka-Cola tweak, with no bottle carried [design: docs/design/tweaks.md].
+    NoBottle,
 }
 
 impl Refusal {
-    pub const ALL: [Refusal; 8] = [Refusal::Undiscovered, Refusal::Script, Refusal::Place, Refusal::InAir, Refusal::Combat, Refusal::HostilesNear, Refusal::Encumbered, Refusal::CrippledLeg];
+    pub const ALL: [Refusal; 9] = [Refusal::Undiscovered, Refusal::Script, Refusal::Place, Refusal::InAir, Refusal::Combat, Refusal::HostilesNear, Refusal::Encumbered, Refusal::CrippledLeg, Refusal::NoBottle];
 
     /// The game setting holding the refusal's text [documented: GECK wiki, game settings
     /// list].
@@ -63,8 +65,8 @@ impl Refusal {
             Refusal::Combat => "sNoFastTravelCombat",
             Refusal::HostilesNear => "sNoFastTravelHostileActorsNear",
             Refusal::Encumbered => "sNoFastTravelOverencumbered",
-            // No game setting holds this one: NVForever's words only.
-            Refusal::CrippledLeg => "",
+            // No game setting holds these: NVForever's words only.
+            Refusal::CrippledLeg | Refusal::NoBottle => "",
         }
     }
 
@@ -80,6 +82,7 @@ impl Refusal {
             Refusal::HostilesNear => "You cannot fast travel when enemies are nearby.",
             Refusal::Encumbered => "You cannot fast travel while carrying too much.",
             Refusal::CrippledLeg => "You cannot fast travel with a crippled leg.",
+            Refusal::NoBottle => "Fast travel needs a Nuka-Cola Quantum, Quartz or Victory.",
         }
     }
 }
@@ -101,6 +104,8 @@ pub struct Checks {
     pub encumbered: bool,
     /// A leg is crippled and the tweak refuses travel then.
     pub crippled_leg: bool,
+    /// The Nuka-Cola tweak is on and the player carries none of its bottles.
+    pub no_bottle: bool,
 }
 
 /// The player's fast-travel tweaks [design: docs/design/tweaks.md]: No Fast Travel
@@ -124,8 +129,19 @@ pub fn refusal(c: &Checks) -> Option<Refusal> {
         Refusal::HostilesNear => c.hostiles_near,
         Refusal::Encumbered => c.encumbered,
         Refusal::CrippledLeg => c.crippled_leg,
+        Refusal::NoBottle => c.no_bottle,
     };
     Refusal::ALL.into_iter().find(|&r| applies(r))
+}
+
+/// The bottles the Fast Travel Costs a Nuka-Cola tweak takes, by editor ID [observed:
+/// FalloutNV.esm] [design: docs/design/tweaks.md].
+const TRAVEL_BOTTLES: [&str; 3] = ["NukaColaQuantum", "NukaColaQuartz", "NukaColaVictory"];
+
+/// One of [`TRAVEL_BOTTLES`] the player carries.
+fn travel_bottle(sim: &mut SimState) -> Option<FormId> {
+    let bottles: Vec<FormId> = TRAVEL_BOTTLES.iter().filter_map(|e| sim.forms.by_edid(e)).collect();
+    bottles.into_iter().find(|&b| sim.world.item_count(FormId::PLAYER_REF, b).is_ok_and(|n| n > 0))
 }
 
 /// The CELL `DATA` flag "Can't Travel From Here" and the WRLD `DATA` flag "Can't Fast
@@ -288,6 +304,7 @@ pub fn answer(
         hostiles_near: hostile.is_some(),
         encumbered,
         crippled_leg: tw.no_travel_crippled_leg && limbs.as_ref().is_some_and(|l| l.limping()),
+        no_bottle: tw.game.travel_costs_bottle && travel_bottle(&mut sim).is_none(),
     };
     tweak_checks(&mut checks, &tw);
     // The player's tweak: an undiscovered marker refuses quietly [design: docs/design/tweaks.md].
@@ -332,7 +349,7 @@ struct Trip {
 pub fn go(
     mut goes: MessageReader<FastTravelGo>,
     state: Option<Res<DataState>>,
-    sim: Res<SimState>,
+    mut sim: ResMut<SimState>,
     phys: Res<PhysState>,
     location: Res<Location>,
     mut pending: ResMut<Pending>,
@@ -361,7 +378,7 @@ pub fn go(
     let distance = from.map_or(0.0, |f| (dest.pos[0] - f[0]).hypot(dest.pos[1] - f[1]));
     let scale = sim.world.time_scale().unwrap_or(OWN_TIME_SCALE);
     // The player's tweak: no time passes on the trip (and so no needs) [design: docs/design/tweaks.md].
-    let hours = if tweaks.is_some_and(|t| t.no_travel_time) { 0.0 } else { travel_hours(distance, crate::player::MoveSpeeds::OBSERVED.walk, scale) };
+    let hours = if tweaks.as_ref().is_some_and(|t| t.no_travel_time) { 0.0 } else { travel_hours(distance, crate::player::MoveSpeeds::OBSERVED.walk, scale) };
     let travel = Travel { world, interior, feet: dest.pos, heading_deg: crate::activate::outcome::heading_deg(dest.rot) };
     info!(
         "fast travel: to {} ({}): arrive at {} {:?}, {:.0} units away, {hours:.2} hours on the clock",
@@ -371,6 +388,13 @@ pub fn go(
         dest.pos,
         distance
     );
+    // The player's tweak: the trip takes a bottle [design: docs/design/tweaks.md].
+    if tweaks.as_ref().is_some_and(|t| t.game.travel_costs_bottle) {
+        if let Some(b) = travel_bottle(&mut sim) {
+            let _ = sim.world.remove_item(FormId::PLAYER_REF, b, 1);
+            info!("fast travel: one {} taken for the trip (tweak)", sim.name(b).unwrap_or("bottle"));
+        }
+    }
     pending.0 = Some(Trip { travel, to: dest.id.0, cell: dest.cell.map(|c| c.0), rot: dest.rot, hours });
     menu.write(MenuInput(Command::Close));
 }
@@ -457,7 +481,7 @@ mod tests {
         let open = Checks { target: true, ..Checks::default() };
         assert_eq!(refusal(&open), None);
         assert_eq!(refusal(&Checks::default()), Some(Refusal::Undiscovered));
-        let all = Checks { target: true, script_block: true, place: true, in_air: true, combat: true, hostiles_near: true, encumbered: true, crippled_leg: true };
+        let all = Checks { target: true, script_block: true, place: true, in_air: true, combat: true, hostiles_near: true, encumbered: true, crippled_leg: true, no_bottle: true };
         assert_eq!(refusal(&all), Some(Refusal::Script));
         assert_eq!(refusal(&Checks { script_block: false, place: false, ..all }), Some(Refusal::InAir));
         assert_eq!(refusal(&Checks { target: true, hostiles_near: true, ..Checks::default() }), Some(Refusal::HostilesNear));

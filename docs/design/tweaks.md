@@ -500,6 +500,7 @@ unless the player binds them, so nothing changes until then.
 | No Companion Item Damage | `bNoCompanionItemDamage` | `combat::wear_weapon` returns before any wear for a teammate (armour wears only on the player in NVForever) |
 | Weapon Mods Need the Skill | `bWeaponModdingSkillRequirement` | `pipboy::item_mod::keys` refuses to open the mod list when the player's skill (`WeaponStats::skill`) is under `skill_req` |
 | Planting Grenades Needs the Skill | `bPlantingLiveGrenadesRequiresWeaponSkill` | `pickpocket` (engine): under the explosive's skill requirement it is placed but does not go live |
+| Fast Travel Costs a Nuka-Cola | `bFastTravelCostsSpecialNukaBottles` | `pipboy::data::travel`: `Refusal::NoBottle` (our words) without one of `TRAVEL_BOTTLES` (`NukaColaQuantum`, `NukaColaQuartz`, `NukaColaVictory` [observed: FalloutNV.esm]); `go` takes one |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -521,8 +522,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 422 |
-| to do | 181 |
+| done | 423 |
+| to do | 180 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -556,6 +557,7 @@ game's Data folder, read-only).
 | `bEnduranceScalesMinFallHeight` | done |  | 2 | Endurance Softens Falls (slider; the base bonus option not built) |
 | `bExplosionKnockdownAvoidanceUsesStrength` | done |  |  | Strength Resists Blasts |
 | `bExtendLockpickSpotRange` | done |  |  | already so: the sweet spot can sit anywhere on the half circle |
+| `bFastTravelCostsSpecialNukaBottles` | done |  | 3 | Fast Travel Costs a Nuka-Cola (Quantum, Quartz or Victory by editor ID; our refusal words; the item messages not shown) |
 | `bFastTravelOverencumbered` | done |  |  | Fast Travel Encumbered |
 | `bFreeWildWasteland` | done |  |  | Free Wild Wasteland (editor ID WildWasteland, a trait on offer) |
 | `bFrenzyGrantsPlayerXP` | done |  |  | Frenzied Kills Earn Experience (Aggression 3) |
@@ -645,7 +647,6 @@ game's Data folder, read-only).
 | `bExplosionRadiusBuff` | to do |  | 3 | explosion_damage reads CombatTuning (serialized) |
 | `bExplosionsDontPushTakeableItems` | to do |  |  | push_dynamic knows no references |
 | `bFallDeathsCauseDismemberment` | to do |  |  | falls::hurt lacks the dismember queue |
-| `bFastTravelCostsSpecialNukaBottles` | to do |  | 3 | a new refusal plus taking the bottle in travel::go |
 | `bForceLockpickNoBreakLock` | to do |  | 3 | Picking::force; the engine apply would need the pin-broken path |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |

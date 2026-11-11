@@ -1408,6 +1408,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "no-companion-item-damage", "No Companion Item Damage", "The companions' weapons do not wear with use. (Stewie's Tweaks bNoCompanionItemDamage)", game.no_companion_item_damage);
         switch!(app, "modding-needs-skill", "Weapon Mods Need the Skill", "A weapon can be modded only by a player who meets its skill requirement. (Stewie's Tweaks bWeaponModdingSkillRequirement)", game.modding_needs_skill);
         switch!(app, "planting-needs-skill", "Planting Grenades Needs the Skill", "A grenade or mine placed in someone's pocket goes live only if the player meets its skill requirement. (Stewie's Tweaks bPlantingLiveGrenadesRequiresWeaponSkill)", game.planting_needs_skill);
+        switch!(app, "travel-costs-bottle", "Fast Travel Costs a Nuka-Cola", "Each fast travel takes a Nuka-Cola Quantum, Quartz or Victory, and is refused without one. (Stewie's Tweaks bFastTravelCostsSpecialNukaBottles)", game.travel_costs_bottle);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
