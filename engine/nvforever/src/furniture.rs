@@ -865,8 +865,9 @@ pub fn drive_player(
     let st = &mut *state_;
     for UseFurniture { reference } in asked.read().copied() {
         match &mut st.using {
-            // Activating the furniture one is on: get up.
-            Some(u) if u.plan.furniture == reference => seat.leave = true,
+            // Activating the furniture one is on: get up (not under the player's Activate
+            // Doesn't Stand Up tweak, docs/design/tweaks.md).
+            Some(u) if u.plan.furniture == reference => seat.leave |= !nvf_play::tweaks::SEAT_KEEPS_ON_ACTIVATE.load(std::sync::atomic::Ordering::Relaxed),
             Some(_) => {}
             None => match f.plan(&world, &mut ctx, reference, player.feet, who, &|func, p| game_value(&script, func, p)) {
                 // Beds as seats: the player lies down as a sleeping actor does [owner

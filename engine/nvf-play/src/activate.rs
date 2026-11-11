@@ -582,7 +582,8 @@ pub(crate) fn activate(
     let Some(t) = queued.as_ref().or(target.0.as_ref()) else {
         // On furniture with nothing under the crosshair (lying on a bed, the bed is out
         // of view): Activate gets up [design].
-        seat.leave |= seat.hold.is_some();
+        // (Not under the player's Activate Doesn't Stand Up tweak, docs/design/tweaks.md.)
+        seat.leave |= seat.hold.is_some() && !crate::tweaks::SEAT_KEEPS_ON_ACTIVATE.load(std::sync::atomic::Ordering::Relaxed);
         return;
     };
     // E pressed on something the player can hold: a tap activates it when E comes up,

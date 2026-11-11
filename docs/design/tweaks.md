@@ -533,6 +533,7 @@ unless the player binds them, so nothing changes until then.
 | Detailed Stats | `bMoreDetailedStatsMenu` | `pipboy::stats::read` leaves the values uncapped and writes the mark as the signed difference from the permanent value (`Row::mark` is a `String` now) |
 | Lockpicking Follows the Time Speed | `bTimescaleAffectsMinigames` | `lockpick::step` multiplies its frame time by SetGlobalTimeMultiplier's speed; the card and slot games keep their pace |
 | No Name Length Limit | `bNoPlayerNameLimit` | the name menu and `chargen::apply_name` take up to `NAME_LONG_CHARS` (256) for 24; the box wraps |
+| Activate Doesn't Stand Up | `bActivatingDoesntStandUp` | nvforever `furniture` and `activate` leave `PlayerSeat::leave` alone on Activate (`tweaks::SEAT_KEEPS_ON_ACTIVATE`); a movement control still gets up (`player.rs`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -554,8 +555,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 459 |
-| to do | 144 |
+| done | 460 |
+| to do | 143 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -792,6 +793,7 @@ game's Data folder, read-only).
 | `bShiftIgnoresFriendlyVATS` | done | yes | 1 | Shift Ignores Friends in V.A.T.S. (bHideFriendliesByDefault not done) |
 | `bSkipIntroVideo` | done | yes |  | already so: the intro plays only after New Game and any key skips it |
 | `bVatsExitKey` | done | yes | 1 | Skip Kill Camera (right click; Tab is the Pip-Boy key here) |
+| `bActivatingDoesntStandUp` | done |  |  | Activate Doesn't Stand Up (moving already stood up) |
 | `bAllowFiringWhileLanding` | done |  |  | already so: firing waits only for the weapon to be ready |
 | `bAllowOpenPipboyDuringCameraShake` | done |  |  | already so: no camera shake blocks the Pip-Boy |
 | `bAllowUnsafeFastTravel` | done |  | 1 | Fast Travel From Anywhere (no warning; bShowWarning not done) |
@@ -861,7 +863,6 @@ game's Data folder, read-only).
 | `bSelectUnavailableRadios` | to do | yes |  | the Pip-Boy lists only stations in range |
 | `bShiftScreenshotHidesMenus` | to do | yes |  | the capture is asynchronous; MenusHidden must be held a frame or two |
 | `bSkipDeathcamHotkey` | to do | yes | 2 | the death camera (nvforever death_cam) has no end but a load yet |
-| `bActivatingDoesntStandUp` | to do |  |  | activate and nvforever furniture drive_player |
 | `bAddItemUsesItemIcon` | unsure, skipped |  |  | needs an icon replacer |
 | `bAddNightVisionToggle` | to do |  | 4 | a night vision state plus flashlight and scope_view |
 | `bAllowActivateWhileAnimPlays` | to do |  |  | NVForever never refuses activating during a reload; check what the original refuses |

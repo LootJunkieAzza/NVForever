@@ -27,6 +27,9 @@ pub static SEATED_WIDE: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 pub static NO_TURN_CLIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Remove Landing Animation, for the player's body [design: docs/design/tweaks.md].
 pub static NO_LAND_CLIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Activating Doesn't Stand Up: on furniture only a movement control gets the player up
+/// [design: docs/design/tweaks.md].
+pub static SEAT_KEEPS_ON_ACTIVATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Every tweak's value. `Default`: the original's behaviour.
 #[derive(Resource, Debug, Clone, PartialEq)]
@@ -370,6 +373,9 @@ pub struct TweakSettings {
     /// `bLevelUpScrollWheelSupport`: the wheel raises and lowers skills on the level-up
     /// page.
     pub levelup_wheel: bool,
+    /// `bActivatingDoesntStandUp`: Activate does not get the player up from furniture;
+    /// moving does.
+    pub seat_keeps_on_activate: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -581,6 +587,7 @@ impl Default for TweakSettings {
             no_pointer_in_message_box: false,
             no_pointer_in_dialogue: false,
             levelup_wheel: false,
+            seat_keeps_on_activate: false,
         }
     }
 }
@@ -1519,6 +1526,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "detailed-stats", "Detailed Stats", "In the Pip-Boy's stats, a raised or lowered value says by how much, as (+5) for (+), and values show past 10 and 100. (Stewie's Tweaks bMoreDetailedStatsMenu)", game.detailed_stats);
         switch!(app, "minigames-timescale", "Lockpicking Follows the Time Speed", "When a script speeds up or slows down time, the lock turns and the pick wears at that speed too. (Stewie's Tweaks bTimescaleAffectsMinigames)", game.minigames_timescale);
         switch!(app, "no-name-limit", "No Name Length Limit", "Your character's name may be longer than 24 letters. (Stewie's Tweaks bNoPlayerNameLimit)", game.no_name_limit);
+        switch!(app, "seat-keeps-on-activate", "Activate Doesn't Stand Up", "Seated or lying down, the activate key no longer gets you up; a movement key does. (Stewie's Tweaks bActivatingDoesntStandUp)", seat_keeps_on_activate);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1781,6 +1789,7 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
     SEATED_WIDE.store(tweaks.seated_wide, std::sync::atomic::Ordering::Relaxed);
     NO_TURN_CLIP.store(tweaks.no_turn_clip, std::sync::atomic::Ordering::Relaxed);
     NO_LAND_CLIP.store(tweaks.no_land_clip, std::sync::atomic::Ordering::Relaxed);
+    SEAT_KEEPS_ON_ACTIVATE.store(tweaks.seat_keeps_on_activate, std::sync::atomic::Ordering::Relaxed);
     crate::pad::set_dead_zones(tweaks.custom_dead_zones.then_some((tweaks.left_dead_zone, tweaks.right_dead_zone)));
     crate::wait::model::set_date_style(tweaks.date_style as u8);
     if let Some(mut b) = bindings {
