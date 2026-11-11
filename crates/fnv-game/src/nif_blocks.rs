@@ -54,6 +54,9 @@ pub enum SceneEdit {
     Rotation { r: FormId, node: String, v: [f32; 3] },
     Scale { r: FormId, node: String, v: f32 },
     Flags { r: FormId, node: String, flags: u32 },
+    /// The flags of the `child`th child of `node` (0 first, in the order the engine told
+    /// them), for a switch whose children are unnamed or share names (#2017).
+    ChildFlags { r: FormId, node: String, child: usize, flags: u32 },
     Rename { r: FormId, node: String, to: String },
     Remove { r: FormId, node: String },
     /// A new empty node under `target`, or (`as_parent`) between `target` and its parent.
@@ -366,6 +369,24 @@ pub(crate) fn node_place(g: &mut Game, r: FormId, node: &str, world: bool) -> Op
 /// JohnnyGuitar's distances (`crate::nvse_jg_nif`); `None` without the tree or the node.
 pub(crate) fn node_world(g: &mut Game, r: FormId, node: &str) -> Option<[f32; 3]> {
     node_place(g, r, node, true).map(|(p, _)| p)
+}
+
+/// Shows only the `show`th child of the node of that name (none for a place past the
+/// children), each child addressed by its place under the node, not by its name; the
+/// engine gets one [`SceneEdit::ChildFlags`] per child. `false` without the tree or the
+/// node.
+pub(crate) fn show_one_child(g: &mut Game, r: FormId, node: &str, show: Option<usize>) -> bool {
+    let Some(t) = g.scene.tree(r) else { return false };
+    let Some(i) = find(t, node) else { return false };
+    let kids: Vec<usize> = (0..t.len()).filter(|&k| t[k].parent == Some(i) && k != i).collect();
+    let mut edits = Vec::new();
+    for (place, k) in kids.into_iter().enumerate() {
+        let flags = if Some(place) == show { t[k].flags & !1 } else { t[k].flags | 1 };
+        t[k].flags = flags;
+        edits.push(SceneEdit::ChildFlags { r, node: node.to_string(), child: place, flags });
+    }
+    g.scene.edits.extend(edits);
+    true
 }
 
 /// The mirror's node of that name and its children, for JohnnyGuitar's NIF functions.

@@ -145,7 +145,11 @@ fn terminal_items_come_and_go() {
     // The items after the removed one move up, with a script's text.
     assert_eq!(s(&mut g, "GetTerminalMenuItemText TestTerminal 1 0"), "Two");
     assert_eq!(s(&mut g, "GetTerminalMenuItemText TestTerminal 1 1"), "Three");
-    assert!(!g.other.jg9.refresh_terminal);
+    // A removal redraws an open menu, whose positions moved (#2018).
+    assert!(g.other.jg9.refresh_terminal);
+    g.other.jg9.refresh_terminal = false;
+    assert_eq!(n(&mut g, "RemoveTerminalMenuItem TestTerminal 7"), 0.0);
+    assert!(!g.other.jg9.refresh_terminal, "nothing removed, nothing redrawn");
     let _ = q(&mut g, "RefreshTerminalMenu");
     assert!(g.other.jg9.refresh_terminal);
 }
