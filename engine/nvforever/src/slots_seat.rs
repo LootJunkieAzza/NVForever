@@ -155,6 +155,13 @@ fn own(
 ) {
     let now = real.elapsed_secs();
     let Some(mut pi) = pi else { return };
+    // The slot machine menu holds the game (`idles::drive`), and with it the idles: the
+    // cheer stood on its first frame, arms down [observed: slots-170-B camera-win-warm,
+    // 43.25 to 46.2 s]. At the machine the body is seen, so its idles play on.
+    let under = slots_seat.busy();
+    if pi.under_menu != under {
+        pi.under_menu = under;
+    }
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     // At a machine: load them now, so the first spin does not wait for the files.
     if slots_seat.busy() && !idle.loaded {
