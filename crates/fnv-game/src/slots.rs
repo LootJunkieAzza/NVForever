@@ -156,12 +156,33 @@ pub struct SlotsRequest {
     pub max_bet: u32,
     /// 0: the casino's own.
     pub max_winnings: u32,
+    /// The reference whose script asked (the slot machine activated), if any: the machine
+    /// whose reels turn (nvforever `slots_view.rs`).
+    pub machine: Option<FormId>,
+}
+
+/// How long the celebration of a win lasts, seconds, by what the line paid times the bet
+/// (owner's spec, item 170: it scales with the prize, up to 3 s; small wins get a short
+/// one) [design: 0.8 s at 2x, about 1.7 s at 10x, 3 s from 120x]; 0 for a loss.
+pub fn celebration(multiple: u32) -> f32 {
+    if multiple == 0 {
+        return 0.0;
+    }
+    (0.4 + 0.4 * (multiple as f32).log2()).clamp(0.8, 3.0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rand_core::SeedableRng;
+
+    #[test]
+    fn celebrations_scale_with_the_prize() {
+        assert_eq!(celebration(0), 0.0);
+        assert!((celebration(2) - 0.8).abs() < 1e-5);
+        assert!(celebration(10) > celebration(5) && celebration(10) < 2.0);
+        assert_eq!(celebration(160), 3.0);
+    }
 
     #[test]
     fn the_record_stops_make_the_reel() {

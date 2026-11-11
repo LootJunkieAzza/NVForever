@@ -508,26 +508,44 @@ impl RouletteView {
     }
 }
 
-/// A slot machine: the bet, the line (symbols 0..6) and what it last paid.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A slot machine: the bet, the line (symbols 0..6) and what it last paid; and (item 170)
+/// the placed machine (its reference, 0 for none), the stops the reels stand or stop at,
+/// the spins made and how long the one turning has turned, so the others turn the reels
+/// on that machine in their world (`crate::slots::machines`). The machine's part is a
+/// tail a view without it lacks (read as no machine) [design: a game of the same protocol
+/// without item 170 still reads the bet and the line].
+#[derive(Debug, Clone, PartialEq)]
 pub struct SlotsView {
     pub bet: u32,
     pub line: [u8; 3],
     pub spinning: bool,
     pub won: u32,
     pub chips: u32,
+    pub machine: Option<u32>,
+    pub stops: [u8; 3],
+    pub spin: u32,
+    pub elapsed: f32,
 }
 
 impl SlotsView {
     pub fn encode(&self) -> Vec<u8> {
         let mut w = W::default();
         w.u32(self.bet).u8(self.line[0]).u8(self.line[1]).u8(self.line[2]).u8(u8::from(self.spinning)).u32(self.won).u32(self.chips);
+        if let Some(m) = self.machine {
+            w.u32(m).u8(self.stops[0]).u8(self.stops[1]).u8(self.stops[2]).u32(self.spin).f32(self.elapsed);
+        }
         w.0
     }
 
     pub fn decode(b: &[u8]) -> Option<SlotsView> {
         let mut r = R(b);
-        let v = SlotsView { bet: r.u32()?, line: [r.u8()?, r.u8()?, r.u8()?], spinning: r.u8()? != 0, won: r.u32()?, chips: r.u32()? };
+        let mut v = SlotsView { bet: r.u32()?, line: [r.u8()?, r.u8()?, r.u8()?], spinning: r.u8()? != 0, won: r.u32()?, chips: r.u32()?, machine: None, stops: [0; 3], spin: 0, elapsed: 0.0 };
+        if !r.done() {
+            v.machine = Some(r.u32()?);
+            v.stops = [r.u8()?, r.u8()?, r.u8()?];
+            v.spin = r.u32()?;
+            v.elapsed = r.f32()?;
+        }
         r.done().then_some(v)
     }
 }
@@ -1015,7 +1033,11 @@ fn publish(
             crate::slots::Phase::Paid { .. } => (false, fnv_game::slots::multiple(line) * s.bet),
             crate::slots::Phase::Betting => (false, 0),
         };
-        let v = SlotsView { bet: s.bet, line, spinning, won, chips: s.chips };
+        let elapsed = match s.phase {
+            crate::slots::Phase::Spinning { since, .. } => now - since,
+            _ => 0.0,
+        };
+        let v = SlotsView { bet: s.bet, line, spinning, won, chips: s.chips, machine: s.machine.map(|m| m.0), stops: s.stops.map(|x| x as u8), spin: s.spins, elapsed };
         out = Some((s.casino.0, game::SLOTS, v.encode()));
     }
     if let Some(d) = darts.as_deref().and_then(|d| d.0.as_ref()) {
@@ -1149,8 +1171,13 @@ mod tests {
         assert_eq!(DartsAction::decode(&DartsAction::Throw(f32::NAN, 0.0).encode()), None);
         let r = RouletteView { bets: vec![("A01".into(), 10), ("RED".into(), 25)], spinning: true, pocket: Some(37), chips: 300, owner: 1, spin: 4, clip: 2, elapsed: 3.5, done: true };
         assert_eq!(RouletteView::decode(&r.encode()), Some(r));
-        let s = SlotsView { bet: 10, line: [2, 2, 6], spinning: false, won: 300, chips: 50 };
-        assert_eq!(SlotsView::decode(&s.encode()), Some(s));
+        let s = SlotsView { bet: 10, line: [2, 2, 6], spinning: false, won: 300, chips: 50, machine: None, stops: [0; 3], spin: 0, elapsed: 0.0 };
+        assert_eq!(SlotsView::decode(&s.encode()), Some(s.clone()));
+        let m = SlotsView { machine: Some(0x0016_546A), stops: [3, 9, 13], spin: 4, elapsed: 1.25, spinning: true, ..s };
+        assert_eq!(SlotsView::decode(&m.encode()), Some(m.clone()));
+        // A view cut short in its tail is refused.
+        let b = m.encode();
+        assert_eq!(SlotsView::decode(&b[..b.len() - 2]), None);
         let d = DartsView {
             owner: 1,
             stake: 100,

@@ -170,6 +170,9 @@ pub struct PlayerControl {
     /// A kill camera has the view (`crate::kill_cam`): it counts as a third-person view,
     /// so the body is drawn and the first-person arms are not.
     pub cinematic: bool,
+    /// A minigame's camera has the view (the slot machine's, nvforever `slots_view.rs`):
+    /// counted as a third-person view, as [`Self::cinematic`] is.
+    pub scene_cam: bool,
 }
 
 impl Default for PlayerControl {
@@ -192,6 +195,7 @@ impl Default for PlayerControl {
             crosshair: None,
             portrait: None,
             cinematic: false,
+            scene_cam: false,
         }
     }
 }
@@ -199,7 +203,7 @@ impl Default for PlayerControl {
 impl PlayerControl {
     /// Whether the camera shows the player from outside (third person, or circling).
     pub fn third_person_view(&self) -> bool {
-        self.pov == Pov::Third || self.orbit.active() || self.portrait.is_some() || self.cinematic
+        self.pov == Pov::Third || self.orbit.active() || self.portrait.is_some() || self.cinematic || self.scene_cam
     }
 
     /// The heading the view looks along for a player facing `heading`: turned by the

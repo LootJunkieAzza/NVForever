@@ -143,14 +143,47 @@ observed: the five casinos]:
 
 ## 6. On the screen
 
-- NVForever draws the menu flat, as Caravan's (caravan.md): three reels side by side,
-  each a window three symbols high on a pale ground with the payline across the middle,
-  the symbols the record's pictures (§2); while a reel turns its symbols run down
-  through the window, slowing to the stop [design].
-- Not built: the machine's 3D model (`MOD2`: the cabinet, the arm and its
-  `Forward`/`Backward` pull, the coins' `Payout_*` fall, the lights), the reels as the
-  drum models, the challenge `ChallengeSlotsSCRIPT`, the Atomic Wrangler's jackpot
-  message `AtomicWranglerSlotsMsg` (its trigger is not read).
+- **The reels on the machine itself** (queue item 170, nvforever `slots_view.rs`): the
+  machine the player activated (the reference whose script asked; the test aid's request
+  takes the nearest slot machine) turns its reels where it stands in the world, and the
+  menu shows its text and buttons over the world, without the flat reels.
+  - The placed models `clutter\casino\Slot_Machine01.nif`, `…01TOPS.NIF` and
+    `…01Gomorrah.NIF` have three reel nodes `Reel01`–`Reel03`, all at (-0.33, 2.12, 33.69)
+    in the body node and turned about X only, each holding one drum shape (`Reel0n:5`, 8
+    sides, radius 8.19, 3.79 wide, centred at x -5.6, 0, +5.6 of the reel node), mapped onto
+    a small strip of the cabinet's 512 × 512 `Slot_Machine01_D.dds` [observed: fnvtool nif
+    decode]. The window frame in front of them faces (0, -0.97, 0.25), 15° above the
+    machine's front (-Y) [observed: the frame's vertices and normals]; the handle is the
+    node `Handle` at x 17, turning about X [observed].
+  - NVForever hides the drum shapes while the machine is in use and turns a drum of its own
+    in each one's place, of the shape's own size: the casino's 14 stops, each the symbol's
+    picture (CSNO ICON, 256 × 128), with the separator picture `NV_SlotMachine-SymbolS.dds`
+    between them, as `nv_slotmachine-reel01.nif` alternates symbol and separator faces
+    [observed]; each face wears a copy of the drum shape's material with the picture in
+    place of the cabinet's [design]. The payline is the stop facing the window (15° above
+    -Y), marked by a thin red line and red arrows [design: owner's spec].
+  - `Slot_Machine02.nif` (vWranglerSlot02) is one static shape of the same cabinet, its
+    window frame where 01's is [observed]: the drums stand at 01's reel places. A machine
+    model of another size gets no drums and the menu draws its flat reels (below).
+  - The arm turns as the minigame model's `Forward`: 0.774 rad by 0.33 s, 0.861 by 0.5 s,
+    held to 0.83 s [observed: NV_SlotMachine-Minigame.NIF], then back over 0.5 s
+    [design]. The placed models have no `Forward`, coin or `Payout_*` sequences, only
+    `Idle` and a still `Backward`/`Off` pose [observed], so the coins and the payout screen
+    of the minigame model are not shown; the Payout List stays the menu's own.
+  - The camera [design: owner's spec, item 170]: third person at the pull, a pan in close
+    on the reels while they turn and stop; on a win a 0.3 s eased zoom out to third person
+    for the celebration (0.8 s at 2x the bet up to 3 s from 120x,
+    `fnv_game::slots::celebration`), then back in for the next spin.
+  - Co-op: each player's slots view names the machine, the stops, the spin's number and how
+    long it has turned (`nvf_play::coop_tables::SlotsView`), so the others see the same
+    reels turn and stop on that machine, and hear its pull and its win or loss there.
+- **The flat reels** (the fallback): three reels side by side, each a window three symbols
+  high on a pale ground with the payline across the middle, the symbols the record's
+  pictures (§2); while a reel turns its symbols run down through the window, slowing to
+  the stop [design].
+- Not built: the minigame model's coins and payout screen (nothing to play them on, above),
+  the challenge `ChallengeSlotsSCRIPT`, the Atomic Wrangler's jackpot message
+  `AtomicWranglerSlotsMsg` (its trigger is not read).
 
 ## 7. Tests
 
@@ -161,6 +194,8 @@ observed: the five casinos]:
   the help the first time, a spin of 5 made to stop on three oranges pays 800, a spin
   made to stop on a cherry in the left place pays 10, a losing spin; screenshots of the
   help, the reels turning, a result and the payout list.
+- Smoke `slots-3d` and `slots-3d-static`: the reels turning on The Tops' machine 0x0016546A
+  (its own reel nodes) and on the Atomic Wrangler's static 0x00119EC0, the camera's shots.
 - Test aid `NVF_PLAY_TEST_SLOTS` (nvf-play `slots.rs`).
 
 ## 8. Open questions for the owner
