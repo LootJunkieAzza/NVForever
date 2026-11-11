@@ -110,6 +110,15 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   (expectation syntax: `tools/smoke/smoke/expect.py`). Never loosen an expectation to make
   a run pass; mark it `known_failing` with the reason instead.
 
+## Player reports: never from a session's runs
+
+Reports (`engine/nvforever/src/reports/`, docs/design/player-reports.md) measure players'
+games; a session's runs would skew them. Every run passes `--data` (the smoke runner does),
+which keeps reports off; never answer the "Help fix NVForever?" popup with Send reports
+and never set `NVF_REPORTS=1` without `NVF_REPORTS_ENDPOINT` pointing at a local server
+(LootJunkieAzza/NVForever-Data `npm run dev:ingest`, `http://127.0.0.1:8787`). A run
+without `--data` that must start like a player's sets `NVF_REPORTS=0`.
+
 ## Claiming work (outside contributors work here too)
 
 - **Before starting, look for the same work**: open pull requests (drafts too) and open

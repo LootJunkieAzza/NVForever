@@ -24757,3 +24757,78 @@ manual = "terrain_edge_save36.png: the ground in front of the player has no stra
 expect = [
   { re = 'test aid: screenshot .*terrain_edge_save36\.png', label = "the ground frame is saved" },
 ]
+
+[[scenario]]
+name = "reports-anomaly-fell-through"
+source = "#2055, docs/design/player-reports.md section 4.4: the engine's rescue after falling through the land becomes a fell_out_of_world anomaly in the session summary (engine/nvforever/src/reports/anomaly.rs)"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/anomaly.rs", "engine/nvforever/src/reports/warnings.rs"]
+# Dropped 20000 units below the ground in Goodsprings; nvf-play puts the player back on the land.
+env = { NVFOREVER_HOME = "reports-anomaly-home", NVF_REPORTS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setpos z -20000;8.5:close" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  { re = 'player fell through at', label = "the engine's rescue" },
+  { re = 'reports: anomaly fell_out_of_world at WastelandNV', label = "the anomaly with where it happened" },
+  "run log: the game exited normally",
+]
+
+[[scenario]]
+name = "native-crash-dump"
+source = "#2055, docs/design/player-reports.md section 3.2 (#1425, #1825): a native crash leaves a minidump beside the run log (engine/nvforever/src/native_crash.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/native_crash.rs", "engine/nvforever/src/crash.rs"]
+# A thread of its own writes to an unmapped address 5 s after the first frame: the process ends with 0xC0000005.
+env = { NVFOREVER_HOME = "native-crash-home", NVF_PLAY_TEST_NATIVE_CRASH = "5" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 30
+exit = 3221225477
+# The run ends at the crash: its last line is the crash's, not "run finished".
+ends = "test aid NVF_PLAY_TEST_NATIVE_CRASH: an access violation now"
+expect = [
+  { re = 'native crash, exception 0xC0000005; dump written to .*crash-\d{8}-\d{6}-\d+\.dmp', label = "the dump beside the run log" },
+]
+
+[[scenario]]
+name = "reports-delete-unreachable"
+source = "#2055, docs/design/player-reports.md section 6: Settings > Gameplay > Reports > Reports already sent > Delete them now; with no server answering, it says so and keeps the IDs to try again (engine/nvforever/src/reports/delete.rs)"
+areas = ["reports"]
+paths = ["engine/nvforever/src/reports/delete.rs", "crates/fnv-install/src/reports.rs"]
+# Port 9 on this machine refuses connections: never the project's server.
+env = { NVFOREVER_HOME = "reports-delete-home", NVF_REPORTS = "1", NVF_REPORTS_ENDPOINT = "http://127.0.0.1:9", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "6:14", NVF_PLAY_TEST_SETTINGS = "7:reports-delete=Delete them now" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  "settings: reports-delete Deleting…",
+  "reports: deleting the reports sent from this PC failed",
+  "run log: the game exited normally",
+]
+forbid = [{ text = "the server was asked to delete", label = "a deletion reported done with no server" }]
+
+[[scenario]]
+name = "reports-snapshot-on-panic"
+source = "#2055, docs/design/player-reports.md sections 4.2 and 4.3: with reports on, a panic writes the flight recorder and the world snapshot beside its crash report (engine/nvforever/src/reports/snapshot.rs, crash.rs)"
+areas = ["reports", "crash"]
+paths = ["engine/nvforever/src/reports/snapshot.rs", "engine/nvforever/src/reports/anomaly.rs"]
+# The snapshot is rebuilt every 5 s; the panic comes 12 s after the first frame.
+env = { NVFOREVER_HOME = "reports-snapshot-home", NVF_REPORTS = "1", NVF_PLAY_TEST_PANIC = "12" }
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 25
+expect = [
+  { re = 'crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the crash report" },
+  "reports: the flight recorder and world snapshot written beside the crash report",
+  "run log: the game exited normally",
+]
+
+[[scenario]]
+name = "events-log"
+source = "#2055, docs/design/player-reports.md section 4.1: every log event at info and up as a JSON line with where and when it happened, in events-<time>-<pid>.jsonl beside the run log (engine/nvforever/src/events_log.rs)"
+areas = ["crash", "reports"]
+paths = ["engine/nvforever/src/events_log.rs"]
+args = ["--play", "--cell", "Goodsprings"]
+run_seconds = 15
+expect = [
+  { re = 'events log: .*events-\d{8}-\d{6}-\d+\.jsonl$', label = "the events file beside the run log" },
+  { re = 'events log: (\d+) events written', range = [20, 1000000], label = "the run's events were written to it" },
+  "run log: the game exited normally",
+]
