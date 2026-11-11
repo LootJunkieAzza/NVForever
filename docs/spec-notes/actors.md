@@ -1853,7 +1853,11 @@ stopped and started, as Victor's walk had before #258). Code:
     the standing clip meanwhile. Rule [design]: for creatures (`Blend::set_off_at_once`, set on
     every creature's locomotion), a walk or run asked for while the clip playing is a
     standing one starts at once, fading from that clip; changes between moves still wait
-    for the fade. People keep the eased fade (their movement look is the owner's).
+    for the fade. People keep the eased fade from the idle (their movement look is the
+    owner's), but set off at once from a turn on the spot (`TurnLeft`/`TurnRight`): Benny
+    was logged moving at 46 and 77 units/s on `TurnRight` as he turned off his spot to
+    walk to the Lucky 38 suite [observed in NVForever, queue item 189, runs
+    q171-tops-benny-suite], where other walkers show their walk.
 - **Not done**: the aim's up and down forms for creatures that have them (ghoul,
   protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
   in `attack_anims.rs`); the creature alert look is not compared with the original game

@@ -812,6 +812,10 @@ fn goto_and_look(
             let hit = phys.place_player(at, 60.0, 1000.0);
             let feet = phys.player.as_ref().map_or(at, |c| c.feet);
             player.feet = feet;
+            // A put, as a travel's (`Player::placed`): a scripted idle after it plays here,
+            // not where the last travel left the player (the Dead Money bunker run, queue
+            // item 182: the capture idle held the host at its `coc` spot, in another trigger).
+            player.placed = Some(feet);
             info!(
                 "test aid: go to ({:.0}, {:.0}, {:.0}): feet ({:.1}, {:.1}, {:.1}) on {:?}",
                 at[0],

@@ -10998,9 +10998,9 @@ name = "slots"
 source = "docs/spec-notes/slots.md §7: a slot machine at The Tops (0x0016546A in TOPSCasino) activated with 200 Tops chips: its script's ShowSlotMachineMenuParams opens the menu (bets 1 to 75) with the help the first time; the payout list shown and hidden; a bet of 5 made to stop on three oranges pays 160 x 5, then a cherry on the left reel pays 2 x 5, then a losing line; screenshots of the help, the payout list, the reels turning and a result"
 areas = ["slots", "menus"]
 paths = ["crates/fnv-game/src/slots.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvf-play/src/lockpick/help.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,52:reels:1-2-3,52.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_help.png,38.5:slots_payouts.png,41:slots_spin.png,43.5:slots_result.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,42.5:payout,44:payout,44.5:reels:6-6-6,45:spin,51:reels:7-1-2,51.5:spin,57:reels:1-2-3,57.5:spin,63:exit", NVF_PLAY_TEST_SHOTS = "40.5:slots_help.png,43.5:slots_payouts.png,46:slots_spin.png,48.5:slots_result.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 61
+run_seconds = 66
 order = [[
   "slots: the player is given 200 chips",
   'slots: open The Tops (0x00144C3F): bets 1 to 75, 200 chips carried, earnings 0 of 10000, reel stops [2, 2, 2, 2, 2, 2, 2] (14 a reel), 7 symbol pictures, model terminals\NV_SlotMachine\NV_SlotMachine-Minigame.NIF; help message shown (first use)',
@@ -11016,6 +11016,140 @@ order = [[
 expect = [
   "slots summary: 1 asked, 1 opened (0 refused); 3 spins, 2 won, 800 chips won, 5 lost; 0 bans",
 ]
+
+[[scenario]]
+name = "slots-seated"
+source = "queue item 170 part A: The Tops' machine 0x0016546A has its stool 0x0011E62E (TopsSlotMachineStool01L) 56 units out in front [observed: the load-order survey]; activated, the player sits on it by the stool's own getting-on clip, the menu opens once seated, each spin plays NVSlotMachineInsertCoin, a loss NVSlotMachineLoose, the jackpot (160 x) the cheer for 3 s on the upper body, and leaving gets the player up by the getting-off clip; third person for the screenshots"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:6-6-6,50.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_seated_sitting_down.png,44.2:slots_seated_insert_coin.png,47:slots_seated_loss.png,54:slots_seated_cheer.png,59.5:slots_seated_getting_up.png,64:slots_seated_up.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 66
+order = [[
+  "slots seat: the player sits on stool 0011E62E at machine 0016546A",
+  "furniture: the player uses 0011E62E",
+  "furniture: the player is on 0011E62E",
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots: open The Tops (0x00144C3F)",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Bell BAR Seven: nothing",
+  "slots seat: the player plays Loose",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots seat: celebration 3.00s (160 x)",
+  "slots seat: the player plays Cheer",
+  "slots seat: celebration ended",
+  "slots: closed (the player left)",
+  "slots seat: the player gets up from stool 0011E62E",
+  "furniture: the player got off 0011E62E",
+  "slots seat: the player is up",
+]]
+expect = [
+  { re = 'slots seat: \S+specialidle_nvinsertcoin\.kf: [\d.]+s, \d+ upper-body tracks', label = "InsertCoin loads, upper body only" },
+  { re = 'slots seat: \S+specialidle_nvloose\.kf: [\d.]+s, \d+ upper-body tracks', label = "Loose loads" },
+  { re = 'match end: left Slots .* the end view', label = "the end view after the player is up (item 166)" },
+]
+
+[[scenario]]
+name = "slots-standing"
+source = "queue item 170 part A: Gomorrah's machine 0x0015EB86 (the cushion row) has no stool in front [observed: the load-order survey]; activated, the player stands 44 units out in front facing it, a spin plays InsertCoin on the upper body, a two-cherry win (5 x) a short cheer, and leaving lets the player go at once"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_standing_at.png,35.2:slots_standing_insert_coin.png,38:slots_standing_cheer.png,46:slots_standing_left.png" }
+args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
+run_seconds = 48
+order = [[
+  { re = 'slots seat: standing at machine 0015EB86 \(.*\), facing 270 deg \(no stool in front\)', label = "standing in front, facing the machine" },
+  "slots: open Gommorah (0x00140521)",
+  "slots seat: the player plays InsertCoin",
+  "slots: the reels stop on Cherry Cherry Bell: Two cherries pays 5 x 5 = 25 chips",
+  { re = 'slots seat: celebration 1\.3\ds \(5 x\)', label = "a short celebration for a small win" },
+  "slots seat: the player plays Cheer",
+  "slots seat: celebration ended",
+  "slots: closed (the player left)",
+  "slots seat: the player leaves the machine",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-mod-standing"
+source = "queue item 170 part A, the owner's Strip mods: HOTM.esm's Silver Palace (cell aaSilverPalaceCasino) has 71 slot machines, 49 of them with no stool (the owner's screenshot of 2026-11-10, rows on wooden bases); machine 0x0F003EF0 in the owner's order, 0x08003EF0 with HOTM.esm's masters alone [observed: the load-order survey]: the player stands at it; needs a Data folder with the owner's mods (NVF_SLOTS_MOD_DATA set, --data the merged MO2 Data)"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots/seat.rs", "engine/nvforever/src/slots_seat.rs"]
+requires = ["NVF_SLOTS_MOD_DATA"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "08003EF0", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x08003EF0", NVF_PLAY_TEST_SLOTS = "18:chips:200:08003EB0,32:help,33:bet:5,34:reels:1-2-3,34.5:spin,41:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_mod_sp_standing.png,35.2:slots_mod_sp_insert_coin.png,38:slots_mod_sp_loss.png" }
+args = ["--plugins", "FalloutNV.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "HonestHearts.esm", "LonesomeRoad.esm", "OldWorldBlues.esm", "Simple Open Strip.esm", "The Strip - 2023 Lite.esm", "HOTM.esm", "--cell", "aaSilverPalaceCasino", "--play", "--no-voice"]
+run_seconds = 45
+order = [[
+  { re = 'slots seat: standing at machine 08003EF0 .*\(no stool in front\)', label = "standing in front" },
+  "slots: open Silver Palace",
+  "slots seat: the player plays InsertCoin",
+  "slots seat: the player plays Loose",
+  "slots seat: the player leaves the machine",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-mod-seated"
+source = "queue item 170 part A, the owner's Strip mods: HOTM.esm's Monte Carlo (cell aaMontecarlo) machine 0x08003F92 (0x0F003F92 in the owner's order) has a TopsSlotMachineStool01L 0x08003F9D 53 units out in front [observed: the load-order survey]: the player sits on it, wins, gets up; needs NVF_SLOTS_MOD_DATA as slots-mod-standing"
+areas = ["slots", "furniture"]
+paths = ["engine/nvf-play/src/slots/seat.rs", "engine/nvforever/src/slots_seat.rs"]
+requires = ["NVF_SLOTS_MOD_DATA"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "08003F92", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x08003F92", NVF_PLAY_TEST_SLOTS = "18:chips:200:08003F8C,37:help,38:bet:5,39:reels:4-4-4,39.5:spin,47:exit", NVF_PLAY_TEST_SHOTS = "33:slots_mod_mc_sitting_down.png,40.2:slots_mod_mc_insert_coin.png,43.5:slots_mod_mc_cheer.png,49:slots_mod_mc_getting_up.png" }
+args = ["--plugins", "FalloutNV.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "HonestHearts.esm", "LonesomeRoad.esm", "OldWorldBlues.esm", "Simple Open Strip.esm", "The Strip - 2023 Lite.esm", "HOTM.esm", "--cell", "aaMontecarlo", "--play", "--no-voice"]
+run_seconds = 54
+order = [[
+  "slots seat: the player sits on stool 08003F9D at machine 08003F92",
+  "furniture: the player is on 08003F9D",
+  "slots seat: seated at machine 08003F92 on stool 08003F9D",
+  "slots seat: the player plays InsertCoin",
+  "slots seat: the player plays Cheer",
+  "slots seat: the player gets up from stool 08003F9D",
+  "slots seat: the player is up",
+]]
+expect = []
+
+[[scenario]]
+name = "slots-3d"
+source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): the Tops slot machine 0x0016546A activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera goes third person at the pull, in on the reels while they turn, out for a win; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+areas = ["slots", "menus"]
+paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs", "engine/nvf-play/src/slots.rs", "engine/nvf-play/src/slots/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,52:reels:1-2-3,52.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_reels.png,38.5:slots3d_payouts.png,40.00:slots3d_clip_00.png,40.25:slots3d_clip_01.png,40.50:slots3d_clip_02.png,40.75:slots3d_clip_03.png,41.00:slots3d_clip_04.png,41.25:slots3d_clip_05.png,41.50:slots3d_clip_06.png,41.75:slots3d_clip_07.png,42.00:slots3d_clip_08.png,42.25:slots3d_clip_09.png,42.50:slots3d_clip_10.png,42.75:slots3d_clip_11.png,43.00:slots3d_clip_12.png,43.25:slots3d_clip_13.png,43.50:slots3d_clip_14.png,43.75:slots3d_clip_15.png,44.00:slots3d_clip_16.png,46.2:slots3d_win_line.png,47.0:slots3d_pull2.png,50.0:slots3d_small_win.png,56.0:slots3d_loss.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 62
+order = [[
+  "slots: the machine is 0016546A",
+  "slots view: the reel model has 28 faces (radius 7.",
+  "slots view: drums on 0016546A (its own reel nodes;",
+  "slots: spin: bet 5, 195 chips left; the reels will stop on Orange Orange Orange",
+  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots: the reels stop on Cherry Bell BAR: One cherry pays 2 x 5 = 10 chips",
+  "slots: the reels stop on Bell BAR Seven: nothing",
+  "slots: closed (the player left)",
+  "slots view: drums on 0016546A taken away",
+]]
+expect = [
+  { text = "slots view: drums on 0016546A (its own reel nodes; radius 8.", label = "the drums are the reel shape's radius, 8.19 in the spec note", known_failing = "release 0.7.1 ship merge: since the crash fix 2c2f83f1e the drum is measured from a CPU copy of the model and logs radius 7.91; whether 7.91 or 8.19 is right is slots-reels' call (asked by slots-coop, 2026-11-11)" },
+  "arm found",
+  "faces as the reel model)",
+  "slots view summary: drums built on 1 machines",
+]
+
+[[scenario]]
+name = "slots-3d-static"
+source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): an Atomic Wrangler slot machine of the static model Slot_Machine02.nif (vWranglerSlot02, 0x00119EC0) has no reel nodes: the drums stand at the vanilla cabinet's reel places; a win of three bells and a loss; screenshots. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+areas = ["slots", "menus"]
+paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00119EC0", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x00119EC0", NVF_PLAY_TEST_SLOTS = "18:chips:200:144C42,36:help,37:bet:5,39.5:reels:1-1-1,40:spin,46:reels:2-3-4,46.5:spin,52:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_static_reels.png,41.2:slots3d_static_spin.png,43.3:slots3d_static_win.png,47.8:slots3d_static_spin2.png,50:slots3d_static_loss.png" }
+args = ["--cell", "FreesideAtomicWrangler", "--play", "--no-voice"]
+run_seconds = 56
+order = [[
+  "slots: the machine is 00119EC0",
+  "slots view: drums on 00119EC0 (the cabinet's reel places (static model)",
+  "slots: the reels stop on Bell Bell Bell: Three bells pays 10 x 5 = 50 chips",
+  "slots: the reels stop on BAR Seven Lemon: nothing",
+  "slots: closed (the player left)",
+]]
 
 [[scenario]]
 name = "blackjack"
@@ -25256,15 +25390,63 @@ expect = [
   { re = 'creature calm idle summary: (\d+) idles', range = [2, 1000], label = "calm idles start on the tower's robots (none before)" },
 ]
 
+# ------------------------------------------------------------------ overnight queue items 189-192 (2026-11-11)
+
+[[scenario]]
+name = "playgroup-undrawn-counts-playing"
+source = "queue item 192 (docs/spec-notes/activators.md §5): a group asked of an object that is not drawn counts as playing (IsAnimPlaying 1) until it is drawn, so a script waiting for it to end (Kimball's vertibird VHDBearForceOneREF) does not fall through at once"
+note = "the Volare! bomber VMS15RisingPlaneREF (00105868) is disabled when its cell loads and its OnLoad plays Right (b29-rise), so it is not drawn; the console reads IsAnimPlaying Right at 8 s (1), then enables it at 10 s: drawn at run time. A reference disabled after it was drawn keeps its hidden rig and plays the group at once (observed 2026-11-11, first laptop run), so it is not this case"
+areas = ["object-anims"]
+paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "5", NVF_PLAY_TEST_CONSOLE = "8:VMS15RisingPlaneREF.IsAnimPlaying Right;10:VMS15RisingPlaneREF.enable;10.3:close" }
+args = ["--play", "--world", "WastelandNV", "--pos=75252,58527,1320", "--heading", "75", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  { re = 'playgroup: VMS15RisingPlaneREF plays Right \(flag 1\): not drawn, shown when it is', label = "the disabled bomber's OnLoad plays Right, not drawn" },
+  { re = 'console: IsAnimPlaying on VMS15RisingPlaneREF >> 1\.00', label = "IsAnimPlaying Right reads 1 while it waits (0 before the fix)" },
+  { re = 'reference 0x00105868 drawn \(enabled at run time\)', label = "enabled, it is drawn" },
+]]
+
+[[scenario]]
+name = "playgroup-missing-said-once"
+source = "queue item 191 (docs/spec-notes/activators.md §5): a group a model lacks, asked again and again between groups it has (the Lonesome Road silo's panel light blinking Right and SpecialIdle), is reported once per reference and group"
+note = "the Goodsprings banana yucca 0x00106B2E has Forward and Backward but no Right [observed 2026-11-11]; Right and Forward are asked in turn at 7-11 s"
+areas = ["object-anims"]
+paths = ["engine/nvforever/src/object_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "7:play_group:0x00106B2E:Right:1,8:play_group:0x00106B2E:Forward:1,9:play_group:0x00106B2E:Right:1,10:play_group:0x00106B2E:Forward:1,11:play_group:0x00106B2E:Right:1" }
+args = ["--play", "--cell", "Goodsprings", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'playgroup: 0x00106B2E plays Right: its model has no sequence of that name', count = 1, label = "Right is reported once though asked three times between Forwards" },
+  { re = 'playgroup: 0x00106B2E plays Forward \(once', min = 2, label = "Forward plays between them" },
+]
+
+[[scenario]]
+name = "use-weapon-marker"
+source = "queue item 190 (docs/design/use-weapon.md): UseWeapon on a target that is no actor (Lonesome Road's silo reveal has ED-E shoot NVDLC04SiloRevealTargetREF, an XMarker): the shots are fired at where the marker is placed"
+note = "Violet (FiendVioletRef 0x000F570B, -46910,64897, hunting rifle) is told at 5 s to fire 3 harmless shots, not always hitting, at the XMarkerHeading 0x0016581F (-46305,67861,4282, about 3,000 units north of her) from her own place; nobody perceives the player (NVF_PLAY_TEST_UNSEEN). Before the fix the use waited for ever: 0 shots"
+areas = ["combat", "use-weapon"]
+paths = ["engine/nvforever/src/use_weapon.rs", "crates/fnv-game/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapHuntingRifle:FiendVioletRef:0x0016581F:3:0:0:0:1" }
+args = ["--cell", "Goodsprings", "--pos=-45500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  { re = 'is to use its weapon on .*: from where it stands', label = "the AI takes up the use where she stands" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapHuntingRifle on .* \(a script\): 3 shots; no damage', label = "Violet uses her rifle on the marker: 3 shots, no damage" },
+  { re = 'use weapon: FiendVioletRef 0x000F570B has fired its 3 shots at', label = "all 3 shots are fired" },
+  { re = 'use weapon summary: 1 actors used a weapon .*?3 shots', label = "the summary counts them" },
+]
+
 [[scenario]]
 name = "armwrestle-solo"
 source = "Queue item 199 part A: the player sits on the west chair of the arm-wrestling table in the Prospector Saloon's back hall (armwrestle_table), the card waits for the Goodsprings Settler to walk over and sit, the test aid starts the bout 2 s later and taps 9 a second against his about 6, the bout is won, the Strength highlight shows, the player gets up and the end view plays"
 areas = ["minigames", "furniture"]
 paths = ["crates/fnv-game/src/armwrestle.rs", "engine/nvforever/src/armwrestle_arm.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvforever/src/match_end.rs", "engine/nvf-play/src/flourish.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:312:222:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_KEYS = "6:f", NVF_PLAY_TEST_SHOTS = "8:armwrestle_card.png,20:armwrestle_coming.png,26:armwrestle_26.png,29:armwrestle_29.png,32:armwrestle_32.png,35:armwrestle_35.png,38:armwrestle_38.png,41:armwrestle_41.png,44:armwrestle_44.png,47:armwrestle_47.png,52:armwrestle_end.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "8:armwrestle_card.png,20:armwrestle_coming.png,26:armwrestle_26.png,29:armwrestle_29.png,32:armwrestle_32.png,35:armwrestle_35.png,38:armwrestle_38.png,41:armwrestle_41.png,44:armwrestle_44.png,47:armwrestle_47.png,52:armwrestle_end.png" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 60
-manual = "third person (KEYS 6:f, after sitting: the third-person aim runs along the camera line and would miss the chair); armwrestle_2x-4x.png: elbows on the table, hands clasped over the middle, leaning towards the Settler as the meter goes the player's way, his hand flat on the table after the win; armwrestle_card.png: the card says the settler is coming over; armwrestle_bout*.png: the countdown or TAP SPACE prompt over the meter, the score panel with taps and STR; armwrestle_result.png: the leaderboard and the Strength highlight; armwrestle_end.png: the end view"
+manual = "third person on its own once seated (no KEYS: the match switches the view itself); armwrestle_2x-4x.png: elbows on the table, hands clasped over the middle, leaning towards the Settler as the meter goes the player's way, his hand flat on the table after the win; armwrestle_card.png: the card says the settler is coming over; armwrestle_bout*.png: the countdown or TAP SPACE prompt over the meter, the score panel with taps and STR; armwrestle_result.png: the leaderboard and the Strength highlight; armwrestle_end.png: the end view"
 expect = [
   { re = 'arm wrestle: the table found: table Some', label = "the screen finds the table the game made" },
   "arm wrestle: seated on stool 0",
@@ -25282,12 +25464,12 @@ name = "armwrestle-table"
 source = "queue item 199 (owner 2026-11-10): an arm-wrestling table with two stools in the Prospector Saloon, new references in an unoccupied spot, not blocking NPC paths. fnv-game armwrestle_table.rs: a diner table (dinertable01NV) with a Chair01TableR and a Chair01TableL facing each other across its narrow side, the game's own pair at that table, made in the back hall (armwrestle-a's spot) when the saloon loads; the player sits on the west chair and the Goodsprings Settler (GSSettlerCM, 0x00104F08) walks over from the bar and sits on the east one (fnv-ai seat override, nvforever furniture.rs created furniture)"
 areas = ["minigames", "ai", "furniture"]
 paths = ["crates/fnv-game/src/armwrestle_table.rs", "crates/fnv-ai/src/goal.rs", "engine/nvforever/src/furniture.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:312:222:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SHOTS = "2.5:armwrestle_table.png,30:armwrestle_seated.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SHOTS = "2.5:armwrestle_table.png,30:armwrestle_seated.png" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 34
 manual = "armwrestle_table.png: the table and both chairs at the east end of the back hall, standing on the floor; armwrestle_seated.png: the settler on the far chair, facing the player across the table, his body on the chair (not in the table or the air)"
 expect = [
-  { re = 'armwrestle: made NVCasinoTableG ', label = "the table is made when the saloon loads" },
+  { re = 'armwrestle: made NVGrinderWorkbench ', label = "the table is made when the saloon loads" },
   { re = 'furniture: the player uses FF[0-9A-F]{6}', label = "the player sits on a created chair" },
   { re = 'armwrestle: GSSettlerCM is called to seat 1', label = "the settler is called to the other chair" },
   { re = 'furniture: 00104F08 goes to FF[0-9A-F]{6}', label = "the settler gets onto the created chair" },

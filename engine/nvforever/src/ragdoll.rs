@@ -245,7 +245,7 @@ impl Ragdolls {
         for (b, &n) in bones.iter().enumerate() {
             body_of[n] = Some(b);
         }
-        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, limit: MAX_AWAKE })
+        Some(Corpse { data: rag, bones, body_of, live: false, fell_here: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, limit: MAX_AWAKE })
     }
 }
 
@@ -284,6 +284,9 @@ pub struct Corpse {
     body_of: Vec<Option<usize>>,
     /// The ragdoll is in the physics world.
     pub live: bool,
+    /// It died in sight here and its ragdoll took the pose as it was (`deaths.rs`): a co-op
+    /// guest keeps its own fall, not the host's resting pose (`coop::replication`).
+    pub fell_here: bool,
     /// The velocity its bodies start with (game units a second, game space): a knockdown's
     /// shove (`knockouts.rs`); used once.
     pub velocity: [f32; 3],
