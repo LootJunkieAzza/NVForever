@@ -339,9 +339,40 @@ fn stepper_runs_whole_fixed_steps() {
     assert_eq!(s.advance(&p, 0.025), 2);
     assert_eq!(s.advance(&p, 0.006), 1);
     assert!((s.accumulated - 0.001).abs() < 1e-6);
+    assert!((s.alpha(p.dt) - 0.1).abs() < 1e-4);
     assert_eq!(s.advance(&p, 1.0), 4);
-    assert!(s.accumulated <= p.dt);
+    assert!(s.accumulated <= f64::from(p.dt));
     assert_eq!(s.advance(&p, -1.0), 1);
+}
+
+#[test]
+fn stepper_does_not_drift_over_an_hour_of_frames() {
+    // An hour at 144 frames a second, 60 steps a second: every step of the hour, none lost
+    // or gained to the remainder's rounding.
+    let p = PhysParams { dt: 1.0 / 60.0, max_substeps: 15, ..Default::default() };
+    let mut s = Stepper::default();
+    let frames = 144 * 3600;
+    let steps: u64 = (0..frames).map(|_| u64::from(s.advance(&p, 1.0 / 144.0))).sum();
+    // The step is 1/60 in f32 (a hair over), the frame 1/144 in f32: at most one step off.
+    let exact = (f64::from(1.0f32 / 144.0) * f64::from(frames) / f64::from(p.dt)).floor() as u64;
+    assert!(steps.abs_diff(exact) <= 1, "{steps} steps, {exact} expected");
+}
+
+#[test]
+fn stepper_keeps_the_blend_when_the_step_changes() {
+    let p60 = PhysParams { dt: 1.0 / 60.0, max_substeps: 15, ..Default::default() };
+    let mut s = Stepper::default();
+    s.advance(&p60, 0.01);
+    let before = s.alpha(p60.dt);
+    s.rescale(p60.dt, 1.0 / 152.0);
+    assert!((s.alpha(1.0 / 152.0) - before).abs() < 1e-5, "the drawn pose does not jump");
+    s.rescale(1.0 / 152.0, 1.0 / 240.0);
+    assert!((s.alpha(1.0 / 240.0) - before).abs() < 1e-5);
+    // Nothing to rescale from or to.
+    s.rescale(0.0, 1.0 / 60.0);
+    s.rescale(1.0 / 60.0, f32::NAN);
+    assert!((s.alpha(1.0 / 240.0) - before).abs() < 1e-5);
+    assert_eq!(Stepper::default().alpha(0.0), 0.0);
 }
 
 // --- character controller ---

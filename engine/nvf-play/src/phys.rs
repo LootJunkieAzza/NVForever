@@ -731,7 +731,7 @@ impl PhysState {
     /// The body is drawn [`drawn_sink`] below the character's feet.
     pub fn npc_drawn_feet(&self, id: u32) -> Option<[f32; 3]> {
         let b = self.npcs.get(&id)?;
-        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        let a = self.stepper.alpha(self.world.params.dt);
         Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a - if i == 2 { b.sink - b.lift.at(a) } else { 0.0 }))
     }
 
@@ -805,7 +805,7 @@ impl PhysState {
     /// a step or a bump ([`step_lift::StepLift`]; the player is `FormId::PLAYER_REF`); 0
     /// for an actor without a character.
     pub fn drawn_lift_of(&self, id: u32) -> f32 {
-        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        let a = self.stepper.alpha(self.world.params.dt);
         if id == fnv_sim::FormId::PLAYER_REF.0 {
             if self.player.is_some() { self.player_lift.at(a) } else { 0.0 }
         } else {

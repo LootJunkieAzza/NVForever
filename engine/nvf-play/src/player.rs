@@ -1139,7 +1139,7 @@ fn step(
             player.placed = None;
         }
         p.player_lift.reset();
-        let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
+        let alpha = p.stepper.alpha(dt);
         player.feet = lerp3(p.prev_feet, c.feet, alpha);
         return;
     }
@@ -1327,7 +1327,7 @@ fn step(
         lunge.from = None;
         info!("player: lunge done: {:.0} units from where it started", (c.feet[0] - from[0]).hypot(c.feet[1] - from[1]));
     }
-    let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
+    let alpha = p.stepper.alpha(dt);
     player.feet = lerp3(p.prev_feet, c.feet, alpha);
     if n > 0 {
         // Where the bodies are drawn after the steps (the drawn ground under each).

@@ -1247,24 +1247,54 @@ pub(crate) fn body_state(b: &RigidBody, k: f32) -> BodyState {
 }
 
 /// Runs a variable frame time as whole fixed steps; the remainder carries over.
+///
+/// The remainder is kept in `f64`: each frame adds its time and each step takes `dt` off,
+/// and in `f32` the sum's rounding (about 2e-9 s at a step's size) would build up over
+/// hours of frames [design]. [`Stepper::alpha`] is the one place the share of a step
+/// that the remainder stands for is worked out: everything drawn between the last two
+/// steps blends by it.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Stepper {
-    pub accumulated: f32,
+    /// Game time towards the next step, seconds.
+    pub accumulated: f64,
 }
 
 impl Stepper {
-    /// How many fixed steps `elapsed` seconds call for (at most `params.max_substeps`).
+    /// How many fixed steps `elapsed` seconds call for (at most `params.max_substeps`;
+    /// the time beyond is dropped, leaving at most one step's).
     pub fn advance(&mut self, params: &PhysParams, elapsed: f32) -> u32 {
-        self.accumulated += elapsed.max(0.0);
+        let dt = f64::from(params.dt);
+        self.accumulated += f64::from(elapsed.max(0.0));
         let mut n = 0;
-        while self.accumulated >= params.dt && n < params.max_substeps {
-            self.accumulated -= params.dt;
+        while self.accumulated >= dt && n < params.max_substeps {
+            self.accumulated -= dt;
             n += 1;
         }
         if n == params.max_substeps {
-            self.accumulated = self.accumulated.min(params.dt);
+            self.accumulated = self.accumulated.min(dt);
         }
         n
+    }
+
+    /// How far the remainder is into the next step of `dt` seconds, 0 to 1: what is
+    /// drawn between the last two steps sits this share of the way to the last one.
+    pub fn alpha(&self, dt: f32) -> f32 {
+        if dt > 0.0 {
+            (self.accumulated / f64::from(dt)).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        }
+    }
+
+    /// The step changes from `from` to `to` seconds (another rate, or a clock that runs
+    /// slow): the remainder keeps its share of a step, so [`Stepper::alpha`], and with it
+    /// everything drawn between steps, does not jump. The game time it stands for changes
+    /// by less than one step's [design: a jump on screen would show; a fraction of a step
+    /// of game time, once, does not].
+    pub fn rescale(&mut self, from: f32, to: f32) {
+        if from > 0.0 && to > 0.0 && from.is_finite() && to.is_finite() {
+            self.accumulated = (self.accumulated * f64::from(to) / f64::from(from)).min(f64::from(to));
+        }
     }
 }
 

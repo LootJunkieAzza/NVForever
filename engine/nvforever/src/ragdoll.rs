@@ -519,7 +519,7 @@ pub(crate) fn pose(
     let stepped = last.map_or(0, |last| steps.saturating_sub(last));
     let dt = last.map_or(time.delta_secs(), |_| stepped as f32 * phys.world.params.dt);
     // How far the clock is into the next step: where between two steps the bones are drawn.
-    let alpha = phys.stepper.accumulated / phys.world.params.dt;
+    let alpha = phys.stepper.alpha(phys.world.params.dt);
     let mut seen = HashSet::new();
     for (rig, mut c, vis) in &mut corpses {
         let rig = rig_of(rig);
