@@ -42,17 +42,34 @@ thread_local! {
 
 /// Run `body` with `caster` answering [`cast`] on this thread.
 pub fn with_caster<R>(caster: &Cast<'_>, body: impl FnOnce() -> R) -> R {
+    // SAFETY: the pointer is only read by `cast` while `body` runs on this thread (or on
+    // a thread a nested script run moved to while this one waits, `Game::nested`), and
+    // `lend` takes it back out when `body` returns or unwinds, so it never outlives the
+    // borrow of `caster`.
+    let p = unsafe { std::mem::transmute::<*const Cast<'_>, *const Cast<'static>>(caster as *const Cast<'_>) };
+    unsafe { lend(Some(p), body) }
+}
+
+/// The caster lent on this thread now, to carry to the thread a nested script run moves
+/// to (`Game::nested`).
+pub(crate) fn lent() -> Option<*const Cast<'static>> {
+    CASTER.with(|c| c.get())
+}
+
+/// Run `body` with `p` (from [`lent`] or [`with_caster`]) answering [`cast`] on this
+/// thread, the one before put back when it returns or unwinds.
+///
+/// # Safety
+/// The caster `p` points to must stay alive, and be used by no other thread, while
+/// `body` runs.
+pub(crate) unsafe fn lend<R>(p: Option<*const Cast<'static>>, body: impl FnOnce() -> R) -> R {
     struct Restore(Option<*const Cast<'static>>);
     impl Drop for Restore {
         fn drop(&mut self) {
             CASTER.with(|c| c.set(self.0));
         }
     }
-    // SAFETY: the pointer is only read by `cast` while `body` runs on this thread, and
-    // `Restore` takes it back out when `body` returns or unwinds, so it never outlives
-    // the borrow of `caster`.
-    let p = unsafe { std::mem::transmute::<*const Cast<'_>, *const Cast<'static>>(caster as *const Cast<'_>) };
-    let _restore = Restore(CASTER.with(|c| c.replace(Some(p))));
+    let _restore = Restore(CASTER.with(|c| c.replace(p)));
     body()
 }
 
