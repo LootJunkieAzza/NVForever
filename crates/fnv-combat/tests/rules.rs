@@ -1224,11 +1224,16 @@ fn lobbers_timer_proximity_detonation() {
     }
     assert!(!m.alive);
     // C-4 (Explosion and Detonates, no Alt. Trigger, as WeapNVC4PlasticExplosive's
-    // projectile): thrown at the floor it lands and waits for detonation.
+    // projectile): set off in flight it explodes; thrown at the floor it comes to rest and
+    // leaves flight, for the engine to place as a charge that waits for detonation (#1986).
     let c4 = proj("Lobber", &["Explosion", "Detonates"], 400.0, 1.0);
     let mut c = Projectile::spawn(&c4, Some(BOOM), [0.0, 0.0, 60.0], [1.0, 0.0, -0.5], Some(1), G, &t);
-    assert!(fly(&mut c, &empty, 100.0).is_empty() && c.alive);
-    assert!(matches!(c.detonate(), Some(ProjEvent::Explode { normal: None, .. })));
+    assert!(matches!(c.clone().detonate(), Some(ProjEvent::Explode { normal: None, .. })));
+    match &fly(&mut c, &empty, 100.0)[..] {
+        [ProjEvent::Settled { point, normal }] => assert!(point[2] < 1.0 && normal[2] > 0.9, "{point:?} {normal:?}"),
+        e => panic!("{e:?}"),
+    }
+    assert!(!c.alive && c.detonate().is_none());
 }
 
 /// A thrown grenade (a lobber with a fuse) rolls on after it lands, slowing, and goes off

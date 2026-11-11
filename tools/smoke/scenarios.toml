@@ -12969,6 +12969,29 @@ expect = [
 forbid = [{ re = 'mines: 0x00000014 sets off mine 0xFF', label = "the player sets off its own mine" }]
 
 [[scenario]]
+name = "c4-save-write"
+source = "#1986: a thrown C-4 charge that comes to rest is a reference of its cell (as a thrown mine), so a save keeps it; c4-save-load sets it off after the load, so run them together"
+note = "God mode, in Goodsprings, the player is given two C-4 Plastic Explosive (WeapNVC4PlasticExplosive 0x001221C1, projectile C4Projectile 0x00130043), throws one and saves"
+areas = ["combat", "save"]
+paths = ["engine/nvf-play/src/mines.rs", "crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "c4-save-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "001221C1:2", NVF_PLAY_TEST_EQUIP = "001221C1", NVF_PLAY_TEST_CONTROL = "14:weapon,17:fire", NVF_PLAY_TEST_CONSOLE = "24:save smoke-c4;25:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages"]
+run_seconds = 28
+order = [[{ re = 'explosives: 0x00000014 put down charge 0xFF[0-9A-F]{6} \(0x00130043\) at .*waiting for its detonator', label = "the thrown charge comes to rest as a reference" }, { re = 'save: wrote .*smoke-c4\.nvfsave', label = "the save is written" }]]
+forbid = [{ re = 'combat: explosion C4Explosion', label = "the charge goes off by itself" }]
+
+[[scenario]]
+name = "c4-save-load"
+source = "#1986: the C-4 charge saved at rest by c4-save-write is there after the load and goes off when its owner detonates placed explosives"
+note = "DetonatePlacedExplosives through the console (the detonator's OnFire script calls the same function)"
+areas = ["combat", "save"]
+paths = ["engine/nvf-play/src/mines.rs", "crates/fnv-combat/src/projectile.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "c4-save-home", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "12:player.detonateplacedexplosives;13:close" }
+args = ["--play", "--load", "smoke-c4", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[{ re = 'load: restored .*smoke-c4\.nvfsave', label = "the save is restored" }, { re = 'combat: 0x00000014 detonates placed explosives: 1', label = "the saved charge is set off" }, { re = 'combat: explosion C4Explosion at', label = "it explodes" }]]
+
+[[scenario]]
 name = "mines-held"
 source = "owner 2026-10-23: the frag mine is held back to front in first person; in the game its ringed top faces the view, the wire handle at the right in the hand, thumb over the rim (owner's frames in C:/fnv-private/references/mines)"
 note = "God mode, in Goodsprings, the player draws a frag mine in first person; frames held level and looking down (compare with the owner's game frames: top up and tilted back, thumb over the rim, no left hand, no glow; animation.md §9.11), mid-throw and lying on the ground"
