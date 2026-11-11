@@ -235,6 +235,20 @@ impl Vfs {
                 push(Some(n), &mut order);
             }
         }
+        // An archive with an empty `<name>.override` file beside it loads whatever its
+        // name, above the others (docs/spec-notes/bsa.md, "Override archives")
+        // [documented: GECK wiki "BSA", the .override file, needs JIP LN NVSE;
+        // hypothesis: loaded without a plugin of its name, as Nuclear Sunset's
+        // `NS … 00.bsa` archives, matched by no plugin, hold files its list uses].
+        let overrides: Vec<String> = std::fs::read_dir(data_dir)
+            .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_ascii_lowercase()).filter(|n| n.ends_with(".override")).collect())
+            .unwrap_or_default();
+        let mut marked: Vec<String> = present.iter().filter(|n| overrides.iter().any(|o| o.strip_suffix(".override") == n.to_ascii_lowercase().strip_suffix(".bsa"))).cloned().collect();
+        marked.sort_by_key(|n| n.to_ascii_lowercase());
+        for n in marked {
+            order.retain(|o| !o.eq_ignore_ascii_case(&n));
+            order.push(n);
+        }
         order
     }
 
@@ -650,6 +664,20 @@ mod tests {
         // Without the longer plugin, Foo.esp keeps claiming it.
         let order = Vfs::archive_order(&dir, &[], &["Foo.esp", "Middle.esp"]);
         assert_eq!(order, ["Foo - Bar.bsa", "Foo - Main.bsa", "Foo.bsa", "Middle.bsa"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An archive with a `.override` file beside it loads though no plugin has its name,
+    /// above the other archives; one without stays out.
+    #[test]
+    fn an_archive_with_an_override_file_loads_on_top() {
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-override-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in ["Foo.bsa", "NS A Content T 00.bsa", "NS A Content T 00.override", "Foo.override", "Stray.bsa"] {
+            std::fs::write(dir.join(n), b"").unwrap();
+        }
+        let order = Vfs::archive_order(&dir, &[], &["Foo.esp", "Bar.esp"]);
+        assert_eq!(order, ["Foo.bsa", "NS A Content T 00.bsa"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

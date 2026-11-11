@@ -114,7 +114,11 @@ pub const JIP_NAMES: [&str; 1] = ["JIP NVSE Plugin"];
 ///   functions (ySIGetTrait, ySISetTrait) are built (`fnv_game::nvse_small`).
 /// - "Improved Console" at 1.6 [hypothesis: Quick Trade's message names 1.6; it only asks
 ///   IsPluginInstalled]: console conveniences, no function a script calls.
-pub const PLUGINS: [(&str, f64); 13] = [
+/// - "lutana_nvse" at JIP's version: lutana's functions are JIP LN's (this module's
+///   heading); Immersive Pickup Sounds asks IsPluginInstalled "lutana_nvse" and then
+///   GetLNVersion >= 17.1 [hypothesis: JIP LN answers to the old plugin's name, as the mod
+///   runs in a working list with JIP LN and no lutana DLL].
+pub const PLUGINS: [(&str, f64); 14] = [
     ("JIP NVSE Plugin", JIP_VERSION),
     ("JIP LN NVSE", JIP_VERSION),
     ("ShowOffNVSE Plugin", 184.0),
@@ -131,6 +135,7 @@ pub const PLUGINS: [(&str, f64); 13] = [
     ("HighResLocalMaps", 12.0),
     ("yUI", 140.0),
     ("Improved Console", 1.6),
+    ("lutana_nvse", JIP_VERSION),
 ];
 
 impl Vm<'_, '_> {
