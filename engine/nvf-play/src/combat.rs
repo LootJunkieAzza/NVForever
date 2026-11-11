@@ -4326,7 +4326,12 @@ fn actor_attacks(
         let power = b.anim.filter(|_| b.creature_damage.is_none()).and_then(fnv_combat::melee::PowerDir::of_group).map_or(1.0, |d| d.damage(&c.rules));
         // The player's tweak: NPCs' weapons hit as if whole [design: docs/design/tweaks.md].
         let whole = b.attacker != FormId::PLAYER_REF && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npc_weapons_whole);
-        let h = HitInput { weapon: &w, projectiles: 1, condition: if whole { 1.0 } else { item_condition(&sim, b.attacker, id) }, ammo_effects: &[], part: HitPart::default(), power };
+        // The part of the player struck; the player's tweak gives its damage multiplier
+        // to the blow, as the player's own blows have it [design: docs/design/tweaks.md].
+        let bp = (b.target == FormId::PLAYER_REF).then(|| player_body_part(c, &phys, player.as_deref(), b.point)).flatten();
+        let located = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npc_melee_part_damage);
+        let part = bp.as_ref().filter(|_| located).map_or_else(HitPart::default, BodyPart::hit_part);
+        let h = HitInput { weapon: &w, projectiles: 1, condition: if whole { 1.0 } else { item_condition(&sim, b.attacker, id) }, ammo_effects: &[], part, power };
         if power != 1.0 {
             info!("combat: {}'s power attack {} on {}: damage x{power:.1}", b.attacker, b.anim.unwrap_or("?"), b.target);
         }
@@ -4367,7 +4372,6 @@ fn actor_attacks(
         // [hypothesis] Melee's part multipliers are unmeasured (combat-rules.md §12):
         // keep Health on HitPart::default(), but give player blows a location and limb.
         // A creature uses this path's Fists Limb Dmg Mult in the absence of its own weapon.
-        let bp = (b.target == FormId::PLAYER_REF).then(|| player_body_part(c, &phys, player.as_deref(), b.point)).flatten();
         let info = HitInfo { attacker: Some(b.attacker), weapon: b.weapon, location: bp.as_ref().map_or(0, BodyPart::location), critical: d.critical, limb: limb_hit(bp.as_ref(), &d, &w) };
         if b.target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: b.target.0, point: b.point, dv: vec::scale(b.dir, MELEE_PUSH) });

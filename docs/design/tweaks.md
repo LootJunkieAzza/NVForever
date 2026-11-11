@@ -551,6 +551,7 @@ unless the player binds them, so nothing changes until then.
 | Backward Pace, Sideways Pace | `bMovementPenalties` | the player's step multiplies the pace by the backward and sideways shares, a diagonal weighted by its forward and side parts; aiming already slows to a walk (`aiming_walks`) |
 | Hacking: Symbols Do Nothing, No Repeat Guesses, Dud When Attempts Full, Duds Spare Tried Words | `bImprovedHacking` | `hacking::Puzzle::rules` (`HackRules`, set by `terminal.rs` from the game's tweaks) in `Puzzle::choose`; `Puzzle::guessed` keeps the words denied; the options about printing are not done |
 | Run While Overencumbered | `bOverencumberedTweak` | `player::encumbered_walks` no longer forces a walk and sets `OVERENCUMBERED`; `tweaks::ap_costs` adds the overencumbered running and jump costs (4 a second and 10 a jump by default, our numbers), walking and refusing the jump without the points |
+| Enemy Blows Hit Where They Land | `bLocationalMeleeDamage` | an NPC's blow on the player takes `player_body_part`'s `hit_part` in place of `HitPart::default()`; the player's blows already used the struck part's; NPC on NPC has no part lookup yet |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -572,8 +573,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 477 |
-| to do | 126 |
+| done | 478 |
+| to do | 125 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -752,6 +753,7 @@ game's Data folder, read-only).
 | `bHideEnemyMarkers` | done |  | 1 | No Enemies on the Compass (the firing-enemies option is not built) |
 | `bIgnoreCompanionsVATS` | done |  | 1 | V.A.T.S. Ignores Companions (always; bCombatOnly not done) |
 | `bKillsRewardAP` | done |  | 1 | Action Points per Kill (slider 0-50; given in VATS too) |
+| `bLocationalMeleeDamage` | done |  | 3 | Enemy Blows Hit Where They Land (the player's blows already did; NPC on NPC not built) |
 | `bMaxVATSDistanceUsesWeaponRange` | done |  | 3 | already so: V.A.T.S. reach is the projectile range |
 | `bNoCompanionKillXP` | done |  | 1 | No XP for Companion Kills (also leaves their damage out of the kill share) |
 | `bNoDisarmCompanions` | done |  |  | Companions Keep Their Weapons |
@@ -776,7 +778,6 @@ game's Data folder, read-only).
 | `bVATSStopBurstIfTargetDead` | done |  |  | V.A.T.S. Burst Stops on a Kill |
 | `bWeaponRequirementsMatter` | done |  | 7 | Weapon Requirements Matter (Strength and skill both; the ignore options not built) |
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
-| `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
 | `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
 | `bVATSAutoTargetHead` | to do |  |  | NVForever's V.A.T.S. marks the part under the crosshair; there is no default part to make the head |
 

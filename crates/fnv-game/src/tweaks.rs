@@ -485,6 +485,9 @@ pub struct Tweaks {
     pub hack_no_repeat_words: bool,
     pub hack_dud_when_full: bool,
     pub hack_spare_guessed: bool,
+    /// `bLocationalMeleeDamage`/`bNonPlayerAttacks`: an NPC's blow on the player takes
+    /// the struck part's damage multiplier.
+    pub npc_melee_part_damage: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -728,6 +731,7 @@ impl Default for Tweaks {
             hack_no_repeat_words: false,
             hack_dud_when_full: false,
             hack_spare_guessed: false,
+            npc_melee_part_damage: false,
         }
     }
 }

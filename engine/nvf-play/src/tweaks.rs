@@ -1617,6 +1617,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "run-overencumbered", "Run While Overencumbered", "Carrying too much, you can still run and jump by spending Action Points; with none left you walk. (Stewie's Tweaks bOverencumberedTweak)", run_overencumbered);
         amount!(app, "over-run-ap", "Overencumbered Running AP", "Action Points running costs each second while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 20.0, f32, over_run_ap);
         amount!(app, "over-jump-ap", "Overencumbered Jump AP", "Action Points a jump costs while carrying too much (with Run While Overencumbered). (Stewie's Tweaks bOverencumberedTweak)", 50.0, f32, over_jump_ap);
+        switch!(app, "npc-melee-part-damage", "Enemy Blows Hit Where They Land", "A melee or unarmed blow on you is multiplied by the body part it lands on (more on the head), as your own blows are. (Stewie's Tweaks bLocationalMeleeDamage)", game.npc_melee_part_damage);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
