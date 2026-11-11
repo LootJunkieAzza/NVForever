@@ -159,6 +159,13 @@ fn destruction_stages_read_and_change() {
         q(&mut g, &format!("SetNthDestructionStageTrait TestBox 0 {t} {bad}"));
         assert_eq!(n(&mut g, &format!("GetNthDestructionStageTrait TestBox 0 {t}")), keep, "trait {t} {bad}");
     }
+    // The model damage stage wraps as an unsigned 32-bit number, modulo 9; nothing is
+    // refused [observed: jip-records-6.md §1, #2039].
+    for (set, read) in [(9, 0.0), (10, 1.0), (255, 3.0), (256, 4.0), (300, 3.0), (1000, 1.0), (-1, 3.0), (-5, 8.0), (2, 2.0)] {
+        q(&mut g, &format!("SetNthDestructionStageTrait TestBox 0 2 {set}"));
+        assert_eq!(n(&mut g, "GetNthDestructionStageTrait TestBox 0 2"), read, "stage {set}");
+    }
+    q(&mut g, "SetNthDestructionStageTrait TestBox 0 2 1");
     q(&mut g, "SetNthDestructionStageTrait TestBox 0 0 100");
     assert_eq!(n(&mut g, "GetNthDestructionStageTrait TestBox 0 0"), 100.0);
     q(&mut g, "SetNthDestructionStageTrait TestBox 0 0 50");

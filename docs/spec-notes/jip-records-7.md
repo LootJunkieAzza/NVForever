@@ -110,7 +110,8 @@ L5.ext.jip7b). What §6 left open is settled field by field [observed]:
   impact without decal data reads widths and heights 8 to 32, depth 32, shininess 4,
   parallax scale 1 and 4 passes.
 Equal after the fixes: jip7 105 of 108, jip7b 44 of 46. Left then: the colour of an impact
-without decal data, and 16777215 reading back as 16009218. Both were settled on 2026-11-11 (below).
+without decal data, and 16777215 reading back as 16009218. Both were settled on 2026-11-11 (below)
+and built (`nvse_jip7.rs`, #2039): jip7 108 of 108, jip7b 46 of 46 since.
 
 ### The colour's packing (2026-11-11, #2039)
 
