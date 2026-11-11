@@ -60,7 +60,10 @@ The timers [engineering choice: the documentation names them, gives no lengths, 
 FalloutNV.esm has no game setting for them]: `alarm` 20 s, `forget_target` 15 s, `lost`
 10 s (3 s until 2026-10-19: fighters said CombatToLost almost as soon as they broke line
 of sight; `lost` stays below `forget_target` so a target hidden the whole time is lost
-and searched for, not forgotten). They are `fnv_game::awareness::Timers`. The state is not saved (the engine measures
+and searched for, not forgotten). The original's running game reports
+fCombatDetectionLostTime 15 and fCombatTargetLostRemoveTime 30 as built-in values, and a
+target hidden outright was kept 20.7 s at those values and 64.8 s with four combat
+timers ×4, with no search procedure [observed: npc-behaviour-compare.md §15.6]. They are `fnv_game::awareness::Timers`. The state is not saved (the engine measures
 again after a load).
 
 **"No Combat Alert"** (package flag 27): an actor whose current package has it does not

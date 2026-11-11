@@ -883,7 +883,9 @@ are GetAnimAction entering 2. Hits are OnHit events on the player.
     arrival].
 - **Sneaking.** The player was force-sneaked for 600 samples (about 20 s, most of it
   standing after the walk). Boone's IsSneaking stayed 0 throughout [observed]. A follower
-  does not crouch with the player, at least not when standing.
+  does not crouch with the player, at least not when standing. (Superseded by §15.1:
+  SetForceSneak did not make the player sneak there, and a teammate copied a sneak made
+  with the sneak control.)
 - **Joining a fight.** Two coyotes spawned 600 units off started combat on the player.
   - **When he joined.** Boone's OnStartCombat, on a coyote, came 9 samples (about 10
     game seconds) after the first coyote's. His package became a combat package (0xFF…,
@@ -954,3 +956,189 @@ EXPL flags and the formula) is unchanged.
   about half the distance.
 - **An explosion's knockdown** on an actor standing free (above).
 - **Cazadors' reach.** It needs more hits.
+
+## 15. Parity round 1: ten questions put to the original (2026-11-10/11) [observed]
+
+Campaign `parity_round1`, save hudtest, xNVSE 6.4.9 with jip_nvse and the capture plugin
+(ai-observer-jip.md), 1920×1200. JIP LN's fixes were installed, so "the original" here
+is the original with JIP. Every reading is from private captures (never committed), one
+scene each: one actor, one place, one run unless a line says otherwise. Times are real
+seconds from the session's first sample (game seconds / TimeScale). Set-up steps (moves,
+SetAngle, AddScriptPackage, setting changes) are the campaign's, not observation. The
+player was in god mode in the sessions with hostiles.
+
+**Making the player sneak.** `player.SetForceSneak 1` left the player's IsSneaking at 0.
+The sneak control (`TapControl 8`) toggled it 0 → 1 and 1 → 0 [observed]. The sessions
+below that needed a sneaking player used the control and read the player's IsSneaking.
+
+### 15.1 A teammate's sneak (`q1_companion_sneak`)
+
+GoodspringsSettler01Ref was made a teammate on DefaultFollowPlayerClose, standing 126
+units from a standing player.
+
+- **With the teammate flag set.** The player's IsSneaking went to 1 at 9.8 s, and the
+  NPC's read 1 in the same sample. The player stood up at 67.9 s, and the NPC's went to 0
+  in the same sample.
+- **With the flag cleared** at 87.2 s, its Follow package still running. The player
+  sneaked from 92.2 s to 131.0 s, and the NPC's IsSneaking stayed 0 throughout.
+- **So.** A teammate copies the player's sneak at once. A follower of the player that is
+  not a teammate did not, standing at 126 units. This is what companion-wheel.md §6
+  builds. A moving leader and an NPC leader were not tried.
+- **Against §14.** There Boone's IsSneaking stayed 0 while the player was "force-sneaked"
+  with SetForceSneak. Since that function did not make the player sneak here, §14's
+  reading most likely had no sneaking player [hypothesis]. It is superseded by this
+  session.
+
+### 15.2 A door an NPC opened (`q10_door_follower`)
+
+The Prospector Saloon's inner door 0x00107C77 was closed by script.
+GoodspringsSettler04Ref followed the player through it and back.
+
+- GetOpenState read 3 (closed) to 5.3 s, 2 (opening) from 5.5 to 6.5 s, and 1 (open) from
+  6.6 s to the end at 203.9 s.
+- The follower went through to the player. After the player was moved out at 43.3 s, he
+  came back out.
+- **So.** The door stayed open for the remaining 197 s, through two passages: the
+  original did not close it behind the NPC in this scene. NVForever leaves it open too
+  (navmesh.md §7, item 5).
+- **Not tried.** A door on a package route with nobody following, doors with the
+  Automatic Door flag, exterior load doors.
+
+### 15.3 Find (`q8_find_settler`, `q8_find_dog`)
+
+Both actors were given FFER24FindFood (Find, one mole rat meat, near the current
+location, radius 1000), with the meat placed 300 to 440 units away in the open.
+
+- **GoodspringsSettler03Ref.**
+  - At 1.6 s: procedure 2 (ACQUIRE), with the placed meat as package target.
+  - By 10.5 s: his distance to the meat had fallen from 438 to 111. His item count went
+    from 6 to 7, with an OnActivate event by him, and the package then changed.
+- **A copy of GSCheyenne** on the Goodsprings runway, the meat 300 units off.
+  - At 0.1 s: procedure 2, package target the meat.
+  - At 5.3 s: item count 0 → 1, with an OnActivate event by the dog, then its own package
+    back.
+- **So.** Both went straight to the object, as ours does (packages.md §3.1). The
+  2026-10-17 run in the saloon (packages.md §4: Cheyenne wandering, the meat untouched)
+  does not hold as a general rule. What made it differ is open: the object not reachable
+  or not seen indoors [hypothesis].
+
+### 15.4 A body on the way (`q2_corpse_found`)
+
+A settler (GSSettlerAM) was killed by script 700 units up the runway before the walker
+existed. A second settler (GSSettlerAAM) was then given a Follow package and ran 2,000
+units to the player, past the body.
+
+- He passed within 42 units of the body, then stood 424 units from it for the remaining
+  150 s.
+- GetIsAlerted 0, GetAlarmed 0, IsWeaponOut 0, IsTalking 0 and procedure 11 (FOLLOW) were
+  read at every sample.
+- **So.** A passer-by of the body's own kind, by day, did not react. Ours has no
+  reaction to bodies either. The wiki prose that "dead bodies seen put an actor in
+  Caution" (detection.md §9) is not supported for this case.
+- **Not tried.** A guard, the body of an ally killed by a hostile, a body indoors.
+
+### 15.5 A seen theft (`q3_theft_seen`)
+
+Set-up in Chet's store (GSGeneralStore): the clock set to 10:00, Chet moved 200 units
+from the player and turned to face the player. The owned carton 0x00106D34, 180 units in
+front of Chet, was activated with the player as actor.
+
+- **2.8 s.** The theft counted: the player's item count went 27 → 28 and karma 0 → −5.
+  iStealWarnings read 2 from the game.
+- **3.0 s to 23.0 s.** Chet ran procedure 47 (TAKE_BACK_ITEM) for 20.0 s, with IsInCombat
+  0 and no combat target at every sample of it.
+- **23.0 s** (20.2 s after the theft counted). IsInCombat 1 with the player as target, an
+  OnStartCombat event in the same sample, IsTalking 1 from 23.0 to 24.8 s, then
+  procedures 4 and 13.
+- The item was not taken back. The player stood still, and any menu was closed by the
+  campaign.
+- **So.** This owner did not attack at once: he spent about 20 s in a take-back procedure
+  first. NVForever goes straight to the fight (crime-karma.md §3.1, take-back not built).
+- **Not seen.** The take-back when the player answers or drops the item; warnings counted
+  against iStealWarnings; a second theft.
+
+### 15.6 A target hidden outright (`q4_lost_default`, `q4_lost_x4`)
+
+A lone LvlFiendGun, 700 units from the player on the runway, was set on the player. The
+player's detection value was forced to −100 (JIP ForceActorDetectionValue) at about
+5.6 s.
+
+- **Built-in timers.** The running game reported fCombatDetectionLostTime 15 and
+  fCombatTargetLostRemoveTime 30; no master overrides them.
+  - The Fiend kept IsInCombat 1 and the player as combat target until 26.3 s, 20.7 s
+    after the hide.
+  - Then: IsInCombat 0, no target, procedure 0, and from 27.5 s procedure 7 (WANDER). It
+    walked about, once within 94 units of the hidden player.
+- **Four timers ×4**, set before the Fiend existed and read back: fCombatDetectionLostTime
+  60, fCombatTargetLostRemoveTime 120, fCombatSearchTargetHiddenRemoveTime 40,
+  fCombatSearchTargetHiddenMaxTime 80.
+  - Combat with the player as target held until 70.4 s, 64.8 s after the hide. Then
+    IsInCombat 0, no target, procedure 7.
+- **In both runs.** No SEARCH (36) or PURSUE procedure at any sample. GetIsAlerted read 0
+  throughout the first run. Shown again, the Fiend was in combat within the same sample
+  (139.3 s, 265.4 s).
+- **So.** These settings are live in the original: changing the four together moved the
+  21 s to 65 s. Which one does it was not isolated. "fCombatDetectionLostTime plus about
+  5 s" fits both runs (15 + 5.7, 60 + 4.8) [hypothesis: two points]. NVForever's timers
+  are its own and read none of these settings (alert.md §2; #2010). The 2026-11-09 runs
+  in which Fiends stayed in combat for 235 s lost the player differently (an invisibility
+  effect, far away, the Fiends standing still).
+
+### 15.7 Sandbox durations (`q9_saloon_sandbox_default`, `q5_saloon_sandbox_x5`): suggestive
+
+GoodspringsSettler04Ref was on DefaultSandboxEditorLocation1024 in the Prospector Saloon.
+The second session set fSandboxDurationBase to 50 (default 10).
+
+- **Default, 480 s.** 30 state runs. Sits (procedure 48, GetSitting 3) of 135.0 s,
+  134.4 s and three of 19.5 to 34.4 s; one wander (procedure 7) of 9.2 s.
+- **×5, 360 s.** 10 state runs. One sit of 270.1 s (the session's end may have cut it)
+  and one wander of 65.3 s.
+- **So.** With the base raised he did a third as many things, each longer. That fits the
+  setting being live; one actor and a handful of spans give no multiplier. He used chairs
+  only (markers 11, 12, 15).
+
+### 15.8 Work spots: Gomorrah's bartenders (an existing capture, re-read)
+
+Re-read of the six-hour Gomorrah capture (`casinos`, §6), for GetFurnitureMarkerID.
+
+- Four actors read GetFurnitureMarkerID 22 with GetSitting 4 for about 2,700 of 2,745
+  samples each (procedure 21). Their package targets were marker references and one
+  other base.
+- One target, 0x00122BC4, is a placed furniture whose Editor ID is `BarKeep` (base
+  0x000B24DB). Actor 0x00122BC1 used it for 2,521 samples, and 0x00122BC5 used 0x00122BC7
+  likewise.
+- **So.** The original keeps its bartenders on their BarKeep work spots (marker 22) for
+  hours. NVForever does not use work spots (furniture.md §7, "Not done").
+- The two Goodsprings captures re-read the same way showed chairs only (markers 14, 15).
+
+### 15.9 Inconclusive sessions
+
+- **Greeting (`q6_greet_pete`).**
+  - The running game reported fAIMinGreetingDistance 150, fHelloCooldownTime 30 and
+    fAIGreetingTimer 20, the values of the wiki's Complete List of GameSettings (no
+    master overrides them).
+  - Easy Pete, seated (GetSitting 3), never read IsTalking 1 while the player stood at
+    800 down to 100 units in front of him and back. He detected the player from 6.0 s.
+  - So nothing about the distance or the cooldown. A talkative standing NPC is needed.
+- **Ambush (`q7_ambush_undetected`).**
+  - A LvlFiendGun was created 3,100 units from the player with
+    QJDeathclawAmbushPackage. It was in combat with the player as target from 0.1 s,
+    while its GetDetected on the player read 0 (1 from 4.4 s).
+  - But the player already read "in combat" with detection state 3 at the first sample,
+    so something else may have started the fight.
+  - The scene needs the player hidden and out of combat before the ambusher exists.
+
+### 15.10 Ours: a patrol interrupted by a fight (#2013)
+
+A release build of NVForever at c27661b55, smoke scenes. Oliver Swanick
+(vNiptonSurvivorREF) was on his patrol vNiptonSurvivorCelebrate01 in Nipton: three
+markers, waits of 1, 1 and 5 s.
+
+- **Left alone, 150 s.** 33 patrol legs, looping to the end.
+- **A gecko set on him mid-leg** at 23 s and killed by script at 32 s.
+  - He stopped, faced it, and at its death logged `Combat → Normal` and `stops searching:
+    back to Normal`, then holstered.
+  - He logged nothing more for the remaining 118 s: 6 legs in all, his package unchanged,
+    108 units short of his third marker.
+- No capture of the original exists for this case. Resuming an interrupted patrol is the
+  design's own rule (`fnv_ai::carry::back_to_package`).
