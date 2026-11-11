@@ -531,10 +531,13 @@ fn character_jump_apex() {
         }
     }
     assert!(grounded_again);
-    // Discrete integration lands within one step's travel of the analytic apex.
+    // Gravity is exact over a step (`character::gravity_step`): the highest step's end is
+    // within half a step's drop of the analytic apex, g·dt²/8 (0.024 at 60 Hz).
     let g = w.params.gravity;
-    let tol = (2.0 * g * c.params.jump_height).sqrt() * w.params.dt;
-    assert!((apex - z0 - c.params.jump_height).abs() < tol, "apex {}", apex - z0);
+    let dt = w.params.dt;
+    let rise = apex - z0;
+    let h = c.params.jump_height;
+    assert!(rise <= h + 0.01 && h - rise <= g * dt * dt / 8.0 + 0.01, "apex {rise}");
 }
 
 /// The physics rates the game offers (`nvf_play::phys_rate`), and 152 (the owner's
@@ -578,6 +581,21 @@ fn character_rules_hold_at_every_physics_rate() {
             }
         }
         let apex = apex - z0;
+        // A running jump on flat ground: the time in the air and the touchdown speed.
+        let mut w = ground();
+        rate(&mut w);
+        let mut r = w.add_character(1, p, [0.0, 0.0, 30.0]);
+        settle(&mut w, &mut r, steps_in(1.0, hz));
+        walk(&mut w, &mut r, [344.0, 0.0], steps_in(0.5, hz));
+        let (mut run_landed, mut run_air) = (0.0, 0.0);
+        for i in 0..steps_in(2.0, hz) {
+            let s = w.move_character(&mut r, CharacterInput { velocity: [344.0, 0.0], jump: i == 0, ..Default::default() });
+            w.step();
+            if let Some(v) = s.landed_speed {
+                (run_landed, run_air) = (v, (i + 1) as f32 * dt);
+                break;
+            }
+        }
         // A fall of 300 units: the landing speed and the time it took.
         let mut w = ground();
         rate(&mut w);
@@ -636,22 +654,31 @@ fn character_rules_hold_at_every_physics_rate() {
         let x0 = s.feet[0];
         walk(&mut w, &mut s, [344.0, 0.0], steps_in(1.0, hz));
         let walked = s.feet[0] - x0;
-        rows.push((hz, rest_terrain, rest_box, apex, landed, fall_s, step_up, climbed, slopes.clone(), pushed, walked));
+        rows.push((hz, rest_terrain, rest_box, apex, run_air, run_landed, landed, fall_s, step_up, climbed, slopes.clone(), pushed, walked));
         // What must hold at every rate.
         assert!((rest_terrain - TERRAIN_SHELL).abs() < 0.05, "{hz} Hz: rest on the terrain {rest_terrain}");
         assert!(rest_box.abs() < 1.5, "{hz} Hz: rest on a box {rest_box} above it");
-        let v0 = (2.0 * w.params.gravity * p.jump_height).sqrt();
-        assert!((apex - p.jump_height).abs() < v0 * dt, "{hz} Hz: apex {apex}");
-        let want = (2.0 * w.params.gravity * 300.0f32).sqrt();
-        assert!((landed - want).abs() < 0.05 * want, "{hz} Hz: landed at {landed}");
+        // Gravity is exact over a step: the apex within half a step's drop of the jump
+        // height (g·dt²/8), a landing at the take-off speed after 2·v0/g, a 300-unit fall's
+        // touchdown at sqrt(2·g·300) after sqrt(2·300/g), each landing seen on the step
+        // that reaches the ground.
+        let g = w.params.gravity;
+        let v0 = (2.0 * g * p.jump_height).sqrt();
+        assert!(apex <= p.jump_height + 0.01 && p.jump_height - apex <= g * dt * dt / 8.0 + 0.01, "{hz} Hz: apex {apex}");
+        assert!((run_landed - v0).abs() < 0.5, "{hz} Hz: running jump landed at {run_landed}");
+        assert!(run_air >= 2.0 * v0 / g - 0.01 && run_air < 2.0 * v0 / g + dt, "{hz} Hz: running jump {run_air} s in the air");
+        let want = (2.0 * g * 300.0f32).sqrt();
+        assert!((landed - want).abs() < 0.5, "{hz} Hz: landed at {landed}");
+        let want_s = (2.0 * 300.0 / g).sqrt();
+        assert!(fall_s >= want_s - 0.01 && fall_s < want_s + dt, "{hz} Hz: fell 300 in {fall_s} s");
         assert!(step_up && climbed, "{hz} Hz: step up {step_up}, stairs {climbed}");
         assert!(slopes[0] > 50.0 && slopes[2] < p.step_height + 2.0, "{hz} Hz: slopes {slopes:?}");
         assert!(pushed > 2.0, "{hz} Hz: pushed {pushed}");
         assert!((walked - 344.0).abs() < 4.0, "{hz} Hz: walked {walked}");
     }
-    eprintln!("hz | rest terrain | rest box | apex | landed | fall s | step up | stairs | ramp 25/45/60 z | pushed | walked 1 s");
-    for (hz, rt, rb, apex, landed, fall, up, stairs, slopes, pushed, walked) in rows {
-        eprintln!("{hz} | {rt:.3} | {rb:.3} | {apex:.2} | {landed:.1} | {fall:.4} | {up} | {stairs} | {:.1}/{:.1}/{:.1} | {pushed:.2} | {walked:.2}", slopes[0], slopes[1], slopes[2]);
+    eprintln!("hz | rest terrain | rest box | apex | run air s | run landed | landed | fall s | step up | stairs | ramp 25/45/60 z | pushed | walked 1 s");
+    for (hz, rt, rb, apex, run_air, run_landed, landed, fall, up, stairs, slopes, pushed, walked) in rows {
+        eprintln!("{hz} | {rt:.3} | {rb:.3} | {apex:.2} | {run_air:.4} | {run_landed:.1} | {landed:.1} | {fall:.4} | {up} | {stairs} | {:.1}/{:.1}/{:.1} | {pushed:.2} | {walked:.2}", slopes[0], slopes[1], slopes[2]);
     }
 }
 
@@ -3243,9 +3270,13 @@ fn groove(deg: f32) -> PhysWorld {
 fn a_stuck_character_is_held_with_the_steps_it_would_have_had() {
     // Dropped into the groove and walked: along it a character gets some way and sticks,
     // into a wall it sticks at once [observed: this test, rapier 0.36.0]. Held, it makes the
-    // same steps without sweeping again.
+    // same steps without sweeping again. Since gravity is exact over a step (2026-11-11) a
+    // standing character presses into the crease half as far each step (½·g·dt²), and in the
+    // 70° and 80° grooves a walk into a wall rides a couple of units up it and creeps
+    // (0.01 units a step) instead of sticking [observed: this test, rapier 0.36.1]; the 52°
+    // groove keeps the walks that stick.
     let mut held = 0;
-    for deg in [50.0f32, 60.0, 70.0, 80.0] {
+    for deg in [50.0f32, 52.0, 60.0, 70.0, 80.0] {
         for v in [[0.0, 0.0], [150.0, 0.0], [150.0, 150.0], [0.0, 150.0], [-150.0, 30.0]] {
             let run = |hold: bool| {
                 let mut w = groove(deg);
@@ -3266,7 +3297,9 @@ fn a_stuck_character_is_held_with_the_steps_it_would_have_had() {
 
 #[test]
 fn a_held_character_moves_on_when_the_way_is_free() {
-    let mut w = groove(70.0);
+    // A walk into the 50° groove's wall sticks at once (the 70° one's no longer does with
+    // exact gravity, `a_stuck_character_is_held_with_the_steps_it_would_have_had`).
+    let mut w = groove(50.0);
     let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 400.0]);
     c.hold_when_stuck = true;
     settle(&mut w, &mut c, 120);
@@ -3286,9 +3319,12 @@ fn a_held_character_waits_the_same_seconds_at_any_step_rate() {
     // The retry is a third of a second: 20 steps at 60 a second, 40 at 120, 80 at 240.
     // Whether a walk in the groove sticks at all depends on the step's length (a shorter
     // move ran out of the controller's sweeps in fewer of these walks [observed: this
-    // test, rapier 0.36.0]), so each rate takes the first walk that sticks.
+    // test, rapier 0.36.0]), so each rate takes the first walk that sticks. With exact
+    // gravity a standing character presses into the crease by ½·g·dt² a step, 0.006 units
+    // at 240 Hz, and there only a walk along the 50° crease still sticks, after 1.9 s
+    // [observed: this test, rapier 0.36.1].
     for hz in [60.0f32, 120.0, 152.0, 240.0] {
-        let stuck = [50.0f32, 60.0, 70.0, 80.0].into_iter().flat_map(|deg| [[150.0, 0.0], [150.0, 150.0], [-150.0, 30.0], [300.0, 0.0]].map(|v| (deg, v))).find_map(|(deg, v)| {
+        let stuck = [50.0f32, 60.0, 70.0, 80.0].into_iter().flat_map(|deg| [[150.0, 0.0], [150.0, 150.0], [-150.0, 30.0], [300.0, 0.0], [0.0, 150.0]].map(|v| (deg, v))).find_map(|(deg, v)| {
             let mut w = groove(deg);
             w.set_step(1.0 / hz);
             let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 400.0]);

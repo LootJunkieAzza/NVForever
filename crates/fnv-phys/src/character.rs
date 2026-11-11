@@ -163,7 +163,8 @@ pub struct CharacterStep {
     pub feet: [f32; 3],
     pub grounded: bool,
     pub sliding: bool,
-    /// Downward speed at touchdown, when this step landed (fall damage input).
+    /// Downward speed at touchdown, when this step landed: where the fall met the ground,
+    /// not at the step's end, so the same at every physics rate.
     pub landed_speed: Option<f32>,
     /// Gap kept from the support this step ([`CharacterParams::rest_gap`]).
     pub gap: f32,
@@ -523,17 +524,21 @@ impl PhysWorld {
             }
         }
         let jumping = !c.swimming && input.jump && c.grounded;
-        if !c.swimming {
+        // The step's vertical motion. Out of the water it is gravity's, exact over the step
+        // ([`gravity_step`]); a swimmer moves at its stroke's speed. `air_start` is the
+        // vertical speed the step started from under gravity, for the touchdown speed.
+        let (fall, air_start) = if c.swimming {
+            (c.vertical_speed * dt, None)
+        } else {
             if jumping {
                 c.vertical_speed = (2.0 * g * c.params.jump_height.max(0.0)).sqrt();
             }
-            c.vertical_speed -= g * dt;
-            if let Some(max) = c.params.max_fall_speed {
-                c.vertical_speed = c.vertical_speed.max(-max);
-            }
-        }
+            let start = c.vertical_speed;
+            let (rise, end) = gravity_step(start, g, dt, c.params.max_fall_speed);
+            c.vertical_speed = end;
+            (rise, Some(start))
+        };
         let k = self.k;
-        let fall = c.vertical_speed * dt;
         let ignore = c.ignore_layers;
         let passes = c.passes_characters;
         let solid = solid_for(ignore, passes);
@@ -703,6 +708,12 @@ impl PhysWorld {
             moved.grounded = more.grounded;
             moved.is_sliding_down_slope = more.is_sliding_down_slope;
         }
+        // How far the sweep moved the feet up, before a step-up or the settle below
+        // places them: where a fall met what stopped it.
+        let swept_z = moved.translation.z / k;
+        // Where the feet rest on the walkable support the settle finds, for the touchdown
+        // speed.
+        let mut rest_z = None;
         // Up a step the controller's own autostep refused (`step_up_move`).
         let blocked = {
             let want = Vector::new(horizontal[0], horizontal[1], 0.0) * k;
@@ -738,7 +749,13 @@ impl PhysWorld {
         // Settle on the support: the feet rest its contact shell above it (`rest_gap`,
         // physics.md §6.2) on walkable ground, lifted when closer (landing, or after walking
         // onto terrain from a static floor) and pulled down within `step_height` when the
-        // step started on the ground (descents; a swimming or rising character is left).
+        // step started on the ground (descents; a swimming or rising character is left):
+        // on walkable support within `SUPPORT_MARGIN`, or grounded by the controller's
+        // verdict. rapier calls the capsule grounded up to about 3.4 units beyond the small
+        // gap kept over statics, so a fall onto a static floor lands that high; it is put
+        // on the floor on the next step [observed: tests, physics.md §5.4]. Until 2026-11-11
+        // it sank by a step's gravity from rest each step, g·dt²: about 0.2 s to reach the
+        // margin at 60 Hz, 0.8 s at 240 (half as fast again with the exact gravity).
         // A character that walked off the ground lands as soon as walkable ground is
         // within `step_height` of where it left it (`walked_off_z`): running down a hill
         // or over a small edge, a step can miss the ground (the edge of a mesh, a crease
@@ -761,7 +778,14 @@ impl PhysWorld {
                 let mut d = toi - gap / n.z;
                 let feet_after = c.feet[2] + moved.translation.z / k;
                 let step_down = walked_off.is_some_and(|z| z - (feet_after - d) <= c.params.step_height);
-                if d > 0.0 && !((on_walkable && d <= c.params.step_height) || step_down) {
+                // A fall touches down where the feet rest on the support, whether the sweep
+                // stopped short of it (rapier's grounded band) or went past and is lifted
+                // back; a walked-off character's step down is not a fall.
+                if !step_down && (moved.grounded || on_walkable || d <= 0.0) && d <= c.params.step_height {
+                    rest_z = Some(feet_after - d);
+                }
+                // `c.grounded` is still the step's start here.
+                if d > 0.0 && !(((on_walkable || c.grounded) && d <= c.params.step_height) || step_down) {
                     d = 0.0;
                 }
                 if d < 0.0 {
@@ -787,7 +811,22 @@ impl PhysWorld {
             });
         }
         let push = Push { kcc, dt, ignore, passes, collisions: if c.params.push_mass > 0.0 { collisions } else { Vec::new() } };
-        let falling_speed = -c.vertical_speed;
+        // Downward speed where the feet met the ground, for a landing. The speed at the
+        // step's end comes up to a step's gravity (g·dt) after the touchdown, and where a
+        // step's end falls in rapier's grounded band depends on the step, so both differed
+        // with the physics rate. Under gravity v² + 2·g·z is the same all along the fall, so
+        // the speed at the touchdown height follows from the step's starting speed and
+        // height: the height the feet rest at on the support (`rest_z`), else where the
+        // sweep stopped (on something not walkable, or after a step down), and a step-up
+        // adds nothing. A swimmer's speed is its stroke's.
+        let falling_speed = match air_start {
+            Some(v) => {
+                let touchdown = rest_z.unwrap_or(c.feet[2] + swept_z.max(fall));
+                let speed = (v * v + 2.0 * g * (start_feet[2] - touchdown)).max(0.0).sqrt();
+                c.params.max_fall_speed.map_or(speed, |max| speed.min(max))
+            }
+            None => -c.vertical_speed,
+        };
         let was_grounded = c.grounded;
         c.grounded = moved.grounded;
         // The velocity the next step starts from: what was asked, or what the world let
@@ -959,6 +998,29 @@ pub fn landing_profile(speed: f32, drop: f32, step_height: f32) -> bool {
     speed >= air::LANDING_MIN_SPEED && drop > step_height
 }
 
+/// One step of `dt` s under gravity `g` (units/s², pulling down) from vertical speed `v`
+/// (units/s, up positive): the rise over the step (negative for a drop) and the speed at
+/// its end, exact for a constant pull at any step length: `v·dt − ½·g·dt²` and `v − g·dt`.
+/// A jump at `sqrt(2·g·h)` thus peaks at `h`, and a fall's time and touchdown speed for a
+/// given drop are the same at every physics rate (physics.md §5.4). With a `max_fall`
+/// speed the fall holds that speed from the moment it reaches it.
+///
+/// [design: until 2026-11-11 the speed was lowered first and the feet moved at the new
+/// speed (semi-implicit Euler), which falls `½·g·dt²` farther each step: a jump peaked
+/// `v0·dt/2` low (59.2 at 60 Hz, 61.0 at 240, against the original's 61.5-61.6, §6), and a
+/// fall went about `½·g·t·dt` farther than gravity takes it (5.7 units after 1 s at 60 Hz).]
+pub fn gravity_step(v: f32, g: f32, dt: f32, max_fall: Option<f32>) -> (f32, f32) {
+    let end = v - g * dt;
+    match max_fall {
+        Some(max) if end < -max => {
+            // The speed reaches -max `t` into the step (at its start when already past it).
+            let t = if g > 0.0 { ((v + max) / g).clamp(0.0, dt) } else { 0.0 };
+            (v * t - 0.5 * g * t * t - max * (dt - t), -max)
+        }
+        _ => (v * dt - 0.5 * g * dt * dt, end),
+    }
+}
+
 /// Vertical speed of a swimming character with its feet at `feet_z` under a surface at
 /// `surface`, asked to move vertically at `want` (physics.md §6.6, all [observed] at Lake
 /// Mead): diving (`want` < 0) always applies; swimming up applies from the floating height
@@ -1080,8 +1142,8 @@ const STEP_TOP_BELOW: f32 = 4.0;
 const STEP_TOP_ABOVE: f32 = 26.0;
 
 /// How much farther than its gap a walkable support may be and still count as standing
-/// on it, game units [engineering choice: covers one step's gravity, 0.19 units, and the
-/// controller's nudges].
+/// on it, game units [engineering choice: covers a step's gravity from rest (½·g·dt²:
+/// 0.095 units at 60 Hz, 0.38 at 30) and the controller's nudges].
 const SUPPORT_MARGIN: f32 = 1.0;
 
 /// Normal z above which a hit counts as an exactly level surface (see `move_character`).
@@ -1141,5 +1203,67 @@ mod tests {
         assert!(wedged([1.0, 0.0], &[[-c, -s], [-c, s]]));
         // Not moving: nothing to decide.
         assert!(!wedged([0.0, 0.0], &[west, south]));
+    }
+
+    const G: f32 = 686.7;
+    const RATES: [f32; 7] = [30.0, 60.0, 120.0, 144.0, 152.0, 160.0, 240.0];
+
+    /// A jump's whole arc, step by step: (heights at each step's end, speeds).
+    fn arc(v0: f32, dt: f32, steps: usize, max: Option<f32>) -> (Vec<f32>, Vec<f32>) {
+        let (mut z, mut v) = (0.0f32, v0);
+        let (mut zs, mut vs) = (Vec::new(), Vec::new());
+        for _ in 0..steps {
+            let (rise, end) = gravity_step(v, G, dt, max);
+            z += rise;
+            v = end;
+            zs.push(z);
+            vs.push(v);
+        }
+        (zs, vs)
+    }
+
+    #[test]
+    fn gravity_steps_follow_the_parabola_at_every_rate() {
+        let h = 61.6;
+        let v0 = (2.0 * G * h).sqrt();
+        for hz in RATES {
+            let dt = 1.0 / hz;
+            let n = (1.0 * hz).round() as usize;
+            let (zs, vs) = arc(v0, dt, n, None);
+            for (i, (z, v)) in zs.iter().zip(&vs).enumerate() {
+                let t = (i + 1) as f32 * dt;
+                let (want_z, want_v) = (v0 * t - 0.5 * G * t * t, v0 - G * t);
+                assert!((z - want_z).abs() < 2e-3, "{hz} Hz, step {i}: z {z} vs {want_z}");
+                assert!((v - want_v).abs() < 2e-3, "{hz} Hz, step {i}: v {v} vs {want_v}");
+                // v² + 2·g·z holds at every step's end: the touchdown speed's rule.
+                assert!((v * v + 2.0 * G * z - v0 * v0).abs() < 4.0, "{hz} Hz, step {i}: energy");
+            }
+            // The highest step's end is within a half step's drop of the apex (g·dt²/8).
+            let apex = zs.iter().copied().fold(f32::MIN, f32::max);
+            assert!(apex <= h + 1e-3 && h - apex <= G * dt * dt / 8.0 + 1e-3, "{hz} Hz: apex {apex}");
+        }
+    }
+
+    #[test]
+    fn gravity_step_holds_the_fall_at_its_max_speed() {
+        let max = 500.0;
+        for hz in RATES {
+            let dt = 1.0 / hz;
+            // From rest for 2 s: max speed reached at t1 = max/g, the drop exact either side.
+            let n = (2.0 * hz).round() as usize;
+            let (zs, vs) = arc(0.0, dt, n, Some(max));
+            let t1 = max / G;
+            for (i, (z, v)) in zs.iter().zip(&vs).enumerate() {
+                let t = (i + 1) as f32 * dt;
+                let want = if t <= t1 { -0.5 * G * t * t } else { -0.5 * G * t1 * t1 - max * (t - t1) };
+                assert!((z - want).abs() < 0.02, "{hz} Hz, step {i}: z {z} vs {want}");
+                assert!(*v >= -max && (*v - (-G * t).max(-max)).abs() < 2e-3, "{hz} Hz, step {i}: v {v}");
+            }
+        }
+        // Already past the max (a speed set from outside): held at it for the whole step.
+        let (rise, end) = gravity_step(-800.0, G, 1.0 / 60.0, Some(max));
+        assert!((rise + max / 60.0).abs() < 1e-5 && end == -max, "{rise} {end}");
+        // No gravity: the speed carries the feet.
+        assert_eq!(gravity_step(-10.0, 0.0, 0.5, Some(max)), (-5.0, -10.0));
     }
 }
