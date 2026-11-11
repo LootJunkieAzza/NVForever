@@ -20,7 +20,8 @@
 //! the words Rust's default hook prints, redacted (the default hook is not called: it would
 //! print the home folder).
 //!
-//! Not covered: native crashes (they skip Rust's panic hook; see the run log check above).
+//! **Native crashes** skip Rust's panic hook; on Windows they leave a minidump
+//! (native_crash.rs) and a line in the run log, and the run log check above still names them.
 //!
 //! **Privacy.** Players send these files to us, so the player's home folder (which holds
 //! their account name: `C:\Users\<name>`) is written as `%USERPROFILE%` (`~` off Windows)
@@ -228,9 +229,16 @@ pub fn install(data: &Path, previous_running: bool) {
     let mut names: Vec<String> = std::fs::read_dir(&dir).map(|r| r.flatten().filter_map(|e| e.file_name().into_string().ok()).collect()).unwrap_or_default();
     names.sort();
     let previous = names.iter().rev().find(|n| n.starts_with("nvforever-") && n.ends_with(".log")).map(|n| dir.join(n));
-    let path = dir.join(format!("nvforever-{}-{}.log", stamp(now_secs()), std::process::id()));
+    let run_stamp = stamp(now_secs());
+    let path = dir.join(format!("nvforever-{run_stamp}-{}.log", std::process::id()));
     names.push(path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string());
-    for old in old_files(&names, "nvforever-", ".log", KEEP_LOGS).into_iter().chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS)) {
+    for old in old_files(&names, "nvforever-", ".log", KEEP_LOGS)
+        .into_iter()
+        .chain(old_files(&names, "crash-", ".txt", KEEP_REPORTS))
+        .chain(old_files(&names, "recorder-", ".jsonl", KEEP_REPORTS))
+        .chain(old_files(&names, "snapshot-", ".json", KEEP_REPORTS))
+        .chain(old_files(&names, "crash-", ".dmp", crate::native_crash::KEEP_DUMPS))
+    {
         let _ = std::fs::remove_file(dir.join(old));
     }
     match File::create(&path) {
@@ -241,6 +249,7 @@ pub fn install(data: &Path, previous_running: bool) {
     }
     set_hook();
     test_panic();
+    crate::native_crash::install(&dir, &run_stamp);
     // Said once the log plugin is up (`report_start`).
     let unclean = previous.filter(|p| !previous_running && std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
     let _ = UNCLEAN.set(unclean);
@@ -302,12 +311,44 @@ impl Write for ConsoleWriter {
 /// One write to the run log, redacted (the layer makes one per line).
 struct RunLogWriter(&'static RunLog);
 
+/// The last line written to the run log without its time stamp, and how many times it came
+/// again since (player-reports.md §4.1: a spammed line folded so it cannot push the useful
+/// lines out).
+static LAST_LINE: Mutex<(String, u64)> = Mutex::new((String::new(), 0));
+
+/// A log line's text without its leading time stamp (`2026-11-10T23:44:31.588916Z  INFO …`).
+fn without_stamp(line: &str) -> &str {
+    match line.split_once(' ') {
+        Some((first, rest)) if first.len() > 10 && first.as_bytes()[0].is_ascii_digit() && first.contains('T') => rest.trim_start(),
+        _ => line,
+    }
+}
+
+/// What to write for `line` given the last one: nothing (a repeat, counted), or the line,
+/// after a note of how many times the one before it came again.
+fn fold(last: &mut (String, u64), line: &str) -> Option<String> {
+    let body = without_stamp(line);
+    if !body.trim().is_empty() && body == last.0 {
+        last.1 += 1;
+        return None;
+    }
+    let note = (last.1 > 0).then(|| format!("… the line above repeated {} more time{}
+", last.1, if last.1 == 1 { "" } else { "s" }));
+    last.0 = body.to_string();
+    last.1 = 0;
+    Some(note.unwrap_or_default() + line)
+}
+
 impl Write for RunLogWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let text = redact(&String::from_utf8_lossy(buf)).into_owned();
+        let Some(out) = fold(&mut LAST_LINE.lock().unwrap_or_else(|e| e.into_inner()), &text) else {
+            return Ok(buf.len());
+        };
         // A panic while the lock was held must not stop the log.
         let mut w = self.0.writer.lock().unwrap_or_else(|e| e.into_inner());
         match w.as_mut() {
-            Some(f) => f.write_all(redact(&String::from_utf8_lossy(buf)).as_bytes()).map(|()| buf.len()),
+            Some(f) => f.write_all(out.as_bytes()).map(|()| buf.len()),
             None => Ok(buf.len()),
         }
     }
@@ -315,6 +356,22 @@ impl Write for RunLogWriter {
     fn flush(&mut self) -> std::io::Result<()> {
         let mut w = self.0.writer.lock().unwrap_or_else(|e| e.into_inner());
         w.as_mut().map_or(Ok(()), |f| f.flush())
+    }
+}
+
+/// A native crash (native_crash.rs): a line in the run log naming the exception and the
+/// dump, written straight to the file (the log plugin may be where it crashed). Never waits
+/// on the log's lock: a crash while it was held writes nothing rather than hang.
+pub fn native_crash_line(code: u32, dump: Option<&Path>) {
+    let dump = dump.map_or_else(|| "no dump written".to_string(), |p| format!("dump written to {}", redact(&p.display().to_string())));
+    let line = format!("native crash, exception 0x{code:08X}; {dump}");
+    // The console too (stderr is not locked by the log plugin): the smoke runner reads it.
+    let _ = writeln!(std::io::stderr(), "{line}");
+    let Some(log) = RUN_LOG.get() else { return };
+    let Ok(mut w) = log.writer.try_lock() else { return };
+    if let Some(f) = w.as_mut() {
+        let _ = writeln!(f, "{} ERROR nvforever::crash: {line}", stamp(now_secs()));
+        let _ = f.flush();
     }
 }
 
@@ -382,6 +439,14 @@ fn set_hook() {
         let text = report_text(&thread, &message, &location, &place, COMMAND.get().map_or("", |s| s.as_str()), run_log_path(), &backtrace);
         let written = LOG_DIR.get().map(|dir| {
             let path = dir.join(format!("crash-{}-{}.txt", stamp(now_secs()), std::process::id()));
+            // The flight recorder's last 60 s beside it, when reports are on (reports/anomaly.rs).
+            if crate::reports::active().is_some() {
+                let rec = crate::reports::anomaly::dump_recorder(&dir.join(format!("recorder-{}-{}.jsonl", stamp(now_secs()), std::process::id())));
+                let snap = crate::reports::snapshot::dump(&dir.join(format!("snapshot-{}-{}.json", stamp(now_secs()), std::process::id())));
+                if rec.is_ok() && snap.is_ok() {
+                    info!("reports: the flight recorder and world snapshot written beside the crash report");
+                }
+            }
             (std::fs::write(&path, redact(&text).as_bytes()).map(|_| path.clone()), path)
         });
         let place = if place.is_empty() { "not known yet" } else { place.as_str() };
@@ -491,6 +556,25 @@ pub fn report_exit(mut exit: MessageReader<AppExit>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_lines_are_folded() {
+        let mut last = (String::new(), 0);
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.1Z  WARN x: spam
+").as_deref(), Some("2026-11-10T23:44:31.1Z  WARN x: spam
+"));
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.2Z  WARN x: spam
+"), None);
+        assert_eq!(fold(&mut last, "2026-11-10T23:44:31.3Z  WARN x: spam
+"), None);
+        assert_eq!(
+            fold(&mut last, "2026-11-10T23:44:32.0Z  INFO y: other
+").as_deref(),
+            Some("… the line above repeated 2 more times
+2026-11-10T23:44:32.0Z  INFO y: other
+")
+        );
+    }
 
     #[test]
     fn stamps_are_utc_calendar_times() {

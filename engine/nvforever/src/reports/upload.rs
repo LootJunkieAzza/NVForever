@@ -23,6 +23,8 @@ pub const KEEP_SENT: usize = 20;
 pub const MAX_AGE: Duration = Duration::from_secs(14 * 86_400);
 /// How long after the start sending begins.
 pub const SEND_AFTER: Duration = Duration::from_secs(6);
+/// The largest minidump sent (the server's cap, §5.1).
+pub const MAX_DUMP_BYTES: usize = 4 * 1024 * 1024;
 /// One request's limit (§8).
 #[cfg_attr(not(windows), allow(dead_code))] // used only by the Windows HTTP client
 pub const TIMEOUT: Duration = Duration::from_secs(10);
@@ -59,12 +61,18 @@ pub struct Pending {
     pub summary: PathBuf,
     pub log: Option<PathBuf>,
     pub panic: Option<PathBuf>,
+    /// The flight recorder a panic wrote (anomaly.rs), gzip JSONL.
+    pub recorder: Option<PathBuf>,
+    /// The minidump a native crash left (native_crash.rs).
+    pub dump: Option<PathBuf>,
+    /// The world snapshot a panic wrote (snapshot.rs).
+    pub snapshot: Option<PathBuf>,
 }
 
 impl Pending {
     /// Every file of this upload.
     pub fn files(&self) -> impl Iterator<Item = &Path> {
-        std::iter::once(self.summary.as_path()).chain(self.log.as_deref()).chain(self.panic.as_deref())
+        std::iter::once(self.summary.as_path()).chain(self.log.as_deref()).chain(self.panic.as_deref()).chain(self.recorder.as_deref()).chain(self.dump.as_deref()).chain(self.snapshot.as_deref())
     }
 }
 
@@ -81,7 +89,7 @@ pub fn pending_in(dir: &Path, names: &[String]) -> Vec<Pending> {
                 let name = format!("{stem}{ext}");
                 names.contains(&name).then(|| dir.join(name))
             };
-            Pending { summary: dir.join(n), log: part(".log.gz"), panic: part(".panic.txt") }
+            Pending { summary: dir.join(n), log: part(".log.gz"), panic: part(".panic.txt"), recorder: part(".recorder.jsonl.gz"), dump: part(".dmp"), snapshot: part(".snapshot.json") }
         })
         .collect()
 }
@@ -207,6 +215,9 @@ fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
         }
         let log = p.log.as_ref().and_then(|l| std::fs::read(l).ok());
         let panic = p.panic.as_ref().and_then(|l| std::fs::read(l).ok());
+        let recorder = p.recorder.as_ref().filter(|_| is_crash(&end)).and_then(|l| std::fs::read(l).ok());
+        // The server takes dumps up to 4 MiB (§5.1); a larger one stays on the player's PC.
+        let dump = p.dump.as_ref().filter(|_| end == "native").and_then(|d| std::fs::read(d).ok()).filter(|d| d.len() <= MAX_DUMP_BYTES);
         let gz = gzip(&summary);
         let mut parts: Vec<(&str, &str, &str, &[u8])> = vec![("summary", "summary.json.gz", "application/gzip", &gz)];
         if let Some(l) = &log {
@@ -214,6 +225,16 @@ fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
         }
         if let Some(t) = &panic {
             parts.push(("panic", "panic.txt", "text/plain", t));
+        }
+        if let Some(r) = &recorder {
+            parts.push(("recorder", "recorder.jsonl.gz", "application/gzip", r));
+        }
+        if let Some(d) = &dump {
+            parts.push(("dump", "crash.dmp", "application/octet-stream", d));
+        }
+        let snapshot = p.snapshot.as_ref().filter(|_| end == "panic").and_then(|s| std::fs::read(s).ok());
+        if let Some(s) = &snapshot {
+            parts.push(("snapshot", "snapshot.json", "application/json", s));
         }
         let (body, ctype) = multipart(&parts);
         let path = if is_crash(&end) { "/v1/crash" } else { "/v1/session" };
@@ -253,7 +274,7 @@ fn send_all(active: &super::Active, pending: &Path, sent: &Path, pid: u32) {
 
 /// HTTP through the system's TLS (Windows: SChannel and the system's certificates).
 #[cfg(windows)]
-mod http {
+pub(crate) mod http {
     use super::TIMEOUT;
 
     fn agent() -> ureq::Agent {
@@ -266,6 +287,11 @@ mod http {
         let mut r = agent().get(url).header("X-NVF-Build", env!("CARGO_PKG_VERSION")).call().ok()?;
         let status = r.status().as_u16();
         Some((status, r.body_mut().with_config().limit(64 * 1024).read_to_vec().unwrap_or_default()))
+    }
+
+    /// `DELETE` with the install's token (§5.1); the status, or `None` without an answer.
+    pub fn delete(url: &str, delete_token: &str) -> Option<u16> {
+        agent().delete(url).header("X-NVF-Build", env!("CARGO_PKG_VERSION")).header("X-NVF-Delete-Token", delete_token).call().ok().map(|r| r.status().as_u16())
     }
 
     pub fn post(url: &str, body: &[u8], content_type: &str, delete_token: &str) -> Option<u16> {
@@ -282,11 +308,14 @@ mod http {
 
 /// Not built off Windows yet: nothing is sent, the files wait.
 #[cfg(not(windows))]
-mod http {
+pub(crate) mod http {
     pub fn get(_: &str) -> Option<(u16, Vec<u8>)> {
         None
     }
     pub fn post(_: &str, _: &[u8], _: &str, _: &str) -> Option<u16> {
+        None
+    }
+    pub fn delete(_: &str, _: &str) -> Option<u16> {
         None
     }
 }

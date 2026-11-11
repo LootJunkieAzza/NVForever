@@ -101,6 +101,19 @@ people building the same thing:
    (`python tools/smoke run …`) and the parity lab (`python -m fnvlab run`), and report
    the summaries in the pull request. You need your own copy of the game for these. If
    you don't have one, say so in the pull request and the maintainer will run them.
+
+   **Don't send player reports from development builds.** NVForever can send opt-in
+   reports to the project's server (docs/design/player-reports.md); they are meant to
+   show how *players'* games run. A build of yours, a half-finished change or a test
+   session would mix into those numbers (crash rates, performance, which quests players
+   can finish). Runs with `--data` / `NVFOREVER_DATA` and every smoke test never ask and
+   never send. If you start a build of your own like a player would, answer **Not now**
+   to the "Help fix NVForever?" popup, or set `NVF_REPORTS=0` in your environment, or
+   `Send=0` under `[Reports]` in your `NVForever.ini`. To work on reports themselves, run
+   the server locally (LootJunkieAzza/NVForever-Data, `npm run dev:ingest`) and use
+   `NVF_REPORTS=1 NVF_REPORTS_ENDPOINT=http://127.0.0.1:8787`; a test run never sends to
+   the project's server without its own `NVF_REPORTS_ENDPOINT`. A build you make yourself
+   never sends to the project's server anyway: only builds from the release workflow do.
 4. **Open a pull request** against `main` and fill in the template. CI runs the build and
    tests on Linux. First-time contributors' CI runs wait for a maintainer's approval.
 
