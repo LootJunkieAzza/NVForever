@@ -36,8 +36,10 @@
 //!   Package, Flags]; that the target stays the package's, not whoever attacks it, is
 //!   our reading [design]). While the engine's shooter acts on such a use (in place, its
 //!   target a drawn actor or the player) the combat AI's own attacks wait and the actor
-//!   is drawn facing the use's target, not its enemy (#2120); otherwise it fights as
-//!   without the use (docs/design/use-weapon.md §3).
+//!   is drawn facing the use's target, not its enemy (#2120). Otherwise the ordinary
+//!   attacks take over and it turns to its enemy ([`WeaponUse::taken`]); its package's
+//!   walk to its stand goes on in combat all the same, so this is not the ordinary combat
+//!   movement (docs/design/use-weapon.md §3).
 //! - **Weapon**: the function equips the named weapon when the actor carries it; the
 //!   page's "or grab one if one was nearby" is not built [design].
 //! - **Melee** (docs/design/use-weapon.md §3.1): with a melee weapon, fists or a
@@ -102,6 +104,11 @@ pub struct WeaponUse {
     /// beyond which it sets off again, set by the engine from the weapon's reach; `None`
     /// for a gun (module notes).
     pub reach: Option<[f32; 2]>,
+    /// The fight has the actor this frame: in Combat, a package's use the engine's
+    /// shooter has nothing to act on (a marker target, one not drawn, not yet in place),
+    /// so the ordinary attacks take over and the actor turns to its enemy, not the use's
+    /// target. Set each frame by the engine's fight (`Game::weapon_use_taken`) [design].
+    pub taken: bool,
 }
 
 /// How near the "target should be here" reference the target has to be, game units
@@ -144,6 +151,7 @@ impl WeaponUse {
             crouched: false,
             done: shots == 0,
             reach: None,
+            taken: false,
         }
     }
 
@@ -224,6 +232,7 @@ impl Game<'_> {
             crouched: false,
             done: false,
             reach: None,
+            taken: false,
         })
     }
 
@@ -249,6 +258,20 @@ impl Game<'_> {
     pub fn weapon_use_in_place(&mut self, actor: FormId) {
         if let Some(w) = self.weapon_uses.get_mut(&actor) {
             w.in_place = true;
+        }
+    }
+
+    /// The fight took `actor`'s weapon use over this frame ([`WeaponUse::taken`]).
+    pub fn weapon_use_taken(&mut self, actor: FormId) {
+        if let Some(w) = self.weapon_uses.get_mut(&actor) {
+            w.taken = true;
+        }
+    }
+
+    /// A new frame of the fight: no use is taken over until it says so again.
+    pub fn weapon_uses_untaken(&mut self) {
+        for w in self.weapon_uses.values_mut() {
+            w.taken = false;
         }
     }
 

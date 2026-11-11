@@ -1077,9 +1077,6 @@ struct Core {
     /// Of those, the ones whose aim a weapon use owns, with the use's target
     /// ([`aim_target`]): no combat lock on another target turns them ([`keeps_lock`]).
     use_aims: HashMap<FormId, FormId>,
-    /// People whose weapon use the fight took over, the shooter having nothing to act on
-    /// (`npc_combat::Fighters::use_taken`): their use owns no aim ([`use_aim`]).
-    use_taken: HashSet<u32>,
     /// The player's trip behind a loading screen under way (a fast travel, a load door):
     /// the actors coming into the loaded area are put at their package's place
     /// ([`Core::arrive`], issue #1208).
@@ -1292,7 +1289,6 @@ impl Residents {
             door_uses: Vec::new(),
             aims: HashMap::new(),
             use_aims: HashMap::new(),
-            use_taken: HashSet::new(),
             trip: None,
             loaded_at: HashMap::new(),
             clock_hours: 0.0,
@@ -2298,7 +2294,8 @@ impl Core {
                 continue;
             }
             let Some(aw) = aw else { continue };
-            let use_target = use_aim(game.active_weapon_use(r.actor).map(|w| w.target), self.use_taken.contains(&r.actor.0));
+            let active = game.active_weapon_use(r.actor);
+            let use_target = use_aim(active.map(|w| w.target), active.is_some_and(|w| w.taken));
             let Some(target) = aim_target(use_target, aw.combat_target().map(|(t, _)| t)) else { continue };
             if let Some(p) = fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space) {
                 self.aims.insert(r.actor, p.pos);
@@ -2896,9 +2893,6 @@ pub fn drive(
         }
     }
     let all = res.all;
-    // Whose weapon use the fight took over (`npc_combat::Fighters::use_taken`, this frame's
-    // or the last: the two systems are not ordered): they face their enemy.
-    res.core.use_taken.clone_from(fighters.as_deref().map_or(&HashSet::new(), |f| f.use_taken()));
     // Who staggers (a hit reaction playing) stands until it ends.
     res.core.on_furniture = seated.iter().map(|v| v.0).collect();
     res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
@@ -3423,9 +3417,11 @@ fn aim_target(use_target: Option<FormId>, combat_target: Option<FormId>) -> Opti
 
 /// The target a person's weapon use (`Game::active_weapon_use`) aims it at
 /// ([`aim_target`]): none when the fight took the actor over (`taken_by_fight`,
-/// `npc_combat::Fighters::use_taken`: the shooter has nothing to act on, as a marker
-/// target, one not drawn, or not yet at its stand), so it faces its enemy and the fight's
-/// lock on that enemy holds ([`keeps_lock`]) (#2145 review) [design].
+/// `WeaponUse::taken`, set by `npc_combat::fight`, this frame's or the last: the two
+/// systems are not ordered; the shooter has nothing to act on, as a marker target, one
+/// not drawn, or not yet at its stand), so it faces its enemy and the fight's lock on
+/// that enemy holds ([`keeps_lock`]) (#2145 review) [design]. Only people are aimed here;
+/// a creature's heading is its walker's, which `fnv_ai::carry` turns the same way.
 fn use_aim(use_target: Option<FormId>, taken_by_fight: bool) -> Option<FormId> {
     use_target.filter(|_| !taken_by_fight)
 }

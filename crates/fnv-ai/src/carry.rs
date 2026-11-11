@@ -2299,7 +2299,8 @@ impl Ai {
     /// on its own reference, or has no way there); one that is over sends it back to its
     /// package. In place, a weapon use (a script's, or its package's while it is not in
     /// combat or the package continues during combat) turns it to its target at the
-    /// standing turn rate. Returns whether a
+    /// standing turn rate; one the fight took over (`WeaponUse::taken`) turns it, standing,
+    /// to its combat target at the combat turn rate instead. Returns whether a
     /// script's use holds the actor (its package's own doings and its fight wait).
     fn weapon_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) -> bool {
         let script = game.weapon_use(actor).filter(|w| w.source == Source::Script).map(|w| (w.seq, w.stand, w.target));
@@ -2379,7 +2380,18 @@ impl Ai {
         let a = &self.agents[&actor];
         let space = a.walker.space;
         let standing = a.activity != Activity::Travelling;
-        if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && standing).map(|w| w.target) {
+        // A use the fight took over (`WeaponUse::taken`: in Combat, nothing for the
+        // engine's shooter to act on) turns it to its enemy as a standing fighter turns
+        // (`crate::alert`), people and creatures alike: its package's doings go on in
+        // combat, so the combat steering that would turn it does not run (#2145 review)
+        // [design].
+        let taken = game.active_weapon_use(actor).is_some_and(|w| w.taken);
+        if taken {
+            let enemy = game.awareness.get(actor).and_then(|aw| aw.combat_target()).map(|(_, t)| t.at);
+            if let Some(at) = enemy.filter(|_| standing) {
+                self.combat_face(game, actor, Place { space, pos: at }, dt);
+            }
+        } else if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && standing).map(|w| w.target) {
             if let Some(at) = goal::place_of_ref(game, t).filter(|p| p.space == space) {
                 self.face(game, actor, at, dt);
             }

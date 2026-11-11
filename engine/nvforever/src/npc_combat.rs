@@ -626,10 +626,6 @@ pub struct Fighters {
     locks: HashMap<u32, (u32, V3)>,
     /// Last frame's [`Fighters::locks`]: where each locked person was drawn facing.
     drawn_locks: HashMap<u32, (u32, V3)>,
-    /// People with a weapon use still to be carried out whom the fight has this frame,
-    /// the shooter having nothing to act on (`weapon_use_holds_fight`): `residents` draws
-    /// them facing their enemy, not the use's target ([`Fighters::use_taken`]).
-    use_taken: std::collections::HashSet<u32>,
     stats: Stats,
     rng: u64,
     /// The crouch, block and approach rolls' own sequence (§14), so fights without them
@@ -1280,6 +1276,57 @@ fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active:
     any.is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) || landing || active.is_some_and(|w| !in_combat || crate::use_weapon::acts_on(w, target_standing))
 }
 
+/// Whether an actor a weapon use holds the fight for keeps its fight's state (its
+/// `Fighter`, engage distance, aim, pace, post and crouch, which `fight` drops for an actor
+/// it no longer has): a package's use while the actor is in Combat (`fighting`, the state
+/// `fight` acts in; Alert and Lost drop it as before), which hands the actor back and
+/// forth as the shooter can act on it or not (`use_weapon::acts_on`), so a target
+/// flickering among the drawn people does not start its fight again from nothing (its
+/// sight time, magazine, reload) each time (#2145 review) [design]. A script's use drops
+/// it, as before.
+fn keeps_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, fighting: bool) -> bool {
+    fighting && any.is_some_and(|w| matches!(w.source, fnv_game::use_weapon::Source::Package(_)))
+}
+
+/// What `fight` does this frame with an actor and its weapon use, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UseHold {
+    /// No use in the way: it fights (when in Combat).
+    Free,
+    /// It has a use still to be carried out that the shooter cannot act on: it fights,
+    /// and the use is marked taken over (`Game::weapon_use_taken`).
+    Taken,
+    /// A use holds the fight and its fight's state is kept ([`keeps_fight`]).
+    Kept,
+    /// Nothing to fight this frame (a use holds it and its state goes, or it is not in
+    /// Combat): its fight's state is dropped, as before.
+    Out,
+}
+
+/// [`UseHold`] from [`weapon_use_holds_fight`] and [`keeps_fight`] (#2145 review).
+fn use_hold(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, state: State, target_standing: bool, landing: bool) -> UseHold {
+    if weapon_use_holds_fight(any, active, state.in_combat(), target_standing, landing) {
+        if keeps_fight(any, state == State::Combat) {
+            UseHold::Kept
+        } else {
+            UseHold::Out
+        }
+    } else if state != State::Combat {
+        UseHold::Out
+    } else if active.is_some() {
+        UseHold::Taken
+    } else {
+        UseHold::Free
+    }
+}
+
+/// A kept fighter while the shooter has its actor: blows begun and not landed are let
+/// go (the shooter's attacks are the ones that count meanwhile), its other state stays.
+fn hold_for_use(x: &mut Fighter) {
+    x.blows.clear();
+    x.swing = None;
+}
+
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fight(
@@ -1353,7 +1400,6 @@ pub(crate) fn fight(
     };
     let f = &mut *fighters;
     f.poses.clear();
-    f.use_taken.clear();
     f.drawn_locks = std::mem::take(&mut f.locks);
     if f.stance_rng == 0 {
         f.stance_rng = 0x2545_F491_4F6C_DD1D;
@@ -1411,6 +1457,8 @@ pub(crate) fn fight(
                 anims.write(PlayAttack { actor: b.blocker.0, weapon: weapons.get(&b.blocker.0).copied(), melee: true, sights: false, kind: Move::BlockHit, power: None, swing: None });
             }
         }
+        // No use is taken over until the fight says so again this frame.
+        g.weapon_uses_untaken();
         for (rig, global, _, hold, _, _, flinch, idle, loco) in &actors {
             let id = rig.reference;
             let me = FormId(id);
@@ -1423,15 +1471,24 @@ pub(crate) fn fight(
             // shooter acts on it (`weapon_use_holds_fight`).
             let landing = g.weapon_use(me).is_some_and(|w| shooters.as_deref().is_some_and(|s| s.landing(id, w.seq)));
             let target_standing = g.weapon_use(me).is_some_and(|w| places.contains_key(&w.target.0));
-            if weapon_use_holds_fight(g.weapon_use(me), g.active_weapon_use(me), g.awareness.state(me).in_combat(), target_standing, landing) {
-                continue;
+            match use_hold(g.weapon_use(me), g.active_weapon_use(me), g.awareness.state(me), target_standing, landing) {
+                // The hand-over goes back and forth as the use's target comes and goes
+                // among the drawn people: its fight is kept as it is meanwhile.
+                UseHold::Kept => {
+                    if let Some(x) = f.fighters.get_mut(&id) {
+                        hold_for_use(x);
+                        still.push(id);
+                    }
+                    continue;
+                }
+                UseHold::Out => continue,
+                // A use the shooter cannot act on now: the fight has the actor, and it
+                // turns to its enemy, not the use's target (`WeaponUse::taken`;
+                // `fnv_ai::carry`, `residents::use_aim`).
+                UseHold::Taken => g.weapon_use_taken(me),
+                UseHold::Free => {}
             }
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
-            // A use the shooter cannot act on now: the fight has the actor, and it is drawn
-            // facing its enemy, not the use's target (`Fighters::use_taken`).
-            if g.active_weapon_use(me).is_some() {
-                f.use_taken.insert(id);
-            }
             // The target it detects; just after losing sight of it (still in Combat, not
             // yet Lost), the one detected last, so it keeps its distance to close in
             // (`fnv_ai::alert`) instead of standing where it cannot see [design: the
@@ -3044,11 +3101,6 @@ impl Fighters {
     pub fn lock_on(&self, reference: u32) -> Option<(u32, V3)> {
         self.locks.get(&reference).copied()
     }
-
-    /// The people whose weapon use the fight took over this frame (the field's notes).
-    pub fn use_taken(&self) -> &std::collections::HashSet<u32> {
-        &self.use_taken
-    }
 }
 
 fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Option<Res<CombatStats>>) {
@@ -3219,6 +3271,37 @@ mod tests {
         let spent = WeaponUse { done: true, ..there.clone() };
         assert!(weapon_use_holds_fight(Some(&spent), None, true, true, true), "the shooter still lands its last blow");
         assert!(!weapon_use_holds_fight(Some(&spent), None, true, true, false));
+    }
+
+    /// #2145 review: a Continue During Combat package's use in Combat whose target comes and
+    /// goes among the drawn people hands the actor between the shooter and the fight frame
+    /// after frame without its fight ever being dropped (`UseHold::Out`); a script's use
+    /// drops it as before, and outside Combat nothing is kept.
+    #[test]
+    fn a_package_use_handed_back_and_forth_keeps_the_actors_fight() {
+        use fnv_game::use_weapon::{Source, WeaponUse};
+        let script = WeaponUse::of_script(None, None, FormId(0x7), 3, true, true, false, false, None);
+        let there = WeaponUse { source: Source::Package(FormId(0x9)), in_place: true, volleys: None, ..script.clone() };
+        let mut drops = 0;
+        for frame in 0..40 {
+            let standing = frame % 3 != 0;
+            let hold = use_hold(Some(&there), Some(&there), State::Combat, standing, false);
+            assert_eq!(hold, if standing { UseHold::Kept } else { UseHold::Taken }, "frame {frame}");
+            drops += usize::from(hold == UseHold::Out);
+        }
+        assert_eq!(drops, 0);
+        // A script's use holds the fight and drops its state, as before.
+        assert_eq!(use_hold(Some(&script), Some(&script), State::Combat, true, false), UseHold::Out);
+        // No use, or a held one (no flag: not active in combat): the actor fights.
+        assert_eq!(use_hold(None, None, State::Combat, false, false), UseHold::Free);
+        assert_eq!(use_hold(Some(&there), None, State::Combat, true, false), UseHold::Free);
+        // Not in Combat: nothing kept, nothing taken.
+        assert_eq!(use_hold(Some(&there), Some(&there), State::Alert, true, false), UseHold::Out);
+        assert_eq!(use_hold(Some(&there), Some(&there), State::Alert, false, false), UseHold::Out);
+        assert_eq!(use_hold(Some(&there), Some(&there), State::Normal, false, false), UseHold::Out);
+        // A package melee use's last blow landing in Combat keeps it too.
+        let spent = WeaponUse { done: true, ..there.clone() };
+        assert_eq!(use_hold(Some(&spent), None, State::Combat, true, true), UseHold::Kept);
     }
 
     #[test]

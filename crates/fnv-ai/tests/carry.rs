@@ -2840,6 +2840,47 @@ fn a_use_weapon_package_fires_on_in_combat_only_with_continue_during_combat() {
     }
 }
 
+/// #2145 review: a Continue During Combat package's use in Combat faces the package's
+/// target while the engine's shooter acts on it; once the fight takes it over
+/// (`WeaponUse::taken`: a marker target, one not drawn) the actor turns to its enemy, as a
+/// standing fighter does, and back to the package's target when the shooter has it again.
+/// It keeps its stand throughout.
+#[test]
+fn a_use_weapon_package_the_fight_took_over_turns_to_its_enemy() {
+    use fnv_game::package::flags::CONTINUE_DURING_COMBAT;
+    let actor = FormId(R_SHOOTER);
+    let stand = [350.0, 350.0, 0.0];
+    let mut f = fixture();
+    f.data.package_defs.get_mut(&FormId(P_SHOOT)).unwrap().flags |= CONTINUE_DURING_COMBAT;
+    let mut s = sim(&f, &[R_SHOOTER]);
+    s.run(15.0);
+    assert!(dist(s.feet(R_SHOOTER), stand) < 40.0);
+    let enemy = [stand[0] + 300.0, stand[1], 0.0];
+    fighting(&mut s, R_SHOOTER, enemy);
+    let faces = |s: &Sim, to: [f32; 2]| {
+        let feet = s.feet(R_SHOOTER);
+        let want = fnv_nav::follow::heading_of([to[0] - feet[0], to[1] - feet[1]]);
+        let have = s.ai.agents[&actor].walker.heading;
+        (want - have).sin().abs() < 0.1 && (want - have).cos() > 0.0
+    };
+    // The shooter has it: the package's target, the loner south of it.
+    s.run(2.0);
+    assert_eq!(s.game.awareness.state(actor), State::Combat);
+    assert!(s.game.awareness.get(actor).and_then(|a| a.combat_target()).is_some());
+    assert!(faces(&s, [350.0, 50.0]), "the package's target, heading {}", s.ai.agents[&actor].walker.heading);
+    // The fight took it over (set each frame by the engine): its enemy, to the east.
+    for _ in 0..4 {
+        s.game.weapon_use_taken(actor);
+        s.run(0.5);
+    }
+    assert!(faces(&s, [enemy[0], enemy[1]]), "its enemy, heading {}", s.ai.agents[&actor].walker.heading);
+    assert!(dist(s.feet(R_SHOOTER), stand) < 40.0, "it keeps its stand");
+    // The shooter has it again: back to the package's target.
+    s.game.weapon_uses_untaken();
+    s.run(2.0);
+    assert!(faces(&s, [350.0, 50.0]), "the package's target again, heading {}", s.ai.agents[&actor].walker.heading);
+}
+
 /// The UseWeapon function (`fnv_game::use_weapon`): the actor walks to where it is to
 /// stand, and once the use is over goes back to its package.
 #[test]

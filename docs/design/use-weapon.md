@@ -67,11 +67,19 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
   included), and through a melee use's last blow until it lands
   (`npc_combat::weapon_use_holds_fight`, `use_weapon::Shooters::landing`): the actor
   fires the package's pattern at the package's target instead of the ordinary attacks.
-  The shooter and the fight read the same test, so an actor in Combat is never left with
-  neither acting (#2145 review). Not in place (still on its way to its stand, or never
-  there), or with a target the shooter does not fire at (a marker, as the Ultra-Luxe
-  kitchen's torchers have; an actor not drawn), it fights as it would without the use;
-  once the shooter can act, the use takes over again. Spent (or its package changed),
+  The shooter and the fight read the same test, so one of them always has the actor
+  (#2145 review). That is not a promise of shots: either may still hold its fire (not
+  facing, not drawn, Hold Fire When Blocked, restrained, a target out of reach for a
+  package's melee use, §4). Not in place (still on its way to its stand, or never there),
+  or with a target the shooter does not fire at (a marker, as the Ultra-Luxe kitchen's
+  torchers have; an actor not drawn), the ordinary attacks take over and it turns to its
+  enemy (`WeaponUse::taken`, below). Its movement stays its package's: the walk to its
+  stand goes on in combat (`fnv_ai::alert` hands a Continue During Combat actor back to
+  its package), not the ordinary combat movement (closing in, cover). Once the shooter
+  can act, the use takes over again; meanwhile the actor's fight keeps its state (its
+  sight time, magazine, post), so the hand-over going back and forth does not start the
+  fight from nothing each time (`npc_combat::use_hold`, `keeps_fight`; blows begun and
+  not landed are let go). Spent (or its package changed),
   the use is no longer active and the fight takes the actor back. Out of a combat state,
   and for a script's use in any state, nothing changes. `shoot` and `fight` run in no set
   order, so in the frame a use begins or ends one of them may still act on the state the
@@ -79,9 +87,12 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
 - In Combat the actor is drawn facing the target of the use it carries out, a script's
   or a package's, not its combat target, and a lock on its enemy from the fight does not
   turn it (`residents::aim_target`, `keeps_lock`): the shooter fires only facing the
-  use's target. A package's use the fight took over (above; `npc_combat::Fighters::use_taken`,
-  `residents::use_aim`) owns no aim: the actor faces its enemy and the fight's lock
-  holds. During a melee use's last blow (no longer active) it faces its combat
+  use's target. A package's use the fight took over owns no aim: `fight` marks it each
+  frame (`WeaponUse::taken`, `Game::weapon_use_taken`; cleared at the start of every
+  frame of the fight), `fnv_ai::carry::weapon_step` then turns the actor, standing, to its
+  combat target at the combat turn rate (people and creatures alike, as `alert_step` turns
+  a standing fighter), and a person is drawn facing it with the fight's lock holding
+  (`residents::use_aim`). During a melee use's last blow (no longer active) it faces its combat
   target again. Keeping the package's target in combat, rather than
   turning on whoever attacks it, is our reading of the flag's "continue to fire" (spec
   note §3) [design], an open question for the maintainer (docs/owner-review.md); a held
@@ -138,8 +149,12 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
 
 - Unit tests (#2145 review): `use_weapon::acts_on` and `npc_combat::weapon_use_holds_fight`
   (a package's use in combat holds the fight only in place with a standing target; a marker,
-  an undrawn target or an actor on its way fights), `residents::use_aim` (a use the fight
-  took over leaves the aim to the combat target).
+  an undrawn target or an actor on its way fights), `npc_combat::use_hold` (a target
+  coming and going hands the actor back and forth without dropping its fight),
+  `residents::use_aim` (a use the fight took over leaves the aim to the combat target),
+  and `a_use_weapon_package_the_fight_took_over_turns_to_its_enemy`
+  (`crates/fnv-ai/tests/carry.rs`: taken over, it turns to its enemy and keeps its stand;
+  handed back, to the package's target).
 - Unit tests: `fnv_game::use_weapon` (volleys and pauses), `crates/fnv-ai/tests/carry.rs`
   (a package walks to its place, faces its target, meets its goal when spent; the function
   walks the actor to its stand reference and back to its package after).

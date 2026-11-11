@@ -154,8 +154,9 @@ impl Shooters {
 /// `places`). A target that is no actor (a marker: the Ultra-Luxe kitchen's torchers
 /// aim at one) or is not drawn, and an actor not yet in place, get nothing from it.
 /// `npc_combat::fight` keeps its attacks off a package's use in a combat state only while
-/// this holds (`npc_combat::weapon_use_holds_fight`), so the two never leave an actor in
-/// Combat with neither acting (#2145 review) [design].
+/// this holds (`npc_combat::weapon_use_holds_fight`), so one of the two always has an
+/// actor in Combat, though either may still hold its fire (not facing, someone in the way)
+/// (#2145 review) [design].
 pub fn acts_on(w: &fnv_game::use_weapon::WeaponUse, target_standing: bool) -> bool {
     w.in_place && target_standing
 }
