@@ -227,12 +227,21 @@ These test the engine's state handoff, not original-game timing or sandbox parit
 | Function | Now | Source |
 |---|---|---|
 | IsInCombat | 1 in Alert, Combat and Lost; for the player, 1 while an actor in a combat state has the player on its target or alert list | [documented: Category:Detection; GECK wiki IsInCombat, "will return 1 if enemies are actively searching for the player"] |
-| GetCombatTarget | in Combat, the detected target with the highest value; else none | which of several: [engineering choice] |
+| GetCombatTarget | in Combat and Lost: ITR's ForceCombatTarget, else the detected target with the highest value; while it detects none, the target it fought last, kept while that lives and is on its target or alert list (let go on death, `forget`, StopCombat, a new target, Normal); else none. Conditions run on Combat Target and the extender queries that ask for it read the same (`Game::combat_target_of`) | which of several: [engineering choice]; kept while unseen: [observed: npc-behaviour-compare.md §11, the original kept the player as combat target with GetDetected player 0]; when it lets go: [design, #2121], how long the original keeps it: #2010 |
+| GetCurrentAIProcedure / GetCurrentAIPackage | Combat and Lost read COMBAT 13 / 5 (our Lost searches underneath); Alert reads SEARCH 36 / SEARCH_FOR_ATTACKER 29 | Combat and Lost: [observed: npc-behaviour-compare.md §11, SEARCH and SEARCH_FOR_ATTACKER never appeared, an unseen target kept procedure COMBAT]; Alert: left as it was, no capture shows an Alert alone [design, #2121] |
 | CreateDetectionEvent | queues an event at the calling reference (§4) | [documented] |
-| SetAlert / GetIsAlerted | SetAlert's flag is kept on the reference (savebaked); GetIsAlerted is 1 with it or in a combat state | [documented: "purely an animation state"]; the combat state drawing it: [hypothesis] |
+| SetAlert / GetIsAlerted | SetAlert's flag is kept on the reference (savebaked); GetIsAlerted is 1 with it or ITR's SetAlertNS, nothing else: not for a combat state (`Game::is_alerted`) | [documented: "purely an animation state"]; not in combat: [observed: GetIsAlerted 0 in every sample, 14,312 of them in combat, npc-behaviour-compare.md §11; owner-decision-captures.md od_15] |
 
-Furniture's fast getting-up set, chosen under `GetIsAlerted == 1` (furniture.md §2), now
-applies to alerted actors.
+What actors look like still counts the combat states: the weapon drawing and the
+creatures' stance read `Game::alert_stance` (alerted or a combat state) [hypothesis: Alert
+is "weapon out", Category:Detection], so a fight looks as it did before #2121. The IDLE
+tree's own conditions read GetIsAlerted as scripts do: a node gated on `GetIsAlerted == 1`
+alone (the mirelurk's and sentry bot's warnings, idles.md §14.1) no longer passes in a
+fight; the gecko's combat idles, which also take procedure 13, still do (Lost too).
+
+Furniture's fast getting-up set is chosen under `GetIsAlerted == 1` (furniture.md §2); the
+engine's furniture picker answers GetIsAlerted 0 for now (`engine/nvforever/src/furniture.rs`,
+`User::alerted`), so it is not reached.
 
 Not yet when this was written: OnStartCombat / OnCombatEnd blocks, IsHostilesNearby,
 GetPCDetectionState, combat groups, crimes. Built since: OnStartCombat and OnCombatEnd

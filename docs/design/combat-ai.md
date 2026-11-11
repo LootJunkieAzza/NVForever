@@ -122,7 +122,7 @@ their reach and field of view.
 |---|---|---|
 | StartCombat | the actor fights the target from now on, hostile whatever its records say, until StopCombat; it counts as detecting the target at once (Combat) | [documented: catalogue notes]; the target's combat group: not built |
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
-| IsInCombat, GetCombatTarget | as alert.md §6 | |
+| IsInCombat, GetCombatTarget, GetIsAlerted, GetCurrentAIProcedure / Package | as alert.md §6: a fight reads GetIsAlerted 0 (SetAlert's alone); GetCombatTarget keeps the target it fought while it is out of sight, through Lost; Lost reads procedure COMBAT 13 and package COMBAT 5 (#2121) | |
 | StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
 | GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
 | GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |

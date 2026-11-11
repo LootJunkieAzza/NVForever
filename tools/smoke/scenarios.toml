@@ -1063,6 +1063,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-script-values"
+source = "issue #2121 (docs/design/alert.md §6; npc-behaviour-compare.md §11): what scripts read of a fight. A gecko fighting the god-mode player reads IsInCombat 1, GetIsAlerted 0 (SetAlert's alone; the original read 0 in every in-combat sample), GetCombatTarget the player and procedure COMBAT 13 / package COMBAT 5, while it still draws its stance (`Game::alert_stance`); SetAlert 1 then reads 1"
+note = "a gecko (NVCrGecko) placed at the player at 3 s (the first created reference, 0xFF000000), put 600 units away and set on the player at 6 s; its values read at 10 s, while the player stands in sight. Keeping the target once it is unseen and Lost reading 13 / 5 are pinned by fnv-game tests/combat_transitions.rs (a lone hostile out of sight needs a scene with no other actor: in Goodsprings a bighorner took the gecko's attention, #2121's comment)"
+areas = ["combat", "scripts"]
+paths = ["crates/fnv-game/src/functions/ai_state.rs", "engine/nvforever/src/creature_stance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:NVCrGecko:1,5:moveto:0xFF000000:player:0:600:0,6:combat:0xFF000000:player,10:call:0xFF000000:IsInCombat,10.1:call:0xFF000000:GetIsAlerted,10.2:call:0xFF000000:GetCombatTarget,10.3:call:0xFF000000:GetCurrentAIProcedure,10.4:call:0xFF000000:GetCurrentAIPackage,12:call:0xFF000000:SetAlert:1,12.1:call:0xFF000000:GetIsAlerted" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'script: test aid calls IsInCombat on \S*FF000000 = 1$', label = "the gecko fights" },
+  { re = 'creature stance: .*FF000000 draws \(alerted\)', label = "fighting, it still draws its stance (alert_stance counts the combat states)" },
+  { re = 'script: test aid calls GetCombatTarget on \S*FF000000 = 00000014$', label = "its combat target is the player" },
+  { re = 'script: test aid calls GetCurrentAIProcedure on \S*FF000000 = 13$', label = "procedure COMBAT" },
+  { re = 'script: test aid calls GetCurrentAIPackage on \S*FF000000 = 5$', label = "package type COMBAT" },
+]
+order = [[
+  { re = 'script: test aid calls GetIsAlerted on \S*FF000000 = 0$', label = "in the fight GetIsAlerted reads 0 (#2121; it read 1 before)" },
+  { re = 'script: test aid calls SetAlert on \S*FF000000', label = "SetAlert 1" },
+  { re = 'script: test aid calls GetIsAlerted on \S*FF000000 = 1$', label = "then it reads 1" },
+]]
+
+[[scenario]]
 name = "nav-water-closed"
 kind = "tool"
 source = "GECK wiki Navmesh Creation Workflow: creatures without the Swims flag \"will avoid using water triangles\" (PathParams::water, fnv-ai keeps_out_of_water): from the Boulder Beach shore to a point in Lake Mead a swimmer's path crosses water triangles; for one that does not swim the goal in water is out of reach at once (no search of the area); standing in the water, it walks out"
