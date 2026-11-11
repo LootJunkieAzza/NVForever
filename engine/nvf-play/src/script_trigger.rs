@@ -69,6 +69,14 @@ pub struct Triggers {
     pub inside: BTreeSet<(FormId, FormId)>,
 }
 
+impl Triggers {
+    /// Every trigger volume built so far, at the pose it was built at (the collision
+    /// view draws them, `crate::collision_view`).
+    pub fn volumes(&self) -> impl Iterator<Item = &TriggerShape> {
+        self.shapes.values().flat_map(|(_, v)| v.iter())
+    }
+}
+
 const TRIGGER_BLOCKS: [u16; 3] = [event::ON_TRIGGER_ENTER, event::ON_TRIGGER, event::ON_TRIGGER_LEAVE];
 
 fn is_actor(sig: &[u8; 4]) -> bool {
