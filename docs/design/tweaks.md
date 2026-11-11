@@ -567,6 +567,7 @@ unless the player binds them, so nothing changes until then.
 | Held Items Weigh | `bEncumbranceIncludesGrabbedItems` | `player::encumbered_walks` adds the grabbed reference's item weight times its count (`GripOn::Ref`) to the carried weight before judging over the limit |
 | Usable Ammo First | `bSortEquipableAmmo` | `tweaks::sync` puts the ammo choices of the player's carried weapons in `MenuModel::usable_ammo`; `MenuModel::refresh` sorts those rows first in the inventory, a stable sort that keeps the names' order |
 | Better Free Camera | `bBetterFlycam` | `free_cam::fly` takes Space / left Ctrl for up and down in place of E / Q, toggles `FreeCam::auto` (forward by itself) on Q, ends it on S, and turns on Z / C at 1.5 rad/s (ours); the wheel already set the speed |
+| New Places Red on the Map | `bColorRecentlyAddedMapMarkers` | `DataState::found_this_run` keeps the markers found since the program started (a loaded save starts it again); the world map draws those red; markers a script shows are not counted |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -588,8 +589,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 493 |
-| to do | 110 |
+| done | 494 |
+| to do | 109 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -991,6 +992,7 @@ game's Data folder, read-only).
 | `bBarterShowCapsChange` | done | yes | 1 | Barter Shows Caps After (hand-built barter menu; one mode, our words; the tiles menu not yet) |
 | `bCapitalizeRecipeCategories` | done | yes |  | Recipe Categories in Capitals |
 | `bClickingShowsTerminalText` | done | yes |  | already so: terminal text is shown whole at once |
+| `bColorRecentlyAddedMapMarkers` | done | yes |  | New Places Red on the Map (places found; markers given by scripts not) |
 | `bConsoleNumpadSupport` | done | yes |  | already so: numpad digits type into the console (with Num Lock) |
 | `bDisplayItemEffectTotals` | done | yes |  | already so: the EFFECTS figure counts an effect over time whole (no per-second breakdown) |
 | `bHideCursorInDialog` | done | yes | 1 | No Pointer in Conversations |
@@ -1084,7 +1086,6 @@ game's Data folder, read-only).
 | `bTerminalInstantDisplayHotkey` | done |  |  | already so: terminal text is shown whole |
 | `bTimescaleAffectsMinigames` | done |  |  | Lockpicking Follows the Time Speed (the lock only; the card and slot games keep their pace) |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
-| `bColorRecentlyAddedMapMarkers` | to do | yes |  | needs a per-session found set (newly_found is drained by the compass) |
 | `bMainMenuContinueIcon` | to do | yes |  | thumbnails are on the load page only |
 | `bPlaceMarkersAtLocations` | to do | yes | 1 | placing a marker on the map is not built |
 | `bRememberPipboyScrollPositions` | to do | yes |  | the inventory is a new MenuModel on each opening |

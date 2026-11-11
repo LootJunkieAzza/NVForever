@@ -511,6 +511,9 @@ pub struct Tweaks {
     /// `bExplosionsDontPushTakeableItems`: explosions leave items that can be taken where
     /// they lie.
     pub blasts_spare_items: bool,
+    /// `bColorRecentlyAddedMapMarkers`: places found since the game was started are red
+    /// on the world map.
+    pub recent_markers_red: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -795,6 +798,7 @@ impl Default for Tweaks {
             buffed_health_bars: false,
             mine_blasts_heard: false,
             blasts_spare_items: false,
+            recent_markers_red: false,
         }
     }
 }

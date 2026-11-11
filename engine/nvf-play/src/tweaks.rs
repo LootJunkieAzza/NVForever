@@ -1686,6 +1686,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "grabbed-weighs", "Held Items Weigh", "An item you are holding up with the grab counts toward what you carry, so it can leave you overencumbered. (Stewie's Tweaks bEncumbranceIncludesGrabbedItems)", grabbed_weighs);
         switch!(app, "usable-ammo-first", "Usable Ammo First", "In the Pip-Boy's ammo list, ammo that a weapon you carry can fire comes first. (Stewie's Tweaks bSortEquipableAmmo)", usable_ammo_first);
         switch!(app, "better-flycam", "Better Free Camera", "The console's free camera (tfc) flies up with Space and down with Ctrl, keeps flying forward after Q (S stops it) and turns with Z and C; the wheel still sets its speed. (Stewie's Tweaks bBetterFlycam)", better_flycam);
+        switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

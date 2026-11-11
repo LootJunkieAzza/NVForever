@@ -354,6 +354,9 @@ pub struct DataState {
     discovered: BTreeSet<u32>,
     /// Markers found since `crate::compass` last took them (for "You have discovered").
     newly_found: Vec<u32>,
+    /// Markers found since this run started, not saved (the Color Recently Added Map
+    /// Markers tweak) [design: docs/design/tweaks.md].
+    found_this_run: BTreeSet<u32>,
     /// Where the player was last outdoors: worldspace, feet, heading.
     outdoors: Option<(u32, [f32; 3], f32)>,
     // The plugins' records, read when first wanted.
@@ -438,6 +441,8 @@ struct MapMark {
     highlighted: bool,
     /// The marker's middle in the map's window.
     at: Vec2,
+    /// Drawn in red: found in this run, under the player's tweak.
+    recent: bool,
 }
 
 impl MapMark {
@@ -706,6 +711,7 @@ fn track(st: &mut DataState, game: &Game) {
             if st.discovered.insert(f) {
                 info!("pipboy data: map marker {} found", FormId(f));
                 st.newly_found.push(f);
+                st.found_this_run.insert(f);
             }
         }
     }
@@ -1499,13 +1505,15 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let show_distance = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_marker_distance);
     let mut total = 0;
     let mut drawn_other = 0;
+    let red_recent = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.recent_markers_red);
     let all = markers(st, game).cloned().unwrap_or_default();
     for mk in &all {
         let Some(projection) = map_for(st, game, mk.world).filter(|p| p.root == m.root) else { continue };
         total += 1;
         let Some(found) = known(st, game, mk) else { continue };
         drawn_other += usize::from(mk.world != world);
-        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(projection.uv(mk.pos[0], mk.pos[1])) });
+        let recent = red_recent && st.found_this_run.contains(&mk.form);
+        marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(projection.uv(mk.pos[0], mk.pos[1])), recent });
         names.push(mk.name.clone());
         forms.push(mk.form);
         // The player's tweak leaves the reputation line out [design: docs/design/tweaks.md].
@@ -1667,7 +1675,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at });
+            marks.push(MapMark { icon: None, highlighted: false, at, recent: false });
             names.push(d.name.clone());
         }
     }
@@ -1677,7 +1685,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
             if inside(at) {
-                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at });
+                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, recent: false });
                 names.push(mk.name.clone());
             }
         }
@@ -2293,7 +2301,9 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         // 7, the highlighted marker 11 [documented: map_menu.xml].
         let marker = |p: &mut ChildSpawnerCommands, c: &mut Ctx, mk: &MapMark| {
             let (size, brightness) = if mk.highlighted { (MARKER * MARKER_GROW, MARKER_BRIGHTNESS.1) } else { (MARKER, MARKER_BRIGHTNESS.0) };
-            c.image(p, &mk.picture(), at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size), amber(brightness));
+            // The player's tweak draws a marker found in this run red [design: docs/design/tweaks.md].
+            let colour = if mk.recent { Color::srgb(1.0, 0.25, 0.2).with_alpha(amber(brightness).alpha()) } else { amber(brightness) };
+            c.image(p, &mk.picture(), at(mk.at.x - size / 2.0, mk.at.y - size / 2.0, size, size), colour);
         };
         for mk in m.marks.iter().filter(|mk| !mk.highlighted) {
             marker(p, c, mk);
