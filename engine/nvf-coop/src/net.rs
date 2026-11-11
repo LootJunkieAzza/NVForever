@@ -67,7 +67,9 @@ use std::time::{Duration, Instant};
 
 pub const MAGIC: [u8; 4] = *b"NVCO";
 /// The replication test build (docs/design/coop-replication.md) speaks its own protocol:
-/// 100 above the normal co-op build's, so the two never join each other.
+/// 100 above the normal co-op build's, so the two never join each other. 130 (0.7.1, one bump
+/// for both): `Effect::Sync` (effect code 8, the syncing screen) and the change log's
+/// `repl::Value::Pose` (comp 9, a dead actor's resting ragdoll pose), which 129 cannot read.
 pub const VERSION: u8 = 130;
 pub const MAX_GUESTS: usize = 3;
 pub const SEND_HZ: u32 = 20;

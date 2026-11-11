@@ -35,7 +35,8 @@ pub mod comp {
     pub const EXISTS: u8 = 6;
     pub const ANIM: u8 = 7;
     pub const ITEM: u8 = 8;
-    pub const COUNT: usize = 9;
+    pub const POSE: u8 = 9;
+    pub const COUNT: usize = 10;
 }
 
 /// A component's value.
@@ -65,7 +66,44 @@ pub enum Value {
     /// An item a player dropped, lying in the host's world (queue item 135): its base,
     /// how many, and where it was made. Every player sees it and any one can take it.
     Item { base: u32, count: i32, cell: u32, pos: [f32; 3], rot: [f32; 3] },
+    /// A dead actor's body as it lies at rest in the host's world: per ragdoll body (in
+    /// the ragdoll's body order), its bone's place and turn (None: a body without a
+    /// pose). A guest lays its copy down in it, at rest, instead of dropping it from a
+    /// death pose of its own (playtest 119 items 145 and 161: bodies knelt upright, or
+    /// fell from the sky one by one, on a guest that came by after the deaths).
+    Pose { bones: Vec<Option<PoseBone>> },
 }
+
+/// One ragdoll body of a [`Value::Pose`]: its bone's place (game units, game space) and
+/// turn (a unit quaternion x, y, z, w, each times [`PoseBone::Q`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PoseBone {
+    pub at: [f32; 3],
+    pub turn: [i16; 4],
+}
+
+impl PoseBone {
+    pub const Q: f32 = 32767.0;
+
+    /// From a unit quaternion (x, y, z, w).
+    pub fn new(at: [f32; 3], q: [f32; 4]) -> PoseBone {
+        PoseBone { at, turn: q.map(|v| (v.clamp(-1.0, 1.0) * Self::Q).round() as i16) }
+    }
+
+    /// The turn as a unit quaternion (x, y, z, w).
+    pub fn quat(&self) -> [f32; 4] {
+        let q = self.turn.map(|v| f32::from(v) / Self::Q);
+        let n = q.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if n > 1e-6 {
+            q.map(|v| v / n)
+        } else {
+            [0.0, 0.0, 0.0, 1.0]
+        }
+    }
+}
+
+/// The most ragdoll bodies a [`Value::Pose`] carries.
+pub const MAX_POSE_BONES: usize = 64;
 
 impl Value {
     pub fn comp(&self) -> u8 {
@@ -79,6 +117,7 @@ impl Value {
             Value::Exists { .. } => comp::EXISTS,
             Value::Anim { .. } => comp::ANIM,
             Value::Item { .. } => comp::ITEM,
+            Value::Pose { .. } => comp::POSE,
         }
     }
 
@@ -129,6 +168,24 @@ impl Value {
                     b.extend_from_slice(&v.to_le_bytes());
                 }
             }
+            Value::Pose { bones } => {
+                let n = bones.len().min(MAX_POSE_BONES);
+                b.push(n as u8);
+                for bone in &bones[..n] {
+                    match bone {
+                        None => b.push(0),
+                        Some(p) => {
+                            b.push(1);
+                            for v in p.at {
+                                b.extend_from_slice(&v.to_le_bytes());
+                            }
+                            for v in p.turn {
+                                b.extend_from_slice(&v.to_le_bytes());
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -175,6 +232,25 @@ impl Value {
                 let cell = r.u32()?;
                 let pos = [r.f32()?, r.f32()?, r.f32()?];
                 Value::Item { base, count, cell, pos, rot: [r.f32()?, r.f32()?, r.f32()?] }
+            }
+            comp::POSE => {
+                let n = r.u8()? as usize;
+                if n > MAX_POSE_BONES {
+                    return None;
+                }
+                let mut bones = Vec::with_capacity(n);
+                for _ in 0..n {
+                    bones.push(match r.u8()? {
+                        0 => None,
+                        1 => {
+                            let at = [r.f32()?, r.f32()?, r.f32()?];
+                            let turn = [r.u16()? as i16, r.u16()? as i16, r.u16()? as i16, r.u16()? as i16];
+                            Some(PoseBone { at, turn })
+                        }
+                        _ => return None,
+                    });
+                }
+                Value::Pose { bones }
             }
             _ => return None,
         })
@@ -724,7 +800,17 @@ mod tests {
             Change { reference: 0xFF00_0001, value: Value::Exists { base: 0x22, cell: 0x33, pos: [1.0; 3], rot: [0.5; 3] } },
             Change { reference: 0xA, value: Value::Anim { furniture: 0x44, weapon: 0x55, hostile: true, space: 0x0010_4C00 } },
             Change { reference: 0xFF00_0002, value: Value::Item { base: 0x15169, count: 3, cell: 0x33, pos: [1.0, 2.0, 3.0], rot: [0.0, 0.0, 1.5] } },
+            Change { reference: 0xFF00_0003, value: Value::Pose { bones: vec![Some(PoseBone::new([10.0, -20.5, 300.0], [0.0, 0.0, 0.70710677, 0.70710677])), None, Some(PoseBone { at: [1.0, 2.0, 3.0], turn: [-32767, 0, 0, 1] })] } },
         ]
+    }
+
+    #[test]
+    fn a_pose_bone_keeps_its_turn() {
+        let q = [0.1f32, -0.2, 0.3, 0.9];
+        let n = q.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let unit = q.map(|v| v / n);
+        let back = PoseBone::new([0.0; 3], unit).quat();
+        assert!(back.iter().zip(&unit).all(|(a, b)| (a - b).abs() < 1e-4), "{back:?}");
     }
 
     #[test]

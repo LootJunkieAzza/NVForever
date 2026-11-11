@@ -36,7 +36,7 @@
 //! Solo: every system returns at once without a lobby (R1).
 
 use super::*;
-use nvf_coop::repl::{self, comp, ActorPose, Change, Digest, Effect, Loose, Shadow, Value};
+use nvf_coop::repl::{self, comp, ActorPose, Change, Digest, Effect, Loose, PoseBone, Shadow, Value};
 use std::collections::BTreeSet;
 use std::time::Instant;
 use bevy::text::FontSize;
@@ -131,6 +131,10 @@ pub(super) struct Repl {
     /// (`coop::STREAM_WINS`; item 181: Old World Blues' drive-in refs, enabled by the
     /// stream at join, were disabled again by an older list for 6 s).
     pub enabled_heard: HashMap<u32, f32>,
+    /// The host's: the bodies at rest here, as [`Value::Pose`] by reference
+    /// ([`corpses_out`]); a guest's: those the host sent, to lay down here ([`corpses_in`]).
+    host_rest: HashMap<u32, Value>,
+    poses_in: Vec<(u32, Vec<Option<PoseBone>>)>,
     /// A guest's: references the host enabled or disabled that this game changed too, for
     /// their visuals and collision to follow ([`nvf_play::RefChanged`]).
     refreshed: Vec<u32>,
@@ -709,6 +713,10 @@ fn host_side(coop: &mut Coop, sim: &mut nvf_play::sim::SimState, mut script: Opt
                 let level = aw.map_or(fnv_sim::zones::LevelAt::plain(0), |w| w.level(n.reference));
                 vals.push(Value::Look { base: n.base, level: level.level, all_levels: level.all_levels, rolls: rolls.get(&n.reference).copied().unwrap_or(0).min(127) as u8, worn });
             }
+            // Its body as it lies at rest here ([`corpses_out`]).
+            if let Some(p) = r.host_rest.get(&n.reference) {
+                vals.push(p.clone());
+            }
             for v in vals {
                 if shadow.take(n.reference, &v) {
                     changes.push(Change { reference: n.reference, value: v });
@@ -795,6 +803,9 @@ fn guest_side(commands: &mut Commands, coop: &mut Coop, sim: &mut nvf_play::sim:
                             } else if coop.host_disabled.insert(c.reference) && coop.npcs.remove(&c.reference).is_some() {
                                 info!("replication: the host disabled {:#010X}: not followed here any more", c.reference);
                             }
+                        }
+                        if let Value::Pose { bones } = &c.value {
+                            r.poses_in.push((c.reference, bones.clone()));
                         }
                         if apply(sim, &mut r.slow, &c, residents.as_deref_mut(), commands) {
                             if matches!(c.value, Value::Enabled { .. }) && !sim.is_actor(c.reference) {
@@ -1060,6 +1071,8 @@ fn apply(sim: &mut nvf_play::sim::SimState, slow: &mut HashMap<u32, Slow>, c: &C
             s.hostile = *hostile;
             changed
         }
+        // Laid down by [`corpses_in`].
+        Value::Pose { .. } => false,
         Value::Look { base, level, all_levels, rolls, worn } => {
             let s = slow.entry(c.reference).or_default();
             (s.base, s.level, s.all_levels, s.rolls) = (*base, *level, *all_levels, *rolls);
@@ -1307,6 +1320,87 @@ pub(super) fn dismember_in(mut coop: ResMut<Coop>, mut script: Option<ResMut<nvf
     }
 }
 
+/// The host's: each body at rest here (`crate::ragdoll::Ragdolls::rest`, not one still
+/// falling) as a [`Value::Pose`], for the guests ([`corpses_in`]). Sent with the actors the
+/// host draws or simulates (`host_side`), so a guest that comes by later gets it too.
+pub(super) fn corpses_out(mut coop: ResMut<Coop>, ragdolls: Res<crate::ragdoll::Ragdolls>, time: Res<Time>, mut last: Local<f32>) {
+    let coop = &mut *coop;
+    if !coop.link.as_ref().is_some_and(|l| l.is_host()) || coop.peers.is_empty() {
+        coop.repl.host_rest.clear();
+        return;
+    }
+    // As often as the change log goes out (`TICK`).
+    let now = time.elapsed_secs();
+    if now - *last < TICK {
+        return;
+    }
+    *last = now;
+    let r = &mut coop.repl;
+    r.host_rest.retain(|id, _| ragdolls.rest.contains_key(id) && !ragdolls.falling.contains(id));
+    for (&id, rest) in ragdolls.rest.iter().filter(|(id, _)| !ragdolls.falling.contains(id) && **id != FormId::PLAYER_REF.0) {
+        let pose = Value::Pose { bones: rest.iter().map(|b| b.as_ref().map(pose_bone)).collect() };
+        if r.host_rest.get(&id) != Some(&pose) {
+            r.host_rest.insert(id, pose);
+        }
+    }
+}
+
+/// A guest's: the host's bodies at rest, laid down here in the host's pose and at rest
+/// (`crate::ragdoll::start` puts a body back asleep in its stored pose). A body that died
+/// in sight here keeps its own fall; one drawn dead (the guest came by afterwards, or
+/// drew it again) is put in the host's pose at once [playtest 119 items 145 and 161].
+pub(super) fn corpses_in(
+    mut coop: ResMut<Coop>,
+    mut ragdolls: ResMut<crate::ragdoll::Ragdolls>,
+    phys: Option<ResMut<nvf_play::phys::PhysState>>,
+    mut corpses: Query<(&crate::limbs::ActorRig, &mut crate::ragdoll::Corpse)>,
+) {
+    if coop.repl.poses_in.is_empty() {
+        return;
+    }
+    let mut phys = phys;
+    for (id, bones) in std::mem::take(&mut coop.repl.poses_in) {
+        let pose: Vec<Option<fnv_collide::Iso>> = bones.iter().map(|b| b.as_ref().map(iso_of_bone)).collect();
+        let drawn = corpses.iter_mut().find(|(rig, _)| rig.reference == id);
+        if let Some((_, mut c)) = drawn {
+            if c.fell_here {
+                continue;
+            }
+            if c.body_bones().len() != pose.len() {
+                warn!("replication: the host's body {id:#010X} has {} ragdoll bodies, {} here: its pose is not used", pose.len(), c.body_bones().len());
+                continue;
+            }
+            if c.live {
+                if let Some(p) = phys.as_deref_mut() {
+                    p.world.remove_ragdoll(id);
+                }
+                c.live = false;
+            }
+        }
+        if ragdolls.rest.get(&id) == Some(&pose) {
+            continue;
+        }
+        let at = pose.iter().flatten().next().map(|i| i.translation).unwrap_or_default();
+        info!("replication: the host's body {id:#010X} lies at rest at ({:.0}, {:.0}, {:.0}): laid down here in its pose", at[0], at[1], at[2]);
+        ragdolls.rest.insert(id, pose);
+        ragdolls.falling.remove(&id);
+    }
+}
+
+fn pose_bone(i: &fnv_collide::Iso) -> PoseBone {
+    let r = &i.rotation;
+    let m = Mat3::from_cols(Vec3::new(r[0], r[3], r[6]), Vec3::new(r[1], r[4], r[7]), Vec3::new(r[2], r[5], r[8]));
+    let q = Quat::from_mat3(&m).normalize();
+    PoseBone::new(i.translation, [q.x, q.y, q.z, q.w])
+}
+
+fn iso_of_bone(b: &PoseBone) -> fnv_collide::Iso {
+    let [x, y, z, w] = b.quat();
+    let m = Mat3::from_quat(Quat::from_xyzw(x, y, z, w));
+    let (c0, c1, c2) = (m.x_axis, m.y_axis, m.z_axis);
+    fnv_collide::Iso { translation: b.at, rotation: [c0.x, c1.x, c2.x, c0.y, c1.y, c2.y, c0.z, c1.z, c2.z] }
+}
+
 pub(super) fn hud(mut commands: Commands, mut coop: ResMut<Coop>, mut shown: Query<&mut Text, With<ReplHud>>) {
     let Some(line) = coop.repl_hud.take() else { return };
     let text = line.replace("; ", "\n");
@@ -1366,6 +1460,16 @@ mod tests {
         assert!(!same_summon(&at(0x1555FD, 0, 0.0), &at(0x1555FD, 0, 300.0)), "farther than a step");
         assert!(!same_summon(&at(0x1555FD, 0, 0.0), &at(0, 0xDA726, 0.0)), "another place");
         assert!(!same_summon(&at(0x1555FD, 0, 0.0), &Effect::Rules { friendly_fire: true }));
+    }
+
+    #[test]
+    fn a_resting_bone_reaches_a_guest_as_the_host_has_it() {
+        // 90 degrees about z, then 30 about x (as `ragdoll`'s test), at a point.
+        let (s, c) = 30f32.to_radians().sin_cos();
+        let i = fnv_collide::Iso { translation: [120.0, -40.0, 66.0], rotation: [0.0, -c, s, 1.0, 0.0, 0.0, 0.0, s, c] };
+        let back = iso_of_bone(&pose_bone(&i));
+        assert_eq!(back.translation, i.translation);
+        assert!(back.rotation.iter().zip(&i.rotation).all(|(a, b)| (a - b).abs() < 2e-4), "{:?}", back.rotation);
     }
 
     /// A script's move of the host takes the guests within sight of where it stood
