@@ -235,6 +235,13 @@ pub fn arms(
     let mut arms = Vec::new();
     for (k, b) in bodies.iter().enumerate() {
         let Some((root, rig)) = b else { continue };
+        // Leaning in over the table first: the arm hangs from the leaned chest.
+        let toward = if k == 0 { u } else { -u };
+        if let Err(why) = lean_in(*root, rig, Vec3::new(mid.x, 0.0, mid.z), toward, w, &parents, &mut transforms, &globals) {
+            if !std::mem::replace(&mut shown.noted, true) {
+                warn!("arm wrestle arm: side {k} does not lean in: {why}");
+            }
+        }
         match bones(*root, rig, &parents, &transforms, &globals) {
             Ok(a) => arms.push((k, a)),
             Err(why) => {
@@ -259,6 +266,48 @@ pub fn arms(
         }
         a.apply(e, h, w, &mut transforms);
     }
+}
+
+/// The bone the upper body bends at, and the one above it if the skeleton lacks it
+/// [observed: the human skeleton's node names].
+const SPINE: [&str; 2] = ["Bip01 Spine", "Bip01 Spine1"];
+/// The upper body's lean in at most, radians [design: about 50 degrees].
+const MAX_BEND: f32 = 0.87;
+/// How near the clasp (level) the shoulder is to come, in arm lengths [design: the
+/// elbow then goes down onto the table with the forearm up].
+const SHOULDER_IN: f32 = 0.45;
+
+/// Bend the upper body forward (towards `toward`, level) so the right shoulder comes in
+/// towards the clasp at `clasp` (level: its y is ignored), by `w`.
+#[allow(clippy::too_many_arguments)]
+fn lean_in(root: Entity, rig: &ActorRig, clasp: Vec3, toward: Vec3, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<(), &'static str> {
+    let node = |name: &str| rig.skel.names.iter().position(|n| n.as_deref() == Some(name)).and_then(|i| rig.nodes.get(i).copied());
+    let spine = SPINE.iter().find_map(|n| node(n)).ok_or("no spine")?;
+    let (Some(upper), Some(fore), Some(hand)) = (node(UPPER), node(FORE), node(HAND)) else { return Err("no right arm") };
+    let above = parents.get(spine).map_err(|_| "the spine hangs from nothing")?.parent();
+    let gp = world_of(above, root, parents, transforms, globals).ok_or("the spine is not under the body")?;
+    let gs = world_of(spine, root, parents, transforms, globals).ok_or("the spine is not under the body")?;
+    let sh = world_of(upper, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
+    let el = world_of(fore, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
+    let wr = world_of(hand, root, parents, transforms, globals).ok_or("the arm is not under the body")?.translation();
+    let reach = sh.distance(el) + el.distance(wr);
+    let pivot = gs.translation();
+    let height = (sh.y - pivot.y).max(1.0);
+    let flat = |v: Vec3| Vec2::new(v.x, v.z);
+    let gap = flat(clasp).distance(flat(sh)) - SHOULDER_IN * reach;
+    if gap <= 0.0 {
+        return Ok(());
+    }
+    let bend = (gap / height).clamp(0.0, 1.0).asin().min(MAX_BEND) * w;
+    // Forward is towards the table: turning about the level axis across it.
+    let axis = Vec3::Y.cross(toward).normalize_or(Vec3::X);
+    // About Y × toward a positive turn takes up towards `toward`.
+    let q = Quat::from_axis_angle(axis, bend);
+    let rp = rot(&gp);
+    if let Ok(mut t) = transforms.get_mut(spine) {
+        t.rotation = (rp.inverse() * q * rp * t.rotation).normalize();
+    }
+    Ok(())
 }
 
 /// An arm's bones as animated: the shoulder, elbow and wrist (world), the frame above
