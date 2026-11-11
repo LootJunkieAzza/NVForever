@@ -246,7 +246,7 @@ fn edge_position(side: usize, k: usize) -> usize {
 /// 3 north-east): in the same cell (`None`) or in the neighbouring cell on that side.
 fn across(q: u8, side: usize) -> (Option<usize>, u8) {
     match side {
-        EAST if q % 2 == 0 => (None, q + 1),
+        EAST if q.is_multiple_of(2) => (None, q + 1),
         EAST => (Some(EAST), q - 1),
         WEST if q % 2 == 1 => (None, q - 1),
         WEST => (Some(WEST), q + 1),
