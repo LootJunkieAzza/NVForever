@@ -18,6 +18,16 @@
 //!   out (`nv_slotmachine-reel01.nif`: symbol, separator, symbol … [observed]). Each face
 //!   wears a copy of the drum shape's own material with the picture in place of the
 //!   cabinet's, so it is lit as the rest of the machine [design].
+//! - **The original's reel models.** The drums are laid out as `nv_slotmachine-reel0n.nif`
+//!   lays its own: 14 shapes `Cylinder06:0`..`:13`, each two opposite faces of one picture,
+//!   28 faces of equal height round the drum, symbol and separator in turn, each face the
+//!   whole picture [observed: fnvtool nif decode; radius about 7.25, 3.79 wide]. So the
+//!   casino's 14 stops are the 14 symbol faces, a separator between each two. Each face
+//!   wears a copy of the reel model's own material (its lighting shader, its normal map
+//!   `shadefade01LOD_n.dds`), the symbol face with the stop's picture from the casino
+//!   record; the separator faces keep the model's own. The drums keep the placed
+//!   machine's size (its window), not the reel model's [design]. Without the reel model
+//!   (a load order that lacks it) the faces are NVForever's own proportions.
 //! - **Without reel nodes.** `Slot_Machine02.nif` (four of the Atomic Wrangler's) is one
 //!   static shape of the same cabinet [observed: its window frame lies where 01's does]:
 //!   the drums are put where 01's reels stand, a hair larger than the drawn ones. A model
@@ -119,11 +129,59 @@ struct Drawn {
     at: [f32; 3],
 }
 
+/// What the original's reel model (`nv_slotmachine-reel0n.nif`) gives the drums: how many
+/// faces it has round the drum (symbols and separators), and the material of a symbol face
+/// and of a separator face [observed: its shapes, symbol first, then in turn].
+struct ReelModel {
+    faces: usize,
+    radius: f32,
+    width: f32,
+    symbol: Handle<NifMaterial>,
+    separator: Handle<NifMaterial>,
+}
+
+const REEL_MODEL: &str = "meshes\\terminals\\nv_slotmachine\\nv_slotmachine-reel01.nif";
+
+/// Read the original's reel model: its faces are the quads of its shapes (four vertices
+/// each), its axis the direction it is narrowest along, its radius the farthest vertex
+/// from that axis.
+fn reel_model(models: &mut ModelCtx) -> Option<ReelModel> {
+    let model = models.model_with_cpu(REEL_MODEL)?;
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let mut points = Vec::new();
+    let mut faces = 0;
+    for shape in &model.shapes {
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(p)) = shape.cpu.as_ref().and_then(|m| m.attribute(Mesh::ATTRIBUTE_POSITION)) else { continue };
+        faces += p.len() / 4;
+        for v in p {
+            let v = shape.transform.transform_point3(Vec3::from(*v));
+            lo = lo.min(v);
+            hi = hi.max(v);
+            points.push(v);
+        }
+    }
+    let size = hi - lo;
+    let axis = if size.x <= size.y && size.x <= size.z { 0 } else if size.y <= size.z { 1 } else { 2 };
+    let mid = (lo + hi) / 2.0;
+    let radius = points
+        .iter()
+        .map(|v| {
+            let mut d = *v - mid;
+            d[axis] = 0.0;
+            d.length()
+        })
+        .fold(0.0f32, f32::max);
+    let (a, b) = (model.shapes.first()?, model.shapes.get(1)?);
+    (faces >= 4 && radius > 0.5).then(|| ReelModel { faces, radius, width: size[axis], symbol: a.material.clone(), separator: b.material.clone() })
+}
+
 /// Not drawable, warned once.
 #[derive(Default)]
 struct Views {
     drawn: HashMap<FormId, Drawn>,
     failed: HashMap<FormId, ()>,
+    /// The original's reel model, read on first use (`None` inside: not there).
+    reel: Option<Option<ReelModel>>,
 }
 
 /// Machines given drums this run, for the summary.
@@ -307,35 +365,60 @@ fn fit_of(
 }
 
 /// Build a machine's drums and payline marks under `fit.parent`.
-fn build(commands: &mut Commands, fit: &Fit, spin: &MachineSpin, models: &mut ModelCtx, base_material: Option<Handle<NifMaterial>>) -> (Entity, [Entity; REELS]) {
+fn build(commands: &mut Commands, fit: &Fit, spin: &MachineSpin, models: &mut ModelCtx, base_material: Option<Handle<NifMaterial>>, reel: Option<&ReelModel>) -> (Entity, [Entity; REELS]) {
     let holder = commands.spawn((Name::new("Slot machine drums"), Transform::IDENTITY, Visibility::Inherited, ChildOf(fit.parent))).id();
     let n = spin.reel.len().max(1);
     let step = std::f32::consts::TAU / n as f32;
-    let symbol_h = fit.width * 128.0 / ((SYMBOL_U.1 - SYMBOL_U.0) * 256.0);
-    // The symbol's face as tall as its picture is for the drum's width; the separator
-    // takes the rest of the stop [design].
-    let symbol_a = (symbol_h / fit.radius).min(step * 0.8);
-    let sep_a = step - symbol_a;
-    let sep_u = {
-        let h = sep_a * fit.radius;
-        let shown = (fit.width / h) * ((SEPARATOR_V.1 - SEPARATOR_V.0) * 128.0) / 256.0;
-        let m = ((1.0 - shown) / 2.0).clamp(0.0, 0.45);
-        (m, 1.0 - m)
+    // The reel model's layout when its faces are a symbol and a separator per stop: faces
+    // of equal height, each the whole picture [observed]. Otherwise NVForever's own: the
+    // symbol's face as tall as its picture is for the drum's width, the separator the
+    // rest of the stop [design].
+    let reel = reel.filter(|r| r.faces == 2 * n);
+    let (symbol_mesh, sep_mesh) = if reel.is_some() {
+        let face = |segments| face_mesh(fit.radius, fit.width, step / 2.0, segments, (0.0, 1.0), (0.0, 1.0));
+        (face(SYMBOL_SEGMENTS), face(SEPARATOR_SEGMENTS))
+    } else {
+        let symbol_h = fit.width * 128.0 / ((SYMBOL_U.1 - SYMBOL_U.0) * 256.0);
+        let symbol_a = (symbol_h / fit.radius).min(step * 0.8);
+        let sep_a = step - symbol_a;
+        let sep_u = {
+            let h = sep_a * fit.radius;
+            let shown = (fit.width / h) * ((SEPARATOR_V.1 - SEPARATOR_V.0) * 128.0) / 256.0;
+            let m = ((1.0 - shown) / 2.0).clamp(0.0, 0.45);
+            (m, 1.0 - m)
+        };
+        (face_mesh(fit.radius, fit.width, symbol_a, SYMBOL_SEGMENTS, SYMBOL_U, (0.0, 1.0)), face_mesh(fit.radius, fit.width, sep_a, SEPARATOR_SEGMENTS, sep_u, SEPARATOR_V))
     };
-    let symbol_mesh = models.meshes.add(face_mesh(fit.radius, fit.width, symbol_a, SYMBOL_SEGMENTS, SYMBOL_U, (0.0, 1.0)));
-    let sep_mesh = models.meshes.add(face_mesh(fit.radius, fit.width, sep_a, SEPARATOR_SEGMENTS, sep_u, SEPARATOR_V));
-    let template = base_material.and_then(|h| models.materials.get(&h).cloned());
+    // The reel model's material keeps its normal map, which wants tangents.
+    let tangents = reel.is_some();
+    let add = |models: &mut ModelCtx, m: Mesh| -> (Handle<Mesh>, bool) {
+        if tangents {
+            if let Ok(t) = m.clone().with_generated_tangents() {
+                return (models.meshes.add(t), true);
+            }
+        }
+        (models.meshes.add(m), false)
+    };
+    let (symbol_mesh, symbol_tangents) = add(models, symbol_mesh);
+    let (sep_mesh, sep_tangents) = add(models, sep_mesh);
+    let template = reel.map(|r| r.symbol.clone()).or(base_material).and_then(|h| models.materials.get(&h).cloned());
+    let keep_maps = reel.is_some() && symbol_tangents;
     let mut material_of = |path: &str| -> Handle<NifMaterial> {
         let tex = models.textures.get(path, true, &models.data, &mut models.images, models.formats.as_deref());
         let mut mat = template.clone().unwrap_or_else(|| nvf_assets::nif_material::nif_material(StandardMaterial::default()));
         mat.base.base_color_texture = tex;
-        mat.base.normal_map_texture = None;
-        mat.base.specular_texture = None;
+        if !keep_maps {
+            mat.base.normal_map_texture = None;
+            mat.base.specular_texture = None;
+        }
         mat.base.emissive_texture = None;
         models.materials.add(mat)
     };
     let pictures: Vec<Handle<NifMaterial>> = (0..spin.symbols.len()).map(|i| material_of(&format!("textures\\{}", spin.symbols[i]))).collect();
-    let separator = material_of(SEPARATOR);
+    let separator = match reel {
+        Some(r) if sep_tangents => r.separator.clone(),
+        _ => material_of(SEPARATOR),
+    };
     let drums = std::array::from_fn(|i| {
         let drum = commands.spawn((Name::new(format!("Slot reel {}", i + 1)), Transform::from_translation(fit.centres[i]), Visibility::Inherited, ChildOf(holder))).id();
         for (k, &sym) in spin.reel.iter().enumerate() {
@@ -410,7 +493,15 @@ fn drums(
                         let r = rig.nodes.iter().position(|n| n.name.as_deref().is_some_and(|x| x.eq_ignore_ascii_case("Reel01")))?;
                         rig.shapes.iter().find(|s| s.node == r || rig.nodes[s.node].parent == Some(r)).map(|s| s.material.clone())
                     });
-                    let (holder, drums) = build(&mut commands, &fit, spin, &mut models, material);
+                    if views.reel.is_none() {
+                        views.reel = Some(reel_model(&mut models));
+                        match views.reel.as_ref().and_then(Option::as_ref) {
+                            Some(r) => info!("slots view: the reel model has {} faces (radius {:.2}, width {:.2})", r.faces, r.radius, r.width),
+                            None => info!("slots view: no reel model ({REEL_MODEL}); the drums are NVForever's own"),
+                        }
+                    }
+                    let reel = views.reel.as_ref().and_then(Option::as_ref);
+                    let (holder, drums) = build(&mut commands, &fit, spin, &mut models, material, reel);
                     let mut hidden = Vec::new();
                     for e in &fit.hide {
                         if let Ok(mut v) = visibility.get_mut(*e) {
@@ -419,7 +510,16 @@ fn drums(
                         }
                     }
                     let at = sim.world.peek(m).map(|r| r.pos).or_else(|| sim.refs.get(m).map(|r| r.pos)).unwrap_or_default();
-                    info!("slots view: drums on {:08X} ({}; radius {:.2}, width {:.2}; {} stops; arm {})", m.0, fit.how, fit.radius, fit.width, spin.reel.len(), if fit.arm.is_some() { "found" } else { "none" });
+                    info!(
+                        "slots view: drums on {:08X} ({}; radius {:.2}, width {:.2}; {} stops; arm {}; faces {})",
+                        m.0,
+                        fit.how,
+                        fit.radius,
+                        fit.width,
+                        spin.reel.len(),
+                        if fit.arm.is_some() { "found" } else { "none" },
+                        if reel.is_some_and(|r| r.faces == 2 * spin.reel.len()) { "as the reel model" } else { "NVForever's own" }
+                    );
                     BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let holder = if fit.how.starts_with("the cabinet") { fit.parent } else { holder };
                     views.drawn.insert(m, Drawn { holder, drums, hidden, arm: fit.arm, spin: spin.spin, paid: spin.paid.is_some(), pulled_at: None, at });

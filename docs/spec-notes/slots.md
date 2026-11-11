@@ -155,12 +155,21 @@ observed: the five casinos]:
     decode]. The window frame in front of them faces (0, -0.97, 0.25), 15° above the
     machine's front (-Y) [observed: the frame's vertices and normals]; the handle is the
     node `Handle` at x 17, turning about X [observed].
+  - The original's reel model `terminals\nv_slotmachine\nv_slotmachine-reel01.nif` (02, 03
+    alike) is a drum about the axis of its node `Cylinder06`, radius about 7.25, 3.79 wide:
+    its 14 shapes `Cylinder06:0`…`:13` each hold two opposite faces of one picture, so
+    28 faces of equal height (360°/28) lie round it, symbol and separator in turn, each
+    face the whole picture (u 0 to 1 across, v one whole turn of the picture per face).
+    The shapes' material is a lighting shader with the picture and the normal map
+    `textures\shared\shadefade01LOD_n.dds` [observed: fnvtool nif decode].
   - NVForever hides the drum shapes while the machine is in use and turns a drum of its own
-    in each one's place, of the shape's own size: the casino's 14 stops, each the symbol's
-    picture (CSNO ICON, 256 × 128), with the separator picture `NV_SlotMachine-SymbolS.dds`
-    between them, as `nv_slotmachine-reel01.nif` alternates symbol and separator faces
-    [observed]; each face wears a copy of the drum shape's material with the picture in
-    place of the cabinet's [design]. The payline is the stop facing the window (15° above
+    in each one's place, of the shape's own size (the machine's window), laid out as the
+    reel model: the casino's 14 stops are the 14 symbol faces, each the symbol's picture
+    (CSNO ICON, 256 × 128), a separator face between each two; each face wears a copy of
+    the reel model's material, the symbol faces with the stop's picture [design: the
+    model's own pictures are the vanilla stops in order, 1…7 twice; the record decides
+    them]. Without the reel model, NVForever's own proportions and a copy of the drum
+    shape's material without its maps. The payline is the stop facing the window (15° above
     -Y), marked by a thin red line and red arrows [design: owner's spec].
   - `Slot_Machine02.nif` (vWranglerSlot02) is one static shape of the same cabinet, its
     window frame where 01's is [observed]: the drums stand at 01's reel places. A machine
