@@ -540,9 +540,9 @@ nails) and never smoked, a Goodsprings settler (neither) none.
   takes over: furniture, a package with an idle collection or flagged No Idle Anims, an
   idle marker with a collection. One still waiting for its clip is dropped then, so the
   collection's idle starts at once.
-- **First look** [engineering choice]: within one 2 s period of the actor standing
-  still, spread by its ID, so actors that stop together do not walk the tree in the
-  same frame (all fidget kinds).
+- **First look** [engineering choice]: in the second half of the 2 s period after the
+  actor stands still, spread by its ID, so a town's NPCs that stop together do not all
+  walk the tree in one frame. The other fidget kinds keep one full period, as before.
 - Checks: unit tests (`crates/fnv-game/tests/idles_holstered.rs`, written fixtures;
   the engine's `idles::tests`), `fnvtool actor fidgets --weapon-away` (headless), smoke
   tests `holstered-fidgets-tree`, `holstered-fidgets` and `holstered-fidgets-playback`

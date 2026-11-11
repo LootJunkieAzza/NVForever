@@ -729,11 +729,9 @@ pub fn drive(
     let away_off: HashSet<u32> = actors
         .iter()
         .filter(|(_, v, _, _, lo, hold)| {
-            let a = FormId(v.0);
             let moving = lo.is_some_and(|l| l.velocity != [0.0; 2]);
-            let talking = talk_parts.iter().any(|p| p.actor == a);
-            let taken = game.fidget_held_off(a) || standing.get(&v.0).copied().flatten().is_some_and(|m| marker_has_idles(game, m));
-            away_fidget_ends(moving, holstered(game, v.0, *hold), game.draws_weapon(a), game.is_dead(a), talking, taken)
+            let talking = talk_parts.iter().any(|p| p.actor.0 == v.0);
+            holstered_off(game, v.0, moving, talking, standing.get(&v.0).copied().flatten(), *hold)
         })
         .map(|(_, v, ..)| v.0)
         .collect();
@@ -1006,10 +1004,9 @@ pub fn drive(
     let still_set: HashSet<u32> = still.iter().map(|(s, ..)| *s).collect();
     st.fidget_check.retain(|a, _| still_set.contains(a));
     for (actor, folder, kind) in still {
-        // The first look comes within one period, spread by the actor's ID, so actors
-        // that stop together do not all walk the tree in the same frame [engineering
-        // choice].
-        let check = st.fidget_check.entry(actor).or_insert_with(|| first_check(actor));
+        // The first look: one period after the actor stood still; for the weapon-away
+        // fidgets spread over the second half of it by the actor's ID (`first_check`).
+        let check = st.fidget_check.entry(actor).or_insert_with(|| first_check(actor, kind));
         *check -= dt;
         if *check > 0.0 || busy.get(&actor).copied().unwrap_or(false) {
             continue;
@@ -1441,11 +1438,29 @@ fn marker_has_idles(game: &Game, marker: FormId) -> bool {
     }
 }
 
-/// Seconds to an actor's first look for a fidget: within one [`FIDGET_CHECK_SECONDS`],
-/// from its ID (the same each run).
-fn first_check(actor: u32) -> f32 {
+/// Seconds to an actor's first look for a fidget of `kind` once it stands still: one
+/// [`FIDGET_CHECK_SECONDS`], as before #2026, for every kind but the weapon-away
+/// fidgets. Those, asked of every NPC standing holstered (a town's people stop
+/// together when the player arrives), come within the second half of the period, spread
+/// by the actor's ID (the same each run), so they do not all walk the tree in one frame
+/// and a brief stop does not get a look much sooner than a full period [engineering
+/// choice, #2026].
+fn first_check(actor: u32, kind: FidgetKind) -> f32 {
+    if kind != FidgetKind::WeaponAway {
+        return FIDGET_CHECK_SECONDS;
+    }
     let spread = (actor.wrapping_mul(0x9E37_79B1) >> 22) as f32 / 1024.0;
-    FIDGET_CHECK_SECONDS * (0.05 + 0.95 * spread)
+    FIDGET_CHECK_SECONDS * (0.5 + 0.5 * spread)
+}
+
+/// Whether the fidget with the weapon away of `actor` (playing, or waiting for its clip)
+/// ends now, as `drive` judges it each frame (`away_fidget_ends`): `moving` and
+/// `talking` as the animating layer sees them, `marker` the idle marker it stands at,
+/// `hold` its weapon hand.
+fn holstered_off(game: &Game, actor: u32, moving: bool, talking: bool, marker: Option<FormId>, hold: Option<&WeaponHold>) -> bool {
+    let a = FormId(actor);
+    let taken = game.fidget_held_off(a) || marker.is_some_and(|m| marker_has_idles(game, m));
+    away_fidget_ends(moving, holstered(game, actor, hold), game.draws_weapon(a), game.is_dead(a), talking, taken)
 }
 
 /// `NVF_PLAY_TEST_HOLSTERED_ROLL` ([`Idles`]), logged when set.
@@ -1593,11 +1608,136 @@ mod tests {
 
     #[test]
     fn the_first_fidget_looks_are_spread_over_one_period() {
-        let firsts: Vec<f32> = (0..64u32).map(|i| first_check(0xFF00_0000 + i)).collect();
-        assert!(firsts.iter().all(|t| *t > 0.0 && *t <= FIDGET_CHECK_SECONDS));
+        let away = FidgetKind::WeaponAway;
+        let firsts: Vec<f32> = (0..64u32).map(|i| first_check(0xFF00_0000 + i, away)).collect();
+        assert!(firsts.iter().all(|t| *t >= FIDGET_CHECK_SECONDS / 2.0 && *t <= FIDGET_CHECK_SECONDS));
         let (lo, hi) = firsts.iter().fold((f32::MAX, 0.0f32), |(lo, hi), t| (lo.min(*t), hi.max(*t)));
-        assert!(hi - lo > FIDGET_CHECK_SECONDS / 2.0, "not all in one frame: {lo}..{hi}");
-        assert_eq!(first_check(0x0012_CB7B), first_check(0x0012_CB7B), "the same each run");
+        assert!(hi - lo > FIDGET_CHECK_SECONDS / 4.0, "not all in one frame: {lo}..{hi}");
+        assert_eq!(first_check(0x0012_CB7B, away), first_check(0x0012_CB7B, away), "the same each run");
+        // The other kinds keep one full period, as before #2026 (the player too).
+        for kind in [FidgetKind::WeaponOut, FidgetKind::OnFurniture, FidgetKind::Alerted, FidgetKind::Calm] {
+            assert_eq!(first_check(0x14, kind), FIDGET_CHECK_SECONDS);
+            assert_eq!(first_check(0xFF00_0003, kind), FIDGET_CHECK_SECONDS);
+        }
+    }
+
+    /// `drive`'s judgement of a holstered NPC's fidget (`holstered_off`), on a game
+    /// built from a plugin written for the test, through a package and a furniture
+    /// change, with a fidget playing and one waiting for its clip: each change takes
+    /// both away (`end_holstered`, `drop_holstered_waits`), as `drive` does with them.
+    mod holstered_take_over {
+        use super::*;
+        use fnv_esm::raw::{write_subrecords, Subrecord};
+        use fnv_esm::{LoadOrder, Plugin, Schema};
+        use fnv_game::functions::Ctx;
+        use fnv_game::game::{FurnitureUse, GameConfig};
+        use fnv_game::GameData;
+        use fnv_script::vm::{ArgValue, Value};
+        use fnv_script::FunctionTable;
+        use fnv_sim::{FormStore, RefTable, SimConfig, World};
+
+        const IDLE: u32 = 0xA01;
+        const P_PLAIN: u32 = 0xB01;
+        const P_COLLECTION: u32 = 0xB02;
+        const P_QUIET: u32 = 0xB03;
+        const NPC: u32 = 0xC01;
+        const ACTOR: u32 = 0xD01;
+        const CELL: u32 = 0xE01;
+
+        fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
+            Subrecord { sig: *sig, data, extended: false }
+        }
+
+        fn record(sig: &[u8; 4], fid: u32, subs: &[Subrecord]) -> Vec<u8> {
+            let payload = write_subrecords(subs);
+            [&sig[..], &(payload.len() as u32).to_le_bytes(), &0u32.to_le_bytes(), &fid.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+        }
+
+        fn group(label: [u8; 4], gtype: i32, body: &[u8]) -> Vec<u8> {
+            [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &label, &gtype.to_le_bytes(), &[0; 8], body].concat()
+        }
+
+        /// A Travel package (PKDT type 6) with PKDT flags `flags`, and an idle collection
+        /// of one idle when `collection`.
+        fn pack(fid: u32, edid: &str, flags: u32, collection: bool) -> Vec<u8> {
+            let mut subs = vec![
+                sub(b"EDID", [edid.as_bytes(), &[0]].concat()),
+                sub(b"PKDT", [&flags.to_le_bytes()[..], &[6, 0], &[0; 6]].concat()),
+                sub(b"PLDT", [0i32.to_le_bytes(), 0u32.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+                sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+            ];
+            if collection {
+                subs.extend([sub(b"IDLF", vec![1]), sub(b"IDLC", vec![1]), sub(b"IDLT", 0f32.to_le_bytes().to_vec()), sub(b"IDLA", IDLE.to_le_bytes().to_vec())]);
+            }
+            record(b"PACK", fid, &subs)
+        }
+
+        fn plugin_bytes() -> Vec<u8> {
+            let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0x900u32.to_le_bytes()].concat();
+            let tes4 = {
+                let payload = write_subrecords(&[sub(b"HEDR", hedr)]);
+                [&b"TES4"[..], &(payload.len() as u32).to_le_bytes(), &1u32.to_le_bytes(), &[0; 4], &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+            };
+            let idle = record(
+                b"IDLE",
+                IDLE,
+                &[sub(b"EDID", b"TestCollectionIdle\0".to_vec()), sub(b"MODL", b"Characters\\_Male\\IdleAnims\\Test.kf\0".to_vec()), sub(b"ANAM", vec![0; 8]), sub(b"DATA", vec![7, 0, 0, 0, 0, 0, 0, 0])],
+            );
+            let packs = [pack(P_PLAIN, "TestPlain", 0, false), pack(P_COLLECTION, "TestCollection", 0, true), pack(P_QUIET, "TestQuiet", fnv_game::package::flags::NO_IDLE_ANIMS, false)].concat();
+            let npcs = [record(b"NPC_", 0x7, &[sub(b"EDID", b"Player\0".to_vec())]), record(b"NPC_", NPC, &[sub(b"EDID", b"TestSmoker\0".to_vec())])].concat();
+            let actor = record(b"ACHR", ACTOR, &[sub(b"NAME", NPC.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])]);
+            let cell = [record(b"CELL", CELL, &[sub(b"EDID", b"TestCell\0".to_vec())]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &actor))].concat();
+            [tes4, group(*b"NPC_", 0, &npcs), group(*b"IDLE", 0, &idle), group(*b"PACK", 0, &packs), group(*b"CELL", 0, &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell)))].concat()
+        }
+
+        fn game() -> Game<'static> {
+            let plugins: &'static [Plugin] = Box::leak(vec![Plugin::parse(&plugin_bytes(), "Holstered.esm".into()).unwrap()].into_boxed_slice());
+            let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).unwrap()));
+            let schema: &'static Schema = Box::leak(Box::new(Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap()));
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+            let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let forms: &'static FormStore = Box::leak(Box::new(FormStore::build(lo, schema)));
+            let refs: &'static RefTable = Box::leak(Box::new(RefTable::build(lo, schema)));
+            let data: &'static GameData = Box::leak(Box::new(GameData::build(lo, schema, FunctionTable::load(&path).unwrap(), &json, refs)));
+            Game::new(data, World::new(forms, refs, SimConfig::default()), GameConfig { strict: true, ..GameConfig::default() })
+        }
+
+        fn add_script_package(g: &mut Game, package: u32) {
+            let ctx = Ctx { unit: "test".into(), opcode: 0x1097, on: Some(FormId(ACTOR)), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+            g.call_function(&ctx, &[ArgValue::Value(Value::Ref(package))]);
+            assert_eq!(g.extra[&FormId(ACTOR)].current_package, Some(FormId(package)));
+        }
+
+        /// A fidget playing on the actor's slot and one of the actor's waiting for its
+        /// clip; then `drive`'s step: judge, end, drop. Returns whether they went.
+        fn step(g: &Game) -> (bool, bool) {
+            let mut slot: IdleSlot<u8> = IdleSlot::default();
+            slot.start(5, IdleSource::HolsteredFidget, None, 5, play(8.4, 0.3, Some(4)));
+            let mut waiting = vec![(IdleRequest { actor: FormId(ACTOR), idle: FormId(6), source: IdleSource::HolsteredFidget }, std::time::Instant::now())];
+            let off: HashSet<u32> = holstered_off(g, ACTOR, false, false, None, None).then_some(ACTOR).into_iter().collect();
+            drop_holstered_waits(&mut waiting, &off);
+            end_holstered(&mut slot, off.contains(&ACTOR));
+            (slot.playing().is_none(), waiting.is_empty())
+        }
+
+        #[test]
+        fn a_package_or_furniture_with_idles_of_its_own_ends_a_holstered_fidget() {
+            let mut g = game();
+            assert_eq!(step(&g), (false, false), "standing holstered, no package: both stay");
+            add_script_package(&mut g, P_PLAIN);
+            assert_eq!(step(&g), (false, false), "a package without idles of its own");
+            add_script_package(&mut g, P_COLLECTION);
+            assert_eq!(step(&g), (true, true), "a package with an idle collection takes over");
+            add_script_package(&mut g, P_QUIET);
+            assert_eq!(step(&g), (true, true), "a package flagged No Idle Anims");
+            add_script_package(&mut g, P_PLAIN);
+            assert_eq!(step(&g), (false, false));
+            g.set_furniture_use(FormId(ACTOR), Some(FurnitureUse { reference: FormId(CELL), marker_id: 1, state: 2 }));
+            assert_eq!(step(&g), (true, true), "getting on furniture");
+            g.set_furniture_use(FormId(ACTOR), None);
+            g.set_weapon_out(FormId(ACTOR), true);
+            assert_eq!(step(&g), (true, true), "the weapon drawn");
+        }
     }
 
     #[test]
