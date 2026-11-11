@@ -12798,6 +12798,8 @@ order = [[
 ]]
 expect = [
   { re = 'caravan: open against Ringo .* bid (?P<n>\d+) of', range = [0, 100000], label = "Ringo bids a quarter of his caps" },
+  { re = 'caravan: help box on the bet screen \(\d+ wide\): (-?\d+) above the bet box', range = [20, 1000], label = "the help box ends above the bet box with a gap (#1663)" },
+  { re = 'caravan: help box on the bet screen .*, (-?\d+) left of the buttons', range = [20, 1000], label = "and left of the buttons with a gap (#1663)" },
   { re = 'caravan: opponent plays .* on its caravan', label = "the opponent lays numbered cards" },
   { re = 'caravan summary: 2 asked, 1 opened \(1 refused\); 1 games: [01] won, [01] lost', label = "the summary" },
 ]
