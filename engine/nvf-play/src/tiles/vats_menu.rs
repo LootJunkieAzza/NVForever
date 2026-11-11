@@ -22,8 +22,8 @@
 //!   (the file leaves `EnemyHealth`, `HitPoints` and `ActionPoints` as empty boxes for
 //!   code; the HUD's own meters go on being drawn), and the whole screen when the file is
 //!   missing or lacks a path below ([`built`]): the reason is warned once.
-//! - **Input** stays the mode's keys (`crate::vats_mode::read_keys`); the file's arrows
-//!   and buttons are drawn and not clicked yet (the pointer is the view's in play).
+//! - **Input** stays the mode's keys (`crate::vats_mode::read_keys`); a left click on one
+//!   of the file's arrows or buttons does what it stands for ([`click`], [`hit_boxes`]).
 
 use super::menus::{SizesWritten, Tiled};
 use crate::settings::SettingsFile;
@@ -401,6 +401,11 @@ pub fn write(ui: &mut Ui, shown: &Shown) {
     if let Some(t) = ui.find_tile(ACCEPT) {
         ui.set_trait(t, "target", flag(!shown.queue.is_empty()));
     }
+    // Return's hint in this screen's own short words ([`RETURN_HINT`]); a controller's
+    // names replace it below.
+    if let Some(t) = ui.find_tile(RETURN) {
+        ui.set_trait(t, "_PCButtonText", Value::Str(RETURN_HINT.into()));
+    }
     // Dead Eye's screen is the parts' boxes alone: its marks, keys and free aim are its
     // own, so the arrows and the buttons are not drawn (on the classic screen the two
     // arrows keep the file's own rule, shown off the console).
@@ -528,12 +533,54 @@ fn release_crop(ui: &mut Ui, kept: &mut Option<CropKept>) {
     }
 }
 
+/// How far left of its hint a button's words reach, interface units [design: "Accept",
+/// "Return" and "Select" are about 110 wide in the menu's font; observed: the engine's
+/// screenshot at 1280 x 720].
+pub const BUTTON_WORDS: f64 = 120.0;
+
+/// A button of the target screen the pointer can click.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenButton {
+    Select,
+    Accept,
+    Return,
+    Special,
+}
+
+/// What a left click on the target screen does (`crate::vats_mode`'s keys): on an arrow
+/// the target before or after, on a button what the button says, anywhere else an attack
+/// queued on the selected part, as the attack control does without a pointer. Accept is
+/// no click target with nothing queued (the file's own rule, `target`), so a click on it
+/// then does nothing [the owner's review of #2102: a click on a button queued one more
+/// attack].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Click {
+    Queue,
+    Target(i32),
+    Accept,
+    Return,
+    Special,
+    Nothing,
+}
+
+pub fn click(arrow: Option<i32>, button: Option<ScreenButton>, queued: bool) -> Click {
+    match (arrow, button) {
+        (Some(step), _) => Click::Target(step),
+        (None, Some(ScreenButton::Accept)) if queued => Click::Accept,
+        (None, Some(ScreenButton::Accept)) => Click::Nothing,
+        (None, Some(ScreenButton::Return)) => Click::Return,
+        (None, Some(ScreenButton::Special)) => Click::Special,
+        (None, Some(ScreenButton::Select) | None) => Click::Queue,
+    }
+}
+
 /// The boxes the pointer can be on, interface units: each part copy's (in the copies'
-/// order) and the two arrows' with the step each stands for.
+/// order), the two arrows' with the step each stands for, and the shown buttons'.
 #[derive(Default)]
 pub struct HitBoxes {
     pub parts: Vec<Option<super::layout::Rect>>,
     pub arrows: Vec<(i32, super::layout::Rect)>,
+    pub buttons: Vec<(ScreenButton, super::layout::Rect)>,
 }
 
 fn inside(r: &super::layout::Rect, at: (f64, f64), pad: f64) -> bool {
@@ -568,7 +615,28 @@ pub fn hit_boxes(ui: &Ui, menu: TileId) -> HitBoxes {
         let tile = ui.find_tile(path)?;
         items.iter().find(|i| i.tile == tile && i.visible).map(|i| (step, i.rect))
     });
-    HitBoxes { parts, arrows: arrows.collect() }
+    // A button's box: its own and its words' and hint's, whatever of it is shown.
+    let within = |tile: TileId, of: TileId| std::iter::successors(Some(tile), |&t| ui.tile(t).parent).any(|t| t == of);
+    let buttons = [(ScreenButton::Select, SELECT), (ScreenButton::Accept, ACCEPT), (ScreenButton::Return, RETURN), (ScreenButton::Special, SPECIAL)].into_iter().filter_map(|(button, path)| {
+        let tile = ui.find_tile(path)?;
+        // (A button is a container and has no item of its own: its shown pieces are it.)
+        let mut all: Option<super::layout::Rect> = None;
+        for r in items.iter().filter(|i| i.visible && within(i.tile, tile)).map(|i| i.rect).filter(|r| r.width > 0.0 && r.height > 0.0) {
+            all = Some(match all {
+                None => r,
+                Some(a) => {
+                    let (left, top) = (a.left.min(r.left), a.top.min(r.top));
+                    let (right, bottom) = ((a.left + a.width).max(r.left + r.width), (a.top + a.height).max(r.top + r.height));
+                    super::layout::Rect { left, top, width: right - left, height: bottom - top }
+                }
+            });
+        }
+        // The words' own width is the renderer's to measure and is not in these boxes
+        // (they begin at the words' right end, where the hint stands): the box reaches
+        // [`BUTTON_WORDS`] further left, over the words.
+        all.map(|r| (button, super::layout::Rect { left: r.left - BUTTON_WORDS, width: r.width + BUTTON_WORDS, ..r }))
+    });
+    HitBoxes { parts, arrows: arrows.collect(), buttons: buttons.collect() }
 }
 
 /// How far round a part's box, and how far from a part's own point on the target, the
@@ -621,15 +689,24 @@ pub fn step_toward(places: &[(usize, (f64, f64), bool)], dir: (f64, f64)) -> Opt
         .map(|(_, i)| i)
 }
 
+/// The Select and Return buttons' hints on this screen: NVForever's own short words for
+/// the left and the right mouse button. The file gives a hint its button's own width as
+/// room (vats-menu.md §2), and the built-in `sPCMenuHintRMB`, "[Right Click]"
+/// (`fnv_ui::strings`, shared with the other menus), ran off the view after "Return"
+/// [observed: the engine's screenshot at 1280 x 720]. The original's on-screen
+/// abbreviations are not carried over (LEGAL.md; the owner's review of #2102).
+pub const SELECT_HINT: &str = "[LClick]";
+pub const RETURN_HINT: &str = "[RClick]";
+
 /// What the file shows for the pointer: the Select button with the left mouse button's
 /// hint while the pointer is on a part [observed: the owner's screenshots of the
-/// original's VATS, 2026-11-10: "Select LMB)" above Return with the pointer on a part,
-/// absent with the pointer off the target; design: NVForever's own hint word], and each
-/// arrow's `mouseover`, by which the file switches its picture.
+/// original's VATS, 2026-11-10: Select and its hint above Return with the pointer on a
+/// part, absent with the pointer off the target; design: NVForever's own hint words,
+/// [`SELECT_HINT`]], and each arrow's `mouseover`, by which the file switches its picture.
 pub fn write_pointer(ui: &mut Ui, on_part: bool, arrow: Option<i32>) {
     if let Some(t) = ui.find_tile(SELECT) {
         ui.set_trait(t, "visible", flag(on_part));
-        ui.set_trait(t, "_PCButtonText", Value::Str("[LMB]".into()));
+        ui.set_trait(t, "_PCButtonText", Value::Str(SELECT_HINT.into()));
     }
     for (step, path) in [(-1, LEFT_ARROW), (1, RIGHT_ARROW)] {
         if let Some(t) = ui.find_tile(path) {
@@ -652,6 +729,9 @@ pub struct VatsTiles {
     pub hover: Option<usize>,
     pub hover_moved: bool,
     pub arrow: Option<i32>,
+    /// The button the pointer is on ([`click`]), and the buttons last told in the log.
+    pub button: Option<ScreenButton>,
+    buttons_told: Vec<ScreenButton>,
     /// The part whose point on the target is nearest the pointer, within reach, and the
     /// pointer's line into the world (from, direction; game space), with which the mode
     /// finds the part of the body under it.
@@ -713,8 +793,9 @@ pub(crate) fn write_system(
             st.told = None;
             st.sizes.clear();
         }
-        (st.hover, st.hover_moved, st.arrow, st.near, st.ray) = (None, false, None, None, None);
+        (st.hover, st.hover_moved, st.arrow, st.button, st.near, st.ray) = (None, false, None, None, None, None);
         st.places.clear();
+        st.buttons_told.clear();
         return;
     }
     if !game.ui_vats {
@@ -770,6 +851,16 @@ pub(crate) fn write_system(
     let boxes = hit_boxes(ui, menu);
     (st.hover, st.near) = under.map_or((None, None), |at| part_under(&shown, &boxes.parts, at));
     st.arrow = under.and_then(|at| boxes.arrows.iter().find(|(_, r)| inside(r, at, 0.0)).map(|(step, _)| *step));
+    st.button = under.and_then(|at| boxes.buttons.iter().find(|(_, r)| inside(r, at, 0.0)).map(|(b, _)| *b));
+    // Told once a stay and when the buttons change (Select comes and goes with the pointer).
+    let kinds: Vec<ScreenButton> = boxes.buttons.iter().map(|(b, _)| *b).filter(|b| *b != ScreenButton::Select).collect();
+    if !shown.bare && !pad && kinds != st.buttons_told {
+        if !kinds.is_empty() {
+            let each = |(b, r): &(ScreenButton, super::layout::Rect)| format!("{b:?} at {:.0}, {:.0} ({:.0} x {:.0})", r.left, r.top, r.width, r.height);
+            info!("tiles: {VATS_MENU}: the pointer can click {}", boxes.buttons.iter().filter(|(b, _)| *b != ScreenButton::Select).map(each).collect::<Vec<_>>().join("; "));
+        }
+        st.buttons_told = kinds;
+    }
     // The pointer's line into the world, for the part of the body under it.
     st.ray = pointer.zip(camera).and_then(|(p, (cam, t))| cam.viewport_to_world(t, Vec2::new(p.0, p.1)).ok()).map(|ray| {
         let dir = crate::space::to_game(*ray.direction);
@@ -1003,9 +1094,19 @@ mod tests {
         assert!(middle.0 > hit.arrows[0].1.left + hit.arrows[0].1.width, "{middle:?}");
         assert!(inside(&hit.arrows[1].1, middle, 0.0) && !inside(&hit.arrows[0].1, middle, 0.0));
         assert_eq!(hit.parts.len(), 4);
+        // A click: on an arrow the target, on a button what it says, elsewhere an attack.
+        assert_eq!(click(None, None, true), Click::Queue);
+        assert_eq!(click(Some(-1), Some(ScreenButton::Accept), true), Click::Target(-1));
+        assert_eq!(click(None, Some(ScreenButton::Accept), true), Click::Accept);
+        assert_eq!(click(None, Some(ScreenButton::Accept), false), Click::Nothing, "no click target with nothing queued");
+        assert_eq!(click(None, Some(ScreenButton::Return), false), Click::Return);
+        assert_eq!(click(None, Some(ScreenButton::Special), true), Click::Special);
+        assert_eq!(click(None, Some(ScreenButton::Select), false), Click::Queue);
         write_pointer(&mut ui, true, Some(1));
         let get = |path: &str, n: &str| ui.tile(ui.find_tile(path).unwrap()).get(n).cloned().unwrap();
         assert!(get(SELECT, "visible").truthy());
+        assert_eq!(get(SELECT, "_PCButtonText").text(), SELECT_HINT);
+        assert!(SELECT_HINT.len() <= 8 && RETURN_HINT.len() <= 8, "a hint has its button's width as room");
         assert_eq!((get(LEFT_ARROW, "mouseover").num(), get(RIGHT_ARROW, "mouseover").num()), (0.0, 1.0));
         write_pointer(&mut ui, false, None);
         let get = |path: &str, n: &str| ui.tile(ui.find_tile(path).unwrap()).get(n).cloned().unwrap();

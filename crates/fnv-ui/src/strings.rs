@@ -121,7 +121,7 @@ pub const BUILT_IN: &[Entry] = &[
     ("sPCMenuHintF", "[F]", "setting name + text_box.xml PCShortcutLabel: the key after a button's words"),
     ("sPCMenuHintQ", "[Q]", "setting name + text_box.xml PCShortcutLabel: the key after a button's words"),
     ("sPCMenuHintR", "[R]", "setting name + text_box.xml PCShortcutLabel: the key after a button's words"),
-    ("sPCMenuHintRMB", "[RMB]", "setting name + vats_menu.xml, text_box.xml PCShortcutLabel: the right mouse button after Return; short, since the file gives the hint the button's own width as its room"),
+    ("sPCMenuHintRMB", "[Right Click]", "setting name + vats_menu.xml, text_box.xml PCShortcutLabel: the right mouse button after Return"),
     ("sPCMenuHintS", "[S]", "setting name + text_box.xml PCShortcutLabel: the key after a button's words"),
     ("sPCMenuHintW", "[W]", "setting name + text_box.xml PCShortcutLabel: the key after a button's words"),
     ("sPCMenuHintX", "[X]", "setting name + text_box.xml PCShortcutLabel: the key after a button's words"),

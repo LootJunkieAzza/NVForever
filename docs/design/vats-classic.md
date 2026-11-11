@@ -2,8 +2,9 @@
 
 Status: built on branch `vats` (2026-11-09 to 2026-11-11), played through by the fork
 owner; §9b lists what is planned. The other style, "Dead Eye"
-(docs/design/vats-mode.md), stays selectable and shares what §6 and §13 name; this one
-is the default.
+(docs/design/vats-mode.md), shares what §6 and §13 name and is the default; this one
+is one row away on the settings page ("V.A.T.S. style") until the owner has ruled on
+which V starts (docs/owner-review.md item 31a; the owner's review of #2102).
 
 Tags as everywhere: [documented] cites a public page, [observed] the game's data files,
 [hypothesis] an inference, [design] NVForever's own choice. Combat is not a parity
@@ -21,7 +22,9 @@ Sources read 2026-11-09 (public pages only; no executable was read):
 ## 1. The owner's decisions (fork owner, 2026-11-09)
 
 - The original's flow replaces Dead Eye as what V starts; Dead Eye stays as a style the
-  settings page offers.
+  settings page offers. (On the fork. Upstream Dead Eye stays the default and Classic
+  is the style the page offers, until item 31a is answered: the owner's review of
+  #2102, 2026-11-11.)
 - A slider sets how far the world slows while targets are chosen: 50 % to 100 %, 100 %
   a full stop and the default, as the original.
 - The slider acts on choosing targets only. The attacks then play as before.
@@ -112,7 +115,8 @@ While targets are chosen and while the attacks play the player does not move and
 mouse does not turn the view [documented: the player cannot move or dodge]. The view
 turns onto the selected target in real time (`TURN_RATE`). Left without firing, the view
 turns back to where it was on entering at the same rate, and the mouse has it again once
-it is there; after firing it stays on the last target.
+it is there; after firing it stays on the last target. It is not turned back behind a
+loading screen or once the player is elsewhere (a load, a door: `restore_stands`).
 
 The field of view narrows to frame the selected target whole, at
 `dialogue_zoom::VATS_TARGET_SHARE` (0.6) of the view's height [design: no page gives a
@@ -190,7 +194,8 @@ Dead Eye does the same. A kill by the last queued attack is the kill camera's.
 ### 8.2 Explosives
 
 The mode stays until an explosive the queue sent has gone off: 2 s after a thrown one,
-1 s after a launched one, and no longer than 12 s; one that flies off from its mark
+1 s after a launched one, and no longer than 12 s after the last one left or the last
+one went off (not after a long queue's first); one that flies off from its mark
 (384 units past its nearest point) no longer holds it [design: the fork owner
 2026-11-10] (`VatsMode::blast_holds`, `combat::VatsBlast`). A thrown weapon's clip
 starts at the pull and the throw leaves at its `Hit` key, once.
@@ -253,6 +258,16 @@ others fainter. Dead Eye's marks ("x" and chance) and everything else of it are
 unchanged. With `[UI] VatsMenuFile=0` or without the file its amber labels are drawn
 as before.
 
+On the settings page the style is "Mark and Fire" [design: NVForever's own words; the
+owner's review of #2102]. "Dead Eye" names the mechanic it is modelled on, another
+publisher's term, and stays in these notes, the code's names and the test aid's
+`dead-eye` only. What it shares with the classic style, and so does differently from
+before this branch: marks on a target that has died are dropped and the mode ends 2 s
+later (§8.1), nothing of the HUD from the first shot, the enemy bar at the top, the
+parts' labels from the menu file, explosives holding the mode's end (§8.2), the kill
+camera's last shot held 3 s longer and the playing shot's Player time multiplier on
+the player's own attack (§8).
+
 ## 9a. Frame time (2026-11-10)
 
 The chances are worked out every frame. Measured on the owner's machine at the
@@ -311,8 +326,10 @@ written into it: spec-notes/vats-menu.md.
   within 45 units of the part's point on the target, selects that part; the file's
   Select button shows then, with the left button's hint. A click queues an attack on
   the selected part; a click on one of the two arrows changes the target instead. The
-  keys of §4 go on working, and the pointer selects only when it moves. The buttons
-  (Accept, Return) are not clicked yet.
+  keys of §4 go on working, and the pointer selects only when it moves. A click on a
+  button does what the button says: Accept plays the queue (it is no click target with
+  nothing queued, the file's own rule), Return takes the last attack back as the right
+  button does, the special attack's queues it (`vats_menu::click`).
 - **The player's arms and weapon** are not drawn in first person while targets are
   chosen.
 - **The UI scale** (the settings page's "UI scale", 50 to 150 %): the screen is drawn
@@ -326,8 +343,12 @@ written into it: spec-notes/vats-menu.md.
 - **The two arrows** stand halfway down the view, on one line at the left and right
   edges, at any UI scale [design: the fork owner 2026-11-10; the file, and the
   original on the owner's screenshots, put them a quarter of the way down].
-- **The right mouse button's hint** is NVForever's "[RMB]" (it was "[Right Click]"): the
-  file gives a hint its button's width as room, and "Return" is short.
+- **The mouse buttons' hints** on this screen are NVForever's own short words:
+  "[RClick]" after Return and "[LClick]" after Select (`vats_menu::RETURN_HINT`,
+  `SELECT_HINT`). The built-in `sPCMenuHintRMB` stays "[Right Click]" for the other
+  menus: the file gives a hint its button's width as room, and that one ran off the
+  view after "Return". The original's on-screen abbreviations are not used (LEGAL.md;
+  the owner's review of #2102).
 
 ## 12. The selected part lit on the target (2026-11-10)
 

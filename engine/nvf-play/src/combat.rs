@@ -2783,6 +2783,13 @@ pub(crate) fn fire(
     c.ejects_seen = anim.ejects;
     // VATS mode's marked shot due now: the point it goes straight at (vats-mode.md §9.1).
     let mut vats_shot = vats.as_deref_mut().and_then(|v| v.take_shot());
+    // A throw still winding up for the mode when the mode has ended (a jump, a menu) is
+    // the mode's no longer: it leaves as any throw does, where the player looks, and not
+    // at the point kept for it as a VATS shot [the owner's review of #2102].
+    if c.vats_throw.is_some() && !vats.as_deref().is_some_and(|v| v.playing_back()) {
+        c.vats_throw = None;
+        info!("combat: the VATS mode throw is the mode's no longer (the mode ended while it wound up)");
+    }
     // The looping shoot sound stops a moment after the last shot.
     if let Some((sound, left)) = c.looping.as_mut() {
         *left -= dt;

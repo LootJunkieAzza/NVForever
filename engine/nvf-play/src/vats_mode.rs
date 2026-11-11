@@ -390,10 +390,12 @@ pub struct VatsMode {
     /// up to the `Hit` key): since when (`now`). The firing waits for it.
     throw_held: Option<f64>,
     /// The explosions of `crate::combat::VatsBlast` seen, the real second (`now`) until
-    /// which the last one holds the mode, and since when an explosive on its way does.
+    /// which the last one holds the mode, since when an explosive on its way does, and
+    /// how many were on their way the frame before.
     blast_seen: u32,
     blast_until: Option<f64>,
     blast_since: Option<f64>,
+    blast_flying: u32,
     /// The real second (`now`) the last attack left to play was dropped because its
     /// target had died: the mode ends [`AFTER_KILL`] after it.
     kill_end: Option<f64>,
@@ -506,6 +508,8 @@ struct ClassicState {
     /// The line the player looked along on entering, and the view then (heading, pitch).
     entry_dir: [f32; 3],
     entry_view: Option<(f32, f32)>,
+    /// Where the player stood then (feet, game space): the view is given back only there.
+    entry_feet: [f32; 3],
     /// The view to go back to: set on leaving without firing, taken by the next frame.
     restore: Option<(f32, f32)>,
     /// Real seconds when the targets were last looked for.
@@ -569,6 +573,20 @@ pub fn queued_text(target: &str, part: &str, special: bool) -> String {
 /// Left without firing, the view is back where it was once it is within this of it,
 /// radians (about a quarter of a degree) [design].
 const RESTORE_WITHIN: f32 = 0.004;
+
+/// How far from where the targets were chosen the player may be for the view still to
+/// be turned back, units: the player stands still while choosing, so further away is a
+/// door, a load or a script's move [design: two paces].
+const RESTORE_REACH: f32 = 128.0;
+
+/// Whether the classic style's view is still turned back to where it was (`ClassicState::
+/// restore`): not behind a loading screen, and with the player still where the targets
+/// were chosen [the owner's review of #2102: after a quick load or a door the view
+/// turned toward the old heading for about a second, the mouse and the movement held].
+fn restore_stands(loading: bool, feet: [f32; 3], entered: [f32; 3]) -> bool {
+    let far = (0..3).map(|i| (feet[i] - entered[i]).powi(2)).sum::<f32>().sqrt();
+    !loading && far <= RESTORE_REACH
+}
 
 /// The classic style's targets are looked for again this often, real seconds [design:
 /// with the world stopped nothing changes; slowed, four times a second is as fresh as
@@ -808,8 +826,17 @@ impl VatsMode {
             let thrown = self.weapon.as_ref().is_some_and(|w| w.style == AttackStyle::Thrown);
             let stays = if thrown { BLAST_SHOWN + AFTER_BLAST } else { AFTER_LAUNCHED_BLAST };
             self.blast_until = Some(self.now + stays);
+            self.blast_since = None;
             info!("vats mode: the explosive went off; the mode stays {stays:.0} s more");
         }
+        // The patience is for the explosive last sent, not for a long queue's first: it
+        // starts over when none is on its way, when another leaves and when one goes off
+        // (the owner's review of #2102: with a queue of grenades the mode ended while
+        // the last one still flew).
+        if blast.toward == 0 || blast.toward > self.blast_flying {
+            self.blast_since = None;
+        }
+        self.blast_flying = blast.toward;
         if blast.toward > 0 {
             let since = *self.blast_since.get_or_insert(self.now);
             if self.now - since <= BLAST_PATIENCE {
@@ -1091,8 +1118,10 @@ fn read_keys(
     let now = real.elapsed_secs_f64();
     vats.keys = Keys { toggle: pressed(Control::Vats), mark: pressed(Control::Use), unmark: false, accept: pressed(Control::Activate), target_step: 0, part_step: 0, special: false, hover_part: None, pointer_moved: false, ray: None, near_part: None };
     vats.pad = input.controller();
-    // The controller's Return (B) on the classic screen, read below.
+    // The controller's Return (B) on the classic screen, and a click on the screen's
+    // Return button, read below.
     let mut pad_return = false;
+    let mut clicked_return = false;
     // The classic style (vats-classic.md §4, §5): the movement controls choose, left and
     // right the target, forward and back the part; the player stands still.
     if vats.holds_view() {
@@ -1139,16 +1168,24 @@ fn read_keys(
             // vats-classic.md §9].
             vats.keys.special = pressed(Control::ReadyItem);
             // The pointer on the target screen (vats-classic.md §11): coming onto a part
-            // selects it, and a click on one of the file's arrows changes the target
-            // instead of queueing an attack.
+            // selects it, and a click on one of the file's arrows or buttons does what
+            // that stands for instead of queueing an attack (`vats_menu::click`).
             if let Some(t) = tiles.as_deref().filter(|t| t.drawn) {
                 vats.keys.pointer_moved = t.hover_moved;
                 vats.keys.hover_part = t.hover.filter(|_| t.hover_moved);
                 vats.keys.near_part = t.near.filter(|_| t.hover_moved);
                 vats.keys.ray = t.ray.filter(|_| t.hover_moved);
-                if let (true, Some(step)) = (vats.keys.mark, t.arrow) {
-                    vats.keys.target_step = step;
-                    vats.keys.mark = false;
+                if vats.keys.mark {
+                    use crate::tiles::vats_menu::Click;
+                    let what = crate::tiles::vats_menu::click(t.arrow, t.button, !vats.queue.is_empty());
+                    vats.keys.mark = what == Click::Queue;
+                    match what {
+                        Click::Target(step) => vats.keys.target_step = step,
+                        Click::Accept => vats.keys.accept = true,
+                        Click::Return => clicked_return = true,
+                        Click::Special => vats.keys.special = true,
+                        Click::Queue | Click::Nothing => {}
+                    }
                 }
             }
         }
@@ -1171,7 +1208,7 @@ fn read_keys(
     // Block while marking: a tap unmarks, a hold aims (the aim waits out the tap). The
     // classic style has no aiming: the press takes the last attack back at once.
     if vats.phase == Phase::Marking && vats.style == VatsStyle::Classic {
-        vats.keys.unmark = if vats.pad { pad_return } else { pressed(Control::Block) };
+        vats.keys.unmark = if vats.pad { pad_return } else { pressed(Control::Block) || clicked_return };
         vats.block_at = None;
         control.aiming = false;
     } else if vats.phase == Phase::Marking {
@@ -1271,6 +1308,13 @@ fn update(
     // It turns back as it turned onto the target, in real time, while the field of view
     // widens again (`crate::dialogue_zoom`), instead of jumping there [design: the fork
     // owner's playtest, 2026-11-10]; the mouse has the view again once it is there.
+    // Not behind a loading screen nor after one (a load, a door): the view there is the
+    // game's, and the mouse and the movement are not held for a turn back to a heading
+    // of another place ([`restore_stands`]).
+    if v.classic.restore.is_some() && !restore_stands(*state.get() == PlayState::Loading, player.feet, v.classic.entry_feet) {
+        info!("vats mode: the view is not turned back (a load or a move meanwhile)");
+        v.classic.restore = None;
+    }
     if let Some((heading, pitch)) = v.classic.restore {
         let dt = real.delta_secs();
         player.heading = classic::ease_angle(player.heading, heading, classic::TURN_RATE, dt);
@@ -1361,7 +1405,7 @@ fn update(
                 if !v.queue.is_empty() {
                     v.phase = Phase::Firing;
                     (v.aim_mark, v.sights_up) = (0, None);
-                    (v.blast_seen, v.blast_until, v.blast_since) = (combat.vats_blast.went_off, None, None);
+                    (v.blast_seen, v.blast_until, v.blast_since, v.blast_flying) = (combat.vats_blast.went_off, None, None, 0);
                     v.kill_end = None;
                     let n = v.queue.len();
                     let style = v.weapon.as_ref().map_or(AttackStyle::Single, |w| w.style);
@@ -1515,7 +1559,11 @@ fn try_enter(v: &mut VatsMode, combat: &Combat, mut script: Option<&mut ScriptSt
     }
     v.weapon = Some(InHand { id: w.id, reach: w.reach, style: w.style, melee_reach: w.melee_reach, sight_fov, skill, hit: combat.rules.vats_hit, special: allowed });
     (v.hits, v.misses) = (0, 0);
-    sounds.play(v, "UIVATSEnter");
+    // The classic style is entered only with a target in sight: `classic_enter` plays the
+    // sound then, or the refusal's alone.
+    if v.style != VatsStyle::Classic {
+        sounds.play(v, "UIVATSEnter");
+    }
     sounds.looping(v, true);
 }
 
@@ -1555,7 +1603,7 @@ fn end(v: &mut VatsMode, why: &str, sounds: &mut Sounds) {
     (v.cam_ask, v.cam_wait, v.cam_led, v.cam_off, v.cam_released) = (None, None, None, false, false);
     // Left without firing, the classic style's view goes back to where it was.
     let restore = v.classic.entry_view.filter(|_| was == Phase::Marking && v.style == VatsStyle::Classic);
-    v.classic = ClassicState { scale: v.classic.scale, restore, ..ClassicState::default() };
+    v.classic = ClassicState { scale: v.classic.scale, restore, entry_feet: v.classic.entry_feet, ..ClassicState::default() };
 }
 
 /// The words for a weapon's special attack on the target screen [design: NVForever's own;
@@ -1766,7 +1814,7 @@ fn classic_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptSt
     if v.phase != Phase::Marking || v.style != VatsStyle::Classic {
         return;
     }
-    v.classic = ClassicState { scale: v.classic.scale, entry_dir: player.look_dir(), entry_view: Some((player.heading, player.pitch)), scanned_at: v.now, ..ClassicState::default() };
+    v.classic = ClassicState { scale: v.classic.scale, entry_dir: player.look_dir(), entry_view: Some((player.heading, player.pitch)), entry_feet: player.feet, scanned_at: v.now, ..ClassicState::default() };
     let (targets, first, missed) = classic_targets(v, combat, script, sim, phys, player.eye());
     let Some(first) = first else {
         // Not a stay: nothing of it is counted or shown.
@@ -1783,6 +1831,7 @@ fn classic_enter(v: &mut VatsMode, combat: &Combat, script: Option<&mut ScriptSt
         return;
     };
     v.classic.selected = Some(targets[first].actor);
+    sounds.play(v, "UIVATSEnter");
     info!(
         "vats mode: classic: {} targets, {:08X} selected; the clock at {:.2} while targets are chosen",
         targets.len(),
@@ -3106,6 +3155,37 @@ impl Plugin for VatsModePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_view_is_not_turned_back_after_a_load_or_a_door() {
+        let at = [100.0, 200.0, 30.0];
+        assert!(restore_stands(false, at, at));
+        assert!(restore_stands(false, [140.0, 200.0, 30.0], at), "a step aside is still there");
+        assert!(!restore_stands(true, at, at), "behind a loading screen");
+        assert!(!restore_stands(false, [100.0, 200.0 + 2.0 * RESTORE_REACH, 30.0], at), "elsewhere");
+    }
+
+    #[test]
+    fn the_wait_for_explosives_counts_from_the_last_one_sent() {
+        use crate::combat::VatsBlast;
+        let flying = |toward| VatsBlast { toward, off: 0, went_off: 0 };
+        let mut v = VatsMode::default();
+        // The first of a long queue flies.
+        assert!(v.blast_holds(flying(1)));
+        // Eleven seconds on another leaves: the patience starts over.
+        v.now = 11.0;
+        assert!(v.blast_holds(flying(2)));
+        v.now = 20.0;
+        assert!(v.blast_holds(flying(2)), "9 s after the last one left");
+        // None on its way: the next one's patience is its own.
+        v.now = 21.0;
+        assert!(!v.blast_holds(flying(0)));
+        v.now = 40.0;
+        assert!(v.blast_holds(flying(1)));
+        // One that never goes off is not waited for beyond the patience.
+        v.now = 40.0 + BLAST_PATIENCE + 1.0;
+        assert!(!v.blast_holds(flying(1)));
+    }
 
     #[test]
     fn any_action_but_marking_aiming_and_accepting_leaves() {

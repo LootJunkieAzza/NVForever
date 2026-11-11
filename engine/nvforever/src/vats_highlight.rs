@@ -47,14 +47,17 @@
 //!   the fill and the outline both.
 //! - **Life**: the shapes' copies are made when the selected target or part changes and
 //!   removed when the screen goes. The mask's camera is there only while a part is lit and
-//!   [`CAMERA_KEPT`] after: the world's systems find the view with a query for the one 3D
-//!   camera that is not the reflection's (`world::stream`, `lod`, `grass`, `nav`, ...,
-//!   `Query::single`), which finds none while a second one exists. Kept for good from the
-//!   first lit part, as it was until 2026-11-10, the camera stopped them all for the rest
-//!   of the run: no cell loaded any more, and a door's loading screen waited out its 120 s
-//!   for "cells to draw" [observed: the fork owner's playtest, "stuck in an infinite
-//!   loading screen when entering goodsprings store after a gunfight and vats use"; a run
-//!   with one VATS kill and then the store's door]. The picture and the node stay.
+//!   [`CAMERA_KEPT`] after, so nothing is rendered for it the rest of the time. Before
+//!   #1753 (`fly::WorldCamera`, the main camera by its own marker) the world's systems
+//!   found the view with a query for the one 3D camera that is not the reflection's
+//!   (`world::stream`, `lod`, `grass`, `nav`, ..., `Query::single`), which found none
+//!   while a second one existed: kept for good from the first lit part, as it was until
+//!   2026-11-10, this camera stopped them all for the rest of the run, no cell loaded any
+//!   more, and a door's loading screen waited out its 120 s for "cells to draw"
+//!   [observed on the branch before #1753 was merged into it: the fork owner's playtest,
+//!   "stuck in an infinite loading screen when entering goodsprings store after a
+//!   gunfight and vats use"; a run with one VATS kill and then the store's door]. The
+//!   picture and the node stay.
 //!
 //! Log: `vats highlight: <actor> part <n>: <t> triangles on <s> shapes`, `vats highlight:
 //! off`, and at exit `vats highlight summary: <n> shown`.
@@ -311,12 +314,16 @@ fn glow(
     rigs: Query<(&ActorRig, Option<&LimbRig>)>,
     shapes: Query<(Entity, &RefVisual, &LimbShape, Option<&SkinnedMesh>, Option<&MeshMaterial3d<NifMaterial>>, Option<&Mesh3d>)>,
     held: Query<(Entity, &HeldWeapon, Option<&MeshMaterial3d<NifMaterial>>, &Mesh3d, Has<OnBack>)>,
+    glows: Query<(), With<PartGlow>>,
     mut meshes: ResMut<Assets<Mesh>>,
     own_materials: Res<Assets<NifMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let want = vats.as_deref().and_then(|v| v.highlighted());
-    if want == st.on {
+    // The mask's shapes hang on the target's own: when the target's shapes are built again
+    // (its gear changed, a limb went) they go with them, and the part is lit anew.
+    let lost = st.on.is_some() && st.overlays.iter().any(|e| !glows.contains(*e));
+    if want == st.on && !lost {
         return;
     }
     for e in st.overlays.drain(..) {
@@ -330,7 +337,12 @@ fn glow(
         }
         return;
     };
-    let Some((rig, limb)) = rigs.iter().find(|(r, _)| r.reference == actor) else { return };
+    // No model yet (the target's rig is still loading): nothing is lit, and the next
+    // frame looks again.
+    let Some((rig, limb)) = rigs.iter().find(|(r, _)| r.reference == actor) else {
+        st.on = None;
+        return;
+    };
     // The part each joint name goes with.
     let chains: Vec<(u8, Vec<usize>)> =
         limb.map(|l| l.chains.iter().map(|(p, _, nodes, _)| (*p, nodes.iter().filter_map(|e| rig.nodes.iter().position(|n| n == e)).collect())).collect()).unwrap_or_default();

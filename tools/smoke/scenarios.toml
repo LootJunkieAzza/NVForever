@@ -11500,6 +11500,7 @@ expect = [
   { re = 'vats highlight: [0-9A-F]{8} part \w+: [1-9]\d* triangles on [1-9]\d* shapes', label = "the selected part is lit on the target's body" },
   { text = "vats highlight: off", label = "and no longer once the attacks play" },
   { re = 'hud: hidden: (the VATS attacks play|the kill camera has the view)', label = "nothing of the HUD is drawn while the attacks play" },
+  { re = 'tiles: VATSMenu: the pointer can click Accept at \d+, \d+ \([1-9]\d* x [1-9]\d*\); Return at \d+, \d+ \([1-9]\d* x [1-9]\d*\)', label = "the file's Accept and Return buttons have boxes a click lands in" },
   { re = 'hud: enemy health .* 0x[0-9A-F]{8} 100 %', label = "the HUD's enemy bar shows the selected target at full health" },
 ]
 forbid = [{ text = "VATSMenu drawn by hand", label = "the file fell back to the engine-drawn screen" }]
@@ -11652,16 +11653,16 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-others-fighting"
 source = "owner's playtest request #1035: the VATS kill camera plays only when no other enemy is in combat with the player (engine/nvf-play/src/kill_cam.rs, docs/design/vats-mode.md §19)"
-note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's. A third Fiend dog (0x0013F85F, 1282 units off, out of sight) is killed at 3 s too: it heard the shot and entered combat within 10 to 80 ms of it, before or after the camera's check some 16 ms after the shot, so the line read 1 or 2 enemies by the frame's timing (2 of 4 runs alone failed, 2026-11-10). Which of the two dogs is nearer the crosshair at the click varies with where they have wandered, so both are set on the player and either may be the one marked (2026-11-11: Violetta was marked and the check named the other dog)"
+note = "vats-kill-cam's setup with Violet and her two Fiends killed at 3 s; the other dog (0x0013E5BB, still alive) is set on the player (StartCombat, a script aid) between the mark and E, so the kill leaves an enemy in combat with the player: no kill camera, the view stays the player's. A third Fiend dog (0x0013F85F, 1282 units off, out of sight) is killed at 3 s too: it heard the shot and entered combat within 10 to 80 ms of it, before or after the camera's check some 16 ms after the shot, so the line read 1 or 2 enemies by the frame's timing (2 of 4 runs alone failed, 2026-11-10). Which of the two dogs is nearer the crosshair at the click varies with where they have wandered (2026-11-11: Violetta was marked and the check named the other dog), so the view is turned to the Fiend Guard Dog itself (aimref=000F573F) and not to the nearest unmarked actor (aimvats)"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/kill_cam.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013F85F,10.34:combat:0x0013E5BB:player,10.34:combat:0x000F573F:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013F85F,10.34:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimref=000F573F", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 20
 order = [[
-  { re = 'vats mode: marked .*(000F573F|0013E5BB).* mark 1; ', label = "one mark, on one of the two dogs (the nearer to the crosshair at the click)" },
+  { re = 'vats mode: marked .*000F573F.* mark 1; ', label = "one mark, on the Fiend Guard Dog" },
   { re = 'vats mode: shot 1 of 1 at .*, 26 AP spent; \d+% to hit: hit', label = "the roll hits (forced)" },
-  { re = 'kill camera: skipped, 1 enemies still in combat \(.*0x(0013E5BB|000F573F)', label = "the other dog still fights the player: no kill camera" },
+  { re = 'kill camera: skipped, 1 enemies still in combat \(.*0x0013E5BB', label = "the other dog still fights the player: no kill camera" },
 ]]
 expect = [{ re = 'kill camera summary: 0 shown, 1 skipped, 0 off', label = "none shown, one skipped" }]
 forbid = [

@@ -12,38 +12,44 @@
 //!
 //! Test aids: `NVF_PLAY_TEST_VATS_STYLE` (`classic` or `dead-eye`) and
 //! `NVF_PLAY_TEST_VATS_SLOWDOWN` (0.5 to 1) set the two rows for an unattended run, which
-//! reads no INI (`crate::settings`); the Dead Eye scenarios pin their style with the
-//! first.
+//! reads no INI (`crate::settings`); every VATS scenario pins its style with the first.
 
 use bevy::prelude::*;
 
 /// What V starts: the settings page's "V.A.T.S. style" (`vats-style` in NVForever.ini).
+/// Dead Eye is the default until the owner has ruled on docs/owner-review.md item 31a
+/// [design: the owner's review of #2102, 2026-11-11; the fork's owner plays Classic].
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VatsStyle {
     /// The original's flow: the world stopped or slowed, a target and its parts chosen
     /// from a list (docs/design/vats-classic.md).
-    #[default]
     Classic,
     /// NVForever's own slow-time mark and fire (docs/design/vats-mode.md).
+    #[default]
     DeadEye,
 }
 
 impl VatsStyle {
     pub const ALL: [VatsStyle; 2] = [VatsStyle::Classic, VatsStyle::DeadEye];
 
+    /// The style's name on the settings page and in NVForever.ini [design: NVForever's own
+    /// words. The slow-time style's is not the name of the mechanic it is modelled on,
+    /// which is another publisher's (LEGAL.md; the owner's review of #2102): the docs
+    /// name the model, the page does not].
     pub fn name(self) -> &'static str {
         match self {
             VatsStyle::Classic => "Classic",
-            VatsStyle::DeadEye => "Dead Eye",
+            VatsStyle::DeadEye => "Mark and Fire",
         }
     }
 
-    /// The style of this name, any case; `dead-eye` and `deadeye` too (the test aid).
+    /// The style of this name, any case; `dead-eye` and `deadeye` too (the test aid, and
+    /// an NVForever.ini written before the style had its own name).
     pub fn by_name(name: &str) -> Option<VatsStyle> {
         let n: String = name.trim().chars().filter(|c| !matches!(c, ' ' | '-' | '_')).flat_map(char::to_lowercase).collect();
         match n.as_str() {
             "classic" => Some(VatsStyle::Classic),
-            "deadeye" => Some(VatsStyle::DeadEye),
+            "markandfire" | "deadeye" => Some(VatsStyle::DeadEye),
             _ => None,
         }
     }
@@ -245,8 +251,11 @@ pub fn register(app: &mut App) {
         crate::settings::Setting {
             key: "vats-style",
             group: crate::pause::GROUP_MENUS,
+            // "V.A.T.S." as the data spells it [observed: FalloutNV.esm MESG `HelpVATS`
+            // (0000017D) and `HelpVATS2`, whose names are "V.A.T.S." and "V.A.T.S. --
+            // Advanced" (`fnvtool esm inventory`); #1740, LEGAL.md]; "style" is ours.
             label: "V.A.T.S. style",
-            note: "What the V.A.T.S. key starts. Classic: the world stops, you pick a target and its body parts from their chances to hit, then the queued attacks play. Dead Eye: time runs very slowly while you mark targets under the crosshair.",
+            note: "What the V.A.T.S. key starts. Classic: the world stops, you pick a target and its body parts from their chances to hit, then the queued attacks play. Mark and Fire: time runs very slowly while you mark targets under the crosshair.",
             get: |_| false,
             set: |_, _| {},
             slider: None,
@@ -265,6 +274,7 @@ pub fn register(app: &mut App) {
         crate::settings::Setting::slider(
             "vats-slowdown",
             crate::pause::GROUP_MENUS,
+            // "V.A.T.S." as the data spells it (MESG `HelpVATS`, as the row above).
             "V.A.T.S. time slowdown",
             "How far the world slows while you choose targets in the Classic style: 100% stops it, 50% runs it at half speed. Enemies keep attacking at anything less than a full stop.",
             crate::settings::Slider {
@@ -311,7 +321,7 @@ mod tests {
 
     #[test]
     fn styles_go_by_name() {
-        assert_eq!(VatsStyle::default(), VatsStyle::Classic);
+        assert_eq!(VatsStyle::default(), VatsStyle::DeadEye, "Dead Eye until owner-review 31a is answered");
         for s in VatsStyle::ALL {
             assert_eq!(VatsStyle::by_name(s.name()), Some(s));
         }

@@ -89,7 +89,7 @@ In `tiles/vats_menu.rs`, `write`; each choice is tagged there.
 | `_LimbName`, `_LimbNameVisible` | the part's name from the body part data; shown for the selected part | observed: screenshots ("Head", "Torso" over the selected part only) |
 | `_MeterPercent` | the part's condition, 0 to 1 | hypothesis (the meter's range is documented, what fills it is not) |
 | part box `alpha` | 215 selected, 255 the others | observed: screenshots (the selected part's box and name are fainter; it is lit on the body); the number is by eye |
-| Select `visible`, `_PCButtonText` | shown with the left button's hint while the pointer is on a part | observed: screenshots ("Select LMB)" only with the pointer on a part); the hint's word is NVForever's |
+| Select `visible`, `_PCButtonText` | shown with the left button's hint while the pointer is on a part | observed: screenshots (Select and its hint only with the pointer on a part); the hint's words are NVForever's |
 | arrows' `mouseover` | 1 while the pointer is on one | documented (the file switches the picture by it) |
 | row `string`, `listindex` | the queued part's name, the attack's place in the queue | design / documented (`listindex`) |
 | row `height`, list `height`, `_scroll_delta` | the text's height; six rows | documented (the prefabs' comments) |
@@ -112,8 +112,13 @@ their own words.
 - The selected part is covered on the body in the interface's amber with fine
   horizontal lines (vats-classic.md §12).
 - No crosshair, no arms or weapon of the player's in the picture.
-- The hints read "E)", "RMB)", "LMB)"; NVForever's own words are "[E]", "[RMB]",
-  "[LMB]".
+- The hints are a key or a mouse-button abbreviation and a bracket. NVForever writes
+  its own words: "[E]", and on this screen "[RClick]" after Return and "[LClick]"
+  after Select (`vats_menu::RETURN_HINT`, `SELECT_HINT`). The built-in
+  `sPCMenuHintRMB` stays "[Right Click]" for the other menus; it is longer than the
+  room a hint has here (§2) and ran off the view after "Return" [observed: the
+  engine's screenshot at 1280 x 720]. The abbreviations on the original's screen are
+  not carried over.
 - With Select shown the column reads Select, Return, Accept; the file's own places
   give Select, Accept, Return, which is what NVForever draws [hypothesis: the
   original's code moves them].
