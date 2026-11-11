@@ -61,7 +61,7 @@ pub use drawn::DRAWN_JUMP;
 pub use grab::{Grip, GripOn, HoldParams};
 pub use layers::LayerSet;
 pub use movers::{MoverContact, MoverStats, SWEEP_MOST};
-pub use ragdoll::{RagdollReport, RagdollStart};
+pub use ragdoll::{RagdollReport, RagdollSolver, RagdollStart};
 pub use placed::{ref_collision, ref_collision_with, ModelCollision, RefCollision, RefCollisionOptions};
 pub use quarantine::{QuarantineReport, Remedy};
 pub use swim::Stroke;

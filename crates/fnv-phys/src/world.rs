@@ -467,6 +467,8 @@ pub struct PhysWorld {
     pub(crate) quarantined: crate::quarantine::Quarantined,
     /// Keyframed bodies on their way to a pose (`crate::movers`).
     pub(crate) movers: crate::movers::Movers,
+    /// How actors' ragdolls are solved ([`PhysWorld::set_ragdoll_solver`]).
+    pub(crate) ragdoll_solver: crate::ragdoll::RagdollSolver,
 }
 
 impl PhysWorld {
@@ -517,6 +519,7 @@ impl PhysWorld {
             before: Default::default(),
             quarantined: Default::default(),
             movers: Default::default(),
+            ragdoll_solver: Default::default(),
         }
     }
 
@@ -1282,6 +1285,7 @@ impl PhysWorld {
             before: self.before.clone(),
             quarantined: self.quarantined.clone(),
             movers: self.movers.clone(),
+            ragdoll_solver: self.ragdoll_solver,
         }
     }
 
