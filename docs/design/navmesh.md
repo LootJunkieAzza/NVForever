@@ -414,4 +414,4 @@ by `Walker` elsewhere (the game's high and low processing levels are the model;
    themselves); a door told to close while opening turns back; a swinging door's moving
    parts are not solid (owner request). How the original game does
    each of these is not known, except that an inner door a follower opened stayed open
-   for the rest of one capture (npc-behaviour-compare.md §15.2).
+   for the rest of one capture [observed: npc-behaviour-compare.md §15.2].

@@ -679,7 +679,7 @@ different thing: `fnv_ai::alert`); ForceFlee]:
     meat. Here the actor goes straight to the nearest object it looks for (§3.1): the
     original's searching by wandering, and when it then finds, are open (§6). In the open,
     a settler and a copy of Cheyenne went straight to the meat (5 to 9 s) [observed
-    2026-11-11: npc-behaviour-compare.md §15.3].
+    2026-11-10: npc-behaviour-compare.md §15.3].
   - **Use Item At** (DefaultUseNearbyFurniturePackage on GoodspringsSettler04Ref, at his
     editor location, a stool 46 units off): type 16 USEITEMAT, procedure 17 DONE at once,
     standing, not sitting, for 0.12 game hours; then the script package was gone and his

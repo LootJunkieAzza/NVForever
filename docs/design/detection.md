@@ -355,8 +355,9 @@ the start bonus and the armour class penalty 10 / 20; the thresholds −20 and 0
 
 **Not built, from the page's prose** (no number, or a feature of its own; none
 contradicted): touching or bumping into an actor while sneaking detects you at once;
-dead bodies seen put an actor in Caution and draw it to them (a passer-by in the original
-did not react to a body: npc-behaviour-compare.md §15.4, one scene); looking around counting
+dead bodies seen put an actor in Caution and draw it to them (in one capture a passer-by
+walking past a body did not react [observed: npc-behaviour-compare.md §15.4]; whether it
+perceived the body is not known); looking around counting
 as movement; a crippled head lowering a detector's Perception by 4 (the player's comes
 from GenericScript; NPCs' has no source in the data); pickpocketing and its chance
 formula (capped 5–85 %), not built at all.
