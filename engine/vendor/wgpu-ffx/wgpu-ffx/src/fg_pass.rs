@@ -68,12 +68,79 @@ impl Kind {
 
 /// A resource bound to one binding for one dispatch.
 pub(crate) enum Res<'a> {
-    View(wgpu::TextureView),
+    /// The whole texture (every mip level).
+    Texture(&'a wgpu::Texture),
+    /// One mip level of a texture (clamped to its last, as AMD's Vulkan backend does for
+    /// the inpainting pyramid's thirteen bindings).
+    Mip(&'a wgpu::Texture, u32),
     Buffer(&'a wgpu::Buffer),
     /// A uniform slot: offset and size inside a buffer of several.
     Slot(&'a wgpu::Buffer, u64, u64),
     Sampler(&'a wgpu::Sampler),
 }
+
+/// The whole of `texture`, for a binding.
+pub(crate) fn whole(texture: &wgpu::Texture) -> Res<'_> {
+    Res::Texture(texture)
+}
+
+// NVForever (2026-11-10): the bind groups of a view's passes, kept from frame to frame. The
+// passes' resources only alternate between a few sets (the ping-ponged textures, the frame's
+// colour), and making a bind group and its texture views for every pass of every frame cost
+// the render thread time for nothing.
+/// What one binding of a kept bind group holds.
+#[derive(PartialEq, Eq)]
+enum Bound {
+    Texture(wgpu::Texture, Option<u32>),
+    Buffer(wgpu::Buffer, u64, u64),
+    Sampler(wgpu::Sampler),
+}
+
+impl Bound {
+    fn of(resource: &Res) -> Self {
+        match resource {
+            Res::Texture(texture) => Bound::Texture((*texture).clone(), None),
+            Res::Mip(texture, level) => Bound::Texture((*texture).clone(), Some(*level)),
+            Res::Buffer(buffer) => Bound::Buffer((*buffer).clone(), 0, 0),
+            Res::Slot(buffer, offset, size) => Bound::Buffer((*buffer).clone(), *offset, *size),
+            Res::Sampler(sampler) => Bound::Sampler((*sampler).clone()),
+        }
+    }
+
+    fn is(&self, resource: &Res) -> bool {
+        match (self, resource) {
+            (Bound::Texture(kept, None), Res::Texture(texture)) => kept == *texture,
+            (Bound::Texture(kept, Some(mip)), Res::Mip(texture, level)) => kept == *texture && mip == level,
+            (Bound::Buffer(kept, 0, 0), Res::Buffer(buffer)) => kept == *buffer,
+            (Bound::Buffer(kept, at, len), Res::Slot(buffer, offset, size)) => {
+                *len != 0 && kept == *buffer && at == offset && len == size
+            }
+            (Bound::Sampler(kept), Res::Sampler(sampler)) => kept == *sampler,
+            _ => false,
+        }
+    }
+}
+
+/// A view's kept bind groups, by pass and resources. It lives in the view (not the pass), so
+/// a view that is dropped (a resize) lets go of its textures.
+#[derive(Default)]
+pub(crate) struct BindGroups(std::sync::Mutex<crate::kept::Kept<KeptKey, wgpu::BindGroup>>);
+
+/// The pass's label and what its bindings hold.
+type KeptKey = (&'static str, Vec<Bound>);
+
+impl BindGroups {
+    /// A dispatch (or prepare) of the view begins: bind groups not asked for in a while are
+    /// dropped (`kept.rs`), with the textures they hold.
+    pub fn next_frame(&self) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next_frame();
+    }
+}
+
+/// More sets than the passes alternate between (about 60): past this the list starts again,
+/// so a caller that hands over new textures every frame does not grow it without end.
+/// Entries no longer asked for go sooner (`kept.rs`).
+const KEPT_BIND_GROUPS: usize = 256;
 
 pub(crate) struct FgPass {
     label: &'static str,
@@ -166,40 +233,52 @@ impl FgPass {
         &self,
         device: &wgpu::Device,
         pass: &mut wgpu::ComputePass<'_>,
+        kept: &BindGroups,
         resolve: &mut dyn FnMut(&str) -> Res<'a>,
         groups: [u32; 3],
     ) {
-        let resources: Vec<(u32, Res<'a>)> = self
-            .active
-            .iter()
-            .enumerate()
-            .map(|(i, &(_, name))| (i as u32, resolve(name)))
-            .collect();
-        let entries: Vec<_> = resources
-            .iter()
-            .map(|(binding, resource)| wgpu::BindGroupEntry {
-                binding: *binding,
-                resource: match resource {
-                    Res::View(view) => wgpu::BindingResource::TextureView(view),
-                    Res::Buffer(buffer) => buffer.as_entire_binding(),
-                    Res::Slot(buffer, offset, size) => {
-                        wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+        let resources: Vec<Res<'a>> = self.active.iter().map(|&(_, name)| resolve(name)).collect();
+        let mut kept = kept.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let found = kept.find(|(label, bound)| {
+            *label == self.label && bound.len() == resources.len() && bound.iter().zip(&resources).all(|(b, r)| b.is(r))
+        });
+        let at = found.unwrap_or_else(|| {
+            let views: Vec<Option<wgpu::TextureView>> = resources
+                .iter()
+                .map(|resource| match resource {
+                    Res::Texture(texture) => Some(view(texture)),
+                    Res::Mip(texture, level) => Some(mip_view(texture, *level)),
+                    _ => None,
+                })
+                .collect();
+            let entries: Vec<_> = resources
+                .iter()
+                .zip(&views)
+                .enumerate()
+                .map(|(binding, (resource, view))| wgpu::BindGroupEntry {
+                    binding: binding as u32,
+                    resource: match (resource, view) {
+                        (Res::Buffer(buffer), _) => buffer.as_entire_binding(),
+                        (Res::Slot(buffer, offset, size), _) => wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer,
                             offset: *offset,
                             size: NonZeroU64::new(*size),
-                        })
-                    }
-                    Res::Sampler(sampler) => wgpu::BindingResource::Sampler(sampler),
-                },
-            })
-            .collect();
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(self.label),
-            layout: &self.bgl,
-            entries: &entries,
+                        }),
+                        (Res::Sampler(sampler), _) => wgpu::BindingResource::Sampler(sampler),
+                        (_, Some(view)) => wgpu::BindingResource::TextureView(view),
+                        (_, None) => unreachable!("a texture's view was made above"),
+                    },
+                })
+                .collect();
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(self.label),
+                layout: &self.bgl,
+                entries: &entries,
+            });
+            kept.push(KEPT_BIND_GROUPS, (self.label, resources.iter().map(Bound::of).collect()), bind_group)
         });
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_bind_group(0, kept.value(at), &[]);
         pass.dispatch_workgroups(groups[0].max(1), groups[1].max(1), groups[2].max(1));
     }
 
@@ -207,7 +286,7 @@ impl FgPass {
 
 /// A view of one mip level (clamped to the texture's last, as AMD's Vulkan backend does
 /// for the inpainting pyramid's thirteen bindings).
-pub(crate) fn mip_view(texture: &wgpu::Texture, mip: u32) -> wgpu::TextureView {
+fn mip_view(texture: &wgpu::Texture, mip: u32) -> wgpu::TextureView {
     texture.create_view(&wgpu::TextureViewDescriptor {
         base_mip_level: mip.min(texture.mip_level_count() - 1),
         mip_level_count: Some(1),
@@ -215,7 +294,7 @@ pub(crate) fn mip_view(texture: &wgpu::Texture, mip: u32) -> wgpu::TextureView {
     })
 }
 
-pub(crate) fn view(texture: &wgpu::Texture) -> wgpu::TextureView {
+fn view(texture: &wgpu::Texture) -> wgpu::TextureView {
     texture.create_view(&Default::default())
 }
 

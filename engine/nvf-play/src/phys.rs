@@ -377,7 +377,13 @@ pub struct CreatedBody {
     pub added_step: u64,
     /// At rest (its body asleep) since it last moved.
     pub settled: bool,
+    /// How many of the pose marks (`CREATED_MARKS`) were logged.
+    pub marks: usize,
 }
+
+/// Seconds after its collision was added at which a moving dynamic created reference's
+/// pose is logged, so a log shows where it went.
+pub const CREATED_MARKS: [f32; 3] = [1.0, 3.0, 10.0];
 
 /// A door whose keyframed bodies follow its animation.
 #[derive(Clone)]
@@ -1375,7 +1381,7 @@ impl PhysState {
             joined.map_or_else(String::new, |(n, _)| format!(": the model's {n} dynamic bodies joined into one"))
         );
         let added_step = self.world.steps();
-        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_step, settled: false });
+        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_step, settled: false, marks: 0 });
         true
     }
 
@@ -1391,6 +1397,19 @@ impl PhysState {
             let Some(local) = cb.local.filter(|_| cb.dynamic) else { continue };
             let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
             let (pos, rot) = dropped::ref_pose_from_body(&b, &local, 1.0);
+            let t = elapsed(cb.added_step);
+            if CREATED_MARKS.get(cb.marks).is_some_and(|&m| t >= m) {
+                cb.marks += 1;
+                info!(
+                    "dropped 0x{id:08X} {t:.1} s after its collision was added: at ({:.1}, {:.1}, {:.1}), {:.1} below the start, speed {:.0} units/s{}",
+                    pos[0],
+                    pos[1],
+                    pos[2],
+                    cb.start[2] - pos[2],
+                    b.linvel.iter().map(|v| v * v).sum::<f32>().sqrt(),
+                    if b.sleeping { ", at rest" } else { "" }
+                );
+            }
             if pos[2] < cb.start[2] - CREATED_FELL_THROUGH {
                 lost.push(id);
                 continue;
@@ -1503,6 +1522,28 @@ impl PhysState {
         b.sink = drawn_sink(&b.ch, self.drawn_ground(&b.ch));
         self.npcs.insert(id, b);
         true
+    }
+
+    /// The reference whose keyframed collision (a gate, a force field, not a door:
+    /// something an animation or a script moves away) stands on the straight way from
+    /// `from` to `to`, feet to feet, seen at `height` above them; actors left out.
+    pub fn keyframed_between(&mut self, from: [f32; 3], to: [f32; 3], height: f32) -> Option<u32> {
+        let a = [from[0], from[1], from[2] + height];
+        let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if len < 1e-3 {
+            return None;
+        }
+        let dir = [d[0] / len, d[1] / len, d[2] / len];
+        let filter = Filter { no_actors: true, no_terrain: true, ..Default::default() };
+        let hits = self.ray_all(a, dir, len, filter);
+        // A door's leaf is the doors' own (`crate::doors`): an actor opens it and walks
+        // through, and the open leaf's edge is skipped past like any other obstacle
+        // (Boone after his room's door, follower-boone smoke).
+        hits.into_iter().find_map(|h| match h.owner {
+            fnv_phys::world::Owner::Ref { form_id, object, .. } if !self.doors.contains_key(&form_id) && self.world.ref_object_keyframed(form_id, object) => Some(form_id),
+            _ => None,
+        })
     }
 
     /// Feet where actor `id`'s character could be put down near `at`, a place on the
@@ -1831,6 +1872,24 @@ fn destruction_models(
     }
     let ctx = LoadCtx { d: &d, sim: &sim, data: data.as_deref() };
     phys.set_destruction_models(&ctx, want);
+}
+
+/// An ash or goo pile passes through the ragdoll of the actor it came from: it is made
+/// where that body lies, and the body would otherwise shove it aside or down through the
+/// floor before the critical stage culls it (issue #2030; ash-piles.md §3) [design]. Runs
+/// before the frame's fixed steps, so a pile's first step already passes.
+pub(crate) fn piles_pass_their_corpses(mut phys: ResMut<PhysState>, script: Option<Res<crate::script::ScriptState>>) {
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    let phys = &mut *phys;
+    for &id in phys.created.keys() {
+        if phys.world.ref_passes_ragdoll(id).is_some() {
+            continue;
+        }
+        if let Some(source) = rt.game.ash_pile_source(FormId(id)) {
+            phys.world.set_ref_passes_ragdoll(id, source.0);
+            info!("ash pile 0x{id:08X} passes through the body of {source}");
+        }
+    }
 }
 
 /// The settle write-back for dropped items ([`PhysState::settle_created`]) after the

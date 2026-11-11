@@ -5,6 +5,7 @@ import glob
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -65,6 +66,56 @@ def process_times(pid: int) -> tuple[int, int] | None:
     ok = k32.GetProcessTimes(wintypes.HANDLE(h), *[ctypes.byref(x) for x in t])
     k32.CloseHandle(wintypes.HANDLE(h))
     return (t[0].value, t[1].value) if ok else None
+
+
+def process_birth(pid: int) -> int | None:
+    """When a process was made, as a number that stays the same for its whole life (Windows:
+    its creation FILETIME; Linux: its start time in clock ticks from /proc), None when it
+    cannot be read. With the pid it names one process, so a pid used again by a new
+    process is told apart from the one that wrote an owner file (#2004)."""
+    if os.name == "nt":
+        t = process_times(pid)
+        return t[0] if t else None
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        # Field 22, counting from 1; the name (field 2) is in brackets and may hold spaces.
+        return int(stat.rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def owner_line(pid: int | None = None) -> str:
+    """The owner file's text for a smoke runner's lock: the pid first (what older runners
+    read), and `born=` its birth from [`process_birth`] when it can be read."""
+    pid = os.getpid() if pid is None else pid
+    born = process_birth(pid)
+    tail = f" born={born}" if born is not None else ""
+    return f"{pid} smoke runner {time.strftime('%Y-%m-%d %H:%M:%S')}{tail}\n"
+
+
+def owner_gone(text: str) -> bool:
+    """Whether the runner an owner file names has ended: its process is gone, or the pid
+    now belongs to a process made at another time. A file without `born=` (an older
+    runner's, or one whose birth could not be read) is judged by the pid alone."""
+    words = text.split()
+    try:
+        pid = int(words[0])
+    except (ValueError, IndexError):
+        return False
+    if not pid_alive(pid):
+        return True
+    born = next((w[5:] for w in words if w.startswith("born=")), None)
+    if born is None:
+        return False
+    now = process_birth(pid)
+    return now is not None and str(now) != born
+
+
+def write_owner(lock: Path, text: str) -> None:
+    """Write the owner file whole (a reader never sees half a pid)."""
+    tmp = lock / (OWNER + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, lock / OWNER)
 
 
 def child_pids(pid: int, born: tuple[int, int] | None, exe: str) -> list[int]:
@@ -136,6 +187,46 @@ def wait_for_children(pid: int, children: list[int], deadline: float) -> str:
         except OSError:
             pass
     return f"a process it started (pid {', '.join(map(str, children))}) ran past the time limit"
+
+
+def group_alive(pgid: int) -> bool:
+    """POSIX: whether any process of the process group `pgid` still runs."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def wait_for_group(pgid: int, deadline: float) -> str:
+    """POSIX: wait for the rest of a launch's process group (a load's new run is started
+    into it: engine/nvforever/src/handoff.rs sets no group of its own) until `deadline`;
+    past it, end the group. An error text when it had to be ended."""
+    while group_alive(pgid) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    if not group_alive(pgid):
+        return ""
+    try:
+        os.killpg(pgid, signal.SIGKILL)  # POSIX only: Windows has no SIGKILL
+    except OSError:
+        pass
+    return f"a process it started (process group {pgid}) ran past the time limit"
+
+
+def launch_popen_kw() -> dict:
+    """Off Windows a game launch gets a process group of its own, so the runner can wait
+    for (and stop) a load's new run with it. Windows finds them by parent ([`child_pids`])."""
+    return {} if os.name == "nt" else {"start_new_session": True}
+
+
+def wait_rest(p: subprocess.Popen, exe: str, deadline: float) -> str:
+    """After `p` ended: wait for the processes it started (their output is the launch's
+    too) until `deadline`, ending them past it. An error text when they had to be ended."""
+    if os.name == "nt":
+        return wait_for_children(p.pid, child_pids(p.pid, own_times(p), exe), deadline)
+    return wait_for_group(p.pid, deadline)
 
 
 GAME_PROCESSES = ("nvforever", "falloutnv")
@@ -247,22 +338,38 @@ class Locks:
                  f"({time.strftime('%H:%M', time.localtime(made))}) and no nvforever or FalloutNV runs. "
                  f"Not removed: ask the session that made it, or remove it if that session is gone.")
 
-    def _stale(self, p: Path) -> bool:
-        f = p / OWNER
-        try:
-            pid = int(f.read_text().split()[0])
-        except (OSError, ValueError, IndexError):
-            return False
-        return not pid_alive(pid)
-
     @staticmethod
-    def _unused_shared(p: Path) -> bool:
-        """A slot runners' shared lock with no slot taken (they died between launches, #1933):
-        removed under the slots' mutex, so a slot runner taking a slot now is not cut off;
-        whether it is gone (the caller then takes it with its own `mkdir`)."""
-        from .slots import clear_unused_shared  # slots imports this module
+    def _stale(p: Path) -> bool:
+        """A lock whose owner file names a smoke runner that has ended."""
+        try:
+            return owner_gone((p / OWNER).read_text())
+        except OSError:
+            return False  # a plain mkdir lock, or one whose owner is still being written
 
-        return clear_unused_shared(p)
+    def _replace_gone(self, p: Path) -> bool:
+        """Take over `p` when it was left by a smoke runner that ended, or is the slot
+        runners' shared lock with no slot taken (#1933); whether it is now this runner's.
+        The judging, removing, making and owner file all happen under the slots' mutex
+        beside the lock (`smoke-slots/mutex.lock`), so two runners that both saw it left
+        cannot both take it, and one cannot remove the lock the other just made (#2004)."""
+        from .slots import FileLock, unused_shared  # slots imports this module
+
+        mutex = FileLock(p.parent / "smoke-slots" / "mutex.lock")
+        if not mutex.try_lock():
+            return False  # another runner is changing it now: look again next time
+        try:
+            if not (self._stale(p) or unused_shared(p)):
+                return False
+            self.say(f"lock {p}: left by a smoke runner that is gone; cleared")
+            shutil.rmtree(p, ignore_errors=True)
+            try:
+                p.mkdir()
+            except FileExistsError:
+                return False  # a plain mkdir locker took it in between
+            write_owner(p, owner_line())
+            return True
+        finally:
+            mutex.unlock()
 
     @staticmethod
     def holder(p: Path) -> str:
@@ -284,18 +391,11 @@ class Locks:
             try:
                 p.mkdir()
             except FileExistsError:
-                if self._stale(p) or self._unused_shared(p):
-                    self.say(f"lock {p}: left by a smoke runner that is gone; cleared")
-                    shutil.rmtree(p, ignore_errors=True)
-                    try:
-                        p.mkdir()
-                    except FileExistsError:
-                        self.release()
-                        return p
-                else:
+                if not self._replace_gone(p):
                     self.release()
                     return p
-            (p / OWNER).write_text(f"{os.getpid()} smoke runner {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            else:
+                write_owner(p, owner_line())
             self.held.append(p)
         return None
 
@@ -346,13 +446,14 @@ class Locks:
 
 
 def default_lock_paths(repo: Path) -> list[Path]:
-    """NVF_SMOKE_LOCKS (paths separated by os.pathsep) or this machine's two locks."""
+    """NVF_SMOKE_LOCKS (paths separated by os.pathsep) or this machine's two locks: the
+    capture lock (Windows, where the owner's captures run) and the main checkout's."""
     env = os.environ.get("NVF_SMOKE_LOCKS")
     if env is not None:
         return [Path(p) for p in env.split(os.pathsep) if p.strip()]
     out = []
     cap = Path(r"C:\fnv-private\capture")
-    if cap.is_dir():
+    if os.name == "nt" and cap.is_dir():
         out.append(cap / "run.lock")
     out.append(main_checkout(repo) / ".claude" / "smoke.lock")
     return out
@@ -472,13 +573,12 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
         try:
             with open(log, "w", encoding="utf-8", errors="replace") as f:
                 p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
-                                     env=aid_free_environ(aids))
+                                     env=aid_free_environ(aids), **launch_popen_kw())
                 exe = Path(env.exe).name
                 try:
                     code = p.wait(timeout=launch_timeout(launch))
                     # A load hands over to a new run that goes on writing to this log.
-                    born = own_times(p)
-                    err = wait_for_children(p.pid, child_pids(p.pid, born, exe), started + launch_timeout(launch))
+                    err = wait_rest(p, exe, started + launch_timeout(launch))
                 except subprocess.TimeoutExpired:
                     # Where it stopped, before it goes: every thread's stack.
                     stacks = env.out / f"{launch.name}.stacks.txt"
@@ -487,7 +587,10 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                     p.kill()
                     p.wait()
                     # A new run it started goes too: it is this launch's.
-                    wait_for_children(p.pid, child_pids(p.pid, born, exe), time.monotonic())
+                    if os.name == "nt":
+                        wait_for_children(p.pid, child_pids(p.pid, born, exe), time.monotonic())
+                    else:
+                        wait_for_group(p.pid, time.monotonic())
                     code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
         finally:
             if locks:

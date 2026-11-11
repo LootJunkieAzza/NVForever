@@ -24,6 +24,7 @@ macro_rules! eprintln {
 }
 
 mod activators;
+mod reports;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
@@ -956,6 +957,8 @@ fn main() -> AppExit {
     }
     // The run log and crash reports in NVForever's home (crash.rs).
     crash::install(args.data(), args.handoff.is_some());
+    // Player reports: the player's choice, asked once on a player's start (reports/).
+    reports::decide(developer_data, args.handoff.is_some());
     let fail = |e: String| {
         eprintln!("error: {e}");
         crash::early_exit(&e);
@@ -1460,7 +1463,7 @@ fn main() -> AppExit {
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, sky::tell_sky_colors.after(sky::update_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys.run_if(move || play.is_none()), sky::weather_region, sky::update_sky, sky::interior_clip, sky::update_clouds, sky::update_night_sky, world::stream.run_if(world::world_not_held), imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .add_systems(Update, world::note_other_cameras.after(world::stream))
     .add_systems(Update, (cell_buffer::remember, cell_buffer::tell_game).chain().after(world::stream))
     .add_systems(Update, world::script_markers.before(world::stream))
@@ -1503,6 +1506,7 @@ fn main() -> AppExit {
     .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
+    .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
     .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
@@ -2032,17 +2036,28 @@ fn keys(
     input: Res<ButtonInput<KeyCode>>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
-    mut n: Local<u32>,
 ) {
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
+    // F12: a shot in the home's screenshots folder at the first free number, through the
+    // write guard. It went to the working folder unguarded, and the count restarted at 1
+    // each run, over the last run's shots [#1987].
     if input.just_pressed(KeyCode::F12) {
-        *n += 1;
-        let path = format!("nvforever-{:03}.png", *n);
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        let dir = fnv_install::EngineHome::user().map_or_else(|| std::path::PathBuf::from("."), |h| h.screenshots());
+        let path = fnv_install::first_unused(&dir, "nvforever-", "png");
+        let ready = fnv_install::guard_write(&path, None)
+            .map_err(|e| e.to_string())
+            .and_then(|()| std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display())));
+        match ready {
+            Ok(()) => {
+                info!("screenshot: {}", path.display());
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+            }
+            Err(e) => warn!("screenshot not taken: {e}"),
+        }
     }
 }
 

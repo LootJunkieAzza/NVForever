@@ -338,6 +338,15 @@ impl<K> ListView<K> {
         moved
     }
 
+    /// Start the list again at its top, following nothing: the model put its selection back to the
+    /// first row while the list was not shown (a page's toggle between two lists), so where it was
+    /// scrolled no longer holds.
+    pub(super) fn restart(&mut self) {
+        self.value = 0.0;
+        self.watched = None;
+        self.geometry = None;
+    }
+
     /// The scroll and the highlight written from the view: after [`settle_list`]'s places, and
     /// after the input's step and its clicks.
     pub(super) fn rewrite(&self, ui: &mut Ui, list: TileId) {

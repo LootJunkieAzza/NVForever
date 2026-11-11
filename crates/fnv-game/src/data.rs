@@ -745,6 +745,14 @@ pub enum DefaultObject {
     PerkParalysis = 5,
     DeathMusic = 11,
     LevelUpMusic = 13,
+    /// The player's voice types [documented: xEdit DOBJ "Player Voice (Male)", "(Male
+    /// Child)", "(Female)", "(Female Child)"; observed: FalloutNV.esm names PlayerVoiceMale
+    /// 0002853B, MaleChild01 00019FCE, PlayerVoiceFemale 00040D42 and FemaleChild01
+    /// 00019FD0 there] (`Game::player_voice_type`).
+    PlayerVoiceMale = 14,
+    PlayerVoiceMaleChild = 15,
+    PlayerVoiceFemale = 16,
+    PlayerVoiceFemaleChild = 17,
     DrugWearsOffImageSpace = 20,
     /// The explosion of Meltdown's kills [observed: FalloutNV.esm's DOBJ names
     /// MinePlasmaExplosion 0007078C there] (perk-entry-points.md §9).
@@ -813,6 +821,10 @@ mod default_object_tests {
         assert_eq!(default_in(&list, DefaultObject::PerkParalysis), Some(FormId(0x105)));
         assert_eq!(default_in(&list, DefaultObject::DeathMusic), Some(FormId(0x10B)));
         assert_eq!(default_in(&list, DefaultObject::LevelUpMusic), Some(FormId(0x10D)));
+        assert_eq!(default_in(&list, DefaultObject::PlayerVoiceMale), Some(FormId(0x10E)));
+        assert_eq!(default_in(&list, DefaultObject::PlayerVoiceMaleChild), Some(FormId(0x10F)));
+        assert_eq!(default_in(&list, DefaultObject::PlayerVoiceFemale), Some(FormId(0x110)));
+        assert_eq!(default_in(&list, DefaultObject::PlayerVoiceFemaleChild), Some(FormId(0x111)));
         assert_eq!(default_in(&list, DefaultObject::DrugWearsOffImageSpace), Some(FormId(0x114)));
         assert_eq!(default_in(&list, DefaultObject::MeltdownExplosion), Some(FormId(0x118)));
         assert_eq!(default_in(&[], DefaultObject::DeathMusic), None);

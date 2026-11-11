@@ -486,7 +486,7 @@ fn keep(ui: &mut Ui, t: TileId, name: &str, want: f64) {
 /// The width of the tab line's lines, and each tab's `_x` in the line, by the tabs' own widths: a
 /// line, a tab, a line, a tab, the rest for the last line [observed: private job run07_inventory, 1280x720, read for one set
 /// of words; hypothesis: the floor].
-fn tab_xs(line_width: f64, widths: &[f64]) -> (f64, Vec<f64>) {
+pub(super) fn tab_xs(line_width: f64, widths: &[f64]) -> (f64, Vec<f64>) {
     let gap = ((line_width - widths.iter().sum::<f64>()) / (widths.len() + 1) as f64).floor().max(0.0);
     let mut x = gap;
     let xs = widths

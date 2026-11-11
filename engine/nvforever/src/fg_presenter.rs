@@ -48,7 +48,8 @@
 //! settings): 77.7-78.0 real fps at the cap of 78 with a frame of about 8 ms and with 4 ms more
 //! (55.6 before), the 95th percentile between presents 7.0 ms (13.5 before); the generated
 //! frame is presented when the GPU has done the frame (4.4-4.8 ms after it is handed over,
-//! polled about every 0.5 ms), as the driver showed it before.
+//! polled about every 0.5 ms, and every 50 us once it is nearly due: `wait_for_gpu`), as the
+//! driver showed it before.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -86,7 +87,8 @@ pub(crate) enum Handed {
 struct Job {
     index: u64,
     frames: Vec<wgpu::TextureView>,
-    /// When the render thread handed it over, and how long it waited for the presenter first.
+    /// When the render thread handed it over, and how long it waited for the presenter first
+    /// (with what the limiter held the frame back for the presenter).
     sent: Instant,
     held: Duration,
     /// One refresh of the window's monitor (zero when not known): the least spacing.
@@ -195,7 +197,10 @@ impl Presenter {
         }
         drop(copied);
         let sent = Instant::now();
-        if jobs.send(Job { index, frames, sent, held: sent - started, refresh }).is_err() {
+        // With what the limiter held frames back for this thread to catch up
+        // (frame_pace.rs `catch_up`): not the frames' own time either.
+        let held = sent - started + Duration::from_nanos(crate::frame_pace::HELD_FOR_PRESENTER_NANOS.swap(0, Ordering::Relaxed));
+        if jobs.send(Job { index, frames, sent, held, refresh }).is_err() {
             return Handed::Ended;
         }
         self.sent = index;
@@ -217,6 +222,7 @@ impl Drop for Presenter {
 fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::Device, queue: &wgpu::Queue, shared: &Shared) {
     let mut blit = Blit::default();
     let mut pacer = Pacer::default();
+    let mut gpu_time = Duration::ZERO;
     let mut last_present: Option<Instant> = None;
     let mut next: Option<Job> = None;
     loop {
@@ -254,8 +260,12 @@ fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::D
         // at 160 Hz, each present took about 2 ms].
         let paired = frames.len() == 2;
         let spacing = if paired { pacer.spacing().max(job.refresh) } else { job.refresh };
+        let mut gpu_waited = Duration::ZERO;
         if paired {
-            let (waited, polls) = wait_for_gpu(device, queue);
+            let (waited, polls) = wait_for_gpu(device, queue, gpu_time);
+            gpu_waited = waited;
+            // A running mean over about eight frames.
+            gpu_time = (gpu_time * 7 + waited) / 8;
             shared.gpu_wait_nanos.fetch_add(waited.as_nanos() as u64, Ordering::Relaxed);
             shared.gpu_polls.fetch_add(polls, Ordering::Relaxed);
         }
@@ -287,7 +297,20 @@ fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::D
             let issued = Instant::now();
             last_present = Some(issued);
             if i == 0 {
-                shared.queued_nanos.fetch_add(issued.saturating_duration_since(job.sent).as_nanos() as u64, Ordering::Relaxed);
+                let queued = issued.saturating_duration_since(job.sent);
+                shared.queued_nanos.fetch_add(queued.as_nanos() as u64, Ordering::Relaxed);
+                // What the frame waited here beyond the GPU's work on it, for the limiter to
+                // make up before the next frame's input (frame_pace.rs `catch_up`). A frame
+                // shown alone while catching up was not waited for: the GPU's usual time.
+                // Menus' and cuts' frames go at once and wait for nothing.
+                let lag = if paired {
+                    queued.saturating_sub(gpu_waited)
+                } else if behind {
+                    queued.saturating_sub(gpu_time)
+                } else {
+                    Duration::ZERO
+                };
+                crate::frame_pace::PRESENTER_LAG_NANOS.store(lag.as_nanos() as u64, Ordering::Relaxed);
             }
             guard.present(queue, image);
             shared.presents.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(issued);
@@ -301,16 +324,31 @@ fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::D
 /// how often it polled. Polled, not waited on: wgpu's blocking wait holds a device lock
 /// (`snatchable_lock`, read) for as long as it waits, and a thread that asks for it to write
 /// (a resource destroyed) would stop every other thread's submits behind it until then.
-fn wait_for_gpu(device: &wgpu::Device, queue: &wgpu::Queue) -> (Duration, u64) {
+///
+/// `expected` is what the last frames' GPU work took: until half a millisecond before that it
+/// sleeps between polls (0.2 ms asked, about 0.5 ms on Windows), then it polls every 50 us,
+/// spinning, so the present goes out within that of the GPU finishing, not up to a sleep
+/// later (below the real-frame cap that sleep was the generated frame's timing error). A frame
+/// that takes more than 1.5 ms longer than expected goes back to sleeping.
+fn wait_for_gpu(device: &wgpu::Device, queue: &wgpu::Queue, expected: Duration) -> (Duration, u64) {
     let done = Arc::new(AtomicBool::new(false));
     let flag = done.clone();
     queue.on_submitted_work_done(move || flag.store(true, Ordering::Release));
     let started = Instant::now();
+    let close = expected.saturating_sub(Duration::from_micros(500))..expected + Duration::from_micros(1500);
     let mut polls = 0;
     while !done.load(Ordering::Acquire) && started.elapsed() < Duration::from_millis(100) {
         let _ = device.poll(wgpu::PollType::Poll);
         polls += 1;
-        if !done.load(Ordering::Acquire) {
+        if done.load(Ordering::Acquire) {
+            break;
+        }
+        if close.contains(&started.elapsed()) {
+            let until = Instant::now() + Duration::from_micros(50);
+            while Instant::now() < until {
+                std::hint::spin_loop();
+            }
+        } else {
             std::thread::sleep(Duration::from_micros(200));
         }
     }

@@ -46,8 +46,10 @@
 //!   acts ([`PromptKeys`]).
 //!
 //! Test aids (only with `--play`, since this plugin exists only then):
-//! - F10 while playing opens the container menu on the container reference nearest to
-//!   the camera (in the current interior, or the worldspace), logging which one.
+//! - F10 while playing, with the developer keys on (`NVF_PLAY_DEV_KEYS`, or a test aid's
+//!   `NVF_PLAY_TEST_KEYS`; [`DevKeys`]), opens the container menu on the container
+//!   reference nearest to the camera (in the current interior, or the worldspace), logging
+//!   which one.
 //! - `NVF_PLAY_TEST_MENU=<container FormID hex | nearest>` runs a scripted check (see
 //!   [`test_aid`]).
 //! - `NVF_PLAY_TEST_BARTER=<merchant FormID hex>[:discount]` opens the barter menu and
@@ -179,6 +181,7 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(Update, WheelHoldSet.before(MenuSystems)).add_systems(Update, wheel_hold.in_set(WheelHoldSet));
         app.init_resource::<ActiveMenu>()
+            .insert_resource(DevKeys::from_env())
             .init_resource::<FreshMenu>()
             .init_resource::<PromptKeys>()
             .init_resource::<WheelHold>()
@@ -213,16 +216,31 @@ impl Plugin for MenuPlugin {
     }
 }
 
-/// Test aid: F10 opens the nearest container (F9 is the game's Quick Load).
+/// Whether the developer keys work in play (F10, the nearest container): only with
+/// `NVF_PLAY_DEV_KEYS` set, or while a test aid presses keys (`NVF_PLAY_TEST_KEYS`, as the
+/// smoke scenarios do). In plain play the key did nothing the game has, and opened any
+/// container in the cell or the worldspace, at any distance [#1988; design].
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct DevKeys(pub bool);
+
+impl DevKeys {
+    pub fn from_env() -> DevKeys {
+        DevKeys(std::env::var_os("NVF_PLAY_DEV_KEYS").is_some() || std::env::var_os("NVF_PLAY_TEST_KEYS").is_some())
+    }
+}
+
+/// Test aid: F10 opens the nearest container (F9 is the game's Quick Load), with the
+/// developer keys on ([`DevKeys`]); `OpenNearestContainer` always.
 fn f9_opens_nearest_container(
     keys: Res<ButtonInput<KeyCode>>,
+    dev: Res<DevKeys>,
     here: Res<Location>,
     sim: Res<SimState>,
     cam: Query<&GlobalTransform, With<PlayerCamera>>,
     mut requests: MessageReader<OpenNearestContainer>,
     mut out: MessageWriter<OpenContainer>,
 ) {
-    if !keys.just_pressed(KeyCode::F10) && requests.read().count() == 0 {
+    if !(dev.0 && keys.just_pressed(KeyCode::F10)) && requests.read().count() == 0 {
         return;
     }
     let Ok(cam) = cam.single() else { return };

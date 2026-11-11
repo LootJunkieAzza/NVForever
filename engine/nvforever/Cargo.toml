@@ -33,6 +33,13 @@ fnv-script.workspace = true
 fnv-voice.workspace = true
 clap.workspace = true
 serde_json = "1"
+# Player reports (reports/, docs/design/player-reports.md): random install and session ids
+# (MIT/Apache-2.0, the version Bevy already uses), the summary's gzip (MIT/Apache-2.0,
+# already built through fnv-inflate) and the CPU and memory lines (MIT, the version
+# bevy_diagnostic already uses).
+uuid = { version = "1", features = ["v4"] }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # Only for the window icon type (window_icon.rs); the version Bevy already uses.
 winit = { version = "0.30", default-features = false }
 # 16-bit floats for the FaceGen offset textures (facegen.rs); the version Bevy already uses.
@@ -52,7 +59,13 @@ tracy-client = { version = "0.19", optional = true, default-features = false, fe
 
 # The first-start dialogs that ask for the game's folder (setup.rs); MIT.
 [target.'cfg(windows)'.dependencies]
-rfd = { version = "0.15", default-features = false }
+# Player reports (reports/upload.rs): HTTPS through the system's TLS (SChannel, the system's
+# certificates), not rustls, whose ring and webpki parts are ISC/CDLA, outside deny.toml.
+# ureq and native-tls MIT/Apache-2.0, schannel MIT.
+ureq = { version = "3", default-features = false, features = ["native-tls"] }
+# `common-controls-v6`: the Task Dialog, whose buttons can carry words of our own (the
+# reports popup's "Send reports" / "Not now"); needs the manifest build.rs embeds.
+rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 # The generated-terrain bake threads' priority (lodgen.rs) and the span profile's processor time
 # (profile.rs), the machine's RAM (memory_budget.rs) and the performance overlay's CPU/GPU use
 # and working set (perf_overlay/usage.rs: performance counters, process memory counters); a

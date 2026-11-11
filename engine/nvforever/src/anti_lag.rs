@@ -18,9 +18,11 @@
 //!     input [documented: bevy_app 0.20.1 `sub_app.rs` `SubApps::update`; bevy_render 0.20.1
 //!     `pipelined_rendering.rs`, `renderer_extract` and the frame diagram]. So the call wraps
 //!     that extract and goes right after the hand-off, with the next frame's index: a wait in
-//!     it falls before the next input, not inside the frame just handed over. Without pipelined
-//!     rendering (no `RenderExtractApp`) it falls back to the end of `Last`, after the frame
-//!     cap (`frame_pace::cap_rate`), so before the frame just simulated is extracted and drawn.
+//!     it falls before the next input, not inside the frame just handed over. The frame cap's
+//!     wait goes in the same place, just before it (`frame_pace::after_hand_off`). Without
+//!     pipelined rendering (no `RenderExtractApp`) both fall back to the end of `Last`, the
+//!     call after the cap (`frame_pace::cap_rate`), so before the frame just simulated is
+//!     extracted and drawn.
 //!   - Present: Bevy's renderer draws a frame while the main world runs the next one. The
 //!     frame's index is extracted with it, and the render world sends it just before Bevy's
 //!     `render_system`, which submits and presents in one step [engineering choice: the latest
@@ -200,7 +202,9 @@ impl Plugin for AntiLagPlugin {
 
     fn finish(&self, app: &mut App) {
         // Here, not in `build`: by now pipelined rendering's `build` has set up the extract this wraps.
-        if !announce_input_after_hand_off(app) {
+        if announce_input_after_hand_off(app) {
+            app.insert_resource(crate::frame_pace::WaitsAfterHandOff);
+        } else {
             app.add_systems(Last, announce_input.after(crate::frame_pace::cap_rate));
         }
         let Some(render) = app.get_sub_app(RenderApp) else { return };
@@ -246,6 +250,7 @@ fn announce_input_after_hand_off(app: &mut App) -> bool {
         if let Some(hand_off) = hand_off.as_mut() {
             hand_off(main_world, extract_world);
         }
+        crate::frame_pace::after_hand_off(main_world);
         announce_input(main_world);
     });
     true

@@ -273,6 +273,7 @@ fn simulate(device: &Device, queue: &Queue, case: Case) -> (Score, Vec<(f64, f64
             backbuffer_transfer_function: 2,
             min_max_luminance: [0.0, 80.0],
             frame_id: t as u64,
+            previous_source: None,
         });
         queue.submit([encoder.finish()]);
         if !SCORED.contains(&t) {

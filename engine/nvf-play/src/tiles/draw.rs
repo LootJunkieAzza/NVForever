@@ -1001,6 +1001,8 @@ pub(crate) struct View<'w, 's> {
     inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
     /// The Pip-Boy's repair page's one decision (`super::repair_menu`).
     repair_page: Option<ResMut<'w, super::repair_menu::RepairTiles>>,
+    /// The DATA page's one decision (`super::map_menu`).
+    map: Option<ResMut<'w, super::map_menu::MapTiles>>,
     /// T15c: the container menu, when this frame's writer has it drawn from its tiles.
     container: Option<Res<'w, super::container_menu::ContainerTiles>>,
     barter: Option<Res<'w, super::barter_menu::BarterTiles>>,
@@ -1045,6 +1047,8 @@ pub(crate) struct MenusDrawn {
     inventory: Drawn,
     /// The Pip-Boy's repair page, in the Pip-Boy's image.
     repair_page: Drawn,
+    /// The Pip-Boy's DATA page, in the Pip-Boy's image.
+    map: Drawn,
     container: Drawn,
     barter: Drawn,
     recipe: Drawn,
@@ -1151,7 +1155,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
         paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
-    pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory), &mut nodes, heading, &glyphs);
+    pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
     repair_page(&mut commands, game, &mut view, &mut kit, &mut others.repair_page, &mut nodes, heading, &glyphs);
     // T11: the Mods page, the start menu's mod tiles over the pause menu.
     let mods_on = switch.start && view.paused.as_ref().zip(view.page.as_ref()).is_some_and(|(p, page)| crate::pause::mods_open(p, page));
@@ -1167,7 +1171,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
 /// decided before this drawing). What was painted is published for the next frame's tile input,
 /// which acts on what the player saw.
 #[allow(clippy::too_many_arguments)]
-fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, (stats_drawn, inventory_drawn): (&mut Drawn, &mut Drawn), nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, (stats_drawn, inventory_drawn, map_drawn): (&mut Drawn, &mut Drawn, &mut Drawn), nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
     let ui = game.map(|g| &g.ui_tree);
     let live = |ready: Option<TileId>| ready.filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
@@ -1183,6 +1187,12 @@ fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view
     pipboy_page(commands, ui, super::inventory_menu::INVENTORY_MENU, menu, pieces, target, kit, inventory_drawn, nodes, heading, glyphs);
     if let Some(inventory) = view.inventory.as_mut().filter(|s| s.shown != menu) {
         inventory.shown = menu;
+    }
+    let menu = live(view.map.as_ref().and_then(|s| s.ready));
+    let pieces = menu.and(view.map.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
+    pipboy_page(commands, ui, super::map_menu::MAP_MENU, menu, pieces, target, kit, map_drawn, nodes, heading, glyphs);
+    if let Some(map) = view.map.as_mut().filter(|s| s.shown != menu) {
+        map.shown = menu;
     }
 }
 

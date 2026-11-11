@@ -100,7 +100,8 @@ More options: `--world <WRLD>`, `--pitch`, `--weather`, `--fov`, `--size WxH`,
 `--actors-pass-through`. `nvforever --help` lists them all.
 
 Keys in `--play` are the game's defaults (W/A/S/D, E use, Tab Pip-Boy, T wait, F5/F9
-quicksave/quickload, Esc pause, `` ` `` console, F12 screenshot); the full list is in
+quicksave/quickload, Esc pause, `` ` `` console, F12 screenshot, saved as
+`nvforever-NNN.png` in the home's `screenshots` folder at the first free number); the full list is in
 [spec-notes/controls.md](spec-notes/controls.md). In the explorer:
 W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed, `[`/`]` hour.
 

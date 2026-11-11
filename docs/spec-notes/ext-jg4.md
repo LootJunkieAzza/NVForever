@@ -21,7 +21,7 @@ that set's rows. Setters change the record for the session, read by the getters.
 | AddRegionWeather `region weather chance [global]` | the weather listed first, with its chance and global [documented; observed: jg4 regn.add.gs, the place]; a weather already listed is not listed again and keeps its entry [observed: jg4 regn.add.gs.dup]; a region without a weather block gains none, the call changes nothing [observed: jg4 regn.add.dc01]. The chance kept to 0-100 [hypothesis: index 0 reads 0, so the new entry's chance was not seen] |
 | RemoveRegionWeather `region weather`, ClearRegionWeathers `region` | the weather's entry removed [documented; observed: jg4 regn.add.gs undone]; ClearRegionWeathers removes every entry but the first [observed: jg4 regn.clear.megaton kept its first weather] |
 | GetRegionWeatherOverride, SetRegionWeatherOverride `region [flag]` | the weather block's RDAT flags bit 0 [documented: "an override flag"; the bit: `fnv_world::sky::REGION_WEATHER_OVERRIDE`]; any non-zero flag sets it [observed: jg4 regn.setoverride.gs.2] |
-| GetRegionWeatherPriority, SetRegionWeatherPriority `region [priority]` | the weather block's RDAT priority, a byte; a priority outside 0-255 changes nothing [observed: jg4 regn.setpriority.gs.300, .neg]. A fraction (20.6) as the argument does not compile in the game [observed: jg4 regn.setpriority.gs.frac]; NVForever's compiler takes it (not followed, as for SetCasinoWinnings in ext-jg3.md) |
+| GetRegionWeatherPriority, SetRegionWeatherPriority `region [priority]` | the weather block's RDAT priority, a byte; a priority outside 0-255 changes nothing [observed: jg4 regn.setpriority.gs.300, .neg]. A fraction (20.6) as the argument does not compile in the game [observed: jg4 regn.setpriority.gs.frac]; refused by NVForever's runtime compile too (ext-syntax.md §11, #2037) |
 | SetRaceFlag `race flag on` | 0 playable, 2 child: the RACE DATA flag set or cleared [documented: the page's table]; the other bits are set the same way [observed: jg4 race.set.testqa.1.1, .3.1], 0-31 [hypothesis]; any non-zero `on` sets [observed: jg4 race.set.testqa.0.5]. GetRaceFlag (`nvse_plugins`) reads each bit as its value, not 1 (child 2 reads 4) [observed: jg4 race.get.child.2] |
 | GetFactionMembers `faction [rank]` | the base actors whose factions hold the faction, at that rank when one is given [documented]; the factions are an actor's template's when the template supplies them [observed: jg4 fact.members.mercfac, the 16 mercenaries that take NVMercenaryMale's]; a rank of -1 is no rank [observed: jg4 fact.members.militia.-1; hypothesis: any negative]. In the game's order: the NPC_ records, then the CREA records, each in the plugins' record order [observed: jg4 fact.members.militia; hypothesis: across plugins] |
 
@@ -38,8 +38,8 @@ reads RDWT from the plugins too. The sandbox (`fnv-ai` sandbox.rs) still picks i
 and the stay at one from the record, so a marker a script emptied still draws actors, who
 then fall back to their package's idles. The race flags reach GetRaceFlag only. Fractions
 given to an int argument: both such rows (jg3 casino.setwin.tops.frac, jg4
-regn.setpriority.gs.frac) did not compile in the game; a compiler rule for it needs more
-rows than these two.
+regn.setpriority.gs.frac) did not compile in the game; with six more rows from other sets
+NVForever's runtime compile now refuses them as well (ext-syntax.md §11, #2037).
 
 Not in this batch: GetLightingTemplateCell and SetLightingTemplateCell (the page names a
 cell the template copies its values from; the LGTM record has only DATA in the schema, so

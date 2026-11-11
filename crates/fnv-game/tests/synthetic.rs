@@ -1532,6 +1532,37 @@ fn the_runner_fires_a_carried_weapon_and_runs_its_on_fire_block() {
     assert_eq!(obs.iter().find(|o| o["label"] == "after").unwrap()["value"], 9.0);
 }
 
+/// #1848: a labelled step that fails answers with its error, whatever the action; the
+/// menu steps open and close the container menu as the game does; `#0` is no index.
+#[test]
+fn the_runners_failed_steps_answer_and_its_menus_open_and_close() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "actions": [
+            {"op": "consume", "item": "NoSuchItem", "label": "consume"},
+            {"op": "get_quest", "quest": "NoSuchQuest", "fields": ["stage"], "label": "quest"},
+            {"op": "sample_ref_var", "ref": "TestActivatorREF", "var": "nNoSuchVar", "frames": 2, "label": "sample"},
+            {"op": "get_ref", "of": "scripted:ActScript#0", "label": "zero"},
+            {"op": "get_ref", "of": "scripted:ActScript#1", "label": "one"},
+            {"op": "call", "line": "TestNpcREF.KillActor"},
+            {"op": "hold_menu", "via": "TestNpcREF", "frames": 3}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let steps = out["steps"].as_array().unwrap();
+    let obs = |l: &str| out["observations"].as_array().unwrap().iter().find(|o| o["label"] == l).cloned();
+    for (i, l) in ["consume", "quest", "sample", "zero"].into_iter().enumerate() {
+        assert!(steps[i].get("error").is_some(), "{l}: {}", out["steps"]);
+        assert!(obs(l).is_some_and(|o| o["errors"]["action"].is_string()), "{l}: {}", out["observations"]);
+    }
+    assert!(steps[4].get("error").is_none(), "{}", out["steps"]);
+    assert!(steps[6].get("error").is_none(), "{}", out["steps"]);
+    let events = out["events"].to_string();
+    assert!(events.contains(r#""kind":"menu_opened","menu":1008"#) && events.contains(r#""kind":"menu_closed","menu":1008"#), "{events}");
+}
+
 /// `save_load`: the game is written into a save's bytes and restored from them; what a
 /// save keeps (globals, reference variables, an item given) is there after it, the
 /// frame does not move, and the trace goes on in one piece.
@@ -1860,6 +1891,83 @@ fn an_actor_whose_traits_come_from_a_leveled_list_speaks_with_the_picked_entrys_
     f.data.actors.get_mut(&FormId(NPC)).unwrap().template = Some(FormId(LIST));
     let g = game(&f);
     assert_eq!(g.voice_base(FormId(NPC), speaker), FormId(NPC));
+}
+
+#[test]
+fn the_player_speaks_with_the_default_objects_voice_of_her_or_his_sex() {
+    // Issue #2088: the player record names PlayerVoiceMale; a female player's Hit,
+    // PowerAttack and Death lines are in PlayerVoiceFemale's folder. The DefaultObjectManager
+    // names both (places 14 and 16); the player speaks with the one of her or his sex.
+    const VOICE_MALE: u32 = 0x9E1;
+    const VOICE_FEMALE: u32 = 0x9E2;
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, _info: FormId, _response: usize, _speaker_base: Option<FormId>) -> Option<f64> {
+            Some(0.9)
+        }
+        fn response_seconds_in_voice(&self, info: FormId, response: usize, voice_type: FormId) -> Option<f64> {
+            if info != FormId(INFO_A) || response != 0 {
+                return None;
+            }
+            match voice_type.0 {
+                VOICE_MALE => Some(0.3),
+                VOICE_FEMALE => Some(0.5),
+                _ => None,
+            }
+        }
+    }
+    let mut f = fixture();
+    let mut list = vec![None; 34];
+    list[14] = Some(FormId(VOICE_MALE));
+    list[16] = Some(FormId(VOICE_FEMALE));
+    f.data.default_objects = list;
+    let player = Some(FormId::PLAYER_BASE);
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    g.player.female = Some(true);
+    assert_eq!(g.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    assert_eq!(g.voice_override(player), Some(FormId(VOICE_FEMALE)));
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.5]);
+    g.player.female = Some(false);
+    assert_eq!(g.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_MALE)));
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.3]);
+    // A child race (Tale of Two Wastelands' Vault 101 childhood): the child places,
+    // the adult one of the same sex when the list names no child voice.
+    const CHILD_RACE: u32 = 0x9E5;
+    const VOICE_MALE_CHILD: u32 = 0x9E3;
+    const VOICE_FEMALE_CHILD: u32 = 0x9E4;
+    let mut f = fixture();
+    let mut list = vec![None; 34];
+    list[14] = Some(FormId(VOICE_MALE));
+    list[15] = Some(FormId(VOICE_MALE_CHILD));
+    list[16] = Some(FormId(VOICE_FEMALE));
+    f.data.default_objects = list.clone();
+    f.data.child_races.insert(FormId(CHILD_RACE));
+    let mut c = game(&f);
+    c.player.race = Some(FormId(CHILD_RACE));
+    c.player.female = Some(false);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_MALE_CHILD)));
+    c.player.female = Some(true);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    list[17] = Some(FormId(VOICE_FEMALE_CHILD));
+    f.data.default_objects = list;
+    let mut c = game(&f);
+    c.player.race = Some(FormId(CHILD_RACE));
+    c.player.female = Some(true);
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE_CHILD)));
+    // Grown up again: the adult voice.
+    c.player.race = None;
+    assert_eq!(c.voice_type_of(FormId::PLAYER_REF), Some(FormId(VOICE_FEMALE)));
+    // Other speakers keep their record's voice.
+    assert_eq!(g.voice_override(Some(FormId(NPC))), None);
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC)), FormId(INFO_A)), vec![0.9]);
+    // A list without the places: the player record's own voice.
+    let f = fixture();
+    let mut g = game(&f);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    g.player.female = Some(true);
+    assert_eq!(g.voice_override(player), None);
+    assert_eq!(g.response_lengths_as(player, FormId(INFO_A)), vec![0.9]);
 }
 
 #[test]

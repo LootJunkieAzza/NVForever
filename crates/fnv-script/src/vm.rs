@@ -172,6 +172,13 @@ pub trait Host {
     fn take_return(&mut self) -> bool {
         false
     }
+    /// The step counter of the outermost run, which every run nested under it (a
+    /// user-defined function, a result script a statement started) draws on, so the
+    /// budget ([`RunOpts::max_steps`]) holds for the whole call tree [#1991]; `None`: each
+    /// run counts its own.
+    fn shared_steps(&mut self) -> Option<&mut u64> {
+        None
+    }
     /// How a variable is stored (the extender's `string_var` and `array_var` hold ids).
     fn var_kind(&mut self, _var: &VarRef) -> VarKind {
         VarKind::Value
@@ -328,7 +335,8 @@ pub struct RunOpts {
     /// Unknown opcodes and undecodable pieces fail the run (tests) instead of being
     /// logged and skipped (the game).
     pub strict: bool,
-    /// Statements (and calls) one run may execute: a runaway loop of the extender's
+    /// Statements (and calls) one run may execute, with the runs nested under it when the
+    /// host shares its counter ([`Host::shared_steps`]): a runaway loop of the extender's
     /// (`while`, each round counted) or runaway recursion through the host (a stage that
     /// sets itself) stops there.
     pub max_steps: u64,
@@ -438,7 +446,7 @@ impl<'t, 'h> Vm<'t, 'h> {
         self.list_from(stmts, in_else, i + 1)
     }
 
-    /// Statements executed so far.
+    /// Statements executed so far by this run (not counting the runs nested under it).
     pub fn steps(&self) -> u64 {
         self.steps
     }
@@ -504,7 +512,14 @@ impl<'t, 'h> Vm<'t, 'h> {
 
     fn step(&mut self) -> Result<(), VmError> {
         self.steps += 1;
-        if self.steps > self.opts.max_steps {
+        let used = match self.host.shared_steps() {
+            Some(shared) => {
+                *shared += 1;
+                *shared
+            }
+            None => self.steps,
+        };
+        if used > self.opts.max_steps {
             return Err(VmError::Budget(self.opts.max_steps));
         }
         Ok(())
@@ -1199,6 +1214,11 @@ fn hex_prefix(h: &str) -> f64 {
 /// asks of the message formatter].
 const MAX_FORMAT_FIELD: usize = 512;
 
+/// The most elements an array function makes or grows an array to (Ar_Init, Ar_Range,
+/// Ar_Generate, Ar_Resize) [design: a bound against a runaway script, far above what a mod
+/// keeps].
+const MAX_ELEMENTS: usize = 1_000_000;
+
 /// A number by a printf-style code, as the C library writes it [observed: the game's
 /// sv_Construct, probe format1 and jip5 (#1006): `%g` 0.5 "0.5", 2.5 "2.5", 1000000
 /// "1e+06", 123.456789 "123.457", 1234567 "1.23457e+06", 10020030 "1.002e+07"; `%G`
@@ -1690,8 +1710,12 @@ impl Vm<'_, '_> {
         let XVal::Array(id) = holder else { return Err(VmError::Type("[] of something that is not an array".into())) };
         let key = self.key_for(*id, k)?;
         let store = self.store()?;
+        // Held once the array is there: an empty array variable left `v` held for good [#1990].
+        if store.array(*id).is_none() {
+            return Err(VmError::Type("[] of an empty array variable".into()));
+        }
         store.retain(&v);
-        let a = store.array_mut(*id).ok_or_else(|| VmError::Type("[] of an empty array variable".into()))?;
+        let a = store.array_mut(*id).expect("looked up just above");
         let old = match (a.kind, &key) {
             (ArrayKind::List, XKey::Num(x)) => {
                 let len = a.entries.len();
@@ -1761,6 +1785,24 @@ impl Vm<'_, '_> {
         format!("{kind} #{id} [{}]", parts.join(", "))
     }
 
+    /// The loop of [`Vm::foreach`] over array `id`, its source held by the caller.
+    fn foreach_array(&mut self, var: &VarRef, id: u32, body: &[Stmt]) -> Result<Flow, VmError> {
+        let mut i = 0;
+        loop {
+            self.step()?;
+            let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { return Ok(Flow::Normal) };
+            let store = self.store()?;
+            let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
+            self.write_var(var, XVal::Array(e))?;
+            match self.list(body, false)? {
+                f @ (Flow::Return | Flow::GoTo(_)) => return Ok(f),
+                Flow::Break => return Ok(Flow::Normal),
+                Flow::Normal | Flow::Leave | Flow::Continue | Flow::Wait => {}
+            }
+            i += 1;
+        }
+    }
+
     /// `foreach <var> <- <source>` … `loop`. Over an array each entry is a string map with
     /// its "key" and "value"; over a string each character [documented: ForEach]. The
     /// source is read element by element as the loop goes, so erasing during it skips
@@ -1770,23 +1812,15 @@ impl Vm<'_, '_> {
         let src = self.xeval(&head.source)?;
         match src {
             XVal::Array(id) => {
+                // The source is held for the loop and let go however it ends: an error in
+                // the body (a function on no reference, the step budget) kept it held for
+                // ever, swept never and saved [#1990].
                 self.store()?.retain(&src);
-                let mut i = 0;
-                let flow = loop {
-                    self.step()?;
-                    let Some((k, v)) = self.store()?.array(id).and_then(|a| a.entries.get(i).cloned()) else { break Flow::Normal };
-                    let store = self.store()?;
-                    let e = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v)]);
-                    self.write_var(var, XVal::Array(e))?;
-                    match self.list(body, false)? {
-                        f @ (Flow::Return | Flow::GoTo(_)) => break f,
-                        Flow::Break => break Flow::Normal,
-                        Flow::Normal | Flow::Leave | Flow::Continue | Flow::Wait => {}
-                    }
-                    i += 1;
-                };
-                self.store()?.release(&src);
-                Ok(flow)
+                let flow = self.foreach_array(var, id, body);
+                if let Ok(store) = self.store() {
+                    store.release(&src);
+                }
+                flow
             }
             XVal::Str(s) => {
                 for ch in s.chars() {
@@ -1998,7 +2032,8 @@ impl Vm<'_, '_> {
                 let Some(id) = array_of(&a) else { return num(0.0) };
                 let store = self.store()?;
                 let Some(arr) = store.array_mut(id).filter(|a| a.kind == ArrayKind::List && size >= 0.0) else { return num(0.0) };
-                let size = size as usize;
+                // At most as many as Ar_Init makes: `Ar_Resize a 1e12` tried to allocate that [#1991].
+                let size = (size as usize).min(MAX_ELEMENTS);
                 let cut: Vec<XVal> = if arr.entries.len() > size { arr.entries.split_off(size).into_iter().map(|e| e.1).collect() } else { Vec::new() };
                 let grow = size.saturating_sub(arr.entries.len());
                 for _ in 0..grow {
@@ -2067,6 +2102,8 @@ impl Vm<'_, '_> {
                 for i in 1..vals.len() {
                     let mut j = i;
                     while j > 0 {
+                        // Each call of the script's test is a step of this run [#1991].
+                        self.step()?;
                         let store = self.store()?;
                         let x = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j].clone())]);
                         let y = store.new_array(ArrayKind::List, vec![(XKey::Num(0.0), vals[j - 1].clone())]);
@@ -2136,7 +2173,7 @@ impl Vm<'_, '_> {
                 while (step > 0.0 && x <= b) || (step < 0.0 && x >= b) {
                     es.push((XKey::Num(es.len() as f64), XVal::Num(x)));
                     x += step;
-                    if es.len() > 1_000_000 {
+                    if es.len() > MAX_ELEMENTS {
                         break;
                     }
                 }
@@ -2144,7 +2181,7 @@ impl Vm<'_, '_> {
             }
             "ar_init" => {
                 let (count, v) = (val(self, 0)?.num()?.max(0.0) as usize, val(self, 1)?);
-                let es = (0..count.min(1_000_000)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
+                let es = (0..count.min(MAX_ELEMENTS)).map(|i| (XKey::Num(i as f64), v.clone())).collect();
                 Ok(XVal::Array(self.store()?.new_array(ArrayKind::List, es)))
             }
             // [documented: Ar Unique] the first of each value, in its place.
@@ -2210,6 +2247,9 @@ impl Vm<'_, '_> {
                 let entries: Vec<(XKey, XVal)> = self.store()?.array(id).map(|a| a.entries.clone()).unwrap_or_default();
                 let mut kept = Vec::new();
                 for (k, v) in entries {
+                    // Each call of the function is a step of this run: a million elements
+                    // called it a million times on no budget [#1991].
+                    self.step()?;
                     let store = self.store()?;
                     let it = store.new_array(ArrayKind::StringMap, vec![(XKey::Str("key".into()), k.value()), (XKey::Str("value".into()), v.clone())]);
                     let r = self.host.call_function(&f, None, vec![XVal::Array(it)]).map_err(VmError::Host)?;
@@ -2235,7 +2275,8 @@ impl Vm<'_, '_> {
                 let kf = if nargs > 2 { Some(val(self, 2)?) } else { None };
                 let mut es = Vec::new();
                 let mut kind = ArrayKind::List;
-                for i in 0..count.min(1_000_000) {
+                for i in 0..count.min(MAX_ELEMENTS) {
+                    self.step()?;
                     let v = self.host.call_function(&vf, None, Vec::new()).map_err(VmError::Host)?;
                     let key = match &kf {
                         None => XKey::Num(i as f64),
@@ -3144,7 +3185,8 @@ impl Vm<'_, '_> {
             // the page names the option without showing it].
             "inttobin" => {
                 let v = arg(self, 0)?.num()? as i64 as u32;
-                let width = c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+                // The width capped as the format fields are: it went straight into the padding [#1991].
+                let width = (c.args.get(1).map(|e| self.xeval(e)).transpose()?.map(|v| v.num()).transpose()?.unwrap_or(0.0).max(0.0) as usize).min(MAX_FORMAT_FIELD);
                 let prefix = c.args.get(2).map(|e| self.xeval(e)).transpose()?.is_some_and(|v| v.truthy());
                 Ok(XVal::Str(format!("{}{:0width$b}", if prefix { "0b" } else { "" }, v)))
             }

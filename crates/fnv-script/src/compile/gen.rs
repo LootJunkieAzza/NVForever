@@ -92,6 +92,8 @@ pub(super) struct Gen<'a> {
     seeded: bool,
     /// [`Seed::unknown_calls`].
     unknown_calls: bool,
+    /// The extender's runtime compiler's refusals apply ([`super::compile_runtime`]).
+    pub(super) runtime: bool,
     /// Lower-case names of the locals the source declares `ref`.
     ref_vars: std::collections::HashSet<String>,
     /// Seed reference list forms by lower-case Editor ID.
@@ -189,6 +191,7 @@ impl<'a> Gen<'a> {
             claims: Vec::new(),
             seeded: seed.is_some(),
             unknown_calls: seed.is_some_and(|s| s.unknown_calls),
+            runtime: false,
             ref_vars: Default::default(),
             seed_edids,
             blocks,

@@ -91,6 +91,20 @@ pub fn compile(src: &str, table: &FunctionTable, env: &dyn Env, seed: Option<See
     gen::Gen::new(table, env, seed).unit(src)
 }
 
+/// Compile source as the extender's runtime compiler does: the console, the Script
+/// Runner's files, CompileScript and nvf_capture's query steps. On top of [`compile`] it
+/// refuses what xNVSE 6.4.9's runtime compiler refuses (docs/spec-notes/ext-syntax.md,
+/// "Refused at run time"): a fractional number literal for an extender function's int
+/// parameter, and the result of a command registered without a return type given to a
+/// form parameter. Scripts the editor compiled keep their bytes, and the source a plugin
+/// carries is compiled by [`compile`] with a seed, so neither meets these refusals
+/// [decision: #2037, owner 2026-11-10 "Yes, refuse them"].
+pub fn compile_runtime(src: &str, table: &FunctionTable, env: &dyn Env) -> Compiled {
+    let mut g = gen::Gen::new(table, env, None);
+    g.runtime = true;
+    g.unit(src)
+}
+
 /// The player reference, which source may call `player` or `playerref`
 /// [observed: scripts.md §3.4].
 pub const PLAYER: u32 = 0x14;
