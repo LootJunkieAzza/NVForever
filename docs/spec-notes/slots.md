@@ -179,10 +179,13 @@ observed: the five casinos]:
     [design]. The placed models have no `Forward`, coin or `Payout_*` sequences, only
     `Idle` and a still `Backward`/`Off` pose [observed], so the coins and the payout screen
     of the minigame model are not shown; the Payout List stays the menu's own.
-  - The camera [design: owner's spec, item 170]: third person at the pull, a pan in close
-    on the reels while they turn and stop; on a win a 0.3 s eased zoom out to third person
-    for the celebration (0.8 s at 2x the bet up to 3 s from 120x,
-    `fnv_game::slots::celebration`), then back in for the next spin.
+  - The camera [design: owner's spec, item 170, revised 2026-11-11]: a 1.6 s pan from the
+    player's view in close on the reels, where it stays for the pull, the turn and the
+    stop; only a win zooms out (1.2 s) to third person for the celebration (0.8 s at 2x
+    the bet up to 3 s from 120x, `fnv_game::slots::celebration`), then back in (1.4 s). A
+    loss leaves it on the reels. Every move eases in and out (smootherstep). While the
+    camera is nearer the reels than halfway to third person the player's body is out of
+    its view (it came between the camera and the reels, ship4 2026-11-11).
   - Co-op: each player's slots view names the machine, the stops, the spin's number and how
     long it has turned (`nvf_play::coop_tables::SlotsView`), so the others see the same
     reels turn and stop on that machine, and hear its pull and its win or loss there.

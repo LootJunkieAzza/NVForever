@@ -39,10 +39,12 @@
 //!   held to 0.83 s, then let back over 0.5 s [design]. The placed models have no
 //!   `Forward`, coins `Backward` nor `Payout_*` sequences (only `Idle` and a still
 //!   `Backward`/`Off` pose) [observed], so those minigame clips have nothing to play on.
-//! - **The camera** (owner's spec): third person at the pull, then a pan in close on the
-//!   reels while they turn and stop; on a win a quick (0.3 s, eased) zoom out to third
-//!   person of the player for the celebration (`fnv_game::slots::celebration`), then back
-//!   to the reels for the next spin. The game's own camera is moved
+//! - **The camera** (owner's spec, revised 2026-11-11: "third person ... only on wins",
+//!   the moves less fast): a slow pan from the player's view in close on the reels, where
+//!   it stays for the pull, the turn and the stop; only a win pulls it out to third person
+//!   of the player for the celebration (`fnv_game::slots::celebration`), then back in to
+//!   the reels. A loss leaves it on the reels. Every move eases in and out (smootherstep)
+//!   over 1.2 to 1.6 s. The game's own camera is moved
 //!   (`roulette_view::TableCamera`), and the player's body is drawn meanwhile
 //!   (`PlayerControl::scene_cam`).
 //! - **Sounds** of another player's spin (the pull, the win or loss) play at the machine.
@@ -94,14 +96,12 @@ const REEL_FOV: f32 = 40.0;
 const THIRD_EYE: Vec3 = Vec3::new(55.0, -205.0, 95.0);
 const THIRD_AIM: Vec3 = Vec3::new(2.0, -60.0, 42.0);
 const THIRD_FOV: f32 = 55.0;
-/// The timings of the camera (owner's spec, seconds): the cut to third person at the pull,
-/// how long it holds, the pan in, the zoom out for a win and the way back.
-const TO_THIRD: f32 = 0.25;
-const THIRD_HOLD: f32 = 0.6;
-const PAN_IN: f32 = 0.6;
-const ZOOM_OUT: f32 = 0.3;
-const BACK_IN: f32 = 0.5;
-const OPEN_PAN: f32 = 0.8;
+/// The timings of the camera's moves, seconds [design: the owner found the first ones
+/// (0.25 to 0.8 s) "a little fast/jarring", 2026-11-11]: the pan in from the player's
+/// view, the zoom out for a win and the way back in.
+const OPEN_PAN: f32 = 1.6;
+const ZOOM_OUT: f32 = 1.2;
+const BACK_IN: f32 = 1.4;
 
 pub struct SlotsViewPlugin;
 
@@ -267,6 +267,13 @@ fn mesh_bounds(m: &Mesh) -> Option<(Vec3, Vec3)> {
     let c = (lo + hi) / 2.0;
     let r = p.iter().map(|v| Vec2::new(v[1] - c.y, v[2] - c.z).length()).fold(0.0f32, f32::max);
     Some((c, Vec3::new((hi.x - lo.x) / 2.0, r, r)))
+}
+
+/// Smootherstep: eases in and out with no jolt at either end (its speed and acceleration
+/// both start and end at 0), for the camera's moves.
+fn ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * t * (t * (6.0 * t - 15.0) + 10.0)
 }
 
 fn smooth(t: f32) -> f32 {
@@ -606,7 +613,6 @@ struct Cam {
     from: Option<(Transform, f32)>,
     start: f32,
     length: f32,
-    spun_at: Option<f32>,
     /// A win: when its result came and how long it is celebrated.
     won: Option<(f32, f32)>,
     last: Option<(Transform, f32)>,
@@ -644,7 +650,6 @@ fn camera(
     for s in spins.read() {
         match s.phase {
             SpinPhase::Started { .. } => {
-                cam.spun_at = Some(now);
                 cam.won = None;
             }
             SpinPhase::Result { celebrate, .. } if celebrate > 0.0 => cam.won = Some((now, celebrate)),
@@ -670,18 +675,10 @@ fn camera(
         *cam = Cam { on: Some(m), shot: Some(Shot::Reels), from, start: now, length: OPEN_PAN, ..default() };
         control.scene_cam = true;
     }
-    // The shot wanted now, and how fast to get there.
+    // The shot wanted now, and how slowly to get there: in on the reels, out to third
+    // person only while a win is celebrated.
     let celebrating = cam.won.is_some_and(|(at, c)| now >= at && now < at + ZOOM_OUT + c);
-    let pulling = cam.spun_at.is_some_and(|at| now - at < TO_THIRD + THIRD_HOLD);
-    let (want, length) = if celebrating {
-        (Shot::Third, ZOOM_OUT)
-    } else if pulling {
-        (Shot::Third, TO_THIRD)
-    } else if cam.shot == Some(Shot::Third) && cam.won.is_some() {
-        (Shot::Reels, BACK_IN)
-    } else {
-        (Shot::Reels, PAN_IN)
-    };
+    let (want, length) = if celebrating { (Shot::Third, ZOOM_OUT) } else if cam.shot == Some(Shot::Third) { (Shot::Reels, BACK_IN) } else { (Shot::Reels, OPEN_PAN) };
     if cam.shot != Some(want) {
         cam.from = cam.last;
         cam.shot = Some(want);
@@ -689,7 +686,7 @@ fn camera(
         cam.length = length;
     }
     let (to, to_fov) = shot_at(place, want);
-    let f = smooth((now - cam.start) / cam.length.max(1e-3));
+    let f = ease((now - cam.start) / cam.length.max(1e-3));
     let out = match cam.from {
         Some((from, from_fov)) if f < 1.0 => (
             Transform { translation: from.translation.lerp(to.translation, f), rotation: from.rotation.slerp(to.rotation, f), scale: Vec3::ONE },
