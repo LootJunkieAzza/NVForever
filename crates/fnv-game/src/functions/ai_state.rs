@@ -27,9 +27,10 @@ use fnv_sim::FormId;
 ///
 /// The AI is also asked to take the package up afresh (`RefExtra::ai_reset`), even when
 /// the same package is chosen again: a seated actor gets up and its package begins again
-/// [observed: RingoRef seated on his sandbox (procedure 48) read GET_UP (21) one loop
-/// after ResetAI, then TRAVEL; owner-decision-captures.md od_06; issue #2119]. Whether a
-/// sleeping actor wakes is not known (od_06 (c): he never lay down).
+/// [design, issue #2119, docs/design/actor-behaviour.md §5]. What the original showed:
+/// RingoRef seated on his sandbox (procedure 48) read GET_UP (21) one loop after ResetAI,
+/// then TRAVEL [observed: owner-decision-captures.md od_06]. Whether a sleeping actor
+/// wakes is not known (od_06 (c): he never lay down).
 pub fn reset_ai(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let e = g.extra.entry(r).or_default();

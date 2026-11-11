@@ -1206,11 +1206,11 @@ impl Ai {
         }
         // ResetAI (`Game::take_ai_reset`): the package is taken up afresh even when the
         // same one is chosen again: off its furniture, the old goal, route and walk gone,
-        // what a loaded save kept of its progress forgotten, and begun again [observed:
-        // RingoRef seated on his sandbox, ResetAI gave GET_UP one loop later, then TRAVEL;
-        // docs/spec-notes/owner-decision-captures.md od_06]. The request waits while the
-        // AI does not run (off, dead, out cold, rooted: returned above) [design]. A plain
-        // evaluation choosing the same package changes nothing.
+        // what a loaded save kept of its progress forgotten, and begun again. The request
+        // waits while the AI does not run (off, dead, out cold, rooted: returned above). A
+        // plain evaluation choosing the same package changes nothing [design,
+        // actor-behaviour.md §5; the original's seated RingoRef read GET_UP one loop after
+        // ResetAI, then TRAVEL, observed: owner-decision-captures.md od_06].
         let reset = game.take_ai_reset(actor);
         if reset {
             self.restored.remove(&actor);

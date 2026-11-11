@@ -1375,7 +1375,7 @@ order = [[
   { text = "script: test aid calls GetSitting on EasyPeteRef = 3", label = "Easy Pete sits on his chair before ResetAI" },
   { text = "script: test aid calls ResetAI on EasyPeteRef", label = "ResetAI is called on him" },
   { re = 'EasyPeteRef: package EasyPeteChairPackage8x4', label = "his package is taken up afresh (the same one)" },
-  { re = 'furniture: 00104C80 gets off 0010634A by clip ', label = "he gets off his chair by its exit clip" },
+  { re = 'furniture: 00104C80 gets off 0010634A by clip (?!none\b)\S', label = "he gets off his chair by its exit clip (not 'none': no clip played)" },
   { text = "furniture: 00104C80 got off 0010634A", label = "and is off it" },
   { text = "furniture: 00104C80 is on 0010634A", label = "then his package sits him down again" },
 ]]

@@ -1366,9 +1366,9 @@ fn reset_ai(s: &mut Sim, actor: FormId) {
 
 /// ResetAI on a seated actor whose package is chosen again: the package is taken up
 /// afresh (its furniture let go, begun again, the chair given anew), where before nothing
-/// happened and it stayed seated [observed: RingoRef seated read GET_UP one loop after
-/// ResetAI, owner-decision-captures.md od_06; issue #2119]. A plain evaluation choosing
-/// the same package changes nothing.
+/// happened and it stayed seated [design, issue #2119; the original's seated RingoRef read
+/// GET_UP one loop after ResetAI, observed: owner-decision-captures.md od_06]. A plain
+/// evaluation choosing the same package changes nothing.
 #[test]
 fn reset_ai_takes_the_same_package_up_afresh_and_lets_the_chair_go() {
     let f = fixture();
@@ -1427,11 +1427,13 @@ fn reset_ai_plans_a_walk_again_and_waits_while_the_ai_is_off() {
     assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
 }
 
-/// ResetAI before the AI's first update after a load: the progress the save kept is
-/// forgotten, so the patrol starts again at its first point rather than resuming
-/// (`fnv_ai::progress`; the request is saved with the game, `RefExtra::ai_reset`).
+/// ResetAI, then a save before the AI's next update: the request is saved with the game
+/// (`RefExtra::ai_reset`), so after the load the actor's first update takes the package up
+/// afresh and the progress the save kept is forgotten: the patrol starts again at its
+/// first point rather than resuming at the saved one (`fnv_ai::progress`;
+/// docs/design/save-load.md §3.3).
 #[test]
-fn reset_ai_forgets_the_progress_a_load_kept() {
+fn a_reset_saved_before_the_ai_took_it_is_carried_out_after_the_load() {
     let f = fixture();
     let mut s = sim(&f, &[R_PATROL]);
     let actor = FormId(R_PATROL);
@@ -1439,15 +1441,37 @@ fn reset_ai_forgets_the_progress_a_load_kept() {
     while point(&s).is_none_or(|p| p < 2) {
         s.run(0.5);
     }
-    let saved = s.ai.progress();
-    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
-    ai.add(&s.game, actor).unwrap();
-    ai.restore(saved);
-    s.ai = ai;
     reset_ai(&mut s, actor);
+    // Saved with the request pending: the game's state and the AI's progress, as text.
+    let game_text = serde_json::to_string(&s.game.snapshot()).unwrap();
+    let progress_text = serde_json::to_string(&s.ai.progress()).unwrap();
+    assert!(game_text.contains("\"ai_reset\":true"), "the request is in the save");
+    // Loaded: a new game and a new AI from the text.
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&game_text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let game = Game::restore(&f.data, world, s.game.cfg, &back).unwrap();
+    assert!(game.extra[&actor].ai_reset);
+    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&game, actor).unwrap();
+    let saved: Vec<fnv_ai::progress::Progress> = serde_json::from_str(&progress_text).unwrap();
+    assert_eq!(saved.iter().find(|p| p.actor == actor).and_then(|p| p.patrol_point), Some(2));
+    ai.restore(saved);
+    let mut s = Sim { game, ai, nav: nav() };
     s.run(0.5);
+    assert_eq!(s.ai.agents[&actor].restarts, 1);
+    assert!(!s.game.extra[&actor].ai_reset, "taken by the first update");
     assert!(!s.events(R_PATROL).iter().any(|e| matches!(e, AiEvent::Resumed { .. })), "{:?}", s.events(R_PATROL));
     assert!(matches!(s.events(R_PATROL)[1], AiEvent::Trip { patrol_point: Some(p), .. } if p.0 == M1), "{:?}", s.events(R_PATROL));
+    // Without the reset the same save resumes at the saved point.
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&game_text.replace("\"ai_reset\":true", "\"ai_reset\":false")).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let game = Game::restore(&f.data, world, s.game.cfg, &back).unwrap();
+    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&game, actor).unwrap();
+    ai.restore(serde_json::from_str(&progress_text).unwrap());
+    let mut s = Sim { game, ai, nav: nav() };
+    s.run(0.5);
+    assert!(s.events(R_PATROL).iter().any(|e| matches!(e, AiEvent::Resumed { .. })), "{:?}", s.events(R_PATROL));
 }
 
 /// What a sandboxing actor did, in order.

@@ -755,8 +755,8 @@ enum SeatOrder {
 /// restarts`). Then an actor sitting where its package wants it gets up even when the
 /// package gives it the same furniture again, and is told to sit again only once it is
 /// off: the AI only says which furniture it is to use, so without this the reset showed
-/// nothing [observed: RingoRef seated read GET_UP one loop after ResetAI, then TRAVEL;
-/// owner-decision-captures.md od_06; issue #2119].
+/// nothing [design, issue #2119; the original's seated RingoRef read GET_UP one loop
+/// after ResetAI, observed: owner-decision-captures.md od_06].
 fn next_seat(seat: Seat, drawn: bool, on: bool, frame: &retry::Now, restart: bool) -> (Seat, Option<SeatOrder>) {
     let wants = frame.wants;
     match (seat, drawn) {
