@@ -145,6 +145,17 @@ fn face_up(rig: &ActorRig, globals: &Query<&GlobalTransform>) -> Option<bool> {
     Some((l - r).cross(h - p).z > 0.0)
 }
 
+/// Whether `idle` plays on the player's third-person body and shows in full: faded in, so
+/// the bones hold its own pose, not a mix with what the body showed before.
+fn in_full(idles: Option<&crate::idles::PlayerIdles>, idle: Option<FormId>) -> bool {
+    shown_in_full(idles.and_then(|i| i.third.playing()).map(|p| (p.idle, p.group, p.play.weight())), idle)
+}
+
+/// [`in_full`] over what the body plays: (IDLE record, script group, weight).
+fn shown_in_full(playing: Option<(u32, Option<u16>, f32)>, idle: Option<FormId>) -> bool {
+    matches!((playing, idle), (Some((id, None, weight)), Some(idle)) if id == idle.0 && weight >= 1.0)
+}
+
 /// How the character is to stand so that a pose whose pelvis and head are `got` lies
 /// with them on `want` (game space): the new heading (compass, radians) and feet. The
 /// pose turns with the character about its feet; heights are left alone.
@@ -177,6 +188,7 @@ fn watch(
     mut kd: ResMut<PlayerKnockdown>,
     mut pushes: MessageWriter<nvf_play::combat::ActorPush>,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
+    idles: Option<Res<crate::idles::PlayerIdles>>,
 ) {
     let me = FormId::PLAYER_REF;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -307,24 +319,33 @@ fn watch(
             let playing = rt.game.idle_playing(me);
             if playing.is_some() && playing == *idle {
                 *seen = true;
+            }
+            // Frames the clip has shown in full on the third-person body: it fades in over
+            // what the body showed before (`IdleKeys::blend_in`, 0.2 s), and until then the
+            // bones hold a mix with the standing pose the body was given at the get-up.
+            if in_full(idles.as_deref(), *idle) {
                 *frames += 1;
             }
-            // Two frames into the clip its first pose is on the propagated bones: lay it
-            // over where the ragdoll lay.
+            // Two frames after the clip shows in full its pose is on the propagated bones:
+            // lay it over where the ragdoll lay.
             if *seen && !*aligned && *frames >= 2 {
                 *aligned = true;
                 let got = body.third_rig().and_then(|(_, rig)| pelvis_head(&rig, &globals));
-                if let (Some(got), Some(want)) = (got, *lay) {
-                    if let Some((heading, feet)) = lay_over(player.feet, player.heading, got, want) {
-                        let turned = (heading - player.heading).to_degrees();
-                        let moved = Vec2::new(feet[0] - player.feet[0], feet[1] - player.feet[1]).length();
-                        player.heading = heading;
-                        if let Some(p) = phys.as_deref_mut() {
-                            p.place_player(feet, 60.0, 1000.0);
-                            player.feet = p.player.as_ref().map_or(feet, |c| c.feet);
+                match (got, *lay) {
+                    (Some(got), Some(want)) => match lay_over(player.feet, player.heading, got, want) {
+                        Some((heading, feet)) => {
+                            let turned = (heading - player.heading).to_degrees();
+                            let moved = Vec2::new(feet[0] - player.feet[0], feet[1] - player.feet[1]).length();
+                            player.heading = heading;
+                            if let Some(p) = phys.as_deref_mut() {
+                                p.place_player(feet, 60.0, 1000.0);
+                                player.feet = p.player.as_ref().map_or(feet, |c| c.feet);
+                            }
+                            info!("player knockdown: laid over the ragdoll: turned {turned:.0}°, moved {moved:.0} units");
                         }
-                        info!("player knockdown: laid over the ragdoll: turned {turned:.0}°, moved {moved:.0} units");
-                    }
+                        None => warn!("player knockdown: not laid over the ragdoll: pelvis to head lies flat over {:.1} units in the clip's pose ({:?} to {:?}) and {:.1} in the ragdoll's ({:?} to {:?}), under 1", Vec2::new(got.1[0] - got.0[0], got.1[1] - got.0[1]).length(), got.0, got.1, Vec2::new(want.1[0] - want.0[0], want.1[1] - want.0[1]).length(), want.0, want.1),
+                    },
+                    (got, want) => warn!("player knockdown: not laid over the ragdoll: {}{}", if got.is_none() { "no pelvis and head in the clip's pose " } else { "" }, if want.is_none() { "no pelvis and head where the ragdoll lay" } else { "" }),
                 }
             }
             let over = (*seen && playing != *idle) || d.real - *since > RISE_MAX;
@@ -386,6 +407,27 @@ mod tests {
         assert!((h - 1.0).abs() < 1e-5 && close(at, feet));
         // A body standing on end gives no line along the ground.
         assert!(lay_over(feet, 0.0, ([0.0; 3], [0.0, 0.0, 50.0]), want).is_none());
+    }
+
+    #[test]
+    fn the_getup_clip_is_laid_over_only_once_it_shows_in_full() {
+        // The get-up idles fade in over 0.2 s: two 60 Hz frames into the clip the body
+        // still shows mostly the standing pose it was given at the get-up, whose pelvis
+        // and head lie one above the other (0.6 units apart flat in the face-up case that
+        // was never laid over [observed: knockdown-player, 2026-11-11]).
+        let keys = fnv_actor::idle_play::IdleKeys { length: 2.0, loop_range: None, blend_in: 0.2, blend_out: 0.2 };
+        let mut play = fnv_actor::idle_play::IdlePlay::new(keys, Some(1));
+        play.advance(2.0 / 60.0);
+        assert!(play.weight() < 0.5, "{}", play.weight());
+        let idle = Some(FormId(0x3BD9));
+        assert!(!shown_in_full(Some((0x3BD9, None, play.weight())), idle));
+        play.advance(0.2);
+        assert!(shown_in_full(Some((0x3BD9, None, play.weight())), idle));
+        // Another idle, a script's group, or nothing playing: not the get-up clip.
+        assert!(!shown_in_full(Some((0x3BDA, None, 1.0)), idle));
+        assert!(!shown_in_full(Some((0, Some(3), 1.0)), idle));
+        assert!(!shown_in_full(None, idle));
+        assert!(!shown_in_full(Some((0x3BD9, None, 1.0)), None));
     }
 
     #[test]
