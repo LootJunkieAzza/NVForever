@@ -924,7 +924,17 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     }
     if notches != 0.0 {
         match tab {
-            LOCAL | WORLD => st.magnify[tab] = (st.magnify[tab].max(ZOOM.0) * ZOOM_STEP.powf(notches)).clamp(ZOOM.0, ZOOM.1),
+            LOCAL | WORLD => {
+                let before = st.magnify[tab].max(ZOOM.0);
+                st.magnify[tab] = (before * ZOOM_STEP.powf(notches)).clamp(ZOOM.0, ZOOM.1);
+                // The player's tweak keeps the place under the pointer there: the map is
+                // moved as a drag would by the pointer's offset from the middle times the
+                // growth [design: docs/design/tweaks.md].
+                let at_pointer = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.map_zoom_at_pointer);
+                if let Some(p) = in_map(pointer).filter(|_| at_pointer) {
+                    st.drag -= (p - MAP_MID) * (st.magnify[tab] / before - 1.0);
+                }
+            }
             NOTES | QUESTS if wheel_on_pane(tab, pointer, st.pane_rect) => pane.notches += notches,
             _ => {
                 let fit = st.fit[tab].max(1);

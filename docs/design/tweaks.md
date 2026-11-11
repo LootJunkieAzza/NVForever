@@ -541,6 +541,7 @@ unless the player binds them, so nothing changes until then.
 | Hide Hotkeyed Items in Barter | `bHideHotkeyedItemsInBarter` | the same in `refresh_trade` for the player's side |
 | Hide Hotkeyed Items in Repair | `bHideHotkeyedItemsInRepairLists` | `pipboy::repair::current` drops parts on a hotkey (`MenuModel::hide_hotkeyed_repair`); no offer when none are left |
 | (already so) | `bDisplayItemEffectTotals` | `Game::aid_preview` counts an effect over time whole, so the EFFECTS figure is the total; the per-second breakdown is not shown |
+| Map Zooms at the Pointer | `bBetterMapZoom` | `pipboy::data::take_input` adds a drag of the pointer's offset from `MAP_MID` times (1 − growth) after a wheel zoom, so the place under it stays (both maps; the world map's edge clamp still applies) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -562,8 +563,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 467 |
-| to do | 136 |
+| done | 468 |
+| to do | 135 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -987,6 +988,7 @@ game's Data folder, read-only).
 | `bAddInventoryDropItemHotkey` | done |  |  | Q Drops Items |
 | `bAllowRebindNumkeys` | done |  |  | already so: the hotkeys and the D-pad are on the Controls tab |
 | `bBarterQuantityMenuShowsPrice` | done |  |  | Quantity Box Shows the Price (the hand-built box; the tiles box not yet) |
+| `bBetterMapZoom` | done |  |  | Map Zooms at the Pointer |
 | `bBlackJackTotalDisplay` | done |  |  | Blackjack Hand Total |
 | `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
 | `bCompareArmorStats` | done |  |  | Compare Armor (DT; DR is 0 on New Vegas armour) |
@@ -1065,7 +1067,6 @@ game's Data folder, read-only).
 | `bShowWeaponPoisonEffects` | to do | yes |  | NVForever has no weapon poison yet |
 | `bSortEquipableAmmo` | to do | yes |  | rows sort by name (menu/model.rs sort_rows) |
 | `bAmmoLabelUseLongName` | unsure, skipped |  | 1 | needs a UI mod |
-| `bBetterMapZoom` | to do |  |  | pipboy data take_input zoom around the pointer |
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |

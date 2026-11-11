@@ -1547,6 +1547,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hide-hotkeyed-containers", "Hide Hotkeyed Items in Containers", "Things on a hotkey are not listed on your side of a container. (Stewie's Tweaks bHideHotkeyedItemsInContainers)", hide_hotkeyed_containers);
         switch!(app, "hide-hotkeyed-barter", "Hide Hotkeyed Items in Barter", "Things on a hotkey are not offered when trading. (Stewie's Tweaks bHideHotkeyedItemsInBarter)", hide_hotkeyed_barter);
         switch!(app, "hide-hotkeyed-repair", "Hide Hotkeyed Items in Repair", "Things on a hotkey are not offered as parts when repairing in the Pip-Boy. (Stewie's Tweaks bHideHotkeyedItemsInRepairLists)", hide_hotkeyed_repair);
+        switch!(app, "map-zoom-at-pointer", "Map Zooms at the Pointer", "The mouse wheel zooms the Pip-Boy's maps in and out about the place under the pointer, not the middle. (Stewie's Tweaks bBetterMapZoom)", game.map_zoom_at_pointer);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

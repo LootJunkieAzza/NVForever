@@ -470,6 +470,8 @@ pub struct Tweaks {
     /// `bRecurringChallengeIndicator`: a challenge that starts again when done says so in
     /// the Pip-Boy.
     pub mark_recurring_challenges: bool,
+    /// `bBetterMapZoom`: the wheel zooms the Pip-Boy's maps about the pointer.
+    pub map_zoom_at_pointer: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -681,6 +683,7 @@ impl Default for Tweaks {
             minigames_timescale: false,
             no_name_limit: false,
             mark_recurring_challenges: false,
+            map_zoom_at_pointer: false,
         }
     }
 }
