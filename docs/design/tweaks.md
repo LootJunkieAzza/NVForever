@@ -555,6 +555,7 @@ unless the player binds them, so nothing changes until then.
 | Disarming Needs Skill | `bDisarmRequiresSkill` | `Game::disarm_chances` (the readme's formulas: disarm = mult × (skill + Perception − 5) × 100 / required; set off = mult × (required − skill + 5 − Luck) × 2, each held to 0–100); `activate` rolls before the disarm and on a failure either queues the mine in `Mines::set_off` (no fuse) or says it is still armed |
 | Skills Capped by S.P.E.C.I.A.L. | `bCapSkillsBySPECIAL` | `SkillSheet::of_player` fills `SkillSheet::caps` from the readme's formula with the governing attribute (`actor_values::governing_attribute`); `value`, `can_raise` and `complete` read `cap(i)`. The readme gives no default numbers: 50 + 5 a point of the attribute, no Luck, at most 100 are ours |
 | Hold Breath Through a Scope | `bScopeHoldBreath` | `tweaks::hold_breath` sets `BREATH_HELD` while Shift is held with the scope up and pays `breath_ap` a second (let go with no AP left); nvforever `scope_view::sway` multiplies the sway's radius by `breath_sway` (20 % and 5 AP a second by default, ours) |
+| Wheel Zooms Scopes | `bAdjustableScopeZoom` | `aim_zoom::zoom` keeps `AimZoom::scope_zoom`, a share of the Sight FOV the wheel steps by 1.1 a notch between 0.5 and 2 while the scope is up, and forgets it when the scope goes down; the first-person wheel had no other use |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -576,8 +577,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 481 |
-| to do | 122 |
+| done | 482 |
+| to do | 121 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -587,6 +588,7 @@ game's Data folder, read-only).
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
 | `bActorsStickToSlopes` | done |  | 2 | already so: characters settle onto walkable ground going down (fnv-phys character) |
+| `bAdjustableScopeZoom` | done |  | 14 | Wheel Zooms Scopes (half to double; the rate, key and reset options not built) |
 | `bAgilityScalesJumpHeight` | done |  | 1 | Agility Scales Jump Height (1 + mult x (Agility - 1)) |
 | `bAgilityScalesMovementSpeed` | done |  | 3 | Agility Moves Faster (slider, every actor; the player-only and NPC-only options not built) |
 | `bAimingSpeed` | done |  | 2 | Full Pace While Aiming (aiming and blocking together) |
@@ -704,7 +706,6 @@ game's Data folder, read-only).
 | `iPerksPerLevel` | done |  | 1 | Perks per Level (1 to 5) |
 | `bHiddenFragsFix` | to do | yes |  | NPCs' own unplayable explosives are hidden from the pickpocket list |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
-| `bAdjustableScopeZoom` | to do |  | 14 | needs a zoom level in AimZoom and the wheel (now the third-person distance) |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |

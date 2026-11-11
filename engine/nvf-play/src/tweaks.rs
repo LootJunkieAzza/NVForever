@@ -410,6 +410,8 @@ pub struct TweakSettings {
     pub hold_breath: bool,
     pub breath_sway: f32,
     pub breath_ap: f32,
+    /// `bAdjustableScopeZoom`: the wheel zooms a scope in and out.
+    pub scope_wheel_zoom: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -647,6 +649,7 @@ impl Default for TweakSettings {
             hold_breath: false,
             breath_sway: 0.2,
             breath_ap: 5.0,
+            scope_wheel_zoom: false,
         }
     }
 }
@@ -1638,6 +1641,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hold-breath", "Hold Breath Through a Scope", "Holding Shift while looking through a scope steadies it, costing Action Points while held; with none left the breath goes. (Stewie's Tweaks bScopeHoldBreath)", hold_breath);
         part!(app, "breath-sway", "Held Breath Sway", "How much a scope still sways while the breath is held, as a part of its usual sway. (Stewie's Tweaks bScopeHoldBreath)", breath_sway);
         amount!(app, "breath-ap", "Held Breath AP", "Action Points holding the breath costs each second (Hold Breath Through a Scope). (Stewie's Tweaks bScopeHoldBreath)", 20.0, f32, breath_ap);
+        switch!(app, "scope-wheel-zoom", "Wheel Zooms Scopes", "Through a scope the mouse wheel zooms in (up) and out, from half to double its usual magnification; it starts as usual each time. (Stewie's Tweaks bAdjustableScopeZoom)", scope_wheel_zoom);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
