@@ -32,6 +32,9 @@ pub static NO_LAND_CLIP: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 pub static SEAT_KEEPS_ON_ACTIVATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Armor Sounds Play in 3D, for the player's foley (nvforever `anim_sounds`) [design: docs/design/tweaks.md].
 pub static ARMOR_3D: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The Toggle Sighting Node key has the iron sights on the weapon's second sighting node
+/// (nvforever `player_body`, which clears it for a new weapon) [design: docs/design/tweaks.md].
+pub static SECOND_SIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Every tweak's value. `Default`: the original's behaviour.
 #[derive(Resource, Debug, Clone, PartialEq)]
@@ -822,7 +825,7 @@ impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight).in_set(crate::PlaySet::Input))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
@@ -1795,6 +1798,16 @@ fn drop_weapon(input: crate::bindings::ControlInput, state: Res<State<crate::Pla
             }
         }
         Err(e) => info!("tweaks: Drop Weapon: {item} not dropped: {e}"),
+    }
+}
+
+/// The Toggle Sighting Node key while playing: the iron sights move to the weapon's
+/// second sighting node, or back [design: docs/design/tweaks.md].
+fn toggle_sight(input: crate::bindings::ControlInput, state: Res<State<crate::PlayState>>) {
+    if *state.get() == crate::PlayState::Playing && input.just_pressed(crate::bindings::Control::ToggleSightingNode) {
+        let on = !SECOND_SIGHT.load(std::sync::atomic::Ordering::Relaxed);
+        SECOND_SIGHT.store(on, std::sync::atomic::Ordering::Relaxed);
+        info!("tweaks: iron sights on the {} sighting node", if on { "second" } else { "first" });
     }
 }
 

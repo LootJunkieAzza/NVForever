@@ -530,6 +530,9 @@ struct Rig {
     /// The way down to the weapon model's `##SightingNode`, as `muzzle`
     /// (`iron_sights.rs`).
     sighting: Option<Vec<(Option<usize>, Transform)>>,
+    /// The way down to a second sighting node, `##SightingNode2`, which the player's
+    /// Toggle Sighting Node key switches to (docs/design/tweaks.md).
+    sighting2: Option<Vec<(Option<usize>, Transform)>>,
     /// The weapon model's scope eyepiece, when `scope_lens` knows the model (3D scopes),
     /// and the entity the lens is drawn on (`scope_lens::LensMount`, under the model).
     scope_eye: Option<crate::scope_lens::Eyepiece>,
@@ -635,7 +638,9 @@ impl Rig {
             return;
         }
         // A 3D scope: the point behind the eyepiece (`scope_lens`); else the sighting node.
-        let (sight, barrel) = match (self.use_lens.then_some(self.scope_eye).flatten(), self.sighting.as_deref()) {
+        let second = nvf_play::tweaks::SECOND_SIGHT.load(std::sync::atomic::Ordering::Relaxed) && self.sighting2.is_some();
+        let sighting = if second { self.sighting2.as_deref() } else { self.sighting.as_deref() };
+        let (sight, barrel) = match (self.use_lens.then_some(self.scope_eye).flatten(), sighting) {
             (Some(e), _) => {
                 let Some(model) = self.weapon_node_at(Transform::IDENTITY, &[]) else { return };
                 (model.transform_point3(crate::scope_lens::eye_point(&e)), model.transform_vector3(Vec3::X))
@@ -1274,6 +1279,7 @@ fn ensure_body(
         rig.casing = None;
         rig.casing_entity = None;
         rig.sighting = None;
+        rig.sighting2 = None;
         rig.scope_eye = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
@@ -1335,6 +1341,9 @@ fn ensure_body(
                 rig.casing_entity = casing.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
                 rig.casing = casing.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 rig.sighting = nvf_assets::model::node_path(&pm.nodes, &crate::iron_sights::SIGHTING_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                rig.sighting2 = nvf_assets::model::node_path(&pm.nodes, &["##SightingNode2"]).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                // A new weapon starts on its first sight (the Toggle Sighting Node key).
+                nvf_play::tweaks::SECOND_SIGHT.store(false, std::sync::atomic::Ordering::Relaxed);
                 if rig.view == View::First {
                     // 3D scopes: the lens is drawn on an entity at the eyepiece, its disc
                     // (+Z of a Bevy circle) facing back up the barrel (−X), its up the
@@ -1551,6 +1560,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         casing: None,
         casing_entity: None,
         sighting: None,
+        sighting2: None,
         scope_eye: None,
         use_lens: false,
         drawn,

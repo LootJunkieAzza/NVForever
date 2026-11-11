@@ -569,6 +569,7 @@ unless the player binds them, so nothing changes until then.
 | Better Free Camera | `bBetterFlycam` | `free_cam::fly` takes Space / left Ctrl for up and down in place of E / Q, toggles `FreeCam::auto` (forward by itself) on Q, ends it on S, and turns on Z / C at 1.5 rad/s (ours); the wheel already set the speed |
 | New Places Red on the Map | `bColorRecentlyAddedMapMarkers` | `DataState::found_this_run` keeps the markers found since the program started (a loaded save starts it again); the world map draws those red; markers a script shows are not counted |
 | Repeat Activate | `iRepeatActivateKey` | a new unbound control, `Control::RepeatActivate`; held while playing, `tweaks::repeat_activate` queues the crosshair's target in `ActivateNext` every 0.25 s (ours), only things to take unless the switch is off |
+| Second Iron Sights | `iToggleSightingNodeHotkey` | a new unbound control, `Control::ToggleSightingNode`, flips `tweaks::SECOND_SIGHT`; nvforever `player_body` finds `##SightingNode2` beside the first sighting node, aims down it while set, and clears the flag for each new weapon model |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -590,8 +591,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 495 |
-| to do | 108 |
+| done | 496 |
+| to do | 107 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1144,6 +1145,7 @@ game's Data folder, read-only).
 | `iToggleCrosshairKey` | done |  | 1 | a Controls key: Show/Hide Crosshair |
 | `iToggleMenusKey` | done |  | 1 | a Controls key: Show/Hide HUD (as ToggleMenus) |
 | `iTogglePipboyLightKey` | done |  | 2 | a Controls key: Pip-Boy Light (the night vision part not built) |
+| `iToggleSightingNodeHotkey` | done |  | 2 | Second Iron Sights key (Controls page) |
 | `iToggleSmoothCameraKey` | done |  | 2 | Smooth Camera key (Controls page; never while aiming; the rate is ours) |
 | `iToggleSneakIndicatorKey` | done |  | 1 | a Controls key: Show/Hide Sneak Label |
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
@@ -1151,7 +1153,6 @@ game's Data folder, read-only).
 | `iHideHUDKey` | to do |  | 6 | per-element hiding in each HUD module |
 | `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
-| `iToggleSightingNodeHotkey` | to do |  | 2 | a second sighting node path per weapon |
 
 ### Cheat
 
