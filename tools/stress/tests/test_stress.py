@@ -860,6 +860,7 @@ class ProcSamplesTest(unittest.TestCase):
         self.assertAlmostEqual(busy or 0.0, 3.0)
         self.assertIsNone(lib._proc_pid_busy_secs("1234 (truncated", 100))
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "rss and private pages are the same accounting on Linux only")
     def test_a_live_process_reports_bytes(self):
         # This interpreter's own pid: real /proc, so the reader is exercised end to end.
         sample = lib.process_memory(os.getpid())

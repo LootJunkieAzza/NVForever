@@ -17,13 +17,18 @@
 //!
 //! Where the driver does not give the extension (RADV: wgpu leaves it off there), Linux takes
 //! the card's VRAM from amdgpu's sysfs
-//! (`/sys/bus/pci/devices/<pci>/drm/card*/device/mem_info_vram_{total,used}`), the card chosen
-//! by the adapter's PCI address, and this process's share of it from amdgpu's per-client
-//! fdinfo (`/proc/self/fdinfo`, `drm-memory-vram`, kernel 6.x with Mesa 23.x or later; the
-//! DRM files are filtered to the card's render node, since the machine has one client per
-//! GPU). Both feed the press check as the extension's figures do. Where fdinfo has no such
-//! line, the card's whole use is every program's and is only logged: the press check then
-//! stays on RAM. The log's second line says which of the two it got.
+//! (`/sys/bus/pci/devices/<pci>/drm/card*/device/mem_info_vram_{total,used}`, bytes)
+//! [documented: kernel `Documentation/gpu/amdgpu/driver-misc.rst`], the card chosen by the
+//! adapter's PCI address, and this process's share of it from amdgpu's per-client fdinfo
+//! (`/proc/self/fdinfo`, `drm-memory-vram`, an amdgpu alias for `drm-resident-vram`, KiB)
+//! [documented: kernel `Documentation/gpu/drm-usage-stats.rst`; observed on this machine's
+//! kernel 7.0.0 and Mesa 25.2.8]. The DRM files are filtered to the card's render node. A
+//! `dup()`ed file descriptor reports the same `drm-client-id`, so the files are grouped by it
+//! before summing [documented: `drm-usage-stats.rst`, "Userspace should make sure to not
+//! double account any usage statistics"]. Both feed the press check as the extension's
+//! figures do. Where fdinfo has no such line, the card's whole use is every program's and is
+//! only logged: the press check then stays on RAM. The log's second line says which of the
+//! two it got.
 //!
 //! **Keep limits** ([`nvf_assets::KeepLimits`], read by the release sweep each 2 s) scale
 //! down from five minutes and 2048 unused entries per cache on a machine with less than
@@ -254,8 +259,8 @@ fn read_vram(device: Option<&RenderDevice>, integrated: bool, pci_bus_id: Option
 /// (Linux) has the card's VRAM, and its per-client fdinfo has this process's share of it.
 #[cfg(not(windows))]
 fn vram_beside_the_extension(pci_bus_id: Option<&str>, why: String) -> Result<Vram, String> {
-    let id = pci_bus_id.ok_or("the adapter has no PCI address")?;
-    let (b, card_used) = sysfs_vram(id)?;
+    let id = pci_bus_id.ok_or_else(|| format!("{why}; the adapter has no PCI address"))?;
+    let (b, card_used) = sysfs_vram(id).map_err(|e| format!("{why}; {e}"))?;
     let ours = process_vram_mb(id);
     Ok(Vram {
         budget_mb: b,
@@ -275,12 +280,12 @@ fn vram_beside_the_extension(pci_bus_id: Option<&str>, why: String) -> Result<Vr
 }
 
 /// This process's own use of the card's VRAM, MB, from amdgpu's per-client fdinfo
-/// (`drm-memory-vram`: kernel 6.x with Mesa 23.x or later). A DRM file belongs to the card it
-/// was opened on, so only the files whose render node sits at the adapter's PCI address count.
+/// (`drm-memory-vram`, KiB [documented: `Documentation/gpu/drm-usage-stats.rst`]). A DRM file
+/// belongs to the card it was opened on, so only the files whose render node sits at the
+/// adapter's PCI address count. A `dup()`ed fd shares one `drm-client-id`, so those count once.
 #[cfg(not(windows))]
 fn process_vram_mb(pci_bus_id: &str) -> Option<u64> {
-    let mut total = 0;
-    let mut any = false;
+    let mut texts = Vec::new();
     for entry in std::fs::read_dir("/proc/self/fdinfo").ok()?.flatten() {
         let fd = entry.file_name();
         let Ok(node) = std::fs::read_link(format!("/proc/self/fd/{}", fd.to_string_lossy())) else {
@@ -289,13 +294,33 @@ fn process_vram_mb(pci_bus_id: &str) -> Option<u64> {
         if !node.starts_with("/dev/dri") || drm_node_card(&node).as_deref() != Some(pci_bus_id) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
-        if let Some(mb) = fdinfo_vram_mb(&text) {
-            total += mb;
-            any = true;
+        if let Ok(text) = std::fs::read_to_string(entry.path()) {
+            texts.push(text);
         }
     }
-    any.then_some(total)
+    vram_by_client(texts.iter().map(String::as_str))
+}
+
+/// The VRAM these fdinfo texts report for their clients, MB: one figure per `drm-client-id`,
+/// so a `dup()`ed descriptor is not counted twice [documented: `drm-usage-stats.rst`]. A text
+/// with no client id counts on its own.
+#[cfg(not(windows))]
+fn vram_by_client<'a>(texts: impl IntoIterator<Item = &'a str>) -> Option<u64> {
+    use std::collections::HashMap;
+    let mut per_client: HashMap<String, u64> = HashMap::new();
+    for (i, text) in texts.into_iter().enumerate() {
+        let Some(mb) = fdinfo_vram_mb(text) else { continue };
+        let key = fdinfo_client_id(text).map_or_else(|| format!("#{i}"), str::to_string);
+        per_client.entry(key).or_insert(mb);
+    }
+    let sum = per_client.values().sum();
+    (!per_client.is_empty()).then_some(sum)
+}
+
+/// `drm-client-id: 2771` as the client's id, which every fd of one open file shares.
+#[cfg(not(windows))]
+fn fdinfo_client_id(text: &str) -> Option<&str> {
+    text.lines().find(|l| l.starts_with("drm-client-id:"))?.split_whitespace().nth(1)
 }
 
 /// The card a `/dev/dri/renderD*` node belongs to, as its PCI address.
@@ -306,7 +331,9 @@ fn drm_node_card(node: &std::path::Path) -> Option<String> {
     Some(device.file_name()?.to_string_lossy().to_string())
 }
 
-/// `drm-memory-vram:   607296 KiB` as MB.
+/// `drm-memory-vram:   607296 KiB` as MB. amdgpu prints this key in KiB [documented:
+/// `Documentation/gpu/drm-usage-stats.rst` allows bytes, `KiB` or `MiB`; observed `KiB` on
+/// this machine's kernel 7.0.0].
 #[cfg(not(windows))]
 fn fdinfo_vram_mb(text: &str) -> Option<u64> {
     let line = text.lines().find(|l| l.starts_with("drm-memory-vram:"))?;
@@ -320,7 +347,8 @@ fn vram_beside_the_extension(_pci_bus_id: Option<&str>, why: String) -> Result<V
 }
 
 /// The card's VRAM from amdgpu's sysfs, MB: (total, used). The adapter's PCI address names
-/// the card, since a machine with two GPUs has a `card*` for each.
+/// the card, since a machine with two GPUs has a `card*` for each. Both files are in bytes
+/// [documented: `Documentation/gpu/amdgpu/driver-misc.rst`].
 #[cfg(not(windows))]
 fn sysfs_vram(id: &str) -> Result<(u64, u64), String> {
     let drm = format!("/sys/bus/pci/devices/{id}/drm");
@@ -341,7 +369,7 @@ fn sysfs_vram(id: &str) -> Result<(u64, u64), String> {
     Err(format!("no mem_info_vram_* under {drm} (not an amdgpu card?)"))
 }
 
-/// A sysfs counter in bytes as MB.
+/// A sysfs counter in bytes as MB [documented: `Documentation/gpu/amdgpu/driver-misc.rst`].
 #[cfg(not(windows))]
 fn read_sysfs_mb(path: &std::path::Path) -> Option<u64> {
     std::fs::read_to_string(path).ok()?.trim().parse::<u64>().ok().map(|b| b / MB)
@@ -476,6 +504,20 @@ mod tests {
         assert_eq!(fdinfo_vram_mb(sample), Some(593));
         assert_eq!(fdinfo_vram_mb("drm-memory-gtt: 1 KiB\n"), None, "GTT is not VRAM");
         assert_eq!(fdinfo_vram_mb("drm-memory-vram: \n"), None);
+    }
+
+    /// A `dup()`ed descriptor and its original are one client and count once; two clients add
+    /// up; a text without a client id still counts.
+    #[cfg(not(windows))]
+    #[test]
+    fn fdinfo_vram_counts_a_shared_client_once() {
+        let one = "drm-client-id:\t2771\ndrm-memory-vram: \t607296 KiB\n";
+        let same = "drm-client-id:\t2771\ndrm-memory-vram: \t607296 KiB\n";
+        let other = "drm-client-id:\t2772\ndrm-memory-vram: \t1024 KiB\n";
+        assert_eq!(vram_by_client([one, same]), Some(593), "one client, counted once");
+        assert_eq!(vram_by_client([one, other]), Some(594), "two clients add up");
+        assert_eq!(vram_by_client(["drm-memory-vram: \t2048 KiB\n"]), Some(2), "no client id: counts alone");
+        assert_eq!(vram_by_client(["drm-memory-gtt: 1 KiB\n"]), None, "no VRAM line: none");
     }
 
     #[test]
