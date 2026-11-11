@@ -11072,6 +11072,23 @@ order = [[
 expect = []
 
 [[scenario]]
+name = "slots-standing-holster"
+source = "queue item 170 part A: at a standing machine (Gomorrah 0x0015EB86, no stool) the weapon is put away, as sitting does (`furniture::drive_player`): the 10mm pistol is equipped and drawn in third person before the machine is activated; the win's cheer then shows both hands empty. Screenshots: the gun drawn, the cheer"
+areas = ["slots"]
+paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "28:slots_holster_drawn.png,38:slots_holster_cheer.png" }
+args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
+run_seconds = 48
+order = [[
+  "slots seat: the weapon is put away at the machine",
+  { re = 'slots seat: standing at machine 0015EB86 \(.*\), facing 270 deg \(no stool in front\)', label = "standing in front, facing the machine" },
+  "slots: the reels stop on Cherry Cherry Bell: Two cherries pays 5 x 5 = 25 chips",
+  "slots seat: the player plays Cheer",
+  "slots: closed (the player left)",
+]]
+expect = []
+
+[[scenario]]
 name = "slots-mod-standing"
 source = "queue item 170 part A, the owner's Strip mods: HOTM.esm's Silver Palace (cell aaSilverPalaceCasino) has 71 slot machines, 49 of them with no stool (the owner's screenshot of 2026-11-10, rows on wooden bases); machine 0x0F003EF0 in the owner's order, 0x08003EF0 with HOTM.esm's masters alone [observed: the load-order survey]: the player stands at it; needs a Data folder with the owner's mods (NVF_SLOTS_MOD_DATA set, --data the merged MO2 Data)"
 areas = ["slots"]

@@ -446,6 +446,7 @@ pub struct Place<'w> {
     phys: ResMut<'w, crate::phys::PhysState>,
     player: ResMut<'w, crate::player::Player>,
     spins: MessageWriter<'w, SlotsSpin>,
+    control: Option<ResMut<'w, crate::control::PlayerControl>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -525,6 +526,12 @@ fn open(
             }
             Stance::Standing { spot, heading } => {
                 crate::table_spots::stand_player(&mut place.phys, &mut place.player, [spot[0], spot[1]], spot[2], heading);
+                // The weapon goes away as it does on the stool (`furniture::drive_player`):
+                // the win shot and the cheer show the body, both hands up [design].
+                if let Some(c) = place.control.as_deref_mut().filter(|c| c.weapon_out) {
+                    c.weapon_out = false;
+                    info!("slots seat: the weapon is put away at the machine");
+                }
                 let eye = place.player.eye();
                 let (h, p) = seat::look_at_reels(frame, eye);
                 (place.player.heading, place.player.pitch) = (h, p);
