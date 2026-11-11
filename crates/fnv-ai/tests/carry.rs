@@ -1655,6 +1655,71 @@ fn a_sandboxer_sleeps_at_night_and_eats_at_mealtimes() {
     assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
 }
 
+/// Run `seconds` of a meal window in which `actor` has no seat to eat on, checking each
+/// second that it is not eating (#2011); the choices it made meanwhile.
+fn through_a_seatless_meal(s: &mut Sim, actor: u32, seconds: usize) -> Vec<Doing> {
+    let before = doings(s, actor).len();
+    for _ in 0..seconds {
+        s.run(1.0);
+        let sb = s.ai.agents[&FormId(actor)].sandbox.as_ref().unwrap();
+        assert!(!matches!(sb.doing, Doing::Eating(_)) && sb.phase() != fnv_game::ai::SandboxPhase::Eating, "{:?} at {}", sb.doing, s.game.time);
+    }
+    doings(s, actor)[before..].to_vec()
+}
+
+/// With furniture off there is no seat: the meal window passes in wandering and idle
+/// markers, not standing on the spot [design, #2011].
+#[test]
+fn a_sandboxer_without_furniture_goes_on_through_its_meal() {
+    let mut f = fixture();
+    f.data.package_defs.get_mut(&FormId(P_SB_ALL)).unwrap().type_flags |= type_flags::NO_FURNITURE;
+    // The day's lunch, as this sandbox rolls it (the same numbers every run); the run
+    // itself starts inside it.
+    let mut probe = sim(&f, &[R_SB_ALL]);
+    set_clock(&mut probe, 16.5, 5.7);
+    probe.run(0.5);
+    let at = lunch(&probe, R_SB_ALL);
+    let mut s = sim(&f, &[R_SB_ALL]);
+    set_clock(&mut s, at, 5.7);
+    let did = through_a_seatless_meal(&mut s, R_SB_ALL, 300);
+    assert!(did.len() >= 3, "{did:?}");
+    assert!(did.iter().all(|d| matches!(d, Doing::Wandering | Doing::AtIdleMarker(_))), "{did:?}");
+    // Both kinds (the one marker is not chosen twice running, so mostly walks).
+    assert!(did.iter().any(|d| matches!(d, Doing::Wandering)) && did.contains(&Doing::AtIdleMarker(FormId(IDLE_C))), "{did:?}");
+}
+
+/// The only seat kept for another actor: no meal while it is (the day's choices go on);
+/// once it is free, the meal on it [design, #2011].
+#[test]
+fn a_sandboxer_eats_only_once_a_seat_is_free() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR]);
+    set_clock(&mut s, 16.5, 5.7);
+    s.run(30.0);
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+    s.ai.add(&s.game, FormId(R_SB_ALL)).unwrap();
+    s.run(20.0);
+    let at = lunch(&s, R_SB_ALL);
+    set_clock(&mut s, at, 5.7);
+    let did = through_a_seatless_meal(&mut s, R_SB_ALL, 300);
+    assert!(did.len() >= 3, "{did:?}");
+    assert!(did.iter().any(|d| matches!(d, Doing::Wandering | Doing::AtIdleMarker(_))), "{did:?}");
+    assert!(!did.contains(&Doing::Sitting(FormId(CHAIR_C))), "{did:?}");
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+    // The chair is let go: within the meal window, the meal on it.
+    s.ai.root(&s.game, FormId(R_TO_CHAIR));
+    assert_eq!(s.ai.furniture_of(FormId(R_TO_CHAIR)), None);
+    let actor = FormId(R_SB_ALL);
+    for _ in 0..240 {
+        if s.ai.agents[&actor].using.is_some() {
+            break;
+        }
+        s.run(1.0);
+    }
+    assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().doing, Doing::Eating(Some(FormId(CHAIR_C))), "{:?}", s.events(R_SB_ALL));
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
+}
+
 #[test]
 fn a_sandbox_is_the_same_every_time() {
     let f = fixture();
@@ -3903,13 +3968,15 @@ fn unsupported_creature_skips_seats_beds_and_meal_seats() {
     // The afternoon, with seats.
     set_clock(&mut s, 16.5, 5.7);
     watch(&mut s, 300);
-    // A meal: standing.
+    // A meal with no seat it can use: no meal, the day's choices go on (#2011).
     let at = lunch(&s, R_HOUND);
     set_clock(&mut s, at, 5.7);
+    let before = doings(&s, R_HOUND).len();
     watch(&mut s, 240);
-    assert_eq!(s.ai.agents[&hound].sandbox.as_ref().unwrap().doing, Doing::Eating(None));
+    assert!(!matches!(s.ai.agents[&hound].sandbox.as_ref().unwrap().doing, Doing::Eating(_)));
     let did = doings(&s, R_HOUND);
-    assert!(did.iter().all(|d| matches!(d, Doing::Wandering | Doing::Standing | Doing::Eating(None))), "{did:?}");
+    assert!(did.len() > before + 1, "choices went on through the meal: {:?}", &did[before..]);
+    assert!(did.iter().all(|d| matches!(d, Doing::Wandering | Doing::Standing)), "{did:?}");
     // Told once for each piece, however many choices were made.
     let mut told = eligibility(&s, R_HOUND);
     told.sort();
@@ -4431,6 +4498,39 @@ fn fail_at_the_chair(s: &mut Sim) {
     assert!(doings(s, R_SB_OBJECTS).is_empty(), "no behaviour began: {:?}", s.events(R_SB_OBJECTS));
     assert_eq!(run_noting_choices(s, 5.0), [] as [f64; 0], "nothing else is open");
     assert_eq!(standing_times(s), [5.5], "the failed choice's five seconds, not the ten of nothing open");
+}
+
+/// A meal whose only seat has no way to it: the seat waits out its delay and the meal is
+/// not held standing meanwhile; once there is a way, the meal on the seat [design, #2011].
+#[test]
+fn a_meal_whose_seat_has_no_way_to_it_waits_for_the_way() {
+    let mut f = lone_sandboxer(false);
+    f.data.package_defs.get_mut(&FormId(P_SB_OBJECTS)).unwrap().type_flags &= !type_flags::NO_EATING;
+    // The day's lunch, as this sandbox rolls it (the same numbers every run).
+    let mut probe = sim(&f, &[R_SB_OBJECTS]);
+    probe.run(0.5);
+    let at = lunch(&probe, R_SB_OBJECTS);
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    set_clock(&mut s, at, 5.0);
+    s.nav = chair_cut_off();
+    // The first choice is the meal on the chair; there is no way to it, so nothing began.
+    assert_eq!(run_noting_choices(&mut s, 0.5), [0.5]);
+    assert!(doings(&s, R_SB_OBJECTS).is_empty(), "{:?}", s.events(R_SB_OBJECTS));
+    // While the chair waits out its 60 seconds: no meal, choices go on (nothing else is
+    // open in this package, so standing, ten seconds at a time).
+    let did = through_a_seatless_meal(&mut s, R_SB_OBJECTS, 50);
+    assert!(did.len() >= 3 && did.iter().all(|d| *d == Doing::Standing), "{did:?}");
+    // The way is back: after the wait, the meal on the chair.
+    s.nav = way_restored();
+    let actor = FormId(R_SB_OBJECTS);
+    for _ in 0..240 {
+        if s.ai.agents[&actor].using.is_some() {
+            break;
+        }
+        s.run(0.5);
+    }
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)), "{:?}", s.events(R_SB_OBJECTS));
+    assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().doing, Doing::Eating(Some(FormId(CHAIR_C))));
 }
 
 #[test]

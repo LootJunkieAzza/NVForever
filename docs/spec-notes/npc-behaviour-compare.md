@@ -281,6 +281,17 @@ were created at run time):
 Every one of the 67 reported the record's own runtime type code (GetCurrentAIPackage), and
 none was in use more than 5 % of its time outside its record's schedule window.
 
+No Sandbox record reported EAT in the table above [observed], though 465 of the masters'
+791 Sandbox packages leave eating on (actor-behaviour.md §5.5, from `fnvtool ai
+packages`). The AI observer capture of 2026-11-09 (Goodsprings, 24 game hours
+from 06:00, 2,963 samples) says the same per actor: GoodspringsSettler01Ref
+(GSSettlerAAMSandbox6x16, eating allowed) and GoodspringsSettler03Ref (GSSettlerSandbox)
+spent 0.00 h in EAT, while Easy Pete under his Eat package (EasyPeteEat12x2) spent 1.8 h
+in it [observed, issue #2011]. So the original's sandbox does not hold a meal on the
+spot. NVForever's sandbox therefore takes a meal only on a free seat and otherwise goes
+on with its choices [design, #2011; actor-behaviour.md §5.5]; whether it eats on a seat
+at all is not known (observer check 105).
+
 ## 7. After the fixes
 
 The same scenes in our engine with this branch's two changes:

@@ -1514,3 +1514,19 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-11 (sandbox meals and seats, issue #2011)
+
+105. **Does a sandboxer that may eat ever enter EAT, and does a free seat decide it?**
+    (P3; actor-behaviour.md §5.5 Choosing step 2.) Under Sandbox packages that allow eating
+    the original reported no EAT procedure: GoodspringsSettler01Ref
+    (GSSettlerAAMSandbox6x16) and GoodspringsSettler03Ref (GSSettlerSandbox) over 24 game
+    hours from 06:00 (AI observer, 2026-11-09), and none in about 240 actor-hours under
+    Sandbox records (npc-behaviour-compare.md §6a) [observed]. NVForever now takes a
+    sandbox meal only on a free seat and otherwise goes on with its choices [design,
+    #2011]. Put an eating-allowed sandboxer whose area has a free chair (an interior with
+    a table, e.g. the Prospector Saloon's sandboxers) through its breakfast, lunch and
+    dinner windows (06:00-09:00, 11:00-14:00, 17:00-20:00) and log GetCurrentAIProcedure
+    with the furniture it sits on: EAT on the chair says seated meals happen; SITTING only
+    says the original's sandbox does not run meals as a procedure at all, and step 2 should
+    go.

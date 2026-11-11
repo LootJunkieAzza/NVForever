@@ -12720,6 +12720,37 @@ order = [[
 ]]
 
 [[scenario]]
+name = "sandbox-no-seat-meals"
+source = "issue #2011, docs/design/actor-behaviour.md §5.5 Choosing step 2: a sandboxer takes a meal only on a free seat; with none it goes on with its choices through the meal window (the original reported no EAT under Sandbox packages, npc-behaviour-compare.md §6a)"
+note = "Goodsprings from 06:00 at 0.025 game hours a second (06:00 to about 09:15 in the run), the two settlers of the issue run by name. Breakfast starts between 06:00 and 09:00 (fSandboxBreakfastMin/Max), so it falls in the run; until the fix a settler without a free seat logged 'has a meal standing' and stood on the spot to the window's end"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/sandbox.rs"]
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "6", "--time-scale", "0.025", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref,GoodspringsSettler03Ref"]
+env = { RUST_LOG = "info", NVF_PLAY_TEST_GOD = "1" }
+run_seconds = 135
+expect = [
+  { re = 'ai \[[0-9:]+\] GoodspringsSettler0[13]Ref: sandbox: has a meal standing', count = 0, label = "no settler holds a meal standing" },
+  { re = 'ai \[0[6-9]:[0-9:]+\] GoodspringsSettler01Ref: sandbox: (wanders|goes to idle marker|goes to sit on|has a meal on|stands)', min = 6, label = "settler 01's sandbox choices go on through the morning" },
+  { re = 'ai \[0[6-9]:[0-9:]+\] GoodspringsSettler03Ref: sandbox: (wanders|goes to idle marker|goes to sit on|has a meal on|stands)', min = 6, label = "settler 03's sandbox choices go on through the morning" },
+]
+
+[[scenario]]
+name = "sandbox-no-seat-meals-headless"
+kind = "tool"
+source = "issue #2011, docs/design/actor-behaviour.md §5.5 Choosing step 2: the headless AI run (fnvtool ai run) of the same two settlers over 06:00-10:00, which holds every breakfast window's start (06:00-09:00)"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/sandbox.rs"]
+commands = [
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "4", "--start-hour", "6", "--actor", "GoodspringsSettler01Ref", "--actor", "GoodspringsSettler03Ref"],
+]
+expect = [
+  { json = "actors.?actor=GoodspringsSettler01Ref.events.?doing=eating.object", schema = "fnv.ai.run/1", null = true, count = 0, label = "settler 01: no meal without a seat" },
+  { json = "actors.?actor=GoodspringsSettler03Ref.events.?doing=eating.object", schema = "fnv.ai.run/1", null = true, count = 0, label = "settler 03: no meal without a seat" },
+  { json = "actors.?actor=GoodspringsSettler01Ref.event_counts.sandbox", schema = "fnv.ai.run/1", range = [10, 100000], label = "settler 01's choices go on" },
+  { json = "actors.?actor=GoodspringsSettler03Ref.event_counts.sandbox", schema = "fnv.ai.run/1", range = [10, 100000], label = "settler 03's choices go on" },
+]
+
+[[scenario]]
 name = "ai-procedure-codes"
 source = "docs/spec-notes/packages.md §4, procedure codes: GetCurrentAIProcedure reads what an actor does within its package as the original's AI observer samples show: a loaded sandboxing actor never 45 (that is an unloaded one's)"
 note = "in Chet's store (GSGeneralStore) at noon with the residents run by the AI; at 18 s, 24 s and 30 s the console reads Chet's package and procedure: his package from 6 to 22 is GSChetStoreSandbox (fnvtool ai day GSChetRef), and the original read 0 for him sandboxing in his store (function probes fp7_packages_locks); a sandboxer the AI runs reads 0, 7, 46, 48, 10, 8 or 21, never 45. Trudy, used first, has no valid package at any hour, here and in the original (0)"
