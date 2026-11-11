@@ -116,6 +116,9 @@ impl Game<'_> {
     /// reference 30 frames on]. What the scripts left set on it, for the hit.
     pub fn projectile_gone(&mut self, r: FormId) -> Option<Shot> {
         let s = self.gaps.projs.shots.remove(&r)?;
+        // Its fuse goes with it (`crate::nvse_jip14`, #2018).
+        self.other.jip14.fuses.remove(&r);
+        self.other.jip14.fuse_sets.retain(|&(x, _)| x != r);
         let _ = self.world.set_deleted(r, true);
         self.gaps.projs.gone.insert(r);
         Some(s)

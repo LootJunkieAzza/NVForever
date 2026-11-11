@@ -364,6 +364,8 @@ pub fn show_plastic_surgeon_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<
 /// ShowBarberMenu: the race menu as the barber's, the hair and beard only (menu 1036,
 /// `crate::game::RaceMenu::Barber`).
 pub fn show_barber_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    // Unfiltered, whatever ShowBarberMenuEx set before (#2018).
+    g.other.jg10.barber_filter = None;
     g.race_menu = crate::game::RaceMenu::Barber;
     g.race_menu_studio = false;
     open(g, menus::RACE)

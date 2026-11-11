@@ -198,6 +198,13 @@ player.SetPos Z 0");
     assert!(g.barber_allows(FormId(HAIR_A), false));
     assert!(!g.barber_allows(FormId(HAIR_B), false));
     assert!(g.barber_allows(FormId(HAIR_B), true), "a beard not on the blacklist");
+    // The filter is that menu's alone: closed, a later plain barber menu offers all (#2018).
+    g.close_menu();
+    assert!(g.barber_allows(FormId(HAIR_B), false));
+    q(&mut g, "ShowBarberMenuEx 1 TestHairList");
+    q(&mut g, "ShowBarberMenu");
+    assert!(g.barber_allows(FormId(HAIR_B), false), "a plain barber menu is unfiltered");
+    g.close_menu();
     // [documented: TriggerScreenSplatterEx's textures; hypothesis: 1 when splats come].
     assert_eq!(n(&mut g, "TriggerScreenSplatterEx 12 5 1 1 \"a.dds\" \"c.dds\" \"f.dds\" 1"), 1.0);
     assert_eq!(g.ui.splatter.triggers.len(), 1);
