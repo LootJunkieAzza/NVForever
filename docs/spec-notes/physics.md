@@ -1133,6 +1133,73 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   - `Stats::solver_us[4]` (rapier's `ccd_time`) reads 0 in rapier 0.36.0 whatever CCD
     costs (its timer is never started); CCD's work is in `counters.ccd` (#1798).
 
+### 5.5 Rest for loose bodies (2026-11-11)
+
+Which loose bodies (clutter, dropped items, gore) sleep, and when (`fnv_phys::rest`).
+
+- **rapier's own rule**: a body sleeps once its farthest point has moved slower than
+  twice its threshold (0.05 m/s: 7 units/s) at every step for 0.5 s, and only with
+  every body it touches (islands sleep whole) [documented: rapier3d 0.36.1
+  `RigidBodyActivation::update_energy`, `IslandManager::update_islands`].
+- **What keeps bodies awake** [observed: a probe of `fnvtool phys cell` that adds every
+  dynamic reference awake where it is placed, steps 20 s, then kicks each from below
+  at 400 units/s and steps 20 s more, on the eight Goodsprings interiors and the
+  exterior around Goodsprings, 601 bodies (skeletons, the falling maize and the
+  tumbleweeds left out), 2026-11-11; not committed]:
+  - the bodies still moving (globes and teddy bears rolling; a few);
+  - **trembling bodies**: books on a shelf, pans and pots on a stove, bottles on a
+    counter, buckets. They shake at 10-15 units/s from step to step (up to 34) while
+    staying within about a unit of where they lie, so rapier never calls them still,
+    and everything touching them stays awake with them. It is not their
+    restitution: with none, as many shook (37 against 41). It **is the prediction
+    distance**: with rapier's default (0.02 m, 1.4 units) instead of the default plus
+    the terrain's 3.5-unit shell (§5, set in `PhysWorld::new` for clutter creeping on
+    the terrain), the interiors' bodies awake after 20 s fell from 75 to 26 (trembling
+    41 → 13) and the awake body-seconds from 2638 to 1017 (after the kick 2237 to
+    1432); no more fell through floors (1 against 2 small items in the kick), fewer
+    crept (6 still moving at 20 s against 15). Not the default: it is every contact's
+    setting (corpses and their CCD measure against it). **`NVF_PHYS_INDOOR_PREDICTION=1`**
+    (a test aid) gives rapier's own distance while the world holds no terrain, and the
+    raised one again once terrain is added (`PhysWorld::fit_prediction`), for the
+    owner's look.
+- **The rest rule** [design]: a body that has stayed within 2 units (its farthest
+  point) and 0.1 radians of one pose for 1 s of game time, and over the last 0.25 s
+  within 0.75 units and 0.0375 radians of one (3 units and 0.15 radians a second: what
+  is not seen to stop, as for corpses, ragdoll.md), gets a sleep threshold of 0.5 m/s,
+  so that its trembling no longer counts; rapier then lets it sleep as usual, with its
+  island, after 0.5 s. A step out of either reach takes the threshold back, as does
+  sleep. A body shaking more than that keeps shaking, awake: stopping it would show.
+  Ragdoll bodies (corpses, wreck parts: their own rest, `ragdoll.rs`, `wrecks.rs`) and
+  the body held by the grab are left alone. Judged in game seconds, so the same at
+  every rate. **`NVF_PHYS_REST=0`** (a test aid) turns the rule off.
+- **What it changes** [observed: the probe above]:
+
+  | | 60 Hz | 160 Hz |
+  |---|---|---|
+  | awake at 20 s, settling (before → after) | 75 → 70 | 83 → 77 |
+  | awake at 20 s, after the kick | 51 → 48 | 45 → 34 |
+  | awake body-seconds, settling | −3 % | −4 % |
+  | awake body-seconds, after the kick | −5 % | −9 % |
+
+  The motion over the last 0.25 s before a body sleeps stays what rapier's own rule
+  allows: at most 0.59 units and 0.18 radians from where it sleeps (rapier alone: 0.58
+  and 0.18); 18 of 1033 sleepers moved more than 0.75 units or 0.0375 radians there
+  (rapier alone: 12 of 1025) [observed: the probe, 60 Hz]. A looser rule (2 units and
+  0.1 radians over 1 s only) let 75 → 48 and 51 → 36 sleep at 60 Hz, but froze 41
+  more bodies mid-shake (up to 1.1 units and 0.18 radians over their last 0.25 s): not
+  adopted.
+- **Wreck parts** (`wrecks.rs`): held at rest when calm as a corpse is (net under 12
+  units/s and 0.6 rad/s over 0.25 s windows for 1.5 s) **and** all but still over the
+  last second (the fastest part's net motion under 3 units/s and 0.15 rad/s over four
+  windows, `ragdoll::CALM_QUIET`), as a calm corpse is held at once. Before 2026-11-11 a
+  part still crawling at up to 12 units/s was held (the log showed parts at 9-14
+  units/s a second before "came to rest"). Judged over the last window alone, a bumper
+  rocking on its edge (0013DA34's, 2.6 units/s net over 7 s, 4-14 units/s and 0.2-0.6
+  rad/s from step to step) never counted as still; over a second it does, while a part
+  crawling away keeps going [observed: smoke wreck-car-parts-fall, before the one-second
+  form]. The rest line gives the fastest part's net motion over that second.
+  **`NVF_WRECK_QUIET=0`** (a test aid) holds a calm wreck as before.
+
 ## 6. Character controller and capture questions
 
 A kinematic vertical body standing on its feet point, over rapier's
