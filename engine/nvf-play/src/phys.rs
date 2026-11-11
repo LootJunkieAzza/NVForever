@@ -1742,7 +1742,50 @@ impl Plugin for PhysPlugin {
             .add_systems(Last, (frame_times, report).chain())
             .add_message::<crate::RefRepose>()
             .add_systems(Update, (travel, ref_changed, destruction_models, stream, pose_doors, pose_groups).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
+            .add_systems(Update, pace_steps.after(crate::PlaySet::Input).before(crate::PlaySet::Physics))
             .add_systems(PostUpdate, trace::trace);
+    }
+}
+
+/// The slowest clock the physics step follows down: under this share of full speed the
+/// step stays this share of the usual one [design: a kill camera's slowest world,
+/// `kill_cam::SLOWEST`].
+pub const SLOWEST_PACED: f32 = 0.02;
+
+/// The fixed step for a clock running at `speed` of full speed, the usual step `full`:
+/// that share of it while the clock runs slow, so the physics takes as many steps a real
+/// second as at full speed; the usual one otherwise (a stopped or a faster clock).
+pub fn paced_step(full: f32, speed: f32) -> f32 {
+    if speed > 0.0 && speed < 1.0 {
+        full * speed.max(SLOWEST_PACED)
+    } else {
+        full
+    }
+}
+
+/// The physics keeps its steps a real second while the game's clock runs slow
+/// ([`paced_step`]). The step is 1/60 s of the game's clock; with that clock at an eighth
+/// (VATS mode's shots, a kill camera) a step came every eighth frame, and what the
+/// physics moves, a falling corpse, its severed parts, a head's pieces, went in jerks
+/// [design: the fork owner 2026-11-10, "vats slows down time by X in the shooting/kill
+/// slowmo cutscenes so the physics ticks are increased by X"].
+fn pace_steps(virt: Res<Time<Virtual>>, mut phys: ResMut<PhysState>, mut told: Local<Option<f32>>) {
+    let full = play_params().dt;
+    let speed = if virt.is_paused() { 1.0 } else { virt.relative_speed() };
+    let dt = paced_step(full, speed);
+    if (phys.world.params.dt - dt).abs() <= f32::EPSILON * dt {
+        return;
+    }
+    phys.world.set_step(dt);
+    // Once a change of pace, not every frame of an easing clock.
+    let paced = dt < full;
+    if told.is_some() != paced {
+        *told = paced.then_some(dt);
+        if paced {
+            info!("phys: the clock runs at {speed:.2}: the step follows it, {:.2} ms ({:.0} steps a real second)", dt * 1000.0, speed / dt);
+        } else {
+            info!("phys: the clock is back at full speed: the step is {:.2} ms again", dt * 1000.0);
+        }
     }
 }
 

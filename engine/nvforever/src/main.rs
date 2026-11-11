@@ -25,6 +25,7 @@ macro_rules! eprintln {
 
 mod activators;
 mod reports;
+mod native_crash;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
@@ -45,6 +46,7 @@ mod alert;
 mod anim_sounds;
 mod cpu_placement;
 mod crash;
+mod events_log;
 mod creature_pace;
 mod creature_stance;
 mod creator_view;
@@ -165,6 +167,7 @@ mod terrain;
 mod texture_swap;
 mod effect_particles;
 mod effect_shaders;
+mod vats_highlight;
 mod tree;
 mod treelod;
 mod underwater;
@@ -1354,7 +1357,7 @@ fn main() -> AppExit {
             .disable::<bevy::ui_widgets::TabPlugin>()
             .disable::<bevy::input_focus::pointer_focus::PointerFocusPlugin>()
             // The console's lines go to the run log too (crash.rs).
-            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, ..default() })
+            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, fmt_layer: crash::console_layer, filter: reports::log_filter(), ..default() })
             .set(WindowPlugin {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
@@ -1507,7 +1510,7 @@ fn main() -> AppExit {
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
     .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
-    .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
+    .add_systems(Last, (crash::note_place, events_log::note_context, crash::report_exit, stray_commands::report));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }
@@ -1561,6 +1564,7 @@ fn main() -> AppExit {
         app.add_plugins(texture_swap::TextureSwapPlugin);
         // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
         app.add_plugins(effect_shaders::EffectShadersPlugin);
+        app.add_plugins(vats_highlight::VatsHighlightPlugin);
         // How many refracting meshes are in view, for the log (refraction.rs).
         app.add_plugins(refraction::RefractionPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
@@ -1755,7 +1759,10 @@ fn main() -> AppExit {
             // The start's loading screen does not count: the run's seconds are counted
             // from when it comes down (nvf_play::loading::StartCover).
             if !clocks.3.as_deref().is_some_and(|l| l.starting()) {
-                t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+                // (A clock running at no speed, the classic VATS style's full stop, counts
+                // real time as well.)
+                let still = clocks.0.is_paused() || nvf_play::pause::stands_still(false, clocks.0.relative_speed());
+                t.0 += if still { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
             }
             t.1 += 1;
             // The seconds a late start held the world test aids back (`--play` with

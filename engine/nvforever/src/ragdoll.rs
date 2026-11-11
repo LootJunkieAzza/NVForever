@@ -239,7 +239,7 @@ impl Ragdolls {
         for (b, &n) in bones.iter().enumerate() {
             body_of[n] = Some(b);
         }
-        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, limit: MAX_AWAKE })
+        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, limit: MAX_AWAKE, drawn_from: Vec::new(), drawn_to: Vec::new() })
     }
 }
 
@@ -294,9 +294,57 @@ pub struct Corpse {
     /// ([`MAX_AWAKE`], [`MAX_AWAKE_SHOVED`]).
     awake: f32,
     limit: f32,
+    /// The bodies before the last physics step and after it: the bones are drawn between
+    /// the two ([`Corpse::drawn`]).
+    drawn_from: Vec<Option<BodyState>>,
+    drawn_to: Vec<Option<BodyState>>,
+}
+
+/// A body that went further than this in one physics step was put somewhere (lifted,
+/// carried, set at rest), not moved: it is drawn where it is, game units [design: 100
+/// units a step is 6000 a second].
+pub const DRAWN_JUMP: f32 = 100.0;
+
+/// The pose `share` of the way from `a` to `b` (the rotation the short way round).
+fn between(a: &BodyState, b: &BodyState, share: f32) -> BodyState {
+    let quat = |r: &[f32; 9]| Quat::from_mat3(&Mat3::from_cols_array(r).transpose());
+    let translation = std::array::from_fn(|i| a.translation[i] + (b.translation[i] - a.translation[i]) * share);
+    let rotation = Mat3::from_quat(quat(&a.rotation).slerp(quat(&b.rotation), share).normalize()).transpose().to_cols_array();
+    BodyState { translation, rotation, ..*b }
 }
 
 impl Corpse {
+    /// The bodies as they are drawn this frame: between where they were before the last
+    /// physics step and where they are after it, by the share of a step the clock has
+    /// gone since (`alpha`), as the characters are drawn (`PhysState::npc_drawn_feet`).
+    /// `now` are the bodies after the frame's `stepped` steps.
+    ///
+    /// The physics steps 60 times a second of the game's clock. With that clock slowed
+    /// (VATS mode's shots, a kill camera at an eighth) a step comes every few frames, and
+    /// a corpse drawn at its bodies' own poses fell in jerks [observed: the fork owner's
+    /// playtest 2026-11-10, "ragdolls skip frames/jitter when falling after being
+    /// killed"]. The bodies still fall at the world's slowed speed.
+    fn drawn(&mut self, now: &[Option<BodyState>], stepped: u64, alpha: f32) -> Vec<Option<BodyState>> {
+        if self.drawn_to.len() != now.len() {
+            (self.drawn_from, self.drawn_to) = (now.to_vec(), now.to_vec());
+        } else if stepped > 0 {
+            // With several steps in the frame the pose before the last of them is taken
+            // to lie that share of the way from the last frame's.
+            let share = (stepped - 1) as f32 / stepped as f32;
+            let before: Vec<Option<BodyState>> = self.drawn_to.iter().zip(now).map(|(a, b)| a.as_ref().zip(b.as_ref()).map(|(a, b)| between(a, b, share))).collect();
+            (self.drawn_from, self.drawn_to) = (before, now.to_vec());
+        }
+        let alpha = alpha.clamp(0.0, 1.0);
+        self.drawn_from
+            .iter()
+            .zip(&self.drawn_to)
+            .map(|(a, b)| match (a, b) {
+                (Some(a), Some(b)) if (0..3).all(|i| (b.translation[i] - a.translation[i]).abs() <= DRAWN_JUMP) => Some(between(a, b, alpha)),
+                (_, b) => *b,
+            })
+            .collect()
+    }
+
     /// Per ragdoll body, its bone's index in the skeleton (`crate::dismember` cuts by it).
     pub fn body_bones(&self) -> &[usize] {
         &self.bones
@@ -467,7 +515,11 @@ pub(crate) fn pose(
     // holds the world. Counting the frame's time instead, a body killed just before a
     // box opened stood still under it, read as calm and was set at rest standing (#1049).
     let steps = phys.world.steps();
-    let dt = ragdolls.last_steps.replace(steps).map_or(time.delta_secs(), |last| steps.saturating_sub(last) as f32 * phys.world.params.dt);
+    let last = ragdolls.last_steps.replace(steps);
+    let stepped = last.map_or(0, |last| steps.saturating_sub(last));
+    let dt = last.map_or(time.delta_secs(), |_| stepped as f32 * phys.world.params.dt);
+    // How far the clock is into the next step: where between two steps the bones are drawn.
+    let alpha = phys.stepper.accumulated / phys.world.params.dt;
     let mut seen = HashSet::new();
     for (rig, mut c, vis) in &mut corpses {
         let rig = rig_of(rig);
@@ -524,6 +576,7 @@ pub(crate) fn pose(
             // following the crosshair); calm and the awake guard count again from the drop.
             (c.calm, c.awake, c.window, c.settled, c.limit) = (0.0, 0.0, 0.0, false, MAX_AWAKE);
             c.since.clear();
+            c.drawn_to.clear();
             write_bones(rig, &c, &nodes, &globals, &mut transforms);
             continue;
         }
@@ -571,8 +624,11 @@ pub(crate) fn pose(
         if asleep && c.settled {
             continue;
         }
-        write_bones(rig, &c, &nodes, &globals, &mut transforms);
+        // Moving: drawn between its last two steps. At rest: where it lies.
+        let drawn = if asleep { nodes.clone() } else { c.drawn(&nodes, stepped, alpha) };
+        write_bones(rig, &c, &drawn, &globals, &mut transforms);
         if asleep {
+            c.drawn_to.clear();
             ragdolls.rested += 1;
             ragdolls.rest.insert(id, rest());
             // How high its trunk lies over its lowest bone: a corpse lying down is low, one

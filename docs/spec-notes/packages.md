@@ -522,6 +522,10 @@ ambush location, then will drop out of combat and perform the normal package beh
   reference, always; a base form or faction: its members) or, with no target, an actor it
   would attack (`Game::would_attack`) [hypothesis]. Without a location 2, within 1,024 of
   where it waits [our choice; every master Ambush has one].
+- In the original an ambusher on QJDeathclawAmbushPackage did not spring on the player
+  hidden inside its ambush location, nor on the player detected outside it; it sprang
+  when the player was both detected and inside [observed: npc-behaviour-compare.md
+  §16.2]. The rule above has no detection test.
 - **Hide While Ambushing** does not make it sneak [observed: §4, IsSneaking 0 in every
   sample of GoodspringsSettler04Ref waiting under GSSettlerAmbushPackage, which sets
   it]; what it does is not known, and here it is only reported.
@@ -677,7 +681,9 @@ different thing: `fnv_ai::alert`); ForceFlee]:
     (§1: Find's code, not known before), procedure 7 WANDER, package target none. She
     wandered about the saloon (1,400 units in 0.3 game hours) and did not go to the
     meat. Here the actor goes straight to the nearest object it looks for (§3.1): the
-    original's searching by wandering, and when it then finds, are open (§6).
+    original's searching by wandering, and when it then finds, are open (§6). In the open,
+    a settler and a copy of Cheyenne went straight to the meat (5 to 9 s) [observed
+    2026-11-10: npc-behaviour-compare.md §15.3].
   - **Use Item At** (DefaultUseNearbyFurniturePackage on GoodspringsSettler04Ref, at his
     editor location, a stool 46 units off): type 16 USEITEMAT, procedure 17 DONE at once,
     standing, not sitting, for 0.12 game hours; then the script package was gone and his

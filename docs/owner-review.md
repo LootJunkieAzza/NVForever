@@ -213,6 +213,23 @@ the spec it links to.
     Slash, Mauler, Lights Out, Grand Slam: WEAP VATS/VANM) need a choice per mark, which
     VATS mode does not have, so they are not built. Wanted, and how would you pick one
     (a key cycling the mark's attack)? ([weapon-data-fields §7](spec-notes/weapon-data-fields.md))
+31a. **Which VATS style V starts (a contribution from the fork h9x000,
+    2026-11-11).** A classic style is built: the original's flow, the world stopped, a
+    target and a body part chosen from their chances, a queue of attacks, cameras as
+    they play. It is one row away on the settings page ("V.A.T.S. style"); Dead Eye,
+    your VATS mode ("Mark and Fire" on that page, a name of ours for you to change),
+    stays what V starts until you say otherwise (the fork's owner plays Classic as the
+    default). What Dead Eye shares with it and so changes too: marks on a dead target
+    are dropped and the mode ends 2 s later, the HUD hides from the first shot, the
+    enemy bar is at the top, explosives hold the mode's end, and every kill camera's
+    last shot is held 3 s longer (vats-classic.md §13).
+    Decided by the fork's owner in play, for you to keep or change:
+    the target screen drawn from the game's own menu file unless
+    `[UI] VatsMenuFile=0` (your convention is the other way, a name in `[UI] TileMenus=`);
+    three camera angles of NVForever's own for the attacks instead of the shots' models;
+    a queue that stops when its target dies; and the physics keeping 60 steps a real
+    second whenever the clock runs slow, in any mode. It also builds the special
+    attacks of item 31 (R queues one). ([vats-classic](design/vats-classic.md))
 32. **No message on a sneak attack critical.** Sneak attacks (your rule: always a
     critical on an unseen target) show nothing on screen; the game files have only the
     icon setting `sCriticalStrikeIcon`. Show a message or the icon?

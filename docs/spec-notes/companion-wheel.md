@@ -169,7 +169,9 @@ scripts do the work [observed, FalloutNV.esm]:
   [documented: SetPlayerTeammate, "imitate the player's sneak state"]; in a combat state it
   stands to fight [hypothesis, as for Always Sneak] (`Game::sneaks_with_player`,
   `Game::sneaks`; the engine crouches it, `nvforever` `sneaking.rs`). A companion told to
-  wait does not.
+  wait does not. Seen in the original: a teammate's IsSneaking followed the player's in the
+  same sample, on and off; with the teammate flag cleared, the same NPC on its Follow
+  package did not sneak [observed: npc-behaviour-compare.md §15.1].
 - As it starts it says FollowersStealthing ("Going stealthy…", Cass's line) when it has a
   line and is not saying another [hypothesis: when the topic is said]
   (`Game::companions_sneak`).

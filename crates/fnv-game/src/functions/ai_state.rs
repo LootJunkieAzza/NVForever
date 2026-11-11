@@ -24,13 +24,20 @@ use fnv_sim::FormId;
 /// his FOLLOW package) and was in combat again with a new combat package 2 loops later,
 /// a Fiend his target within 0.25 s [observed: AI observer campaign `fights_round`
 /// 2026-10-19, script-function-coverage.md §3.3], so leaving combat alone looks the same.
+///
+/// The AI is also asked to take the package up afresh (`RefExtra::ai_reset`), even when
+/// the same package is chosen again: a seated actor gets up and its package begins again
+/// [design, issue #2119, docs/design/actor-behaviour.md §5]. What the original showed:
+/// RingoRef seated on his sandbox (procedure 48) read GET_UP (21) one loop after ResetAI,
+/// then TRAVEL [observed: owner-decision-captures.md od_06]. Whether a sleeping actor
+/// wakes is not known (od_06 (c): he never lay down).
 pub fn reset_ai(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    if let Some(e) = g.extra.get_mut(&r) {
-        e.script_package = None;
-        e.package_goal_met = false;
-        e.package_blocked.clear();
-    }
+    let e = g.extra.entry(r).or_default();
+    e.script_package = None;
+    e.package_goal_met = false;
+    e.package_blocked.clear();
+    e.ai_reset = true;
     g.senses.looks.remove(&r);
     // A weapon use (UseWeapon) stops too [design: the page's "current AI behaviour";
     // the shipped scripts call ResetAI to end one, FalloutNV.esm SCPT 0x000E07CE].

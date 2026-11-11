@@ -9,6 +9,12 @@
 //!   (handoff.rs: loading a save starts a new process) follows the stored answer and never
 //!   asks; it is where the player plays after a load, so it collects and sends like any. `NVF_REPORTS=1` turns it on without asking (tests; such a run sends
 //!   only to `NVF_REPORTS_ENDPOINT`, never to the project's server).
+//! - **Official builds only** [owner 2026-11-11]: a build is official when the release
+//!   workflow made it (`NVF_OFFICIAL_BUILD=1` at build time). A local build never asks and
+//!   never sends to the project's server, as development sessions would skew what reports
+//!   show of players' games; it sends only to a server it is pointed at
+//!   (`NVF_REPORTS_ENDPOINT`, or `Endpoint=` in `[Reports]`). `NVF_REPORTS_PRODUCTION=1` lets
+//!   a local build send to the project's server (the owner's own testing).
 //! - **The summary** (summary.rs, collected here): written to
 //!   `<home>\reports\pending\session-<UTC time>-<pid>.json` every [`WRITE_EVERY`] and at
 //!   exit, so a crash leaves the latest copy. Only while reports are on.
@@ -21,6 +27,9 @@
 //! Nothing is sent from the game folder or `Documents\My Games\FalloutNV`: every file is
 //! in the home and passes `fnv_install::guard_write`.
 
+pub mod anomaly;
+pub mod snapshot;
+mod delete;
 pub mod summary;
 pub mod upload;
 mod warnings;
@@ -99,18 +108,38 @@ fn folders_to_hide(data: &Path, exe_dir: Option<&Path>) -> Vec<(String, &'static
     v
 }
 
+/// A new install ID and delete token made while this run plays ("Delete my reports",
+/// delete.rs): this run's summary is rewritten under the ID, and anything this run still
+/// sends goes with them.
+static RENEWED: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
+pub(crate) fn renew(install_id: String, delete_token: String) {
+    if let Ok(mut r) = RENEWED.lock() {
+        *r = Some((install_id, delete_token));
+    }
+}
+
+/// The ID and token to send as now: [`renew`]'s when there was one, else the run's own.
+pub(crate) fn identity(active: &Active) -> (String, String) {
+    RENEWED
+        .lock()
+        .ok()
+        .and_then(|r| r.clone())
+        .unwrap_or_else(|| (active.install_id.clone(), active.delete_token.clone()))
+}
+
 /// This run's choice, once [`decide`] made it.
 pub fn active() -> Option<&'static Active> {
     ACTIVE.get().and_then(Option::as_ref)
 }
 
 /// A random UUID v4, as text.
-fn new_uuid() -> String {
+pub(crate) fn new_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
 /// A random token for deleting this install's reports (§5.1).
-fn new_token() -> String {
+pub(crate) fn new_token() -> String {
     format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
 }
 
@@ -125,8 +154,12 @@ pub fn store_choice(home: &EngineHome, on: bool) -> Result<Reports, String> {
         r.install_id = r.install_id.or_else(|| Some(new_uuid()));
         r.delete_token = r.delete_token.or_else(|| Some(new_token()));
     } else {
-        r.install_id = None;
-        r.delete_token = None;
+        // Kept, so "Delete my reports" can still reach what this ID sent (delete.rs).
+        if let (Some(id), Some(token)) = (r.install_id.take(), r.delete_token.take()) {
+            if !r.past.iter().any(|(i, _)| *i == id) {
+                r.past.push((id, token));
+            }
+        }
     }
     r.save(home).map_err(|e| e.to_string())?;
     // The settings page stores its rows in [Settings]; its row for this must agree, or the
@@ -169,6 +202,11 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
         }
     }
     let mut r = Reports::load(&home);
+    // A local build only reports to a server it is pointed at (module notes).
+    if !test_on && !OFFICIAL_BUILD && endpoint_env.is_none() && r.endpoint.is_none() && !production_allowed() {
+        eprintln!("reports: off (a local build: only official releases send to the project's server; NVF_REPORTS_ENDPOINT for a test server)");
+        return None;
+    }
     if test_on {
         if r.send != Some(true) || r.install_id.is_none() {
             r = store_choice(&home, true).map_err(|e| eprintln!("reports: off, the choice could not be stored: {e}")).ok()?;
@@ -196,12 +234,50 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
         eprintln!("reports: off ([Reports] has no InstallId or DeleteToken)");
         return None;
     };
-    // A test run sends only where it is told to, never to the project's server.
     let test_run = test_on && forced_off(developer_data).is_some();
+    let ini_endpoint = r.endpoint.is_some();
     let endpoint = endpoint_env.clone().or(r.endpoint).unwrap_or_else(|| upload::DEFAULT_ENDPOINT.to_string());
-    let may_send = !test_run || endpoint_env.is_some();
+    let may_send = may_send(SendCase {
+        test_on,
+        test_run,
+        endpoint_env: endpoint_env.is_some(),
+        ini_endpoint,
+    });
     eprintln!("reports: on, sending to {endpoint}{}", if may_send { "" } else { " (not in this test run: no NVF_REPORTS_ENDPOINT)" });
     Some(Active { install_id, delete_token, endpoint: endpoint.trim_end_matches('/').to_string(), may_send })
+}
+
+/// What decides whether a run that has reports on may send (module notes).
+#[derive(Clone, Copy, Default)]
+struct SendCase {
+    /// `NVF_REPORTS=1`.
+    test_on: bool,
+    /// `NVF_REPORTS=1` in a run that would otherwise be off (`--data`, a test aid, `NVF_REPORTS=0`).
+    test_run: bool,
+    /// `NVF_REPORTS_ENDPOINT` is set.
+    endpoint_env: bool,
+    /// `[Reports] Endpoint` is set (a self-hosted server).
+    ini_endpoint: bool,
+}
+
+/// `NVF_REPORTS=1` sends only to a server it is pointed at, never to the project's server,
+/// whatever the build (§8): `NVF_REPORTS_ENDPOINT`, or, outside a test run, the INI's own
+/// `Endpoint`. Without `NVF_REPORTS=1`, `choose` has already turned a local build with no
+/// server of its own off (`OFFICIAL_BUILD` and `NVF_REPORTS_PRODUCTION` decide there); they
+/// do not open the project's server to `NVF_REPORTS=1`, which skips the popup.
+fn may_send(c: SendCase) -> bool {
+    if !c.test_on {
+        return true;
+    }
+    c.endpoint_env || (!c.test_run && c.ini_endpoint)
+}
+
+/// Made by the release workflow (`.github/workflows/release.yml` sets it at build time).
+pub const OFFICIAL_BUILD: bool = option_env!("NVF_OFFICIAL_BUILD").is_some();
+
+/// `NVF_REPORTS_PRODUCTION=1`: a local build may send to the project's server.
+fn production_allowed() -> bool {
+    std::env::var("NVF_REPORTS_PRODUCTION").is_ok_and(|v| v.trim() == "1")
 }
 
 const ASK_TITLE: &str = "Help fix NVForever?";
@@ -247,6 +323,64 @@ pub fn folders() -> Option<(PathBuf, PathBuf)> {
 
 // ------------------------------------------------------------------ the collector
 
+/// Per-subsystem log levels from `[Log]` in NVForever.ini (player-reports.md §4.1), e.g.
+/// `script=debug`, so a player asked to reproduce a bug can turn one part up. A name is one
+/// of [`LOG_SUBSYSTEMS`] or a module path (`nvf_play::doors=trace`); levels are trace,
+/// debug, info, warn, error, off. The result is the log plugin's filter: Bevy's default with
+/// these added. `RUST_LOG` still goes on top [observed: bevy_log 0.20.1
+/// `LogPlugin::build_filter_layer` adds its directives to this filter; its doc comment says
+/// they replace it, the code does not].
+pub fn log_filter() -> String {
+    let ini = EngineHome::user().and_then(|h| std::fs::read_to_string(h.config_file()).ok()).unwrap_or_default();
+    let extra = log_directives(&ini);
+    if extra.is_empty() {
+        return bevy::log::DEFAULT_FILTER.to_string();
+    }
+    eprintln!("setup: log levels from [Log]: {extra}");
+    format!("{},{extra}", bevy::log::DEFAULT_FILTER)
+}
+
+/// `[Log]` names and the modules they turn up.
+pub const LOG_SUBSYSTEMS: &[(&str, &[&str])] = &[
+    ("script", &["nvf_play::script", "fnv_game", "fnv_script"]),
+    ("ai", &["fnv_ai", "nvforever::residents"]),
+    ("nav", &["fnv_nav"]),
+    ("physics", &["fnv_phys", "nvf_play::phys"]),
+    ("assets", &["nvf_assets"]),
+    ("save", &["nvf_play::save", "fnv_save"]),
+    ("quest", &["nvf_play::script", "fnv_game::quest"]),
+    ("dialogue", &["nvf_play::dialogue"]),
+    ("render", &["nvforever"]),
+    ("audio", &["nvf_play::audio_out", "nvf_play::voice", "nvf_play::music"]),
+    ("ui", &["nvf_play::pipboy", "nvf_play::interface", "nvf_play::settings_view"]),
+    ("reports", &["nvforever::reports"]),
+];
+
+fn log_directives(ini: &str) -> String {
+    let mut out = Vec::new();
+    let mut in_log = false;
+    for line in ini.lines().map(str::trim) {
+        if let Some(s) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            in_log = s.trim().eq_ignore_ascii_case("Log");
+            continue;
+        }
+        if !in_log || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else { continue };
+        let (k, v) = (k.trim(), v.trim().to_ascii_lowercase());
+        if !matches!(v.as_str(), "trace" | "debug" | "info" | "warn" | "error" | "off") {
+            continue;
+        }
+        match LOG_SUBSYSTEMS.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)) {
+            Some((_, modules)) => out.extend(modules.iter().map(|m| format!("{m}={v}"))),
+            None if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':') && !k.is_empty() => out.push(format!("{k}={v}")),
+            None => {}
+        }
+    }
+    out.join(",")
+}
+
 /// The settings page's row (nvf-play's settings_layout names it).
 pub const SETTING_KEY: &str = "send-reports";
 
@@ -290,6 +424,11 @@ struct Collector {
     start_kind: &'static str,
     /// A loading screen up now: (real seconds when it went up, kind).
     load: Option<(f64, &'static str)>,
+    /// Where the player is this frame, for anomaly events.
+    here: anomaly::Here,
+    /// When the last loading screen went down (real seconds).
+    load_ended: f64,
+    detectors: anomaly::Detectors,
 }
 
 impl Plugin for ReportsPlugin {
@@ -315,6 +454,7 @@ impl Plugin for ReportsPlugin {
                 slider: None,
             },
         );
+        delete::add_row(app);
         let Some(active) = active().cloned() else { return };
         let Some((pending, sent)) = folders() else { return };
         let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
@@ -330,6 +470,7 @@ impl Plugin for ReportsPlugin {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
         let file = pending.join(format!("session-{}-{}.json", crate::crash::stamp(now), std::process::id()));
         let summary = base_summary(&active, &self.plugins, &self.data, self.mo2, now);
+        spawn_plugin_crcs(&self.plugins, &self.data);
         app.insert_resource(active)
             .insert_resource(Collector {
                 summary,
@@ -342,9 +483,13 @@ impl Plugin for ReportsPlugin {
                 space_time: Default::default(),
                 start_kind: self.start_kind,
                 load: None,
+                here: Default::default(),
+                load_ended: 0.0,
+                detectors: Default::default(),
             })
             .add_systems(Startup, (read_gpu, read_window))
-            .add_systems(Update, (collect, track_loads))
+            .add_systems(Update, (collect, track_loads, detect).chain())
+            .add_systems(Update, refresh_snapshot)
             .add_systems(Last, write_summary);
     }
 }
@@ -381,6 +526,38 @@ fn base_summary(active: &Active, plugins: &[String], data: &Path, mo2: bool, now
         mo2,
         ..Default::default()
     }
+}
+
+/// The plugins' CRC32s (§3.1 `load_order`), in load order, once [`spawn_plugin_crcs`] has
+/// read them all.
+static PLUGIN_CRCS: OnceLock<Vec<Option<String>>> = OnceLock::new();
+
+/// Reads every plugin on a thread of its own (the official masters are hundreds of MB; the
+/// game never waits on it) for its CRC32, as 8 hex digits; the summary gets them at its
+/// next write. Sizes and CRCs tell versions of a plugin apart.
+fn spawn_plugin_crcs(plugins: &[String], data: &Path) {
+    let files: Vec<Option<PathBuf>> = plugins.iter().map(|p| fnv_install::child_ci(data, p)).collect();
+    let _ = std::thread::Builder::new().name("nvf-reports-crc".into()).spawn(move || {
+        let crcs = files.iter().map(|f| f.as_deref().and_then(file_crc32)).collect();
+        let _ = PLUGIN_CRCS.set(crcs);
+    });
+}
+
+/// A file's CRC32 (the zlib/gzip one), as 8 upper-case hex digits.
+fn file_crc32(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut crc = flate2::Crc::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        match f.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => crc.update(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+    Some(format!("{:08X}", crc.sum()))
 }
 
 /// The settings the player changed: the `[Settings]` rows of the INI (the page writes only
@@ -430,6 +607,7 @@ fn read_window(windows: Query<&Window, With<bevy::window::PrimaryWindow>>, mut c
 /// Every frame: its time in the camera's place, cells visited, time in each worldspace.
 fn collect(
     time: Res<Time>,
+    player: Option<Res<nvf_play::player::Player>>,
     cam: Query<&GlobalTransform, With<crate::fly::FlyCam>>,
     streamer: Option<Res<crate::world::Streamer>>,
     world: Option<Res<crate::world::WorldData>>,
@@ -455,6 +633,9 @@ fn collect(
         }
     }
     let cell_name = cell.and_then(|c| c.edid.clone()).unwrap_or_default();
+    c.here.place.clone_from(&place);
+    c.here.cell = cell.map(|cl| cl.edid.clone().unwrap_or_else(|| format!("{:08X}", cl.form_id)));
+    c.here.pos = player.as_ref().map_or([g.x, g.y, g.z], |p| p.feet);
     let i = *c.places.entry(place.clone()).or_insert_with(|| {
         c.summary.places.push(Place { name: place.clone(), interior, ..Default::default() });
         c.summary.places.len() - 1
@@ -511,13 +692,89 @@ fn track_loads(
         }
         (false, Some((t, kind))) => {
             c.load = None;
+            c.load_ended = now;
             let ms = ((now - t) * 1000.0) as f32;
+            if ms > anomaly::SLOW_LOAD_MS {
+                let c = &mut *c;
+                let t_s = c.started.elapsed().as_secs();
+                c.detectors.fire(&mut c.summary, &c.here, t_s, "slow_load", serde_json::json!({ "load": kind, "ms": ms.round() }));
+            }
             match c.summary.loads.iter_mut().find(|(k, _)| k == kind) {
                 Some((_, l)) => l.times_ms.push(ms),
                 None => c.summary.loads.push((kind.to_string(), summary::Loads { times_ms: vec![ms] })),
             }
         }
         (false, None) => {}
+    }
+}
+
+/// Rebuild the world snapshot every [`snapshot::EVERY_SECS`] (snapshot.rs).
+fn refresh_snapshot(
+    real: Res<Time<Real>>,
+    mut last: Local<f64>,
+    script: Option<ResMut<nvf_play::script::ScriptState>>,
+    sim: Option<ResMut<nvf_play::sim::SimState>>,
+    streamer: Option<Res<crate::world::Streamer>>,
+    memory: Option<Res<crate::memory_budget::MemoryBudget>>,
+) {
+    let now = real.elapsed_secs_f64();
+    if now - *last < snapshot::EVERY_SECS {
+        return;
+    }
+    *last = now;
+    let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    let mut defaults: Vec<(fnv_sim::FormId, f32)> = sim.forms.globals.iter().map(|(k, v)| (*k, *v)).collect();
+    defaults.sort_by_key(|(k, _)| k.0);
+    let cells = serde_json::json!({
+        "interior": streamer.as_ref().and_then(|s| s.interior).map(|c| format!("{c:08X}")),
+        "exterior_loaded": streamer.as_ref().map(|s| s.loaded.len()),
+    });
+    let memory = serde_json::json!({
+        "vram_use_mb": memory.as_ref().and_then(|m| m.vram_use_mb),
+        "ram_share": memory.as_ref().and_then(|m| m.ram_share),
+    });
+    let Some(rt) = script.rt.as_mut() else { return };
+    let v = nvf_play::script::with_world(rt, &mut sim, |rt| snapshot::build(&mut rt.game, &defaults, cells, memory));
+    snapshot::keep(v);
+}
+
+/// The anomaly detectors that read the game's state each frame (anomaly.rs), and the ones
+/// the log lines found since the last frame, given where the player is.
+fn detect(
+    real: Res<Time<Real>>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
+    intent: Option<Res<nvf_play::player::MoveIntent>>,
+    voice: Option<Res<nvf_play::voice::VoiceState>>,
+    memory: Option<Res<crate::memory_budget::MemoryBudget>>,
+    mut c: ResMut<Collector>,
+) {
+    let c = &mut *c;
+    let t_s = c.started.elapsed().as_secs();
+    let loading_now = loading.as_ref().is_some_and(|l| l.active());
+    // The game hour and state, as the structured events say them (events_log.rs, last frame's).
+    let (hour, state) = crate::events_log::context();
+    c.here.hour = hour;
+    c.here.state = if loading_now {
+        "loading"
+    } else if state.is_empty() {
+        "viewer"
+    } else {
+        state
+    };
+    c.detectors.drain_log(&mut c.summary, &c.here, t_s);
+    // A hitch: a frame over the limit while the world runs (not behind a loading screen).
+    let ms = real.delta_secs() * 1000.0;
+    let settled = real.elapsed_secs_f64() - c.load_ended > anomaly::HITCH_SETTLE_SECS && t_s > 20;
+    if ms > anomaly::HITCH_MS && !loading_now && settled && matches!(c.here.state, "playing" | "viewer") {
+        c.detectors.fire(&mut c.summary, &c.here, t_s, "hitch", serde_json::json!({ "ms": ms.round() }));
+    }
+    let moving = c.here.state == "playing" && intent.as_ref().is_some_and(|i| i.forward.abs() + i.right.abs() > 0.1);
+    c.detectors.check_stuck(&mut c.summary, &c.here, t_s, real.elapsed_secs_f64(), moving);
+    if let Some(m) = memory {
+        c.detectors.check_memory(&mut c.summary, &c.here, t_s, m.vram_use_mb, m.ram_share);
+    }
+    if let Some(v) = voice {
+        c.detectors.check_voice(&mut c.summary, &c.here, t_s, v.missing);
     }
 }
 
@@ -556,7 +813,13 @@ fn read_quests(g: &fnv_game::game::Game, s: &mut Summary) {
 /// Rewrite the summary every [`WRITE_EVERY`], and at exit as a clean end.
 fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::script::ScriptState>>, mut c: ResMut<Collector>) {
     let exiting = exit.read().next().is_some();
-    if !exiting && c.last_write.elapsed() < WRITE_EVERY {
+    // The player deleted their reports: this session goes on under the new ID, written now
+    // so a crash cannot leave it under the deleted one.
+    let renewed = RENEWED.lock().ok().and_then(|r| r.as_ref().map(|(id, _)| id.clone())).filter(|id| *id != c.summary.install_id);
+    if let Some(id) = &renewed {
+        c.summary.install_id = id.clone();
+    }
+    if !exiting && renewed.is_none() && c.last_write.elapsed() < WRITE_EVERY {
         return;
     }
     let c = &mut *c;
@@ -572,6 +835,11 @@ fn write_summary(mut exit: MessageReader<AppExit>, script: Option<Res<nvf_play::
     c.summary.end = if exiting { End::Clean } else { End::Unknown };
     c.summary.worldspace_time_s = c.space_time.iter().map(|(k, v)| (k.clone(), *v as u64)).collect();
     c.summary.warnings = warnings::groups();
+    if let Some(crcs) = PLUGIN_CRCS.get() {
+        for ((_, _, crc), new) in c.summary.plugins.iter_mut().zip(crcs) {
+            crc.clone_from(new);
+        }
+    }
     if let Some(rt) = script.as_ref().and_then(|s| s.rt.as_ref()) {
         let g = &rt.game;
         let mut stubs: std::collections::BTreeMap<String, u64> = Default::default();
@@ -622,6 +890,27 @@ pub fn finish_earlier(summary: &Path, logs: &Path) -> Option<upload::Pending> {
             let _ = std::fs::write(&panic_part, redact(&text));
         }
     }
+    // A native crash's minidump (native_crash.rs), copied as it is: binary, it cannot be
+    // redacted here. The server scrubs the user name from its module paths; stack memory can
+    // still hold other text, so dumps stay private (player-reports.md §3.2).
+    let dump_part = dir.join(format!("{stem}.dmp"));
+    if v["end"] == "native" && !dump_part.exists() {
+        if let Some(d) = find("crash-", ".dmp") {
+            let _ = std::fs::copy(d, &dump_part);
+        }
+    }
+    let snap_part = dir.join(format!("{stem}.snapshot.json"));
+    if v["end"] == "panic" && !snap_part.exists() {
+        if let Some(s) = find("snapshot-", ".json") {
+            let _ = std::fs::copy(s, &snap_part);
+        }
+    }
+    let rec_part = dir.join(format!("{stem}.recorder.jsonl.gz"));
+    if !rec_part.exists() {
+        if let Some(text) = find("recorder-", ".jsonl").and_then(|r| std::fs::read_to_string(r).ok()) {
+            let _ = std::fs::write(&rec_part, upload::gzip(text.as_bytes()));
+        }
+    }
     let log_part = dir.join(format!("{stem}.log.gz"));
     if !log_part.exists() {
         if let Some(text) = find("nvforever-", ".log").and_then(|l| std::fs::read_to_string(l).ok()) {
@@ -646,6 +935,32 @@ fn cut_log(text: &str) -> std::borrow::Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_plugins_crc_is_the_zlib_one() {
+        let p = std::env::temp_dir().join(format!("nvf-crc-test-{}.esp", std::process::id()));
+        std::fs::write(&p, b"123456789").unwrap();
+        // The CRC-32 check value of "123456789".
+        assert_eq!(super::file_crc32(&p).as_deref(), Some("CBF43926"));
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(super::file_crc32(&p), None);
+    }
+
+    #[test]
+    fn nvf_reports_1_never_sends_to_the_project_server_from_a_local_build() {
+        use super::{may_send, SendCase};
+        let on = SendCase { test_on: true, ..SendCase::default() };
+        // The review's case: a local build, NVF_REPORTS=1, no endpoint anywhere.
+        assert!(!may_send(on));
+        assert!(may_send(SendCase { endpoint_env: true, ..on }));
+        assert!(may_send(SendCase { ini_endpoint: true, ..on }));
+        // A test run (--data, a test aid) only ever sends to NVF_REPORTS_ENDPOINT.
+        let test_run = SendCase { test_run: true, ..on };
+        assert!(!may_send(SendCase { ini_endpoint: true, ..test_run }));
+        assert!(may_send(SendCase { endpoint_env: true, ..test_run }));
+        // Without NVF_REPORTS=1 the local-build gate in `choose` has already decided.
+        assert!(may_send(SendCase::default()));
+    }
+
     #[test]
     fn reports_hide_the_game_data_and_exe_folders() {
         // Paths as this platform writes them (a `\` is no separator off Windows).
@@ -680,6 +995,22 @@ mod tests {
         assert_eq!(official_quest(&order, 0x0200_0ABC), Some(("00000ABC".to_string(), "DeadMoney.esm".to_string())));
         assert_eq!(official_quest(&order, 0x0100_0001), None, "a mod's quest");
         assert_eq!(official_quest(&order, 0x0700_0001), None, "past the load order");
+    }
+
+    #[test]
+    fn log_levels_come_from_the_log_section() {
+        let ini = "[Settings]
+script=debug
+[Log]
+script=debug
+nvf_play::doors=TRACE
+ai=loud
+; nav=debug
+";
+        assert_eq!(log_directives(ini), "nvf_play::script=debug,fnv_game=debug,fnv_script=debug,nvf_play::doors=trace");
+        assert_eq!(log_directives("[Game]
+Path=x
+"), "");
     }
 
     #[test]

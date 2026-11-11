@@ -339,6 +339,14 @@ impl<'a> Game<'a> {
         }
     }
 
+    /// For the layer that carries packages out: whether ResetAI asked for `actor`'s
+    /// package to be taken up afresh since it last asked (`RefExtra::ai_reset`), even when
+    /// the same package is current; the request is cleared. Repeated ResetAI calls before
+    /// that are one request [design].
+    pub fn take_ai_reset(&mut self, actor: FormId) -> bool {
+        self.extra.get_mut(&actor).is_some_and(|e| std::mem::take(&mut e.ai_reset))
+    }
+
     /// The layer that carries packages out tells what `actor` does within its package
     /// ([`AiPhase`]; `None`: it does not run the actor now).
     pub fn set_ai_phase(&mut self, actor: FormId, phase: Option<AiPhase>) {

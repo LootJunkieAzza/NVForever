@@ -569,6 +569,10 @@ pub struct Agent {
     /// where the player was when the way was planned, and from when it may be planned
     /// again.
     pub(crate) walk_up: Option<(Place, f64)>,
+    /// How many times ResetAI had its package taken up afresh ([`Ai::step_actor`];
+    /// `Game::take_ai_reset`): the engine gets a seated actor up when this changes, even
+    /// when the package gives it the same furniture again (issue #2119).
+    pub restarts: u32,
 }
 
 #[derive(Default)]
@@ -847,7 +851,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
         Ok(())
     }
 
@@ -1200,8 +1204,21 @@ impl Ai {
         } else if self.woken.remove(&actor) {
             self.agents.get_mut(&actor).expect("listed").package = None;
         }
+        // ResetAI (`Game::take_ai_reset`): the package is taken up afresh even when the
+        // same one is chosen again: off its furniture, the old goal, route and walk gone,
+        // what a loaded save kept of its progress forgotten, and begun again. The request
+        // waits while the AI does not run (off, dead, out cold, rooted: returned above). A
+        // plain evaluation choosing the same package changes nothing [design,
+        // actor-behaviour.md §5; the original's seated RingoRef read GET_UP one loop after
+        // ResetAI, then TRAVEL, observed: owner-decision-captures.md od_06].
+        let reset = game.take_ai_reset(actor);
+        if reset {
+            self.restored.remove(&actor);
+            let a = self.agents.get_mut(&actor).expect("listed");
+            a.restarts = a.restarts.wrapping_add(1);
+        }
         let current = game.current_package(actor);
-        if self.agents[&actor].package != current {
+        if reset || self.agents[&actor].package != current {
             self.log(game, actor, AiEvent::Package { package: current });
             let a = self.agents.get_mut(&actor).expect("listed");
             a.package = current;

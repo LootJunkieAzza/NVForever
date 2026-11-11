@@ -519,9 +519,13 @@ fn gather(
     let posed = driven.is_some_and(|d| d.0);
     let wheel_open = wheel.is_some_and(|w| w.is_open());
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
-    let killcam = kill_cam.is_some_and(|k| k.active());
+    // Nor while the classic VATS style plays its queued attacks (`VatsMode::playing_back`).
+    let playback = vats.as_ref().is_some_and(|v| v.playing_back());
+    let camera = kill_cam.is_some_and(|k| k.active());
+    let killcam = camera || playback;
     if killcam != view.kill_cam {
-        info!("hud: {}", if killcam { "hidden: the kill camera has the view" } else { "back after the kill camera" });
+        let why = if camera { "the kill camera has the view" } else { "the VATS attacks play" };
+        info!("hud: {}", if killcam { format!("hidden: {why}") } else { "back after the kill camera".to_string() });
     }
     let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam, kill_cam: killcam, ..view.clone() };
     if let Some(p) = &player {
@@ -815,7 +819,7 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
         // The enemy's health, bottom middle: its long line level with the corner pieces'
         // (§8).
         let red = crime_colour();
-        let enemy_top = HP_PANEL.y - LINE_Y + ENEMY_LINE_Y + ENEMY_BRACKET_AT.y - ENEMY.y;
+        let enemy_top = enemy_top();
         let piece = Node {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
@@ -846,6 +850,29 @@ fn spawn_hud(commands: &mut Commands, art: &mut Art, images: &mut Assets<Image>,
     });
 }
 
+/// The enemy piece's place from the HUD's bottom margin: its long line level with the
+/// corner pieces' (§8).
+fn enemy_top() -> f32 {
+    HP_PANEL.y - LINE_Y + ENEMY_LINE_Y + ENEMY_BRACKET_AT.y - ENEMY.y
+}
+
+/// How strongly a tick of the enemy bar is drawn that the damage in sight would take
+/// (VATS, `crate::hud_target::TargetHealth::after`) [design].
+const ENEMY_SIGHT_ALPHA: f32 = 0.08;
+/// They go from that to whole and back once in this many real seconds [design: the fork
+/// owner 2026-11-10, "make them blink by going from the minimum to max opacity"].
+const ENEMY_SIGHT_BLINK: f32 = 1.0;
+
+/// How strongly a tick the damage in sight would take is drawn `at` real seconds.
+pub fn sight_alpha(at: f32) -> f32 {
+    let wave = 0.5 - 0.5 * (at / ENEMY_SIGHT_BLINK * std::f32::consts::TAU).cos();
+    ENEMY_SIGHT_ALPHA + (1.0 - ENEMY_SIGHT_ALPHA) * wave
+}
+
+/// The enemy piece's top from the view's top while the classic VATS style chooses
+/// targets, interface units [design].
+const ENEMY_VATS_TOP: f32 = 40.0;
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
@@ -857,9 +884,10 @@ fn draw(
     mut art: Local<Option<Art>>,
     mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>,
     mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
-    mut enemy: Query<&mut Visibility, (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>)>,
-    mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>)>,
-    mut strip: Query<(&mut Strip, &mut Node), Without<ConditionBar>>,
+    mut enemy: Query<(&mut Visibility, &mut Node), (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>, Without<ConditionBar>, Without<Strip>)>,
+    mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>, Without<EnemyPiece>)>,
+    mut strip: Query<(&mut Strip, &mut Node), (Without<ConditionBar>, Without<EnemyPiece>)>,
+    vats: Option<Res<crate::vats_mode::VatsMode>>,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -882,8 +910,18 @@ fn draw(
     for mut v in &mut condition {
         v.set_if_neq(show(view.weapon.condition.is_some()));
     }
-    for mut v in &mut enemy {
+    // While VATS is on, in either style, the enemy's piece stands at the top of the view,
+    // over the target [design: the fork owner 2026-11-10, "keep the NPC healthbar above",
+    // "on top in both versions"; the original keeps it at the bottom in VATS, observed on
+    // the owner's screenshots].
+    let at_top = vats.is_some_and(|v| v.active());
+    let (top, bottom) = if at_top { (u(ENEMY_VATS_TOP), Val::Auto) } else { (Val::Auto, u(MARGIN_Y + enemy_top())) };
+    for (mut v, mut node) in &mut enemy {
         v.set_if_neq(show(target.0.is_some()));
+        if node.top != top || node.bottom != bottom {
+            node.top = top;
+            node.bottom = bottom;
+        }
     }
     let width = u(condition_width(view.weapon.condition.unwrap_or(0.0)));
     for mut node in &mut bar {
@@ -908,7 +946,8 @@ fn pips(
     formats: Option<Res<CompressedImageFormatSupport>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     rows: Query<(Entity, &PipRow)>,
-    mut ticks: Query<(&Pip, &mut Visibility)>,
+    mut ticks: Query<(&Pip, &mut Visibility, Option<&mut ImageNode>, Option<&mut BackgroundColor>)>,
+    real: Res<Time<Real>>,
     mut set_for: Local<Option<(f32, f32)>>,
     mut tick: Local<Option<Option<Handle<Image>>>>,
 ) {
@@ -946,7 +985,10 @@ fn pips(
         return;
     }
     let enemy = target.0.as_ref().map_or(0.0, |t| t.health);
-    for (pip, mut v) in &mut ticks {
+    // In VATS the ticks the damage in sight would take are faint (`TargetHealth::after`):
+    // the bar empties towards its middle, so they are its outer lit ticks.
+    let after = target.0.as_ref().and_then(|t| t.after).map(|a| lit_middle(a, ENEMY_PIPS));
+    for (pip, mut v, image, fill) in &mut ticks {
         let on = match pip.bar {
             Bar::Health => pip.index < lit(view.health, PIPS),
             Bar::ActionPoints => PIPS - 1 - pip.index < lit(view.action_points, PIPS),
@@ -956,6 +998,21 @@ fn pips(
             }
         };
         v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+        if pip.bar == Bar::Enemy {
+            // They blink, from faint to whole and back, in real time (the world may stand
+            // still).
+            let alpha = if after.is_some_and(|(from, to)| !(from..to).contains(&pip.index)) { sight_alpha(real.elapsed_secs()) } else { 1.0 };
+            if let Some(mut image) = image {
+                if image.color.alpha() != alpha {
+                    image.color = image.color.with_alpha(alpha);
+                }
+            }
+            if let Some(mut fill) = fill {
+                if fill.0.alpha() != alpha {
+                    fill.0 = fill.0.with_alpha(alpha);
+                }
+            }
+        }
     }
 }
 
@@ -1085,7 +1142,7 @@ mod tests {
     fn enemy_ink_tracks_hostility_without_rebuilding_any_children() {
         use crate::hud_target::TargetHealth;
         let mut app = App::new();
-        app.insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Target".into(), health: 0.5, hostile: false, anatomy: Some((50.0, 2.0)) })))
+        app.insert_resource(HudTarget(Some(TargetHealth { form_id: 1, name: "Target".into(), health: 0.5, hostile: false, anatomy: Some((50.0, 2.0)), after: None })))
             .add_systems(Update, enemy_colours);
         let bracket = app.world_mut().spawn(ImageNode::default()).id();
         let tick = app.world_mut().spawn(BackgroundColor(Color::WHITE)).id();
