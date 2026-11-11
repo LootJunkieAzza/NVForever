@@ -697,6 +697,57 @@ end)", Default::default()).expect("compiles");
     assert_eq!(heard(&s), 2.0, "a second crossing, a second event");
 }
 
+/// #2123, review: the asking distance is a step's length plus a margin, so it changes
+/// with the frame time. An actor held at its edge (turning on the spot, `NoProgress`) by
+/// long and short frames by turns, then taken on through the door in long and short
+/// steps by turns, is on one crossing of the door: one event.
+#[test]
+fn frame_times_at_the_asking_edge_make_no_second_event() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+    let heard = |s: &Sim| s.game.world.global(FormId(0x807)).unwrap();
+    let crossings = |s: &Sim| s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::Door { door, .. } if door.0 == DOOR_A)).count();
+    // How far the actor is from where its leg ends at the door.
+    let to_door = |s: &Sim| {
+        let w = &s.ai.agents[&actor].walker;
+        let f = w.follower.as_ref().expect("on its way");
+        dist(w.feet, *f.path.legs[f.leg].points.last().unwrap())
+    };
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Short steps (reach 97 units) up to 120 units from the door: not asked yet.
+    let mut steps = 0;
+    while to_door(&s) > 120.0 {
+        s.ai.update(&mut s.game, &s.nav, 0.01);
+        steps += 1;
+        assert!(steps < 100_000, "never came near the door");
+    }
+    assert_eq!(heard(&s), 0.0);
+    // Held there: a long frame (reach 146) asks it, a short one (reach 97) leaves it out
+    // of reach, by turns.
+    for i in 0..8 {
+        let dt = if i % 2 == 0 { 0.5 } else { 0.01 };
+        s.ai.update_moved(&mut s.game, &s.nav, dt, &mut NoProgress);
+    }
+    assert!(to_door(&s) > 100.0, "held where it stood, {}", to_door(&s));
+    assert_eq!(heard(&s), 1.0, "held at the edge: one crossing");
+    // On in long and short steps by turns, through the door.
+    let mut steps = 0;
+    while crossings(&s) == 0 {
+        let dt = if steps % 2 == 0 { 0.2 } else { 0.01 };
+        s.ai.update(&mut s.game, &s.nav, dt);
+        steps += 1;
+        assert!(steps < 400, "never went through");
+    }
+    assert_eq!(heard(&s), 1.0, "one crossing, one event");
+}
+
 #[test]
 fn a_restrained_actor_stays_in_place_until_released() {
     let f = fixture();

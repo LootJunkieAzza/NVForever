@@ -576,9 +576,9 @@ pub struct Agent {
     /// `Game::take_ai_reset`): the engine gets a seated actor up when this changes, even
     /// when the package gives it the same furniture again (issue #2119).
     pub restarts: u32,
-    /// The door it was last asked at and has not yet left behind
-    /// (`fnv_game::Game::npc_door_left`, [`Ai::ask_door`]).
-    pub(crate) asked_door: Option<u32>,
+    /// The door it was last asked at and has not yet left behind, with the package it
+    /// was walking for (`fnv_game::Game::npc_door_left`, [`Ai::ask_door`]).
+    pub(crate) asked_door: Option<(u32, Option<FormId>)>,
 }
 
 #[derive(Default)]
@@ -1166,7 +1166,7 @@ impl Ai {
         // A walk ended or set aside: the door it was coming up to is behind it too
         // ([`Ai::ask_door`]).
         if let Some(a) = self.agents.get_mut(&actor).filter(|a| a.activity != Activity::Travelling) {
-            if let Some(left) = a.asked_door.take() {
+            if let Some((left, _)) = a.asked_door.take() {
                 game.npc_door_left(actor, FormId(left));
             }
         }
@@ -1991,16 +1991,21 @@ impl Ai {
     /// Whether it may walk on.
     fn ask_door(&mut self, game: &mut Game, actor: FormId, reach: f32) -> bool {
         let a = self.agents.get_mut(&actor).expect("listed");
-        let ahead = a.walker.follower.as_ref().and_then(|f| f.door_ahead(a.walker.feet, reach));
-        // The door asked last is behind it once it is no longer the one ahead: gone
-        // through (a load door used, a door that opens in place opened), or off its way.
-        // Asked every step while it comes up to the door, the extender hears it once a
-        // crossing (`fnv_game::npc_doors`) [design, #2123].
-        if let Some(left) = a.asked_door.filter(|&d| Some(d) != ahead) {
+        let follower = a.walker.follower.as_ref();
+        // The next door of its way, however far, and that door when it is within reach.
+        let next = follower.and_then(|f| f.door_ahead(a.walker.feet, f32::INFINITY));
+        let ahead = follower.and_then(|f| f.door_ahead(a.walker.feet, reach));
+        // The door asked last is behind it once its way no longer has it next: gone
+        // through (a load door used, a door that opens in place opened), the way cleared
+        // or planned without it, or another package taken up; not when a shorter step
+        // leaves it just out of reach. Asked every step while it comes up to the door, the
+        // extender hears it once a crossing (`fnv_game::npc_doors`) [design, #2123].
+        if let Some((left, _)) = a.asked_door.filter(|&(d, p)| Some(d) != next || p != a.package) {
+            a.asked_door = None;
             game.npc_door_left(actor, FormId(left));
         }
-        a.asked_door = ahead;
         let Some(door) = ahead else { return true };
+        a.asked_door = Some((door, a.package));
         if game.npc_door(actor, FormId(door)) != fnv_game::npc_doors::DoorAnswer::Refused {
             return true;
         }

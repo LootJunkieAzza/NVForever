@@ -21,14 +21,14 @@
 //!   door survey, doors.md §5.1, read with script-function-coverage.md §3.3]. Heard once
 //!   per crossing: the AI asks the door every step while the actor comes up to it and
 //!   tells [`Game::npc_door_left`] once the door is no longer the next one of its way
-//!   (it went through, or the way changed), so its next crossing is heard again, kept
-//!   answer or not; [`ASKED_SECONDS`] after it was heard a crossing the AI never closed
-//!   counts as a new one. A block's `Activate` of the door for the actor is that same
-//!   activation, not heard again; an extender handler is no part of the block, so its
-//!   own `Activate` of the door is heard and does not let the actor through [design].
-//!   Whether the original
-//!   fires it at doors with no script at all is not known [hypothesis: as at those
-//!   two, whose scripts have no block; observer check 109].
+//!   (it went through, the way changed or ended, another package), so its next crossing
+//!   is heard again, kept answer or not; [`ASKED_SECONDS`] after it was heard a crossing
+//!   the AI never closed counts as a new one. A block's `Activate` of the door for the
+//!   actor is that same activation, not heard again; an extender handler is no part of
+//!   the block, so its own `Activate` of the door is heard and does not let the actor
+//!   through [design]. Whether the original fires it at doors with no script at all is
+//!   not known [hypothesis: as at those two, whose scripts have no block; observer
+//!   check 109].
 //! - **The block decides.** An OnActivate block runs instead of the default activation;
 //!   the door opens only when the block calls `Activate` [documented: GECK wiki Activate,
 //!   "The OnActivate block of the object will be run instead of the default

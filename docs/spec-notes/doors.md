@@ -198,7 +198,8 @@ to the player.
   have no OnActivate block (§5.1) [observed]. Once per crossing: the AI asks the
   door on every step as the actor comes up to it, and the event goes out the first
   time; the crossing is over once the door is no longer the next of the actor's way (a
-  load door used, a door that opens in place opened, the way changed, the walk ended),
+  load door used, a door that opens in place opened, the way changed or cleared, the walk ended, another
+  package taken up; not when a shorter frame leaves it just outside the asking distance),
   and the next walk through it is dispatched again, whether the door's answer is kept or
   not. A crossing never closed counts as a new one 10 s after it was dispatched. The
   record is kept apart from the answers (which are as before: 10 s, 120 s for a refusal,
