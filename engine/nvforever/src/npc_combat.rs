@@ -1277,15 +1277,16 @@ fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active:
 }
 
 /// Whether an actor a weapon use holds the fight for keeps its fight's state (its
-/// `Fighter`, engage distance, aim, pace, post and crouch, which `fight` drops for an actor
-/// it no longer has): a package's use while the actor is in Combat (`fighting`, the state
-/// `fight` acts in; Alert and Lost drop it as before), which hands the actor back and
-/// forth as the shooter can act on it or not (`use_weapon::acts_on`), so a target
-/// flickering among the drawn people does not start its fight again from nothing (its
-/// sight time, magazine, reload) each time (#2145 review) [design]. A script's use drops
-/// it, as before.
-fn keeps_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, fighting: bool) -> bool {
-    fighting && any.is_some_and(|w| matches!(w.source, fnv_game::use_weapon::Source::Package(_)))
+/// `Fighter`, engage distance, aim, pace and post, which `fight` drops for an actor it no
+/// longer has): a package's use still to be carried out (`active`) while the actor is in
+/// Combat (`fighting`, the state `fight` acts in), which is one whose package continues
+/// during combat. It hands the actor back and forth as the shooter can act on it or not
+/// (`use_weapon::acts_on`), so a target flickering among the drawn people does not start
+/// its fight again from nothing (its sight time, magazine) each time (#2145 review)
+/// [design]. A script's use, a package's last melee blow landing (no longer active), and
+/// Alert and Lost drop it, as before.
+fn keeps_fight(active: Option<&fnv_game::use_weapon::WeaponUse>, fighting: bool) -> bool {
+    fighting && active.is_some_and(|w| matches!(w.source, fnv_game::use_weapon::Source::Package(_)))
 }
 
 /// What `fight` does this frame with an actor and its weapon use, if any.
@@ -1296,7 +1297,8 @@ enum UseHold {
     /// It has a use still to be carried out that the shooter cannot act on: it fights,
     /// and the use is marked taken over (`Game::weapon_use_taken`).
     Taken,
-    /// A use holds the fight and its fight's state is kept ([`keeps_fight`]).
+    /// A use holds the fight and its fight's state is kept ([`keeps_fight`]), nothing of
+    /// its own attack left under way ([`hold_for_use`]).
     Kept,
     /// Nothing to fight this frame (a use holds it and its state goes, or it is not in
     /// Combat): its fight's state is dropped, as before.
@@ -1306,7 +1308,7 @@ enum UseHold {
 /// [`UseHold`] from [`weapon_use_holds_fight`] and [`keeps_fight`] (#2145 review).
 fn use_hold(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, state: State, target_standing: bool, landing: bool) -> UseHold {
     if weapon_use_holds_fight(any, active, state.in_combat(), target_standing, landing) {
-        if keeps_fight(any, state == State::Combat) {
+        if keeps_fight(active, state == State::Combat) {
             UseHold::Kept
         } else {
             UseHold::Out
@@ -1320,11 +1322,34 @@ fn use_hold(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_g
     }
 }
 
-/// A kept fighter while the shooter has its actor: blows begun and not landed are let
-/// go (the shooter's attacks are the ones that count meanwhile), its other state stays.
+/// A kept fighter while the shooter has its actor ([`UseHold::Kept`]): nothing of its
+/// own attack is left under way, since `fight` does not step it meanwhile and the
+/// shooter's attacks are the ones that count. Blows begun and not landed are let go, a
+/// gun's shot or reload under way is settled ([`settle_for_use`]), and its combat crouch
+/// ends (the caller takes it out of `Awareness::crouching`; the stance rolls run again
+/// once the fight has the actor back). Its sight time, magazine, post and the rest stay
+/// (#2145 review) [design].
 fn hold_for_use(x: &mut Fighter) {
     x.blows.clear();
     x.swing = None;
+    x.crouched_since = None;
+    settle_for_use(x.ranged.as_mut());
+}
+
+/// A gun's cycle handed to the shooter: a pull under way (spin-up, wind-up) is let go and
+/// so is a reload, back to Ready. It is settled rather than stepped with the trigger off:
+/// a step would still fire a committed wind-up (`fnv_combat::attack`), and nothing plays
+/// the fight's reload clip or sound while the shooter has the actor. Settled, nothing
+/// reports it reloading or busy (`Fighters::reloading`, `Fighters::busy`) while the
+/// shooter fires. A reload let go leaves the magazine as it was (rounds already put in
+/// by a round-by-round reload stay), and the fight reloads at once on its first frame
+/// back if that is short [design].
+fn settle_for_use(ranged: Option<&mut RangedAttack>) {
+    if let Some((cycle, _)) = ranged.and_then(RangedAttack::firearm_mut) {
+        if cycle.reloading() || matches!(cycle.phase, GunPhase::SpinUp { .. } | GunPhase::WindUp { .. }) {
+            cycle.phase = GunPhase::Ready;
+        }
+    }
 }
 
 /// One frame of every fight (module notes).
@@ -1477,6 +1502,7 @@ pub(crate) fn fight(
                 UseHold::Kept => {
                     if let Some(x) = f.fighters.get_mut(&id) {
                         hold_for_use(x);
+                        g.awareness.crouching.remove(&me);
                         still.push(id);
                     }
                     continue;
@@ -3299,9 +3325,53 @@ mod tests {
         assert_eq!(use_hold(Some(&there), Some(&there), State::Alert, true, false), UseHold::Out);
         assert_eq!(use_hold(Some(&there), Some(&there), State::Alert, false, false), UseHold::Out);
         assert_eq!(use_hold(Some(&there), Some(&there), State::Normal, false, false), UseHold::Out);
-        // A package melee use's last blow landing in Combat keeps it too.
-        let spent = WeaponUse { done: true, ..there.clone() };
-        assert_eq!(use_hold(Some(&spent), None, State::Combat, true, true), UseHold::Kept);
+        // A package's last melee blow landing (no longer active) holds the fight and drops
+        // its state, as before #2120, with the flag or without.
+        let spent = WeaponUse { done: true, ..there };
+        assert_eq!(use_hold(Some(&spent), None, State::Combat, true, true), UseHold::Out);
+    }
+
+    /// #2145 review: a kept fighter's gun handed to the shooter (`settle_for_use`, from
+    /// `hold_for_use`) is neither reloading (so not busy) nor about to fire: a reload or
+    /// a committed wind-up under way is let go; a cooldown, or a gun at rest, stays.
+    #[test]
+    fn a_gun_handed_to_the_shooter_is_left_neither_reloading_nor_about_to_fire() {
+        let gun = WeaponStats { clip_size: 2, ..Default::default() };
+        let input = Input { trigger: false, dt: 0.2, carried: 20, ..Default::default() };
+        let fired = |c: &mut Cycle| (0..10).any(|_| c.step(&Default::default(), input).iter().any(|e| matches!(e, Event::Fired { .. })));
+        for phase in [GunPhase::Reloading { left: 0.5 }, GunPhase::ReloadOpen { left: 0.5, stop: false }, GunPhase::ReloadRound { left: 0.5, stop: false, taken: 1 }, GunPhase::ReloadClose { left: 0.5, taken: 1 }] {
+            let mut cycle = ranged_cycle(&gun);
+            (cycle.magazine, cycle.phase) = (0, phase);
+            let mut attack = RangedAttack::Firearm { cycle, reload_timed: true };
+            assert!(attack.reloading(), "{phase:?}");
+            settle_for_use(Some(&mut attack));
+            assert!(!attack.reloading(), "{phase:?}: not reloading, so not busy");
+            let (cycle, _) = attack.firearm_mut().unwrap();
+            assert_eq!(cycle.magazine, 0, "the magazine as it was");
+            assert!(!fired(cycle), "{phase:?}: no shot without a pull");
+        }
+        for phase in [GunPhase::WindUp { left: 0.1 }, GunPhase::SpinUp { left: 0.1 }] {
+            let mut cycle = ranged_cycle(&gun);
+            cycle.phase = phase;
+            if matches!(phase, GunPhase::WindUp { .. }) {
+                // Left as it was, the wind-up fires with the trigger off.
+                assert!(fired(&mut cycle.clone()), "the shot already in flight");
+            }
+            let mut attack = RangedAttack::Firearm { cycle, reload_timed: true };
+            settle_for_use(Some(&mut attack));
+            let (cycle, _) = attack.firearm_mut().unwrap();
+            assert!(matches!(cycle.phase, GunPhase::Ready), "{phase:?}");
+            assert!(!fired(cycle), "{phase:?}: no shot after the hand-over without a pull");
+        }
+        // A cooldown is no shot or reload under way: kept.
+        let mut cycle = ranged_cycle(&gun);
+        cycle.phase = GunPhase::Cooldown { left: 0.3 };
+        let mut attack = RangedAttack::Firearm { cycle, reload_timed: true };
+        settle_for_use(Some(&mut attack));
+        assert!(matches!(attack.firearm_mut().unwrap().0.phase, GunPhase::Cooldown { .. }));
+        // A held grenade or no ranged attack: nothing to settle.
+        settle_for_use(Some(&mut RangedAttack::Grenade));
+        settle_for_use(None);
     }
 
     #[test]

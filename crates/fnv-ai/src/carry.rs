@@ -2385,7 +2385,9 @@ impl Ai {
         // (`crate::alert`), people and creatures alike: its package's doings go on in
         // combat, so the combat steering that would turn it does not run (#2145 review)
         // [design].
-        let taken = game.active_weapon_use(actor).is_some_and(|w| w.taken);
+        // Read only in Combat: one left set as the actor leaves it, before the fight's next
+        // frame clears it, means nothing.
+        let taken = game.active_weapon_use(actor).is_some_and(|w| w.taken) && game.awareness.state(actor) == fnv_game::awareness::State::Combat;
         if taken {
             let enemy = game.awareness.get(actor).and_then(|aw| aw.combat_target()).map(|(_, t)| t.at);
             if let Some(at) = enemy.filter(|_| standing) {

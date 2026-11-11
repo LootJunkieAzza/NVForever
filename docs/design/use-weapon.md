@@ -78,8 +78,14 @@ During Combat, read from the use's own package as `Game::package_def` gives it):
   its package), not the ordinary combat movement (closing in, cover). Once the shooter
   can act, the use takes over again; meanwhile the actor's fight keeps its state (its
   sight time, magazine, post), so the hand-over going back and forth does not start the
-  fight from nothing each time (`npc_combat::use_hold`, `keeps_fight`; blows begun and
-  not landed are let go). Spent (or its package changed),
+  fight from nothing each time (`npc_combat::use_hold`, `keeps_fight`). Nothing of the
+  fight's own attack stays under way while the shooter has the actor
+  (`npc_combat::hold_for_use`): blows begun and not landed are let go, a gun's wind-up or
+  reload goes back to Ready (`settle_for_use`; a step with the trigger off would still
+  fire a committed wind-up, and a frozen reload would leave it reported reloading and
+  busy), and its combat crouch ends. Only a use still to be carried out is kept so; a
+  package's last melee blow landing drops the fight's state, as before. Spent (or its
+  package changed),
   the use is no longer active and the fight takes the actor back. Out of a combat state,
   and for a script's use in any state, nothing changes. `shoot` and `fight` run in no set
   order, so in the frame a use begins or ends one of them may still act on the state the
@@ -149,8 +155,11 @@ melee fighters (docs/design/combat-ai.md §14.4, §15; `npc_combat`):
 
 - Unit tests (#2145 review): `use_weapon::acts_on` and `npc_combat::weapon_use_holds_fight`
   (a package's use in combat holds the fight only in place with a standing target; a marker,
-  an undrawn target or an actor on its way fights), `npc_combat::use_hold` (a target
-  coming and going hands the actor back and forth without dropping its fight),
+  an undrawn target or an actor on its way fights), `npc_combat::use_hold` (a
+  classification test: a target coming and going sorts each frame as kept or taken over,
+  never dropped; it does not itself show the state is kept),
+  `a_gun_handed_to_the_shooter_is_left_neither_reloading_nor_about_to_fire`
+  (`settle_for_use`: a reload or wind-up under way is let go, a cooldown kept),
   `residents::use_aim` (a use the fight took over leaves the aim to the combat target),
   and `a_use_weapon_package_the_fight_took_over_turns_to_its_enemy`
   (`crates/fnv-ai/tests/carry.rs`: taken over, it turns to its enemy and keeps its stand;

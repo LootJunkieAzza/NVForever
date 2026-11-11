@@ -107,7 +107,9 @@ pub struct WeaponUse {
     /// The fight has the actor this frame: in Combat, a package's use the engine's
     /// shooter has nothing to act on (a marker target, one not drawn, not yet in place),
     /// so the ordinary attacks take over and the actor turns to its enemy, not the use's
-    /// target. Set each frame by the engine's fight (`Game::weapon_use_taken`) [design].
+    /// target. Set each frame by the engine's fight (`Game::weapon_use_taken`), cleared
+    /// at the start of each of its frames, on a new use and at its end; read only while
+    /// the actor is in Combat, so one left set as it leaves Combat means nothing [design].
     pub taken: bool,
 }
 
@@ -192,6 +194,8 @@ impl Game<'_> {
     pub fn give_weapon_use(&mut self, actor: FormId, mut w: WeaponUse) {
         self.weapon_use_seq += 1;
         w.seq = self.weapon_use_seq;
+        // A new use is the shooter's until the fight says otherwise.
+        w.taken = false;
         self.weapon_uses.insert(actor, w);
     }
 
@@ -282,6 +286,7 @@ impl Game<'_> {
         let Some(w) = self.weapon_uses.get_mut(&actor) else { return };
         w.done = true;
         w.crouched = false;
+        w.taken = false;
         match w.source {
             Source::Script => {
                 self.weapon_uses.remove(&actor);
