@@ -523,6 +523,16 @@ fn open(
                 let (h, p) = seat::look_at_reels(frame, place.player.body_eye.unwrap_or(place.player.eye()));
                 info!("slots seat: seated at machine {m:08X} on stool {stool:08X}");
                 (place.player.heading, place.player.pitch) = (h, p);
+                // Sitting put the weapon away (`furniture::drive_player`); also when the
+                // menu opened without the sit having happened (above).
+                match place.control.as_deref_mut() {
+                    Some(c) if c.weapon_out => {
+                        c.weapon_out = false;
+                        info!("slots seat: the weapon is put away at the machine");
+                    }
+                    Some(_) => info!("slots seat: the weapon is away (sitting put it away)"),
+                    None => {}
+                }
             }
             Stance::Standing { spot, heading } => {
                 crate::table_spots::stand_player(&mut place.phys, &mut place.player, [spot[0], spot[1]], spot[2], heading);
