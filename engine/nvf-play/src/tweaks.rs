@@ -446,6 +446,10 @@ pub struct TweakSettings {
     pub repeat_activate_takes_only: bool,
     /// `bForceHiResWeaponModels`: NPCs hold their weapons' first-person models.
     pub hi_res_npc_weapons: bool,
+    /// `bShowQuestObjectivesOnCellChange`/`fMinInterval`: a new place shows the active
+    /// quest's open objectives, at most once in `objectives_gap` seconds.
+    pub objectives_on_arrival: bool,
+    pub objectives_gap: f32,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -694,6 +698,8 @@ impl Default for TweakSettings {
             better_flycam: false,
             repeat_activate_takes_only: true,
             hi_res_npc_weapons: false,
+            objectives_on_arrival: false,
+            objectives_gap: 30.0,
         }
     }
 }
@@ -831,6 +837,7 @@ impl Plugin for TweaksPlugin {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
             .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight).in_set(crate::PlaySet::Input))
+            .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
         // ---- experience ----
@@ -1701,6 +1708,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "The Repeat Activate key (on the Controls page, unbound until you bind it), held, takes things again and again; off, it activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
         switch!(app, "hi-res-npc-weapons", "Fine Weapon Models for Everyone", "People hold the detailed first-person models of their weapons; weapons drawn after the change. (Stewie's Tweaks bForceHiResWeaponModels)", hi_res_npc_weapons);
         switch!(app, "empty-reload-swaps-ammo", "Reload Swaps Spent Ammo", "Reloading when none of the ammo in use is left changes to another kind you carry. (Stewie's Tweaks bReloadingWithNoAmmoSwapsAmmoTypes)", game.empty_reload_swaps_ammo);
+        switch!(app, "objectives-on-arrival", "Objectives on Arrival", "Going through a door to a new place shows your active quest's open objectives again. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", objectives_on_arrival);
+        amount!(app, "objectives-gap", "Objectives on Arrival Gap (s)", "The least time, up to 300 seconds, between two showings of Objectives on Arrival. (Stewie's Tweaks bShowQuestObjectivesOnCellChange)", 300.0, f32, objectives_gap);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1805,6 +1814,48 @@ fn drop_weapon(input: crate::bindings::ControlInput, state: Res<State<crate::Pla
             }
         }
         Err(e) => info!("tweaks: Drop Weapon: {item} not dropped: {e}"),
+    }
+}
+
+/// Show Objectives on Arrival: a new place (another interior, or out to a worldspace)
+/// shows the active quest's open objectives again, as a new objective would, at most
+/// once in [`TweakSettings::objectives_gap`] seconds [design: docs/design/tweaks.md].
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn objectives_on_arrival(
+    time: Res<Time>,
+    tweaks: Res<TweakSettings>,
+    state: Res<State<crate::PlayState>>,
+    location: Option<Res<crate::Location>>,
+    data: Option<Res<crate::pipboy::data::DataState>>,
+    script: Option<Res<ScriptState>>,
+    quests: Option<ResMut<crate::quest_messages::QuestMessages>>,
+    mut last: Local<(Option<(u32, Option<u32>)>, f32)>,
+) {
+    let Some(loc) = location else { return };
+    let here = (loc.world, loc.interior);
+    let was = last.0.replace(here);
+    if !tweaks.objectives_on_arrival || *state.get() != crate::PlayState::Playing || was.is_none_or(|w| w == here) {
+        return;
+    }
+    let now = time.elapsed_secs();
+    if last.1 > 0.0 && now - last.1 < tweaks.objectives_gap {
+        return;
+    }
+    let (Some(rt), Some(mut quests)) = (script.as_deref().and_then(|s| s.rt.as_ref()), quests) else { return };
+    let Some(q) = data.as_deref().and_then(|d| d.active_quest(Some(&rt.game))) else { return };
+    let Some(state) = rt.game.quests.get(&fnv_sim::FormId(q)) else { return };
+    let list: Vec<crate::script_events::Objective> = state
+        .objectives
+        .iter()
+        .filter(|(_, o)| o.displayed && !o.completed)
+        .filter_map(|(i, _)| rt.game.objective_text(fnv_sim::FormId(q), *i).map(|t| rt.game.expand_codes(&t)))
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| crate::script_events::Objective { quest: q, text: t.trim().to_string(), completed: false })
+        .collect();
+    if !list.is_empty() {
+        last.1 = now;
+        info!("tweaks: {} objective(s) of the active quest shown on arrival", list.len());
+        quests.push(crate::script_events::QuestNotice::Objectives(list));
     }
 }
 

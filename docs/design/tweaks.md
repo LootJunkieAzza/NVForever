@@ -573,6 +573,7 @@ unless the player binds them, so nothing changes until then.
 | Fine Weapon Models for Everyone | `bForceHiResWeaponModels` | nvforever `actors::arm_weapon` asks `model_for(true, …)` (the WEAP's first-person model) while `tweaks::HI_RES_NPC_WEAPONS` is set; not checked in game |
 | (already so) | `bAllowActivateWhileAnimPlays` | `activate` refuses nothing for a clip playing (reload, shot, jump, landing) |
 | Reload Swaps Spent Ammo | `bReloadingWithNoAmmoSwapsAmmoTypes` | a reload asked for with none of `Combat::ammo` carried takes the Ammo Swap path (the next carried type); loading a save with none is not handled |
+| Objectives on Arrival | `bShowQuestObjectivesOnCellChange` | `tweaks::objectives_on_arrival` sees `Location` change (another interior, or a worldspace) and pushes the active quest's shown, open objectives as a `QuestNotice::Objectives`, at most once in the gap (30 s by default, ours) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -594,8 +595,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 499 |
-| to do | 104 |
+| done | 500 |
+| to do | 103 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -966,6 +967,7 @@ game's Data folder, read-only).
 | `bRemoveSneakLabel` | done |  |  | No Sneak Label (native and tile HUD) |
 | `bScopeVisibleAPHP` | done |  | 1 | already so: HP and AP stay up while scoped |
 | `bShowNearestUndiscoveredLocation` | done |  | 2 | Nearest Unfound Place (the compass; the map option not built) |
+| `bShowQuestObjectivesOnCellChange` | done |  | 1 | Objectives on Arrival, with the gap slider |
 | `bShowSneakLabelWhileStanding` | done |  |  | Sneak Label While Standing |
 | `bShowUsePasswordOnTerminalsWithNote` | done |  | 1 | Show Use Password (until first opened this session; sUsePassword is our words) |
 | `bSubtitlesShowActorNames` | done |  |  | Subtitles Name the Speaker |
@@ -987,7 +989,6 @@ game's Data folder, read-only).
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
 | `bPlacedMarkerHeightIndicator` | to do |  | 1 | not built: no player-placed markers |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
-| `bShowQuestObjectivesOnCellChange` | to do |  | 1 | cell change detection and objectives for the active quest |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
 
 ### Menus
@@ -1102,7 +1103,7 @@ game's Data folder, read-only).
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | unsure which pad button is meant: East (B) works as Esc in every menu, View/Select opens nothing there |
-| `bCustomHackingAnswerLength` | to do |  | 8 | Difficulty::word_lengths and the perk |
+| `bCustomHackingAnswerLength` | to do |  | 8 | the readme gives no defaults and does not say how the attempts are worked out |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
 | `bInteriorExteriorMapDoorIcon` | to do |  |  | doors carry no leads-outside field |
