@@ -11132,6 +11132,8 @@ expect = [
   "arm found",
   "faces as the reel model)",
   "slots view summary: drums built on 1 machines",
+  "slots view: the player's body out of the camera's view",
+  "slots view: the player's body back in the camera's view",
 ]
 
 [[scenario]]
