@@ -1796,6 +1796,21 @@ fn stat_speed(mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>
     } else {
         1.0
     };
+    // The player's tweak: the body armour's class sinks the swimmer, units a second
+    // (ours) [design: docs/design/tweaks.md].
+    let sink = if rt.game.tweaks.armor_sinks {
+        match with_world(rt, &mut sim, |rt| fnv_game::combat::worn_armor_class(&rt.game.world, FormId::PLAYER_REF)) {
+            fnv_sim::forms::ArmorClass::Heavy => 60.0,
+            fnv_sim::forms::ArmorClass::Medium => 25.0,
+            fnv_sim::forms::ArmorClass::Light => 0.0,
+        }
+    } else {
+        0.0
+    };
+    if speed.2 != sink {
+        speed.2 = sink;
+        info!("movement: the player's armour sinks them at {sink:.0} units/s in water (tweak)");
+    }
     if (speed.1 - jump).abs() > 1e-4 {
         speed.1 = jump;
         info!("movement: the player jumps {:.0}% as high (Agility tweak)", jump * 100.0);

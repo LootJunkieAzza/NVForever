@@ -658,13 +658,14 @@ type Paces<'w> = (Option<Res<'w, crate::combat::PlayerLimbs>>, Option<Res<'w, Ru
 /// and sneaking, as people's (`fnv_game::Game::move_speed_mult`, `crate::combat`'s
 /// `stat_speed`; actors.md §8.10, issue #1364).
 /// The second number is the player's Agility Scales Jump Height tweak, a factor on the
-/// jump height (1 with the tweak off) [design: docs/design/tweaks.md].
+/// jump height (1 with the tweak off); the third the Armor Causes Sinking tweak's sinking
+/// speed in water, units a second (0 off) [design: docs/design/tweaks.md].
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct StatSpeed(pub f32, pub f32);
+pub struct StatSpeed(pub f32, pub f32, pub f32);
 
 impl Default for StatSpeed {
     fn default() -> Self {
-        StatSpeed(1.0, 1.0)
+        StatSpeed(1.0, 1.0, 0.0)
     }
 }
 
@@ -1224,6 +1225,8 @@ fn step(
             // Running strokes follow the stroke cycle from when the swimmer started to
             // move [observed]; walking stays at its start speed [hypothesis].
             let mut v = swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS);
+            // The player's tweak: heavy armour pulls the swimmer down (`StatSpeed`'s third).
+            v[2] -= stat_pace.as_deref().map_or(0.0, |p| p.2);
             // The player's tweak: Jump held swims up, at the walking stroke's speed [design: docs/design/tweaks.md].
             if tweaks.as_deref().is_some_and(|t| t.jump_swims_up) && JUMP_HELD.load(std::sync::atomic::Ordering::Relaxed) {
                 v[2] = v[2].max(SWIM_SPEEDS.walk);

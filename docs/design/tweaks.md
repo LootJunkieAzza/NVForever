@@ -502,6 +502,7 @@ unless the player binds them, so nothing changes until then.
 | Planting Grenades Needs the Skill | `bPlantingLiveGrenadesRequiresWeaponSkill` | `pickpocket` (engine): under the explosive's skill requirement it is placed but does not go live |
 | Fast Travel Costs a Nuka-Cola | `bFastTravelCostsSpecialNukaBottles` | `pipboy::data::travel`: `Refusal::NoBottle` (our words) without one of `TRAVEL_BOTTLES` (`NukaColaQuantum`, `NukaColaQuartz`, `NukaColaVictory` [observed: FalloutNV.esm]); `go` takes one |
 | Jump Swims Upwards | `bJumpSwimsUpwards` | `player`: Jump held (`JUMP_HELD`) raises the swim velocity's upward part to the walking stroke's speed; `fSpeedScale` and `bSwimUpWhileAutowalking` not offered |
+| Armour Causes Sinking | `bArmorCausesSinking` | `combat::stat_speed` puts a sinking speed by `worn_armor_class` in `StatSpeed`'s third number (heavy 60, medium 25 units/s, ours); the swim step takes it off the upward part |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -523,8 +524,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 424 |
-| to do | 179 |
+| done | 425 |
+| to do | 178 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -541,6 +542,7 @@ game's Data folder, read-only).
 | `bAllowAidAtMaxHealth` | done |  | 3 | Aid at Full Health (the STATS page hints; per-item options not built) |
 | `bAllowSleepWaitWithReducedMaxHealth` | done |  |  | already so: no wait refusal looks at health |
 | `bAmmoSwapWindowMatchesReloadTime` | done |  |  | already so: an ammo swap is taken at any moment, mid-reload too |
+| `bArmorCausesSinking` | done |  | 4 | Armour Causes Sinking (heavy 60, medium 25 units/s: ours; light and none do not sink) |
 | `bAutoUnlockTerminals` | done |  | 2 | Skip Easy Hacks (switch + margin slider; the XP option not built) |
 | `bAutoWeaponJamWhileFiring` | done |  |  | already so: every shot rolls the jam, mid-burst too |
 | `bBarterAffectsRepairCosts` | done |  | 3 | Barter Lowers Repair Costs (our rule: a percent off at Barter 100, in proportion below; no perk modifiers) |
@@ -638,7 +640,6 @@ game's Data folder, read-only).
 | `bHiddenFragsFix` | to do | yes |  | NPCs' own unplayable explosives are hidden from the pickpocket list |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bAdjustableScopeZoom` | to do |  | 14 | needs a zoom level in AimZoom and the wheel (now the third-person distance) |
-| `bArmorCausesSinking` | to do |  | 4 | the physics step does not know the worn armour class |
 | `bCapSkillsBySPECIAL` | to do |  | 5 | SkillSheet needs a per-row cap read at three places |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
 | `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |

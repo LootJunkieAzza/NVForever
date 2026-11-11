@@ -413,6 +413,8 @@ pub struct Tweaks {
     /// `bFastTravelCostsSpecialNukaBottles`: fast travel takes a Nuka-Cola Quantum,
     /// Quartz or Victory, and is refused without one.
     pub travel_costs_bottle: bool,
+    /// `bArmorCausesSinking`: medium and heavy body armour pull a swimmer down.
+    pub armor_sinks: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -602,6 +604,7 @@ impl Default for Tweaks {
             modding_needs_skill: false,
             planting_needs_skill: false,
             travel_costs_bottle: false,
+            armor_sinks: false,
         }
     }
 }

@@ -1413,6 +1413,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "planting-needs-skill", "Planting Grenades Needs the Skill", "A grenade or mine placed in someone's pocket goes live only if the player meets its skill requirement. (Stewie's Tweaks bPlantingLiveGrenadesRequiresWeaponSkill)", game.planting_needs_skill);
         switch!(app, "travel-costs-bottle", "Fast Travel Costs a Nuka-Cola", "Each fast travel takes a Nuka-Cola Quantum, Quartz or Victory, and is refused without one. (Stewie's Tweaks bFastTravelCostsSpecialNukaBottles)", game.travel_costs_bottle);
         switch!(app, "jump-swims-up", "Jump Swims Upwards", "Holding Jump under water swims up, at the walking stroke's speed. (Stewie's Tweaks bJumpSwimsUpwards)", jump_swims_up);
+        switch!(app, "armor-sinks", "Armour Causes Sinking", "Medium and heavy body armour pull the player down in water (heavy faster). (Stewie's Tweaks bArmorCausesSinking)", game.armor_sinks);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
