@@ -24,7 +24,7 @@
 //!   the game pairs them, are both entered from the same side of the table, here the open
 //!   hall to its south. The seated body lands on the chair's origin facing the table
 //!   (docs/spec-notes/furniture.md section 4). The chairs stand nearer the table than the
-//!   game sets them, 40 from its centre instead of 50 to 68, so that the wrestlers'
+//!   game sets them, 38 from its centre instead of 50 to 68, so that the wrestlers'
 //!   arms can meet over it ([`SEAT_OFFSET`]). The first layout, Table02 at scale 1.2 with a Stool01L at either long end, sat
 //!   the wrestlers too far apart to reach across, and the stool's sitting pose leans
 //!   into the table's edge (owner's run 5, 2026-11-11). They are made when the saloon
@@ -39,7 +39,7 @@
 //!   spot armwrestle-a chose, the table turned so that the chairs sit west and east of it.
 //!   The footprint of table, chairs and their entry points (x 267 to 433, y 236 to 358,
 //!   checked with the diner table and the chairs at 59; the round table and the chairs
-//!   at 40 stand inside it)
+//!   at 38 stand inside it)
 //!   is clear: rays along its edges, diagonals and midlines at 10, 44 and 84 units above
 //!   the floor hit nothing, the floor under the table and both chairs is at 3456, and the
 //!   navmesh paths between the saloon's doors, its stools, bar, idle markers and the
@@ -97,20 +97,23 @@ pub const TABLE_TOP_Z: f32 = FLOOR_Z + TABLE_TOP * TABLE_SCALE;
 /// and 415, the run of 2026-11-11 14:10, about 5 units behind each chair's origin].
 /// The table's top is round, 25.8 in radius and 47.5 to 52.5 above the floor, on a
 /// pedestal 6.7 in radius with a foot 25 in radius and 2.5 high [observed:
-/// nv_casinotableg.nif, NiTriStripsData]. At 40 the chair's seat front (20 in front of
-/// its origin, chair01.nif) goes 6 under the top, the seated chest (taken as about 8 in
-/// front of the chair's origin [hypothesis], as measured against the diner table at 42)
-/// stays about 6 clear of the edge, the knees (about 30 in front of the seat, under 47
-/// high [hypothesis: a seated body]) go under the top, about 20 apart and clear of the
-/// pedestal, and the shoulders are about 70 apart.
-pub const SEAT_OFFSET: f32 = 40.0;
+/// nv_casinotableg.nif, NiTriStripsData]. With no apron or legs under the top, the
+/// chairs come in until the chests near its edge: at 38 the chair's seat front (20 in
+/// front of its origin, chair01.nif) goes 8 under the top, the seated chest (taken as
+/// about 8 in front of the chair's origin [hypothesis], as measured against the diner
+/// table at 42) stays about 4 clear of the edge, the knees (about 30 in front of the
+/// chair's origin, either side of the body's middle, under 47 high [hypothesis: a seated
+/// body]) come to about 8 from the centre, either side of the pedestal (6.7), and the
+/// shoulders (about 5 behind the chair's origin [observed by armwrestle-a]) are about
+/// 66 apart.
+pub const SEAT_OFFSET: f32 = 38.0;
 /// The chairs' height [observed: 26 and 27 over the table's origin for Chair01 at diner
 /// tables; the chair's markers are 26 under its origin].
 pub const SEAT_Z: f32 = FLOOR_Z + 26.0;
 /// Pieces of earlier layouts, made by games before 2026-11-11 15:00: base and place
 /// [design: retired, see the module notes]. The first layout (Table02 at scale 1.2, a
 /// Stool01L at either long end), then the diner table with the chairs at 59 from its
-/// centre, then at 42 (those chairs are within [`SAME_SPOT`] of the chairs at 40 and
+/// centre, then at 42 (those chairs are within [`SAME_SPOT`] of the chairs at 38 and
 /// stay as they are; only the diner table goes).
 const FIRST_LAYOUT: [(&str, [f32; 3]); 6] = [
     ("Table02", [350.0, 300.0, 3486.0]),
@@ -175,10 +178,23 @@ fn created_at(g: &Game, base: FormId, cell: FormId, pos: [f32; 3]) -> Option<For
         .map(|(id, _)| id)
 }
 
+/// The test aid naming another table base to make in the table's place, for comparison
+/// shots (`NVF_PLAY_TEST_ARMWRESTLE_TABLE=<editor ID>`): only how it looks; the arms
+/// still take [`TABLE_TOP_Z`] [design].
+pub const TABLE_AID: &str = "NVF_PLAY_TEST_ARMWRESTLE_TABLE";
+
+/// The table's base: [`TABLE_EDID`], or the one [`TABLE_AID`] names.
+fn table_base(g: &Game) -> Option<FormId> {
+    match std::env::var(TABLE_AID) {
+        Ok(e) if !e.trim().is_empty() => g.data.by_edid(e.trim()),
+        _ => g.data.by_edid(TABLE_EDID),
+    }
+}
+
 /// The table and stools, when they are made.
 pub fn find(g: &Game) -> Option<ArmTable> {
     let cell = saloon(g)?;
-    let table = created_at(g, g.data.by_edid(TABLE_EDID)?, cell, TABLE_POS)?;
+    let table = created_at(g, table_base(g)?, cell, TABLE_POS)?;
     let s0 = created_at(g, g.data.by_edid(SEAT_EDIDS[0])?, cell, stool_spot(0).0)?;
     let s1 = created_at(g, g.data.by_edid(SEAT_EDIDS[1])?, cell, stool_spot(1).0)?;
     Some(ArmTable { table, stools: [s0, s1] })
@@ -196,7 +212,7 @@ pub fn seat_of(g: &Game, stool: FormId) -> Option<u8> {
 /// Returns what was made.
 pub fn ensure(g: &mut Game) -> Vec<FormId> {
     let mut made = Vec::new();
-    let (Some(cell), Some(table), Some(seat0), Some(seat1)) = (saloon(g), g.data.by_edid(TABLE_EDID), g.data.by_edid(SEAT_EDIDS[0]), g.data.by_edid(SEAT_EDIDS[1])) else {
+    let (Some(cell), Some(table), Some(seat0), Some(seat1)) = (saloon(g), table_base(g), g.data.by_edid(SEAT_EDIDS[0]), g.data.by_edid(SEAT_EDIDS[1])) else {
         return made;
     };
     if !g.loaded_cells.contains(&cell) {
