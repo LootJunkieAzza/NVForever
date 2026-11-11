@@ -5,8 +5,8 @@
 //! The layout is in docs/spec-notes/save-files.md; every part read here is tagged there.
 //! Only what the lab needs is decoded: the header, the plugin list, the global variables,
 //! the player's place, quests (flags, stages, objectives, variables), the player's
-//! SPECIAL, tag skills, skill modifiers and inventory. Anything else is kept as raw bytes
-//! per changed form.
+//! SPECIAL, tag skills, skill modifiers and inventory, other references' form flags and
+//! places, and faction relations. Anything else is kept as raw bytes per changed form.
 
 use std::fmt;
 
@@ -31,10 +31,13 @@ const BAR: u8 = 0x7C;
 const MAGIC: &[u8] = b"FO3SAVEGAME";
 
 /// Changed-form record types (save-files.md §6.1).
+pub const TYPE_REFR: u8 = 0;
 pub const TYPE_ACHR: u8 = 1;
+pub const TYPE_ACRE: u8 = 2;
 pub const TYPE_QUST: u8 = 9;
 pub const TYPE_NPC: u8 = 10;
 pub const TYPE_CLAS: u8 = 33;
+pub const TYPE_FACT: u8 = 34;
 
 /// The player's reference and base form.
 pub const PLAYER_REF: u32 = 0x14;
@@ -209,6 +212,36 @@ pub struct FosPlayer {
     pub av_modifiers: Vec<(u32, f32)>,
     /// The inventory changes, `None` when the record's layout was not understood.
     pub inventory: Option<Vec<FosItem>>,
+}
+
+/// Form flag bits in a reference's saved flag word (change flag 0, save-files.md §6.2)
+/// [hypothesis, each from the references that carry it]: removed from the world (the
+/// opening quest's taken note), talked to the player (Doc Mitchell and Ringo), disabled
+/// (the ESM's "Initially Disabled" bit, set and cleared at run time).
+pub const FORM_DELETED: u32 = 0x20;
+pub const FORM_TALKED_TO_PC: u32 = 0x40;
+pub const FORM_DISABLED: u32 = 0x800;
+
+/// A placed reference's saved changes as far as the lab reads them (save-files.md §6.2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FosRefChange {
+    pub form: u32,
+    /// The changed form's record type: 0 REFR, 1 ACHR, 2 ACRE.
+    pub kind: u8,
+    /// The reference's whole form flag word, when the save lists it (change flag 0).
+    pub form_flags: Option<u32>,
+    /// The cell or worldspace, position and rotation (radians), when moved.
+    pub place: Option<(u32, [f32; 3], [f32; 3])>,
+}
+
+/// A faction's saved relation list (FACT change flag 2) [observed: nvfairport's
+/// PlayerFaction lists 48 relations, each (faction, i32, u32); the u32 is 0-3 and the i32
+/// one of 0, 30, 50, 100, -100] [hypothesis: the XNAM fields, modifier and group combat reaction
+/// 0 neutral, 1 enemy, 2 ally, 3 friend].
+#[derive(Debug, Clone, PartialEq)]
+pub struct FosFaction {
+    pub form: u32,
+    pub relations: Vec<(Option<u32>, i32, u32)>,
 }
 
 /// A parsed `.fos`.
@@ -465,6 +498,84 @@ impl Fos {
             return err(format!("{} bytes left over", f.data.len() - c.p));
         }
         Ok(q)
+    }
+
+    /// The flag word and place of every placed reference but the player (record types
+    /// REFR, ACHR, ACRE) whose change flags have a layout the reader knows (save-files.md
+    /// §6.2): REFR flag 0 alone (the flag word), REFR flags 1 or 2 without 0 (the place),
+    /// ACHR/ACRE flag 1 without 2 (the place, a byte, then the flag word when flag 0 is
+    /// set). Any other record of these types, or one whose markers do not fit, is an
+    /// `Err` and leaves the others.
+    pub fn reference_changes(&self) -> Vec<Result<FosRefChange, FosError>> {
+        self.changed
+            .iter()
+            .filter(|f| f.kind <= TYPE_ACRE && f.form != PLAYER_REF && f.flags & 0b111 != 0)
+            .map(|f| self.reference_change(f).map_err(|e| FosError(format!("reference {:08X}: {e}", f.form))))
+            .collect()
+    }
+
+    fn reference_change(&self, f: &ChangedForm) -> Result<FosRefChange, FosError> {
+        let mut r = FosRefChange { form: f.form, kind: f.kind, form_flags: None, place: None };
+        let mut c = Cur::new(&f.data, 0);
+        let flag_word = |c: &mut Cur<'_>| -> Result<u32, FosError> {
+            let v = c.u32()?;
+            c.bar()?;
+            Ok(v)
+        };
+        match (f.kind, f.has(0), f.has(1), f.has(2)) {
+            (TYPE_REFR, true, false, false) => r.form_flags = Some(flag_word(&mut c)?),
+            (TYPE_REFR, false, _, _) => r.place = self.place(&mut c)?,
+            (TYPE_ACHR | TYPE_ACRE, flags, true, false) => {
+                r.place = self.place(&mut c)?;
+                c.u8()?;
+                c.bar()?;
+                if flags {
+                    r.form_flags = Some(flag_word(&mut c)?);
+                }
+            }
+            _ => return err(format!("change flags {:#010x}: layout not known", f.flags)),
+        }
+        Ok(r)
+    }
+
+    /// Every faction record's relation list (FACT, change flag 2; save-files.md §6.2):
+    /// (faction, [(other faction or `None` outside the form ID array, modifier, group
+    /// combat reaction)]). A record the reader does not understand is an `Err`.
+    pub fn faction_relations(&self) -> Vec<Result<FosFaction, FosError>> {
+        self.records(TYPE_FACT)
+            .filter(|f| f.has(2))
+            .map(|f| {
+                let mut c = Cur::new(&f.data, 0);
+                let n = c.vsval()?;
+                c.bar()?;
+                let mut relations = Vec::new();
+                for _ in 0..n {
+                    let other = self.reference(c.ref3()?).ok().flatten();
+                    c.bar()?;
+                    let modifier = c.i32()?;
+                    c.bar()?;
+                    let reaction = c.u32()?;
+                    c.bar()?;
+                    relations.push((other, modifier, reaction));
+                }
+                if !c.at_end() {
+                    return err("bytes left after the relations");
+                }
+                Ok(FosFaction { form: f.form, relations })
+            })
+            .map(|r| r.map_err(|e: FosError| FosError(format!("faction: {e}"))))
+            .collect()
+    }
+
+    /// A place: a cell or worldspace reference, six f32 (position, rotation), `|`.
+    fn place(&self, c: &mut Cur<'_>) -> Result<Option<(u32, [f32; 3], [f32; 3])>, FosError> {
+        let at = self.reference(c.ref3()?)?;
+        let mut v = [0f32; 6];
+        for x in &mut v {
+            *x = c.f32()?;
+        }
+        c.bar()?;
+        Ok(at.map(|at| (at, [v[0], v[1], v[2]], [v[3], v[4], v[5]])))
     }
 
     /// The player's place, SPECIAL, tags, modifiers and inventory.

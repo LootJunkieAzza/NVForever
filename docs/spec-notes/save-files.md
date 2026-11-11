@@ -4,7 +4,8 @@ Clean-room notes on the original game's save file, written to plan NVForever's o
 and load system ([design/save-load.md](../design/save-load.md)). The game does not read or
 write `.fos` files; this note says what the original keeps, so our save keeps the same
 state. One reader exists, for the extender lab only: `fnv_save::fos` and `fnvtool ext
-queries --save` start a probe run from the save the probes ran from (§6.4, issue #1023). Tags: [documented] (public page named), [observed] (bytes in the saves below),
+queries --save` (and `ext probes --save`) start a probe run from the save the probes ran
+from (§6.4, §6.5, issue #1023). Tags: [documented] (public page named), [observed] (bytes in the saves below),
 [hypothesis] (a reading that fits the bytes but is not proven). Offsets are byte offsets
 in the file, little-endian unless stated.
 
@@ -252,7 +253,8 @@ unknown].
 **REFR** [observed bytes; meanings hypothesis unless said]:
 
 - bit 0: u32 that looks like the record header's flag word (0x409, 0x29, 0x800809 seen)
-  [hypothesis: form flags, including the disabled state].
+  [hypothesis: form flags, including the disabled state; three of its bits are read by
+  the lab, §6.5].
 - bit 2: worldspace/cell ref, then six f32 with no separators (position, rotation), `|`.
   Seen on refs moved by physics (tumbleweeds, items) [hypothesis: "moved"].
 - bit 4: one f32 (1.0 seen) [hypothesis: scale or health].
@@ -287,7 +289,8 @@ bytes [hypothesis: local map fog-of-war bits, interiors].
 been said", the say-once flag and the "said" condition functions].
 
 **FACT** (PlayerFaction and three others): bit 2: vsval count, then per entry: ref, `|`,
-u32, `|`, u32, `|` [hypothesis: faction relations, ref + modifier + combat reaction].
+u32, `|`, u32, `|` [hypothesis: faction relations, ref + modifier + combat reaction;
+read by the lab, §6.5].
 
 **FLST** bit 31: vsval count, then refs [hypothesis: form lists changed by script,
 AddFormToFormList]. **LVLI** bit 31: entries of ref, u16 level, u16 count, f32
@@ -374,6 +377,59 @@ over, a non-empty list after the variables), a form of a plugin not loaded, a fo
 created (0xFF...), a reference past the form ID array. The inventory's fixed markers
 (0x00, 1.0, 0x5E, 0x18 and, with flag 29, 0x74) are checked: a record of another shape
 gives no inventory. The tag skills are read only from PlayerClass's record (0x00057E6A).
+
+### 6.5 References and factions, as `fnv_save::fos` reads them (2026-11-11, #1023)
+
+Read in nvfairport [observed unless tagged]; the B, C and M saves were used to check
+the meanings.
+
+**Which layouts are read.** Among nvfairport's 4,051 REFR, ACHR and ACRE records, the
+start of the data follows from change flags 0-2 in these shapes, each checked by its `|`
+markers on every record of that shape:
+
+| Record | Flags 0-2 | Data starts with | Records |
+|---|---|---|---|
+| REFR | 0 alone | u32 form flag word, `\|` | 106 |
+| REFR | 1 or 2, not 0 | place: ref, six f32, `\|` | 40 (4 more with flag 1 do not fit, and 1 with flags 0 and 2, both left out) |
+| ACHR, ACRE | 1, not 2 | place, then a byte and `\|` (0, 3 seen; meaning unknown), then the flag word and `\|` when flag 0 is set | 851 |
+| ACRE | 0, 1 and 2 | place, then not the byte | 16, left out |
+| ACHR, ACRE | 0 alone | not the flag word | 10, left out |
+
+The place is the same encoding as the player's (§6.4): the cell (interiors) or the
+worldspace (exteriors), position, rotation in radians. Doc Mitchell (0x00104C0F) stands
+at (1087.0, 2198.5, 7362.0) in GSDocMitchellHouse in nvfairport, against (2288.8,
+2244.4, 7360.0) in the ESM's placement.
+
+**The form flag word.** The values seen are combinations of 0x1, 0x2, 0x8, 0x20, 0x40,
+0x400, 0x800, 0x20000, 0x40000, 0x100000, 0x800000 and 0x1000000; 0x1 and 0x8 are on
+every one. 0x400 matched the ESM's Persistent bit on the nine references checked against
+the ESM [observed]. Three bits are read [hypothesis for each meaning, from the references that carry it]:
+
+- **0x800, disabled**: the ESM's "Initially Disabled" header bit. Reference 0x001475B8 is
+  initially disabled in the ESM and saved without it (enabled since); VCG00PropEnabler
+  (0x0010B3A8), not initially disabled, is saved with it; the Strip's travellers
+  (VStreetTraveler*REF) carry it as in the ESM.
+- **0x20, removed from the world**: VCG01CasualHardcoreMessageREF (0x0011F293), the note
+  the opening quest has the player take (issue #1041: the original's reference walk in
+  Doc Mitchell's house counts it only with taken references included), saved as 0x429;
+  B, made before it is taken, has no flag word for it. DocHouseTriggerREF also has it.
+- **0x40, talked to the player**: on DocMitchellREF and RingoRef (0x449), both spoken to
+  in the opening, and on VMQTopsSecMessengerREF; not on any of the 28 other actors that
+  have a flag word. B (before the player speaks to Doc) has no flag word for Doc.
+
+`fnvtool ext queries --save` gives each reference with a flag word its disabled and
+removed state (and, for actors, talked to), and each place, to the run.
+
+**Factions** (FACT, change flag 2): vsval count, `|`, then per relation: ref, `|`, i32,
+`|`, u32, `|`; the record ends after the last [observed: nvfairport's four FACT
+records]. PlayerFaction (0x0001B2A4) lists 48 relations, the three DLC factions one each
+(towards PlayerFaction). The u32 is 0 to 3, the i32 0, 30, 50, 100 or -100
+[hypothesis: the ESM's XNAM fields, the modifier and the group combat reaction 0
+neutral, 1 enemy, 2 ally, 3 friend]. `ext queries --save` sets each reaction as
+SetEnemy/SetAlly would; the modifier is not used.
+
+**Reputations**: nvfairport has no REPU record (M has nine, §6.3), so every reputation
+is at its start [observed].
 
 ## 7. What moves between C and D [observed]
 

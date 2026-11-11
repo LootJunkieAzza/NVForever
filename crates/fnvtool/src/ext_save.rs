@@ -1,14 +1,15 @@
 //! `ext queries --save`: the starting state of a probe run from the original's save
 //! (issue #1023). The probe sets ran in the game from the owner's save, so their rows
-//! read its inventory, skills, game time, quests and place; this turns what
-//! `fnv_save::fos` reads into the runner's `given` entries. Whatever cannot be carried
+//! read its inventory, skills, game time, quests and place, references' state and
+//! faction relations; this turns what `fnv_save::fos` reads into the runner's `given`
+//! entries. Whatever cannot be carried
 //! over (a record the reader does not understand, a form outside the load order, a form
 //! the save created) is left out and counted by reason.
 
 use fnv_game::GameData;
-use fnv_save::fos::{Fos, VarValue};
+use fnv_save::fos::{Fos, VarValue, FORM_DELETED, FORM_DISABLED, FORM_TALKED_TO_PC, TYPE_REFR};
 use fnv_save::{PluginEntry, PluginRemap};
-use fnv_sim::{FormId, FormStore};
+use fnv_sim::{FormId, FormStore, RefTable};
 use serde_json::{json, Map, Value};
 
 /// Skill actor value codes, Barter … Unarmed.
@@ -26,12 +27,17 @@ pub(crate) trait Lookup {
     fn is_quest(&self, id: u32) -> bool;
     /// The name of a quest script's variable by its index.
     fn quest_var(&self, quest: u32, index: u32) -> Option<String>;
+    /// A placed reference (REFR, ACHR, ACRE) of the load order.
+    fn is_reference(&self, id: u32) -> bool;
+    /// An interior cell, or a worldspace with a cell at the position.
+    fn is_place(&self, at: u32, pos: [f32; 3]) -> bool;
 }
 
 /// The load order's data and forms.
 pub(crate) struct Loaded<'a> {
     pub data: &'a GameData,
     pub forms: &'a FormStore,
+    pub refs: &'a RefTable,
 }
 
 impl Lookup for Loaded<'_> {
@@ -44,6 +50,13 @@ impl Lookup for Loaded<'_> {
     fn quest_var(&self, quest: u32, index: u32) -> Option<String> {
         let script = self.data.quests.get(&FormId(quest))?.script?;
         self.data.script(script)?.var_name(u16::try_from(index).ok()?).map(str::to_string)
+    }
+    fn is_reference(&self, id: u32) -> bool {
+        self.refs.get(FormId(id)).is_some()
+    }
+    fn is_place(&self, at: u32, pos: [f32; 3]) -> bool {
+        let at = FormId(at);
+        self.refs.world_cell_at(at, pos).is_some() || self.refs.by_cell.contains_key(&at) || self.refs.world_of(at).is_some()
     }
 }
 
@@ -128,6 +141,14 @@ pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> an
         given.push(g);
     }
 
+    if let Some(q) = fos.active_quest() {
+        match map(q) {
+            Ok(q) if look.is_quest(q) => given.push(json!({"kind": "active_quest", "quest": hex(q)})),
+            Ok(_) => skip("active quest", "no QUST record"),
+            Err(why) => skip("active quest", why),
+        }
+    }
+
     let p = fos.player()?;
     if let Some(special) = p.special {
         for (i, v) in special.iter().enumerate() {
@@ -161,6 +182,59 @@ pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> an
             Err(why) => skip("place", why),
         }
     }
+
+    // Other references: their form flags (disabled, taken, talked to) and places.
+    for r in fos.reference_changes() {
+        let r = match r {
+            Ok(r) => r,
+            Err(_) => {
+                skip("reference", "change flags of a layout not known");
+                continue;
+            }
+        };
+        let id = match map(r.form) {
+            Ok(id) if look.is_reference(id) => id,
+            Ok(_) => {
+                skip("reference", "not a placed reference of the load order");
+                continue;
+            }
+            Err(why) => {
+                skip("reference", why);
+                continue;
+            }
+        };
+        if let Some(f) = r.form_flags {
+            let mut g = json!({"kind": "ref", "ref": hex(id), "disabled": f & FORM_DISABLED != 0, "deleted": f & FORM_DELETED != 0});
+            if r.kind != TYPE_REFR {
+                g["talked_to_pc"] = json!(f & FORM_TALKED_TO_PC != 0);
+            }
+            given.push(g);
+        }
+        if let Some((at, pos, rot)) = r.place {
+            match map(at) {
+                Ok(at) if look.is_place(at, pos) => given.push(json!({"kind": "place", "ref": hex(id), "cell": hex(at), "pos": pos, "rot": rot})),
+                Ok(_) => skip("reference place", "no cell there in the load order"),
+                Err(why) => skip("reference place", why),
+            }
+        }
+    }
+
+    for f in fos.faction_relations() {
+        let Ok(f) = f else {
+            skip("faction", "record not understood");
+            continue;
+        };
+        let Ok(faction) = map(f.form) else {
+            skip("faction", "form of a plugin not loaded");
+            continue;
+        };
+        for (other, _modifier, reaction) in f.relations {
+            match other.ok_or("not in the save's form ID array").and_then(map) {
+                Ok(o) => given.push(json!({"kind": "faction_reaction", "faction": hex(faction), "other": hex(o), "reaction": reaction})),
+                Err(why) => skip("faction relation", why),
+            }
+        }
+    }
     let notes = json!({
         "save": {"name": fos.header.player_name, "level": fos.header.level, "location": fos.header.location, "play_time": fos.header.play_time},
         "missing_plugins": remap.missing(),
@@ -173,7 +247,7 @@ pub(crate) fn save_given(fos: &Fos, look: &dyn Lookup, plugins: &[String]) -> an
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fnv_save::fos::{ChangedForm, TYPE_QUST};
+    use fnv_save::fos::{ChangedForm, TYPE_ACHR, TYPE_FACT, TYPE_QUST};
 
     const BAR: u8 = 0x7C;
 
@@ -193,6 +267,12 @@ mod tests {
                 (0x30, 2) => Some("rRef".into()),
                 _ => None,
             }
+        }
+        fn is_reference(&self, id: u32) -> bool {
+            id == 0x40 || id == 0x41
+        }
+        fn is_place(&self, at: u32, _pos: [f32; 3]) -> bool {
+            at == 0x50
         }
     }
 
@@ -264,5 +344,48 @@ mod tests {
             })
         );
         assert_eq!(notes["given"], given.len());
+    }
+
+    /// One plugin: a taken note (REFR 0x40), an actor moved and talked to (ACHR 0x41), a
+    /// reference the load order lacks, and a faction relation.
+    #[test]
+    fn references_and_factions_carry_over() {
+        let mut moved = vec![0, 0, 3];
+        for v in [1.0f32, 2.0, 3.0, 0.0, 0.0, 0.5] {
+            moved.extend(v.to_le_bytes());
+        }
+        moved.extend([BAR, 3, BAR]);
+        moved.extend(0x449u32.to_le_bytes());
+        moved.push(BAR);
+        let mut taken = 0x429u32.to_le_bytes().to_vec();
+        taken.push(BAR);
+        let mut fact = vec![1 << 2, BAR, 0, 0, 2, BAR];
+        fact.extend(100i32.to_le_bytes());
+        fact.push(BAR);
+        fact.extend(3u32.to_le_bytes());
+        fact.push(BAR);
+        let fos = Fos {
+            plugins: vec!["FalloutNV.esm".into()],
+            form_ids: vec![0x40, 0x41, 0x50, 0x60],
+            changed: vec![
+                ChangedForm { form: 0x40, flags: 1, kind: TYPE_REFR, data: taken.clone() },
+                ChangedForm { form: 0x41, flags: 0b11, kind: TYPE_ACHR, data: moved },
+                ChangedForm { form: 0x42, flags: 1, kind: TYPE_REFR, data: taken },
+                ChangedForm { form: 0x60, flags: 1 << 2, kind: TYPE_FACT, data: fact },
+            ],
+            ..Fos::default()
+        };
+        let (given, notes) = save_given(&fos, &Fake, &["FalloutNV.esm".to_string()]).unwrap();
+        let of = |k: &str| given.iter().filter(|g| g["kind"] == k).cloned().collect::<Vec<_>>();
+        assert_eq!(
+            of("ref"),
+            [
+                json!({"kind": "ref", "ref": "0x00000040", "disabled": false, "deleted": true}),
+                json!({"kind": "ref", "ref": "0x00000041", "disabled": false, "deleted": false, "talked_to_pc": true}),
+            ]
+        );
+        assert_eq!(of("place"), [json!({"kind": "place", "ref": "0x00000041", "cell": "0x00000050", "pos": [1.0, 2.0, 3.0], "rot": [0.0, 0.0, 0.5]})]);
+        assert_eq!(of("faction_reaction"), [json!({"kind": "faction_reaction", "faction": "0x00000060", "other": "0x00000041", "reaction": 3})]);
+        assert_eq!(notes["skipped"]["reference: not a placed reference of the load order"], 1);
     }
 }
