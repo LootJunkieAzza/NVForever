@@ -37,6 +37,10 @@ use crate::{space, PlaySet, PlayState, PlayerCamera};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 
+/// How fast Z and C turn the free camera under the Better Flycam tweak, radians a
+/// second [design: docs/design/tweaks.md].
+const FLYCAM_TURN: f32 = 1.5;
+
 /// The free camera's speed before the wheel and `sucsm`, units per second (the viewer's
 /// starting speed, `nvforever` `main.rs`) [decision].
 pub const FLY_SPEED: f32 = 800.0;
@@ -65,6 +69,8 @@ pub struct FreeCam {
     pov: Pov,
     /// `NVF_PLAY_TEST_FLY`.
     aid_speed: f32,
+    /// Flying forward by itself (the Better Flycam tweak's Q) [design: docs/design/tweaks.md].
+    auto: bool,
     /// The place last written to or taken from the game's TFC pose: position, yaw,
     /// pitch (Bevy). A different place is the viewer's move, written back.
     shared: Option<(Vec3, f32, f32)>,
@@ -207,10 +213,13 @@ fn fly(
     script: Option<Res<ScriptState>>,
     mut free: ResMut<FreeCam>,
     mut cams: Query<&mut Transform, With<PlayerCamera>>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     if !free.on {
+        free.auto = false;
         return;
     }
+    let better = tweaks.is_some_and(|t| t.better_flycam);
     let state_free = match *state.get() {
         PlayState::Playing => true,
         PlayState::Menu => free.holds_world(),
@@ -230,10 +239,33 @@ fn fly(
         let rot = Quat::from_euler(EulerRot::YXZ, f.yaw, f.pitch, 0.0);
         let (fwd, right) = (rot * Vec3::NEG_Z, rot * Vec3::X);
         let mut dir = Vec3::ZERO;
-        for (k, d) in [(KeyCode::KeyW, fwd), (KeyCode::KeyS, -fwd), (KeyCode::KeyD, right), (KeyCode::KeyA, -right), (KeyCode::KeyE, Vec3::Y), (KeyCode::KeyQ, -Vec3::Y)] {
+        // The player's tweak: Space and Ctrl fly up and down, Q flies on by itself, Z and C
+        // turn (docs/design/tweaks.md).
+        let moves: &[(KeyCode, Vec3)] = if better {
+            &[(KeyCode::KeyW, fwd), (KeyCode::KeyS, -fwd), (KeyCode::KeyD, right), (KeyCode::KeyA, -right), (KeyCode::Space, Vec3::Y), (KeyCode::ControlLeft, -Vec3::Y)]
+        } else {
+            &[(KeyCode::KeyW, fwd), (KeyCode::KeyS, -fwd), (KeyCode::KeyD, right), (KeyCode::KeyA, -right), (KeyCode::KeyE, Vec3::Y), (KeyCode::KeyQ, -Vec3::Y)]
+        };
+        for &(k, d) in moves {
             if keys.pressed(k) {
                 dir += d;
             }
+        }
+        if better {
+            if keys.just_pressed(KeyCode::KeyQ) {
+                f.auto = !f.auto;
+                info!("free camera: flies forward by itself {} (tweak)", if f.auto { "on" } else { "off" });
+            }
+            if keys.pressed(KeyCode::KeyS) {
+                f.auto = false;
+            }
+            if f.auto {
+                dir += fwd;
+            }
+            let turn = f32::from(i8::from(keys.pressed(KeyCode::KeyZ)) - i8::from(keys.pressed(KeyCode::KeyC)));
+            f.yaw += turn * FLYCAM_TURN * real.delta_secs().min(0.25);
+        } else {
+            f.auto = false;
         }
         let boost = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) { 5.0 } else { 1.0 };
         let mult = script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.ui.camera.fly_speed_mult).unwrap_or(1.0);

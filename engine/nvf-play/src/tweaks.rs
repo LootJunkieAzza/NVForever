@@ -434,6 +434,9 @@ pub struct TweakSettings {
     pub grabbed_weighs: bool,
     /// `bSortEquipableAmmo`: in the Pip-Boy the ammo the carried weapons fire comes first.
     pub usable_ammo_first: bool,
+    /// `bBetterFlycam`: the free camera flies up and down on Space and Ctrl, on by
+    /// itself with Q, and turns with Z and C.
+    pub better_flycam: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -679,6 +682,7 @@ impl Default for TweakSettings {
             armor_sounds_3d: false,
             grabbed_weighs: false,
             usable_ammo_first: false,
+            better_flycam: false,
         }
     }
 }
@@ -1681,6 +1685,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "blasts-spare-items", "Explosions Leave Items Be", "Explosions do not throw about things you can pick up, so loot stays where it lies. (Stewie's Tweaks bExplosionsDontPushTakeableItems)", game.blasts_spare_items);
         switch!(app, "grabbed-weighs", "Held Items Weigh", "An item you are holding up with the grab counts toward what you carry, so it can leave you overencumbered. (Stewie's Tweaks bEncumbranceIncludesGrabbedItems)", grabbed_weighs);
         switch!(app, "usable-ammo-first", "Usable Ammo First", "In the Pip-Boy's ammo list, ammo that a weapon you carry can fire comes first. (Stewie's Tweaks bSortEquipableAmmo)", usable_ammo_first);
+        switch!(app, "better-flycam", "Better Free Camera", "The console's free camera (tfc) flies up with Space and down with Ctrl, keeps flying forward after Q (S stops it) and turns with Z and C; the wheel still sets its speed. (Stewie's Tweaks bBetterFlycam)", better_flycam);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
