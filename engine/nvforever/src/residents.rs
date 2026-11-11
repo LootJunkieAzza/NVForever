@@ -1165,13 +1165,14 @@ pub struct RemotePose {
 
 impl RemotePose {
     /// What a guest takes the actor to be doing: there (its furniture wanted, so kept on
-    /// it) when standing, or when the host has it seated on furniture even as its feet
-    /// move: getting on moves the body (a chair's enter clip carries it about 50 units),
-    /// and taken as a walk that got it up again at once and sat it down off its seat
-    /// (armwrestle-c's laptop run, 2026-11-11: the Settler on the table's chair and the
-    /// saloon's bar stool) [observed; the rule: design].
+    /// it) when standing, or whenever the host has it on furniture (going to it, getting
+    /// on, seated) even as its feet move. Getting on moves the body (a chair's enter clip
+    /// carries it about 50 units); taken as a walk, the guest's own getting on was told
+    /// to get up, which it did the moment it sat, and then it sat again at once off its
+    /// seat (armwrestle-c's laptop run and run6, 2026-11-11: the Settler on the arm
+    /// wrestling seat and the saloon's bar stool) [observed; the rule: design].
     pub fn activity(&self) -> Activity {
-        if self.moving && !self.furniture.is_some_and(|(_, on)| on) {
+        if self.moving && self.furniture.is_none() {
             Activity::Travelling
         } else {
             Activity::There
@@ -3640,7 +3641,7 @@ mod tests {
     use std::collections::HashMap;
 
     /// A guest keeps a host's actor seated while getting on moves it (no get up and
-    /// sit again at once off the seat); a walk-up and a walk are still walks.
+    /// sit again at once off the seat), getting on too; a walk is still a walk.
     #[test]
     fn remote_pose_seated_and_moving_is_there() {
         use fnv_ai::Activity;
@@ -3648,7 +3649,7 @@ mod tests {
         assert_eq!(pose(true, Some((0xFF7F_A002, true))).activity(), Activity::There);
         assert_eq!(pose(false, Some((0x0010_6192, true))).activity(), Activity::There);
         assert_eq!(pose(false, None).activity(), Activity::There);
-        assert_eq!(pose(true, Some((0xFF7F_A002, false))).activity(), Activity::Travelling);
+        assert_eq!(pose(true, Some((0xFF7F_A002, false))).activity(), Activity::There);
         assert_eq!(pose(true, None).activity(), Activity::Travelling);
     }
 
