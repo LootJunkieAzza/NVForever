@@ -119,12 +119,12 @@
   {
    "id": "L5.ext.jip.hits",
    "layer": 5,
-   "description": "JIP LN NVSE runtime-query probes, set jip-hits: hit information read in OnHit handlers during a placed explosion (docs/spec-notes/jip-hit-info.md); keyed by probe id. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), from the probes' start cell 0x000DEB16, one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
+   "description": "JIP LN NVSE runtime-query probes, set jip-hits: hit information read in OnHit handlers during a placed explosion (docs/spec-notes/jip-hit-info.md); keyed by probe id. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), starting where the owner's save the golden was recorded in stands (nvfairport, {save_path}, only read: its place; test aid NVF_PLAY_TEST_START_FOS), one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
    "oracle": {"golden": "jip/jip-hits.json"},
    "candidate": {
     "kind": "game",
-    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--cell", "0x000DEB16", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/jip_hits.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/jip-hits.probes.json", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/jip_hits.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/jip-hits.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
     "output_file": "{lab_root}/runs/engine/jip-hits.probes.json",
     "timeout_s": 900
    },
@@ -514,12 +514,12 @@
   {
    "id": "L5.ext.jip.projectile",
    "layer": 5,
-   "description": "JIP live-projectile functions (GetProjectileRefImpactRef, Source, Weapon, Damage) inside SetOnProjectileImpactEventHandler lambdas, the player firing the 10mm pistol with FireWeapon while looking down; set projectile of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), from the probes' start cell 0x000DEB16, one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
+   "description": "JIP live-projectile functions (GetProjectileRefImpactRef, Source, Weapon, Damage) inside SetOnProjectileImpactEventHandler lambdas, the player firing the 10mm pistol with FireWeapon while looking down; set projectile of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), starting where the owner's save the golden was recorded in stands (nvfairport, {save_path}, only read: its place; test aid NVF_PLAY_TEST_START_FOS), one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
    "oracle": {"golden": "jip/projectile.json"},
    "candidate": {
     "kind": "game",
-    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--cell", "0x000DEB16", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/projectile.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/projectile.probes.json", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/projectile.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/projectile.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
     "output_file": "{lab_root}/runs/engine/projectile.probes.json",
     "timeout_s": 900
    },
@@ -543,12 +543,12 @@
   {
    "id": "L5.ext.knvse.anim",
    "layer": 5,
-   "description": "kNVSE animation functions on a placed copy of Doc's NPC and on the player (GetPlayingAnimSequencePaths, GetActiveAnims, IsAnimPlayingAlt, IsAnimSequencePlaying, GetAnimationsByAnimGroup, SetActorAnimationPath, PlayAnimationPath, GetAnimationAttributes, ActivateAnim, DeactivateAnim, ForcePlayIdle, ForceStopIdle, SetWeaponAnimationPath); set knvse-anim of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), from the probes' start cell 0x000DEB16, one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
+   "description": "kNVSE animation functions on a placed copy of Doc's NPC and on the player (GetPlayingAnimSequencePaths, GetActiveAnims, IsAnimPlayingAlt, IsAnimSequencePlaying, GetAnimationsByAnimGroup, SetActorAnimationPath, PlayAnimationPath, GetAnimationAttributes, ActivateAnim, DeactivateAnim, ForcePlayIdle, ForceStopIdle, SetWeaponAnimationPath); set knvse-anim of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), starting where the owner's save the golden was recorded in stands (nvfairport, {save_path}, only read: its place; test aid NVF_PLAY_TEST_START_FOS), one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
    "oracle": {"golden": "jip/knvse-anim.json"},
    "candidate": {
     "kind": "game",
-    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--cell", "0x000DEB16", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/knvse_anim.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/knvse-anim.probes.json", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/knvse_anim.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/knvse-anim.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
     "output_file": "{lab_root}/runs/engine/knvse-anim.probes.json",
     "timeout_s": 900
    },
@@ -572,12 +572,12 @@
   {
    "id": "L5.ext.jip.nifblocks",
    "layer": 5,
-   "description": "JIP NIF block functions by node name on a placed copy of Doc's NPC (GetChildBlocks, GetNifBlockParentNodes, Get/SetNifBlockTranslation/Rotation/Scale/Flag, RenameNifBlock, InsertNode, AttachModel, RemoveNifBlock) and ModelHasBlock on a weapon model; set nif-blocks of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), from the probes' start cell 0x000DEB16, one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
+   "description": "JIP NIF block functions by node name on a placed copy of Doc's NPC (GetChildBlocks, GetNifBlockParentNodes, Get/SetNifBlockTranslation/Rotation/Scale/Flag, RenameNifBlock, InsertNode, AttachModel, RemoveNifBlock) and ModelHasBlock on a weapon model; set nif-blocks of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), starting where the owner's save the golden was recorded in stands (nvfairport, {save_path}, only read: its place; test aid NVF_PLAY_TEST_START_FOS), one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
    "oracle": {"golden": "jip/nif-blocks.json"},
    "candidate": {
     "kind": "game",
-    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--cell", "0x000DEB16", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/nif_blocks.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/nif-blocks.probes.json", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/nif_blocks.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/nif-blocks.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
     "output_file": "{lab_root}/runs/engine/nif-blocks.probes.json",
     "timeout_s": 900
    },
@@ -602,12 +602,12 @@
   {
    "id": "L5.ext.nvse.events",
    "layer": 5,
-   "description": "Which xNVSE events fire (SetEventHandler lambdas) and their first firing's two arguments, caused through the player's inventory, a placed creature and NPC, and a stimpak cast; set nvse-events of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), from the probes' start cell 0x000DEB16, one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
+   "description": "Which xNVSE events fire (SetEventHandler lambdas) and their first firing's two arguments, caused through the player's inventory, a placed creature and NPC, and a stimpak cast; set nvse-events of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), starting where the owner's save the golden was recorded in stands (nvfairport, {save_path}, only read: its place; test aid NVF_PLAY_TEST_START_FOS), one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
    "oracle": {"golden": "jip/nvse-events.json"},
    "candidate": {
     "kind": "game",
-    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--cell", "0x000DEB16", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/nvse_events.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/nvse-events.probes.json", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/nvse_events.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/nvse-events.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
     "output_file": "{lab_root}/runs/engine/nvse-events.probes.json",
     "timeout_s": 900
    },
@@ -617,12 +617,12 @@
   {
    "id": "L5.ext.jip.events2",
    "layer": 5,
-   "description": "JIP and JohnnyGuitar SetOn...EventHandler events caused without menus or input (FireWeapon, UseAidItem, CrippledLimb, PlayGroup, Ragdoll, NoteAdded, ActorValueChange): whether each fires and its arguments; set jip-events2 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), from the probes' start cell 0x000DEB16, one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
+   "description": "JIP and JohnnyGuitar SetOn...EventHandler events caused without menus or input (FireWeapon, UseAidItem, CrippledLimb, PlayGroup, Ragdoll, NoteAdded, ActorValueChange): whether each fires and its arguments; set jip-events2 of tools/capture/jip_probes.py, keyed by probe id, steps in order. Oracle as L5.ext.jip.getters. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), starting where the owner's save the golden was recorded in stands (nvfairport, {save_path}, only read: its place; test aid NVF_PLAY_TEST_START_FOS), one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
    "oracle": {"golden": "jip/jip-events2.json"},
    "candidate": {
     "kind": "game",
-    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--cell", "0x000DEB16", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/jip_events2.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/jip-events2.probes.json", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/jip_events2.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/jip-events2.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
     "output_file": "{lab_root}/runs/engine/jip-events2.probes.json",
     "timeout_s": 900
    },
@@ -758,12 +758,12 @@
   {
    "id": "L5.ext.gaps8",
    "layer": 5,
-   "description": "gaps8: worldspace climate and flags, climate textures, armour audio templates and model paths, destruction health, container respawns, package flags, interaction. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), from the probes' start cell 0x000DEB16, one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
+   "description": "gaps8: worldspace climate and flags, climate textures, armour audio templates and model paths, destruction health, container respawns, package flags, interaction. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), starting where the owner's save the golden was recorded in stands (nvfairport, {save_path}, only read: its place; test aid NVF_PLAY_TEST_START_FOS), one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
    "oracle": {"golden": "jip/gaps8.json"},
    "candidate": {
     "kind": "game",
-    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--cell", "0x000DEB16", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/gaps8.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/gaps8.probes.json", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/gaps8.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/gaps8.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
     "output_file": "{lab_root}/runs/engine/gaps8.probes.json",
     "timeout_s": 900
    },
@@ -787,12 +787,12 @@
   {
    "id": "L5.ext.gaps10",
    "layer": 5,
-   "description": "gaps10: ref map strings, RunScriptSnippet, arrays to and from a file, impact data sets and models, shell casings, ray casts, SetPosEx, tilt, effect bases, sneaking and first person. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), from the probes' start cell 0x000DEB16, one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
+   "description": "gaps10: ref map strings, RunScriptSnippet, arrays to and from a file, impact data sets and models, shell casings, ray casts, SetPosEx, tilt, effect bases, sneaking and first person. Candidate since #1024: the running engine (nvforever --play with the test aid NVF_PLAY_TEST_QUERIES, engine/nvf-play/src/query_job.rs), starting where the owner's save the golden was recorded in stands (nvfairport, {save_path}, only read: its place; test aid NVF_PLAY_TEST_START_FOS), one query a frame, under a smoke slot (candidate kind \"game\"); the headless fnvtool ext queries has no renderer, physics, navmeshes or animation for these rows.",
    "oracle": {"golden": "jip/gaps10.json"},
    "candidate": {
     "kind": "game",
-    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--cell", "0x000DEB16", "--run-seconds", "300"],
-    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/gaps10.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/gaps10.probes.json", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
+    "argv": ["{engine_candidate}", "--data", "{data_dir}", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "TribalPack.esm", "MercenaryPack.esm", "ClassicPack.esm", "CaravanPack.esm", "GunRunnersArsenal.esm", "NVFExtProbe.esp", "--play", "--run-seconds", "300"],
+    "env": {"NVF_PLAY_TEST_QUERIES": "{lab_root}/../tools/capture/jip-probes/gaps10.steps.json", "NVF_PLAY_TEST_QUERIES_OUT": "{lab_root}/runs/engine/gaps10.probes.json", "NVF_PLAY_TEST_START_FOS": "{save_path}", "NVF_PLAY_AIDS_FROM_SCRIPTS": "1"},
     "output_file": "{lab_root}/runs/engine/gaps10.probes.json",
     "timeout_s": 900
    },

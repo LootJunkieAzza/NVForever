@@ -154,3 +154,30 @@ changes (positions, packages, disabled state, Doc's place), the talked-to bits, 
 and difficulty. The `L5.ext.*` scenarios do not pass `--save` yet: the extender goldens are
 on the other machine, so pointing them at the save (a `save_path` lab variable, the
 decision in owner-review.md) and the pass count wait for a run there.
+
+The engine sets (2026-11-11, #1024, PR #2126): the eight sets of the "Engine rows" line
+above now run in the game, not headless. Test aid `NVF_PLAY_TEST_QUERIES=<job.steps.json>`
+(engine/nvf-play/src/query_job.rs) runs the job's queries in `nvforever --play`, one a
+frame where the console's lines run, and writes the same fnv.ext.probes/1 as
+`ext queries` (`fnv_game::ext_probes`); `NVF_PLAY_TEST_START_FOS` starts the run where the
+owner's save stands (its place only: worldspace, position, heading; the airport runway,
+37000, −117160, 6057, heading 75). The lab runs them as candidate kind `"game"`, under a
+smoke slot (parity-lab/README.md); `engine_candidate` names the build, `save_path` the
+save. Rows equal, headless `ext queries` (start cell 0xDEB16) → engine, two engine runs
+[observed]:
+
+| Set | Rows | Headless | Engine | Left, issue |
+|---|---|---|---|---|
+| gaps10 | 57 | 52 | 53 | reticle/ray/SetPosEx/Luck rows, #2135 |
+| gaps8 | 48 | 47 | 47 | reticlerange.int, #2135 |
+| jip.events2 | 43 | 34 | 34 | aid, cripple, ragdoll, AV order, #2134 |
+| jip.hits | 49 | 49 | 34 | the placed explosion hurts the player, the original's did not, #2131 |
+| jip.nifblocks | 60 | 26 | 39 | the NIF mirror's trees, #2132 |
+| jip.projectile | 33 | 16 | 32 | proj.aim, #2135 |
+| knvse.anim | 32 | 20 | 21 | a placed actor's animation state, clip paths, #2133 |
+| nvse.events | 100 | 81 | 82-84 | the fight at the airport, #2134 |
+| **all** | **422** | **325** | **342-344** | |
+
+jip.hits drops from 49 to 34: headless nothing went off, which matched the original's
+latest capture only because its explosion did no harm either (#2131). Rows that vary
+between engine runs: hit.damage.0, nb.rot.alt, kn.setpath.off.bygroup, evn.onload.arg1/2.
