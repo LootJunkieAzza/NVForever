@@ -2457,7 +2457,7 @@ fn clip_pelvis_head(rig: &Rig, transforms: &Query<&mut Transform>) -> Option<(Ve
 /// where it lay however the player is moved) to what the clips give them.
 fn blend_from_pose(rig: &Rig, from: &[Affine3A], k: f32, transforms: &mut Query<&mut Transform>) {
     let a = &rig.animator;
-    let Ok(r) = transforms.get(rig.root).map(|t| *t) else { return };
+    let Ok(r) = transforms.get(rig.root).copied() else { return };
     let inv_root = Affine3A::from_scale_rotation_translation(r.scale, r.rotation, r.translation).inverse();
     let n = a.skel.parents.len().min(from.len()).min(a.nodes.len()).min(a.locals.len());
     // Each node under the rig root, as the ragdoll left it.
@@ -2622,6 +2622,7 @@ fn take_overrides(script: Option<Res<nvf_play::script::ScriptState>>, anim: Res<
     }
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
     (time, turbo, sim, mut told_scale): (Res<Time>, Option<Res<nvf_play::script::PlayerTimeScale>>, Option<Res<nvf_play::sim::SimState>>, Local<Option<f32>>),

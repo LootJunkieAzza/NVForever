@@ -1594,6 +1594,7 @@ fn is_melee(world: Option<&ActorWorld>, weapon: Option<FormId>) -> bool {
     matches!(kind, Some(AnimType::HandToHand | AnimType::Melee1 | AnimType::Melee2))
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn take_events(
     mut commands: Commands,
     time: Res<Time>,
@@ -1899,6 +1900,7 @@ fn take_events(
 }
 
 /// Guests: go to the host when it is in another space, or too far away outdoors.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn leash(
     time: Res<Time>,
     mut coop: ResMut<Coop>,
@@ -2550,7 +2552,7 @@ fn follow_npcs(
     if !guest && parting && coop.ai_was_off.is_some() {
         return;
     }
-    let mut game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
+    let game = script.as_deref_mut().and_then(|s| s.rt.as_mut()).map(|rt| &mut rt.game);
     if !guest {
         // Left the lobby: this game's world is its own again.
         if let Some(was) = coop.ai_was_off.take() {
@@ -2593,7 +2595,7 @@ fn follow_npcs(
         }
         return;
     }
-    let Some(g) = game.as_deref_mut() else { return };
+    let Some(g) = game else { return };
     // Where the host's story put the NPCs it draws here, they are here too.
     let here = loc.as_deref().map(place_of);
     let settled = coop.host_place.filter(|(p, _)| Some(*p) == here).map(|(_, since)| since);

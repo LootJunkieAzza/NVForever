@@ -112,7 +112,7 @@ impl PlayerKnockdown {
         let d = self.down.as_ref()?;
         let (Phase::Rising { seen: true, .. }, Some(from), Some(at)) = (&d.phase, d.from.as_ref(), d.seen_at) else { return None };
         let k = ((d.real - at) / GETUP_BLEND).clamp(0.0, 1.0);
-        (k < 1.0).then(|| (from.as_slice(), k * k * (3.0 - 2.0 * k)))
+        (k < 1.0).then_some((from.as_slice(), k * k * (3.0 - 2.0 * k)))
     }
 
     /// The player is knocked down and this has the camera.
@@ -221,7 +221,7 @@ pub fn lay_over(feet: [f32; 3], heading: f32, got: ([f32; 3], [f32; 3]), want: (
 }
 
 /// Start, carry on and end the player's knockdown.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn watch(
     mut commands: Commands,
     real: Res<Time<Real>>,

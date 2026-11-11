@@ -585,7 +585,7 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
                 }
             }
             files[1..].sort_by_key(|f| f.to_ascii_lowercase());
-            let found = files.iter().filter_map(|f| g.mod_files.read_text(f).and_then(|t| crate::mod_files::ini_get(&t, &sec, key.trim()))).last();
+            let found = files.iter().rev().find_map(|f| g.mod_files.read_text(f).and_then(|t| crate::mod_files::ini_get(&t, &sec, key.trim())));
             match found {
                 Some(v) => v.parse::<f64>().map(XVal::Num).unwrap_or(XVal::Str(v.trim_matches('"').to_string())),
                 None => zero,

@@ -729,7 +729,7 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
 /// right stick's (`crate::pad`); while Toggle POV is held it circles the camera instead
 /// (control.rs). Not while a script has locked looking: the view stays where it is
 /// [documented: GECK wiki DisablePlayerControls, LookingFlag].
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     (pads, time): (Query<&Gamepad>, Res<Time>),

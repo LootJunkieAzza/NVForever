@@ -549,9 +549,7 @@ impl Gen<'_> {
             // config without a repeated key, owner 2026-11-11; the vanilla-line and override
             // observations above stop at the comparison the same way].
             let expression_command = matches!(&f.func, FuncId::Name(n) if EXPRESSION_COMMANDS.iter().any(|c| n.eq_ignore_ascii_case(c)));
-            let min = if f.aware && self.vanilla_x {
-                ARG_IN_OVERRIDE
-            } else if f.aware && !expression_command {
+            let min = if f.aware && (self.vanilla_x || !expression_command) {
                 ARG_IN_OVERRIDE
             } else if f.aware {
                 ARG_OVERRIDE

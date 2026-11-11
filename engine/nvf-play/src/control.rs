@@ -569,6 +569,7 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
 const NOT_BUILT: [Control; 0] = [];
 
 /// Toggles, holds, the third-person zoom; see the module notes.
+#[allow(clippy::too_many_arguments)]
 pub fn read_controls(
     input: ControlInput,
     time: Res<Time>,

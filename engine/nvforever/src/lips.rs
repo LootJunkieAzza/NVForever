@@ -750,7 +750,7 @@ pub fn expression_class(s: usize) -> bool {
     (CHANNELS..SLOTS).contains(&s)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive(
     mut commands: Commands,
     real: Res<Time<Real>>,
