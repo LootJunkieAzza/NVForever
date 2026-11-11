@@ -481,6 +481,8 @@ pub struct PhysWorld {
     pub(crate) movers: crate::movers::Movers,
     /// How actors' ragdolls are solved ([`PhysWorld::set_ragdoll_solver`]).
     pub(crate) ragdoll_solver: crate::ragdoll::RagdollSolver,
+    /// Loose bodies judged for rest (`crate::rest`).
+    pub(crate) rest: crate::rest::Rest,
 }
 
 impl PhysWorld {
@@ -496,7 +498,10 @@ impl PhysWorld {
         // motorcycles and crates; a skin of 1.4 rested, 2 crept; test
         // `clutter_on_the_terrain_shell_falls_asleep`]. Why is not known; a prediction
         // distance of the default plus the skin rests them (asleep within 2 s).
-        w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
+        // With `NVF_PHYS_INDOOR_PREDICTION=1` it waits for terrain (`fit_prediction`).
+        if !crate::rest::indoor_prediction() {
+            w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
+        }
         #[cfg(feature = "solver-timers")]
         w.physics_pipeline.counters.enable();
         PhysWorld {
@@ -534,6 +539,7 @@ impl PhysWorld {
             quarantined: Default::default(),
             movers: Default::default(),
             ragdoll_solver: Default::default(),
+            rest: Default::default(),
         }
     }
 
@@ -552,13 +558,28 @@ impl PhysWorld {
         let h = self.w.insert_collider(c, None);
         self.terrain.insert(grid, h);
         self.mark_dirty(DirtyBy::Bodies);
+        self.fit_prediction();
     }
 
     pub fn remove_terrain(&mut self, grid: (i32, i32)) -> bool {
         let Some(h) = self.terrain.remove(&grid) else { return false };
         self.w.remove_collider(h);
         self.mark_dirty(DirtyBy::Bodies);
+        self.fit_prediction();
         true
+    }
+
+    /// With `NVF_PHYS_INDOOR_PREDICTION=1` (a test aid, off by default): rapier's own
+    /// prediction distance while the world holds no terrain, the terrain's raised one
+    /// (`PhysWorld::new`) while it does. Indoors the raised distance kept clutter
+    /// trembling and awake (docs/spec-notes/physics.md §5.5).
+    fn fit_prediction(&mut self) {
+        if !crate::rest::indoor_prediction() {
+            return;
+        }
+        let own = IntegrationParameters::default().normalized_prediction_distance;
+        let terrain = if self.terrain.is_empty() { 0.0 } else { TERRAIN_SHELL * self.k };
+        self.w.integration_parameters.normalized_prediction_distance = own + terrain;
     }
 
     /// Add the collision objects of a placed reference: one body per object, placed at
@@ -1063,6 +1084,8 @@ impl PhysWorld {
         if !self.w.quarantine().is_empty() {
             self.handle_quarantine();
         }
+        // Loose bodies trembling in place are let sleep (`crate::rest`).
+        self.rest_step(self.params.dt);
         // Diagnostics: marks the step's own detection took, with no refresh between.
         if self.dirty {
             self.refresh_stats.step_absorbed += 1;
@@ -1310,6 +1333,7 @@ impl PhysWorld {
             quarantined: self.quarantined.clone(),
             movers: self.movers.clone(),
             ragdoll_solver: self.ragdoll_solver,
+            rest: self.rest.clone(),
         }
     }
 

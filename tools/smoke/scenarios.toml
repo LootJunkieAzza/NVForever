@@ -13846,6 +13846,22 @@ expect = [
 forbid = [{ re = 'wrecks: \S+ .*a body.s node is not drawn', label = "a wreck's body has no drawn node" }]
 
 [[scenario]]
+name = "wreck-parts-held-quiet"
+source = "docs/spec-notes/physics.md §5.5 (2026-11-11): a calm wreck is held at rest only once its parts are all but still over the last second (under 3 units/s and 0.15 rad/s net), so that no part is seen to stop; before, parts still crawling at 9-14 units/s were held. NVF_WRECK_QUIET=0 brings the old rule back for a comparison. Written unrun (owner rule 2026-11-11: in-game tests run jointly)"
+note = "as wreck-car-parts-fall: the lone Car01 0013DA2F north of the player is taken to its hulk at 8 s; its blast also wrecks the cars 0013DA34 and 0013DA2E beside it. Long enough for MAX_FALLING (20 s after a wreck's parts start to fall) to show a wreck still moving"
+areas = ["destruction", "physics"]
+paths = ["engine/nvforever/src/wrecks.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:prid 0013DA2F;8.2:damageobject 200;8.4:close" }
+args = ["--world", "WastelandNV", "--pos=-42000,36500,4500", "--heading", "0", "--pitch", "-10", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 34
+expect = [
+  { re = 'wrecks: 0013DA2F came to rest after', label = "the car's parts come to rest" },
+  { re = 'wrecks: \S+ came to rest after .*fastest part over the last 1\.00 s (?P<n>[\d.]+) units/s', range = [0, 3], all = true, label = "each wreck is held only once its parts move under 3 units/s over the last second" },
+  { re = 'wrecks: \S+ came to rest after .*fastest part over the last 1\.00 s [\d.]+ units/s, (?P<n>[\d.]+) rad/s', range = [0, 0.15], all = true, label = "and turn under 0.15 rad/s" },
+]
+forbid = [{ re = 'wrecks: \S+ held at rest still moving', label = "no wreck is still moving when its 20 s run out" }]
+
+[[scenario]]
 name = "vertex-morphs"
 source = "docs/spec-notes/vertex-morphs.md §3-§4: the Nevada flag in Goodsprings (ref 0010A18D, meshes/clutter/flags/nv_nevadaflag.nif, a skinned shape with 7 morphs on its own NiGeomMorpherController) waves: the model is read with its morphs and the mesh is rewritten as the weights change; two frames 0.6 s apart in target/smoke (vertex_morphs_N.png)"
 areas = ["models", "effects"]
@@ -22398,6 +22414,20 @@ expect = [
   { re = 'collision of dropped 0xFF00000[0-3] added: meshes.armor.\S+.go\.nif, 1 bodies \(dynamic\).*: the model.s [24] dynamic bodies joined into one', count = 4, label = "their bodies are joined into one" },
   { re = 'dropped 0xFF00000[0-3] came to rest at', count = 4, label = "each piece of clothing comes to rest" },
   { re = 'dropped 0xFF00000[0-4] came to rest at .*, (?P<n>[\d.]+) below where its collision was added', range = [60, 120], all = true, label = "on the ground, about 85 units below the drop point, as the pistol" },
+]
+
+[[scenario]]
+name = "clutter-dropped-comes-to-rest"
+source = "docs/spec-notes/physics.md §5.5 (2026-11-11): loose clutter the solver keeps trembling in place (pots, pans, books and bottles shook at 10-15 units/s while staying within a unit) is let sleep once it has stayed within 2 units for a second and within 0.75 units over the last quarter (fnv_phys::rest); NVF_PHYS_REST=0 turns that off for a comparison. Written unrun (owner rule 2026-11-11: in-game tests run jointly)"
+note = "Doc Mitchell's house: a metal cooking pot, a metal cooking pan, a pre-war book, a small ruined book, an empty whiskey bottle and a tin can dropped from chest height one a second from 8 s onto the wooden floor"
+areas = ["physics", "items"]
+paths = ["crates/fnv-phys/src/rest.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "000340A7:1,0003409C:1,000FC9BA:1,000A9E69:1,0005B6CE:1,00022104:1", NVF_PLAY_TEST_DROP = "8:000340A7,9:0003409C,10:000FC9BA,11:000A9E69,12:0005B6CE,13:00022104" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 30
+expect = [
+  { re = 'dropped 0xFF00000[0-5] came to rest at', min = 6, label = "each item comes to rest" },
+  { re = 'dropped 0xFF00000[0-5] came to rest at .*, (?P<n>[\d.]+) s after', range = [0, 8], all = true, label = "within 8 s of being dropped" },
 ]
 
 [[scenario]]

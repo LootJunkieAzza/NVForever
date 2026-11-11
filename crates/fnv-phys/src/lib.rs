@@ -48,6 +48,7 @@ pub mod movers;
 pub mod placed;
 pub mod primitive;
 pub mod quarantine;
+pub mod rest;
 pub mod ragdoll;
 pub mod script;
 pub mod swim;
