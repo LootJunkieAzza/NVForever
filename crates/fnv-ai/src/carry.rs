@@ -576,6 +576,9 @@ pub struct Agent {
     /// `Game::take_ai_reset`): the engine gets a seated actor up when this changes, even
     /// when the package gives it the same furniture again (issue #2119).
     pub restarts: u32,
+    /// The door it was last asked at and has not yet left behind
+    /// (`fnv_game::Game::npc_door_left`, [`Ai::ask_door`]).
+    pub(crate) asked_door: Option<u32>,
 }
 
 #[derive(Default)]
@@ -854,7 +857,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0 });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, restarts: 0, asked_door: None });
         Ok(())
     }
 
@@ -1160,6 +1163,13 @@ impl Ai {
     /// ([`Ai::publish_phase`]).
     pub(crate) fn step_actor(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
         self.step_actor_inner(game, nav, actor, dt, open, quiet);
+        // A walk ended or set aside: the door it was coming up to is behind it too
+        // ([`Ai::ask_door`]).
+        if let Some(a) = self.agents.get_mut(&actor).filter(|a| a.activity != Activity::Travelling) {
+            if let Some(left) = a.asked_door.take() {
+                game.npc_door_left(actor, FormId(left));
+            }
+        }
         self.publish_phase(game, actor);
     }
 
@@ -1981,7 +1991,16 @@ impl Ai {
     /// Whether it may walk on.
     fn ask_door(&mut self, game: &mut Game, actor: FormId, reach: f32) -> bool {
         let a = self.agents.get_mut(&actor).expect("listed");
-        let Some(door) = a.walker.follower.as_ref().and_then(|f| f.door_ahead(a.walker.feet, reach)) else { return true };
+        let ahead = a.walker.follower.as_ref().and_then(|f| f.door_ahead(a.walker.feet, reach));
+        // The door asked last is behind it once it is no longer the one ahead: gone
+        // through (a load door used, a door that opens in place opened), or off its way.
+        // Asked every step while it comes up to the door, the extender hears it once a
+        // crossing (`fnv_game::npc_doors`) [design, #2123].
+        if let Some(left) = a.asked_door.filter(|&d| Some(d) != ahead) {
+            game.npc_door_left(actor, FormId(left));
+        }
+        a.asked_door = ahead;
+        let Some(door) = ahead else { return true };
         if game.npc_door(actor, FormId(door)) != fnv_game::npc_doors::DoorAnswer::Refused {
             return true;
         }

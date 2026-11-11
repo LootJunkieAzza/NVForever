@@ -282,6 +282,8 @@ fn plugin_bytes() -> Vec<u8> {
         glob(0x804, "GameHour", 12.0),
         glob(G_DAYS, "GameDaysPassed", 5.0),
         glob(0x806, "TimeScale", 30.0),
+        // Counted by the tests' extender handlers.
+        glob(0x807, "TestGlobal", 0.0),
     ]
     .concat();
     let packs = [
@@ -641,6 +643,58 @@ fn a_travel_package_walks_through_the_door_and_meets_its_goal() {
     assert!(dist(st.pos, [5250.0, 5250.0, 50.0]) < 5.0);
     assert!(s.game.extra[&actor].package_goal_met);
     assert_eq!(s.game.package_held(actor), None);
+}
+
+/// #2123: the extender's OnActivate hears an actor the AI walks through a door once a
+/// crossing. Asked on every short step as it comes up to DoorA (no script), it is heard
+/// once; put back before the door and sent through it again with no game time gone (so
+/// not by `ASKED_SECONDS` running out), it is heard again, as the first crossing was
+/// closed when the door fell behind it.
+#[test]
+fn the_extender_hears_each_crossing_of_a_door_once() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+    let heard = |s: &Sim| s.game.world.global(FormId(0x807)).unwrap();
+    let crossings = |s: &Sim| s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::Door { door, .. } if door.0 == DOOR_A)).count();
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Short steps, the game's clock standing.
+    let step = |s: &mut Sim| s.ai.update(&mut s.game, &s.nav, 0.1);
+    let mut steps = 0;
+    while heard(&s) == 0.0 {
+        step(&mut s);
+        steps += 1;
+        assert!(steps < 400, "never asked at the door");
+    }
+    // The walker as it stands at its first asking, to send it through again.
+    let before = s.ai.agents[&actor].walker.clone();
+    let time = s.game.time;
+    let mut asks = 1;
+    while crossings(&s) == 0 {
+        step(&mut s);
+        asks += 1;
+        assert!(asks < 100, "never went through");
+    }
+    assert!(asks >= 5, "asked over several steps, {asks}");
+    assert_eq!(heard(&s), 1.0, "one crossing, one event");
+    step(&mut s);
+    let a = s.ai.agents.get_mut(&actor).unwrap();
+    a.walker = before;
+    a.activity = Activity::Travelling;
+    let mut steps = 0;
+    while crossings(&s) < 2 {
+        step(&mut s);
+        steps += 1;
+        assert!(steps < 100, "never went through again");
+    }
+    assert_eq!(s.game.time, time, "no game time gone");
+    assert_eq!(heard(&s), 2.0, "a second crossing, a second event");
 }
 
 #[test]

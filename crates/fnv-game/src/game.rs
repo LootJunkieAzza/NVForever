@@ -1693,8 +1693,9 @@ pub struct Game<'a> {
     /// Scripted doors' last answers to the NPCs walking through them, by (actor, door)
     /// (`crate::npc_doors`). Not part of the saved state.
     pub door_gates: std::collections::HashMap<(FormId, FormId), crate::npc_doors::Gate>,
-    /// When each (actor, door) attempt the extender heard stops counting as the same
-    /// attempt, game seconds (`crate::npc_doors`); expired entries are dropped. Not saved.
+    /// The NPC door crossings the extender heard, by (actor, door), and when one the AI
+    /// never closed (`Game::npc_door_left`) stops counting as the same crossing, game
+    /// seconds (`crate::npc_doors`); expired entries are dropped. Not saved.
     pub door_heard: std::collections::HashMap<(FormId, FormId), f64>,
     /// The door block being run for an NPC walking through it (`Game::npc_door`).
     pub npc_door_run: Option<crate::npc_doors::DoorRun>,

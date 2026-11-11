@@ -544,3 +544,22 @@ end)",
     assert_eq!(heard(&g), 12.0);
     assert_eq!(used(&g, REF_NEST), Value::Num(1.0), "the handler's activation was the default one, no block");
 }
+
+/// A crossing the AI closed (`Game::npc_door_left`) is over: the next walk through the
+/// door is heard again at once, also when the door's answer is kept (its block does not
+/// run again until the answer runs out).
+#[test]
+fn a_new_crossing_is_heard_again_whatever_the_kept_answer() {
+    let f = fixture();
+    let mut g = game(&f);
+    let npc = FormId(NPC_REF);
+    listen(&mut g, "DoorLetsREF");
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(heard(&g), 1.0, "one crossing");
+    g.npc_door_left(npc, FormId(REF_LETS));
+    assert!(g.door_heard.is_empty());
+    assert_eq!(g.npc_door(npc, FormId(REF_LETS)), DoorAnswer::Let);
+    assert_eq!(heard(&g), 2.0, "a second crossing");
+    assert_eq!(used(&g, REF_LETS), Value::Num(1.0), "the kept answer stands");
+}
