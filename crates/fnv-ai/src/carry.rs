@@ -126,6 +126,47 @@ pub const NPC_RUN: f32 = 344.0;
 /// fMoveSneakMult when the load order does not set it [observed: FalloutNV.esm].
 const SNEAK_MULT: f32 = 0.57;
 
+/// fMoveNoWeaponMult when the load order does not set it [documented: GECK wiki Movement
+/// Settings, default 1.1, "Movement speed is multiplied by this when the actor's weapon is
+/// holstered, or the actor has no weapon equipped"].
+const NO_WEAPON_MULT: f32 = 1.1;
+
+/// The weapons, by WEAP DNAM animation type, a person walks with drawn at the drawn walk
+/// ([`drawn_walk_share`]): Pistol - Ballistic (1 Hand) 3 and Pistol - Energy (1 Hand) 4
+/// [documented: xEdit wbWeaponAnimTypeEnum, schemas/fnv/objects.json]. [observed: walks
+/// with a 10mm pistol drawn only, actors.md §8.10, People; the energy pistols share its
+/// stance's clips, not measured.] [design, #2124: every other stance keeps the holstered
+/// walk until it is measured; docs/owner-review.md.]
+pub const DRAWN_WALK_ANIM_TYPES: [i64; 2] = [3, 4];
+
+/// The share of its walk a person keeps walking outside combat with a weapon drawn
+/// (#2124): 1 / fMoveNoWeaponMult (85.3 / 1.1 = 77.5 units/s) for a person, not a
+/// creature, in light armour or clothes (`fnv_game::combat::worn_armor_class`) with a
+/// weapon of [`DRAWN_WALK_ANIM_TYPES`] out (`Game::weapon_is_out`) and not in combat; 1
+/// for everyone else. [observed: walking with a 10mm pistol drawn, in leather or a
+/// mercenary outfit, the Novac merchant held 78.0 and two mercenaries 77.5 and 78.3,
+/// against the holstered people's 85 (docs/spec-notes/actors.md §8.10, People).]
+/// [documented: fMoveNoWeaponMult multiplies the speed of an actor whose weapon is
+/// holstered, GECK wiki Movement Settings.] [design, #2124: our holstered walk
+/// ([`NPC_WALK`]) is fitted to the holstered people, so the drawn walk divides it by the
+/// setting; whether the original's drawn walk comes from the setting, the `1hm`/`h2h`
+/// walk clip (77.5) or fMoveBaseSpeed (77) is open, the maintainer's choice in
+/// docs/owner-review.md.]
+pub fn drawn_walk_share(game: &Game, actor: FormId) -> f32 {
+    if game.awareness.state(actor).in_combat() || !game.weapon_is_out(actor) {
+        return 1.0;
+    }
+    // The weapon it holds by the rules, else the one the animating side draws for it, as
+    // GetWeaponAnimType reads it (`Game::weapon_anim_type`).
+    let weapon = game.held_weapon(actor).map(|(w, _)| w).or_else(|| game.extra.get(&actor).and_then(|e| e.held_weapon));
+    let stance = weapon.and_then(|w| game.data.weapon_anim_types.get(&w).copied());
+    let light = || fnv_game::combat::worn_armor_class(&game.world, actor) == fnv_sim::forms::ArmorClass::Light;
+    if !stance.is_some_and(|t| DRAWN_WALK_ANIM_TYPES.contains(&t)) || crate::alert::creature(game, actor) || !light() {
+        return 1.0;
+    }
+    1.0 / game.world.forms.setting_f32("fMoveNoWeaponMult").filter(|m| *m > 0.0).unwrap_or(NO_WEAPON_MULT)
+}
+
 impl Default for AiConfig {
     fn default() -> Self {
         AiConfig { walk_speed: NPC_WALK, run_speed: NPC_RUN, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true, chats_anywhere: false, find_buying: false }
@@ -1302,7 +1343,12 @@ impl Ai {
             self.back_after_push(game, nav, actor);
         }
         match self.agents[&actor].activity {
-            Activity::Travelling => self.walk(game, nav, actor, dt, open),
+            Activity::Travelling => {
+                if !quiet && !alerted && !ordered {
+                    self.repace_walk(game, actor);
+                }
+                self.walk(game, nav, actor, dt, open)
+            }
             Activity::There if !quiet && !chatting && !alerted && !ordered => {
                 if let Some(h) = self.agents[&actor].face_to {
                     self.face_heading(game, actor, h, dt);
@@ -2198,17 +2244,43 @@ impl Ai {
         feet.space == place.space && hdist(feet.pos, place.pos) <= radius.max(self.cfg.arrive) && (feet.pos[2] - place.pos[2]).abs() <= 256.0
     }
 
-    /// The pace of a package's walk: the walking or running speed, times
-    /// fMoveSneakMult (0.57 in FalloutNV.esm [observed]) while the actor sneaks
+    /// The pace of a package's walk: the walking or running speed, the walk times
+    /// [`drawn_walk_share`] (a person walking with a pistol drawn outside combat, #2124),
+    /// times fMoveSneakMult (0.57 in FalloutNV.esm [observed]) while the actor sneaks
     /// (`Game::sneaks`: SetForceSneak, the package's Always Sneak) [hypothesis: the
     /// setting's name; the player's sneaking pace uses it too].
     pub(crate) fn pace(&self, game: &Game, actor: FormId, running: bool) -> f32 {
         let own = self.calm_speeds(actor);
-        let speed = if running { own.run } else { own.walk };
+        let speed = if running { own.run } else { own.walk * drawn_walk_share(game, actor) };
         if game.sneaks(actor) {
             speed * game.world.forms.setting_f32("fMoveSneakMult").unwrap_or(SNEAK_MULT)
         } else {
             speed
+        }
+    }
+
+    /// A calm walk under way keeps up with the weapon being drawn or put away
+    /// ([`drawn_walk_share`]): one going at the holstered walk changes to the drawn walk
+    /// and back, as [`Ai::pace`] would plan it now. Any other speed (a run, a follower's
+    /// matched pace, a sneak begun or ended on the way) is left as it is [design, #2124:
+    /// the animating side tells the weapon out only once it is drawn, after the walk was
+    /// planned].
+    fn repace_walk(&mut self, game: &Game, actor: FormId) {
+        let a = &self.agents[&actor];
+        if a.following.is_some() || a.backing.is_some() || a.walk_up.is_some() {
+            return;
+        }
+        let speed = a.walker.speed;
+        let sneak = if game.sneaks(actor) { game.world.forms.setting_f32("fMoveSneakMult").unwrap_or(SNEAK_MULT) } else { 1.0 };
+        let holstered = self.calm_speeds(actor).walk * sneak;
+        let drawn = holstered / game.world.forms.setting_f32("fMoveNoWeaponMult").filter(|m| *m > 0.0).unwrap_or(NO_WEAPON_MULT);
+        let near = |v: f32| (speed - v).abs() <= 1e-3 * v.max(1.0);
+        if !near(holstered) && !near(drawn) {
+            return;
+        }
+        let want = holstered * drawn_walk_share(game, actor);
+        if !near(want) {
+            self.agents.get_mut(&actor).expect("listed").walker.speed = want;
         }
     }
 

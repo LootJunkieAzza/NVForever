@@ -172,6 +172,7 @@ mod tree;
 mod treelod;
 mod underwater;
 mod vigor_view;
+mod walk_probe;
 mod water;
 mod window_icon;
 mod window_mode;
@@ -1653,6 +1654,8 @@ fn main() -> AppExit {
             app.add_plugins(actor_scale::ActorScalePlugin);
             // Creatures' own speeds and alert stance (creature_pace.rs).
             app.add_plugins(creature_pace::CreaturePacePlugin);
+            // How fast chosen actors walk (NVF_PLAY_TEST_WALK_PROBE; nothing without it).
+            app.add_plugins(walk_probe::WalkProbePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).

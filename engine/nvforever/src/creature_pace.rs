@@ -336,7 +336,7 @@ fn give_speeds(
 /// An actor's Speed Mult (percent) as GetBaseAV gives it, through the template chain
 /// (Stats). A reference a script made (PlaceAtMe) is not in the game's world outside
 /// `with_world`: its base's stats source is read instead.
-fn speed_mult(game: &mut fnv_game::Game<'_>, base: FormId, id: FormId) -> f32 {
+pub(crate) fn speed_mult(game: &mut fnv_game::Game<'_>, base: FormId, id: FormId) -> f32 {
     let v = if fnv_game::functions::base_of(game, id).is_some() {
         game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok()
     } else {

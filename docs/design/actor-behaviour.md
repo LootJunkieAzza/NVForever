@@ -242,6 +242,15 @@ plays the run clip faster to match (up to its 2.5 rate limit), so the feet do no
   included (navmesh.md). Everything the actor carries counts as a key for locked doors.
   Always Run packages run (344 units a second), others walk (86.8) [observed: the
   player's speeds; NPC speeds are not captured].
+- **Walking with a pistol drawn** (#2124, `fnv_ai::carry::drawn_walk_share`): a person
+  in light armour or clothes walking a package outside combat with a pistol out walks
+  its walk / fMoveNoWeaponMult (85.3 / 1.1 = 77.5) [observed: 77.5–78.3, actors.md §8.10,
+  People; design: the fit chosen, docs/owner-review.md]. A walk under way at the
+  holstered or the drawn pace changes to the other when the weapon is drawn or put away
+  (`Ai::repace_walk`, each update while it travels, the AI's own steps: not in a fight,
+  an alert or a script's weapon use); a run, a Follow package's walk, a companion's
+  Back Up and a walk-up to the player keep their speeds. Other stances and armour classes
+  keep the holstered walk.
 - **No way there** (no navmesh at either end, no chain of doors, a locked door without
   the key, or a location that names nothing): the package is set aside for one game
   hour (`Game::block_package`, `PackageCheck::Unreachable`) and the actor chooses again:

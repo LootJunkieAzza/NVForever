@@ -1200,6 +1200,13 @@ impl Residents {
         self.core.ai.alert_speeds(actor)
     }
 
+    /// `actor`'s walk as the AI has it: whether it is on its way, its walker's speed and
+    /// its calm run (`walk_probe.rs`).
+    pub fn walk_of(&self, actor: FormId) -> Option<(bool, f32, f32)> {
+        let a = self.core.ai.agents.get(&actor)?;
+        Some((a.activity == fnv_ai::Activity::Travelling, a.walker.speed, self.core.ai.calm_speeds(actor).run))
+    }
+
     /// The share of its speed `actor` moves at (crippled legs, `limping.rs`).
     pub fn set_pace(&mut self, actor: FormId, pace: f32) {
         self.core.ai.set_pace(actor, pace);
