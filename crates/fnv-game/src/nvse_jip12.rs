@@ -675,9 +675,13 @@ pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormI
         }
         // ---- the quantity and text input menus ----
         // The callback gets the amount, -1 for Cancel [documented]; drawn as the item
-        // menus' "How many?" prompt (`nvf_play::script_quantity`).
+        // menus' "How many?" prompt (`nvf_play::script_quantity`). Not while another
+        // menu is open, its own included, as ShowTextInputMenu [hypothesis; #2018].
         "showquantitymenu" => {
             let (Some(cb), Some(max)) = (args.first().cloned().filter(|v| !matches!(v, XVal::Num(_))), num(args, 1)) else { return Some(Ok(zero)) };
+            if g.menu.is_some() {
+                return Some(Ok(zero));
+            }
             let max = (max as i32).max(1);
             let initial = num(args, 2).map_or(max, |i| (i as i32).clamp(1, max));
             g.ext.retain(&cb);

@@ -51,7 +51,7 @@ probes, 2026-11-08, for JIP's list getters; hypothesis: the same here].
 | Function | NVForever |
 |---|---|
 | GetActiveEffects `[filter]` | the magic items with effects on the actor, once each, in the order they took; 1 object effects (ENCH), 2 actor effects (SPEL), 4 ingestibles (ALCH, INGR), summed [documented: the filter; hypothesis: the elements are the items] |
-| RemoveNthEffect `item index` | the entry leaves the item's list (applying it and GetNumEffects skip it), for the session; the new count, -1 for no such entry or the last one [documented] |
+| RemoveNthEffect `item index` | the entry leaves the item's list (applying it and GetNumEffects skip it), for the session; the new count, -1 for no such entry or the last one [documented]. The index is the scripts' list's, AddNewEffect's entries included, as every Nth-effect function's (jip-last-14.md §1) [decision: #2016] |
 | RemoveNthTempEffect `index` | the index-th of GetTempEffects' list is dispelled [documented] |
 
 ## 4. Equipped items and armour
@@ -96,5 +96,5 @@ on the ground (-0.004, the original's own residue).
 - GetFallTimeRemaining: the engine could pass the ground's distance and the fall speed.
 - GetEquippedWeaponPoison: poisons on weapons.
 - GetActorMovementFlags: jumping, falling and sliding from the engine's character state.
-- RemoveNthEffect: the other readers of effect lists (GetNthEffectBase and the HUD) still
-  see the record's list.
+- RemoveNthEffect: the HUD still sees the record's list (the Nth-effect functions share
+  one list since #2016).
