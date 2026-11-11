@@ -631,7 +631,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance, menu, modded, no_prompt, campfires): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>),
+    (texts, pipboy, glance, menu, modded, no_prompt, campfires, arm): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>, Option<Res<crate::armwrestle::ArmScreen>>),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -687,7 +687,10 @@ fn draw(
         }
         logged.7 = Some(pip_up);
     }
-    let menu_up = pipboy.as_deref().is_some_and(|p| p.shown()) || trading;
+    // Nor over an arm-wrestling match: its card holds the keys (in co-op it stays up
+    // while playing) [owner (via the lead, 2026-11-11): "E) Interact P2" over the bout].
+    let wrestling = arm.is_some_and(|a| a.0.is_some());
+    let menu_up = pipboy.as_deref().is_some_and(|p| p.shown()) || trading || wrestling;
     let mut locks = locks.as_deref().copied().unwrap_or_default();
     locks.movement |= pip_up;
     locks.rollover |= menu_up;
