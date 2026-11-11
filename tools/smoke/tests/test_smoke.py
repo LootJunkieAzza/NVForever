@@ -382,6 +382,46 @@ class LockTests(unittest.TestCase):
             self.assertEqual(locks.try_take(), theirs)
             self.assertTrue(theirs.is_dir())
 
+    def test_a_pid_used_again_does_not_keep_a_lock_held(self):
+        from smoke.runner import owner_line, process_birth
+
+        born = process_birth(os.getpid())
+        if born is None:
+            self.skipTest("no process birth time on this system")
+        with tempfile.TemporaryDirectory() as d:
+            lock = Path(d) / "smoke.lock"
+            lock.mkdir()
+            # This process's pid with another birth: the runner that wrote it has ended.
+            (lock / "smoke-owner.txt").write_text(f"{os.getpid()} smoke runner 2026-01-01 00:00:00 born={born + 1}\n")
+            locks = Locks([lock], poll=0.01, wait_max=0.05, say=lambda s: None)
+            self.assertIsNone(locks.try_take())
+            self.assertIn(f"born={born}", (lock / "smoke-owner.txt").read_text())
+            locks.release()
+            # The same pid and birth: a live runner's lock, kept.
+            lock.mkdir()
+            (lock / "smoke-owner.txt").write_text(owner_line())
+            self.assertEqual(Locks([lock], say=lambda s: None).try_take(), lock)
+            self.assertTrue((lock / "smoke-owner.txt").exists())
+
+    def test_a_left_lock_is_replaced_only_under_the_mutex(self):
+        from smoke.slots import FileLock
+
+        with tempfile.TemporaryDirectory() as d:
+            lock = Path(d) / "smoke.lock"
+            lock.mkdir()
+            (lock / "smoke-owner.txt").write_text("999999999 smoke runner\n")  # no such process
+            other = FileLock(Path(d) / "smoke-slots" / "mutex.lock")
+            self.assertTrue(other.try_lock())  # another runner is replacing it now
+            try:
+                locks = Locks([lock], say=lambda s: None)
+                self.assertEqual(locks.try_take(), lock)
+                self.assertIn("999999999", (lock / "smoke-owner.txt").read_text())  # left alone
+            finally:
+                other.unlock()
+            self.assertIsNone(locks.try_take())
+            self.assertIn(str(os.getpid()), (lock / "smoke-owner.txt").read_text())
+            locks.release()
+
 
     def test_old_mkdir_lock_without_a_game_is_reported_not_removed(self):
         with tempfile.TemporaryDirectory() as d:
@@ -502,6 +542,22 @@ class ChildProcessTests(unittest.TestCase):
     """A load's new run outlives the run the runner started (engine/nvforever/src/handoff.rs):
     the runner waits for it, and for nothing it did not start."""
 
+    @unittest.skipUnless(os.name != "nt", "POSIX process groups")
+    def test_posix_waits_for_the_launchs_process_group(self):
+        from smoke.runner import launch_popen_kw, wait_for_group, wait_rest
+
+        starter = "import subprocess, sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'])"
+        p = subprocess.Popen([sys.executable, "-c", starter], **launch_popen_kw())
+        p.wait()
+        t = time.monotonic()
+        self.assertEqual(wait_rest(p, Path(sys.executable).name, t + 20), "")
+        self.assertGreater(time.monotonic() - t, 0.5)
+        # Past the deadline the group is ended.
+        p = subprocess.Popen([sys.executable, "-c", starter.replace("sleep(2)", "sleep(60)")], **launch_popen_kw())
+        p.wait()
+        self.assertIn("process group", wait_for_group(p.pid, time.monotonic() + 0.3))
+
+    @unittest.skipUnless(os.name == "nt", "Windows finds a launch's children by parent")
     def test_only_the_launchs_own_children(self):
         from smoke.runner import child_pids, own_times, wait_for_children
 
