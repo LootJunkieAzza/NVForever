@@ -741,6 +741,22 @@ different thing: `fnv_ai::alert`); ForceFlee]:
   next thing begins) [hypothesis for the split between 7 and 0 while walking, which the
   samples do not tell apart by destination].
 
+  Types with no done state. Sandbox, Sleep, Eat, Guard, Wander, Follow and Accompany
+  never read 17 above; Travel, Patrol, Dialogue, Use Item At, Flee Not Combat (and Find,
+  Escort, Ambush and Use Weapon, which finish at their goal) do. A script-added Sandbox
+  package is not done on arrival [observed: issue #2012, the original's GSChetRef given
+  DefaultSandboxEditorLocation256 by AddScriptPackage kept it for 1.5 game hours, 1,290
+  samples, with no OnPackageStart, OnPackageChange or OnPackageDone], and "On End idle
+  only works for packages which have a 'done' state" [documented: GECK wiki,
+  Category:Packages]. In NVForever (`PackageType::has_done_state`,
+  `Game::package_goal_met`) a package of those types never meets its goal:
+  - no end script or OnPackageDone on arrival;
+  - a script package of that type stays until it is removed or replaced;
+  - Must Complete keeps holding it.
+
+  A schedule duration still ends one of them on time, with its change script and no end
+  script [design: the original's end of a timed Sandbox is not captured].
+
 ## 5. The reader and the CLI contract
 
 `fnv_game::package` holds a package as typed data (`PackageDef`): type, general /

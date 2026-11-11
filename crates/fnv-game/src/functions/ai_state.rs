@@ -211,7 +211,7 @@ pub fn package_procedure(t: PackageType, phase: Option<AiPhase>, furniture: Opti
     if furniture.is_some_and(|(state, _)| state == 4) {
         return 21;
     }
-    if goal_met && ends_at_goal(t) {
+    if goal_met && t.has_done_state() {
         return 17;
     }
     let seated = furniture.filter(|(state, _)| *state == 3);
@@ -238,12 +238,6 @@ pub fn package_procedure(t: PackageType, phase: Option<AiPhase>, furniture: Opti
         return 0;
     }
     procedure_code(t)
-}
-
-/// Package types whose procedure is 17 DONE once their goal is met (see
-/// [`package_procedure`]).
-fn ends_at_goal(t: PackageType) -> bool {
-    matches!(t, PackageType::Travel | PackageType::Patrol | PackageType::Dialogue | PackageType::UseItemAt | PackageType::FleeNotCombat | PackageType::Find | PackageType::Escort | PackageType::Ambush | PackageType::UseWeapon)
 }
 
 /// Package types whose actor reads 0 TRAVEL on its way to the package's location (see
