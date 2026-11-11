@@ -134,6 +134,12 @@ pub struct Console {
     history_loaded: bool,
     /// The player's Console Output File tweak has set the file this session.
     pub auto_output_done: bool,
+    /// The player's Set Home tweak: `sethome`, `home`, `back` and `delhome` work, the
+    /// homes kept for this session [design: docs/design/tweaks.md].
+    pub homes_on: bool,
+    homes: std::collections::BTreeMap<String, Travel>,
+    /// Where the last `home` or `back` left from.
+    back: Option<Travel>,
 }
 
 /// When the console's clock starts: the first line printed (the game's start, near
@@ -508,7 +514,7 @@ fn close_on_exit(mut c: ResMut<Console>, mut commands: Commands, roots: Query<En
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn typing(
     mut typed: MessageReader<KeyboardInput>,
     time: crate::pause::AidTime,
@@ -523,7 +529,7 @@ fn typing(
     mut clicks: Local<Vec<Vec2>>,
     (mut index, play, mut poker, location): (ResMut<SearchIndex>, Res<PlayWorld>, MessageWriter<crate::poker::OpenPoker>, Option<Res<crate::Location>>),
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
-    (pipboy, data): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>),
+    (pipboy, data, player): (Option<Res<crate::pipboy::data::DataState>>, Option<Res<nvf_assets::GameData>>, Option<Res<crate::player::Player>>),
 ) {
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
     if !c.open {
@@ -607,8 +613,45 @@ fn typing(
                 rec.push(line.clone());
             }
         }
+        // Where the player stands now, as a travel back to it (the Set Home tweak).
+        let here = match (location.as_deref(), player.as_deref()) {
+            (Some(l), Some(p)) => Some(Travel { world: l.interior.is_none().then_some(l.world), interior: l.interior, feet: p.feet, heading_deg: p.heading.to_degrees() }),
+            _ => None,
+        };
+        let name = if rest.is_empty() { "home".to_string() } else { rest.to_ascii_lowercase() };
         match lower.as_str() {
             "cls" | "clear" | "clr" => c.lines.clear(),
+            "sethome" if c.homes_on => match here {
+                Some(t) => {
+                    c.print(format!("Home \"{name}\" set here"));
+                    c.homes.insert(name, t);
+                }
+                None => c.print("sethome: the player is not in the world"),
+            },
+            "delhome" if c.homes_on => match c.homes.remove(&name) {
+                Some(_) => c.print(format!("Home \"{name}\" removed")),
+                None => c.print(format!("No home \"{name}\"")),
+            },
+            "home" if c.homes_on => match c.homes.get(&name).copied() {
+                Some(t) => {
+                    c.back = here;
+                    c.print(format!("Travelling to home \"{name}\""));
+                    travel.write(crate::loading::TravelRequest(t));
+                }
+                None if c.homes.is_empty() => c.print("No homes yet: sethome [name] sets one here"),
+                None => {
+                    let names: Vec<String> = c.homes.keys().cloned().collect();
+                    c.print(format!("No home \"{name}\"; homes: {}", names.join(", ")));
+                }
+            },
+            "back" if c.homes_on => match c.back.take() {
+                Some(t) => {
+                    c.back = here;
+                    c.print("Travelling back");
+                    travel.write(crate::loading::TravelRequest(t));
+                }
+                None => c.print("back: no home or back travel yet"),
+            },
             // `rbat`: start or cancel recording; `rbat <file>`: the recording written for
             // `bat` (docs/design/console.md).
             "rbat" => match (rest.is_empty(), c.recording.take()) {

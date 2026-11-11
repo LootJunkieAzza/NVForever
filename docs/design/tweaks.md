@@ -542,6 +542,7 @@ unless the player binds them, so nothing changes until then.
 | Hide Hotkeyed Items in Repair | `bHideHotkeyedItemsInRepairLists` | `pipboy::repair::current` drops parts on a hotkey (`MenuModel::hide_hotkeyed_repair`); no offer when none are left |
 | (already so) | `bDisplayItemEffectTotals` | `Game::aid_preview` counts an effect over time whole, so the EFFECTS figure is the total; the per-second breakdown is not shown |
 | Map Zooms at the Pointer | `bBetterMapZoom` | `pipboy::data::take_input` adds a drag of the pointer's offset from `MAP_MID` times (1 − growth) after a wheel zoom, so the place under it stays (both maps; the world map's edge clamp still applies) |
+| Console Homes | `bAddSetHomeCommand` | `console::typing` takes `sethome`, `home`, `back` and `delhome` (an optional name, "home" without one) while `Console::homes_on`; the homes are travels kept for the session, not saved |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -563,8 +564,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 468 |
-| to do | 135 |
+| done | 469 |
+| to do | 134 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1070,7 +1071,7 @@ game's Data folder, read-only).
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
-| `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | pipboy close_keys with the pad East button |
+| `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | unsure which pad button is meant: East (B) works as Esc in every menu, View/Select opens nothing there |
 | `bCustomHackingAnswerLength` | to do |  | 8 | Difficulty::word_lengths and the perk |
 | `bCustomPopupIcons` | to do |  | 17 | per-kind icons at each message |
 | `bEmboldenTagSkills` | to do |  |  | no tagged flag on rows and no bold face |
@@ -1130,6 +1131,7 @@ game's Data folder, read-only).
 
 | INI key | Status | VNV on | Options | Note |
 |---|---|---|---|---|
+| `bAddSetHomeCommand` | done |  |  | Console Homes (kept for the session) |
 | `bAllowPickpocketIfAlreadyCaught` | done |  |  | Pickpocket Again |
 | `bFastTravelWithEnemiesNearby` | done |  |  | Fast Travel Near Enemies |
 | `bGodModeAllowsCraftingWithoutRequirements` | done |  |  | Free Crafting in God Mode |
@@ -1142,7 +1144,6 @@ game's Data folder, read-only).
 | `bSleepWaitAnywhere` | done |  | 6 | Wait Anywhere (one switch for all; a script ban still refuses) |
 | `bWeightlessAidItems` | done |  |  | covered by Weightless Aid (in Hardcore too) |
 | `bWeightlessItems` | done |  | 5 | Weightless Armor / Aid / Ammo / Weapons / Misc Items (five rows) |
-| `bAddSetHomeCommand` | to do |  |  | not built: a console command with a kept home |
 | `bDebugLockpickMenu` | to do |  |  | the meter is a developer aid; developer escape hatches stay out of player builds (owner rule), ask first |
 | `bReallocateSkillPointsOnLevelup` | to do |  |  | earlier levels spent points are not recorded |
 

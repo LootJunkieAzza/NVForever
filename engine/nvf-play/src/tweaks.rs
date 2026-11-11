@@ -387,6 +387,8 @@ pub struct TweakSettings {
     /// `bHideHotkeyedItemsInRepairLists`: items on a hotkey are not offered as repair
     /// parts in the Pip-Boy.
     pub hide_hotkeyed_repair: bool,
+    /// `bAddSetHomeCommand`: the console's `sethome`, `home`, `back` and `delhome`.
+    pub console_homes: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -603,6 +605,7 @@ impl Default for TweakSettings {
             hide_hotkeyed_containers: false,
             hide_hotkeyed_barter: false,
             hide_hotkeyed_repair: false,
+            console_homes: false,
         }
     }
 }
@@ -1548,6 +1551,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "hide-hotkeyed-barter", "Hide Hotkeyed Items in Barter", "Things on a hotkey are not offered when trading. (Stewie's Tweaks bHideHotkeyedItemsInBarter)", hide_hotkeyed_barter);
         switch!(app, "hide-hotkeyed-repair", "Hide Hotkeyed Items in Repair", "Things on a hotkey are not offered as parts when repairing in the Pip-Boy. (Stewie's Tweaks bHideHotkeyedItemsInRepairLists)", hide_hotkeyed_repair);
         switch!(app, "map-zoom-at-pointer", "Map Zooms at the Pointer", "The mouse wheel zooms the Pip-Boy's maps in and out about the place under the pointer, not the middle. (Stewie's Tweaks bBetterMapZoom)", game.map_zoom_at_pointer);
+        switch!(app, "console-homes", "Console Homes", "The console gets sethome [name] (remember this spot), home [name] (go there), back (return from where home or back left) and delhome [name]; homes last until you quit. (Stewie's Tweaks bAddSetHomeCommand)", console_homes);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1873,6 +1877,9 @@ fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, que
         if (c.compress_repeats, c.timestamps) != (tweaks.console_compress_repeats, tweaks.console_timestamps) {
             c.compress_repeats = tweaks.console_compress_repeats;
             c.timestamps = tweaks.console_timestamps;
+        }
+        if c.homes_on != tweaks.console_homes {
+            c.homes_on = tweaks.console_homes;
         }
         if c.remember_history != tweaks.remember_console_history {
             c.remember(tweaks.remember_console_history);
