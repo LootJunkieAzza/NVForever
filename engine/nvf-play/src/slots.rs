@@ -12,6 +12,10 @@
 //! The first time the menu opens the help message `HelpSlots` comes up over it, as
 //! lockpicking's (`crate::lockpick::help`).
 //!
+//! At a machine in the world (item 170, `seat`): the player sits on its stool or stands in
+//! front of it while the menu is open, and the spins, results and win celebrations go out
+//! as [`SlotsSpin`] messages for the body, the machine's model and the camera.
+//!
 //! It is a `PlayState::Menu`: the world and the game clock stand still. To scripts it is
 //! menu [`fnv_game::slots::MENU_CODE`]. The menu's text and buttons follow
 //! `menus\slot_machine_menu.xml`; the reels are drawn flat from the record's symbol
@@ -23,13 +27,15 @@
 //!
 //! Test aid `NVF_PLAY_TEST_SLOTS=<seconds>:<step>[,…]`: `chips:<n>[:<casino hex>]` gives the
 //! player that many of the casino's chips (The Tops' when left out), `open[:<casino hex>]`
-//! as if a machine's script asked (min 1, max 75), `seed:<n>` (before `open`), `bet:<n>`
+//! as if a machine's script asked (min 1, max 75), `open:<casino hex>:<machine hex>` as if
+//! that machine's did (the player sits or stands at it, `seat`), `seed:<n>` (before `open`), `bet:<n>`
 //! sets the bet, `up`, `down`, `max`, `reels:<a>-<b>-<c>` makes the next spin stop on those
 //! symbols (1 to 7, 7 the cherries W; slots.md §2), `spin`, `payout` shows or hides the
 //! payout list, `help` closes the help message, `exit` leaves. At exit, when the menu was
 //! asked for: "slots summary: …".
 
 pub mod screen;
+pub mod seat;
 
 use crate::lockpick::Help;
 use crate::pause::{AidTime, Paused};
@@ -44,6 +50,8 @@ use fnv_game::slots::{self as rules, Limits, REELS};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
+pub use seat::{SlotsSeat, Stance};
+use seat::SeatPhase;
 
 /// The menu code scripts see.
 pub const MENU_SLOTS: u16 = rules::MENU_CODE;
@@ -56,6 +64,9 @@ pub const REEL_STOPS: [f32; REELS] = [1.4, 2.0, 2.6];
 pub const REEL_TURNS: [usize; REELS] = [2, 3, 4];
 /// How long the result stays on the screen before the next spin can start [design].
 pub const RESULT_SECONDS: f32 = 2.0;
+/// The result stays up this long after a win's celebration ends, seconds [design: room
+/// for the camera to come back, part B of item 170].
+pub const CELEBRATION_MARGIN: f32 = 0.5;
 /// How long a request waits for the player to be back in the world, seconds [design].
 pub const REQUEST_WAIT: f32 = 3.0;
 
@@ -73,6 +84,28 @@ pub mod sounds {
     pub const LOSE: FormId = FormId(0x0014_89FA);
 }
 
+/// A spin at a machine, for whoever draws the machine, the reels, the camera and the body
+/// (item 170: the hook between part A, the seat, and part B, the reels).
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct SlotsSpin {
+    /// The slot machine reference, `None` when the menu came from no machine.
+    pub machine: Option<FormId>,
+    pub phase: SpinPhase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SpinPhase {
+    /// A spin began: the stops the reels come to and the symbols on the line.
+    Started { to: [usize; REELS], line: [u8; REELS] },
+    /// The last reel stopped: `multiple` times the bet, `back` chips (0 on a loss), and
+    /// the win's celebration in seconds (0 on a loss; up to 3 s by the prize).
+    Result { multiple: u32, back: u32, celebrate: f32 },
+    /// The menu opened at the machine.
+    Opened,
+    /// The menu closed.
+    Closed,
+}
+
 /// The open slot machine menu, if any.
 #[derive(Resource, Default)]
 pub struct SlotsScreen(pub Option<Session>);
@@ -88,6 +121,12 @@ pub enum Phase {
 
 pub struct Session {
     pub casino: FormId,
+    /// The slot machine played (its reference), when the menu came from one (item 170).
+    pub machine: Option<FormId>,
+    /// Seated on its stool or standing at it.
+    pub stance: Option<Stance>,
+    /// A win's celebration ends then (aid seconds).
+    pub celebrating: Option<f32>,
     pub casino_name: String,
     pub chip: FormId,
     /// The symbols' pictures (CSNO ICON), under `textures\`, symbol 1 to W.
@@ -180,6 +219,8 @@ struct SlotsAid {
 #[derive(Debug, Clone, PartialEq)]
 enum AidStep {
     Open(u32),
+    /// A casino and the machine asking, as its script does.
+    Machine(u32, u32),
     Chips(u32, u32),
     Seed(u64),
     Input(SlotsInput),
@@ -203,7 +244,15 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
             let num = |name: &str, s: &str| s.trim().parse::<u64>().map_err(|_| format!("{what:?}: expected {op}:<{name}>"));
             let step = match op {
                 "open" if arg.is_empty() => AidStep::Open(THE_TOPS),
-                "open" => AidStep::Open(hex(arg).ok_or_else(|| format!("{what:?}: expected open:<casino hex>"))?),
+                "open" => {
+                    let (c, m) = arg.split_once(':').unwrap_or((arg, ""));
+                    let casino = hex(c).ok_or_else(|| format!("{what:?}: expected open:<casino hex>[:<machine hex>]"))?;
+                    if m.is_empty() {
+                        AidStep::Open(casino)
+                    } else {
+                        AidStep::Machine(casino, hex(m).ok_or_else(|| format!("{what:?}: expected open:<casino hex>:<machine hex>"))?)
+                    }
+                }
                 "chips" => {
                     let (n, casino) = arg.split_once(':').unwrap_or((arg, ""));
                     let casino = if casino.is_empty() { THE_TOPS } else { hex(casino).ok_or_else(|| format!("{what:?}: expected chips:<n>:<casino hex>"))? };
@@ -242,6 +291,8 @@ impl Plugin for SlotsPlugin {
             .init_resource::<SlotsStats>()
             .insert_resource(SlotsAid { steps, seed: None })
             .add_message::<SlotsInput>()
+            .add_message::<SlotsSpin>()
+            .init_resource::<SlotsSeat>()
             .add_systems(
                 Update,
                 (run_aid, open, (keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), screen::draw)
@@ -249,6 +300,7 @@ impl Plugin for SlotsPlugin {
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
             )
+            .add_systems(Update, follow_seat.in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close)
             .add_systems(Last, report);
     }
@@ -276,7 +328,13 @@ fn run_aid(time: AidTime, mut aid: ResMut<SlotsAid>, mut sim: ResMut<SimState>, 
         match step {
             AidStep::Open(c) => {
                 let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { continue };
-                rt.game.slots_requests.push(rules::SlotsRequest { casino: FormId(c), min_bet: 1, max_bet: 75, max_winnings: 0 });
+                rt.game.slots_requests.push(rules::SlotsRequest { casino: FormId(c), min_bet: 1, max_bet: 75, max_winnings: 0, machine: None });
+            }
+            AidStep::Machine(c, m) => {
+                // As the machine's own script asks when activated (its bets are the
+                // script's; the test aid's are The Tops' 1 to 75).
+                let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { continue };
+                rt.game.slots_requests.push(rules::SlotsRequest { casino: FormId(c), min_bet: 1, max_bet: 75, max_winnings: 0, machine: Some(FormId(m)) });
             }
             AidStep::Chips(n, c) => {
                 let chip = script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| fnv_game::casino::chip(&rt.game, FormId(c)));
@@ -304,6 +362,17 @@ fn seed(aid: &SlotsAid, casino: FormId, now: f32) -> u64 {
     })
 }
 
+/// What seating the player at a machine needs (`seat`).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct Place<'w> {
+    seat: Res<'w, crate::furniture::PlayerSeat>,
+    slots_seat: ResMut<'w, SlotsSeat>,
+    sit: MessageWriter<'w, crate::furniture::UseFurniture>,
+    phys: ResMut<'w, crate::phys::PhysState>,
+    player: ResMut<'w, crate::player::Player>,
+    spins: MessageWriter<'w, SlotsSpin>,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn open(
     state: Res<State<PlayState>>,
@@ -316,6 +385,7 @@ fn open(
     time: AidTime,
     (mut stats, mut corner, bindings, mut sounds): (ResMut<SlotsStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, Res<crate::bindings::Bindings>, MessageWriter<PlaySound>),
     mut waiting: Local<Option<(rules::SlotsRequest, f32)>>,
+    mut place: Place,
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     let now = time.elapsed_secs();
@@ -352,6 +422,41 @@ fn open(
         return;
     }
     let Some(chip) = def_chip else { return };
+    // At the machine first (item 170): on its stool, or standing in front of it.
+    let machine = asked.machine;
+    let stance = machine.and_then(|m| seat::stance_for(&sim, m.0));
+    if let (Some(m), Some((frame, st))) = (machine.map(|m| m.0), stance) {
+        match st {
+            Stance::Seated { stool } => {
+                let on = place.seat.on == Some(stool) && place.seat.seated;
+                if !on {
+                    if place.slots_seat.phase != SeatPhase::Sitting || place.slots_seat.machine != Some(m) {
+                        info!("slots seat: the player sits on stool {stool:08X} at machine {m:08X}");
+                        place.sit.write(crate::furniture::UseFurniture { reference: stool });
+                        *place.slots_seat = SlotsSeat { machine: Some(m), stance: Some(st), phase: SeatPhase::Sitting, since: now };
+                    }
+                    if now - place.slots_seat.since < seat::SIT_WAIT {
+                        *waiting = Some((asked, now));
+                        return;
+                    }
+                    warn!("slots seat: not on stool {stool:08X} after {}s; the menu opens anyway", seat::SIT_WAIT);
+                }
+                // The view on the reels from the seated eye.
+                let (h, p) = seat::look_at_reels(frame, place.player.body_eye.unwrap_or(place.player.eye()));
+                info!("slots seat: seated at machine {m:08X} on stool {stool:08X}");
+                (place.player.heading, place.player.pitch) = (h, p);
+            }
+            Stance::Standing { spot, heading } => {
+                crate::table_spots::stand_player(&mut place.phys, &mut place.player, [spot[0], spot[1]], spot[2], heading);
+                let eye = place.player.eye();
+                let (h, p) = seat::look_at_reels(frame, eye);
+                (place.player.heading, place.player.pitch) = (h, p);
+                info!("slots seat: standing at machine {m:08X} ({:.0}, {:.0}, {:.0}), facing {:.0} deg (no stool in front)", spot[0], spot[1], spot[2], heading.to_degrees());
+            }
+        }
+        *place.slots_seat = SlotsSeat { machine: Some(m), stance: Some(st), phase: SeatPhase::Playing, since: now };
+    }
+    place.spins.write(SlotsSpin { machine, phase: SpinPhase::Opened });
     stats.opened += 1;
     let limits = Limits::new(asked.min_bet, asked.max_bet);
     let reel = rules::reel(&def.reel_stops);
@@ -376,6 +481,9 @@ fn open(
     let stops = std::array::from_fn(|_| (rand_core::RngCore::next_u32(&mut rng) as usize) % n);
     screen.0 = Some(Session {
         casino: asked.casino,
+        machine,
+        stance: stance.map(|s| s.1),
+        celebrating: None,
         casino_name: def.name.clone(),
         chip,
         symbols: def.symbols.clone(),
@@ -455,7 +563,16 @@ fn win_sound(multiple: u32) -> FormId {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply(mut input: MessageReader<SlotsInput>, mut screen: ResMut<SlotsScreen>, mut sim: ResMut<SimState>, time: AidTime, mut stats: ResMut<SlotsStats>, mut next: ResMut<NextState<PlayState>>, mut sounds: MessageWriter<PlaySound>) {
+fn apply(
+    mut input: MessageReader<SlotsInput>,
+    mut screen: ResMut<SlotsScreen>,
+    mut sim: ResMut<SimState>,
+    time: AidTime,
+    mut stats: ResMut<SlotsStats>,
+    mut next: ResMut<NextState<PlayState>>,
+    mut sounds: MessageWriter<PlaySound>,
+    mut events: MessageWriter<SlotsSpin>,
+) {
     let now = time.elapsed_secs();
     let mut play = |sound| {
         sounds.write(PlaySound { sound, at: None });
@@ -524,6 +641,7 @@ fn apply(mut input: MessageReader<SlotsInput>, mut screen: ResMut<SlotsScreen>, 
                 s.phase = Phase::Spinning { since: now, from, to };
                 stats.spins += 1;
                 info!("slots: spin: bet {bet}, {} chips left; the reels will stop on {} {} {}", s.chips, names[0], names[1], names[2]);
+                events.write(SlotsSpin { machine: s.machine, phase: SpinPhase::Started { to, line: s.line() } });
                 play(sounds::PULL);
             }
         }
@@ -533,9 +651,22 @@ fn apply(mut input: MessageReader<SlotsInput>, mut screen: ResMut<SlotsScreen>, 
 /// The spin's end: the line paid, the earnings counted; the result shown, then the next
 /// spin (or, banned, the menu closes).
 #[allow(clippy::too_many_arguments)]
-fn step(time: AidTime, mut screen: ResMut<SlotsScreen>, mut next: ResMut<NextState<PlayState>>, mut sim: ResMut<SimState>, script: Option<ResMut<ScriptState>>, mut stats: ResMut<SlotsStats>, mut sounds: MessageWriter<PlaySound>) {
+fn step(
+    time: AidTime,
+    mut screen: ResMut<SlotsScreen>,
+    mut next: ResMut<NextState<PlayState>>,
+    mut sim: ResMut<SimState>,
+    script: Option<ResMut<ScriptState>>,
+    mut stats: ResMut<SlotsStats>,
+    mut sounds: MessageWriter<PlaySound>,
+    mut events: MessageWriter<SlotsSpin>,
+) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    if s.celebrating.is_some_and(|until| now >= until) {
+        s.celebrating = None;
+        info!("slots seat: celebration ended");
+    }
     match s.phase {
         Phase::Spinning { since, .. } if now - since >= REEL_STOPS[REELS - 1] => {
             let line = s.line();
@@ -584,7 +715,15 @@ fn step(time: AidTime, mut screen: ResMut<SlotsScreen>, mut next: ResMut<NextSta
                 None => format!("You lose {} chips.", s.bet),
             };
             s.status = Some(if s.banned { format!("{result} You have been banned from {}.", s.casino_name) } else { result });
-            s.phase = Phase::Paid { until: now + RESULT_SECONDS };
+            // A win: its celebration, as long as the prize is big (item 170); the result
+            // stays up at least as long.
+            let party = rules::celebration(multiple);
+            if party > 0.0 {
+                s.celebrating = Some(now + party);
+                info!("slots seat: celebration {party:.2}s ({multiple} x)");
+            }
+            events.write(SlotsSpin { machine: s.machine, phase: SpinPhase::Result { multiple, back, celebrate: party } });
+            s.phase = Phase::Paid { until: now + RESULT_SECONDS.max(party + CELEBRATION_MARGIN) };
         }
         Phase::Paid { until } if now >= until => {
             if s.banned {
@@ -603,14 +742,55 @@ fn step(time: AidTime, mut screen: ResMut<SlotsScreen>, mut next: ResMut<NextSta
     }
 }
 
-fn close(mut screen: ResMut<SlotsScreen>, script: Option<ResMut<ScriptState>>) {
-    if screen.0.take().is_none() {
-        return;
+#[allow(clippy::too_many_arguments)]
+fn close(
+    mut screen: ResMut<SlotsScreen>,
+    script: Option<ResMut<ScriptState>>,
+    mut slots_seat: ResMut<SlotsSeat>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
+    mut events: MessageWriter<SlotsSpin>,
+    time: AidTime,
+) {
+    let Some(s) = screen.0.take() else { return };
+    events.write(SlotsSpin { machine: s.machine, phase: SpinPhase::Closed });
+    // Off the stool by its getting-off clip; standing, free at once.
+    match s.stance {
+        Some(Stance::Seated { stool }) if seat.on == Some(stool) => {
+            seat.leave = true;
+            *slots_seat = SlotsSeat { phase: SeatPhase::Leaving, since: time.elapsed_secs(), ..*slots_seat };
+            info!("slots seat: the player gets up from stool {stool:08X}");
+        }
+        _ => {
+            if slots_seat.busy() {
+                info!("slots seat: the player leaves the machine");
+            }
+            *slots_seat = SlotsSeat::default();
+        }
     }
     if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
         if rt.game.menu == Some(MENU_SLOTS) {
             rt.game.close_menu();
         }
+    }
+}
+
+/// Getting up from the stool: free once off it (or after a while, whatever happened); a
+/// sit that never got the menu open (the player got up, or went elsewhere) lets go too.
+fn follow_seat(time: AidTime, mut slots_seat: ResMut<SlotsSeat>, seat: Res<crate::furniture::PlayerSeat>, screen: Res<SlotsScreen>) {
+    let now = time.elapsed_secs();
+    let stool = match slots_seat.stance {
+        Some(Stance::Seated { stool }) => Some(stool),
+        _ => None,
+    };
+    match slots_seat.phase {
+        SeatPhase::Leaving if seat.on != stool || now - slots_seat.since > seat::SIT_WAIT => {
+            info!("slots seat: the player is up");
+            *slots_seat = SlotsSeat::default();
+        }
+        SeatPhase::Sitting if screen.0.is_none() && now - slots_seat.since > seat::SIT_WAIT + REQUEST_WAIT => {
+            *slots_seat = SlotsSeat::default();
+        }
+        _ => {}
     }
 }
 
