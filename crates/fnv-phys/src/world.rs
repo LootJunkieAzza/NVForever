@@ -917,6 +917,39 @@ impl PhysWorld {
         bodies.iter().filter_map(|&b| self.w.bodies.get(b)).flat_map(|b| b.colliders().iter()).find_map(|c| self.materials.get(c)?.first().copied())
     }
 
+    /// The lowest point of a reference's colliders with their contact shells, game units:
+    /// how low it reaches against what it rests on (its shape's lowest point less its own
+    /// shell). `None` without colliders.
+    pub fn ref_lowest_z(&self, form_id: u32) -> Option<f32> {
+        let k = self.k;
+        let colliders = self.refs.get(&form_id)?.iter().filter_map(|&b| self.w.bodies.get(b)).flat_map(|b| b.colliders().iter().copied());
+        colliders.filter_map(|c| Some(self.w.colliders.get(c)?.compute_aabb().mins.z / k - self.shell_of(c))).reduce(f32::min)
+    }
+
+    /// Lift every body of a reference by `dz` game units, as a placement (a teleport: each
+    /// body wakes, and the next query sees it there). How many bodies moved.
+    pub fn lift_ref(&mut self, form_id: u32, dz: f32) -> usize {
+        let Some(bodies) = self.refs.get(&form_id).cloned() else { return 0 };
+        let by = Vector::Z * dz * self.k;
+        let mut moved = 0;
+        for b in bodies {
+            let Some(body) = self.w.bodies.get_mut(b) else { continue };
+            let mut moved_to = *body.position();
+            moved_to.translation += by;
+            body.set_position(moved_to, true);
+            for &c in body.colliders() {
+                if let Some(co) = self.w.colliders.get_mut(c) {
+                    let mut cp = *co.position();
+                    cp.translation += by;
+                    co.set_position(cp);
+                }
+            }
+            self.body_placed(b);
+            moved += 1;
+        }
+        moved
+    }
+
     /// Current state of each body of a reference, in object order.
     pub fn ref_bodies(&self, form_id: u32) -> Vec<BodyState> {
         self.refs.get(&form_id).into_iter().flatten().map(|&b| body_state(&self.w.bodies[b], self.k)).collect()

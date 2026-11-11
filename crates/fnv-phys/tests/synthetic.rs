@@ -682,6 +682,26 @@ fn character_rules_hold_at_every_physics_rate() {
     }
 }
 
+#[test]
+fn a_reference_made_in_the_terrain_shell_is_lifted_onto_it_and_rests() {
+    // A box made with its bottom 1.8 units over the bare terrain, inside the terrain's
+    // 3.5-unit shell, as an ash pile made at a standing actor's feet was.
+    let mut w = ground();
+    w.add_ref(&at(7, [100.0, 100.0, 6.8]), &[object(boxed([5.0, 5.0, 5.0]), Motion::Dynamic)]);
+    let low = w.ref_lowest_z(7).expect("colliders");
+    assert!((low - 1.8).abs() < 0.05, "lowest {low}");
+    assert_eq!(w.lift_ref(7, TERRAIN_SHELL - low), 1);
+    let lifted = w.ref_lowest_z(7).unwrap();
+    assert!((lifted - TERRAIN_SHELL).abs() < 0.05, "lowest after the lift {lifted}");
+    // On the shell it falls asleep where it is.
+    for _ in 0..180 {
+        w.step();
+    }
+    let b = w.ref_bodies(7)[0];
+    assert!(b.sleeping && (b.translation[2] - (TERRAIN_SHELL + 5.0)).abs() < 0.5, "{b:?}");
+    assert_eq!(w.lift_ref(0x77, 1.0), 0, "no such reference");
+}
+
 /// A body moving at `speed` units/s along x from `x0` (game units), stepped for 0.25 s of
 /// game time in steps of `dt`: the share of its way it went.
 fn share_moved(x0: f32, speed: f32, dt: f32) -> f32 {

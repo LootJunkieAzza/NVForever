@@ -407,6 +407,11 @@ pub struct CreatedBody {
     pub marks: usize,
 }
 
+/// The most a created dynamic reference may reach into the contact shell under it and be
+/// lifted onto it ([`PhysState::lift_onto_support`]), game units [design: twice the
+/// terrain's shell].
+pub const LIFT_ONTO_SUPPORT_MOST: f32 = 7.0;
+
 /// Seconds after its collision was added at which a moving dynamic created reference's
 /// pose is logged, so a log shows where it went.
 pub const CREATED_MARKS: [f32; 3] = [1.0, 3.0, 10.0];
@@ -1451,9 +1456,32 @@ impl PhysState {
             s.pos[2],
             joined.map_or_else(String::new, |(n, _)| format!(": the model's {n} dynamic bodies joined into one"))
         );
+        if dynamic {
+            self.lift_onto_support(id);
+        }
         let added_at = self.world.stepped_secs();
         self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_at, settled: false, marks: 0 });
         true
+    }
+
+    /// A created dynamic reference made reaching into the contact shell of what it rests on
+    /// is lifted onto that shell, at its rest height: an ash or goo pile is made at its
+    /// actor's feet (`fnv_game::ash_piles`), and a standing actor's feet rest the ground's
+    /// shell above the bare surface, which put the pile's own shell about 1.7 units into
+    /// the terrain's; pushed out a little each step, it crept at about 2 units/s and never
+    /// rested [observed: smoke goo-pile-roach, 2026-11-11]. Only a reach into the shell of
+    /// up to [`LIFT_ONTO_SUPPORT_MOST`] is taken up (more is not a body resting there).
+    fn lift_onto_support(&mut self, id: u32) {
+        let Some(low) = self.world.ref_lowest_z(id) else { return };
+        let Some(c) = self.world.ref_center(id) else { return };
+        let filter = Filter { exclude: vec![fnv_phys::Key::Ref(id)], no_actors: true, exclude_layers: fnv_phys::layers::character_ignores(), ..Default::default() };
+        let Some(hit) = self.ray([c[0], c[1], c[2] + 100.0], [0.0, 0.0, -1.0], 100.0 + (c[2] - low) + LIFT_ONTO_SUPPORT_MOST + 10.0, filter) else { return };
+        let rest = hit.point[2] + hit.shell;
+        let reach = rest - low;
+        if reach > 0.01 && reach <= LIFT_ONTO_SUPPORT_MOST {
+            self.world.lift_ref(id, reach);
+            info!("collision of dropped 0x{id:08X} lifted {reach:.1} units onto the contact shell of what it rests on (made reaching into it)");
+        }
     }
 
     /// Write the poses of moving dynamic created references back to the simulation (and,
