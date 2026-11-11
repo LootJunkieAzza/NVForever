@@ -364,7 +364,11 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
   (`npc_combat::shot_gait`): moving, in any direction, while its velocity at its clips'
   pace reaches the speed a walk clip starts at; running while a run clip plays, the
   walk/run choice of its own clips, so an actor's scale or a creature's pace moves no
-  fixed cut-off; a stop counts at once, and an actor with no locomotion stands [design].
+  fixed cut-off; a velocity of nought stands even while the run clip still plays, and an
+  actor with no locomotion stands. The shot takes the most recent gait `fight` finds,
+  read before `locomotion::drive` chooses the frame's clip and unordered against the
+  walker's velocity update: up to a frame old at a start, a stop or a change between
+  walk and run [design].
 - Not used: the WEAP's Sight Usage ("the percentage of fCombatIronSightsDistance" beyond
   which an actor uses its sights [documented: GECK wiki Weapons]), because the owner's
   20 m rule stands in and fCombatIronSightsDistance is neither in FalloutNV.esm nor on

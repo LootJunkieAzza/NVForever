@@ -1169,7 +1169,7 @@ pub(crate) struct ShotGait {
     pub running: bool,
 }
 
-/// The shooter's gait from its locomotion this frame [design]: its velocity (the actor's
+/// The shooter's most recent gait from its locomotion [design]: its velocity (the actor's
 /// axes and own scale, units per second, `Locomotion::velocity`), its clips' pace
 /// (`Locomotion::pace`) and the move its clips play (`Locomotion::blend`). Moving, in
 /// any direction, while the velocity at the clips' pace is at least the speed a walk
@@ -1177,7 +1177,10 @@ pub(crate) struct ShotGait {
 /// while the move playing is a run clip, the walk/run choice its own clips make (so a
 /// small actor running slowly in world units still runs, and a fast creature at its
 /// walk still walks; no fixed speed cut-off). A velocity of nought is standing, even
-/// while the last walk clip still plays; no locomotion is standing too.
+/// while the last run clip still plays; no locomotion is standing too. The locomotion is
+/// read as `fight` finds it, before `locomotion::drive` chooses this frame's clip and
+/// unordered against the walker's velocity update: up to a frame old at a start, a stop
+/// or a change between walk and run.
 pub(crate) fn shot_gait(locomotion: Option<([f32; 2], f32, fnv_actor::locomotion::Move)>) -> ShotGait {
     use fnv_actor::locomotion::{Move as Clip, STAND_SPEED};
     let Some((v, pace, mv)) = locomotion else { return ShotGait::default() };
@@ -2628,7 +2631,8 @@ pub(crate) fn fight(
                                 // crippled-limbs.md §3].
                                 use fnv_game::combat::{HEAD, LEFT_ARM, RIGHT_ARM};
                                 let (left_arm_crippled, right_arm_crippled, head_crippled) = (g.is_crippled(me, LEFT_ARM), g.is_crippled(me, RIGHT_ARM), g.is_crippled(me, HEAD));
-                                // Walking or running as it fires widens it as the player's (#2125).
+                                // Walking or running widens it as the player's (#2125): its most
+                                // recent gait, up to a frame old at a start, stop or walk/run change.
                                 let gait = shot_gait(loco.map(|l| (l.velocity, l.pace, l.blend.cur.mv)));
                                 let st = shot_stance(fighter.sights, crouched, gait, skill, strength, [left_arm_crippled, right_arm_crippled, head_crippled]);
                                 let actor_spread = shot_spread(&c.rules, &c.tuning, ws, &st, g.gun_wobble_off(me));
@@ -3517,7 +3521,7 @@ mod tests {
     }
 
     #[test]
-    fn an_npc_walking_or_running_as_it_fires_has_the_players_moving_spread() {
+    fn an_npc_shot_spread_takes_its_most_recent_walk_or_run() {
         use fnv_actor::locomotion::Move as Clip;
         let r = fnv_combat::tuning::Rules::defaults();
         // The skill's share of the sum (skill 50).
@@ -3529,12 +3533,12 @@ mod tests {
                 let spread = |lo| moving_spread(lo, aiming, limbs, false);
                 let standing = spread(Some(([0.0; 2], 1.0, Clip::Idle)));
                 let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
-                // No locomotion, a creep below a step, or a stop this frame while the run
-                // clip still plays: standing.
+                // No locomotion, a creep below a step, or a velocity of nought while the
+                // run clip still plays: standing.
                 assert!(near(spread(None), standing));
                 assert!(near(spread(Some(([0.0, 3.0], 1.0, Clip::Forward))), standing));
                 assert!(near(spread(Some(([0.0, 8.0], 2.0, Clip::Forward))), standing), "a step judged at the clips' pace");
-                assert!(near(spread(Some(([0.0; 2], 1.0, Clip::FastForward))), standing), "stopped at the frame boundary");
+                assert!(near(spread(Some(([0.0; 2], 1.0, Clip::FastForward))), standing), "no velocity, the run clip still playing");
                 // Walking, forward, backward and sideways.
                 for (v, mv) in [([0.0, 120.0], Clip::Forward), ([0.0, -110.0], Clip::Backward), ([150.0, 0.0], Clip::Right), ([-90.0, 40.0], Clip::Left)] {
                     assert!(near(spread(Some((v, 1.0, mv))) - standing, walk), "walking {v:?} {mv:?}");
