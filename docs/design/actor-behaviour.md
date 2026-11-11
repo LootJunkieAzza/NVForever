@@ -125,6 +125,24 @@ Crate `fnv-ai`: `goal.rs` (where a package sends its actor) and `carry.rs` (the 
 the AI moves). `Ai::update(game, nav, dt)` runs after `Game::tick`, which makes the
 periodic choice.
 
+*Taken up afresh* (issue #2119). An actor's package begins again (`Ai::step_actor`: goal,
+walk, sandbox, errand and furniture dropped, then begun) when the package chosen changes,
+after a restraint is lifted or a player-woken sleeper's time up is over, and after
+ResetAI even when the same package is chosen again [observed: RingoRef seated on his
+sandbox read GET_UP one loop after ResetAI, then TRAVEL;
+docs/spec-notes/owner-decision-captures.md od_06]. ResetAI leaves a request
+(`RefExtra::ai_reset`, saved with the game) that the actor's next update takes, once
+however many calls came before it; while its AI does not run (SetActorsAI 0, dead,
+unconscious, rooted) the request waits [design]. It also forgets what a loaded save kept of
+the package's progress (`fnv_ai::progress`), so a save made between the call and that
+update does not bring the old patrol point or sandbox day back. A plain evaluation choosing
+the same package changes nothing. The AI only says which furniture an actor uses, so a
+reset that gives it the same chair again would show nothing: each restart counts
+(`Agent::restarts`), and the engine's seat (`residents::next_seat`) then gets a seated
+actor up by the exit clip and tells it to sit again only once it is off [design]. Whether
+ResetAI wakes a sleeping actor is not established (od_06 (c): he never lay down); the code
+treats a bed like any furniture.
+
 ### 5.1 The goal of a package
 
 | Package | Goal |
@@ -381,8 +399,9 @@ actor that has arrived uses furniture when its package gives it some:
   sleepers there were in unloaded cells and reported GetSleeping 0];
 - an Eat package: the nearest seat within 256 units [documented: "sitting down if
   furniture is available"; the distance is our choice].
-It is told to sit once it is drawn (`SitOn`); when its package changes it is told to get
-up (`GetUp`) and its walk waits until it is off. Furniture one resident was given is not
+It is told to sit once it is drawn (`SitOn`); when its package changes, or ResetAI takes it
+up afresh (§5, issue #2119), it is told to get up (`GetUp`) and its walk waits until it is
+off. Furniture one resident was given is not
 given to another. Told to sit and refused, it does not stay told [design, #1506;
 furniture.md §7]: for occupied furniture it stands free and asks again every 5 s of active
 play (an engineering number, no claim about the original) while it still wants it; for

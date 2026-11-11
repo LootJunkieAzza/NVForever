@@ -1357,6 +1357,99 @@ fn a_look_turning_the_body_keeps_an_actor_off_its_seat_until_stop_look() {
     assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
 }
 
+/// ResetAI on `actor`, as a script calls it.
+fn reset_ai(s: &mut Sim, actor: FormId) {
+    let opcode = s.game.data.table.by_name("ResetAI").unwrap();
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    s.game.call_function(&ctx, &[]);
+}
+
+/// ResetAI on a seated actor whose package is chosen again: the package is taken up
+/// afresh (its furniture let go, begun again, the chair given anew), where before nothing
+/// happened and it stayed seated [observed: RingoRef seated read GET_UP one loop after
+/// ResetAI, owner-decision-captures.md od_06; issue #2119]. A plain evaluation choosing
+/// the same package changes nothing.
+#[test]
+fn reset_ai_takes_the_same_package_up_afresh_and_lets_the_chair_go() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR]);
+    let actor = FormId(R_TO_CHAIR);
+    s.run(30.0);
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
+    assert_eq!(s.ai.agents[&actor].restarts, 0);
+    // A plain evaluation, and the periodic choices, choose the same package: no restart.
+    let before = s.events(R_TO_CHAIR).len();
+    assert_eq!(s.game.evaluate_package(actor), Some(FormId(P_TO_CHAIR)));
+    s.run(15.0);
+    assert_eq!(s.events(R_TO_CHAIR).len(), before, "{:?}", &s.events(R_TO_CHAIR)[before..]);
+    assert_eq!(s.ai.agents[&actor].restarts, 0);
+    // ResetAI: the same package, begun again.
+    reset_ai(&mut s, actor);
+    assert_eq!(s.game.current_package(actor), Some(FormId(P_TO_CHAIR)));
+    s.run(0.5);
+    let ev: Vec<AiEvent> = s.events(R_TO_CHAIR)[before..].iter().copied().cloned().collect();
+    assert!(matches!(ev[0], AiEvent::Package { package: Some(p) } if p.0 == P_TO_CHAIR), "{ev:?}");
+    assert!(matches!(ev[1], AiEvent::Furniture { furniture: None }), "the chair let go: {ev:?}");
+    assert!(ev[2..].iter().any(|e| matches!(e, AiEvent::AlreadyThere { package } if package.0 == P_TO_CHAIR)), "{ev:?}");
+    assert!(matches!(ev.last().unwrap(), AiEvent::Furniture { furniture: Some(c) } if c.0 == CHAIR_C), "{ev:?}");
+    let a = &s.ai.agents[&actor];
+    assert_eq!((a.restarts, a.activity, a.using), (1, Activity::There, Some(FormId(CHAIR_C))));
+    assert!(a.walker.follower.is_none());
+    assert!(!s.game.extra[&actor].ai_reset, "the request is taken once");
+    // Two calls before the AI's update are one restart; the next updates are quiet.
+    reset_ai(&mut s, actor);
+    reset_ai(&mut s, actor);
+    s.run(5.0);
+    assert_eq!(s.ai.agents[&actor].restarts, 2);
+    let n = s.events(R_TO_CHAIR).iter().filter(|e| matches!(e, AiEvent::Package { .. })).count();
+    s.run(15.0);
+    assert_eq!(s.events(R_TO_CHAIR).iter().filter(|e| matches!(e, AiEvent::Package { .. })).count(), n);
+}
+
+/// ResetAI on an actor walking its package's way: the way is planned again from where it
+/// stands. While its AI is off the request waits, and is carried out once it is on.
+#[test]
+fn reset_ai_plans_a_walk_again_and_waits_while_the_ai_is_off() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(2.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    let trips = |s: &Sim| s.events(R_TRAVEL).iter().filter(|e| matches!(e, AiEvent::Trip { .. })).count();
+    assert_eq!(trips(&s), 1);
+    s.game.extra.entry(actor).or_default().ai_off = true;
+    reset_ai(&mut s, actor);
+    s.run(1.0);
+    assert_eq!((trips(&s), s.ai.agents[&actor].restarts), (1, 0), "nothing while its AI is off");
+    s.game.extra.get_mut(&actor).unwrap().ai_off = false;
+    s.run(0.5);
+    assert_eq!((trips(&s), s.ai.agents[&actor].restarts), (2, 1), "{:?}", s.events(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+}
+
+/// ResetAI before the AI's first update after a load: the progress the save kept is
+/// forgotten, so the patrol starts again at its first point rather than resuming
+/// (`fnv_ai::progress`; the request is saved with the game, `RefExtra::ai_reset`).
+#[test]
+fn reset_ai_forgets_the_progress_a_load_kept() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_PATROL]);
+    let actor = FormId(R_PATROL);
+    let point = |s: &Sim| s.ai.progress().iter().find(|p| p.actor == actor).and_then(|p| p.patrol_point);
+    while point(&s).is_none_or(|p| p < 2) {
+        s.run(0.5);
+    }
+    let saved = s.ai.progress();
+    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&s.game, actor).unwrap();
+    ai.restore(saved);
+    s.ai = ai;
+    reset_ai(&mut s, actor);
+    s.run(0.5);
+    assert!(!s.events(R_PATROL).iter().any(|e| matches!(e, AiEvent::Resumed { .. })), "{:?}", s.events(R_PATROL));
+    assert!(matches!(s.events(R_PATROL)[1], AiEvent::Trip { patrol_point: Some(p), .. } if p.0 == M1), "{:?}", s.events(R_PATROL));
+}
+
 /// What a sandboxing actor did, in order.
 fn doings(s: &Sim, actor: u32) -> Vec<Doing> {
     s.events(actor).iter().filter_map(|e| match e {

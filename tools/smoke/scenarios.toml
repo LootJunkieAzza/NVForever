@@ -1362,6 +1362,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "resetai-seated"
+source = "issue #2119: ResetAI on a seated actor takes its package up afresh even when the same one is chosen again: it gets up by the exit clip and its package begins again (Game::take_ai_reset, fnv_ai Ai::step_actor, residents::next_seat; owner-decision-captures.md od_06)"
+note = "Easy Pete at 09:00 on EasyPeteChairPackage8x4 (a Travel package to his porch chair 0010634A); ResetAI at 20 s. The package line after ResetAI is the restart (the first one is logged at 09:00, before the GetSitting probe). Sitting down again is what his package says; GetSitting is not read at a fixed late time, as he may already be back on the chair"
+areas = ["ai", "furniture"]
+paths = ["crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "15:call:EasyPeteRef:GetSitting,18:call:EasyPeteRef:GetCurrentPackage,20:call:EasyPeteRef:ResetAI,22:call:EasyPeteRef:GetSitting,26:call:EasyPeteRef:GetSitting,35:call:EasyPeteRef:GetCurrentPackage" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--hour", "9", "--npc-packages", "EasyPeteRef", "--no-voice", "--no-messages"]
+run_seconds = 40
+# The furniture lines name Easy Pete by his reference, 00104C80 (EasyPeteRef).
+order = [[
+  { text = "script: test aid calls GetSitting on EasyPeteRef = 3", label = "Easy Pete sits on his chair before ResetAI" },
+  { text = "script: test aid calls ResetAI on EasyPeteRef", label = "ResetAI is called on him" },
+  { re = 'EasyPeteRef: package EasyPeteChairPackage8x4', label = "his package is taken up afresh (the same one)" },
+  { re = 'furniture: 00104C80 gets off 0010634A by clip ', label = "he gets off his chair by its exit clip" },
+  { text = "furniture: 00104C80 got off 0010634A", label = "and is off it" },
+  { text = "furniture: 00104C80 is on 0010634A", label = "then his package sits him down again" },
+]]
+
+[[scenario]]
 name = "wake-to-talk"
 source = "owner's playtest list 7 item 38: talking to a sleeping actor wakes it; it gets up, then talks (Runtime::talk_when_awake, Game::wake)"
 note = "Easy Pete is put by his bed (00176ACE) at 2:00 and his Sleep package lays him on it; at 30 s the player talks to him"
