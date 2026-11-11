@@ -509,6 +509,7 @@ unless the player binds them, so nothing changes until then.
 | NPC Armour DR / DT Ignores Condition | `bNoScaleNpcDamageResistanceByCondition`, `bNoScaleNpcDamageThresholdByCondition` | `combat::target_armor` takes an NPC's DR or DT from its armour at no condition penalty |
 | Explosion Radius Buff | `bExplosionRadiusBuff` | `CombatTuning::explosion_inner` / `explosion_inner_edge` (left out of the dumps) in `damage::explosion_damage`: the inner 30% whole, 20% at the edge; `bAffectPlayer` not offered |
 | NPCs Sneak Attack the Player | `bNPCsCanSneakCritPlayer` | `combat::sneak_attack` lets an NPC's hit on the player count when the player's measurement of that NPC is below Detected (an unmeasured pair never counts); NPC blows and shots |
+| Fatal Criticals Always Gib | `bFatalNonSneakCritsAlwaysGib` | `combat::crit_gib` gives a killing non-sneak critical's dismember check a set fate (`fnv_combat::dismember::scripted`: explode where it can, else sever); player melee and shots |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -530,8 +531,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 435 |
-| to do | 168 |
+| done | 436 |
+| to do | 167 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -705,6 +706,7 @@ game's Data folder, read-only).
 | `bDifficultyDoesntAffectNPCToNPCDamage` | done |  | 3 | already so: difficulty applies only when the player hits or is hit |
 | `bDisableCombatMusic` | done |  |  | No Battle Music |
 | `bEnteringVATSCostsAP` | done |  | 4 | Action Points to Enter V.A.T.S. (slider; refused without them; the fail-only and no-target options not built) |
+| `bFatalNonSneakCritsAlwaysGib` | done |  | 1 | Fatal Criticals Always Gib (melee and shots; bOnlyCritsGib not offered) |
 | `bHideEnemyMarkers` | done |  | 1 | No Enemies on the Compass (the firing-enemies option is not built) |
 | `bIgnoreCompanionsVATS` | done |  | 1 | V.A.T.S. Ignores Companions (always; bCombatOnly not done) |
 | `bKillsRewardAP` | done |  | 1 | Action Points per Kill (slider 0-50; given in VATS too) |
@@ -730,7 +732,6 @@ game's Data folder, read-only).
 | `bSneakCriticalsHeadshotsOnly` | done |  |  | Sneak Criticals Head Only |
 | `bSneakCriticalsOnlyMeleeWeapons` | done |  |  | Sneak Criticals Melee Only |
 | `bVATSStopBurstIfTargetDead` | done |  |  | V.A.T.S. Burst Stops on a Kill |
-| `bFatalNonSneakCritsAlwaysGib` | to do |  | 1 | dismember checks carry no critical flag |
 | `bFirstPersonVATS` | to do |  |  | VATS keeps the current view; forcing one goes in vats_mode |
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |

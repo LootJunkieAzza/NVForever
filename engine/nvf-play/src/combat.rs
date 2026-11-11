@@ -744,6 +744,20 @@ fn blast_limb_hits(c: &Combat, parts: &ActorParts, target: FormId, dealt: f32, w
     fnv_game::combat::blast_limb_shares(&conditions, damage)
 }
 
+/// The player's Fatal Crits Always Gib tweak: a killing critical that is no sneak attack
+/// takes the struck part off for sure, exploded where it can be, else severed [design: docs/design/tweaks.md].
+fn crit_gib(c: &Combat, parts: &ActorParts, script: Option<&ScriptState>, critical: bool, check: &mut crate::dismember::Check) {
+    if !critical || check.corpse || !script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.fatal_crits_gib) {
+        return;
+    }
+    let Some(data) = parts.data_of(check.target.0).and_then(|d| c.forms.body_parts.get(&d)) else { return };
+    let Some(location) = data.parts.get(check.part).map(|p| p.location()) else { return };
+    if let Some((part, fate)) = fnv_combat::dismember::scripted(data, location) {
+        check.part = part;
+        check.scripted = Some(fate);
+    }
+}
+
 /// A hit that may dismember (`crate::dismember`): one that killed the actor, or landed on
 /// its corpse, on a body part. The player is not dismembered.
 pub(crate) fn dismember_check(target: FormId, part: Option<u8>, w: &WeaponStats, r: &HitResult, by: Option<FormId>, point: V3, dir: V3) -> Option<crate::dismember::Check> {
@@ -4038,7 +4052,8 @@ fn melee(
                     perk_knockdown(c, script.as_deref_mut(), &mut sim, FormId::PLAYER_REF, id, target, away);
                 }
             }
-            if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
+            if let Some(mut check) = r.as_ref().and_then(|r| dismember_check(target, hit.part, &w, r, Some(FormId::PLAYER_REF), hit.point, player.look_dir())) {
+                crit_gib(c, &parts, script.as_deref(), d.critical && !a.sneaking, &mut check);
                 dm.checks.push(check);
             }
             if r.as_ref().is_none_or(|r| !r.immune) {
@@ -5062,7 +5077,8 @@ fn fly(
         if r.as_ref().is_some_and(|r| !r.died && !r.immune) && target != FormId::PLAYER_REF {
             perk_knockdown(c, script.as_deref_mut(), &mut sim, shooter, id, target, p.dir);
         }
-        if let Some(check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
+        if let Some(mut check) = r.as_ref().and_then(|r| dismember_check(target, p.part, &w, r, Some(shooter), p.point, p.dir)) {
+            crit_gib(c, &parts, script.as_deref(), d.critical && !a.sneaking, &mut check);
             dm.checks.push(check);
         }
         if r.as_ref().is_none_or(|r| !r.immune) {

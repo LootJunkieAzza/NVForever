@@ -438,6 +438,9 @@ pub struct Tweaks {
     /// `bNPCsCanSneakCritPlayer`: an NPC the player has not detected lands sneak attack
     /// criticals on the player.
     pub npcs_sneak_crit_player: bool,
+    /// `bFatalNonSneakCritsAlwaysGib`: a killing critical that is no sneak attack always
+    /// takes the struck part off.
+    pub fatal_crits_gib: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -638,6 +641,7 @@ impl Default for Tweaks {
             npc_dt_ignores_condition: false,
             explosion_radius_buff: false,
             npcs_sneak_crit_player: false,
+            fatal_crits_gib: false,
         }
     }
 }
