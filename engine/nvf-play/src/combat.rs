@@ -1980,7 +1980,13 @@ fn death_drops(
         if id == FormId::PLAYER_REF.0 || rt.game.is_dead(FormId(id)) {
             continue;
         }
-        match p.weapon {
+        // The player's tweak: a weapon put away is dropped too [design: docs/design/tweaks.md].
+        let holstered = || {
+            rt.game.tweaks.npcs_drop_holstered
+                .then(|| sim.world.equipment(FormId(id)).unwrap_or_default().into_iter().find(|&i| sim.forms.item(i).is_some_and(|it| it.kind == fnv_sim::forms::ItemKind::Weapon)))
+                .flatten()
+        };
+        match p.weapon.or_else(holstered) {
             Some(item) => st.armed.insert(id, item),
             None => st.armed.remove(&id),
         };

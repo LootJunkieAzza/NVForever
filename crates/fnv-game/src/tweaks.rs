@@ -446,6 +446,9 @@ pub struct Tweaks {
     /// `bSplashDamageTorsoGibbing`: a blast kill by someone with Bloody Mess may blow the
     /// torso apart.
     pub splash_torso_gib: bool,
+    /// `bNPCsDropWeaponHolsteredWeapon`: an NPC that dies with its weapon put away drops
+    /// it as one with it drawn does.
+    pub npcs_drop_holstered: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -649,6 +652,7 @@ impl Default for Tweaks {
             fatal_crits_gib: false,
             fall_deaths_dismember: false,
             splash_torso_gib: false,
+            npcs_drop_holstered: false,
         }
     }
 }

@@ -1446,6 +1446,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "fatal-crits-gib", "Fatal Criticals Always Gib", "A killing critical hit that is no sneak attack always blows off or severs the part struck. (Stewie's Tweaks bFatalNonSneakCritsAlwaysGib)", game.fatal_crits_gib);
         switch!(app, "fall-deaths-dismember", "Deadly Falls Take the Legs", "An actor killed by a fall loses its legs, blown off where they can be. (Stewie's Tweaks bFallDeathsCauseDismemberment)", game.fall_deaths_dismember);
         switch!(app, "splash-torso-gib", "Splash Kills Can Gib the Torso", "A blast kill by someone with Bloody Mess has a one-in-four chance to blow the torso apart. (Stewie's Tweaks bSplashDamageTorsoGibbing)", game.splash_torso_gib);
+        switch!(app, "npcs-drop-holstered", "NPCs Drop Holstered Weapons", "An NPC that dies with its weapon put away drops it, as one with it drawn does. (Stewie's Tweaks bNPCsDropWeaponHolsteredWeapon)", game.npcs_drop_holstered);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

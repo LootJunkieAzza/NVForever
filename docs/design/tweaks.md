@@ -512,6 +512,7 @@ unless the player binds them, so nothing changes until then.
 | Fatal Criticals Always Gib | `bFatalNonSneakCritsAlwaysGib` | `combat::crit_gib` gives a killing non-sneak critical's dismember check a set fate (`fnv_combat::dismember::scripted`: explode where it can, else sever); player melee and shots |
 | Deadly Falls Take the Legs | `bFallDeathsCauseDismemberment` | `falls::hurt` queues `dismember::scripted_check` for Left Leg 1 and Right Leg 1 when a fall kills an NPC (exploded where the part can be, else severed) |
 | Splash Kills Can Gib the Torso | `bSplashDamageTorsoGibbing` | the blast loop: a blast kill by an actor with Bloody Mess explodes the torso at `SPLASH_TORSO_CHANCE` (one in four, ours) |
+| NPCs Drop Holstered Weapons | `bNPCsDropWeaponHolsteredWeapon` | `combat::death_drops` follows an NPC's equipped weapon too when none is in its hand |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -533,8 +534,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 438 |
-| to do | 165 |
+| done | 439 |
+| to do | 164 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -812,6 +813,7 @@ game's Data folder, read-only).
 | `bNoPipboyIdleAnims` | done |  |  | already so: only the raise clip plays |
 | `bNoReputationMessages` | done |  | 5 | Quiet Reputation (box and sound together; per-kind options not built) |
 | `bNoScreenshotPopup` | done |  | 3 | already so: NVForever shows no message after a screenshot |
+| `bNPCsDropWeaponHolsteredWeapon` | done |  |  | NPCs Drop Holstered Weapons |
 | `bPauseOnSaveLoad` | done |  |  | Pause On Load (a loaded save opens the pause menu) |
 | `bPickLocksEvenWithKey` | done |  | 1 | Pick Locks Even With the Key (Shift held; locks, not terminals; bInvert not done) |
 | `bPopupMenusDontMoveCursor` | done |  |  | already so: nothing moves the pointer |
@@ -846,7 +848,6 @@ game's Data folder, read-only).
 | `bNoExteriorLoadScreens` | to do |  |  | loading::begin interior-to-exterior |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
-| `bNPCsDropWeaponHolsteredWeapon` | to do |  |  | combat::death_drops from the equipped weapon |
 | `bRemoveFollowerTopics` | to do |  |  | not built: companions make no such comments |
 | `bRemoveLandingAnim` | to do |  |  | fnv_actor jump::JumpState plays the landing clip |
 | `bRobotCompanionsHealWithScrapMetal` | to do |  | 4 | robot detection, another item and a heal formula |
