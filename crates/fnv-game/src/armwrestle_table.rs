@@ -21,9 +21,11 @@
 //!   and rays along the edges, diagonals and midlines of the table-and-stools footprint
 //!   (230 × 84) at 10, 44 and 84 units above the floor hit nothing [observed: `fnvtool
 //!   phys cell`, 2026-11-11]. The main room has no such spot: none of its 2,169
-//!   footprints that fit the floor is off the navmesh. The hall is navmesh all over, so
-//!   the table cuts it ([`TABLE_BOUNDS`], `fnv_nav::NavGraph::add_obstacle`): NPCs walk
-//!   round it [design].
+//!   footprints that fit the floor is off the navmesh. The table does not cut the
+//!   navmesh: the hall's east end is four large triangles (149994, 149995, 150007,
+//!   150009), which a cut under its bounds takes whole, the floor at both stools with
+//!   them, so the opponent could not reach his stool [observed: armwrestle-b's run 4,
+//!   "the goal cannot be reached (0 triangles searched)"]; no path crosses the spot.
 //! - **The opponent** ([`OPPONENT`]): the Goodsprings Settler (GSSettlerCM), whose package
 //!   GoodspringsSettlerSaloonPackage (Travel, near the bar stool 0x00106192) keeps him on
 //!   a stool at the bar all day; he sleeps from 22:00 for 8 hours
@@ -55,9 +57,6 @@ pub const TABLE_SCALE: f32 = 1.2;
 pub const STOOL_OFFSET: f32 = 84.0;
 /// The stools' height [observed: the cell's pair stand at 3474, 12 under the table].
 pub const STOOL_Z: f32 = 3474.0;
-/// What the table cuts out of the navmesh, in its own frame before its scale: Table02's
-/// object bounds (OBND), the stools left walkable round [design].
-pub const TABLE_BOUNDS: ([f32; 3], [f32; 3]) = ([-46.0, -32.0, -24.0], [46.0, 32.0, 24.0]);
 /// The numbers the table and its two stools are made under, in every game [design: in
 /// the dynamic range, below a co-op guest's own (from 0xFF800000) and far above any count
 /// the host's game reaches; armwrestle-b]. One already taken (never seen) falls back to
@@ -235,6 +234,10 @@ fn player_seat(g: &Game, t: &ArmTable) -> Option<(FormId, u8)> {
 /// opponent called to it, when he is about; when no player sits there any more, he is let
 /// go [design].
 pub fn tick(g: &mut Game) {
+    // A co-op guest's NPCs follow the host's game, which calls him.
+    if g.coop_guest {
+        return;
+    }
     let called = called_to(g, OPPONENT);
     let Some(t) = find(g) else {
         if called.is_some() {
@@ -276,11 +279,5 @@ mod tests {
         assert!(towards(p0, h0) > 60.0);
         assert!(towards(p1, h1) > 60.0);
         assert_eq!(p0[2], STOOL_Z);
-    }
-
-    #[test]
-    fn the_table_cut_is_the_table_only() {
-        let (lo, hi) = TABLE_BOUNDS;
-        assert!(TABLE_SCALE * (hi[0] - lo[0]) < 2.0 * (STOOL_OFFSET - 15.0), "the stools stay walkable");
     }
 }
