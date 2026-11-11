@@ -637,6 +637,7 @@ fn camera(
     mut table_camera: ResMut<TableCamera>,
     mut control: ResMut<nvf_play::control::PlayerControl>,
     player_cam: Query<(&Transform, &Projection), With<nvf_play::PlayerCamera>>,
+    mut body: Option<ResMut<crate::player_body::PlayerBody>>,
     mut cam: Local<Cam>,
 ) {
     let now = time.elapsed_secs();
@@ -656,6 +657,9 @@ fn camera(
         if cam.on.take().is_some() {
             table_camera.set_if_neq(TableCamera(None));
             control.scene_cam = false;
+            if let Some(b) = body.as_deref_mut().filter(|b| b.out_of_view) {
+                b.out_of_view = false;
+            }
             *cam = Cam::default();
         }
         return;
@@ -695,6 +699,16 @@ fn camera(
     };
     cam.last = Some(out);
     table_camera.set_if_neq(TableCamera(Some(out)));
+    // In close on the reels the seated body is out of the view: its head and arms
+    // (leaning to the arm) come between the camera and the reels [observed 2026-11-11,
+    // ship4 slots-3d 40-42.5 s]. Shown again once the camera is halfway out to third
+    // person, whichever pan it is on.
+    let (reels, third) = (shot_at(place, Shot::Reels).0.translation, shot_at(place, Shot::Third).0.translation);
+    let close = out.0.translation.distance(reels) < 0.5 * reels.distance(third);
+    if let Some(b) = body.as_deref_mut().filter(|b| b.out_of_view != close) {
+        b.out_of_view = close;
+        info!("slots view: the player's body {} the camera's view", if close { "out of" } else { "back in" });
+    }
     if !control.scene_cam {
         control.scene_cam = true;
     }

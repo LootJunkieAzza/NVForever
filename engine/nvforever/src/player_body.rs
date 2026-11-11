@@ -959,6 +959,11 @@ pub struct PlayerBody {
     /// Line the gun's sights up with the eye while aiming (`iron_sights.rs`; off with
     /// `--no-true-iron-sights`, the settings page).
     pub true_iron_sights: bool,
+    /// A minigame's close camera wants the player's own body out of its view: the slot
+    /// machine's camera in on the reels (`slots_view.rs`), where the seated body's head
+    /// and arms came between it and the reels [observed 2026-11-11, ship4 slots-3d]. The
+    /// body still casts its shadow.
+    pub out_of_view: bool,
     body: Option<Body>,
     /// The muzzle node of the weapon in hand in the rig in view, this frame.
     muzzle_entity: Option<Entity>,
@@ -2809,7 +2814,8 @@ fn drive_body(
         state.casing_entity = None;
         // A weapon still in the hand is not drawn: the furniture's clips (and the fillet
         // table's, which put the mod's knife in that hand) do not hold it.
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: !m.hands.in_hand }, false);
+        let seen = Seen { body: (third_view || own_body) && !state.out_of_view, head: third_view, arms: true, weapon: !m.hands.in_hand };
+        show_rigs(body, &mut commands, &mut visibility, seen, false);
         return;
     }
     if body.third.furniture.take().is_some() {
@@ -3253,6 +3259,7 @@ fn drive_body(
     // drawn over it [observed 2026-11-06: an activation clip's reaching hand stayed over
     // the machine's screen].
     let vigor = script.as_deref().and_then(nvf_play::chargen::open_code) == Some(fnv_game::game::menus::LOVE_TESTER);
+    let seen = Seen { body: seen.body && !state.out_of_view, ..seen };
     show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor);
 
     m.log_elapsed += dt;
