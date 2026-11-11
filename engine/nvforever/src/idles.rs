@@ -657,6 +657,10 @@ fn describe(game: &Game, idle: FormId, play: &IdlePlay) -> String {
 /// What [`drive`] reads and writes of a drawn actor.
 type Drawn = (Entity, &'static RefVisual, &'static ActorRig, Option<&'static mut ActorIdle>, Option<&'static Locomotion>, Option<&'static WeaponHold>);
 
+/// The player's controls and movement, and the arm-wrestling table (whose stools have no
+/// fidgets).
+type PlayerInputs<'w> = (Option<Res<'w, PlayerControl>>, Option<Res<'w, MoveIntent>>, Option<Res<'w, nvf_play::armwrestle::ArmTable>>);
+
 /// Take the idles asked for, run the collections, start and advance what plays.
 #[allow(clippy::too_many_arguments)]
 pub fn drive(
@@ -668,7 +672,7 @@ pub fn drive(
     mut residents: Option<ResMut<Residents>>,
     mut sim: Option<ResMut<nvf_play::sim::SimState>>,
     player: Option<Res<Player>>,
-    (control, intent, arm_table): (Option<Res<PlayerControl>>, Option<Res<MoveIntent>>, Option<Res<nvf_play::armwrestle::ArmTable>>),
+    (control, intent, arm_table): PlayerInputs,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut actors: Query<Drawn>,

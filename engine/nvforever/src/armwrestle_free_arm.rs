@@ -104,7 +104,7 @@ pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f3
     let (e, h) = solve(s, e0, h0, wrist, pole);
     // Now and then: how near the wrist comes to its spot (an arm too short leaves the hand
     // over the table).
-    if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 240 == 0 {
+    if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(240) {
         info!("arm wrestle free hand: {root:?} weight {w:.2} shoulder {s:.0?} wrist to {wrist:.1?} reached {h:.1?} (short {:.1}), palm side {}", h.distance(wrist), if frame.is_some() { "measured" } else { "not found" });
     }
     // The upper arm and the forearm turned to reach there (as `armwrestle_arm::Arm::apply`).
