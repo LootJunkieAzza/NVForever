@@ -548,6 +548,7 @@ unless the player binds them, so nothing changes until then.
 | Console Lines Name Their Plugin | `bModConsolePrintsIncludeName` | the script runner's `print` puts `[plugin]` (the unit key's first part) before the line; the base game's scripts too |
 | Weapon Requirements Matter | `bWeaponRequirementsMatter` | `Game::weapon_requirement_unmet` compares the weapon's DNAM Strength and skill requirements with the player's values now; the Pip-Boy (`menu.rs`) and the hotkeys (`weapon_wheel::read`, not for the weapon already equipped) refuse with "Needs <stat> <n>." |
 | Console Shows Models | `bExtraConsoleDetails` | `console::describe` adds the base's MODL path (`MODEL_DETAILS`); the cell's Editor ID and name were already in the details |
+| Backward Pace, Sideways Pace | `bMovementPenalties` | the player's step multiplies the pace by the backward and sideways shares, a diagonal weighted by its forward and side parts; aiming already slows to a walk (`aiming_walks`) |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -569,8 +570,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 474 |
-| to do | 129 |
+| done | 475 |
+| to do | 128 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -629,6 +630,7 @@ game's Data folder, read-only).
 | `bLuckDoesntAffectGambling` | done |  | 1 | already so: NVForever's casino games do not read Luck |
 | `bMarkNearbyLocationsOnMap` | done |  | 1 | Mark Nearby Places (slider, game units) |
 | `bModifySkillPointsEarned` | done |  | 2 | Own Skill Points Rule (switch + base and per-Intelligence sliders) |
+| `bMovementPenalties` | done |  | 11 | Backward Pace and Sideways Pace (aiming already walks; left and right share one slider) |
 | `bNoAmmoFromTakingNPCWeapon` | done |  |  | already so: taking a weapon adds only its placed ammo |
 | `bNoAPRegenWhileOverencumbered` | done |  | 2 | Action Points Back When Over-Encumbered (slider; the while-moving option not built) |
 | `bNoCompanionItemDamage` | done |  |  | No Companion Item Damage (weapons; NPC armour does not wear in NVForever) |
@@ -707,7 +709,6 @@ game's Data folder, read-only).
 | `bKeepFallHeightOnLoad` | to do |  |  | the fall top is not saved |
 | `bMapSelectableCompanions` | to do |  | 2 | not built: companions are not on the map and cannot be summoned |
 | `bMousewheelScrollsWeaponHotkeys` | to do |  | 1 | needs cycle state in weapon_wheel and the wheel off the camera |
-| `bMovementPenalties` | to do |  | 11 | player::step pace chain; seven percentages to choose |
 | `bNoLockEncounterZoneLevels` | unsure, skipped |  |  | encounter-zone level locking not yet checked in NVForever |
 | `bNPCsDetectMineExplosions` | to do |  |  | the mine trigger actor is not carried to the explosion |
 | `bNPCsDropLiveGrenades` | to do |  |  | not built: NPC grenades have no in-hand phase |

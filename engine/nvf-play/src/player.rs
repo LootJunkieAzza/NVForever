@@ -1274,6 +1274,16 @@ fn step(
             } else {
                 k
             };
+            // The player's movement penalty tweaks: backwards and sideways at their own
+            // share of the pace, a diagonal between them by how much of each it is [design: docs/design/tweaks.md].
+            let k = match tweaks.as_deref() {
+                Some(t) if t.back_pace < 1.0 || t.strafe_pace < 1.0 => {
+                    let (f, r) = (intent.forward.abs(), intent.right.abs());
+                    let ahead = if intent.forward < 0.0 { t.back_pace } else { 1.0 };
+                    if f + r > 0.0 { k * (f * ahead + r * t.strafe_pace) / (f + r) } else { k }
+                }
+                _ => k,
+            };
             let [x, y] = velocity(&intent, player.heading, *speeds);
             // An attack's clip carries the player (`Lunge`).
             if lunge.carrying && lunge.from.is_none() {

@@ -396,6 +396,10 @@ pub struct TweakSettings {
     /// `bExtraConsoleDetails`/`bMeshPath`: a selected reference's console details give
     /// its model.
     pub console_model_details: bool,
+    /// `bMovementPenalties`: the pace walking or running backwards and sideways, as a
+    /// part of the usual; 1 changes nothing.
+    pub back_pace: f32,
+    pub strafe_pace: f32,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -625,6 +629,8 @@ impl Default for TweakSettings {
             screenshot_key: 0,
             shift_screenshot_hides: false,
             console_model_details: false,
+            back_pace: 1.0,
+            strafe_pace: 1.0,
         }
     }
 }
@@ -1594,6 +1600,8 @@ impl Plugin for TweaksPlugin {
         switch!(app, "print-plugin-names", "Console Lines Name Their Plugin", "A line a script prints to the console starts with the name of the plugin it comes from, in brackets. (Stewie's Tweaks bModConsolePrintsIncludeName)", game.print_plugin_names);
         switch!(app, "weapon-requirements-matter", "Weapon Requirements Matter", "A weapon cannot be equipped while your Strength or its skill is below what it asks. (Stewie's Tweaks bWeaponRequirementsMatter)", game.weapon_requirements_matter);
         switch!(app, "console-model-details", "Console Shows Models", "Selecting something in the console also prints the path of its model; its cell's Editor ID and name are always shown. (Stewie's Tweaks bExtraConsoleDetails)", console_model_details);
+        part!(app, "back-pace", "Backward Pace", "How fast you move backwards, as a part of your usual pace; 100% changes nothing. (Stewie's Tweaks bMovementPenalties)", back_pace);
+        part!(app, "strafe-pace", "Sideways Pace", "How fast you move sideways, as a part of your usual pace; 100% changes nothing. Diagonals fall between. (Stewie's Tweaks bMovementPenalties)", strafe_pace);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
