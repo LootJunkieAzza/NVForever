@@ -1159,26 +1159,32 @@ each, one actor per role, one run unless a line says otherwise. Times are real s
 from the session's first sample. Placed actors were told apart by a number written to
 their Variable05 actor value. The runway scenes are on the Searchlight Airport runway
 with the god-mode player; the player's detection was forced with JIP
-ForceActorDetectionValue where a line says "hidden" or "made detectable".
+ForceActorDetectionValue where a line says "hidden" or "made detectable". The
+readings of the original are [observed]; lines on NVForever cite the code or design note
+they come from, and wiki lines carry their own tag.
 
 ### 16.1 A target hidden outright: which setting (`lost_detect_only`, `lost_remove_only`, `lost_hidden_pair`, `lost_default_repeat`)
 
-§15.6's scene again (a lone LvlFiendGun set on the player, the player hidden at 3.5 s),
-changing one setting at a time; the header read all four settings back each time.
+§15.6's scene again (a lone LvlFiendGun set on the player, the player hidden at 3.5 s).
+fCombatDetectionLostTime and fCombatTargetLostRemoveTime were changed separately, the two
+search settings together; the header read all four back each time. One run per setting,
+the time from the hide to the combat target being cleared.
 
 | Settings (DetectionLost / TargetLostRemove / SearchHiddenRemove / SearchHiddenMax) | Kept after the hide |
 |---|---|
-| 15 / 30 / 10 / 20 (the built-in values) | 20.6 s (round 1), 22.7 s (combat ended at 24.2 s) |
+| 15 / 30 / 10 / 20 (the built-in values) | 20.7 s (round 1), 22.7 s (this round; combat ended 24.2 s after the hide) |
 | 15 / **120** / 10 / 20 | 20.6 s |
 | 15 / 30 / **40** / **80** | 22.6 s |
 | **60** / 30 / 10 / 20 | 65.0 s |
 | **60 / 120 / 40 / 80** (§15.6) | 64.8 s |
 
-- **So.** The time a target hidden outright is kept follows fCombatDetectionLostTime
-  alone, about its value plus 5 to 8 s. fCombatTargetLostRemoveTime and the two search
-  settings do not move it. What the extra seconds are was not isolated [hypothesis].
-- In every run the Fiend then went to WANDER (procedure 7), with no SEARCH (36) or PURSUE
-  procedure at any sample.
+- **So.** In this scene only raising fCombatDetectionLostTime made a large shift: the time
+  came to about its value plus 5 to 8 s (offsets 4.8 to 7.7 s). The other configurations
+  fell inside the spread of the default runs (20.6 to 22.7 s) [hypothesis:
+  fCombatDetectionLostTime governs it; one run per setting cannot rule out a small effect
+  of the others or an interaction]. What the extra seconds are was not isolated.
+- No SEARCH (36) procedure appeared at any sample in any run. After combat the Fiend
+  wandered (procedure 7) in the runs where that was read (§15.6, `lost_detect_only`).
 
 ### 16.2 Ambush (`ambush_hidden_inside`, `ambush_detected_outside`)
 
@@ -1193,9 +1199,10 @@ radius 5000). It was created only after the player read out of combat (player_in
   GetDetected 1 from 7.7 s, no combat for 58 s. The player was moved to 2,000 units
   (inside) at 65.9 s: combat in the same sample.
 - **So.** This ambusher sprang on an enemy that was both detected and inside its ambush
-  location, as the GECK wiki's Ambush Package page says. NVForever springs on any enemy
-  inside the location without a detection test, and starts combat on detected enemies
-  anywhere (actor-behaviour.md §5.10).
+  location, as the GECK wiki's Ambush Package page says [documented: Ambush Package].
+  NVForever's ambush springs on an enemy inside the location without a detection test
+  [design: packages.md §3.1], and a detected hostile outside it starts combat as any
+  detected hostile does [design: alert.md §2].
 
 ### 16.3 Dying (`dying_timer`)
 
@@ -1203,24 +1210,28 @@ fDyingTimer read 2.
 
 - **KillActor** at 1.9 s: GetDead read 1 in the same sample; the OnDeath event came at
   3.88 s.
-- **Shot dead**: the last OnHit was at 30.1 s, health below 0 in that sample; OnDeath at
-  32.12 s.
+- **Shot dead**: the last OnHit event came at 30.11 s (the event reported health 1.76;
+  the sample at 30.1 s read -2.57); OnDeath at 32.12 s.
 - **So.** In both deaths the xNVSE OnDeath event came 2.0 s (fDyingTimer) after the
-  death, while GetDead already read 1. NVForever runs OnDeath at the kill. That the OnDeath
+  death, while GetDead already read 1. NVForever runs the OnDeath blocks at the kill
+  [design: `Game::kill`, `crates/fnv-game/src/combat.rs:385`]. That the OnDeath
   block runs with the event is a [hypothesis]. GetLifeState (JohnnyGuitar) was not
   installed.
 
 ### 16.4 StartCombat (`startcombat_allies_unseen`)
 
 - **Between allies.** A GSSettlerAAM was told to StartCombat a GSSettlerAM, both in
-  GoodspringsFaction, which lists itself as an ally. Neither read IsInCombat 1 in the 20 s
-  until both were disabled. The wiki's StartCombat page says it does not work between
-  allies; NVForever's StartCombat starts the fight.
+  GoodspringsFaction, which lists itself as an ally. Neither read IsInCombat 1 from the
+  order (3.7 s) until both were disabled (23 s). The wiki's StartCombat page says it does
+  not work between allies [documented: StartCombat]; NVForever's StartCombat puts the
+  target on the actor's list as detected whatever their factions [design:
+  `Game::start_combat`, `crates/fnv-game/src/awareness.rs:1073`].
 - **On an unseen target.** A LvlFiendGun created 1,500 units behind the hidden player was
-  told to StartCombat the player. Combat (procedure 13, the player as target) started in
-  the same sample, and it ran to the player's spot, as ours does. It never detected the
-  player and left combat after 10.1 s. That is half the time of a target that was seen and
-  then hidden (§16.1) [hypothesis: a separate rule for a target never detected].
+  told to StartCombat the player. IsInCombat 1 and procedure 13 came in the same sample,
+  the player as target in the next, and it ran to the player's spot; ours starts combat at
+  once too [design: `Game::start_combat`]. It never detected the player and left combat
+  after 10.1 s, about half the time a detected-then-hidden target was kept at the default
+  settings (§16.1) [hypothesis: a separate rule for a target never detected].
 
 ### 16.5 An essential knocked out (`essential_getup`)
 
@@ -1231,7 +1242,8 @@ SetActorRefEssential and set on the player by StartCombat.
 - DamageAV Health 500 at 9.7 s knocked it out. In that same sample: IsInCombat 0, no
   combat target, and the leg back at 100. It got up at 19.7 s (10 s later), out of combat.
 - **So.** The original cleared the essential's crippled limb and its fight at the
-  knockout. NVForever keeps both (unconscious.md §3). The fight here came from a script's
+  knockout. NVForever keeps both: getting up restores only Fatigue and Health [design:
+  `crates/fnv-game/src/unconscious.rs:375-427`]. The fight here came from a script's
   StartCombat, not an assault by the player.
 
 ### 16.6 Assistance 0 and a follower (`assist_follow`)
@@ -1247,16 +1259,18 @@ A fist-only LvlFiendGun was set on L at 10.0 s.
 - D started combat on the Fiend at 12.0 s. C and F, never hit, stayed out until 17.6 /
   17.7 s, when the Fiend fell (health 1.1, its combat ended in the same sample).
 - **So.** Assistance 0 kept C out of a fellow's fight for 7.6 s while the control helped
-  within 2 s, as the AI Data Tab's "Helps Nobody" says. NVForever's assistance does not
-  check Assistance 0 for an actor of the sender's kind (combat-ai.md §10.3). Why both
-  joined when the Fiend fell is not known [hypothesis].
+  within 2 s, as the AI Data Tab's "Helps Nobody" says [documented: AI Data Tab].
+  NVForever's combat-group alarm lets an actor of the sender's own kind answer whatever
+  its Assistance [design: `crates/fnv-game/src/combat_group.rs:583-586`; combat-ai.md
+  §12.3]. Why both joined when the Fiend fell is not known.
 - F did not defend its leader either, but its own Assistance 0 confounds that case.
 
 ### 16.7 Aggression 3 (`frenzied`)
 
 Three GoodspringsFaction settlers. SetAV Aggression 3 on one at 4.8 s: it was in combat
 at 4.9 s, with one fellow as target at 5.1 s and the other at 8.0 s; both fought back.
-The original's Frenzied actor attacked its own faction. NVForever's does not (alert.md §3).
+The original's Frenzied actor attacked its own faction. NVForever's does not start combat
+against actors it shares a faction with [design: alert.md §3].
 
 ### 16.8 CastImmediateOnSelf (`cios_duration0`)
 
@@ -1264,20 +1278,23 @@ The original's Frenzied actor attacked its own faction. NVForever's does not (al
   duration 0): 45 health in the next sample.
 - At 15.3 s, with a crippled leg (0) and 15 health, it was given CIOS
   VPitFighterHealthBoost01 (Restore Health over 3 s, plus duration-0 limb restores): the
-  leg read 107.5 at once, and health was back to 45 within 0.4 s.
+  leg read 107.5 in the next sample, and health was back to 45 within 0.4 s.
 - **So.** CIOS applied duration-0 effects; the "Limitations" line of the wiki page does
-  not hold here. NVForever does the same.
+  not hold here [documented: CastImmediateOnSelf]. NVForever applies the effects with
+  their durations [design: `crates/fnv-game/src/functions/magic.rs:61-65`].
 
 ### 16.9 A body killed by a hostile; a theft beside an ally; crime after a day (`corpse_killed_by_hostile`, `theft_ally`, `theft_expiry_1day`, `theft_expiry_4day`)
 
 - **A body.** A settler was killed by KillActor with a LvlFiendGun as the killer, and the
   Fiend was then disabled. A walker on a Follow package passed within 12 units of the body
   with no change: not alerted or alarmed, no weapon out, procedure 11 throughout. With
-  §15.4 that makes two scenes with no reaction, as in ours.
+  §15.4 that makes two scenes with no reaction; ours has none built [design: detection.md
+  §9].
 - **A theft beside an ally.** §15.5's theft, with GoodspringsSettler01Ref held beside Chet.
   - Chet was again in procedure 47 from 3.0 to 23.0 s (20.0 s, as in §15.5), then attacked.
   - The settler, never hit, attacked the player at 26.9 s, 3.9 s after Chet. The
-    victim's ally joined, as NVForever's assistance does.
+    victim's ally joined, as NVForever's alarms bring in the victim's own kind [design:
+    combat-ai.md §12.3].
 - **A day later.** After the same theft the clock was moved on by script, 1 day in one
   session and 4 in the other. Chet was not hostile at the start of either observation:
   - GetActorCrimePlayerEnemy 0 and not in combat;

@@ -166,9 +166,10 @@ on screen).
   side; detection and awareness forget a knocked-out target as they forget a dead one
   (`Game::settle_awareness`), so fighters turn to other targets and come back to it only
   once it is up and detected again [design, owner request]. The knocked-out actor's own
-  fight and crippled limbs are kept here; in one capture of the original an essential
-  left combat and had its crippled leg restored in the sample it was knocked out
-  [observed: npc-behaviour-compare.md §16.5].
+  fight and crippled limbs are kept: getting up restores only Fatigue and Health
+  [design: `tick_knockouts`]. In one capture of the original an essential left combat
+  and had its crippled leg restored in the sample it was knocked out [observed:
+  npc-behaviour-compare.md §16.5].
 - Crime witnesses, aggression (`aggro.rs`) and the AI's movement (`fnv-ai` carry.rs)
   treat a knocked-out actor as they treat SetUnconscious's.
 - Dialogue: `Game::start_dialogue` refuses a knocked-out or SetUnconscious actor; the
