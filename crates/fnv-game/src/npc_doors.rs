@@ -20,8 +20,8 @@
 //!   named NPCs, are among the scripted doors with no OnActivate block [observed: the
 //!   door survey, doors.md §5.1, read with script-function-coverage.md §3.3]. Heard once
 //!   per crossing: the AI asks the door every step while the actor comes up to it and
-//!   tells [`Game::npc_door_left`] once the door is no longer the next one of its way
-//!   (it went through, the way changed or ended, another package), so its next crossing
+//!   tells [`Game::npc_door_left`] on the step that goes through the door, or when the
+//!   crossing is called off (the way changed or ended, another package), so its next crossing
 //!   is heard again, kept answer or not; [`ASKED_SECONDS`] after it was heard a crossing
 //!   the AI never closed counts as a new one. A block's `Activate` of the door for the
 //!   actor is that same activation, not heard again; an extender handler is no part of

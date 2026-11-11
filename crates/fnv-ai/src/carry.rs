@@ -1995,11 +1995,11 @@ impl Ai {
         // The next door of its way, however far, and that door when it is within reach.
         let next = follower.and_then(|f| f.door_ahead(a.walker.feet, f32::INFINITY));
         let ahead = follower.and_then(|f| f.door_ahead(a.walker.feet, reach));
-        // The door asked last is behind it once its way no longer has it next: gone
-        // through (a load door used, a door that opens in place opened), the way cleared
-        // or planned without it, or another package taken up; not when a shorter step
-        // leaves it just out of reach. Asked every step while it comes up to the door, the
-        // extender hears it once a crossing (`fnv_game::npc_doors`) [design, #2123].
+        // Asked every step while it comes up to the door, the extender hears it once a
+        // crossing (`fnv_game::npc_doors`) [design, #2123]. The crossing ends where the
+        // follower goes through the door ([`Ai::walk`], `Follower::passed`), and here when
+        // it is called off: the way cleared or planned without that door next, or another
+        // package taken up; not when a shorter step leaves the door just out of reach.
         if let Some((left, _)) = a.asked_door.filter(|&(d, p)| Some(d) != next || p != a.package) {
             a.asked_door = None;
             game.npc_door_left(actor, FormId(left));
@@ -2469,6 +2469,17 @@ impl Ai {
             Some(ev) => ev,
             None => a.walker.update_with(nav, dt, &mut |door| mover.open(actor, door)),
         };
+        // The door asked last gone through on this step (`Walker::passed` for the walker's
+        // own steps, `Follower::passed` for a mover's): its crossing is over here, before
+        // an arrival can plan the way back through it (#2123).
+        let mut passed = std::mem::take(&mut a.walker.passed);
+        if let Some(f) = a.walker.follower.as_mut() {
+            passed.append(&mut f.passed);
+        }
+        if let Some((left, _)) = a.asked_door.filter(|(d, _)| passed.contains(d)) {
+            a.asked_door = None;
+            game.npc_door_left(actor, FormId(left));
+        }
         let waived = a.walker.height_waivers != waivers;
         a.waiting_at = match ev {
             WalkEvent::WaitingForDoor(d) => Some(d),

@@ -197,10 +197,12 @@ to the player.
   vCCHQDoor, where the original's events named NPCs (script-function-coverage.md §3.3),
   have no OnActivate block (§5.1) [observed]. Once per crossing: the AI asks the
   door on every step as the actor comes up to it, and the event goes out the first
-  time; the crossing is over once the door is no longer the next of the actor's way (a
-  load door used, a door that opens in place opened, the way changed or cleared, the walk ended, another
-  package taken up; not when a shorter frame leaves it just outside the asking distance),
-  and the next walk through it is dispatched again, whether the door's answer is kept or
+  time; the crossing is over on the step that goes through the door (a load door used,
+  a door that opens in place opened: the path follower records it, so an arrival on that
+  same step that plans the way straight back through the door starts a new crossing), or
+  when it is called off (the way cleared or planned without that door next, the walk
+  ended, another package taken up; not when a shorter frame leaves it just outside the
+  asking distance), and the next walk through it is dispatched again, whether the door's answer is kept or
   not. A crossing never closed counts as a new one 10 s after it was dispatched. The
   record is kept apart from the answers (which are as before: 10 s, 120 s for a refusal,
   none for a door without a block) and expired entries are dropped. A block's

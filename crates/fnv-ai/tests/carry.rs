@@ -748,6 +748,64 @@ end)", Default::default()).expect("compiles");
     assert_eq!(heard(&s), 1.0, "one crossing, one event");
 }
 
+/// A door that opens in place across the corner at L2 of the sentry's round, at 45°:
+/// the way up from L1 crosses it 20 units before L2, the way on to L3 20 units after.
+fn door_at_l2() -> fnv_nav::InPlaceDoor {
+    let (c, si) = (std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2);
+    fnv_nav::InPlaceDoor {
+        door: DOOR_A,
+        space: A,
+        position: [240.0, 240.0, 0.0],
+        rotation: [c, si, 0.0, -si, c, 0.0, 0.0, 0.0, 1.0],
+        scale: 1.0,
+        bounds: ([-40.0, -4.0, 0.0], [40.0, 4.0, 200.0]),
+    }
+}
+
+/// #2123, review: the sentry (PatrolRound, no idle time at its points) goes through the
+/// door at L2, reaches L2 and is sent on to L3 through the same door, under the same
+/// package, at once (its arrival plans the next way in the same update). Two crossings,
+/// two events, whatever the frame time: the first crossing ends where the follower went
+/// through the door, not when a later step finds the door no longer next.
+#[test]
+fn a_patrol_back_through_the_door_it_just_passed_is_heard_again() {
+    let f = fixture();
+    let mut nav = nav();
+    nav.set_in_place_doors(vec![door_at_l2()], |_| None);
+    let at = |p: [f32; 3]| fnv_nav::Place { space: A, pos: p };
+    for (from, to) in [([250.0, 50.0, 0.0], [250.0, 250.0, 0.0]), ([250.0, 250.0, 0.0], [50.0, 250.0, 0.0])] {
+        let way = nav.find_path(at(from), at(to), &fnv_nav::PathParams::default()).unwrap();
+        assert_eq!(way.legs[0].door_stops.len(), 1, "the way from {from:?} to {to:?} stops at the door");
+    }
+    // Short frames, and the long ones of an actor out of the high process, which can
+    // take it from the door's stop (104 units before the door) to L2 in one step.
+    for dt in [0.5f32, 0.3, 1.8, 2.0, 2.5, 3.0, 4.0] {
+        let mut s = sim(&f, &[R_LOOP]);
+        s.nav.set_in_place_doors(vec![door_at_l2()], |_| None);
+        s.game.run_source("SetEventHandler \"OnActivate\" (begin function {ref rT, ref rA}
+if rT == DoorA
+let TestGlobal := TestGlobal + 1
+endif
+end)", Default::default()).expect("compiles");
+        let points = |s: &Sim| -> Vec<u32> {
+            s.events(R_LOOP).iter().filter_map(|e| match e {
+                AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
+                _ => None,
+            }).collect()
+        };
+        let mut steps = 0;
+        while points(&s).len() < 4 {
+            s.game.tick();
+            s.ai.update(&mut s.game, &s.nav, dt);
+            steps += 1;
+            assert!(steps < 2000, "the round did not come round at {dt}: {:x?}", points(&s));
+        }
+        assert_eq!(&points(&s)[..4], &[L3, L1, L2, L3], "at {dt}");
+        let heard = s.game.world.global(FormId(0x807)).unwrap();
+        assert_eq!(heard, 2.0, "up to L2 and on from it, through the door both times, at {dt}");
+    }
+}
+
 #[test]
 fn a_restrained_actor_stays_in_place_until_released() {
     let f = fixture();
