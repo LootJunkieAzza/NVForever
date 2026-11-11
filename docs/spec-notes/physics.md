@@ -910,6 +910,40 @@ How many fixed steps a second play takes [design: the owner's approved plan,
   - Whether a character in a crease runs out of the controller's sweeps (and is held,
     above) depends on the step: in the groove test fewer walks stick at 120 than at 60
     [observed: `a_held_character_waits_the_same_seconds_at_any_step_rate`].
+  - The drawn-height roughness in the exit report (`vertical acceleration ... units/s2`)
+    divides each step's change by dt², so it grows with the rate (5538 units/s² of the
+    feet at 144 against hundreds at 60 on similar ground) [observed: smoke
+    `physics-rate-setting`]; compare it only at one rate.
+- **What it costs** [observed: release build, `--log-frame-times 5`, the guard off
+  (`NVF_PHYS_RATE_GUARD=0`), 1920×1080, uncapped, one launch each through tools/stress's
+  launcher, the first two periods left out; 2026-11-11, the owner's machine, other
+  sessions' games sometimes running]:
+
+  | | ticks a frame | ms a frame in `player::step` | ms a tick | frame (ms) | share |
+  |---|---|---|---|---|---|
+  | Goodsprings, running, 60 Hz | 0.38 | 0.15 | 0.38 | 6.44 | 2 % |
+  | Goodsprings, 120 Hz | 0.77 | 0.26 | 0.32 | 6.44 | 4 % |
+  | Goodsprings, 152 Hz | 0.97 | 0.29 | 0.29 | 6.39 | 5 % |
+  | Goodsprings, 240 Hz | 1.56 | 0.44 | 0.27 | 6.50 | 7 % |
+  | battle-50, 60 Hz | 1.68 | 9.7 | 5.5 | 28.0 | 35 % |
+  | battle-50, 120 Hz | 4.07 | 14.4 | 2.7 | 33.9 | 42 % |
+  | battle-50, 152 Hz | 3.93 | 7.7 | 1.9 | 25.8 | 30 % |
+  | battle-50, 240 Hz | 9.49 | 17.8 | 1.8 | 39.5 | 45 % |
+
+  - In Goodsprings 152 Hz fits easily: 0.3 ms of a 6.4 ms frame.
+  - In battle-50 a tick costs less the shorter it is (5.5 ms at 60, 1.9 at 152): each
+    step's character moves and contacts are shorter [hypothesis]. The frame's physics
+    grows less than the rate: 9.7 ms at 60, 7.7-17.8 above. The battle differs from launch
+    to launch (who fights whom, when they fall), so one launch per rate is a rough
+    figure (three launches at 152 gave 1.75-2.16 ms a tick, 7.7-13.3 ms a frame). At its
+    26-40 ms frames none of the rates matches the frame rate: the frame is the problem
+    there, not the step (#2081, #1426).
+  - rapier's `parallel` feature with a configured thread pool, battle-50 at 152 Hz: 2.20
+    ms a tick on the global pool, 1.90 with 4 threads, 2.11 with 8, all within the plain
+    build's 1.75-2.16 [observed: a probe build, not committed]. No gain, as upstream PR
+    #1801 found; not adopted.
+  - `Stats::solver_us[4]` (rapier's `ccd_time`) reads 0 in rapier 0.36.0 whatever CCD
+    costs (its timer is never started); CCD's work is in `counters.ccd` (#1798).
 
 ## 6. Character controller and capture questions
 
