@@ -530,8 +530,10 @@ in his store. In `nvforever`: Chet walks about his store and sits down (screensh
 flying over the map with `all`, 161 wanders, 37 meals, 6 idle markers at 26 frames a
 second as before.
 
-**Not done**: conversations; food; the idle manager's idles (package and marker idles
-are played, docs/spec-notes/idles.md); sandboxing "at each
+**Not done**: conversations; food; the rest of the idle manager's idles (package and
+marker idles are played, and the tree's fidgets with the weapon out, the weapon away,
+on furniture, talking and for calm creatures, docs/spec-notes/idles.md §11–§14; how
+often the original asks its tree is open, observer check 107); sandboxing "at each
 point of a linked patrol route" [documented]; energy changing over the day; the game's
 real scores and durations (to be captured: an observer run in a loaded sandbox area
 recording GetSitting, GetCurrentAIProcedure and positions).

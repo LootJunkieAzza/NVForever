@@ -2628,6 +2628,41 @@ expect = [
 ]
 
 [[scenario]]
+name = "holstered-fidgets-tree"
+kind = "tool"
+source = "#2026, docs/spec-notes/idles.md §11.4: the IDLE tree's fidgets with the weapon away, headless (FidgetKind::WeaponAway): an NPC in GeneralIdleFaction and SmokerFaction smokes (NPCSmokingIdle, random < 30) and, when that roll fails, plays the general fidgets (NPCGeneralIdles, random < 1); a Goodsprings settler in neither faction and the player get none. The original (AI observer 2026-11-10): the same NCR trooper base smoked, bit its nails and picked its nose; the settler played nothing"
+note = "SpawnOVSewerNCRTrooper1Gun's placed reference (0012CB7B), GoodspringsSettler01Ref (GSSettlerAAM) and the player, the weapon left away, the tree asked 2,000 times each without replay delays: about 30% smoking, about 0.7% general (70% x 1%)"
+areas = ["idles"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/data.rs", "crates/fnvtool/src/actor_fidgets.rs"]
+commands = [
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "SpawnOVSewerNCRTrooper1Gun", "--actor", "GoodspringsSettler01Ref", "--actor", "player", "--weapon-away", "--checks", "2000"],
+]
+expect = [
+  { json = "actors.*.by_idle.NPCSmokingIdle", schema = "fnv.actor.fidgets/1", range = [450, 750], count = 1, label = "the trooper (SmokerFaction) smokes at about 30% of checks" },
+  { json = "actors.*.by_parent.NPCGeneralIdles", schema = "fnv.actor.fidgets/1", range = [3, 40], count = 1, label = "the trooper (GeneralIdleFaction) plays the general fidgets now and then (about 14 of 2,000)" },
+  { json = "actors.*.fidgets", schema = "fnv.actor.fidgets/1", equals = 0, count = 2, label = "the settler (neither faction) and the player: none" },
+]
+
+[[scenario]]
+name = "holstered-fidgets"
+source = "#2026, docs/spec-notes/idles.md §11.4: NPCs standing with their weapon away play the IDLE tree's fidgets by their factions (FidgetKind::WeaponAway). The original (AI observer 2026-11-10, Goodsprings by Easy Pete's chair, 360 real s): the NCR trooper (both factions) smoked, bit its nails and picked its nose; the travelling merchant (GeneralIdleFaction only) swatted, picked its nose and bit its nails and never smoked; the Goodsprings settler (neither) played nothing"
+note = "as in the capture: the player by Easy Pete's porch chair (00106349) at 11:00, unseen; an NCR trooper (0xFF000000), a travelling merchant (0xFF000001) and a settler (0xFF000002) are placed 300 units from the player at 3-4 s and given DefaultSandboxNoMoveCurrentLocation200 at 5-5.4 s; the run summary names each NPC looked at and the fidgets it began. The merchant's general fidgets are not required: the tree is asked every 2 s (FIDGET_CHECK_SECONDS, not calibrated, observer check 107), so its 1% node gives one about every 200 s and none in the run about one time in seven; the headless holstered-fidgets-tree checks the branch"
+areas = ["idles"]
+paths = ["engine/nvforever/src/idles.rs", "crates/fnv-game/src/idles.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:SpawnOVSewerNCRTrooper1Gun:1:300:0,3.5:call:player:PlaceAtMe:NVMerchantMale:1:300:2,4:call:player:PlaceAtMe:GSSettlerAAM:1:300:3,5:call:0xFF000000:AddScriptPackage:DefaultSandboxNoMoveCurrentLocation200,5.2:call:0xFF000001:AddScriptPackage:DefaultSandboxNoMoveCurrentLocation200,5.4:call:0xFF000002:AddScriptPackage:DefaultSandboxNoMoveCurrentLocation200" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "11", "--no-voice", "--no-messages"]
+run_seconds = 400
+expect = [
+  { re = 'holstered fidgets: SpawnOVSewerNCRTrooper1Gun 0xFF000000: (?P<n>\d+) started', range = [1, 1000], label = "the NCR trooper (both factions) fidgets with its weapon away" },
+  { re = 'holstered fidgets: SpawnOVSewerNCRTrooper1Gun 0xFF000000: \d+ started \(.*NPCSmokingIdle', label = "the NCR trooper (SmokerFaction) smokes" },
+  { re = 'holstered fidgets: NVMerchantMale 0xFF000001: \d+ started', label = "the merchant stands with its weapon away and is looked at" },
+  { re = 'holstered fidgets: NVMerchantMale 0xFF000001: .*NPCSmokingIdle', max = 0, label = "the merchant (not in SmokerFaction) never smokes" },
+  { re = 'holstered fidgets: GSSettlerAAM 0xFF000002: (?P<n>\d+) started', range = [0, 0], all = true, label = "the settler (neither faction) begins none" },
+  { re = 'holstered fidget summary: (?P<n>\d+) fidgets started', range = [1, 100000], label = "fidgets with the weapon away start" },
+]
+forbid = [{ text = "reports: sent", label = "a test run sent a report" }]
+
+[[scenario]]
 name = "talk-gestures-tree"
 kind = "tool"
 source = "docs/spec-notes/idles.md §12: the IDLE tree's talking gestures, headless: an NPC in the dialogue screen gets a gesture of the dialogue groups at every walk, talking and listening; Neutral mood"

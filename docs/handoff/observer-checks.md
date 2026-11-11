@@ -1514,3 +1514,19 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-11 (fidgets with the weapon away, issue #2026)
+
+107. **How often does the original ask its idle tree for a standing NPC's fidget, and
+    what cuts one short?** (P2; idles.md §11.4, §11.3.) NVForever asks every 2 s
+    [design, not calibrated]; with `NPCGeneralIdles`' random < 1 that gives a general
+    fidget about every 200 s, where the 2026-11-10 capture saw a travelling merchant
+    (GeneralIdleFaction only) begin 3 in 360 real s [observed]. The GECK wiki says an
+    actor picks an idle when its "energy level timer has run down", and that actors
+    with low Energy idle more often [documented: Idle Animations], with no numbers.
+    Place NVMerchantMale and GSSettlerAAM by AddScriptPackage
+    DefaultSandboxNoMoveCurrentLocation200 (as in #2026), sample IsIdlePlaying and JIP
+    GetPlayedIdle every game loop for 20 real minutes, and count the general fidgets
+    begun per minute; repeat with an NPC of low and of high Energy (AI data) to see
+    whether the rate moves. In the same run, walk the player into one of them mid-fidget
+    and start a conversation: does the fidget stop, or play out?

@@ -281,8 +281,9 @@ below 30).
 
 ## 8. Not done, and questions for the owner
 
-1. The idle manager: `PickIdle`, fidgets other than the drawn-weapon ones (§11), hit
-   reactions from the tree. (Talking gestures: §12.)
+1. The idle manager: fidgets other than the drawn-weapon, weapon-away (§11, §11.4) and
+   furniture ones, hit reactions from the tree; how often the original asks its tree
+   (observer check 107). (Talking gestures: §12.)
 2. Sounds and other text keys of idle clips; the response flag "Use Emotion Animation"
    and facial emotions. (Animated objects: §10.)
 3. Package begin / end / change **topics** (TNAM), and the idles of actors that are not
@@ -430,8 +431,10 @@ record order; `GetRandomPercent` in percent):
   roots are played on request). The first node whose conditions pass is gone into; its
   children in chain order the same way; the first leaf that passes is the pick. A node
   whose children all fail is left for its next sibling [hypothesis].
-- **Only drawn-weapon fidgets** [design]: the pick is played only when a node on its way
-  requires `IsWeaponOut == 1`; any other leaf (the rest of the idle manager) is not built.
+- **Only the branches built** [design]: the pick is played only when a node on its way
+  gates the kind asked for: `IsWeaponOut == 1` for the drawn-weapon fidgets, the weapon
+  away for an NPC with its weapon away (§11.4), the furniture states; any other leaf
+  (the rest of the idle manager) is not built.
 - **The player** [design, owner 2026-10-16]: the walk starts at each node that requires
   the weapon out below the roots (`NPCWeaponIdles`, `PlayerOrNPCIdles`), judging its own
   conditions and those below, so the player gets the people's rifle fidgets. Only in
@@ -469,9 +472,68 @@ record order; `GetRandomPercent` in percent):
 
 ### 11.3 Open
 
-- How often the original looks at its tree, and the unit of the replay delay.
+- How often the original looks at its tree, and the unit of the replay delay (observer
+  check 107).
 - Whether the original walks on after a branch without a passing leaf (here: yes).
 - Whether a fidget is cut by moving or plays out on the upper body (here: cut).
+
+### 11.4 Fidgets with the weapon away (#2026)
+
+In the original a standing NPC with its weapon away plays fidgets now and then (biting
+its nails, picking its nose, swatting, smoking), and its factions decide which.
+
+**What the data holds** [observed: `fnvtool actor anims`, FalloutNV.esm]. Below
+`NPCOnlyIdles` (§11.1), after `NPCWeaponIdles`:
+
+| Node | Section | Loops | Replay delay | Conditions |
+|---|---|---|---|---|
+| `NPCNonWeaponIdles` | Special Idle | | | `GetEquipped` 0x168A7E != 1, `IsWeaponOut` == 0 |
+| `NPCPipboyIdles` | Special Idle | | | `GetStageDone` > 0, `GetEquipped` 0x236D8 == 1, `IsMoving` == 0, random < 5 |
+| `PipboyExamine`, `PipboyManipulate` | Movement | 0 | 45, 75 | random < 80; none |
+| `NPCSmokingIdle` (`SmokingStanding.kf`, 8.4 s, a leaf) | Special Idle | 2–6 | 120 | `IsRunning` == 0, `GetInFaction` SmokerFaction 0x000711A4, `GetEquipped` 0xCC824 != 1, random < 30 |
+| `NPCGeneralIdles` | Special Idle | | | `GetInFaction` GeneralIdleFaction 0x000711A6, random < 1, `GetEquipped` 0x8945E != 1, `GetEquipped` 0xCC824 != 1 |
+| `Swatting`, `PickingNose`, `PickingNose02`, `BitingNails`, `ScratchingSelf`, `ScratchingSelf02` | Special Idle | 0 | 300, 25, 55, 35, 25, 25 | random < 12 (and `IsLastIdlePlayed` 0x6B8F9 != 1), < 28, < 42, < 70, < 84, none |
+
+and the root `EatIdles`, before `GeneralIdles` in the chain: `IsWeaponOut` != 1,
+`GetEquipped` 0xCC824 != 1, `GetCurrentAIProcedure` == 10 (EAT), with
+`BeerDrinkingStanding` (`GetIsUsedItem` 0x5C365 == 1) and `SodaDrinkingStanding`, both
+`DrinkingStandingA.kf`, loops 3–8. The player's `3rdPMTIdles` (`IsWeaponOut` == 0) lies
+under `PlayerOrNPCIdles`, which wants the weapon out: never reached.
+
+**The original** [observed: AI observer capture of 2026-11-10, Goodsprings by Easy
+Pete's chair, 360 real s; four placed NPCs on `DefaultSandboxNoMoveCurrentLocation200`,
+none drew a weapon]: an NCR trooper and a wastelander (both factions) began 4 and 6
+fidgets (smoking, nails, nose), a travelling merchant (general only) 3 (swatting, nose,
+nails) and never smoked, a Goodsprings settler (neither) none.
+
+**Rules as built** (`FidgetKind::WeaponAway`, `engine/nvforever/src/idles.rs`):
+
+- **The branch** [design]: the §11.2 walk, the pick kept when a node on its way requires
+  `IsWeaponOut == 0` or `IsWeaponOut != 1` (not joined by OR): `NPCNonWeaponIdles` and
+  `EatIdles`. No faction, idle or form is named in the code: the tree's own conditions
+  (factions, random percentages, worn items, the eat procedure, the NPC-only node)
+  decide.
+- **Who** [design]: an NPC (not a creature, not the player [design: the player's
+  standing fidgets are the drawn-weapon ones, owner 2026-10-16]) standing still, its
+  weapon away (the rules' `IsWeaponOut` 0 and its hand not drawing, holding or putting
+  one away), not alerted or warning, not dead, not in a conversation, not cowering, not
+  in an idle collection, and not under a package flagged No Idle Anims ("Turns off Idle
+  animations during package" [documented: GECK wiki, Category:Packages]).
+- **When** [design, #2026]: every 2 s with the other fidgets (§11.2), not calibrated: the
+  general node passes one check in a hundred, so an NPC in GeneralIdleFaction alone
+  begins a general fidget about every 200 s here, against three in 360 s in the original
+  capture. The replay delays (§11.2) space the smoking out (120 s). The original picks
+  an idle when the actor's "energy level timer has run down", low Energy idling more
+  often [documented: GECK wiki, Idle Animations], with no numbers given; Energy is not
+  used here. Observer check 107 asks the original's cadence; `docs/owner-review.md`
+  has the choice.
+- **Ends** [design]: the fidget fades out when its actor moves, draws its weapon (or
+  starts to), is alerted, dies or is drawn into a conversation (so it can turn to the
+  other and gesture, as a collection's idle does).
+- Checks: unit tests (`crates/fnv-game/tests/idles_holstered.rs`, written fixtures),
+  `fnvtool actor fidgets --weapon-away` (headless), smoke tests
+  `holstered-fidgets-tree` and `holstered-fidgets` (tools/smoke/scenarios.toml); the run
+  summary names each NPC looked at and the fidgets it began (`holstered fidgets: …`).
 
 ## 12. Talking gestures from the IDLE tree
 

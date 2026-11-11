@@ -309,6 +309,15 @@ the spec it links to.
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
 
+52. **Holstered fidgets come rarer than in the original (#2026).** NPCs standing with the
+    weapon away now bite their nails, smoke and so on, by the idle tree's factions and
+    chances. The tree is asked every 2 s, the drawn-weapon fidgets' pace
+    (`FIDGET_CHECK_SECONDS`); a merchant then begins a general fidget about every 200 s,
+    where the original's capture saw 3 in 360 s. The original's pace (an Energy timer) is
+    observer check 107. Until it is answered: keep 2 s, or ask more often (1 s would
+    double every tree fidget, the drawn-weapon and furniture ones too)?
+    ([idles §11.4](spec-notes/idles.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
