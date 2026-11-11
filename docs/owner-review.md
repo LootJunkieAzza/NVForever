@@ -143,7 +143,7 @@ the spec it links to.
     (Cook-Cook, Speed Mult 110) ran at the people's speed without his Speed Mult. Keep the
     matched feet, take the sliding feet, or have people ignore Speed Mult?
     ([actor-flags §3](spec-notes/actor-flags.md), [actors §8.10](spec-notes/actors.md))
-52. **People walk slower with a pistol drawn outside combat (#2124).** A person in light
+55. **People walk slower with a pistol drawn outside combat (#2124).** A person in light
     armour or clothes walking a package with a pistol out, not in combat, walks its walk
     divided by fMoveNoWeaponMult (1.1): 85.3 / 1.1 = 77.5 units/s (the original's were
     77.5-78.3). The other two ways to reach 77-78, the `1hm`/`h2h` walk clip (77.5) or
