@@ -109,7 +109,29 @@ L5.ext.jip7b). What §6 left open is settled field by field [observed]:
   past 0-255255255 sets nothing, a channel past 255 below it is kept (300 reads 300); an
   impact without decal data reads widths and heights 8 to 32, depth 32, shininess 4,
   parallax scale 1 and 4 passes.
-Equal after the fixes: jip7 105 of 108, jip7b 44 of 46. Left: the colour of an impact
-without decal data (BaseBallBatMetalImpact reads 255320535, which no RRRGGGBBB channel set
-explains), and 16777215 set on a decal reading 16009218 (a channel past 255 seems to carry
-into the next): three and two rows, no rule found.
+Equal after the fixes: jip7 105 of 108, jip7b 44 of 46. Left then: the colour of an impact
+without decal data, and 16777215 reading back as 16009218. Both were settled on 2026-11-11 (below).
+
+### The colour's packing (2026-11-11, #2039)
+
+Probe job `rules2039`: 23 colours set on RipperImpactOrganic and BaseBallBatMetalImpact,
+each over 63063063, read back; GetImpactDataTrait 17 on every impact without DODT
+[observed; results private]. One rule fits every row:
+- **Set:** a number past 255255255 or below 0 sets nothing. Otherwise it is split as
+  RRRGGGBBB (R = n / 1000000, G = n / 1000 mod 1000, B = n mod 1000), and the colour's four
+  bytes become R + G × 256 + B × 65536 as one 32-bit sum. A channel past 255 carries into
+  the next byte: G 999 is 3 × 256 + 231, so the next byte gets 3 more.
+- **Get:** R is the first byte and G the second. B is not cut to a byte: it is the third
+  and fourth bytes together, as a 16-bit number.
+- **Checked by:** 256000 reads 1, 999000 reads 231003, 254999999 reads 254232002,
+  16777215 reads 16009218, and 300, 1256, 65535 and 65536 read back as set. 255255255 is
+  kept and 255255256 sets nothing. The two impacts gave the same rows.
+- **An impact without DODT** reads the decal data of its texture set (DNAM):
+  BallisticOrganicBBImpact reads 100000052, which is DecalOrganicBallisticBB's DODT colour
+  bytes 64 00 34 00. An impact with no texture set reads all four bytes as FF:
+  R 255, G 255, B 65535, which gives 255320535. This held for BaseBallBatMetalImpact,
+  BaseBallBatConcImpact, NoImpact, SwordOtherImpact and ImpactWaterSplashSm.
+- **Not probed:** that the other decal fields of such an impact also come from its texture
+  set [hypothesis]. Without one they read the defaults above.
+- **Probe side effect:** setting the colour back to 255320535 (past 255255255) set nothing,
+  so the bat impact kept 1256 for the rest of that game session. Nothing was saved.
