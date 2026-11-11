@@ -222,7 +222,13 @@ impl Plugin for ShadowRatePlugin {
             .add_plugins(ExtractResourcePlugin::<HoldDirectionalShadowMaps>::default())
             .add_systems(
                 PostUpdate,
-                hold_cascades.after(SimulationLightSystems::UpdateDirectionalLightCascades).before(SimulationLightSystems::UpdateLightFrusta),
+                // After every change to this frame's cascades (sky.rs `step_far_cascades`,
+                // `reach_toward_sun`): what it keeps must be what the maps are drawn with.
+                hold_cascades
+                    .after(SimulationLightSystems::UpdateDirectionalLightCascades)
+                    .after(crate::sky::step_far_cascades)
+                    .after(crate::sky::reach_toward_sun)
+                    .before(SimulationLightSystems::UpdateLightFrusta),
             )
             .add_systems(Update, far_trees_cast_no_shadow);
     }
