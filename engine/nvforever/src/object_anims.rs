@@ -87,9 +87,19 @@ impl GroupRig {
         GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None, run_time: false }
     }
 
+    /// The model file it was drawn from.
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
     /// The entity of its node named `name` (a node its sequences may move).
     pub fn node(&self, name: &str) -> Option<Entity> {
         self.nodes.get(name).copied()
+    }
+
+    /// The model drawn (its rig's nodes and shapes).
+    pub fn model(&self) -> &PreparedModel {
+        &self.model
     }
 
     fn clip(&self, i: usize) -> Option<&Clip> {

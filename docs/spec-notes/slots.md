@@ -143,14 +143,56 @@ observed: the five casinos]:
 
 ## 6. On the screen
 
-- NVForever draws the menu flat, as Caravan's (caravan.md): three reels side by side,
-  each a window three symbols high on a pale ground with the payline across the middle,
-  the symbols the record's pictures (§2); while a reel turns its symbols run down
-  through the window, slowing to the stop [design].
-- Not built: the machine's 3D model (`MOD2`: the cabinet, the arm and its
-  `Forward`/`Backward` pull, the coins' `Payout_*` fall, the lights), the reels as the
-  drum models, the challenge `ChallengeSlotsSCRIPT`, the Atomic Wrangler's jackpot
-  message `AtomicWranglerSlotsMsg` (its trigger is not read).
+- **The reels on the machine itself** (queue item 170, nvforever `slots_view.rs`): the
+  machine the player activated (the reference whose script asked; the test aid's request
+  takes the nearest slot machine) turns its reels where it stands in the world, and the
+  menu shows its text and buttons over the world, without the flat reels.
+  - The placed models `clutter\casino\Slot_Machine01.nif`, `…01TOPS.NIF` and
+    `…01Gomorrah.NIF` have three reel nodes `Reel01`–`Reel03`, all at (-0.33, 2.12, 33.69)
+    in the body node and turned about X only, each holding one drum shape (`Reel0n:5`, 8
+    sides, radius 8.19, 3.79 wide, centred at x -5.6, 0, +5.6 of the reel node), mapped onto
+    a small strip of the cabinet's 512 × 512 `Slot_Machine01_D.dds` [observed: fnvtool nif
+    decode]. The window frame in front of them faces (0, -0.97, 0.25), 15° above the
+    machine's front (-Y) [observed: the frame's vertices and normals]; the handle is the
+    node `Handle` at x 17, turning about X [observed].
+  - The original's reel model `terminals\nv_slotmachine\nv_slotmachine-reel01.nif` (02, 03
+    alike) is a drum about the axis of its node `Cylinder06`, radius about 7.25, 3.79 wide:
+    its 14 shapes `Cylinder06:0`…`:13` each hold two opposite faces of one picture, so
+    28 faces of equal height (360°/28) lie round it, symbol and separator in turn, each
+    face the whole picture (u 0 to 1 across, v one whole turn of the picture per face).
+    The shapes' material is a lighting shader with the picture and the normal map
+    `textures\shared\shadefade01LOD_n.dds` [observed: fnvtool nif decode].
+  - NVForever hides the drum shapes while the machine is in use and turns a drum of its own
+    in each one's place, of the shape's own size (the machine's window), laid out as the
+    reel model: the casino's 14 stops are the 14 symbol faces, each the symbol's picture
+    (CSNO ICON, 256 × 128), a separator face between each two; each face wears a copy of
+    the reel model's material, the symbol faces with the stop's picture [design: the
+    model's own pictures are the vanilla stops in order, 1…7 twice; the record decides
+    them]. Without the reel model, NVForever's own proportions and a copy of the drum
+    shape's material without its maps. The payline is the stop facing the window (15° above
+    -Y), marked by a thin red line and red arrows [design: owner's spec].
+  - `Slot_Machine02.nif` (vWranglerSlot02) is one static shape of the same cabinet, its
+    window frame where 01's is [observed]: the drums stand at 01's reel places. A machine
+    model of another size gets no drums and the menu draws its flat reels (below).
+  - The arm turns as the minigame model's `Forward`: 0.774 rad by 0.33 s, 0.861 by 0.5 s,
+    held to 0.83 s [observed: NV_SlotMachine-Minigame.NIF], then back over 0.5 s
+    [design]. The placed models have no `Forward`, coin or `Payout_*` sequences, only
+    `Idle` and a still `Backward`/`Off` pose [observed], so the coins and the payout screen
+    of the minigame model are not shown; the Payout List stays the menu's own.
+  - The camera [design: owner's spec, item 170]: third person at the pull, a pan in close
+    on the reels while they turn and stop; on a win a 0.3 s eased zoom out to third person
+    for the celebration (0.8 s at 2x the bet up to 3 s from 120x,
+    `fnv_game::slots::celebration`), then back in for the next spin.
+  - Co-op: each player's slots view names the machine, the stops, the spin's number and how
+    long it has turned (`nvf_play::coop_tables::SlotsView`), so the others see the same
+    reels turn and stop on that machine, and hear its pull and its win or loss there.
+- **The flat reels** (the fallback): three reels side by side, each a window three symbols
+  high on a pale ground with the payline across the middle, the symbols the record's
+  pictures (§2); while a reel turns its symbols run down through the window, slowing to
+  the stop [design].
+- Not built: the minigame model's coins and payout screen (nothing to play them on, above),
+  the challenge `ChallengeSlotsSCRIPT`, the Atomic Wrangler's jackpot message
+  `AtomicWranglerSlotsMsg` (its trigger is not read).
 
 ## 6a. At the machine in the world (queue item 170, part A)
 
@@ -175,6 +217,15 @@ observed: the five casinos]:
   log scale [owner: up to 3 s, small wins short].
 - **Co-op**: the stool goes out as furniture; the idle in the emote's place (ids 240 to
   242), played on the puppet's upper body.
+- **Co-op, the host decides the reels** (item 170, nvf-play `slots/coop.rs`) [design]: each
+  player plays their own machine with their own chips. A guest's pull takes its bet and asks
+  the host for the roll (`coop_tables::SlotsAction::Spin`, its table the machine); the host
+  rolls with its own generator (or to the test aid's line the spin carries) and answers with
+  one `SlotsPlay` (machine, player, spin number, bet, the stops, what the line pays), and the
+  guest's reels turn to those stops; the guest pays itself from its own session, so the
+  winnings go to the player who spun. The host's own spins are rolled where they are made.
+  A guest with no answer after 1.5 s rolls the spin itself, with a warning. The others see
+  the reels on that machine from the slots view (§6). Protocol 130.
 - The engine side: nvf-play `slots/seat.rs` (where; the spin goes out as `SlotsSpin`:
   started, result with the celebration's length, closed) and nvforever `slots_seat.rs`.
 
@@ -191,6 +242,8 @@ observed: the five casinos]:
   0x0015EB86 standing) and `slots-mod-standing`, `slots-mod-seated` (HOTM.esm's Silver
   Palace and Monte Carlo; they need a Data folder with the owner's mods,
   `NVF_SLOTS_MOD_DATA`).
+- Smoke `slots-3d` and `slots-3d-static`: the reels turning on The Tops' machine 0x0016546A
+  (its own reel nodes) and on the Atomic Wrangler's static 0x00119EC0, the camera's shots.
 - Test aid `NVF_PLAY_TEST_SLOTS` (nvf-play `slots.rs`).
 
 ## 8. Open questions for the owner
