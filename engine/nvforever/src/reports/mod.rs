@@ -804,14 +804,20 @@ fn cut_log(text: &str) -> std::borrow::Cow<'_, str> {
 mod tests {
     #[test]
     fn reports_hide_the_game_data_and_exe_folders() {
-        let f = super::folders_to_hide(std::path::Path::new(r"D:\Games\Alex Smith\Fallout New Vegas\Data"), Some(std::path::Path::new(r"D:\Tools\NVForever")));
+        // Paths as this platform writes them (a `\` is no separator off Windows).
+        let (root, s) = if cfg!(windows) { (r"D:\", r"\") } else { ("/", "/") };
+        let p = |parts: &[&str]| format!("{root}{}", parts.join(s));
+        let data = p(&["Games", "Alex Smith", "Fallout New Vegas", "Data"]);
+        let f = super::folders_to_hide(std::path::Path::new(&data), Some(std::path::Path::new(&p(&["Tools", "NVForever"]))));
         let r = |t: &str| super::redact_with(t, &f);
-        assert_eq!(r(r"loaded D:\Games\Alex Smith\Fallout New Vegas\Data\FalloutNV.esm"), r"loaded <Data>\FalloutNV.esm");
-        assert_eq!(r("ini at d:/games/alex smith/fallout new vegas/Fallout.ini"), "ini at <game>/Fallout.ini");
-        assert_eq!(r(r"exe D:\Tools\NVForever\nvforever.exe"), r"exe <NVForever>\nvforever.exe");
+        assert_eq!(r(&format!("loaded {data}{s}FalloutNV.esm")), format!("loaded <Data>{s}FalloutNV.esm"));
+        // Any case, either separator.
+        let game_lower = p(&["games", "alex smith", "fallout new vegas"]).replace('\\', "/");
+        assert_eq!(r(&format!("ini at {game_lower}/Fallout.ini")), "ini at <game>/Fallout.ini");
+        assert_eq!(r(&format!("exe {}{s}nvforever.exe", p(&["Tools", "NVForever"]))), format!("exe <NVForever>{s}nvforever.exe"));
         assert_eq!(r("nothing here"), "nothing here");
-        // A drive is never hidden whole.
-        assert!(super::folders_to_hide(std::path::Path::new(r"C:\Data"), None).iter().all(|(p, _)| p.len() > 3));
+        // A root or a drive is never hidden whole.
+        assert!(super::folders_to_hide(std::path::Path::new(&p(&["Data"])), None).iter().all(|(p, _)| p.len() > 3));
     }
 
     use super::*;
