@@ -329,7 +329,7 @@ impl Plugin for AimAssistPlugin {
                     set: |w, v| w.resource_mut::<AimAssist>().slowdown = v,
                     min: 0.0,
                     step: 0.05,
-                    shown: Some(|v| if v <= 0.0 { "OFF".to_string() } else { format!("{:.0}% slower", v * MAX_SLOWDOWN * 100.0) }),
+                    shown: Some(|v| if v <= 0.0 { "OFF".to_string() } else { fnv_util::words::trf("{n}% slower", &[("n", &format!("{:.0}", v * MAX_SLOWDOWN * 100.0))]) }),
                 },
             ),
         );
