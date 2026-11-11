@@ -279,6 +279,10 @@ const NPC_RUN_ROOM: f32 = 1.5;
 /// [`net::NPC_HZ`]) with a move of more than [`NPC_JUMP`] between them: the host did not
 /// send it meanwhile (faded out, disabled for the move), so it is put there too.
 const NPC_GAP: f32 = 0.35;
+/// The least time between two of an NPC's states on a guest, in rounds of
+/// [`net::NPC_HZ`] [design: under one round, so stamps on time do not drift later than
+/// they came; [`NPC_DELAY`] is two rounds, so a spaced state is still blended to].
+const NPC_SPACING: f32 = 0.75;
 /// The host goes on sending an NPC it stopped drawing this long (seconds), from where its
 /// AI has it, longer than a guest's [`NPC_FORGET`] would keep it ([`share_npcs`]).
 const NPC_LINGER: f32 = 5.0;
@@ -598,6 +602,19 @@ struct NpcTrack {
 }
 
 impl NpcTrack {
+    /// A state heard at `now`. States heard in one frame (one late, the next on time) are
+    /// spaced [`NPC_SPACING`] of a round apart, not given the same time: blended over no
+    /// time, the second was put on at once, and the Nipton survivor running about 516
+    /// units/s on a guest was "put 48-56 units on in one frame" 13 times (laptop ship run
+    /// of s187-nipton) [observed].
+    fn heard(&mut self, now: f32, n: NpcState) {
+        let at = self.samples.back().map_or(now, |&(last, _)| now.max(last + NPC_SPACING / net::NPC_HZ as f32));
+        self.samples.push_back((at, n));
+        while self.samples.len() > 8 {
+            self.samples.pop_front();
+        }
+    }
+
     /// Where to draw it at `t`: feet and heading blended between the states either side.
     /// `top`: the fastest it moves walking or running (units/s); a move faster than that
     /// (and longer than [`NPC_JUMP`]) is a jump.
@@ -1783,11 +1800,7 @@ fn take_events(
             }
             Event::Npcs(list) => {
                 for n in list {
-                    let t = coop.npcs.entry(n.reference).or_default();
-                    t.samples.push_back((now, n));
-                    while t.samples.len() > 8 {
-                        t.samples.pop_front();
-                    }
+                    coop.npcs.entry(n.reference).or_default().heard(now, n);
                 }
             }
             // A guest's, as its actor's in this world (module notes).
@@ -3822,6 +3835,36 @@ mod tests {
     /// A script's move of one of the host's NPCs is drawn as a jump at its time, not a
     /// slide; a walk is blended (item 187: Kimball's MoveToMarkerWithFade slid on a
     /// guest at 1069 units/s).
+    /// Two of an NPC's states heard in one frame (one came late) are blended over time,
+    /// not put on at once: the Nipton survivor running about 516 units/s snapped 48-56
+    /// units on a guest (laptop ship run of s187-nipton).
+    #[test]
+    fn npc_states_heard_in_one_frame_are_blended_not_snapped() {
+        let state = |x: f32| net::NpcState { reference: 0x0013_49B6, feet: [x, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space: 7 };
+        let mut t = NpcTrack::default();
+        t.heard(0.0, state(0.0));
+        // The next round's state is late: it comes with the one after, in one frame.
+        t.heard(0.2, state(52.0));
+        t.heard(0.2, state(104.0));
+        assert!(t.samples[2].0 > t.samples[1].0, "spaced: {:?}", t.samples.iter().map(|s| s.0).collect::<Vec<_>>());
+        // Drawn frame by frame (60 fps) across them, no frame's step is longer than the run's.
+        let mut last = t.pose(0.0, 516.0 * NPC_RUN_ROOM).unwrap().0[0];
+        let mut at = 0.0;
+        while at < 0.4 {
+            at += 1.0 / 60.0;
+            let x = t.pose(at, 516.0 * NPC_RUN_ROOM).unwrap().0[0];
+            assert!(x - last < 48.0, "put {} units on at {at}", x - last);
+            last = x;
+        }
+        assert_eq!(last, 104.0);
+        // States on time keep the times they came at.
+        let mut ok = NpcTrack::default();
+        for k in 0..4 {
+            ok.heard(k as f32 * 0.1, state(k as f32 * 52.0));
+        }
+        assert!(ok.samples.iter().enumerate().all(|(k, s)| (s.0 - k as f32 * 0.1).abs() < 1e-6));
+    }
+
     #[test]
     fn an_npc_moved_by_a_script_jumps_and_a_walking_one_is_blended() {
         let state = |x: f32, space: u32| net::NpcState { reference: 0x0012_FCD2, feet: [x, 0.0, 0.0], heading: 0.0, pitch: 0.0, flags: 0, weapon: 0, attacks: 0, furniture: 0, base: 0, level: 0, all_levels: false, rolls: 0, hostile: false, space };
