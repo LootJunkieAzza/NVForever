@@ -44,6 +44,8 @@ texture (LTEX TNAM) reads 1, whatever its DNAM; every other texture set reads DN
 (no DNAM reads 0) [observed: probe job `rules2039`/`rules2039b`, results private].
 - **Landscape texture sets:** all 70 that an LTEX of FalloutNV.esm names read 1. 26 have
   DNAM 0 and 44 have no DNAM, among them LandscapeDirtNV, the row jip5 and format1 found.
+  Built (`nvse_jip5.rs`, #2039): jip5 100 of 100 and format1 15 of 15 since. A texture set
+  the scripts set flag 0 on reads as set [decision: not probed].
   The same at the airport, at two other outdoor spots and inside Doc Mitchell's house, so
   it doesn't depend on which cells are loaded.
 - **Other texture sets:** 47 were probed, up to three from each combination of map paths

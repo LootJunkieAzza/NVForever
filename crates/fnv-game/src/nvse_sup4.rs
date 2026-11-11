@@ -132,16 +132,30 @@ pub fn translit(s: &str) -> String {
     out
 }
 
-/// The cells within `depth` of the player's (their cell alone indoors); -1 takes
-/// uGridsToLoad's, 5 cells across, so 2 [documented: GetNearCells, "-1 … uGridsToLoad";
-/// hypothesis: the default 5, as GetGridsToLoad].
+/// The loaded exterior cells within `depth` of the player's cell, each axis apart; a cell
+/// south of the origin (y < 0) is counted at x + 1, the player's own cell as it is; -1
+/// every loaded cell; indoors the player's cell alone [documented: GetNearCells, "-1 …
+/// uGridsToLoad"; observed: ext-sup4.md §5, #2039].
 fn near_cells(g: &Game, depth: f64) -> Vec<FormId> {
     let Some(here) = g.cell_of(FormId::PLAYER_REF) else { return Vec::new() };
-    let depth = if depth < 0.0 { 2 } else { depth as i64 };
-    if depth == 0 {
-        return vec![here];
-    }
-    g.scan_cells(here, depth)
+    let placed = &g.world.placed;
+    let Some(grid) = placed.world_of(here).and_then(|w| placed.world_grid.get(&w)) else { return vec![here] };
+    let Some(&at) = grid.iter().find(|(_, &c)| c == here).map(|(xy, _)| xy) else { return vec![here] };
+    near_in_grid(grid.iter().filter(|(_, c)| g.loaded_cells.contains(c)).map(|(&xy, &c)| (xy, c)), at, depth)
+}
+
+/// [`near_cells`]'s rule on the loaded cells `cells` (grid x, y) around the player's cell
+/// at `at`, in row order.
+pub fn near_in_grid(cells: impl Iterator<Item = ((i32, i32), FormId)>, at: (i32, i32), depth: f64) -> Vec<FormId> {
+    let d = (depth >= 0.0).then_some(depth as i64);
+    let mut out: Vec<((i32, i32), FormId)> = cells
+        .filter(|&((x, y), _)| {
+            let x = if y < 0 { x + 1 } else { x };
+            d.is_none_or(|d| (i64::from(x) - i64::from(at.0)).abs() <= d && (i64::from(y) - i64::from(at.1)).abs() <= d)
+        })
+        .collect();
+    out.sort_by_key(|&((x, y), _)| (y, x));
+    out.into_iter().map(|(_, c)| c).collect()
 }
 
 pub(crate) fn call(g: &mut Game, ctx: &RunCtx, name: &str, subject: Option<FormId>, args: &[XVal]) -> Option<Result<XVal, String>> {

@@ -32,6 +32,12 @@ const WTHR2: u32 = 0x90F;
 const CLMT: u32 = 0x910;
 const GLOB: u32 = 0x911;
 const ARMO: u32 = 0x912;
+const IPCT_BARE: u32 = 0x913;
+const IPCT_NONE: u32 = 0x914;
+const TXST_DECAL: u32 = 0x915;
+const TXST_LAND: u32 = 0x916;
+const TXST_FLAG: u32 = 0x917;
+const LTEX: u32 = 0x918;
 
 fn f32b(v: f32) -> Vec<u8> {
     v.to_le_bytes().to_vec()
@@ -86,7 +92,24 @@ fn plugin_bytes() -> Vec<u8> {
         "TestImpact",
         &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat()), sub(b"DODT", dodt), sub(b"DNAM", u32s(&[TXST])), sub(b"SNAM", u32s(&[SOUN]))],
     );
-    let txst = edid(b"TXST", TXST, "TestDecal", &[]);
+    let ipct = [
+        ipct,
+        // Without decal data: one with a texture set whose DODT colour bytes are 64 00 34 00,
+        // one with no texture set (jip-records-7.md, the colour's packing).
+        edid(b"IPCT", IPCT_BARE, "TestImpactBare", &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat()), sub(b"DNAM", u32s(&[TXST_DECAL]))]),
+        edid(b"IPCT", IPCT_NONE, "TestImpactNone", &[sub(b"DATA", [f32b(2.0), u32s(&[1]), f32b(15.0), f32b(4.0), u32s(&[1, 0])].concat())]),
+    ]
+    .concat();
+    let decal = [f32b(8.0), f32b(16.0), f32b(8.0), f32b(16.0), f32b(4.0), f32b(0.5), f32b(0.04), vec![4, 0, 0, 0, 0x64, 0, 0x34, 0]].concat();
+    let txst = [
+        edid(b"TXST", TXST, "TestDecal", &[]),
+        edid(b"TXST", TXST_DECAL, "TestDecalColoured", &[sub(b"DODT", decal)]),
+        // A landscape texture's set with DNAM 0, and another set with DNAM 1 (jip-records-5.md).
+        edid(b"TXST", TXST_LAND, "TestLandSet", &[sub(b"DNAM", vec![0, 0])]),
+        edid(b"TXST", TXST_FLAG, "TestFlaggedSet", &[sub(b"DNAM", vec![1, 0])]),
+    ]
+    .concat();
+    let ltex = edid(b"LTEX", LTEX, "TestLand", &[sub(b"TNAM", u32s(&[TXST_LAND]))]);
     let soun = edid(b"SOUN", SOUN, "TestSound", &[]);
     let ipds = edid(b"IPDS", IPDS, "TestImpactSet", &[]);
     let weap = edid(b"WEAP", WEAP, "TestGun", &[]);
@@ -112,6 +135,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"EXPL", &expl),
         top(b"IPCT", &ipct),
         top(b"TXST", &txst),
+        top(b"LTEX", &ltex),
         top(b"SOUN", &soun),
         top(b"IPDS", &ipds),
         top(b"WEAP", &weap),
@@ -239,6 +263,37 @@ fn projectiles_explosions_and_impact_data() {
     assert_eq!(n(&mut g, "GetImpactMaterialType TestCreature"), 10.0);
     q(&mut g, "SetImpactMaterialType 12 TestCreature");
     assert_eq!(n(&mut g, "GetImpactMaterialType TestCreature"), 10.0, "12 is past the table");
+}
+
+/// The impact colour's packing and the texture-set flag 0 (jip-records-7.md and
+/// jip-records-5.md, #2039).
+#[test]
+fn impact_colour_packing_and_texture_set_flag() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Set as R + G × 256 + B × 65536, carries included; read B as the upper 16 bits.
+    for (set, read) in [(256_000.0, 1.0), (999_000.0, 231_003.0), (254_999_999.0, 254_232_002.0), (16_777_215.0, 16_009_218.0), (300.0, 300.0), (1256.0, 1256.0), (65535.0, 65535.0), (65536.0, 65536.0), (255_255_255.0, 255_255_255.0)] {
+        q(&mut g, &format!("SetImpactDataTraitNumeric TestImpact 14 {set}"));
+        assert_eq!(n(&mut g, "GetImpactDataTrait TestImpact 17"), read, "set {set}");
+    }
+    // Past 255255255 or below 0 nothing is set.
+    for bad in ["255255256", "-1"] {
+        q(&mut g, &format!("SetImpactDataTraitNumeric TestImpact 14 {bad}"));
+        assert_eq!(n(&mut g, "GetImpactDataTrait TestImpact 17"), 255_255_255.0, "set {bad}");
+    }
+    // No DODT: the texture set's colour (64 00 34 00), or all FF without a texture set.
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactBare 17"), 100_000_052.0);
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 255_320_535.0);
+    q(&mut g, "SetImpactDataTraitNumeric TestImpactNone 14 300300300");
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 255_320_535.0, "past 255255255");
+    q(&mut g, "SetImpactDataTraitNumeric TestImpactNone 14 10020030");
+    assert_eq!(n(&mut g, "GetImpactDataTrait TestImpactNone 17"), 10_020_030.0);
+    // Flag 0: 1 for a texture set a landscape texture names, whatever its DNAM; DNAM bit 0
+    // for the others, 0 without DNAM.
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestLandSet 0"), 1.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestFlaggedSet 0"), 1.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestDecalColoured 0"), 0.0);
+    assert_eq!(n(&mut g, "GetTextureSetFlag TestDecal 0"), 0.0);
 }
 
 #[test]

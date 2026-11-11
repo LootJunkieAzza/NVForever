@@ -91,7 +91,8 @@ Sets jip6 (92 rows) and jip6b (37 rows) of `tools/capture/jip_probes.py`, run fr
 CrSuperMutantDeadMinigunRubyHill, Craig Boone and VCGTutorialJump; goldens private (lab
 L5.ext.jip6, L5.ext.jip6b). The values the tables above now tag [observed] come from them.
 Equal after the fixes: jip6 90 of 92, jip6b 32 of 37. Left:
-- the model damage stage's out-of-range values: settled on 2026-11-11 (§1: modulo 9; #2039);
+- the model damage stage's out-of-range values: settled on 2026-11-11 (§1: modulo 9; #2039)
+  and built (`nvse_jip6.rs`): jip6 91 of 91, jip6b 37 of 37 since;
 - `SetNthDestructionStageTrait rObj 1 1 3.5` did not compile in the game ("script did not
   compile"): a fractional literal for this argument is refused by the game's compiler
   [observed], and by NVForever's runtime compile since #2037 (ext-syntax.md §11).

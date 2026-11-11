@@ -102,3 +102,6 @@ The rule (§1's table) fits every row:
 - [hypothesis] The cause is the cell's coordinates packed into one number (x in the high
   half, y in the low half, y's sign borrowing from x) and the x read back from it. Rows
   north of the origin and the player's own cell are not affected.
+
+Built (`nvse_sup4.rs` `near_cells`, #2039): the loaded cells are `Game::loaded_cells`; the
+sup4 `near` row is equal since.
