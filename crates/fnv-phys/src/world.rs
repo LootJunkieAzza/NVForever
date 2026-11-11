@@ -464,6 +464,8 @@ pub struct PhysWorld {
     /// Bodies and colliders rapier disabled for state that went NaN or infinite
     /// (`crate::quarantine`).
     pub(crate) quarantined: crate::quarantine::Quarantined,
+    /// How actors' ragdolls are solved ([`PhysWorld::set_ragdoll_solver`]).
+    pub(crate) ragdoll_solver: crate::ragdoll::RagdollSolver,
 }
 
 impl PhysWorld {
@@ -513,6 +515,7 @@ impl PhysWorld {
             solver_ms: [0.0; 6],
             before: Default::default(),
             quarantined: Default::default(),
+            ragdoll_solver: Default::default(),
         }
     }
 
@@ -1238,6 +1241,7 @@ impl PhysWorld {
             solver_ms: self.solver_ms,
             before: self.before.clone(),
             quarantined: self.quarantined.clone(),
+            ragdoll_solver: self.ragdoll_solver,
         }
     }
 

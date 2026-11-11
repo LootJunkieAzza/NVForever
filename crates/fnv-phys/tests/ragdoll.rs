@@ -887,3 +887,41 @@ fn a_settling_ragdoll_slows_to_a_stop_until_a_push_ends_its_settle() {
     // Held at rest it does not settle.
     assert!(w.set_ragdoll_at_rest(0x10) && !w.settle_ragdoll(0x10, 0.5) && !w.ragdoll_settling(0x10));
 }
+
+/// An actor ragdoll's joints hold a slow turn back (`JOINT_FRICTION`, #2083): an arm hanging
+/// on a hinge from a heavy block, nudged into a small swing, has all but stopped half a
+/// second later where the plain damper (`JOINT_DAMPING`, the friction off) lets it swing
+/// on [observed: 3.5 against 31.7 units/s at its tip; gravity still turns it while its
+/// torque passes the cap]. Gravity still swings a level arm down to its limit with the
+/// friction on (`arm_on_block`, the tests above).
+#[test]
+fn joint_friction_slows_a_small_swing_the_damper_lets_run() {
+    let swing = |friction: bool| {
+        let mut w = ground();
+        if !friction {
+            w.set_ragdoll_solver(RagdollSolver { joint_friction: None, ..RagdollSolver::default() });
+        }
+        let hinge = JointKind::Hinge { axis_a: X, perp_a: Y, axis_b: X, perp_b: Y, limits: None };
+        let rag = Arc::new(Ragdoll {
+            bodies: vec![
+                body("arm", Shape::Capsule { a: [0.0, 0.0, -4.0], b: [0.0, 0.0, -24.0], radius: 3.0 }, 1.0, [0.0, 25.0, 40.0]),
+                body("block", Shape::Box { half_extents: [20.0, 20.0, 20.0] }, 2000.0, [0.0, 0.0, 24.0]),
+            ],
+            joints: vec![joint(0, 1, [0.0; 3], [0.0, 25.0, 16.0], hinge)],
+            problems: vec![],
+        });
+        let rest: Vec<Iso> = rag.bodies.iter().map(|b| b.rest()).collect();
+        w.add_ragdoll(&start(0x10, &rag, &rest));
+        for _ in 0..30 {
+            w.step();
+        }
+        assert!(w.push_ragdoll(0x10, [0.0, 25.0, 16.0], [0.0, 40.0, 0.0]));
+        for _ in 0..30 {
+            w.step();
+        }
+        w.ragdoll_nodes(0x10).unwrap()[0].unwrap().linvel
+    };
+    let speed = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let (held, free) = (speed(swing(true)), speed(swing(false)));
+    assert!(free > 10.0 && held < 0.25 * free, "half a second after the nudge the arm's tip moves {held} units/s with the friction, {free} without");
+}

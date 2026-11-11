@@ -135,8 +135,32 @@ world.
 - Limited hinge → a revolute joint with the angle range; hinge → without.
 - A range of zero width locks the axis (the human neck's twist). Limits are kept within
   ±3 radians.
-- Every free angular axis is damped (`JOINT_DAMPING`, 6 per second) so limbs do not
-  swing like chains; it stands in for `max_friction`. `strength` is not used.
+- Every free angular axis has **dry friction** (`JOINT_FRICTION`, since #2083): a motor
+  holds the two bodies' relative turning still, with a damping of 200 a second, up to a
+  torque of 0.5 N·m per kilogram of the lighter body. A limb that gravity or a blow swings
+  goes past it; the slow turning a neck or a hand kept up against its limits stops. It
+  stands in for `max_friction`; `strength` is not used. Before #2083 each axis was only
+  damped (`JOINT_DAMPING`, 6 per second, so limbs do not swing like chains); placed
+  objects' joints (traps, wrecks) still are. Why [observed 2026-11-11, a scratch program
+  on `fnv_phys` with the shipped `_male\skeleton.nif`, not kept: 100 drops each from random
+  tilts, headings, heights and shoves, rest by the calm rule below]:
+
+  | | 60 Hz, flat | 60 Hz, 15° slope | 120 Hz, slope | 152 Hz, slope | 240 Hz, slope |
+  |---|---|---|---|---|---|
+  | damper only: mean rest (s) | 3.41 | 4.41 | 3.75 | 3.52 | 4.35 (10 never) |
+  | friction: mean rest (s) | 2.99 | 3.47 | 3.30 | 3.04 | 3.24 |
+  | still moving at 8 s, damper → friction | 1 → 0 | 4 → 0 | 0 → 0 | 0 → 0 | 15 → 0 |
+
+  On the slope 66-87 % of the drops were still moving 3 s after they started, most with
+  the head or the neck breaking their calm, as fresh corpses in the 50-a-side battle did.
+  Where they lay did not change: the pelvis over the floor, the hands' and feet's reach
+  from it and how far they slid all within 1.5 units of the same drops with the damper
+  alone; a step cost the same. Tried and not taken: rapier's joint warm start (no change),
+  1-4 extra solver iterations for the ragdoll's island (better at 60 Hz, a quarter dearer
+  a step, and at 152 Hz the head broke every calm), a neck raised to a third or a half of
+  the spine's mass (the human neck is 1 kg between a 9 kg spine and a 3 kg head: little
+  better, or much worse), and other friction strengths (0.25-1 N·m/kg, damping 50-1000:
+  3.54-4.22 s on the slope at 60 Hz).
 - Tests (`crates/fnv-phys/tests/ragdoll.rs`) hold an arm on a hinge and on a ragdoll
   joint under gravity and check it stops at the stored limit on the side §3 says.
 
@@ -232,9 +256,9 @@ ragdoll still rolling at 22 units/s and 2.6 rad/s when its settle began was down
 0.7 units/s and 0.09 rad/s when held (`sever-chet`). A turn the joints and contacts drive
 anew every step keeps most of its speed (rapier damps once a step, after the solve):
 mantis nymphs' antennae and legs were held turning at 0.3-3 rad/s, a hand at 0.15 rad/s;
-raising the joints' damping motors during the settle did not change that. That shiver is
-#2083's. A hit's shove or a blast that strikes
-it ends the settle and it moves again (a shove: 1 s). Before 2026-11-11 a ragdoll was held
+raising the joints' damping motors during the settle did not change that (measured before
+the joints' dry friction, above, which keeps such turning from starting). A hit's shove
+or a blast that strikes it ends the settle and it moves again (a shove: 1 s). Before 2026-11-11 a ragdoll was held
 3 s after it started with no settle, and one still moving stopped dead: in the 50-a-side
 battle 53 of 58 fresh corpses were held while still moving, most with a neck or head
 turning at 0.7-3 rad/s [observed, frame-rate-audit.md §5]. The owner saw it: "when you
