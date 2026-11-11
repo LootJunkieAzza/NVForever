@@ -51,8 +51,6 @@ pub const FOLLOW: f32 = 5.0;
 const EASE: f32 = 0.3;
 /// The elbow's place on the table from the middle, in forearm lengths [design].
 const ELBOW_IN: f32 = 0.45;
-/// The table's top above its origin, game units (`armwrestle_table::TABLE_TOP`).
-const TABLE_TOP: f32 = 55.0;
 /// The tremble: within this much of even, at most this lean (radians) [design].
 const TREMBLE_NEAR: f32 = 0.3;
 const TREMBLE: f32 = 0.035;
@@ -198,8 +196,8 @@ pub fn arms(
         }
         rigs.iter().find(|(_, _, on)| on.is_some_and(|o| o.furniture() == stool && o.seated())).map(|(e, r, _)| (e, r.clone()))
     });
-    // The table top: the table's origin is on the floor, its top TABLE_TOP above it
-    // (`fnv_game::armwrestle_table`).
+    // The middle of the table's top: the table's x/y, its top's height
+    // (`fnv_game::armwrestle_table::TABLE_TOP_Z`, game z is Bevy y).
     let mut arms = Vec::new();
     for (k, b) in bodies.iter().enumerate() {
         let Some((root, rig)) = b else { continue };
@@ -215,7 +213,7 @@ pub fn arms(
     if arms.is_empty() {
         return;
     }
-    let mid = Vec3::new(mid.x, mid.y + TABLE_TOP, mid.z);
+    let mid = Vec3::new(mid.x, fnv_game::armwrestle_table::TABLE_TOP_Z, mid.z);
     for (k, a) in arms {
         let b = a.e0.distance(a.h0);
         let (elbow, hand) = clasp(mid, u, b, k, lean);
