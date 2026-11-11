@@ -39,10 +39,23 @@ has that part type (0 torso, 1-2 head, 3-6 arms, 7-12 legs, 13 brain, 14 weapon)
 | Get/SetTextureSetTraitNumeric `txst trait [value]` | the decal data (DODT): 0-1 min and max width, 2-3 min and max height, 4 depth, 5 shininess, 6 parallax scale, 7 parallax passes; 8 the colour as R × 1000000 + G × 1000 + B; 0 without decal data [documented: the page's table; observed: DecalOrganicBallisticBB and LandscapeDirtNV] |
 | Get/SetTextureSetFlag `txst flag [value]` | 0 No Specular Map (DNAM bit 0), 1 Parallax, 2 Alpha Blending, 3 Alpha Testing (DODT's flag bits 0-2) [documented: the page's table; observed for 1-3] |
 
-Open: flag 0 reads 1 in the game for LandscapeDirtNV, whose DNAM is 0, and 0 for
-1stPersonSniperRifleTexture, which has no DNAM [observed: jip5, format1]. The one row that
-differs in both sets. What sets it is not known [hypothesis: something about the texture
-set's maps, not the record's flag].
+Flag 0 (settled 2026-11-11, #2039). A texture set that some landscape texture names as its
+texture (LTEX TNAM) reads 1, whatever its DNAM; every other texture set reads DNAM bit 0
+(no DNAM reads 0) [observed: probe job `rules2039`/`rules2039b`, results private].
+- **Landscape texture sets:** all 70 that an LTEX of FalloutNV.esm names read 1. 26 have
+  DNAM 0 and 44 have no DNAM, among them LandscapeDirtNV, the row jip5 and format1 found.
+  The same at the airport, at two other outdoor spots and inside Doc Mitchell's house, so
+  it doesn't depend on which cells are loaded.
+- **Other texture sets:** 47 were probed, up to three from each combination of map paths
+  TX00-TX05, DNAM (none, 0, 1) and decal data. Each read DNAM bit 0: Vault34securityf,
+  NVKimballSuitF/M, VControlPanel04RTXST, DecalDirtBallistic and DecalWoodBallistic (DNAM 1)
+  read 1. The others read 0, among them 1stPersonSniperRifleTexture (no DNAM) and
+  NVNCRMPhelmet (DNAM 0, the same maps as LandscapeDirtNV). The map paths make no
+  difference.
+- **Flags 1-3** read the decal data's bits in every row.
+- [hypothesis] The game marks a landscape texture's texture set as having no specular map
+  when it loads the LTEX, since terrain is drawn without one. Whether
+  SetTextureSetFlag 0 can clear that was not probed.
 
 ## 4. Worldspaces (WRLD)
 
