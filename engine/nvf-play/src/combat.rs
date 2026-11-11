@@ -2712,6 +2712,10 @@ pub(crate) fn owner_weapon_perk(script: Option<&mut ScriptState>, sim: &mut SimS
 fn spent_ammo_item(rng: &mut SplitMix, stats: &mut CombatStats, script: Option<&mut ScriptState>, sim: &mut SimState, forms: &CombatForms, weapon: FormId, ammo: FormId) {
     let Some(a) = forms.ammo.get(&ammo) else { return };
     let Some((item, pct)) = a.consumed.filter(|(i, p)| i.0 != 0 && *p > 0.0) else { return };
+    // The player's tweak: no spent items at all [design: docs/design/tweaks.md].
+    if script.as_deref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_ammo_casings) {
+        return;
+    }
     let (pct, by) = player_weapon_perk(script, sim, fnv_game::perks::MODIFY_CHANCE_FOR_AMMO_ITEM, weapon, pct);
     stats.spent_rolls += 1;
     let roll = rng.next_f32() * 100.0;

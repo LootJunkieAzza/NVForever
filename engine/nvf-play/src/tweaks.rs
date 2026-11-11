@@ -332,6 +332,11 @@ pub struct TweakSettings {
     pub jump_swims_up: bool,
     /// `bFirstPersonVATS`: V.A.T.S.'s firing plays in first person.
     pub first_person_vats: bool,
+    /// `bKeepCrosshairWhenAiming`: the crosshair stays down the iron sights.
+    pub crosshair_when_aiming: bool,
+    /// `bMoveDuringVATSPlayback`: walking and running stay the player's while
+    /// V.A.T.S.'s camera plays.
+    pub move_during_kill_cam: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -531,6 +536,8 @@ impl Default for TweakSettings {
             barter_caps_change: false,
             jump_swims_up: false,
             first_person_vats: false,
+            crosshair_when_aiming: false,
+            move_during_kill_cam: false,
         }
     }
 }
@@ -1452,6 +1459,9 @@ impl Plugin for TweaksPlugin {
         switch!(app, "npcs-drop-holstered", "NPCs Drop Holstered Weapons", "An NPC that dies with its weapon put away drops it, as one with it drawn does. (Stewie's Tweaks bNPCsDropWeaponHolsteredWeapon)", game.npcs_drop_holstered);
         switch!(app, "npcs-earn-casings", "NPCs Keep Spent Cases", "NPCs keep the cases, hulls and drained cells their shots leave, as the player does, to be found on them. (Stewie's Tweaks bNPCsEarnAmmoCasings)", game.npcs_earn_casings);
         switch!(app, "first-person-vats", "First Person V.A.T.S.", "V.A.T.S.'s shots play in first person; the view comes back after. (Stewie's Tweaks bFirstPersonVATS)", first_person_vats);
+        switch!(app, "no-ammo-casings", "No Spent Cases", "The player's shots leave no cases, hulls or drained cells in the inventory. (Stewie's Tweaks bNoAmmoCasings)", game.no_ammo_casings);
+        switch!(app, "crosshair-when-aiming", "Crosshair Down the Sights", "The crosshair stays on screen while aiming down iron sights; a scope still hides it. (Stewie's Tweaks bKeepCrosshairWhenAiming)", crosshair_when_aiming);
+        switch!(app, "move-during-vats-camera", "Move During V.A.T.S. Camera", "You can still walk and run while V.A.T.S.'s camera plays the shots; jumping, firing and aiming stay held. (Stewie's Tweaks bMoveDuringVATSPlayback)", move_during_kill_cam);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1709,6 +1719,7 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
 #[allow(clippy::too_many_arguments)]
 fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
+    crate::kill_cam::set_move_during(tweaks.move_during_kill_cam);
     crate::pad::set_dead_zones(tweaks.custom_dead_zones.then_some((tweaks.left_dead_zone, tweaks.right_dead_zone)));
     crate::wait::model::set_date_style(tweaks.date_style as u8);
     if let Some(mut b) = bindings {

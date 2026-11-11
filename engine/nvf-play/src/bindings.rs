@@ -1141,7 +1141,10 @@ impl ControlInput<'_, '_> {
     /// A playing kill camera holds `c`: every control but those that open a menu or
     /// save, so the game can still be paused or left (`crate::kill_cam`, module notes).
     pub fn held(&self, c: Control) -> bool {
-        self.kill_cam.as_ref().is_some_and(|k| k.active()) && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
+        self.kill_cam.as_ref().is_some_and(|k| k.active())
+            && !matches!(c, Control::MenuMode | Control::Rest | Control::QuickSave | Control::QuickLoad)
+            // The player's tweak leaves walking and running (docs/design/tweaks.md).
+            && !(crate::kill_cam::move_during() && matches!(c, Control::Forward | Control::Back | Control::SlideLeft | Control::SlideRight | Control::Run | Control::AlwaysRun | Control::AutoMove))
     }
 
     /// A controller works the controls.

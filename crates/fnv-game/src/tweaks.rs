@@ -452,6 +452,9 @@ pub struct Tweaks {
     /// `bNPCsEarnAmmoCasings`: NPCs keep their spent rounds' items (cases, hulls, drained
     /// cells) as the player does.
     pub npcs_earn_casings: bool,
+    /// `bNoAmmoCasings`: the player's spent rounds leave no items (cases, hulls, drained
+    /// cells).
+    pub no_ammo_casings: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -657,6 +660,7 @@ impl Default for Tweaks {
             splash_torso_gib: false,
             npcs_drop_holstered: false,
             npcs_earn_casings: false,
+            no_ammo_casings: false,
         }
     }
 }

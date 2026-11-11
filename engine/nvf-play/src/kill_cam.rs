@@ -512,6 +512,20 @@ fn place(
     }
 }
 
+/// The player's tweak: walking and running stay the player's while the camera plays
+/// [design: docs/design/tweaks.md].
+static MOVE_DURING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set by the Tweaks tab.
+pub fn set_move_during(on: bool) {
+    MOVE_DURING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Walking and running are left to the player while the camera plays (the tweak).
+pub fn move_during() -> bool {
+    MOVE_DURING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Strike from what the frame asked of the character (the keys, held already by
 /// `bindings::ControlInput`, and the test aids that stand in for them) what a playing
 /// kill camera holds (module notes): moving, jumping, the trigger, aiming, reload and
@@ -519,7 +533,11 @@ fn place(
 pub fn hold_input(mut cam: ResMut<KillCam>, mut intent: ResMut<MoveIntent>, mut control: ResMut<PlayerControl>) {
     let Some(show) = cam.show.as_mut() else { return };
     let (mut i, mut c) = (*intent, *control);
-    (i.forward, i.right, i.jump) = (0.0, 0.0, false);
+    if move_during() {
+        i.jump = false;
+    } else {
+        (i.forward, i.right, i.jump) = (0.0, 0.0, false);
+    }
     (c.trigger, c.aiming, c.reload, c.ammo_swap, c.ready_held) = (false, false, false, false, None);
     if (i, c) != (*intent, *control) {
         show.held += 1;

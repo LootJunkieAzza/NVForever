@@ -576,7 +576,9 @@ fn draw(
     let scoped = scope.is_some_and(|s| s.on);
     // The player's tweak hides it while reloading too [design: docs/design/tweaks.md].
     let reloading = tweaks.as_ref().is_some_and(|t| t.hide_crosshair_reloading) && anim.as_ref().is_some_and(|a| a.reload.is_some());
-    let sights = sights.is_some_and(|s| s.0) || scoped || reloading;
+    // The player's tweak keeps it down the iron sights (a scope still hides it) [design: docs/design/tweaks.md].
+    let keep = tweaks.as_ref().is_some_and(|t| t.crosshair_when_aiming);
+    let sights = (sights.is_some_and(|s| s.0) && !keep) || scoped || reloading;
     if sights != logged.2 {
         logged.2 = sights;
         info!("crosshair: {}", if !sights { "shown again" } else if scoped { "hidden by the scope" } else { "hidden down the true iron sights" });

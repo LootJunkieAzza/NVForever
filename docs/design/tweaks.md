@@ -515,6 +515,9 @@ unless the player binds them, so nothing changes until then.
 | NPCs Drop Holstered Weapons | `bNPCsDropWeaponHolsteredWeapon` | `combat::death_drops` follows an NPC's equipped weapon too when none is in its hand |
 | NPCs Keep Spent Cases | `bNPCsEarnAmmoCasings` | the NPC shot path rolls the ammo's Consumed Percentage and adds the Consumed Ammo item to the shooter (no perks) |
 | First Person V.A.T.S. | `bFirstPersonVATS` | the view switches to first person while the mode fires and goes back to the earlier view when it ends |
+| No Spent Cases | `bNoAmmoCasings` | the player's shots give no Consumed Ammo item (cases, hulls, drained cells) |
+| Crosshair Down the Sights | `bKeepCrosshairWhenAiming` | the crosshair stays on down the iron sights; a scope still hides it |
+| Move During V.A.T.S. Camera | `bMoveDuringVATSPlayback` | the kill camera leaves walking and running (keys and stick) to the player; jumping, firing, aiming and reloading stay held |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -536,8 +539,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 441 |
-| to do | 162 |
+| done | 444 |
+| to do | 159 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -805,6 +808,7 @@ game's Data folder, read-only).
 | `bMidairFastTravel` | done |  |  | Fast Travel in the Air |
 | `bMinBloodSplatterHealthDamage` | done |  | 1 | Blood Only on Big Hits (slider) |
 | `bMinigamesPlayXPSoundAtMaxLevel` | done |  |  | XP Sound at the Level Cap (any XP at the cap, not only minigames) |
+| `bMoveDuringVATSPlayback` | done |  |  | Move During V.A.T.S. Camera (walk and run only) |
 | `bNoAutoContinueDialog` | done |  |  | Click to Continue Dialogue |
 | `bNoDropWeaponSoundOnPlayerDeath` | done |  |  | already so: the player weapon is not put away at death |
 | `bNoEquippedWeaponMovementPenalty` | done |  |  | No Weapon Movement Penalty (the two-handed run slowdown) |
@@ -846,7 +850,6 @@ game's Data folder, read-only).
 | `bForceHiResWeaponModels` | to do |  |  | nvforever actors arm_weapon model_for(true); untested in the hand |
 | `bKeepBrokenItemsEquipped` | to do |  |  | the break unequips at three sites; firing a broken weapon is undefined |
 | `bMoveDuringOpenPipboyAnim` | to do |  |  | the Pip-Boy is a menu; the game leaves Playing at once |
-| `bMoveDuringVATSPlayback` | to do |  |  | kill_cam hold_input and ControlInput::held both hold movement |
 | `bNoExteriorLoadScreens` | to do |  |  | loading::begin interior-to-exterior |
 | `bNoLTRTOnPipboy` | n/a |  |  | the original's controller texture swap |
 | `bNoPoisonConfirm` | to do |  |  | not built: no weapon poison |
@@ -883,6 +886,7 @@ game's Data folder, read-only).
 | `bHideCrosshairWhileReloading` | done |  |  | No Crosshair While Reloading |
 | `bHideUnknownNPCNames` | done |  | 1 | Hide Unknown Names (bodies are named, as bShowNameOnDeadNPCs) |
 | `bHostilesUseNeutralColorOnCompass` | done |  |  | Foes in the Usual Colour |
+| `bKeepCrosshairWhenAiming` | done |  |  | Crosshair Down the Sights |
 | `bLocationDiscoveredCornerMessage` | done |  |  | Discoveries in the Corner |
 | `bMoveAmmoTypeLabel` | done |  |  | Ammo Label Under the Count |
 | `bNoCompassPipsIfNotInDanger` | done |  |  | Compass Pips Only in Danger |
@@ -925,7 +929,6 @@ game's Data folder, read-only).
 | `bHUDMarkerNameIndicator` | to do |  | 7 | no such HUD text yet |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
-| `bKeepCrosshairWhenAiming` | to do |  |  | reticle::draw is at 16 parameters; goes into a tuple |
 | `bPlacedMarkerHeightIndicator` | to do |  | 1 | not built: no player-placed markers |
 | `bRecentlyDeadNPCIndicator` | to do |  | 4 | the compass skips the dead; needs per-actor state |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
@@ -1154,6 +1157,7 @@ game's Data folder, read-only).
 | `bLethalHitsIncreaseLimbChallenges` | done |  |  | Killing Knockdowns Count (crippling already counted on a kill) |
 | `bMenuFadesIgnoreTimescale` | done |  |  | already so: menu fades run on real time while the world waits |
 | `bNoAltTabPause` | done |  | 1 | already so: losing focus opens no pause menu |
+| `bNoAmmoCasings` | done |  |  | No Spent Cases (the player) |
 | `bNoAudioDistortion` | done |  | 1 | No Helmet Voice Filter (the apply-to-everything option not built) |
 | `bNoFastTravelTimeChange` | done |  |  | Fast Travel Takes No Time |
 | `bNoHotkeyEquipSounds` | done |  |  | No Hotkey Sounds |
@@ -1200,7 +1204,6 @@ game's Data folder, read-only).
 | `bDisableRegionBordersKeepMessage` | to do |  |  | not built: no world borders |
 | `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
-| `bNoAmmoCasings` | to do |  |  | NVForever gives no casings yet |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bNoTurningAnim` | to do |  |  | nvforever player_body turn_rate; drive_body at 16 params |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |
