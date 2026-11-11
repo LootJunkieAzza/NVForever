@@ -11827,10 +11827,10 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-slowed-60"
 source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion slows the ragdoll and the gore until it ends, at every physics rate: nothing stands still, rests or jumps before it is over (engine/nvf-play/src/kill_cam.rs `TargetMoved`, engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam's setup at the default 60 Hz. The kill camera logs how its target's drawn place moved over the camera (its path, the most in one frame, the frames it stood still while its ragdoll was awake) and in the frame after it. Under the slowed clock the step is never shorter than 1/240 s (`SHORTEST_STEP`): shorter ones left slow bodies standing still far from the worldspace's origin. The ranges are wide against a jump or a freeze, not tuned to one run: which camera path plays varies"
+note = "vats-kill-cam's setup at the default 60 Hz. The kill camera logs how its target's drawn place moved over the camera (its path, the most in one frame, the frames it stood still while its ragdoll was awake) and in the frame after it. Under the slowed clock the step is never shorter than 1/240 s (`SHORTEST_STEP`): shorter ones left slow bodies standing still far from the worldspace's origin. The ranges are wide against a jump or a freeze, not tuned to one run: which camera path plays varies. The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
 areas = ["combat", "vats", "physics"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "engine/nvforever/src/wrecks.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 28
 order = [[
@@ -11853,10 +11853,10 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-slowed-152"
 source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 152 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam-slowed-60 at 152 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/152 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms)"
+note = "vats-kill-cam-slowed-60 at 152 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/152 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms). The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
 areas = ["combat", "vats", "physics"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "152"]
 run_seconds = 28
 order = [[
@@ -11881,10 +11881,10 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-slowed-display"
 source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion with --physics-hz display (the display's frame rate) slows the ragdoll and the gore until it ends (docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam-slowed-60 with Match FPS: the rate is the machine's (60 to 240), so the step's length under the camera is not checked, only that the corpse moves, never jumps and nothing reacts to the slow motion"
+note = "vats-kill-cam-slowed-60 with Match FPS: the rate is the machine's (60 to 240), so the step's length under the camera is not checked, only that the corpse moves, never jumps and nothing reacts to the slow motion. The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
 areas = ["combat", "vats", "physics"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/frame_pace.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "display"]
 run_seconds = 28
 order = [[
@@ -11908,10 +11908,10 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-slowed-120"
 source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 120 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam-slowed-60 at 120 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/120 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms)"
+note = "vats-kill-cam-slowed-60 at 120 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/120 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms). The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
 areas = ["combat", "vats", "physics"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "120"]
 run_seconds = 28
 order = [[
@@ -11936,10 +11936,10 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-slowed-144"
 source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 144 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam-slowed-60 at 144 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/144 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms)"
+note = "vats-kill-cam-slowed-60 at 144 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/144 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms). The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
 areas = ["combat", "vats", "physics"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "144"]
 run_seconds = 28
 order = [[
@@ -11964,10 +11964,10 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-slowed-160"
 source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 160 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam-slowed-60 at 160 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/160 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms)"
+note = "vats-kill-cam-slowed-60 at 160 steps a second: under the camera's slowed clock (0.12 to 0.25 of full speed) 1/160 s times the clock is shorter than 1/240 s, so the step is 1/240 s (4.17 ms). The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
 areas = ["combat", "vats", "physics"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "160"]
 run_seconds = 28
 order = [[
@@ -11992,10 +11992,10 @@ forbid = [
 [[scenario]]
 name = "vats-kill-cam-slowed-240"
 source = "owner 2026-11-11 (the physics rate work): the VATS kill camera's slow motion at --physics-hz 240 slows the ragdoll and the gore until it ends; the step is held at 1/240 s at the least (engine/nvf-play/src/phys.rs `paced_step`, docs/spec-notes/physics.md §5.4)"
-note = "vats-kill-cam-slowed-60 at 240 steps a second: the full-speed step is already the shortest one (1/240 s, 4.17 ms), so under the camera's slowed clock the step stays 1/240 s and there are fewer steps a real second"
+note = "vats-kill-cam-slowed-60 at 240 steps a second: the full-speed step is already the shortest one (1/240 s, 4.17 ms), so under the camera's slowed clock the step stays 1/240 s and there are fewer steps a real second. The third Fiend dog (0x0013F85F) is killed at 3 s too, as in vats-kill-cam-others-fighting: it can hear the shot and enter combat, and the camera then plays for nobody"
 areas = ["combat", "vats", "physics"]
 paths = ["engine/nvf-play/src/kill_cam.rs", "engine/nvf-play/src/phys_rate.rs", "engine/nvf-play/src/phys.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/dismember.rs", "crates/fnv-phys/src/world.rs", "crates/fnv-phys/src/drawn.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_VATS_ROLL = "hit", NVF_PLAY_TEST_SCRIPT = "3:set_av:0x000F573F:Health:1,3:set_av:0x0013E5BB:Health:1,3:kill:0x000F570B,3:kill:0x000F573C,3:kill:0x000F5741,3:kill:0x0013E5BB,3:kill:0x0013F85F", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,7.3:aimvats", NVF_PLAY_TEST_KEYS = "7:v,7.32:mouse-left,7.36:e", NVF_PLAY_TEST_VATS_STYLE = "dead-eye" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB", "--physics-hz", "240"]
 run_seconds = 28
 order = [[
