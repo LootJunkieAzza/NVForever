@@ -547,6 +547,7 @@ unless the player binds them, so nothing changes until then.
 | Shift Screenshot Hides the HUD | `bShiftScreenshotHidesMenus` | with Shift held, nvforever `keys` sets `MenusHidden` (what `tm` sets), takes the picture three frames later and puts it back after six; an open menu stays in the picture |
 | Console Lines Name Their Plugin | `bModConsolePrintsIncludeName` | the script runner's `print` puts `[plugin]` (the unit key's first part) before the line; the base game's scripts too |
 | Weapon Requirements Matter | `bWeaponRequirementsMatter` | `Game::weapon_requirement_unmet` compares the weapon's DNAM Strength and skill requirements with the player's values now; the Pip-Boy (`menu.rs`) and the hotkeys (`weapon_wheel::read`, not for the weapon already equipped) refuse with "Needs <stat> <n>." |
+| Console Shows Models | `bExtraConsoleDetails` | `console::describe` adds the base's MODL path (`MODEL_DETAILS`); the cell's Editor ID and name were already in the details |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -568,8 +569,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 473 |
-| to do | 130 |
+| done | 474 |
+| to do | 129 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -1181,6 +1182,7 @@ game's Data folder, read-only).
 | `bDisarmingMinesPicksThemUp` | done |  |  | Pick Up Disarmed Mines |
 | `bDontOpenDoorsAfterLockpick` | done |  |  | Picked Doors Stay Shut |
 | `bDontShowContainerAfterLockpick` | done |  |  | Picked Containers Stay Shut |
+| `bExtraConsoleDetails (enabled by default)` | done |  | 4 | Console Shows Models (cell name and Editor ID were already shown; full help not built) |
 | `bHapticPipboy` | done |  |  | Pip-Boy Buzz (with rumble on) |
 | `bInvertCameraX` | done |  |  | Invert Look Left/Right |
 | `bKeepPipboyLightOnCellChange` | done |  | 1 | already so: the light stays on through cell changes |
@@ -1233,7 +1235,6 @@ game's Data folder, read-only).
 | `bDisableAchievements` | n/a |  |  | NVForever has no achievements |
 | `bDisableCharacterRespec` | to do |  |  | the respec is plugin script data |
 | `bDisableRegionBordersKeepMessage` | to do |  |  | not built: no world borders |
-| `bExtraConsoleDetails (enabled by default)` | to do |  | 4 |  |
 | `bInvalidBSFadeNodePrints` | n/a |  |  | the plugin's own warning |
 | `bNoPipboyOnAltTab` | n/a |  |  | the original's alt-tab handling |
 | `bPrintErrorsToConsole` | n/a |  | 5 | the original's error log |

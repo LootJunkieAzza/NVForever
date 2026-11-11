@@ -996,6 +996,22 @@ pub fn place_name(d: &PlayData, cell: u32) -> String {
     })
 }
 
+/// The player's Extra Console Details tweak: a selected reference's details add its
+/// base's model [design: docs/design/tweaks.md].
+static MODEL_DETAILS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set by the Tweaks tab.
+pub fn set_model_details(on: bool) {
+    MODEL_DETAILS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A record's model path (MODL), from the load order's winning copy.
+fn model_path(d: &PlayData, id: FormId) -> Option<String> {
+    let (_, rec) = d.lo.winner(id.0)?;
+    let subs = rec.subrecords().unwrap_or_default();
+    subs.iter().find(|s| &s.sig == b"MODL").map(|s| fnv_util::text::decode_z(&s.data)).filter(|t| !t.is_empty())
+}
+
 /// A reference's details, a line each.
 pub fn describe(id: u32, d: &PlayData, sim: &SimState, rt: Option<&mut Runtime>) -> Vec<String> {
     let r = FormId(id);
@@ -1012,6 +1028,9 @@ pub fn describe(id: u32, d: &PlayData, sim: &SimState, rt: Option<&mut Runtime>)
         let (sig, bedid, name) = record_names(d, b);
         let name = name.map(|n| format!(" \"{n}\"")).unwrap_or_default();
         out.push(format!("base {b} {sig} {}{name}", bedid.unwrap_or_default()));
+        if let Some(m) = model_path(d, b).filter(|_| MODEL_DETAILS.load(std::sync::atomic::Ordering::Relaxed)) {
+            out.push(format!("model {m}"));
+        }
     }
     let cell = state.and_then(|s| s.cell).or(placed.and_then(|p| p.cell));
     let pos = state.map(|s| s.pos).or(placed.map(|p| p.pos));

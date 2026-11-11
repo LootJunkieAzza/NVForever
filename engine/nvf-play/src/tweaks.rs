@@ -393,6 +393,9 @@ pub struct TweakSettings {
     pub screenshot_key: usize,
     /// `bShiftScreenshotHidesMenus`: with Shift held, a screenshot leaves out the HUD.
     pub shift_screenshot_hides: bool,
+    /// `bExtraConsoleDetails`/`bMeshPath`: a selected reference's console details give
+    /// its model.
+    pub console_model_details: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -621,6 +624,7 @@ impl Default for TweakSettings {
             console_homes: false,
             screenshot_key: 0,
             shift_screenshot_hides: false,
+            console_model_details: false,
         }
     }
 }
@@ -1589,6 +1593,7 @@ impl Plugin for TweaksPlugin {
         switch!(app, "shift-screenshot-hides", "Shift Screenshot Hides the HUD", "Holding Shift as you take a screenshot leaves the HUD, crosshair and messages out of the picture. (Stewie's Tweaks bShiftScreenshotHidesMenus)", shift_screenshot_hides);
         switch!(app, "print-plugin-names", "Console Lines Name Their Plugin", "A line a script prints to the console starts with the name of the plugin it comes from, in brackets. (Stewie's Tweaks bModConsolePrintsIncludeName)", game.print_plugin_names);
         switch!(app, "weapon-requirements-matter", "Weapon Requirements Matter", "A weapon cannot be equipped while your Strength or its skill is below what it asks. (Stewie's Tweaks bWeaponRequirementsMatter)", game.weapon_requirements_matter);
+        switch!(app, "console-model-details", "Console Shows Models", "Selecting something in the console also prints the path of its model; its cell's Editor ID and name are always shown. (Stewie's Tweaks bExtraConsoleDetails)", console_model_details);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----
@@ -1847,6 +1852,7 @@ pub fn healing_barred(rt: &mut crate::script::Runtime, sim: &mut crate::sim::Sim
 fn sync(tweaks: Res<TweakSettings>, mut script: Option<ResMut<ScriptState>>, quests: Option<ResMut<crate::quest_messages::QuestMessages>>, loading: Option<ResMut<crate::loading::Loading>>, console: Option<ResMut<crate::console::Console>>, mut active: Option<ResMut<crate::menu::ActiveMenu>>, bindings: Option<ResMut<crate::bindings::Bindings>>, hotkeys: Option<Res<crate::hotkeys::Hotkeys>>) {
     crate::combat::set_unequip_broken_armor(tweaks.unequip_broken_armor);
     crate::kill_cam::set_move_during(tweaks.move_during_kill_cam);
+    crate::console::set_model_details(tweaks.console_model_details);
     crate::reticle::set_stack_figures(tweaks.stack_figures);
     SEATED_WIDE.store(tweaks.seated_wide, std::sync::atomic::Ordering::Relaxed);
     NO_TURN_CLIP.store(tweaks.no_turn_clip, std::sync::atomic::Ordering::Relaxed);
