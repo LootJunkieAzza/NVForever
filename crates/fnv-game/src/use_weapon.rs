@@ -34,8 +34,10 @@
 //!   package's own target from its stand ("Actor will continue to fire and stand at the
 //!   designated position, even during Combat" [documented: GECK wiki Use Weapon
 //!   Package, Flags]; that the target stays the package's, not whoever attacks it, is
-//!   our reading [design]). The combat AI's own attacks wait meanwhile, and the actor
-//!   is drawn facing the use's target, not its enemy (#2120).
+//!   our reading [design]). While the engine's shooter acts on such a use (in place, its
+//!   target a drawn actor or the player) the combat AI's own attacks wait and the actor
+//!   is drawn facing the use's target, not its enemy (#2120); otherwise it fights as
+//!   without the use (docs/design/use-weapon.md §3).
 //! - **Weapon**: the function equips the named weapon when the actor carries it; the
 //!   page's "or grab one if one was nearby" is not built [design].
 //! - **Melee** (docs/design/use-weapon.md §3.1): with a melee weapon, fists or a

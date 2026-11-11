@@ -626,6 +626,10 @@ pub struct Fighters {
     locks: HashMap<u32, (u32, V3)>,
     /// Last frame's [`Fighters::locks`]: where each locked person was drawn facing.
     drawn_locks: HashMap<u32, (u32, V3)>,
+    /// People with a weapon use still to be carried out whom the fight has this frame,
+    /// the shooter having nothing to act on (`weapon_use_holds_fight`): `residents` draws
+    /// them facing their enemy, not the use's target ([`Fighters::use_taken`]).
+    use_taken: std::collections::HashSet<u32>,
     stats: Stats,
     rng: u64,
     /// The crouch, block and approach rolls' own sequence (§14), so fights without them
@@ -1259,16 +1263,21 @@ pub fn embedded_node_index(names: &[Option<String>], node: &str) -> Option<usize
 }
 
 /// Whether a weapon use keeps `fight` off an actor (`use_weapon`): a script's use for
-/// as long as it lasts (it comes first); any use still to be carried out
-/// (`Game::active_weapon_use`), which in a combat state is a package's only when the
-/// package continues during combat (#2120); and a melee use whose last blow is still
-/// to land (`landing`, `use_weapon::Shooters::landing`), which the shooter goes on with.
-/// These are the uses the shooter acts on, so it and the ordinary attacks do not take
-/// turns on one actor; once the use is spent and landed, or let go, the fight takes the
-/// actor back. `shoot` and `fight` are not ordered, so in the frame a use begins or ends
-/// one of them may still act on the state the other has just left [design].
-fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, landing: bool) -> bool {
-    any.is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) || active.is_some() || landing
+/// as long as it lasts (it comes first); a melee use whose last blow is still to land
+/// (`landing`, `use_weapon::Shooters::landing`), which the shooter goes on with; and a
+/// use still to be carried out (`active`, `Game::active_weapon_use`). Out of a combat
+/// state (`in_combat`, `State::in_combat`) that is any such use, as before #2120. In one
+/// it is a package's only when the package continues during combat (#2120), and then
+/// only while the shooter acts on it this frame (`use_weapon::acts_on`: in place, its
+/// target standing among the drawn people, `target_standing`): a marker target, one not
+/// drawn, or an actor still on its way leaves the actor to the ordinary attacks, which
+/// would otherwise hold it in Combat with neither acting (#2145 review). So the shooter
+/// and the ordinary attacks do not take turns on one actor; once the use is spent and
+/// landed, or let go, the fight takes the actor back. `shoot` and `fight` are not
+/// ordered, so in the frame a use begins or ends one of them may still act on the state
+/// the other has just left [design].
+fn weapon_use_holds_fight(any: Option<&fnv_game::use_weapon::WeaponUse>, active: Option<&fnv_game::use_weapon::WeaponUse>, in_combat: bool, target_standing: bool, landing: bool) -> bool {
+    any.is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) || landing || active.is_some_and(|w| !in_combat || crate::use_weapon::acts_on(w, target_standing))
 }
 
 /// One frame of every fight (module notes).
@@ -1344,6 +1353,7 @@ pub(crate) fn fight(
     };
     let f = &mut *fighters;
     f.poses.clear();
+    f.use_taken.clear();
     f.drawn_locks = std::mem::take(&mut f.locks);
     if f.stance_rng == 0 {
         f.stance_rng = 0x2545_F491_4F6C_DD1D;
@@ -1409,12 +1419,19 @@ pub(crate) fn fight(
             if g.ai_off(me) {
                 continue;
             }
-            // A weapon use being carried out fires instead (`use_weapon`).
+            // A weapon use being carried out fires instead (`use_weapon`), while the
+            // shooter acts on it (`weapon_use_holds_fight`).
             let landing = g.weapon_use(me).is_some_and(|w| shooters.as_deref().is_some_and(|s| s.landing(id, w.seq)));
-            if weapon_use_holds_fight(g.weapon_use(me), g.active_weapon_use(me), landing) {
+            let target_standing = g.weapon_use(me).is_some_and(|w| places.contains_key(&w.target.0));
+            if weapon_use_holds_fight(g.weapon_use(me), g.active_weapon_use(me), g.awareness.state(me).in_combat(), target_standing, landing) {
                 continue;
             }
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
+            // A use the shooter cannot act on now: the fight has the actor, and it is drawn
+            // facing its enemy, not the use's target (`Fighters::use_taken`).
+            if g.active_weapon_use(me).is_some() {
+                f.use_taken.insert(id);
+            }
             // The target it detects; just after losing sight of it (still in Combat, not
             // yet Lost), the one detected last, so it keeps its distance to close in
             // (`fnv_ai::alert`) instead of standing where it cannot see [design: the
@@ -3027,6 +3044,11 @@ impl Fighters {
     pub fn lock_on(&self, reference: u32) -> Option<(u32, V3)> {
         self.locks.get(&reference).copied()
     }
+
+    /// The people whose weapon use the fight took over this frame (the field's notes).
+    pub fn use_taken(&self) -> &std::collections::HashSet<u32> {
+        &self.use_taken
+    }
 }
 
 fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Option<Res<CombatStats>>) {
@@ -3162,30 +3184,40 @@ mod tests {
 
     /// #2120: the shooter (`use_weapon`) acts on what `Game::active_weapon_use` gives and
     /// on a melee use's last blow still to land; each keeps the ordinary attacks off, and a
-    /// script's use comes first as before.
+    /// script's use comes first as before. In a combat state a package's use keeps them off
+    /// only while the shooter acts on it (`use_weapon::acts_on`, #2145 review).
     #[test]
     fn a_weapon_use_being_carried_out_keeps_the_ordinary_attacks_off() {
         use fnv_game::use_weapon::{Source, WeaponUse};
         let script = WeaponUse::of_script(None, None, FormId(0x7), 3, true, true, false, false, None);
         let package = WeaponUse { source: Source::Package(FormId(0x9)), volleys: Some(2), shots_per_volley: [1, 1], ..script.clone() };
+        let there = WeaponUse { in_place: true, ..package.clone() };
         // No weapon use: the actor fights.
-        assert!(!weapon_use_holds_fight(None, None, false));
-        // A script's use, walking to its place or firing.
-        assert!(weapon_use_holds_fight(Some(&script), Some(&script), false));
-        assert!(weapon_use_holds_fight(Some(&script), None, false), "a script's use comes first whatever its state");
+        assert!(!weapon_use_holds_fight(None, None, true, false, false));
+        // A script's use, walking to its place or firing, its target standing or not.
+        for (in_combat, standing) in [(false, false), (true, false), (true, true)] {
+            assert!(weapon_use_holds_fight(Some(&script), Some(&script), in_combat, standing, false));
+            assert!(weapon_use_holds_fight(Some(&script), None, in_combat, standing, false), "a script's use comes first whatever its state");
+        }
         // A package's use held in combat (no Continue During Combat): no package fire, the
         // actor fights.
-        assert!(!weapon_use_holds_fight(Some(&package), None, false));
-        // Its package continues during combat: package fire is on, the attacks are off,
-        // on the way to its stand as well as there.
-        assert!(weapon_use_holds_fight(Some(&package), Some(&package), false));
-        let there = WeaponUse { in_place: true, ..package.clone() };
-        assert!(weapon_use_holds_fight(Some(&there), Some(&there), false));
+        assert!(!weapon_use_holds_fight(Some(&package), None, true, true, false));
+        // Out of a combat state a package's use still to be carried out keeps the attacks
+        // off, as before #2120, wherever it is and whatever its target.
+        assert!(weapon_use_holds_fight(Some(&package), Some(&package), false, false, false));
+        assert!(weapon_use_holds_fight(Some(&there), Some(&there), false, false, false));
+        // Its package continues during combat: the attacks are off only while the shooter
+        // acts on it, in place with its target standing among the drawn people.
+        assert!(weapon_use_holds_fight(Some(&there), Some(&there), true, true, false));
+        // Not yet at its stand (on its way, or never got there): the actor fights.
+        assert!(!weapon_use_holds_fight(Some(&package), Some(&package), true, true, false), "on its way to its stand");
+        // At its stand, a target that is no actor (a marker: the Ultra-Luxe torchers') or
+        // one not drawn: nothing for the shooter, the actor fights.
+        assert!(!weapon_use_holds_fight(Some(&there), Some(&there), true, false, false), "a marker or undrawn target");
         // Spent (kept, done, until the package changes) or let go: the actor fights again,
         // but not while the last blow of a melee use is still to land.
         let spent = WeaponUse { done: true, ..there.clone() };
-        assert!(weapon_use_holds_fight(Some(&spent), None, true), "the shooter still lands its last blow");
-        assert!(!weapon_use_holds_fight(Some(&spent), None, false));
+        assert!(weapon_use_holds_fight(Some(&spent), None, true, true, true), "the shooter still lands its last blow");        assert!(!weapon_use_holds_fight(Some(&spent), None, true, true, false));
     }
 
     #[test]
