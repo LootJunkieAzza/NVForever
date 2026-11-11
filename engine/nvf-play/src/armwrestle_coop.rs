@@ -797,7 +797,8 @@ struct WatchText;
 
 /// The watchers' meter: a bar at the top centre, side 0's share filling from the left,
 /// with the names and, once over, the winner.
-fn watch_meter(mut commands: Commands, watch: Res<ArmWatch>, tables: Option<Res<Tables>>, mut root: Query<&mut Visibility, With<WatchMeter>>, mut fill: Query<&mut Node, With<WatchFill>>, mut text: Query<&mut Text, With<WatchText>>) {
+#[allow(clippy::too_many_arguments)]
+fn watch_meter(mut commands: Commands, watch: Res<ArmWatch>, tables: Option<Res<Tables>>, sim: Option<Res<crate::sim::SimState>>, mut root: Query<&mut Visibility, With<WatchMeter>>, mut fill: Query<&mut Node, With<WatchFill>>, mut text: Query<&mut Text, With<WatchText>>) {
     let Some((_, v)) = watch.0.as_ref() else {
         for mut vis in &mut root {
             vis.set_if_neq(Visibility::Hidden);
@@ -808,7 +809,8 @@ fn watch_meter(mut commands: Commands, watch: Res<ArmWatch>, tables: Option<Res<
     let name = |w: Wrestler| match (w, tables) {
         (Wrestler::Player(p), Some(t)) => t.name(p),
         (Wrestler::Player(p), None) => format!("Player {p}"),
-        (Wrestler::Npc(_), _) => "the local".to_string(),
+        // The NPC by its own name (the Goodsprings Settler).
+        (Wrestler::Npc(r), _) => sim.as_deref().and_then(|s| s.ref_name(None, r)).filter(|n| !n.is_empty()).map_or_else(|| "Opponent".to_string(), str::to_string),
     };
     let line = match v.phase {
         ArmPhase::Ready(t) => format!("{}  vs  {}   ({:.0})", name(v.sides[0].who), name(v.sides[1].who), t.ceil()),

@@ -121,6 +121,7 @@ mod coop;
 mod consume_anims;
 mod emote_play;
 mod slots_seat;
+mod armwrestle_arm;
 mod darts_arm;
 mod darts_world;
 mod pool_world;
@@ -1736,6 +1737,8 @@ fn main() -> AppExit {
             app.add_plugins(slots_seat::SlotsSeatPlugin);
             // Darts played at the cabinet: the darts' models in the world (darts_world.rs).
             app.add_plugins(darts_world::DartsWorldPlugin);
+            // Arm wrestling: the wrestlers' right arms posed from the bout (armwrestle_arm.rs).
+            app.add_systems(PostUpdate, armwrestle_arm::arms.before(bevy::transform::TransformSystems::Propagate));
             // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).
             app.add_plugins(pool_world::PoolWorldPlugin);
             // After a darts or pool match: the winner cheers, the loser is beaten, the camera
