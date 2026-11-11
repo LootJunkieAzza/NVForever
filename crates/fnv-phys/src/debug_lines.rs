@@ -1,5 +1,5 @@
 //! A wireframe of the world's collision shapes, for the engine's collision view
-//! (`tcg`, docs/spec-notes/physics.md §8): line segments in game units, each with the
+//! (`tcg`, docs/spec-notes/physics.md §9): line segments in game units, each with the
 //! [`Category`] of what it belongs to, limited to a sphere around a point.
 //!
 //! The outlines come from rapier's debug-render pipeline (`DebugRenderPipeline`, its
@@ -68,6 +68,12 @@ impl Category {
     /// The category's place in [`Category::ALL`].
     pub fn index(self) -> usize {
         self as usize
+    }
+
+    /// Terrain and static collision: outlines that move only when their cell or reference
+    /// is loaded again.
+    pub fn is_still(self) -> bool {
+        matches!(self, Category::Terrain | Category::Static)
     }
 
     /// A short name for logs.
@@ -152,6 +158,9 @@ pub struct CollisionLines {
     pub dropped: usize,
     /// Colliders outlined (their bounding box reached the sphere).
     pub colliders: usize,
+    /// Leave out a character whose bounding box holds the centre: with the centre at the
+    /// camera, the player's own capsule in first person, which would fence the view in.
+    pub hide_character_at_center: bool,
 }
 
 impl Default for CollisionLines {
@@ -162,6 +171,7 @@ impl Default for CollisionLines {
             segments: Vec::new(),
             dropped: 0,
             colliders: 0,
+            hide_character_at_center: false,
         }
     }
 }
@@ -170,7 +180,18 @@ impl CollisionLines {
     /// Replace the segments with those of `world`'s colliders that pass within `radius`
     /// game units of `center`, at most `max` of them.
     pub fn gather(&mut self, world: &PhysWorld, center: [f32; 3], radius: f32, max: usize) {
+        self.gather_only(world, center, radius, max, &Category::ALL);
+    }
+
+    /// [`CollisionLines::gather`] for the colliders of the categories in `kinds` only (a
+    /// caller can keep the outlines that never move, [`Category::is_still`], and gather the
+    /// rest each step).
+    pub fn gather_only(&mut self, world: &PhysWorld, center: [f32; 3], radius: f32, max: usize, kinds: &[Category]) {
         self.segments.clear();
+        let mut keep = [false; Category::COUNT];
+        for c in kinds {
+            keep[c.index()] = true;
+        }
         let k = world.k;
         let mut g = Gather {
             world,
@@ -183,6 +204,8 @@ impl CollisionLines {
             dropped: 0,
             colliders: 0,
             last: None,
+            keep,
+            hide_character_at_center: self.hide_character_at_center,
         };
         self.pipeline.render_colliders(&mut g, &world.w.bodies, &world.w.colliders);
         self.dropped = g.dropped;
@@ -208,6 +231,12 @@ impl PhysWorld {
         l.gather(self, center, radius, max);
         l.segments
     }
+
+    /// How many colliders the world has (a caller keeping still outlines gathers them again
+    /// when this changes: a cell or reference came or went).
+    pub fn collider_count(&self) -> usize {
+        self.w.colliders.len()
+    }
 }
 
 /// rapier's backend: classifies, filters and converts the lines it is given.
@@ -225,6 +254,9 @@ struct Gather<'a> {
     /// The collider of the last line and its category: rapier draws a collider's lines
     /// one after another.
     last: Option<(ColliderHandle, Category)>,
+    /// The categories gathered.
+    keep: [bool; Category::COUNT],
+    hide_character_at_center: bool,
 }
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
@@ -252,7 +284,11 @@ impl DebugRenderBackend for Gather<'_> {
         let (lo, hi) = (arr3(aabb.mins), arr3(aabb.maxs));
         // Distance from the centre to the box (zero inside it).
         let d2: f32 = (0..3).map(|i| (lo[i] - self.center[i]).max(0.0).max(self.center[i] - hi[i])).map(|v| v * v).sum();
-        d2 <= self.radius * self.radius
+        if d2 > self.radius * self.radius {
+            return false;
+        }
+        let c = category(self.world, co, self.volumes);
+        self.keep[c.index()] && !(self.hide_character_at_center && c == Category::Character && d2 == 0.0)
     }
 
     fn draw_line(&mut self, object: DebugRenderObject, a: rapier3d::math::Vector, b: rapier3d::math::Vector, _color: DebugColor) {
@@ -416,6 +452,40 @@ mod tests {
         twin.step();
         let _ = twin.collision_lines([0.0; 3], 1e6, usize::MAX);
         assert_eq!(w.state_digest(), twin.state_digest());
+    }
+
+    #[test]
+    fn gathering_by_kind_splits_the_lines() {
+        let w = everything();
+        let (center, radius) = ([1500.0, 300.0, 100.0], 10_000.0);
+        let all = w.collision_lines(center, radius, usize::MAX);
+        let still: Vec<Category> = Category::ALL.into_iter().filter(|c| c.is_still()).collect();
+        let moving: Vec<Category> = Category::ALL.into_iter().filter(|c| !c.is_still()).collect();
+        let mut l = CollisionLines::default();
+        l.gather_only(&w, center, radius, usize::MAX, &still);
+        let a = l.segments.clone();
+        assert!(a.iter().all(|s| s.category.is_still()) && !a.is_empty());
+        l.gather_only(&w, center, radius, usize::MAX, &moving);
+        assert!(l.segments.iter().all(|s| !s.category.is_still()) && !l.segments.is_empty());
+        assert_eq!(a.len() + l.segments.len(), all.len());
+        assert!(w.collider_count() >= l.colliders);
+    }
+
+    #[test]
+    fn the_character_around_the_centre_can_be_hidden() {
+        let w = everything();
+        // Inside the character standing at (1800, 300, 0), at about eye height.
+        let eye = [1800.0, 300.0, 60.0];
+        let mut l = CollisionLines::default();
+        l.gather(&w, eye, 400.0, usize::MAX);
+        assert!(l.counts()[Category::Character.index()] > 0);
+        l.hide_character_at_center = true;
+        l.gather(&w, eye, 400.0, usize::MAX);
+        assert_eq!(l.counts()[Category::Character.index()], 0);
+        assert!(l.counts()[Category::Terrain.index()] > 0);
+        // From outside it, it is drawn.
+        l.gather(&w, [1800.0, 600.0, 60.0], 400.0, usize::MAX);
+        assert!(l.counts()[Category::Character.index()] > 0);
     }
 
     #[test]
