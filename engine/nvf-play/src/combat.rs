@@ -2556,6 +2556,12 @@ fn companion_nerve(script: Option<&mut ScriptState>, sim: &mut SimState, actor: 
 /// as does every target without a script runtime.
 fn sneak_attack(script: Option<&ScriptState>, attacker: FormId, sneaking: bool, target: FormId) -> bool {
     use fnv_game::detection::Band;
+    // The player's tweak: an NPC the player has not detected sneak-attacks the player
+    // [design: docs/design/tweaks.md].
+    if attacker != FormId::PLAYER_REF {
+        return target == FormId::PLAYER_REF
+            && script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.npcs_sneak_crit_player && rt.game.detection.get(FormId::PLAYER_REF, attacker).is_some_and(|d| d.band != Band::Detected));
+    }
     // The player's tweak takes the sneak critical away [design: docs/design/tweaks.md].
     // The player's tweak: unseen is enough, standing or not [design: docs/design/tweaks.md].
     let standing = script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.standing_sneak_attacks);
@@ -4275,7 +4281,8 @@ fn actor_attacks(
             w.base_damage = d.round() as i32;
         }
         stats.actor_strikes += 1;
-        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, b.attacker, &w, false);
+        let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, b.attacker, &w, false);
+        a.sneaking = sneak_attack(script.as_deref(), b.attacker, false, b.target);
         // A person's power attack: × its direction's fDamagePowerAttack…Bonus, as the
         // player's (combat-rules.md §10.1); a creature's deals its usual damage.
         let power = b.anim.filter(|_| b.creature_damage.is_none()).and_then(fnv_combat::melee::PowerDir::of_group).map_or(1.0, |d| d.damage(&c.rules));

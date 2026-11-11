@@ -508,6 +508,7 @@ unless the player binds them, so nothing changes until then.
 | No Condition Damage Penalty / Buffer, Automatic Criticals, Critical Damage | `bNoWeaponConditionDamagePenalty`, `bRemoveWeaponDamageBuffer`, `bCritChanceIgnoresFireRate`, `bScaleCriticalDamage` | `combat::sync_condition_penalty` sets `fnv_combat::tuning::Rules` each frame: the penalty 0, the threshold 1, `crit_ignores_fire_rate`, `crit_damage_scale` (the new fields are left out of the serialized dumps) |
 | NPC Armour DR / DT Ignores Condition | `bNoScaleNpcDamageResistanceByCondition`, `bNoScaleNpcDamageThresholdByCondition` | `combat::target_armor` takes an NPC's DR or DT from its armour at no condition penalty |
 | Explosion Radius Buff | `bExplosionRadiusBuff` | `CombatTuning::explosion_inner` / `explosion_inner_edge` (left out of the dumps) in `damage::explosion_damage`: the inner 30% whole, 20% at the edge; `bAffectPlayer` not offered |
+| NPCs Sneak Attack the Player | `bNPCsCanSneakCritPlayer` | `combat::sneak_attack` lets an NPC's hit on the player count when the player's measurement of that NPC is below Detected (an unmeasured pair never counts); NPC blows and shots |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -529,8 +530,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 434 |
-| to do | 169 |
+| done | 435 |
+| to do | 168 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -720,6 +721,7 @@ game's Data folder, read-only).
 | `bNoSneakAttacksCriticals` | done |  |  | No Sneak Criticals |
 | `bNoVATSTargetInvisible` | done |  |  | already so: cloaked actors are barred without Enhanced Sensors |
 | `bNoWeaponConditionDamagePenalty` | done |  |  | No Condition Damage Penalty |
+| `bNPCsCanSneakCritPlayer` | done |  |  | NPCs Sneak Attack the Player (when the player has measured them below Detected) |
 | `bPlayerMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bPlayerNonMeleeDamageIgnoresScale` | done |  |  | already so: no damage formula reads actor scale |
 | `bPowerAttackWhileOverencumbered` | done |  |  | already so: nothing gates power attacks on weight |
@@ -733,7 +735,6 @@ game's Data folder, read-only).
 | `bHoldAndReleaseThrowables` | to do |  | 1 | not built: no hold-to-release throw |
 | `bLocationalMeleeDamage` | to do |  | 3 | NPC blows on the player use no part yet; NPC on NPC has no part lookup |
 | `bNPCsCanDisarmPlayer` | to do |  |  | the player weapon lives in Combat; dropping it is new |
-| `bNPCsCanSneakCritPlayer` | to do |  |  | sneak_attack is player-only |
 | `bVATSAutoTargetHead` | to do |  |  | V.A.T.S. picks no target on entry |
 | `bWeaponRequirementsMatter` | to do |  | 7 | equip_at has no actor values |
 

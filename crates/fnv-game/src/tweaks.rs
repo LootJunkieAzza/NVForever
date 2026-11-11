@@ -435,6 +435,9 @@ pub struct Tweaks {
     pub npc_dt_ignores_condition: bool,
     /// `bExplosionRadiusBuff`: an explosion's inner 30% deals full damage, its edge 20%.
     pub explosion_radius_buff: bool,
+    /// `bNPCsCanSneakCritPlayer`: an NPC the player has not detected lands sneak attack
+    /// criticals on the player.
+    pub npcs_sneak_crit_player: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -634,6 +637,7 @@ impl Default for Tweaks {
             npc_dr_ignores_condition: false,
             npc_dt_ignores_condition: false,
             explosion_radius_buff: false,
+            npcs_sneak_crit_player: false,
         }
     }
 }
