@@ -527,6 +527,9 @@ unless the player binds them, so nothing changes until then.
 | Scope Delay (ms) | `bScopeVisibilityDelay` | `aim_zoom::zoom` counts the time at full zoom (`AimZoom::full_for`) and puts the scope up only after the slider's milliseconds; a reload already took the sights down |
 | No Pointer Over Message Boxes | `bHideCursorInMessageMenu` | `player::grab_cursor` hides the pointer (without capturing it) while `MessagePanel` has a box |
 | No Pointer in Conversations | `bHideCursorInDialog` | the same while `DialogueMenu` shows choices |
+| Level Up: Wheel Sets Skills | `bLevelUpScrollWheelSupport` | `levelup::input` turns the wheel into Raise / Lower of the chosen row on the skills page; the perks page still scrolls |
+| Compare Armor | `bCompareArmorStats` | `pipboy::items::info_of` adds the difference from the DT of the worn pieces sharing a biped slot, for armour not worn |
+| (already so) | `bSilentSneakPowerAttacks` | the player makes no sound of effort on any attack, so nothing to silence |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -548,8 +551,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 453 |
-| to do | 150 |
+| done | 456 |
+| to do | 147 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -955,6 +958,7 @@ game's Data folder, read-only).
 | `bHideCursorInDialog` | done | yes | 1 | No Pointer in Conversations |
 | `bImprovedRaceMenu` | done | yes | 3 | already so: the creator camera pans and zooms close |
 | `bInstantContinueButton` | done | yes |  | already so: Continue loads at once |
+| `bLevelUpScrollWheelSupport` | done | yes |  | Level Up: Wheel Sets Skills |
 | `bLivingAnatomyShowDR` | done | yes | 1 | Living Anatomy Shows DR (the decimal and zero-hiding options not built) |
 | `bMapRemembersPosition` | done | yes | 1 | Map Remembers Its Place (in the session; the save-persistent option not built) |
 | `bNumberedComputerHotkeys` | done | yes | 1 | Number Keys on Terminals (1-9, 0 the tenth; the number prefix option not built) |
@@ -972,6 +976,7 @@ game's Data folder, read-only).
 | `bBarterQuantityMenuShowsPrice` | done |  |  | Quantity Box Shows the Price (the hand-built box; the tiles box not yet) |
 | `bBlackJackTotalDisplay` | done |  |  | Blackjack Hand Total |
 | `bChangingContainerCategoryScrollsToTop` | done |  |  | already so: a category change goes to the top |
+| `bCompareArmorStats` | done |  |  | Compare Armor (DT; DR is 0 on New Vegas armour) |
 | `bCompareWeaponStats` | done |  |  | Compare Weapons (DAM and DPS, both at full condition) |
 | `bContainerEncumbranceIndicator` | done |  |  | Weight Warning (the selected row, the whole stack) |
 | `bContainerMenuStoreAllHotkey` | done |  | 1 | Store All (Shift with Take All; worn and quest items stay) |
@@ -1035,7 +1040,6 @@ game's Data folder, read-only).
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bColorRecentlyAddedMapMarkers` | to do | yes |  | needs a per-session found set (newly_found is drained by the compass) |
 | `bDisplayItemEffectTotals` | to do | yes |  | aid_preview returns totals only; the per-second part is lost |
-| `bLevelUpScrollWheelSupport` | to do | yes |  | the wheel scrolls the rows; needs the hovered row to take it |
 | `bMainMenuContinueIcon` | to do | yes |  | thumbnails are on the load page only |
 | `bPlaceMarkersAtLocations` | to do | yes | 1 | placing a marker on the map is not built |
 | `bRecurringChallengeIndicator` | to do | yes | 1 | challenges::Row has no recurring flag yet |
@@ -1048,7 +1052,6 @@ game's Data folder, read-only).
 | `bBetterMapZoom` | to do |  |  | pipboy data take_input zoom around the pointer |
 | `bClickingActiveTabTogglesSorting` | to do |  |  | not built: one fixed order |
 | `bCompanionsUseLocationFontOnMap` | to do |  |  | not built: companions are not on the map |
-| `bCompareArmorStats` | to do |  |  | needs the worn pieces of the same slots summed |
 | `bContainersShowEquippedAmmo` | to do |  |  | not built: ammo is never equipped |
 | `bControllerBackButtonDoesntClosePipBoy` | to do |  |  | pipboy close_keys with the pad East button |
 | `bCustomHackingAnswerLength` | to do |  | 8 | Difficulty::word_lengths and the perk |
@@ -1183,6 +1186,7 @@ game's Data folder, read-only).
 | `bRestoreLockedDoorSound` | done |  |  | already so: a refused lock plays DRSLocked |
 | `bScaleAshpileSize` | done |  | 2 | Ash Piles Fit the Body (the actor's scale, half to twice; not its bounds) |
 | `bScaleRadioVolume` | done |  | 2 | Radio Songs Volume / Radio Talk Volume (two sliders) |
+| `bSilentSneakPowerAttacks` | done |  |  | already so: the player makes no sound of effort on any attack |
 | `bSplashDamageTorsoGibbing` | done |  |  | Splash Kills Can Gib the Torso (one in four with Bloody Mess, ours) |
 | `bTogglePOVWhenHolsteringWeapon` | done |  |  | View Follows the Weapon |
 | `bUseConsoleOutputFile` | done |  | 1 | Console Output File (ConsoleOutput.txt in NVForever's folder; the name is ours, sFilename not offered) |
@@ -1220,7 +1224,6 @@ game's Data folder, read-only).
 | `bRadioKeepPositionWhenLoading` | to do |  |  | the radio position is not saved |
 | `bReloadSoundsAffectedByTimescale` | to do |  |  | one global sound speed |
 | `bReplaceHelpWithConsole` | to do |  |  | no Help entry; the console opens only from play, so a pause-menu entry needs a state change |
-| `bSilentSneakPowerAttacks` | to do |  |  | unsure whether a grunt plays; anim_sounds player_keys |
 | `bSwapKeyboardYZKeys` | n/a |  |  | the original's keyboard handling; NVForever's keys can be rebound |
 | `bTerminalFadeTime` | to do |  | 1 | not built: terminals do not fade |
 | `bUKKeyboard` | n/a |  |  | the original's keyboard handling |

@@ -455,6 +455,9 @@ pub struct Tweaks {
     /// `bNoAmmoCasings`: the player's spent rounds leave no items (cases, hulls, drained
     /// cells).
     pub no_ammo_casings: bool,
+    /// `bCompareArmorStats`: a piece of armour's DT in the Pip-Boy shows the difference
+    /// from the worn pieces it would replace.
+    pub compare_armor: bool,
 }
 
 /// The factor on a vendor's repair price under the Barter Affects Repair Costs tweak:
@@ -661,6 +664,7 @@ impl Default for Tweaks {
             npcs_drop_holstered: false,
             npcs_earn_casings: false,
             no_ammo_casings: false,
+            compare_armor: false,
         }
     }
 }

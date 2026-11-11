@@ -367,6 +367,9 @@ pub struct TweakSettings {
     pub no_pointer_in_message_box: bool,
     /// `bHideCursorInDialog`: no mouse pointer over a conversation's choices.
     pub no_pointer_in_dialogue: bool,
+    /// `bLevelUpScrollWheelSupport`: the wheel raises and lowers skills on the level-up
+    /// page.
+    pub levelup_wheel: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -577,6 +580,7 @@ impl Default for TweakSettings {
             scope_delay_ms: 0.0,
             no_pointer_in_message_box: false,
             no_pointer_in_dialogue: false,
+            levelup_wheel: false,
         }
     }
 }
@@ -1510,6 +1514,8 @@ impl Plugin for TweaksPlugin {
         amount!(app, "scope-delay", "Scope Delay (ms)", "How long, in milliseconds up to 1000, a scope waits after the view has zoomed before it covers the screen; 0 shows it at once. (Stewie's Tweaks bScopeVisibilityDelay)", 1000.0, f32, scope_delay_ms);
         switch!(app, "no-pointer-message-box", "No Pointer Over Message Boxes", "The mouse pointer is hidden while a message box is up; choose with the keys or the controller. (Stewie's Tweaks bHideCursorInMessageMenu)", no_pointer_in_message_box);
         switch!(app, "no-pointer-dialogue", "No Pointer in Conversations", "The mouse pointer is hidden over a conversation's choices; choose with the number keys, the arrows, the wheel or the controller. (Stewie's Tweaks bHideCursorInDialog)", no_pointer_in_dialogue);
+        switch!(app, "levelup-wheel", "Level Up: Wheel Sets Skills", "On the level-up skills page, the mouse wheel raises (up) or lowers (down) the skill under the pointer instead of scrolling the list. (Stewie's Tweaks bLevelUpScrollWheelSupport)", levelup_wheel);
+        switch!(app, "compare-armor", "Compare Armor", "A piece of armour's DT in the Pip-Boy shows the difference from what you wear in the same places. (Stewie's Tweaks bCompareArmorStats)", game.compare_armor);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

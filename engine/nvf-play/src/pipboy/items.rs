@@ -340,6 +340,15 @@ pub fn info_of(r: &Row, combat: Option<&crate::combat::Combat>, sim: &mut SimSta
         Some(ItemKind::Armor) => {
             if let Some(a) = cf.and_then(|f| f.armor.get(&r.item)) {
                 i.first = Some((FirstStat::Threshold, label("sInventoryDamageThreshold", "DT"), format!("{:.0}", a.dt)));
+                // The player's tweak compares with the worn pieces in the same slots, which
+                // it would replace (DR is 0 on New Vegas armour, so DT only) [design: docs/design/tweaks.md].
+                let worn = sim.world.equipment(FormId::PLAYER_REF).unwrap_or_default();
+                if tweaks.compare_armor && a.slots != 0 && !worn.contains(&r.item) {
+                    let replaced: f32 = worn.iter().filter_map(|e| cf.and_then(|f| f.armor.get(e))).filter(|o| o.slots & a.slots != 0).map(|o| o.dt).sum();
+                    if let Some((_, _, v)) = i.first.as_mut() {
+                        *v = format!("{v} ({:+.0})", a.dt - replaced);
+                    }
+                }
             }
             i.beside = sim.forms.item(r.item).map(|it| format!("{:?}", it.armor_class));
         }

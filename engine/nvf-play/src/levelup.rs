@@ -240,6 +240,7 @@ fn input(
     script: Option<ResMut<ScriptState>>,
     sim: Option<ResMut<SimState>>,
     mut sounds: MessageWriter<UiSound>,
+    tweaks: Option<Res<crate::tweaks::TweakSettings>>,
 ) {
     use KeyCode::*;
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
@@ -281,7 +282,14 @@ fn input(
                 _ => {}
             }
         }
-        if wheel.abs() >= 1.0 {
+        // The player's tweak: on the skills page the wheel raises and lowers the chosen
+        // skill (the one under the pointer) instead of scrolling [design: docs/design/tweaks.md].
+        let wheel_sets = tweaks.as_ref().is_some_and(|t| t.levelup_wheel) && st.open.as_ref().is_some_and(|m| m.page == model::Page::Skills);
+        if wheel.abs() >= 1.0 && wheel_sets {
+            for _ in 0..wheel.abs().round() as i32 {
+                ops.push((if wheel > 0.0 { Op::Raise(None) } else { Op::Lower(None) }, "wheel"));
+            }
+        } else if wheel.abs() >= 1.0 {
             ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));
         }
         for (i, r) in &rows {
