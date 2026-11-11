@@ -11108,6 +11108,8 @@ order = [[
   "slots seat: the player is up",
 ]]
 expect = []
+
+[[scenario]]
 name = "slots-3d"
 source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): the Tops slot machine 0x0016546A activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera goes third person at the pull, in on the reels while they turn, out for a win; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss"
 areas = ["slots", "menus"]
