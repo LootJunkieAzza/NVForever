@@ -49,10 +49,12 @@ use std::sync::Arc;
 /// A corpse this far under the terrain has fallen through it, game units; it is put back
 /// this far above it, at most [`MAX_LIFTS`] times.
 /// A ragdoll whose bones all move slower than [`CALM_SPEED`] (game units per second)
-/// and turn slower than [`CALM_SPIN`] (radians per second) for [`CALM_TIME`] seconds is
-/// set at rest (`PhysWorld::set_ragdoll_at_rest`: held where it lies until a hit or a
-/// blast): joints resting against their limits can keep a corpse creeping below what the
-/// eye sees but above what the physics engine calls rest.
+/// and turn slower than [`CALM_SPIN`] (radians per second) for [`CALM_TIME`] seconds
+/// settles for [`MIN_SETTLE`] (unless it is all but still, [`CALM_QUIET`]) and is then set
+/// at rest (`PhysWorld::set_ragdoll_at_rest`:
+/// held where it lies until a hit or a blast): joints resting against their limits can
+/// keep a corpse creeping below what the eye sees but above what the physics engine calls
+/// rest.
 ///
 /// The speeds are the bones' net motion over windows of [`CALM_WINDOW`] seconds, not the
 /// bodies' velocities: a limb pressed between the ground and a joint limit shivers, its
@@ -64,11 +66,31 @@ pub const CALM_SPIN: f32 = 0.6;
 pub const CALM_TIME: f32 = 1.5;
 pub const CALM_WINDOW: f32 = 0.25;
 
-/// A ragdoll still moving this many seconds after it started (or was roused) is set at
-/// rest where it is [engineering choice, a cost guard: two dozen mantis nymphs that died
-/// at the player's feet lay in a heap that never calmed, and the contact solver took
-/// 300 ms a frame (docs/design/frame-rate-audit.md §2)].
-pub const MAX_AWAKE: f32 = 3.0;
+/// A calm ragdoll whose fastest bone moved and turned less than this share of
+/// [`CALM_SPEED`] and [`CALM_SPIN`] over the last window is held at rest at once; one
+/// still moving more settles for [`MIN_SETTLE`] first [design, 2026-11-11: 3 units and
+/// 0.15 radians a second do not show stopping].
+pub const CALM_QUIET: f32 = 0.25;
+
+/// The most seconds a ragdoll moves after it started (or a blast roused it) before it is
+/// held at rest where it is; it spends the end of that time settling ([`settle_time`]), so
+/// that its motion dies out instead of stopping dead [design, owner 2026-11-11: "increase
+/// the duration of NPC ragdolls as now when you kill somebody, their head can roll and
+/// suddenly stop because the physics calculation stopped". It was 3 s with no settle, an
+/// engineering choice after two dozen mantis nymphs that died at the player's feet lay in
+/// a heap that never calmed and the contact solver took 300 ms a frame
+/// (docs/design/frame-rate-audit.md §2); [`MAX_AWAKE_CROWDED`] keeps that guard].
+pub const MAX_AWAKE: f32 = 8.0;
+
+/// [`MAX_AWAKE`] for a fresh ragdoll that is not among the [`FULL_TIME`] youngest moving
+/// ones: a cost guard for heaps and battles, the old limit [engineering choice: in the
+/// 50-a-side battle 6-7 ragdolls moved at once at its peak, each fresh skeleton about 18
+/// bodies and 17 joints in the solver (frame-rate-audit.md §5)].
+pub const MAX_AWAKE_CROWDED: f32 = 3.0;
+
+/// How many moving fresh ragdolls at most get [`MAX_AWAKE`], the most recently started
+/// (or roused) first; the others get [`MAX_AWAKE_CROWDED`] [engineering choice].
+pub const FULL_TIME: usize = 4;
 
 /// [`MAX_AWAKE`] for a ragdoll in water (`fnv_phys::buoyancy`): long enough for a corpse
 /// on a deep bed to rise to the surface and settle there [design: from 400 units down it
@@ -80,8 +102,22 @@ pub const MAX_AWAKE_IN_WATER: f32 = 30.0;
 /// a second [design: owner-review item 51, decided 2026-11-08; in the 50-a-side battle
 /// such re-wakes were a third of the seconds corpses moved, and with 3 s they cost the
 /// solver as long as a fresh death]. A blast's rouse, a fresh death and a body in water
-/// keep their own limits.
+/// keep their own limits. Its last half second is its settle ([`settle_time`]).
 pub const MAX_AWAKE_SHOVED: f32 = 1.0;
+
+/// How long a ragdoll settles (`fnv_phys::PhysWorld::settle_ragdoll`: damping raised
+/// from its own to `fnv_phys::ragdoll::SETTLE_DAMPING` more) before it is held at rest:
+/// after [`CALM_TIME`] calm, and for the last quarter of its time limit, at least this and
+/// at most [`MAX_SETTLE`] seconds [design, 2026-11-11].
+pub const MIN_SETTLE: f32 = 0.5;
+pub const MAX_SETTLE: f32 = 2.0;
+
+/// The settle at the end of a time limit of `limit` seconds: its last quarter, within
+/// [`MIN_SETTLE`] and [`MAX_SETTLE`] (2 s of [`MAX_AWAKE`], 0.75 s of
+/// [`MAX_AWAKE_CROWDED`], 0.5 s of [`MAX_AWAKE_SHOVED`]).
+pub fn settle_time(limit: f32) -> f32 {
+    (limit / 4.0).clamp(MIN_SETTLE, MAX_SETTLE)
+}
 
 pub const FELL_THROUGH: f32 = 150.0;
 pub const LIFT_ABOVE: f32 = 20.0;
@@ -105,13 +141,19 @@ pub struct Ragdolls {
     /// whose stored pose did not fit their skeleton.
     pub authored: usize,
     pub authored_skipped: usize,
-    /// Ragdolls set at rest by [`MAX_AWAKE`] (or [`MAX_AWAKE_SHOVED`]) while still moving.
+    /// Ragdolls held at rest at the end of their time limit ([`MAX_AWAKE`] and the others)
+    /// while still moving, after their settle; and how many of them had
+    /// [`MAX_AWAKE_CROWDED`].
     pub held: usize,
+    pub held_crowded: usize,
     /// Corpses at rest roused by a hit's shove ([`MAX_AWAKE_SHOVED`]).
     pub shoved_awake: usize,
     /// Corpses at rest that a hit shoved since [`pose`] last ran: they get
     /// [`MAX_AWAKE_SHOVED`] when it finds them roused.
     shoved_at_rest: HashSet<u32>,
+    /// Every corpse a hit shoved since [`pose`] last ran: a settling one shoved stops
+    /// settling and gets [`MAX_AWAKE_SHOVED`].
+    shoved: HashSet<u32>,
     /// Ragdolls that came to rest in water (floating).
     pub floated: usize,
     /// `PhysWorld::steps` when [`pose`] last ran: the calm and awake timers count the
@@ -127,6 +169,8 @@ pub struct Ragdolls {
 struct Calm {
     speed: f32,
     spin: f32,
+    /// The body (by bone name) that turned fastest over the last calm window.
+    spinner: String,
     longest: f32,
     /// The bodies (by bone name) that ended a calm spell by moving or turning faster than
     /// the limits: how often, and the fastest speed and spin they had then.
@@ -240,7 +284,7 @@ impl Ragdolls {
         for (b, &n) in bones.iter().enumerate() {
             body_of[n] = Some(b);
         }
-        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, limit: MAX_AWAKE })
+        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0, since: Vec::new(), window: 0.0, awake: 0.0, woken: Woken::Fresh, settle: None })
     }
 }
 
@@ -291,10 +335,38 @@ pub struct Corpse {
     /// the seconds since.
     since: Vec<Option<Iso>>,
     window: f32,
-    /// Seconds awake since it started or was roused, and the most it may be awake
-    /// ([`MAX_AWAKE`], [`MAX_AWAKE_SHOVED`]).
+    /// Seconds awake since it started or was roused, and what woke it (which time limit
+    /// it has).
     awake: f32,
-    limit: f32,
+    woken: Woken,
+    /// Its settle before it is held at rest, while it settles.
+    settle: Option<Settle>,
+}
+
+/// What set a ragdoll moving, for its time limit.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+enum Woken {
+    /// A death, a knockdown, a blast, a drop from the grab: [`MAX_AWAKE`] (or
+    /// [`MAX_AWAKE_CROWDED`]).
+    #[default]
+    Fresh,
+    /// A hit's shove on a corpse at rest: [`MAX_AWAKE_SHOVED`].
+    Shoved,
+}
+
+/// A ragdoll settling before it is held at rest ([`settle_time`]).
+#[derive(Clone, Copy, Debug)]
+struct Settle {
+    /// Seconds settled, and how long the settle is.
+    elapsed: f32,
+    length: f32,
+    /// It began because the ragdoll was calm ([`CALM_TIME`]), not at its time limit.
+    calm: bool,
+    /// It began at [`MAX_AWAKE_CROWDED`].
+    crowded: bool,
+    /// The fastest bone's net speed and spin (game units and radians per second) over the
+    /// last calm window when it began.
+    from: (f32, f32),
 }
 
 /// The bones as they are drawn this frame: each body between where it was before the last
@@ -431,7 +503,8 @@ fn start(
         c.since.clear();
         c.window = 0.0;
         c.awake = 0.0;
-        c.limit = MAX_AWAKE;
+        c.woken = Woken::Fresh;
+        c.settle = None;
         if asleep {
             ragdolls.restored += 1;
         } else {
@@ -446,6 +519,7 @@ fn start(
         let at_rest = phys.world.ragdoll_asleep(p.form_id);
         if phys.world.push_ragdoll(p.form_id, p.point, p.dv) {
             ragdolls.pushes += 1;
+            ragdolls.shoved.insert(p.form_id);
             if at_rest {
                 ragdolls.shoved_at_rest.insert(p.form_id);
             }
@@ -495,8 +569,16 @@ pub(crate) fn pose(
     // with the VATS slow motion cutscenes/kill cams and correctly slows down the
     // ragdoll/gore effects until it exits; a kill camera of 8 real seconds at half speed
     // held its corpse at rest 3 game seconds in, observed: smoke vats-kill-cam-slowed-display].
+    // Nor does one settle then: none starts, and one settling when the clock slows moves
+    // on freely; it settles again once the clock is back.
     let slowed = !virt.is_paused() && virt.relative_speed() < 1.0;
     let awake_dt = if slowed { 0.0 } else { dt };
+    // The fresh ragdolls moving now, youngest first: the first [`FULL_TIME`] of them get
+    // [`MAX_AWAKE`], the rest [`MAX_AWAKE_CROWDED`]. By their reference among equals, so
+    // the same corpses are picked whatever order the query gives.
+    let mut moving: Vec<(f32, u32)> = corpses.iter().filter(|(_, c, _)| c.live && !c.settled && c.woken == Woken::Fresh).map(|(rig, c, _)| (c.awake, rig_of(rig).reference)).collect();
+    moving.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    let full_time: HashSet<u32> = moving.iter().take(FULL_TIME).map(|m| m.1).collect();
     let mut seen = HashSet::new();
     for (rig, mut c, vis) in &mut corpses {
         let rig = rig_of(rig);
@@ -550,22 +632,31 @@ pub(crate) fn pose(
         let now = rest();
         if phys.world.ragdoll_held(id) {
             // Carried by the player's grab: never held at rest (its held body would stop
-            // following the crosshair); calm and the awake guard count again from the drop.
-            (c.calm, c.awake, c.window, c.settled, c.limit) = (0.0, 0.0, 0.0, false, MAX_AWAKE);
+            // following the crosshair), nor settling; calm and the time limit count again
+            // from the drop.
+            if c.settle.take().is_some() {
+                phys.world.unsettle_ragdoll(id);
+            }
+            (c.calm, c.awake, c.window, c.settled, c.woken) = (0.0, 0.0, 0.0, false, Woken::Fresh);
             c.since.clear();
             // Drawn between its steps, as the camera carrying it is.
             let drawn = drawn_bones(&phys, id).unwrap_or_else(|| nodes.clone());
             write_bones(rig, &c, &drawn, &globals, &mut transforms);
             continue;
         }
-        if c.settled && !phys.world.ragdoll_asleep(id) {
-            // Roused by a hit or a blast: calm from scratch; a hit's shove alone moves it
-            // for less long.
+        let roused = c.settled && !phys.world.ragdoll_asleep(id);
+        // A hit or a blast that strikes a settling ragdoll ends its settle
+        // (`PhysWorld::push_ragdoll`, `push_dynamic`): it moves again as if roused.
+        let struck = c.settle.is_some() && !phys.world.ragdoll_settling(id);
+        if roused || struck {
+            // Calm from scratch; a hit's shove alone moves it for less long.
             c.calm = 0.0;
             c.since.clear();
             c.awake = 0.0;
-            c.limit = if ragdolls.shoved_at_rest.contains(&id) { MAX_AWAKE_SHOVED } else { MAX_AWAKE };
-            if c.limit < MAX_AWAKE {
+            c.settle = None;
+            let shoved = if roused { ragdolls.shoved_at_rest.contains(&id) } else { ragdolls.shoved.contains(&id) };
+            c.woken = if shoved { Woken::Shoved } else { Woken::Fresh };
+            if roused && shoved {
                 ragdolls.shoved_awake += 1;
             }
         }
@@ -588,15 +679,67 @@ pub(crate) fn pose(
             }
             c.calm = if calm { c.calm + c.window } else { 0.0 };
             (seen_calm.speed, seen_calm.spin) = (v, w);
+            let spinner = moved.iter().enumerate().max_by(|a, b| a.1 .1.total_cmp(&b.1 .1)).map(|(i, _)| i);
+            seen_calm.spinner = spinner.and_then(|i| c.data.bodies.get(i)).and_then(|b| b.object.node.clone()).unwrap_or_default();
             seen_calm.longest = seen_calm.longest.max(c.calm);
             (c.since, c.window) = (now, 0.0);
         }
-        if c.calm >= CALM_TIME || phys.world.ragdoll_asleep(id) {
+        // Its time limit: a fresh one's depends on how many others move.
+        let crowded = c.woken == Woken::Fresh && !full_time.contains(&id);
+        let limit = match c.woken {
+            Woken::Shoved => MAX_AWAKE_SHOVED,
+            Woken::Fresh if crowded => MAX_AWAKE_CROWDED,
+            Woken::Fresh => MAX_AWAKE,
+        };
+        let limit = if phys.world.ragdoll_in_water(id) { limit.max(MAX_AWAKE_IN_WATER) } else { limit };
+        let last_window = ragdolls.calm.get(&id).map_or((0.0, 0.0), |m| (m.speed, m.spin));
+        let spinner = ragdolls.calm.get(&id).map_or_else(String::new, |m| m.spinner.clone());
+        let (awake, calm_for) = (c.awake, c.calm);
+        if phys.world.ragdoll_asleep(id) {
+            // The physics engine put every body to sleep: nothing moves.
             phys.world.set_ragdoll_at_rest(id);
-        } else if c.awake >= c.limit && (c.awake >= MAX_AWAKE_IN_WATER || !phys.world.ragdoll_in_water(id)) {
+        } else if slowed {
+            // Slow motion: it moves on freely, not settling (above); calm long enough it is
+            // held as it lies, as before the settle (under 12 units and 0.6 radians a game
+            // second is a twentieth to a quarter of that on screen).
+            if c.settle.take().is_some() {
+                phys.world.unsettle_ragdoll(id);
+            }
+            if calm_for >= CALM_TIME {
+                phys.world.set_ragdoll_at_rest(id);
+            }
+        } else if let Some(s) = c.settle.as_mut() {
+            s.elapsed += dt;
+            if s.elapsed < s.length {
+                phys.world.settle_ragdoll(id, s.elapsed / s.length);
+            } else {
+                phys.world.set_ragdoll_at_rest(id);
+                if !s.calm {
+                    ragdolls.held += 1;
+                    ragdolls.held_crowded += usize::from(s.crowded);
+                    info!(
+                        "ragdoll: actor {id:08X} held at rest still moving after {:.1} s{} (calm for {:.2} s), settled over {:.2} s from {:.1} units/s and {:.2} rad/s to {:.1} units/s and {:.2} rad/s ({} turning fastest)",
+                        awake,
+                        if s.crowded { ", crowded" } else { "" },
+                        calm_for,
+                        s.length,
+                        s.from.0,
+                        s.from.1,
+                        last_window.0,
+                        last_window.1,
+                        if spinner.is_empty() { "no body" } else { spinner.as_str() }
+                    );
+                }
+            }
+        } else if calm_for >= CALM_TIME && last_window.0 < CALM_QUIET * CALM_SPEED && last_window.1 < CALM_QUIET * CALM_SPIN {
+            // Calm and all but still: held at once, nothing left to see stop.
             phys.world.set_ragdoll_at_rest(id);
-            ragdolls.held += 1;
-            info!("ragdoll: actor {id:08X} held at rest still moving after {:.0} s (calm for {:.2} s)", c.awake, c.calm);
+        } else if calm_for >= CALM_TIME || awake >= limit - settle_time(limit) {
+            // Calm long enough, or near its time limit: it settles, then is held at rest.
+            let calm = calm_for >= CALM_TIME;
+            let length = if calm { MIN_SETTLE } else { settle_time(limit) };
+            c.settle = Some(Settle { elapsed: 0.0, length, calm, crowded: !calm && crowded && limit < MAX_AWAKE_IN_WATER, from: last_window });
+            phys.world.settle_ragdoll(id, 0.0);
         }
         let asleep = phys.world.ragdoll_asleep(id);
         if asleep && c.settled {
@@ -630,6 +773,7 @@ pub(crate) fn pose(
         phys.world.remove_ragdoll(id);
     }
     ragdolls.shoved_at_rest.clear();
+    ragdolls.shoved.clear();
 }
 
 /// Set the local transforms of the bones that have a body so that they stand where their
@@ -670,8 +814,18 @@ fn report(mut exit: MessageReader<AppExit>, ragdolls: Res<Ragdolls>, phys: Optio
     }
     let (live, asleep) = phys.as_deref().map_or((0, 0), |p| (p.world.ragdolls().count(), p.world.ragdolls().filter(|&id| p.world.ragdoll_asleep(id)).count()));
     info!(
-        "ragdolls: {} started, {} put back at rest, {} came to rest ({} held at rest still moving after {MAX_AWAKE} s or {MAX_AWAKE_SHOVED} s, {} floating in water), {} shoved by hits ({} roused from rest), {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest); {} laid in the pose their reference stores ({} stored poses did not fit)",
-        ragdolls.started, ragdolls.restored, ragdolls.rested, ragdolls.held, ragdolls.floated, ragdolls.pushes, ragdolls.shoved_awake, ragdolls.lifted, ragdolls.authored, ragdolls.authored_skipped
+        "ragdolls: {} started, {} put back at rest, {} came to rest ({} held at rest still moving at their time limit after settling, {} of them crowded to {MAX_AWAKE_CROWDED} s, {} floating in water), {} shoved by hits ({} roused from rest), {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest); {} laid in the pose their reference stores ({} stored poses did not fit)",
+        ragdolls.started,
+        ragdolls.restored,
+        ragdolls.rested,
+        ragdolls.held,
+        ragdolls.held_crowded,
+        ragdolls.floated,
+        ragdolls.pushes,
+        ragdolls.shoved_awake,
+        ragdolls.lifted,
+        ragdolls.authored,
+        ragdolls.authored_skipped
     );
     // Those still moving: how fast, and how near they came to resting.
     if let Some(p) = phys.as_deref() {

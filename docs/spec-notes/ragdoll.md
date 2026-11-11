@@ -208,6 +208,48 @@ fallen back within half a second [design: owner-review item 51, 2026-11-08; a co
 for battles, where corpses are shot again often]. Walking into it or rolling a barrel onto it
 does not.
 
+**Time limits and the settle** [design, 2026-11-11]. A ragdoll still moving is held at
+rest at the end of a time limit (`engine/nvforever/src/ragdoll.rs`), counted in game
+seconds of physics since it started or was roused, so it lasts as long at every physics
+rate. Under a slowed clock (VATS, a kill camera) the limit does not count, no settle
+starts and one settling moves on freely; only the physics engine's own sleep and the calm
+rule (held at once, no settle) set it at rest, so a corpse moves on, slowed, through the
+whole slow motion and settles once the clock is back [design: the owner, 2026-11-11]:
+
+| What set it moving | Limit | Settle (its last part) |
+|---|---|---|
+| A death, a knockdown, a blast, a drop from the grab, among the 4 youngest moving (`FULL_TIME`) | 8 s (`MAX_AWAKE`) | 2 s |
+| The same, beyond those 4 (`MAX_AWAKE_CROWDED`) | 3 s | 0.75 s |
+| A hit's shove on a corpse at rest (`MAX_AWAKE_SHOVED`) | 1 s | 0.5 s |
+| In water (`MAX_AWAKE_IN_WATER`) | 30 s | 2 s |
+| Calm for 1.5 s (above) | then | 0.5 s; none when its fastest bone moved under 3 units/s and 0.15 rad/s over the last window (`CALM_QUIET`) |
+
+While it **settles** (`PhysWorld::settle_ragdoll`) its bodies' damping rises from their
+own to 15 a second more (`SETTLE_DAMPING`), on linear and angular velocity, along the
+settle; free motion left at its end is about `exp(-15·T/2)` of what it was (2 % after a
+0.5 s settle), and only then are its bodies fixed. [observed 2026-11-11, smoke] Chet's
+ragdoll still rolling at 22 units/s and 2.6 rad/s when its settle began was down to
+0.7 units/s and 0.09 rad/s when held (`sever-chet`). A turn the joints and contacts drive
+anew every step keeps most of its speed (rapier damps once a step, after the solve):
+mantis nymphs' antennae and legs were held turning at 0.3-3 rad/s, a hand at 0.15 rad/s;
+raising the joints' damping motors during the settle did not change that. That shiver is
+#2083's. A hit's shove or a blast that strikes
+it ends the settle and it moves again (a shove: 1 s). Before 2026-11-11 a ragdoll was held
+3 s after it started with no settle, and one still moving stopped dead: in the 50-a-side
+battle 53 of 58 fresh corpses were held while still moving, most with a neck or head
+turning at 0.7-3 rad/s [observed, frame-rate-audit.md §5]. The owner saw it: "when you
+kill somebody, their head can roll and suddenly stop because the physics calculation
+stopped" [observed, 2026-11-11]. A severed head is the cut-off body of its corpse's
+ragdoll (`PhysWorld::cut_ragdoll`), so the same limit held it. Gore pieces
+(`fnv_phys::gore`) have no limit: they stop only by the physics engine's own sleep, once
+their farthest point moves under 0.05 m/s (3.5 units/s) for 0.5 s [documented: rapier3d
+0.36.1 `RigidBodyActivation`].
+
+Why 4 and 3 s: a heap of corpses that never calms costs the solver for as long as it
+moves (mantis nymphs at the player's feet, frame-rate-audit.md §2), and at the battle's
+peak 6-7 ragdolls moved at once; the youngest 4 are most likely the ones just killed in
+view [engineering choice].
+
 **Memory.** The bone poses of a ragdoll at rest are remembered by reference. A ragdoll
 whose ground unloads, or whose actor is no longer drawn, leaves the world and is
 remembered the same way; put back later it is held in that pose. The memory lasts for the
