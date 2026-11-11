@@ -58,6 +58,9 @@ pub mod game {
     /// Each player's Charisma and Ferocious Loyalty, for the others' companion perks
     /// (`crate::coop_companions`).
     pub const PERKS: u8 = 14;
+    /// An arm wrestling match, as the game deciding it has it
+    /// (`crate::armwrestle_coop::ArmView`; actions `ArmAction`).
+    pub const ARMWRESTLE: u8 = 15;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {
@@ -70,6 +73,7 @@ pub mod game {
             POKER => "poker",
             CARAVAN => "caravan",
             POOL => "pool",
+            ARMWRESTLE => "arm wrestling",
             _ => "a table",
         }
     }
@@ -944,6 +948,15 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
             out.push(format!("{name} at five finger fillet{}: {state}{clock}", if v.stake > 0 { format!(" for {} caps", v.stake) } else { String::new() }));
         }
         game::POOL => return crate::pool::summary(tables, name, blob),
+        game::ARMWRESTLE => {
+            if let Some(v) = crate::armwrestle_coop::ArmView::decode(blob) {
+                let who = |w: crate::armwrestle_coop::Wrestler| match w {
+                    crate::armwrestle_coop::Wrestler::Player(p) => tables.name(p),
+                    crate::armwrestle_coop::Wrestler::Npc(_) => "the local".to_string(),
+                };
+                out.push(crate::armwrestle_coop::summary(who, &v));
+            }
+        }
         game::POKER => match crate::poker::coop::PeerView::decode(blob) {
             Some(crate::poker::coop::PeerView::Table(v)) => {
                 let casino = crate::poker::Casino::from_letter(&v.casino.to_string()).map_or("a card table", |c| c.title());
@@ -979,14 +992,14 @@ impl Plugin for CoopTablesPlugin {
 
 /// What this player's table shows, for the others: whichever table is open.
 #[allow(clippy::type_complexity)]
-fn publish(
+pub(crate) fn publish(
     mut tables: ResMut<Tables>,
     mut open: ResMut<OpenTable>,
     time: crate::pause::AidTime,
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
     (pvp, foe): (Option<Res<crate::caravan::PvpWire>>, Option<Res<crate::darts_foes::DartsOpponent>>),
-    pool: Option<Res<crate::pool::PoolScreen>>,
+    (pool, arm, arm_seat): (Option<Res<crate::pool::PoolScreen>>, Option<Res<crate::armwrestle_coop::ArmOut>>, Option<Res<crate::armwrestle_coop::ArmSeat>>),
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);
@@ -1037,6 +1050,16 @@ fn publish(
     }
     if let Some(mate) = pvp.and_then(|w| w.playing) {
         at = Some((game::CARAVAN, mate as u32));
+    }
+    // An arm wrestling match this game decides (`crate::armwrestle_coop`), when no other
+    // table of this player's is open.
+    if let (None, Some((table, blob))) = (out.as_ref(), arm.as_deref().and_then(|a| a.0.clone())) {
+        at = at.or(Some((game::ARMWRESTLE, table)));
+        out = Some((table, game::ARMWRESTLE, blob));
+    }
+    // Seated at the arm wrestling table: its match is on this player's screen already.
+    if let Some((table, _, _)) = arm_seat.as_deref().and_then(|s| s.at) {
+        at = at.or(Some((game::ARMWRESTLE, table)));
     }
     open.set_if_neq(OpenTable(at));
     if tables.out != out {

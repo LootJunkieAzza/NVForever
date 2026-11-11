@@ -311,9 +311,10 @@ impl Furnishings {
 
     /// Decide how `who`, standing at `from` (game space), uses `furniture`. `game`
     /// answers the idle conditions that are about the game's state ([`game_value`]).
-    fn plan(&mut self, world: &WorldData, ctx: &mut ActorCtx, furniture: u32, from: [f32; 3], who: Who, game: furn::World) -> Result<Plan, PlanError> {
+    #[allow(clippy::too_many_arguments)]
+    fn plan(&mut self, world: &WorldData, sim: Option<&nvf_play::sim::SimState>, ctx: &mut ActorCtx, furniture: u32, from: [f32; 3], who: Who, game: furn::World) -> Result<Plan, PlanError> {
         let missing = |what: &str| refused(Refusal::MissingContent, what);
-        let placed = fnv_world::placed::placement(world.lo, world.schema, furniture).ok_or_else(|| missing("no such reference"))?;
+        let placed = placed_at(world, sim, furniture).ok_or_else(|| missing("no such reference"))?;
         let base = placed.base.ok_or_else(|| missing("no base"))?;
         let record = self.bases.get(&base).ok_or_else(|| missing("not furniture"))?.clone();
         let model = record.model.clone().ok_or_else(|| missing("the furniture has no model"))?;
@@ -384,6 +385,31 @@ impl Furnishings {
             }
         }
     }
+}
+
+/// Where `furniture` stands: its placement in the plugins, else, for a reference the game
+/// made at run time (the arm-wrestling table's stools, `nvf_play::armwrestle`), the
+/// simulation's own pose and base [design: created furniture is used as placed].
+fn placed_at(world: &WorldData, sim: Option<&nvf_play::sim::SimState>, furniture: u32) -> Option<fnv_world::placed::Placement> {
+    if let Some(p) = fnv_world::placed::placement(world.lo, world.schema, furniture) {
+        return Some(p);
+    }
+    let s = sim?.world.peek(FormId(furniture))?;
+    Some(fnv_world::placed::Placement {
+        form_id: furniture,
+        sig: *b"REFR",
+        flags: 0,
+        base: Some(s.base.0),
+        position: s.pos,
+        rotation: s.rot,
+        scale: s.scale.unwrap_or(1.0),
+        enable_parent: None,
+        open_by_default: false,
+        teleport: false,
+        emittance: None,
+        imposter: false,
+        primitive: false,
+    })
 }
 
 pub fn log_startup(mut f: ResMut<Furnishings>) {
@@ -584,6 +610,7 @@ pub fn drive_actors(
     mut using: Query<Seated>,
     mut script: Option<ResMut<ScriptState>>,
     mut nav: Option<ResMut<NavState>>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
 ) {
     let dt = time.delta_secs().min(0.1);
     // Actors no longer drawn leave their furniture free: drawn again, they are put back
@@ -599,7 +626,7 @@ pub fn drive_actors(
         let at = to_game(global.translation());
         let female = actor_world.as_deref().and_then(|w| w.actors.npcs.get(&FormId(rig.base))).is_some_and(|n| n.female);
         let who = Who { reference: rig.reference, base: rig.base, female };
-        let plan = f.plan(&world, &mut ctx, sit.furniture, at.to_array(), who, &|func, p| game_value(&script, func, p)).and_then(|p| {
+        let plan = f.plan(&world, sim.as_deref(), &mut ctx, sit.furniture, at.to_array(), who, &|func, p| game_value(&script, func, p)).and_then(|p| {
             // A clip that does not fit is refused here rather than posed wrongly, before
             // the furniture is taken: anything that gets past the AI's choice
             // (`fnv_ai::furniture`), and `--npc-sit`.
@@ -874,7 +901,7 @@ pub fn drive_player(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut script: Option<ResMut<ScriptState>>,
-    (mut hud, mut rest): (ResMut<nvf_play::activate::HudMessage>, MessageWriter<nvf_play::wait::OpenWait>),
+    (mut hud, mut rest, sim): (ResMut<nvf_play::activate::HudMessage>, MessageWriter<nvf_play::wait::OpenWait>, Option<Res<nvf_play::sim::SimState>>),
 ) {
     let Some(mut f) = f else { return };
     let dt = time.delta_secs().min(0.1);
@@ -886,7 +913,7 @@ pub fn drive_player(
             // Activating the furniture one is on: get up.
             Some(u) if u.plan.furniture == reference => seat.leave = true,
             Some(_) => {}
-            None => match f.plan(&world, &mut ctx, reference, player.feet, who, &|func, p| game_value(&script, func, p)) {
+            None => match f.plan(&world, sim.as_deref(), &mut ctx, reference, player.feet, who, &|func, p| game_value(&script, func, p)) {
                 // Beds as seats: the player lies down as a sleeping actor does [owner
                 // request 2026-10-10], and once lying the Sleep menu opens (below).
                 Ok(plan) => {

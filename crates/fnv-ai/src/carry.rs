@@ -593,6 +593,9 @@ pub struct Agent {
     /// where the player was when the way was planned, and from when it may be planned
     /// again.
     pub(crate) walk_up: Option<(Place, f64)>,
+    /// The seat it was last sent to over its package (`fnv_game::game::RefExtra::seat_override`):
+    /// a change begins its package again ([`Ai::step`]).
+    pub(crate) seat: Option<FormId>,
 }
 
 #[derive(Default)]
@@ -877,7 +880,7 @@ impl Ai {
             own_turning(&mut walker, s);
         }
         walker.pace = self.paces.get(&actor).copied().unwrap_or(1.0);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, idle_door_hold: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, idle_door_hold: None, using: None, held_seat: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None, backing: None, walk_up: None, seat: None });
         Ok(())
     }
 
@@ -1239,6 +1242,15 @@ impl Ai {
         let reset = self.agents[&actor].talk == Some(Talking::Done) && game.extra.get(&actor).is_some_and(|e| !e.package_goal_met);
         if reset {
             self.agents.get_mut(&actor).expect("listed").package = None;
+        }
+        // Sent to a seat over its package, or let go of one (the arm-wrestling opponent,
+        // `fnv_game::armwrestle_table`): its package begins again, the goal and the
+        // furniture now the seat's (`goal::resolve`, `Ai::settle`) [design].
+        let seat = game.extra.get(&actor).and_then(|e| e.seat_override);
+        if self.agents[&actor].seat != seat {
+            let a = self.agents.get_mut(&actor).expect("listed");
+            a.seat = seat;
+            a.package = None;
         }
         let current = game.current_package(actor);
         if self.agents[&actor].package != current {
@@ -1903,6 +1915,13 @@ impl Ai {
         let Some(package) = a.package else { return };
         let Some(def) = game.data.package_defs.get(&package) else { return };
         let at = Place { space: a.walker.space, pos: a.walker.feet };
+        // A seat it was sent to is the furniture, whatever the package is.
+        if let Some(seat) = a.seat {
+            if self.taken.get(&seat).is_none_or(|u| *u == actor) {
+                self.set_using(game, actor, Some(seat));
+            }
+            return;
+        }
         if matches!(def.ty, PackageType::Sandbox | PackageType::Wander) {
             let mut sandbox = Sandbox::start(game, actor, package, def, a.goal.as_ref().unwrap_or(&Goal::Here), at);
             if let Some(s) = self.restored_schedule(actor, package) {

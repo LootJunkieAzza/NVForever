@@ -67,6 +67,7 @@ pub mod cond;
 pub mod coverage;
 pub mod crafting;
 pub mod crime;
+pub mod armwrestle;
 pub mod darts;
 pub mod data;
 pub mod source_compile;
@@ -226,6 +227,7 @@ pub mod vats;
 pub mod voice;
 pub mod weather;
 pub mod zones;
+pub mod armwrestle_table;
 
 pub use data::GameData;
 pub use game::{Game, GameConfig, InstKey};
