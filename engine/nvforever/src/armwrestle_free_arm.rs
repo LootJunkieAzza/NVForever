@@ -34,9 +34,12 @@ const THUMB_DIRS: [[f32; 3]; 3] = [[0.5, 0.75, 0.45], [0.75, 0.6, 0.25], [0.9, 0
 /// about 8 back from the middle, `armwrestle_arm::ELBOW_IN`].
 const BACK: f32 = 9.0;
 const OUT: f32 = 14.0;
-/// The palm's middle from `top` (the elbows' height, 2 over the table's top,
-/// `armwrestle_arm::ELBOW_UP`): half a hand's thickness over the top [design].
-const PALM_UP: f32 = -0.8;
+/// The palm's skin under the hand bone's line (wrist to knuckles), game units: the hand
+/// bone lies this far over the table top for the palm to lie on it [observed: the male
+/// left hand's skin (meshes\characters\_male\lefthand.nif, the vertices weighted to
+/// Bip01 L Hand, in its bind space): the palm side reaches 2.8 to 3.2 from the line
+/// between the wrist and the knuckles; 3.0 lets the palm's middle just touch].
+const PALM_DEPTH: f32 = 3.0;
 /// The fingers' turn inwards from straight towards the opponent, radians [design: about
 /// 25 degrees, the hand angled in as it lies].
 const TURN_IN: f32 = 0.45;
@@ -44,7 +47,8 @@ const TURN_IN: f32 = 0.45;
 const PALM_MID: f32 = 0.6;
 
 /// Lays wrestler `root`'s left hand flat on the table: `top` over the middle of the table's
-/// top (Bevy, its y the elbows' height, 2 over the top), `toward` the level direction to the opponent, by `w`.
+/// top (Bevy; its height is not used, the palm goes onto `TABLE_TOP_Z`), `toward` the level
+/// direction to the opponent, by `w`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f32, parents: &Query<&ChildOf>, transforms: &mut Query<&mut Transform>, globals: &Query<&GlobalTransform>) -> Result<(), &'static str> {
     if w <= 0.0 {
@@ -64,8 +68,10 @@ pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f3
         return Err("the arm has no length");
     }
     // The hand's own frame, in its local space: along (wrist to the knuckles' middle), and
-    // the palm's normal: of the two normals to along and the thumb, the one the seated pose
-    // turns down (the hand rests palm down on the lap [observed: the chair's sitting idle]).
+    // the palm's normal: of the two normals to along and the thumb, the side the fingers
+    // curl to [observed: the bind pose's middle finger tip lies 1.1 to the palm side of the
+    // knuckles' line, lefthand.nif]; with straight fingers, the side the seated pose turns
+    // down (the hand rests palm down on the lap [observed: the chair's sitting idle]).
     let at = |e: Entity| -> Option<Vec3> {
         (parents.get(e).ok()?.parent() == hand).then_some(())?;
         Some(transforms.get(e).ok()?.translation)
@@ -77,8 +83,12 @@ pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f3
             let a = k.try_normalize()?;
             let t = (t - a * t.dot(a)).try_normalize()?;
             let n = t.cross(a).normalize();
-            let hr = rot(&gh);
-            let p = if (hr * n).y < 0.0 { n } else { -n };
+            let tip = curl_tip(&FINGERS[1].map(node), transforms);
+            let p = match tip.map(|v| v.dot(n)) {
+                Some(c) if c.abs() > 0.2 => n * c.signum(),
+                _ if (rot(&gh) * n).y < 0.0 => n,
+                _ => -n,
+            };
             Some((a, p, k.length() * PALM_MID, t))
         })
     } else {
@@ -86,12 +96,17 @@ pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f3
     };
     let left = Vec3::Y.cross(toward).normalize_or(Vec3::X);
     let along_w = (toward * TURN_IN.cos() - left * TURN_IN.sin()).normalize();
-    let palm_mid = Vec3::new(top.x, top.y + PALM_UP, top.z) - toward * BACK + left * OUT;
+    let palm_mid = Vec3::new(top.x, fnv_game::armwrestle_table::TABLE_TOP_Z + PALM_DEPTH, top.z) - toward * BACK + left * OUT;
     let reach = frame.map_or(0.0, |f| f.2);
     let wrist = palm_mid - along_w * reach;
     // The elbow out to the left and a little back and down, as a braced arm bends.
     let pole = left - toward * 0.4 - Vec3::Y * 0.3;
     let (e, h) = solve(s, e0, h0, wrist, pole);
+    // Now and then: how near the wrist comes to its spot (an arm too short leaves the hand
+    // over the table).
+    if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 240 == 0 {
+        info!("arm wrestle free hand: {root:?} weight {w:.2} shoulder {s:.0?} wrist to {wrist:.1?} reached {h:.1?} (short {:.1}), palm side {}", h.distance(wrist), if frame.is_some() { "measured" } else { "not found" });
+    }
     // The upper arm and the forearm turned to reach there (as `armwrestle_arm::Arm::apply`).
     let rp = rot(&gp);
     let ru = rp * lu.rotation;
@@ -139,6 +154,17 @@ pub(crate) fn brace(root: Entity, rig: &ActorRig, top: Vec3, toward: Vec3, w: f3
         lay(&THUMB.map(node), dirs, w, transforms);
     }
     Ok(())
+}
+
+/// Calls to [`brace`], for its occasional log line.
+static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// A finger's tip in the hand's space: the chain's three bones and the last one's length
+/// taken as the middle one's (each bone's child is offset along its +X).
+fn curl_tip(bones: &[Option<Entity>; 3], transforms: &Query<&mut Transform>) -> Option<Vec3> {
+    let l: Vec<Transform> = bones.iter().map(|b| b.and_then(|b| transforms.get(b).ok().copied())).collect::<Option<_>>()?;
+    let last = l[2].translation.length();
+    Some(l[0].transform_point(l[1].transform_point(l[2].transform_point(Vec3::X * last))))
 }
 
 /// Point each bone of a chain hung from the hand (each running along its own +X [observed:

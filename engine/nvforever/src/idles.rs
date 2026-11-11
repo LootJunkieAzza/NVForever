@@ -668,7 +668,7 @@ pub fn drive(
     mut residents: Option<ResMut<Residents>>,
     mut sim: Option<ResMut<nvf_play::sim::SimState>>,
     player: Option<Res<Player>>,
-    (control, intent): (Option<Res<PlayerControl>>, Option<Res<MoveIntent>>),
+    (control, intent, arm_table): (Option<Res<PlayerControl>>, Option<Res<MoveIntent>>, Option<Res<nvf_play::armwrestle::ArmTable>>),
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut actors: Query<Drawn>,
@@ -685,6 +685,9 @@ pub fn drive(
         None => (residents.as_deref_mut().and_then(|r| r.own_game()), false),
     };
     let Some(game) = game else { return };
+    // The arm-wrestling table's stools: who sits there is wrestling or about to, and does
+    // not fidget (`at_arm_table`).
+    let arm_stools = arm_table.as_deref().map_or([None; 2], |t| t.stools);
     // A script's menu (a message box, the character menus) holds the game, as the AI's
     // walks are held (`residents.rs`): the idles may start but stand still until it
     // closes, so a scene goes on where it was [observed: owner's TTW run 2026-11-02, the
@@ -772,7 +775,7 @@ pub fn drive(
         // A fidget on furniture ends when its actor starts getting off: it fades out over
         // the start of the getting-off clip, which starts where the body sits
         // (furniture.md §4) [design].
-        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !on_furniture(game, v.0)) {
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && (!on_furniture(game, v.0) || at_arm_table(game, &arm_stools, v.0))) {
             c.play.stop();
         }
         // So does one under a seated Find or Use Item At package with idles of its own:
@@ -836,7 +839,7 @@ pub fn drive(
     }
     // On furniture in third person: may fidget there (the tree's player nodes want the
     // third person, and a fidget in first person would sway the view) [design].
-    let player_seated = on_furniture(game, player_ref) && control.as_deref().is_some_and(|c| c.third_person_view()) && package_of(game, player_ref).is_none();
+    let player_seated = on_furniture(game, player_ref) && !at_arm_table(game, &arm_stools, player_ref) && control.as_deref().is_some_and(|c| c.third_person_view()) && package_of(game, player_ref).is_none();
     if let Some(c) = pi.third.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !player_seated) {
         c.play.stop();
     }
@@ -1002,7 +1005,7 @@ pub fn drive(
             let folder = skeleton_folder(&rig.skeleton)?;
             let still = lo.is_some_and(|l| l.velocity == [0.0; 2]);
             let kind = if game.furniture_use(FormId(v.0)).is_some() {
-                on_furniture(game, v.0).then_some(FidgetKind::OnFurniture)?
+                (on_furniture(game, v.0) && !at_arm_table(game, &arm_stools, v.0)).then_some(FidgetKind::OnFurniture)?
             } else if folder.split('\\').any(|p| p == "creatures") {
                 // Alerted: the combat idles; calm: the tree's ordinary idles (#2051).
                 still.then_some(if game.draws_weapon(FormId(v.0)) { FidgetKind::Alerted } else { FidgetKind::Calm })?
@@ -1475,6 +1478,15 @@ fn fleeing(game: &Game, actor: u32) -> bool {
 /// `GetSleeping` 3).
 fn on_furniture(game: &Game, actor: u32) -> bool {
     game.furniture_use(FormId(actor)).is_some_and(|u| u.state == 3)
+}
+
+/// Whether `actor` sits on (or is getting onto) one of the arm-wrestling table's stools: no
+/// fidget there, the match poses the arms (`armwrestle_arm`, `armwrestle_free_arm`) and a
+/// fidget's body (the chair's lean back, hands behind the head) would pull them off the
+/// table [observed: laptop co-op run ship10, 2026-11-11: the player's lean-back fidget
+/// started 3 s into the bout; design: no fidgets at the arm-wrestling table].
+fn at_arm_table(game: &Game, stools: &[Option<FormId>; 2], actor: u32) -> bool {
+    game.furniture_use(FormId(actor)).is_some_and(|u| stools.contains(&Some(u.reference)))
 }
 
 /// Whether the rules hold `actor`'s weapon out (`IsWeaponOut`).
