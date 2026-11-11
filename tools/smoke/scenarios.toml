@@ -24967,3 +24967,23 @@ order = [[
   { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
   { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
 ]]
+
+[[scenario]]
+name = "guard-radius-wander"
+source = "issue #2027: a Guard package whose location has a radius over 0 has its actor wander within that radius once there (GECK wiki, Guard Package: Guard Location, Radius), as a sandbox that only wanders (crates/fnv-ai/src/sandbox.rs Sandbox::guard, carry.rs guard_wander_radius); positions measured by the test aid NVF_PLAY_TEST_GUARD_WANDER (engine/nvforever/src/residents/guard_wander.rs)"
+note = "GoodspringsSettler03Ref is given DefaultGuardStayAtPosition01 (Guard, near editor location, radius 128) at 4 s, walks to his editor location and wanders about it; the aid measures his feet for 300 s from the wander's start against its centre and radius, a sample farther than radius + 32 a violation. The original's side (issue #2027, AI observer 2026-11-10): two GSSettlerAAM on that package kept moving inside an area the size of the radius, procedure 44 GUARD. GetCurrentAIProcedure is read at 120 s and 240 s"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/sandbox.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents/guard_wander.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GUARD_WANDER = "GoodspringsSettler03Ref:300", NVF_PLAY_TEST_SCRIPT = "4:call:GoodspringsSettler03Ref:AddScriptPackage:DefaultGuardStayAtPosition01,120:call:GoodspringsSettler03Ref:GetCurrentAIProcedure,240:call:GoodspringsSettler03Ref:GetCurrentAIProcedure" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 340
+expect = [
+  { text = "GoodspringsSettler03Ref: package DefaultGuardStayAtPosition01", label = "the script package is taken up" },
+  { re = 'guard wander check: armed actor=\S+ centre=\(.*\) radius=128$', label = "the guard's wander starts round his editor location, radius 128" },
+  { re = 'guard wander check: .*max_distance=([0-9.]+)', range = [0, 160], all = true, label = "every report: never farther than the radius plus the aid's slack" },
+  { re = 'guard wander check: .*violations=(\d+)', range = [0, 0], all = true, label = "no sample past radius + 32" },
+  { re = 'guard wander check: done .* moves=(\d+)', range = [3, 1000000], label = "he sets off again and again over the 300 s" },
+  { re = 'guard wander check: done .* walked=(\d+)', range = [150, 1000000], label = "and covers ground (measured feet, not chosen spots)" },
+  { re = 'guard wander check: done .* package_type=(\d+)', range = [35, 35], label = "still on the Guard package at the end" },
+  { text = "script: test aid calls GetCurrentAIProcedure on GoodspringsSettler03Ref = 44", count = 2, label = "procedure GUARD at 120 s and 240 s" },
+]

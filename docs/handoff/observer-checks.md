@@ -1514,3 +1514,19 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-11 (a guard's wander, #2027)
+
+106. **How does a Guard package with a location radius wander: how often, how far, and
+    round what?** (P3; actor-behaviour.md §5.5, packages.md §3.) The wiki says only that a
+    guard whose location has a radius over 0 "will wander within that radius" [documented:
+    GECK wiki, Guard Package]. The 2026-11-10 capture (issue #2027) saw two placed
+    GSSettlerAAM on DefaultGuardStayAtPosition01 (radius 128) moving in 20 % and 39 % of
+    the samples, one walking 4,212 units in 317 s, spread 235 × 206 units, at most 152 from
+    its average spot [observed]. NVForever wanders as a sandbox does: a random point of the
+    navmesh within the radius, a walk there, a pause of 4 to 12 s, the walk not kept inside
+    the circle [design, #2027]. Record a placed (editor-located) settler given that package,
+    10:00 to 13:00, sampling position and IsMoving every 10 game loops: the pauses' lengths,
+    the walks' lengths, whether any sample lies past the radius from the editor location
+    (and by how much), and whether a radius round a reference that moves (the player, a
+    walking actor as the location) follows it or stays where the package began.

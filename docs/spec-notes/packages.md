@@ -293,7 +293,18 @@ location, in cell (radius ignored), near reference; the radius is editable.
   DefaultGuardNPC (Strip securitrons, super mutant guards; 128), the Nellis Boomer tower
   guards (256 around a tower marker), PowderGangerGuardMixedPackage (linked reference,
   distance 0, radius 256 around the editor location) and V22MantisFemaleEggGuardPackage
-  (300) [observed: `fnvtool ai show`].
+  (300) [observed: `fnvtool ai show`]. **The wander, built 2026-11-11 (#2027)**: "If it
+  has a radius greater than 0, the actor will wander within that radius" [documented:
+  GECK wiki, Guard Package, Guard Location]; the location's radius, not the guarded
+  reference's guard radius (Count / Distance, for intruders). Of FalloutNV.esm's Guard
+  packages 115 have a location radius, used by 149 actor bases and 430 placed actors
+  [observed: the issue's census]. In the original two settlers on
+  DefaultGuardStayAtPosition01 (near editor location, 128) kept moving inside an area of
+  about that size, procedure 44 GUARD throughout [observed: AI observer 2026-11-10, issue
+  #2027]. Here (`fnv_ai::carry::guard_wander_radius`, `Sandbox::guard`) a guard that has
+  arrived wanders as a sandbox with only wandering on (actor-behaviour.md §5.5); a radius
+  of 0, and a Guard with Remain Near Reference to Guard (§7.7), stand as before
+  [design, #2027]. How often and how far it moves is ours (observer check 106).
 - **Follow / Accompany / Escort**: keep a distance to a target actor (follow walks
   behind it; accompany paths to its destination; escort leads it to a destination);
   follow can have start and end locations.

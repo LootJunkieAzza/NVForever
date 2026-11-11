@@ -1882,21 +1882,23 @@ impl Ai {
 
     /// The actor is where its package wants it: a Sandbox or Wander package starts its
     /// sandbox there; another package may give it furniture
-    /// ([`goal::package_furniture`]).
+    /// ([`goal::package_furniture`]); a Guard whose location has a radius wanders within
+    /// it ([`guard_wander_radius`], [`Sandbox::guard`]).
     fn settle(&mut self, game: &mut Game, actor: FormId) {
         let a = &self.agents[&actor];
         let Some(package) = a.package else { return };
         let Some(def) = game.data.package_defs.get(&package) else { return };
         let at = Place { space: a.walker.space, pos: a.walker.feet };
+        // A guard wanders round its location's place; "near current location" and the
+        // other places without one, round where it settled [design, #2027].
+        let guard = guard_wander_radius(def).map(|radius| (if let Some(Goal::Near { place, .. }) = &a.goal { *place } else { at }, radius));
+        let mut sandbox = None;
         if matches!(def.ty, PackageType::Sandbox | PackageType::Wander) {
-            let mut sandbox = Sandbox::start(game, actor, package, def, a.goal.as_ref().unwrap_or(&Goal::Here), at);
-            if let Some(s) = self.restored_schedule(actor, package) {
-                sandbox.set_schedule(&s);
-                self.log(game, actor, AiEvent::Resumed { package, patrol_point: None, sandbox: true });
-            }
-            self.agents.get_mut(&actor).expect("listed").sandbox = Some(sandbox);
+            sandbox = Some(Sandbox::start(game, actor, package, def, a.goal.as_ref().unwrap_or(&Goal::Here), at));
         } else if let Some(f) = goal::package_furniture(game, &self.taken, actor, def, at, &mut self.furniture) {
             self.set_using(game, actor, Some(f));
+        } else if let Some((centre, radius)) = guard {
+            sandbox = Some(Sandbox::guard(game, actor, package, def, centre, radius));
         } else if let Some(heading) = marker_heading(game, def) {
             // At an xMarkerHeading it stands the way the marker faces [documented: GECK
             // wiki, NPC population, level-design.md: the heading version "shows which way
@@ -1904,6 +1906,13 @@ impl Ai {
             // G.O.A.T. (CG03MrBrotchTeachMarker, 22°) faces the desks; before, he kept the
             // heading he walked in with and taught the wall.
             self.agents.get_mut(&actor).expect("listed").face_to = Some(heading);
+        }
+        if let Some(mut sandbox) = sandbox {
+            if let Some(s) = self.restored_schedule(actor, package) {
+                sandbox.set_schedule(&s);
+                self.log(game, actor, AiEvent::Resumed { package, patrol_point: None, sandbox: true });
+            }
+            self.agents.get_mut(&actor).expect("listed").sandbox = Some(sandbox);
         }
     }
 
@@ -2611,6 +2620,20 @@ impl Ai {
 /// [observed: Fallout3.esm and FalloutNV.esm references name it; the base is the
 /// engine's own, in no plugin].
 const X_MARKER_HEADING: FormId = FormId(0x0000_0034);
+
+/// The radius a Guard package's actor wanders within once it is at its location: the
+/// location's radius, when over 0 ("If it has a radius greater than 0, the actor will
+/// wander within that radius" [documented: GECK wiki, Guard Package, Guard Location]).
+/// `None` for other types, for a radius of 0 (the guard stands where it arrived) and for
+/// a Guard that remains near the reference it guards, whose place is that reference's
+/// and whose area may be the target's distance ([`goal::resolve`]) [design, #2027: that
+/// one is left as it was; packages.md §7.7].
+pub fn guard_wander_radius(def: &fnv_game::package::PackageDef) -> Option<f32> {
+    if def.ty != PackageType::Guard || def.remain_near_reference() {
+        return None;
+    }
+    def.location.map(|l| l.radius).filter(|r| *r > 0).map(|r| r as f32)
+}
 
 /// The heading of the xMarkerHeading a package's location names ("near reference"), if
 /// it names one.

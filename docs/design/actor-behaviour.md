@@ -530,6 +530,27 @@ in his store. In `nvforever`: Chet walks about his store and sits down (screensh
 flying over the map with `all`, 161 wanders, 37 meals, 6 idle markers at 26 frames a
 second as before.
 
+**A guard's wander (2026-11-11, #2027)**: a Guard package whose location has a radius
+over 0 has its actor "wander within that radius" [documented: GECK wiki, Guard Package].
+Once there (`settle`, after the package's furniture, before an xMarkerHeading's facing)
+the guard gets a sandbox with only wandering on (`Sandbox::guard`), whatever the record's
+type-specific bits (not Sandbox switches on a Guard): no seats, idle markers, meals or
+beds. Its centre is the location's place (where it settled for "near current location"),
+its radius the location's, not the guarded reference's guard radius. Its spots are random
+points of the actor's walkable area within the radius (a small radius holds few triangle
+centres: one or two within 128 units of a Goodsprings settler outdoors [observed:
+`fnvtool nav near`]), a triangle centre when eight tries find none; the pause at a spot
+and the walk are a sandbox's [design, #2027]. A spot bounds where the guard stops, not the
+way there: round a wall the way can leave the circle. The package and procedure stay
+Guard's (GetCurrentAIPackage 35, GetCurrentAIProcedure 44: `package_procedure` reads the
+sandbox's phase only for Sandbox packages). Combat, a warning or flight interrupts it as
+any sandbox (`interrupt_sandbox`) and it goes on from where the guard is. Left as they
+were: a radius of 0 (the guard stands where it arrived), Remain Near Reference to Guard
+(its place is the guarded reference's), the warning rules, and a location reference that
+moves (the centre is where it was when the package began). Checks:
+`crates/fnv-ai/tests/guard_wander.rs` (9 tests) and the smoke scenario
+`guard-radius-wander`; the original's cadence is observer check 106.
+
 **Not done**: conversations; food; the idle manager's idles (package and marker idles
 are played, docs/spec-notes/idles.md); sandboxing "at each
 point of a linked patrol route" [documented]; energy changing over the day; the game's

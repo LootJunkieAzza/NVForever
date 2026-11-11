@@ -182,6 +182,10 @@ const WANDER: usize = 2;
 /// cost; neither the documentation nor the original gives numbers].
 const RETRY_DELAYS: [f64; 5] = [60.0, 120.0, 240.0, 480.0, 600.0];
 
+/// Random points a guard's wander tries before it takes a triangle centre
+/// ([`Sandbox::guard`]) [design, #2027].
+const POINT_TRIES: usize = 8;
+
 /// An object there was no way to, the last time the actor tried.
 #[derive(Debug, Clone, Copy)]
 struct FailedObject {
@@ -222,6 +226,9 @@ pub struct Sandbox {
     pub(crate) got_up: bool,
     /// Another behaviour took control; cancellation runs once until the next choice.
     interrupted: bool,
+    /// Wander spots are random points of the navmesh within the radius, not triangle
+    /// centres ([`Sandbox::guard`]).
+    points: bool,
 }
 
 /// A sandbox's day as a save keeps it ([`crate::progress`]): where its random numbers
@@ -270,6 +277,7 @@ impl Sandbox {
             got_up: false,
             interrupted: false,
             chosen_at: 0.0,
+            points: false,
         };
         s.roll(game);
         s
@@ -378,6 +386,21 @@ impl Sandbox {
         // The whole cell is at most this far away [our choice for "in cell"].
         let reach = if self.radius.is_infinite() { 2048.0 } else { self.radius };
         let centre = self.centre.pos;
+        // A guard's small area holds few triangle centres (outdoors one or two within 128
+        // units of a Goodsprings settler's editor location [observed: `fnvtool nav near`]):
+        // a random point of the actor's walkable area within the radius, else a centre as
+        // below [design, #2027].
+        if self.points {
+            for _ in 0..POINT_TRIES {
+                let (turn, out) = (self.rng.next() * std::f32::consts::TAU, reach * self.rng.next().sqrt());
+                let (x, y) = (centre[0] + out * turn.cos(), centre[1] + out * turn.sin());
+                let Some(t) = nav.locate(at.space, [x, y, centre[2]], 256.0) else { continue };
+                let pos = [x, y, nav.height_on(t, x, y)];
+                if nav.area[t as usize] == area && (pos[2] - at.pos[2]).abs() < 400.0 && hdist(pos, at.pos) > 64.0 {
+                    return Some(Place { space: at.space, pos });
+                }
+            }
+        }
         let spots: Vec<u32> = nav
             .triangles_near(at.space, centre[0], centre[1], reach)
             .into_iter()
@@ -548,6 +571,27 @@ impl Sandbox {
         }
         self.doing = Doing::Standing;
         self.until = Until::Time(game.time + 5.0);
+    }
+
+    /// The wandering of a Guard package whose location has a radius over 0: "If it has a
+    /// radius greater than 0, the actor will wander within that radius" [documented: GECK
+    /// wiki, Guard Package, Guard Location]. A sandbox that only wanders, round `centre`
+    /// within `radius` (over 0): no seats, idle markers, meals or beds, whatever the
+    /// record's type-specific bits (they are not Sandbox switches on a Guard,
+    /// `PackageDef::sandbox_flag`). Its spots are random points of the navmesh within the
+    /// radius; its pauses (4 to 12 seconds at a spot) and walk are a sandbox's wander
+    /// [design, #2027: the original's cadence is not measured, observer check 106].
+    pub fn guard(game: &Game, actor: FormId, package: FormId, def: &PackageDef, centre: Place, radius: f32) -> Sandbox {
+        let mut s = Sandbox::start(game, actor, package, def, &Goal::Near { place: centre, radius }, centre);
+        s.allowed = Allowed { eating: false, sleeping: false, conversation: false, idle_markers: false, furniture: false, wandering: true };
+        s.points = true;
+        s
+    }
+
+    /// Where the area is: its centre and radius (infinite for an "in cell" location), for
+    /// reports and test aids.
+    pub fn area(&self) -> (Place, f32) {
+        (self.centre, self.radius)
     }
 }
 
