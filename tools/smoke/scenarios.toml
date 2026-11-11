@@ -11111,18 +11111,22 @@ expect = []
 
 [[scenario]]
 name = "slots-3d"
-source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): the Tops slot machine 0x0016546A activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera pans slowly in on the reels and stays there for the pull and the turn, out to third person only for a win, back in after; the body out of the close camera's view; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): the Tops slot machine 0x0016546A activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera pans slowly in on the reels and stays there for the pull and the turn, out to third person only for a win, back in after; a pull while the win's sequence plays (46.5 s) is ignored and the next spin waits for it to end; the body out of the close camera's view; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
 areas = ["slots", "menus"]
 paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs", "engine/nvf-play/src/slots.rs", "engine/nvf-play/src/slots/screen.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,52:reels:1-2-3,52.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_reels.png,38.5:slots3d_payouts.png,40.00:slots3d_clip_00.png,40.25:slots3d_clip_01.png,40.50:slots3d_clip_02.png,40.75:slots3d_clip_03.png,41.00:slots3d_clip_04.png,41.25:slots3d_clip_05.png,41.50:slots3d_clip_06.png,41.75:slots3d_clip_07.png,42.00:slots3d_clip_08.png,42.25:slots3d_clip_09.png,42.50:slots3d_clip_10.png,42.75:slots3d_clip_11.png,43.00:slots3d_clip_12.png,43.25:slots3d_clip_13.png,43.50:slots3d_clip_14.png,43.75:slots3d_clip_15.png,44.00:slots3d_clip_16.png,46.2:slots3d_win_line.png,46.6:slots3d_back_00.png,47.0:slots3d_pull2.png,47.4:slots3d_back_01.png,47.8:slots3d_back_02.png,48.4:slots3d_back_03.png,49.6:slots3d_small_00.png,50.0:slots3d_small_win.png,50.6:slots3d_small_01.png,51.4:slots3d_small_02.png,52.2:slots3d_small_03.png,54.0:slots3d_loss_00.png,55.4:slots3d_loss_01.png,56.0:slots3d_loss.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,48.6:spin,53:reels:1-2-3,55:spin,60.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_reels.png,38.5:slots3d_payouts.png,40.00:slots3d_clip_00.png,40.25:slots3d_clip_01.png,40.50:slots3d_clip_02.png,40.75:slots3d_clip_03.png,41.00:slots3d_clip_04.png,41.25:slots3d_clip_05.png,41.50:slots3d_clip_06.png,41.75:slots3d_clip_07.png,42.00:slots3d_clip_08.png,42.25:slots3d_clip_09.png,42.50:slots3d_clip_10.png,42.75:slots3d_clip_11.png,43.00:slots3d_clip_12.png,43.25:slots3d_clip_13.png,43.50:slots3d_clip_14.png,43.75:slots3d_clip_15.png,44.00:slots3d_clip_16.png,45.0:slots3d_cheer.png,46.2:slots3d_win_line.png,46.6:slots3d_blocked.png,47.4:slots3d_back_01.png,47.8:slots3d_back_02.png,48.4:slots3d_back_03.png,49.2:slots3d_pull2.png,51.6:slots3d_small_00.png,52.2:slots3d_small_win.png,52.8:slots3d_small_01.png,54.4:slots3d_small_03.png,56.0:slots3d_loss_00.png,57.4:slots3d_loss_01.png,58.0:slots3d_loss.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 62
+run_seconds = 64
 order = [[
   "slots: the machine is 0016546A",
   "slots view: the reel model has 28 faces (radius 7.",
   "slots view: drums on 0016546A (its own reel nodes; radius 8.",
   "slots: spin: bet 5, 195 chips left; the reels will stop on Orange Orange Orange",
   "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
+  "slots: the next spin waits 5.6s for the win's sequence",
+  "slots: spin ignored: the win's sequence has",
+  "slots: spins open again (the win's sequence is over)",
+  "slots: spin: bet 5, 990 chips left; the reels will stop on Cherry Bell BAR",
   "slots: the reels stop on Cherry Bell BAR: One cherry pays 2 x 5 = 10 chips",
   "slots: the reels stop on Bell BAR Seven: nothing",
   "slots: closed (the player left)",
@@ -11141,9 +11145,9 @@ name = "slots-3d-static"
 source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): an Atomic Wrangler slot machine of the static model Slot_Machine02.nif (vWranglerSlot02, 0x00119EC0) has no reel nodes: the drums stand at the vanilla cabinet's reel places; a win of three bells and a loss; screenshots. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
 areas = ["slots", "menus"]
 paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00119EC0", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x00119EC0", NVF_PLAY_TEST_SLOTS = "18:chips:200:144C42,36:help,37:bet:5,39.5:reels:1-1-1,40:spin,46:reels:2-3-4,46.5:spin,52:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_static_reels.png,41.2:slots3d_static_spin.png,43.3:slots3d_static_win.png,47.8:slots3d_static_spin2.png,50:slots3d_static_loss.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00119EC0", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x00119EC0", NVF_PLAY_TEST_SLOTS = "18:chips:200:144C42,36:help,37:bet:5,39.5:reels:1-1-1,40:spin,46:reels:2-3-4,47.5:spin,53.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_static_reels.png,41.2:slots3d_static_spin.png,43.3:slots3d_static_win.png,48.8:slots3d_static_spin2.png,51:slots3d_static_loss.png" }
 args = ["--cell", "FreesideAtomicWrangler", "--play", "--no-voice"]
-run_seconds = 56
+run_seconds = 57
 order = [[
   "slots: the machine is 00119EC0",
   "slots view: drums on 00119EC0 (the cabinet's reel places (static model)",
