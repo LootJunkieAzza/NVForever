@@ -675,6 +675,13 @@ playtest list 5 item 59]. The tumbleweeds roll with the weather's wind: [wind](w
   `a_sleeping_body_struck_then_queried_still_moves`; in play, a bottle shot off a fence
   stayed put]. `update_queries` puts such a body to sleep and wakes it with its velocity
   again.
+- **Drawing is not stepping**: frames come at their own rate, between the fixed steps;
+  what physics moves is drawn between its last two steps (§5.2), which reads the world
+  and never writes it. Everything the simulation sees (the poses written back to the
+  simulation, GetPos, saves, queries, the corpses' rest rule) stays on the stepped pose
+  [observed: test `drawing_leaves_the_steps_bit_identical`].
+- **NaN or infinite state** is taken out of the simulation by rapier and dealt with after
+  each step (§5.3).
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit
   (cancellation in the quadratic), from 100 units by under 0.01 [observed: tests]. Probes
   and activation rays should start near what they test; `fnvtool phys` starts ground rays
@@ -813,6 +820,100 @@ decides what the next query refresh costs.
   - Combat: with coincident actors the hit now goes to the lower form id, and inside two
     overlapping parts to the lower part index (then the earlier segment), always. Before,
     either could win depending on the tree.
+
+### 5.2 Drawing between steps (2026-11-11)
+
+The world steps 60 times a second of the game's clock (`PhysParams::dt`), the frames come
+at whatever rate the machine and the screen give (up to 152 a second on the owner's
+variable-refresh screen). On a frame between two steps, a body drawn at its last step's
+pose moves in uneven jumps: at 152 frames a second a step lands every 2 or 3 frames
+(152 / 60 = 2.53). The player, the walked
+actors and the corpses were already drawn between their last two steps; everything else
+physics moves was not (knocked clutter, dropped items, the item the grab holds, gore,
+wreck parts, swing traps, tumbleweeds). Now every one is [design, the usual answer for a
+fixed step at any frame rate; rapier's own Bevy plugin does the same with its
+`TimestepMode::Interpolated` [documented: bevy_rapier in rapier's repository]]:
+
+- **The pose before the step** (`fnv_phys::drawn`). At the start of every
+  `PhysWorld::step` the world keeps the pose of each body that can move in it: the
+  dynamic bodies awake (rapier's active set), those added, struck or woken since the last
+  step and the held body. Bodies asleep, fixed or kinematic are not kept (nothing to
+  blend). The table is refilled each step in the same storage; reading it allocates
+  nothing but the lists the readers return.
+- **The share of a step** (`PhysState::draw_alpha` in `engine/nvf-play`): the stepper's
+  remainder over the step, in [0, 1], the one place it is worked out. 0 draws the pose
+  before the last step, 1 the pose after it.
+- **Blending**: translations linearly, rotations by slerp the short way round. The readers
+  mirror the stepped ones: `drawn_ref_bodies` / `drawn_ref_body` (`ref_bodies`),
+  `drawn_ragdoll_nodes` (`ragdoll_nodes`), `drawn_gore_state` (`gore_state`); `drawn_refs`
+  lists the references with a body drawn between steps.
+- **Not across a jump.** A body added, placed by hand (`body_placed`, `place_character`,
+  `pose_ref_object`), built again (a ragdoll set at rest, roused or lifted; a reference's
+  collision built again for a script's SetPos, a new body) or frozen after NaN state (§5.3)
+  since the last step has no pose kept: it is drawn where it is until the next step. A
+  body that went more than `DRAWN_JUMP` (100 units) along an axis in one step was put
+  somewhere, not moved, and is drawn where it is too (the corpses' old guard, now for
+  every body).
+- **Woken by a contact** during a step (asleep at its start), a body has no pose kept for
+  that step and is drawn where it is until the next. It starts from rest, so that step
+  moves it little [hypothesis: not measured].
+- **Who draws what** (`engine/`):
+  - placed clutter physics has moved (`PhysState::placed_dynamic`, tumbleweeds and the
+    held item included) and dropped items with one dynamic body (`PhysState::created`):
+    `PhysState::drawn_ref_pose` turns the drawn body into the reference pose;
+    `PhysState::between` lists them every frame while they move and once after (drawn
+    where they came to rest). `moved.rs`, `dropped.rs` and `script_draw.rs` draw them
+    there; `settle_placed` and `settle_created` still write the stepped pose to the
+    simulation. `moved.rs` keeps the entities of each reference it moves, so a reference
+    drawn every frame is not looked for among every drawn entity each frame;
+  - corpses (`nvforever` `ragdoll.rs`): the kept poses, exact however many steps the
+    frame ran (before, the pose before the last step was estimated from the last frame's,
+    off when a frame ran several steps); the corpse the grab drags too;
+  - gore pieces (`dismember.rs`), wreck parts (`wrecks.rs`) and swing traps
+    (`swing_traps.rs`): drawn poses for the drawing, the stepped ones for their rest and
+    hit rules.
+- The exit report says how much was drawn between steps: `physics: drawn between steps: N
+  references at most in a frame, over F frames; B bodies at most kept before a step; …`.
+- **Cost**: one pose copy per moving body per step, and for drawing a lookup and a blend
+  per drawn body per frame. Steps and their results are unchanged: the steps never read
+  the kept poses (test `drawing_leaves_the_steps_bit_identical`, the digests and traces of
+  the other tests unchanged).
+- **Latency** is unchanged: what a frame draws is up to one step behind the newest step,
+  as the player's camera already was.
+
+### 5.3 NaN or infinite state: rapier's quarantine (2026-11-11)
+
+rapier 0.35 and later check each step for state that went NaN or infinite: such a body is
+rolled back to its last finite pose (when it has one), its velocities and forces zeroed
+and the body disabled; a collider whose own geometry went non-finite is disabled; both are
+listed for that step in `PhysicsWorld::quarantine()` [documented: rapier3d 0.36.1
+`src/pipeline/physics_pipeline/quarantine.rs`]. After each step `PhysWorld::step` reads
+the list (`fnv_phys::quarantine`):
+
+- **Reported once**: each body or collider is logged the first time
+  (`physics: quarantined the body of reference 0001E9F2 object 0 (layer 4) at step N: …`),
+  with what it belongs to, listed in `PhysWorld::quarantined` and counted in
+  `Stats::quarantined_bodies` / `quarantined_colliders`; the engine's exit report repeats
+  the counts.
+- **Not left disabled out of sight** [design]: a disabled body has no contacts and no
+  query finds it, while the engine would still draw its object: an item nothing could
+  touch.
+  - A reference's dynamic body (clutter, a dropped item) or a gore piece is made a fixed
+    body where it was rolled back to and switched on again: drawn where it was, solid and
+    found by rays and the crosshair, never simulated again. Simulating it again could meet
+    the same NaN every step; taking it out of the world would make the item vanish (a
+    quest item too) and leave the engine's tables (references, write-back, the grab)
+    naming a body that is gone. The grab lets go of it.
+  - A ragdoll body takes its whole ragdoll to rest where it lies
+    (`set_ragdoll_at_rest`), the grab letting go first.
+  - A kinematic body (a character, a hit volume) is switched on again: its owner places it
+    before every step.
+  - A body with no finite pose to go back to, and a collider with bad geometry, stay
+    disabled (nothing sensible to draw or collide); the report says so.
+- Nothing NVForever does is known to make NaN state; the reports are there so that one
+  would be seen [observed: tests `a_body_gone_nan_is_reported_once_and_frozen_in_place`,
+  `a_corpse_gone_nan_is_held_at_rest`, `a_collider_gone_nan_is_reported_once`, NaN set by
+  hand].
 
 ## 6. Character controller and capture questions
 

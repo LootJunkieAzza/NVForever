@@ -13602,6 +13602,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "physics-drawn-between-steps"
+source = "docs/spec-notes/physics.md §5.2-§5.3: what physics moves is drawn between its last two fixed steps (fnv_phys::drawn, PhysState::draw_alpha); the tutorial's brahmin skull in Doc Mitchell's house (ref 00104C10) picked up with Grab (Z), carried and let go is placed clutter physics moves, so it is drawn between steps while it moves, and the exit report counts it; no body or collider goes NaN (rapier's quarantine, reported once each)"
+areas = ["physics", "grab"]
+paths = ["crates/fnv-phys/src/drawn.rs", "crates/fnv-phys/src/quarantine.rs", "crates/fnv-phys/src/world.rs", "engine/nvf-play/src/moved.rs", "engine/nvf-play/src/dropped.rs", "engine/nvf-play/src/script_draw.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00104C10", NVF_PLAY_TEST_GRAB = "16:z:2:0:at=00104C10" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 26
+order = [[
+  { re = 'grab: picked up loose object .*00104C10\) by Aid', label = "Z picks up the skull" },
+  { re = 'grab: dropped .*00104C10\) after', label = "let go" },
+  { re = 'grab: .*00104C10\) came to rest at', label = "it comes to rest" },
+]]
+expect = [
+  { re = 'physics: drawn between steps: (?P<n>\d+) references at most in a frame, over [1-9]\d* frames', range = [1, 20], label = "the carried and dropped skull is drawn between steps while it moves" },
+  { re = 'physics: drawn between steps: .*; quarantined 0 bodies and 0 colliders', label = "no NaN state in the run" },
+]
+forbid = [{ re = 'physics: quarantined ', label = "no body or collider quarantined" }]
+
+[[scenario]]
 name = "weather-roll"
 source = "ESM gap audit row 8 (docs/spec-notes/world.md §6 \"Choosing a weather\"): the weather is a weighted roll from the climate's list (CLMT WLST), and an overriding region's list (REGN RDWT) replaces it where the camera stands"
 note = "Goodsprings lies in no overriding weather region: the start rolls NVDefaultClimate's list, which by day is NVWastelandClear alone (NVWastelandClearNight waits for VNight). At 12 s the player is put inside NVUrbanRegion (Override flag, priority 100, NVUrbanClear 85 / NVWastelandClear 15), north of Freeside; the drop from z 9,000 does not matter, only the camera's x, y. The roll there is seeded (--weather-seed), so which of the two comes is the same every run"
