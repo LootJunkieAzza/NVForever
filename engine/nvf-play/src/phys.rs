@@ -96,6 +96,9 @@ pub struct PhysState {
     /// Placed references whose pose [`PhysState::settle_placed`] wrote to the simulation
     /// this frame (for `crate::moved`).
     pub moved_now: Vec<u32>,
+    /// Placed clutter and dropped items drawn between physics steps this frame
+    /// ([`PhysState::drawn_ref_pose`]).
+    pub between: DrawnBetween,
     /// Doors that open in place, in the world now: their keyframed bodies follow
     /// `crate::doors::Doors` ([`pose_doors`]).
     pub doors: BTreeMap<u32, PosedDoor>,
@@ -199,6 +202,7 @@ impl Default for PhysState {
             created: BTreeMap::new(),
             placed_dynamic: BTreeMap::new(),
             moved_now: Vec::new(),
+            between: DrawnBetween::default(),
             doors: BTreeMap::new(),
             animated: BTreeMap::new(),
             destruction_models: HashMap::new(),
@@ -282,6 +286,27 @@ fn drawn_floor(floors: &DrawnFloors, pose: &RefPose, at: [f32; 3]) -> Option<f32
     let w = DRAWN_FLOOR_WINDOW / s;
     let top = floors.height_at(x, y, z - w, z + w)?;
     Some(at[2] + (top - z) * s)
+}
+
+/// The references whose bodies are drawn between physics steps (`fnv_phys::drawn`,
+/// docs/spec-notes/physics.md §5.2): placed clutter physics has moved
+/// ([`PlacedDynamic::moved`]) and dropped items with a dynamic body, while their body
+/// moves. The systems that draw them (`crate::moved`, `crate::dropped`,
+/// `crate::script_draw`) draw them at [`PhysState::drawn_ref_pose`]; the simulation keeps
+/// the stepped pose ([`PhysState::settle_placed`], [`PhysState::settle_created`]).
+#[derive(Debug, Default)]
+pub struct DrawnBetween {
+    /// Drawn between steps this frame, sorted.
+    pub now: Vec<u32>,
+    /// Those and the ones drawn between steps the frame before, sorted: a reference whose
+    /// body stopped is drawn once more, where it came to rest.
+    pub redraw: Vec<u32>,
+    /// Drawn between steps the frame before.
+    last: Vec<u32>,
+    /// The most references drawn between steps in one frame, and the frames with any
+    /// (the exit report).
+    pub most: usize,
+    pub frames: u64,
 }
 
 /// An actor's character in the physics world: who moves it sets `velocity`.
@@ -724,6 +749,51 @@ impl PhysState {
         }
     }
 
+    /// Where between the last two physics steps the frame is drawn: the share of a step
+    /// the clock has gone since the last one (the stepper's remainder over the step), in
+    /// [0, 1]. Everything physics moves is drawn this far from its pose before the last
+    /// step to its pose after it: the characters ([`PhysState::npc_drawn_feet`]), the
+    /// bodies (`fnv_phys::drawn`, [`PhysState::drawn_ref_pose`]), nvforever's corpses, gore,
+    /// wrecks and swing traps. The one place it is worked out.
+    pub fn draw_alpha(&self) -> f32 {
+        (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0)
+    }
+
+    /// The reference pose (position, row-major rotation) to draw reference `id` at this
+    /// frame, from its body drawn between the last two steps (`fnv_phys::drawn`,
+    /// [`PhysState::draw_alpha`]): for placed clutter physics has moved and dropped items
+    /// with one dynamic body. `None` for any other reference, which is drawn at the
+    /// simulation's pose. For drawing only: the simulation's pose is the stepped one
+    /// ([`PhysState::settle_placed`], [`PhysState::settle_created`]).
+    pub fn drawn_ref_pose(&self, id: u32) -> Option<([f32; 3], [f32; 9])> {
+        let (local, scale) = match self.placed_dynamic.get(&id) {
+            // Not moved yet: drawn at its placement, which the simulation still holds.
+            Some(p) if !p.moved => return None,
+            Some(p) => (p.local, p.scale),
+            None => self.created.get(&id).and_then(|c| c.local.filter(|_| c.dynamic)).map(|l| (l, 1.0))?,
+        };
+        let b = self.world.drawn_ref_body(id, 0, self.draw_alpha())?;
+        Some(dropped::ref_pose_from_body(&b, &local, scale))
+    }
+
+    /// Bring [`PhysState::between`] up to date after the frame's steps.
+    pub fn update_between(&mut self) {
+        let b = &mut self.between;
+        std::mem::swap(&mut b.last, &mut b.now);
+        self.world.drawn_refs_into(&mut b.now);
+        let (placed, created) = (&self.placed_dynamic, &self.created);
+        b.now.retain(|id| match placed.get(id) {
+            Some(p) => p.moved,
+            None => created.get(id).is_some_and(|c| c.dynamic && c.local.is_some()),
+        });
+        b.redraw.clear();
+        b.redraw.extend(b.now.iter().chain(&b.last).copied());
+        b.redraw.sort_unstable();
+        b.redraw.dedup();
+        b.most = b.most.max(b.now.len());
+        b.frames += !b.now.is_empty() as u64;
+    }
+
     /// Where an actor's character is drawn this frame: between its feet before and after
     /// the last physics step, by the time accumulated towards the next (as the player's
     /// body), so a walk is as smooth on screen as the frame rate allows. `None` when the
@@ -731,7 +801,7 @@ impl PhysState {
     /// The body is drawn [`drawn_sink`] below the character's feet.
     pub fn npc_drawn_feet(&self, id: u32) -> Option<[f32; 3]> {
         let b = self.npcs.get(&id)?;
-        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        let a = self.draw_alpha();
         Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a - if i == 2 { b.sink - b.lift.at(a) } else { 0.0 }))
     }
 
@@ -805,7 +875,7 @@ impl PhysState {
     /// a step or a bump ([`step_lift::StepLift`]; the player is `FormId::PLAYER_REF`); 0
     /// for an actor without a character.
     pub fn drawn_lift_of(&self, id: u32) -> f32 {
-        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        let a = self.draw_alpha();
         if id == fnv_sim::FormId::PLAYER_REF.0 {
             if self.player.is_some() { self.player_lift.at(a) } else { 0.0 }
         } else {
@@ -1939,6 +2009,9 @@ pub(crate) fn piles_pass_their_corpses(mut phys: ResMut<PhysState>, script: Opti
 /// frame's fixed steps (in the player's chain, after its step).
 pub(crate) fn settle_created(d: Res<PlayWorld>, mut sim: ResMut<SimState>, mut phys: ResMut<PhysState>) {
     phys.moved_now = if phys.placed_dynamic.is_empty() { Vec::new() } else { phys.settle_placed(&mut sim.world) };
+    // What is drawn between the steps this frame (after `settle_placed`, which marks
+    // clutter moved).
+    phys.update_between();
     if phys.created.is_empty() {
         return;
     }
@@ -2020,6 +2093,14 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         let list: Vec<String> = wet.iter().map(|(id, floats, top)| format!("{id:08X} ({}, its top {top:.0} units from the surface)", if *floats { "floats" } else { "sinks" })).collect();
         info!("physics: {} loose item bodies in water at exit: {}", wet.len(), list.join(", "));
     }
+    // Drawing between steps (`fnv_phys::drawn`) and bodies taken out for NaN state
+    // (`fnv_phys::quarantine`), over the run.
+    let (_, kept) = phys.world.drawn_counts();
+    let st = phys.world.stats();
+    info!(
+        "physics: drawn between steps: {} references at most in a frame, over {} frames; {kept} bodies at most kept before a step; quarantined {} bodies and {} colliders",
+        phys.between.most, phys.between.frames, st.quarantined_bodies, st.quarantined_colliders
+    );
     // Placed bodies physics has moved (pushed, shot, knocked over), as they are now.
     for (&id, p) in phys.placed_dynamic.iter().filter(|(_, p)| p.moved) {
         if let Some(b) = phys.world.ref_bodies(id).first() {

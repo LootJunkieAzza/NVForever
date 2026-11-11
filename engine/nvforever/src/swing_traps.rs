@@ -234,7 +234,10 @@ fn swing(
             s.log_in = 1.0;
             s.logs -= 1;
         }
-        follow_bodies(&bodies, &s.nodes, s.scale, s.root, &parents, &globals, &mut transforms);
+        // Drawn between the last two physics steps (`fnv_phys::drawn`); the hits below go
+        // by where the steps put the bodies.
+        let drawn = phys.world.drawn_ragdoll_nodes(id, phys.draw_alpha());
+        follow_bodies(drawn.as_deref().unwrap_or(&bodies), &s.nodes, s.scale, s.root, &parents, &globals, &mut transforms);
         for (i, b) in bodies.iter().enumerate() {
             let Some(b) = b else { continue };
             // A moving body meets actors.
@@ -272,7 +275,7 @@ fn swing(
 }
 
 /// Put the nodes the bodies move (`nodes`, per body; `None` for a body that moves none)
-/// where their bodies are (`bodies`, `PhysWorld::ragdoll_nodes`), the rig drawn at
+/// where their bodies are drawn (`bodies`, `PhysWorld::drawn_ragdoll_nodes`), the rig drawn at
 /// `scale` under `root`. A chain's links can be nodes inside each other: each one's place
 /// under its parent is taken from where the parent is put this frame, not from its drawn
 /// place of the last frame (which lags a frame, and the lags add up down the chain).
