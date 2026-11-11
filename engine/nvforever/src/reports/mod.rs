@@ -9,6 +9,12 @@
 //!   (handoff.rs: loading a save starts a new process) follows the stored answer and never
 //!   asks; it is where the player plays after a load, so it collects and sends like any. `NVF_REPORTS=1` turns it on without asking (tests; such a run sends
 //!   only to `NVF_REPORTS_ENDPOINT`, never to the project's server).
+//! - **Official builds only** [owner 2026-11-11]: a build is official when the release
+//!   workflow made it (`NVF_OFFICIAL_BUILD=1` at build time). A local build never asks and
+//!   never sends to the project's server, as development sessions would skew what reports
+//!   show of players' games; it sends only to a server it is pointed at
+//!   (`NVF_REPORTS_ENDPOINT`, or `Endpoint=` in `[Reports]`). `NVF_REPORTS_PRODUCTION=1` lets
+//!   a local build send to the project's server (the owner's own testing).
 //! - **The summary** (summary.rs, collected here): written to
 //!   `<home>\reports\pending\session-<UTC time>-<pid>.json` every [`WRITE_EVERY`] and at
 //!   exit, so a crash leaves the latest copy. Only while reports are on.
@@ -170,6 +176,11 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
         }
     }
     let mut r = Reports::load(&home);
+    // A local build only reports to a server it is pointed at (module notes).
+    if !test_on && !OFFICIAL_BUILD && endpoint_env.is_none() && r.endpoint.is_none() && !production_allowed() {
+        eprintln!("reports: off (a local build: only official releases send to the project's server; NVF_REPORTS_ENDPOINT for a test server)");
+        return None;
+    }
     if test_on {
         if r.send != Some(true) || r.install_id.is_none() {
             r = store_choice(&home, true).map_err(|e| eprintln!("reports: off, the choice could not be stored: {e}")).ok()?;
@@ -203,6 +214,14 @@ fn choose(developer_data: bool, handoff: bool) -> Option<Active> {
     let may_send = !test_run || endpoint_env.is_some();
     eprintln!("reports: on, sending to {endpoint}{}", if may_send { "" } else { " (not in this test run: no NVF_REPORTS_ENDPOINT)" });
     Some(Active { install_id, delete_token, endpoint: endpoint.trim_end_matches('/').to_string(), may_send })
+}
+
+/// Made by the release workflow (`.github/workflows/release.yml` sets it at build time).
+pub const OFFICIAL_BUILD: bool = option_env!("NVF_OFFICIAL_BUILD").is_some();
+
+/// `NVF_REPORTS_PRODUCTION=1`: a local build may send to the project's server.
+fn production_allowed() -> bool {
+    std::env::var("NVF_REPORTS_PRODUCTION").is_ok_and(|v| v.trim() == "1")
 }
 
 const ASK_TITLE: &str = "Help fix NVForever?";

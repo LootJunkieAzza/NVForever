@@ -112,7 +112,8 @@ people building the same thing:
    `Send=0` under `[Reports]` in your `NVForever.ini`. To work on reports themselves, run
    the server locally (LootJunkieAzza/NVForever-Data, `npm run dev:ingest`) and use
    `NVF_REPORTS=1 NVF_REPORTS_ENDPOINT=http://127.0.0.1:8787`; a test run never sends to
-   the project's server without its own `NVF_REPORTS_ENDPOINT`.
+   the project's server without its own `NVF_REPORTS_ENDPOINT`. A build you make yourself
+   never sends to the project's server anyway: only builds from the release workflow do.
 4. **Open a pull request** against `main` and fill in the template. CI runs the build and
    tests on Linux. First-time contributors' CI runs wait for a maintainer's approval.
 

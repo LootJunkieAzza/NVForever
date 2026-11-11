@@ -14,6 +14,8 @@ const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/nvforever.ico");
+    // Official release builds may send player reports to the project's server (reports/mod.rs).
+    println!("cargo:rerun-if-env-changed=NVF_OFFICIAL_BUILD");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("assets/nvforever.ico");

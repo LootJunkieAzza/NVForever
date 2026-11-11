@@ -334,7 +334,10 @@ login, allow-list).
   players' games. Developer and smoke runs (`--data` / `NVFOREVER_DATA`, test aids) never
   ask or send; a developer starting a build like a player answers Not now or sets
   `NVF_REPORTS=0` (CONTRIBUTING.md, CLAUDE.md). `NVF_REPORTS=1` sends only to
-  `NVF_REPORTS_ENDPOINT`, never to the project's server.
+  `NVF_REPORTS_ENDPOINT`, never to the project's server. Enforced too: only official
+  builds (the release workflow sets `NVF_OFFICIAL_BUILD=1` when it builds) ask and send to
+  the project's server; a local build never does, unless it is pointed at a server of its
+  own or `NVF_REPORTS_PRODUCTION=1` is set (the owner's own testing).
 - Test aids: `NVF_REPORTS_ENDPOINT` to point at a local `wrangler dev` server; a smoke
   scenario that checks the popup is not shown in a scripted run, that `NVF_REPORTS=0`
   sends nothing, and that a session file is written and is valid `nvf-session/1`.
