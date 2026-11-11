@@ -415,6 +415,9 @@ pub struct TweakSettings {
     /// `bMousewheelScrollsWeaponHotkeys`: in first person the mouse wheel steps through
     /// the hotkeyed weapons.
     pub wheel_cycles_hotkeys: bool,
+    /// `bCompassNPCDistanceBasedAlpha`: actors' compass pips fade with distance over the
+    /// sneak range.
+    pub compass_pips_fade: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -654,6 +657,7 @@ impl Default for TweakSettings {
             breath_ap: 5.0,
             scope_wheel_zoom: false,
             wheel_cycles_hotkeys: false,
+            compass_pips_fade: false,
         }
     }
 }
@@ -1647,6 +1651,7 @@ impl Plugin for TweaksPlugin {
         amount!(app, "breath-ap", "Held Breath AP", "Action Points holding the breath costs each second (Hold Breath Through a Scope). (Stewie's Tweaks bScopeHoldBreath)", 20.0, f32, breath_ap);
         switch!(app, "scope-wheel-zoom", "Wheel Zooms Scopes", "Through a scope the mouse wheel zooms in (up) and out, from half to double its usual magnification; it starts as usual each time. (Stewie's Tweaks bAdjustableScopeZoom)", scope_wheel_zoom);
         switch!(app, "wheel-cycles-hotkeys", "Mouse Wheel Changes Weapon", "In first person, rolling the mouse wheel takes out the next (up) or previous weapon on your hotkeys. (Stewie's Tweaks bMousewheelScrollsWeaponHotkeys)", wheel_cycles_hotkeys);
+        switch!(app, "compass-pips-fade", "Fade Pips by Distance", "People and creatures on the compass grow fainter the further away they are, over the distance they could notice you sneaking. (Stewie's Tweaks bCompassNPCDistanceBasedAlpha)", compass_pips_fade);
         // ---- rest ----
         switch!(app, "sleep-in-owned-beds", "Sleep in Owned Beds", "A bed that belongs to someone else can be slept in. (Stewie's Tweaks bSleepInOwnedBeds)", game.sleep_in_owned_beds);
         // ---- items ----

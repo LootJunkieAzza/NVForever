@@ -168,20 +168,35 @@ pub struct CompassNear(pub Vec<Near>);
 /// then place [design]. A quest target outside the visible band stays on the compass,
 /// pinned at the band's end on its side ([`pinned`]).
 pub fn marks(near: &[Near], heading: f32, here: [f32; 2], bodies: &dyn Fn(u32) -> Option<[f32; 2]>) -> Vec<(Mark, f32)> {
-    let mut out: Vec<(Mark, f32)> = near
+    marks_far(near, heading, here, bodies).into_iter().map(|(m, x, _)| (m, x)).collect()
+}
+
+/// [`marks`] with each mark's distance from the player (game units).
+pub fn marks_far(near: &[Near], heading: f32, here: [f32; 2], bodies: &dyn Fn(u32) -> Option<[f32; 2]>) -> Vec<(Mark, f32, f32)> {
+    let mut out: Vec<(Mark, f32, f32)> = near
         .iter()
         .filter_map(|n| {
             let at = n.body.and_then(bodies).unwrap_or(n.at);
             let x = offset(heading, here, at);
+            let d = (at[0] - here[0]).hypot(at[1] - here[1]);
             match n.mark {
-                Mark::Quest => Some((n.mark, pinned(x))),
-                _ => on_compass(x).then_some((n.mark, x)),
+                Mark::Quest => Some((n.mark, pinned(x), d)),
+                _ => on_compass(x).then_some((n.mark, x, d)),
             }
         })
         .collect();
     out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
     out
 }
+
+/// Each mark's strength in [`CompassView`]'s order: 1, or under the player's
+/// Fade Pips by Distance tweak an actor's less the further it is within the sneak
+/// range [design: docs/design/tweaks.md].
+#[derive(Resource, Default, Debug, PartialEq, Clone)]
+pub struct CompassAlpha(pub Vec<f32>);
+
+/// How faint an actor's pip at the sneak range's end gets (the tweak) [design].
+const FARTHEST_PIP: f32 = 0.25;
 
 pub struct CompassPlugin;
 
@@ -190,6 +205,7 @@ impl Plugin for CompassPlugin {
         // The marks are placed after the player and the camera move and before the tile
         // HUD's writes (`crate::tiles`), so both drawings put them with this frame's strip.
         app.init_resource::<CompassView>()
+            .init_resource::<CompassAlpha>()
             .init_resource::<CompassNear>()
             .add_systems(Update, place.after(PlaySet::Physics).before(PlaySet::Activation))
             .add_systems(Update, (discover, crate::challenges::notices, gather, draw).chain().in_set(PlaySet::Ui).after(crate::hud::HudSet))
@@ -475,6 +491,7 @@ pub(crate) fn place(
     phys: Option<Res<PhysState>>,
     near: Res<CompassNear>,
     mut view: ResMut<CompassView>,
+    (mut alpha, sim, tweaks): (ResMut<CompassAlpha>, Option<Res<SimState>>, Option<Res<crate::tweaks::TweakSettings>>),
 ) {
     if *state.get() != PlayState::Playing {
         return;
@@ -483,7 +500,24 @@ pub(crate) fn place(
     let heading = control.as_deref().map_or(player.heading, |c| c.view_heading(player.heading)).to_degrees();
     let here = [player.feet[0], player.feet[1]];
     let body = |id: u32| phys.as_deref().and_then(|p| p.npcs.get(&id)).map(|b| [b.ch.feet[0], b.ch.feet[1]]);
-    view.set_if_neq(CompassView(marks(&near.0, heading, here, &body)));
+    let far = marks_far(&near.0, heading, here, &body);
+    view.set_if_neq(CompassView(far.iter().map(|&(m, x, _)| (m, x)).collect()));
+    // The player's tweak: the sneak range, fSneakMaxDistance (times
+    // fSneakExteriorDistanceMult outdoors), fades actors' pips [design: docs/design/tweaks.md].
+    let fade = tweaks.as_ref().is_some_and(|t| t.compass_pips_fade);
+    let range = if fade {
+        let d = fnv_game::detection::Settings::default();
+        let setting = |name: &str, or: f64| sim.as_deref().and_then(|s| s.forms.setting_f32(name)).unwrap_or(or as f32);
+        let outdoors = phys.as_deref().is_some_and(|p| p.space == crate::phys::cells::Space::Exterior);
+        setting("fSneakMaxDistance", d.max_distance) * if outdoors { setting("fSneakExteriorDistanceMult", d.exterior_distance_mult) } else { 1.0 }
+    } else {
+        0.0
+    };
+    let shade = |&(m, _, d): &(Mark, f32, f32)| match m {
+        Mark::Actor | Mark::Hostile | Mark::Companion if range > 0.0 => (1.0 - d / range).clamp(FARTHEST_PIP, 1.0),
+        _ => 1.0,
+    };
+    alpha.set_if_neq(CompassAlpha(far.iter().map(shade).collect()));
 }
 
 /// Where the compass marks quest target `target` for a player at `loc` (see the module
@@ -558,13 +592,15 @@ fn draw(
     mut art: Local<Option<Art>>,
     mut spawned: Local<Spawned>,
     tweaks: Option<Res<crate::tweaks::TweakSettings>>,
+    alpha: Option<Res<CompassAlpha>>,
 ) {
     let companion = crate::tweaks::companion_colour(tweaks.as_deref());
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
     let Ok(layer) = layers.single() else { return };
     let fresh = added.get(layer).is_ok();
-    if !view.is_changed() && !fresh {
+    let alpha_changed = alpha.as_ref().is_some_and(|a| a.is_changed());
+    if !view.is_changed() && !fresh && !alpha_changed {
         return;
     }
     let art = art.get_or_insert_with(|| {
@@ -583,7 +619,7 @@ fn draw(
     // The player's tweak: marks fade toward the compass's left end; drawn again each
     // frame for their shade [design: docs/design/tweaks.md].
     let fade_left = tweaks.as_ref().is_some_and(|t| t.compass_fade_left);
-    if !fade_left && !fresh && spawned.0.len() == view.0.len() && spawned.0.iter().zip(&view.0).all(|(a, b)| a.0 == b.0) {
+    if !fade_left && !alpha_changed && !fresh && spawned.0.len() == view.0.len() && spawned.0.iter().zip(&view.0).all(|(a, b)| a.0 == b.0) {
         for (&(mark, entity), &(_, x)) in spawned.0.iter().zip(&view.0) {
             if let Ok(mut node) = nodes.get_mut(entity) {
                 node.left = u(mark_left(mark, x, image_of(mark).is_some()));
@@ -593,7 +629,7 @@ fn draw(
     }
     let mut out = Vec::with_capacity(view.0.len());
     commands.entity(layer).despawn_related::<Children>().with_children(|p| {
-        for &(mark, x) in &view.0 {
+        for (k, &(mark, x)) in view.0.iter().enumerate() {
             let image = image_of(mark);
             let left = mark_left(mark, x, image.is_some());
             let (node, colour) = match mark {
@@ -610,6 +646,11 @@ fn draw(
                 Mark::Place | Mark::Found | Mark::Quest => (at(left, LANDMARK_Y - LANDMARK_MIDDLE.y * LANDMARK_SIZE, LANDMARK_SIZE, LANDMARK_SIZE), amber(255.0)),
             };
             let colour = if fade_left && mark != Mark::Quest { colour.with_alpha(left_fade(x)) } else { colour };
+            // The Fade Pips by Distance tweak (`CompassAlpha`).
+            let colour = match alpha.as_ref().and_then(|a| a.0.get(k)).copied().filter(|a| *a < 1.0) {
+                Some(a) => colour.with_alpha(colour.alpha() * a),
+                None => colour,
+            };
             let id = match image {
                 Some(image) => p.spawn((node, ImageNode { color: colour, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })).id(),
                 // Without the game's pictures: a small block.
