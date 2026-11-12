@@ -3210,12 +3210,16 @@ impl Vm<'_, '_> {
             // formatted at the top (`format_at`).
             // [documented: SetMCMString `child grandchild setting "format" values…`]: the
             // format is the fourth argument.
-            "setmcmstring" => {
+            // SetMCMStringMass `child first last setting "format" values…` likewise, its
+            // format the fifth [observed: MCM 1.5's calls; job mcm976e, `"a%gb" 5` set
+            // "a5b", menu-xml.md §10.2].
+            "setmcmstring" | "setmcmstringmass" => {
+                let at = if lname == "setmcmstring" { 3 } else { 4 };
                 let mut args = Vec::new();
-                for e in c.args.iter().take(3) {
+                for e in c.args.iter().take(at) {
                     args.push(self.xeval(e)?);
                 }
-                let (t, _) = self.format_arg(c, 3)?;
+                let (t, _) = self.format_arg(c, at)?;
                 args.push(XVal::Str(t));
                 match self.host.ext_call(&lname, None, &args) {
                     Some(r) => Ok(r.map_err(VmError::Host)?),

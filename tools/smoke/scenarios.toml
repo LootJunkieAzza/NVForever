@@ -20897,10 +20897,10 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 16
 expect = [
   { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
-  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the injected box, its picture and its text draw once the console closes" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the injected box, its picture and its text draw once the console closes", known_failing = "bench install 2026-11-12: the owner put Just Assorted Mods's loose menus/prefabs/J*/ files in the game's Data, which every run includes in HUDMainMenu (7 more mod tiles: JBT, JDC, JHI, JHM, JLM, JVO, JWH); main the same" }
 ]
 forbid = [
-  { re = 'tiles: HUDMainMenu: [2-9]\d* mod tiles drawn', label = "no tile of the HUD's own file or a code-made copy draws" },
+  { re = 'tiles: HUDMainMenu: [2-9]\d* mod tiles drawn', label = "no tile of the HUD's own file or a code-made copy draws", known_failing = "bench install 2026-11-12: the owner put Just Assorted Mods's loose menus/prefabs/J*/ files in the game's Data, which every run includes in HUDMainMenu (7 more mod tiles: JBT, JDC, JHI, JHM, JLM, JVO, JWH); main the same" }
 ]
 manual = "ui_mod_tile.png: at the left, about a third down, a dark blue box with 'NVF MOD TILE' in white (font 7) and an amber bar along its bottom; NVForever's HUD as on main"
 
@@ -22271,11 +22271,11 @@ expect = [
 
 [[scenario]]
 name = "pause-mods-page"
-source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with [UI] TileMenus=StartMenu and a mod's tiles in StartMenu, the pause menu has a Mods entry; its page runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
-note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. MCM's own page stays hidden (its script waits for the original's code-filled pause column); pause_mods.png shows the page"
+source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with a mod's tiles in StartMenu (the switch on by default), the pause menu has a Mods entry; its page writes the original column's traits MCM waits for (menu-xml.md §10.1), clicks MCM's trigger so MCM's window opens, runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
+note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. With no mod registered with MCM its script stops at its 'No MCM Mods' check, so its window stays shut (pause-mods-page-jam opens it); pause_mods.png shows the page"
 areas = ["ui", "menus", "scripts"]
 paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/tiles/input.rs", "crates/fnv-game/src/game.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "StartMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,18.5:shot,22:back", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;10.5:close;29:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;29.5:close" }
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,18.5:shot,22:back", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;10.5:close;29:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;29.5:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp"]
 run_seconds = 32
 expect = [
@@ -22286,8 +22286,26 @@ expect = [
   { re = "scripts: the Mods page closed after [1-9][0-9]* MenuMode frames", label = "the start menu's MenuMode blocks ran each frame of the page" },
   { text = "nvf mcm install check 1", min = 1, label = "before the page MCM's GameMode block has set iInstallCheck" },
   { text = "nvf mcm install check 0", min = 1, label = "MCM's MenuMode 1013 block ran under the page, in the played world, and cleared it" },
+  { text = "tiles: StartMenu/NOGLOW_BRANCH/main_container: the original's column traits written for MCM", label = "the column MCM waits for" },
 ]
 order = [["nvf mcm install check 1", "tiles: a mod's tiles in StartMenu", "pause menu: mods page", "scripts: MenuMode 1013 blocks run", "pause menu: mods page closed", "nvf mcm install check 0"]]
+
+[[scenario]]
+name = "pause-mods-page-jam"
+source = "issue #976 (MCM's own window) (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with a mod's tiles in StartMenu (the switch on by default), the pause menu has a Mods entry; its page writes the original column's traits MCM waits for (menu-xml.md §10.1), clicks MCM's trigger so MCM's window opens, runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
+note = "needs MCM and Just Assorted Mods (JustAssortedMods.esp, an MCM mod; masters FalloutNV and DLC) in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. JAM registers with MCM, so MCM's install check passes and its window opens on the page (_Menu 1); pause_mods.png shows it"
+areas = ["ui", "menus", "scripts"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/tiles/input.rs", "crates/fnv-game/src/game.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,20:shot,22:back" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 32
+expect = [
+  "tiles: StartMenu/NOGLOW_BRANCH/main_container: the original's column traits written for MCM",
+  "tiles: MCM's trigger clicked: its window opens with the Mods page",
+  { text = "tiles: MCM's window is open on the Mods page", label = "MCM's own script opened its window (_Menu 1) for a mod registered with it" },
+  { text = "pause menu: mods page closed", label = "Back leaves the page" },
+]
+order = [["pause menu: mods page", "tiles: MCM's trigger clicked", "tiles: MCM's window is open", "pause menu: mods page closed"]]
 
 [[scenario]]
 name = "travel-skip-sun-shadows"
@@ -24654,7 +24672,7 @@ expect = [
   { text = 'script: print "nvf type replaced 1 1"', count = 1, label = "old counter stays still while replacement runs" },
   { text = 'script: print "nvf type removed 1"', count = 1, label = "removed callback stays stopped with gate still nonzero" },
   { text = 'script: print "nvf type final 255 A"', count = 1 },
-  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the authored rect, bar and linked text enter rendering" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the authored rect, bar and linked text enter rendering", known_failing = "bench install 2026-11-12: the owner put Just Assorted Mods's loose menus/prefabs/J*/ files in the game's Data, which every run includes in HUDMainMenu (7 more mod tiles: JBT, JDC, JHI, JHM, JLM, JVO, JWH); main the same" }
 ]
 order = [["nvf type middle", "nvf type active", "nvf type suppressed", "nvf type replaced", "nvf type removed", "nvf type final"]]
 manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box above the amber bar; ui_typewriter_final.png: the same letter fully visible with the replacement callback's pink colour. Verify the text and alpha links affect the rendered result."
@@ -24703,7 +24721,7 @@ expect = [
   { re = 'tiles: HUDMainMenu/NVFTex/A: texture offset', count = 0, label = "A has neither" },
   { text = 'script: print "nvf texoffset unloaded 1"', count = 1 },
   { text = 'script: print "nvf texoffset replaced 1"', count = 1, label = "a new B at the old B's path" },
-  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(\d+ items\)', label = "the authored rect enters rendering" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(\d+ items\)', label = "the authored rect enters rendering", known_failing = "bench install 2026-11-12: the owner put Just Assorted Mods's loose menus/prefabs/J*/ files in the game's Data, which every run includes in HUDMainMenu (7 more mod tiles: JBT, JDC, JHI, JHM, JLM, JVO, JWH); main the same" }
 ]
 order = [["nvf texoffset set", "tiles: HUDMainMenu/NVFTex/B: texture offset", "nvf texoffset replaced"]]
 manual = "ui_texoffset_set.png: five amber-and-black strips on the left; A's light band at its left end, B's and C's moved to the middle (about 128-208 of 256 units), C fading from left to right (its left end solid, its right end faint), D and E as A. ui_texoffset_replaced.png: B's band back at its left end, as A's (the replaced tile has no offset); C, D and E unchanged."

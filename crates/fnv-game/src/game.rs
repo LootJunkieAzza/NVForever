@@ -219,6 +219,12 @@ pub struct Instance {
     pub run_last: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub run_prev: Option<f64>,
+    /// The same for the instance's runs under a page the engine shows in place of the
+    /// original's menu ([`Game::page_tick`]), on [`Game::page_time`]; not saved.
+    #[serde(skip)]
+    pub page_last: Option<f64>,
+    #[serde(skip)]
+    pub page_prev: Option<f64>,
 }
 
 /// [`RefExtra::script_package`] from a save: one package, none, or the list older saves
@@ -1373,6 +1379,12 @@ pub struct Game<'a> {
     pub ui_files: Option<Box<dyn fnv_ui::Source + Send + Sync>>,
     /// The menu an engine page stands for while [`Game::page_tick`] runs its blocks.
     page_menu: Option<u16>,
+    /// The clock of [`Game::page_tick`]'s frames (their `frame_seconds`): GetSecondsPassed
+    /// in a block run there counts it [hypothesis: the original's MenuMode 1013 blocks see
+    /// time pass under its start menu, for Just Assorted Mods' half-second MenuMode timer
+    /// ends there and adds its item to MCM's list (observed: listed in MCM's window, the
+    /// owner's screenshots 2026-11-12, menu-xml.md §10.1)]. Not saved.
+    pub page_time: f64,
     /// This frame's HUD writes, kept back while nothing reads the HUD's traits
     /// (`crate::ui_hud::defer`); the first UI function call makes them
     /// (`crate::ui_hud::flush`).
@@ -2336,6 +2348,7 @@ impl<'a> Game<'a> {
             ui_dialogue_hook: None,
             ui_files: None,
             page_menu: None,
+            page_time: 0.0,
             ui_hud_pending: None,
             ui_used: false,
             ui_taps: Vec::new(),
@@ -3946,11 +3959,18 @@ impl<'a> Game<'a> {
             .filter_map(|(q, _)| Some((*q, data.quests.get(q)?.script?)))
             .filter(|(_, s)| wants(*s))
             .collect();
+        let page = self.page_menu.is_some();
         for (q, script) in quests {
+            if page {
+                self.mark_page_run(InstKey::Quest { quest: q }, Some(script));
+            }
             self.run_blocks(InstKey::Quest { quest: q }, script, event::MENU_MODE, subject, RunCtx { quest: Some(q), ..Default::default() }, true);
         }
         for r in self.active_refs() {
             let Some(script) = self.ref_script(r).filter(|s| wants(*s)) else { continue };
+            if page {
+                self.mark_page_run(InstKey::Ref { reference: r }, Some(script));
+            }
             self.run_blocks(InstKey::Ref { reference: r }, script, event::MENU_MODE, subject, RunCtx { self_ref: Some(r), ..Default::default() }, true);
         }
     }
@@ -3967,6 +3987,38 @@ impl<'a> Game<'a> {
         let inst = self.instance(key, script);
         inst.run_prev = inst.run_last;
         inst.run_last = Some(now);
+    }
+
+    /// As [`Game::mark_run`], for a run under a page ([`Game::page_tick`]), on
+    /// [`Game::page_time`].
+    fn mark_page_run(&mut self, key: InstKey, script: Option<FormId>) {
+        let now = functions::clock_now(self.page_time);
+        let inst = self.instance(key, script);
+        inst.page_prev = inst.page_last;
+        inst.page_last = Some(now);
+    }
+
+    /// Whether a page's blocks are running ([`Game::page_tick`]).
+    pub(crate) fn in_page(&self) -> bool {
+        self.page_menu.is_some()
+    }
+
+    /// The start menu the player came through: the original's main menu is the start
+    /// menu, whose `MenuMode 1013` blocks run before a game is loaded or started, where MCM
+    /// mods add themselves to MCM's list [hypothesis: in the original MCM's install check,
+    /// on its first MenuMode 1013 frame after a load, found Just Assorted Mods' item on the
+    /// first pause after loading (job mcm976e, menu-xml.md §10.1), and the mod adds it only
+    /// from its own MenuMode 1013 block after half a second; the main menu is the only
+    /// start menu before that]. `frames` page frames of `dt` seconds ([`Game::page_tick`]);
+    /// no shipped script has such a block, so the plain game is unchanged [observed:
+    /// fnvtool script decompile of the masters]. NVForever runs it once when a game starts.
+    pub fn came_through_start_menu(&mut self, frames: u32, dt: f64) {
+        let keep = self.cfg.frame_seconds;
+        self.cfg.frame_seconds = dt;
+        for _ in 0..frames {
+            self.page_tick(menus::START);
+        }
+        self.cfg.frame_seconds = keep;
     }
 
     /// A trigger is about to run its OnTrigger block for the actors inside it this frame:
@@ -4078,6 +4130,7 @@ impl<'a> Game<'a> {
     pub fn page_tick(&mut self, code: u16) {
         self.frame += 1;
         self.temp_refs.clear();
+        self.page_time += self.cfg.frame_seconds;
         let before = self.page_menu.replace(code);
         self.side_blocks(code);
         self.page_menu = before;

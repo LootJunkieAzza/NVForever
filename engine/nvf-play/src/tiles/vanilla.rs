@@ -151,6 +151,18 @@ impl TileMenus {
         (menus, other)
     }
 
+    /// The switches for a run from its list ([`TileMenus::parse`]) with the defaults: the
+    /// start menu's Mods page on unless the list names `-StartMenu` (its entry shows only
+    /// when a mod added tiles to the start menu, `super::mods`) [design: owner 2026-11-12,
+    /// issue #976]; every other menu off unless named. No list is an empty one.
+    pub fn for_run(list: Option<&str>) -> (TileMenus, Vec<String>) {
+        let (mut menus, mut other) = TileMenus::parse(list.unwrap_or(""));
+        let off = |n: &String| n.eq_ignore_ascii_case(&format!("-{}", super::mods::START_MENU));
+        menus.start |= !other.iter().any(off);
+        other.retain(|n| !off(n));
+        (menus, other)
+    }
+
     /// The list for this run and where it was read: the test aid, else the INI's
     /// `[UI] TileMenus=`; `None` when neither gives one.
     pub fn list_for_run(aid: Option<String>, ini: &SettingsFile) -> Option<(String, String)> {
@@ -167,7 +179,7 @@ impl TileMenus {
 pub(crate) fn setup(app: &mut App) {
     let unattended = crate::test_aid::Unattended::from_env().0;
     let list = TileMenus::list_for_run(std::env::var(AID).ok(), &SettingsFile::for_run(unattended));
-    let (menus, other) = list.as_ref().map_or_else(|| (TileMenus::default(), Vec::new()), |(l, _)| TileMenus::parse(l));
+    let (menus, other) = TileMenus::for_run(list.as_ref().map(|(l, _)| l.as_str()));
     app.insert_resource(menus);
     app.add_systems(Startup, move || {
         let Some((list, from)) = &list else { return };
@@ -183,15 +195,22 @@ impl TileMenus {
     pub const NAMES: [&str; 18] = [super::draw::HUD_MENU, super::menus::MESSAGE_MENU, super::menus::QUANTITY_MENU, super::wait_menu::SLEEP_WAIT_MENU, super::tutorial_menu::TUTORIAL_MENU, super::container_menu::CONTAINER_MENU, super::barter_menu::BARTER_MENU, super::recipe_menu::RECIPE_MENU, super::trait_menu::TRAIT_MENU, super::tag_menu::TAG_MENU, super::mods::START_MENU, super::stats_menu::STATS_MENU, super::dialog_menu::DIALOG_MENU, super::inventory_menu::INVENTORY_MENU, super::repair_services_menu::REPAIR_SERVICES_MENU, super::repair_menu::REPAIR_MENU, super::item_mod_menu::ITEM_MOD_MENU, super::map_menu::MAP_MENU];
 
     /// The start-up line's end: the menus drawn from tiles, or none, and that an item menu's
-    /// prompt follows it when its own switch is off (`super::menus::quantity_tiled`).
+    /// prompt follows it when its own switch is off (`super::menus::quantity_tiled`). The
+    /// start menu's Mods page, on unless turned off ([`Self::for_run`]), is told after them,
+    /// not among them: it draws only the tiles mods add.
     pub fn line(&self) -> String {
-        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.sleep_wait, self.tutorial, self.container, self.barter, self.recipe, self.traits, self.tags, self.start, self.stats, self.dialog, self.inventory, self.repair_services, self.repair_menu, self.item_mod, self.map]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
-        if on.is_empty() {
+        let on: Vec<&str> = Self::NAMES.into_iter().zip([self.hud, self.message, self.quantity, self.sleep_wait, self.tutorial, self.container, self.barter, self.recipe, self.traits, self.tags, false, self.stats, self.dialog, self.inventory, self.repair_services, self.repair_menu, self.item_mod, self.map]).filter(|(_, on)| *on).map(|(n, _)| n).collect();
+        let menus = if on.is_empty() {
             "no menu drawn from tiles".into()
         } else if (self.container || self.barter || self.inventory) && !self.quantity {
             format!("{} drawn from tiles; its QuantityMenu prompt follows", on.join(", "))
         } else {
             format!("{} drawn from tiles", on.join(", "))
+        };
+        if self.start {
+            format!("{menus}; {}'s Mods page on", super::mods::START_MENU)
+        } else {
+            menus
         }
     }
 }
@@ -550,7 +569,13 @@ mod tests {
         // T11: the start menu's Mods page.
         let start = TileMenus { start: true, ..TileMenus::default() };
         assert_eq!(TileMenus::parse(" startmenu "), (start, Vec::new()));
-        assert_eq!(start.line(), "StartMenu drawn from tiles");
+        // A run: the Mods page on by default, with or without a list, off by `-StartMenu`.
+        assert_eq!(TileMenus::for_run(None), (start, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("HUDMainMenu")), (TileMenus { start: true, ..hud }, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("HUDMainMenu, -startmenu")), (hud, Vec::new()));
+        assert_eq!(TileMenus::for_run(Some("-StartMenu")), (TileMenus::default(), Vec::new()));
+        assert_eq!(start.line(), "no menu drawn from tiles; StartMenu's Mods page on");
+        assert_eq!(TileMenus { start: true, ..hud }.line(), "HUDMainMenu drawn from tiles; StartMenu's Mods page on");
         assert_eq!(hud.line(), "HUDMainMenu drawn from tiles");
         assert_eq!(TileMenus::default().line(), "no menu drawn from tiles");
         // T15a: the message box and the prompt, each on its own.
