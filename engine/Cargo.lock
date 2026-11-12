@@ -4737,6 +4737,7 @@ dependencies = [
  "nvf-assets",
  "nvf-coop",
  "nvf-play",
+ "rapier3d",
  "rfd",
  "serde_json",
  "texpresso",

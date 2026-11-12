@@ -356,6 +356,23 @@ pub fn card_zones(pad: f32) -> Vec<(Vec2, Vec2)> {
     z.into_iter().map(|(a, b)| (a - Vec2::splat(pad), b + Vec2::splat(pad))).collect()
 }
 
+/// Where the game screen's words are during a game, as rectangles (min, max) in the frame
+/// (y down), with `pad` round each: the caravans' values and names, the top right counters
+/// (and the status line beside them), the guide's lines over the buttons (three lines at
+/// most for its usual tips) and the buttons [design: the layout above]. The pot's money
+/// keeps out of them too, so no number or label lies on a cap (parity, 2026-11-12).
+pub fn text_zones(pad: f32) -> Vec<(Vec2, Vec2)> {
+    let rows_left = VALUE_X[0] - 70.0;
+    let rows_right = NAME_X[TRACKS - 1] + 230.0;
+    let z = [
+        (Vec2::new(rows_left, OPPONENT_ROW - 6.0), Vec2::new(rows_right, PLAYER_ROW + 38.0)),
+        (Vec2::new(INFO_X.0 - 20.0, 0.0), Vec2::new(FRAME_W, INFO_Y[2] + 40.0)),
+        (Vec2::new(BUTTONS_RIGHT - GUIDE_W, GUIDE_BOTTOM - 30.0 - 2.0 * GUIDE_STEP), Vec2::new(FRAME_W, GUIDE_BOTTOM + 4.0)),
+        (Vec2::new(BUTTONS_RIGHT - 380.0, PLAY_BUTTONS[0] - 10.0), Vec2::new(FRAME_W, PLAY_BUTTONS[4] + 44.0)),
+    ];
+    z.into_iter().map(|(a, b)| (a - Vec2::splat(pad), b + Vec2::splat(pad))).collect()
+}
+
 /// Where a caravan's card `i` lies (its top left).
 fn place(side: usize, track: usize, i: usize) -> Vec2 {
     if side == OPPONENT {
