@@ -2161,6 +2161,99 @@ fn a_lost_search_walks_two_complete_shares_before_returning_to_normal() {
     assert!(s.ai.agents[&actor].search.is_none());
 }
 
+#[test]
+fn nearby_lost_targets_each_need_two_complete_searches() {
+    // [design, #2010] Nearby synthetic alarms must not share a completed look or
+    // point count when finishing one target selects the other.
+    use fnv_game::awareness::Target;
+    use fnv_game::combat_group::{GroupNote, GroupSettings};
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.run(30.0);
+    let (actor, player, other, now) = (FormId(R_RADIUS), FormId::PLAYER_REF, FormId(R_HERE), s.game.time);
+    s.game.awareness.tactics.settings = Some(GroupSettings { remove_search_count: 2, search_interior: [80.0; 3], ..Default::default() });
+    let a = s.game.awareness.actors.entry(actor).or_default();
+    a.state = State::Lost;
+    a.since = now;
+    for (target, at, refreshed) in [(other, [160.0, 100.0, 0.0], now - 0.5), (player, [150.0, 100.0, 0.0], now)] {
+        a.targets.insert(target, Target { band: Band::Hidden, value: -50.0, at, detected: Some(now - 15.0), hidden_since: Some(now) });
+        a.alarm(target, at, -50.0, Cause::LostTarget, refreshed, &Timers::default());
+    }
+    let mut completed = Vec::new();
+    let mut notes_at = s.game.awareness.tactics.notes.len();
+    for _ in 0..480 {
+        s.run(0.5);
+        let looks = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+        for note in &s.game.awareness.tactics.notes[notes_at..] {
+            if let GroupNote::Searched { actor: who, about, count, needed } = note {
+                if *who == actor {
+                    assert_eq!(*needed, 2);
+                    completed.push((*about, *count, looks));
+                }
+            }
+        }
+        notes_at = s.game.awareness.tactics.notes.len();
+        s.game.settle_awareness();
+        if s.game.awareness.state(actor) == State::Normal {
+            break;
+        }
+    }
+    assert_eq!(completed, vec![(player, 1, 3), (player, 2, 6), (other, 1, 9), (other, 2, 12)]);
+    assert_eq!(s.game.awareness.state(actor), State::Normal);
+    s.run(0.5);
+    let events = s.events(R_RADIUS);
+    let over = events.iter().position(|e| matches!(e, AiEvent::SearchOver { .. })).expect("search ends");
+    assert!(matches!(events[over + 1], AiEvent::SearchBack { .. }), "{events:?}");
+    assert!(s.ai.agents[&actor].search.is_none());
+}
+
+#[test]
+fn switching_nearby_lost_targets_restarts_the_walk_and_look_progress() {
+    // [design, #2010] A newly selected owner starts fresh even within RECENTRE,
+    // whether the previous owner's third point is being walked to or looked at.
+    use fnv_ai::alert::Search;
+    use fnv_game::awareness::Target;
+    use fnv_game::combat_group::GroupSettings;
+    for looking in [false, true] {
+        let f = fixture();
+        let mut s = sim(&f, &[R_RADIUS]);
+        s.run(30.0);
+        let (actor, player, other, now) = (FormId(R_RADIUS), FormId::PLAYER_REF, FormId(R_HERE), s.game.time);
+        s.game.awareness.tactics.settings = Some(GroupSettings { remove_search_count: 2, search_interior: [80.0; 3], ..Default::default() });
+        let a = s.game.awareness.actors.entry(actor).or_default();
+        a.state = State::Lost;
+        a.since = now;
+        for (target, at, refreshed) in [(other, [160.0, 100.0, 0.0], now - 0.5), (player, [150.0, 100.0, 0.0], now)] {
+            a.targets.insert(target, Target { band: Band::Hidden, value: -50.0, at, detected: Some(now - 15.0), hidden_since: Some(now) });
+            a.alarm(target, at, -50.0, Cause::LostTarget, refreshed, &Timers::default());
+        }
+        let at_third_point = |s: &Sim<'_>| match s.ai.agents[&actor].search {
+            Some(Search::Going { points: 2, .. }) => !looking,
+            Some(Search::Looking { points: 2, .. }) => looking,
+            _ => false,
+        };
+        for _ in 0..120 {
+            s.run(0.5);
+            if at_third_point(&s) {
+                break;
+            }
+        }
+        assert!(at_third_point(&s), "looking={looking}");
+        let before = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+        s.game.awareness.actors.get_mut(&actor).unwrap().alarms.iter_mut().find(|a| a.owner == other).unwrap().refreshed = s.game.time;
+        for _ in 0..120 {
+            s.run(0.5);
+            if s.game.searches_done(actor, other) > 0 {
+                break;
+            }
+        }
+        assert_eq!(s.game.searches_done(actor, other), 1, "looking={looking}");
+        assert_eq!(s.game.searches_done(actor, player), 0);
+        let after = s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::SearchLook { .. })).count();
+        assert_eq!(after - before, 3, "the replacement target needs three fresh looks; looking={looking}");
+    }
+}
+
 /// An alert takes an actor off its bed or chair; when the search ends inside its
 /// package's place it settles again (issue #2013) [observed: Easy Pete, fought off his
 /// chair, sat again about 5 real seconds after the fight, AI observer 2026-11-10].

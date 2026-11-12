@@ -53,6 +53,10 @@ Tags as in the spec notes: [documented: source], [observed], [hypothesis], and
   `iCombatTargetLostRemoveSearchCount` shares and the target is hidden (-20 or below).
   A member that finishes early waits for the others. Dead or gone targets still leave
   immediately; Combat -> Normal when both lists are empty.
+  [design, #2010: `fnv_ai::alert::Search`, `Ai::alert_step`] Walk/look point progress
+  belongs to the selected alarm's owner. Switching owners starts a fresh search even
+  when their positions are nearby. Completing the shares replaces that progress with
+  a waiting state, preserving the return to the actor's package after Normal.
 - Both timers count a target as detected while a member of the actor's combat group in
   Combat still detects it (#972, docs/spec-notes/combat-groups.md §3) [hypothesis].
 - An event heard while searching puts its owner on the target list, undetected

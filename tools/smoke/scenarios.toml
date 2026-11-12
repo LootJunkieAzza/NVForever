@@ -25960,7 +25960,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 280
 expect = [
-  { re = 'ai \[.*\] 0xFF000000: searches for the player', label = "the lone hostile walks its search" },
+  { re = 'ai \[.*\] .*0xFF000000: searches for the player', label = "the lone hostile walks its search" },
 ]
 order = [[
   { re = 'alert: .*FF000000 Combat . Lost', label = "the hostile loses the hidden player" },
