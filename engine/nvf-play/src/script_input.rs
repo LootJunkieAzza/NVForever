@@ -167,7 +167,7 @@ fn script_input(
             b.set(control, new);
         }
     }
-    input.held = keys.get_pressed().filter_map(|&k| key_code(k)).chain(mouse.get_pressed().filter_map(|&b| mouse_code(b))).collect();
+    input.held = held_codes(&keys, &mouse);
     // The wheel turned this frame is held for the frame (IsKeyPressed 264/265, JIP's key
     // events) [hypothesis: one frame a notch].
     match devices.scroll.map_or(0.0, |s| s.delta.y) {
@@ -193,6 +193,18 @@ fn script_input(
     }
     script_held.extend(input.script_held.iter().copied());
     ours.last = (tapped, script_held);
+}
+
+/// The keys and mouse buttons held this frame, by the extender's codes, with those pressed
+/// this frame and already let go: a tap shorter than a frame (a quick press at a low
+/// frame rate) is held for that one frame, so it gives scripts one key-down and, the frame
+/// after, one key-up, as the wheel's notch does [hypothesis: the original reads the keys
+/// buffered and never misses a press; observed: at ~60 ms frames an 11 ms press of V
+/// reached no handler, and JAM's bullet time stayed on].
+fn held_codes(keys: &ButtonInput<KeyCode>, mouse: &ButtonInput<MouseButton>) -> std::collections::BTreeSet<u16> {
+    let keys = keys.get_pressed().chain(keys.get_just_pressed()).filter_map(|&k| key_code(k));
+    let buttons = mouse.get_pressed().chain(mouse.get_just_pressed()).filter_map(|&b| mouse_code(b));
+    keys.chain(buttons).collect()
 }
 
 /// The keys and buttons the player's controls leave out: those scripts disabled.
@@ -415,4 +427,36 @@ fn mod_file_roots(data: Option<Res<nvf_assets::GameData>>, mut done: Local<bool>
             }
         }));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A press let go within the frame is held for that frame and gone the next: one
+    /// key-down, then one key-up, for JIP's handlers.
+    #[test]
+    fn a_tap_shorter_than_a_frame_is_held_for_one_frame() {
+        let mut keys = ButtonInput::<KeyCode>::default();
+        let mut mouse = ButtonInput::<MouseButton>::default();
+        let v = key_code(KeyCode::KeyV).unwrap();
+        // Pressed and let go before the frame read the devices (as Bevy's keyboard system
+        // applies both events in one frame).
+        keys.press(KeyCode::KeyV);
+        keys.release(KeyCode::KeyV);
+        mouse.press(MouseButton::Left);
+        mouse.release(MouseButton::Left);
+        let held = held_codes(&keys, &mouse);
+        assert!(held.contains(&v));
+        assert!(held.contains(&MOUSE_BASE));
+        // The next frame: up.
+        keys.clear();
+        mouse.clear();
+        assert!(held_codes(&keys, &mouse).is_empty());
+        // A key held across frames stays held, once.
+        keys.press(KeyCode::KeyV);
+        assert_eq!(held_codes(&keys, &mouse).into_iter().collect::<Vec<_>>(), vec![v]);
+        keys.clear();
+        assert_eq!(held_codes(&keys, &mouse).into_iter().collect::<Vec<_>>(), vec![v]);
+    }
 }
