@@ -121,7 +121,7 @@ fn sample(time: Res<Time>, mut probe: ResMut<Probe>, mut script: Option<ResMut<S
                     continue;
                 }
                 let class = fnv_game::combat::worn_armor_class(world, id);
-                let mult = crate::creature_pace::speed_mult(game, FormId(rig.base), id);
+                let mult = crate::creature_pace::current_speed_mult(game, FormId(rig.base), id);
                 // As `fnv_ai::carry::drawn_walk_share` takes it: the equipment, else (none
                 // known) the weapon the animating side last drew.
                 let weapon = match world.equipment(id) {

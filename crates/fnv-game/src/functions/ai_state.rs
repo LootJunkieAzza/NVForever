@@ -85,9 +85,17 @@ pub fn package_code(t: PackageType) -> i32 {
 /// conversation between two actors), in combat, searching, or the package.
 enum Doing {
     Talking,
+    /// In Combat, or Lost (searching for a target it fought): scripts read a plain fight
+    /// [observed: an actor of the original fighting the player kept procedure COMBAT and
+    /// package type COMBAT while GetDetected player read 0, and SEARCH 36 and
+    /// SEARCH_FOR_ATTACKER 29 never appeared in about 480,000 samples,
+    /// npc-behaviour-compare.md §11; design, #2121: our Lost searches underneath].
     Fighting,
     /// Fleeing from a fight (`combat_group::Flight`, in any combat state).
     Fleeing,
+    /// Alert (noticed, never fought this time): no capture shows what the original reads
+    /// then (npc-behaviour-compare.md §11), so it keeps SEARCH [design, #2121: left as it
+    /// was until a capture shows it].
     Searching,
     /// Warning the player, in Normal (`Game::warning_to`): the game runs a Guard package
     /// of its own meanwhile [observed: a young gecko's package read a form made at run
@@ -112,8 +120,8 @@ fn doing(g: &mut Game, r: FormId) -> Doing {
         return Doing::Fleeing;
     }
     match g.awareness.state(r) {
-        State::Combat => return Doing::Fighting,
-        State::Alert | State::Lost => return Doing::Searching,
+        State::Combat | State::Lost => return Doing::Fighting,
+        State::Alert => return Doing::Searching,
         State::Normal => {}
     }
     if g.warning_to(r).is_some() {
@@ -124,9 +132,9 @@ fn doing(g: &mut Game, r: FormId) -> Doing {
 }
 
 /// `actor.GetCurrentAIPackage`: the kind of package the actor runs, by the codes of
-/// [`package_code`]; 5 COMBAT in combat (fleeing from it too), 29 SEARCH_FOR_ATTACKER while it searches
-/// (Alert, Lost), 6 DIALOGUE in a conversation with the player [hypothesis: the
-/// game's combat, search and conversation run as packages of their own, as the table's
+/// [`package_code`]; 5 COMBAT in combat (Combat and Lost; fleeing from it too), 29
+/// SEARCH_FOR_ATTACKER in Alert, 6 DIALOGUE in a conversation with the player
+/// [hypothesis: the game's combat, search and conversation run as packages of their own, as the table's
 /// COMBAT, SEARCH_FOR_ATTACKER and DIALOGUE suggest]; 0 with no package [observed:
 /// Trudy and Joe Cobb, none of whose packages was current, read 0, `fp7_packages_locks`].
 pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
@@ -156,7 +164,8 @@ pub fn get_offers_services_now(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Val
 /// DIALOGUE_ACTIVATE, 44 GUARD, 45 SANDBOX, 46 USE_IDLE_MARKER, 48 SITTING; "a single
 /// package can contain several possible procedures"]. Chosen here:
 ///
-/// - a conversation with the player or between two actors 4, combat 13, Alert or Lost 36;
+/// - a conversation with the player or between two actors 4, combat 13 (Combat and Lost),
+///   Alert 36;
 /// - warning the player (`Game::warning_to`) 44 GUARD [observed: [`Doing::Warning`]];
 /// - fleeing from a fight 16 FLEE [documented: the wiki's table names 16 FLEE;
 ///   hypothesis: it is the procedure of the combat AI's flight, as the IDLE tree reads it:
