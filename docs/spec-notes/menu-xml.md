@@ -308,7 +308,11 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
   as a raw value for later atlas resolution using interface.rs's existing `.tai` reader.
   [hypothesis] Missing `zoom` means 100 percent. [design] Explicit `zoom`, `tile`,
   `cropx` and `cropy` are passed as numbers without changing the box; absent tile/crop
-  inputs remain absent. Their effects on texture sampling await the renderer.
+  inputs remain absent. The renderer applies `cropx`/`cropy` to a picture drawn at its
+  texels' size times its zoom: the point of the zoomed picture put at the box's top left
+  [documented: GECK wiki "Tutorial: Understanding XML" and "Cropx", "applied after the
+  zoom trait"] (`tiles::draw::Piece::crop`); a stretched or repeated picture takes no crop
+  [design].
 - [design] Text `string` (empty if absent), numeric `font` (zero if absent) and optional
   `wrapwidth` go to a caller's measuring callback. Only absent width/height are replaced
   by the measured dimensions; explicit zero dimensions stay zero.
@@ -505,6 +509,67 @@ stands unchanged: every picture stretched, the shared atlas only.
   own `_NVFSequenceFraction` gives (hud.md §14.12, `tiles/model.rs`). [hypothesis] The
   model's origin stands at the tile's `x`, `y`, a model unit an interface unit; the
   tile's `width` and `height` do not scale it.
+
+### 3.1.4 Turned tiles: `rotateangle`, `rotateaxisx`, `rotateaxisy`
+
+What the traits mean, as read:
+
+- [documented: GECK wiki "Rotation UI directives", revision 39961] `rotateangle` turns a
+  tile by an angle in radians (its example: 1.570796, "Pi/2 rotation"); `rotateaxisx` and
+  `rotateaxisy` name the point turned about, "relative to X coordinate of an element" and
+  to its Y coordinate (its example: `width` / 2, "the X center of the element"); "Those
+  traits won't work if element has children".
+- [documented: `menus\main\map_menu.xml`] Only the map menu uses them, and only the axis
+  traits: the two player arrows (`MM_LocalMapCursor`, `MM_WorldMapCursor`) turn "about its
+  center" (`width` / 2, `height` / 2), and `PathLineTemplate`'s dotted line about its
+  "leftmost-center point" (0, `height` / 2). No file writes `rotateangle`: the original's
+  code writes it (the arrows by the player's heading, the lines by their direction
+  [hypothesis: by what they show]). No file turns a text, a rect or a tile with children;
+  none of the turned tiles has `target`.
+- [hypothesis] A positive angle turns clockwise on the screen (the view's y runs down):
+  the wiki gives no sense, and a heading runs clockwise from north. Without the axis
+  traits the point is the tile's top left (0, 0).
+
+What the code does (`nvf-play/src/tiles/layout.rs` `Turn`, `tiles/draw.rs` `turned`):
+
+- [design] Layout keeps the tile's unturned box and adds its turn (angle, and the point
+  from the box's top left in interface units) to its item; none at angle 0 or an angle that
+  is not a number, so an unturned tile behaves as before (no transform, rounded as before); none for a tile with
+  live children (the wiki's rule), and a turn never passes to children.
+- [design] A box's or a picture's piece is drawn turned (its outer node takes a Bevy
+  `UiTransform`: the rotation, and the move that puts the turn about the point instead of
+  the node's middle, `Turn::shift`); a piece only turned further is turned in place, its
+  nodes kept. A turned node and its clip wrapper are laid out unrounded (Bevy's
+  `LayoutConfig`), as the shift is worked out from the box's unrounded size and place and
+  Bevy turns about the middle of the size it lays out; unturned nodes are rounded as
+  before. The clips above it (`clips`, a turned-on `clipwindow`) stay unturned boxes
+  and cut the turned quad on the screen (Bevy clips a transformed node by its clip
+  rectangles). A `tile` picture is turned whole, its repeats with it.
+- [design] Texts, models and the compass strip are not turned (no file turns one).
+- [design] The pointer is tested against a turned tile's unturned box (`fnv_ui::input`),
+  as no turned tile in the files takes the pointer.
+
+### 3.1.5 Pictures the code sets: runtime images
+
+[documented: `menus\main\map_menu.xml`] Some images have no picture in their file and are
+given one by the original's code (the Local Map's `MM_LocalMap_ParentImage`; pipboy.md
+§5.3.1). NVForever's code makes such pictures itself (the Local Map's outline,
+`nvf-play/src/pipboy/data/outline.rs`). What the code does (`nvf-play/src/tiles/runtime_images.rs`):
+
+- [design] A `filename` that starts with `nvf:` (any case) names a picture the code made,
+  kept in the `RuntimeImages` resource by name with its texture, its size in texels and a
+  revision. No game path starts so (the menu files name pictures under `textures\` by
+  relative paths; in Windows paths a colon only follows a drive letter). It is looked up
+  before the atlas indexes and the files, and never enters the file-name cache.
+- [design] Each `RuntimeImages::set` or `touch` is a new revision. The renderer stamps the
+  picture's piece with its entry's revision and size before comparing the frame's pieces
+  with the last ones, so a new texture, the same texture changed, an entry set late,
+  removed or resized repaints the piece under the same name.
+- [design] It fills its box as any picture by `zoom` and `tile` (§3.1.3; `zoom` -1
+  stretches it over the box). Its `tile` repeats are drawn by Bevy's tiles, not baked
+  into one image (the baking reads files); SetUITexOffset and SetUIAlphaMap are not
+  applied to it (they read files); each said once in the log. A name with no entry draws
+  nothing and says so once.
 
 ### 3.2 The pointer and keys (T8)
 
