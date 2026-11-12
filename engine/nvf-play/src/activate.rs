@@ -646,6 +646,10 @@ pub(crate) type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pa
 /// the keys, the grab.
 type ActivateFrom<'w> = (Res<'w, Target>, Option<ResMut<'w, ActivateNext>>, (Option<Res<'w, crate::vats_mode::VatsMode>>, Option<Res<'w, crate::weapon_wheel::WeaponWheel>>), Option<ResMut<'w, crate::grab::GrabState>>);
 
+/// What holds activation back: scripts' control locks (and their count), and the player's
+/// control (a match's end view).
+type ActivateHolds<'w> = (Option<Res<'w, crate::control::ControlLocks>>, Option<ResMut<'w, crate::control::LockStats>>, Option<Res<'w, crate::control::PlayerControl>>);
+
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn activate(
@@ -667,7 +671,7 @@ pub(crate) fn activate(
     ),
     (mut seat, mut steal, mut ui, mut screen): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>, Option<ResMut<crate::loading::Loading>>),
     script: Option<ResMut<crate::script::ScriptState>>,
-    (locks, stats): (Option<Res<crate::control::ControlLocks>>, Option<ResMut<crate::control::LockStats>>),
+    (locks, stats, control): ActivateHolds,
     (mut hold, mut picked): (Option<ResMut<HeldActivation>>, Option<ResMut<Messages<PickedUp>>>),
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
@@ -701,6 +705,11 @@ pub(crate) fn activate(
     }
     // Nor while the weapon wheel is open (docs/design/weapon-wheel.md §5).
     if wheel.is_some_and(|w| w.holds_input()) {
+        return;
+    }
+    // Nor under a match's end view and its fade (`PlayerControl::end_view`) [design].
+    if control.is_some_and(|c| c.end_view) {
+        info!("activate: ignored under a match's end view");
         return;
     }
     // Scripts turned the player's movement off: world objects cannot be activated

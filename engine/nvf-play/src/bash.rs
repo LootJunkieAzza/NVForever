@@ -165,7 +165,8 @@ pub(crate) fn tick(
     if b.cooldown > 0.0 {
         return refuse(b, "cooling down");
     }
-    if active_menu.as_deref().is_some_and(|m| m.0.is_some()) || control.cinematic || control.portrait.is_some() {
+    // Nor under a match's end view and its fade (`PlayerControl::end_view`).
+    if active_menu.as_deref().is_some_and(|m| m.0.is_some()) || control.cinematic || control.portrait.is_some() || control.end_view {
         return refuse(b, "a menu or a scene");
     }
     if vats.as_deref().is_some_and(|v| v.active()) {
