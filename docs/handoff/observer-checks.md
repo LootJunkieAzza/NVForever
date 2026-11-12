@@ -1441,7 +1441,17 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     (`GetDetected` on it, then hostility after the blast)? (e) The panic on a creature that
     can be pickpocketed (a giant rat): does it play anything, does it stop, or does it go
     on walking? (f) Seen by a third NPC halfway through the fuse, then hidden at the blast:
-    does that NPC turn hostile? NVForever counts it as a witness.
+    does that NPC turn hostile? NVForever counts it as a witness. (g) The live item
+    (#1640 item 5): plant one Frag Grenade on an NPC who already carries Frag Grenades,
+    then reopen the pocket before the blast. Is the planted one a row of its own, and what
+    does that row say? Does the count of the victim's own row change? Can the player take
+    the planted one back, and does that roll? NVForever: a separate "(Armed)" row, refused,
+    no roll. (h) During the fuse, run `<victim>.RemoveItem <grenade> 1`, `<victim>.Drop
+    <grenade> 1` and `<victim>.EquipItem <grenade>` from the console, then
+    `GetItemCount`: which unit goes, the planted one or the victim's own? Does the blast
+    still happen? NVForever: only the victim's own units move; the blast takes the planted
+    unit. (i) The same NPC with the planted grenade its only grenade, in combat with
+    someone else during the fuse: does it throw the planted one? NVForever: no.
 
 ## Added 2026-11-06 (the power fist's hand, issue #1586)
 

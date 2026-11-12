@@ -309,6 +309,18 @@ the spec it links to.
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
 
+56. **A planted explosive is "Armed" and stays in the pocket (#1640).** Each live plant
+    reserves one unit of the item. The victim's other units of that item stay usable.
+    Nothing takes the reserved unit until its blast: not the victim (equip, use, drop,
+    a grenade throw), not a script's RemoveItem or RemoveAllItems, and not the player
+    taking it back from the pocket (refused, no roll). The pocket lists it as
+    "<item> (Armed)". The data has no game setting for this word, and "Live" is seen
+    only on the original's screen, so the word is ours (`LIVE_NOTE`). If you rule
+    otherwise, the player could take it back (with or without a roll), scripts could
+    remove it, or the word could change. The victim looking around and spotting you
+    (item 5, second part) is not built yet.
+    ([pickpocket §5](spec-notes/pickpocket.md))
+
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 
 
