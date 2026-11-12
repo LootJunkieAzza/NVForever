@@ -646,9 +646,14 @@ fn target(
     mates: Res<SocialMates>,
     mut found: ResMut<crate::activate::Target>,
     (mut social, combat, kit, tables): TargetState,
+    vats: Option<Res<crate::vats_mode::VatsMode>>,
 ) {
     let Some(player) = player else { return };
-    if mates.me.is_none() || social.holds_input() {
+    // VATS has Activate for itself (Accept plays the queued attacks), as for the world's
+    // activation (`crate::activate`): no Talk prompt and no wheel on the other player
+    // then [observed: the co-op run of 2026-11-12, the host's Accept also opened the
+    // wheel on the guest while the attacks played].
+    if mates.me.is_none() || social.holds_input() || vats.is_some_and(|v| v.holds_input()) {
         return;
     }
     let (eye, dir) = crate::control::Crosshair::ray(control.crosshair.as_ref(), player.eye(), player.look_dir());
