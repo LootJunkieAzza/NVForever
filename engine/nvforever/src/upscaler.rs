@@ -163,7 +163,9 @@ impl UpscalerChoice {
 }
 
 /// Why an upscaler cannot run. The keys are stable (logs, tests, the settings' reasons).
+/// Most reasons are made only by the Windows loader (`dlss/win.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub enum Unavailable {
     /// DLSS through Streamline is Windows only.
     NotWindows,
