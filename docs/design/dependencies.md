@@ -68,8 +68,14 @@ it on every push to main.
 
 ## CI
 
-`.github/workflows/ci.yml`: one Linux job, run on pushes to main (and manually), that does
-`cargo deny`, tests and clippy (`-D warnings`) for both workspaces and the Python lab/capture
-self-tests. Pull requests, other branches, Windows and macOS are not run in CI (billed
-minutes); the local checks in CLAUDE.md cover them before each push. The parity job that needs game data stays in
-`parity-lab/ci/github-actions.yml` (self-hosted runner only).
+`.github/workflows/ci.yml` (read 2026-11-12): one Linux job, so branch protection has a
+single check to require. It runs on every pull request, on pushes to main that change more
+than docs (`docs/` and `*.md`), and by hand. In order: `cargo deny` (licences, advisories,
+bans, sources) for the root workspace; the root workspace's tests and clippy (`--release
+--locked`, `-D warnings`); the Python self-tests of the parity lab, the capture tools, the
+smoke runner, the stress tool and the profile campaign; the engine workspace's tests and
+clippy. A pull request that changes only docs skips those steps and passes at once; a newer
+push to the same branch or pull request cancels the run still in progress. The repository
+is public, so runner minutes are free. Windows and macOS are not run in CI; the local
+checks in CLAUDE.md cover them before each push. The parity job that needs game data
+stays in `parity-lab/ci/github-actions.yml`, a template for a self-hosted runner only.
