@@ -307,7 +307,9 @@ impl ItemModTiles {
     /// The model's selection now: who moved it. `late`: the pass after the model's keys, which
     /// have applied this frame's requests by then, so the pointer's request is used up there: a
     /// key's later move back onto a row the pointer once asked for is the keys' (and brings the
-    /// row into view).
+    /// row into view). In a frame with both a hover and a key's move the model applies the hover
+    /// first and the key after (`crate::pipboy::item_mod::keys`), so the key decides the row and
+    /// the move is the keys'; the pointer does not win that frame.
     fn follow_model(&mut self, selected: usize, late: bool) {
         if self.selected != Some(selected) {
             if self.asked == Some(selected) {
@@ -407,7 +409,12 @@ fn write_headline_line(ui: &mut Ui) {
     // A right-justified text's `x` is its right end (`super::layout`).
     let left = read(name, "x") + read(words, "x") - if right_justified { read(words, "width") } else { 0.0 };
     let length = (left - NAME_GAP - read(line, "x")).max(0.0);
-    ui.write_changed(line, "_length", Value::Num(length));
+    // The last word on `_length` for this page: `write_frame_of` writes it too, as it moves the
+    // line's start between the device and the screen menu, so the value now is compared, not a
+    // cache of this writer's own last write.
+    if ui.tile(line).get("_length").map(Value::num) != Some(length) {
+        ui.set_trait(line, "_length", Value::Num(length));
+    }
 }
 
 /// The longest start of `text`, whole words, that `height_of` gives no more than the height of
@@ -444,7 +451,10 @@ fn cut_description(ui: &mut Ui, desc: &str, fonts: &mut dyn PageFonts) {
     if fonts.text_size(font, "X", wrap).is_none() {
         return;
     }
-    let shown = first_lines(desc, model::DESC_LINES, &mut |text| fonts.text_size(font, text, wrap).map_or(0.0, |s| s.1));
+    // Line breaks as the font sets them (`fnv_font::Font::lines`), so a cut before a break leaves
+    // no bare carriage return.
+    let whole = desc.replace("\r\n", "\n");
+    let shown = first_lines(&whole, model::DESC_LINES, &mut |text| fonts.text_size(font, text, wrap).map_or(0.0, |s| s.1));
     if shown != desc {
         ui.set_trait(t, "string", Value::Str(shown));
     }
@@ -1120,6 +1130,37 @@ mod tests {
         s.offer.name = "W".repeat(60);
         run(&mut ui, Shown::of(&s, None, None, false, 0, &words()), &mut tiles).unwrap();
         assert_eq!(number(&ui, LINE, "_length"), 0.0);
+    }
+
+    /// No room for the line, through device, screen menu and device again: the screen menu's own
+    /// write of `_length` (`write_frame_of`, as it moves the line's start) does not stand.
+    #[test]
+    fn a_name_leaving_no_room_keeps_no_line_across_the_frames() {
+        let (mut ui, mut tiles) = (fixture(|s| s), ItemModTiles::default());
+        let mut s = session(0);
+        s.offer.name = "W".repeat(60);
+        let long = Shown::of(&s, None, None, false, 0, &words());
+        for device in [true, false, true, false, true] {
+            page(&mut ui, long.clone(), device, true, &mut tiles, &mut TestFonts).unwrap();
+            assert_eq!(number(&ui, LINE, "_length"), 0.0, "device {device}");
+        }
+        // And with room again after it, on the screen menu.
+        let short = shown(0);
+        page(&mut ui, short, false, true, &mut tiles, &mut TestFonts).unwrap();
+        let from = f64::from(crate::pipboy::frame::lead_line_end());
+        let name_left = 300.0 + 200.0 - 8.0 * "Own gun +".len() as f64;
+        assert_eq!(number(&ui, LINE, "_length"), (name_left - NAME_GAP - from).max(0.0));
+    }
+
+    #[test]
+    fn a_description_with_carriage_returns_is_cut_with_none_left() {
+        let (mut ui, mut tiles) = (fixture(|s| s), ItemModTiles::default());
+        let long = Shown::of(&session(3), None, Some("one\r\ntwo\r\nthree\r\nfour"), false, 0, &words());
+        run(&mut ui, long, &mut tiles).unwrap();
+        assert_eq!(string(&ui, DESC, "string"), "one\ntwo\nthree");
+        let short = Shown::of(&session(3), None, Some("one\r\ntwo"), false, 0, &words());
+        run(&mut ui, short, &mut tiles).unwrap();
+        assert_eq!(string(&ui, DESC, "string"), "one\ntwo", "a short one loses its carriage returns too");
     }
 
     #[test]

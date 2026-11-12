@@ -277,7 +277,9 @@ view. The keys stay the model's (`item_mod_menu::HAND_BUILT_KEYS`); a script's M
 still clicks Cancel by the file's `_PCButton_E`. A click and a key in the same frame are not
 arbitrated: each is acted on in turn, as with the hand-built menu (a click on the chosen mod and
 Enter in one frame attach it and take it off again); only one key is kept from acting twice
-(`menus::key_click_acts`).
+(`menus::key_click_acts`). A hover and an arrow key in one frame: the model applies the hover
+first and the key after, so the key decides the chosen row (and the list follows it as a key's
+move).
 
 **The description** [design]: the file gives `IMM_ModDesc` a `height` of 100 at y 220 and the
 cards stand at y 400, but a text tile is measured to its words here and not clipped by its own
