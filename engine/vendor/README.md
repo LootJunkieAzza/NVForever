@@ -43,20 +43,6 @@ by a comment starting `NVForever FSR integration`:
 Without the override both do what upstream does. This is a new patch for Bevy 0.20.1, not
 the dropped 0.19.1 one below.
 
-Both FSR changes are already in Bevy's `main`, written almost the same way: bevyengine/bevy#26235
-(transmission, merged 2026-10-26) and bevyengine/bevy#26236 (cluster lookup, merged
-2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
-Bevy release that has both.
-
-Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
-that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
-queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
-pass does what upstream does. Drop it when an upstream observation API replaces its
-caller or that readiness check is retired. Retries for meshes not yet uploaded and a
-per-view visibility filter of pending entries were tried with it and dropped: the
-`pipboy-first-open` scenarios passed with a clean first opening without them
-(2026-11-07).
-
 Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/transmission/`,
 each part marked `NVForever one resolve`, with `ViewTarget::set_resolve_deferred` in
 bevy_render below:
@@ -74,6 +60,20 @@ Upstream resolves the whole target at the end of the opaque, transmissive and tr
 passes and copies it once: three resolves and a copy where one resolve to the transmission
 texture and one to the main texture are read. Without multisampling, with a resolution
 override, or when the transparent phase is empty, upstream's path runs unchanged.
+
+Both FSR changes are already in Bevy's `main`, written almost the same way: bevyengine/bevy#26235
+(transmission, merged 2026-10-26) and bevyengine/bevy#26236 (cluster lookup, merged
+2026-10-20). Neither is in a release yet; 0.20.1 is the latest. Drop those two with the first
+Bevy release that has both.
+
+Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
+that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
+queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
+pass does what upstream does. Drop it when an upstream observation API replaces its
+caller or that readiness check is retired. Retries for meshes not yet uploaded and a
+per-view visibility filter of pending entries were tried with it and dropped: the
+`pipboy-first-open` scenarios passed with a clean first opening without them
+(2026-11-07).
 
 ## bevy_render 0.20.1 (MIT OR Apache-2.0, Bevy contributors)
 
@@ -93,21 +93,12 @@ not `Send`).
 (Goodsprings 0.88 → 0.58 ms, battle-50 2.3 → 1.8 ms). The blended pass is recorded last
 among the big ones and finishes in 0.8-1.8 ms, so it is what is still waited for.
 
-Third change (one resolve, docs/design/frame-rate-audit.md §9), in `src/view/mod.rs`,
+Another change (one resolve, docs/design/frame-rate-audit.md §9), in `src/view/mod.rs`,
 marked `NVForever one resolve`: `ViewTarget::set_resolve_deferred` and
 `ViewTarget::resolve_deferred`. While set, `get_color_attachment` hands out the multisampled
 texture without its resolve target, so a pass keeps its samples and resolves nothing. A new
 `ViewTarget` (each frame) starts with it off, and nothing in Bevy sets it: bevy_pbr's
 transmission systems above do.
-
-Fourth change (a measuring aid, docs/design/frame-rate-audit.md §9), in
-`src/renderer/render_context.rs`, marked `NVForever encoder spans`: with
-`NVF_PLAY_TEST_PROFILE_ENCODERS=1` and a diagnostics recorder (the `profile` build's
-`NVF_PLAY_TEST_PROFILE`), every render system's command encoder is wrapped in a GPU time
-span `enc:<system>`, opened when the encoder is made and closed when the system's
-`RenderContext` is dropped. The passes' own spans nest inside it, so the difference is the
-GPU time of what a system records outside its passes: image copies, multisample resolves,
-passes without a span. Without the variable nothing is recorded.
 
 Second change (#1887, docs/design/frame-rate-audit.md, the indirect-parameter build jobs),
 in `src/batching/gpu_preprocessing.rs`, `coalesce_batch_ranges` (comment starting
