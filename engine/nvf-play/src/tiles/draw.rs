@@ -872,7 +872,7 @@ pub fn change(old: &Piece, new: &Piece) -> Change {
     let size = |r: &TileRect| (r.width, r.height);
     if old == new {
         Change::Same
-    } else if old.look == new.look && old.tex == new.tex && old.turn == new.turn && old.crop == new.crop && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
+    } else if old.look == new.look && old.tex == new.tex && old.crop == new.crop && size(&old.rect) == size(&new.rect) && old.clip.map(|c| size(&c)) == new.clip.map(|c| size(&c)) {
         // A model's parts take no Ink: spawned again in its new colour.
         if old.colour != new.colour && matches!(new.look, Look::Model { .. }) {
             Change::Spawn
