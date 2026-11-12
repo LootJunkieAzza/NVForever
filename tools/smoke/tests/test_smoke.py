@@ -334,6 +334,40 @@ class JudgeTests(unittest.TestCase):
         s = self.suite('order = [["run finished", "music summary"]]')
         self.assertEqual(judge(s, LOG, 0).status, "FAIL")
 
+    def known(self, reason='known_failing = { linux = "bug 1" }'):
+        return self.suite(f'expect = [{{ text = "music summary: 9 started", {reason} }}]')
+
+    def test_platform_mark_is_known_only_where_named(self):
+        s = self.known()
+        v = judge(s, LOG, 0, platform="linux")
+        self.assertEqual((v.status, [o.known for o in v.failures]), ("KNOWN", ["bug 1"]))
+        v = judge(s, LOG, 0, platform="windows")
+        self.assertEqual((v.status, [o.known for o in v.failures], v.xpass), ("FAIL", [None], []))
+        self.assertEqual(v.failures[0].what, "missing")
+
+    def test_platform_mark_reports_a_pass_only_where_named(self):
+        s = self.suite('expect = [{ text = "music summary: 1 started", known_failing = { linux = "bug 1" } }]')
+        v = judge(s, LOG, 0, platform="linux")
+        self.assertEqual((v.status, v.xpass), ("PASS", ["music summary: 1 started"]))
+        v = judge(s, LOG, 0, platform="windows")
+        self.assertEqual((v.status, v.xpass), ("PASS", []))
+
+    def test_plain_string_is_known_on_every_platform(self):
+        s = self.suite('expect = [{ text = "music summary: 9 started", known_failing = "bug 1" }]')
+        for platform in ("linux", "windows", "macos"):
+            self.assertEqual(judge(s, LOG, 0, platform=platform).status, "KNOWN", platform)
+
+    def test_platform_mark_syntax(self):
+        e = Expect.parse({"text": "x", "known_failing": {"linux": "why"}})
+        self.assertEqual((e.known_reason("linux"), e.known_reason("windows")), ("why", None))
+        self.assertEqual(e.known_reason("macos"), None)
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {"linnux": "why"}})
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {}})
+        with self.assertRaises(ScenarioError):
+            Expect.parse({"text": "x", "known_failing": {"linux": ""}})
+
 
 class GameEnvTests(unittest.TestCase):
     def test_play_runs_count_the_world_aids_from_the_scripts(self):

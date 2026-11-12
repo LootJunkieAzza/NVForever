@@ -380,17 +380,18 @@ class Verdict:
     reason: str = ""  # for SKIP / launch errors
 
 
-def judge(s: Scenario, lines: list[str], exit_code: int | None, launch_error: str = "") -> Verdict:
+def judge(s: Scenario, lines: list[str], exit_code: int | None, launch_error: str = "",
+          platform: str | None = None) -> Verdict:
     outs: list[Outcome] = []
     if launch_error:
         outs.append(Outcome(False, None, "launch", launch_error))
     elif exit_code != s.exit:
         outs.append(Outcome(False, None, "exit", f"exit code {exit_code}, want {s.exit}",
                             context=[ln for ln in lines if "error" in ln.lower() or "panicked" in ln][-3:]))
-    outs += [check_one(e, lines) for e in s.expect]
+    outs += [check_one(e, lines, platform) for e in s.expect]
     for seq in s.order:
-        outs += check_order(seq, lines)
-    outs += [check_forbid(e, lines) for e in s.forbid]
+        outs += check_order(seq, lines, platform)
+    outs += [check_forbid(e, lines, platform) for e in s.forbid]
     hard = [o for o in outs if not o.ok and not o.known]
     known = [o for o in outs if not o.ok and o.known]
     xpass = [o.label for o in outs if o.ok and o.known]
