@@ -305,7 +305,13 @@ impl FunctionTable {
                     // Called by shipped scripts and not listed: every call decodes with
                     // tagged values only.
                     (Vec::new(), Vec::new(), EncodingSource::Observed)
-                } else if xedit_types.iter().any(|x| xedit_rule.contains_key(x)) {
+                // Also a function whose page gives no parameter list at all: it takes what
+                // its condition takes [documented: the xEdit definitions' parameter types;
+                // GetFactionRank, `ptFaction`, the one such row]. Without them it took
+                // nothing, and `ref.GetFactionRank SomeFaction > 9` in an extender
+                // expression did not compile [observed: JIP Companions Command & Control
+                // 2.60, JIPCCCMainScript].
+                } else if xedit_types.iter().any(|x| xedit_rule.contains_key(x)) || (params.is_empty() && !xedit_types.is_empty()) {
                     let p = xedit_types.iter().map(|x| xedit_rule.get(x).cloned().unwrap_or(ParamEnc::Value)).collect();
                     (p, Vec::new(), EncodingSource::XeditType)
                 } else {

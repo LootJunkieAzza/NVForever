@@ -1115,6 +1115,10 @@ impl<'a> Gen<'a> {
                 self.loops += 1;
             }
             Kw::ForEach(toks) => {
+                // `foreach (item <- source)`: the whole head in one pair of parentheses
+                // [observed: Unofficial Patch NVSE Plus and JSawyer Ultimate ship such
+                // lines with compiled bytes, `foreach (aEntry <- ar_List 0, 1, …)`].
+                let toks = lex::unwrapped(toks);
                 let arrow = toks.iter().position(|t| t.is(lex::XKind::Op, "<-"));
                 let head = arrow.and_then(|k| {
                     let var = self.xwhole(&toks[..k])?;

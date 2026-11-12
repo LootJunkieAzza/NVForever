@@ -219,6 +219,27 @@ pub struct XTok {
     pub sign: bool,
 }
 
+/// `toks` without the one pair of parentheses that wraps all of it, if there is one
+/// (`(a <- b)`; not `(a) <- (b)`).
+pub fn unwrapped(toks: &[XTok]) -> &[XTok] {
+    let wraps = toks.len() >= 2 && toks[0].kind == XKind::Open && toks[toks.len() - 1].kind == XKind::Close && {
+        let mut depth = 0i32;
+        toks[..toks.len() - 1].iter().all(|t| {
+            match t.kind {
+                XKind::Open => depth += 1,
+                XKind::Close => depth -= 1,
+                _ => {}
+            }
+            depth > 0
+        })
+    };
+    if wraps {
+        &toks[1..toks.len() - 1]
+    } else {
+        toks
+    }
+}
+
 impl XTok {
     pub fn is(&self, kind: XKind, text: &str) -> bool {
         self.kind == kind && self.text.eq_ignore_ascii_case(text)

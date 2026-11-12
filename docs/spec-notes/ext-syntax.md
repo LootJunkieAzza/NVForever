@@ -194,7 +194,21 @@ becomes false hangs the game (a crash in the original) [documented: While].
 **foreach** `foreach entry <- source` … `loop`: over arrays, strings, containers and
 form lists (xNVSE 6.2.5); the entry for each kind is ext-arrays.md §3 [documented:
 ForEach]. The type may be given on each name (`e:array <- src:array`, `item:tempref <-
-container:ref`).
+container:ref`). The whole head may stand in one pair of parentheses, `foreach (entry <-
+source)` [observed: Unofficial Patch NVSE Plus and JSawyer Ultimate ship such lines with
+compiled bytes, the source a variable, a call and an `ar_List 0, 1, …`].
+
+**A comma after a function's name.** `rForm = ListGetNthForm, SomeList, iPos`: a comma
+between the name and a first argument the function cannot go without separates as a
+space does [observed: Unofficial Patch NVSE Plus ships that line with compiled bytes;
+hypothesis: the original's compiler takes commas as spaces there]. After a function that
+takes no argument, or can go without its first, the comma belongs to what the call stands
+in (`ar_List GetSelf, 2` is two elements) [design].
+
+**GetFactionRank in an extender expression** takes its faction, though the catalogue's
+row has no parameter list: a numbered function with no listed parameters takes its
+condition's [documented: the xEdit definitions give `ptFaction`; observed: JIP Companions
+Command & Control 2.60, `(rRef.GetFactionRank <faction> > 9)` beside an extender call].
 
 **break** leaves the innermost while or foreach at once; **continue** skips to the next
 test (while) or entry (foreach). Both are only allowed inside such a loop

@@ -425,6 +425,11 @@ impl Gen<'_> {
             None if self.in_args && name.len() == 1 && matches!(name.to_ascii_uppercase().as_str(), "X" | "Y" | "Z") => {
                 Some(XExpr::Axis { c: name.to_ascii_uppercase().chars().next().unwrap_or('Z') })
             }
+            // In parentheses a name nothing knows with an operand right after it can only
+            // be a call (as text it would leave two operands side by side), in a mod's
+            // source compiled by the engine [observed: JIP Companions Command & Control
+            // 2.60, `SetFunctionValue (CCCInFaction SomeFaction == 0)`].
+            None if self.unknown_calls && head.is_none() && self.in_paren && !self.in_args && starts_operand(p.peek()) => self.unknown_call(p, name),
             // Any other bare word that names nothing is its own text, with the editor's
             // "Unquoted argument" warning, parenthesised too [observed: nvse-fourth,
             // `SetFunctionValue (GetFOSEVersion)` returns the text "GetFOSEVersion" in xNVSE
@@ -469,6 +474,16 @@ impl Gen<'_> {
         Some(XExpr::Call { call: XCall { on, func: f.func, args } })
     }
 
+    /// Whether the catalogue gives `f` a first parameter that is not optional.
+    fn first_param_required(&self, f: &XFn) -> bool {
+        let first = match (&f.func, f.opcode) {
+            (_, Some(o)) => self.table.get(o).and_then(|x| x.params.first()),
+            (FuncId::Name(n), None) => self.table.unnumbered.get(&n.to_ascii_lowercase()).and_then(|u| u.params.first()),
+            _ => None,
+        };
+        first.is_some_and(|p| !p.optional)
+    }
+
     /// The function is xNVSE's (or FOSE's) and its parameter `k` is a plain string, not a
     /// format string.
     fn plain_string_param(&self, f: &XFn, k: usize) -> bool {
@@ -507,7 +522,14 @@ impl Gen<'_> {
                 break;
             }
             let mut comma = false;
-            if !args.is_empty() && p.peek().is_some_and(|t| t.kind == XKind::Comma) {
+            // A comma between arguments, and one between the name and a first argument
+            // the function cannot go without (`ListGetNthForm, SomeList, i`) [observed:
+            // Unofficial Patch NVSE Plus ships `rForm = ListGetNthForm, <list>, iPos`
+            // with compiled bytes; hypothesis: the original's compiler takes a comma
+            // there as it takes a space]. Before a first argument the function can go
+            // without, or none, the comma ends the call (a list's next element).
+            let leading = args.is_empty() && self.first_param_required(f) && starts_operand(p.peek2());
+            if (!args.is_empty() || leading) && p.peek().is_some_and(|t| t.kind == XKind::Comma) {
                 p.next();
                 comma = true;
             }

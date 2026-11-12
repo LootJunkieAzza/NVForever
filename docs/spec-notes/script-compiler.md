@@ -219,7 +219,10 @@ the editor-parity and runtime compiles keep their errors) [decision]:
   variable (`Quest.rRef.Name`) or after an element (`aItem[0].Name`). A vanilla `if` or
   `set` holding such a name is read with the extender's grammar. Run, the call reports
   "not built", which skips the statement or reads 0, and the script goes on. As a
-  function's argument an unknown bare word stays its own text, as before.
+  function's argument an unknown bare word stays its own text, as before, except in
+  parentheses with an operand right after it, where text would leave two operands side
+  by side: there it is the call [observed: JIP Companions Command & Control 2.60,
+  `SetFunctionValue (CCCInFaction <faction> == 0)`].
 - **An enumeration name the table lacks** (an animation group, an actor value, a
   statistic) compiles, with a warning, to code 65535, which no entry has. The table holds
   only the names seen in compiled scripts (scripts.md §2).

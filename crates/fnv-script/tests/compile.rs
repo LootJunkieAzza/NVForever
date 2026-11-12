@@ -1475,3 +1475,85 @@ fn a_mods_source_survives_an_enum_name_the_table_lacks() {
     assert!(c.bytes.windows(8).any(|w| w[..2] == 0x1128u16.to_le_bytes() && w[6..8] == u16::MAX.to_le_bytes()), "{:02X?}", c.bytes);
     assert_eq!(compile(src, &table(), &World, None).errors().map(|d| d.kind).collect::<Vec<_>>(), ["unknown_enum_name"]);
 }
+
+/// How many arguments the call named `name` got, anywhere in the unit's first block.
+fn call_args(p: &Program, name: &str) -> Option<usize> {
+    let json = serde_json::to_string(&p.blocks[0].body).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&json).unwrap();
+    fn find(v: &serde_json::Value, name: &str) -> Option<usize> {
+        match v {
+            serde_json::Value::Object(m) => {
+                let named = m.get("func").is_some_and(|f| f.to_string().to_ascii_lowercase().contains(&name.to_ascii_lowercase()));
+                match (named, m.get("args").and_then(|a| a.as_array())) {
+                    (true, Some(a)) => Some(a.len()),
+                    _ => m.values().find_map(|x| find(x, name)),
+                }
+            }
+            serde_json::Value::Array(a) => a.iter().find_map(|x| find(x, name)),
+            _ => None,
+        }
+    }
+    find(&doc, name)
+}
+
+#[test]
+fn a_foreach_head_may_stand_in_parentheses() {
+    // [observed: Unofficial Patch NVSE Plus and JSawyer Ultimate ship `foreach (item <-
+    // source)` lines with compiled bytes, the source a variable, a call and an ar_List.]
+    let (_, p) = build("array_var a\narray_var e\nref r\nbegin GameMode\nforeach (e <- a)\nloop\nforeach (e <- ar_List 1, 2, 3)\nloop\nforeach (e <- GetListForms r)\nloop\nforeach e <- (a)\nloop\nend");
+    let b = body(&p);
+    assert_eq!(b.len(), 4, "{b:?}");
+    assert!(b.iter().all(|s| matches!(s, Stmt::ForEach { head, .. } if matches!(head.var, fnv_script::ir::XExpr::Var { .. }))), "{b:?}");
+    assert_eq!(call_args(&p, "ar_List"), Some(3));
+    // Only one pair around all of it is the head's.
+    use fnv_script::compile::lex::{unwrapped, xtokens};
+    assert_eq!(unwrapped(&xtokens("(e <- a)")).len(), 3);
+    assert_eq!(unwrapped(&xtokens("(e) <- (a)")).len(), 7);
+    assert_eq!(unwrapped(&xtokens("((e <- a))")).len(), 5);
+}
+
+#[test]
+fn a_comma_may_follow_a_functions_name() {
+    // [observed: Unofficial Patch NVSE Plus ships `rForm = ListGetNthForm, <list>, iPos`
+    // with compiled bytes.]
+    for line in ["r = ListGetNthForm, Caps001, i", "let r := ListGetNthForm, Caps001, i", "set r to ListGetNthForm, Caps001, i"] {
+        let (_, p) = build(&format!("ref r\nshort i\nbegin GameMode\n{line}\nend"));
+        assert_eq!(call_args(&p, "ListGetNthForm"), Some(2), "{line}");
+    }
+    // After a function that can go without its first argument, or takes none, the comma
+    // is the list's: two elements each.
+    for first in ["GetActiveFactions", "GetSelf"] {
+        let (_, p) = build(&format!("array_var a\nbegin GameMode\nlet a := ar_List {first}, 2\nend"));
+        assert_eq!(call_args(&p, "ar_List"), Some(2), "{first}");
+    }
+    let (_, p) = build("array_var a\nbegin GameMode\nlet a := ar_List GetActiveFactions, 2\nend");
+    assert_eq!(call_args(&p, "GetActiveFactions"), Some(0));
+}
+
+#[test]
+fn getfactionrank_takes_its_faction_in_an_extender_expression() {
+    // The catalogue's row has no parameter list; its condition takes a faction
+    // [documented: the xEdit definitions' `ptFaction`]. [observed: JIP Companions Command
+    // & Control 2.60, `elseif (… == 0) || (rRef.GetFactionRank <faction> > 9)`.]
+    assert_eq!(table().get(0x1049).map(|f| (f.name.as_str(), f.encodings.len())), Some(("GetFactionRank", 1)));
+    let (_, p) = build("ref r\nshort a\nbegin GameMode\nlet a := (a == 0) || (r.GetFactionRank TestQuest > 9)\nend");
+    assert_eq!(call_args(&p, "4169").or(call_args(&p, "GetFactionRank")), Some(1), "{:?}", body(&p));
+}
+
+#[test]
+fn an_unknown_name_before_an_operand_in_parentheses_is_a_call() {
+    // [observed: JIP Companions Command & Control 2.60, `SetFunctionValue (CCCInFaction
+    // <faction> == 0)`: a function with no page, as an argument in parentheses.]
+    let src = "begin Function { }\nSetFunctionValue (NoSuchFn TestQuest == 0)\nend";
+    let (c, p) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert_eq!(warnings(&c, "unknown_function"), ["NoSuchFn"]);
+    assert_eq!(call_args(&p, "NoSuchFn"), Some(1));
+    // Alone in parentheses it stays its own text, as in the original [observed:
+    // nvse-fourth, `SetFunctionValue (GetFOSEVersion)`].
+    let (c, _) = mod_source("begin Function { }\nSetFunctionValue (NoSuchFn)\nend");
+    assert_eq!(warnings(&c, "unknown_function"), Vec::<&str>::new());
+    assert_eq!(warnings(&c, "unquoted_argument"), ["NoSuchFn"]);
+    // The editor-parity compile keeps its error.
+    assert!(compile(src, &table(), &World, None).errors().count() > 0);
+}
