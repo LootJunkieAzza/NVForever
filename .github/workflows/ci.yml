@@ -3,8 +3,8 @@ name: ci
 # The repo is public, so runner minutes are free. CI runs on every pull request (so
 # collaborators' changes are checked before they are merged), on pushes to main and by
 # hand (Actions tab > ci > Run workflow).
-# - the checks run as parallel Linux jobs (core, engine, tools), each on a runner of its
-#   own, and the `ci` job at the end passes only when they all did, so there is still a
+# - the checks run as parallel Linux jobs (core, engine tests, engine clippy, tools), each
+#   on a runner of its own, and the `ci` job at the end passes only when they all did, so there is still a
 #   single status check to require in branch protection. Before the split one job ran
 #   everything in turn (about 33 min on main: core 16, engine 16); now the run takes as
 #   long as its slowest job (#1956).
@@ -90,12 +90,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # The engine's release target dir is large (it filled the disk with the root's
-      # beside it, #1477). Drop preinstalled SDKs we never use.
-      - name: Free disk space
+      # beside it, #1477). Drop preinstalled SDKs we never use, in the background: the
+      # deletion took 202 s in the foreground (#1956), and the build only needs the room
+      # minutes later. The process keeps running after this step; the runner ends it with
+      # the job.
+      - name: Free disk space (in the background)
         run: |
           df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
-          df -h /
+          nohup sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL > /dev/null 2>&1 &
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
@@ -110,6 +112,27 @@ jobs:
       - name: Engine tests
         run: cargo test --release --locked
         working-directory: engine
+      - name: Disk left
+        if: always()
+        run: df -h /
+
+  # Clippy on its own runner, beside the engine tests (#1956): it builds no code, only
+  # checks, so its target dir is small and it needs no freed disk.
+  engine-clippy:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: engine -> target
+      - name: Linux system libraries for Bevy
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - name: Engine clippy
         run: cargo clippy --release --locked --all-targets -- -D warnings
         working-directory: engine
@@ -146,13 +169,13 @@ jobs:
   # (a docs-only pull request skips core and engine), fails when any failed or was
   # cancelled.
   ci:
-    needs: [changes, core, engine, tools]
+    needs: [changes, core, engine, engine-clippy, tools]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Every check passed
         run: |
-          echo 'changes=${{ needs.changes.result }} core=${{ needs.core.result }} engine=${{ needs.engine.result }} tools=${{ needs.tools.result }}'
+          echo 'changes=${{ needs.changes.result }} core=${{ needs.core.result }} engine=${{ needs.engine.result }} engine-clippy=${{ needs.engine-clippy.result }} tools=${{ needs.tools.result }}'
           case '${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}' in
             true) exit 1 ;;
           esac
