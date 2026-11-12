@@ -415,8 +415,9 @@ pub(super) fn shutdown() {
             } else {
                 note(Level::WARN, format!("shutdown: slShutdown failed: {} ({})", down.name(), down.0));
             }
-            // 3. Then the evaluate's kept textures and views, and the Vulkan objects: the
-            // spike's handles were the last ones.
+            // 3. Then the evaluate's state and the Vulkan objects: the spike's handles were the
+            // last ones (the evaluates' textures and views went with their completion callbacks
+            // during the poll in 1).
             drop(spike.eval);
             let Held { queue, device, adapter, instance } = held;
             drop(queue);

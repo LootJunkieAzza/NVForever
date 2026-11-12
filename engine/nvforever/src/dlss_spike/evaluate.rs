@@ -9,10 +9,12 @@
 //!    size is kept; outside the range DLSS reports for it, FSR's dispatch draws the frame (said
 //!    once per size).
 //! 2. `slGetNewFrameToken` (Streamline counts the frames) and `slSetConstants` with it.
-//! 3. On Bevy's encoder: the output cleared (so wgpu counts it as written and never clears it
-//!    lazily after DLSS has written it: wgpu clears a texture it thinks uninitialised at submit,
-//!    in front of the command buffer that first reads it [design: wgpu-core 30.0.1
-//!    `command/memory_init.rs:261-291`]), then `transition_resources`: colour in, depth and
+//! 3. On Bevy's encoder: the output cleared by a render pass with Clear + Store (so wgpu counts
+//!    it as written and never clears it lazily after DLSS has written it: wgpu clears a texture
+//!    it thinks uninitialised at submit, in front of the command buffer that first reads it
+//!    [design: wgpu-core 30.0.1 `command/memory_init.rs:261-291`]; only a Clear + Store pass
+//!    records the texture as initialised, `command/render.rs:1171-1176`, while `clear_texture`
+//!    records nothing, `command/clear.rs:237-300`), then `transition_resources`: colour in, depth and
 //!    motion to `RESOURCE`, the output to `STORAGE_READ_WRITE`. wgpu-hal puts those in
 //!    `SHADER_READ_ONLY_OPTIMAL` (colour), `DEPTH_STENCIL_READ_ONLY_OPTIMAL` (depth) and
 //!    `GENERAL` [design: wgpu-hal 30.0.1 `vulkan/conv.rs:240-260`], exactly the layouts each
@@ -45,14 +47,14 @@
 //!
 //! **Lifetimes**: the textures are referenced by the transitions on Bevy's encoder, which wgpu
 //! keeps alive until that submission is done; the raw command buffer is in the same submission.
-//! The views (one made here each frame for the depth) are not known to wgpu's tracker, so the
-//! spike keeps clones of all four textures and views for [`KEEP_FRAMES`] frames, far more than
-//! can be in flight (Bevy presents with a frame latency of 2 [hypothesis: Bevy's default
-//! `desired_maximum_frame_latency`, not checked for NVForever's pacing]), and drops the rest at
-//! shutdown after the GPU is drained.
+//! The views (one made here each frame for the depth) are not known to wgpu's tracker, so clones
+//! of all four textures and views move into the raw command buffer's
+//! `on_submitted_work_done` callback and are dropped when the GPU has finished that submission
+//! (wgpu 30 `api/command_buffer_actions.rs:138`), however many frames are in flight
+//! (`NVF_SWAPCHAIN_LATENCY` can raise it). The shutdown's wait-indefinitely poll runs the last
+//! callbacks before `slShutdown`.
 
 use std::borrow::Cow;
-use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::ops::Deref;
 
@@ -72,9 +74,6 @@ use super::{note, Frame, Outcome};
 
 /// The one viewport id (any value the host picks [documented: `ProgrammingGuide.md:646-656`]).
 pub(super) const VIEWPORT: u32 = 0;
-
-/// Frames whose textures and views are kept after their evaluate was recorded.
-const KEEP_FRAMES: usize = 16;
 
 /// The output's alpha set to 1: a full-screen triangle writing only alpha.
 const ALPHA_ONE_WGSL: &str = "
@@ -144,7 +143,6 @@ pub(super) struct Evaluator {
     /// Each failed call and result, with how often it came.
     results: Vec<(&'static str, SlResult, u64)>,
     said: Vec<&'static str>,
-    kept: VecDeque<Kept>,
     alpha: Option<(wgpu::TextureFormat, wgpu::RenderPipeline)>,
 }
 
@@ -161,7 +159,6 @@ impl Evaluator {
             skipped: 0,
             results: Vec::new(),
             said: Vec::new(),
-            kept: VecDeque::with_capacity(KEEP_FRAMES + 1),
             alpha: None,
         }
     }
@@ -276,7 +273,19 @@ impl Evaluator {
         // 3. Clear and transitions on Bevy's encoder.
         {
             let encoder = ctx.command_encoder();
-            encoder.clear_texture(output, &wgpu::ImageSubresourceRange::default());
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("dlss_spike_output_clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: output_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
             let transition = |texture, state| wgpu::TextureTransition { texture, selector: None, state };
             encoder.transition_resources(
                 std::iter::empty(),
@@ -330,15 +339,15 @@ impl Evaluator {
                 })
             })
         };
-        // Queued whatever happened: Streamline may have recorded barriers into it.
-        ctx.add_command_buffer(dlss_encoder.finish());
-        self.kept.push_back(Kept {
+        // Queued whatever happened: Streamline may have recorded barriers into it. What it
+        // used stays alive until the GPU has finished it (module comment, "Lifetimes").
+        let command_buffer = dlss_encoder.finish();
+        let kept = Kept {
             _textures: [color_in.clone(), frame.depth.clone(), frame.motion.clone(), output.clone()],
             _views: [color_in_view.clone(), depth_view, frame.motion_view.clone(), output_view.clone()],
-        });
-        while self.kept.len() > KEEP_FRAMES {
-            self.kept.pop_front();
-        }
+        };
+        command_buffer.on_submitted_work_done(move || drop(kept));
+        ctx.add_command_buffer(command_buffer);
         match evaluated {
             Some(r) if r.is_ok() => {}
             Some(r) => return self.failed_call("slEvaluateFeature", r),
@@ -444,7 +453,8 @@ fn handle_ptr(raw: u64) -> *mut c_void {
 /// The `Resource` Streamline reads on Vulkan: image, view, the layout it is in at the
 /// evaluate, size, format, mips and layers [documented: `src/vulkan.cpp:2779-2844`].
 fn describe(adapter: &wgpu::hal::vulkan::Adapter, texture: &wgpu::Texture, view: &wgpu::TextureView, layout: vk::ImageLayout) -> Option<Resource> {
-    // SAFETY: the handles are only read; texture and view outlive the GPU's use (`Kept`).
+    // SAFETY: the handles are only read; texture and view outlive the GPU's use (`Kept`, held
+    // by the raw command buffer's completion callback).
     let image = unsafe { texture.as_hal::<wgpu::hal::api::Vulkan>() }.map(|t| unsafe { t.raw_handle() })?;
     // SAFETY: as above.
     let image_view = unsafe { view.as_hal::<wgpu::hal::api::Vulkan>() }.map(|v| unsafe { v.raw_handle() })?;

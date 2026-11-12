@@ -652,7 +652,9 @@ pub(crate) fn fsr_pass(
             }
             after_span.end(encoder);
             prepared.history_valid.store(true, Ordering::Relaxed);
-            if !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {
+            // While the DLSS spike draws the frame, FSR's dispatch did not run: its line waits
+            // for a frame FSR draws.
+            if matches!(spike, crate::dlss_spike::Outcome::Fsr { .. }) && !prepared.dispatch_logged.swap(true, Ordering::Relaxed) {
                 info!("FSR dispatch active: 3.1.4, {}x{} -> {}x{}, Vulkan source shaders, frame generation {}", prepared.render_size.x, prepared.render_size.y, prepared.output_size.x, prepared.output_size.y, on_off(frame_generation.as_ref().is_some_and(|f| f.on())));
             }
         }
