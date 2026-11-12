@@ -76,7 +76,8 @@ unchanged, so nothing else behaves differently. Upstream has no way to get the s
 out of the prepass's own code; drop this when it has, or when the sampling is written in
 nvf-assets.
 
-Third change (#1803), in `src/material.rs`: `MaterialQueueProbe`, an optional resource
+Third change (#1803), in `src/material.rs`, each part marked by a comment starting
+`NVForever material queue probe`: `MaterialQueueProbe`, an optional resource
 that records watched main-pass entries and their pipeline IDs as `queue_material_meshes`
 queues them, for `nvforever/src/pipboy_ready.rs`; Bevy installs none, so without it the
 pass does what upstream does. Drop it when an upstream observation API replaces its

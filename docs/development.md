@@ -28,14 +28,25 @@ Python 3.11+.
 
 ```bash
 cargo build --release -p fnvtool            # the command-line tool: target/release/fnvtool(.exe)
-cargo test --workspace --release
+(cd engine && cargo build --release)        # Bevy viewer and game (first build takes a while)
+```
+
+The checks, the commands CI runs in its order (`python tools/smoke plan` lists the ones your
+changed files call for; the cargo deny ones need `cargo install cargo-deny`):
+
+```bash
+cargo deny check licenses advisories bans sources
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
+cargo test --workspace --release --locked
+cargo clippy --workspace --all-targets --release --locked -- -D warnings
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
-cargo clippy --workspace --all-targets --release -- -D warnings
-cd engine && cargo build --release          # Bevy viewer and game (first build takes a while)
-cargo clippy --release --all-targets -- -D warnings   # in engine/: the Bevy workspace
+python -m unittest discover -s tools/profile/tests
+python -m unittest discover -s tools/release/tests
+(cd engine && cargo test --release --locked)
+(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
 ```
 
 With the game installed, two more checks run against your own data:

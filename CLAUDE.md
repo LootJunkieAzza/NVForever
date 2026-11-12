@@ -4,7 +4,7 @@ NVForever is an open-source, clean-room reimplementation of the Fallout: New Veg
 (OpenMW-style). The owner wants sessions to work autonomously, including pushing.
 
 The state of every system is in `docs/status.md`; the open gameplay decisions for the owner
-are in `docs/owner-review.md` (a short ranked list: add a bullet, never a running log), the
+are in `docs/owner-review.md` (ranked, most important first: add a bullet, never a running log), the
 questions the original game can answer in `docs/handoff/observer-checks.md`. **Read first**:
 the code-checked project audit `docs/handoff/project-audit-2026-10-23.md` (completion,
 playthrough blockers; its 2026-10-25 note and §7 say what is still open: the Hoover Dam
@@ -12,7 +12,8 @@ load test, a recorded parity-lab run; the main-quest walkthroughs past Novac and
 stalls: `docs/handoff/mq-walkthrough-2026-10-27.md`) and the owner's
 `playtest-list-7.md`. What ESM data the engine still does nothing with:
 `docs/handoff/esm-audit-2026-10-25.md`. Finished, kept for their Outcome sections and
-history only, in `docs/handoff/archive/`: playtest lists 1-5, the queue of 2026-10-20, the
+history only, in `docs/handoff/archive/`: playtest lists 1-5 (`playtest-2026-10-12.md` holds 1-3,
+then `playtest-list-4.md` and `playtest-list-5.md`), the queue of 2026-10-20, the
 handovers of 2026-10-21/22, the outstanding audit of 2026-10-23 and the site update.
 Script extender compatibility (xNVSE, JIP LN, JohnnyGuitar as engine code, no DLLs, no
 extender source read): `docs/design/extender-compat.md`, core tasks in
@@ -51,20 +52,26 @@ Fix or explain every regression.
 ## Checks before every push
 
 Run only the ones your change calls for (`python tools/smoke plan` lists them; `run --checks`
-runs them): root tests and clippy when `crates/` (or the root Cargo files, `schemas/`)
-changed, engine clippy when `engine/` or `crates/` changed, a Python suite when its folder
-changed.
+runs them): cargo deny when a Cargo file or `deny.toml` changed (`cargo install cargo-deny`),
+root tests and clippy when `crates/` (or the root Cargo files, `schemas/`) changed, engine
+tests and clippy (the Bevy workspace: viewer and game) when `engine/` or `crates/` changed,
+a Python suite when its folder changed (`tools/release/tests`: `.github/workflows/` too).
+They are the commands CI runs, in its order (`tools/smoke/tests/test_check_lists.py` keeps
+this list, CONTRIBUTING.md, docs/development.md, the `[[check]]` entries and ci.yml the same).
 
 ```
-cargo test --workspace --release
-cargo clippy --workspace --all-targets --release -- -D warnings
+cargo deny check licenses advisories bans sources
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
+cargo test --workspace --release --locked
+cargo clippy --workspace --all-targets --release --locked -- -D warnings
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
-python -m unittest discover -s tools/release/tests   # .github/workflows/ or tools/release/ changed
 python -m unittest discover -s tools/profile/tests
-(cd engine && cargo clippy --release --all-targets -- -D warnings)   # Bevy workspace (viewer + game)
+python -m unittest discover -s tools/release/tests
+(cd engine && cargo test --release --locked)
+(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
 ```
 
 With game data available (owner's install, read-only): build `fnvtool`, set
