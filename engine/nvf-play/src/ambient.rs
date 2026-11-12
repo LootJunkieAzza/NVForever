@@ -19,7 +19,8 @@
 //!   that sound at that place [design], following it as it moves.
 //! - Loops are decoded as they play (WAV or Ogg Vorbis, [`LayeredMusic`] with one file),
 //!   so a long one costs no more memory than its file. Placed loops are panned
-//!   ([`crate::sfx::Panned`], as the sound effects are), the background loop is not.
+//!   ([`crate::sfx::Panned`], as the sound effects are, their gains eased over
+//!   [`crate::sfx::PAN_EASE`]), the background loop is not.
 //! - The Esc pause menu, a loading screen and the poker table (`crate::poker`) hold the
 //!   loops; other menus do not [design].
 //! - **SOUN flags** (audio.md §15.2): a 2D sound is not panned; a loop with Start at
@@ -37,6 +38,13 @@
 //!   and region sounds (REGN `RDSD`). Placed loops and random markers play through the
 //!   acoustic space's reverb ([`crate::reverb`]); the background loop does not.
 //!
+//! - **Stopped loops fade out** (#2217) [design]: a placed loop or a source no longer
+//!   heard, and every loop of a place left (another worldspace or interior), fade out over
+//!   `audio_out::DECLICK_FADE` instead of being cut (`audio_out::stop_sound`, counted as
+//!   ambient stops in `sfx declicks: …`); they leave [`Ambient`]'s map at once and are
+//!   neither held nor resumed with the loops while they fade. A background loop giving
+//!   way keeps its own [`BED_FADE`] and is removed once silent.
+//!
 //! Switched off with the sound effects (`nvforever --no-sound`). An `ambient summary`
 //! line at the end.
 
@@ -48,7 +56,7 @@ use crate::sim::SimState;
 use crate::sound_grid::FixedGrid;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::AudioSinkPlayback;
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{stop_sound, AddAudioSource, Retiring, StopReason};
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use fnv_world::audio::{self, SoundMarker};
@@ -230,7 +238,7 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, setting
 /// The loops' stream assets: as they are (background loops) and panned (placed ones).
 pub(crate) type Streams<'a> = (ResMut<'a, Assets<LayeredMusic>>, ResMut<'a, Assets<Panned<LayeredMusic>>>);
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
     time: Res<Time<Real>>,
@@ -245,7 +253,8 @@ fn play(
     mut pcm: ResMut<Assets<PcmSound>>,
     mut streams: Streams,
     mut sources: MessageReader<SoundSource>,
-    sinks: Query<&AudioSink, With<AmbientSound>>,
+    // Not the loops fading out after a stop: they play their fade out (audio_out).
+    sinks: Query<&AudioSink, (With<AmbientSound>, Without<Retiring>)>,
 ) {
     let (Some(places), Some(mut sfx), Some(player), Some(data)) = (places, sfx, player, data) else {
         sources.clear();
@@ -287,7 +296,7 @@ fn play(
     if amb.space != Some(space) {
         // Another worldspace or interior: nothing of the last one is heard here.
         for (_, p) in amb.loops.drain() {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Ambient);
         }
         amb.busy_until.clear();
         amb.picks.clear();
@@ -394,7 +403,7 @@ fn play(
     amb.loops.retain(|r, p| {
         let keep = sounding.contains(r);
         if !keep {
-            commands.entity(p.entity).try_despawn();
+            stop_sound(&mut commands, p.entity, StopReason::Ambient);
         }
         keep
     });
