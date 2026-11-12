@@ -146,8 +146,11 @@ detail in the module notes of the file named.
   at the shutdown, which frees only what is still held.
 - **The DLSS model** (`settings.rs`, `upscaler::DlssModel`, `dlss/sizing.rs` `preset`)
   [design: the user's request, 2026-11-12]. A row **DLSS model** (key `dlss-model`) right under
-  Upscaling quality: `Default`, `Preset J`, `Preset K`, `Preset L`, `Preset M`, NVIDIA's
-  names as Streamline's header spells them (`ePresetJ` …). Only these four presets are offered:
+  Upscaling mode: `Default`, `K`, `L`, `M`, `J`, in that order (the user's, 2026-11-12; K, L
+  and M are the modes' defaults, `sl_dlss.h:60-63`), the presets by the letters Streamline's
+  header names them with (`ePresetJ` …); NVIDIA calls them presets, the row's label calls them models, so the
+  word "Preset" is not repeated before each letter. The INI's earlier spellings `Preset J` …
+  `Preset M` (any case) still load. Only these four presets are offered:
   the header marks A to D removed, E and F deprecated, and G, H, I, N and O as reverting to the
   default (spec notes, "DLSS presets"). Default sends `eDefault`, NVIDIA's pick per mode, and is
   the default and the recommendation. The row's note gives each choice in NVForever's words
@@ -159,8 +162,8 @@ detail in the module notes of the file named.
   sizing key, since the optimal sizes do not depend on it), so a change sets the options again
   by the drained recreation above and starts a new output-proof generation: it switches live.
   The `options:`, `recreate:`, `evaluate active:` and `output observed:` lines name it
-  (`model Default`, `model Preset L`), after the key's text, so the earlier scenarios' patterns
-  still match. `--dlss-model default|j|k|l|m`, with the settings' precedence (the INI wins in
+  (`model Default`, `model L`), after the key's text, so the earlier scenarios' patterns
+  still match. `--dlss-model default|k|l|m|j`, with the settings' precedence (the INI wins in
   normal play, the command line in test runs). Which model NGX then runs is NGX's to report in
   Streamline's log; NVForever does not check it.
 - **Proof that DLSS drew.** `eOk` from the evaluate is not proof that NGX wrote anything (spec
@@ -177,13 +180,21 @@ detail in the module notes of the file named.
   evaluator's lock and each counts as one frame without output for the 60-frame rule above. This
   proves NGX wrote the picture, not that it is a good picture; that stays with screenshots and
   the smoke scenarios.
-- **Two rows: Upscaler and Upscaling quality** (`settings.rs`) [design: the user's, after the
+- **Two rows: Upscaler and Upscaling mode** (`settings.rs`) [design: the user's, after the
   play-test of #2206, where the one dropdown of eleven entries was too long for its box].
-  **Upscaler** (key `upscaler`: `Off`, `FSR 3.1`, `DLSS`) and, below it, **Upscaling quality**
+  **Upscaler** (key `upscaler`: `Off`, `FSR 3.1`, `DLSS`) and, below it, **Upscaling mode**
   (key `upscaler-quality`: Native AA, Quality, Balanced, Performance, Ultra Performance) both
-  keep the one request, `Graphics::upscaler`. The quality row is dimmed with "Needs an
-  upscaler" while Upscaler is Off, and keeps its quality meanwhile (`KeptQuality`), so the next
-  upscaler takes it up. DLSS that cannot run is dimmed with its reason (`Unavailable::words`),
+  keep the one request, `Graphics::upscaler`. The second row was first labelled "Upscaling
+  quality"; the user renamed it (2026-11-12) to keep it apart from the Quality preset row (Low
+  to Very High); its INI key and `--upscaler-quality` kept their names. The mode row is dimmed
+  with "Needs an upscaler" while Upscaler is Off, and keeps its quality meanwhile
+  (`KeptQuality`), so the next upscaler takes it up. Each mode is shown with the share of the
+  screen's width and height the world is drawn at, for the upscaler asked for (`quality_label`,
+  `render_share`) [design: the user's, 2026-11-12]: FSR's from its own ratios
+  (`FsrQuality::ratio`: 100, 67, 59, 50, 33 %), DLSS's from the render sizes DLSS 310.9.16
+  chose at 1280x720 (100, 67, 58, 50, 33 %) [observed, 2026-11-12], since DLSS's own sizes are
+  known only once Streamline answers for a view; with Upscaler Off the plain names. The INI,
+  the log and the test aids keep the plain names. The row's note says what each mode is for. DLSS that cannot run is dimmed with its reason (`Unavailable::words`),
   using the per-choice labels and disabled entries of step 7 ([settings-page](settings-page.md));
   a stored DLSS choice still loads, so the request survives a start in which it cannot run.
   FSR is never dimmed. The earlier single row, `fsr-upscaling` with its eleven values

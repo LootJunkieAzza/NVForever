@@ -23484,7 +23484,7 @@ paths = ["engine/nvforever/src/settings.rs", "engine/nvforever/src/graphics.rs",
 env = { WGPU_BACKEND = "vulkan", NVFOREVER_HOME = "fsr-dropdown-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:19", NVF_PLAY_TEST_SETTINGS = "11:fsr-upscaling=Quality,11.5:select:upscaler-quality", NVF_PLAY_TEST_PAUSE_MENU = "12:pick,13:down,14:shot,15:pick" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--fsr", "off", "--no-voice", "--no-lodgen"]
 run_seconds = 21
-note = "since #2198's play-test the one Upscaling list of 11 is two rows, Upscaler (Off, FSR 3.1, DLSS) and Upscaling quality (Native AA, Quality, Balanced, Performance, Ultra Performance; engine/nvforever/src/settings.rs). fsr-upscaling=Quality (the older key, still taken by the test aid) turns FSR Quality on and shows the Upscaler row; select:upscaler-quality moves to the quality row, whose list of 5 opens with Quality chosen, so Down and Enter still take Balanced. The pick is logged under the quality row's key"
+note = "since #2198's play-test the one Upscaling list of 11 is two rows, Upscaler (Off, FSR 3.1, DLSS) and Upscaling mode (Native AA, Quality, Balanced, Performance, Ultra Performance; engine/nvforever/src/settings.rs). fsr-upscaling=Quality (the older key, still taken by the test aid) turns FSR Quality on and shows the Upscaler row; select:upscaler-quality moves to the quality row, whose list of 5 opens with Quality chosen, so Down and Enter still take Balanced. The pick is logged under the quality row's key"
 expect = ["pause menu: the list of 5 choice(s) open", "pause menu: screenshot pause_settings.png", "settings: fsr-upscaling Quality", "settings: upscaler-quality Balanced", "FSR 3.1.4: Balanced"]
 forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error", "Validation Error"]
 
@@ -23670,7 +23670,7 @@ forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an e
 [[scenario]]
 name = "dlss-modes"
 source = "#2198, docs/design/dlss-upscaling.md: all five DLSS modes picked in turn on the settings page; each sets DLSS's options again after the GPU is drained and DLSS's resources are freed, and draws in DLSS's own mode; FSR picked in the same session then draws at once, through Streamline's interposer"
-note = "needs NVF_DLSS_DIR (NVIDIA's files). The picks use the older key fsr-upscaling, which the test aid still takes for the Upscaler and Upscaling quality rows (logged under it). Since every switch is live with Streamline loaded (#2198's play-test), the last pick, FSR Quality, draws FSR: the expectation that it waited for a restart and the forbid on FSR drawing became expectations that FSR draws at once"
+note = "needs NVF_DLSS_DIR (NVIDIA's files). The picks use the older key fsr-upscaling, which the test aid still takes for the Upscaler and Upscaling mode rows (logged under it). Since every switch is live with Streamline loaded (#2198's play-test), the last pick, FSR Quality, draws FSR: the expectation that it waited for a restart and the forbid on FSR drawing became expectations that FSR draws at once"
 areas = ["graphics", "ui"]
 paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs"]
 requires = ["NVF_DLSS_DIR"]
@@ -23701,18 +23701,18 @@ forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an e
 
 [[scenario]]
 name = "dlss-model"
-source = "#2198, docs/design/dlss-upscaling.md \"The DLSS model\": DLSS Quality, then the DLSS model row walked through Preset J, K, L, M and back to Default on the settings page; each pick sets DLSS's options again with that preset in every mode's field, after the GPU is drained and DLSS's resources are freed, and DLSS's output is seen for each generation"
-note = "needs NVF_DLSS_DIR (NVIDIA's files). The lines are dlss/evaluate.rs's (options:, recreate:, evaluate active:, output observed:, each naming the model). 853x480 is the render size DLSS reported for Quality at 1280x720 (dlss-quality); the model does not enter the optimal settings (dlss/sizing.rs Key), so it stays. Which model NGX then uses is NGX's to say in Streamline's log, not checked here"
+source = "#2198, docs/design/dlss-upscaling.md \"The DLSS model\": DLSS Quality, then the DLSS model row walked through J, K, L, M and back to Default on the settings page; each pick sets DLSS's options again with that preset in every mode's field, after the GPU is drained and DLSS's resources are freed, and DLSS's output is seen for each generation"
+note = "needs NVF_DLSS_DIR (NVIDIA's files). The lines are dlss/evaluate.rs's (options:, recreate:, evaluate active:, output observed:, each naming the model). The models are named by their letters since the user's rename (2026-11-12; upscaler.rs DlssModel::name), so the picks, the settings: lines and the patterns say J, not Preset J; the walk keeps its J, K, L, M order (the picks go by name, not by the row's order). 853x480 is the render size DLSS reported for Quality at 1280x720 (dlss-quality); the model does not enter the optimal settings (dlss/sizing.rs Key), so it stays. Which model NGX then uses is NGX's to say in Streamline's log, not checked here"
 areas = ["graphics", "ui"]
 paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/graphics.rs", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/settings_layout.rs"]
 requires = ["NVF_DLSS_DIR"]
-env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:23", NVF_PLAY_TEST_SETTINGS = "11:dlss-model=Preset J,13:dlss-model=Preset K,15:dlss-model=Preset L,17:dlss-model=Preset M,19:dlss-model=Default" }
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:23", NVF_PLAY_TEST_SETTINGS = "11:dlss-model=J,13:dlss-model=K,15:dlss-model=L,17:dlss-model=M,19:dlss-model=Default" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "dlss", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
 run_seconds = 24
 expect = [
   "upscaler: DLSS Quality asked for, DLSS Quality draws",
-  "settings: dlss-model Preset J",
-  "settings: dlss-model Preset M",
+  "settings: dlss-model J",
+  "settings: dlss-model M",
   "settings: dlss-model Default",
   { re = 'DLSS: evaluates: [1-9]\d* ok, 0 failed; options set again (\d+) times; resources freed 0 times when DLSS stopped drawing', range = [5, 1000], label = "every evaluate ok, the options set again at least once per model; nothing freed for a model change" },
   "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk",
@@ -23721,28 +23721,28 @@ order = [[
   { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Default \(auto exposure on, alpha upscaling off\)', label = "options with Default at start" },
   { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Default', label = "DLSS draws with Default at start" },
   { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 1, mean RGB .* texels, model Default', label = "its output seen (generation 1)" },
-  { text = "settings: dlss-model Preset J", label = "Preset J picked" },
-  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model Default -> Preset J\)', label = "Default to Preset J: drained and freed before the options are set again" },
-  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Preset J \(auto exposure on, alpha upscaling off\)', label = "options with Preset J" },
-  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Preset J', label = "DLSS draws with Preset J" },
-  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 2, mean RGB .* texels, model Preset J', label = "its output seen (generation 2)" },
-  { text = "settings: dlss-model Preset K", label = "Preset K picked" },
-  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model Preset J -> Preset K\)', label = "Preset J to Preset K: drained and freed before the options are set again" },
-  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Preset K \(auto exposure on, alpha upscaling off\)', label = "options with Preset K" },
-  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Preset K', label = "DLSS draws with Preset K" },
-  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 3, mean RGB .* texels, model Preset K', label = "its output seen (generation 3)" },
-  { text = "settings: dlss-model Preset L", label = "Preset L picked" },
-  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model Preset K -> Preset L\)', label = "Preset K to Preset L: drained and freed before the options are set again" },
-  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Preset L \(auto exposure on, alpha upscaling off\)', label = "options with Preset L" },
-  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Preset L', label = "DLSS draws with Preset L" },
-  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 4, mean RGB .* texels, model Preset L', label = "its output seen (generation 4)" },
-  { text = "settings: dlss-model Preset M", label = "Preset M picked" },
-  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model Preset L -> Preset M\)', label = "Preset L to Preset M: drained and freed before the options are set again" },
-  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Preset M \(auto exposure on, alpha upscaling off\)', label = "options with Preset M" },
-  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Preset M', label = "DLSS draws with Preset M" },
-  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 5, mean RGB .* texels, model Preset M', label = "its output seen (generation 5)" },
+  { text = "settings: dlss-model J", label = "J picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model Default -> J\)', label = "Default to J: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model J \(auto exposure on, alpha upscaling off\)', label = "options with J" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model J', label = "DLSS draws with J" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 2, mean RGB .* texels, model J', label = "its output seen (generation 2)" },
+  { text = "settings: dlss-model K", label = "K picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model J -> K\)', label = "J to K: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model K \(auto exposure on, alpha upscaling off\)', label = "options with K" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model K', label = "DLSS draws with K" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 3, mean RGB .* texels, model K', label = "its output seen (generation 3)" },
+  { text = "settings: dlss-model L", label = "L picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model K -> L\)', label = "K to L: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model L \(auto exposure on, alpha upscaling off\)', label = "options with L" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model L', label = "DLSS draws with L" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 4, mean RGB .* texels, model L', label = "its output seen (generation 4)" },
+  { text = "settings: dlss-model M", label = "M picked" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model L -> M\)', label = "L to M: drained and freed before the options are set again" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model M \(auto exposure on, alpha upscaling off\)', label = "options with M" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model M', label = "DLSS draws with M" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 5, mean RGB .* texels, model M', label = "its output seen (generation 5)" },
   { text = "settings: dlss-model Default", label = "Default picked" },
-  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model Preset M -> Default\)', label = "Preset M to Default: drained and freed before the options are set again" },
+  { re = 'DLSS: recreate: Quality \(MaxQuality\), 1280x720 output, HDR on -> Quality \(MaxQuality\), 1280x720 output, HDR on: GPU drained, slFreeResources\(DLSS, viewport 0\) eOk \(model M -> Default\)', label = "M to Default: drained and freed before the options are set again" },
   { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Default \(auto exposure on, alpha upscaling off\)', label = "options with Default again" },
   { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720, optimal 853x480, min \d+x\d+ max \d+x\d+, model Default', label = "DLSS draws with Default again" },
   { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 6, mean RGB .* texels, model Default', label = "its output seen (generation 6)" }

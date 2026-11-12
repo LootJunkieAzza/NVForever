@@ -223,8 +223,9 @@ mod tests {
     #[test]
     fn each_model_is_its_streamline_preset() {
         let presets: Vec<u32> = DlssModel::ALL.iter().map(|&m| preset(m)).collect();
-        // sl_dlss.h:46-65: eDefault 0, ePresetJ 10, ePresetK 11, ePresetL 12, ePresetM 13.
-        assert_eq!(presets, [0, 10, 11, 12, 13]);
+        // sl_dlss.h:46-65: eDefault 0, ePresetJ 10, ePresetK 11, ePresetL 12, ePresetM 13; in
+        // the row's order Default, K, L, M, J.
+        assert_eq!(presets, [0, 11, 12, 13, 10]);
         for removed_or_reverting in [1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15] {
             assert!(!presets.contains(&removed_or_reverting), "preset {removed_or_reverting} is not offered");
         }

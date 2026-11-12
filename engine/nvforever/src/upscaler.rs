@@ -84,7 +84,7 @@ impl UpscaleQuality {
     pub const ALL: [UpscaleQuality; 5] =
         [UpscaleQuality::NativeAa, UpscaleQuality::Quality, UpscaleQuality::Balanced, UpscaleQuality::Performance, UpscaleQuality::UltraPerformance];
 
-    /// The name the Upscaling quality row saves, and the older `fsr-upscaling` row saved for FSR at
+    /// The name the Upscaling mode row saves, and the older `fsr-upscaling` row saved for FSR at
     /// this quality (`graphics::FSR_CHOICES`).
     pub fn name(self) -> &'static str {
         match self {
@@ -98,40 +98,49 @@ impl UpscaleQuality {
 }
 
 /// Which DLSS Super Resolution model DLSS uses (the DLSS model row, `--dlss-model`,
-/// `Graphics::dlss_model`): NVIDIA's own pick for each quality, or one of the four presets
-/// offered, J, K, L and M, by the names Streamline's header gives them (`ePresetJ` …) [design:
-/// docs/design/dlss-upscaling.md, "The DLSS model"]. The others are left out: A to D are
-/// removed, E and F deprecated, G, H, I, N and O "revert to default, not recommended"
+/// `Graphics::dlss_model`): NVIDIA's own pick for each mode, or one of the four presets
+/// offered, K, L, M and J, by the letters Streamline's header names them with (`ePresetJ` …)
+/// [design: docs/design/dlss-upscaling.md, "The DLSS model"]. The others are left out: A to D
+/// are removed, E and F deprecated, G, H, I, N and O "revert to default, not recommended"
 /// [documented: Streamline 2.14.16 `include/sl_dlss.h:46-65`]. The number each sends is
-/// `dlss::sizing::preset`'s. The `clap` names are `default`, `j`, `k`, `l`, `m`.
+/// `dlss::sizing::preset`'s. The `clap` names are `default`, `k`, `l`, `m`, `j`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum DlssModel {
     #[default]
     Default,
-    J,
     K,
     L,
     M,
+    J,
 }
 
 impl DlssModel {
-    /// Every model, in the row's order.
-    pub const ALL: [DlssModel; 5] = [DlssModel::Default, DlssModel::J, DlssModel::K, DlssModel::L, DlssModel::M];
+    /// Every model, in the row's order: Default, K, L, M, J [design: the user's order,
+    /// 2026-11-12]. K, L and M first as the defaults of the modes [documented: `sl_dlss.h:60-63`].
+    pub const ALL: [DlssModel; 5] = [DlssModel::Default, DlssModel::K, DlssModel::L, DlssModel::M, DlssModel::J];
 
-    /// The name the DLSS model row saves and the log says.
+    /// The name the DLSS model row saves, shows and the log says: `Default` or the preset's
+    /// letter (the row's label says they are DLSS models, so no "Preset" before it).
     pub fn name(self) -> &'static str {
         match self {
             Self::Default => "Default",
-            Self::J => "Preset J",
-            Self::K => "Preset K",
-            Self::L => "Preset L",
-            Self::M => "Preset M",
+            Self::K => "K",
+            Self::L => "L",
+            Self::M => "M",
+            Self::J => "J",
         }
     }
 
-    /// The model of this name (any case, spaces around it ignored); `None`: not one of the five.
+    /// The model of this name (any case, spaces around it ignored), also by the names the row
+    /// saved before (`Preset K` …, kept INIs load); `None`: not one of the five.
     pub fn named(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|m| m.name().eq_ignore_ascii_case(name.trim()))
+        let name = name.trim();
+        let by_name = |n: &str| Self::ALL.into_iter().find(|m| m.name().eq_ignore_ascii_case(n));
+        match name.get(..7).filter(|p| p.eq_ignore_ascii_case("preset ")) {
+            // `Preset ` and a preset's letter; never `Preset Default`.
+            Some(_) => by_name(name[7..].trim()).filter(|m| *m != Self::Default),
+            None => by_name(name),
+        }
     }
 }
 
@@ -1009,16 +1018,24 @@ mod tests {
     fn dlss_models_have_their_names_and_command_line_names() {
         assert_eq!(DlssModel::default(), DlssModel::Default);
         let names: Vec<&str> = DlssModel::ALL.iter().map(|m| m.name()).collect();
-        assert_eq!(names, ["Default", "Preset J", "Preset K", "Preset L", "Preset M"], "NVIDIA's names, as the header spells them");
+        assert_eq!(names, ["Default", "K", "L", "M", "J"], "the presets by their letters, in the row's order");
         for model in DlssModel::ALL {
             assert_eq!(DlssModel::named(model.name()), Some(model));
-            assert_eq!(DlssModel::named(&format!(" {} ", model.name().to_uppercase())), Some(model), "any case");
+            assert_eq!(DlssModel::named(&format!(" {} ", model.name().to_lowercase())), Some(model), "any case");
         }
-        assert_eq!(DlssModel::named("Preset A"), None, "removed presets are not offered");
-        assert_eq!(DlssModel::named("Preset N"), None, "nor the ones that revert to the default");
+        // The names the row saved before: `Preset K` and so on, any case.
+        for (older, model) in [("Preset J", DlssModel::J), ("Preset K", DlssModel::K), ("preset l", DlssModel::L), (" PRESET  M ", DlssModel::M)] {
+            assert_eq!(DlssModel::named(older), Some(model), "{older:?}");
+        }
+        assert_eq!(DlssModel::named("Preset Default"), None, "Default never had the word");
+        assert_eq!(DlssModel::named("A"), None, "removed presets are not offered");
+        assert_eq!(DlssModel::named("Preset A"), None);
+        assert_eq!(DlssModel::named("N"), None, "nor the ones that revert to the default");
+        assert_eq!(DlssModel::named("Preset N"), None);
         assert_eq!(DlssModel::named(""), None);
+        assert_eq!(DlssModel::named("Preset"), None);
         let cli: Vec<String> = DlssModel::value_variants().iter().map(|m| m.to_possible_value().unwrap().get_name().to_string()).collect();
-        assert_eq!(cli, ["default", "j", "k", "l", "m"], "--dlss-model default|j|k|l|m");
+        assert_eq!(cli, ["default", "k", "l", "m", "j"], "--dlss-model default|k|l|m|j");
         assert_eq!(DlssModel::value_variants(), DlssModel::ALL);
         assert_eq!(DlssModel::from_str("L", true), Ok(DlssModel::L));
         assert!(DlssModel::from_str("a", true).is_err());

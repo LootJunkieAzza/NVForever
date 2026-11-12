@@ -1234,7 +1234,7 @@ mod tests {
     #[test]
     fn the_options_line_and_the_key_name_the_model() {
         assert_eq!(key(1280).describe(), "Quality (MaxQuality), 1280x720 output, HDR on, model Default");
-        assert_eq!(OptionsKey { model: DlssModel::L, ..key(1280) }.describe(), "Quality (MaxQuality), 1280x720 output, HDR on, model Preset L");
+        assert_eq!(OptionsKey { model: DlssModel::L, ..key(1280) }.describe(), "Quality (MaxQuality), 1280x720 output, HDR on, model L");
         assert_ne!(OptionsKey { model: DlssModel::J, ..key(1280) }, key(1280), "the model is part of the options key");
     }
 

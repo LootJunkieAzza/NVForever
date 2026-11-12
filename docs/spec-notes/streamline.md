@@ -135,7 +135,7 @@ words; no NVIDIA text or code is reproduced here beyond names.
 - [observed: the main session's runs at 1280x720 with DLSS 310.9.16, 2026-11-12, every preset
   left `eDefault`] NGX's log said it used the title default preset K for DLAA, Quality and
   Balanced, M for Performance and L for Ultra Performance, as the header's notes say.
-- NVForever offers Default, J, K, L and M (design note, "The DLSS model").
+- NVForever offers Default, K, L, M and J (design note, "The DLSS model").
 
 ## Evaluate
 

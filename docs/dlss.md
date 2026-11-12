@@ -44,12 +44,18 @@ it.
 ## Turning it on
 
 In the pause menu, **Settings > Graphics**, set **Upscaler** to **DLSS**, and
-**Upscaling quality** to Native AA (DLSS at full resolution, also called DLAA), Quality,
-Balanced, Performance or Ultra Performance. The quality row serves FSR 3.1 the same way; it is
-dimmed while Upscaler is Off.
+**Upscaling mode** to Native AA (DLSS at full resolution, also called DLAA), Quality,
+Balanced, Performance or Ultra Performance. Each mode shows the share of the screen's width and
+height the world is drawn at, for example Quality (67%): Native AA for full resolution with
+anti-aliasing only, Quality for the sharpest upscaled look (1440p and 4K), Balanced for more
+speed with little visible loss, Performance for the highest frame rate (4K or heavy scenes),
+Ultra Performance for very high resolutions only. The mode row serves FSR 3.1 the same way
+(its shares differ a little: Balanced is 59% with FSR, 58% with DLSS); it is dimmed while
+Upscaler is Off. (It is not the Quality preset row, Low to Very High: it only
+says how much smaller the world is drawn before the upscaler rebuilds it.)
 
 With the four files in the `dlss` folder when the game starts, every change takes effect at
-once: Off, FSR 3.1 and DLSS, and every quality. Files put into the folder while the game runs
+once: Off, FSR 3.1 and DLSS, and every mode. Files put into the folder while the game runs
 are found at the next start: until then a DLSS choice reads **DLSS (restart)** and the picture
 stays as it was. That holds too when the game started with DLSS chosen and the files missing:
 once all four are in the folder, DLSS is no longer greyed out and reads DLSS (restart). Loading
@@ -61,22 +67,23 @@ saved in the settings wins in normal play.
 
 ## The DLSS model
 
-Under Upscaling quality, **DLSS model** chooses which of NVIDIA's DLSS models rebuilds the
-picture. It can be set while DLSS draws (it is dimmed with "DLSS only" otherwise) and takes
-effect at once.
+Under Upscaling mode, **DLSS model** chooses which of NVIDIA's DLSS models rebuilds the
+picture. NVIDIA calls these models presets and names them by letters. The row can be set while
+DLSS draws (it is dimmed with "DLSS only" otherwise) and takes effect at once.
 
 | Choice | What it is |
 |---|---|
-| Default (recommended) | NVIDIA picks for each quality. With NVIDIA's DLSS 310.9.16 that was K for Native AA, Quality and Balanced, M for Performance and L for Ultra Performance; a newer DLSS may pick others. |
-| Preset J | Like K, with a little less ghosting and a little more flicker. |
-| Preset K | NVIDIA's transformer model with the most detail, at a higher cost in frame rate. |
-| Preset L | Sharper and steadier than J and K, with less ghosting; the dearest of the four. |
-| Preset M | Close to L in looks, closer to J and K in speed. |
+| Default (recommended) | NVIDIA picks for each mode. With NVIDIA's DLSS 310.9.16 that was K for Native AA, Quality and Balanced, M for Performance and L for Ultra Performance; a newer DLSS may pick others. |
+| K | NVIDIA's transformer model with the most detail, at a higher cost in frame rate. |
+| L | Sharper and steadier than J and K, with less ghosting; the dearest of the four. |
+| M | Close to L in looks, closer to J and K in speed. |
+| J | Like K, with a little less ghosting and a little more flicker. |
 
-The names are the ones NVIDIA gives these presets. NVIDIA's other presets are left out: some are
-withdrawn and the rest fall back to the default. On the command line: `--dlss-model default`
-(or `j`, `k`, `l`, `m`). It is saved as `dlss-model=` in `NVForever.ini`; a value that is not
-one of the five loads as Default.
+The letters are the ones NVIDIA gives these presets. NVIDIA's other presets are left out: some
+are withdrawn and the rest fall back to the default. On the command line: `--dlss-model default`
+(or `k`, `l`, `m`, `j`). It is saved as `dlss-model=` in `NVForever.ini` (`dlss-model=K`; the
+earlier spelling `dlss-model=Preset K` still loads); a value that is not one of the five loads
+as Default.
 
 While DLSS is on:
 

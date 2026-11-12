@@ -485,7 +485,7 @@ struct Args {
     /// full resolution (DLSS: DLAA).
     #[arg(long, value_enum)]
     upscaler_quality: Option<upscaler::UpscaleQuality>,
-    /// The DLSS model: default (NVIDIA's pick for each quality) or NVIDIA's preset j, k, l or m
+    /// The DLSS model: default (NVIDIA's pick for each mode) or NVIDIA's preset k, l, m or j
     /// (upscaler.rs `DlssModel`, docs/dlss.md). Used while DLSS draws. Saved Graphics settings
     /// take precedence in normal play, as for other switches. Default: default.
     #[arg(long, value_enum)]

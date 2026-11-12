@@ -152,7 +152,7 @@ cannot take it. Loading the INI does not go through that check: a stored choice 
 still loads, so a request survives a run in which it cannot be met.
 
 **A list that took over from an older row** [design: #2198's play-test]: the Upscaler and
-Upscaling quality rows replaced the one `fsr-upscaling` row. `set_older_key` lets a list read
+Upscaling mode rows replaced the one `fsr-upscaling` row. `set_older_key` lets a list read
 the older row's INI key while its own is not in the file (its `load` takes the older text;
 the row is written under its own key from then on, the older line left as it is). Where the
 older row's one value stands for several rows, `set_older_split` splits it into each row's

@@ -663,9 +663,11 @@ fn register_distances(app: &mut App) {
     }
 }
 
-/// The Upscaler row's key and the Upscaling quality row's: two rows for the one request
+/// The Upscaler row's key and the Upscaling mode row's: two rows for the one request
 /// (`Graphics::upscaler`) since #2198's play-test, where the one dropdown of eleven choices
-/// was too long for its box [design: the user's, 2026-11-12].
+/// was too long for its box [design: the user's, 2026-11-12]. The second row was labelled
+/// Upscaling quality at first; renamed to keep it apart from the Quality preset row (the
+/// user's, 2026-11-12), its key kept.
 pub(crate) const UPSCALER_KEY: &str = "upscaler";
 pub(crate) const QUALITY_KEY: &str = "upscaler-quality";
 
@@ -679,18 +681,19 @@ pub(crate) const LEGACY_KEY: &str = "fsr-upscaling";
 /// any of them keeps both rows at the command line's choice over the INI
 /// (`nvf_play::settings::GivenSwitches`), at the start ([`upscaler_after_ini`]) as at
 /// `PostStartup`.
-pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, at the Upscaling quality below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs FSR. (--upscaler, --upscaler-quality, --fsr)";
-pub(crate) const QUALITY_NOTE: &str = "How much smaller than the display the world is drawn before the upscaler rebuilds it: Native AA keeps full resolution and only smooths the edges (DLSS: DLAA); Quality, Balanced, Performance and Ultra Performance draw it ever smaller, for more frames and a softer picture. Takes effect at once. With Upscaler Off there is nothing to set. (--upscaler-quality, --upscaler, --fsr)";
+pub(crate) const UPSCALER_NOTE: &str = "Reconstruct the world at display resolution with FSR 3.1 or NVIDIA DLSS, at the Upscaling mode below. Disables MSAA, FXAA, SMAA and TAA while active. Menus stay sharp. Requires Vulkan; unsupported devices keep native rendering. DLSS needs an NVIDIA RTX graphics card and NVIDIA's DLSS files in the dlss folder beside nvforever.exe (NVForever ships none). With the files there when the game starts, every choice takes effect at once; files put there later are found at the next start, so DLSS chosen until then reads DLSS (restart) (loading a save starts the game again). Sharpening controls FSR sharpening. Frame generation needs FSR. (--upscaler, --upscaler-quality, --fsr)";
+pub(crate) const QUALITY_NOTE: &str = "The share of the screen's width and height the world is drawn at; the upscaler rebuilds the rest. Native AA: full resolution, anti-aliasing only (DLSS: DLAA). Quality: the sharpest upscaled look, for 1440p and 4K. Balanced: more speed with little visible loss. Performance: the highest frame rate, for 4K or heavy scenes. Ultra Performance: for very high resolutions only. Takes effect at once. With Upscaler Off there is nothing to set. (--upscaler-quality, --upscaler, --fsr)";
 
-/// The DLSS model row's key, right under Upscaling quality (#2198, the user's request): which
+/// The DLSS model row's key, right under Upscaling mode (#2198, the user's request): which
 /// of NVIDIA's DLSS models DLSS uses (`Graphics::dlss_model`).
 pub(crate) const MODEL_KEY: &str = "dlss-model";
 
-/// The DLSS model row's note: each choice in NVForever's own words, from what Streamline's
-/// header says of the presets [documented: `sl_dlss.h:46-65`] and the defaults NGX reported in
-/// the runs at 1280x720 [observed, 2026-11-12: docs/spec-notes/streamline.md, "DLSS presets"].
-/// The settings page has no note per choice, so the row's note holds them all.
-pub(crate) const MODEL_NOTE: &str = "Which of NVIDIA's DLSS models rebuilds the picture. Default (recommended): NVIDIA picks per quality: K for Native AA, Quality and Balanced, M for Performance, L for Ultra Performance. Preset J: like K with a little less ghosting and more flicker. Preset K: transformer model, best detail, costs more. Preset L: sharper and steadier, less ghosting, costs the most. Preset M: close to L in looks, closer to K in speed. Takes effect at once. Only while DLSS draws. (--dlss-model)";
+/// The DLSS model row's note: each choice in NVForever's own words, in the row's order, from
+/// what Streamline's header says of the presets [documented: `sl_dlss.h:46-65`] and the
+/// defaults NGX reported in the runs at 1280x720 [observed, 2026-11-12:
+/// docs/spec-notes/streamline.md, "DLSS presets"]. The settings page has no note per choice,
+/// so the row's note holds them all; it says the letters are what NVIDIA calls presets.
+pub(crate) const MODEL_NOTE: &str = "Which of NVIDIA's DLSS models rebuilds the picture (NVIDIA calls them presets). Default (recommended): NVIDIA picks per mode: K for Native AA, Quality and Balanced, M for Performance, L for Ultra Performance. K: transformer model, best detail, costs more. L: sharper and steadier, less ghosting, costs the most. M: close to L in looks, closer to K in speed. J: like K with a little less ghosting and more flicker. Takes effect at once. Only while DLSS draws. (--dlss-model)";
 
 /// The engine-level improvements of `graphics.rs` (`--graphics enhanced` starts with all
 /// of them on, `vanilla` with none).
@@ -717,7 +720,7 @@ fn register_graphics(app: &mut App) {
     nvf_play::settings::set_older_split(app, LEGACY_KEY, split_legacy);
     add_choice_list(
         app,
-        Setting { key: QUALITY_KEY, group: GROUP_GRAPHICS, label: "Upscaling quality", note: QUALITY_NOTE, get: |_| false, set: |_, _| {}, slider: None },
+        Setting { key: QUALITY_KEY, group: GROUP_GRAPHICS, label: "Upscaling mode", note: QUALITY_NOTE, get: |_| false, set: |_, _| {}, slider: None },
         ChoiceList {
             names: |_| UpscaleQuality::ALL.iter().map(|q| q.name().to_string()).collect(),
             chosen: quality_chosen,
@@ -727,9 +730,9 @@ fn register_graphics(app: &mut App) {
             ask_keep: false,
         },
     );
-    nvf_play::settings::set_choice_labels(app, QUALITY_KEY, |_, name| fnv_util::words::tr_str(name).to_string());
+    nvf_play::settings::set_choice_labels(app, QUALITY_KEY, quality_label);
     nvf_play::settings::set_disabled_status(app, QUALITY_KEY, |w| w.resource::<Graphics>().upscaler.quality().is_none().then_some("Needs an upscaler"));
-    // The DLSS model, under the quality: dimmed while DLSS is not what draws.
+    // The DLSS model, under the mode: dimmed while DLSS is not what draws.
     add_choice_list(
         app,
         Setting { key: MODEL_KEY, group: GROUP_GRAPHICS, label: "DLSS model", note: MODEL_NOTE, get: |_| false, set: |_, _| {}, slider: None },
@@ -937,7 +940,7 @@ fn model_dimmed(world: &World) -> Option<&'static str> {
 /// shows them by [`upscaler_label`]).
 const UPSCALERS: [(&str, Upscaler); 3] = [("Off", Upscaler::Off), ("FSR 3.1", Upscaler::Fsr), ("DLSS", Upscaler::Dlss)];
 
-/// The quality the Upscaling quality row holds while the upscaler is Off, when the request
+/// The quality the Upscaling mode row holds while the upscaler is Off, when the request
 /// (`Graphics::upscaler`) has none: an upscaler chosen again takes it up.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct KeptQuality(pub UpscaleQuality);
@@ -1058,6 +1061,39 @@ fn load_quality(world: &mut World, value: &str) -> bool {
     let Some(state) = quality_text(rows_state(world), value) else { return false };
     set_rows_state(world, state);
     true
+}
+
+/// The share of the screen's width and height (in percent) the world is drawn at in `mode` with
+/// `upscaler`; `None` with the upscaler Off. FSR's from its own ratio (`fsr::FsrQuality::ratio`,
+/// what `render_size` divides by); DLSS's from the render sizes DLSS 310.9.16 chose at
+/// 1280x720: 1280x720, 853x480, 742x418, 640x360, 427x240 [observed, 2026-11-12:
+/// fork-notes PLAN.md "Final checks"], since DLSS's own sizes are known only once Streamline
+/// answers for a view (`dlss::sizing`) and may differ with the output size and DLSS's version.
+fn render_share(upscaler: Upscaler, mode: UpscaleQuality) -> Option<u32> {
+    match upscaler {
+        Upscaler::Off => None,
+        Upscaler::Fsr => Some((100.0 / mode.ratio()).round() as u32),
+        Upscaler::Dlss => Some(match mode {
+            UpscaleQuality::NativeAa => 100,
+            UpscaleQuality::Quality => 67,
+            UpscaleQuality::Balanced => 58,
+            UpscaleQuality::Performance => 50,
+            UpscaleQuality::UltraPerformance => 33,
+        }),
+    }
+}
+
+/// The words the Upscaling mode row shows for a mode: its name in the language shown and, with
+/// an upscaler asked for (`Graphics::upscaler`), the share it draws at, `Quality (67%)`
+/// [design: the user's, 2026-11-12]; with the upscaler Off (the row dimmed) the name alone.
+/// The INI, the log and the test aids keep the plain names.
+fn quality_label(world: &World, name: &str) -> String {
+    let shown = fnv_util::words::tr_str(name).to_string();
+    let upscaler = world.get_resource::<Graphics>().map_or(Upscaler::Off, |g| g.upscaler.upscaler());
+    match quality_named(name).and_then(|mode| render_share(upscaler, mode)) {
+        Some(share) => format!("{shown} ({share}%)"),
+        None => shown,
+    }
 }
 
 /// The words the Upscaler row shows for a choice: `Off` in the language shown, `FSR 3.1`,
@@ -1306,7 +1342,7 @@ mod fsr_settings_tests {
         let (u, q) = (row(&app, UPSCALER_KEY), row(&app, QUALITY_KEY));
         let settings = app.world().resource::<Settings>();
         assert_eq!(q, u + 1, "the quality row right after the Upscaler row");
-        assert_eq!((settings.list()[u].label, settings.list()[q].label), ("Upscaler", "Upscaling quality"));
+        assert_eq!((settings.list()[u].label, settings.list()[q].label), ("Upscaler", "Upscaling mode"));
         assert!(settings.index(LEGACY_KEY).is_none(), "the older row is no row of its own");
         let upscalers = settings.choices(u).expect("a native dropdown");
         let qualities = settings.choices(q).expect("a native dropdown");
@@ -1333,6 +1369,40 @@ mod fsr_settings_tests {
         assert_eq!(requested(&app), UpscalerChoice::Fsr(UltraPerformance));
         assert!(!pick_upscaler(app.world_mut(), "XeSS") && !load_quality(app.world_mut(), "Extreme") && !load_upscaler(app.world_mut(), "NaN"));
         assert_eq!(requested(&app), UpscalerChoice::Fsr(UltraPerformance), "nothing taken");
+    }
+
+    /// The Upscaling mode row's words follow the upscaler asked for: FSR's shares from its
+    /// ratios, DLSS's from the sizes it chose, none while Off; the names the INI and the test
+    /// aids use stay the plain ones.
+    #[test]
+    fn the_mode_row_shows_the_share_each_upscaler_draws_at() {
+        let mut app = rows_app();
+        app.insert_resource(UpscalerStatus::new(READY));
+        let q = row(&app, QUALITY_KEY);
+        let labels = |app: &App| -> Vec<String> {
+            let settings = app.world().resource::<Settings>();
+            UpscaleQuality::ALL.iter().map(|m| settings.choice_label(app.world(), q, m.name())).collect()
+        };
+        assert_eq!(labels(&app), ["Native AA", "Quality", "Balanced", "Performance", "Ultra Performance"], "Off: the plain names");
+        app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Dlss(Quality);
+        assert_eq!(labels(&app), ["Native AA (100%)", "Quality (67%)", "Balanced (58%)", "Performance (50%)", "Ultra Performance (33%)"]);
+        app.world_mut().resource_mut::<Graphics>().upscaler = UpscalerChoice::Fsr(Balanced);
+        assert_eq!(labels(&app), ["Native AA (100%)", "Quality (67%)", "Balanced (59%)", "Performance (50%)", "Ultra Performance (33%)"]);
+        for mode in UpscaleQuality::ALL {
+            assert_eq!(render_share(Upscaler::Fsr, mode), Some((100.0 / mode.ratio()).round() as u32), "{mode:?}: FSR's own ratio");
+            // FSR's share is what render_size draws at, to the percent.
+            let drawn = mode.render_size(UVec2::new(2000, 1000));
+            assert_eq!(render_share(Upscaler::Fsr, mode), Some((drawn.x as f32 / 20.0).round() as u32), "{mode:?}");
+            assert_eq!(render_share(Upscaler::Off, mode), None);
+        }
+        // DLSS's from the sizes it chose at 1280x720 (853x480 for Quality, 742x418 for Balanced …).
+        for (mode, width) in [(NativeAa, 1280), (Quality, 853), (Balanced, 742), (Performance, 640), (UltraPerformance, 427)] {
+            assert_eq!(render_share(Upscaler::Dlss, mode), Some((width as f32 * 100.0 / 1280.0).round() as u32), "{mode:?}");
+        }
+        // The names stay what the INI and the test aids use.
+        assert!(nvf_play::settings::pick(app.world_mut(), q, "Performance"));
+        assert_eq!(quality_chosen(app.world()), "Performance");
+        assert!(!nvf_play::settings::pick(app.world_mut(), q, "Quality (67%)"), "the words are not a name");
     }
 
     /// The quality row stands dimmed with a reason while the upscaler is Off, as the other rows
@@ -1368,7 +1438,7 @@ mod fsr_settings_tests {
         let label = |app: &App, i: usize, name: &str| app.world().resource::<Settings>().choice_label(app.world(), i, name);
         assert_eq!([label(&app, u, "Off"), label(&app, u, "FSR 3.1"), label(&app, u, "DLSS")], ["Off", "FSR 3.1", "DLSS"]);
         for quality in UpscaleQuality::ALL {
-            assert_eq!(label(&app, q, quality.name()), quality.name());
+            assert_eq!(label(&app, q, quality.name()), quality.name(), "Off: the plain names");
         }
         // DLSS asked for in a session that started without Streamline, the files there now.
         app.insert_resource(UpscalerStatus::new(STOCK));
@@ -1555,10 +1625,10 @@ mod fsr_settings_tests {
         app.world_mut().resource_mut::<UpscalerStatus>().update(UpscalerChoice::Dlss(Quality));
         let (q, m) = (row(&app, QUALITY_KEY), row(&app, MODEL_KEY));
         let settings = app.world().resource::<Settings>();
-        assert_eq!(m, q + 1, "right under Upscaling quality");
+        assert_eq!(m, q + 1, "right under Upscaling mode");
         assert_eq!(settings.list()[m].label, "DLSS model");
         let models = settings.choices(m).expect("a dropdown");
-        assert_eq!((models.names)(app.world()), ["Default", "Preset J", "Preset K", "Preset L", "Preset M"]);
+        assert_eq!((models.names)(app.world()), ["Default", "K", "L", "M", "J"]);
         assert_eq!(model_chosen(app.world()), "Default", "Default by default");
         for model in DlssModel::ALL {
             nvf_play::settings::pick(app.world_mut(), m, model.name());
@@ -1569,18 +1639,26 @@ mod fsr_settings_tests {
             assert!((models.load)(app.world_mut(), &saved));
             assert_eq!(app.world().resource::<Graphics>().dlss_model, model, "{saved}");
         }
-        assert!(pick_model(app.world_mut(), "preset k"), "any case");
+        assert!(pick_model(app.world_mut(), "k"), "any case");
         assert_eq!(app.world().resource::<Graphics>().dlss_model, DlssModel::K);
-        assert!(!pick_model(app.world_mut(), "Preset A"), "not one of the five: not taken");
+        assert!(!pick_model(app.world_mut(), "A"), "not one of the five: not taken");
         assert_eq!(app.world().resource::<Graphics>().dlss_model, DlssModel::K);
-        for unknown in ["Preset A", "Preset N", "", "13", "transformer"] {
+        // The INI's earlier spellings (`Preset K` …) load into the same models.
+        for (older, model) in [("Preset J", DlssModel::J), ("preset k", DlssModel::K), ("Preset L", DlssModel::L), ("PRESET M", DlssModel::M)] {
+            app.world_mut().resource_mut::<Graphics>().dlss_model = DlssModel::Default;
+            assert!(load_model(app.world_mut(), older), "{older:?}");
+            assert_eq!(app.world().resource::<Graphics>().dlss_model, model, "{older:?}");
+            assert_eq!(model_chosen(app.world()), model.name(), "saved by its letter from then on");
+        }
+        for unknown in ["A", "Preset A", "N", "Preset N", "Preset Default", "", "13", "transformer"] {
             app.world_mut().resource_mut::<Graphics>().dlss_model = DlssModel::L;
             assert!(load_model(app.world_mut(), unknown), "{unknown:?}");
             assert_eq!(app.world().resource::<Graphics>().dlss_model, DlssModel::Default, "{unknown:?} loads as Default");
         }
         assert_eq!(nvf_play::settings::note_switches(MODEL_NOTE), ["--dlss-model"], "a test run's --dlss-model keeps the row at the command line's model");
         let label = |name: &str| app.world().resource::<Settings>().choice_label(app.world(), m, name);
-        assert_eq!(label("Preset L"), "Preset L", "NVIDIA's names");
+        assert_eq!(label("L"), "L", "NVIDIA's letters");
+        assert_eq!(label("Default"), "Default", "in English here (the page translates it)");
     }
 
     /// The DLSS model row stands dimmed with a reason while DLSS is not the effective upscaler
@@ -1598,16 +1676,16 @@ mod fsr_settings_tests {
         app.insert_resource(UpscalerStatus::new(READY));
         ask(&mut app, UpscalerChoice::Off);
         assert_eq!(dimmed(&app), Some("DLSS only"));
-        assert!(!nvf_play::settings::pick(app.world_mut(), m, "Preset L"), "dimmed: not taken from the page or a test aid");
+        assert!(!nvf_play::settings::pick(app.world_mut(), m, "L"), "dimmed: not taken from the page or a test aid");
         ask(&mut app, UpscalerChoice::Fsr(Quality));
         assert_eq!(dimmed(&app), Some("DLSS only"), "FSR draws");
         ask(&mut app, UpscalerChoice::Dlss(Balanced));
         assert_eq!(dimmed(&app), None, "DLSS draws");
-        assert!(nvf_play::settings::pick(app.world_mut(), m, "Preset L"));
+        assert!(nvf_play::settings::pick(app.world_mut(), m, "L"));
         ask(&mut app, UpscalerChoice::Fsr(Balanced));
         assert_eq!(dimmed(&app), Some("DLSS only"));
-        assert_eq!(model_chosen(app.world()), "Preset L", "kept while FSR draws");
-        assert!(load_model(app.world_mut(), "Preset M"), "the INI loads into it all the same");
+        assert_eq!(model_chosen(app.world()), "L", "kept while FSR draws");
+        assert!(load_model(app.world_mut(), "M"), "the INI loads into it all the same");
         assert_eq!(app.world().resource::<Graphics>().dlss_model, DlssModel::M);
         // DLSS asked for but waiting for a restart (FSR drawing until then), or given up on.
         let mut waiting = UpscalerStatus::new(STOCK);
@@ -1632,25 +1710,29 @@ mod fsr_settings_tests {
         let model = |app: &App| app.world().resource::<Graphics>().dlss_model;
         let given = |switches: &[&str], win: bool| GivenSwitches { given: switches.iter().map(|s| s.to_string()).collect(), win };
         let app = ini_app(&path, "[Settings]
-dlss-model=Preset J
+dlss-model=J
 ", UpscalerChoice::Off, GivenSwitches::default());
         assert_eq!(model(&app), DlssModel::J, "the INI's model");
         let app = ini_app(&path, "[Settings]
-dlss-model=Preset J
+dlss-model=J
 ", UpscalerChoice::Off, given(&["--dlss-model"], false));
         assert_eq!(model(&app), DlssModel::J, "normal play: the INI wins over --dlss-model");
         let app = ini_app(&path, "[Settings]
-dlss-model=Preset J
+dlss-model=J
 ", UpscalerChoice::Off, given(&["--dlss-model"], true));
         assert_eq!(model(&app), DlssModel::Default, "a test run: --dlss-model (the command line's Default here) is kept");
         let app = ini_app(&path, "[Settings]
-dlss-model=Preset J
+dlss-model=J
 ", UpscalerChoice::Off, given(&["--upscaler"], true));
         assert_eq!(model(&app), DlssModel::J, "another switch given keeps nothing of this row");
         let app = ini_app(&path, "[Settings]
 dlss-model=Preset Z
 ", UpscalerChoice::Off, GivenSwitches::default());
         assert_eq!(model(&app), DlssModel::Default, "an unknown stored value loads as Default");
+        let app = ini_app(&path, "[Settings]
+dlss-model=Preset K
+", UpscalerChoice::Off, GivenSwitches::default());
+        assert_eq!(model(&app), DlssModel::K, "the earlier spelling loads");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
