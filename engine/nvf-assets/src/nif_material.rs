@@ -354,7 +354,7 @@ fn prepass_coverage(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPip
 /// can always run before the fragment shader, so no hidden fragment is lit; and a
 /// multisampled depth buffer is not written a second time [observed 2026-11-10,
 /// Goodsprings 12:00 at 2560x1440 with 4x multisampling, RTX 3070: the frame
-/// 9.1 -> about 8.6 ms; docs/design/frame-rate-audit.md section 9].
+/// 9.32 -> 9.03 ms; docs/design/frame-rate-audit.md section 9, change 1].
 ///
 /// Left alone: prepass and shadow pipelines, blended pipelines, pipelines with alpha to
 /// coverage (their soft edge lies outside what the prepass wrote), and views without a
