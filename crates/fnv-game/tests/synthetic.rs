@@ -1454,14 +1454,17 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     add(&mut g);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&g), 21.0);
-    // It reaches its goal: the end script; being replaced afterwards is not a change.
+    // It reaches its goal: the end script, once; being replaced afterwards is a change
+    // too (its change script runs as the actor leaves it, issue #2221).
     g.package_goal_met(npc);
     assert_eq!(global(&g), 22.0);
     g.package_goal_met(npc);
+    assert_eq!(global(&g), 22.0);
     remove(&mut g);
     g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
-    assert_eq!(global(&g), 0.0);
+    assert_eq!(global(&g), 23.0, "the change script ran as the finished package was left");
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
     // Replaced before its goal: the change script.
     add(&mut g);
     g.evaluate_package(npc);
@@ -4560,4 +4563,27 @@ fn planted_forms_remap_and_missing_dependencies_are_dropped() {
     back.planted[0].seen_by.push(extra);
     assert_eq!(back.drop_gone(|id| id == extra), 0);
     assert_eq!(back.planted[0].seen_by, vec![victim]);
+}
+
+/// An activator opens and closes like a door: SetOpenState and its default activation
+/// change its open state (GetOpenState) and ask for its "Open" or "Close" sequence, as
+/// PlayGroup asks one (TTW's Overseer desk and vault door, issues #2231, #2232). Setting
+/// the state it has asks for nothing.
+#[test]
+fn an_activator_plays_open_and_close_with_its_open_state() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let r = FormId(ACT_REF);
+    assert!(!g.world.get(r).unwrap().open);
+    g.run_source("TestActivatorREF.SetOpenState 1", Default::default()).unwrap();
+    assert!(g.world.get(r).unwrap().open);
+    assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Open"));
+    let asked = g.anims.requests.len();
+    g.run_source("TestActivatorREF.SetOpenState 1", Default::default()).unwrap();
+    assert_eq!(g.anims.requests.len(), asked, "already open: nothing asked");
+    // Its default activation (a script's Activate, the vault door's pod) closes it again.
+    g.default_activation(FormId::PLAYER_REF, r, false).unwrap();
+    assert!(!g.world.get(r).unwrap().open);
+    assert_eq!(g.anims.asked(r).map(|(_, n)| n), Some("Close"));
 }

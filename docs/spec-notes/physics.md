@@ -172,7 +172,13 @@ census of the winning REFR records]:
 walls; the name suggests it], and leaves portals, rooms, occlusion planes and trigger
 activators out (they are culling volumes and script triggers by their bases [hypothesis];
 triggers will become sensors when scripts need them, Layer 5). A primitive without XTRI
-gets layer 0.
+is an Invisible Wall (#1545, #1665): it stops actors, and shots pass it
+(`layers::shot_ignores`). So is one whose XTRI is **Transparent** (#2223): TTW's load
+order has 277 references with XTRI, Transparent the commonest (96, then Invisible Wall
+60, Actor Zone 57, Static 31) [observed: `fnvtool esm fields`, 2026-11-12], and its
+Vault 101 BB gun range has a Transparent Portal Box marker across the hall between the
+player and the targets the birthday quest needs hit [hypothesis: the original lets
+shots through such a marker]. Other XTRI layers are kept as stored.
 
 **Bounds are read as half extents** (sphere: the first value is the radius). Evidence
 [observed]: for the 3,007 exterior CollisionMarker boxes without x/y rotation, the box
