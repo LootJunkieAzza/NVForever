@@ -2159,6 +2159,31 @@ fn an_actor_taken_off_its_furniture_by_an_alert_settles_again() {
     assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)), "{:?}", s.events(R_TO_CHAIR));
 }
 
+/// A patroller whose walk to a point an alert cut off walks on along its route once the
+/// search ends (issue #2137: Nipton's patroller stood 118 s after a fight) [documented:
+/// "Actor moves along patrol route continuously until another package evaluates", GECK
+/// wiki Patrol Package].
+#[test]
+fn a_patroller_whose_walk_an_alert_cut_off_walks_on_after_the_search() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_LOOP]);
+    s.run(3.0);
+    assert_eq!(s.ai.agents[&FormId(R_LOOP)].activity, Activity::Travelling);
+    let at = s.feet(R_LOOP);
+    alert(&mut s, R_LOOP, [at[0] + 40.0, at[1], 0.0]);
+    s.run(2.0);
+    s.game.awareness.actors.remove(&FormId(R_LOOP));
+    s.run(45.0);
+    let ev = s.events(R_LOOP);
+    let over = ev.iter().rposition(|e| matches!(e, AiEvent::SearchOver { .. })).expect("search over");
+    let points: Vec<u32> = ev[over..].iter().filter_map(|e| match e {
+        AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
+        _ => None,
+    }).collect();
+    assert!(points.len() >= 2, "it goes round again: {ev:?}");
+    assert!(matches!(ev[over + 1], AiEvent::SearchBack { .. }), "{ev:?}");
+}
+
 /// An actor without packages (Ranger Ghost, playtest list 5 item 29) walks back to where
 /// it was placed after a search.
 #[test]

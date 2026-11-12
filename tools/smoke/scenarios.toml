@@ -25676,3 +25676,21 @@ order = [[
   { re = 'menu: Focus\(Container\): the Container list has the focus', label = "RT picks the container's list" },
   { text = "menu: close", label = "B closes" },
 ]]
+
+[[scenario]]
+name = "patrol-resumes-after-fight"
+source = "issue #2137: a patroller whose walk to a point a fight cut off walks on along its route once the search ends (fnv-ai carry.rs Ai::back_to_package)"
+note = "the issue's scene: Nipton at 12:00, Oliver Swanick (vNiptonSurvivorREF 0x001349B6) on his celebrate patrol, the player some 1,300 units off (god mode). A gecko (0x0016518B) is brought beside him at 20 s and the two are set on each other at 23 s; the gecko is killed at 32 s. Before the fix he stood mid-leg for the 118 s left of the run. Base game only"
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs", "crates/fnv-ai/src/errand.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "5:set_av:vNiptonSurvivorREF:Health:500,20:moveto:0x0016518B:vNiptonSurvivorREF:200:0:0,23:combat:0x0016518B:vNiptonSurvivorREF,23:combat:vNiptonSurvivorREF:0x0016518B,32:kill:0x0016518B" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-33500,-96800,6900", "--hour", "12", "--npc-packages", "001349B6", "--no-voice", "--no-messages"]
+run_seconds = 90
+# The AI lines name him by his reference, 001349B6.
+order = [[
+  { text = "001349B6: stops searching: back to Normal", label = "the fight is over and his search ends" },
+  { text = "001349B6: has searched: back to the place of vNiptonSurvivorCelebrate01", label = "he goes back to his patrol" },
+  { re = '001349B6: (walks|runs) to .*\(patrol point ', label = "he walks on to a patrol point" },
+  { re = '001349B6: arrived after ', label = "and gets there" },
+  { re = '001349B6: (walks|runs) to .*\(patrol point ', label = "then on along his route" },
+]]

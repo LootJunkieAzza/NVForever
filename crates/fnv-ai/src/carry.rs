@@ -379,6 +379,9 @@ pub enum AiEvent {
     /// Back to its package inside the package's place (after a search, a push or a
     /// chat), it settles there again: its bed or chair, a sandbox ([`Ai::back_to_package`]).
     Resettles { package: FormId },
+    /// Back to an Escort, Find or Use Item At package whose walk a search, a push or a
+    /// chat cut off: it takes the package up afresh ([`Ai::back_to_package`]).
+    TakesUpAgain { package: FormId },
     /// An actor without a package, moved away by a search, a fight or a push, walks back
     /// to where it was placed ([`Ai::back_to_package`]).
     BackHome { away: f32, length: f32 },
@@ -1184,15 +1187,57 @@ impl Ai {
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         let Some(goal) = a.goal.clone() else { return };
+        let free = a.using.is_none();
+        let goal_met = game.extra.get(&actor).is_some_and(|e| e.package_goal_met);
         let Some(to) = self.way_to(feet, &goal) else {
-            // Already in the package's place: taken off its bed or chair (an alert takes
-            // an actor off its furniture), it settles again as on arrival. In the original
-            // Easy Pete, fought off his chair, had his chair package back at the fight's
-            // end and sat again about 5 real seconds later [observed: AI observer
-            // 2026-11-10, issue #2013].
-            if a.using.is_none() {
-                self.log(game, actor, AiEvent::Resettles { package });
-                self.settle(game, actor);
+            match goal {
+                // A patrol whose walk to a point was cut off, or whose wait at one was
+                // cleared, walks on (issue #2137) [documented: "Actor moves along patrol
+                // route continuously until another package evaluates", GECK wiki Patrol
+                // Package]: to the point it was at or going to, or, standing at it, on
+                // to the next one [design: which point the original resumes at is not
+                // captured]. A route walked to its end stays done.
+                Goal::Route(route) if !goal_met => {
+                    let Some(&(point, place)) = route.points.get(self.agents[&actor].route_at) else { return };
+                    if self.within(feet, place, 0.0) {
+                        self.patrol_on(game, nav, actor);
+                    } else {
+                        self.log(game, actor, why(package, hdist(feet.pos, place.pos)));
+                        self.plan(game, nav, actor, package, place, Some(point));
+                    }
+                }
+                // An ambusher goes back to its wait location [documented: "When combat
+                // ends, the actor will return to the Wait Location", GECK wiki Ambush
+                // Package]; one sprung stands there, not lying in wait again (whether
+                // the original re-arms it is not known; issue #2137).
+                Goal::Ambush(am) => {
+                    if let Some(to) = self.way_to(feet, &am.wait) {
+                        self.log(game, actor, why(package, hdist(feet.pos, to.pos)));
+                        self.plan(game, nav, actor, package, to, None);
+                    }
+                }
+                // An Escort, Find or Use Item At walk not finished is taken up afresh at
+                // the next update, as after a search that leaves the loaded area
+                // (`leave_loaded_area`) [design: issue #2137]. One whose goal was met
+                // stays done.
+                Goal::Escort(_) | Goal::Find(_) | Goal::UseAt(_) if !goal_met => {
+                    self.log(game, actor, AiEvent::TakesUpAgain { package });
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    a.walker.follower = None;
+                    a.activity = Activity::None;
+                    a.package = None;
+                }
+                Goal::Route(_) | Goal::Escort(_) | Goal::Find(_) | Goal::UseAt(_) => {}
+                // Already in the package's place: taken off its bed or chair (an alert
+                // takes an actor off its furniture), it settles again as on arrival. In
+                // the original Easy Pete, fought off his chair, had his chair package
+                // back at the fight's end and sat again about 5 real seconds later
+                // [observed: AI observer 2026-11-10, issue #2013].
+                _ if free => {
+                    self.log(game, actor, AiEvent::Resettles { package });
+                    self.settle(game, actor);
+                }
+                _ => {}
             }
             return;
         };
