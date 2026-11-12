@@ -25712,3 +25712,26 @@ order = [[
   { re = '001349B6: arrived after ', label = "and gets there" },
   { re = '001349B6: (walks|runs) to .*\(patrol point ', label = "then on along his route" },
 ]]
+
+[[scenario]]
+name = "alt-enter-full-screen"
+source = "issue #2209: Alt+Enter switches between a window and full screen, flipping the settings page's Full screen row, and its Enter reaches no menu (nvf-play full_screen_key.rs; engine/nvforever/src/window_mode.rs logs the modes)"
+note = "The pause menu is open from 10 s to 16 s, so an Enter that got through would act on its selected row. Left Alt is held from 11 s for 1 s with Enter at 11.3 s (full screen), then again from 13 s with Enter at 13.3 s (back to a window). The pause menu then resumes by its test aid only. Before #2209 Alt+Enter did nothing but Enter's own work"
+areas = ["main-menu", "settings"]
+paths = ["engine/nvf-play/src/full_screen_key.rs", "engine/nvforever/src/window_mode.rs"]
+env = { NVFOREVER_HOME = "alt-enter-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_KEYS = "11:alt:1,11.3:enter,13:alt:1,13.3:enter" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 18
+expect = [
+  { re = 'full screen key: Alt\+Enter: full screen (on|off)', count = 2, label = "two combinations, two switches" },
+  { text = "pause menu: resume", count = 1, label = "the combination's Enter does not act on the pause menu (it resumes only by its test aid)" },
+]
+order = [[
+  { text = "pause menu: open", label = "the pause menu is open" },
+  { text = "full screen key: Alt+Enter: full screen on", label = "the first Alt+Enter turns full screen on" },
+  { re = 'window: borderless full screen$', label = "the window goes full screen" },
+  { text = "full screen key: Alt+Enter: full screen off", label = "the second turns it off" },
+  { re = 'window: windowed, 1280x800', label = "and the window is a window of its own size again" },
+  { text = "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)", label = "the pause menu's test aid resumes it" },
+  { text = "pause menu: resume", label = "only then is it resumed" },
+]]
