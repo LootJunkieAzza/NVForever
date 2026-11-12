@@ -559,6 +559,11 @@ impl OnFurniture {
     pub fn seated(&self) -> bool {
         matches!(self.stage, Stage::Using(_))
     }
+
+    /// Getting off it (its getting-off clip playing).
+    pub fn getting_off(&self) -> bool {
+        matches!(&self.stage, Stage::Using(u) if u.state() == state::GETTING_OFF)
+    }
 }
 
 /// Drawn actors not yet told to sit.

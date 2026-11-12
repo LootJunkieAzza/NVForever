@@ -641,7 +641,7 @@ fn react(
     coop: Option<Res<crate::coop::Coop>>,
     opponent: Option<Res<DartsOpponent>>,
     (mut parts, mut models): (ResMut<ActorParts>, ModelCtx),
-    mut rigs: Query<(Entity, &ActorRig, Option<&mut ActorIdle>)>,
+    mut rigs: Query<(Entity, &ActorRig, Option<&mut ActorIdle>, Has<crate::furniture::OnFurniture>)>,
 ) {
     if st.pending.is_empty() {
         return;
@@ -675,14 +675,18 @@ fn react(
             Who::Npc(r) => {
                 // Not while it walks to its spot: the clip's legs would slide.
                 let walking = opponent.as_deref().and_then(|o| o.0.as_ref()).is_some_and(|o| o.actor.0 == r && o.moving);
-                if walking && now - p.since < BODY_WAIT {
+                // Nor while it gets up from its chair: over the getting-off clip the
+                // standing clip popped it upright and slid it (the arm-wrestling Settler,
+                // armwrestle-c's desktop run 2026-11-12).
+                let seated = rigs.iter().any(|(_, g, _, on)| g.reference == r && on);
+                if (walking || seated) && now - p.since < BODY_WAIT {
                     waiting.push(p);
                     continue;
                 }
                 r
             }
         };
-        let Some((e, rig, idle)) = rigs.iter_mut().find(|(_, r, _)| r.reference == reference) else {
+        let Some((e, rig, idle, _)) = rigs.iter_mut().find(|(_, r, ..)| r.reference == reference) else {
             if now - p.since < BODY_WAIT {
                 waiting.push(p);
             } else {
