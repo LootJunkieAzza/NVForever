@@ -21,13 +21,19 @@
 //!   the timing bar and the crosshair are drawn over the view.
 //! - **Darts in co-op.** At a board another player near is at, the menu offers their
 //!   board: Space asks to throw against them, and they play the match instead of the
-//!   opponent (no stake), each throwing on its own turn ([`crate::coop_tables::DartsAction`]).
+//!   opponent, each throwing on its own turn ([`crate::coop_tables::DartsAction`]).
+//! - **Stakes between players.** Every players' match is staked first, from 0
+//!   ([`crate::stake`]; the board's owner leads, its view carries every seat's offer):
+//!   W Auto Match, A Raise, F Accept, Tab Leave. Each game takes its own player's stake;
+//!   the winners' games are paid the pot ([`win_share`]). A player who leaves a staked
+//!   match loses its stake and the others share it ([`left_share`]).
 //! - **Fillet.** A menu (1 Play, 2 Practice), the bet page (Q/E 10..100, Space start).
 //!   Space starts each round; press the key shown at the knife's gap. A miss hurts 10
 //!   health; a staked game has its clock. In co-op a table someone near is at is theirs
 //!   until they leave: the others watch (the watchers' panel) and take their turn after.
-//! - **Fillet races in co-op.** 3 on the menu sets a bet and opens a challenge at the
-//!   knife; another player who opens the same knife sees it and matches the bet (Space),
+//! - **Fillet races in co-op.** 3 on the menu sets a stake, from 0 (A Raise, W back to 0,
+//!   F Accept), and opens a challenge at the knife; another player who opens the same
+//!   knife sees it, Auto Matches (W) and Accepts (F) it (a race at 0 is for nothing),
 //!   and after a countdown both play the same prompts at once, the rounds following each
 //!   other by themselves. `fnv_game::fillet::race` ranks the two ends; the winner takes
 //!   both bets, a draw gives each its own back. Leaving the race forfeits it.
@@ -153,6 +159,8 @@ pub enum Page {
     Challenge,
     /// A players' match being gathered: waiting for all players (`match_lobby`).
     Gather,
+    /// A players' match's stake being agreed, from 0 ([`crate::stake`]).
+    Stake,
 }
 
 /// The side of a dart in the air thrown by another player's hand (its side + this):
@@ -189,6 +197,18 @@ pub struct Darts {
     pub page: Page,
     pub bet: u32,
     pub stake: u32,
+    /// A players' match's stake being agreed, then held ([`crate::stake`]; the owner's
+    /// game leads it, the others follow its view): `None` for any other match.
+    pub bets: Option<crate::stake::Stake>,
+    /// This game's caps are in the stake (a guest has sent them to the owner).
+    pub funds_in: bool,
+    /// The agreed stake was taken from this player (`held` caps, 0 for none).
+    pub bets_taken: bool,
+    pub held: u32,
+    /// The stake was settled: paid out, lost, or shared after a player left.
+    pub bets_done: bool,
+    /// The players who left the staked match (each loses its own; the rest share it).
+    pub bets_gone: Vec<u8>,
     pub foe: Foe,
     pub m: Match,
     /// The aim (board units) before the sway, and since when this turn is.
@@ -355,6 +375,8 @@ pub struct Fillet {
     pub duel: Option<Duel>,
     /// The open challenge on [`FPage::Offer`]: its bet and seed.
     pub offer: Option<(u32, u64)>,
+    /// This player's stake against that challenge (its seed, the caps): 0 until Auto Match.
+    pub offer_mine: Option<(u64, u32)>,
     /// The racers of this player's next race challenge (2 to 4, item 128).
     pub racers: u8,
     rng: ChaCha8Rng,
@@ -476,6 +498,12 @@ fn open(
                 page: Page::Main,
                 bet: darts::BET_MIN,
                 stake: 0,
+                bets: None,
+                funds_in: false,
+                bets_taken: false,
+                held: 0,
+                bets_done: false,
+                bets_gone: Vec::new(),
                 foe: Foe::Practice,
                 m: Match::new(1),
                 aim: (0.0, 0.0),
@@ -533,6 +561,7 @@ fn open(
                 pose: (0, FPose::Ready),
                 pending: None,
                 duel_bet: false,
+                offer_mine: None,
                 duel: None,
                 offer: offer.map(|o| (o.1, o.2)),
                 racers: 2,
@@ -563,6 +592,14 @@ fn start_race_of(f: &mut Fillet, bet: u32, seed: u64, rivals: &[u8], want: u8, n
     info!("fillet: a race against player {foe} for {bet} caps");
 }
 
+/// This player's stake against the open challenge on [`FPage::Offer`] (0 until Auto Match).
+fn race_mine(f: &Fillet) -> u32 {
+    match (f.offer, f.offer_mine) {
+        (Some((_, seed)), Some((s, v))) if s == seed => v,
+        _ => 0,
+    }
+}
+
 /// A players' match against `others` (the players by seat after this one).
 fn start_players(d: &mut Darts, others: &[u8], teams: bool, now: f32) {
     let Some(first) = others.first().copied() else { return };
@@ -570,8 +607,149 @@ fn start_players(d: &mut Darts, others: &[u8], teams: bool, now: f32) {
     d.teams = teams && d.players.len() == 4;
     d.gather = None;
     d.stake = 0;
-    info!("darts: a players' match: seats {:?}{}", d.players, if d.teams { ", two teams" } else { "" });
-    start_match(d, Foe::Player(first), now);
+    info!("darts: a players' match: seats {:?}{}; the stake first, from 0", d.players, if d.teams { ", two teams" } else { "" });
+    // Every players' match is staked first, from 0 (owner rule 2026-11-11: "all bets for
+    // all player games should start at 0"); Accept at 0 plays for nothing.
+    d.foe = Foe::Player(first);
+    d.bets = Some(crate::stake::Stake::new(true, 0, others.iter().copied()));
+    (d.funds_in, d.bets_taken, d.held, d.bets_done) = (false, false, 0, false);
+    d.bets_gone.clear();
+    d.page = Page::Stake;
+    d.status.clear();
+    let _ = now;
+}
+
+/// A staked players' match over: the winners' games each take their share of the pot
+/// (every player's stake), the others' nothing; each game moves only its own player's caps.
+fn settle_bets(d: &mut Darts, rt: Option<&mut crate::script::Runtime>, sim: &mut SimState) {
+    let Some(w) = d.m.winner.filter(|_| d.bets_taken && !d.bets_done) else { return };
+    d.bets_done = true;
+    let v = d.held;
+    if v == 0 {
+        return;
+    }
+    let n = d.players.len().max(2) as u32;
+    let share = win_share(v, n, d.teams);
+    if w == d.mine() {
+        if let Some(rt) = rt {
+            give_caps(rt, sim, share as i64);
+        }
+        d.status = format!("You win {} caps.", share - v);
+    } else {
+        d.status = format!("You lose {v} caps.");
+    }
+    info!("darts: the staked match is over, side {w} won: stake {v}, this player {}", if w == d.mine() { format!("paid {share}") } else { "lost it".into() });
+}
+
+/// What a winner's game is paid from a staked players' match of `n` players at `v` each:
+/// the whole pot, split between the two of a team.
+pub fn win_share(v: u32, n: u32, teams: bool) -> u32 {
+    v * n / if teams { 2 } else { 1 }
+}
+
+/// What each player still in is paid when `gone` of the `n` left the staked match: its
+/// own stake and an equal part of theirs (rounded down).
+pub fn left_share(v: u32, n: u32, gone: u32) -> u32 {
+    if gone >= n {
+        return 0;
+    }
+    v * n / (n - gone)
+}
+
+/// Players left the staked match before its end (`gone` of them, this player not among
+/// them): each lost its own, and the players still in share them.
+fn bets_left(d: &mut Darts, gone: usize, rt: Option<&mut crate::script::Runtime>, sim: &mut SimState) {
+    if !d.bets_taken || d.bets_done || d.m.winner.is_some() {
+        return;
+    }
+    d.bets_done = true;
+    let v = d.held;
+    let n = d.players.len().max(2);
+    if v == 0 || gone >= n {
+        return;
+    }
+    let share = left_share(v, n as u32, gone as u32);
+    if let Some(rt) = rt {
+        give_caps(rt, sim, share as i64);
+    }
+    d.status = format!("The match is off: a player left and loses their stake. You win {} caps.", share - v);
+    info!("darts: {gone} left the staked match: stake {v}, this player paid {share}");
+}
+
+/// A guest's stake, from the owner's view `b`: its own made when the match is staked, its
+/// caps sent once, every other seat's offer heard, and the owner's agreement taken (its
+/// caps held); players gone from the staked match leave their stakes to the rest.
+#[allow(clippy::too_many_arguments)]
+fn guest_bets(d: &mut Darts, b: &crate::coop_tables::StakeView, owner: u8, me: u8, in_it: bool, rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, tables: Option<&mut Tables>) {
+    // A new staked match (none yet, or the last one settled): this player's stake, from 0.
+    if d.bets.is_none() || (d.bets_done && b.agreed.is_none()) {
+        if !in_it || b.agreed.is_some() {
+            return;
+        }
+        d.bets = Some(crate::stake::Stake::new(false, 0, d.players.iter().copied().filter(|p| *p != me)));
+        (d.funds_in, d.bets_taken, d.held, d.bets_done) = (false, false, 0, false);
+        d.bets_gone.clear();
+        info!("darts: stake: {owner}'s players' match, seats {:?}", d.players);
+    }
+    let Some(rt) = rt else { return };
+    let Some(st) = d.bets.as_mut() else { return };
+    if !d.funds_in {
+        st.funds = caps(rt, sim);
+        d.funds_in = true;
+        if let Some(t) = tables {
+            t.send(d.board, game::DARTS, DartsAction::Bet { funds: st.funds, offer: None }.encode());
+        }
+        info!("darts: stake: this player has {} caps (sent)", st.funds);
+    }
+    for (p, funds, offer) in b.seats.iter().filter(|s| s.0 != me) {
+        st.heard(*p, *funds, *offer, false);
+    }
+    if let (Some(v), true) = (b.agreed, st.open()) {
+        let funds = b.seats.iter().find(|s| s.0 == owner).map_or(v, |s| s.1);
+        st.heard(owner, funds, Some(v), true);
+    }
+    if let (Some(v), false) = (st.agreed, d.bets_taken) {
+        if v > 0 {
+            give_caps(rt, sim, -(v as i64));
+        }
+        (d.bets_taken, d.held, d.stake) = (true, v, v);
+        d.status = if v > 0 { format!("Stake agreed: {v} caps each.") } else { "No stake: the match is for nothing.".into() };
+        info!("darts: stake agreed: {v} caps each; the player has {} caps", caps(rt, sim));
+    }
+    let new: Vec<u8> = b.gone.iter().copied().filter(|p| *p != me && !d.bets_gone.contains(p)).collect();
+    if !new.is_empty() {
+        d.bets_gone.extend(new);
+        let gone = d.bets_gone.len();
+        bets_left(d, gone, Some(rt), sim);
+    }
+}
+
+/// The stake page's card: whose offer is what, and the keys (each lit when it may be pressed).
+pub(crate) fn stake_card(st: &crate::stake::Stake, name: &dyn Fn(u8) -> String) -> (String, String, Vec<crate::match_lobby::MenuRow>) {
+    use crate::match_lobby::row;
+    let title = match st.agreed {
+        Some(0) => "No stake".to_string(),
+        Some(v) => format!("Stake: {v} caps each"),
+        None if st.mine == 0 => "Stake: none".to_string(),
+        None => format!("Stake: {} caps", st.mine),
+    };
+    let mut sub: Vec<String> = st
+        .others
+        .iter()
+        .map(|(p, s)| match s.offer {
+            Some(o) => format!("{} offers {o}", name(*p)),
+            None if s.funds.is_none() => format!("{}: waiting", name(*p)),
+            None => format!("{}: no offer yet", name(*p)),
+        })
+        .collect();
+    sub.push(format!("you have {} caps", st.funds));
+    let rows = vec![
+        row("W", "Auto Match").enabled(st.can_match()),
+        row("A", "Raise").enabled(st.can_raise()),
+        row("F", "Accept").enabled(st.can_accept()),
+        row("Tab", "Leave"),
+    ];
+    (title, sub.join(", "), rows)
 }
 
 fn start_match(d: &mut Darts, foe: Foe, now: f32) {
@@ -640,6 +818,10 @@ fn darts_keys(
                     info!("darts: forfeit ({} caps lost)", d.stake);
                     d.settled = true;
                 }
+                if d.bets_taken && !d.bets_done && d.m.winner.is_none() {
+                    info!("darts: left the staked match: {} caps lost", d.held);
+                    d.bets_done = true;
+                }
                 d.leave = true;
             }
         }
@@ -688,6 +870,26 @@ fn darts_keys(
             d.status.clear();
         }
         Page::Gather => {}
+        Page::Stake => {
+            let board = d.board;
+            let joined = d.joined.is_some();
+            let Some(st) = d.bets.as_mut() else { return };
+            if keys.just_pressed(KeyCode::KeyW) {
+                st.auto_match();
+            }
+            if keys.just_pressed(KeyCode::KeyA) {
+                st.raise();
+            }
+            if keys.just_pressed(KeyCode::KeyF) {
+                if let Some(v) = st.accept() {
+                    info!("darts: stake: this player offers {v} (agreed {:?})", st.agreed);
+                    if joined {
+                        let funds = st.funds;
+                        send(&mut tables, board, DartsAction::Bet { funds, offer: Some(v) });
+                    }
+                }
+            }
+        }
         Page::Bet => {
             if keys.just_pressed(KeyCode::KeyQ) {
                 d.bet = darts::step_bet(d.bet, false);
@@ -988,7 +1190,19 @@ fn darts_step(
                     d.page = Page::Main;
                     d.arrived = false;
                 }
-                if in_it {
+                // A players' match's stake, as the owner's view has it.
+                let staking = in_it && v.bets.as_ref().is_some_and(|b| b.agreed.is_none());
+                if let (Some(b), Some(me)) = (v.bets.as_ref(), me) {
+                    if in_it || d.bets.is_some() {
+                        guest_bets(d, b, owner, me, in_it, script.as_mut().and_then(|s| s.rt.as_mut()), &mut sim, tables.as_deref_mut());
+                    }
+                }
+                if staking {
+                    if d.page != Page::Stake {
+                        d.page = Page::Stake;
+                        d.status.clear();
+                    }
+                } else if in_it {
                     if d.page != Page::Play {
                         d.page = Page::Play;
                         d.turn_since = now;
@@ -1029,6 +1243,7 @@ fn darts_step(
                         impact(d, &mut files);
                     }
                     d.remote_draw = if theirs_up { f32::from(v.draw) / 255.0 } else { 0.0 };
+                    settle_bets(d, script.as_mut().and_then(|s| s.rt.as_mut()), &mut sim);
                 } else if d.page == Page::Play {
                     d.page = Page::Main;
                     d.status = "The match is over.".into();
@@ -1036,6 +1251,9 @@ fn darts_step(
             }
             None if now - d.joined_heard > OWNER_GONE => {
                 d.status = "They have left the board.".into();
+                if d.bets_taken && d.held > 0 && !d.bets_done && d.m.winner.is_none() {
+                    bets_left(d, 1, script.as_mut().and_then(|s| s.rt.as_mut()), &mut sim);
+                }
                 d.leave = true;
             }
             None => {}
@@ -1064,7 +1282,7 @@ fn darts_step(
                     if !d.asking.contains(&from) {
                         d.asking.push(from);
                     }
-                    if d.page != Page::Play || d.foe == Foe::Practice {
+                    if !matches!(d.page, Page::Play | Page::Stake) || d.foe == Foe::Practice {
                         info!("darts: {} throws against this board", t.name(from));
                         start_players(d, &[from], false, now);
                         files.write(PlayFile(HAND.into()));
@@ -1072,13 +1290,40 @@ fn darts_step(
                         d.status = format!("{} wants a match (press 3 after this one).", t.name(from));
                     }
                 }
+                DartsAction::Bet { funds, offer } => {
+                    if let Some(st) = d.bets.as_mut().filter(|_| d.page == Page::Stake && d.players.contains(&from)) {
+                        st.heard(from, funds, offer, false);
+                        info!("darts: stake: {} has {funds} caps, offers {offer:?} (agreed {:?})", t.name(from), st.agreed);
+                    }
+                }
+                DartsAction::Leave if d.page == Page::Stake && d.players.contains(&from) => {
+                    // Gone before the stake was agreed: nothing was taken; the match goes
+                    // on without them while two are left.
+                    d.players.retain(|p| *p != from);
+                    if let Some(st) = d.bets.as_mut() {
+                        st.left(from);
+                    }
+                    info!("darts: {} left before the stake was agreed", t.name(from));
+                    if d.players.len() < 2 {
+                        d.bets = None;
+                        d.page = Page::Main;
+                        d.status = format!("{} left: no match.", t.name(from));
+                    }
+                }
                 DartsAction::Leave => {
                     d.asking.retain(|p| *p != from);
                     if let Some(g) = d.gather.as_mut() {
                         g.leave(from);
                     }
+                    if theirs && d.bets_taken {
+                        d.bets_gone.push(from);
+                        let gone = d.bets_gone.len();
+                        bets_left(d, gone, script.as_mut().and_then(|s| s.rt.as_mut()), &mut sim);
+                    }
                     if theirs {
-                        d.status = format!("{} left the match.", t.name(from));
+                        if !(d.bets_taken && d.held > 0) {
+                            d.status = format!("{} left the match.", t.name(from));
+                        }
                         d.page = Page::Main;
                     }
                 }
@@ -1142,6 +1387,30 @@ fn darts_step(
         let r = d.m.throw(hit);
         info!("darts: side {side} {} ({:?}); scores {:?}", hit.label(), r, d.m.sides.iter().map(|s| s.score).collect::<Vec<_>>());
     }
+    // This board's players' match being staked: this game's caps in, then the stake
+    // agreed is taken and the match starts.
+    if d.joined.is_none() && d.page == Page::Stake {
+        let rt = script.as_mut().and_then(|s| s.rt.as_mut());
+        if let (Some(st), Some(rt)) = (d.bets.as_mut(), rt) {
+            if !d.funds_in {
+                st.funds = caps(rt, &mut sim);
+                d.funds_in = true;
+                info!("darts: stake: this player has {} caps", st.funds);
+            }
+            if let Some(v) = st.agreed {
+                if v > 0 {
+                    give_caps(rt, &mut sim, -(v as i64));
+                }
+                let first = d.players.get(1).copied().unwrap_or(0);
+                (d.bets_taken, d.held, d.stake) = (true, v, v);
+                start_match(d, Foe::Player(first), now);
+                d.settled = true;
+                d.status = if v > 0 { format!("Stake agreed: {v} caps each.") } else { "No stake: the match is for nothing.".into() };
+                info!("darts: stake agreed: {v} caps each (pot {}); the player has {} caps", v * d.players.len() as u32, caps(rt, &mut sim));
+                files.write(PlayFile(HAND.into()));
+            }
+        }
+    }
     if d.joined.is_none() && d.page == Page::Play {
         // The opponent's turn.
         if d.foe == Foe::Opponent && d.m.up == 1 && d.m.winner.is_none() && now >= d.ai_at && d.flights.is_empty() {
@@ -1183,6 +1452,9 @@ fn darts_step(
                 d.ai_at = now + darts::FLIGHT + darts_foes::throw_gap(o.skill, d.rng.next_u32() % 100);
                 debug!("darts: {} lets go ({:.2} s late)", o.name, now - at);
             }
+        }
+        if matches!(d.foe, Foe::Player(_)) {
+            settle_bets(d, script.as_mut().and_then(|s| s.rt.as_mut()), &mut sim);
         }
         if let (Some(w), false) = (d.m.winner, d.settled) {
             d.settled = true;
@@ -1241,10 +1513,18 @@ fn fillet_keys(
     match f.page {
         FPage::Busy(_) | FPage::Challenge => {}
         FPage::Offer(p) => {
-            if !keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) {
+            // The challenger's stake: Auto Match takes it, Accept races for it (every
+            // stake starts at 0, owner rule 2026-11-11; a race of 0 is for nothing).
+            let Some((bet, seed)) = f.offer else { return };
+            if keys.just_pressed(KeyCode::KeyW) {
+                f.offer_mine = Some((seed, bet));
+            }
+            if !keys.any_just_pressed([KeyCode::KeyF, KeyCode::Space, KeyCode::Enter]) {
                 return;
             }
-            let Some((bet, seed)) = f.offer else { return };
+            if race_mine(f) != bet {
+                return;
+            }
             let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
             if caps(rt, &mut sim) < bet {
                 f.status = "You don't have enough caps.".into();
@@ -1262,6 +1542,7 @@ fn fillet_keys(
                 f.page = FPage::Bet;
             } else if keys.just_pressed(KeyCode::Digit3) && coop {
                 f.duel_bet = true;
+                f.bet = 0;
                 f.page = FPage::Bet;
             } else if keys.just_pressed(KeyCode::Digit2) {
                 f.game = Some(fillet::Game::new(0, f.key));
@@ -1278,11 +1559,21 @@ fn fillet_keys(
                 let next = modes.iter().cycle().skip_while(|m| m.players != f.racers).skip(1).take(modes.len()).find(|m| crate::match_lobby::available(**m, near));
                 f.racers = next.map_or(2, |m| m.players);
             }
-            if keys.just_pressed(KeyCode::KeyQ) {
+            // A race's stake starts at 0: A raises it a step, W puts it back to 0, F opens
+            // the challenge at it (as the darts and duel stakes).
+            if f.duel_bet {
+                let most = script.as_mut().and_then(|s| s.rt.as_mut()).map_or(0, |rt| caps(rt, &mut sim)).min(fillet::BET_MAX) / fillet::BET_STEP * fillet::BET_STEP;
+                if keys.just_pressed(KeyCode::KeyA) {
+                    f.bet = (f.bet + fillet::BET_STEP).min(most);
+                } else if keys.just_pressed(KeyCode::KeyW) {
+                    f.bet = 0;
+                }
+            } else if keys.just_pressed(KeyCode::KeyQ) {
                 f.bet = fillet::step_bet(f.bet, false);
             } else if keys.just_pressed(KeyCode::KeyE) {
                 f.bet = fillet::step_bet(f.bet, true);
-            } else if keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) {
+            }
+            if keys.any_just_pressed([KeyCode::Space, KeyCode::Enter]) || f.duel_bet && keys.just_pressed(KeyCode::KeyF) {
                 let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
                 if caps(rt, &mut sim) < f.bet {
                     f.status = "You don't have enough caps.".into();
@@ -1498,12 +1789,17 @@ fn fillet_step(
                 // Against each: a finish compared, one gone counted as beaten.
                 let vs: Vec<Ordering> = others.iter().map(|o| o.as_ref().and_then(|x| x.as_ref()).map_or(Ordering::Greater, |b| fillet::race(&a, b))).collect();
                 let won = race_share(d.bet, &vs);
-                d.result = Some(if won > d.bet { Ordering::Greater } else if won == d.bet { Ordering::Equal } else { Ordering::Less });
+                // By the finishes, not the caps: a race at 0 is still won or lost.
+                d.result = Some(if vs.contains(&Ordering::Less) { Ordering::Less } else if vs.contains(&Ordering::Equal) { Ordering::Equal } else { Ordering::Greater });
                 d.won = won;
                 if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
                     give_caps(rt, &mut sim, won as i64);
                 }
-                f.status = if won > 0 { format!("You: {}. You win {won} caps.", race_end(&a)) } else { format!("You: {}. Beaten.", race_end(&a)) };
+                f.status = match (d.result, d.bet) {
+                    (Some(Ordering::Less), _) => format!("You: {}. Beaten.", race_end(&a)),
+                    (_, 0) => format!("You: {}. You win the race.", race_end(&a)),
+                    _ => format!("You: {}. You win {} caps.", race_end(&a), won.saturating_sub(d.bet)),
+                };
                 info!("fillet: a race of {}: {:?}, {won} caps", d.rivals.len() + 1, vs);
             }
         }
@@ -1517,7 +1813,7 @@ fn fillet_step(
                 if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
                     give_caps(rt, &mut sim, bet as i64);
                 }
-                f.status = "The race did not start: your bet is back.".into();
+                f.status = if bet > 0 { "The race did not start: your bet is back.".into() } else { "The race did not start.".into() };
                 info!("fillet: the race against {name} did not start");
                 f.duel = None;
                 f.game = None;
@@ -1527,7 +1823,7 @@ fn fillet_step(
                 if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
                     give_caps(rt, &mut sim, payout(Ordering::Greater) as i64);
                 }
-                f.status = format!("{name} left the race: you win {} caps.", payout(Ordering::Greater));
+                f.status = if bet > 0 { format!("{name} left the race and loses their stake: you win {} caps.", payout(Ordering::Greater) - bet) } else { format!("{name} left the race.") };
                 info!("fillet: {name} left the race");
             } else if let (Some(a), Some(b)) = (mine, theirs) {
                 let r = fillet::race(&a, &b);
@@ -1535,10 +1831,12 @@ fn fillet_step(
                 if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
                     give_caps(rt, &mut sim, payout(r) as i64);
                 }
-                let verdict = match r {
-                    Ordering::Greater => format!("You win {} caps.", payout(r)),
-                    Ordering::Equal => "A draw: your bet is back.".to_string(),
-                    Ordering::Less => format!("{name} wins."),
+                let verdict = match (r, bet) {
+                    (Ordering::Greater, 0) => "You win the race.".to_string(),
+                    (Ordering::Greater, _) => format!("You win {bet} caps."),
+                    (Ordering::Equal, 0) => "A draw.".to_string(),
+                    (Ordering::Equal, _) => "A draw: your bet is back.".to_string(),
+                    (Ordering::Less, _) => format!("{name} wins."),
                 };
                 f.status = format!("You: {}. {name}: {}. {verdict}", race_end(&a), race_end(&b));
                 info!("fillet: race result {r:?} ({} vs {})", race_end(&a), race_end(&b));
@@ -1648,15 +1946,20 @@ pub fn darts_view(d: &Darts, me: u8, now: f32, foe: Option<u32>) -> Option<Darts
         winner: d.m.winner.map(|w| w as u8),
         aim: d.sway_aim(now),
         stuck: d.stuck.clone(),
-        open_seat: d.page != Page::Play || d.foe == Foe::Practice,
+        open_seat: !matches!(d.page, Page::Play | Page::Stake) || d.foe == Foe::Practice,
         draw: (arm_draw(d, now) * 255.0).round() as u8,
         released: (d.m.sides.get(d.m.up).map_or(0, |s| s.darts.len()) + d.flights.iter().filter(|f| f.2 % REMOTE == d.m.up).count()) as u8,
         foe: foe.unwrap_or(0),
         flights: d.flights.iter().map(|(since, (x, z), _)| (((now - since) * 100.0).clamp(0.0, 255.0) as u8, *x, *z)).collect(),
-        players: if d.page == Page::Play { d.players.clone() } else { Vec::new() },
+        players: if matches!(d.page, Page::Play | Page::Stake) { d.players.clone() } else { Vec::new() },
         teams: d.teams,
         thrower: d.thrower().unwrap_or(255),
         lobby: d.gather.as_ref().map(|g| g.view()),
+        bets: d.bets.as_ref().map(|st| crate::coop_tables::StakeView {
+            seats: std::iter::once((me, st.funds, st.sent)).filter(|_| d.funds_in).chain(st.others.iter().filter_map(|(p, s)| Some((*p, s.funds?, s.offer)))).collect(),
+            agreed: st.agreed,
+            gone: d.bets_gone.clone(),
+        }),
     })
 }
 
@@ -1839,6 +2142,12 @@ fn draw_darts(p: &mut ChildSpawnerCommands, d: &Darts, now: f32, name: &dyn Fn(u
         Page::Gather => {
             crate::casino_hud::help_line(p, faces, "Tab) Leave");
         }
+        Page::Stake => {
+            if let Some(st) = d.bets.as_ref() {
+                let (title, sub, rows) = stake_card(st, name);
+                crate::match_lobby::menu_card(p, faces, &title, &sub, &rows, "Every stake starts at 0; Accept at 0 plays for nothing. The winner takes every stake.");
+            }
+        }
         Page::Bet => {
             use crate::match_lobby::{menu_card, row};
             let rows = [row("Q", "Decrease"), row("E", "Increase"), row("Space", "Start"), row("Tab", "Back")];
@@ -1968,8 +2277,11 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
         FPage::Offer(q) => {
             let bet = f.offer.map_or(0, |o| o.0);
             use crate::match_lobby::{menu_card, row};
-            let sub = format!("{} challenges you: {bet} caps each, the winner takes {}.", name(q), bet * 2);
-            menu_card(p, faces, "Five Finger Fillet race", &sub, &[row("Space", "Match the bet"), row("Tab", "Leave")], "You all get the same prompts at once. A finish beats a loss, then fewer mistakes, then the faster time.");
+            let mine = race_mine(f);
+            let title = if bet == 0 { "Fillet race: no stake".to_string() } else { format!("Fillet race for {bet} caps") };
+            let sub = if mine == bet { format!("{} offers {bet}.", name(q)) } else { format!("{} offers {bet}, you {mine}.", name(q)) };
+            let rows = [row("W", "Auto Match").enabled(mine != bet), row("F", "Accept").enabled(mine == bet), row("Tab", "Decline")];
+            menu_card(p, faces, &title, &sub, &rows, "You all get the same prompts at once. A finish beats a loss, then fewer mistakes, then the faster time.");
         }
         FPage::Challenge => {
             let (bet, want, joined) = f.duel.as_ref().map_or((0, 2, 0), |d| (d.bet, u32::from(d.want), d.joining.len() as u32));
@@ -1988,9 +2300,10 @@ fn draw_fillet(p: &mut ChildSpawnerCommands, f: &Fillet, stage: &FilletStage, no
         }
         FPage::Bet if f.duel_bet => {
             use crate::match_lobby::{menu_card, row};
-            let rows = [row("Q", "Decrease"), row("E", "Increase"), row("R", "Racers").note(format!("{} now; up to 4, as many as are near", f.racers)), row("Space", "Challenge"), row("Tab", "Back")];
-            let foot = format!("The winner takes {}. {:.0} s on each clock.", f.bet * u32::from(f.racers), fillet::time_limit(f.bet));
-            menu_card(p, faces, &format!("Race bet: {} caps each", f.bet), &format!("Racers: {}", f.racers), &rows, &foot);
+            let rows = [row("W", "No stake").enabled(f.bet > 0), row("A", "Raise").enabled(f.bet < fillet::BET_MAX), row("R", "Racers").note(format!("{} now; up to 4, as many as are near", f.racers)), row("F", "Accept"), row("Tab", "Back")];
+            let foot = if f.bet == 0 { format!("Every stake starts at 0; a race at 0 is for nothing. {:.0} s on each clock.", fillet::time_limit(f.bet)) } else { format!("The winner takes {}. {:.0} s on each clock.", f.bet * u32::from(f.racers), fillet::time_limit(f.bet)) };
+            let title = if f.bet == 0 { "Race stake: none".to_string() } else { format!("Race stake: {} caps each", f.bet) };
+            menu_card(p, faces, &title, &format!("Racers: {}", f.racers), &rows, &foot);
         }
         FPage::Bet => {
             use crate::match_lobby::{menu_card, row};
@@ -2104,6 +2417,18 @@ fn draw_race(p: &mut ChildSpawnerCommands, d: &Duel, g: &fillet::Game, now: f32,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staked_players_matches_pay_the_pot_and_share_a_leavers_stake() {
+        // 1v1 at 60: the winner's game pays 120 (its 60 back and the other's).
+        assert_eq!(win_share(60, 2, false), 120);
+        // Four in two teams at 50: each winner is paid 100 (the pot of 200 split).
+        assert_eq!(win_share(50, 4, true), 100);
+        // Three at 30, one leaves: the two still in are paid 45 each (90 in all).
+        assert_eq!(left_share(30, 3, 1), 45);
+        assert_eq!(left_share(60, 2, 1), 120);
+        assert_eq!(left_share(60, 2, 2), 0);
+    }
 
     fn turn(m: &mut Match) {
         m.turn_over = true;

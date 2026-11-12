@@ -97,6 +97,7 @@ pub mod slots;
 pub mod blackjack;
 pub mod companion_wheel;
 pub mod caravan;
+pub mod stake;
 pub mod challenges;
 pub mod poker;
 pub mod pool;

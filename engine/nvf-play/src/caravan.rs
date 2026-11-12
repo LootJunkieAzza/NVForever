@@ -23,8 +23,11 @@
 //! the game; any key goes on from the results.
 //!
 //! - **Against another player** (the co-op fork, `crate::coop_social`): accepted from the
-//!   interaction wheel, both games open the menu at the deck builder (no bet: nothing is
-//!   staked between players). Each deck goes to the other once built ([`PvpWire`]), and
+//!   interaction wheel, both games open the menu at the bet: the inviter proposes a stake
+//!   in caps, the other matches it, raises it or leaves ([`crate::stake`]; night pass
+//!   2026-11-11). Each game takes its own player's stake when the deck goes to the other
+//!   and pays its own player the pot on a win, so both inventories agree; leaving or
+//!   forfeiting after that loses the stake. Each deck goes to the other once built ([`PvpWire`]), and
 //!   both deal the same game from the inviter's seed, the inviter's deck as side 0; the
 //!   other game swaps the sides round, so each sees itself as the player. Each sends its
 //!   own moves; the other's are applied in place of the opponent's thinking. Leaving or
@@ -114,6 +117,8 @@ pub struct PvpOpen {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PvpOut {
+    /// This player's caps, and its offered stake; `agreed`: the leader's announcement.
+    Bet { funds: u32, offer: Option<u32>, agreed: bool },
     Deck(Vec<FormId>),
     Move(Move),
     /// Gave up, or left before the game.
@@ -122,9 +127,13 @@ pub enum PvpOut {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PvpIn {
+    Bet { funds: u32, offer: Option<u32>, agreed: bool },
     Deck(Vec<FormId>),
     Move(Move),
     Forfeit,
+    /// This player's own link to the session dropped (`crate::coop_social`): the one who
+    /// disconnects loses, so this player forfeits and a stake held stays lost.
+    Dropped,
 }
 
 /// The game against another player that a [`Session`] plays.
@@ -136,6 +145,10 @@ pub struct Pvp {
     /// This player's deck, sent.
     pub mine: Option<Vec<FormId>>,
     pub theirs: Option<Vec<FormId>>,
+    /// The stake being agreed ([`crate::stake`]).
+    pub stake: crate::stake::Stake,
+    /// The caps taken from this player for the stake (when its deck was sent).
+    pub held: u32,
 }
 
 /// The game both players deal: the inviter's deck as side 0, from the inviter's seed; the
@@ -231,6 +244,19 @@ impl Session {
     /// The guide's text for the table as it stands ([`guide::text`]), empty when the
     /// guide is off or it is not the player's turn.
     pub fn guide(&self) -> String {
+        // A tie in the sold range is said whatever the tips and whoever's turn it is.
+        let tie = self.game.as_ref().and_then(guide::tie_note);
+        let tip = self.tip();
+        match (tie, tip.is_empty()) {
+            (Some(t), true) => t,
+            (Some(t), false) => format!("{t} {tip}"),
+            (None, _) => tip,
+        }
+    }
+
+    /// The tips' text ([`guide::text`]), empty when they are off or it is not the
+    /// player's turn.
+    fn tip(&self) -> String {
         let Some(g) = self.game.as_ref().filter(|_| tips() && self.players_turn()) else { return String::new() };
         let shown = match &self.pick {
             Pick::Place { moves, at } => moves.get(*at).copied(),
@@ -303,12 +329,18 @@ impl Session {
     pub fn buttons(&self) -> Vec<(&'static str, String, CaravanInput, bool)> {
         use KeyCode::*;
         match self.stage {
-            Stage::Bet => vec![
-                ("Auto Match", self.hint(&[KeyW]), CaravanInput::AutoMatch, self.bet.can_match()),
-                ("Raise", self.hint(&[KeyA]), CaravanInput::Raise, self.bet.can_raise()),
-                ("Accept", self.hint(&[KeyF]), CaravanInput::Accept, self.bet.can_accept()),
+            Stage::Bet => {
+                let (m, r, a) = match &self.pvp {
+                    Some(p) => (p.stake.can_match(), p.stake.can_raise(), p.stake.can_accept()),
+                    None => (self.bet.can_match(), self.bet.can_raise(), self.bet.can_accept()),
+                };
+                vec![
+                ("Auto Match", self.hint(&[KeyW]), CaravanInput::AutoMatch, m),
+                ("Raise", self.hint(&[KeyA]), CaravanInput::Raise, r),
+                ("Accept", self.hint(&[KeyF]), CaravanInput::Accept, a),
                 ("Exit", self.hint(&[KeyR, Escape]), CaravanInput::Exit, true),
-            ],
+            ]
+            }
             Stage::Play => {
                 let mine = self.players_turn();
                 let g = self.game.as_ref();
@@ -694,6 +726,11 @@ fn caps_of(sim: &mut SimState, actor: FormId) -> (u32, Option<FormId>) {
     (purse_of(&mut sim.world, sim.forms, &holders).worth(), stock)
 }
 
+/// The caps the player carries (the live world is the sim's).
+fn player_caps(sim: &mut SimState) -> i32 {
+    sim.world.item_count(FormId::PLAYER_REF, CAPS).unwrap_or(0)
+}
+
 /// The line shown when the menu does not open [hypothesis: the words are NVForever's].
 pub fn refusal_line(owned: usize) -> String {
     format!("You need at least {MIN_DECK} Caravan cards to play (you have {owned}).")
@@ -817,14 +854,17 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, scr
     if s.leaving.is_some() {
         return;
     }
-    if s.help.is_some() {
-        if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
-            out.write(CaravanInput::CloseHelp);
-        }
+    // A help message closes on its own keys; the stage's other keys still act (parity
+    // 2026-11-12: a forfeit pressed under the opening's help was lost), and `apply` closes
+    // the message before acting.
+    let help = s.help.is_some();
+    const CLOSE: [KeyCode; 4] = [KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter];
+    if help && keys.any_just_pressed(CLOSE) {
+        out.write(CaravanInput::CloseHelp);
         return;
     }
     let mut send = |k: KeyCode, i: CaravanInput| {
-        if keys.just_pressed(k) {
+        if keys.just_pressed(k) && !(help && CLOSE.contains(&k)) {
             out.write(i);
         }
     };
@@ -863,7 +903,7 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, wheel: Res<AccumulatedMouseScroll>, scr
             }
         }
         Stage::Results => {
-            if keys.get_just_pressed().next().is_some() {
+            if !help && keys.get_just_pressed().next().is_some() {
                 out.write(CaravanInput::Continue);
             }
         }
@@ -919,10 +959,23 @@ fn apply(
             }
             continue;
         }
-        if s.leaving.is_some() || s.help.is_some() {
+        if s.leaving.is_some() {
             continue;
         }
+        if s.help.is_some() {
+            // An action under a help message closes it and still acts; a message queued
+            // after it comes up in its place.
+            s.help = None;
+            info!("caravan: help message closed by {cmd:?}");
+            if !s.queued_help.is_empty() {
+                let next = s.queued_help.remove(0);
+                s.show_help(rt, next, &bindings);
+            }
+        }
         match (s.stage, cmd) {
+            (Stage::Bet, CaravanInput::AutoMatch | CaravanInput::Raise | CaravanInput::Accept) if s.pvp.is_some() => {
+                pvp_bet(s, rt, cmd, &mut sounds, &bindings, &mut wire);
+            }
             (Stage::Bet, CaravanInput::AutoMatch) => {
                 if s.bet.auto_match() {
                     sound(&mut sounds, UiEvent::Value { up: true });
@@ -992,6 +1045,16 @@ fn apply(
                 }
                 if let Some(p) = s.pvp.as_mut() {
                     if p.mine.is_none() {
+                        // The stake is held from here: leaving now loses it.
+                        let ante = p.stake.agreed.unwrap_or(0);
+                        if ante > 0 {
+                            with_world(rt, &mut sim, |rt| {
+                                let _ = rt.game.world.remove_item(FormId::PLAYER_REF, CAPS, ante as i32);
+                            });
+                            p.held = ante;
+                            s.staked = true;
+                            info!("caravan: the player's stake of {ante} caps held (pot {}); the player has {} caps", ante * 2, player_caps(&mut sim));
+                        }
                         p.mine = Some(s.deck.clone());
                         rt.game.player.caravan.deck = s.deck.clone();
                         wire.out.push(PvpOut::Deck(s.deck.clone()));
@@ -1063,8 +1126,11 @@ fn start_game(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimSta
     s.show_help(rt, rules::Help::Starting, bindings);
 }
 
-/// The menu against another player, asked for by `crate::coop_social`: at the deck
-/// builder, nothing staked.
+/// The menu against another player, asked for by `crate::coop_social`: at the bet, the
+/// stake to agree ([`crate::stake`]).
+/// The rest of [`open_pvp`]'s resources, in one parameter.
+type OpenPvpRes<'w> = (ResMut<'w, CaravanStats>, Option<ResMut<'w, crate::corner_messages::CornerMessages>>, MessageWriter<'w, UiSound>, Res<'w, crate::bindings::Bindings>, ResMut<'w, SimState>);
+
 #[allow(clippy::too_many_arguments)]
 fn open_pvp(
     mut wire: ResMut<PvpWire>,
@@ -1073,7 +1139,7 @@ fn open_pvp(
     mut screen: ResMut<CaravanScreen>,
     mut script: Option<ResMut<ScriptState>>,
     time: AidTime,
-    (mut stats, mut corner, mut sounds, bindings): (ResMut<CaravanStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, MessageWriter<UiSound>, Res<crate::bindings::Bindings>),
+    (mut stats, mut corner, mut sounds, bindings, mut sim): OpenPvpRes<'_>,
 ) {
     let Some(o) = wire.open.take() else { return };
     stats.asked += 1;
@@ -1109,7 +1175,11 @@ fn open_pvp(
         }
     }
     let deck = rules::saved_deck(&rt.game);
-    info!("caravan: open against {} (a player, {}): {} cards owned, a saved deck of {}; {}", o.name, o.reference, owned.len(), deck.len(), if o.leads { "this player deals" } else { "the other deals" });
+    let forms = sim.forms;
+    let funds = purse_of(&mut sim.world, forms, &[FormId::PLAYER_REF]).caps;
+    let stake = crate::stake::Stake::new(o.leads, funds, [o.mate]);
+    wire.out.push(PvpOut::Bet { funds, offer: None, agreed: false });
+    info!("caravan: open against {} (a player, {}): {} cards owned, a saved deck of {}; {}; the player has {funds} caps to stake", o.name, o.reference, owned.len(), deck.len(), if o.leads { "this player deals and proposes the stake" } else { "the other deals and proposes the stake" });
     rt.game.open_menu(MENU_CARAVAN);
     let mut s = Session {
         opponent: o.reference,
@@ -1117,8 +1187,8 @@ fn open_pvp(
         deck_form: FormId(0),
         opponent_deck: Vec::new(),
         skill: 0.0,
-        stage: Stage::Deck,
-        bet: Bet::new(0, 0, 0.0),
+        stage: Stage::Bet,
+        bet: stake.as_bet(),
         owned,
         deck,
         cursor: 0,
@@ -1127,7 +1197,7 @@ fn open_pvp(
         pick: Pick::Hand,
         forfeit_armed: false,
         record: Record::default(),
-        status: Some(format!("A game against {}: build your deck, then Play Caravan.", o.name)),
+        status: Some(if o.leads { format!("A game against {}: Raise to set the stake in caps, then Accept to offer it (0 plays for nothing).", o.name) } else { format!("A game against {}: waiting for their stake.", o.name) }),
         help: None,
         queued_help: Vec::new(),
         think_until: now,
@@ -1138,15 +1208,56 @@ fn open_pvp(
         auto: false,
         textures,
         rng: ChaCha8Rng::seed_from_u64(o.seed ^ 0x5EED),
-        pvp: Some(Pvp { mate: o.mate, leads: o.leads, seed: o.seed, mine: None, theirs: None }),
+        pvp: Some(Pvp { mate: o.mate, leads: o.leads, seed: o.seed, mine: None, theirs: None, stake, held: 0 }),
         sent_move: None,
         moods: Vec::new(),
     };
-    s.show_help(rt, rules::Help::Deck, &bindings);
+    s.show_help(rt, rules::Help::Betting, &bindings);
     wire.playing = Some(o.mate);
     screen.0 = Some(s);
     sounds.write(UiSound { menu: UiMenu::Caravan, event: UiEvent::Opened });
     next.set(PlayState::Menu);
+}
+
+/// Auto Match, Raise and Accept at the bet against another player ([`crate::stake`]).
+fn pvp_bet(s: &mut Session, rt: &mut crate::script::Runtime, cmd: CaravanInput, sounds: &mut MessageWriter<UiSound>, bindings: &crate::bindings::Bindings, wire: &mut PvpWire) {
+    let Some(p) = s.pvp.as_mut() else { return };
+    let event = match cmd {
+        CaravanInput::AutoMatch => p.stake.auto_match().then_some(UiEvent::Value { up: true }),
+        CaravanInput::Raise => p.stake.raise().then_some(UiEvent::Value { up: true }),
+        CaravanInput::Accept => Some(match p.stake.accept() {
+            Some(o) => {
+                // The leader matching the other's offer decides the stake, and says so.
+                wire.out.push(PvpOut::Bet { funds: p.stake.funds, offer: Some(o), agreed: p.stake.agreed.is_some() });
+                info!("caravan: the player offers {} a stake of {o} caps", s.opponent_name);
+                UiEvent::Picked
+            }
+            None => UiEvent::Refused,
+        }),
+        _ => None,
+    };
+    let (agreed, sent) = (p.stake.agreed, p.stake.sent);
+    s.bet = p.stake.as_bet();
+    if let Some(event) = event {
+        sounds.write(UiSound { menu: UiMenu::Caravan, event });
+    }
+    if agreed.is_some() {
+        stake_agreed(s, rt, bindings);
+    } else if let Some(o) = sent.filter(|_| cmd == CaravanInput::Accept) {
+        s.status = Some(format!("You offer {o} caps. Waiting for {}.", s.opponent_name));
+    }
+}
+
+/// The stake agreed: on to the deck builder.
+fn stake_agreed(s: &mut Session, rt: &mut crate::script::Runtime, bindings: &crate::bindings::Bindings) {
+    let ante = s.pvp.as_ref().and_then(|p| p.stake.agreed).unwrap_or(0);
+    info!("caravan: stake agreed with {}: {ante} caps each (pot {})", s.opponent_name, ante * 2);
+    s.stage = Stage::Deck;
+    s.status = Some(match ante {
+        0 => "No stake: build your deck, then Play Caravan.".to_string(),
+        _ => format!("Stake agreed: {ante} caps each, {} in the pot. Build your deck, then Play Caravan (your stake is held from then on).", ante * 2),
+    });
+    s.show_help(rt, rules::Help::Deck, bindings);
 }
 
 /// The other player's deck, moves and forfeits; the game dealt once both decks are in.
@@ -1154,6 +1265,24 @@ fn open_pvp(
 fn pvp_step(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, now: f32, stats: &mut CaravanStats, sounds: &mut MessageWriter<UiSound>, bindings: &crate::bindings::Bindings, wire: &mut PvpWire) {
     for m in std::mem::take(&mut wire.inbox) {
         match m {
+            PvpIn::Bet { funds, offer, agreed } => {
+                let Some(p) = s.pvp.as_mut() else { continue };
+                let was = p.stake.agreed;
+                p.stake.heard(p.mate, funds, offer, agreed);
+                if let Some(v) = p.stake.agreed.filter(|_| was.is_none() && p.leads) {
+                    wire.out.push(PvpOut::Bet { funds: p.stake.funds, offer: Some(v), agreed: true });
+                }
+                info!("caravan: {} has {funds} caps{}", s.opponent_name, offer.map_or(String::new(), |o| format!(" and offers a stake of {o}")));
+                if s.stage == Stage::Bet {
+                    if let Some(o) = offer.filter(|_| p.stake.agreed.is_none()) {
+                        s.status = Some(format!("{} offers {o} caps. Auto Match and Accept to play for it, Raise to ask more, Exit to decline.", s.opponent_name));
+                    }
+                    if was.is_none() && p.stake.agreed.is_some() {
+                        stake_agreed(s, rt, bindings);
+                    }
+                }
+                s.bet = s.pvp.as_ref().map_or(s.bet, |p| p.stake.as_bet());
+            }
             PvpIn::Deck(d) => {
                 info!("caravan: {}'s deck of {} cards came", s.opponent_name, d.len());
                 for f in &d {
@@ -1179,10 +1308,38 @@ fn pvp_step(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState
                     settle(s, rt, sim, PLAYER, End::Forfeit, now, stats, sounds);
                 }
                 Some(_) => {}
-                None => {
-                    s.status = Some(format!("{} left the game.", s.opponent_name));
+                None if !s.settled => {
+                    // Before the deal: a player whose deck was sent had its stake held, and
+                    // leaving loses it; this player's own comes back.
+                    s.settled = true;
+                    let (held, theirs) = s.pvp.as_ref().map_or((0, 0), |p| (p.held, if p.theirs.is_some() { p.stake.agreed.unwrap_or(0) } else { 0 }));
+                    let back = held + theirs;
+                    if back > 0 {
+                        with_world(rt, sim, |rt| {
+                            let _ = rt.game.world.add_item(FormId::PLAYER_REF, CAPS, back as i32);
+                        });
+                    }
+                    info!("caravan: {} left before the deal: the player's stake {held} back, theirs {theirs} won; the player has {} caps", s.opponent_name, player_caps(sim));
+                    s.status = Some(if theirs > 0 { format!("{} left the game. You win {theirs} caps.", s.opponent_name) } else { format!("{} left the game.", s.opponent_name) });
                     s.begin_leaving(now + END_SECONDS - LEAVE_SECONDS, "the other player left");
                 }
+                None => {}
+            },
+            PvpIn::Dropped => match s.game.as_mut() {
+                Some(g) if g.phase != Phase::Over => {
+                    g.forfeit(PLAYER);
+                    info!("caravan: the connection was lost: the player forfeits");
+                    settle(s, rt, sim, OPPONENT, End::Forfeit, now, stats, sounds);
+                }
+                Some(_) => {}
+                None if !s.settled => {
+                    s.settled = true;
+                    let held = s.pvp.as_ref().map_or(0, |p| p.held);
+                    info!("caravan: the connection was lost before the deal: the player's stake {held} lost; the player has {} caps", player_caps(sim));
+                    s.status = Some(if held > 0 { format!("The connection was lost. Your stake of {held} caps is lost.") } else { "The connection was lost.".into() });
+                    s.begin_leaving(now + END_SECONDS - LEAVE_SECONDS, "the connection was lost");
+                }
+                None => {}
             },
         }
     }
@@ -1386,13 +1543,27 @@ fn settle(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, 
     }
     s.over_at = Some(now);
     if s.pvp.is_some() {
-        // Between players nothing is staked: the record of this sitting only.
+        // Between players: the stake (each game took its own player's), the pot to the
+        // winner, and the record of this sitting.
+        let ante = s.pvp.as_ref().and_then(|p| p.stake.agreed).unwrap_or(0);
+        let held = s.pvp.as_ref().map_or(0, |p| p.held);
+        if winner == PLAYER && held + ante > 0 {
+            with_world(rt, sim, |rt| {
+                let _ = rt.game.world.add_item(FormId::PLAYER_REF, CAPS, (held + ante) as i32);
+            });
+        }
+        // The results screen's winnings and losses count the stake as the NPC game's ante.
         if winner == PLAYER {
             s.record.won += 1;
+            s.record.winnings += ante as u64;
+            s.record.biggest_pot = s.record.biggest_pot.max(ante);
             stats.won += 1;
+            stats.net += ante as i64;
         } else {
             s.record.lost += 1;
+            s.record.losses += held as u64;
             stats.lost += 1;
+            stats.net -= held as i64;
         }
         let name = s.opponent_name.clone();
         let line = match (winner, end) {
@@ -1403,7 +1574,11 @@ fn settle(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState, 
             (_, End::OutOfCards) => "You are out of cards. You lose.".to_string(),
             (_, End::Forfeit) => "You forfeit. You lose.".to_string(),
         };
-        info!("caravan: game over against {name} (a player): {} wins ({end:?}); on screen: {line:?}", side_name(winner));
+        let line = match ante {
+            0 => line,
+            _ => format!("{} {ante} caps.", line.trim_end_matches('.')),
+        };
+        info!("caravan: game over against {name} (a player): {} wins ({end:?}); stake {ante}, held {held}, paid {}; the player has {} caps; on screen: {line:?}", side_name(winner), if winner == PLAYER { held + ante } else { 0 }, player_caps(sim));
         s.status = Some(line);
         s.pick = Pick::Hand;
         sounds.write(UiSound { menu: UiMenu::Caravan, event: UiEvent::RoundOver { won: winner == PLAYER } });
@@ -1531,9 +1706,12 @@ fn close(mut screen: ResMut<CaravanScreen>, mut sim: ResMut<SimState>, script: O
     if s.pvp.is_some() {
         wire.playing = None;
         wire.inbox.clear();
-        // Closed before the game was over: the other wins.
+        // Closed before the game was over: the other wins, and a stake held is lost.
         if !s.settled {
             wire.out.push(PvpOut::Forfeit);
+            if let Some(p) = s.pvp.as_ref().filter(|p| p.held > 0) {
+                info!("caravan: left against {} with the stake held: {} caps lost; the player has {} caps", s.opponent_name, p.held, player_caps(&mut sim));
+            }
         }
     }
     sounds.write(UiSound { menu: UiMenu::Caravan, event: UiEvent::Closed });

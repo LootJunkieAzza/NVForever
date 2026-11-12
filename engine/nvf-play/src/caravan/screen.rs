@@ -576,7 +576,8 @@ fn play(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32, flat: 
     // The top right rows.
     let rows = [("Ante Pot:", s.bet.pot().to_string()), ("Net Total:", s.record.net().to_string()), ("Win/Loss:", format!("{}/{}", s.record.won, s.record.lost))];
     crate::casino_hud::glass(p, INFO_X.0, INFO_Y[0] + 2.0, INFO_X.1 - INFO_X.0, INFO_Y[2] - INFO_Y[0] + 32.0);
-    for ((title, value), y) in rows.iter().zip(INFO_Y) {
+    // A player game with no stake shows no pot (owner rule 2026-11-11: bets start at 0).
+    for ((title, value), y) in rows.iter().zip(INFO_Y).filter(|((t, _), _)| !(*t == "Ante Pot:" && s.pvp.is_some() && s.bet.pot() == 0)) {
         c.text_in(p, FontKind::Menu, title, INFO_X.0, y, false, b);
         c.text_in(p, FontKind::Menu, value, INFO_X.1, y, true, b);
     }

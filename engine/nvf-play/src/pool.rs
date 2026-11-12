@@ -117,6 +117,40 @@ pub enum Page {
     Challenge,
     /// A players' game being gathered: waiting for all players (`match_lobby`).
     Gather,
+    /// A players' game's stake being agreed, from 0 ([`crate::stake`]).
+    Stake,
+}
+
+/// A players' game's stake at a table (`crate::stake`; the table's owner leads, its view
+/// carries every seat's offer): agreed from 0, each game taking its own player's, the
+/// winners' games paid the pot, and a player who leaves losing its own to the others.
+#[derive(Debug, Clone, Default)]
+pub struct TableStake {
+    pub bets: Option<crate::stake::Stake>,
+    /// This game's caps are in (a guest's sent to the owner).
+    pub funds_in: bool,
+    /// The agreed stake was taken from this player (`held` caps, 0 for none).
+    pub taken: bool,
+    pub held: u32,
+    /// Paid out, lost, or shared after a player left.
+    pub done: bool,
+    pub gone: Vec<u8>,
+}
+
+impl TableStake {
+    fn fresh(leads: bool, others: impl IntoIterator<Item = u8>) -> TableStake {
+        TableStake { bets: Some(crate::stake::Stake::new(leads, 0, others)), ..TableStake::default() }
+    }
+
+    /// The owner's view of it: every seat's caps and offer, its own first.
+    pub fn view(&self, me: u8) -> Option<crate::coop_tables::StakeView> {
+        let st = self.bets.as_ref()?;
+        Some(crate::coop_tables::StakeView {
+            seats: std::iter::once((me, st.funds, st.sent)).filter(|_| self.funds_in).chain(st.others.iter().filter_map(|(x, s)| Some((*x, s.funds?, s.offer)))).collect(),
+            agreed: st.agreed,
+            gone: self.gone.clone(),
+        })
+    }
 }
 
 /// The rules of a Challenge page mode (`match_lobby::POOL_MODES`) [owner 2026-11-08].
@@ -164,6 +198,9 @@ pub struct Pool {
     pub page: Page,
     pub bet: u32,
     pub stake: u32,
+    /// A players' game's stake ([`TableStake`]), and the rules it will be played by.
+    pub stakes: TableStake,
+    pub stake_rules: pool::Mode,
     pub foe: Foe,
     pub table: Table,
     pub game: Game,
@@ -384,6 +421,8 @@ fn open(
             page: Page::Main,
             bet: pool::BET_MIN,
             stake: 0,
+            stakes: TableStake::default(),
+            stake_rules: pool::Mode::EightBall1v1,
             foe: Foe::Practice,
             table: Table::rack(),
             game: Game::new(),
@@ -432,13 +471,121 @@ fn start_players(p: &mut Pool, others: &[u8], rules: pool::Mode, files: &mut Mes
     let Some(first) = others.first().copied() else { return };
     p.stake = 0;
     p.gather = None;
-    start_game(p, Foe::Player(first), files);
+    // Every players' game is staked first, from 0 (owner rule 2026-11-11: "all bets for
+    // all player games should start at 0"); Accept at 0 plays for nothing.
     p.players = std::iter::once(p.me.unwrap_or(0)).chain(others.iter().copied()).collect();
+    p.stakes = TableStake::fresh(true, others.iter().copied());
+    p.stake_rules = rules;
+    p.foe = Foe::Player(first);
+    p.page = Page::Stake;
+    p.status.clear();
+    let _ = files;
+    info!("pool: a players' game ({rules:?}): seats {:?}; the stake first, from 0", p.players);
+}
+
+/// The stake agreed: the players' game starts by its rules.
+fn begin_players(p: &mut Pool, files: &mut MessageWriter<PlayFile>) {
+    let players = p.players.clone();
+    let rules = p.stake_rules;
+    let Some(first) = players.get(1).copied() else { return };
+    start_game(p, Foe::Player(first), files);
+    p.players = players;
     p.multi = (rules != pool::Mode::EightBall1v1 && p.players.len() == rules.players()).then(|| MultiGame::new(rules));
     if let Some(m) = &p.multi {
         p.status = multi_notice(m, 0, 0, &|s| if s == 0 { "You".into() } else { format!("Seat {}", s + 1) });
     }
-    info!("pool: a players' game ({rules:?}): seats {:?}", p.players);
+    info!("pool: a players' game ({rules:?}) starts: seats {:?}", p.players);
+}
+
+/// A staked players' game over: the winners' games each take their share of the pot.
+fn settle_stake(p: &mut Pool, rt: Option<&mut crate::script::Runtime>, sim: &mut SimState) {
+    let over = p.game.winner.is_some() || p.multi.as_ref().is_some_and(|m| m.winner.is_some());
+    if !over || !p.stakes.taken || p.stakes.done {
+        return;
+    }
+    p.stakes.done = true;
+    let v = p.stakes.held;
+    if v == 0 {
+        return;
+    }
+    let n = p.players.len().max(2);
+    let winners = (0..n).filter(|x| p.won_by(*x)).count().max(1) as u32;
+    let share = v * n as u32 / winners;
+    let mine = if p.joined.is_some() { p.seat } else { 0 };
+    if p.won_by(mine) {
+        if let Some(rt) = rt {
+            give_caps(rt, sim, share as i64);
+        }
+        p.status = format!("You win {} caps.", share - v);
+    } else {
+        p.status = format!("You lose {v} caps.");
+    }
+    info!("pool: the staked game is over: stake {v}, this player {}", if p.won_by(mine) { format!("paid {share}") } else { "lost it".into() });
+}
+
+/// Players left the staked game before its end (`gone` of them, not this one): each lost
+/// its own, and the players still in share them.
+fn stake_left(p: &mut Pool, gone: usize, rt: Option<&mut crate::script::Runtime>, sim: &mut SimState) {
+    if !p.stakes.taken || p.stakes.done {
+        return;
+    }
+    p.stakes.done = true;
+    let v = p.stakes.held;
+    let n = p.players.len().max(2) as u32;
+    let share = crate::minigames::left_share(v, n, gone as u32);
+    if v == 0 || share == 0 {
+        return;
+    }
+    if let Some(rt) = rt {
+        give_caps(rt, sim, share as i64);
+    }
+    p.status = format!("A player left and loses their stake. You win {} caps.", share - v);
+    info!("pool: {gone} left the staked game: stake {v}, this player paid {share}");
+}
+
+/// A guest's stake, from the owner's view `b` (as darts' `guest_bets`).
+#[allow(clippy::too_many_arguments)]
+fn guest_stake(p: &mut Pool, b: &crate::coop_tables::StakeView, owner: u8, me: u8, in_it: bool, rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, tables: Option<&mut Tables>) {
+    if p.stakes.bets.is_none() || (p.stakes.done && b.agreed.is_none()) {
+        if !in_it || b.agreed.is_some() {
+            return;
+        }
+        p.stakes = TableStake::fresh(false, p.players.iter().copied().filter(|x| *x != me));
+        info!("pool: stake: {owner}'s players' game, seats {:?}", p.players);
+    }
+    let Some(rt) = rt else { return };
+    let ts = &mut p.stakes;
+    let Some(st) = ts.bets.as_mut() else { return };
+    if !ts.funds_in {
+        st.funds = caps(rt, sim);
+        ts.funds_in = true;
+        if let Some(t) = tables {
+            t.send(p.table_ref, game::POOL, PoolAction::Bet { funds: st.funds, offer: None }.encode());
+        }
+        info!("pool: stake: this player has {} caps (sent)", st.funds);
+    }
+    for (x, funds, offer) in b.seats.iter().filter(|s| s.0 != me) {
+        st.heard(*x, *funds, *offer, false);
+    }
+    if let (Some(v), true) = (b.agreed, st.open()) {
+        let funds = b.seats.iter().find(|s| s.0 == owner).map_or(v, |s| s.1);
+        st.heard(owner, funds, Some(v), true);
+    }
+    if let (Some(v), false) = (st.agreed, ts.taken) {
+        if v > 0 {
+            give_caps(rt, sim, -(v as i64));
+        }
+        (ts.taken, ts.held) = (true, v);
+        p.stake = v;
+        p.status = if v > 0 { format!("Stake agreed: {v} caps each.") } else { "No stake: the game is for nothing.".into() };
+        info!("pool: stake agreed: {v} caps each; the player has {} caps", caps(rt, sim));
+    }
+    let new: Vec<u8> = b.gone.iter().copied().filter(|x| *x != me && !p.stakes.gone.contains(x)).collect();
+    if !new.is_empty() {
+        p.stakes.gone.extend(new);
+        let gone = p.stakes.gone.len();
+        stake_left(p, gone, Some(rt), sim);
+    }
 }
 
 fn start_game(p: &mut Pool, foe: Foe, files: &mut MessageWriter<PlayFile>) {
@@ -556,6 +703,10 @@ fn keys(
             info!("pool: forfeit ({} caps lost)", p.stake);
             p.settled = true;
         }
+        if p.stakes.taken && !p.stakes.done {
+            info!("pool: left the staked game: {} caps lost", p.stakes.held);
+            p.stakes.done = true;
+        }
         p.leave = true;
         return;
     }
@@ -602,6 +753,25 @@ fn keys(
             p.status.clear();
         }
         Page::Gather => {}
+        Page::Stake => {
+            let (board, joined) = (p.table_ref, p.joined.is_some());
+            let Some(st) = p.stakes.bets.as_mut() else { return };
+            if keys.just_pressed(KeyCode::KeyW) {
+                st.auto_match();
+            }
+            if keys.just_pressed(KeyCode::KeyA) {
+                st.raise();
+            }
+            if keys.just_pressed(KeyCode::KeyF) {
+                if let Some(v) = st.accept() {
+                    info!("pool: stake: this player offers {v} (agreed {:?})", st.agreed);
+                    if joined {
+                        let funds = st.funds;
+                        send(&mut tables, board, PoolAction::Bet { funds, offer: Some(v) });
+                    }
+                }
+            }
+        }
         Page::Bet => {
             if keys.just_pressed(KeyCode::KeyQ) {
                 p.bet = pool::step_bet(p.bet, false);
@@ -762,8 +932,33 @@ fn step(
             waiting.0 = want;
         }
     }
+    // This table's players' game being staked: this game's caps in, then the stake agreed
+    // is taken and the game starts.
+    if p.joined.is_none() && p.page == Page::Stake {
+        if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+            let ts = &mut p.stakes;
+            if let Some(st) = ts.bets.as_mut() {
+                if !ts.funds_in {
+                    st.funds = caps(rt, &mut sim);
+                    ts.funds_in = true;
+                    info!("pool: stake: this player has {} caps", st.funds);
+                }
+                if let (Some(v), false) = (st.agreed, ts.taken) {
+                    if v > 0 {
+                        give_caps(rt, &mut sim, -(v as i64));
+                    }
+                    (ts.taken, ts.held) = (true, v);
+                    begin_players(p, &mut files);
+                    p.settled = true;
+                    p.stake = v;
+                    p.status = if v > 0 { format!("Stake agreed: {v} caps each.") } else { "No stake: the game is for nothing.".into() };
+                    info!("pool: stake agreed: {v} caps each (pot {}); the player has {} caps", v * p.players.len() as u32, caps(rt, &mut sim));
+                }
+            }
+        }
+    }
     if let Some(owner) = p.joined {
-        follow(p, owner, &watch, tables.as_deref_mut(), now, &mut files);
+        follow(p, owner, &watch, tables.as_deref_mut(), now, &mut files, script.as_mut().and_then(|s| s.rt.as_mut()), &mut sim);
         if p.leave {
             next.set(PlayState::Playing);
         }
@@ -788,11 +983,29 @@ fn step(
                         info!("pool: {} is at the table", t.name(from));
                     }
                 }
+                PoolAction::Bet { funds, offer } => {
+                    if let Some(st) = p.stakes.bets.as_mut().filter(|_| p.page == Page::Stake && p.players.contains(&from)) {
+                        st.heard(from, funds, offer, false);
+                        info!("pool: stake: {} has {funds} caps, offers {offer:?} (agreed {:?})", t.name(from), st.agreed);
+                    }
+                }
+                PoolAction::Leave if p.page == Page::Stake && p.players.contains(&from) => {
+                    p.players.retain(|x| *x != from);
+                    if let Some(st) = p.stakes.bets.as_mut() {
+                        st.left(from);
+                    }
+                    info!("pool: {} left before the stake was agreed", t.name(from));
+                    if p.players.len() < 2 {
+                        p.stakes = TableStake::default();
+                        p.page = Page::Main;
+                        p.status = format!("{} left: no game.", t.name(from));
+                    }
+                }
                 PoolAction::Join => {
                     if !p.asking.contains(&from) {
                         p.asking.push(from);
                     }
-                    if p.page != Page::Play || p.practice() {
+                    if !matches!(p.page, Page::Play | Page::Stake) || p.practice() {
                         info!("pool: {} plays at this table", t.name(from));
                         start_players(p, &[from], pool::Mode::EightBall1v1, &mut files);
                     } else {
@@ -805,8 +1018,15 @@ fn step(
                         g.leave(from);
                     }
                     if theirs && p.game.winner.is_none() {
+                        if p.stakes.taken {
+                            p.stakes.gone.push(from);
+                            let gone = p.stakes.gone.len();
+                            stake_left(p, gone, script.as_mut().and_then(|s| s.rt.as_mut()), &mut sim);
+                        }
                         p.game.winner = Some(0);
-                        p.status = format!("{} left the game.", t.name(from));
+                        if !(p.stakes.taken && p.stakes.held > 0) {
+                            p.status = format!("{} left the game.", t.name(from));
+                        }
                     }
                 }
                 PoolAction::Aim { dir, power, place } if shoots => {
@@ -914,6 +1134,9 @@ fn step(
             strike(p, plan.dir, plan.speed, now, &mut files);
         }
     }
+    if p.joined.is_none() && matches!(p.foe, Foe::Player(_)) {
+        settle_stake(p, script.as_mut().and_then(|s| s.rt.as_mut()), &mut sim);
+    }
     if let (Some(w), false) = (p.game.winner, p.settled) {
         p.settled = true;
         if w == 0 && p.stake > 0 {
@@ -923,7 +1146,7 @@ fn step(
         }
         info!("pool: game over, side {w} won (stake {})", p.stake);
     }
-    if p.game.winner.is_some() && !p.practice() {
+    if p.game.winner.is_some() && !p.practice() && !(p.stakes.taken && p.stakes.held > 0) {
         let won = p.won_by(0);
         p.status = match (won, p.stake) {
             (true, 0) => "You win the game.".into(),
@@ -980,11 +1203,15 @@ fn multi_notice(m: &MultiGame, mine: usize, shooter: usize, who: &dyn Fn(usize) 
 }
 
 /// A joined player's game: the owner's, as their view and its replay have it.
-fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, mut tables: Option<&mut Tables>, now: f32, files: &mut MessageWriter<PlayFile>) {
+#[allow(clippy::too_many_arguments)]
+fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, mut tables: Option<&mut Tables>, now: f32, files: &mut MessageWriter<PlayFile>, mut rt: Option<&mut crate::script::Runtime>, sim: &mut SimState) {
     let me = tables.as_deref().and_then(|t| t.me);
     let Some(r) = watch.0.get(&owner).filter(|r| r.table_ref == p.table_ref) else {
         if now - p.joined_heard > OWNER_GONE {
             p.status = "They have left the table.".into();
+            if p.stakes.taken && p.stakes.held > 0 && p.game.winner.is_none() {
+                stake_left(p, 1, rt.take(), sim);
+            }
             p.leave = true;
         }
         return;
@@ -993,9 +1220,15 @@ fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, mut tables: Option<&mut Ta
     let v = &r.view;
     // This player's seat: in a players' game by the view's players, else the second side.
     let seat = me.and_then(|me| v.players.iter().position(|x| *x == me));
-    let in_it = v.playing && (seat.is_some() || v.players.is_empty() && Some(v.foe) == me);
+    let staking = seat.is_some() && v.bets.as_ref().is_some_and(|b| b.agreed.is_none());
+    let in_it = (v.playing || staking) && (seat.is_some() || v.players.is_empty() && Some(v.foe) == me);
     p.lobby = v.lobby.clone();
     p.players = v.players.clone();
+    if let (Some(b), Some(me)) = (v.bets.as_ref(), me) {
+        if in_it || p.stakes.bets.is_some() {
+            guest_stake(p, b, owner, me, in_it, rt.as_deref_mut(), sim, tables.as_deref_mut());
+        }
+    }
     p.multi = v.multi.clone();
     if let Some(s) = seat {
         p.seat = s;
@@ -1016,6 +1249,13 @@ fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, mut tables: Option<&mut Ta
         p.arrived = false;
     }
     let tables = tables.as_deref();
+    if staking {
+        if p.page != Page::Stake {
+            p.page = Page::Stake;
+            p.status.clear();
+        }
+        return;
+    }
     if in_it && p.page != Page::Play {
         p.page = Page::Play;
         p.status.clear();
@@ -1052,6 +1292,9 @@ fn follow(p: &mut Pool, owner: u8, watch: &PoolWatch, mut tables: Option<&mut Ta
         p.status = notice(&p.game, 1, shooter);
     } else if let Some(w) = p.game.winner {
         p.status = if w == 1 { "You win the game.".into() } else { format!("{} wins the game.", tables.map(|t| t.name(owner)).unwrap_or_default()) };
+    }
+    if p.page == Page::Play {
+        settle_stake(p, rt, sim);
     }
 }
 
@@ -1166,6 +1409,8 @@ pub struct PoolView {
     pub players: Vec<u8>,
     pub multi: Option<MultiGame>,
     pub lobby: Option<LobbyView>,
+    /// A players' game's stake ([`TableStake::view`]).
+    pub bets: Option<crate::coop_tables::StakeView>,
 }
 
 impl PoolView {
@@ -1186,7 +1431,7 @@ impl PoolView {
             w.f32(d[0]).f32(d[1]).f32(pw);
         }
         // A players' game and the lobby: a trailing part, left out when neither is on.
-        if !self.players.is_empty() || self.lobby.is_some() {
+        if !self.players.is_empty() || self.lobby.is_some() || self.bets.is_some() {
             w.u8(self.players.len().min(4) as u8);
             for x in self.players.iter().take(4) {
                 w.u8(*x);
@@ -1210,6 +1455,9 @@ impl PoolView {
                 None => {
                     w.u8(0);
                 }
+            }
+            if let Some(b) = &self.bets {
+                b.write(&mut w);
             }
         }
         w.0
@@ -1244,6 +1492,7 @@ impl PoolView {
                 lobby = Some(LobbyView::read(&mut r)?);
             }
         }
+        let bets = if r.done() { None } else { Some(crate::coop_tables::StakeView::read(&mut r)?) };
         r.done().then_some(PoolView {
             owner,
             foe,
@@ -1263,6 +1512,7 @@ impl PoolView {
             players,
             multi,
             lobby,
+            bets,
         })
     }
 }
@@ -1304,9 +1554,10 @@ pub fn pool_view(p: &Pool, me: u8, now: f32) -> Option<PoolView> {
         balls,
         shot: p.shot.as_ref().map(|s| ShotView { dir: s.dir, speed: s.speed, age: now - s.since }),
         aim: p.cue(now),
-        players: if p.page == Page::Play { p.players.clone() } else { Vec::new() },
+        players: if matches!(p.page, Page::Play | Page::Stake) { p.players.clone() } else { Vec::new() },
         multi: p.multi.clone().filter(|_| p.page == Page::Play),
         lobby: p.gather.as_ref().map(|g| g.view()),
+        bets: p.stakes.view(me),
     })
 }
 
@@ -1325,6 +1576,8 @@ pub enum PoolAction {
     Hand { at: [f32; 2] },
     /// The answer to the table's invitation to a players' game (`match_lobby`).
     Answer(bool),
+    /// A players' game's stake: this player's caps and its offer, when it made one.
+    Bet { funds: u32, offer: Option<u32> },
 }
 
 impl PoolAction {
@@ -1349,6 +1602,7 @@ impl PoolAction {
             }
             PoolAction::Hand { at } => w.u8(4).f32(at[0]).f32(at[1]),
             PoolAction::Answer(yes) => w.u8(5).u8(u8::from(yes)),
+            PoolAction::Bet { funds, offer } => w.u8(6).u32(funds).u32(offer.unwrap_or(u32::MAX)),
         };
         w.0
     }
@@ -1370,6 +1624,7 @@ impl PoolAction {
             }
             4 => PoolAction::Hand { at: [r.f32()?, r.f32()?] },
             5 => PoolAction::Answer(r.u8()? != 0),
+            6 => PoolAction::Bet { funds: r.u32()?, offer: Some(r.u32()?).filter(|o| *o != u32::MAX) },
             _ => return None,
         };
         r.done().then_some(a)
@@ -1573,6 +1828,12 @@ fn draw(
             Page::Gather => {
                 crate::casino_hud::help_line(ui, faces, "Tab) Leave");
             }
+            Page::Stake => {
+                if let Some(st) = p.stakes.bets.as_ref() {
+                    let (title, sub, rows) = crate::minigames::stake_card(st, &name);
+                    crate::match_lobby::menu_card(ui, faces, &title, &sub, &rows, "Every stake starts at 0; Accept at 0 plays for nothing. The winner takes every stake.");
+                }
+            }
             Page::Bet => {
                 use crate::match_lobby::{menu_card, row};
                 let rows = [row("Q", "Less"), row("E", "More"), row("Space", "Rack them up"), row("Tab", "Back")];
@@ -1728,8 +1989,17 @@ mod tests {
             players: Vec::new(),
             multi: None,
             lobby: None,
+            bets: None,
         };
         assert_eq!(PoolView::decode(&v.encode()), Some(v.clone()));
+        // A players' game being staked, then agreed at 0.
+        let staking = PoolView { players: vec![1, 2], bets: Some(crate::coop_tables::StakeView { seats: vec![(1, 500, Some(50)), (2, 300, None)], agreed: None, gone: Vec::new() }), ..v.clone() };
+        assert_eq!(PoolView::decode(&staking.encode()), Some(staking.clone()));
+        let agreed = PoolView { bets: Some(crate::coop_tables::StakeView { agreed: Some(0), ..staking.bets.clone().unwrap() }), ..staking.clone() };
+        assert_eq!(PoolView::decode(&agreed.encode()), Some(agreed));
+        for a in [PoolAction::Bet { funds: 300, offer: None }, PoolAction::Bet { funds: 300, offer: Some(50) }] {
+            assert_eq!(PoolAction::decode(&a.encode()), Some(a));
+        }
         // Four at the table, cutthroat, seat 3 to shoot; and a lobby.
         let mut m = MultiGame::new(pool::Mode::Cutthroat4);
         m.turn = 3;

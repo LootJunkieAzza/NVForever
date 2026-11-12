@@ -244,6 +244,10 @@ fn banner(social: &Social, mates: &SocialMates, now: f32) -> Option<BannerShown>
         match d.phase {
             // The countdown is never shown, nor anything else meanwhile.
             Phase::Countdown { .. } => return None,
+            Phase::Staking => {
+                let (title, lower) = d.stake_lines(&name);
+                return Some(BannerShown { title, lower: Lower::Line(lower) });
+            }
             Phase::Positioning => {
                 let dir = d.mine.hint(&name).unwrap_or_else(|| format!("In position: wait for {name}, then for the signal to draw"));
                 return Some(match said.filter(|l| *l != dir && d.mine != Stance::Ready) {
