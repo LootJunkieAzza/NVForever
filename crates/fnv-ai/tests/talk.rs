@@ -762,6 +762,40 @@ fn a_look_turning_the_body_faces_the_target_until_stop_look() {
     assert!(s.events().iter().any(|e| matches!(e, AiEvent::LookOver { .. })));
 }
 
+/// A rooted actor that never turns (`Ai::fix_heading`: Mr. House's screen, Immobile with
+/// a Turning Speed of 0) keeps its heading through a conversation, after it ends, and
+/// when a script's Look asks for its whole body (issue #2150).
+#[test]
+fn a_fixed_actor_never_turns() {
+    use fnv_game::functions::senses::Look;
+    let f = fixture();
+    let mut s = sim(&f, R_GREET, CORNER);
+    s.run(0.5);
+    s.ai.root(&s.game, FormId(R_GREET));
+    s.ai.fix_heading(FormId(R_GREET));
+    let before = s.agent(R_GREET).walker.heading;
+    let want = fnv_nav::follow::heading_of([CORNER[0] - GREETER[0], CORNER[1] - GREETER[1]]);
+    assert!(fnv_nav::follow::heading_delta(before, want).abs() > 1.0, "it starts facing away: {before} against {want}");
+
+    s.game.start_dialogue(FormId(R_GREET), None).unwrap();
+    for _ in 0..20 {
+        s.ai.update_held(&mut s.game, 0.25);
+    }
+    assert!(s.game.end_dialogue());
+    s.run_social(5.0);
+    assert_eq!(s.agent(R_GREET).walker.heading, before);
+    let placed = s.game.world.placed.get(FormId(R_GREET)).unwrap().rot;
+
+    s.game.senses.looks.insert(FormId(R_GREET), Look { target: FormId(PLAYER), rotate_body: true });
+    s.run_social(5.0);
+    assert_eq!(s.agent(R_GREET).walker.heading, before);
+    // The game's heading of it is the placed one still.
+    assert!(s.game.world.peek(FormId(R_GREET)).is_none_or(|r| r.rot == placed));
+    assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
+    let looks: Vec<&AiEvent> = s.events().into_iter().filter(|e| matches!(e, AiEvent::LookTurn { .. } | AiEvent::LookFaced { .. } | AiEvent::LookHeld { .. })).collect();
+    assert!(matches!(looks.as_slice(), [AiEvent::LookHeld { .. }]), "{looks:?}");
+}
+
 // ---- out of the loaded area (fnv_ai::process) ---------------------------------------
 
 /// [`sim`] with a slow walk (2 units/s) and the actor out of the cell buffer: a run there
