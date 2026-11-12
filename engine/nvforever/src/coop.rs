@@ -1344,17 +1344,24 @@ struct Doing<'w> {
 /// the others are for the glance's map (`nvf_play::pipboy::glance::CoopMates`), and
 /// whether the full Pip-Boy may leave the world running (`nvf_play::menu::LiveMenu`: in a
 /// session).
-fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetChecks>, mut mates: ResMut<nvf_play::pipboy::glance::CoopMates>, mut live: ResMut<nvf_play::menu::LiveMenu>, mut lock: ResMut<nvf_play::rt_vats::RtVats>) {
+fn pipboy_share(coop: Res<Coop>, mut checks: ResMut<crate::pipboy_check::PuppetChecks>, mut mates: ResMut<nvf_play::pipboy::glance::CoopMates>, mut live: ResMut<nvf_play::menu::LiveMenu>, mut vats: ResMut<nvf_play::vats_mode::VatsMode>) {
     use nvf_play::pipboy::glance::{Check, Mate};
     let in_session = coop.link.is_some();
     if live.allowed != in_session {
         live.allowed = in_session;
     }
-    // In a session the VATS key is the real-time lock's, for the host and every guest
-    // (`nvf_play::rt_vats`): the clock is everyone's.
-    if lock.allowed != in_session {
-        lock.allowed = in_session;
-        info!("realtime vats: {}", if in_session { "on (a co-op session: V locks on instead of slowing time)" } else { "off (no session: V is VATS mode)" });
+    // In a session V is the classic VATS style with the clock left running, for the host
+    // and every guest: the clock is everyone's (`nvf_play::vats_mode::VatsMode::shared_clock`;
+    // the owner 2026-11-12, in place of the real-time lock of queue item 196, which the
+    // link no longer turns on).
+    if vats.shared_clock != in_session {
+        vats.shared_clock = in_session;
+        info!("vats: {}", if in_session { "a co-op session: V is the classic style, the clock runs on" } else { "no session: V is VATS mode as the settings page has it" });
+    }
+    // The other players' bodies, which VATS does not offer as targets.
+    let fellows: Vec<u32> = coop.peers.iter().flat_map(|(&id, p)| p.references(id)).collect();
+    if vats.fellow_players != fellows {
+        vats.fellow_players = fellows;
     }
     let mut want = std::collections::HashMap::new();
     let mut seen = Vec::new();

@@ -1,6 +1,7 @@
 {
   "vars": {
     "data_dir": "F:/SteamLibrary/steamapps/common/Fallout New Vegas/Data",
-    "goldens_dir": "D:/fnv-private/goldens"
+    "goldens_dir": "D:/fnv-private/goldens",
+    "save_path": "C:/Users/<you>/Documents/My Games/FalloutNV/Saves/nvfairport.fos"
   }
 }

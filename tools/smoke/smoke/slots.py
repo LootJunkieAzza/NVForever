@@ -40,7 +40,7 @@ import threading
 import time
 from pathlib import Path
 
-from .runner import OWNER, QUEUE, Queue, game_running, pid_alive
+from .runner import OWNER, QUEUE, Queue, game_running, owner_gone
 
 SHARED = "shared"  # first word of the shared smoke.lock's owner file
 SLOT_LABEL = "smoke runner slots"  # a slot runner's queue ticket (old-style tickets say "smoke runner")
@@ -141,23 +141,30 @@ def clear_unused_shared(shared: Path) -> bool:
     runner giving a slot back cleared it, so such a runner first in the queue waited for
     ever [observed: #1933, 2026-11-09, twice]."""
     shared = Path(shared)
-    folder = shared.parent / "smoke-slots"
-    mutex = FileLock(folder / "mutex.lock")
+    mutex = FileLock(shared.parent / "smoke-slots" / "mutex.lock")
     if not mutex.try_lock():
         return False  # a slot runner is changing the lock now
     try:
-        try:
-            words = (shared / OWNER).read_text().split()
-        except OSError:
-            return False
-        if not words or words[0] != SHARED:
-            return False
-        if any(file_is_locked(folder / f"slot-{i}.lock") for i in range(1, MAX_SLOTS + 1)):
+        if not unused_shared(shared):
             return False
         shutil.rmtree(shared, ignore_errors=True)
         return not shared.exists()
     finally:
         mutex.unlock()
+
+
+def unused_shared(shared: Path) -> bool:
+    """Whether `shared` is the slot runners' shared lock with no slot taken. Only under the
+    slots' mutex does the answer hold until the caller acts on it."""
+    shared = Path(shared)
+    folder = shared.parent / "smoke-slots"
+    try:
+        words = (shared / OWNER).read_text().split()
+    except OSError:
+        return False
+    if not words or words[0] != SHARED:
+        return False
+    return not any(file_is_locked(folder / f"slot-{i}.lock") for i in range(1, MAX_SLOTS + 1))
 
 
 def is_slot_ticket(t: Path) -> bool:
@@ -269,11 +276,8 @@ class Slots:
             return "other"
         if words and words[0] == SHARED:
             return "shared"
-        try:
-            if not pid_alive(int(words[0])):
-                return "stale"
-        except (ValueError, IndexError):
-            pass
+        if owner_gone(" ".join(words)):
+            return "stale"  # under the mutex (`_busy`), as `runner.Locks` replaces one
         return "other"
 
     def _any_slot_taken(self) -> bool:

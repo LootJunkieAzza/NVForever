@@ -38,6 +38,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 |---|---|---|
 | 2 | NIF parsing | **done**: own schema-as-data interpreter (`schemas/nif`, re-expressed from nif.xml as documentation); `quick-xml` codegen rejected to keep the licence open |
 | 2 | DDS / BCn textures | **done**: own header/layout parser (`fnv-dds`); GPU upload as BCn directly; CPU BCn decoders deferred (ADR-0001) |
+| — | player reports (#2055) | **chosen (2026-11-10)**: `ureq` 3 (MIT/Apache-2.0), engine workspace, Windows only, `native-tls` only: HTTPS through SChannel and the system's certificates (`native-tls` MIT/Apache-2.0, `schannel` MIT). Not rustls: its `ring`/`rustls-webpki` (ISC) and `webpki-roots` (CDLA-Permissive-2.0) are outside deny.toml. `uuid` 1 with `v4`, `flate2` 1 (`zlib-rs`) and `sysinfo` 0.39 (`system` only), each the version the engine already builds through Bevy or fnv-inflate: install and session ids, the summary's gzip, the CPU and memory lines (engine/nvforever/src/reports/) |
 | — | first-start dialogs (game folder) | **chosen**: `rfd` 0.15 (MIT), engine workspace, Windows only, no default features: the system's message boxes and folder picker before the game window opens (install-layout.md, "First start") |
 | 3 | CPU BCn encode/decode (generated LOD) | **chosen**: `texpresso` 2.0 (pure Rust, MIT), engine workspace only: decodes terrain textures and encodes the generated LOD's BC1 textures (docs/design/generated-lod.md) |
 | 2 | math, viewer | **done**: Bevy 0.20.1 (its `glam`; 0.19.1 until #934), viewer in its own workspace (ADR-0001) |

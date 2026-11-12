@@ -6,7 +6,9 @@
 //!   plugins' PGRE (about 300, listed once), and references created at run time when a
 //!   thrown mine comes to rest (`crate::combat`'s `SettledMine`): put in the world at once
 //!   where it lies, owned by whoever put it down, armed from then on [owner 2026-10-19:
-//!   "your own mines arm immediately after leaving the player hand"]. A mine counts while
+//!   "your own mines arm immediately after leaving the player hand"]. A C-4 charge at
+//!   rest is placed the same way (a reference, saved, of its cell), but is no mine: it
+//!   waits for `DetonatePlacedExplosives` (`crate::combat`, #1986). A mine counts while
 //!   its cell is loaded (it has collision: `PhysState::ref_cell`, `PhysState::created`).
 //! - **Set off.** A live actor (not dead) within the trigger radius that the mine does not
 //!   spare (`fnv_game::functions::mine_spares`: its owner, the owner's faction and
@@ -141,6 +143,12 @@ pub(crate) fn tick(
                     r.extra.owner = Some(s.actor);
                 }
                 changed.write(RefChanged::new(id.0));
+                // A charge that waits for its detonator (C-4, #1986): a reference too, so
+                // it is saved and stays in its cell; `crate::combat` sets it off.
+                if c.forms.projectiles.get(&s.proj).is_some_and(|p| p.has("Detonates")) {
+                    info!("explosives: {} put down charge {id} ({}) at ({:.0}, {:.0}, {:.0}), waiting for its detonator", s.actor, s.proj, s.point[0], s.point[1], s.point[2]);
+                    continue;
+                }
                 info!("mines: {} put down mine {id} ({}) at ({:.0}, {:.0}, {:.0}), armed", s.actor, s.proj, s.point[0], s.point[1], s.point[2]);
             }
             Err(e) => warn!("mines: a thrown mine could not be placed: {e}"),

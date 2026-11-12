@@ -347,7 +347,7 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    (state, script, driven, kill_cam, hud): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::hud::HudView>>),
+    (state, script, driven, kill_cam, hud, vats): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>, Option<Res<crate::player::ViewDriven>>, Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::hud::HudView>>, Option<Res<crate::vats_mode::VatsMode>>),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
@@ -365,8 +365,9 @@ fn draw(
         info!("quest messages: {n} waiting line(s) dropped (KillQuestUpdates)");
     }
     // Hidden with the clock stopped as the corner messages are (`crate::corner_messages::held`).
-    // And under a match's end view (`HudView::end_view`).
-    let cut = kill_cam.is_some_and(|k| k.active()) || hud.is_some_and(|h| h.end_view);
+    // And under a match's end view (`HudView::end_view`), and while the classic VATS
+    // style plays its queued attacks.
+    let cut = kill_cam.is_some_and(|k| k.active()) || hud.is_some_and(|h| h.end_view) || vats.is_some_and(|v| v.playing_back());
     let held = crate::corner_messages::held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut);
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });

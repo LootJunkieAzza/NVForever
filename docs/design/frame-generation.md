@@ -236,8 +236,8 @@ Limits and notes:
 ## Measurements
 
 RTX 5090 (NVIDIA 621.14), Ryzen 9 9950X3D, Vulkan, 1920x1080 window on a 160 Hz monitor (vsync
-presents as FIFO relaxed), FSR Quality, `--graphics enhanced`, a 30 s walk in Goodsprings
-(`dev\tools\fg-measure.ps1`), 2026-11-07:
+presents as FIFO relaxed), FSR Quality, `--graphics enhanced`, a 30 s walk in Goodsprings,
+2026-11-07:
 
 | | Real fps | Presented fps | GPU time (mean per real frame) |
 |---|---|---|---|
@@ -254,8 +254,8 @@ needs PresentMon or present timing from the driver).
 
 **The presenter** (2026-11-08, h9x000/NVForever#1): the same PC at the owner's settings (a copy
 of their `NVForever.ini`: 3840x2160 borderless, variable refresh, FSR Quality, every slider and
-effect at the top), playing at the Goodsprings skyline at noon, 45 s runs, the last 30 s
-(`dev\tools\fg-pacing.ps1`). The heavy case adds 4 ms of render-thread work a frame
+effect at the top), playing at the Goodsprings skyline at noon, 45 s runs, the last 30 s.
+The heavy case adds 4 ms of render-thread work a frame
 (`NVF_TEST_RENDER_STALL_MS=4`), standing in for the owner's heavier view:
 
 | | Real fps | Shown fps | Between presents, 95th percentile | Presents' time on the render thread |
@@ -301,7 +301,7 @@ presents from when each returned and fell short of the cap (74-77 real fps): eac
 [observed 2026-11-10, RTX 5090 (NVIDIA), Ryzen 9 9950X3D, the owner's settings: 3840x2160
 borderless, variable refresh (cap 152), FSR Native AA, every slider and effect at the top;
 Goodsprings at noon, walking on and turning every two seconds, one game at a time, 100 s
-runs, the 10 s periods after the first 20 s (`dev\tools\fg-update-test.ps1`, `NVF_PACE_LOG=1`);
+runs, the 10 s periods after the first 20 s (`NVF_PACE_LOG=1`);
 the view is held by the main thread, about 76 real fps before]
 
 | Frame generation on | Before | After, catch-up off | After |
@@ -322,7 +322,7 @@ With frame generation off and standing still (vsync off, `--log-frame-times`): F
 us; the frame rate is the main thread's there (88-103 fps in both, the same within the runs'
 spread). From a frame's start to its first present, the two rows added: about 24 ms before,
 20 with the catch-up off, 16 with it. The picture: a capture of generated and real frames
-(1280x720, FSR Quality, strafing; `fg_capture_check.py`) gives the generated frame 0.75-0.84 of
+(1280x720, FSR Quality, strafing; `NVF_FRAME_GEN_CAPTURE_DIR`, compared as under "Checks") gives the generated frame 0.75-0.84 of
 the real frames' difference from each neighbour and 0.20-0.33 of 255 on the HUD's pixels, as
 before the change ("Checks"); a screenshot with frame generation on is of the real frame. Not measured: what reaches the screen and when
 (PresentMon), and views the GPU or the cap holds, where the limiter's wait, and so what moving

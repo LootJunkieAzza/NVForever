@@ -85,6 +85,10 @@ pub struct TargetHealth {
     pub hostile: bool,
     /// With Living Anatomy: its health and DT.
     pub anatomy: Option<(f32, f32)>,
+    /// In VATS: its health as a share once the damage in sight is taken off
+    /// (`crate::vats_mode::VatsMode::expected_damage`); the ticks between this and
+    /// `health` are drawn faint. `None` outside VATS or with no damage in sight.
+    pub after: Option<f32>,
 }
 
 impl TargetHealth {
@@ -240,9 +244,15 @@ fn aim(
     mut target: ResMut<HudTarget>,
     mut aim_hostile: ResMut<AimHostile>,
     combat: Option<Res<Combat>>,
-    (pick, locks): (Option<Res<crate::activate::Target>>, Option<Res<crate::control::ControlLocks>>),
+    (pick, locks, vats): (Option<Res<crate::activate::Target>>, Option<Res<crate::control::ControlLocks>>, Option<Res<crate::vats_mode::VatsMode>>),
     mut memory: Local<Memory>,
 ) {
+    // The classic VATS style's selected target has the bar while targets are chosen,
+    // hurt or not [observed: the owner's screenshots of the original's VATS, 2026-11-10,
+    // a Goodsprings settler and Sunny Smiles at full health under their bars]; so has
+    // the actor Dead Eye previews while it marks [design: the fork owner, the same].
+    let chosen = vats.as_deref().and_then(|v| v.bar_target());
+    let in_sight = vats.as_deref().and_then(|v| v.expected_damage());
     let dt = time.delta_secs();
     memory.enter(*state.get());
     let Memory { held, lingering, hit_ago } = &mut *memory;
@@ -297,7 +307,7 @@ fn aim(
             .filter(|(id, a)| **id != FormId::PLAYER_REF && a.combat_target().is_some_and(|(t, _)| t == FormId::PLAYER_REF))
             .map(|(id, a)| (id.0, away(a.at)))
             .collect();
-        let found = candidates(aimed, hit_last, &fighters, kept.map(|h| h.0)).into_iter().find_map(|id| {
+        let found = chosen.into_iter().chain(candidates(aimed, hit_last, &fighters, kept.map(|h| h.0))).find_map(|id| {
             let r = FormId(id);
             let g = &mut rt.game;
             if g.is_dead(r) {
@@ -320,7 +330,7 @@ fn aim(
                 since_hit: hit_ago.get(&id).copied(),
                 since_aimed: kept.filter(|h| h.0 == id).map(|h| h.1),
             };
-            let why = why_shown(&case)?;
+            let why = if chosen == Some(id) && !gone { Why::Aimed } else { why_shown(&case)? };
             Some((id, if max > 0.0 { (health / max).clamp(0.0, 1.0) as f32 } else { 0.0 }, health as f32, hostile, why))
         });
         let anatomy = found.is_some() && rt.game.player_has_entry(fnv_game::perks::SEE_ENEMY_HEALTH);
@@ -334,9 +344,19 @@ fn aim(
     *held = held_next(kept, found.map(|f| f.0), aimed);
     let now = found.map(|(form_id, health, hp, hostile, _)| {
         let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game), form_id).unwrap_or_default().to_string();
-        TargetHealth { form_id, name, health, hostile, anatomy: dt.map(|dt| (hp, dt)) }
+        // The share after the damage in sight: the health's full value is its figure over
+        // its share.
+        let after = in_sight.filter(|(a, d)| *a == form_id && *d > 0.0 && health > 0.0 && hp > 0.0).map(|(_, d)| ((hp - d) / (hp / health)).clamp(0.0, 1.0));
+        TargetHealth { form_id, name, health, hostile, anatomy: dt.map(|dt| (hp, dt)), after }
     });
     let key = |t: &Option<TargetHealth>| t.as_ref().map(|t| (t.form_id, (t.health * 100.0).round() as i32, t.anatomy_line()));
+    // The damage in sight, told when it changes by a whole percent.
+    let sight = |t: &Option<TargetHealth>| t.as_ref().and_then(|t| t.after.map(|a| (t.form_id, (a * 100.0).round() as i32)));
+    if sight(&target.0) != sight(&now) {
+        if let Some((t, a)) = now.as_ref().and_then(|t| t.after.map(|a| (t, a))) {
+            info!("hud: enemy health {} 0x{:08X}: {:.0} % left if the attacks in sight land", t.name, t.form_id, a * 100.0);
+        }
+    }
     if key(&target.0) != key(&now) {
         match &now {
             Some(t) => match t.anatomy {
@@ -363,7 +383,7 @@ mod tests {
 
     #[test]
     fn living_anatomy_reads_as_the_original() {
-        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, hostile: true, anatomy };
+        let t = |anatomy| TargetHealth { form_id: 1, name: "Deathclaw".into(), health: 1.0, hostile: true, anatomy, after: None };
         assert_eq!(t(Some((250.0, 15.0))).anatomy_line().as_deref(), Some("HP:250 DT:15.00"));
         assert_eq!(t(Some((-3.0, 0.5))).anatomy_line().as_deref(), Some("HP:0 DT:0.50"));
         assert_eq!(t(None).anatomy_line(), None);

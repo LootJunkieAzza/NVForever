@@ -260,6 +260,83 @@ fn rays_find_the_corpse_and_characters_walk_through_it() {
     }
 }
 
+/// Drop a flat dynamic pile (an ash pile's shape) into the resting figure's pelvis, set
+/// to pass through that figure's ragdoll or not (or `away` along x, clear of it); step
+/// `seconds`. Returns where the pile started and where it is.
+fn pile_in_corpse(passes: bool, away: f32, seconds: f32) -> ([f32; 3], [f32; 3]) {
+    let mut w = ground();
+    let (_, _, slept) = drop_figure(&mut w, 0x10, [100.0, 100.0, 6.0], 20.0);
+    assert!(slept);
+    let pelvis = nodes(&w, 0x10)[0].translation;
+    let pile = CollisionObject {
+        node: None,
+        node_block: 0,
+        node_transform: Iso::IDENTITY,
+        body_transform: Iso::IDENTITY,
+        motion: Motion::Dynamic,
+        layer: layers::DEBRIS_SMALL,
+        mass: 5.0,
+        friction: 0.5,
+        restitution: 0.1,
+        shape: Shape::Box { half_extents: [15.0, 15.0, 2.0] }.into(),
+        shell: 0.0,
+        material: None,
+        wind: false,
+    };
+    let start = [pelvis[0] + away, pelvis[1], pelvis[2]];
+    w.add_ref(&RefPose { form_id: 0xFF00_0001, position: start, rotation: ID, scale: 1.0 }, &[pile]);
+    if passes {
+        w.set_ref_passes_ragdoll(0xFF00_0001, 0x10);
+        assert_eq!(w.ref_passes_ragdoll(0xFF00_0001), Some(0x10));
+    }
+    for _ in 0..(seconds * 60.0) as usize {
+        w.step();
+    }
+    (start, w.ref_bodies(0xFF00_0001)[0].translation)
+}
+
+#[test]
+fn a_pile_set_to_pass_its_corpse_drops_straight_to_the_ground() {
+    // Where a pile clear of the corpse lies on the ground.
+    let ground_z = pile_in_corpse(false, 200.0, 3.0).1[2];
+    let (start, end) = pile_in_corpse(true, 0.0, 3.0);
+    assert!((end[2] - ground_z).abs() < 0.5, "on the ground ({ground_z}): {start:?} to {end:?}");
+    let slid = ((end[0] - start[0]).powi(2) + (end[1] - start[1]).powi(2)).sqrt();
+    assert!(slid < 1.0, "not shoved: slid {slid} from {start:?} to {end:?}");
+    // Otherwise the corpse holds it up or shoves it aside.
+    let (start, end) = pile_in_corpse(false, 0.0, 3.0);
+    let slid = ((end[0] - start[0]).powi(2) + (end[1] - start[1]).powi(2)).sqrt();
+    assert!(end[2] > ground_z + 1.0 || slid > 1.0, "the corpse meets the pile: {start:?} to {end:?}");
+}
+
+#[test]
+fn removing_a_reference_forgets_its_pass() {
+    let mut w = ground();
+    let o = CollisionObject {
+        node: None,
+        node_block: 0,
+        node_transform: Iso::IDENTITY,
+        body_transform: Iso::IDENTITY,
+        motion: Motion::Dynamic,
+        layer: layers::DEBRIS_SMALL,
+        mass: 5.0,
+        friction: 0.5,
+        restitution: 0.1,
+        shape: Shape::Box { half_extents: [5.0, 5.0, 2.0] }.into(),
+        shell: 0.0,
+        material: None,
+        wind: false,
+    };
+    // Not in the world: nothing to set.
+    w.set_ref_passes_ragdoll(7, 0x10);
+    assert_eq!(w.ref_passes_ragdoll(7), None);
+    w.add_ref(&RefPose { form_id: 7, position: [0.0, 0.0, 10.0], rotation: ID, scale: 1.0 }, &[o]);
+    w.set_ref_passes_ragdoll(7, 0x10);
+    assert_eq!(w.ref_passes_ragdoll(7), Some(0x10));
+    w.remove_ref(7);
+    assert_eq!(w.ref_passes_ragdoll(7), None);
+}
+
 #[test]
 fn a_push_wakes_and_moves_a_resting_corpse() {
     let mut w = ground();

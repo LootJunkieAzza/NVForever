@@ -251,13 +251,13 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     state: Option<Res<State<crate::PlayState>>>,
     driven: Option<Res<crate::player::ViewDriven>>,
-    kill_cam: Option<Res<crate::kill_cam::KillCam>>,
-    hud: Option<Res<crate::hud::HudView>>,
+    (kill_cam, vats, hud): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::hud::HudView>>),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
-    // A match's end view holds them as a kill camera does (`HudView::end_view`).
-    let cut = kill_cam.is_some_and(|k| k.active()) || hud.is_some_and(|h| h.end_view);
+    // A match's end view holds them as a kill camera does (`HudView::end_view`), and so
+    // does the classic VATS style while it plays its queued attacks.
+    let cut = kill_cam.is_some_and(|k| k.active()) || hud.is_some_and(|h| h.end_view) || vats.is_some_and(|v| v.playing_back());
     let held = held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut);
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });

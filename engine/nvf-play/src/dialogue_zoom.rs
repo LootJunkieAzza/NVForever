@@ -39,6 +39,12 @@
 //! - **Pausing**: the eases run on the virtual clock, so the Esc pause menu holds them.
 //!   With `--menu-pause original` the picture stands still, so they complete at once.
 //!
+//! - **The classic VATS style** uses the same zoom for its selected target
+//!   (`crate::vats_mode`, docs/design/vats-classic.md §5): the whole target framed
+//!   ([`vats_framing`]), eased in real time ([`VATS_IN_SECONDS`]) since the world's clock
+//!   may stand still, with the same ownership of the field of view. A conversation ends
+//!   VATS, so the two never want the camera together.
+//!
 //! The depth of field that goes with it is nvforever's `imagespace.rs` ([`DialogueZoom::blend`],
 //! [`DialogueZoom::face`]).
 //!
@@ -111,6 +117,24 @@ pub const MIN_VFOV: f32 = 6.0 * std::f32::consts::PI / 180.0;
 /// How slowly the zoom follows the distance to the face (a speaker walking up), seconds;
 /// a head's idle sway would otherwise breathe in the field of view [design].
 pub const FOLLOW_SECONDS: f32 = 0.5;
+
+/// The classic VATS style's selected target fills this share of the view's height
+/// [design: the original's target view shows the whole target with room around it; no
+/// page gives a number].
+pub const VATS_TARGET_SHARE: f32 = 0.6;
+/// Seconds of the ease onto a VATS target and of the ease back out after it, real time
+/// [design: quicker than a conversation's, the player is choosing; the fork owner
+/// 2026-11-10, "slow down the VATS zoom in/out animation by 50%, it is too fast now":
+/// they were 0.25 and 0.3 ([`OUT_SECONDS`]); then "make the zoom in/out vats animation the
+/// same length 0.5sec"].
+pub const VATS_IN_SECONDS: f32 = 0.5;
+pub const VATS_OUT_SECONDS: f32 = 0.5;
+
+/// How a VATS target `height` tall as drawn is framed: all of it, at
+/// [`VATS_TARGET_SHARE`] of the view, the point aimed at in the middle.
+pub fn vats_framing(height: f32) -> Framing {
+    Framing { view_height: height.max(1.0) / VATS_TARGET_SHARE, from_top: 0.5 }
+}
 
 /// Whether a conversation zooms (`nvforever --no-dialogue-zoom` switches it off).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,6 +214,8 @@ pub struct DialogueZoom {
     told_in: bool,
     /// The conversation told it gets no zoom.
     told_none: Option<FormId>,
+    /// The zoom is (or was last) a VATS target's: eased in real time.
+    vats: bool,
 }
 
 impl DialogueZoom {
@@ -289,8 +315,8 @@ fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// `crate::dialogue_look::face_speaker`, which aims under the face by the result.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn track(
-    time: Res<Time>,
-    settings: Res<ZoomSettings>,
+    (time, real): (Res<Time>, Res<Time<Real>>),
+    (settings, vats): (Res<ZoomSettings>, Option<Res<crate::vats_mode::VatsMode>>),
     (mode, paused): (Res<MenuPause>, Res<Paused>),
     script: Option<Res<ScriptState>>,
     face: Res<SpeakerFace>,
@@ -323,6 +349,12 @@ pub(crate) fn track(
             Some(found) => Ok((c.actor, found)),
         },
     };
+    // The classic VATS style's selected target, framed whole (the module notes).
+    let vats_target = vats.as_deref().and_then(|v| v.selected()).filter(|_| conv.is_none() && !taken);
+    let found = match vats_target.and_then(|a| phys.world.actor_aim_point(a).map(|p| (FormId(a), (p, FaceFrom::Volume)))) {
+        Some(t) => Ok(t),
+        None => found,
+    };
     if conv.is_none() {
         zoom.told_none = None;
     }
@@ -332,8 +364,12 @@ pub(crate) fn track(
             info!("dialogue zoom: no zoom in the conversation with {}: {why}", g.data.name(c.actor));
         }
     }
-    let instant = vigor || *mode == MenuPause::Original;
-    let dt = time.delta_secs();
+    let instant = vigor || (*mode == MenuPause::Original && vats_target.is_none());
+    // A VATS target's ease is in real time and at its own pace: the world's clock may
+    // stand still. The ease out after it is real time too, until it is over.
+    let vats_ease = vats_target.is_some() || (zoom.vats && conv.is_none());
+    zoom.vats = vats_ease && (vats_target.is_some() || zoom.weight > 0.0);
+    let dt = if vats_ease { real.delta_secs().min(0.25) * if vats_target.is_some() { IN_SECONDS / VATS_IN_SECONDS } else { OUT_SECONDS / VATS_OUT_SECONDS } } else { time.delta_secs() };
     let mut said = None;
     let want = found.ok().map(|(actor, (point, from))| {
         let d = distance(player.eye(), point);
@@ -343,8 +379,11 @@ pub(crate) fn track(
         // Human-style actors keep their numbers (the module notes); a reference the placed
         // list does not know was made by a script: as a human without a hit volume.
         let creature = sim.refs.get(actor).is_some_and(|p| &p.sig == b"ACRE");
-        let drawn = phys.world.actor_volume(actor.0).filter(|_| creature);
-        let framing = drawn.map_or(HUMAN_FRAMING, |v| creature_framing(v.height, v.feet[2] + v.height - point[2]));
+        let drawn = phys.world.actor_volume(actor.0).filter(|_| creature || vats_target.is_some());
+        let framing = match (vats_target, drawn) {
+            (Some(_), v) => vats_framing(v.map_or(HUMAN_HEIGHT, |v| v.height)),
+            (None, v) => v.map_or(HUMAN_FRAMING, |v| creature_framing(v.height, v.feet[2] + v.height - point[2])),
+        };
         zoom.from_top = framing.from_top;
         said = Some((actor, from, framing, drawn.map(|v| v.height)));
         framed_vfov(zoom.distance, framing.view_height).min(base)
@@ -367,6 +406,7 @@ pub(crate) fn track(
             FaceFrom::Reference | FaceFrom::Activator => "?",
         };
         let close = if control.own_third_person() { "; third person: the camera at the eye, no body" } else { "" };
+        let close = if vats_target.is_some() { format!("{close}; a VATS target, framed whole") } else { close.to_string() };
         let size = tall.map_or_else(|| "a human-style actor".to_string(), |h| format!("drawn {h:.0} tall"));
         info!(
             "dialogue zoom: in on {} ({source}): {:.0} units, vertical {:.1}° to {:.1}°, over {IN_SECONDS:.2} s; view {:.0} units tall ({size}), the point {:.2} from its top{close}",

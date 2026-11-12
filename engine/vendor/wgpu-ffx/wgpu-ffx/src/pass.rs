@@ -102,7 +102,7 @@ impl FsrPass {
             .bind_groups
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let at = kept.iter().position(|(k, _)| *k == key).unwrap_or_else(|| {
+        let at = kept.find(|k| *k == key).unwrap_or_else(|| {
             let resources_list = self.kind.resources(flags);
             let views: Vec<_> = resources_list
                 .into_iter()
@@ -123,22 +123,19 @@ impl FsrPass {
                 layout: &self.bgl,
                 entries: &bind_group_entries,
             });
-            if kept.len() >= KEPT_BIND_GROUPS {
-                kept.clear();
-            }
-            kept.push((key, bind_group));
-            kept.len() - 1
+            kept.push(KEPT_BIND_GROUPS, key, bind_group)
         });
 
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &kept[at].1, &[]);
+        pass.set_bind_group(0, kept.value(at), &[]);
         pass.dispatch_workgroups(x, y, 1);
     }
 }
 
 /// More sets than the passes alternate between (ten passes, two parities, the caller's
 /// textures in turn): past this the list starts again, so a caller that hands over new
-/// textures every frame does not grow it without end.
+/// textures every frame does not grow it without end. Entries no longer asked for go
+/// sooner (`kept.rs`).
 const KEPT_BIND_GROUPS: usize = 128;
 
 /// What a kept bind group was made for: the pass, the frame's parity and every resource the

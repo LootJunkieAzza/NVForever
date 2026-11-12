@@ -2680,7 +2680,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, script)): (
+    (furniture, mut idles, mut seat, (pip, glance, mut check), cams, first_fov, limbs, (death, knock), (zoom, combat, mut true_sights, scope, mut lens3d, lens_sway), (ahead, mut lunge, s1st, script, vats)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -2690,7 +2690,7 @@ fn drive_body(
         Option<Res<nvf_play::combat::PlayerLimbs>>,
         (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
         (Option<Res<nvf_play::aim_zoom::AimZoom>>, Option<Res<nvf_play::combat::Combat>>, Option<ResMut<nvf_play::aim_zoom::TrueSights>>, Option<Res<nvf_play::aim_zoom::Scope>>, Option<ResMut<nvf_play::aim_zoom::Scope3d>>, Option<Res<nvf_play::aim_zoom::LensSway>>),
-        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::script::ScriptState>>),
+        (Res<crate::weapon_lower::Ahead>, ResMut<nvf_play::player::Lunge>, Option<Res<nvf_play::console::ShowFirstPerson>>, Option<Res<nvf_play::script::ScriptState>>, Option<Res<nvf_play::vats_mode::VatsMode>>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -3298,8 +3298,12 @@ fn drive_body(
     // drawn over it [observed 2026-11-06: an activation clip's reaching hand stayed over
     // the machine's screen].
     let vigor = script.as_deref().and_then(nvf_play::chargen::open_code) == Some(fnv_game::game::menus::LOVE_TESTER);
+    // Nor while the classic VATS style chooses targets: the view is on the target alone
+    // [observed: the owner's screenshots of the original's VATS, 2026-11-10, no arms or
+    // weapon in the picture].
+    let targeting = vats.is_some_and(|v| v.selected().is_some());
     let seen = Seen { body: seen.body && !state.out_of_view, ..seen };
-    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor, warm);
+    show_rigs(body, &mut commands, &mut visibility, seen, (!third_view || s1st) && !scoped && !vigor && !targeting, warm);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {

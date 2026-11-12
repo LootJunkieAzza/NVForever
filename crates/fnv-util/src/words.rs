@@ -205,6 +205,18 @@ pub fn tr_in(en: &'static str, table: Option<&Table>) -> &'static str {
     table.and_then(|t| t.get(en)).unwrap_or(en)
 }
 
+/// [`tr`] of a text made at run time (a choice's name from a list, a slider's value): its
+/// translation when the chosen language has a line for it, else `text` itself, so a name
+/// with no line (a resolution, a monitor, a language's own name) shows as it is.
+pub fn tr_str(text: &str) -> &str {
+    str_in(text, current())
+}
+
+/// [`tr_str`] in a given table (`None`: English).
+pub fn str_in<'a>(text: &'a str, table: Option<&Table>) -> &'a str {
+    table.and_then(|t| t.get(text)).unwrap_or(text)
+}
+
 /// [`tr`] of a text with `{name}` places, each filled with its value from `with`.
 pub fn trf(en: &'static str, with: &[(&str, &dyn std::fmt::Display)]) -> String {
     fill(tr(en), with)
@@ -234,6 +246,11 @@ mod tests {
         // An empty translation is no translation.
         assert_eq!(tr_in("Empty", Some(&t)), "Empty");
         assert_eq!(tr_in("Accepted.", None), "Accepted.");
+        // A text made at run time, as a choice's name is.
+        let made = String::from("Accepted.");
+        assert_eq!(str_in(&made, Some(&t)), "Angenommen.");
+        assert_eq!(str_in("1920x1080", Some(&t)), "1920x1080");
+        assert_eq!(str_in(&made, None), "Accepted.");
         // Places may change order.
         assert_eq!(fill(tr_in("{n} of {len} right", Some(&t)), &[("n", &4), ("len", &7)]), "7: 4 richtig");
         assert_eq!(fill("{n} of {len} right", &[("n", &4), ("len", &7)]), "4 of 7 right");

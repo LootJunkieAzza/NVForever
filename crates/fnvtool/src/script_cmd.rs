@@ -1078,6 +1078,7 @@ fn cover(
 ) -> anyhow::Result<Value> {
     let files = action_files(actions)?;
     if let Some(d) = log_dir {
+        fnv_install::guard_write(d, None)?; // before the folder is made [#1987]
         std::fs::create_dir_all(d).with_context(|| d.display().to_string())?;
     }
     let mut all = Vec::new();
