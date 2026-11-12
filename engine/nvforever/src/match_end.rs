@@ -339,6 +339,66 @@ pub fn end_camera_of(view: Portrait, eye: [f32; 3], heading: f32) -> ([f32; 3], 
     (at, [eye[0], eye[1], eye[2] - view.drop])
 }
 
+/// The heading the player turns to for the arm-wrestling end view (game space, x and y,
+/// 0 faces +y): the one that stands [`END_VIEW`]'s camera straight across the line through
+/// the two chairs (`seats`), on the player's side of the table, so the player and the
+/// opponent standing up from the far chair are side by side in the shot with the table
+/// between them behind [design]. Along the line out from the table to the player the camera
+/// stood inside the cheering opponent [observed: the night pass's lost match, 2026-11-11
+/// 23:56], and turned half a radian off it he still stood straight behind the player, the
+/// raised fist across his head [observed: slots-seat's end view on ship 14, 2026-11-12;
+/// c-night-5 r9 play-56.5s]: he stands up beside his chair, on the chairs' line. `None`
+/// when the chairs share a spot.
+pub fn arm_heading(table: [f32; 2], seats: [[f32; 2]; 2], feet: [f32; 2]) -> Option<f32> {
+    let (ax, ay) = (seats[1][0] - seats[0][0], seats[1][1] - seats[0][1]);
+    let len = ax.hypot(ay);
+    if len < 1.0 {
+        return None;
+    }
+    // Square to the chairs' line, toward the player's side.
+    let (mut px, mut py) = (-ay / len, ax / len);
+    if px * (feet[0] - table[0]) + py * (feet[1] - table[1]) < 0.0 {
+        (px, py) = (-px, -py);
+    }
+    Some(px.atan2(py) - END_VIEW.yaw)
+}
+
+/// The arm-wrestling end view: [`END_VIEW`] a little further back and aimed a little
+/// higher, so both the player and the opponent beside them fit, the winner's fists up to
+/// the feet [observed: c-night-6 r3 play-55.5s, the Settler's cheering fists past the top
+/// of the frame at END_VIEW's distance and drop]. Not much further: at 185 the camera stood
+/// behind the doorframe south of the saloon's table [observed: c-night-7 r3 play-55s, the
+/// post across the left fifth of the shot] [design].
+pub const ARM_VIEW: Portrait = Portrait { distance: 160.0, drop: 20.0, ..END_VIEW };
+
+/// How far the arm-wrestling end view's aim moves from the player toward the far chair
+/// (game units): the opponent stands up beside it, about twice that from the player, so
+/// the aim is near the pair's middle [design].
+pub const ARM_CENTER: f32 = 35.0;
+
+/// The point the arm-wrestling end view aims at in place of the player's eye: moved
+/// [`ARM_CENTER`] along the chairs' line toward the chair further from `feet`.
+fn arm_middle(eye: [f32; 3], seats: [[f32; 2]; 2], feet: [f32; 2]) -> [f32; 3] {
+    let d = |s: [f32; 2]| (s[0] - feet[0]).hypot(s[1] - feet[1]);
+    let (near, far) = if d(seats[0]) <= d(seats[1]) { (seats[0], seats[1]) } else { (seats[1], seats[0]) };
+    let (ax, ay) = (far[0] - near[0], far[1] - near[1]);
+    let len = ax.hypot(ay);
+    if len < 1.0 {
+        return eye;
+    }
+    [eye[0] + ax / len * ARM_CENTER, eye[1] + ay / len * ARM_CENTER, eye[2]]
+}
+
+/// The two chairs of the arm-wrestling table where they are placed
+/// (`fnv_game::armwrestle_table::stool_spot`), game x and y.
+fn arm_seats() -> [[f32; 2]; 2] {
+    let at = |k| {
+        let (p, _) = fnv_game::armwrestle_table::stool_spot(k);
+        [p[0], p[1]]
+    };
+    [at(0), at(1)]
+}
+
 /// The seated end camera's side ([`SEATED_YAWS`]): the first whose line from the look
 /// point is clear, else the one clear furthest. `reach` is how far the line from the look
 /// point to the camera is free (game units), for a camera at `at` looking at `look`.
@@ -410,17 +470,6 @@ fn in_window(cam: Vec3, look: Vec3, p: Vec3) -> bool {
     x * x + y * y < 1.0
 }
 
-/// The heading of the arm-wrestling end view: from the table's middle out to the player
-/// (game space, x and y), so the camera stands on the open side, looking back at the
-/// player with the table behind [design]. Up from the chair the player still faces across
-/// the table, where the opponent stands up from his: the end view along that heading
-/// stood inside him [observed: the night pass's lost match, 2026-11-11 23:56, the camera
-/// in the Goodsprings Settler as he cheered]. `None` at the table's middle.
-pub fn arm_heading(table: [f32; 2], feet: [f32; 2]) -> Option<f32> {
-    let (dx, dy) = (feet[0] - table[0], feet[1] - table[1]);
-    (dx.hypot(dy) > 1.0).then(|| dx.atan2(dy))
-}
-
 /// A reaction waiting for its clip or its body.
 #[derive(Debug, Clone, Copy)]
 struct Pending {
@@ -457,11 +506,11 @@ pub struct MatchEnd {
     /// the upper body over the sitting clip, the legs left on the stool [owner 2026-11-11:
     /// "it should be in the seat"].
     pub seated: bool,
-    /// The seated end camera's side was picked for this result ([`pick_seated`]).
-    picked: bool,
     /// The heading the end view is taken along instead of the player's (arm wrestling: out
     /// from the table, [`arm_heading`]); kept for the fade out.
     face: Option<f32>,
+    /// The seated end camera's side was picked for this result ([`pick_seated`]).
+    picked: bool,
 }
 
 impl MatchEnd {
@@ -630,7 +679,7 @@ fn stand(
     // table to face the end view ([`arm_heading`]).
     if kind == Kind::ArmWrestle {
         if let Some(t) = sim.world.peek(fnv_sim::FormId(table)) {
-            if let Some(h) = arm_heading([t.pos[0], t.pos[1]], [player.feet[0], player.feet[1]]) {
+            if let Some(h) = arm_heading([t.pos[0], t.pos[1]], arm_seats(), [player.feet[0], player.feet[1]]) {
                 player.heading = h;
                 info!("match end: this player turns out from the arm-wrestling table, heading {:.0} deg", h.to_degrees());
             }
@@ -879,9 +928,8 @@ fn camera(
     player: Option<Res<Player>>,
     body: Option<Res<BodyView>>,
     mut phys: Option<ResMut<nvf_play::phys::PhysState>>,
-    heads: Option<Res<nvf_play::emotes::MateHeads>>,
+    (heads, sim): (Option<Res<nvf_play::emotes::MateHeads>>, Option<Res<nvf_play::sim::SimState>>),
     mut cams: Query<(&mut Transform, &mut GlobalTransform, Has<ChildOf>), With<PlayerCamera>>,
-    sim: Option<Res<nvf_play::sim::SimState>>,
 ) {
     let since = match st.phase {
         Phase::Result { since, .. } => since,
@@ -891,12 +939,17 @@ fn camera(
     let (Some(p), Ok((mut t, mut g, parented))) = (player, cams.single_mut()) else { return };
     if let Phase::Result { kind, table, .. } = st.phase {
         st.face = match kind {
-            Kind::ArmWrestle => sim.as_deref().and_then(|s| s.world.peek(fnv_sim::FormId(table))).and_then(|t| arm_heading([t.pos[0], t.pos[1]], [p.feet[0], p.feet[1]])),
+            Kind::ArmWrestle => sim.as_deref().and_then(|s| s.world.peek(fnv_sim::FormId(table))).and_then(|t| arm_heading([t.pos[0], t.pos[1]], arm_seats(), [p.feet[0], p.feet[1]])),
             _ => None,
         };
     }
     let eye = body.as_deref().and_then(BodyView::portrait_eye).unwrap_or_else(|| p.eye());
     let heading = st.face.unwrap_or(p.heading);
+    // Arm wrestling: the pair framed, not the player alone ([`ARM_VIEW`]).
+    let (eye, arm_view) = match st.face {
+        Some(_) => (arm_middle(eye, arm_seats(), [p.feet[0], p.feet[1]]), Some(ARM_VIEW)),
+        None => (eye, None),
+    };
     if st.seated && !st.picked {
         st.picked = true;
         let mates: Vec<[f32; 3]> = heads.as_deref().map(|h| h.0.values().copied().collect()).unwrap_or_default();
@@ -910,7 +963,7 @@ fn camera(
         info!("match end: the seated end view stands at yaw {:.1} ({:.0}% of its distance clear)", view.yaw, free * 100.0);
         st.view = Some(view);
     }
-    let (at, look) = end_camera_of(st.view(), eye, heading);
+    let (at, look) = end_camera_of(arm_view.unwrap_or(st.view()), eye, heading);
     let (at, look) = (space::to_bevy(at), space::to_bevy(look));
     let at = match phys.as_deref_mut() {
         Some(phys) => crate::death_cam::clear(phys, look, at),
@@ -990,14 +1043,27 @@ mod tests {
 
     #[test]
     fn the_arm_wrestling_end_view_looks_from_the_open_side() {
-        // Up south-west of the table (the wall is north): the heading points south-west,
-        // so the camera, in front of the player along it, stands further out in the hall.
-        let h = arm_heading([350.0, 337.7], [300.0, 290.0]).unwrap();
-        assert!(h.sin() < 0.0 && h.cos() < 0.0, "{h}");
-        // Heading 0 faces +y, pi/2 +x.
-        assert!((arm_heading([0.0, 0.0], [0.0, 10.0]).unwrap()).abs() < 1e-6);
-        assert!((arm_heading([0.0, 0.0], [10.0, 0.0]).unwrap() - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
-        assert!(arm_heading([5.0, 5.0], [5.0, 5.0]).is_none());
+        // The saloon's table (chairs west and east of it, the wall north), the player up
+        // south-west of it: the camera stands straight south of the player, square to the
+        // chairs' line, so the opponent up by the east chair is beside the player, not
+        // behind them.
+        let (table, seats) = ([350.0, 337.7], [[315.0, 337.7], [385.0, 337.7]]);
+        let eye = [300.0, 290.0, 3560.0];
+        let h = arm_heading(table, seats, [eye[0], eye[1]]).unwrap();
+        let (at, _) = end_camera_of(END_VIEW, eye, h);
+        let (dx, dy) = (at[0] - eye[0], at[1] - eye[1]);
+        assert!(dx.abs() < 1.0 && dy < -0.9 * END_VIEW.distance * END_VIEW.pitch.cos(), "camera at {at:?}");
+        // From the north side the camera goes north; the chairs' order does not matter.
+        let h = arm_heading(table, [seats[1], seats[0]], [340.0, 380.0]).unwrap();
+        let (at, _) = end_camera_of(END_VIEW, [340.0, 380.0, 3560.0], h);
+        assert!((at[0] - 340.0).abs() < 1.0 && at[1] > 380.0 + 100.0, "camera at {at:?}");
+        assert!(arm_heading(table, [seats[0], seats[0]], [300.0, 290.0]).is_none());
+        // The aim moves toward the far chair (east of the player up by the west one).
+        let m = arm_middle(eye, seats, [eye[0], eye[1]]);
+        assert!((m[0] - eye[0] - ARM_CENTER).abs() < 1e-3 && (m[1] - eye[1]).abs() < 1e-3 && m[2] == eye[2], "{m:?}");
+        // The placed chairs are the ones it is given in the game.
+        let s = arm_seats();
+        assert!((s[0][0] - s[1][0]).hypot(s[0][1] - s[1][1]) > 1.0);
     }
 
     #[test]
