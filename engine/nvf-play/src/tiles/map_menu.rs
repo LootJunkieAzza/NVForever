@@ -3,9 +3,11 @@
 //! #1513]. Off (the default), none of this runs and the hand-built page (`crate::pipboy::data`)
 //! prepares and draws as it always did.
 //!
-//! - **The tabs it draws** ([`TILED_TABS`]): Quests and Misc (the notes or the challenges, a note's
-//!   text, picture or audio). The Local Map, the World Map and Radio keep the whole hand-built page
-//!   while they show, as STATS' tabs not yet drawn from its file do.
+//! - **The tabs it draws** ([`TILED_TABS`]): Quests, Misc (the notes or the challenges, a note's
+//!   text, picture or audio) and Radio (the stations, the waveform's frame from the file with the
+//!   hand-built trace painted over it, `crate::pipboy::data::trace_over_tiles`). The Local Map and
+//!   the World Map keep the whole hand-built page while they show, as STATS' tabs not yet drawn
+//!   from its file do.
 //! - **The one decision** ([`MapTiles::ready`]): the switch on, DATA showing on a tab it draws, the
 //!   page prepared for that tab (`crate::pipboy::data::prepare`, before this), no question box up,
 //!   the file's tiles there ([`built`]), the tabs made and a usable measured layout ([`usable`]).
@@ -75,6 +77,11 @@ const DATA_RECT: &str = main_rect!("MM_DataRect");
 const OBJECTIVES: &str = main_rect!("MM_DataRect/MM_QuestObjectivesList");
 const NOTES_LIST: &str = main_rect!("MM_NotesList");
 const CHALLENGE_LIST: &str = main_rect!("MM_ChallengeList");
+const STATIONS_LIST: &str = main_rect!("MM_RadioStationList");
+/// Radio's waveform panel: its frame (the tick meters, the centre line) and the image the
+/// original's code animates in it [documented: map_menu.xml `MM_WaveformRect`, `MM_Waveform`].
+const WAVE_RECT: &str = main_rect!("MM_WaveformRect");
+const WAVE_IMAGE: &str = main_rect!("MM_WaveformRect/MM_Waveform");
 /// A note's text, its window and its scroll bar; a note's picture; an audio note's time and meter
 /// [documented: map_menu.xml `MM_DataRect`].
 const TEXT_RECT: &str = main_rect!("MM_DataRect/MM_DataTextRect");
@@ -87,6 +94,7 @@ const AUDIO_TIME: &str = main_rect!("MM_DataRect/MM_DataAudioInfo/MM_AudioTimeRe
 const QUESTS_NAME: &str = "MM_QuestsList";
 const NOTES_NAME: &str = "MM_NotesList";
 const CHALLENGES_NAME: &str = "MM_ChallengeList";
+const STATIONS_NAME: &str = "MM_RadioStationList";
 const OBJECTIVES_NAME: &str = "MM_QuestObjectivesList";
 const TEXT_RECT_NAME: &str = "MM_DataTextRect";
 const ROW_TEMPLATE: &str = "MM_ListMarkerTemplate";
@@ -110,23 +118,25 @@ const DONE_ALPHA: f64 = 128.0;
 const FULL_ALPHA: f64 = 255.0;
 
 /// The tabs drawn from the file; the others keep the hand-built page [design, #1513]: the maps
-/// (their drawing and picking), and Radio, whose waveform the file has as a NIF animation
-/// (`MM_Waveform`) the tile painter does not draw.
-pub const TILED_TABS: [usize; 2] = [data::QUESTS, data::NOTES];
+/// (their drawing and picking). Radio's waveform is the file's frame with the hand-built trace
+/// painted over it: the file's `MM_Waveform` is an image its code animates (which animation is
+/// not known), which stays hidden.
+pub const TILED_TABS: [usize; 3] = [data::QUESTS, data::NOTES, data::RADIO];
 
-/// The tab's list the page shows: Quests' quests, Misc's notes or its challenges [documented: the
-/// lists' `visible`; `MM_NotesList` and `MM_ChallengeList` both show on Misc, so the code hides the
-/// one not shown, design].
+/// The tab's list the page shows: Quests' quests, Misc's notes or its challenges, Radio's stations
+/// [documented: the lists' `visible`; `MM_NotesList` and `MM_ChallengeList` both show on Misc, so
+/// the code hides the one not shown, design].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(crate) enum ListKind {
     #[default]
     Quests,
     Notes,
     Challenges,
+    Stations,
 }
 
 impl ListKind {
-    const ALL: [ListKind; 3] = [ListKind::Quests, ListKind::Notes, ListKind::Challenges];
+    const ALL: [ListKind; 4] = [ListKind::Quests, ListKind::Notes, ListKind::Challenges, ListKind::Stations];
 
     fn index(self) -> usize {
         self as usize
@@ -137,6 +147,7 @@ impl ListKind {
             ListKind::Quests => QUESTS_LIST,
             ListKind::Notes => NOTES_LIST,
             ListKind::Challenges => CHALLENGE_LIST,
+            ListKind::Stations => STATIONS_LIST,
         }
     }
 
@@ -145,11 +156,21 @@ impl ListKind {
             ListKind::Quests => QUESTS_NAME,
             ListKind::Notes => NOTES_NAME,
             ListKind::Challenges => CHALLENGES_NAME,
+            ListKind::Stations => STATIONS_NAME,
         }
     }
 
     fn tab(self) -> usize {
-        if self == ListKind::Quests { data::QUESTS } else { data::NOTES }
+        match self {
+            ListKind::Quests => data::QUESTS,
+            ListKind::Notes | ListKind::Challenges => data::NOTES,
+            ListKind::Stations => data::RADIO,
+        }
+    }
+
+    /// Misc's two lists, which its toggle swaps.
+    fn misc(self) -> bool {
+        matches!(self, ListKind::Notes | ListKind::Challenges)
     }
 
     /// For the log and the reasons: the list's rows and one of them.
@@ -158,6 +179,7 @@ impl ListKind {
             ListKind::Quests => ("quests", "quest"),
             ListKind::Notes => ("notes", "note"),
             ListKind::Challenges => ("challenges", "challenge"),
+            ListKind::Stations => ("stations", "station"),
         }
     }
 }
@@ -201,6 +223,7 @@ fn required_paths(tab: Option<usize>) -> Vec<String> {
     let lists: &[&str] = match tab {
         Some(data::QUESTS) => &[QUESTS_LIST],
         Some(data::NOTES) => &[NOTES_LIST, CHALLENGE_LIST],
+        Some(data::RADIO) => &[STATIONS_LIST],
         _ => &[],
     };
     for l in lists {
@@ -217,6 +240,8 @@ fn required_paths(tab: Option<usize>) -> Vec<String> {
             paths.extend([TEXT_RECT, TEXT_BAR, DATA_TEXT, DATA_IMAGE, AUDIO_INFO, AUDIO_TIME].iter().map(|s| (*s).to_string()));
             paths.extend(BAR_PIECES.iter().map(|piece| format!("{TEXT_BAR}/{piece}")));
         }
+        // The waveform's frame; its animated image is hidden when there and needs nothing.
+        Some(data::RADIO) => paths.push(WAVE_RECT.to_string()),
         _ => {}
     }
     paths.extend(BUTTONS.iter().map(|(name, _)| button_path(name)));
@@ -306,17 +331,25 @@ pub(crate) enum Pane {
     /// An audio note: tenths of a second still to play and the share played, thousandths
     /// (`data::Right::Audio`).
     Audio { left: u32, played: u16 },
+    /// Radio's waveform panel, the radio playing or not (`data::Right::Wave`): the file's frame,
+    /// the hand-built trace over it (`data::trace_over_tiles`).
+    Wave { on: bool },
 }
 
 impl Pane {
     fn item_type(&self) -> f64 {
         match self {
-            Pane::None => 0.0,
+            Pane::None | Pane::Wave { .. } => 0.0,
             Pane::Text(_) => ITEM_TEXT,
             Pane::Image(_) => ITEM_IMAGE,
             Pane::Audio { .. } => ITEM_AUDIO,
             Pane::Objectives(_) => ITEM_OBJECTIVES,
         }
+    }
+
+    /// Whether the pane is a part of `MM_DataRect` (Radio's waveform is a panel of its own).
+    fn in_data_rect(&self) -> bool {
+        !matches!(self, Pane::None | Pane::Wave { .. })
     }
 
     fn objectives(&self) -> &[RowShown] {
@@ -343,6 +376,7 @@ impl Shown {
             data::QUESTS => ListKind::Quests,
             data::NOTES if p.challenges => ListKind::Challenges,
             data::NOTES => ListKind::Notes,
+            data::RADIO => ListKind::Stations,
             _ => return Err("the tab is not drawn from the file".into()),
         };
         let row = |key: u32, r: &data::Row| RowShown { key, text: r.text.clone(), filled: r.mark == Mark::Filled, done: r.done };
@@ -351,8 +385,8 @@ impl Shown {
             Right::Text { text, first } if list != ListKind::Quests => (Pane::Text(text.replace("\r\n", "\n")), *first),
             Right::Image(file) if list == ListKind::Notes => (Pane::Image(file.clone()), 0.0),
             &Right::Audio { left, played } if list == ListKind::Notes => (Pane::Audio { left, played }, 0.0),
-            Right::None => (Pane::None, 0.0),
-            Right::Wave { .. } => return Err("the waveform is not drawn from the file".into()),
+            &Right::Wave { on } if list == ListKind::Stations => (Pane::Wave { on }, 0.0),
+            Right::None if list != ListKind::Stations => (Pane::None, 0.0),
             _ => return Err("the right pane is not the tab's".into()),
         };
         let hints = v.buttons.iter().map(|b| HintShown { slot: Slot::of(b.kind), kind: b.kind, word: b.hint.word.to_string(), key: b.hint.key.clone(), dim: b.hint.dim }).collect();
@@ -427,7 +461,7 @@ fn write_model(ui: &mut Ui, s: &Shown, w: &mut Written) -> Result<(), String> {
             write_row(ui, row.tile, r, false);
         }
     }
-    put(ui, DATA_RECT, "visible", on(s.pane != Pane::None));
+    put(ui, DATA_RECT, "visible", on(s.pane.in_data_rect()));
     put(ui, DATA_RECT, "_ItemType", Value::Num(s.pane.item_type()));
     // A note's text, picture and audio: what their tiles show while `_ItemType` shows them, emptied
     // otherwise [documented: `MM_DataText`'s and `MM_DataImage`'s "set in code", the audio's
@@ -471,12 +505,20 @@ fn keep_hints(ui: &mut Ui, hints: &[HintShown]) {
 
 /// The tab's lists' `visible`: the file shows both `MM_NotesList` and `MM_ChallengeList` on Misc
 /// [documented: their `visible`], so the one not shown is hidden, put right on every pass as the
-/// hints are (the file works it out again when `_CurrentTab` changes) [design].
+/// hints are (the file works it out again when `_CurrentTab` changes) [design]. Radio's waveform
+/// panel likewise: shown on Radio, its animated image always hidden (the trace is painted over the
+/// frame, `data::trace_over_tiles`).
 fn keep_lists(ui: &mut Ui, s: &Shown) {
     for kind in ListKind::ALL.into_iter().filter(|k| k.tab() == s.tab) {
         if let Some(t) = ui.find_tile(kind.path()) {
             keep(ui, t, "visible", if kind == s.list { 1.0 } else { 0.0 });
         }
+    }
+    if let Some(t) = ui.find_tile(WAVE_RECT) {
+        keep(ui, t, "visible", if matches!(s.pane, Pane::Wave { .. }) { 1.0 } else { 0.0 });
+    }
+    if let Some(t) = ui.find_tile(WAVE_IMAGE) {
+        keep(ui, t, "visible", 0.0);
     }
 }
 
@@ -609,11 +651,18 @@ pub fn data_tile(ui: &Ui, w: &Written, tile: TileId) -> Option<DataTile> {
     }
     let none: &[RowTile<u32>] = &[];
     let shown = w.list().index();
-    let lists = [(ListKind::Quests.name(), w.rows[0].as_slice()), (ListKind::Notes.name(), &w.rows[1]), (ListKind::Challenges.name(), &w.rows[2]), (OBJECTIVES_NAME, none), (TEXT_RECT_NAME, none)];
+    let lists = [
+        (ListKind::Quests.name(), w.rows[0].as_slice()),
+        (ListKind::Notes.name(), &w.rows[1]),
+        (ListKind::Challenges.name(), &w.rows[2]),
+        (ListKind::Stations.name(), &w.rows[3]),
+        (OBJECTIVES_NAME, none),
+        (TEXT_RECT_NAME, none),
+    ];
     match list::hit(ui, tile, &lists, &BUTTONS) {
         list::Hit::Row(l, i) if l == shown => Some(DataTile::Row(i)),
         list::Hit::Bar(l, piece) if l == shown => Some(DataTile::ListBar(piece)),
-        list::Hit::Bar(3 | 4, piece) => Some(DataTile::PaneBar(piece)),
+        list::Hit::Bar(4 | 5, piece) => Some(DataTile::PaneBar(piece)),
         list::Hit::Target(slot) => Some(DataTile::Button(slot)),
         _ => None,
     }
@@ -631,6 +680,8 @@ pub struct Checked {
     /// The first tab or lit hint that did not take the pointer, and what did: warned of, not a
     /// fallback.
     pub missed: Option<String>,
+    /// Radio's waveform panel as laid out (canvas units), the box the trace is painted in.
+    pub wave: Option<Rect>,
 }
 
 /// Whether what is about to be painted, `pieces`, can be used, on every final pass: every tab's
@@ -699,7 +750,11 @@ pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) 
         Some(s) => pane_shows(ui, w, &s.pane, pieces, &texts)?,
         None => None,
     };
-    Ok(Checked { rows: rows.len(), rows_in_clip, hit_tests: wanted.len() + optional.len(), pane, missed })
+    let wave = match w.shown.as_ref().map(|s| &s.pane) {
+        Some(Pane::Wave { .. }) => Some(wave_box(ui)?),
+        _ => None,
+    };
+    Ok(Checked { rows: rows.len(), rows_in_clip, hit_tests: wanted.len() + optional.len(), pane, missed, wave })
 }
 
 /// Whether the right pane shows what it stands for among what is painted (a tile hidden, by its own
@@ -718,7 +773,8 @@ fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashM
         }
     };
     match pane {
-        Pane::None => Ok(None),
+        // Radio's panel is checked by [`wave_box`].
+        Pane::None | Pane::Wave { .. } => Ok(None),
         Pane::Objectives(_) => {
             let bar = ui.find_tile(OBJECTIVES).and_then(|l| list::child(ui, l, list::SCROLLBAR)).ok_or("the objectives' scroll bar is gone")?;
             let window = pane_window(ui, bar, ("the objectives'", "the objectives have"))?;
@@ -769,6 +825,22 @@ fn pane_shows(ui: &Ui, w: &Written, pane: &Pane, pieces: &[Piece], texts: &HashM
     }
 }
 
+/// Radio's waveform panel as laid out (canvas units): shown, with a size, wholly on the canvas;
+/// the trace is painted inside it (`data::trace_over_tiles`), so a panel the file hides or moves
+/// off the page leaves the hand-built page [design].
+fn wave_box(ui: &Ui) -> Result<Rect, String> {
+    let rect = ui.find_tile(WAVE_RECT).ok_or("the waveform panel is gone")?;
+    let item = super::layout::layout(ui, rect, &|_, _, _| (0.0, 0.0), true).into_iter().find(|i| i.tile == rect).ok_or("the waveform panel is not laid out")?;
+    if !item.visible {
+        return Err("the waveform panel is not shown".into());
+    }
+    let r = item.rect;
+    if !on_canvas(&r) {
+        return Err("the waveform panel does not fit".into());
+    }
+    Ok(Rect::new(r.left as f32, r.top as f32, (r.left + r.width) as f32, (r.top + r.height) as f32))
+}
+
 /// Whether a painted rectangle lies wholly on the Pip-Boy's canvas.
 fn on_canvas(r: &super::layout::Rect) -> bool {
     let canvas = (f64::from(crate::pipboy::CANVAS.x), f64::from(crate::pipboy::CANVAS.y));
@@ -802,10 +874,10 @@ pub struct Written {
     tabs: Vec<RowTile<usize>>,
     /// Each list's rows ([`ListKind::index`]), by their records' FormIDs (only the list shown has
     /// any), and the objectives', by place.
-    rows: [Vec<RowTile<u32>>; 3],
+    rows: [Vec<RowTile<u32>>; 4],
     objectives: Vec<RowTile<usize>>,
     /// Each list's own scroll, and the list Misc showed last (the notes or the challenges).
-    views: [ListView<u32>; 3],
+    views: [ListView<u32>; 4],
     misc_list: Option<ListKind>,
     sizes: SizesWritten,
     shown: Option<Shown>,
@@ -834,6 +906,14 @@ pub struct Written {
     waited: u32,
 }
 
+/// Radio's waveform panel as the page drawn from its file shows it: its box (canvas units) and
+/// whether the radio plays, for the trace painted over it (`data::trace_over_tiles`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WaveShown {
+    pub rect: Rect,
+    pub on: bool,
+}
+
 /// The decision every reader shares, and what the page keeps.
 #[derive(Resource, Default)]
 pub struct MapTiles {
@@ -843,6 +923,8 @@ pub struct MapTiles {
     pub shown: Option<TileId>,
     /// The pieces [`usable`] checked this frame, for the drawing to paint.
     pub(crate) pieces: Vec<Piece>,
+    /// Radio's waveform panel, while the page is ready on Radio ([`settle`]).
+    pub wave: Option<WaveShown>,
     /// [`CUT_AID`] and its time.
     pub cut: Option<String>,
     pub cut_until: Option<f32>,
@@ -918,7 +1000,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     // Misc toggled between the notes and the challenges: the model starts the list it shows at its
     // first row (`data::button`), so that list starts at its top too, whatever its own scroll was
     // when it last showed [design].
-    if kind != ListKind::Quests && w.misc_list != Some(kind) {
+    if kind.misc() && w.misc_list != Some(kind) {
         if w.misc_list.is_some() {
             w.views[kind.index()].restart();
         }
@@ -941,7 +1023,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         }
         place_tabs(ui, &w.tabs);
         // The clip windows on before the panes read what clips them.
-        super::item_menu::mark_menu(ui, MAP_MENU, &[QUESTS_LIST, NOTES_LIST, CHALLENGE_LIST]);
+        super::item_menu::mark_menu(ui, MAP_MENU, &[QUESTS_LIST, NOTES_LIST, CHALLENGE_LIST, STATIONS_LIST]);
         list::settle_list(ui, list_tile, &w.rows[kind.index()], ROW_TEXT, &mut w.views[kind.index()], s.selected, s.group, s.pointer_pick, s.navigated);
         w.pane_most = match &s.pane {
             Pane::Objectives(_) => {
@@ -1024,6 +1106,7 @@ fn describe(w: &Written) -> String {
         (k, Pane::Text(_)) => (format!(" {}", k.words().0), "text".to_string()),
         (k, Pane::Image(_)) => (format!(" {}", k.words().0), "picture".to_string()),
         (k, Pane::Audio { .. }) => (format!(" {}", k.words().0), "audio".to_string()),
+        (k, Pane::Wave { on }) => (format!(" {}", k.words().0), format!("waveform {}", if *on { "on" } else { "off" })),
         (k, _) => (format!(" {}", k.words().0), "no pane".to_string()),
     };
     format!(
@@ -1184,6 +1267,11 @@ pub(crate) fn settle(mut p: MapPage) {
     } else if !on_data {
         p.tiles.told = None;
     }
+    // Radio's panel for the trace painted over it, while the page is ready on Radio.
+    let wave = ready.and_then(|_| wave_of(&p.tiles.written));
+    if p.tiles.wave != wave {
+        p.tiles.wave = wave;
+    }
     if ready.is_none() {
         // The next time it is written whole; the rows stay.
         p.tiles.written.shown = None;
@@ -1192,6 +1280,13 @@ pub(crate) fn settle(mut p: MapPage) {
     if p.tiles.ready != ready {
         p.tiles.ready = ready;
     }
+}
+
+/// Radio's waveform panel as the last pass that went through wrote and measured it: its box and
+/// whether the radio plays; none on the other tabs.
+fn wave_of(w: &Written) -> Option<WaveShown> {
+    let Pane::Wave { on } = w.shown.as_ref()?.pane else { return None };
+    Some(WaveShown { rect: w.counted.wave?, on })
 }
 
 /// Whether [`CUT_AID`]'s time is over now: only with the switch on, as nothing else of the page runs
@@ -2062,9 +2157,124 @@ mod tests {
         assert_eq!(Shown::of(&p(Right::Image("i.dds".into()), false, false), true).map(|s| s.pane), Ok(Pane::Image("i.dds".into())));
         assert_eq!(Shown::of(&p(Right::Audio { left: 7, played: 9 }, false, false), true).map(|s| s.pane), Ok(Pane::Audio { left: 7, played: 9 }));
         assert_eq!(Shown::of(&p(Right::Objectives { rows: Vec::new(), first: 0.0 }, false, false), true), Err("the right pane is not the tab's".to_string()));
-        // Radio's waveform is not drawn from the file.
+        // Radio: its stations' list and the waveform's panel; Misc's panes are not Radio's.
         let radio = Prepared { view: data::View { tab: data::RADIO, body: Body::List { rows: vec![row("S")], first: 0, boxed: None, right: Right::Wave { on: true } }, ..view(Right::None) }, ..p(Right::None, false, false) };
-        assert!(Shown::of(&radio, true).is_err());
+        assert_eq!(Shown::of(&radio, true).map(|s| (s.list, s.pane)), Ok((ListKind::Stations, Pane::Wave { on: true })));
+        let radio_text = Prepared { view: data::View { tab: data::RADIO, body: Body::List { rows: vec![row("S")], first: 0, boxed: None, right: Right::Text { text: "x".into(), first: 0.0 } }, ..view(Right::None) }, ..p(Right::None, false, false) };
+        assert_eq!(Shown::of(&radio_text, true), Err("the right pane is not the tab's".to_string()));
+        // The waveform is Radio's only.
+        assert_eq!(Shown::of(&p(Right::Wave { on: false }, false, false), true), Err("the right pane is not the tab's".to_string()));
+    }
+
+    /// The fixture with Radio's parts, written for these tests: a station list as the other lists
+    /// and a waveform panel at 500, 125, 350 square under the main rect, with two meters, a centre
+    /// line and an animated image the file shows (which the page hides).
+    fn with_radio(x: String) -> String {
+        let bar = r#"<image name="lb_scrollbar"><_step_size>1</_step_size><_jump_size>3</_jump_size><_current_value>0</_current_value>
+              <hotrect name="scrollbar_vert_page_up"/><hotrect name="scrollbar_vert_page_down"/>
+              <image name="scrollbar_vert_marker"/><image name="scrollbar_vert_up"/><image name="scrollbar_vert_down"/></image>"#;
+        let offset = r#"<_offset><copy src="child(lb_scrollbar)" trait="_current_value"/><mul src="me()" trait="_scroll_delta"/></_offset>"#;
+        let radio = format!(
+            r#"<hotrect name="MM_RadioStationList"><y>60</y><width>380</width><height>240</height><clipwindow>&true;</clipwindow><visible>&true;</visible>
+                <_scroll_delta>12</_scroll_delta>{offset}
+                <hotrect name="lb_highlight_box"/>{bar}
+              </hotrect>
+              <rect name="MM_WaveformRect"><x>500</x><y>125</y><width>350</width><height>350</height>
+                <image name="MM_WaveformMeterHoriz"><filename>h.dds</filename><y>320</y><width>350</width><height>32</height></image>
+                <image name="MM_WaveformMeterVert"><filename>v.dds</filename><x>320</x><width>32</width><height>350</height></image>
+                <image name="MM_WaveformCenterLine"><filename>line.dds</filename><y>166</y><width>345</width><height>2</height></image>
+                <image name="MM_Waveform"><filename>wave.dds</filename><visible>&true;</visible><width>350</width><height>350</height></image>
+              </rect>"#
+        );
+        x.replace(r#"<text name="MM_Headline_ChallengeType"></text>"#, &format!(r#"<text name="MM_Headline_ChallengeType"></text>{radio}"#))
+    }
+
+    /// Radio with `n` stations, `sel` selected, `playing` the one playing (its square filled) and
+    /// the waveform on while one plays; the keyboard has no hint on Radio.
+    fn radio(n: usize, sel: usize, playing: Option<usize>) -> Shown {
+        Shown {
+            tab: data::RADIO,
+            list: ListKind::Stations,
+            rows: (0..n).map(|i| RowShown { key: 700 + i as u32, text: format!("Station {i}"), filled: playing == Some(i), done: false }).collect(),
+            selected: (n > 0).then_some(sel),
+            pane: Pane::Wave { on: playing.is_some() },
+            hints: Vec::new(),
+            ..shown(0, 0, 0)
+        }
+    }
+
+    const STATION_PATH: &str = main_rect!("MM_RadioStationList");
+
+    #[test]
+    fn radio_writes_its_stations_and_shows_the_files_waveform_panel() {
+        let (mut ui, mut t) = (tree_changed(with_radio), MapTiles::default());
+        // Quests first: Radio then empties the quests list and fills the stations'.
+        run(&mut ui, Some(shown(2, 0, 1)), &mut t).unwrap();
+        run(&mut ui, Some(radio(3, 1, Some(2))), &mut t).unwrap();
+        assert!(t.written.rows[0].is_empty() && t.written.objectives.is_empty());
+        let rows = t.written.rows[3].clone();
+        assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), vec![700, 701, 702]);
+        assert_eq!(rows.iter().map(|r| ui.tile(r.tile).parent).collect::<Vec<_>>(), vec![ui.find_tile(STATION_PATH); 3], "under the stations list");
+        assert_eq!((trait_of(&ui, rows[2].tile, "_selected"), trait_of(&ui, rows[0].tile, "_selected")), (1.0, 0.0), "the playing station's square filled");
+        assert_eq!((at(&ui, STATION_PATH, "_enabled"), at(&ui, QUESTS_LIST, "_enabled")), (1.0, 0.0), "the stations take the pointer");
+        assert_eq!((at(&ui, STATION_PATH, "_highlight_y"), at(&ui, STATION_PATH, "_selected_height")), (ROW_H, ROW_H), "the selected station boxed");
+        // The panel shown, its animated image hidden, the data rect's parts not shown.
+        assert_eq!((at(&ui, WAVE_RECT, "visible"), at(&ui, WAVE_IMAGE, "visible")), (1.0, 0.0));
+        assert_eq!((at(&ui, DATA_RECT, "visible"), at(&ui, DATA_RECT, "_ItemType")), (0.0, 0.0));
+        assert_eq!(t.written.counted.pane, None, "nothing scrolls on Radio");
+        // The box the trace is painted in: the main rect's 40 and the panel's 500, 125.
+        let wave = wave_of(&t.written).expect("the panel's box");
+        assert_eq!((wave.rect.min.x, wave.rect.min.y, wave.rect.width(), wave.rect.height(), wave.on), (540.0, 165.0, 350.0, 350.0, true));
+        assert_eq!((t.written.counted.rows, t.written.counted.rows_in_clip), (3, 3));
+        assert!(describe(&t.written).contains("tab radio stations, 3 rows, \"Station 1\" selected, waveform on, hints: none"), "{}", describe(&t.written));
+        // A row stands for its station, by the station's record, not its place.
+        assert_eq!(data_tile(&ui, &t.written, rows[1].tile), Some(DataTile::Row(1)));
+        assert_eq!(row_act(&t.written, data::RADIO, 2, RowAct::Use), Some(Act::UseRecord(data::RADIO, 702)));
+        let bar_up = ui.find_tile(&format!("{STATION_PATH}/{}/{}", list::SCROLLBAR, list::UP)).unwrap();
+        assert_eq!(data_tile(&ui, &t.written, bar_up), Some(DataTile::ListBar(BarPiece::Up)), "the stations' own bar");
+        // Back on Quests the panel hides again and the trace has no box.
+        run(&mut ui, Some(shown(2, 0, 1)), &mut t).unwrap();
+        assert_eq!(at(&ui, WAVE_RECT, "visible"), 0.0);
+        assert_eq!(wave_of(&t.written), None);
+    }
+
+    #[test]
+    fn another_station_or_the_radio_off_is_written_again() {
+        let (mut ui, mut t) = (tree_changed(with_radio), MapTiles::default());
+        run(&mut ui, Some(radio(3, 0, Some(0))), &mut t).unwrap();
+        let tiles: Vec<TileId> = t.written.rows[3].iter().map(|r| r.tile).collect();
+        // Tuned to the third: the same tiles, the third's square filled.
+        run(&mut ui, Some(radio(3, 2, Some(2))), &mut t).unwrap();
+        assert_eq!(t.written.rows[3].iter().map(|r| r.tile).collect::<Vec<_>>(), tiles, "the rows outlast the tuning");
+        assert_eq!((trait_of(&ui, tiles[0], "_selected"), trait_of(&ui, tiles[2], "_selected")), (0.0, 1.0));
+        // Off: no square filled, the panel still shown, the trace off.
+        run(&mut ui, Some(radio(3, 2, None)), &mut t).unwrap();
+        assert!(tiles.iter().all(|&r| trait_of(&ui, r, "_selected") == 0.0));
+        assert_eq!(at(&ui, WAVE_RECT, "visible"), 1.0);
+        assert_eq!(wave_of(&t.written).map(|w| w.on), Some(false));
+        assert!(describe(&t.written).contains("waveform off"), "{}", describe(&t.written));
+        // No station received: an empty list is a page, the panel still shown.
+        run(&mut ui, Some(radio(0, 0, None)), &mut t).unwrap();
+        assert!(t.written.rows[3].is_empty());
+        assert!(wave_of(&t.written).is_some());
+    }
+
+    #[test]
+    fn radio_falls_back_without_its_panel_and_its_tiles_are_only_radio_s() {
+        // A panel moved off the page: by hand.
+        let off = |x: String| with_radio(x).replace(r#"<rect name="MM_WaveformRect"><x>500</x><y>125</y>"#, r#"<rect name="MM_WaveformRect"><x>500</x><y>700</y>"#);
+        let mut ui = tree_changed(off);
+        let mut t = MapTiles::default();
+        assert_eq!(run(&mut ui, Some(radio(2, 0, Some(0))), &mut t), Err("the waveform panel does not fit".to_string()));
+        assert!(t.written.layout_failure, "a layout's failure");
+        // A file without the panel: Radio falls back, Quests and Misc are still drawn from it.
+        let mut ui = tree_changed(|x| with_radio(x).replace("MM_WaveformRect", "SomethingElse"));
+        let err = run(&mut ui, Some(radio(2, 0, None)), &mut MapTiles::default()).unwrap_err();
+        assert!(err.contains("MM_WaveformRect missing"), "{err}");
+        assert!(run(&mut ui, Some(shown(2, 0, 1)), &mut MapTiles::default()).is_ok(), "Quests needs none of Radio's tiles");
+        // The base fixture has no station list: Radio alone falls back.
+        let err = run(&mut tree(), Some(radio(2, 0, None)), &mut MapTiles::default()).unwrap_err();
+        assert!(err.contains("MM_RadioStationList missing"), "{err}");
     }
 
     #[test]
@@ -2167,7 +2377,7 @@ mod tests {
     }
 
     #[test]
-    fn only_quests_and_misc_with_the_switch_on_are_eligible() {
+    fn only_quests_misc_and_radio_with_the_switch_on_are_eligible() {
         let mut pip = PipBoy::default();
         (pip.phase, pip.page) = (crate::pipboy::Phase::Up, Page::Data);
         pip.tabs[Page::Data.index()] = data::QUESTS;
@@ -2177,7 +2387,9 @@ mod tests {
         assert!(!eligible(TileMenus { stats: true, inventory: true, ..Default::default() }, &pip));
         pip.tabs[Page::Data.index()] = data::NOTES;
         assert!(eligible(on, &pip), "Misc is drawn from the file too");
-        for tab in [data::LOCAL, data::WORLD, data::RADIO] {
+        pip.tabs[Page::Data.index()] = data::RADIO;
+        assert!(eligible(on, &pip), "and Radio");
+        for tab in [data::LOCAL, data::WORLD] {
             pip.tabs[Page::Data.index()] = tab;
             assert!(!eligible(on, &pip), "tab {tab} keeps the hand-built page");
         }

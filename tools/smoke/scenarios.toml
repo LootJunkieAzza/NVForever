@@ -24561,11 +24561,11 @@ expect = [
   { text = "pipboy data: notes shown", count = 1, label = "and the notes again" },
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the notes' filter's click, through its tile" },
   { re = 'pipboy hints: data misc: All Notes X\)', min = 1, label = "the filter acted once: its hint now offers all the notes" },
-  { text = "tiles: MapMenu leaves radio hand-built: not drawn from the file yet", min = 1, label = "Radio keeps the whole hand-built page (its waveform)" },
+  { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "Radio is drawn from its file too since #1513's Radio slice (tiles-data-radio); before: it kept the hand-built page" },
   { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Misc needs, and its panes show (a challenge's short text without a scroll bar)" },
   { re = 'MapMenu: Button\(.\) does not take the pointer', count = 0, label = "the hints take the pointer at their words, not their keys beside the box" },
 ]
-order = [["tiles: MapMenu draws misc from tiles", { re = 'pipboy data: note .+ \(0x001618BF\) picked' }, { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ' }, "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(Y) on its tiles", "pipboy data: challenges shown", "pipboy data: notes shown", "tiles: MapMenu Button(X) on its tiles", "tiles: MapMenu leaves radio hand-built"]]
+order = [["tiles: MapMenu draws misc from tiles", { re = 'pipboy data: note .+ \(0x001618BF\) picked' }, { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ' }, "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(Y) on its tiles", "pipboy data: challenges shown", "pipboy data: notes shown", "tiles: MapMenu Button(X) on its tiles", "tiles: MapMenu draws radio from tiles"]]
 
 [[scenario]]
 name = "tiles-data-misc-off"
@@ -24584,6 +24584,43 @@ expect = [
   { text = "pipboy data: notes shown", count = 1, label = "switch off: and the notes again" },
 ]
 order = [[{ re = 'pipboy data: note .+ \(0x001618BF\) picked' }, "pipboy data: challenges shown", "pipboy data: notes shown"]]
+
+[[scenario]]
+name = "tiles-data-radio"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Radio tab is drawn from map_menu.xml: the stations in MM_RadioStationList (the playing one's square filled), the waveform's frame from MM_WaveformRect (MM_Waveform hidden) and the hand-built trace painted over it while the radio plays; a click on a station tunes to it through its tile, Enter on the playing one turns the radio off (the hand-built page's rules)"
+note = "the points are canvas units on the page as run [hypothesis until the first run: the first station's words about 200, 150, as the first quest's in tiles-data-quests]; Goodsprings is assumed to receive at least two stations at noon (Mojave Music Radio is the first the radio-pipboy scenario tunes to) and the Pip-Boy radio to be off at the start. The click tunes to the first station; Down and Enter (the test aid's key steps, the hand-built page's keys) tune to the second; Enter again turns it off. Shots: tiles_data_radio.png (the trace over the file's panel) against tiles-data-radio-off's at the same time."
+areas = ["ui", "menus", "pipboy", "radio"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=4,16:point=200:150,17:click=200:150,18:point=off,20:key=down,20.5:key=use,23:key=use,25:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_radio_off_air.png,19:tiles_data_radio.png,22:tiles_data_radio_second.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 28
+expect = [
+  { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "Radio is drawn from its file" },
+  { re = 'tiles: MapMenu page from tiles: tab radio stations, [2-9]\d* rows, "[^"]+" selected, waveform off, hints: none, device$', min = 1, label = "the stations written, the radio off, the keyboard's no hint" },
+  { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the first station acted once, through its tile" },
+  { re = 'pipboy data: radio tuned to .+', min = 2, label = "the click and Enter tuned, the hand-built page's rule" },
+  { re = 'tiles: MapMenu page from tiles: tab radio stations, [2-9]\d* rows, "[^"]+" selected, waveform on, ', min = 1, label = "the playing station and the waveform on, written" },
+  { re = 'pipboy data: waveform trace over the tiles at \(\d+, \d+\) 350 x 350', min = 1, label = "the trace painted over the file's panel, in its measured box" },
+  { text = "pipboy data: radio off", count = 1, label = "Enter on the playing station turns the radio off" },
+  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Radio needs, and its panel shows" },
+]
+order = [["tiles: MapMenu draws radio from tiles", "tiles: MapMenu Row(0) on its tiles", { re = 'pipboy data: radio tuned to ' }, { re = 'pipboy data: waveform trace over the tiles' }, { re = 'pipboy data: radio tuned to ' }, "pipboy data: radio off"]]
+
+[[scenario]]
+name = "tiles-data-radio-off"
+source = "[design] pipboy.md section 5.3.1: without the switch Radio is the hand-built page: nothing of the tile page runs, no trace is painted over tiles, and its stations, clicks and keys work as before"
+note = "the same steps and times as tiles-data-radio, at the hand-built places (the first station about 200, 150 there too). Shots to compare with it."
+areas = ["ui", "menus", "pipboy", "radio"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=4,16:point=200:150,17:click=200:150,18:point=off,20:key=down,20.5:key=use,23:key=use,25:close", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_radio_off_air_off.png,19:tiles_data_radio_off.png,22:tiles_data_radio_second_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 28
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand|waveform trace over the tiles', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy data: radio tuned to .+', min = 2, label = "switch off: the click and Enter tune, as before" },
+  { text = "pipboy data: radio off", count = 1, label = "switch off: Enter on the playing station turns it off, as before" },
+]
+order = [[{ re = 'pipboy data: radio tuned to ' }, { re = 'pipboy data: radio tuned to ' }, "pipboy data: radio off"]]
 
 [[scenario]]
 name = "tiles-data-custom-marker"

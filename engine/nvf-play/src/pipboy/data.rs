@@ -2912,26 +2912,91 @@ fn wave(p: &mut ChildSpawnerCommands, c: &mut Ctx, on: bool) {
     let (w, h) = (WAVE.width(), WAVE.height());
     c.image(p, "Interface\\Shared\\Meter\\tickmark_horiz.dds", at(o.x, o.y + h - TICKS + 2.0, w, TICKS), line);
     c.image(p, "Interface\\Shared\\Meter\\tickmark_vert.dds", at(o.x + w - TICKS + 2.0, o.y, TICKS, h), line);
-    let (left, mid, len) = wave_line();
+    let g = WaveGeom::hand_built();
     if !on {
-        c.line(p, left, mid, len, THICK, line);
+        c.line(p, g.left, g.mid, g.len, THICK, line);
         return;
     }
-    let piece = len / WAVE_SEGMENTS as f32;
-    for i in 0..WAVE_SEGMENTS {
-        p.spawn((at(left + i as f32 * piece, mid, piece, THICK), BackgroundColor(line), UiTransform::default(), WaveSegment(i), Pickable::IGNORE));
+    trace(p, g, line);
+}
+
+/// Where the trace lies in the node its pieces stand in: the flat line's left end, its top and
+/// its length, and the trace's greatest height either side of it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct WaveGeom {
+    pub(crate) left: f32,
+    pub(crate) mid: f32,
+    pub(crate) len: f32,
+    pub(crate) amplitude: f32,
+}
+
+impl WaveGeom {
+    /// The trace in a panel `size` with its top left at `origin` (the node's units): the
+    /// hand-built panel's proportions [documented: the flat line 2 high, 5 short of the width, 8
+    /// over the middle; observed: the trace's height, [`WAVE_AMPLITUDE`]] scaled from its 350
+    /// square [design]: at that size exactly the hand-built panel's numbers.
+    pub(crate) fn of(origin: Vec2, size: Vec2) -> WaveGeom {
+        let (sx, sy) = (size.x / WAVE.width(), size.y / WAVE.height());
+        WaveGeom { left: origin.x, mid: origin.y + (size.y - THICK) / 2.0 - 8.0 * sy, len: size.x - 5.0 * sx, amplitude: WAVE_AMPLITUDE * sy }
+    }
+
+    /// The hand-built panel's trace, in the page body's canvas units.
+    fn hand_built() -> WaveGeom {
+        WaveGeom::of(MAIN.min + WAVE.min, WAVE.size())
     }
 }
 
-/// Where the flat line lies: its left end, its top and its length.
-fn wave_line() -> (f32, f32, f32) {
-    let o = MAIN.min + WAVE.min;
-    (o.x, o.y + (WAVE.height() - THICK) / 2.0 - 8.0, WAVE.width() - 5.0)
+/// The trace's pieces in their parent node, along `g`, in `colour`; [`wave_moves`] moves them.
+/// The flat line under it is the caller's (the hand-built panel draws none while it plays; the
+/// file's panel has its own centre line, `crate::tiles::map_menu`).
+pub(crate) fn trace(p: &mut ChildSpawnerCommands, g: WaveGeom, colour: Color) {
+    let piece = g.len / WAVE_SEGMENTS as f32;
+    for i in 0..WAVE_SEGMENTS {
+        p.spawn((at(g.left + i as f32 * piece, g.mid, piece, THICK), BackgroundColor(colour), UiTransform::default(), WaveSegment { i, g }, Pickable::IGNORE));
+    }
 }
 
-/// One straight piece of the waveform panel's trace.
+/// One straight piece of the waveform panel's trace, and the trace it is a piece of.
 #[derive(Component)]
-pub struct WaveSegment(usize);
+pub struct WaveSegment {
+    i: usize,
+    g: WaveGeom,
+}
+
+/// Marks the trace painted over the Radio tab drawn from its file.
+#[derive(Component)]
+pub struct TraceOverTiles;
+
+/// The trace over the Radio tab drawn from `map_menu.xml` (`crate::tiles::map_menu::MapTiles::wave`,
+/// published by the one decision): the hand-built trace inside `MM_WaveformRect`'s measured box,
+/// cut to it, over the file's frame (its tick meters and centre line), the way the hotkey panel is
+/// painted over ITEMS (`super::hotkey_panel::draw_over_tiles`) [design: the original's
+/// `MM_Waveform` is an image its code animates, which animation is not known, so it stays hidden].
+/// Nothing while the radio is off: the file's centre line is the flat line then. Spawned again only
+/// when the box or the radio's state changes; [`wave_moves`] moves its pieces.
+pub fn trace_over_tiles(mut commands: Commands, screen: Option<Res<PipBoyScreen>>, tiles: Option<Res<crate::tiles::map_menu::MapTiles>>, roots: Query<Entity, With<TraceOverTiles>>, mut drawn: Local<Option<crate::tiles::map_menu::WaveShown>>) {
+    // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
+    let _canvas = crate::interface::original_units();
+    let want = tiles.as_ref().and_then(|t| t.wave).filter(|w| w.on);
+    let screen = screen.filter(|_| want.is_some());
+    if want == *drawn && (want.is_none() || !roots.is_empty()) {
+        return;
+    }
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    *drawn = None;
+    let (Some(w), Some(screen)) = (want, screen) else { return };
+    *drawn = Some(w);
+    info!("pipboy data: waveform trace over the tiles at ({:.0}, {:.0}) {:.0} x {:.0}", w.rect.min.x, w.rect.min.y, w.rect.width(), w.rect.height());
+    let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y) };
+    let window = Node { overflow: Overflow::clip(), ..at(w.rect.min.x, w.rect.min.y, w.rect.width(), w.rect.height()) };
+    commands
+        .spawn((TraceOverTiles, root, UiTargetCamera(screen.camera), GlobalZIndex(crate::tiles::draw::PIPBOY_TILES_Z + 1), Pickable::IGNORE, Name::new("Waveform trace over the page")))
+        .with_children(|p| {
+            p.spawn((window, Pickable::IGNORE)).with_children(|p| trace(p, WaveGeom::of(Vec2::ZERO, w.rect.size()), amber(LINE)));
+        });
+}
 
 /// The waveform panel's trace [observed: a capture of the original's Radio tab]: waves
 /// standing nearly still across the panel under an envelope that runs to the left, its
@@ -3001,14 +3066,14 @@ pub fn wave_moves(time: Res<Time<Real>>, radio: Option<Res<Radio>>, mut scope: R
         return;
     }
     scope.step(time.delta_secs(), radio.map_or(0.0, |r| r.pipboy_loudness()));
-    let (left, mid, len) = wave_line();
-    let point = |i: usize| Vec2::new(i as f32 / WAVE_SEGMENTS as f32 * len, mid - WAVE_AMPLITUDE * scope.height(i));
     for (s, mut node, mut turn) in &mut pieces {
-        let (a, b) = (point(s.0), point(s.0 + 1));
+        let g = s.g;
+        let point = |i: usize| Vec2::new(i as f32 / WAVE_SEGMENTS as f32 * g.len, g.mid - g.amplitude * scope.height(i));
+        let (a, b) = (point(s.i), point(s.i + 1));
         let d = b - a;
         let middle = (a + b) / 2.0;
         let length = d.length() + THICK / 2.0;
-        node.left = u(left + middle.x - length / 2.0);
+        node.left = u(g.left + middle.x - length / 2.0);
         node.top = u(middle.y - THICK / 2.0);
         node.width = u(length);
         *turn = UiTransform::from_rotation(Rot2::radians(d.y.atan2(d.x)));
@@ -3585,6 +3650,19 @@ mod tests {
             }
         }
         crate::pad::set_labels(crate::pad::Labels::Keys);
+    }
+
+    /// The trace's place, shared by the hand-built panel and the one drawn from the file: at the
+    /// file's 350 square exactly the hand-built panel's numbers (the flat line 5 short of the
+    /// width, 8 over the middle, the trace 110 high), elsewhere scaled to the box measured.
+    #[test]
+    fn the_trace_lies_as_the_hand_built_panel_at_its_size_and_scales_to_a_measured_box() {
+        let o = MAIN.min + WAVE.min;
+        assert_eq!(WaveGeom::hand_built(), WaveGeom { left: o.x, mid: o.y + (350.0 - THICK) / 2.0 - 8.0, len: 345.0, amplitude: WAVE_AMPLITUDE });
+        assert_eq!(WaveGeom::of(Vec2::ZERO, WAVE.size()), WaveGeom { left: 0.0, mid: (350.0 - THICK) / 2.0 - 8.0, len: 345.0, amplitude: WAVE_AMPLITUDE });
+        let half = WaveGeom::of(Vec2::new(10.0, 20.0), WAVE.size() / 2.0);
+        assert_eq!((half.left, half.len, half.amplitude), (10.0, 172.5, WAVE_AMPLITUDE / 2.0));
+        assert_eq!(half.mid, 20.0 + (175.0 - THICK) / 2.0 - 4.0);
     }
 
     #[test]

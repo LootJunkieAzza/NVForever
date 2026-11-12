@@ -1553,11 +1553,11 @@ prefabs it includes, `list_box.xml`, `list_box_template.xml`, `text_box.xml`, `t
 capture of the original's MapMenu traits was read for this slice but run08's map markers (§5.3);
 what the original writes into the traits below is not known unless tagged.
 
-**This slice draws Quests and Misc** [design, #1513]. The Local Map, the World Map and Radio keep
-the whole hand-built page while they show: the maps' drawing and picking need a shared viewport the
-file's map windows do not give yet, and Radio's waveform is `MM_Waveform`, an image the code gives
-a NIF animation ("set in code", which file not known), where the hand-built page draws its own trace
-of the radio's loudness (§5.3); the station list without its waveform is not drawn alone. The page
+**This slice draws Quests, Misc and Radio** [design, #1513]. The Local Map and the World Map keep
+the whole hand-built page while they show: their drawing and picking need a shared viewport the
+file's map windows do not give yet. Radio's waveform in the file is `MM_Waveform`, an image the code
+gives an animation ("set in code", which one not known); it stays hidden, and the hand-built trace
+of the radio's loudness (§5.3) is painted over the file's own frame of the panel (below). The page
 goes over to its tiles and back as the tab changes, as STATS' tabs do; with the switch on the maps'
 hand-built page is prepared early as every tab is (below), so Place Marker's question box (#1954)
 and its hover reset work there unchanged.
@@ -1621,7 +1621,12 @@ page's rules read of the drawing: how many rows fit, how far the right pane can 
 - `MM_NotesList` and `MM_ChallengeList` both show on tab 3 (their `visible`), each with a
   `square_filled.dds` highlight (`MM_Notes_SelectedNoteHighlight`, `MM_Challenge_SelectedHighlight`)
   hidden until set in code; the challenges' `_enabled` is set in code too.
-- Not read in this slice: the maps' windows and templates, the highlight box, `MM_WaveformRect`,
+- `MM_RadioStationList` (`list_box.xml`, as the other lists) and `MM_WaveformRect` beside it (500,
+  125, 350 square, shown on tab 4): `MM_WaveformMeterHoriz` (`tickmark_horiz.dds`, 32 high at its
+  foot, `cropy` 2), `MM_WaveformMeterVert` (`tickmark_vert.dds`, 32 wide at its right, `cropx` 2),
+  `MM_WaveformCenterLine` (`solid.dds`, 345 × 2 at y 166) and `MM_Waveform` (hidden, an `animation`
+  "Forward", set in code).
+- Not read in this slice: the maps' windows and templates, the highlight box,
   `MM_Headline_ChallengeType`, the two square highlights above.
 
 **What the code writes on Quests** [design]:
@@ -1652,6 +1657,16 @@ Quests where nothing is said:
 | A Sound or Voice note | `_ItemType` 3; the rect's `_ItemStringInfo` the time left as the hand-built page writes it ("00:30:9 remaining"), `_AudioFileCompletion` the share played (0 to 1) | `user0` is not written: the A hint's words are the model's. |
 | No note or challenge | `MM_DataRect` `visible` 0, `_ItemType` 0 | The text and picture emptied while they do not show. |
 | The hints | X the notes' filter (Active Notes / All Notes) or Next Challenge (dim), Y Challenges, A Play or Stop with a controller | By what each does (`Slot::of`); Y's key is the hand-built page's (R, with a controller Y). |
+
+**What the code writes on Radio** [design]: as on Quests where nothing is said:
+
+| Model (`pipboy::data`) | Tile, trait | Notes |
+|---|---|---|
+| The stations the Pip-Boy receives here (`crate::radio`'s list) | `MM_ListMarkerTemplate` rows under `MM_RadioStationList`, kept by the station's base FormID: `string`, `_selected` (the one playing: filled square), `_ShowEmptyMarker` 0, `_TextAlpha` 255; the list's `_enabled` 1 | The hand-built rows' words and square. Which template the original's code makes the stations from is not known [hypothesis: the marker template, as the playing station's square shows on the original's screenshots]. A click (`UseRecord`) or Enter tunes to the station, or turns the radio off on the one playing, the hand-built page's rule (`use_row`). |
+| The list's scroll | its own (`list::ListView`), as Quests' | The wheel over the page moves it. |
+| The waveform panel | `MM_WaveformRect/visible` 1 on Radio, 0 on the other tabs; `MM_Waveform/visible` 0 | Put right on every pass, as the lists' `visible`. The file's frame draws: its two tick meters and its centre line. `MM_DataRect` is hidden (`visible` 0, `_ItemType` 0). |
+| The trace while the radio plays (`data::WaveScope`) | none: painted over the tiles (`data::trace_over_tiles`), inside `MM_WaveformRect`'s box as laid out, cut to it | The hand-built trace (§5.3), its proportions scaled from the 350 square to the box measured (at 350 exactly the hand-built numbers: the line 5 short and 8 over the middle, 110 high at the loudest), in the hand-built line's colour, above the page's tiles in the Pip-Boy's image, as the hotkey panel over ITEMS (§5.2.1). No flat line of its own: the file's centre line stands under it, and alone while the radio is off. |
+| The hints | A Tune with a controller, none with the keyboard | `tab_buttons`. |
 
 **Every string written, and where it comes from** [design: LEGAL.md]: the tabs as above; the place,
 the quests', notes' and challenges' names and the challenges' descriptions (record data); a note's text (record data, `TNAM`) and picture's file (`XNAM`); the date and time and a
@@ -1704,11 +1719,12 @@ pane's window is published while it scrolls (the objectives, a text). A hint tha
 not take the pointer at its word is warned of and the page stays (its key still works); its key's
 text (`PCShortcutLabel`) stands beside the hint's box [documented: text_box.xml] and is not asked.
 
-**Falls back, whole page, with the reason** [design]: the maps and Radio; the question box up;
+**Falls back, whole page, with the reason** [design]: the maps; the question box up;
 `MapMenu` not in the tree; a tile or template above missing (a mod's restructured file), each tab
 asking for its own (a file short of Misc's text still draws Quests from the file, and the other way
 round); the tabs or a row not made; nothing prepared yet for this tab (no failure); the layout not
-usable. The test aid
+usable (on Radio also the waveform panel not shown, without a size or not wholly on the canvas: the
+trace would have no box). The test aid
 `NVF_PLAY_TEST_MAP_TILE_CUT=<name>[@<seconds>]` takes a tile or template as missing, and at its end
 builds the menu again from its file, for the recovery (with the switch on only). After three failing
 passes a missing name waits for the tree to change; a layout that is not usable is tried again
@@ -1718,8 +1734,10 @@ tree's shape changing.
 **Log**: `tiles: MapMenu draws <tab> from tiles` and `tiles: MapMenu leaves <tab> hand-built: <reason>`
 when that changes; `tiles: MapMenu page from tiles: tab quests, <n> rows, "<name>" selected, <m>
 objectives, hints: <…>` or `… tab misc notes|challenges, <n> rows, "<name>" selected, text|picture|audio|no
-pane, hints: <…>` when that line changes (an audio note playing changes the time left every frame,
-not the line); `MapMenu drawn by hand: <reason>` (a warning)
+pane, hints: <…>` or `… tab radio stations, <n> rows, "<name>" selected, waveform on|off, hints: <…>`
+when that line changes (an audio note playing changes the time left every frame, not the line);
+`pipboy data: waveform trace over the tiles at (<x>, <y>) <w> x <h>` when the trace is painted again
+over the file's panel; `MapMenu drawn by hand: <reason>` (a warning)
 for a failure; the painter's `tiles: MapMenu drawn from tiles (…)` and `set out for the Pip-Boy's
 image: …` lines.
 
@@ -1732,6 +1750,10 @@ and hits on the real file; their logs cannot prove pixels, only their shots can.
 
 **Known differences behind the switch** [design]: the hints' hover box is the file's (`_box_visible`
 on mouseover), which the hand-built page does not draw; the file's own hint rules are not used.
+Radio's waveform: the original animates `MM_Waveform` (which animation, and whether its centre line
+shows under it, is not known); here `MM_Waveform` stays hidden and the hand-built trace is painted
+over the file's frame, its centre line standing under the trace while the radio plays (the
+hand-built panel draws no flat line then).
 **Not known**: what the original writes into `_TextAlpha`, `_ShowEmptyMarker` and the objectives'
 scroll; whether the original's objectives scroll by rows, as a `list_box.xml` list's rows move by
 `_current_value` × `_scroll_delta` [hypothesis: the file's expressions alone do not say what the
