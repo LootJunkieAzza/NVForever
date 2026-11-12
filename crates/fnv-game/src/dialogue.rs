@@ -95,8 +95,8 @@ pub struct Choice {
     /// The text is the line's prompt (else the topic's name).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub prompt: bool,
-    /// The line has the Goodbye flag: choosing it ends the conversation at once, and the
-    /// actor finishes the line in the world (`Game::choose`).
+    /// The line has the Goodbye flag: it ends the conversation when it has been said
+    /// (`Game::finish_line`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub goodbye: bool,
     /// The entry is shaded as already chosen: the actor said this line before and the
@@ -774,9 +774,9 @@ impl<'a> Game<'a> {
     ///    ([`crate::game::PlayerState::topics`], the set `AddTopic` fills)
     ///    [documented: xEdit INFO "Add Topics"; hypothesis: they are added when the
     ///    line ends, and stay known after the conversation];
-    /// 3. a Goodbye line ends the conversation [documented: Category:Dialogue] (one the
-    ///    player chose has ended it already, as it started, and ends as a farewell:
-    ///    `Game::choose`, `Game::end_line`);
+    /// 3. a Goodbye line ends the conversation [documented: Category:Dialogue] (with
+    ///    `GameConfig::goodbye_at_once` one the player chose has ended it already, as it
+    ///    started, and ends as a farewell: `Game::choose`, `Game::end_line`);
     /// 4. otherwise, if the line has follow-up lines (TCFU), the first one the actor can
     ///    say is said next, with no choice by the player [owner statement 2026-10-10:
     ///    follow-ups have no player response, as in Doc Mitchell's farewell; not yet
@@ -1119,8 +1119,10 @@ impl<'a> Game<'a> {
     }
 
     /// The player picks entry `index` of the offered list: the actor says its line. A
-    /// Goodbye line closes the conversation at once and goes on in the world
-    /// ([`Game::say_farewell`]).
+    /// line with the Goodbye flag is said in the conversation like any other, the player
+    /// held, and ends it when it is over ([`Game::finish_line`]) [owner statement
+    /// 2026-11-11, issue #2157]. With `GameConfig::goodbye_at_once` it closes the
+    /// conversation at once and goes on in the world ([`Game::say_farewell`]).
     pub fn choose(&mut self, index: usize) -> Result<FormId, String> {
         let c = self.dialogue.as_ref().ok_or("no conversation is running")?;
         if c.line.is_some() {
@@ -1152,11 +1154,22 @@ impl<'a> Game<'a> {
         Ok(choice.info)
     }
 
-    /// A Goodbye line the player chose closes the conversation at once: the menu goes and
-    /// the actor finishes the line in the world, said at the player as a farewell
-    /// ([`Speech::farewell`]) [observed: owner's playtest 2026-11-05, against the
-    /// original: choosing a Goodbye closes the menu at once and the actor finishes the
-    /// line as the player walks away]. The line keeps the time it has left: the rest of
+    /// **Off by default** (`GameConfig::goodbye_at_once`): a chosen line with the Goodbye
+    /// flag stays in the conversation and holds the player until it is said, like the
+    /// lines before it; it ends the conversation when it is over ([`Game::finish_line`])
+    /// [owner statement 2026-11-11, issue #2157: the last line of a conversation must
+    /// hold the player like the rest; said in the world, a quest's line can be
+    /// interrupted in play]. From 2026-11-05 (#1606) until then every chosen Goodbye line
+    /// closed its conversation at once. The data does not tell a plain goodbye from a
+    /// quest's last line: actors' own "Goodbye." lines are ordinary topics (Chet's is
+    /// VFreeformGoodspringsGoodspringsChetTopic001 [observed]), so one rule holds for all.
+    ///
+    /// With the switch on, a Goodbye line the player chose closes the conversation at
+    /// once: the menu goes and the actor finishes the line in the world, said at the
+    /// player as a farewell ([`Speech::farewell`]) [observed: owner's playtest
+    /// 2026-11-05, against the original: choosing a Goodbye closes the menu at once and
+    /// the actor finishes the line as the player walks away]. The line keeps the time it
+    /// has left: the rest of
     /// the response being said and the responses after it, so it lasts as long as it
     /// would have in the conversation. Its begin script, `line_started`, its first
     /// `response_said` and Say Once already came with [`Game::speak`] and do not come
@@ -1191,6 +1204,10 @@ impl<'a> Game<'a> {
     fn say_farewell(&mut self, actor: FormId, topic: FormId, info: FormId, lines: u32) {
         let dv = self.dialogue_view();
         let Some(def) = dv.info(&info).filter(|d| d.goodbye) else { return };
+        // Off by default: the line holds the player until it is said (#2157).
+        if !self.cfg.goodbye_at_once {
+            return;
+        }
         if self.speech.iter().any(|s| s.speaker == actor) {
             return;
         }

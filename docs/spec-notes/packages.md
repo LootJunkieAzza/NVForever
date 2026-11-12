@@ -980,6 +980,18 @@ listed record data the engine ignored. What each piece means, and what is built:
   - Immobile: the AI keeps the creature where it is, as one without movement clips
     (nvforever `residents`, log `ai: <name> cannot move (no movement animations, or
     flagged Immobile)`).
+  - Immobile with a Turning Speed (CREA TNAM) of 0: the creature never turns either, not
+    for a conversation, a line it says to someone, a script's Look or a combat target,
+    and the engine does not draw it aimed at a target (fnv-ai `Ai::fix_heading`,
+    nvforever `residents` `never_turns`, log `ai: <name> never turns`). In FalloutNV.esm
+    4 of the 50 Immobile creatures have 0: MrHouse, MrHouseOFFLINE and YesManMainframe
+    (the penthouse and basement screens) and CRVoid; the 46 others (turrets, spore
+    plants, Festus, NVCRMrHouse, NVCRPenthousemaincomputer) have 30 to 300 [observed:
+    the master's records]. An Immobile creature with a Turning Speed above 0 turns in
+    place to its combat target (a turret). [hypothesis: that the original reads the two
+    fields so; the owner saw the screen stay still in the original and turn here after a
+    conversation and in a fight, issues #1543 and #2150.] Whether the original's screen
+    enters combat at all is not observed (observer-checks.md).
   - The flags come through a template with "Use Model/Animation" [hypothesis: the
     Animation tab goes with the model]; Immobile is read off the base record only.
 - Not built: a creature that swims but neither walks nor flies keeping to water (none in

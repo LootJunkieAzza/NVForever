@@ -608,11 +608,24 @@ All of it is in `GameSnapshot`.
   lines, e.g. Anders' thanks in VMS46, INFO 0x00142A9C; the other 4 lines have neither
   the flag nor choices [observed: `fnvtool dialogue lines --all`]; observer check 39]. A
   conversation the end script ends some other way does not start it [design].
-- **A Goodbye line the player chooses ends the conversation at once** (`Game::choose`,
-  issue #1606): the dialogue menu closes as the line starts, the game is no longer
+- **A chosen line with the Goodbye flag holds the player until it is said**, like the
+  lines before it, and ends the conversation when it is over (`Game::finish_line`)
+  [owner statement 2026-11-11, issue #2157: the last line of a conversation must hold
+  the player like the rest; said in the world, a quest's line can be interrupted in
+  play]. From 2026-11-05 (#1606) until then every chosen Goodbye line closed its
+  conversation at once, a topic's last line with its quest stage as much as "Goodbye.".
+  One rule for all of them: the data does not tell a plain goodbye from a quest's last
+  line, since actors' own "Goodbye." lines are ordinary topics (Chet's is
+  VFreeformGoodspringsGoodspringsChetTopic001, not the GOODBYE topic [observed: the
+  `goodbye-choice-holds` smoke log]).
+- **Kept behind a switch, off by default** (`GameConfig::goodbye_at_once`; nothing in
+  the engine sets it): a chosen Goodbye line ends the conversation at once
+  (`Game::choose`, `Game::say_farewell`, issue #1606). The dialogue menu closes as the
+  line starts, the game is no longer
   paused, and the actor finishes the line in the world, said at the player
   [observed: owner's playtest 2026-11-05, against the original: choosing a Goodbye
-  closes the menu at once and the actor finishes the line as the player walks away].
+  closes the menu at once and the actor finishes the line as the player walks away;
+  which lines the original does this for is open, §7 item 18].
   In the runtime the line moves to `Game::speech` as a farewell (`Speech::farewell`)
   with the time it has left (the rest of the response being said and the responses
   after it), and `dialogue_ended` (`goodbye`, the line counted) comes before its
@@ -629,7 +642,7 @@ All of it is in `GameSnapshot`.
   Goodbye greeting at the player [hypothesis: a Goodbye line's end result sets quest
   stages and must not be lost; the owner's catch-all statement of 2026-10-27 was about
   the greeting]. Game time and GameMode scripts run while it is said, as for any line
-  said in the world. Not changed, as they are not chosen: a Goodbye greeting that opens
+  said in the world. Not moved, as they are not chosen: a Goodbye greeting that opens
   a conversation (a force greet, above), a Goodbye line of a topic named by
   StartConversation, and a Goodbye follow-up; each ends its conversation when it is
   over. Nor does a chosen Goodbye line whose begin result made the actor say another
@@ -1004,7 +1017,9 @@ up to C and F):
     they talk from; how long the starter tries); whether the player's presence matters for
     random conversations; general bit 12 as the switch between the default and the
     package's own Fallout behaviour (packages.md §1).
-18. A chosen Goodbye line said on in the world (§5, issue #1606): whether the original
+18. A chosen Goodbye line said on in the world (§5, issues #1606 and #2157): which
+    chosen Goodbye lines close the menu at once in the original, if any (the runtime:
+    none, every one holds the player until it is said; the switch closes all); whether it
     closes the menu at once also for a conversation through a talking activator; whether
     the end result runs when the line ends or as the menu closes; whether the actor stops
     to finish the line or walks on; what ends the line early (another line, a fight, the
@@ -1092,16 +1107,16 @@ gains `dialogue`.
   85 at its end. 15 lines; tag skills Guns, Science, Sneak as before. The test up to
   the last answer happens in paused time (real time passes for the lines, script time
   does not). That last line is the fourteenth `choose` (15 lines: the opening line and
-  fourteen answers), a chosen Goodbye line, so since issue #1606 it closes the
-  conversation at once (§5) and Doc finishes it in the world, in game time. VCG01Test's
-  quest script does the tag-skill calculation in GameMode once `bDoFinalCalculation`
-  is 1, which that line's begin script sets: the calculation runs in the first GameMode
-  frames while Doc finishes the line, and stage 85 is set by its end script when the
-  line ends, still before stage 90 opens the tag-skill menu 1 s later [design; the
-  real-data test `dialogue_data.rs` checks the tag skills and stages]. (While the
-  conversation paused the game up to its end, before #1606, the calculation ran in the
-  first GameMode frames after the line; as long as conversations did not pause, while
-  it was being said. The result is the same.)
+  fourteen answers), a chosen Goodbye line: it
+  holds the player until it is said (§5, issue #2157) and stage 85 is set by its end
+  script as the conversation ends. VCG01Test's quest script does the tag-skill
+  calculation in GameMode once `bDoFinalCalculation` is 1, which that line's begin
+  script sets: the calculation runs in the first GameMode frames after the line, still
+  before stage 90 opens the tag-skill menu 1 s later [design; the real-data test
+  `dialogue_data.rs` checks the tag skills and stages]. (Between #1606 and #2157 the
+  line closed the conversation at once and the calculation ran while Doc finished it in
+  the world; as long as conversations did not pause, while it was being said. The
+  result is the same.)
 - **The farewell.** Stand-in: `talk` for Doc's dialogue package after stage 115 (and 4 s
   for his walk). Then the game's: the greeting that returns the player's things,
   two follow-up lines (the Pip-Boy with its message, the suit by the player's sex), the
