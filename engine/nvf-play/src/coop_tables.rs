@@ -61,6 +61,9 @@ pub mod game {
     /// An arm wrestling match, as the game deciding it has it
     /// (`crate::armwrestle_coop::ArmView`; actions `ArmAction`).
     pub const ARMWRESTLE: u8 = 15;
+    /// A drinking contest at a bottle, as the game deciding it has it
+    /// (`crate::drink_coop::DrinkView`; actions `DrinkAction`).
+    pub const DRINK: u8 = 16;
 
     /// The game's name, as the lobby and the notes say it.
     pub fn word(g: u8) -> &'static str {
@@ -74,6 +77,7 @@ pub mod game {
             CARAVAN => "caravan",
             POOL => "pool",
             ARMWRESTLE => "arm wrestling",
+            DRINK => "the drinking contest",
             _ => "a table",
         }
     }
@@ -1099,6 +1103,13 @@ pub fn summary(tables: &Tables, name: &str, game: u8, blob: &[u8]) -> Vec<String
                 out.push(crate::armwrestle_coop::summary(who, &v));
             }
         }
+        game::DRINK => {
+            // Not for a drinker in it: its own screen shows the contest, and nothing is
+            // drawn over a game (owner, 2026-11-12).
+            if let Some(v) = crate::drink_coop::DrinkView::decode(blob).filter(|v| tables.me.is_none_or(|me| v.slot_of(me).is_none())) {
+                out.push(crate::drink_coop::summary(|p| tables.name(p), &v));
+            }
+        }
         game::POKER => match crate::poker::coop::PeerView::decode(blob) {
             Some(crate::poker::coop::PeerView::Table(v)) => {
                 let casino = crate::poker::Casino::from_letter(&v.casino.to_string()).map_or("a card table", |c| c.title());
@@ -1141,7 +1152,7 @@ pub(crate) fn publish(
     (bj, rl, sl): (Option<Res<crate::blackjack::BlackjackScreen>>, Option<Res<crate::roulette::RouletteScreen>>, Option<Res<crate::slots::SlotsScreen>>),
     (darts, fillet, poker): (Option<Res<crate::minigames::DartsScreen>>, Option<Res<crate::minigames::FilletScreen>>, Option<Res<crate::poker::PokerScreen>>),
     (pvp, foe): (Option<Res<crate::caravan::PvpWire>>, Option<Res<crate::darts_foes::DartsOpponent>>),
-    (pool, arm, arm_seat): (Option<Res<crate::pool::PoolScreen>>, Option<Res<crate::armwrestle_coop::ArmOut>>, Option<Res<crate::armwrestle_coop::ArmSeat>>),
+    (pool, arm, arm_seat, drink): (Option<Res<crate::pool::PoolScreen>>, Option<Res<crate::armwrestle_coop::ArmOut>>, Option<Res<crate::armwrestle_coop::ArmSeat>>, Option<Res<crate::drink_coop::DrinkOut>>),
 ) {
     let now = time.elapsed_secs();
     let me = tables.me.unwrap_or(0);
@@ -1202,6 +1213,12 @@ pub(crate) fn publish(
     if let (None, Some((table, blob))) = (out.as_ref(), arm.as_deref().and_then(|a| a.0.clone())) {
         at = at.or(Some((game::ARMWRESTLE, table)));
         out = Some((table, game::ARMWRESTLE, blob));
+    }
+    // A drinking contest this game decides (`crate::drink_coop`), when no other table of
+    // this player's is open.
+    if let (None, Some((bottle, blob))) = (out.as_ref(), drink.as_deref().and_then(|d| d.0.clone())) {
+        at = at.or(Some((game::DRINK, bottle)));
+        out = Some((bottle, game::DRINK, blob));
     }
     // Seated at the arm wrestling table: its match is on this player's screen already.
     if let Some((table, _, _)) = arm_seat.as_deref().and_then(|s| s.at) {

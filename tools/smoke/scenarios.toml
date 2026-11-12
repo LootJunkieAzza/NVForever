@@ -2063,6 +2063,7 @@ expect = ["furniture summary: 1 of 1 actors sat down, 1 got up again"]
 # The range of repeats catches excess retries only: it does not prove their spacing (retries
 # every 3 s would pass). The 5 s spacing is proved by the unit tests of
 # crates/fnv-actor/src/furniture_retry.rs.
+
 [[scenario]]
 name = "resident-furniture-refusal-retry"
 source = "issue #1506, docs/spec-notes/furniture.md §7: the test aid's settler is on Easy Pete's chair when his AI resumes; refused (in use), he waits, asks again (logged once) and sits soon after the settler got off"
@@ -2091,6 +2092,7 @@ expect = [
 ]
 
 # The same run without the settler: nothing refuses, he sits at his first order.
+
 [[scenario]]
 name = "resident-furniture-refusal-control"
 source = "issue #1506: the control of resident-furniture-refusal-retry, without the occupant"
@@ -9813,7 +9815,6 @@ order = [[
   { re = 'pause menu: rows 4-12 of \d+ shown' },
   { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up shows the row before again" },
 ]]
-
 
 [[scenario]]
 name = "settings-scroll-headings"
@@ -22033,6 +22034,7 @@ expect = [
   { re = 'talk clip: .*001073E8 line over: \d+ frames, level mean 0[.](1\d|[2-9]\d), peak (0[.][5-9]\d|1[.]00)', label = "the chest's level moves with the words (mean above 0.1, peak above 0.5)" },
   { re = 'test aid: screenshot .*victor_talking[.]png', label = "the frames are saved" },
 ]
+
 [[scenario]]
 name = "melee-knockback"
 source = "#1070 (docs/spec-notes/combat-rules.md, Knockback): a melee blow pushes the living actor it hits back through its character, by the Melee Knockback Formula's force (a speed falling to rest over fKnockbackTime); #1386: one player power blow, isolated and tied to its report"
@@ -22843,16 +22845,6 @@ order = [[
 expect = [
   { re = 'creator: data: 5 races', label = "Ghoul is a playable race with the plugin" },
 ]
-
-
-
-
-
-
-
-
-
-
 
 [[scenario]]
 name = "ede-repair"
@@ -24210,6 +24202,7 @@ order = [["frame generation: on but not running (Needs FSR 3.1)", "frame generat
 forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
 # [design: issue #1803] Compare identical first raises with and without hidden draws.
+
 [[scenario]]
 name = "pipboy-first-open"
 source = "issue #1803; docs/spec-notes/pipboy.md section 8: hidden start warm-up and the first visible raise"
@@ -24250,6 +24243,7 @@ expect = [
 ]
 forbid = ["pipboy: warm-up start", "pipboy: warm-up asked", "pipboy: first raise held", "menu request ignored"]
 manual = "This control must ask new pipelines at the first raise; otherwise the comparison is inconclusive. Compare its first_a through first_d with the warm run for the old screen fault. Pipeline compile durations and the last screen/glare ready lines determine the faulty interval; do not infer an unmeasured duration from the shot schedule. The shader-defs line for the last screen/glare pipeline to become ready identifies the candidate variant in the blue/brown depth fight; confirm against the corresponding shots."
+
 [[scenario]]
 name = "tiles-repair-services"
 source = "[design] repair.md section 3.1, issue #1468: the vendor's repair services menu from its file, its rows, labels, cards, buttons and blur, the model's rules and sounds unchanged; the worn weapons of repair-services"
@@ -24920,7 +24914,6 @@ expect = [
   { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "and the page comes from its tiles" },
 ]
 order = [["InventoryMenu drawn by hand: IM_InventoryListTemplate missing", "test aid: NVF_PLAY_TEST_INVENTORY_TILE_CUT over", { re = 'test aid: InventoryMenu built again from \S' }, { re = 'tiles: InventoryMenu page from tiles: ' }]]
-
 
 [[scenario]]
 name = "pipboy-world-map-child-family"
@@ -25670,6 +25663,7 @@ expect = [
   { re = 'armwrestle: GSSettlerCM is called to seat 1', label = "the settler is called to the other chair" },
   { re = 'furniture: 00104F08 goes to FF[0-9A-F]{6}', label = "the settler gets onto the created chair" },
 ]
+
 [[scenario]]
 name = "combat-script-values"
 source = "issue #2121 (docs/design/alert.md §6; npc-behaviour-compare.md §11): what scripts read of a fight. A gecko fighting the god-mode player reads IsInCombat 1, GetIsAlerted 0 (SetAlert's alone; the original read 0 in every in-combat sample), GetCombatTarget the player and procedure COMBAT 13 / package COMBAT 5, while it still draws its stance (`Game::alert_stance`); SetAlert 1 then reads 1"
@@ -26781,3 +26775,70 @@ order = [[
   { re = 'menu: Focus\(Container\): the Container list has the focus', label = "RT picks the container's list" },
   { text = "menu: close", label = "B closes" },
 ]]
+
+[[scenario]]
+name = "drink-table-solo"
+source = "Drinking contest (owner 2026-11-11, drink-c): the prop (fnv-game drink_table.rs, a whiskey bottle on a $100 NCR bill on a Table01 in the Prospector Saloon) and the contest in the world (nvf-play drink_world.rs). The view is shot wide and close at the table, then the test aid starts a contest at the bottle with the player alone and its steering let go (skill 0): the player steps onto its mark, takes a drink (the standing drinking clip) at each shrink, passes out where it stands (the knockdown, held down), and when the contest ends gets up again (the get-up clip) with its view back"
+areas = ["minigames"]
+paths = ["crates/fnv-game/src/drink_table.rs", "engine/nvf-play/src/drink_world.rs", "engine/nvforever/src/consume_anims.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:215:-545:3457,6:215:-640:3457", NVF_PLAY_TEST_LOOK = "1.5:180:-12,6.5:180:-48", NVF_PLAY_TEST_DRINK_TABLE = "10:7:0", NVF_PLAY_TEST_DRINK_SHOTS = "drink-table-shots", NVF_PLAY_TEST_SHOTS = "4.5:drink_table_wide.png,9:drink_table_close.png,12:drink_table_mark.png,16:drink_table_16.png,20:drink_table_20.png,24:drink_table_24.png,28:drink_table_28.png,32:drink_table_32.png,36:drink_table_36.png,40:drink_table_40.png,44:drink_table_44.png,48:drink_table_48.png,52:drink_table_52.png,56:drink_table_56.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 64
+manual = "no corner message (tutorial) or quest line on any shot between drink_table_mark.png and drink_end.png; drink_table_wide.png and drink_table_close.png: the whiskey bottle upright on the flat $100 NCR bill on the table, nothing floating or sunk, the table on the floor; drink_table_mark.png and later: the player in third person on its mark at the table; drink-table-shots/drink_shrink_<n>.png the drinking clip with the bottle in the hand; drink_out_0.png the player lying beside the table; drink_end.png and the last timed shots the player up again, whole (head and body), no second torso"
+order = [[
+  { re = 'drink table: goodsprings: made Table01 0xFF7FA100', label = "the table is made" },
+  { re = 'drink table: goodsprings: made Whiskey 0xFF7FA102', label = "the bottle is made" },
+  { re = 'drink world: test aid starts a contest at bottle FF7FA102', label = "a contest starts at the saloon's bottle" },
+  { re = 'drink world: goodsprings: this player drinks in slot 0 of 1', label = "the player steps onto its mark" },
+  { re = 'drink world: goodsprings: drink 1: this player drinks', label = "a drink at the first shrink" },
+  { re = 'drink world: goodsprings: this player passes out \(\w+\): laid down and held', label = "the player is laid down and held" },
+  { re = 'drink world: goodsprings: the contest is over: this player wakes and gets up', label = "the player wakes at the end" },
+  { re = 'drink world: goodsprings: this player stands again', label = "the player stands, the view back" },
+],[
+  { re = 'drink world: test aid starts a contest at bottle FF7FA102', label = "the contest starts" },
+  { text = "drink contest: closed", label = "the contest's screen closes" },
+  { re = 'quest message on screen: ', label = "the quest lines held during the contest show after it (owner 2026-11-12)" },
+]]
+
+[[scenario]]
+name = "drink-table-win"
+source = "Drinking contest (owner 2026-11-11 via parity: the winner does \"tap dance or something silly\", drink-c): at the Prospector Saloon's bottle the test aid starts a contest of the player, steered well, against the two nearest NPCs where they stand (Sunny Smiles and Cheyenne; at skill 1 seed 42 the player lost at drink 3, so the aid pulls three times as hard). The NPCs pass out, the player wins and tap-dances (emote tap-dance, IDLE SpecialIdleNVTapDance) on the stage by the table (open floor, facing the window side) until the contest's end, seen through the stage camera between it and the windows with a soft fill light faded up on its front, then stands and the view is the one before"
+areas = ["minigames"]
+paths = ["engine/nvf-play/src/drink_world.rs", "engine/nvf-play/src/emotes.rs", "engine/nvforever/src/drink_stage.rs", "crates/fnv-game/src/drink_table.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:215:-600:3457", NVF_PLAY_TEST_DRINK_TABLE = "6:42:3:2", NVF_PLAY_TEST_DRINK_SHOTS = "drink-win-shots" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 120
+manual = "in target/smoke/drink-win-shots: drink_win.png and drink_board.png the player on the stage north-east of the table, seen from the front and above (an inner wall, not a window, behind it), lit, tap-dancing (whole body with its head); drink_end.png standing again"
+order = [[
+  { re = 'drink world: test aid starts a contest at bottle FF7FA102 \(seed 42, skill Some\(3\.0\), 2 NPC\(s\)\)', label = "a contest at the saloon's bottle against two NPCs" },
+  { re = 'drink contest: slot 0 \(You\) wins', label = "the player wins" },
+  { re = 'drink world: goodsprings: player slot 0 wins: the win camera at \(\d+, -\d+, \d+\) looks at the stage \(300, -620, 3556\)', label = "the win camera on the stage" },
+  { re = 'drink world: goodsprings: the winner steps onto the stage \(300, -620\) facing 135 deg', label = "the winner steps onto the stage, facing the camera" },
+  { re = 'drink world: goodsprings: this player wins: the drink ends, the tap-dance until the contest', label = "the winner starts the tap dance" },
+  { re = 'drink stage: the fill light comes up at', label = "the fill light fades up on the winner" },
+  { text = "drink contest: closed", label = "the contest's screen closes" },
+  { re = 'drink world: goodsprings: the contest is over: the win camera lets go', label = "the win camera lets go" },
+  { re = 'drink world: goodsprings: the contest is over: the dance ends, back to standing', label = "the dance ends at the contest's end" },
+  { re = 'drink world: goodsprings: this player stands again', label = "the view is back" },
+  { re = 'drink stage: the fill light is down', label = "the fill light fades down after the dance (0.8 s)" },
+]]
+
+[[scenario]]
+name = "drink-contest-solo"
+source = "Drinking contest (owner 2026-11-11, drink-a): fnv-game drink_contest.rs and nvf-play drink_contest.rs. In the Prospector Saloon the test aid starts a contest of the player against the two nearest NPCs (Endurance from their records); the aid steers the player back to the centre, the NPCs steer themselves from the seed. The targets shrink with every drink, the NPCs pass out one by one, the player wins, the Endurance highlight plays, the leaderboard shows and the screen closes"
+areas = ["minigames"]
+paths = ["crates/fnv-game/src/drink_contest.rs", "engine/nvf-play/src/drink_contest.rs", "engine/nvf-play/src/flourish.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_DRINK = "6:42:2:bot", NVF_PLAY_TEST_DRINK_SHOTS = "drink-shots" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 110
+manual = "in target/smoke/drink-shots: drink_shrink_<n>.png the ring smaller each drink, the small circle inside it, \"Keep it centered\" under it, the roster top left; drink_out_<slot>.png that NPC's row Out; drink_win.png the Endurance picture swaying over LAST ONE STANDING / YOU WIN; drink_board.png the leaderboard, the player first"
+expect = [
+  { re = 'drink contest: test aid starts a contest \(Bot\) with 2 NPCs', label = "two NPCs at the saloon drink against the player" },
+  { re = 'drink contest: starts at 00000000, seed 42, stake 25, pot 75', label = "the contest starts with a pot of every stake" },
+  "drink contest: You takes drink 1, target 0.85",
+  "drink contest: You takes drink 3, target 0.61",
+  { re = 'drink contest: (?!You)[^(]+ passes out', label = "an NPC passes out" },
+  { re = 'drink contest: slot 0 \(You\) wins, this player after (?P<s>[\d.]+)s', range = [30, 100], label = "the player wins in 30-100 s" },
+  "flourish: DrinkContest",
+  "drink contest: closed",
+]

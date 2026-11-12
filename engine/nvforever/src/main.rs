@@ -123,6 +123,8 @@ mod nav;
 mod coop;
 // B42 Inject / Interact item animations, seen by co-op players too (consume_anims.rs).
 mod consume_anims;
+// The drinking contest's win shot: one camera on the dancing winner, lit (drink_stage.rs).
+mod drink_stage;
 mod emote_play;
 mod mate_heads;
 mod slots_seat;
@@ -1745,6 +1747,8 @@ fn main() -> AppExit {
             app.add_plugins(npc_stimpaks::NpcStimpaksPlugin);
             // Item animations: B42 Inject and Interact (consume_anims.rs).
             app.add_plugins(consume_anims::ConsumeAnimsPlugin);
+            // The drinking contest's win shot: the stage camera and its key light (drink_stage.rs).
+            app.add_plugins(drink_stage::DrinkStagePlugin);
             // Emotes on the player's body and the other players' puppets (emote_play.rs).
             app.add_plugins(emote_play::EmotePlayPlugin);
             // The other players' name tags over their drawn heads, seated or not (mate_heads.rs).

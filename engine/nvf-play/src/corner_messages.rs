@@ -233,6 +233,16 @@ pub(crate) fn held(panel_open: bool, state: Option<crate::PlayState>, driven: bo
     panel_open || state.is_some_and(|s| s != crate::PlayState::Playing) || driven || kill_cam
 }
 
+/// One of NVForever's own mini-games in the world holds the controls (an Alt lock under
+/// `fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX`): the corner messages
+/// and the quest lines wait (hidden, their clocks stopped) until it is over, as they do
+/// behind the mini-games that are menus (arm wrestling, slots, cards) [owner 2026-11-12,
+/// on the drinking contest's screen: "These messages need to stop showing up during
+/// games! And quest messages too"].
+pub(crate) fn in_world_game(script: Option<&crate::script::ScriptState>) -> bool {
+    script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.other.alt_locks.keys().any(|k| k.starts_with(fnv_game::nvse_other::ENGINE_GAME_LOCK_PREFIX)))
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw(
     mut commands: Commands,
@@ -251,13 +261,14 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     state: Option<Res<State<crate::PlayState>>>,
     driven: Option<Res<crate::player::ViewDriven>>,
-    (kill_cam, vats, hud): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::hud::HudView>>),
+    (kill_cam, vats, hud, script): (Option<Res<crate::kill_cam::KillCam>>, Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::hud::HudView>>, Option<Res<crate::script::ScriptState>>),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
     // A match's end view holds them as a kill camera does (`HudView::end_view`), and so
-    // does the classic VATS style while it plays its queued attacks.
-    let cut = kill_cam.is_some_and(|k| k.active()) || hud.is_some_and(|h| h.end_view) || vats.is_some_and(|v| v.playing_back());
+    // do the classic VATS style while it plays its queued attacks and a mini-game in the
+    // world (`in_world_game`).
+    let cut = kill_cam.is_some_and(|k| k.active()) || hud.is_some_and(|h| h.end_view) || vats.is_some_and(|v| v.playing_back()) || in_world_game(script.as_deref());
     let held = held(panel.view.is_some(), state.map(|s| *s.get()), driven.is_some_and(|d| d.0), cut);
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
