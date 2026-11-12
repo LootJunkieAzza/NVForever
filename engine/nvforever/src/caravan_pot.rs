@@ -15,7 +15,7 @@
 //!
 //! Sizes and weights are a real cap's, coin's and note's ([`crate::caravan_view`] for the
 //! sizes) [hypothesis: a crown cap weighs about 2 g, a coin about 5 g, a note about 1 g;
-//! the game gives none]. The cards' and the screen's words' places ([`card_zones`],
+//! the game gives none]. The cards' and the screen's words' places ([`money_zones`],
 //! [`text_zones`]) are walls on the table no piece can slide into, so nothing comes to rest
 //! where a card can lie or under a number [design, owner 2026-11-09; parity 2026-11-12].
 //!
@@ -52,6 +52,10 @@ const PACE: f32 = 0.7;
 /// "each stack starts falling at the same time ... individual items still fall") [design].
 const FIRST_DROP: f32 = 0.15;
 const STACK_GAP: f32 = 0.06;
+/// Notes up a stack follow further apart (s): each lands on the one under it after that
+/// one has come down, rather than knocking it into the planks [design: the pot test,
+/// 2026-11-12, with fans overlapping, had one note pressed in and lifting again].
+const NOTE_STACK_GAP: f32 = 0.25;
 /// Pieces of one handful that would start in each other are let go one over the other,
 /// this far apart (m) [design].
 const DROP_SPACE: f32 = 0.002;
@@ -115,6 +119,18 @@ const NOTE_LAND: f32 = 0.12;
 /// between the planks and the caps on it shook them without end in the solver (the pot
 /// tests, 2026-11-12) [design].
 const NOTE_PIN_AFTER: f32 = 1.5;
+/// A note tipped less than this (the cosine: about 2 degrees, its ends 3 mm) is laid flat
+/// when pinned [design].
+const NOTE_LAY_FLAT: f32 = 0.9994;
+/// The most a cap or coin is lifted out of the pinned piece under it when it is pinned
+/// (m): its own thickness at most [design].
+const ROUND_UNSINK_MOST: f32 = 0.004;
+/// A cap or coin tipped more than this (rad, about 34 degrees) when it would be pinned is
+/// tipped down to [`RETIP_TO`] (about 20) first [design].
+const RETIP_FROM: f32 = 0.6;
+const RETIP_TO: f32 = 0.35;
+/// A flat note slower than this (m/s) is pinned [design].
+const NOTE_PIN_V: f32 = 0.05;
 /// A landed cap or coin lying still this long (s), or this long after it landed however it
 /// lies, is pinned where it is too: a real one is dead still a moment after it settles,
 /// while in the solver a few grams resting on a heap creep and tremble without end (the pot
@@ -148,8 +164,9 @@ const NOTE_DOWN: f32 = 0.006;
 /// note lay on an 8 cm wall).
 const WALL_HIGH: f32 = 0.5;
 /// The table's edges are walls this far in from the screen's (frame units), so nothing
-/// slides out of sight [design].
-const EDGE_IN: f32 = 12.0;
+/// slides out of sight, and every piece rests whole at least this far inside the screen
+/// [design; parity 2026-11-12: caps of the big heaps were cut by the screen's edges].
+pub(crate) const EDGE_IN: f32 = 20.0;
 /// Seen from straight above, a piece in the air is drawn this much bigger per metre up, so
 /// the fall shows (the table's camera has no perspective) [design]. Only in the air: from
 /// the first touch it eases back to its own size at [`LANDED_EASE`] per second, since a
@@ -286,6 +303,8 @@ pub struct PotPiece {
     pinned: bool,
     /// How long a landed cap or coin has lain still ([`ROUND_PIN_STILL`]).
     still_for: f32,
+    /// Whether a cap or coin has been tipped down once before pinning ([`RETIP_FROM`]).
+    retipped: bool,
 }
 
 /// How a piece is drawn now: its middle on the table (table units, z up from the planks to
@@ -328,7 +347,9 @@ impl PotSim {
         w.integration_parameters.max_ccd_substeps = CCD_SUBSTEPS;
         let planks = ColliderBuilder::cuboid(5.0, 5.0, 0.05).translation(Vector::new(0.0, 0.0, -0.05)).friction(0.6).restitution(0.3);
         let planks = w.insert_collider(planks, None);
-        let (fw, fh, e, t) = (FRAME_W, FRAME_H, EDGE_IN, 200.0);
+        // A little further in than [`EDGE_IN`]: a cap is drawn a hair wider than its body
+        // ([`ROUND_REACH`]), and one resting against the wall must still lie whole inside.
+        let (fw, fh, e, t) = (FRAME_W, FRAME_H, EDGE_IN + 2.0, 200.0);
         let edges = [
             (Vec2::new(-t, -t), Vec2::new(e, fh + t)),
             (Vec2::new(fw - e, -t), Vec2::new(fw + t, fh + t)),
@@ -362,7 +383,7 @@ impl PotSim {
             // Its place up its stack: the pieces of its handful laid before it that it lies
             // on (their footprints overlap).
             let under = self.pieces[first..].iter().filter(|o| o.wave == wave && (to_m(o.piece.at) - aim).length() < reach + drop_reach(o.piece.kind).0).count();
-            let delay = STACK_GAP * under as f32;
+            let delay = if kind.note() { NOTE_STACK_GAP } else { STACK_GAP } * under as f32;
             let mut high = between(if kind.note() { DROP_HIGH } else { ROUND_HIGH }, roll(seed, 1)) + piece.lift / UNITS_PER_M;
             // Raised over every piece of its handful it would start in, until clear: each
             // raise only goes up, so this ends.
@@ -379,7 +400,7 @@ impl PotSim {
                     None => break,
                 }
             }
-            self.pieces.push(PotPiece { piece, wave, delay, high, body: None, seed, bend: 0.0, flattened: 0.0, collider: None, touched: false, air: 1.0, release_clock: 0.0, drift: Vec3::ZERO, touched_at: 0.0, pinned: false, still_for: 0.0 });
+            self.pieces.push(PotPiece { piece, wave, delay, high, body: None, seed, bend: 0.0, flattened: 0.0, collider: None, touched: false, air: 1.0, release_clock: 0.0, drift: Vec3::ZERO, touched_at: 0.0, pinned: false, still_for: 0.0, retipped: false });
         }
         self.wave_from = [None; WAVES];
         self.wave_from[0] = Some(self.clock + FIRST_DROP);
@@ -497,11 +518,32 @@ impl PotSim {
             if !p.touched || p.pinned {
                 continue;
             }
+            // How deep a cap or coin is pressed into a pinned piece under it (m): pinned so,
+            // it would stay inside it (the owner, 2026-11-12: "Coins clipping").
+            let sunk = match (p.piece.kind.note(), p.collider, p.body.and_then(|h| self.w.bodies.get(h))) {
+                (false, Some(c), Some(me)) => {
+                    let my_z = me.translation().z;
+                    self.w
+                        .narrow_phase
+                        .contact_pairs_with(c)
+                        .filter(|pair| {
+                            let other = if pair.collider1 == c { pair.collider2 } else { pair.collider1 };
+                            let under = self.w.colliders.get(other).and_then(|o| o.parent()).and_then(|h| self.w.bodies.get(h));
+                            under.is_some_and(|o| o.is_fixed() && o.translation().z < my_z)
+                        })
+                        .flat_map(|pair| pair.manifolds().iter().flat_map(|m| m.points.iter().map(|pt| -pt.dist)))
+                        .fold(0.0f32, f32::max)
+                }
+                _ => 0.0,
+            };
             let Some(b) = p.body.and_then(|h| self.w.bodies.get_mut(h)) else { continue };
             let up = q(b.rotation()) * Vec3::Z;
             let pin = if p.piece.kind.note() {
+                // Pinned as soon as it lies flat and all but still, before the note after
+                // it lands: one still drifting was pressed into the planks by it (the pot
+                // test, 2026-11-12, with fans overlapping).
                 let flat = up.z.abs() > 0.998;
-                let still = b.linvel().length() < 0.02 && b.angvel().length() < 0.3;
+                let still = b.linvel().length() < NOTE_PIN_V && b.angvel().length() < 0.5;
                 (flat && still) || clock - p.touched_at >= NOTE_PIN_AFTER
             } else {
                 let lies = up.z.abs().clamp(0.0, 1.0).acos() <= FLAT_TIP || p.flattened >= FLAT_MOST;
@@ -509,12 +551,49 @@ impl PotSim {
                 p.still_for = if lies && still { p.still_for + STEP } else { 0.0 };
                 p.still_for >= ROUND_PIN_STILL || clock - p.touched_at >= ROUND_PIN_AFTER
             };
+            // A cap or coin about to be pinned wedged steeply in a heap is first tipped down
+            // to [`RETIP_TO`] about its lowest point and left loose a little longer, once, so
+            // the solver settles it there (the pot tests, 2026-11-12: caps pinned 43 and 50
+            // degrees off flat high in the big heaps; the owner: no cap on its rim).
+            let tip = up.z.abs().clamp(0.0, 1.0).acos();
+            if pin && !p.piece.kind.note() && !p.retipped && tip > RETIP_FROM {
+                let rot = q(b.rotation());
+                let c = bv(b.translation());
+                let low = lowest_point(p.piece.kind, c, rot);
+                let face = if up.z >= 0.0 { Vec3::Z } else { -Vec3::Z };
+                let turn = Quat::from_axis_angle(up.cross(face).normalize_or(Vec3::X), tip - RETIP_TO);
+                let new_rot = turn * rot;
+                let mut new_c = low + turn * (c - low);
+                // Its new lowest point no deeper than the old one.
+                new_c.z += (low.z - lowest_point(p.piece.kind, new_c, new_rot).z).max(0.0);
+                b.set_rotation(rq(new_rot), true);
+                b.set_translation(v(new_c), true);
+                b.set_linvel(Vector::ZERO, true);
+                b.set_angvel(Vector::ZERO, true);
+                p.retipped = true;
+                p.touched_at = clock;
+                p.still_for = 0.0;
+                continue;
+            }
             if pin {
+                // A note all but flat is laid flat (its turn kept): lifting a note pressed in
+                // by its deepest corner raised its middle 2 mm (the pot test, 2026-11-12),
+                // and laid flat it needs only its own thickness.
+                if p.piece.kind.note() && up.z.abs() > NOTE_LAY_FLAT {
+                    let along = q(b.rotation()) * Vec3::X;
+                    let mut flat = Quat::from_rotation_z(along.y.atan2(along.x));
+                    if up.z < 0.0 {
+                        flat *= Quat::from_rotation_x(std::f32::consts::PI);
+                    }
+                    b.set_rotation(rq(flat), false);
+                }
                 // Pinned clear of the planks: a hard landing may still have it pressed in.
                 let low = lowest_point(p.piece.kind, bv(b.translation()), q(b.rotation())).z;
-                if low < 0.0 {
+                // And out of the pinned piece it rests on.
+                let lift = (-low).max(sunk.min(ROUND_UNSINK_MOST));
+                if lift > 0.0 {
                     let mut at = bv(b.translation());
-                    at.z -= low;
+                    at.z += lift;
                     b.set_translation(v(at), false);
                 }
                 b.set_linvel(Vector::ZERO, false);
@@ -726,14 +805,14 @@ impl PotSim {
 mod tests {
     use super::*;
     use crate::caravan_view::money;
-    use nvf_play::caravan::screen::{card_zones, text_zones};
+    use nvf_play::caravan::screen::{money_zones, text_zones};
 
     /// The most a piece at rest leans (rad, 40 degrees): one leaning on a heap may lie past
     /// [`FLAT_TIP`] (from where it is turned, while it can be), one on its rim stands near 90.
     const REST_TIP_MOST: f32 = 0.70;
 
     fn zones() -> Vec<(Vec2, Vec2)> {
-        let mut z = card_zones(4.0);
+        let mut z = money_zones(4.0);
         z.extend(text_zones(4.0));
         z
     }
@@ -793,7 +872,17 @@ mod tests {
             assert!(tip <= REST_TIP_MOST, "{kind:?} at {} rests {:.0} degrees off flat", sh.at, tip.to_degrees());
         }
         for (kind, sh) in &shown {
-            assert!(sh.at.x > 0.0 && sh.at.x < FRAME_W && sh.at.y < 0.0 && sh.at.y > -FRAME_H, "{kind:?} off the screen: {sh:?}");
+            // Whole, at least [`EDGE_IN`] inside the screen (less a little: a drawn cap is a
+            // hair wider than its body, [`ROUND_REACH`]).
+            let h = kind.size() / 2.0;
+            let reach = if kind.note() {
+                [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)].iter().map(|&(x, y)| (sh.rot * Vec3::new(x * h.x, y * h.y, 0.0)).truncate().abs()).fold(Vec2::ZERO, Vec2::max)
+            } else {
+                Vec2::splat(h.x)
+            };
+            let (lo, hi) = (Vec2::new(sh.at.x, -sh.at.y) - reach, Vec2::new(sh.at.x, -sh.at.y) + reach);
+            let e = EDGE_IN - 1.0;
+            assert!(lo.x >= e && lo.y >= e && hi.x <= FRAME_W - e && hi.y <= FRAME_H - e, "{kind:?} not whole on the screen: {lo} .. {hi}");
         }
         // Stacked: some caps and coins lie on others, well off the planks.
         let cap_middle = crate::caravan_view::CAP_THICK / 2.0;
@@ -802,7 +891,7 @@ mod tests {
         // None came to rest where a card can lie.
         for (kind, sh) in &shown {
             let f = Vec2::new(sh.at.x, -sh.at.y);
-            for (a, b) in card_zones(0.0) {
+            for (a, b) in money_zones(0.0) {
                 let inside = f.x > a.x + 2.0 && f.x < b.x - 2.0 && f.y > a.y + 2.0 && f.y < b.y - 2.0;
                 assert!(!inside, "{kind:?} at {f} lies in a card's place");
             }

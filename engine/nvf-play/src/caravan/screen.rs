@@ -367,14 +367,36 @@ fn deck(p: &mut ChildSpawnerCommands, c: &mut Ctx, s: &Session, dim: f32) {
 /// money keeps out of them (owner 2026-11-09: "cash can go under everything else just
 /// stay away").
 pub fn card_zones(pad: f32) -> Vec<(Vec2, Vec2)> {
+    zones_for(pad, None)
+}
+
+/// How many cards of a caravan the pot's money keeps clear of ([`money_zones`]).
+pub const MONEY_CARAVAN_CARDS: usize = 4;
+
+/// Where the pot's money keeps out of: [`card_zones`], but each caravan only as far as
+/// its first [`MONEY_CARAVAN_CARDS`] cards, so the planks past them (along the top over
+/// the opponent's caravans, along the bottom under the player's) hold money too; a longer
+/// caravan lies over it (the owner, 2026-11-12, circling those planks: "space that can be
+/// used for more piles").
+pub fn money_zones(pad: f32) -> Vec<(Vec2, Vec2)> {
+    zones_for(pad, Some(MONEY_CARAVAN_CARDS))
+}
+
+/// [`card_zones`], each caravan as far as `cards` cards reach (or all the way).
+fn zones_for(pad: f32, cards: Option<usize>) -> Vec<(Vec2, Vec2)> {
     // Room for a few face cards stacked on a number card.
     let faces = FACE_STEP * 3.0;
+    // The opponent's caravans grow up the screen, the player's down it.
+    let (top, bottom) = match cards {
+        Some(n) => ((OPPONENT_TOP + OPPONENT_STEP * (n - 1) as f32).max(0.0), (PLAYER_TOP + PLAYER_STEP * (n - 1) as f32 + CARD.y + faces.y).min(960.0)),
+        None => (0.0, 960.0),
+    };
     let mut z = Vec::new();
     for t in 0..TRACKS {
         let x0 = OPPONENT_X[t] - CARD.x / 2.0;
-        z.push((Vec2::new(x0, 0.0), Vec2::new(x0 + CARD.x + faces.x, OPPONENT_TOP + CARD.y + faces.y)));
+        z.push((Vec2::new(x0, top), Vec2::new(x0 + CARD.x + faces.x, OPPONENT_TOP + CARD.y + faces.y)));
         let x0 = PLAYER_X[t] - CARD.x / 2.0;
-        z.push((Vec2::new(x0, PLAYER_TOP), Vec2::new(x0 + CARD.x + faces.x, 960.0)));
+        z.push((Vec2::new(x0, PLAYER_TOP), Vec2::new(x0 + CARD.x + faces.x, bottom)));
     }
     let last = (fnv_game::caravan::HAND - 1) as f32;
     let (ox, oy, ostep) = OPPONENT_HAND;
