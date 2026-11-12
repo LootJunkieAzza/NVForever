@@ -24913,16 +24913,17 @@ forbid = [{ text = "the server was asked to delete", label = "a deletion reporte
 
 [[scenario]]
 name = "report-form-unreachable"
-source = "#2151, docs/design/player-reports.md section 3.3: Settings > Gameplay > Reports > Send a report now opens the form for a player who has not opted in; it takes the screenshot, writes a save for the report and, with no server answering, says so and keeps the form (engine/nvforever/src/reports/form.rs)"
+source = "#2151, docs/design/player-reports.md section 3.3: Report a bug at the pause menu's bottom left opens the form for a player who has not opted in; it takes the screenshot, writes a save for the report and, with no server answering, says so and keeps the form (engine/nvforever/src/reports/form.rs)"
 areas = ["reports", "pause"]
-paths = ["engine/nvforever/src/reports/form.rs", "engine/nvforever/src/reports/upload.rs"]
+paths = ["engine/nvforever/src/reports/form.rs", "engine/nvforever/src/reports/upload.rs", "engine/nvf-play/src/pause.rs"]
 # Port 9 on this machine refuses connections: never the project's server. No NVF_REPORTS:
 # the form needs no opt-in. The pause comes after the start's DLC message boxes, which
 # hold saves.
-env = { NVFOREVER_HOME = "report-form-home", NVF_REPORTS_ENDPOINT = "http://127.0.0.1:9", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "14:26", NVF_PLAY_TEST_SETTINGS = "15:report-now=Write one", NVF_PLAY_TEST_REPORT_FORM = "The door in Goodsprings does not open|save|contact=tester|category=differs" }
+env = { NVFOREVER_HOME = "report-form-home", NVF_REPORTS_ENDPOINT = "http://127.0.0.1:9", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "14:26", NVF_PLAY_TEST_PAUSE_MENU = "15:point:report,15.3:press,15.5:release", NVF_PLAY_TEST_REPORT_FORM = "The door in Goodsprings does not open|save|contact=tester|category=differs" }
 args = ["--play", "--cell", "Goodsprings"]
 run_seconds = 32
 order = [[
+  { text = "pause menu: report a bug", label = "Report a bug clicked" },
   { text = "report form: open (", label = "the form opens" },
   { text = "test aid NVF_PLAY_TEST_REPORT_FORM: the form filled and sent", label = "the aid sends it" },
   { text = "report form: save written for the report", label = "a save written for it" },
@@ -24944,7 +24945,7 @@ name = "report-form-not-from-test-runs"
 source = "#2151, docs/design/player-reports.md section 8: a test run without NVF_REPORTS_ENDPOINT never sends a hand report; the form opens and says why (engine/nvforever/src/reports/form.rs)"
 areas = ["reports", "pause"]
 paths = ["engine/nvforever/src/reports/form.rs"]
-env = { NVFOREVER_HOME = "report-form-off-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "6:14", NVF_PLAY_TEST_SETTINGS = "7:report-now=Write one", NVF_PLAY_TEST_REPORT_FORM = "a test" }
+env = { NVFOREVER_HOME = "report-form-off-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "6:14", NVF_PLAY_TEST_PAUSE_MENU = "7:point:report,7.3:press,7.5:release", NVF_PLAY_TEST_REPORT_FORM = "a test" }
 args = ["--play", "--cell", "Goodsprings"]
 run_seconds = 20
 expect = [

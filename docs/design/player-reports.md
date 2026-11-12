@@ -95,7 +95,8 @@ Endpoint=           ; empty = the project's server; set for a self-hosted one
 - `InstallId` is random, made at opt-in, not derived from hardware or account. Turning
   reports off and on again makes a new one (the old one is unlinked).
 - Settings → General → Reports: a toggle (Send reports), "Open reports folder",
-  "Send a report now…" (§3.3), "Delete my reports" (§6), last sent time.
+  "Delete my reports" (§6), last sent time. The hand report (§3.3) is opened from the
+  pause menu's "Report a bug", not from Settings.
 - `NVF_REPORTS=0` forces off for any run (developers, CI, the smoke tests set it).
 
 ## 3. What is captured
@@ -167,8 +168,10 @@ A player who has not opted in sees the same form; sending it is consent for that
 report only and does not change `Send`. The form shows what will be sent and the total
 size before the Send button.
 
-[built, #2151] `engine/nvforever/src/reports/form.rs`. Opened from Settings > Gameplay >
-Reports > Send a report now (pause menu, in a game); the pause-menu key is not built yet.
+[built, #2151] `engine/nvforever/src/reports/form.rs`. Opened from **Report a bug** at the
+pause menu's bottom left, over the version line, on its first page and the settings page
+(in a game; not under the main menu) [owner 2026-11-12: a pause-menu entry, not a settings
+row]; the pause-menu key is not built yet.
 It also sends the world snapshot and the flight recorder (§4.2, §4.3) under the summary's
 and the log's tick boxes; without reports on there is no summary, only the snapshot, and
 no install ID. Sending follows §8: never from a developer or test run without

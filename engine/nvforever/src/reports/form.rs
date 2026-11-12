@@ -1,6 +1,6 @@
-//! The hand report (docs/design/player-reports.md §3.3; #2151): Settings > Gameplay >
-//! Reports > **Send a report now** > *Write one* opens a form over the pause menu, for any
-//! player, reports on or off.
+//! The hand report (docs/design/player-reports.md §3.3; #2151): **Report a bug** at the
+//! pause menu's bottom left, over the version (`nvf_play::pause::ReportEntry`; owner
+//! 2026-11-12), opens a form over the pause menu, for any player, reports on or off.
 //!
 //! - **What it holds**: a description (required) and a category (bug, crash, differs from
 //!   the original, performance: the issue forms' four); ticked at first: this session so far
@@ -20,8 +20,7 @@
 //!   description and the contact name; Ctrl+Enter sends; Esc closes. A click on a category, a
 //!   tick box, a field, Send or Cancel takes it. While the form is up the pause menu takes
 //!   no key or click (`nvf_play::pause::FormOver`).
-//! - **The answer**: the server's reference (`R-…`) is shown, and kept on the settings row
-//!   for the rest of the run; a refusal or no answer says why and keeps the form to try again.
+//! - **The answer**: the server's reference (`R-…`) is shown; a refusal or no answer says why and keeps the form to try again.
 //!
 //! The screenshot is taken the way a save takes its picture (`nvf_play::save`): the
 //! interface hidden for the frame. Bevy's own font draws the form [our choice: the text is
@@ -40,15 +39,11 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use fnv_install::reports::Reports;
 use fnv_install::EngineHome;
 use nvf_play::interface::{amber, font_units, u};
-use nvf_play::pause::{FormOver, Paused};
+use nvf_play::pause::{FormOver, Paused, ReportEntry};
 use nvf_play::ui_pointer::{Button as UiButton, PointerState};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-
-pub const SETTING_KEY: &str = "report-now";
-const WRITE: &str = "Write one";
-const NOT_SENT: &str = "None sent this session";
 
 /// The categories: the server's name and the form's [the issue forms' four, §3.3].
 pub const CATEGORIES: [(&str, &str); 4] = [("bug", "Bug"), ("crash", "Crash"), ("differs", "Differs from the original"), ("performance", "Performance")];
@@ -71,16 +66,10 @@ const SHOT_WAIT_FRAMES: u32 = 10;
 /// Seconds the save is waited for before the report goes without it.
 const SAVE_WAIT_SECS: f64 = 30.0;
 
-/// The settings row asked for the form (read by [`open`]).
-#[derive(Resource, Default)]
-struct FormRequest(bool);
-
 /// The form wants a fresh world snapshot now (mod.rs `refresh_snapshot`).
 static SNAPSHOT_NOW: AtomicBool = AtomicBool::new(false);
 /// The form is up (the snapshot is kept while it is, reports on or off).
 static OPEN: AtomicBool = AtomicBool::new(false);
-/// The last reference this run, for the settings row.
-static LAST_REF: Mutex<String> = Mutex::new(String::new());
 
 /// The snapshot is wanted though reports are off: the form is up or about to be.
 pub fn wants_snapshot() -> bool {
@@ -243,50 +232,13 @@ fn endpoint() -> Result<String, String> {
 }
 
 pub fn add(app: &mut App) {
-    app.init_resource::<FormRequest>()
+    // The pause menu's "Report a bug" entry is drawn while the form is there to open.
+    app.insert_resource(ReportEntry { shown: true, asked: false })
         .init_resource::<Form>()
         // Only where the pause menu and saves are (a played game): a menu-only or viewer
         // run has neither.
         .add_systems(PreUpdate, clear_form_over.run_if(in_play))
         .add_systems(Update, (open, shoot, keys, clicks, test_aid, progress, draw).chain().run_if(in_play));
-    nvf_play::settings::add_choice_list(
-        app,
-        nvf_play::settings::Setting {
-            key: SETTING_KEY,
-            group: "Reports",
-            label: "Send a report now",
-            note: "Write what went wrong and send it with a screenshot and the log; any player can, reports on or off. From the pause menu in a game",
-            get: |_| false,
-            set: |_, _| {},
-            slider: None,
-        },
-        nvf_play::settings::ChoiceList {
-            names: |w| {
-                let chosen = row_status();
-                if in_game(w) {
-                    vec![chosen, WRITE.to_string()]
-                } else {
-                    vec![chosen]
-                }
-            },
-            chosen: |_| row_status(),
-            pick: |w, name| {
-                if name != WRITE {
-                    return false;
-                }
-                if !in_game(w) {
-                    info!("report form: only from the pause menu in a game");
-                    return false;
-                }
-                w.resource_mut::<FormRequest>().0 = true;
-                SNAPSHOT_NOW.store(true, Ordering::Relaxed);
-                true
-            },
-            save: |_| "kept".to_string(),
-            load: |_, _| true,
-            ask_keep: false,
-        },
-    );
 }
 
 /// The pause menu and the save messages exist (a played game).
@@ -294,18 +246,9 @@ fn in_play(over: Option<Res<FormOver>>, saves: Option<Res<Messages<nvf_play::sav
     over.is_some() && saves.is_some() && done.is_some()
 }
 
-fn row_status() -> String {
-    let r = LAST_REF.lock().map(|r| r.clone()).unwrap_or_default();
-    if r.is_empty() {
-        NOT_SENT.to_string()
-    } else {
-        format!("Sent, reference {r}")
-    }
-}
-
 /// The pause menu is up over a running game.
-fn in_game(w: &World) -> bool {
-    w.get_resource::<Paused>().is_some_and(|p| p.0) && w.get_resource::<nvf_play::script::ScriptState>().is_some_and(|s| s.rt.is_some())
+fn in_game(paused: Option<&Paused>, script: Option<&nvf_play::script::ScriptState>) -> bool {
+    paused.is_some_and(|p| p.0) && script.is_some_and(|s| s.rt.is_some())
 }
 
 fn clear_form_over(mut form: ResMut<Form>, mut over: ResMut<FormOver>) {
@@ -333,18 +276,26 @@ enum FormAct {
 /// hidden for the screenshot as a save hides them (`nvf_play::save`).
 type WindowRoots = (With<Node>, Without<ChildOf>, Without<bevy::ui::UiTargetCamera>);
 
-/// The settings row asked: hide the interface for a frame and take the screenshot.
+/// "Report a bug" was clicked: hide the interface for a frame and take the screenshot.
+#[allow(clippy::too_many_arguments)]
 fn open(
     mut commands: Commands,
-    mut request: ResMut<FormRequest>,
+    mut entry: ResMut<ReportEntry>,
     mut form: ResMut<Form>,
     mut over: ResMut<FormOver>,
     frame: Res<bevy::diagnostic::FrameCount>,
     roots: Query<(Entity, &Visibility), WindowRoots>,
+    paused: Option<Res<Paused>>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
 ) {
-    if !std::mem::take(&mut request.0) || !matches!(form.phase, Phase::Closed) {
+    if !std::mem::take(&mut entry.asked) || !matches!(form.phase, Phase::Closed) {
         return;
     }
+    if !in_game(paused.as_deref(), script.as_deref()) {
+        info!("report form: only from the pause menu in a game");
+        return;
+    }
+    SNAPSHOT_NOW.store(true, Ordering::Relaxed);
     form.reset();
     over.set_if_neq(FormOver(true));
     OPEN.store(true, Ordering::Relaxed);
@@ -787,9 +738,6 @@ fn progress(mut form: ResMut<Form>, mut done: MessageReader<nvf_play::save::Save
             match r {
                 Ok(reference) => {
                     info!("report form: sent, reference {reference}");
-                    if let Ok(mut l) = LAST_REF.lock() {
-                        l.clone_from(&reference);
-                    }
                     form.status = format!("Sent. Thank you! Your reference is {reference}; quote it if you open an issue.");
                     form.phase = Phase::Sent;
                 }
