@@ -802,6 +802,7 @@ fn face_reference(time: crate::pause::AidTime, mut aids: ResMut<Aids>, sim: Res<
     }
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn goto_and_look(
     time: crate::pause::AidTime,
     mut aids: ResMut<Aids>,
