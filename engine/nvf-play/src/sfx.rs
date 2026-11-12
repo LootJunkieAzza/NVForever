@@ -50,6 +50,26 @@
 //!   Shift flag [design: the size of the shift].
 //! - **Loops.** A [`LoopSound`] starts a SOUN going round and stops it again (a
 //!   weapon's Shoot 3D Looping sound while it fires).
+//! - **Stops and voice slots** (#2217) [design; how the original stops a sound and what
+//!   its voice limits are is not known]. A playing sound stopped before its end (a
+//!   LoopSound off or on again, StopSound without a fade, a one-shot taken over at
+//!   [`MAX_SAME`]) fades out over `audio_out::DECLICK_FADE` (`audio_out::stop_sound`),
+//!   instead of being cut mid-waveform; the stop drops its marker ([`Looping`],
+//!   [`ScriptPlayed`]) at once, so it is no longer the loop or the script's sound. One
+//!   started earlier in the same frame has made no sound yet and goes at once. Every
+//!   one-shot takes a voice slot ([`Slot`]) until its sink is empty, also while it fades
+//!   out, so [`MAX_SAME`] and [`MAX_VOICES`] hold for what is heard: a one-shot over its
+//!   SOUN's limit has a slot's sound fade out (one already fading, else the oldest) and
+//!   waits for it ([`Replacement`], at most one a slot), starting once that sound has
+//!   ended (5 ms and a frame or so later), with the listener as it is then; a game
+//!   event's one-shot waiting more than [`MAX_ONE_SHOT_WAIT`] in all is dropped, a
+//!   script's is answered when it starts. With every slot of the SOUN already promised,
+//!   one more is refused. A StopSound drops the script's replacements asked for before
+//!   it, as it drops the requests waiting for their file. Exit lines: `sfx hard stops:
+//!   …` (sounds still cut: none should be), `sfx declicks: … ; C completed, W pending`,
+//!   `sfx voices: at most V total, S of one SOUN; Q replacements waiting, R replacements
+//!   started` (Q: requests that waited for a slot; R: one-shots started over the oldest
+//!   voice of their SOUN, after a wait or at once over one not heard yet).
 //! - **Things that sound while they are there** ([`SoundSource`]): a creature's conscious
 //!   loop, an activator's or a container's looping sound; sent every frame they should
 //!   sound and played by [`crate::ambient`] as it plays sound markers.
@@ -67,7 +87,7 @@ use crate::reverb::{Preset, Reverb, RoomSend};
 use crate::voice_filter::VoiceFilter;
 use crate::PlayWorld;
 use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source, Volume};
-use crate::audio_out::{stop_sound, AddAudioSource, KeepsSpeed, SoundCategory, SoundStops, StopReason};
+use crate::audio_out::{stop_sound, AddAudioSource, KeepsSpeed, Retiring, SoundCategory, SoundStops, StopReason};
 use bevy::prelude::*;
 use bevy::tasks::{futures::check_ready, IoTaskPool, Task, TaskPool};
 use fnv_combat::fx::{FxForms, Sound, DEFAULT_ATTENUATION_CURVE};
@@ -162,7 +182,7 @@ impl ScriptFade {
 
 /// Fades on: each fading sound's volume set from its share, those faded in left at full
 /// volume, those faded out gone.
-fn script_fades(mut commands: Commands, time: Res<Time>, mut fading: Query<(Entity, &mut ScriptFade, Option<&mut AudioSink>)>) {
+fn script_fades(mut commands: Commands, time: Res<Time>, mut fading: Query<(Entity, &mut ScriptFade, Option<&mut AudioSink>), Without<Retiring>>) {
     let dt = time.delta_secs();
     for (e, mut f, sink) in &mut fading {
         let Some(mut sink) = sink else { continue };
@@ -171,6 +191,7 @@ fn script_fades(mut commands: Commands, time: Res<Time>, mut fading: Query<(Enti
         sink.set_volume(Volume::Linear(full * f.share()));
         if f.elapsed >= f.seconds {
             if f.out {
+                // At zero volume already: removed, no fade of its own needed.
                 commands.entity(e).try_despawn();
             } else {
                 commands.entity(e).remove::<ScriptFade>();
@@ -649,19 +670,24 @@ pub struct Sfx {
     pub deepest: f32,
     /// Sounds with the 2D flag played at a place, not panned.
     pub flat_2d: u32,
-    /// One-shot sounds playing now (counted each frame by [`play`], and as they start),
-    /// those of each SOUN (when each started, its entity), the most at once, and how many
-    /// were not started because [`MAX_VOICES`] or [`MAX_SAME`] were playing.
+    /// The voice slots ([`Slot`]): how many are taken now (counted each frame by
+    /// [`prepare`] and again by [`late_start`], and as one-shots start), those of each
+    /// SOUN, the replacements waiting for a slot of theirs to empty ([`Replacement`]),
+    /// the most slots taken at once, and how many one-shots were not started because
+    /// [`MAX_VOICES`] or [`MAX_SAME`] were playing.
     voices: usize,
-    same: HashMap<FormId, Vec<(u64, Entity)>>,
+    same: HashMap<FormId, Vec<Slot>>,
+    pending: Vec<Replacement>,
     /// The start number of the next one-shot ([`OneShot`]), so the oldest is known.
     next_voice: u64,
     pub most_voices: usize,
     /// The most one-shots of one SOUN at once.
     pub most_same: usize,
     pub voice_limited: u32,
-    /// One-shots that took over the oldest voice of their SOUN at [`MAX_SAME`].
+    /// One-shots that took over the oldest voice of their SOUN at [`MAX_SAME`] (started
+    /// in its slot), and the requests that waited for the slot's voice to fade out first.
     pub voice_stolen: u32,
+    pub replacements_waited: u32,
     /// Per SOUN: one-shots started, those started over its oldest voice, refused.
     per_sound: HashMap<FormId, [u32; 3]>,
     /// Decoded files nothing plays, and when each was first seen so ([`release_files`]).
@@ -704,11 +730,13 @@ impl Sfx {
             flat_2d: 0,
             voices: 0,
             same: HashMap::new(),
+            pending: Vec::new(),
             next_voice: 0,
             most_voices: 0,
             most_same: 0,
             voice_limited: 0,
             voice_stolen: 0,
+            replacements_waited: 0,
             per_sound: HashMap::new(),
             unused: nvf_assets::release::Unused::default(),
             swept_at: 0.0,
@@ -861,12 +889,14 @@ impl Waits {
 #[derive(Component)]
 struct SfxSound;
 
-/// A one-shot sound effect playing, of this SOUN, started as the n-th ([`MAX_VOICES`]).
+/// A one-shot sound effect playing, of this SOUN, started as the n-th ([`MAX_VOICES`]),
+/// in this frame ([`Sfx::frame`]).
 #[derive(Component)]
-struct OneShot(FormId, u64);
+struct OneShot(FormId, u64, u64);
 
-/// One-shot sound effects playing at once, at most; one asked for beyond it is not played
-/// (unless its own SOUN is at [`MAX_SAME`], whose oldest voice it then takes)
+/// One-shot sound effects playing at once, at most, those fading out after a stop counted
+/// (module notes); one asked for beyond it is not played (unless its own SOUN is at
+/// [`MAX_SAME`], whose slot it then takes over)
 /// [engineering choice: the game's own limit is not known. Two dozen mantis nymphs walking
 /// started about 130 footsteps a second; each mixed through its own reverb, the mixer fell
 /// behind real time, sounds stopped ending and 1,800 piled up (docs/design/
@@ -874,8 +904,10 @@ struct OneShot(FormId, u64);
 /// file are not counted until they start.
 pub const MAX_VOICES: usize = 64;
 /// The same SOUN playing at once, at most (a crowd's footsteps, a burst of shots)
-/// [engineering choice]. One more of it stops the oldest playing voice of that SOUN and
-/// starts in its place, instead of not being played: an automatic weapon fires 9 to 20
+/// [engineering choice]. One more of it fades the oldest playing voice of that SOUN out
+/// and starts in its slot once that has ended (#2217: before, it was cut and the new one
+/// started at once, a click in every burst; module notes), instead of not being played:
+/// an automatic weapon fires 9 to 20
 /// shots a second, each shot's sound with its tail longer than 8 shots apart, so
 /// refusing the newest left gaps in a burst (#1098, owner 2026-10-30) [engineering
 /// choice: the usual rule of a voice limit; whether the game cuts the previous shot's
@@ -989,6 +1021,7 @@ fn pick_file(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
 }
 
 /// A SOUN for one playing of it: its record, name and file.
+#[derive(Clone)]
 pub(crate) struct Resolved {
     pub s: Sound,
     pub name: String,
@@ -1160,11 +1193,13 @@ pub(crate) struct Out<'a, 'w, 's> {
 }
 
 /// A request: started or played silent at once when its file is ready, a script
-/// answered at once when there is no file to play, otherwise left waiting for its file.
-/// The entity playing it, if it started.
+/// answered at once when there is no file to play, otherwise left waiting for its file
+/// (or, its file ready, for a voice slot: [`Replacement`]). The entity playing it, if it
+/// started.
 fn request(out: &mut Out, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, heard: &mut Vec<(u32, Option<f32>)>, sound: FormId, wanted: Wanted) -> Option<Entity> {
+    let asked = Instant::now();
     if folder_unlisted(sfx, sound) {
-        sfx.waiting.push(Waiting { sound, path: None, frame: sfx.frame, asked: Instant::now(), wanted });
+        sfx.waiting.push(Waiting { sound, path: None, frame: sfx.frame, asked, wanted });
         return None;
     }
     let Some(r) = resolve(sfx, vfs, sound) else {
@@ -1176,22 +1211,44 @@ fn request(out: &mut Out, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, heard: &mut Ve
     };
     match file_now(sfx, vfs, &r.path, &r.name) {
         FileNow::Pending => {
-            sfx.waiting.push(Waiting { sound, path: Some(r.path), frame: sfx.frame, asked: Instant::now(), wanted });
+            sfx.waiting.push(Waiting { sound, path: Some(r.path), frame: sfx.frame, asked, wanted });
             None
         }
-        FileNow::Ready(h) => begin(out, sfx, heard, &r, Some(h), sound, wanted, None),
-        FileNow::Broken => begin(out, sfx, heard, &r, None, sound, wanted, None),
+        FileNow::Ready(h) => begin(out, sfx, heard, &r, Some(h), sound, wanted, None, asked).entity(),
+        FileNow::Broken => begin(out, sfx, heard, &r, None, sound, wanted, None, asked).entity(),
+    }
+}
+
+/// What became of a request decided ([`begin`], [`one_shot_ready`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Begun {
+    /// It plays, this entity.
+    Started(Entity),
+    /// It waits for a voice slot whose sound is fading out ([`Replacement`]); a script
+    /// is answered when it starts.
+    Waiting,
+    /// Nothing plays: no file, too quiet, under water, sounds off or the voice limit.
+    Refused,
+}
+
+impl Begun {
+    fn entity(self) -> Option<Entity> {
+        match self {
+            Begun::Started(e) => Some(e),
+            _ => None,
+        }
     }
 }
 
 /// A request decided, its file known: `handle`, or `None` for a file that cannot be
-/// played. It starts, or plays silent (muted under water, too far, sounds off, the voice
-/// limit); a script is told its seconds (`None` going round; 0 without a file). `waited`:
-/// for a request that waited for its file, the frames since it was asked for (0 when
-/// [`late_start`] decides it in its own frame); `None` for one decided when asked. The
-/// entity playing it, if any.
+/// played. It starts, waits for a voice slot, or plays silent (muted under water, too
+/// far, sounds off, the voice limit); a script is told its seconds once that is decided
+/// (`None` going round; 0 without a file). `waited`: for a request that waited for its
+/// file, the frames since it was asked for (0 when [`late_start`] decides it in its own
+/// frame); `None` for one decided when asked. `asked`: when it joined the waiting list
+/// (or was asked for), for the age a replacement may reach ([`MAX_ONE_SHOT_WAIT`]).
 #[allow(clippy::too_many_arguments)]
-fn begin(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, r: &Resolved, handle: Option<Handle<PcmSound>>, sound: FormId, wanted: Wanted, waited: Option<u64>) -> Option<Entity> {
+fn begin(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, r: &Resolved, handle: Option<Handle<PcmSound>>, sound: FormId, wanted: Wanted, waited: Option<u64>, asked: Instant) -> Begun {
     let Some(handle) = handle else {
         sfx.failed += 1;
         sfx.waits.broken += waited.is_some() as u32;
@@ -1202,37 +1259,56 @@ fn begin(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, r: &
         if let Wanted::Script { id, .. } = wanted {
             heard.push((id, Some(0.0)));
         }
-        return None;
+        return Begun::Refused;
     };
     if let Some(waited) = waited {
         debug!("sfx: {} {} decided {waited} frames after it was asked for (its file was being read)", r.name, r.path);
     }
-    let e = match wanted {
-        Wanted::Loop => start_looping(out, sfx, r, handle, sound, false),
+    let begun = match wanted {
+        Wanted::Loop => start_looping(out, sfx, r, handle, sound, false).map_or(Begun::Refused, Begun::Started),
         // A SOUN with the Loop flag goes round until StopSound stops it [observed:
         // sound1, EMTMedicalBeep01 (Loop) still playing 120 frames on; UIVATSLoop (no
         // Loop flag) over after one frame]; a placed one loops at the listener [design].
         Wanted::Script { id, looping: true, .. } => {
             heard.push((id, None));
-            start_looping(out, sfx, r, handle, sound, true)
+            let begun = start_looping(out, sfx, r, handle, sound, true).map_or(Begun::Refused, Begun::Started);
+            fade_in(out, sfx, wanted, begun);
+            begun
         }
-        Wanted::Script { id, at, looping: false } => {
-            let (seconds, e) = one_shot_ready(out, sfx, r, handle, sound, at);
-            heard.push((id, Some(seconds)));
-            if let Some(e) = e {
-                out.commands.entity(e).insert(ScriptPlayed(sound));
-            }
-            e
+        Wanted::Script { looping: false, .. } | Wanted::Once(_) => {
+            let (seconds, begun) = one_shot_ready(out, sfx, r, handle, sound, wanted, asked, None);
+            one_shot_decided(out, sfx, heard, sound, wanted, seconds, begun);
+            begun
         }
-        Wanted::Once(at) => one_shot_ready(out, sfx, r, handle, sound, at).1,
     };
-    if let (Wanted::Script { id, .. }, Some(e)) = (wanted, e) {
+    // As far as its file goes, a request waiting for a voice slot is decided.
+    sfx.waits.decided(waited.unwrap_or(0), begun != Begun::Refused);
+    begun
+}
+
+/// A script's one-shot decided at last ([`begin`], or its [`Replacement`] started): the
+/// script told its seconds and, playing, the sound marked as the script's (StopSound
+/// stops it) and faded in if it asked; once, and not while it waits for a slot.
+fn one_shot_decided(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>, sound: FormId, wanted: Wanted, seconds: f32, begun: Begun) {
+    let Wanted::Script { id, .. } = wanted else { return };
+    if begun == Begun::Waiting {
+        return;
+    }
+    heard.push((id, Some(seconds)));
+    if let Begun::Started(e) = begun {
+        out.commands.entity(e).insert(ScriptPlayed(sound));
+    }
+    fade_in(out, sfx, wanted, begun);
+}
+
+/// A script's sound that asked to fade in ([`ScriptSounds::fades_in`]) does once it
+/// plays.
+fn fade_in(out: &mut Out, sfx: &mut Sfx, wanted: Wanted, begun: Begun) {
+    if let (Wanted::Script { id, .. }, Begun::Started(e)) = (wanted, begun) {
         if let Some(seconds) = sfx.fades_in.remove(&id) {
             out.commands.entity(e).insert(ScriptFade::new(seconds, false));
         }
     }
-    sfx.waits.decided(waited.unwrap_or(0), e.is_some());
-    e
 }
 
 /// Start a SOUN going round at the listener: for [`LoopSound`], or for a script
@@ -1257,19 +1333,50 @@ fn start_looping(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<PcmS
     Some(e.id())
 }
 
+/// The one-shots playing, for the voice slots: each with whether it is fading out after
+/// a stop and its sink (none until the output takes it up).
+type Voices<'w, 's> = Query<'w, 's, (Entity, &'static OneShot, Has<Retiring>, Option<&'static AudioSink>)>;
+
 /// Before anything plays this frame ([`SfxStep::Prepare`]): the decodes finished on the
-/// workers taken in, the frame counted, and the one-shots playing now counted for the
-/// voice limits of the ambient's random sounds and of [`play`].
-fn prepare(playing: Query<(Entity, &OneShot)>, sfx: Option<ResMut<Sfx>>, mut assets: ResMut<Assets<PcmSound>>) {
+/// workers taken in, the frame counted, and the voice slots counted from the one-shots
+/// playing now ([`reconcile`]) for the voice limits of the ambient's random sounds and of
+/// [`play`].
+fn prepare(playing: Voices, sfx: Option<ResMut<Sfx>>, mut assets: ResMut<Assets<PcmSound>>) {
     let Some(mut sfx) = sfx else { return };
     let sfx = &mut *sfx;
     collect_files(sfx, &mut assets);
     sfx.frame += 1;
-    sfx.same.clear();
-    for (e, o) in &playing {
-        sfx.same.entry(o.0).or_default().push((o.1, e));
+    reconcile(sfx, &playing);
+}
+
+/// The voice slots from the one-shots playing (see [`Slot`]): every one-shot takes one,
+/// also one fading out after a stop, until its sink is empty; a slot whose sound has
+/// ended stays taken while a [`Replacement`] waits for it. What this frame decided
+/// ([`Sfx::same`] is kept up to date as one-shots start, steal and stop) is not lost: the
+/// one-shots started in it are entities by now, stops are [`Retiring`] (or gone, never
+/// attached), the reservations are in [`Sfx::pending`].
+fn reconcile(sfx: &mut Sfx, playing: &Voices) {
+    let Sfx { same, pending, voices, .. } = sfx;
+    same.clear();
+    *voices = 0;
+    for (e, o, retiring, sink) in playing {
+        let reserved = pending.iter().any(|p| p.slot == e);
+        // Over: faded out, or come to its end (the output despawns it after this).
+        let ended = sink.is_some_and(|s| s.empty());
+        if ended && !reserved {
+            continue;
+        }
+        same.entry(o.0).or_default().push(Slot { start: o.1, entity: e, frame: o.2, retiring, reserved, ended });
+        *voices += 1;
     }
-    sfx.voices = playing.iter().count();
+    for p in pending.iter() {
+        let list = same.entry(p.sound).or_default();
+        if !list.iter().any(|s| s.entity == p.slot) {
+            // Its sound gone already: the slot is the replacement's still.
+            list.push(Slot { start: p.start, entity: p.slot, frame: 0, retiring: true, reserved: true, ended: true });
+            *voices += 1;
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1303,6 +1410,8 @@ fn play(
     for l in loops.read() {
         for (e, p) in &looping {
             if p.0 == l.sound {
+                // No longer the loop of that SOUN at once: it fades out and goes.
+                out.commands.entity(e).try_remove::<Looping>();
                 stop_sound(out.commands, e, StopReason::Loop);
             }
         }
@@ -1340,14 +1449,23 @@ fn play(
                     Some(seconds) => {
                         out.commands.entity(e).remove::<ScriptPlayed>().insert(ScriptFade::new(seconds, true));
                     }
-                    None => stop_sound(out.commands, e, StopReason::Script),
+                    None => {
+                        // The script's no longer (StopSound again finds nothing); it fades
+                        // out over the declick and its slot is counted until it has.
+                        out.commands.entity(e).try_remove::<(ScriptPlayed, ScriptFade)>();
+                        sfx.retiring(s, e);
+                        stop_sound(out.commands, e, StopReason::Script);
+                    }
                 }
             }
         }
         sfx.waits.cancelled += cancel(&mut sfx.waiting, |w| w.sound == s && matches!(w.wanted, Wanted::Script { .. }));
     }
-    // Requests whose file is now ready (or will not play), oldest first, then this
-    // frame's.
+    // A script's one-shot waiting for a voice slot is stopped as one waiting for its file.
+    sfx.cancel_replacements(|p| matches!(p.wanted, Wanted::Script { id, .. } if stopped_before(&stops, p.sound, id)));
+    // The replacements whose slot has emptied, then the requests whose file is now ready
+    // (or will not play), oldest first, then this frame's.
+    start_replacements(&mut out, sfx, &mut ss.heard);
     start_decided(&mut out, sfx, vfs, &mut ss.heard, false);
     for r in requests.read() {
         request(&mut out, sfx, vfs, &mut ss.heard, r.sound, Wanted::Once(r.at));
@@ -1407,8 +1525,8 @@ fn start_decided(out: &mut Out, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, heard: &
                         sfx.waiting.push(Waiting { path: Some(r.path), ..w });
                         continue;
                     }
-                    FileNow::Ready(h) => begin(out, sfx, heard, &r, Some(h), w.sound, w.wanted, Some(waited)),
-                    FileNow::Broken => begin(out, sfx, heard, &r, None, w.sound, w.wanted, Some(waited)),
+                    FileNow::Ready(h) => begin(out, sfx, heard, &r, Some(h), w.sound, w.wanted, Some(waited), w.asked),
+                    FileNow::Broken => begin(out, sfx, heard, &r, None, w.sound, w.wanted, Some(waited), w.asked),
                 }
             }
             Some(path) => {
@@ -1418,10 +1536,10 @@ fn start_decided(out: &mut Out, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vfs>, heard: &
                     _ => None,
                 };
                 let r = Resolved { name: s.edid.clone().unwrap_or_else(|| w.sound.to_string()), s, path };
-                begin(out, sfx, heard, &r, handle, w.sound, w.wanted, Some(waited))
+                begin(out, sfx, heard, &r, handle, w.sound, w.wanted, Some(waited), w.asked)
             }
         };
-        if late && started.is_some() {
+        if late && matches!(started, Begun::Started(_)) {
             sfx.waits.started_late(waited, w.asked.elapsed().as_secs_f32() * 1000.0);
         }
     }
@@ -1439,7 +1557,10 @@ fn add_late_start(app: &mut App) {
     app.add_systems(PostUpdate, late_start.before(crate::audio_out::AudioOutSystems));
 }
 
-/// See [`add_late_start`].
+/// See [`add_late_start`]. Before its starts the voice slots are counted again
+/// ([`reconcile`]): a fade that has ended since [`prepare`] hands its slot to the
+/// replacement waiting for it now, not a frame later.
+#[allow(clippy::too_many_arguments)]
 fn late_start(
     mut commands: Commands,
     mut script_sounds: ResMut<ScriptSounds>,
@@ -1448,9 +1569,10 @@ fn late_start(
     player: Option<Res<Player>>,
     data: Option<Res<nvf_assets::GameData>>,
     mut assets: ResMut<Assets<PcmSound>>,
+    playing: Voices,
 ) {
     let (Some(mut sfx), Some(data)) = (sfx, data) else { return };
-    if sfx.waiting.is_empty() {
+    if sfx.waiting.is_empty() && sfx.pending.is_empty() {
         return;
     }
     let sfx = &mut *sfx;
@@ -1462,8 +1584,11 @@ fn late_start(
     if !ss.stops.is_empty() {
         let stops = &ss.stops;
         sfx.waits.cancelled += cancel(&mut sfx.waiting, |w| matches!(w.wanted, Wanted::Script { id, .. } if stopped_before(stops, w.sound, id)));
+        sfx.cancel_replacements(|p| matches!(p.wanted, Wanted::Script { id, .. } if stopped_before(stops, p.sound, id)));
     }
+    reconcile(sfx, &playing);
     let mut out = Out { commands: &mut commands, assets: &mut assets, settings: &settings, player: player.as_deref() };
+    start_replacements(&mut out, sfx, &mut ss.heard);
     start_decided(&mut out, sfx, &data.vfs, &mut ss.heard, true);
 }
 
@@ -1538,18 +1663,123 @@ pub(crate) fn one_shot_heard(out: &mut Out, sfx: &mut Sfx, vfs: &Arc<fnv_vfs::Vf
             OneShotNow::NoFile
         }
         FileNow::Ready(h) => {
-            let (seconds, e) = one_shot_ready(out, sfx, &r, h, sound, at);
-            sfx.waits.decided(0, e.is_some());
+            let (seconds, begun) = one_shot_ready(out, sfx, &r, h, sound, Wanted::Once(at), Instant::now(), None);
+            sfx.waits.decided(0, begun != Begun::Refused);
             OneShotNow::Played(seconds)
         }
     }
 }
 
+/// A voice slot ([`MAX_VOICES`], [`MAX_SAME`]) [design, #2217]: the one-shot in it, its
+/// start number (the oldest is taken over first) and the frame it started in (one
+/// started in this frame is not attached to the output yet: it has made no sound). A
+/// one-shot fading out after a stop (`retiring`) keeps its slot until its sink is empty
+/// (`ended`), and so does a slot a [`Replacement`] waits for (`reserved`) until that
+/// starts or is cancelled: a fading sound counts against both limits, so the limits are
+/// never passed, not even for the fade.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Slot {
+    start: u64,
+    entity: Entity,
+    frame: u64,
+    retiring: bool,
+    reserved: bool,
+    ended: bool,
+}
+
+/// A one-shot asked for at its SOUN's [`MAX_SAME`] waiting for a slot whose sound fades
+/// out after the steal (#2217): the slot's entity and start number, what it plays and
+/// when it was asked for. It starts once that sound has ended, with the listener as it
+/// is then; a game event's one waiting longer than [`MAX_ONE_SHOT_WAIT`] in all is
+/// dropped. One per slot at most, so at most [`MAX_VOICES`].
+struct Replacement {
+    slot: Entity,
+    start: u64,
+    sound: FormId,
+    r: Resolved,
+    handle: Handle<PcmSound>,
+    wanted: Wanted,
+    asked: Instant,
+}
+
+impl Sfx {
+    /// The one-shot `e` of `sound` is fading out after a stop.
+    fn retiring(&mut self, sound: FormId, e: Entity) {
+        for s in self.same.get_mut(&sound).into_iter().flatten().filter(|s| s.entity == e) {
+            s.retiring = true;
+        }
+    }
+
+    /// The slot of `sound` held by `slot` given up: gone if its sound has ended (or
+    /// always, `whole`), else no longer reserved.
+    fn release(&mut self, sound: FormId, slot: Entity, whole: bool) {
+        let Some(list) = self.same.get_mut(&sound) else { return };
+        let Some(i) = list.iter().position(|s| s.entity == slot) else { return };
+        if whole || list[i].ended {
+            list.swap_remove(i);
+            self.voices = self.voices.saturating_sub(1);
+        } else {
+            list[i].reserved = false;
+        }
+    }
+
+    /// Drop the replacements `drop` picks (a StopSound), giving their slots back.
+    fn cancel_replacements(&mut self, drop: impl Fn(&Replacement) -> bool) {
+        let mut i = 0;
+        while i < self.pending.len() {
+            if drop(&self.pending[i]) {
+                let p = self.pending.remove(i);
+                self.release(p.sound, p.slot, false);
+            } else {
+                i += 1;
+            }
+        }
+    }
+}
+
+/// The replacements whose slot's sound has ended start in it, oldest first: as they
+/// would have when asked for, the listener and the gains as they are now; a game
+/// event's one-shot asked for more than [`MAX_ONE_SHOT_WAIT`] ago is dropped instead.
+fn start_replacements(out: &mut Out, sfx: &mut Sfx, heard: &mut Vec<(u32, Option<f32>)>) {
+    if sfx.pending.is_empty() {
+        return;
+    }
+    let ended = |sfx: &Sfx, p: &Replacement| sfx.same.get(&p.sound).is_some_and(|l| l.iter().any(|s| s.entity == p.slot && s.ended));
+    let mut i = 0;
+    while i < sfx.pending.len() {
+        if !ended(sfx, &sfx.pending[i]) {
+            i += 1;
+            continue;
+        }
+        let p = sfx.pending.remove(i);
+        if wait_limited(p.wanted) && p.asked.elapsed() > sfx.one_shot_wait {
+            sfx.release(p.sound, p.slot, true);
+            continue;
+        }
+        let (seconds, begun) = one_shot_ready(out, sfx, &p.r, p.handle, p.sound, p.wanted, p.asked, Some(p.slot));
+        one_shot_decided(out, sfx, heard, p.sound, p.wanted, seconds, begun);
+    }
+}
+
+/// The slot a one-shot of a SOUN at [`MAX_SAME`] takes over: one already fading with no
+/// replacement yet (no voice is cut for it), else the oldest playing one; `None` when
+/// every slot has its replacement already.
+fn slot_to_take(list: &[Slot]) -> Option<usize> {
+    list.iter().position(|s| s.retiring && !s.reserved).or_else(|| (0..list.len()).filter(|&i| !list[i].retiring && !list[i].reserved).min_by_key(|&i| list[i].start))
+}
+
 /// Play a SOUN once whose file is ready, at a place (heard from the player's eye and
 /// panned for them) or at the listener: the seconds it lasts as played, also when it is
-/// too quiet to be heard or sounds are switched off, and the entity playing it (`None`
-/// when nothing is heard).
-fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<PcmSound>, sound: FormId, at: Option<[f32; 3]>) -> (f32, Option<Entity>) {
+/// too quiet to be heard or sounds are switched off, and what became of it ([`Begun`]:
+/// the entity playing it, waiting for a voice slot, or nothing heard). `wanted` and
+/// `asked` are kept for a [`Replacement`]; `slot`: the slot reserved for it, its sound
+/// ended (a replacement starting), not counted against the limits again.
+#[allow(clippy::too_many_arguments)]
+fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<PcmSound>, sound: FormId, wanted: Wanted, asked: Instant, slot: Option<Entity>) -> (f32, Begun) {
+    let at = match wanted {
+        Wanted::Once(at) | Wanted::Script { at, .. } => at,
+        Wanted::Loop => None,
+    };
     let (s, name, path) = (&r.s, &r.name, &r.path);
     let (settings, eye) = (out.settings, out.player.map(Player::eye));
     let placed = at.zip(out.player).map(|(at, p)| SoundAt::new(at, Some(p)));
@@ -1566,7 +1796,10 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
     if sfx.submerged && s.has("Mute When Submerged") {
         sfx.muted_submerged += 1;
         sfx.silent += 1;
-        return (seconds, None);
+        if let Some(slot) = slot {
+            sfx.release(sound, slot, true);
+        }
+        return (seconds, Begun::Refused);
     }
     let placed = match placed {
         Some(_) if s.has("2D") => {
@@ -1577,27 +1810,63 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
     };
     if !settings.play || gain < 0.001 {
         sfx.silent += 1;
-        return (seconds, None);
+        if let Some(slot) = slot {
+            sfx.release(sound, slot, true);
+        }
+        return (seconds, Begun::Refused);
     }
     let interface = is_interface(s.edid.as_deref());
-    if !interface {
+    // Started in the slot of another one-shot of its SOUN (the voice limit's steal).
+    let mut over_oldest = slot.is_some();
+    if let Some(slot) = slot {
+        // The reserved slot, its sound ended, is this one's now.
+        sfx.release(sound, slot, true);
+    } else if !interface {
         let same = sfx.same.get(&sound).map_or(0, Vec::len);
         if same >= MAX_SAME {
-            // The oldest voice of this SOUN stops; the new one takes its place.
+            // A slot of this SOUN is taken over: one fading already, else its oldest
+            // voice fades out (#2217: not cut). The new one starts once that sound has
+            // ended, unless the slot's one-shot started in this frame and has made no
+            // sound yet: then that one is dropped and this one starts in its place now.
+            let frame = sfx.frame;
             let list = sfx.same.get_mut(&sound).expect("counted above");
-            let oldest = (0..list.len()).min_by_key(|&i| list[i].0).expect("not empty");
-            let (_, e) = list.swap_remove(oldest);
-            stop_sound(out.commands, e, StopReason::Steal);
-            sfx.voices = sfx.voices.saturating_sub(1);
-            sfx.voice_stolen += 1;
-            sfx.per_sound.entry(sound).or_default()[1] += 1;
+            let Some(i) = slot_to_take(list) else {
+                // Every slot of the SOUN has a replacement waiting already.
+                sfx.voice_limited += 1;
+                sfx.per_sound.entry(sound).or_default()[2] += 1;
+                return (seconds, Begun::Refused);
+            };
+            let taken = list[i];
+            if !taken.retiring && taken.frame == frame {
+                list.swap_remove(i);
+                stop_sound(out.commands, taken.entity, StopReason::Steal);
+                sfx.voices = sfx.voices.saturating_sub(1);
+                over_oldest = true;
+            } else {
+                list[i].retiring = true;
+                list[i].reserved = true;
+                if !taken.retiring {
+                    // No longer a script's sound (StopSound finds nothing) nor fading in.
+                    out.commands.entity(taken.entity).try_remove::<(ScriptPlayed, ScriptFade)>();
+                    stop_sound(out.commands, taken.entity, StopReason::Steal);
+                }
+                sfx.pending.push(Replacement { slot: taken.entity, start: taken.start, sound, r: r.clone(), handle, wanted, asked });
+                sfx.replacements_waited += 1;
+                return (seconds, Begun::Waiting);
+            }
         } else if !voice_free(sfx.voices, same) {
             sfx.voice_limited += 1;
             sfx.per_sound.entry(sound).or_default()[2] += 1;
-            return (seconds, None);
+            return (seconds, Begun::Refused);
         }
+    }
+    if !interface {
         sfx.voices += 1;
         sfx.most_voices = sfx.most_voices.max(sfx.voices);
+    }
+    if over_oldest {
+        sfx.voice_stolen += 1;
+        sfx.per_sound.entry(sound).or_default()[1] += 1;
     }
     sfx.played += 1;
     let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed);
@@ -1626,14 +1895,14 @@ fn one_shot_ready(out: &mut Out, sfx: &mut Sfx, r: &Resolved, handle: Handle<Pcm
     } else {
         let n = sfx.next_voice;
         sfx.next_voice += 1;
-        e.insert(OneShot(sound, n));
+        e.insert(OneShot(sound, n, sfx.frame));
         let id = e.id();
         let list = sfx.same.entry(sound).or_default();
-        list.push((n, id));
+        list.push(Slot { start: n, entity: id, frame: sfx.frame, retiring: false, reserved: false, ended: false });
         sfx.most_same = sfx.most_same.max(list.len());
         sfx.per_sound.entry(sound).or_default()[0] += 1;
     }
-    (seconds, Some(e.id()))
+    (seconds, Begun::Started(e.id()))
 }
 
 /// An interface sound by its SOUN editor ID (`UI…`: menus, VATS, the Pip-Boy), which keeps
@@ -1651,8 +1920,10 @@ fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>, stops: Option
             info!("{}", stops.hard_line());
             info!("{}", stops.declick_line());
         }
-        // A one-shot over the oldest voice of its SOUN starts in its place at once.
-        info!("sfx voices: at most {} total, {} of one SOUN; {} replacements waiting, {} replacements started", s.most_voices, s.most_same, 0, s.voice_stolen);
+        // The most slots taken (fading voices and reserved ones counted), the requests
+        // that waited for a slot to empty, and the one-shots started over the oldest
+        // voice of their SOUN (after a wait, or at once over one not yet heard).
+        info!("sfx voices: at most {} total, {} of one SOUN; {} replacements waiting, {} replacements started", s.most_voices, s.most_same, s.replacements_waited, s.voice_stolen);
         if s.played + s.silent + s.failed + s.waits.cancelled + s.waits.rolls_skipped + s.waits.too_late > 0 || !s.waiting.is_empty() {
             info!(
                 "sfx: {} sounds played, {} too quiet or switched off, {} without a file we can play; {} silenced under water (at most {:.0} under a surface), {} 2D sounds not panned; {} not started at the voice limit, at most {} one-shots at once; {} placed by a curve of their own",
@@ -2235,11 +2506,15 @@ mod tests {
         for e in ones {
             app.world_mut().despawn(e);
         }
-        // Playing two short of the limit (Prepare counts them), one more started in play
+        // Playing two short of the limit (Prepare counts them; two of them fading out
+        // after a stop, which count until their fade is over), one more started in play
         // (BEEP, ready), two of a cold file waiting: the late start starts one, the
         // limit holds back the other.
         for n in 0..(MAX_VOICES - 2) as u64 {
-            app.world_mut().spawn(OneShot(FormId(0x99), 1000 + n));
+            let mut e = app.world_mut().spawn(OneShot(FormId(0x99), 1000 + n, 0));
+            if n < 2 {
+                e.insert(Retiring);
+            }
         }
         let takes = FormId(0x21);
         app.world_mut().resource_mut::<Sfx>().forms.sounds.insert(takes, record("TestTakeA", Some("fx\\takes\\a.wav"), &[]));
@@ -2444,7 +2719,7 @@ mod tests {
 
     #[test]
     fn loop_sound_on_and_off_while_the_file_is_read() {
-        let (mut app, _files) = sound_app();
+        let (mut app, _files) = sound_app_with_output();
         let on = |on| LoopSound { sound: BEEP, on };
         // On, off, on, off, then on twice, in one frame: each word drops the start
         // before it; the last one is left. It waits for its file, or has already started:
@@ -2458,11 +2733,231 @@ mod tests {
         // One loop once the file is ready.
         run_until(&mut app, |w| w.resource::<Sfx>().waiting.is_empty());
         assert_eq!(count::<Looping>(&mut app), 1);
-        // The file ready: on and off in one frame leave nothing going round.
+        // Attached to the output and heard for a moment.
+        play_for(&app, 10);
+        // The file ready: on and off in one frame leave nothing going round. The loop
+        // that was playing is no longer the loop at once and fades out (#2217); the one
+        // the "on" started is not attached yet and goes without a sound.
         app.world_mut().write_message_batch([on(true), on(false)]);
         app.update();
         app.update();
         assert_eq!(count::<Looping>(&mut app), 0);
+        assert_eq!((count::<Retiring>(&mut app), count::<SfxSound>(&mut app)), (1, 1), "the old loop fading out, the new one gone");
+        let stops = app.world().resource::<SoundStops>().clone();
+        assert_eq!((stops.declicked[StopReason::Loop as usize], stops.hard), (1, [0; 6]));
+        play_for(&app, 30);
+        app.update();
+        assert_eq!(count::<SfxSound>(&mut app), 0, "gone once its fade has played");
+        assert_eq!(app.world().resource::<SoundStops>().completed, 1);
+    }
+
+    /// [`sound_app`] with the audio output (no device: [`play_for`] plays the sounds on,
+    /// as the audio thread would) and the late start.
+    fn sound_app_with_output() -> (App, TestFiles) {
+        let (mut app, files) = sound_app();
+        crate::audio_out::test_output::<PcmSound>(&mut app);
+        add_late_start(&mut app);
+        (app, files)
+    }
+
+    /// The output plays `ms` milliseconds of sound on (48 kHz stereo).
+    fn play_for(app: &App, ms: usize) {
+        app.world().resource::<crate::audio_out::AudioOut>().drain(96 * ms);
+    }
+
+    /// [`BEEP`]'s file decoded, the one-shot that read it played out and gone.
+    fn beep_ready(app: &mut App) {
+        script_plays(app, &[(1000, BEEP)]);
+        run_until(app, |w| !w.resource::<ScriptSounds>().heard.is_empty());
+        heard(app);
+        play_for(app, 600);
+        app.update();
+        assert_eq!(count::<OneShot>(app), 0);
+    }
+
+    fn stops(app: &App) -> SoundStops {
+        app.world().resource::<SoundStops>().clone()
+    }
+
+    #[test]
+    fn a_steal_waits_for_its_fading_slot() {
+        let (mut app, _files) = sound_app_with_output();
+        beep_ready(&mut app);
+        let beep = PlaySound { sound: BEEP, at: None };
+        // Eight of BEEP playing, heard for a moment.
+        app.world_mut().write_message_batch(std::iter::repeat_n(beep, MAX_SAME));
+        app.update();
+        play_for(&app, 10);
+        assert_eq!(count::<OneShot>(&mut app), MAX_SAME);
+        // A ninth: the oldest fades out and the ninth waits for its slot, no ninth voice.
+        app.world_mut().write_message(beep);
+        app.update();
+        let check_waiting = |app: &mut App| {
+            assert_eq!(count::<OneShot>(app), MAX_SAME, "never more than eight of the SOUN");
+            assert_eq!(count::<Retiring>(app), 1);
+            let sfx = app.world().resource::<Sfx>();
+            assert_eq!((sfx.pending.len(), sfx.replacements_waited, sfx.voice_stolen), (1, 1, 0));
+        };
+        check_waiting(&mut app);
+        // Not played on, or not for long enough: the fade is not over, nothing starts.
+        app.update();
+        check_waiting(&mut app);
+        play_for(&app, 2);
+        app.update();
+        check_waiting(&mut app);
+        // Its fade over, the replacement starts in its slot and the old one goes.
+        play_for(&app, 10);
+        app.update();
+        assert_eq!((count::<OneShot>(&mut app), count::<Retiring>(&mut app)), (MAX_SAME, 0));
+        let sfx = app.world().resource::<Sfx>();
+        assert!(sfx.pending.is_empty());
+        assert_eq!((sfx.voice_stolen, sfx.per_sound[&BEEP][1], sfx.per_sound[&BEEP][2]), (1, 1, 0));
+        assert_eq!((sfx.most_same, sfx.most_voices), (MAX_SAME, MAX_SAME));
+        let first = stops(&app);
+        assert_eq!((first.declicked[StopReason::Steal as usize], first.completed, first.hard), (1, 1, [0; 6]));
+        // All played out; then a burst of sixteen in one frame: the second eight take over
+        // the first, which are not attached to the output yet (no sound made), so those
+        // go at once, uncounted, and the new ones start in their place without waiting.
+        play_for(&app, 600);
+        app.update();
+        assert_eq!(count::<OneShot>(&mut app), 0);
+        app.world_mut().write_message_batch(std::iter::repeat_n(beep, 2 * MAX_SAME));
+        app.update();
+        assert_eq!(count::<OneShot>(&mut app), MAX_SAME);
+        let sfx = app.world().resource::<Sfx>();
+        assert!(sfx.pending.is_empty());
+        assert_eq!((sfx.voice_stolen, sfx.most_same), (1 + MAX_SAME as u32, MAX_SAME));
+        let after = stops(&app);
+        assert_eq!((after.declicked, after.hard), (first.declicked, [0; 6]), "nothing heard was stopped");
+    }
+
+    #[test]
+    fn fading_voices_count_across_play_and_late_start() {
+        let (mut app, _files) = sound_app_with_output();
+        beep_ready(&mut app);
+        // Others playing to the total limit with BEEP's eight: another SOUN's, two of them
+        // fading out (they never end here: not attached).
+        for n in 0..(MAX_VOICES - MAX_SAME) as u64 {
+            let mut e = app.world_mut().spawn(OneShot(FormId(0x99), 1000 + n, 0));
+            if n < 2 {
+                e.insert(Retiring);
+            }
+        }
+        let beep = PlaySound { sound: BEEP, at: None };
+        app.world_mut().write_message_batch(std::iter::repeat_n(beep, MAX_SAME));
+        app.update();
+        play_for(&app, 10);
+        assert_eq!(count::<OneShot>(&mut app), MAX_VOICES);
+        // A burst of BEEP in one frame, and two of a cold file decided late in it: each
+        // of BEEP's slots gets one replacement, the rest and the late ones are refused.
+        let takes = FormId(0x21);
+        app.world_mut().resource_mut::<Sfx>().forms.sounds.insert(takes, record("TestTakeA", Some("fx\\takes\\a.wav"), &[]));
+        let limited = app.world().resource::<Sfx>().voice_limited;
+        app.world_mut().write_message_batch(std::iter::repeat_n(beep, 20).chain([PlaySound { sound: takes, at: None }; 2]));
+        app.world_mut().run_schedule(Update);
+        assert_eq!(app.world().resource::<Sfx>().waiting.len(), 2);
+        wait_decoded(&app, "sound\\fx\\takes\\a.wav");
+        app.world_mut().run_schedule(PostUpdate);
+        let sfx = app.world().resource::<Sfx>();
+        assert!(sfx.waiting.is_empty());
+        assert_eq!((sfx.pending.len(), sfx.replacements_waited), (MAX_SAME, MAX_SAME as u32), "one replacement a slot");
+        assert_eq!(sfx.voice_limited - limited, (20 - MAX_SAME as u32) + 2);
+        assert_eq!(sfx.voices, MAX_VOICES);
+        assert_eq!(count::<OneShot>(&mut app), MAX_VOICES, "the fading voices still count");
+        // Their fades over: the replacements start in their slots, within both limits.
+        play_for(&app, 10);
+        app.update();
+        assert_eq!(count::<OneShot>(&mut app), MAX_VOICES);
+        let sfx = app.world().resource::<Sfx>();
+        assert!(sfx.pending.is_empty());
+        assert_eq!((sfx.voice_stolen, sfx.most_voices, sfx.most_same), (MAX_SAME as u32, MAX_VOICES, MAX_SAME));
+        assert_eq!(stops(&app).hard, [0; 6]);
+    }
+
+    #[test]
+    fn stops_cancel_pending_replacements() {
+        let (mut app, _files) = sound_app_with_output();
+        beep_ready(&mut app);
+        // Eight script sounds of BEEP playing, each answered once.
+        script_plays(&mut app, &(1..=MAX_SAME as u32).map(|id| (id, BEEP)).collect::<Vec<_>>());
+        app.update();
+        play_for(&app, 10);
+        let mut h: Vec<u32> = heard(&mut app).iter().map(|x| x.0).collect();
+        h.sort();
+        assert_eq!(h, (1..=MAX_SAME as u32).collect::<Vec<_>>());
+        // A ninth waits for the oldest's slot: no answer yet; the oldest no longer the
+        // script's.
+        script_plays(&mut app, &[(9, BEEP)]);
+        app.update();
+        assert!(heard(&mut app).is_empty());
+        assert_eq!((app.world().resource::<Sfx>().pending.len(), count::<ScriptPlayed>(&mut app)), (1, MAX_SAME - 1));
+        // StopSound BEEP (after the ninth was asked for) and a tenth asked for after the
+        // stop, in one frame: every voice fades out, the ninth is dropped, the tenth waits
+        // for a fading slot.
+        app.world_mut().resource_mut::<ScriptSounds>().stops.push((BEEP, 9));
+        script_plays(&mut app, &[(10, BEEP)]);
+        app.update();
+        assert!(heard(&mut app).is_empty());
+        assert_eq!(count::<ScriptPlayed>(&mut app), 0);
+        assert_eq!(count::<Retiring>(&mut app), MAX_SAME);
+        assert_eq!(app.world().resource::<Sfx>().pending.len(), 1);
+        // The fades over: the tenth starts, answered once; the ninth never comes back.
+        play_for(&app, 10);
+        app.update();
+        let h = heard(&mut app);
+        assert_eq!(h.len(), 1);
+        assert_eq!(h[0].0, 10);
+        assert!((h[0].1.unwrap() - 0.5).abs() < 1e-3, "{h:?}");
+        for _ in 0..3 {
+            play_for(&app, 10);
+            app.update();
+        }
+        assert!(heard(&mut app).is_empty());
+        assert_eq!((count::<ScriptPlayed>(&mut app), count::<OneShot>(&mut app)), (1, 1));
+        let stops = stops(&app);
+        assert_eq!((stops.declicked[StopReason::Steal as usize], stops.declicked[StopReason::Script as usize]), (1, MAX_SAME as u32 - 1));
+        assert_eq!((stops.completed, stops.hard), (MAX_SAME as u32, [0; 6]));
+        // StopSound in the late start's frame drops a replacement as it drops a request
+        // waiting for its file: eight playing again, an eleventh waiting, then a stop
+        // asked for after play.
+        script_plays(&mut app, &(11..=17).map(|id| (id, BEEP)).collect::<Vec<_>>());
+        app.update();
+        play_for(&app, 10);
+        heard(&mut app);
+        script_plays(&mut app, &[(18, BEEP)]);
+        app.update();
+        assert_eq!(app.world().resource::<Sfx>().pending.len(), 1);
+        app.add_systems(Update, (|mut ss: ResMut<ScriptSounds>| ss.stops.push((BEEP, 18))).after(play));
+        app.update();
+        assert!(app.world().resource::<Sfx>().pending.is_empty(), "dropped by the late start");
+        play_for(&app, 10);
+        app.update();
+        assert!(heard(&mut app).iter().all(|x| x.0 != 18), "the eighteenth is never answered");
+    }
+
+    #[test]
+    fn a_paused_stopped_loop_can_finish() {
+        let (mut app, _files) = sound_app_with_output();
+        app.world_mut().write_message(LoopSound { sound: BEEP, on: true });
+        run_until(&mut app, |w| w.query_filtered::<(), (With<Looping>, With<AudioSink>)>().iter(w).count() == 1);
+        let e = {
+            let world = app.world_mut();
+            world.query_filtered::<Entity, With<Looping>>().single(world).unwrap()
+        };
+        // Held (as the ambient's loops are under the pause menu): nothing plays on.
+        app.world().get::<AudioSink>(e).unwrap().pause();
+        play_for(&app, 20);
+        // Stopped while held: it is resumed so its fade can play out, then it goes.
+        app.world_mut().write_message(LoopSound { sound: BEEP, on: false });
+        app.update();
+        assert_eq!(count::<Looping>(&mut app), 0);
+        assert!(app.world().get::<Retiring>(e).is_some());
+        assert!(!app.world().get::<AudioSink>(e).unwrap().is_paused());
+        play_for(&app, 30);
+        app.update();
+        assert!(app.world().get_entity(e).is_err(), "removed once its fade has played");
+        let stops = stops(&app);
+        assert_eq!((stops.declicked[StopReason::Loop as usize], stops.completed, stops.hard), (1, 1, [0; 6]));
     }
 
     #[test]

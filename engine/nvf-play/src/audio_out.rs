@@ -72,11 +72,21 @@
 //!   locally and publishes the totals once; the audio thread takes no other lock and
 //!   allocates nothing for it. Whether the original game limits or clips its mix is not
 //!   known.
-//! - **Stopping a playing sound** ([`stop_sound`], #2217): a sound stopped before its end
-//!   (a voice taken over at the voice limit, a loop or a script's sound stopped, an
-//!   ambient loop, a radio or a voice line no longer wanted) goes through one call, which
-//!   counts why ([`SoundStops`]). Today it is removed at once, mid-waveform (a hard stop);
-//!   one not attached to the output yet, or already over, is removed without a count.
+//! - **Stopping a playing sound** ([`stop_sound`], #2217) [design]: a sound stopped before
+//!   its end (a voice taken over at the voice limit, a loop or a script's sound stopped,
+//!   an ambient loop, a radio or a voice line no longer wanted) goes through one call,
+//!   which counts why ([`SoundStops`]). Every sound plays through a [`DeclickSource`]
+//!   round the whole of it (after its skip, take and repeat), and its entity carries the
+//!   [`StopControl`] the source reads: a stop fades the sound out in a straight line over
+//!   [`DECLICK_FADE`] (5 ms as heard: the fade follows the source's rate and its player's
+//!   speed, slow motion's included), reverb tail and all, then one frame of silence and
+//!   its end for good. Its entity stays, [`Retiring`], until the fade has played out
+//!   (a paused one is resumed for it), and [`cleanup_finished`] then removes it whatever
+//!   its playback mode. One not attached to the output yet (it has made no sound) or
+//!   already over is removed at once, uncounted. A sound's natural end and the fades of
+//!   their own (music's layers, the background loops' beds, a script's fade) are not
+//!   stops. The stop is the playing's, never the cached sound's (its samples are shared
+//!   by every player of the file).
 //!
 //! Log lines: `audio output: opened <device> (<rate> Hz, <channels> ch)`, `audio output:
 //! reopening (<why>)`, `audio output: no device (<why>); sound runs silent until one
@@ -95,7 +105,7 @@
 //! one again at each time, as a switch of device would.
 
 use std::num::NonZero;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -445,6 +455,8 @@ pub struct AudioOut {
     categories: [Mixer; 5],
     watcher: Sender<Command>,
     stats: Arc<Stats>,
+    /// The mix bus the watcher's device (or drain) pulls.
+    bus: Arc<Mutex<MixBus>>,
 }
 
 impl AudioOut {
@@ -462,6 +474,46 @@ impl AudioOut {
     pub fn reopen(&self, why: &'static str) {
         let _ = self.watcher.send(Command::Reopen(why));
     }
+
+    /// The run-long mixer, its categories' mixers and the bus, with no watcher thread
+    /// started (the plugin starts one; the tests pull the bus themselves).
+    fn new(volumes: &SoundVolumes) -> (AudioOut, std::sync::mpsc::Receiver<Command>) {
+        let new_mixer = || rodio::mixer::mixer(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap());
+        let (mixer, source) = new_mixer();
+        let categories = SoundCategory::ALL.map(|c| {
+            let (m, s) = new_mixer();
+            mixer.add(Gain::new(s, volumes.clone(), c));
+            m
+        });
+        let (tx, rx) = channel();
+        let bus = Arc::new(Mutex::new(MixBus::new(source)));
+        (AudioOut { mixer, categories, watcher: tx, stats: Arc::new(Stats::default()), bus }, rx)
+    }
+
+    /// Takes `samples` (even) from the bus at once, as the drain does without a device:
+    /// the tests' stand-in for the audio thread.
+    #[cfg(test)]
+    pub(crate) fn drain(&self, samples: usize) {
+        pull(&self.bus, &self.stats, samples, |_| {});
+    }
+}
+
+/// The output without a device or watcher (the tests' [`AudioOutPlugin`]): the
+/// `AudioPlayer<T>` sounds play into the mixer (their `Assets<T>` already there), and
+/// [`AudioOut::drain`] takes them on.
+#[cfg(test)]
+pub(crate) fn test_output<T: Decodable + Asset>(app: &mut App) {
+    let volumes = SoundVolumes::default();
+    let (out, rx) = AudioOut::new(&volumes);
+    // The watcher's line goes nowhere; dropping its end only makes a reopen a no-op.
+    drop(rx);
+    app.insert_resource(out)
+        .insert_resource(volumes)
+        .init_resource::<GlobalVolume>()
+        .init_resource::<SoundSpeed>()
+        .init_resource::<SoundStops>()
+        .add_systems(PostUpdate, follow_sound_speed.before(AudioOutSystems))
+        .add_systems(PostUpdate, (play_queued::<T>, cleanup_finished::<T>).in_set(AudioOutSystems));
 }
 
 enum Command {
@@ -627,21 +679,180 @@ impl SoundStops {
     }
 }
 
-/// Stops the sound `entity` plays, before its end, for `why` (module notes): removed at
-/// once, counted as a hard stop when it was attached to the output and still playing.
-/// A sound asked for but not attached yet, or already over, is removed without a count.
+/// How long a sound stopped before its end takes to fade out (#2217) [design: a straight
+/// fall of the amplitude, short enough to keep the attack of what takes its place, long
+/// enough not to cut the waveform; how the original stops a sound is not known].
+pub const DECLICK_FADE: Duration = Duration::from_millis(5);
+
+/// What a playing sound's [`DeclickSource`] shares with the main thread: whether it was
+/// asked to stop (once set, never cleared), and the speed its player plays it at (the
+/// sink's speed, slow motion's included), so its fade lasts [`DECLICK_FADE`] as heard.
+struct StopShared {
+    stop: AtomicBool,
+    speed: AtomicU32,
+}
+
+/// The stop of one playing sound (module notes), put on its entity with its sink by
+/// [`play_queued`]. Of the playing, not of the asset: a cached sound's samples are shared
+/// by many players, a stop is not.
+#[derive(Component, Clone)]
+pub struct StopControl(Arc<StopShared>);
+
+impl StopControl {
+    fn new(speed: f32) -> StopControl {
+        let c = StopControl(Arc::new(StopShared { stop: AtomicBool::new(false), speed: AtomicU32::new(0) }));
+        c.set_speed(speed);
+        c
+    }
+
+    /// Asks the sound to fade out and end; asking again changes nothing.
+    pub fn stop(&self) {
+        self.0.stop.store(true, Ordering::Relaxed);
+    }
+
+    pub fn stopped(&self) -> bool {
+        self.0.stop.load(Ordering::Relaxed)
+    }
+
+    fn set_speed(&self, speed: f32) {
+        self.0.speed.store(speed.to_bits(), Ordering::Relaxed);
+    }
+}
+
+/// A playing sound fading out after a stop ([`stop_sound`]): its entity and sink stay
+/// until the fade has played out, then [`cleanup_finished`] removes it, whatever its
+/// playback mode. Its owner no longer counts it as its own (the owner's marker or map
+/// entry goes at the stop) and leaves its pause and volume alone; a voice limit still
+/// counts it until it has ended (`crate::sfx`).
+#[derive(Component, Debug)]
+pub struct Retiring;
+
+/// A whole playing sound (after its skip, take and repeat), faded out over
+/// [`DECLICK_FADE`] once its [`StopControl`] says stop, then ended for good: a straight
+/// fall of the amplitude, one gain for all the channels of a frame, the tail of its
+/// reverb with it, then one frame of silence and the end. Outside the repeat, so a looped
+/// sound cannot start again after its fade. One multiply a sample, nothing allocated.
+pub(crate) struct DeclickSource<S> {
+    inner: S,
+    control: Arc<StopShared>,
+    /// The gain of the frame being played and the samples of it still to come.
+    gain: f32,
+    left: u16,
+    /// Fading (a stop was seen at a frame's start); ended (it never plays again).
+    fading: bool,
+    done: bool,
+}
+
+impl<S: Source> DeclickSource<S> {
+    fn new(inner: S, control: &StopControl) -> DeclickSource<S> {
+        DeclickSource { inner, control: control.0.clone(), gain: 1.0, left: 0, fading: false, done: false }
+    }
+
+    /// How much the gain falls in a frame of the source: [`DECLICK_FADE`] of playing time
+    /// at the source's rate and its player's speed (slowed, a frame lasts longer).
+    fn step(&self) -> f32 {
+        let speed = f32::from_bits(self.control.speed.load(Ordering::Relaxed));
+        let speed = if speed.is_finite() && speed > 0.0 { speed.clamp(0.05, 20.0) } else { 1.0 };
+        1.0 / (self.inner.sample_rate().get() as f32 * speed * DECLICK_FADE.as_secs_f32())
+    }
+}
+
+impl<S: Source> Iterator for DeclickSource<S> {
+    type Item = rodio::Sample;
+
+    fn next(&mut self) -> Option<rodio::Sample> {
+        if self.done {
+            return None;
+        }
+        if self.left == 0 {
+            // A frame starts: the stop is read here, so every channel of a frame shares
+            // its gain.
+            if self.fading || self.control.stop.load(Ordering::Relaxed) {
+                if self.fading && self.gain <= 0.0 {
+                    // The frame of silence has played.
+                    self.done = true;
+                    return None;
+                }
+                self.fading = true;
+                self.gain = (self.gain - self.step()).max(0.0);
+            }
+            self.left = self.inner.channels().get().max(1);
+        }
+        self.left -= 1;
+        if self.fading && self.gain <= 0.0 {
+            // The last frame, silent: the source is not read for it.
+            return Some(0.0);
+        }
+        match self.inner.next() {
+            Some(s) => Some(if self.fading { s * self.gain } else { s }),
+            None => {
+                self.done = true;
+                None
+            }
+        }
+    }
+}
+
+impl<S: Source> Source for DeclickSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        if self.done {
+            Some(0)
+        } else {
+            self.inner.current_span_len()
+        }
+    }
+    fn channels(&self) -> rodio::ChannelCount {
+        self.inner.channels()
+    }
+    fn sample_rate(&self) -> rodio::SampleRate {
+        self.inner.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
+        self.inner.try_seek(pos)
+    }
+}
+
+/// Stops the sound `entity` plays, before its end, for `why` (module notes): a sound
+/// attached to the output and still playing fades out over [`DECLICK_FADE`] (counted as
+/// a declick; a paused one is resumed so its fade can play out) and is [`Retiring`] until
+/// its fade has ended; one asked for but not attached yet (no sound made) or already over
+/// is removed at once, uncounted. Asking again for a sound already fading changes
+/// nothing. A sound attached without a [`StopControl`] (none is) would be removed at
+/// once and counted as a hard stop. The caller drops its own claim on the sound (its
+/// marker, its map entry) itself.
 pub fn stop_sound(commands: &mut Commands, entity: Entity, why: StopReason) {
     commands.entity(entity).queue_silenced(move |e: EntityWorldMut| stop_now(e, why));
 }
 
 fn stop_now(mut e: EntityWorldMut, why: StopReason) {
+    if e.contains::<Retiring>() {
+        return;
+    }
     let playing = e.get::<AudioSink>().is_some_and(|s| !s.empty());
-    if playing {
+    if !playing {
+        e.despawn();
+        return;
+    }
+    let Some(control) = e.get::<StopControl>().cloned() else {
         if let Some(mut stops) = e.get_resource_mut::<SoundStops>() {
             stops.hard[why.index()] += 1;
         }
+        e.despawn();
+        return;
+    };
+    control.stop();
+    if let Some(sink) = e.get::<AudioSink>() {
+        if sink.is_paused() {
+            sink.play();
+        }
     }
-    e.despawn();
+    e.insert(Retiring);
+    if let Some(mut stops) = e.get_resource_mut::<SoundStops>() {
+        stops.declicked[why.index()] += 1;
+    }
 }
 
 /// The output and the playing of every `AudioPlayer<T>` registered with [`AddAudioSource`].
@@ -649,26 +860,16 @@ pub struct AudioOutPlugin;
 
 impl Plugin for AudioOutPlugin {
     fn build(&self, app: &mut App) {
-        let new_mixer = || rodio::mixer::mixer(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap());
-        let (mixer, source) = new_mixer();
         let volumes = SoundVolumes::default();
-        let categories = SoundCategory::ALL.map(|c| {
-            let (m, s) = new_mixer();
-            mixer.add(Gain::new(s, volumes.clone(), c));
-            m
-        });
-        let shared = Arc::new(Mutex::new(MixBus::new(source)));
-        let stats = Arc::new(Stats::default());
-        let (tx, rx) = channel();
-        let thread_tx = tx.clone();
-        let thread_stats = stats.clone();
+        let (out, rx) = AudioOut::new(&volumes);
+        let (shared, thread_tx, thread_stats) = (out.bus.clone(), out.watcher.clone(), out.stats.clone());
         if let Err(e) = std::thread::Builder::new()
             .name("audio output".into())
             .spawn(move || watch(shared, rx, thread_tx, thread_stats))
         {
             warn!("audio output: no watcher thread ({e}); no sound");
         }
-        app.insert_resource(AudioOut { mixer, categories, watcher: tx, stats })
+        app.insert_resource(out)
             .insert_resource(volumes)
             .init_resource::<GlobalVolume>()
             .init_resource::<SoundSpeed>()
@@ -735,22 +936,26 @@ fn play_queued<T: Decodable + Asset>(
             }
         };
         let sink = Player::connect_new(out.category_mixer(category.copied().unwrap_or_default()));
+        let speed = settings.speed * speed_factor(slow.0, category.copied().unwrap_or_default(), keeps);
+        let control = StopControl::new(speed);
+        // The whole sound, its repeat included, goes through the declick (a stop inside
+        // the repeat would let the repeat start it again).
         let looped = matches!(settings.mode, PlaybackMode::Loop);
         match (settings.start_position, settings.duration, looped) {
-            (Some(s), Some(d), true) => sink.append(decoder.skip_duration(s).take_duration(d).repeat_infinite()),
-            (Some(s), None, true) => sink.append(decoder.skip_duration(s).repeat_infinite()),
-            (None, Some(d), true) => sink.append(decoder.take_duration(d).repeat_infinite()),
-            (None, None, true) => sink.append(decoder.repeat_infinite()),
-            (Some(s), Some(d), false) => sink.append(decoder.skip_duration(s).take_duration(d)),
-            (Some(s), None, false) => sink.append(decoder.skip_duration(s)),
-            (None, Some(d), false) => sink.append(decoder.take_duration(d)),
-            (None, None, false) => sink.append(decoder),
+            (Some(s), Some(d), true) => append_declicked(&sink, decoder.skip_duration(s).take_duration(d).repeat_infinite(), &control),
+            (Some(s), None, true) => append_declicked(&sink, decoder.skip_duration(s).repeat_infinite(), &control),
+            (None, Some(d), true) => append_declicked(&sink, decoder.take_duration(d).repeat_infinite(), &control),
+            (None, None, true) => append_declicked(&sink, decoder.repeat_infinite(), &control),
+            (Some(s), Some(d), false) => append_declicked(&sink, decoder.skip_duration(s).take_duration(d), &control),
+            (Some(s), None, false) => append_declicked(&sink, decoder.skip_duration(s), &control),
+            (None, Some(d), false) => append_declicked(&sink, decoder.take_duration(d), &control),
+            (None, None, false) => append_declicked(&sink, decoder, &control),
         }
         let mut sink = AudioSink::new(sink);
         if settings.muted {
             sink.mute();
         }
-        sink.set_speed(settings.speed * speed_factor(slow.0, category.copied().unwrap_or_default(), keeps));
+        sink.set_speed(speed);
         // A volume that is not a number would reach the mix after the guard: silence.
         sink.set_volume(Volume::Linear(Some(settings.volume.to_linear() * global.volume.to_linear()).filter(|v| v.is_finite()).unwrap_or(0.0)));
         if settings.paused {
@@ -758,11 +963,16 @@ fn play_queued<T: Decodable + Asset>(
         }
         let mut e = commands.entity(entity);
         match settings.mode {
-            PlaybackMode::Loop | PlaybackMode::Once => e.insert(sink),
-            PlaybackMode::Despawn => e.insert((sink, DespawnWhenDone)),
-            PlaybackMode::Remove => e.insert((sink, RemoveWhenDone)),
+            PlaybackMode::Loop | PlaybackMode::Once => e.insert((sink, control)),
+            PlaybackMode::Despawn => e.insert((sink, control, DespawnWhenDone)),
+            PlaybackMode::Remove => e.insert((sink, control, RemoveWhenDone)),
         };
     }
+}
+
+/// Appends a whole sound to its player through its [`DeclickSource`].
+fn append_declicked<S: Source + Send + 'static>(sink: &Player, source: S, control: &StopControl) {
+    sink.append(DeclickSource::new(source, control));
 }
 
 /// What a sound's own speed is multiplied by at sound speed `slow`.
@@ -776,9 +986,10 @@ fn speed_factor(slow: f32, category: SoundCategory, keeps: bool) -> f32 {
 
 /// A change of [`SoundSpeed`] reaches every sound already playing (new ones start at it,
 /// [`play_queued`]).
+#[allow(clippy::type_complexity)]
 fn follow_sound_speed(
     slow: Res<SoundSpeed>,
-    sinks: Query<(&AudioSink, &PlaybackSettings, Option<&SoundCategory>, Has<KeepsSpeed>)>,
+    sinks: Query<(&AudioSink, &PlaybackSettings, Option<&SoundCategory>, Has<KeepsSpeed>, Option<&StopControl>)>,
     mut told: Local<Option<f32>>,
 ) {
     if !slow.is_changed() {
@@ -791,18 +1002,35 @@ fn follow_sound_speed(
     if slowed(before) != slowed(slow.0) {
         info!("sound speed: {before:.2} -> {:.2}", slow.0);
     }
-    for (sink, settings, category, keeps) in &sinks {
-        sink.set_speed(settings.speed * speed_factor(slow.0, category.copied().unwrap_or_default(), keeps));
+    for (sink, settings, category, keeps, control) in &sinks {
+        let speed = settings.speed * speed_factor(slow.0, category.copied().unwrap_or_default(), keeps);
+        sink.set_speed(speed);
+        // The fade of a stopped sound follows its speed.
+        if let Some(c) = control {
+            c.set_speed(speed);
+        }
     }
 }
 
-/// Despawns (or strips) finished `Despawn` (`Remove`) sounds, as Bevy's `cleanup_finished_audio`.
+/// Despawns (or strips) finished `Despawn` (`Remove`) sounds, as Bevy's
+/// `cleanup_finished_audio`, and despawns the [`Retiring`] ones whose fade has ended,
+/// whatever their mode (counted as completed declicks).
 #[allow(clippy::type_complexity)]
 fn cleanup_finished<T: Decodable + Asset>(
     mut commands: Commands,
-    despawn: Query<(Entity, &AudioSink), (With<DespawnWhenDone>, With<AudioPlayer<T>>)>,
-    remove: Query<(Entity, &AudioSink), (With<RemoveWhenDone>, With<AudioPlayer<T>>)>,
+    despawn: Query<(Entity, &AudioSink), (With<DespawnWhenDone>, With<AudioPlayer<T>>, Without<Retiring>)>,
+    remove: Query<(Entity, &AudioSink), (With<RemoveWhenDone>, With<AudioPlayer<T>>, Without<Retiring>)>,
+    retiring: Query<(Entity, &AudioSink), (With<Retiring>, With<AudioPlayer<T>>)>,
+    mut stops: Option<ResMut<SoundStops>>,
 ) {
+    for (entity, sink) in &retiring {
+        if sink.empty() {
+            commands.entity(entity).try_despawn();
+            if let Some(stops) = stops.as_mut() {
+                stops.completed += 1;
+            }
+        }
+    }
     for (entity, sink) in &despawn {
         if sink.empty() {
             commands.entity(entity).try_despawn();
@@ -1164,6 +1392,85 @@ mod tests {
         let m = stats.mix();
         assert_eq!((m.pre_peak, m.pre_over, m.post_peak, m.post_over, m.limited), (peak, over, peak, over, 0));
         assert_eq!(stats.frames.load(Ordering::Relaxed), (2 * BLOCK / CHANNELS as usize) as u64);
+    }
+
+    /// A stereo 48 kHz source of `frames` frames, left 0.5 and right -0.25 throughout.
+    fn steady(frames: usize) -> SamplesBuffer {
+        SamplesBuffer::new(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap(), [0.5f32, -0.25].repeat(frames))
+    }
+
+    /// The frames a declicked source plays from its stop to its end (`None`), left and
+    /// right; the stop asked for again on each of the first `again` frames.
+    fn fade_of<S: Source>(d: &mut DeclickSource<S>, control: &StopControl, again: usize) -> Vec<(f32, f32)> {
+        control.stop();
+        let mut frames = Vec::new();
+        while let Some(l) = d.next() {
+            let r = d.next().expect("whole frames");
+            frames.push((l, r));
+            if frames.len() < again {
+                control.stop();
+            }
+            assert!(frames.len() < 10 * RATE as usize, "the fade never ends");
+        }
+        frames
+    }
+
+    #[test]
+    fn a_stopped_source_fades_then_ends() {
+        let fade_frames = (DECLICK_FADE.as_secs_f64() * RATE as f64).round() as usize;
+        for (speed, frames_expected) in [(1.0, fade_frames), (0.5, fade_frames / 2), (2.0, fade_frames * 2)] {
+            let control = StopControl::new(speed);
+            let mut d = DeclickSource::new(steady(RATE as usize), &control);
+            // As it is until the stop.
+            let before: Vec<f32> = d.by_ref().take(200).collect();
+            assert_eq!(before, [0.5, -0.25].repeat(100));
+            let frames = fade_of(&mut d, &control, 0);
+            // About 5 ms as heard: the source's frames scaled by its speed (slowed, each
+            // lasts longer), then one frame of silence.
+            assert!(frames.len().abs_diff(frames_expected + 1) <= 1, "speed {speed}: {} frames", frames.len());
+            assert_eq!(*frames.last().unwrap(), (0.0, 0.0), "a final frame of silence");
+            // Falling all the way, one gain for both channels of each frame.
+            let gains: Vec<f32> = frames.iter().map(|&(l, r)| {
+                assert!((r - l * -0.5).abs() < 1e-6, "the channels share the frame's gain: {l} {r}");
+                l / 0.5
+            }).collect();
+            assert!(gains[0] < 1.0 && gains.windows(2).all(|w| w[1] < w[0]), "speed {speed}: {gains:?}");
+            // Ended for good.
+            assert_eq!((d.next(), d.next()), (None, None));
+            control.stop();
+            assert_eq!(d.next(), None);
+        }
+        // A source that ends on its own while it is not stopped ends as it is.
+        let control = StopControl::new(1.0);
+        assert_eq!(DeclickSource::new(steady(3), &control).collect::<Vec<_>>(), [0.5, -0.25].repeat(3));
+        // A mono source: one sample a frame.
+        let control = StopControl::new(1.0);
+        let mono = SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(RATE).unwrap(), vec![1.0; RATE as usize]);
+        let mut d = DeclickSource::new(mono, &control);
+        control.stop();
+        let fade: Vec<f32> = d.by_ref().collect();
+        assert!(fade.len().abs_diff(fade_frames + 1) <= 1 && *fade.last().unwrap() == 0.0, "{}", fade.len());
+    }
+
+    #[test]
+    fn a_repeated_source_stays_stopped_after_its_fade() {
+        // A short sound going round (as a loop plays, `play_queued`): the declick is
+        // round the repeat, so the repeat cannot start it again after the fade.
+        let control = StopControl::new(1.0);
+        let mut d = DeclickSource::new(steady(30).repeat_infinite(), &control);
+        assert_eq!(d.by_ref().take(2 * 75).count(), 150, "round more than twice");
+        let once = fade_of(&mut d, &control, 0);
+        assert_eq!(*once.last().unwrap(), (0.0, 0.0));
+        for _ in 0..1000 {
+            assert_eq!(d.next(), None, "ended for good");
+        }
+        // Asking again and again while it fades does not draw the fade out.
+        let control = StopControl::new(1.0);
+        let mut d = DeclickSource::new(steady(30).repeat_infinite(), &control);
+        d.by_ref().take(20).count();
+        let again = fade_of(&mut d, &control, usize::MAX);
+        assert_eq!(again.len(), once.len());
+        assert_eq!(d.next(), None);
     }
 
     #[test]

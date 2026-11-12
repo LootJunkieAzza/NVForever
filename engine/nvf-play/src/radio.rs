@@ -76,6 +76,10 @@
 //!   `PipBoyRadio 1 <station>` does (a placed station or its base, by Editor ID or hex
 //!   FormID). Seconds of the radios' clock: from the first frame the scripts run, less
 //!   pauses and loading screens.
+//! - **A radio's sound stopped** (another place, a track replaced, a receiver no longer
+//!   wanted) fades out over `audio_out::DECLICK_FADE` (#2217) [design], not cut
+//!   mid-waveform (`audio_out::stop_sound`, counted as radio stops in `sfx declicks:
+//!   …`), panned or not; the station's clock and what plays next are not changed by it.
 //! - Log: `radio: <who> tuned to <station> playing <file>` when something starts a
 //!   response or a loop, `radio: <station> says <topic> <info>: …`, `pipboy radio: …`,
 //!   and at the end `radio summary: …` and `pipboy radio summary: …`.
@@ -90,7 +94,7 @@ use crate::sim::SimState;
 use crate::voice::VoiceState;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::{AudioSinkPlayback, ChannelCount, Decodable, Sample, SampleRate, Source};
-use crate::audio_out::{stop_sound, AddAudioSource, SoundCategory, StopReason};
+use crate::audio_out::{stop_sound, AddAudioSource, Retiring, SoundCategory, StopReason};
 use bevy::prelude::*;
 use fnv_combat::fx::Sound;
 use fnv_sim::FormId;
@@ -737,7 +741,8 @@ fn play(
     (player, intro): (Option<Res<Player>>, Option<Res<crate::intro::Intro>>),
     data: Option<Res<nvf_assets::GameData>>,
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
-    (sinks, mut placed): (Query<&AudioSink, With<RadioEntity>>, Query<&mut SoundAt, With<RadioEntity>>),
+    // The sinks held with the radios: not those fading out after a stop (audio_out).
+    (sinks, mut placed): (Query<&AudioSink, (With<RadioEntity>, Without<Retiring>)>, Query<&mut SoundAt, With<RadioEntity>>),
 ) {
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
     let Some(bank) = voice.bank.clone() else { return };

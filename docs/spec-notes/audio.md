@@ -186,6 +186,20 @@ environment: §14.6.
   the original cuts a previous shot's sound is not known (observer check). The exit log
   names every SOUN that met a limit: `sfx: <EDID>: N started, S of them over its oldest
   voice, R refused at the voice limit`.
+- **Voice slots** (#2217, since stage 2) [design]: the limits count what is heard. Every
+  one-shot holds a slot until its sound has ended, also while it fades out after a stop
+  (below), so 8 of a SOUN and 64 in all are never passed, not even for a fade. A
+  one-shot beyond 8 of its SOUN has one slot's sound fade out (one fading already,
+  else the oldest voice) and waits for it: it starts once that sound has ended, about
+  5 ms and a frame or two after it was asked for, with the listener as it is then. A
+  slot has one waiting replacement at most, so with every slot of the SOUN promised
+  one more is refused; nothing else (a placed sound, a late start) can take a promised
+  slot. A game event's one-shot whose wait for its file and its slot comes to more
+  than 150 ms is dropped; a script's sound is answered (its seconds) when it starts, a
+  StopSound drops the ones asked for before it. One-shots started in the same frame
+  have made no sound yet: one taken over among them goes at once and the new one starts
+  in its place. `S of them over its oldest voice` counts the one-shots started in a
+  slot taken over.
 - **Measurements of the mix and of stopped sounds** (#2217: crackle with many sounds)
   [design]. Every sound reaches the device (or the drain without one) through one mix
   bus (`nvf-play/src/audio_out.rs` `MixBus`), which counts, for the whole run, the
@@ -194,17 +208,23 @@ environment: §14.6.
   built yet, so both are the same and no frame is limited. Every stop of a playing sound
   before its end goes through `audio_out::stop_sound`, which counts it by why: a one-shot
   taken over at the voice limit, a LoopSound stopped, a script's StopSound without a
-  fade, an ambient loop, a radio or a voice line no longer wanted. Removing a playing
-  sound cuts its waveform (a hard stop); one asked for but not attached to the output
-  yet, or already over, is not counted. Whether the original limits its mix, cuts or
-  fades voices it stops, or what its limits are, is not known. Exit lines:
+  fade, an ambient loop, a radio or a voice line no longer wanted. Since stage 2 every
+  such stop fades the sound out over 5 ms (`audio_out::DECLICK_FADE`, a straight fall of
+  the amplitude, timed by the sound's rate and its playing speed, slow motion's
+  included) and the sound goes once the fade has played; removing a playing sound at
+  once, which cut its waveform, is counted as a hard stop and should not happen any
+  more. One asked for but not attached to the output yet, or already over, is not
+  counted. The fades of their own (music's layers, a background loop giving way, a
+  script's fade) and natural ends are not stops. Whether the original limits its mix,
+  cuts or fades voices it stops, or what its limits are, is not known. Exit lines:
   `audio mix: pre peak P, N samples over full scale; post peak Q, M samples over full
   scale; K frames limited` (peaks to nine decimals), `sfx hard stops: S steals, L loop
   stops, T script stops, A ambient stops, R radio stops, V voice stops`, `sfx declicks:
-  … ; C completed, W pending` (the same fields, for stops faded out: none yet) and `sfx
-  voices: at most V total, S of one SOUN; Q replacements waiting, R replacements
-  started` (a replacement is a one-shot started over its SOUN's oldest voice; none waits
-  yet).
+  … ; C completed, W pending` (the same fields, for stops faded out; C the fades played
+  out, W those not over at the end) and `sfx voices: at most V total, S of one SOUN; Q
+  replacements waiting, R replacements started` (the most slots taken, fading ones
+  counted; Q the one-shots that waited for a slot, R those started over the oldest
+  voice of their SOUN).
 
 ## 8. Tools
 
@@ -474,6 +494,13 @@ original] (`fnv-game/src/nvse_sound.rs` `SoundState::stop`, `nvf-play/src/sfx.rs
   at once: IsSoundPlaying reads 0 for it, as for a one-shot with no file.
 - `LoopSound` on then off for one SOUN in one frame leaves nothing playing (the off drops
   the start still waiting for its file).
+- A sound stopped while it plays (StopSound without a fade, LoopSound off or on again)
+  fades out over 5 ms instead of being cut (#2217, §7) [design]; it is no longer the
+  script's or the loop at once (a second StopSound or LoopSound off finds nothing of
+  it). A one-shot started earlier in the same frame has
+  made no sound and goes at once. StopSound with a fade time keeps its own fade. A
+  script's one-shot that waits for a voice slot (§7) is answered when it starts; a
+  StopSound drops it as one waiting for its file, so it never starts after the stop.
 
 ### 11.6 Checks and what is left
 
@@ -1002,6 +1029,9 @@ reverb indoors, owner-review.md].
   inputs are scaled so an impulse's late tail carries its level's energy. Density scales
   the comb lengths (half to whole), Diffusion the all-passes' gain (up to 0.5). Room
   Rolloff Factor is 0 in every preset.
+- **A sound stopped before its end** (#2217, §7) [design]: its fade (5 ms) takes the
+  whole sound, reverb tail included, so a forced stop shortens the tail and frees the
+  voice slot promptly; a sound that ends by itself keeps its whole tail.
 - Not built: a reverb that changes under a sound already playing. (The `GNAM` reverb
   attenuation was built 2026-10-24, §15.5; voices in rooms 2026-11-01, above.)
 - Smoke: `reverb-cave-exit` (the Goodsprings cave, a shot, out through its door).
