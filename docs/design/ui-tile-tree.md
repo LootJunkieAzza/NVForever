@@ -277,7 +277,14 @@ traits:
 - `text`: `string`, `font` (fnv-font), `justify`, `wrapwidth`;
 - colour: `systemcolor`, `red`/`green`/`blue`, `brightness`;
 - `nif`: a model drawn into the menu; since the T12 leftovers a model of flat textured
-  squares (the breath meter) is drawn as pictures (hud.md §14.12), other models later.
+  squares (the breath meter) is drawn as pictures (hud.md §14.12), other models later;
+- `rotateangle` about `rotateaxisx`/`rotateaxisy`: a picture or a box turned on the
+  screen, its clips unturned, its pointer box unturned (the map's arrows and dotted
+  lines; menu-xml.md §3.1.4);
+- an `image` whose `filename` starts with `nvf:`: a texture NVForever's code made
+  (`tiles::runtime_images::RuntimeImages`, the Local Map's outline), looked up before the
+  atlas and the files, repainted when its entry changes under the same name (menu-xml.md
+  §3.1.5).
 
 The layout is a pure function from the tree to rectangles (tested headless). What each
 drawing trait means exactly is checked against the original menu by menu (screenshots

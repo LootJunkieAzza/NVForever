@@ -42,6 +42,7 @@ pub mod recipe_menu;
 pub mod repair_cards;
 pub mod repair_menu;
 pub mod repair_services_menu;
+pub mod runtime_images;
 mod item_menu;
 pub mod dialog_menu;
 pub mod draw;
@@ -981,6 +982,7 @@ impl Plugin for TilesPlugin {
         map_menu::setup(app);
         vats_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
+            .init_resource::<runtime_images::RuntimeImages>()
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
