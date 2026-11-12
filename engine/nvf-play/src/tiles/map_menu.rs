@@ -406,8 +406,11 @@ impl WorldShown {
         let w = m.world.as_ref()?;
         let local = w.view.local.is_some();
         let texture = if local { w.outline.as_ref().map(|_| super::runtime_images::filename(LOCAL_IMAGE)).unwrap_or_default() } else { w.texture.clone() };
-        let markers = m
-            .marks()
+        // The Local Map's rows are every record here; the World Map's are its marks.
+        let markers = w
+            .rows
+            .as_deref()
+            .unwrap_or(m.marks())
             .iter()
             .filter_map(|mk| Some(MarkerShown { form: mk.form, uv: mk.uv?, icon: mk.picture(), selected: mk.highlighted, name: mk.name.clone() }))
             .collect();
@@ -3512,7 +3515,7 @@ mod tests {
         // The prepared Local Map is read with its parts; a Local Map without a place is not drawn.
         let p = data::view::LocalProjection { centre: [0.0, 0.0], mag: 1.0, scale: 8.0, origin: [-100.0, 100.0], extent: Vec2::new(200.0, 200.0) };
         let view = data::MapView::local(WORLD_W, p);
-        let parts = data::WorldParts { view, texture: String::new(), mag: 1.0, quests: Vec::new(), custom: None, arrow: Some(([0.5, 0.5], 0.0)), ends: Vec::new(), outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))) };
+        let parts = data::WorldParts { view, texture: String::new(), mag: 1.0, quests: Vec::new(), custom: None, arrow: Some(([0.5, 0.5], 0.0)), ends: Vec::new(), outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))), rows: None };
         let map = data::MapShown::for_test(Vec::new(), Some(parts), Vec2::ZERO, None, None);
         let prepared = |tab, map: data::MapShown| Prepared { view: data::View { tab, place: String::new(), when: String::new(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None }, keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
         let s = Shown::of(&prepared(data::LOCAL, map.clone()), true).unwrap();
@@ -3559,7 +3562,7 @@ mod tests {
     fn the_prepared_world_map_is_read_with_its_parts_and_the_local_map_is_not() {
         let view = data::MapView::world(WORLD_W, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
         let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv };
-        let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None };
+        let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None, rows: None };
         let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts), Vec2::new(5.0, 6.0), Some("P2"), None);
         let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None };
         let p = |tab, map| Prepared { view: view_of(tab, map), keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
