@@ -395,6 +395,8 @@ pub(crate) struct WorldShown {
     pub arrow: Option<([f32; 2], f32)>,
     pub ends: Vec<(data::marker::LineTo, u32, [f32; 2])>,
     pub cursor: Vec2,
+    /// Where the highlight box was put before it took a marker's place (`data::WorldParts::want`).
+    pub want: Vec2,
     pub label: Option<String>,
     pub detail: Option<String>,
 }
@@ -430,6 +432,7 @@ impl WorldShown {
             arrow: w.arrow,
             ends: w.ends.clone(),
             cursor,
+            want: w.want,
             label: label.map(str::to_string),
             detail: detail.map(str::to_string),
         })
@@ -441,19 +444,34 @@ impl WorldShown {
     /// it is on, else at its place on the canvas, kept in the window. The rows' texture coordinates
     /// do not change [design: so the drawing and the window published for the next frame's pointer
     /// agree from the first frame].
-    fn refit(&mut self, window: Rect) {
+    ///
+    /// The highlight box is put where it was put on the canvas (the pointer's place, the
+    /// controller's cursor), kept in the window, and takes again the nearest marker within reach
+    /// there, as the model picks (`data::nearest`): it may be another marker than before, or none.
+    /// Returns the marker picked; no input is taken again.
+    fn refit(&mut self, window: Rect) -> Option<u32> {
+        let picked = |s: &WorldShown| s.markers.iter().find(|m| m.selected).map(|m| m.form);
         if self.window == window {
-            return;
+            return picked(self);
         }
         let view = self.view.with_window(window);
-        let canvas = self.window.min + self.cursor;
-        self.cursor = match self.markers.iter().find(|m| m.selected) {
-            Some(m) => view.to_window(m.uv),
-            None => (canvas - window.min).clamp(Vec2::ZERO, window.size()),
-        };
+        let want = (self.window.min + self.want - window.min).clamp(Vec2::ZERO, window.size());
+        let pick = data::nearest(self.markers.iter().map(|m| view.to_window(m.uv)), want);
+        let before = picked(self);
+        for (i, m) in self.markers.iter_mut().enumerate() {
+            m.selected = Some(i) == pick;
+        }
+        self.cursor = pick.map_or(want, |i| view.to_window(self.markers[i].uv));
+        self.label = pick.map(|i| self.markers[i].name.clone());
+        // A marker's reputation line is the model's; another marker's is not known here.
+        if picked(self) != before {
+            self.detail = None;
+        }
+        self.want = want;
         self.picture = view.picture();
         self.window = window;
         self.view = view;
+        picked(self)
     }
 
     /// The highlight box's title: the name, and a marker's reputation on the line under it
@@ -1877,11 +1895,18 @@ fn pass(p: &mut MapPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     // A map in the window this page lays out, before anything is written of it.
     let tree_ui = &script.rt.as_ref()?.game.ui_tree;
     let gathered_in = new.as_ref().and_then(|s| s.world.as_ref()).map(|w| w.window);
-    let new = new.map(|s| refit_to_tree(tree_ui, s));
-    // Drawn in another window than it was gathered in: the model's highlight box and Place
-    // Marker's place follow the drawing (no input taken again).
-    if let Some(w) = new.as_ref().and_then(|s| s.world.as_ref()).filter(|w| Some(w.window) != gathered_in) {
-        data.refit_map(tab, w.view, w.cursor);
+    let mut new = new.map(|s| refit_to_tree(tree_ui, s));
+    // Drawn in another window than it was gathered in: the model's highlight box, its pick, the
+    // Travel target and Place Marker's place follow the drawing (no input taken again), and the
+    // Travel hint is lit or dim by the Travel target picked again.
+    if let Some(s) = new.as_mut().filter(|s| s.world.as_ref().is_some_and(|w| Some(w.window) != gathered_in)) {
+        let w = s.world.as_ref()?;
+        let picked = w.markers.iter().find(|m| m.selected).map(|m| m.form);
+        let forms: Vec<u32> = w.markers.iter().map(|m| m.form).collect();
+        let travel = data.refit_map(tab, w.view, w.want, w.cursor, picked, &forms);
+        for h in s.hints.iter_mut().filter(|h| h.kind == ButtonKind::Travel) {
+            h.dim = travel.is_none();
+        }
     }
     // What it would show changed since the last pass, written or not (a failure forgets what was
     // written, not what was asked for).
@@ -3137,6 +3162,7 @@ mod tests {
                 arrow: Some(([0.5, 0.5], 0.25)),
                 ends: vec![(data::marker::LineTo::Marker, 0, [0.4, 0.5]), (data::marker::LineTo::Quest, 77, [0.6, 0.5])],
                 cursor: on.unwrap_or(view.mid()),
+                want: on.unwrap_or(view.mid()),
                 label,
                 detail: Some("Town: Liked".into()),
             }),
@@ -3315,7 +3341,7 @@ mod tests {
         // A cursor on no marker keeps its place on the canvas, held in the window.
         let mut s = world(1.0, [0.5, 0.5], vec![marker(20, [0.5, 0.5], false)]);
         if let Some(w) = s.world.as_mut() {
-            w.cursor = Vec2::new(10.0, 450.0);
+            (w.cursor, w.want) = (Vec2::new(10.0, 450.0), Vec2::new(10.0, 450.0));
         }
         let ws = refit_to_tree(&ui, s).world.unwrap();
         assert_eq!(ws.cursor, Vec2::new(0.0, 400.0), "(40 + 10, 90 + 450) in the window at (140, 120), held");
@@ -3375,6 +3401,7 @@ mod tests {
                 arrow: Some((view.local_uv(1000.0, 2000.0), 0.75)),
                 ends: Vec::new(),
                 cursor: view.place(1000.0, 2000.0),
+                want: view.place(1000.0, 2000.0),
                 label: Some("Door 7".into()),
                 detail: None,
             }),
@@ -3515,7 +3542,7 @@ mod tests {
         // The prepared Local Map is read with its parts; a Local Map without a place is not drawn.
         let p = data::view::LocalProjection { centre: [0.0, 0.0], mag: 1.0, scale: 8.0, origin: [-100.0, 100.0], extent: Vec2::new(200.0, 200.0) };
         let view = data::MapView::local(WORLD_W, p);
-        let parts = data::WorldParts { view, texture: String::new(), mag: 1.0, quests: Vec::new(), custom: None, arrow: Some(([0.5, 0.5], 0.0)), ends: Vec::new(), outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))), rows: None };
+        let parts = data::WorldParts { view, texture: String::new(), mag: 1.0, quests: Vec::new(), custom: None, arrow: Some(([0.5, 0.5], 0.0)), ends: Vec::new(), outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))), rows: None, want: Vec2::ZERO };
         let map = data::MapShown::for_test(Vec::new(), Some(parts), Vec2::ZERO, None, None);
         let prepared = |tab, map: data::MapShown| Prepared { view: data::View { tab, place: String::new(), when: String::new(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None }, keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
         let s = Shown::of(&prepared(data::LOCAL, map.clone()), true).unwrap();
@@ -3524,6 +3551,28 @@ mod tests {
         assert!(Shown::of(&prepared(data::WORLD, map), true).is_err(), "a Local Map is not the World Map's");
         let bare = data::MapShown::for_test(Vec::new(), None, Vec2::ZERO, None, None);
         assert_eq!(Shown::of(&prepared(data::LOCAL, bare), true), Err("the local map has no place here".to_string()));
+    }
+
+    /// The review's case: the box was on one marker in the window the model gathered the map in;
+    /// in the file's window, moved, the box's place on the canvas is nearest another marker, which
+    /// it takes (the model's rule, `data::nearest`), its name with it and no other's reputation.
+    #[test]
+    fn a_refit_picks_the_marker_under_the_box_again() {
+        let moved = |x: String| with_world(x).replace(r#"<hotrect name="MM_WorldMap_ClipWindow"><y>50</y><width>855</width><height>500</height>"#, r#"<hotrect name="MM_WorldMap_ClipWindow"><x>100</x><y>80</y><width>600</width><height>400</height>"#);
+        let ui = tree_changed(moved);
+        // Before: the box at the window's middle on marker 20; marker 21 34 units off.
+        let s = world(1.0, [0.5, 0.5], vec![marker(20, [0.5, 0.5], true), marker(21, [0.5275, 0.52], false)]);
+        assert_eq!(s.world.as_ref().map(|w| w.label.clone()), Some(Some("Place 20".to_string())));
+        let w = refit_to_tree(&ui, s).world.unwrap();
+        // The box kept its canvas place, (40 + 427.5, 90 + 250), in the window at (140, 120); marker
+        // 21 is there now, 20 at the window's middle 34 away.
+        assert!((w.want - Vec2::new(327.5, 220.0)).length() < 1e-3, "{:?}", w.want);
+        assert_eq!(w.markers.iter().map(|m| (m.form, m.selected)).collect::<Vec<_>>(), vec![(20, false), (21, true)]);
+        assert!((w.cursor - Vec2::new(327.5, 220.0)).length() < 1e-2, "on marker 21");
+        assert_eq!((w.label.as_deref(), w.detail.as_deref()), (Some("Place 21"), None), "its name; marker 20's reputation line not carried over");
+        // The same window: the pick as it was, the reputation kept.
+        let same = refit_to_tree(&tree_changed(with_world), world(1.0, [0.5, 0.5], vec![marker(20, [0.5, 0.5], true), marker(21, [0.5275, 0.52], false)])).world.unwrap();
+        assert_eq!((same.label.as_deref(), same.detail.as_deref()), (Some("Place 20"), Some("Town: Liked")));
     }
 
     #[test]
@@ -3562,7 +3611,7 @@ mod tests {
     fn the_prepared_world_map_is_read_with_its_parts_and_the_local_map_is_not() {
         let view = data::MapView::world(WORLD_W, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
         let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv };
-        let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None, rows: None };
+        let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None, rows: None, want: Vec2::new(5.0, 6.0) };
         let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts), Vec2::new(5.0, 6.0), Some("P2"), None);
         let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None };
         let p = |tab, map| Prepared { view: view_of(tab, map), keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };

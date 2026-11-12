@@ -616,6 +616,10 @@ pub(crate) struct WorldParts {
     /// The Local Map's outline picture, once made, and its size in texels: the picture its
     /// frame shows ([`outline`]); none on the World Map.
     pub(crate) outline: Option<(Handle<Image>, Vec2)>,
+    /// Where the highlight box was put before it took a marker's place (the window's units: the
+    /// pointer's place, or the controller's cursor), for the page drawn from the file to pick again
+    /// in another window ([`nearest`]).
+    pub(crate) want: Vec2,
     /// The Local Map's rows for the page drawn from the file: every door and marker here, those
     /// outside the window too (the hand-built page leaves them out, [`MapShown::marks`]), so a pan
     /// keeps their rows; none on the World Map, whose rows are its marks.
@@ -1029,12 +1033,18 @@ impl DataState {
     /// window's units): the model's window, highlight box and Place Marker's place follow the
     /// drawing, so the next frame's pointer and a Place Marker now read what is drawn. No input is
     /// taken again; the marker the box is on stays the one it was on.
-    pub(crate) fn refit_map(&mut self, tab: usize, view: MapView, cursor: Vec2) {
+    ///
+    /// `want` is where the box was put in the new window (before it takes a marker), `cursor` where
+    /// it stands (on the marker `picked`, picked again there by [`nearest`]), `forms` the markers
+    /// shown. The World Map's marker under the box and its Travel target follow the pick
+    /// ([`travel_target`]); a Place Marker question already up asks about the new place. Returns
+    /// the Travel target, for the hints.
+    pub(crate) fn refit_map(&mut self, tab: usize, view: MapView, want: Vec2, cursor: Vec2, picked: Option<u32>, forms: &[u32]) -> Option<u32> {
         if !(tab == LOCAL || tab == WORLD) {
-            return;
+            return self.travel_marker;
         }
         self.map_window = Some((tab, view.window));
-        self.cursor[tab] = Some(cursor);
+        self.cursor[tab] = Some(want);
         let point = match view.local {
             Some(_) => view.local_point(cursor),
             None => self.spot[tab].and_then(|s| self.maps.get(&s.space).cloned().flatten()).map(|m| m.position(view.to_uv(cursor))),
@@ -1042,6 +1052,15 @@ impl DataState {
         if let (Some(p), Some(s)) = (point.filter(|p| p.iter().all(|v| v.is_finite())), self.spot[tab].as_mut()) {
             (s.pos[0], s.pos[1]) = (p[0], p[1]);
         }
+        if tab == WORLD {
+            self.cursor_marker = picked;
+            self.travel_marker = travel_target(self.travel_marker, picked, self.pointer_now.is_some(), forms);
+        }
+        // A Place Marker question asked this frame was asked of the place before the refit.
+        if let (Some(Popup { ask: Ask::Marker(ask), .. }), Some(at)) = (self.popup.as_mut(), self.spot[tab]) {
+            *ask = ask.at(at);
+        }
+        self.travel_marker
     }
 
     /// The question box over the map (fast travel's or Place Marker's), while it is up.
@@ -2232,14 +2251,19 @@ fn place_cursor(st: &mut DataState, tab: usize, pointer: Option<Vec2>, marks: &m
     let win = MapView::bare(map_window(st, tab));
     let want = win.pointer(pointer).or(st.cursor[tab]).unwrap_or(win.mid());
     st.cursor[tab] = Some(want);
-    let near = marks.iter().enumerate().map(|(i, m)| (i, m.at.distance(want))).filter(|(_, d)| *d <= SNAP).min_by(|a, b| a.1.total_cmp(&b.1));
-    match near {
-        Some((i, _)) => {
+    match nearest(marks.iter().map(|m| m.at), want) {
+        Some(i) => {
             marks[i].highlighted = true;
             (marks[i].at, names.get(i).cloned(), Some(i))
         }
         None => (want, None, None),
     }
+}
+
+/// The marker the highlight box at `want` takes ([`place_cursor`]): the nearest of those at
+/// `places` (the window's units) within [`SNAP`], the first of equals.
+pub(crate) fn nearest(places: impl Iterator<Item = Vec2>, want: Vec2) -> Option<usize> {
+    places.enumerate().map(|(i, at)| (i, at.distance(want))).filter(|(_, d)| *d <= SNAP).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
 }
 
 /// Whether the player knows a marker (`Some`), and whether it is drawn as discovered
@@ -2355,7 +2379,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         cursor,
         label,
         detail,
-        world: Some(WorldParts { view, texture: m.texture.clone(), mag, quests: target_uvs, custom: custom_uv, arrow: arrow_uv, ends, outline: None, rows: None }),
+        world: Some(WorldParts { view, texture: m.texture.clone(), mag, quests: target_uvs, custom: custom_uv, arrow: arrow_uv, ends, outline: None, rows: None, want: st.cursor[WORLD].unwrap_or(view.mid()) }),
     }
 }
 
@@ -2543,7 +2567,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     log_custom(st, LOCAL, custom);
     let custom_uv = custom.map(|c| view.local_uv(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels, rows: Some(rows) };
+    let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels, rows: Some(rows), want: st.cursor[LOCAL].unwrap_or(view.mid()) };
     MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) }
 }
 
@@ -3831,14 +3855,23 @@ mod tests {
         // Drawn in a smaller window elsewhere, the box 50 right of its middle.
         let moved = view.with_window(Rect::new(150.0, 120.0, 750.0, 520.0));
         let cursor = moved.mid() + Vec2::new(50.0, 0.0);
-        st.refit_map(WORLD, moved, cursor);
+        // Place Marker's question asked this frame, of the place before the refit; a marker
+        // picked again under the box.
+        let before = st.spot[WORLD].expect("the place before");
+        st.popup = Some(Popup::marker(marker::MarkerAsk::Set(before), "Here?".into(), vec!["Yes".into(), "No".into()]));
+        let travel = st.refit_map(WORLD, moved, cursor, cursor, Some(42), &[41, 42]);
         assert_eq!((map_window(&st, WORLD), st.cursor[WORLD]), (moved.window, Some(cursor)));
+        assert_eq!((st.cursor_marker, st.travel_marker, travel), (Some(42), Some(42), Some(42)), "the marker picked again is the Travel target");
         let spot = st.spot[WORLD].expect("Place Marker's place");
         let want = root.position(moved.to_uv(cursor));
         assert!((spot.pos[0] - want[0]).abs() < 0.5 && (spot.pos[1] - want[1]).abs() < 0.5, "{spot:?} {want:?}");
         assert!(spot.pos[0] > 400.0, "east of the player, under the box (about 500)");
+        assert!(matches!(st.popup.as_ref().map(|p| &p.ask), Some(Ask::Marker(marker::MarkerAsk::Set(at))) if *at == spot), "the question asks of the new place");
+        // No marker there after all: none under the box, no Travel target with no pointer in use.
+        assert_eq!(st.refit_map(WORLD, moved, cursor, cursor, None, &[41, 42]), None);
+        assert_eq!(st.cursor_marker, None);
         // Another tab: nothing.
-        st.refit_map(QUESTS, moved, Vec2::ZERO);
+        st.refit_map(QUESTS, moved, Vec2::ZERO, Vec2::ZERO, None, &[]);
         assert_eq!(st.cursor[WORLD], Some(cursor));
     }
 
