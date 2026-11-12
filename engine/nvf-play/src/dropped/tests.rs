@@ -183,7 +183,7 @@ fn a_dynamic_drop_falls_settles_and_is_written_back() {
     let local = Iso { translation: [0.0, 0.0, 2.0], rotation: Iso::IDENTITY.rotation };
     let pose = RefPose { form_id: DROPPED, position: start, rotation: ref_rotation([0.0; 3]), scale: 1.0 };
     phys.world.add_ref(&pose, &[object(Motion::Dynamic, 3.0, local)]);
-    phys.created.insert(DROPPED, CreatedBody { local: Some(local), dynamic: true, start, added_step: 0, settled: false });
+    phys.created.insert(DROPPED, CreatedBody { local: Some(local), dynamic: true, start, added_step: 0, settled: false, marks: 0 });
     let mut moved_once = false;
     for _ in 0..600 {
         phys.world.step();
@@ -214,7 +214,7 @@ fn a_body_that_moves_into_the_next_square_changes_cell() {
     let pose = RefPose { form_id: DROPPED, position: start, rotation: ref_rotation([0.0; 3]), scale: 1.0 };
     // Not dynamic in the model: nothing is written back.
     phys.world.add_ref(&pose, &[object(Motion::Static, 3.0, Iso::IDENTITY)]);
-    phys.created.insert(DROPPED, CreatedBody { local: Some(Iso::IDENTITY), dynamic: false, start, added_step: 0, settled: false });
+    phys.created.insert(DROPPED, CreatedBody { local: Some(Iso::IDENTITY), dynamic: false, start, added_step: 0, settled: false, marks: 0 });
     assert!(phys.settle_created(&ix, WORLD, &mut sim).is_empty());
     // Dynamic, with no floor, pushed east: written back with the new square's cell.
     phys.world.remove_ref(DROPPED);
@@ -238,7 +238,7 @@ fn falling_through_the_world_puts_it_back_without_collision() {
     let mut pose = RefPose { form_id: DROPPED, position: start, rotation: ref_rotation([0.0; 3]), scale: 1.0 };
     pose.position[2] = start[2] - crate::phys::CREATED_FELL_THROUGH - 100.0;
     phys.world.add_ref(&pose, &[object(Motion::Dynamic, 3.0, Iso::IDENTITY)]);
-    phys.created.insert(DROPPED, CreatedBody { local: Some(Iso::IDENTITY), dynamic: true, start, added_step: 0, settled: false });
+    phys.created.insert(DROPPED, CreatedBody { local: Some(Iso::IDENTITY), dynamic: true, start, added_step: 0, settled: false, marks: 0 });
     phys.world.step();
     phys.settle_created(&ix, WORLD, &mut sim);
     assert!(!phys.has_collision(DROPPED));

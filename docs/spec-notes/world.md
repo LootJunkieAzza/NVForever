@@ -126,7 +126,19 @@ apart and the last row/column coincides with the neighbour's first.
   texture layered on both sides, the edge opacities agree (within 1/255) for 38,039 of
   44,753 edges inside cells and 35,100 of 43,039 across cells in WastelandNV. The best
   of the other seven orientations of the square agrees for 21,946 and 20,033.
-  Reproduce with `crates/fnv-world/examples/land_layers.rs`.
+  Reproduce with `crates/fnv-world/examples/land_layers.rs`. Those counts leave out
+  edges where a texture is layered on one side only: at (−55,420, −65,575) the south
+  cell (−14, −17) paints LTEX 000357BA along its north edge at up to 1.00 and cell
+  (−14, −16) has no layer of it, which drew as a straight texture seam (issue #2089,
+  owner's save 36) [observed]. **Stitching** [design; what the original does at such
+  edges is not known]: the renderer reads the four neighbouring cells' layers with a
+  cell's own and, at every vertex of a shared quadrant edge, gives each texture layer
+  the larger of the two sides' opacities; a quadrant lacking a texture its neighbour
+  paints on the edge gets a layer of it over its own, painted on the edge row only (it
+  fades out across the next grid square). A texture that is the quadrant's own base is
+  not added; bases are not changed; diagonal corners are not looked at. Only what is
+  drawn changes: grass and footsteps read the record's layers
+  (`nvforever` terrain.rs `stitch_layers`).
 - **Texture repeat** [observed, 2026-10-10]: landscape textures repeat every **256 world
   units** (16 times across a cell, once per two grid squares), with u = x / 256 and
   v = y / 256 in world coordinates: v grows **northwards**, so the image's top edge lies

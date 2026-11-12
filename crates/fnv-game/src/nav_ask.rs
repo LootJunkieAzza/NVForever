@@ -34,17 +34,34 @@ thread_local! {
 
 /// Run `body` with `nav` answering on this thread.
 pub fn with_nav<R>(nav: &dyn NavAsk, body: impl FnOnce() -> R) -> R {
+    // SAFETY: the pointer is only read by `ask` while `body` runs on this thread (or on a
+    // thread a nested script run moved to while this one waits, `Game::nested`), and
+    // `lend` takes it back out when `body` returns or unwinds, so it never outlives the
+    // borrow of `nav`.
+    let p = unsafe { std::mem::transmute::<*const (dyn NavAsk + '_), *const (dyn NavAsk + 'static)>(nav as *const dyn NavAsk) };
+    unsafe { lend(Some(p), body) }
+}
+
+/// The answerer lent on this thread now, to carry to the thread a nested script run
+/// moves to (`Game::nested`).
+pub(crate) fn lent() -> Option<*const (dyn NavAsk + 'static)> {
+    NAV.with(|c| c.get())
+}
+
+/// Run `body` with `p` (from [`lent`] or [`with_nav`]) answering on this thread, the one
+/// before put back when it returns or unwinds.
+///
+/// # Safety
+/// The answerer `p` points to must stay alive, and be used by no other thread, while
+/// `body` runs.
+pub(crate) unsafe fn lend<R>(p: Option<*const (dyn NavAsk + 'static)>, body: impl FnOnce() -> R) -> R {
     struct Restore(Option<*const (dyn NavAsk + 'static)>);
     impl Drop for Restore {
         fn drop(&mut self) {
             NAV.with(|c| c.set(self.0));
         }
     }
-    // SAFETY: the pointer is only read by `ask` while `body` runs on this thread, and
-    // `Restore` takes it back out when `body` returns or unwinds, so it never outlives the
-    // borrow of `nav`.
-    let p = unsafe { std::mem::transmute::<*const (dyn NavAsk + '_), *const (dyn NavAsk + 'static)>(nav as *const dyn NavAsk) };
-    let _restore = Restore(NAV.with(|c| c.replace(Some(p))));
+    let _restore = Restore(NAV.with(|c| c.replace(p)));
     body()
 }
 

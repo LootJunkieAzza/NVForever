@@ -30,6 +30,7 @@ mod constants;
 mod fg_pass;
 pub mod frameinterpolation;
 mod jitter;
+mod kept;
 mod lanczos2;
 pub mod opticalflow;
 mod pass;
@@ -308,6 +309,13 @@ impl FsrContext {
         info: &FsrDispatchInfo,
     ) -> Result<(), FsrDispatchError> {
         self.check(view, info)?;
+
+        // NVForever (2026-11-11): kept bind groups not asked for in a while are dropped.
+        view.resources
+            .bind_groups
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .next_frame();
 
         let reset_accumulation = info.reset_history || view.first_execution;
         view.first_execution = false;

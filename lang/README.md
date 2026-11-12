@@ -57,9 +57,13 @@ still be a text NVForever writes (found in the sources), and each translation mu
 its line's `{places}`. A line whose English is changed in the code fails the check until
 the file is updated too.
 
-What goes through these files today: the settings page (its tabs, rows, notes and ON /
-OFF), the hacking log and the terminal refusals. A choice's name in a list (Off, Auto,
-Amber …) is not yet translated, so the notes that mention one keep its English name.
+What goes through these files today: the main menu and the pause menu (their entries,
+Back, Defaults, the quit and keep questions), the settings page (its tabs, rows, notes,
+ON / OFF and the names of the choices in its lists and on its choice meters: Off, Auto,
+Amber, Very Hard …), the hacking log and the terminal refusals (#2095). A choice's
+name with no line (a resolution, a display's name, a language's own name) shows as it
+is. A note that names a choice names it as the page shows it, so a translated choice
+name is translated in the notes too.
 
 The game's fonts hold 256 glyphs in the install's code page (docs/spec-notes/fonts.md),
 so a translation can only use the letters that code page has: Cyrillic on a Russian

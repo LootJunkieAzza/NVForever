@@ -33,6 +33,8 @@ struct TestHost {
     /// A call of this opcode asks the block to wait (JIP's ScriptWait) four cycles.
     waits_on: Option<u16>,
     wait: Option<u32>,
+    /// A step counter shared by the runs on this host (the game host's call tree, #1991).
+    shared: Option<u64>,
 }
 
 impl Host for TestHost {
@@ -80,6 +82,9 @@ impl Host for TestHost {
     }
     fn take_wait(&mut self) -> Option<u32> {
         self.wait.take()
+    }
+    fn shared_steps(&mut self) -> Option<&mut u64> {
+        self.shared.as_mut()
     }
 }
 
@@ -371,6 +376,30 @@ fn unknown_opcodes_fail_strict_runs_and_are_skipped_otherwise() {
     assert_eq!(h.locals[&1], Value::Num(1.0));
     assert_eq!(h.skipped.len(), 1);
     assert!(h.calls.is_empty());
+}
+
+#[test]
+fn runs_on_a_shared_counter_draw_on_one_budget() {
+    // #1991: a host that shares its counter (the game, across the runs nested under the
+    // outermost one) gives the runs one budget between them.
+    let t = table();
+    let body: Vec<Stmt> = (0..3).map(|_| call(DISABLE, vec![])).collect();
+    let opts = RunOpts { strict: true, max_steps: 10 };
+    let mut h = TestHost { shared: Some(0), ..Default::default() };
+    let mut first = Vm::new(&t, &mut h, opts);
+    first.run(&body).unwrap();
+    let used = first.steps();
+    assert!(used > 5 && used <= 10, "three calls take {used} steps");
+    assert_eq!(h.shared, Some(used), "the run counted on the shared counter");
+    // The same again on that counter goes past the budget of ten.
+    let e = Vm::new(&t, &mut h, opts).run(&body).unwrap_err();
+    assert_eq!(e, VmError::Budget(10));
+    assert!(h.calls.len() < 6, "the second run stopped partway: {} calls", h.calls.len());
+    // Without a shared counter each run has the whole budget.
+    let mut h = TestHost::default();
+    Vm::new(&t, &mut h, opts).run(&body).unwrap();
+    Vm::new(&t, &mut h, opts).run(&body).unwrap();
+    assert_eq!(h.calls.len(), 6);
 }
 
 #[test]

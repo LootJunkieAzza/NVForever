@@ -154,3 +154,49 @@ changes (positions, packages, disabled state, Doc's place), the talked-to bits, 
 and difficulty. The `L5.ext.*` scenarios do not pass `--save` yet: the extender goldens are
 on the other machine, so pointing them at the save (a `save_path` lab variable, the
 decision in owner-review.md) and the pass count wait for a run there.
+
+**Every set starts from the save (2026-11-11, #1023, PR #2127).** All 106 `L5.ext.*`
+scenarios pass `--save {save_path}` (`ext probes` takes it too now); the decision is in
+owner-review.md and each scenario's description. The reader also carries references' form
+flags (disabled, removed, talked to) and places, faction reactions, the active quest, the
+player's name and the worn items (save-files.md §6.4-6.5). The first modifier array turned
+out to be the worn Vault 21 Jumpsuit's enchantment, not skill points spent: it is no
+longer given (the suit, put on, brings it). Lab, `python -m fnvlab run --scenario
+'L5.ext.*'` on this machine (goldens in `C:\fnv-private\goldens`, pp and jipppln have none
+here) [observed]:
+
+| Run | Rows matching | Sets in full |
+|---|---|---|
+| main bdd4cb8ba, no save | 5607 / 6046 | 33 / 106 |
+| `--save`, the reader as #1325 left it | 5713 / 6046 | 37 / 106 |
+| `--save`, this PR | 5753 / 6046 | 41 / 106 |
+
+Now in full: gaps11, lu.leveled2, nvse.fifth, nvse.leftovers, nvse.misc, nvse.refs,
+nvse.seventh, one111. 35 sets gain rows; four rows go the other way, none from a wrong
+reading of the save:
+
+- showoff5 `travel.can`: the airport's radscorpions, killed in the save, are alive in the
+  run, so GetPCCanFastTravel sees hostiles near. Where the save keeps an actor's death is
+  not decoded (save-files.md §6.5: the 16 ACRE records of that layout are left out);
+  the same is behind nvse.flags `acre.dead.before` and sup1's `closest.*` rows.
+- showoff3 `so3.items.bit20`, jip4 `quest.deadsea.5` and `.set5.restore`: rules the
+  no-save run matched by chance (GetEquippedItems' bit-20 mask now meets the worn suit;
+  GetQuestFlag 5's guess meets the new game's running quests), #2130.
+
+Still differing in the save-dependent sets, by cause:
+
+- **Save state the reader does not decode**: actors' death and inventories (Doc's 5 items
+  against our 7, jip.fifth `amata.allitemrefs.doc.size.save`; nvse.fourth `ir.count.doc.*`),
+  the player's faction memberships (nvse.second `activefactions.player.size.save` 25 vs
+  23) and active effects (jip11 `effects.player*`), a cell's detach time (jg6
+  `cell.expired.dochouse`), known radios (plugins3 `jg.availableradios.player`).
+- **Time that passed while the probes ran**: jip.fifth `dayspassed.*.save` 16.422 against
+  the save's 16.4203.
+- **The ext probes sets' load order**: loops counts 18 of the save's 27 item kinds; the
+  other nine are pre-order pack items, and those scenarios load only FalloutNV.esm and
+  NVFExtProbe.esp.
+- **Not the save**, #2130: Melee Damage (2.0 with Strength 5 in the original, 2.5 ours) and
+  every melee damage, DPS and crit row after it in gaps6, gaps7 and gaps9;
+  GetHardcoreTracking outside hardcore; always-run and difficulty, which come from
+  `FalloutPrefs.ini` (`bAlwaysRunByDefault=1`, `iDifficulty=2`), not the save; gaps7's
+  `crit.pistol.*` capture. GetRunSpeed stays open (above).

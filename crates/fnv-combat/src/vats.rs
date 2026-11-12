@@ -54,6 +54,48 @@ pub fn shot_ap_cost(w: &WeaponStats, a: &ApAttack) -> f32 {
     }
 }
 
+/// A weapon's VATS special attack (WEAP `VATS`; docs/design/vats-classic.md §9)
+/// [documented: xEdit wbDefinitionsFNV.pas WEAP, VATS: Effect, Skill, Dam. Mult, AP;
+/// fallout.wiki "Special Attack (Fallout: New Vegas)"; observed: FalloutNV.esm,
+/// WeapBaseballBat skill 50, 2.0, 35 AP beside its attack's 25, the page's Grand Slam
+/// "200 %, +10"; WeapNVMachete 0.7, 16 beside 20, Back Slash "70 %, -4"; so AP is the
+/// special attack's whole cost, and a weapon without one has 0 and 0].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct SpecialAttack {
+    /// The actor effect it puts on the target (WeapSledgehammer's knocks down), if any.
+    pub effect: Option<FormId>,
+    /// The weapon skill it needs.
+    pub skill: f32,
+    /// On the blow's damage.
+    pub dam_mult: f32,
+    /// What it costs, AP, before the Action Point Cost perks.
+    pub ap: f32,
+}
+
+impl SpecialAttack {
+    /// From the record's fields; `None` for a weapon without one (no damage multiplier
+    /// or no cost).
+    pub fn from_fields(effect: Option<FormId>, skill: f32, dam_mult: f32, ap: f32) -> Option<SpecialAttack> {
+        (dam_mult > 0.0 && ap > 0.0).then_some(SpecialAttack { effect, skill: skill.max(0.0), dam_mult, ap })
+    }
+
+    /// Whether an actor of weapon skill `skill` may use it.
+    pub fn allowed(&self, skill: f32) -> bool {
+        skill >= self.skill
+    }
+
+    /// Its cost when the weapon's attack, `base` AP by its record, costs `now` after the
+    /// Action Point Cost perks: the perks scale it as they scale the attack [design: the
+    /// pages give perks as a share of the cost].
+    pub fn cost(&self, base: f32, now: f32) -> f32 {
+        if base > 0.0 {
+            (self.ap * now / base).max(0.0)
+        } else {
+            self.ap.max(0.0)
+        }
+    }
+}
+
 /// One marked shot.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Mark {
@@ -118,14 +160,31 @@ impl MarkQueue {
 
     /// Mark `target` (on `part`): the number of marks after it, or why not.
     pub fn push(&mut self, target: FormId, part: Option<u8>, ap_now: f32) -> Result<usize, Refusal> {
-        self.check(ap_now)?;
-        self.marks.push(Mark { target, part, cost: self.cost });
+        self.push_costing(target, part, ap_now, self.cost)
+    }
+
+    /// [`MarkQueue::push`] for a mark of its own cost (a special attack's).
+    pub fn push_costing(&mut self, target: FormId, part: Option<u8>, ap_now: f32, cost: f32) -> Result<usize, Refusal> {
+        let cost = cost.max(0.0);
+        if self.reserved() + cost > ap_now + AP_EPSILON {
+            return Err(Refusal::ActionPoints);
+        }
+        if self.rounds_needed() + self.rounds_per_shot > self.rounds {
+            return Err(Refusal::Rounds);
+        }
+        self.marks.push(Mark { target, part, cost });
         Ok(self.marks.len())
     }
 
     /// Take the last mark back.
     pub fn pop(&mut self) -> Option<Mark> {
         self.marks.pop()
+    }
+
+    /// Take mark `i` out, whichever it is (the classic style drops the attacks queued on
+    /// a target that is one no longer); `None` past the end.
+    pub fn remove(&mut self, i: usize) -> Option<Mark> {
+        (i < self.marks.len()).then(|| self.marks.remove(i))
     }
 
     pub fn marks(&self) -> &[Mark] {
@@ -308,6 +367,42 @@ impl Volley {
         None
     }
 
+    /// The mark whose first round comes next: `None` in the middle of a burst and once
+    /// every mark has started (the classic style's cameras play between marks,
+    /// docs/design/vats-classic.md §8).
+    pub fn next_mark(&self) -> Option<usize> {
+        (!self.done && self.round == 0 && self.fired < self.shots).then_some(self.fired)
+    }
+
+    /// A burst is under way: its next round is not a mark's first.
+    pub fn mid_burst(&self) -> bool {
+        !self.done && self.round > 0
+    }
+
+    /// Let the next shot leave on the next step, whatever the interval.
+    pub fn release(&mut self) {
+        self.since = f32::INFINITY;
+    }
+
+    /// Pass over the mark whose first round comes next without firing it (its target is
+    /// gone): it counts as started. Whether there was one.
+    pub fn skip(&mut self) -> bool {
+        let next = self.next_mark().is_some();
+        if next {
+            self.fired += 1;
+        }
+        next
+    }
+
+    /// Leave the rounds still to come of the burst under way unfired. Whether one was.
+    pub fn cut_burst(&mut self) -> bool {
+        let mid = self.mid_burst();
+        if mid {
+            self.round = 0;
+        }
+        mid
+    }
+
     /// Every mark's every round has left.
     pub fn all_fired(&self) -> bool {
         self.fired >= self.shots && self.round == 0
@@ -415,6 +510,23 @@ impl MeleeRun {
         matches!(self.stage, MeleeStage::After | MeleeStage::Done)
     }
 
+    /// The mark being closed on, its swing not yet started.
+    pub fn approaching(&self) -> Option<usize> {
+        (self.stage == MeleeStage::Approach).then_some(self.current)
+    }
+
+    /// Pass over the mark being closed on without a swing (its target is gone). Whether
+    /// there was one.
+    pub fn skip(&mut self) -> bool {
+        let closing = self.stage == MeleeStage::Approach;
+        if closing {
+            self.current += 1;
+            self.t = 0.0;
+            self.stage = if self.current < self.marks { MeleeStage::Approach } else { MeleeStage::After };
+        }
+        closing
+    }
+
     pub fn done(&self) -> bool {
         self.stage == MeleeStage::Done
     }
@@ -461,6 +573,32 @@ pub fn throw_reach(speed: f32, gravity: f32) -> f32 {
 /// second comes back, down to none [hypothesis: the role of `fActionPointsRestoreRate`].
 pub fn restored_damage(damage: f32, max: f32, rate: f32, dt: f32) -> f32 {
     (damage - max.max(0.0) * rate.max(0.0) * dt.max(0.0)).max(0.0)
+}
+
+/// The VATS settings the classic style reads (docs/design/vats-classic.md §3, §7): from
+/// the load order, the defaults below where it has none.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct ClassicTuning {
+    /// `fVATSMaxEngageDistance`: actors farther than this are not targets, units
+    /// [documented: fallout.wiki "Fallout 3 V.A.T.S.", game settings table, 5000].
+    pub max_engage: f32,
+    /// `fVATSPlayerDamageMult`: the share of a hit's damage the player takes while the
+    /// queued attacks play [documented: fallout.wiki "Fallout: New Vegas V.A.T.S.", 75 %
+    /// in New Vegas against Fallout 3's 10 %].
+    pub player_damage_mult: f32,
+}
+
+impl Default for ClassicTuning {
+    fn default() -> ClassicTuning {
+        ClassicTuning { max_engage: 5000.0, player_damage_mult: 0.75 }
+    }
+}
+
+/// The damage of a hit on the player while the classic style's queued attacks play
+/// (docs/design/vats-classic.md §7): `damage` times `fVATSPlayerDamageMult`, never less
+/// than nothing nor more than the hit.
+pub fn playback_damage(damage: f32, t: &ClassicTuning) -> f32 {
+    damage * t.player_damage_mult.clamp(0.0, 1.0)
 }
 
 /// The VATS settings the hit chance reads (docs/design/vats-mode.md §17.1): from the load
@@ -629,6 +767,74 @@ mod tests {
     }
 
     #[test]
+    fn a_special_attack_comes_from_the_record_and_costs_its_own_ap() {
+        // A weapon without one: the record's zeros.
+        assert_eq!(SpecialAttack::from_fields(None, 0.0, 0.0, 0.0), None);
+        // The baseball bat's [observed]: Melee Weapons 50, twice the damage, 35 AP.
+        let bat = SpecialAttack::from_fields(None, 50.0, 2.0, 35.0).unwrap();
+        assert!(!bat.allowed(49.0) && bat.allowed(50.0));
+        assert_eq!(bat.cost(25.0, 25.0), 35.0);
+        // A perk taking a tenth off the attack takes a tenth off it too.
+        assert!((bat.cost(25.0, 22.5) - 31.5).abs() < 1e-4);
+        assert_eq!(bat.cost(0.0, 0.0), 35.0);
+        // In the queue beside ordinary attacks: 25 + 35 of 62 AP, then no room for 25.
+        let mut q = MarkQueue::new(25.0, 1, u32::MAX);
+        assert_eq!(q.push(FormId(1), None, 62.0), Ok(1));
+        assert_eq!(q.push_costing(FormId(1), None, 62.0, bat.cost(25.0, 25.0)), Ok(2));
+        assert_eq!(q.reserved(), 60.0);
+        assert_eq!(q.push(FormId(1), None, 62.0), Err(Refusal::ActionPoints));
+        assert_eq!(q.marks()[1].cost, 35.0);
+    }
+
+    #[test]
+    fn a_volley_tells_when_it_stands_between_marks() {
+        // Two marks of three rounds, 0.2 s between marks, 0.1 s between rounds.
+        let mut v = Volley::bursts(2, 3, 0.2, 0.1, 0.3);
+        assert_eq!(v.next_mark(), Some(0));
+        assert_eq!(v.step(0.0), Some(VolleyEvent::Shot { mark: 0, round: 0 }), "the first leaves at once");
+        assert!(v.mid_burst() && v.next_mark().is_none());
+        assert_eq!(v.step(0.1), Some(VolleyEvent::Shot { mark: 0, round: 1 }));
+        assert_eq!(v.step(0.1), Some(VolleyEvent::Shot { mark: 0, round: 2 }));
+        assert!(!v.mid_burst());
+        assert_eq!(v.next_mark(), Some(1));
+        // Held between marks (no step), then released: it leaves without the interval.
+        assert_eq!(v.step(0.01), None);
+        v.release();
+        assert_eq!(v.step(0.0), Some(VolleyEvent::Shot { mark: 1, round: 0 }));
+        assert_eq!(v.step(0.1), Some(VolleyEvent::Shot { mark: 1, round: 1 }));
+        assert_eq!(v.step(0.1), Some(VolleyEvent::Shot { mark: 1, round: 2 }));
+        assert!(v.next_mark().is_none() && v.all_fired());
+        assert_eq!(v.step(0.3), Some(VolleyEvent::Done));
+        assert!(v.next_mark().is_none() && !v.mid_burst());
+    }
+
+    #[test]
+    fn a_mark_taken_out_frees_its_ap_and_keeps_the_order() {
+        let mut q = MarkQueue::new(26.0, 1, 6);
+        for (target, part) in [(0x10, 0), (0x11, 1), (0x10, 2)] {
+            q.push(FormId(target), Some(part), 92.0).unwrap();
+        }
+        assert_eq!(q.reserved(), 78.0);
+        assert_eq!(q.remove(1).map(|m| m.target), Some(FormId(0x11)));
+        assert_eq!(q.reserved(), 52.0, "its AP is no longer held");
+        assert_eq!(q.marks().iter().map(|m| m.part).collect::<Vec<_>>(), [Some(0), Some(2)]);
+        assert_eq!(q.remove(5), None);
+        // The freed AP takes another mark.
+        assert_eq!(q.push(FormId(0x12), None, 92.0), Ok(3));
+    }
+
+    #[test]
+    fn the_player_takes_a_share_of_a_hit_while_the_attacks_play() {
+        let t = ClassicTuning::default();
+        assert_eq!(t.max_engage, 5000.0);
+        assert_eq!(playback_damage(40.0, &t), 30.0, "New Vegas: 75 %");
+        // Fallout 3's setting, and values a mod might set out of range.
+        assert_eq!(playback_damage(40.0, &ClassicTuning { player_damage_mult: 0.1, ..t }), 4.0);
+        assert_eq!(playback_damage(40.0, &ClassicTuning { player_damage_mult: 3.0, ..t }), 40.0);
+        assert_eq!(playback_damage(40.0, &ClassicTuning { player_damage_mult: -1.0, ..t }), 0.0);
+    }
+
+    #[test]
     fn marks_reserve_ap_until_it_runs_out() {
         // 92 AP, 26 a shot: three marks (78), the fourth would need 104.
         let mut q = MarkQueue::new(26.0, 1, 6);
@@ -698,6 +904,33 @@ mod tests {
         let done = events.last().unwrap();
         assert_eq!(done.0, VolleyEvent::Done);
         assert!((done.1 - 0.54).abs() < 0.03, "{done:?}");
+    }
+
+    #[test]
+    fn a_mark_whose_target_is_gone_is_passed_over() {
+        // Three single shots: the second is passed over, the third leaves in its turn.
+        let mut v = Volley::new(3, 0.12, 0.3);
+        assert_eq!(v.step(0.0), Some(VolleyEvent::Shot { mark: 0, round: 0 }));
+        assert!(v.skip());
+        assert_eq!(v.next_mark(), Some(2));
+        assert_eq!(v.step(1.0), Some(VolleyEvent::Shot { mark: 2, round: 0 }));
+        assert!(v.all_fired() && !v.skip(), "none is left to pass over");
+        // A burst cut short: its later rounds stay, the next mark is the next to start.
+        let mut b = Volley::bursts(2, 3, 0.2, 0.1, 0.3);
+        assert_eq!(b.step(0.0), Some(VolleyEvent::Shot { mark: 0, round: 0 }));
+        assert!(!b.skip(), "not in the middle of a burst");
+        assert!(b.cut_burst() && !b.mid_burst());
+        assert_eq!(b.next_mark(), Some(1));
+        assert!(b.skip() && b.all_fired());
+        // A melee run: the mark being closed on is passed over, a swing under way is not.
+        let mut m = MeleeRun::new(2, MeleeLimits { approach: 2.5, swing: 2.0, after: 0.3 });
+        assert_eq!(m.approaching(), Some(0));
+        assert_eq!(m.step(0.0, true, false), Some(MeleeAction::Swing(0)));
+        assert!(m.approaching().is_none() && !m.skip());
+        m.step(0.1, true, true);
+        m.step(0.1, true, false);
+        assert_eq!(m.approaching(), Some(1));
+        assert!(m.skip() && m.all_fired());
     }
 
     #[test]

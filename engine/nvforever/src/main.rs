@@ -24,6 +24,7 @@ macro_rules! eprintln {
 }
 
 mod activators;
+mod reports;
 mod nif_mirror;
 mod anim_paths;
 mod actor_feet;
@@ -190,6 +191,7 @@ mod terrain;
 mod texture_swap;
 mod effect_particles;
 mod effect_shaders;
+mod vats_highlight;
 mod tree;
 mod treelod;
 mod underwater;
@@ -1001,6 +1003,8 @@ fn main() -> AppExit {
     }
     // The run log and crash reports in NVForever's home (crash.rs).
     crash::install(args.data(), args.handoff.is_some());
+    // Player reports: the player's choice, asked once on a player's start (reports/).
+    reports::decide(developer_data, args.handoff.is_some());
     let fail = |e: String| {
         eprintln!("error: {e}");
         crash::early_exit(&e);
@@ -1574,6 +1578,7 @@ fn main() -> AppExit {
     .add_plugins(gpu_lost::GpuLostPlugin)
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
+    .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
     .add_systems(Last, (crash::note_place, crash::report_exit, stray_commands::report));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
@@ -1628,6 +1633,7 @@ fn main() -> AppExit {
         app.add_plugins(texture_swap::TextureSwapPlugin);
         // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
         app.add_plugins(effect_shaders::EffectShadersPlugin);
+        app.add_plugins(vats_highlight::VatsHighlightPlugin);
         // How many refracting meshes are in view, for the log (refraction.rs).
         app.add_plugins(refraction::RefractionPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
@@ -1852,7 +1858,10 @@ fn main() -> AppExit {
             // The start's loading screen does not count: the run's seconds are counted
             // from when it comes down (nvf_play::loading::StartCover).
             if !clocks.3.as_deref().is_some_and(|l| l.starting()) {
-                t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
+                // (A clock running at no speed, the classic VATS style's full stop, counts
+                // real time as well.)
+                let still = clocks.0.is_paused() || nvf_play::pause::stands_still(false, clocks.0.relative_speed());
+                t.0 += if still { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
             }
             t.1 += 1;
             // The seconds a late start held the world test aids back (`--play` with
@@ -2136,17 +2145,28 @@ fn keys(
     input: Res<ButtonInput<KeyCode>>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
     mut commands: Commands,
-    mut n: Local<u32>,
 ) {
     // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
+    // F12: a shot in the home's screenshots folder at the first free number, through the
+    // write guard. It went to the working folder unguarded, and the count restarted at 1
+    // each run, over the last run's shots [#1987].
     if input.just_pressed(KeyCode::F12) {
-        *n += 1;
-        let path = format!("nvforever-{:03}.png", *n);
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        let dir = fnv_install::EngineHome::user().map_or_else(|| std::path::PathBuf::from("."), |h| h.screenshots());
+        let path = fnv_install::first_unused(&dir, "nvforever-", "png");
+        let ready = fnv_install::guard_write(&path, None)
+            .map_err(|e| e.to_string())
+            .and_then(|()| std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display())));
+        match ready {
+            Ok(()) => {
+                info!("screenshot: {}", path.display());
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+            }
+            Err(e) => warn!("screenshot not taken: {e}"),
+        }
     }
 }
 

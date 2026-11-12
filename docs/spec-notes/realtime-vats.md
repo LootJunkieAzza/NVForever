@@ -1,5 +1,12 @@
 # Real-time VATS (co-op)
 
+**Superseded in co-op (owner, 2026-11-12):** "keep time freeze for solo only but use the limb
+selection and visual effects it has for both". In a session V is now the classic VATS style
+(docs/design/vats-classic.md) with the clock left at full speed (`VatsMode::shared_clock`), and
+the other players are never its targets (`VatsMode::fellow_players`). The co-op link no longer
+turns the lock below on; its code stays.
+
+
 Queue item 196 (owner, 2026-11-10): "replacing how vats works in co-op with this real time
 vats system", with the archive of the mod RealtimeVatsNV 1.0.0.
 

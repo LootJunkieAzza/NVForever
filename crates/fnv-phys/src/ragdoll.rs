@@ -135,6 +135,8 @@ pub(crate) struct RagdollBodies {
 pub(crate) struct RagdollHooks<'a> {
     pub ragdolls: &'a BTreeMap<u32, RagdollBodies>,
     pub of_body: &'a HashMap<RigidBodyHandle, (u32, u16)>,
+    /// References that pass through one actor's ragdoll ([`PhysWorld::set_ref_passes_ragdoll`]).
+    pub passes: &'a HashMap<u32, u32>,
 }
 
 impl PhysicsHooks for RagdollHooks<'_> {
@@ -157,9 +159,21 @@ impl PhysicsHooks for RagdollHooks<'_> {
                 let small = |f: u32| self.ragdolls.get(&f).is_some_and(|r| r.small);
                 (!(small(fa) && small(fb))).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES)
             }
-            (Some(_), None) => (!matches!(owner(c.collider2), Some(Owner::Character { .. } | Owner::Actor { .. }))).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES),
-            (None, Some(_)) => (!matches!(owner(c.collider1), Some(Owner::Character { .. } | Owner::Actor { .. }))).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES),
+            (Some((fa, _)), None) => self.meets(fa, owner(c.collider2)).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES),
+            (None, Some((fb, _))) => self.meets(fb, owner(c.collider1)).then_some(SolverFlags::COMPUTE_RIGID_IMPULSES),
             (None, None) => Some(SolverFlags::COMPUTE_RIGID_IMPULSES),
+        }
+    }
+}
+
+impl RagdollHooks<'_> {
+    /// Whether actor `rag`'s ragdoll has contacts with a collider of `other`: not with
+    /// characters or actor hit volumes, nor with a reference set to pass through it.
+    fn meets(&self, rag: u32, other: Option<Owner>) -> bool {
+        match other {
+            Some(Owner::Character { .. } | Owner::Actor { .. }) => false,
+            Some(Owner::Ref { form_id, .. }) => self.passes.get(&form_id) != Some(&rag),
+            _ => true,
         }
     }
 }
@@ -618,7 +632,7 @@ impl PhysWorld {
         if self.ragdolls.is_empty() && self.gore.is_empty() {
             self.w.step();
         } else {
-            let hooks = RagdollHooks { ragdolls: &self.ragdolls, of_body: &self.ragdoll_of };
+            let hooks = RagdollHooks { ragdolls: &self.ragdolls, of_body: &self.ragdoll_of, passes: &self.passes_ragdoll };
             self.w.step_with_events(&hooks, &());
         }
     }
@@ -628,7 +642,7 @@ impl PhysWorld {
         if self.ragdolls.is_empty() && self.gore.is_empty() {
             self.w.detect_collisions(&(), &());
         } else {
-            let hooks = RagdollHooks { ragdolls: &self.ragdolls, of_body: &self.ragdoll_of };
+            let hooks = RagdollHooks { ragdolls: &self.ragdolls, of_body: &self.ragdoll_of, passes: &self.passes_ragdoll };
             self.w.detect_collisions(&hooks, &());
         }
     }

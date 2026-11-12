@@ -124,13 +124,22 @@ impl Bound {
 /// A view's kept bind groups, by pass and resources. It lives in the view (not the pass), so
 /// a view that is dropped (a resize) lets go of its textures.
 #[derive(Default)]
-pub(crate) struct BindGroups(std::sync::Mutex<Vec<KeptBindGroup>>);
+pub(crate) struct BindGroups(std::sync::Mutex<crate::kept::Kept<KeptKey, wgpu::BindGroup>>);
 
-/// The pass's label, what its bindings hold, and the bind group.
-type KeptBindGroup = (&'static str, Vec<Bound>, wgpu::BindGroup);
+/// The pass's label and what its bindings hold.
+type KeptKey = (&'static str, Vec<Bound>);
+
+impl BindGroups {
+    /// A dispatch (or prepare) of the view begins: bind groups not asked for in a while are
+    /// dropped (`kept.rs`), with the textures they hold.
+    pub fn next_frame(&self) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next_frame();
+    }
+}
 
 /// More sets than the passes alternate between (about 60): past this the list starts again,
 /// so a caller that hands over new textures every frame does not grow it without end.
+/// Entries no longer asked for go sooner (`kept.rs`).
 const KEPT_BIND_GROUPS: usize = 256;
 
 pub(crate) struct FgPass {
@@ -230,7 +239,7 @@ impl FgPass {
     ) {
         let resources: Vec<Res<'a>> = self.active.iter().map(|&(_, name)| resolve(name)).collect();
         let mut kept = kept.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let found = kept.iter().position(|(label, bound, _)| {
+        let found = kept.find(|(label, bound)| {
             *label == self.label && bound.len() == resources.len() && bound.iter().zip(&resources).all(|(b, r)| b.is(r))
         });
         let at = found.unwrap_or_else(|| {
@@ -266,14 +275,10 @@ impl FgPass {
                 layout: &self.bgl,
                 entries: &entries,
             });
-            if kept.len() >= KEPT_BIND_GROUPS {
-                kept.clear();
-            }
-            kept.push((self.label, resources.iter().map(Bound::of).collect(), bind_group));
-            kept.len() - 1
+            kept.push(KEPT_BIND_GROUPS, (self.label, resources.iter().map(Bound::of).collect()), bind_group)
         });
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &kept[at].2, &[]);
+        pass.set_bind_group(0, kept.value(at), &[]);
         pass.dispatch_workgroups(groups[0].max(1), groups[1].max(1), groups[2].max(1));
     }
 
