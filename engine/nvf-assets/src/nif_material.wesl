@@ -520,7 +520,11 @@ fn nif_fragment(
         discard;
     }
     @if(SOFT_EDGES) pbr_input.material.base_color.a = 1.0;
-    @if(!SOFT_EDGES) pbr_input.material.base_color = alpha_discard(pbr_input.material.flags, pbr_input.material.alpha_cutoff, pbr_input.material.base_color);
+    // PREPASS_COVERAGE (nif_material.rs `soft_edges`): the depth prepass has written the
+    // shape, soft edge included, on the samples it covers, and the depth test is for
+    // equality with it: nothing is left to test here.
+    @if(PREPASS_COVERAGE) pbr_input.material.base_color.a = 1.0;
+    @if(!SOFT_EDGES && !PREPASS_COVERAGE) pbr_input.material.base_color = alpha_discard(pbr_input.material.flags, pbr_input.material.alpha_cutoff, pbr_input.material.base_color);
     // base_color already holds texture × vertex colour × material colour.
     // Bevy's pbr_input_from_standard_material fills the emissive light in only for lit
     // materials, so an unlit shape's stays black: it is read from the material here
