@@ -713,11 +713,17 @@ pub fn spawn_creature(
     };
     let parts_span = info_span!("creature::parts").entered();
     let mut uses = Vec::with_capacity(c.parts.len());
+    // Parts that move by themselves, drawn as playing models on their bone below.
+    let mut playing: Vec<(String, Arc<nvf_assets::actor::PreparedPart>)> = Vec::new();
     for p in &c.parts {
         let Some(part) = ctx.part(&p.model) else {
             stats.parts_missing += 1;
             continue;
         };
+        if plays_on_bone(&part, &skel) {
+            playing.push((p.model.clone(), part));
+            continue;
+        }
         let materials = part.shapes.iter().map(|s| s.material.clone()).collect();
         let meshes = vec![None; part.shapes.len()];
         uses.push(PartUse { meshes, part, materials, layers: Vec::new(), hidden_shapes: Vec::new(), by_ancestor: true });
@@ -734,6 +740,28 @@ pub fn spawn_creature(
         }
     }
     drop(nodes_span);
+    for (path, part) in &playing {
+        let Some(pm) = ctx.models.model(path) else {
+            stats.parts_missing += 1;
+            continue;
+        };
+        let (bone, place) = match part.prn.as_ref().and_then(|n| skel.by_name.get(n)) {
+            Some(&b) => (b, Transform::from_matrix(Mat4::from(part.root))),
+            None => (0, Transform::IDENTITY),
+        };
+        let (_, drawn) = crate::shot_fx::spawn_playing_itself(commands, spawned.nodes[bone], &pm, place, path);
+        for e in drawn {
+            commands.entity(e).insert(RefVisual(reference));
+        }
+        if first_creature_report(base, path) {
+            let on = skel.names.get(bone).cloned().flatten().unwrap_or_default();
+            info!("creature parts: {} ({base:08X}): {path} plays its own controllers on {on}", c.edid.as_deref().unwrap_or(""));
+        }
+    }
+    if !spawned.part_nodes.is_empty() && first_creature_report(base, "") {
+        let names: Vec<&str> = spawned.part_nodes.iter().map(|(n, ..)| n.as_str()).collect();
+        info!("creature parts: {} ({base:08X}): part node(s) {} for its clips to drive", c.edid.as_deref().unwrap_or(""), names.join(", "));
+    }
     commands.entity(spawned.root).insert((
         Name::new(format!("Creature {reference:08X} {}", c.edid.as_deref().unwrap_or(""))),
         RefVisual(reference),
@@ -778,6 +806,23 @@ pub fn spawn_creature(
     stats.unbound_shapes += spawned.unbound;
     stats.creatures += 1;
     true
+}
+
+/// Whether `what` (a part's path, or "" for its part nodes) of creature `base` is
+/// reported for the first time: the line is written once per creature and part, not for
+/// every reference.
+fn first_creature_report(base: u32, what: &str) -> bool {
+    static SEEN: std::sync::OnceLock<Mutex<std::collections::HashSet<(u32, String)>>> = std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default).lock().is_ok_and(|mut s| s.insert((base, what.to_string())))
+}
+
+/// Whether a creature draws `part` as a model playing its own controllers on its `Prn`
+/// bone (`shot_fx::spawn_playing_itself`) rather than as still shapes: the part moves by
+/// itself ([`nvf_assets::actor::PreparedPart::plays_itself`]) and no shape hangs from a
+/// node of the part named as one of the skeleton's (actors.md §10.2), which a model on
+/// one bone could not follow [design, #2228: Mister Handy's jet].
+fn plays_on_bone(part: &nvf_assets::actor::PreparedPart, skel: &PreparedSkeleton) -> bool {
+    part.plays_itself && part.shapes.iter().all(|s| s.ancestors.iter().all(|(n, _)| n.as_ref().is_none_or(|n| !skel.by_name.contains_key(n))))
 }
 
 /// Give an actor its weapon (part H, actors.md §9): the model under the skeleton's

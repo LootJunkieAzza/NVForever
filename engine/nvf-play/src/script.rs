@@ -305,6 +305,9 @@ pub struct Runtime {
     /// door's loading screen).
     location: Option<Location>,
     frozen_frames: u32,
+    /// The start menu's MenuMode 1013 frames have run before the first GameMode frame
+    /// (`Game::came_through_start_menu`).
+    came_through: bool,
     pub triggers: crate::script_trigger::Triggers,
     /// Enable parent → references that follow it.
     children: HashMap<FormId, Vec<FormId>>,
@@ -670,6 +673,7 @@ impl Runtime {
             start: GameStart::default(),
             location: None,
             frozen_frames: 0,
+            came_through: false,
             triggers: Default::default(),
             children,
             started: Instant::now(),
@@ -1736,12 +1740,18 @@ type UsesAndLoads<'w> = (MessageWriter<'w, crate::furniture::UseFurniture>, Mess
 /// [`run_scripts`]'s loading screen, keys, menu files, the pause menu's page and the
 /// count of MenuMode frames under its Mods page (`crate::tiles::mods`), and the main menu
 /// still to open (`--menu`).
+/// The start menu's frames run before the game (`Game::came_through_start_menu`): a
+/// second at 60 frames a second, longer than the half-second MenuMode timers MCM mods
+/// wait before adding themselves to MCM's list [observed: Just Assorted Mods' scripts]
+/// [design].
+const START_MENU_FRAMES: u32 = 60;
+
 type ScreenAndMenus<'w, 's> = (
     ResMut<'w, crate::loading::Loading>,
     Option<Res<'w, crate::bindings::Bindings>>,
     crate::tiles::MenuFiles<'w, 's>,
     Res<'w, crate::pause::Page>,
-    Local<'s, u64>,
+    ResMut<'w, crate::tiles::mods::ModsPage>,
     Option<Res<'w, crate::main_menu::MainMenuStart>>,
 );
 
@@ -1890,17 +1900,16 @@ pub(crate) fn run_scripts(
         if let Some(rt) = st.rt.as_mut() {
             rt.game.cfg.frame_seconds = time.delta_secs_f64();
             // In the played world, as every run of the game's scripts (`with_world`).
-            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::tick(&mut rt.game)));
-            *mods_ticks += 1;
-            if *mods_ticks == 1 {
+            with_world(rt, &mut sim, |rt| with_ray_caster(&mut phys, &play.0, location.world, || crate::tiles::mods::tick(&mut rt.game, &mut mods_ticks)));
+            if mods_ticks.frames == 1 {
                 info!("scripts: MenuMode {} blocks run under the pause menu's Mods page", fnv_game::game::menus::START);
             }
         }
         return;
     }
-    if *mods_ticks > 0 {
-        info!("scripts: the Mods page closed after {} MenuMode frames", *mods_ticks);
-        *mods_ticks = 0;
+    if mods_ticks.frames > 0 {
+        info!("scripts: the Mods page closed after {} MenuMode frames", mods_ticks.frames);
+        mods_ticks.frames = 0;
     }
     if paused.0 || screen.active() {
         // Under a loading screen the game is held for everyone, not only for the
@@ -1980,6 +1989,14 @@ pub(crate) fn run_scripts(
     let mut aid_lines = Vec::new();
     let mut walks = Vec::new();
     with_world(rt, &mut sim, |rt| {
+        // The original's main menu is its start menu: its MenuMode 1013 blocks run there
+        // before the game, where MCM mods add themselves to MCM's list; NVForever comes
+        // straight into the game, so a second of them runs first (fnv_game, module notes).
+        if !rt.came_through {
+            rt.came_through = true;
+            rt.game.came_through_start_menu(START_MENU_FRAMES, 1.0 / 60.0);
+            info!("scripts: the start menu's MenuMode 1013 blocks ran {START_MENU_FRAMES} frames before the game, as under the original's main menu");
+        }
         rt.observe_inventory();
         let aid_from = rt.game.events.len();
         for &(item, limb) in &used {
@@ -2153,7 +2170,7 @@ pub(crate) fn run_scripts(
                 if here {
                     info!("script: the player is moved to where they stand ({:?}); no travel", t.feet);
                 } else {
-                    info!("script: travel to {:?} / {:?} at {:?}", t.interior, t.world, t.feet);
+                    info!("script: travel to {:?} / {:?} at {:?} heading {:.1}", t.interior, t.world, t.feet, t.heading_deg);
                     if loading_menu {
                         // EnableLoadingMenu before the move: its screen is one for
                         // anywhere, not the destination's [documented: GECK wiki
@@ -2432,6 +2449,7 @@ impl ScriptState {
             start: GameStart::default(),
             location: None,
             frozen_frames: 0,
+            came_through: false,
             triggers: Default::default(),
             children: HashMap::new(),
             started: Instant::now(),

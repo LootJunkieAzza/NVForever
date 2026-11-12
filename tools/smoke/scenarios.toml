@@ -145,6 +145,11 @@ name = "profile campaign tests"
 paths = ["tools/profile/", "tools/stress/"]
 cmd = ["python", "-m", "unittest", "discover", "-s", "tools/profile/tests"]
 
+[[check]]
+name = "workflow permissions and pins"
+paths = [".github/workflows/", "tools/release/"]
+cmd = ["python", "-m", "unittest", "discover", "-s", "tools/release/tests"]
+
 # ------------------------------------------------------------------ renderer, sky, image space
 
 [[scenario]]
@@ -1037,7 +1042,7 @@ name = "auto-fire-burst-sound"
 source = "#1098: an automatic weapon's shots cut out in sustained fire; the sound voice limit (sfx.rs MAX_SAME, 8 of one SOUN) refused the newest shots. Now a sound at its limit takes over the oldest voice of the same SOUN"
 note = "the 10mm SMG (00004321, automatic, 9 shots a second, 30 rounds) fired into the sky above Goodsprings for 3 s (each `fire` press toggles the trigger: held, then let go): about 27 shots of WPN10mmSMGFire2D"
 areas = ["audio", "combat"]
-paths = ["engine/nvf-play/src/sfx.rs"]
+paths = ["engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/audio_out.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "00004321", NVF_PLAY_TEST_GIVE = "00004241:60", NVF_PLAY_TEST_CONTROL = "4:weapon,8:fire,11:fire" }
 args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 16
@@ -1045,8 +1050,31 @@ expect = [
   { re = 'sfx: WPN10mmSMGFire2D: (?P<n>\d+) started', range = [20, 40], label = "every shot of the 3 s burst starts its sound" },
   { re = 'sfx: WPN10mmSMGFire2D: .* (?P<n>\d+) refused at the voice limit', range = [0, 0], label = "none of the burst's shots is refused (#1098: some were)" },
   { re = 'not started at the voice limit, at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the voices stay within the limit" },
-  { re = 'sfx files: (?P<n>\d+) sounds began in the frame they were asked for, \d+ later while their file was read', range = [10, 100000], label = "#1428: the exit report's sfx files line, with at least 10 sounds of the run beginning to play in the frame they were asked for (their file already decoded; it does not check how late the others were)" },
-  { re = 'sfx files: \d+ sounds began in the frame they were asked for, \d+ later while their file was read \(\d+ more than one frame later, at most (?P<n>\d+) frames\)', range = [0, 3], label = "#1428: no sound of the run began more than 3 frames after it was asked for (start delays growing)" },
+  { re = 'sfx files: (?P<n>\d+) sounds began in the frame they were asked for, \d+ later while their file was read', range = [10, 100000], label = "#1428: the exit report's sfx files line, with at least 10 sounds of the run beginning to play in the frame they were asked for (their file already decoded and, since #2217, no wait for a voice slot either: counted from the request to the actual start; it does not check how late the others were)" },
+  { re = 'sfx files: \d+ sounds began in the frame they were asked for, \d+ later while their file was read \(\d+ more than one frame later, at most (?P<n>\d+) frames\)', range = [0, 3], label = "#1428: no sound of the run began more than 3 frames after it was asked for (start delays growing; since #2217 from the request to the actual start, a wait for a voice slot's fade included)" },
+  { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no playing sound cut mid-waveform (each stop fades out)" },
+  { re = 'sfx declicks: (?P<n>\d+) steals', range = [1, 100000], label = "#2217: the shots over the oldest voice fade it out first" },
+]
+
+[[scenario]]
+name = "audio-minigun-declick"
+source = "#2217: crackle when many sounds play (packs of mantises, radscorpions, the minigun): voices cut mid-waveform at the voice limit, loops and scripts' sounds removed at once, nothing limiting the summed mix (audio_out.rs mix bus, stop counts)"
+note = "the minigun (0000433F, 600 5mm rounds) drawn at 3 s and fired into the sky above Goodsprings from 6 to 16 s (each `fire` press toggles the trigger: held, then let go), as auto-fire-burst-sound's setup; god mode. The exit report's audio mix line measures the summed mix, the sfx lines the stops and the voices"
+areas = ["audio", "combat"]
+paths = ["engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000433F", NVF_PLAY_TEST_GIVE = "0006B53D:600", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire,16:fire" }
+args = ["--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--pitch", "60", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'combat: (?P<n>\d+) shots \(', range = [50, 100000], label = "the minigun fires through the 10 s hold" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "the mix bus's measurements at the end" },
+  { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the run is over full scale" },
+  { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "the voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "the shots stay within their SOUN's limit" },
+  { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no playing sound cut mid-waveform (each stop fades out)" },
+  { re = 'sfx declicks: \d+ steals, (?P<n>\d+) loop stops', range = [1, 100000], label = "the weapon's loop fades out when the trigger is let go" },
+  { re = 'sfx declicks: .*; (?P<n>\d+) completed', range = [1, 100000], label = "the fades play out and their sounds go" },
 ]
 
 [[scenario]]
@@ -2923,6 +2951,24 @@ order = [[
 ]]
 expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped texture missing" }]
 
+[[scenario]]
+name = "end-slides"
+source = "issue #2226: the ending's MoveTo puts the player on the slide room's XMarkerHeading (0x001639F6, heading 0), which faces the slide SlideGS01 (0x001680A7); the slides' SwapTexture names the shape \"##gs01:0\", which gs01.nif spells ##GS01:0 (texture_swap.rs same_shape). The player is turned to 90 degrees first, so the travel's heading 0 is the marker's; two end-slide lines' result scripts then swap two slides"
+areas = ["scripts", "rendering", "quests"]
+paths = ["engine/nvforever/src/texture_swap.rs", "crates/fnv-game/src/functions/refs.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "2:player.SetAngle Z 90;2.5:close;4:player.MoveTo 001639F6;4.5:close", NVF_PLAY_TEST_SCRIPT = "6:info:0x00161859,8:info:0x0015C1C4", NVF_PLAY_TEST_SHOTS = "5.5:end_slides_start.png,7:end_slides_rm01.png,9.5:end_slides_rg01.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--size", "1280x720"]
+run_seconds = 11
+note = "From a new game no ending is set, so most of the narrator's topics have no line: the chain that the slide room's trigger starts runs to its end at once (its last swap, endscrn_pf03, the only one drawn) and the credits timer calls ExitGame about 13 s in; the run ends before that"
+manual = "end_slides_start.png, end_slides_rm01.png and end_slides_rg01.png: the slide straight ahead, filling the view, a different picture in each"
+order = [[
+  { re = 'script: travel to Some\(1449624\) / None at .* heading 0\.0', label = "the player travels to the slide room facing the marker's heading" },
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_pf03.dds',
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_rm01.dds',
+  'SwapTexture: reference 001680A7 shape gs01:0: textures\interface\endgame\endscrn_rg01.dds',
+]]
+expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped texture missing" }]
+
 # ------------------------------------------------------------------ messages and menus
 
 [[scenario]]
@@ -4499,6 +4545,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "hacking-hover-sound"
+source = "#2216 [design]: a pointer sweep over the hacking dump moves the cursor on every character, but its hover sound (UiEvent::Focus, UIHackingCharScroll) starts at most once every 70 ms of real time (terminal.rs HOVER_SOUND_GAP); the held-back sounds are dropped"
+note = "The Easy terminal of the hacking scenario (000D74D5 in BisonSteve01, Science 25). 120 point:<index> steps from 32 s, 1/144 s apart, each onto the next dump character (0 to 119), as a 144 Hz sweep; several fall in one frame, which shares one real time, so at most one of a frame's sounds. Every point changes the cursor (the first shows it), so P = 120; at least one sounds and at least one is held back. That P = F + S and the 70 ms spacing are the unit tests' (terminal.rs a_mouse_sweep_limits_focus_sounds and the rest): the runner does not compare captured numbers. The real pointer resting on the window's dump adds a point of its own at the open, so P may be 121; moving the real mouse during the run adds more, and that run proves nothing."
+areas = ["hacking", "terminal"]
+paths = ["engine/nvf-play/src/terminal.rs", "engine/nvf-play/src/ui_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,32.0000:point:0,32.0069:point:1,32.0139:point:2,32.0208:point:3,32.0278:point:4,32.0347:point:5,32.0417:point:6,32.0486:point:7,32.0556:point:8,32.0625:point:9,32.0694:point:10,32.0764:point:11,32.0833:point:12,32.0903:point:13,32.0972:point:14,32.1042:point:15,32.1111:point:16,32.1181:point:17,32.1250:point:18,32.1319:point:19,32.1389:point:20,32.1458:point:21,32.1528:point:22,32.1597:point:23,32.1667:point:24,32.1736:point:25,32.1806:point:26,32.1875:point:27,32.1944:point:28,32.2014:point:29,32.2083:point:30,32.2153:point:31,32.2222:point:32,32.2292:point:33,32.2361:point:34,32.2431:point:35,32.2500:point:36,32.2569:point:37,32.2639:point:38,32.2708:point:39,32.2778:point:40,32.2847:point:41,32.2917:point:42,32.2986:point:43,32.3056:point:44,32.3125:point:45,32.3194:point:46,32.3264:point:47,32.3333:point:48,32.3403:point:49,32.3472:point:50,32.3542:point:51,32.3611:point:52,32.3681:point:53,32.3750:point:54,32.3819:point:55,32.3889:point:56,32.3958:point:57,32.4028:point:58,32.4097:point:59,32.4167:point:60,32.4236:point:61,32.4306:point:62,32.4375:point:63,32.4444:point:64,32.4514:point:65,32.4583:point:66,32.4653:point:67,32.4722:point:68,32.4792:point:69,32.4861:point:70,32.4931:point:71,32.5000:point:72,32.5069:point:73,32.5139:point:74,32.5208:point:75,32.5278:point:76,32.5347:point:77,32.5417:point:78,32.5486:point:79,32.5556:point:80,32.5625:point:81,32.5694:point:82,32.5764:point:83,32.5833:point:84,32.5903:point:85,32.5972:point:86,32.6042:point:87,32.6111:point:88,32.6181:point:89,32.6250:point:90,32.6319:point:91,32.6389:point:92,32.6458:point:93,32.6528:point:94,32.6597:point:95,32.6667:point:96,32.6736:point:97,32.6806:point:98,32.6875:point:99,32.6944:point:100,32.7014:point:101,32.7083:point:102,32.7153:point:103,32.7222:point:104,32.7292:point:105,32.7361:point:106,32.7431:point:107,32.7500:point:108,32.7569:point:109,32.7639:point:110,32.7708:point:111,32.7778:point:112,32.7847:point:113,32.7917:point:114,32.7986:point:115,32.8056:point:116,32.8125:point:117,32.8194:point:118,32.8264:point:119,34:exit" }
+args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+run_seconds = 38
+expect = [
+  "hacking, Easy (Science 25): 20 words",
+  { re = 'terminal hover: (\d+) changed points', range = [120, 121], label = "every point moved the cursor (P = 120, or 121 with the real pointer resting on the dump)" },
+  { re = 'terminal hover: \d+ changed points, (\d+) focus sounds', range = [1, 119], label = "some of the sweep's points sounded, not all (F)" },
+  { re = 'terminal hover: \d+ changed points, \d+ focus sounds, (\d+) suppressed', range = [1, 119], label = "the points within 70 ms of a sound were held back (S)" },
+]
+
+[[scenario]]
 name = "hacking-notice-held"
 source = "issue #1239: a quest line pushed while the hacking terminal is open is not drawn under it and its time does not run there; it is shown once after the power button closes the terminal (as the rest of the HUD, hud.md §14.3)"
 areas = ["hacking", "terminal", "quest-messages", "corner-messages", "hud"]
@@ -6023,14 +6085,20 @@ name = "combat-cover-room"
 launch = "ncr-fiends"
 source = "owner's screenshot 2026-10-23: an NCR trooper in cover in Goodsprings stood half inside a house's wall and drainpipe (docs/design/combat-ai.md §12.6.2)"
 note = "cover spots keep combat_tactics::SPOT_ROOM (26) round them, measured by rays at the body's heights; where a fighter stands when it reaches its cover and when it has hid there is measured the same way, and under the capsule's radius (22) it is inside something. Which fighters take cover, and whether one reaches it before the fight is over, varies (Take Cover Chance every 10 s); the cover edges of this fight are in the open (all 25 spots of a run of 2026-10-23 had full room), so the wall case is checked by combat_tactics' unit tests"
-areas = ["combat", "combat-groups"]
-paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs"]
+areas = ["combat", "combat-groups", "audio"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/residents.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
   { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot (?P<n>\d+)', range = [26, 1000], all = true, label = "every cover spot has room for the capsule" },
   { re = 'npc combat: .* takes (low )?cover .*; room round its cover spot \d+, its peek (?P<n>\d+)', range = [26, 1000], all = true, label = "every peek point has room for the capsule" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the battle" },
+  { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the battle is over full scale" },
+  { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "#2217: the battle's voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
+  { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no sound of the battle cut mid-waveform (each stop fades out)" },
 ]
 forbid = [{ re = 'npc combat: .* in cover at .*\(inside geometry\)', label = "a fighter in cover stands inside a wall or model" }]
 
@@ -6049,6 +6117,22 @@ expect = [
   { re = 'person pace: 1ECookCook 0x000F5704 walks 80 and runs 322 units/s \(85\.0%', label = "Cook-Cook in metal armour (Speed Mult 110) walks 80 and runs 322" },
 ]
 forbid = [{ re = 'person pace: LvlFiend', label = "a fiend in light raider armour is slowed" }]
+
+[[scenario]]
+name = "onehand-drawn-walk"
+source = "#2124: walking with a 10mm pistol drawn outside combat, in leather or a mercenary outfit, the original's people held 77.5-78.3 against the holstered people's 85 (AI observer, docs/spec-notes/actors.md §8.10, People); ours is the walk / fMoveNoWeaponMult, 85.3 / 1.1 = 77.5 (fnv_ai::carry::drawn_walk_share, docs/owner-review.md)"
+note = "a Goodsprings settler at noon is given a 10mm pistol (holstered) and put 900 units from the player at 3 s, so it walks its package's way; at 35 s SetWeaponOut 1 holds the pistol out and it is put 900 units off again. The walk probe (engine walk_probe.rs) measures its body's horizontal speed over one-second windows of walking, holstered and drawn apart, out of combat; nobody perceives the player (UNSEEN). First run 2026-11-12 (on 459626a15's build): drawn 77.5 over 39 windows, holstered 85.3 over 34, no window left out (0 in combat, 0 running, 0 off a walk) [observed: our run]. Re-read 2026-11-12 after merging #2143 (people's speeds given when first drawn and at Speed Mult or armour changes keep the drawn share, fnv_ai::Ai::set_speeds): expectations unchanged, still not run"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "engine/nvforever/src/walk_probe.rs", "engine/nvforever/src/creature_pace.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_WALK_PROBE = "GoodspringsSettler01Ref", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "2:call:GoodspringsSettler01Ref:AddItem:Weap10mmPistol:1,2.5:call:GoodspringsSettler01Ref:EquipItem:Weap10mmPistol,3:moveto:GoodspringsSettler01Ref:player:900:0:0,35:call:GoodspringsSettler01Ref:SetWeaponOut:1,36:moveto:GoodspringsSettler01Ref:player:900:0:0" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref"]
+run_seconds = 75
+expect = [
+  "walk probe: measuring GoodspringsSettler01Ref",
+  { re = 'walk probe: GoodspringsSettler01Ref holstered speed=(?P<n>[\d.]+) \(\d+ windows; Light armour, Speed Mult 100, weapon .* type 3,', range = [84, 87], label = "holstered, in its clothes, it walks the people's 85.3" },
+  { re = 'walk probe: GoodspringsSettler01Ref drawn speed=(?P<n>[\d.]+) \(\d+ windows; Light armour, Speed Mult 100, weapon .* type 3,', range = [77, 78], label = "with the pistol drawn outside combat it walks 77-78 (85.3 / 1.1 = 77.5)" },
+]
+forbid = [{ re = 'walk probe: GoodspringsSettler01Ref windows left out: [1-9]\d* in combat', label = "the settler went into combat: not the measured case" }]
 
 [[scenario]]
 name = "allies-alerted"
@@ -9940,7 +10024,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 66 of 66 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 68 of 68 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -10536,7 +10620,7 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 66 of 66 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
+  { re = 'controls: 68 of 68 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
 
 [[scenario]]
@@ -10544,15 +10628,17 @@ name = "look-sensitivity-write"
 source = "owner 2026-11-03 (#1451): Invert Y and a sensitivity slider (as the sound sliders) on the settings page's Controls tab, Mouse Sensitivity with keyboard and mouse and Stick Sensitivity with a controller, kept apart; NVForever's own range (25%-300% of the game's, floor 5% since #1632); the first half of a round trip (look-sensitivity-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
 paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
-env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "10.5:controls,11:device:Keyboard and Mouse,11.5:invert:0,12:sensitivity:100,12.5:invert:1,13:sensitivity:150,14:device:Controller,14.5:sensitivity:100,15:sensitivity:50" }
+env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "10.5:controls,11:device:Keyboard and Mouse,11.5:invert:0,12:sensitivity:100,12.2:vertical:100,12.5:invert:1,13:sensitivity:150,13.5:vertical:80,14:device:Controller,14.5:sensitivity:100,14.7:vertical:100,15:sensitivity:50,15.5:vertical:120" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 19
 expect = [
   { text = "controls: invert Y on", label = "the Invert Y row turns the vertical look over" },
   { text = "controls: mouse sensitivity 150% (0.0030)", label = "the Mouse Sensitivity slider sets the mouse's as a percentage of the game's" },
   { text = "controls: stick sensitivity 50%", label = "with a controller the slider is Stick Sensitivity, set apart from the mouse's" },
+  { text = "controls: mouse vertical sensitivity 80%", label = "the Vertical Sensitivity row sets the mouse's vertical look as a percentage of its horizontal (#2201)" },
+  { text = "controls: stick vertical sensitivity 120%", label = "with a controller the Vertical Sensitivity row is the stick's own (#2201)" },
 ]
-order = [["controls: invert Y off", "controls: invert Y on", "controls: mouse sensitivity 150%", "controls: input device Controller", "controls: stick sensitivity 50%"]]
+order = [["controls: invert Y off", "controls: invert Y on", "controls: mouse sensitivity 150%", "controls: mouse vertical sensitivity 80%", "controls: input device Controller", "controls: stick sensitivity 50%", "controls: stick vertical sensitivity 120%"]]
 
 [[scenario]]
 name = "look-sensitivity-read"
@@ -10563,7 +10649,7 @@ env = { NVFOREVER_HOME = "look-sensitivity-home", NVF_PLAY_TEST_SCRIPT_MENUS = "
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 66 of 66 line\(s\) read from .*NVForever\.ini, 4 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5; input device Controller', label = "the stored Invert Y and the two sensitivities are taken at the start" },
+  { re = 'controls: 68 of 68 line\(s\) read from .*NVForever\.ini, 6 changed: Invert Y 1, Mouse Sensitivity 0\.003, Input Device Controller, \[Controller\] Stick Sensitivity 0\.5, Mouse Vertical Sensitivity 0\.8, \[Controller\] Stick Vertical Sensitivity 1\.2; input device Controller', label = "the stored Invert Y, the two sensitivities and the two vertical sensitivities (#2201) are taken at the start" },
 ]
 
 [[scenario]]
@@ -12473,6 +12559,8 @@ order = [[
 ]]
 expect = [
   { re = 'film: .*not played', count = 0, label = "the film is not passed over" },
+  { re = 'sfx declicks: .*; \d+ holotape stops, (?P<n>\d+) film stops', range = [1, 1], label = "#2217: the skipped film's sound fades out, not cut" },
+  { re = 'sfx hard stops: .*, 0 film stops', label = "#2217: no film sound cut mid-waveform" },
 ]
 manual = "film.png: the intro film's frame at 3 s fitted inside the window with black bars, nothing of the world or the HUD over it"
 
@@ -12493,6 +12581,10 @@ order = [[
   "film: the game goes on",
   "ambient: world sounds go on (",
 ]]
+expect = [
+  { re = 'sfx declicks: .*; \d+ holotape stops, (?P<n>\d+) film stops', range = [1, 1], label = "#2217: the skipped film's sound fades out, not cut (the missing fnvlogo1.bik made none)" },
+  { re = 'sfx hard stops: .*, 0 film stops', label = "#2217: no film sound cut mid-waveform" },
+]
 manual = "film.png: the intro film stretched over the whole window (no black bars); film_after.png: Doc Mitchell's house again, nothing of the film left"
 
 [[scenario]]
@@ -14204,7 +14296,7 @@ name = "mantis-egg-spawn"
 source = "playtest list 7 item 4 (docs/design/frame-rate-audit.md §1-§2): shooting the Goodsprings schoolhouse's mantis ootheca dropped the frame rate to about one frame a second"
 note = "at 10 s DamageObject breaks the ootheca 0x0010AC54 (V22MantisOotheca): its script places 12 nymphs at each of its two destruction stages, all at the egg's centre against the lockers. Each must stand on a free floor spot near it (created_spots.rs), not inside the egg or each other; their footsteps are held to the voice limit (sfx.rs). From about 24 s they reach the player and die at its feet (their script kills a nymph within 50 units of the player); the heap of corpses is set at rest after 3 s (ragdoll.rs). Before: 1% low 1,162 ms, the characters' controller ran out its iterations every step. God mode: the nymphs fight the player"
 areas = ["actors", "physics", "audio", "performance"]
-paths = ["engine/nvf-play/src/created_spots.rs", "engine/nvf-play/src/sfx.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/player/safe.rs", "engine/nvforever/src/ragdoll.rs"]
+paths = ["engine/nvf-play/src/created_spots.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/audio_out.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/player/safe.rs", "engine/nvforever/src/ragdoll.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SAMPLE = "2", NVF_PLAY_TEST_SCRIPT = "10:call:0x0010AC54:DamageObject:5" }
 args = ["--cell", "GSSchoolHouse", "--pos", "700,-900,3340", "--play", "--no-voice", "--no-messages"]
 run_seconds = 50
@@ -14213,6 +14305,12 @@ expect = [
   { text = "created where no free spot is near", count = 0, label = "every nymph found a spot" },
   { re = 'stress frames: .*1% low (?P<n>[\d.]+) ms', range = [0, 400], label = "no run of second-long frames (was 1,162 ms)" },
   { re = 'at most (?P<n>\d+) one-shots at once', range = [1, 64], label = "the footsteps are held to the voice limit" },
+  { re = 'audio mix: pre peak [0-9.]+, \d+ samples over full scale; post peak [0-9.]+, \d+ samples over full scale; \d+ frames limited', label = "#2217: the mix bus's measurements of the crowd" },
+  { re = 'audio mix: .*; post peak [0-9.]+, (?P<n>\d+) samples over full scale;', range = [0, 0], all = true, label = "#2217: after the limiter no sample of the crowd is over full scale" },
+  { re = 'audio mix: .*; post peak (?P<n>[0-9.]+),', range = [0, 1], all = true, label = "#2217: the loudest sample after the limiter within full scale" },
+  { re = 'sfx voices: at most (?P<n>\d+) total,', range = [1, 64], all = true, label = "#2217: the crowd's voices stay within the limit" },
+  { re = 'sfx voices: at most \d+ total, (?P<n>\d+) of one SOUN;', range = [1, 8], all = true, label = "#2217: and within each SOUN's" },
+  { re = 'sfx hard stops: 0 steals, 0 loop stops, 0 script stops, 0 ambient stops, 0 radio stops, 0 voice stops', label = "#2217: no sound of the crowd cut mid-waveform (each stop fades out)" },
   { re = 'ragdolls: (?P<n>\d+) started', range = [5, 1e9], label = "nymphs die at the player's feet (their script kills them within 50 units)" },
   { re = '(?P<n>\d+) in the world at exit \((?P=n) at rest\)', label = "every corpse of the heap is at rest by the end (ragdoll.rs MAX_AWAKE)" },
 ]
@@ -14427,6 +14525,36 @@ order = [[
   { re = 'script: menu 1001 \(message VCG04Message\)', label = "the box is up after the kill" },
   { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "Chet comes to rest lying down, not standing" },
 ]]
+
+[[scenario]]
+name = "ragdoll-kill-and-corpse-hit"
+source = "#2218 (owner's playtest): actors killed by grenade rifle rounds stood upright, dead, instead of falling; a blast kill sends more than one hit on the actor in a frame (the round's impact and its blast, or several blasts), and engine/nvforever/src/deaths.rs read only the last, which landed on the corpse and did not kill"
+note = "Chet in the general store is killed by a test-aid hit at 6 s and hit again on his corpse in the same frame; the base game alone"
+areas = ["ragdoll", "combat"]
+paths = ["engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_HIT = "6:0x00104C79:1000,6:0x00104C79:5" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 14
+expect = [
+  { re = 'combat: .* 0x00104C79 killed', label = "the first hit kills Chet" },
+  { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "Chet falls and comes to rest lying down, not standing" },
+]
+
+[[scenario]]
+name = "ragdoll-killed-getting-up"
+source = "#2218 (owner's playtest): actors killed by grenade rifle rounds stood upright, dead; a blast knocks the actor down, it gets up, and the next blast kills it while its get-up clip plays: its ragdoll had left the world and the clip held the bones, so the corpse stood (engine/nvforever/src/knockouts.rs)"
+note = "Chet in the general store is pushed down at 6 s (PushActorAway), starts getting up about 2.4 s later (a 2 s clip) and is killed by a test-aid hit at 9.2 s, part way up; the base game alone"
+areas = ["ragdoll", "combat"]
+paths = ["engine/nvforever/src/knockouts.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "6:player.pushactoraway 00104C79 20;7:close", NVF_PLAY_TEST_HIT = "9.2:0x00104C79:1000" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 18
+order = [[
+  { re = 'knockout: 00104C79 gets up', label = "Chet starts getting up" },
+  { re = 'combat: Chet 0x00104C79 killed', label = "he is killed before he is up" },
+  { re = 'ragdoll: actor 00104C79 at rest at .*, trunk (?P<h>-?\d+) units over its lowest bone', range = [-1000, 35], label = "he falls again and comes to rest lying down, not standing" },
+]]
+forbid = [{ re = 'knockout: 00104C79 is up', label = "a dead actor never finishes getting up" }]
 
 [[scenario]]
 name = "death-weapon-drop"
@@ -20831,10 +20959,10 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice
 run_seconds = 16
 expect = [
   { re = 'console: InjectUIComponent "HUDMainMenu" .* >> ran', label = "the console compiles and runs InjectUIComponent" },
-  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the injected box, its picture and its text draw once the console closes" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the injected box, its picture and its text draw once the console closes", known_failing = "bench install 2026-11-12: the owner put Just Assorted Mods's loose menus/prefabs/J*/ files in the game's Data, which every run includes in HUDMainMenu (7 more mod tiles: JBT, JDC, JHI, JHM, JLM, JVO, JWH); main the same" }
 ]
 forbid = [
-  { re = 'tiles: HUDMainMenu: [2-9]\d* mod tiles drawn', label = "no tile of the HUD's own file or a code-made copy draws" },
+  { re = 'tiles: HUDMainMenu: [2-9]\d* mod tiles drawn', label = "no tile of the HUD's own file or a code-made copy draws", known_failing = "bench install 2026-11-12: the owner put Just Assorted Mods's loose menus/prefabs/J*/ files in the game's Data, which every run includes in HUDMainMenu (7 more mod tiles: JBT, JDC, JHI, JHM, JLM, JVO, JWH); main the same" }
 ]
 manual = "ui_mod_tile.png: at the left, about a third down, a dark blue box with 'NVF MOD TILE' in white (font 7) and an amber bar along its bottom; NVForever's HUD as on main"
 
@@ -22002,6 +22130,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "handy-cake-saw-jet"
+source = "owner 2026-11-12 (#2228): Andy (CG02Andy, a Mister Handy) cutting the cake (IDLE CutCake, creatures/mistergutsy/idleanims/specialidle_cutcake.kf): the KF spins `Buzzsawblad`, a node of the saw part gutsybuzzsaw.nif that the skeleton lacks, and fxmrhandyjetaddon.nif's flames are controllers of its own (scrolls, refraction clouds, billboards) [observed: fnvtool nif decode]; both were still"
+note = "Andy placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to him at 4 s; PlayIdle CutCake at 5 s, the blade spins from 3.3 s into it; frames at 9 and 9.15 s (blade turned between them, jet flames on) for the eye"
+areas = ["actors", "creatures", "idles"]
+paths = ["engine/nvf-assets/src/actor.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CG02Andy:1:300:0,3.2:call:0xFF000000:SetRestrained:1,5:call:0xFF000000:PlayIdle:CutCake", NVF_PLAY_TEST_CONTROL = "4:aimactor", NVF_PLAY_TEST_SHOTS = "9:handy_cake_a.png,9.15:handy_cake_b.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 11
+expect = [
+  { re = 'creature parts: CG02Andy \(00020456\): part node\(s\) .*Buzzsawblad.* for its clips to drive', label = "the saw's blade is a node of its own for the clips" },
+  { re = 'creature parts: CG02Andy \(00020456\): \S*fxmrhandyjetaddon\.nif plays its own controllers on Bip01 Pelvis', label = "the jet plays its own controllers on the pelvis" },
+  { re = 'idle: 0xFF000000 plays CutCake ', label = "Andy cuts the cake" },
+]
+
+[[scenario]]
 name = "radscorpion-intact-caps"
 source = "#1075 (docs/spec-notes/dismemberment.md §2.5): the radscorpion's `meatcapbody` holds its torso caps (part flag bit 0 clear) and one editor-visible BP_TORSO triangle, so the whole-shape cap rule drew every torso cap on an intact radscorpion; cap partitions are now hidden one by one [observed: fnvtool nif decode]"
 note = "a radscorpion (CrRadscorpion1Small) placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to it at 5 s, a frame at 6 s (no caps on its leg roots or stinger)"
@@ -22190,11 +22333,11 @@ expect = [
 
 [[scenario]]
 name = "pause-mods-page"
-source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with [UI] TileMenus=StartMenu and a mod's tiles in StartMenu, the pause menu has a Mods entry; its page runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
-note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. MCM's own page stays hidden (its script waits for the original's code-filled pause column); pause_mods.png shows the page"
+source = "issue #976 T11 (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with a mod's tiles in StartMenu (the switch on by default), the pause menu has a Mods entry; its page writes the original column's traits MCM waits for (menu-xml.md §10.1), clicks MCM's trigger so MCM's window opens, runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
+note = "needs MCM in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. MCM's quest sets iInstallCheck to 1 in GameMode at the start and its MenuMode 1013 block sets it to 0, so the variable read before and after the page shows the block ran. With no mod registered with MCM its script stops at its 'No MCM Mods' check, so its window stays shut (pause-mods-page-jam opens it); pause_mods.png shows the page"
 areas = ["ui", "menus", "scripts"]
 paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/tiles/input.rs", "crates/fnv-game/src/game.rs"]
-env = { NVF_PLAY_TEST_TILE_MENUS = "StartMenu", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,18.5:shot,22:back", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;10.5:close;29:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;29.5:close" }
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,18.5:shot,22:back", NVF_PLAY_TEST_CONSOLE = "10:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;10.5:close;29:PrintC \"nvf mcm install check %g\" MCM.iInstallCheck;29.5:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp"]
 run_seconds = 32
 expect = [
@@ -22205,8 +22348,26 @@ expect = [
   { re = "scripts: the Mods page closed after [1-9][0-9]* MenuMode frames", label = "the start menu's MenuMode blocks ran each frame of the page" },
   { text = "nvf mcm install check 1", min = 1, label = "before the page MCM's GameMode block has set iInstallCheck" },
   { text = "nvf mcm install check 0", min = 1, label = "MCM's MenuMode 1013 block ran under the page, in the played world, and cleared it" },
+  { text = "tiles: StartMenu/NOGLOW_BRANCH/main_container: the original's column traits written for MCM", label = "the column MCM waits for" },
 ]
 order = [["nvf mcm install check 1", "tiles: a mod's tiles in StartMenu", "pause menu: mods page", "scripts: MenuMode 1013 blocks run", "pause menu: mods page closed", "nvf mcm install check 0"]]
+
+[[scenario]]
+name = "pause-mods-page-jam"
+source = "issue #976 (MCM's own window) (engine/nvf-play/src/tiles/mods.rs, pause.rs; docs/handoff/ui-tile-tree-tasks.md T11, ui-tile-tree.md §7): with a mod's tiles in StartMenu (the switch on by default), the pause menu has a Mods entry; its page writes the original column's traits MCM waits for (menu-xml.md §10.1), clicks MCM's trigger so MCM's window opens, runs the start menu's MenuMode 1013 blocks each frame, in the played world, and Back closes it"
+note = "needs MCM and Just Assorted Mods (JustAssortedMods.esp, an MCM mod; masters FalloutNV and DLC) in Data: its loose menu files (menus/options/start_menu.xml and menus/prefabs/MCM) give StartMenu its mod tiles, and its plugin (The Mod Configuration Menu.esp, loaded with --plugins) has the blocks. JAM registers with MCM, so MCM's install check passes and its window opens on the page (_Menu 1); pause_mods.png shows it"
+areas = ["ui", "menus", "scripts"]
+paths = ["engine/nvf-play/src/tiles/mods.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/tiles/input.rs", "crates/fnv-game/src/game.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_PAUSE = "16:28", NVF_PLAY_TEST_PAUSE_MENU = "17:mods,20:shot,22:back" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm", "The Mod Configuration Menu.esp", "JustAssortedMods.esp"]
+run_seconds = 32
+expect = [
+  "tiles: StartMenu/NOGLOW_BRANCH/main_container: the original's column traits written for MCM",
+  "tiles: MCM's trigger clicked: its window opens with the Mods page",
+  { text = "tiles: MCM's window is open on the Mods page", label = "MCM's own script opened its window (_Menu 1) for a mod registered with it" },
+  { text = "pause menu: mods page closed", label = "Back leaves the page" },
+]
+order = [["pause menu: mods page", "tiles: MCM's trigger clicked", "tiles: MCM's window is open", "pause menu: mods page closed"]]
 
 [[scenario]]
 name = "travel-skip-sun-shadows"
@@ -23560,15 +23721,15 @@ forbid = ["FSR dispatch failed", "FSR 3.1 unavailable", "Shader validation error
 
 [[scenario]]
 name = "latency-reduction"
-source = "#1778, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start says whether the GPU's Vulkan driver offers VK_AMD_anti_lag, and the game runs on either way"
+source = "#1778, docs/design/latency-reduction.md: --latency-reduction turns the switch on; the start says whether the GPU's Vulkan driver offers VK_AMD_anti_lag or VK_NV_low_latency2, and the game runs on with either or neither"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/frame_pace.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/Cargo.toml"]
+paths = ["engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/frame_pace.rs", "engine/vendor/bevy_render/src/renderer/**", "engine/vendor/bevy_render/src/settings.rs", "engine/vendor/wgpu-hal/src/vulkan/**", "engine/Cargo.toml"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--latency-reduction", "--no-voice", "--no-lodgen"]
 run_seconds = 12
 expect = [
-  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|not available) on ', label = "the start says whether the driver offers Anti-Lag" },
-  { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
+  { re = 'latency reduction: (AMD Anti-Lag \(VK_AMD_anti_lag\) available|NVIDIA low latency \(VK_NV_low_latency2\) available|not available) on ', label = "the start says which technique the driver offers, or that it has neither" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU)\)', label = "--latency-reduction turns the switch on" },
 ]
 forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
@@ -23576,7 +23737,7 @@ forbid = [{ text = "Validation Error", label = "a Vulkan validation error" }, { 
 name = "frame-generation"
 source = "#1778, docs/design/frame-generation.md: --frame-generation with FSR Quality while walking outdoors: generated frames presented between the real ones, the HUD kept, latency reduction turned on with it, no validation errors; the performance overlay (--fps, its readings logged by NVF_FPS_LOG) reads the frames shown and the rendered ones apart"
 areas = ["graphics"]
-paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**"]
+paths = ["engine/nvforever/src/frame_gen.rs", "engine/nvforever/src/fg_presenter.rs", "engine/nvforever/src/fsr.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/anti_lag.rs", "engine/nvforever/src/nv_low_latency.rs", "engine/nvforever/src/perf_overlay/*", "engine/vendor/wgpu-ffx/**", "engine/vendor/bevy_render/src/view/window/**", "engine/vendor/wgpu-hal/src/vulkan/swapchain/**"]
 env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "4:0:1,9:0.5:-1", NVF_FPS_LOG = "2" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720", "--fsr", "quality", "--frame-generation", "--graphics", "enhanced", "--no-voice", "--no-lodgen", "--fps"]
 run_seconds = 26
@@ -23587,7 +23748,7 @@ expect = [
   { text = "frame generation: presenting on a thread of its own", label = "the presenter thread takes the window's images (h9x000/NVForever#1)" },
   { re = 'frame generation: \d+ real frames and (\d+) generated in ', range = [200, 1000000], label = "generated frames presented over ten seconds" },
   { text = "frame generation: … presents took … on the presenter thread", label = "presented from the presenter thread, not the render thread" },
-  { re = 'latency reduction: on \((AMD Anti-Lag|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
+  { re = 'latency reduction: on \((AMD Anti-Lag|NVIDIA low latency|not available on this GPU), with frame generation\)', label = "frame generation turns latency reduction on" },
   { re = 'fps counter: FPS \d+ +\(\d+ rendered\) +[\d.]+ ms ', label = "the overlay's FPS row reads the frames shown and the rendered ones apart while generated frames are shown" },
 ]
 forbid = [
@@ -23769,6 +23930,90 @@ expect = [
   "pipboy repair: cancel",
 ]
 order = [["pipboy repair: open", "pipboy repair: 10mm Pistol", "pipboy repair: stays open:", "pipboy repair: cancel"]]
+
+[[scenario]]
+name = "tiles-pipboy-mod"
+source = "[design] weapon-mods.md section 5.1, issue #1513: the Pip-Boy's weapon mod menu from its file, in the Pip-Boy's image: the weapon first, the carried extended magazines under it with their effect line, the figures before and after (Clip 12 to 16, +4), the pointer choosing the mod and a click attaching it, the menu staying open on the modded weapon, Cancel; the rules, sounds and log lines of pipboy-item-mod unchanged; one ready line for the one opening, so no pass fell back"
+note = "[hypothesis until a first run] The points are the canvas's, from the file's places as the repair page's (tiles-pipboy-repair): the weapon's row at 250:151, the magazines' (two lines) at 250:210, Cancel 855:148 (the Mod button is hidden on a PC, so Cancel stands first). The Pip-Boy aid's click stands a frame on the spot before its press, so the mod is chosen by the hover and the click attaches it. Shots: opening, the mod chosen, after attaching."
+areas = ["ui", "pipboy", "menus", "combat"]
+paths = ["engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/repair_cards.rs", "engine/nvf-play/src/tiles/repair_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-mod-home", NVF_PLAY_TEST_TILE_MENUS = "ItemModMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,17:point=250:151,19:point=250:210,21:click=250:210,25:point=855:148,26:click=855:148,28:close", NVF_PLAY_TEST_SHOTS = "16:tiles_pipboy_mod_open.png,20:tiles_pipboy_mod_chosen.png,23:tiles_pipboy_mod_attached.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=ItemModMenu .*ItemModMenu drawn from tiles', label = "opt-in switch" },
+  { re = 'tiles: ItemModMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', label = "file with code rows" },
+  { text = "ItemModMenu drawn by hand:", count = 0, label = "complete file" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", count = 1, label = "ready once for the one opening: no pass fell back" },
+  { re = 'tiles: ItemModMenu no longer drawn from tiles after [1-9]\d* passes: closed', count = 1, label = "until it closed" },
+  { re = "tiles: ItemModMenu set out for the Pip-Boy's image: \\d+ pieces, 2 row names", label = "painted in the Pip-Boy's image" },
+  { re = 'tiles: ItemModMenu drawn from tiles: 2 rows \(1 with an effect line\); weapon "10mm Pistol"; highlight "10mm Pistol"', label = "it opens on the weapon, the mod's effect under its name" },
+  { re = 'tiles: ItemModMenu drawn from tiles: 2 rows .*; highlight "10mm Pistol Extended Mags"; figures: .*Clip 12, .*Clip 16, \+4', label = "the mod shows its figures and gain" },
+  { text = "tiles: ItemModMenu Hover(1) on its tiles", label = "the pointer chooses the mod" },
+  { text = "tiles: ItemModMenu Click(1) on its tiles", count = 1, label = "a click on the chosen mod, once" },
+  { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "the model attaches it" },
+  { re = 'tiles: ItemModMenu drawn from tiles: 2 rows .*weapon "10mm Pistol \+"; highlight "10mm Pistol Extended Mags"', label = "the menu stays open on the modded weapon, the same mod chosen" },
+  { text = "tiles: ItemModMenu Cancel on its tiles", count = 1, label = "Cancel on its tiles, once" },
+  "pipboy mod: cancel",
+  "pipboy: menu code 1061",
+  { text = "tiles: InventoryMenu", count = 0, label = "the mod menu only" },
+]
+order = [["pipboy mod: open", "tiles: ItemModMenu ready: drawn from tiles", "tiles: ItemModMenu Hover(1) on its tiles", "tiles: ItemModMenu Click(1) on its tiles", "pipboy mod: 10mm Pistol + 10mm", "tiles: ItemModMenu Cancel on its tiles", "pipboy mod: cancel", "tiles: ItemModMenu no longer drawn from tiles"]]
+
+[[scenario]]
+name = "tiles-pipboy-mod-off"
+source = "[design] weapon-mods.md section 5.1, issue #1513: with the tile switch empty the hand-built mod menu stays the default; the same weapon and mod as tiles-pipboy-mod and comparison shots"
+note = "The Pip-Boy aid's keys only, at 1280x720."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-mod-off-home", NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,19:mod=down,21:mod=use,26:mod=cancel,28:close", NVF_PLAY_TEST_SHOTS = "16:default_pipboy_mod_open.png,20:default_pipboy_mod_chosen.png,23:default_pipboy_mod_attached.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { text = "tiles: ItemModMenu", count = 0, label = "no mod menu adapter runs" },
+  { text = "pipboy hints: mod menu: ", min = 1, label = "the hand-built menu draws" },
+  { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "the hand-built menu attaches" },
+  "pipboy mod: cancel",
+]
+order = [["pipboy mod: open", "pipboy mod: 10mm Pistol + 10mm", "pipboy mod: cancel"]]
+
+[[scenario]]
+name = "tiles-pipboy-mod-items-only"
+source = "[design] weapon-mods.md section 5.1, pipboy.md section 5.2.1, issue #1513: with the ITEMS page drawn from its file and ItemModMenu off, the mod menu is the hand-built one as before: the page gives way while it is open, with no warning, and is drawn from its tiles again when it closes"
+note = "As tiles-items-repair-fallback, for the mod menu; the Pip-Boy aid's keys only."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-mod-items-home", NVF_PLAY_TEST_TILE_MENUS = "InventoryMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,29:mod=open,31:mod=cancel,33:close", NVF_PLAY_TEST_SHOTS = "30:tiles_items_mod_menu.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 36
+expect = [
+  { re = 'pipboy mod: open 10mm Pistol \(flags 0\): 10mm Pistol Extended Mags \(slot 1\)', label = "the aid opens the mod menu" },
+  { text = "pipboy hints: mod menu: ", min = 1, label = "the hand-built menu draws" },
+  { text = "tiles: ItemModMenu", count = 0, label = "no mod menu adapter runs" },
+  { text = "InventoryMenu drawn by hand", count = 0, label = "giving way is no failure" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 2, label = "from its tiles before the menu and after it" },
+  "pipboy mod: cancel",
+]
+order = [[{ re = 'tiles: InventoryMenu page from tiles: ' }, "pipboy mod: open", "pipboy mod: cancel", { re = 'tiles: InventoryMenu page from tiles: ', label = "written again when the menu closes" }]]
+
+[[scenario]]
+name = "tiles-pipboy-mod-cut-down"
+source = "[design] weapon-mods.md section 5.1, issue #1513: a mod menu tree short of a tile the page needs keeps the whole hand-built menu, says why once, and the model's keys still attach and cancel"
+note = "The script aid unloads the description's tile from the always-loaded ItemModMenu at 10 s, before the menu opens, standing in for a mod's cut-down file: a smoke run has no such mod folder. A file missing altogether or a template lacking a piece is the unit tests'."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVFOREVER_HOME = "tiles-pipboy-mod-cut-home", NVF_PLAY_TEST_TILE_MENUS = "ItemModMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,10:call:-:UnloadUIComponent:\"ItemModMenu/GLOW_BRANCH/IMM_MainRect/IMM_ModDesc\"", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,19:mod=down,21:mod=use,26:mod=cancel,28:close", NVF_PLAY_TEST_SHOTS = "17:tiles_pipboy_mod_by_hand.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { re = 'script: test aid calls UnloadUIComponent', label = "the tile goes" },
+  { text = "ItemModMenu drawn by hand: ItemModMenu/GLOW_BRANCH/IMM_MainRect/IMM_ModDesc missing", count = 1, label = "said once" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", count = 0, label = "never drawn from tiles" },
+  { text = "pipboy hints: mod menu: ", min = 1, label = "the hand-built menu takes over" },
+  { re = 'pipboy mod: 10mm Pistol \+ 10mm Pistol Extended Mags \(slot 1, flags 1\)', label = "the model's keys still attach" },
+  "pipboy mod: cancel",
+]
+order = [["script: test aid calls UnloadUIComponent", "pipboy mod: open", "ItemModMenu drawn by hand:", "pipboy mod: 10mm Pistol + 10mm", "pipboy mod: cancel"]]
 
 [[scenario]]
 name = "tiles-recipe-places"
@@ -24489,7 +24734,7 @@ expect = [
   { text = 'script: print "nvf type replaced 1 1"', count = 1, label = "old counter stays still while replacement runs" },
   { text = 'script: print "nvf type removed 1"', count = 1, label = "removed callback stays stopped with gate still nonzero" },
   { text = 'script: print "nvf type final 255 A"', count = 1 },
-  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the authored rect, bar and linked text enter rendering" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(3 items\)', label = "the authored rect, bar and linked text enter rendering", known_failing = "bench install 2026-11-12: the owner put Just Assorted Mods's loose menus/prefabs/J*/ files in the game's Data, which every run includes in HUDMainMenu (7 more mod tiles: JBT, JDC, JHI, JHM, JLM, JVO, JWH); main the same" }
 ]
 order = [["nvf type middle", "nvf type active", "nvf type suppressed", "nvf type replaced", "nvf type removed", "nvf type final"]]
 manual = "ui_typewriter_middle.png: a partially faded letter A in the blue box above the amber bar; ui_typewriter_final.png: the same letter fully visible with the replacement callback's pink colour. Verify the text and alpha links affect the rendered result."
@@ -24538,7 +24783,7 @@ expect = [
   { re = 'tiles: HUDMainMenu/NVFTex/A: texture offset', count = 0, label = "A has neither" },
   { text = 'script: print "nvf texoffset unloaded 1"', count = 1 },
   { text = 'script: print "nvf texoffset replaced 1"', count = 1, label = "a new B at the old B's path" },
-  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(\d+ items\)', label = "the authored rect enters rendering" },
+  { re = 'tiles: HUDMainMenu: 1 mod tiles drawn \(\d+ items\)', label = "the authored rect enters rendering", known_failing = "bench install 2026-11-12: the owner put Just Assorted Mods's loose menus/prefabs/J*/ files in the game's Data, which every run includes in HUDMainMenu (7 more mod tiles: JBT, JDC, JHI, JHM, JLM, JVO, JWH); main the same" }
 ]
 order = [["nvf texoffset set", "tiles: HUDMainMenu/NVFTex/B: texture offset", "nvf texoffset replaced"]]
 manual = "ui_texoffset_set.png: five amber-and-black strips on the left; A's light band at its left end, B's and C's moved to the middle (about 128-208 of 256 units), C fading from left to right (its left end solid, its right end faint), D and E as A. ui_texoffset_replaced.png: B's band back at its left end, as A's (the replaced tile has no offset); C, D and E unchanged."
@@ -24690,9 +24935,9 @@ expect = [
   { re = 'pipboy data: active quest ', min = 1, label = "the click made the quest active, the hand-built page's rule" },
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the click on the Show Location hint, through its tile" },
   { text = "pipboy: DATA World Map", min = 1, label = "Show Location shows the World Map" },
-  { text = "tiles: MapMenu leaves world map hand-built: not drawn from the file yet", min = 1, label = "the World Map keeps the whole hand-built page" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "the World Map is drawn from its file too since #1513's World Map slice (tiles-data-world); before: it kept the hand-built page" },
 ]
-order = [["tiles: MapMenu draws quests from tiles", "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(X) on its tiles", "pipboy: DATA World Map", "tiles: MapMenu leaves world map hand-built", "pipboy: DATA Quests", "tiles: MapMenu draws quests from tiles", "pipboy: down", "pipboy: up, page DATA tab Quests"]]
+order = [["tiles: MapMenu draws quests from tiles", "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(X) on its tiles", "pipboy: DATA World Map", "tiles: MapMenu draws world map from tiles", "pipboy: DATA Quests", "tiles: MapMenu draws quests from tiles", "pipboy: down", "pipboy: up, page DATA tab Quests"]]
 
 [[scenario]]
 name = "tiles-data-quests-screen"
@@ -24770,11 +25015,11 @@ expect = [
   { text = "pipboy data: notes shown", count = 1, label = "and the notes again" },
   { text = "tiles: MapMenu Button(X) on its tiles", count = 1, label = "the notes' filter's click, through its tile" },
   { re = 'pipboy hints: data misc: All Notes X\)', min = 1, label = "the filter acted once: its hint now offers all the notes" },
-  { text = "tiles: MapMenu leaves radio hand-built: not drawn from the file yet", min = 1, label = "Radio keeps the whole hand-built page (its waveform)" },
+  { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "Radio is drawn from its file too since #1513's Radio slice (tiles-data-radio); before: it kept the hand-built page" },
   { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Misc needs, and its panes show (a challenge's short text without a scroll bar)" },
   { re = 'MapMenu: Button\(.\) does not take the pointer', count = 0, label = "the hints take the pointer at their words, not their keys beside the box" },
 ]
-order = [["tiles: MapMenu draws misc from tiles", { re = 'pipboy data: note .+ \(0x001618BF\) picked' }, { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ' }, "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(Y) on its tiles", "pipboy data: challenges shown", "pipboy data: notes shown", "tiles: MapMenu Button(X) on its tiles", "tiles: MapMenu leaves radio hand-built"]]
+order = [["tiles: MapMenu draws misc from tiles", { re = 'pipboy data: note .+ \(0x001618BF\) picked' }, { re = 'tiles: MapMenu page from tiles: tab misc notes, 2 rows, "[^"]+" selected, text, ' }, "tiles: MapMenu Row(0) on its tiles", "tiles: MapMenu Button(Y) on its tiles", "pipboy data: challenges shown", "pipboy data: notes shown", "tiles: MapMenu Button(X) on its tiles", "tiles: MapMenu draws radio from tiles"]]
 
 [[scenario]]
 name = "tiles-data-misc-off"
@@ -24795,8 +25040,209 @@ expect = [
 order = [[{ re = 'pipboy data: note .+ \(0x001618BF\) picked' }, "pipboy data: challenges shown", "pipboy data: notes shown"]]
 
 [[scenario]]
+name = "tiles-data-world"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's World Map is drawn from map_menu.xml through the viewport the hand-built page shares (MapView): the picture painted from MM_WorldMap_ParentImage's traits, the markers as MapMarkerTemplate rows kept by record, the custom marker and its dotted line from the file's templates, the arrow and the highlight box; Place Marker's question box is painted over the tiles and answered by keys both ways (Yes places the marker, Remove takes it off), and fast travel's question, asked by the test aid as a click on Primm's marker would, is painted over them and cancelled by keys; every frame on the World Map is counted by what drew it. The pointer's own clicks on the map and on a box, Tab with a box up and a reopening: tiles-data-world-pointer"
+note = "pipboy-custom-marker's pointer (canvas 527, 350, 50 right of the map window's middle) and fast-travel-primm's ShowMap of Primm (0x000CDF46) as a travel target; placemarker is the maps' X button, key=use the chosen answer, key=down the next one; travel= asks as a click on that marker would. Shots: tiles_data_world.png (the map with the custom marker and its line, turned by the tile painter), tiles_data_world_box.png (the question box over the tiles), to compare with tiles-data-world-off's."
+areas = ["ui", "menus", "pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/layout.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:placemarker,19:key=down,19.5:key=use,21:travel=000CDF46,22:key=down,23:key=use,25:tab=2,27:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "17:tiles_data_world.png,18.5:tiles_data_world_box.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "the World Map is drawn from its file" },
+  { re = 'tiles: MapMenu page from tiles: tab world map, [1-9]\d* markers, \d+ quest markers, (no )?custom marker, \d+ dotted lines, "[^"]*" highlighted, magnification \d\.\d\d, hints: X [^,]+, device$', min = 1, label = "the markers, the highlight and the hints written" },
+  { re = 'tiles: MapMenu page from tiles: tab world map, [1-9]\d* markers, \d+ quest markers, custom marker, [1-9]\d* dotted lines, ', min = 1, label = "the custom marker and its dotted line written from the file's templates" },
+  { re = 'tiles: MapMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "structure only: the markers are code rows of the file's templates" },
+  { re = 'pipboy data: question box over the tiles \(2 answers\)', min = 1, label = "Place Marker's question over the tiles" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
+  { re = 'pipboy data: question box over the tiles \(3 answers\)', min = 1, label = "the question with a marker placed, over the tiles" },
+  { text = "pipboy map: custom marker removed", count = 1, label = "the second answer removes it" },
+  { re = 'fast travel: asks "Do you want to travel to Primm\?" \(0x000CDF46\)', count = 1, label = "fast travel asks" },
+  { text = 'fast travel: answered "No"', count = 1, label = "and is cancelled" },
+  { re = 'fast travel: to Primm .*arrive', count = 0, label = "no travel" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback was warned of (one shorter than three passes is not: the frame count below shows those)" },
+  { re = 'tiles: MapMenu world map frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared, \d+ by hand as the Pip-Boy came up or went down', count = 1, label = "with the Pip-Boy up no frame of the visit to the World Map was drawn by hand, the question boxes up or not: none after a failed pass, none with nothing prepared (frames as it rises or lowers are counted apart)" },
+  { re = 'tiles: MapMenu Button\(.\) on its tiles', count = 0, label = "no tile of the page acted (the boxes were answered by keys here)" },
+]
+order = [["tiles: MapMenu draws world map from tiles", { re = 'pipboy data: question box over the tiles \(2 answers\)' }, "pipboy map: custom marker placed at", { re = 'pipboy data: question box over the tiles \(3 answers\)' }, "pipboy map: custom marker removed", { re = 'fast travel: asks "Do you want to travel to Primm' }, 'fast travel: answered "No"', { re = 'tiles: MapMenu world map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-world-pointer"
+source = "[design] pipboy.md section 5.3.1, Astra's review of #1513's World Map: the pointer's own input on the World Map drawn from its tiles: a real left press and release on the map at the player's place asks to travel to the marker the highlight box takes there (the model's picking, one owner); the box is answered by keys; Place Marker's box is answered by the pointer's click on its No while the left button is held down across its closing (nothing under it acts, on the page's tiles or the map); Tab with Place Marker's box up closes the Pip-Boy and the box with it; opened again the World Map is drawn from its tiles with no box; with the Pip-Boy up no frame of either visit drawn by hand"
+note = "the pointer at canvas 477, 350, the map window's middle, where the map is centred on the player; Goodsprings' map marker is taken to lie within the highlight box's reach of the player's start [hypothesis until the first run: if none does, the press asks nothing and the travel lines fail; then point at a marker the run's 'world map highlights' line names]. The real press is NVF_PLAY_TEST_KEYS' mouse-left (the button state the model's picking reads); the box's answer is the Pip-Boy aid's click (the pointer events its answers take) at 477, 400, Place Marker's second answer No [hypothesis until the first run: the box's rows from its middle at 350, a line of font 2 and 20 a row; move the point to the No row the shot tiles_data_world_pointer_box.png shows]. The held mouse-left from 18.5 to 19.5 spans the aid's click at 19 that closes the box."
+areas = ["ui", "menus", "pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/input.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=477:350,16.5:key=down,17:key=use,18:placemarker,19:click=477:400,21:placemarker,23.5:open,24.5:point=off,26:tab=2,28:close", NVF_PLAY_TEST_KEYS = "15:mouse-left:0.15,18.5:mouse-left:1.0,22:tab", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "18.7:tiles_data_world_pointer_box.png,24:tiles_data_world_pointer_reopened.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { re = 'test aid: real input Mouse\(Left\) pressed', min = 2, label = "the real left presses" },
+  { re = 'fast travel: (asks ".+" \(0x[0-9A-F]{8}\)|to .+ refused)', count = 1, label = "the press and release on the map at the marker asked to travel, once (the model's picking)" },
+  { re = 'fast travel: answered "(No|OK)"', count = 1, label = "the travel box answered by keys" },
+  { re = 'pipboy data: question box over the tiles \(2 answers\)', min = 2, label = "Place Marker's box over the tiles, twice" },
+  { re = 'test aid: pipboy clicked the screen at \(477, 400\)', count = 1, label = "the pointer's click on the box's answer" },
+  { text = 'pipboy map: answered "No"', count = 1, label = "the click answered No" },
+  { re = 'pipboy map: custom marker placed', count = 0, label = "no marker placed: the click took No, and the second box went with the Pip-Boy" },
+  { re = 'tiles: MapMenu (Button|Tab)\(.\) on its tiles', count = 0, label = "no click reached the page's tiles under the boxes, the left button held across the box's closing" },
+  { text = "pipboy: down", min = 2, label = "Tab with the second box up closed the Pip-Boy (as on the hand-built page), and the close at the end" },
+  { re = 'pipboy map: answered', count = 1, label = "the box closed by Tab took no answer" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 2, label = "the World Map from its tiles, and again after the reopening" },
+  { re = 'tiles: MapMenu world map frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared, \d+ by hand as the Pip-Boy came up or went down', count = 2, label = "each visit to the World Map, before and after the reopening: no frame by hand with the Pip-Boy up (frames as it rises or lowers counted apart)" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback warned of" },
+]
+order = [[{ re = 'fast travel: (asks|to .+ refused)' }, { re = 'fast travel: answered' }, { re = 'test aid: pipboy clicked the screen at \(477, 400\)' }, 'pipboy map: answered "No"', "pipboy: down", "tiles: MapMenu draws world map from tiles"]]
+
+[[scenario]]
+name = "tiles-data-world-pointer-off"
+source = "[design] pipboy.md section 5.3.1: tiles-data-world-pointer's steps without the switch: the hand-built World Map's picking, its box's click and Tab with a box up, as before"
+note = "the same steps and times as tiles-data-world-pointer."
+areas = ["ui", "menus", "pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=477:350,16.5:key=down,17:key=use,18:placemarker,19:click=477:400,21:placemarker,23.5:open,24.5:point=off,26:tab=2,28:close", NVF_PLAY_TEST_KEYS = "15:mouse-left:0.15,18.5:mouse-left:1.0,22:tab", NVF_PLAY_TEST_SHOTS = "18.7:tiles_data_world_pointer_box_off.png,24:tiles_data_world_pointer_reopened_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 31
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand|question box over the tiles', count = 0, label = "switch off: nothing of the tile page runs" },
+  { re = 'fast travel: (asks ".+" \(0x[0-9A-F]{8}\)|to .+ refused)', count = 1, label = "switch off: the press and release asks to travel, as before" },
+  { text = 'pipboy map: answered "No"', count = 1, label = "switch off: the click answers No, as before" },
+  { text = "pipboy: down", min = 2, label = "switch off: Tab closes the Pip-Boy with the box up, as before" },
+]
+order = [[{ re = 'fast travel: (asks|to .+ refused)' }, 'pipboy map: answered "No"', "pipboy: down"]]
+
+[[scenario]]
+name = "tiles-data-world-off"
+source = "[design] pipboy.md section 5.3.1: without the switch the World Map is the hand-built page: nothing of the tile page runs, no question box is painted over tiles, and Place Marker and fast travel work as before"
+note = "the same steps and times as tiles-data-world. Shots to compare with it."
+areas = ["ui", "menus", "pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:placemarker,19:key=down,19.5:key=use,21:travel=000CDF46,22:key=down,23:key=use,25:tab=2,27:close", NVF_PLAY_TEST_SHOTS = "17:tiles_data_world_off.png,18.5:tiles_data_world_box_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 30
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand|question box over the tiles', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\)', count = 1, label = "switch off: Yes places the marker, as before" },
+  { text = "pipboy map: custom marker removed", count = 1, label = "switch off: the second answer removes it, as before" },
+  { text = 'fast travel: answered "No"', count = 1, label = "switch off: fast travel cancelled, as before" },
+]
+order = [["pipboy map: custom marker placed at", "pipboy map: custom marker removed", 'fast travel: answered "No"']]
+
+[[scenario]]
+name = "tiles-data-world-missing-template"
+source = "[design] pipboy.md section 5.3.1: a file short of a World Map template keeps the World Map's whole hand-built page, says why once, and Place Marker works there; the other tabs are still drawn from the file"
+note = "NVF_PLAY_TEST_MAP_TILE_CUT takes MapMarkerTemplate as missing for the run (a World Map template only), so no changed game file is needed."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:tab=2,20:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_MAP_TILE_CUT = "MapMarkerTemplate" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 23
+expect = [
+  { text = "MapMenu drawn by hand: MapMarkerTemplate missing", count = 1, label = "the template cut, by hand: the reason, once" },
+  { text = "tiles: MapMenu leaves world map hand-built: MapMarkerTemplate missing", min = 1, label = "the draw state's line" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\)', count = 1, label = "Place Marker works on the hand-built page" },
+  { text = "question box over the tiles", count = 0, label = "the box is the hand-built page's" },
+  { text = "tiles: MapMenu draws quests from tiles", min = 1, label = "Quests needs none of the World Map's templates" },
+]
+order = [["tiles: MapMenu leaves world map hand-built: MapMarkerTemplate missing", "pipboy map: custom marker placed at", "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-local"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Local Map is drawn from map_menu.xml outdoors: its frame (the outline's grid) placed from the viewport the hand-built page shares (MapView), the outline given as the runtime picture nvf:local_map once made and painted from MM_LocalMap_ParentImage's traits, the doors and markers as MapMarkerTemplate rows by record, the arrow turned by the heading, the highlight box; Place Marker's box painted over the tiles and answered by keys (the marker placed and shown); a drag off the outline makes a new one, given again as it is made; with the Pip-Boy up no frame of the visit drawn by hand"
+note = "pipboy-custom-marker's pointer (canvas 527, 350) and pipboy-list5's drag; the outline is made a few hundred rays a frame, so its picture comes a moment after the tab shows (the frame count's 'before it was prepared' covers the Pip-Boy coming up, not the outline: the page is drawn from its tiles while the picture is not made yet). Shots: tiles_data_local.png (the outline and the marker), tiles_data_local_dragged.png, to compare with tiles-data-local-off's."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/outline.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/tiles/runtime_images.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,16:point=527:350,17:placemarker,18:key=use,20:drag=-1500:0,24:tab=2,26:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "19:tiles_data_local.png,23:tiles_data_local_dragged.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { text = "tiles: MapMenu draws local map from tiles", min = 1, label = "the Local Map is drawn from its file" },
+  { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', min = 1, label = "the outline made outdoors (the model's)" },
+  { re = 'tiles: MapMenu local map picture given, \d+ x \d+ texels', min = 2, label = "the outline given as the runtime picture, and again for the new one after the drag" },
+  { re = 'tiles: MapMenu page from tiles: tab local map, \d+ markers, \d+ quest markers, (no )?custom marker, picture \d+ x \d+, "[^"]*" highlighted, magnification \d\.\d\d, hints: X [^,]+, device$', min = 1, label = "the frame with its picture, the rows and the hints written" },
+  { re = 'pipboy data: question box over the tiles \(2 answers\)', count = 1, label = "Place Marker's question over the tiles" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
+  { re = 'tiles: MapMenu page from tiles: tab local map, .*, custom marker, ', min = 1, label = "the custom marker written on the Local Map" },
+  { text = "pipboy data: map dragged by (-1500, 0)", count = 1, label = "the drag, the model's" },
+  { re = 'tiles: MapMenu local map frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared, \d+ by hand as the Pip-Boy came up or went down', count = 1, label = "with the Pip-Boy up no frame of the visit to the Local Map drawn by hand, as the outline filled in and was replaced (the logs show structure, the shots show the outline painted)" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback warned of" },
+]
+order = [["tiles: MapMenu draws local map from tiles", { re = 'tiles: MapMenu local map picture given' }, { re = 'pipboy data: question box over the tiles' }, "pipboy map: custom marker placed at", "pipboy data: map dragged by (-1500, 0)", { re = 'tiles: MapMenu local map picture given' }, { re = 'tiles: MapMenu local map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-local-off"
+source = "[design] pipboy.md section 5.3.1: without the switch the Local Map is the hand-built page: nothing of the tile page runs, no runtime picture is given, and its outline, Place Marker and drag work as before"
+note = "the same steps and times as tiles-data-local. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/outline.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,16:point=527:350,17:placemarker,18:key=use,20:drag=-1500:0,24:tab=2,26:close", NVF_PLAY_TEST_SHOTS = "19:tiles_data_local_off.png,23:tiles_data_local_dragged_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand|question box over the tiles', count = 0, label = "switch off: nothing of the tile page runs" },
+  { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', min = 2, label = "switch off: the outline made, and again after the drag, as before" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\)', count = 1, label = "switch off: Place Marker on the Local Map, as before" },
+  { text = "pipboy data: map dragged by (-1500, 0)", count = 1, label = "switch off: the drag, as before" },
+]
+order = [["pipboy map: custom marker placed at", "pipboy data: map dragged by (-1500, 0)"]]
+
+[[scenario]]
+name = "tiles-data-local-interior"
+source = "[design] pipboy.md section 5.3.1: the Local Map drawn from map_menu.xml indoors (Goodsprings' general store): the closer scale, the doors leading out as rows by record, no map marker, the interior's outline given as the runtime picture; a reopening keeps the page drawn from its tiles"
+note = "GSGeneralStore as other scenarios start in it; its door out to Goodsprings is taken to be read as a door leading elsewhere [hypothesis until the first run]. Shot: tiles_data_local_interior.png."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/outline.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,18:close,20:open,23:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "17:tiles_data_local_interior.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 25
+expect = [
+  { text = "tiles: MapMenu draws local map from tiles", min = 2, label = "the Local Map indoors drawn from its file, and again after the reopening" },
+  { re = 'pipboy data: local map outline \d+x\d+ samples 28 apart, [1-9]\d* landed \(interior\)', min = 1, label = "the interior's outline, at the closer spacing (the model's)" },
+  { re = 'tiles: MapMenu local map picture given, \d+ x \d+ texels', min = 1, label = "the interior's outline given as the runtime picture" },
+  { re = 'tiles: MapMenu page from tiles: tab local map, [1-9]\d* markers, 0 quest markers, (no )?custom marker, picture \d+ x \d+, ', min = 1, label = "the doors leading out as rows, with the picture" },
+  { re = 'tiles: MapMenu local map frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared, \d+ by hand as the Pip-Boy came up or went down', count = 2, label = "each visit: no frame by hand with the Pip-Boy up (frames as it rises or lowers counted apart)" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback warned of" },
+]
+order = [[{ re = 'tiles: MapMenu local map picture given' }, "pipboy: down", "tiles: MapMenu draws local map from tiles"]]
+
+[[scenario]]
+name = "tiles-data-radio"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Radio tab is drawn from map_menu.xml: the stations in MM_RadioStationList (the playing one's square filled), the waveform's frame from MM_WaveformRect (MM_Waveform hidden) and the hand-built trace painted over it while the radio plays; a click on a station tunes to it through its tile, Enter on the playing one turns the radio off (the hand-built page's rules)"
+note = "the points are canvas units on the page as run [hypothesis until the first run: the first station's words about 200, 150, as the first quest's in tiles-data-quests]; Goodsprings is assumed to receive at least two stations at noon (Mojave Music Radio is the first the radio-pipboy scenario tunes to) and the Pip-Boy radio to be off at the start. The click tunes to the first station; Down and Enter (the test aid's key steps, the hand-built page's keys) tune to the second; Enter again turns it off. Shots: tiles_data_radio.png (the trace over the file's panel) against tiles-data-radio-off's at the same time."
+areas = ["ui", "menus", "pipboy", "radio"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=4,16:point=200:150,17:click=200:150,18:point=off,20:key=down,20.5:key=use,23:key=use,25:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_radio_off_air.png,19:tiles_data_radio.png,22:tiles_data_radio_second.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 28
+expect = [
+  { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "Radio is drawn from its file" },
+  { re = 'tiles: MapMenu page from tiles: tab radio stations, [2-9]\d* rows, "[^"]+" selected, waveform off, hints: none, device$', min = 1, label = "the stations written, the radio off, the keyboard's no hint" },
+  { text = "tiles: MapMenu Row(0) on its tiles", count = 1, label = "the click on the first station acted once, through its tile" },
+  { re = 'pipboy data: radio tuned to .+', min = 2, label = "the click and Enter tuned, the hand-built page's rule" },
+  { re = 'tiles: MapMenu page from tiles: tab radio stations, [2-9]\d* rows, "[^"]+" selected, waveform on, ', min = 1, label = "the playing station and the waveform on, written" },
+  { re = 'pipboy data: waveform trace over the tiles at \(\d+, \d+\) 350 x 350', min = 1, label = "the trace painted over the file's panel, in its measured box" },
+  { text = "pipboy data: radio off", count = 1, label = "Enter on the playing station turns the radio off" },
+  { text = "MapMenu drawn by hand", count = 0, label = "the file has every name Radio needs, and its panel shows" },
+]
+order = [["tiles: MapMenu draws radio from tiles", "tiles: MapMenu Row(0) on its tiles", { re = 'pipboy data: radio tuned to ' }, { re = 'pipboy data: waveform trace over the tiles' }, { re = 'pipboy data: radio tuned to ' }, "pipboy data: radio off"]]
+
+[[scenario]]
+name = "tiles-data-radio-off"
+source = "[design] pipboy.md section 5.3.1: without the switch Radio is the hand-built page: nothing of the tile page runs, no trace is painted over tiles, and its stations, clicks and keys work as before"
+note = "the same steps and times as tiles-data-radio, at the hand-built places (the first station about 200, 150 there too). Shots to compare with it."
+areas = ["ui", "menus", "pipboy", "radio"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=4,16:point=200:150,17:click=200:150,18:point=off,20:key=down,20.5:key=use,23:key=use,25:close", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_radio_off_air_off.png,19:tiles_data_radio_off.png,22:tiles_data_radio_second_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 28
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand|waveform trace over the tiles', count = 0, label = "switch off: nothing of the tile page runs without its switch" },
+  { re = 'pipboy data: radio tuned to .+', min = 2, label = "switch off: the click and Enter tune, as before" },
+  { text = "pipboy data: radio off", count = 1, label = "switch off: Enter on the playing station turns it off, as before" },
+]
+order = [[{ re = 'pipboy data: radio tuned to ' }, { re = 'pipboy data: radio tuned to ' }, "pipboy data: radio off"]]
+
+[[scenario]]
 name = "tiles-data-custom-marker"
-source = "#1954 with #1513 (docs/spec-notes/pipboy.md §5.3.1): with [UI] TileMenus=MapMenu the maps keep the whole hand-built page, prepared before the frame (data::prepare), and Place Marker's question box works there as with the switch off: placed on the World Map, moved from the Local Map, removed; the page goes back to its tiles on Quests"
+source = "#1954 with #1513 (docs/spec-notes/pipboy.md §5.3.1): with [UI] TileMenus=MapMenu both maps are drawn from their file (the question box painted over the tiles), prepared before the frame (data::prepare), and Place Marker's question box works on both as with the switch off: placed on the World Map, moved from the Local Map, removed; the page goes on drawn from its tiles on Quests"
 note = "pipboy-custom-marker's steps with the switch on, then Quests; the question box's answers are the hand-built page's, its hover reset when they are spawned again (data::draw)."
 areas = ["pipboy", "ui"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/tiles/map_menu.rs"]
@@ -24804,7 +25250,8 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
 run_seconds = 27
 expect = [
-  { text = "tiles: MapMenu leaves world map hand-built: not drawn from the file yet", min = 1, label = "the World Map keeps the hand-built page" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "the World Map is drawn from its file since #1513's World Map slice; before: it kept the hand-built page" },
+  { text = "tiles: MapMenu draws local map from tiles", min = 1, label = "the Local Map is drawn from its file since #1513's Local Map slice (tiles-data-local); before: it kept the hand-built page" },
   { re = 'pipboy map: Place Marker asks ".+" \(2 answers\)', count = 1, label = "with no marker the question has two answers" },
   { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
   { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', min = 1, label = "the World Map's dotted line to it" },
@@ -25281,6 +25728,53 @@ order = [[
 ]]
 
 [[scenario]]
+name = "tiles-pipboy-all"
+source = "[design] ui-tile-tree.md section 6.2, issue #1513: every Pip-Boy page with all of its switches on together (StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and QuantityMenu for ITEMS' prompt), on the device: the five STATS tabs, the five ITEMS tabs, the weapon mod menu and the repair page opened and left, the five DATA tabs; no page falls back to its hand-built drawing"
+note = "The evidence for proposing the Pip-Boy switches on by default. Points as tiles-pipboy-repair's (Cancel at 855:148). Shots: tiles_all_*.png at 1280x720."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/repair_menu.rs", "engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,8.3:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3,8.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=stats,13.5:tab=0,14.5:tab=1,15.5:tab=2,16.5:tab=3,17.5:tab=4,18.5:page=items,19:tab=0,20:tab=1,21:tab=2,22:tab=3,23:tab=4,24:tab=0,25:mod=open,27:mod=cancel,28:repair=open,30:click=855:148,31.5:page=data,32:tab=0,34:tab=1,36:tab=2,37.5:tab=3,39:tab=4,41:close", NVF_PLAY_TEST_SHOTS = "14:tiles_all_status.png,16:tiles_all_skills.png,19.5:tiles_all_weapons.png,21.5:tiles_all_aid.png,26:tiles_all_mod.png,29:tiles_all_repair.png,33:tiles_all_local.png,35:tiles_all_world.png,37:tiles_all_quests.png,38.5:tiles_all_misc.png,40:tiles_all_radio.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu ', label = "all the Pip-Boy switches on" },
+  { re = 'tiles: StatsMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "STATS from its file" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "ITEMS from its file" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", min = 1, label = "the weapon mod menu from its file" },
+  { re = 'tiles: RepairMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "the repair page from its file" },
+  { text = "tiles: RepairMenu Cancel on its tiles", count = 1, label = "the repair page left by its own Cancel" },
+  { text = "tiles: MapMenu draws local map from tiles", min = 1, label = "Local Map from its file" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "World Map from its file" },
+  { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "Radio from its file" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared', min = 5, label = "each DATA tab's visit: no frame by hand while the Pip-Boy is up" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: \d+ from tiles, [1-9]\d* by hand after a failed pass', count = 0, label = "no DATA tab fell back after a failed pass" },
+  { re = '(StatsMenu|InventoryMenu|RepairMenu|ItemModMenu|MapMenu) drawn by hand', count = 0, label = "no page warned of a fallback" },
+  { re = 'tiles: ItemModMenu no longer drawn from tiles after [1-9]\d* passes: closed', count = 1, label = "the mod menu drawn from tiles until it closed" },
+  "pipboy: menu code 1061",
+  "pipboy: menu code 1035",
+]
+
+[[scenario]]
+name = "tiles-pipboy-all-screen"
+source = "[design] ui-tile-tree.md section 6.2, screen-menu.md, issue #1513: tiles-pipboy-all in the screen menu (the Pip-Boy's menus full screen, no arm)"
+note = "As tiles-pipboy-all, frame=screen first. Shots: tiles_all_screen_*.png."
+areas = ["ui", "pipboy", "menus"]
+paths = ["engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/frame.rs"]
+env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,8.3:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3,8.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,13:page=stats,13.5:tab=0,14.5:tab=1,15.5:tab=2,16.5:tab=3,17.5:tab=4,18.5:page=items,19:tab=0,20:tab=1,21:tab=2,22:tab=3,23:tab=4,24:tab=0,25:mod=open,27:mod=cancel,28:repair=open,30:click=855:148,31.5:page=data,32:tab=0,34:tab=1,36:tab=2,37.5:tab=3,39:tab=4,41:close", NVF_PLAY_TEST_SHOTS = "14:tiles_all_screen_status.png,19.5:tiles_all_screen_weapons.png,26:tiles_all_screen_mod.png,29:tiles_all_screen_repair.png,33:tiles_all_screen_local.png,35:tiles_all_screen_world.png,40:tiles_all_screen_radio.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 44
+expect = [
+  { re = 'tiles: \[UI\] TileMenus=StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu ', label = "all the Pip-Boy switches on, screen menu run" },
+  "pipboy: frame Screen",
+  { re = 'tiles: StatsMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "STATS from its file, in the screen menu" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "ITEMS from its file, in the screen menu" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", min = 1, label = "the weapon mod menu from its file, in the screen menu" },
+  { re = 'tiles: RepairMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "the repair page from its file, in the screen menu" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared', min = 5, label = "each DATA tab's visit in the screen menu: no frame by hand while it is up" },
+  { re = '(StatsMenu|InventoryMenu|RepairMenu|ItemModMenu|MapMenu) drawn by hand', count = 0, label = "no page warned of a fallback in the screen menu" },
+]
+
+[[scenario]]
 name = "follower-stop-inset"
 source = "issue #2122: a follower on its way stops 150 units inside its package's distance once its leader stands (carry::follow_stop_at, FOLLOW_STOP_INSET; in the original Boone came to 177 of his 330, the Novac pack brahmin to about 300 of 450). A run of main (bdd4cb8ba) had GoodspringsSettler01Ref on DefaultFollowPlayerFar stop at 404 of 512"
 note = "Written 2026-11-11 without running the game. GoodspringsSettler03Ref is put 1,000 units from the standing player at 3 s (as script-follow-stays, farther) and given DefaultFollowPlayerFar (distance 512, so it stops within 362) at 4 s; it goes after the player once, stops within 362 and stands. GetDistance at 20 s and 30 s measures where it settled (3D: the slope adds a little; before #2122 it stood near 512, 404 in the run above). If the 1,000-unit spot is not open ground (a first run shows it), move the offset rather than the ranges"
@@ -25351,4 +25845,120 @@ expect = [
   { re = 'guard wander check: done .* walked=(\d+)', range = [150, 1000000], label = "and covers ground (measured feet, not chosen spots)" },
   { re = 'guard wander check: done .* package_type=(\d+)', range = [35, 35], label = "still on the Guard package at the end" },
   { text = "script: test aid calls GetCurrentAIProcedure on GoodspringsSettler03Ref = 44", count = 2, label = "procedure GUARD at 120 s and 240 s" },
+]
+
+[[scenario]]
+name = "tutorial-stick-scroll-pad"
+source = "issue #1905: with a controller, the left stick Up and Down scroll the tutorial menu's text as the D-pad does, as in the original (owner's play on a PS3 pad); tutorial_menu.rs stick_scroll, the left stick read as crate::pad::StickButtons"
+note = "Controller chosen in the settings at 2 s; the long Movement and Combat tutorial at 6 s, held open; the scripted controller's left stick pushed down at 8 s and 9 s and up at 10 s (the pad- key aid's stick directions). Before the fix the stick did not scroll"
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVFOREVER_HOME = "tutorial-stick-scroll-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowTutorialMenu:0x0006D914", NVF_PLAY_TEST_KEYS = "8:pad-Left Stick Down,9:pad-Left Stick Down,10:pad-Left Stick Up" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 13
+expect = [
+  { text = "test aid: real input Stick(Down) pressed", count = 2, label = "two pushes down" },
+  { text = "test aid: real input Stick(Up) pressed", count = 1, label = "one push up" },
+]
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'tutorial menu: page 1/\d+ "', label = "the tutorial opens" },
+  { re = 'tutorial menu: scroll 30 of \d+', label = "the stick down scrolls a step" },
+  { re = 'tutorial menu: scroll 60 of \d+', label = "and another" },
+  { re = 'tutorial menu: scroll 30 of \d+', label = "the stick up scrolls back a step" },
+]]
+
+[[scenario]]
+name = "settings-back-hint"
+source = "issue #1893: the settings page's Back carries its hint as the menu's Delete does, \"Back  Esc)\" with the keyboard and \"Back  B)\" with a controller, as the original's B (owner's play); pause.rs back_label"
+note = "The pause menu at 2 s, the Gameplay tab at 3 s, inspected with the keyboard at 4 s; Controller chosen at 5 s and inspected again at 6 s. Defaults keeps no hint (its Y is the rail key here, #1953). Before the fix Back was drawn bare"
+areas = ["menus", "controller", "settings"]
+paths = ["engine/nvf-play/src/pause.rs"]
+env = { NVFOREVER_HOME = "settings-back-hint-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "2:9", NVF_PLAY_TEST_SETTINGS = "3:tab:Gameplay,5:device:Controller", NVF_PLAY_TEST_PAUSE_MENU = "4:inspect,6:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 11
+order = [[
+  { re = 'pause menu: inspect: Gameplay,', label = "the Gameplay tab is inspected" },
+  { re = 'pause menu: inspect: back \S+  Esc\)', label = "Back names the keyboard's Esc" },
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'pause menu: inspect: back \S+  B\)', label = "Back names the controller's B" },
+]]
+
+[[scenario]]
+name = "container-pad-category"
+source = "issue #1827: in the container menu a controller's LT and RT pick the player's list and the container's, and the D-pad's left and right change the picked list's category, as the original (owner's play; container_menu.xml CM_Items_TitleButton LT, CM_Container_TitleButton RT); pad.rs menu_buttons"
+note = "Controller chosen on the pause menu (open 2 s to 5 s) at 3 s; the Refrigerator opened with A at 16 s (as container-e-key with E). The menu opens with the container's list focused [observed: the first run]: D-pad right at 18 s steps it from All to Weapons, LT at 19 s gives the player's list the focus, D-pad left at 20 s steps it from All round to Ammo, RT at 21 s gives the container's list the focus back, B at 23 s closes. Before the fix the D-pad moved the focus and nothing changed the category"
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/look.rs"]
+env = { NVFOREVER_HOME = "container-pad-category-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105658", NVF_PLAY_TEST_PAUSE = "2:5", NVF_PLAY_TEST_SETTINGS = "3:device:Controller", NVF_PLAY_TEST_KEYS = "16:pad-A,18:pad-D-Pad Right,19:pad-LT,20:pad-D-Pad Left,21:pad-RT,23:pad-B" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 26
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { text = 'menu: open Container(0x00105658) "Refrigerator"', label = "A opens the Refrigerator" },
+  { re = 'menu: Category\(Container, 1\): the Container list shows Weapons', label = "the D-pad's right steps the container's list's category" },
+  { re = 'menu: Focus\(Player\): the Player list has the focus', label = "LT picks the player's list" },
+  { re = 'menu: Category\(Player, -1\): the Player list shows Ammo', label = "the D-pad's left steps the player's list's category" },
+  { re = 'menu: Focus\(Container\): the Container list has the focus', label = "RT picks the container's list" },
+  { text = "menu: close", label = "B closes" },
+]]
+
+[[scenario]]
+name = "patrol-resumes-after-fight"
+source = "issue #2137: a patroller whose walk to a point a fight cut off walks on along its route once the search ends (fnv-ai carry.rs Ai::back_to_package)"
+note = "the issue's scene: Nipton at 12:00, Oliver Swanick (vNiptonSurvivorREF 0x001349B6) on his celebrate patrol, the player some 1,300 units off (god mode). A gecko (0x0016518B) is brought beside him at 20 s and the two are set on each other at 23 s; the gecko is killed at 32 s. Before the fix he stood mid-leg for the 118 s left of the run. Base game only"
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs", "crates/fnv-ai/src/errand.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "5:set_av:vNiptonSurvivorREF:Health:500,20:moveto:0x0016518B:vNiptonSurvivorREF:200:0:0,23:combat:0x0016518B:vNiptonSurvivorREF,23:combat:vNiptonSurvivorREF:0x0016518B,32:kill:0x0016518B" }
+args = ["--play", "--plugins", "FalloutNV.esm", "--world", "WastelandNV", "--pos=-33500,-96800,6900", "--hour", "12", "--npc-packages", "001349B6", "--no-voice", "--no-messages"]
+run_seconds = 90
+# The AI lines name him by his reference, 001349B6.
+order = [[
+  { text = "001349B6: stops searching: back to Normal", label = "the fight is over and his search ends" },
+  { text = "001349B6: has searched: back to the place of vNiptonSurvivorCelebrate01", label = "he goes back to his patrol" },
+  { re = '001349B6: (walks|runs) to .*\(patrol point ', label = "he walks on to a patrol point" },
+  { re = '001349B6: arrived after ', label = "and gets there" },
+  { re = '001349B6: (walks|runs) to .*\(patrol point ', label = "then on along his route" },
+]]
+
+[[scenario]]
+name = "alt-enter-full-screen"
+source = "issue #2209: Alt+Enter switches between a window and full screen, flipping the settings page's Full screen row, and its Enter reaches no menu (nvf-play full_screen_key.rs; engine/nvforever/src/window_mode.rs logs the modes)"
+note = "The pause menu is open from 10 s to 16 s, so an Enter that got through would act on its selected row. Left Alt is held from 11 s for 1 s with Enter at 11.3 s (full screen), then again from 13 s with Enter at 13.3 s (back to a window). The pause menu then resumes by its test aid only. Before #2209 Alt+Enter did nothing but Enter's own work"
+areas = ["main-menu", "settings"]
+paths = ["engine/nvf-play/src/full_screen_key.rs", "engine/nvforever/src/window_mode.rs"]
+env = { NVFOREVER_HOME = "alt-enter-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_KEYS = "11:alt:1,11.3:enter,13:alt:1,13.3:enter" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 18
+expect = [
+  { re = 'full screen key: Alt\+Enter: full screen (on|off)', count = 2, label = "two combinations, two switches" },
+  { text = "pause menu: resume", count = 1, label = "the combination's Enter does not act on the pause menu (it resumes only by its test aid)" },
+]
+order = [[
+  { text = "pause menu: open", label = "the pause menu is open" },
+  { text = "full screen key: Alt+Enter: full screen on", label = "the first Alt+Enter turns full screen on" },
+  { re = 'window: borderless full screen$', label = "the window goes full screen" },
+  { text = "full screen key: Alt+Enter: full screen off", label = "the second turns it off" },
+  { re = 'window: windowed, 1280x800', label = "and the window is a window of its own size again" },
+  { text = "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)", label = "the pause menu's test aid resumes it" },
+  { text = "pause menu: resume", label = "only then is it resumed" },
+]]
+
+[[scenario]]
+name = "bsa-version-103"
+kind = "tool"
+source = "issue #2092: the original game loads version 103 (Oblivion-layout) archives, so NVForever reads them too (docs/spec-notes/bsa.md, Version 103)"
+areas = ["assets"]
+paths = ["crates/fnv-bsa/", "crates/fnvtool/src/bsa_cmd.rs"]
+requires = ["NVF_BSA_103"]
+note = "NVF_BSA_103: the path of a version 103 archive on this machine (a mod's; never committed). The rules rest on the public pages; this is the check against a real archive that #2092 asks for: it lists as 103, every file decodes, and it rewrites byte for byte"
+commands = [
+  ["bsa", "list", "{env:NVF_BSA_103}"],
+  ["bsa", "verify", "{env:NVF_BSA_103}"],
+]
+expect = [
+  { json = "header.version", schema = "fnv.bsa.listing/1", equals = 103, label = "the archive is version 103" },
+  { json = "errors.#", schema = "fnv.bsa.listing/1", equals = 0, label = "every file decodes (no path stripped from a block)" },
+  { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
+  { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
 ]

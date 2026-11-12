@@ -124,9 +124,12 @@ pub fn clock_now(t: f64) -> f64 {
 /// instance) get 0.
 pub fn get_seconds_passed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let Some(key) = ctx.inst else { return none() };
-    let now = clock_now(g.time);
+    // Under a page, its own clock (`Game::page_time`).
+    let page = g.in_page();
+    let now = clock_now(if page { g.page_time } else { g.time });
     let Some(inst) = g.instances.get(&key) else { return none() };
-    let v = match (inst.run_last, inst.run_prev) {
+    let (last, prev) = if page { (inst.page_last, inst.page_prev) } else { (inst.run_last, inst.run_prev) };
+    let v = match (last, prev) {
         (Some(last), prev) if last == now => prev.map_or(0.0, |p| now - p),
         (Some(last), _) => now - last,
         (None, _) => 0.0,
