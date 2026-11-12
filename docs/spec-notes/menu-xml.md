@@ -1102,7 +1102,7 @@ plugin's source text), their effects measured in the original with job `mcm976e`
   missing). MCM's own `5 24 33 "_enable" 0` reaches SubMenu1-SubMenu10, MCM_ModList's 24th
   to 33rd children (after Mod1-Mod23). One reading differs: `1 36 37 "depth" 33` set
   Option36 but not ArrowUp, MCM_Options' 37th child in the file; why is open (observer
-  check 106).
+  check 112).
 - **SetMCMStringMass child first last setting "format" values…**: the same for text, the
   format filled as SetMCMString's: `3 1 2 "text/string" "nvf"` set Item1 and Item2, not
   Item3; `"a%gb" 5` gave "a5b"; a missing trait was not made.

@@ -365,7 +365,7 @@ owner to add to its pull request or issue (owner, 2026-10-29).
       now in the catalogue (`script_functions.py` `PAGELESS`) and `fnv_game::ui_functions`.
       The page clicks MCM's trigger once so it opens on MCM's window, and closes when MCM's
       window does. The switch is on by default (`[UI] TileMenus=-StartMenu` turns it off).
-      Left: observer check 106 (one SetMCMFloatMass range), the main menu's column.
+      Left: observer check 112 (one SetMCMFloatMass range), the main menu's column.
 8. **T12. The vanilla HUD on tiles**, behind `[UI] TileMenus=HUDMainMenu`. Compare
     with the hud.md screenshots; keep the old HUD the default until the owner agrees.
     - **T12a done** 2026-10-29 (claude/t12-hud-tiles): the switch and the drawing.

@@ -922,6 +922,138 @@ fn always_run_packages_run() {
     assert!(dist(s.feet(R_RUN), START) > 3.0 * dist(s.feet(R_RADIUS), START));
 }
 
+/// Speeds of `walk` and `run`, calm and alert alike, as the engine gives people
+/// (`creature_pace.rs`).
+fn speeds(walk: f32, run: f32) -> fnv_ai::ActorSpeeds {
+    let s = fnv_ai::Speeds { walk, run };
+    fnv_ai::ActorSpeeds { calm: s, alert: s, turn_rate: None, spot_turn_start: None }
+}
+
+/// How far `actor` goes in one update of half a second.
+fn step_length(s: &mut Sim, actor: u32) -> f32 {
+    let before = s.ai.agents[&FormId(actor)].walker.travelled;
+    s.run(0.5);
+    s.ai.agents[&FormId(actor)].walker.travelled - before
+}
+
+/// The package and trip events so far: a new speed must not make the actor choose or
+/// plan again.
+fn plans(s: &Sim, actor: u32) -> usize {
+    s.events(actor).iter().filter(|e| matches!(e, AiEvent::Package { .. } | AiEvent::Trip { .. })).count()
+}
+
+/// A walk under way takes new speeds at the next step, in its gait, without a new
+/// package or plan: Speed Mult 100 → 200 → 0 → 100 (issue #2118: `plan` fixes the
+/// walker's speed when it plans, and `set_speeds` did not reach it). Crippled legs'
+/// pace stays its own.
+#[test]
+fn a_walk_under_way_takes_new_speeds_at_once_in_its_gait() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // Speed Mult 100 of speeds half the configured ones, given before it plans, so the
+    // way to the door lasts the test; planned at that walk, past its first turn.
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    let planned = plans(&s, R_TRAVEL);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want.max(1.0) * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    // Speed Mult 200.
+    s.ai.set_speeds(actor, speeds(100.0, 400.0));
+    near(step_length(&mut s, R_TRAVEL), 50.0);
+    // Speed Mult 0: it stands on its way, still travelling.
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_TRAVEL).abs() < 1e-3);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    // Back to 100: it walks on, not runs (200 units/s would be 100 a step).
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    // A crippled leg's pace is kept across a new speed: half of Speed Mult 200's walk.
+    s.ai.set_pace(actor, 0.5);
+    s.ai.set_speeds(actor, speeds(100.0, 400.0));
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    assert_eq!(s.ai.agents[&actor].walker.pace, 0.5);
+    assert_eq!(plans(&s, R_TRAVEL), planned, "{:?}", s.events(R_TRAVEL));
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+}
+
+/// A run under way keeps running through new speeds and a stop at 0 (an Always Run
+/// package), at the new run speed.
+#[test]
+fn a_run_under_way_keeps_its_gait_through_a_stop() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_RUN]);
+    let actor = FormId(R_RUN);
+    // Slow speeds before it plans, so the way to its marker lasts the test.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    assert!(matches!(s.events(R_RUN)[1], AiEvent::Trip { running: true, .. }));
+    let planned = plans(&s, R_RUN);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want.max(1.0) * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_RUN), 20.0);
+    s.ai.set_speeds(actor, speeds(20.0, 80.0));
+    near(step_length(&mut s, R_RUN), 40.0);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    // Back: the run's 40 units/s (20 a step), not the walk's 10.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    near(step_length(&mut s, R_RUN), 20.0);
+    assert_eq!(plans(&s, R_RUN), planned, "{:?}", s.events(R_RUN));
+}
+
+/// A walk planned while the actor's speeds are 0 (Speed Mult 0 before its package's
+/// walk) does not stay standing when they come back: it goes on at the calm walk.
+#[test]
+fn a_walk_planned_at_speed_0_sets_off_when_the_speed_comes_back() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(step_length(&mut s, R_TRAVEL).abs() < 1e-3);
+    let planned = plans(&s, R_TRAVEL);
+    s.ai.set_speeds(actor, speeds(50.0, 200.0));
+    // Its first step may still turn it towards its way.
+    s.run(1.0);
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want * 0.1, "{got} against {want}");
+    near(step_length(&mut s, R_TRAVEL), 25.0);
+    assert_eq!(plans(&s, R_TRAVEL), planned);
+}
+
+/// A package's walk planned while the speeds are 0 goes on in its own gait when they come
+/// back: an Always Run package runs; and a walking package taken up at 0 after a run was
+/// stopped walks, not at the stopped run's speed (the stop belongs to the walk, not to the
+/// actor).
+#[test]
+fn a_package_walk_planned_at_speed_0_keeps_its_own_gait() {
+    let f = fixture();
+    let near = |got: f32, want: f32| assert!((got - want).abs() <= want * 0.1, "{got} against {want}");
+    // Planned at 0: the run, 40 units/s (20 a step), not the walk's 10.
+    let mut s = sim(&f, &[R_RUN]);
+    let actor = FormId(R_RUN);
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    s.run(1.0);
+    assert!(matches!(s.events(R_RUN)[1], AiEvent::Trip { running: true, .. }));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    near(step_length(&mut s, R_RUN), 20.0);
+    // Stopped running, then given a walking package while still at 0.
+    s.ai.set_speeds(actor, speeds(0.0, 0.0));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    s.game.extra.entry(actor).or_default().script_package = Some(FormId(P_TRAVEL_B));
+    assert_eq!(s.game.evaluate_package(actor), Some(FormId(P_TRAVEL_B)));
+    s.run(0.5);
+    assert!(s.events(R_RUN).iter().any(|e| matches!(e, AiEvent::Trip { package, running: false, .. } if package.0 == P_TRAVEL_B)), "{:?}", s.events(R_RUN));
+    assert!(step_length(&mut s, R_RUN).abs() < 1e-3);
+    // Back: the new walk's 10 units/s (5 a step), not the old run's 40.
+    s.ai.set_speeds(actor, speeds(10.0, 40.0));
+    s.run(1.0);
+    near(step_length(&mut s, R_RUN), 5.0);
+}
+
 #[test]
 fn a_patrol_walks_its_linked_references_in_order_once() {
     let f = fixture();
@@ -2256,6 +2388,99 @@ fn a_fighter_whose_post_failed_beyond_its_distance_closes_in() {
     fight_on(&mut s, 5.0, &mut OnFoot);
     assert!(dist(s.feet(R_SB_NOTHING), POST_TARGET) < 150.0, "{:?}", s.feet(R_SB_NOTHING));
     assert_eq!(post_counts(&s), (1, 0, 1));
+}
+
+/// A fighter stopping within 100 units of the player, who backs away from it at `speed`
+/// units/s for 2 s: the share of the updates of the last second it was within `reach`.
+fn within_reach_of_a_backing_target(speed: f32, reach: f32) -> f32 {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let start = s.feet(R_SB_NOTHING);
+    // The target 120 units off, backing straight away from the fighter towards POST_TARGET.
+    let to = [POST_TARGET[0] - start[0], POST_TARGET[1] - start[1]];
+    let len = to[0].hypot(to[1]);
+    let dir = [to[0] / len, to[1] / len];
+    assert!(len > 120.0 + speed * 2.0, "room to back away: {len}");
+    let (dt, mut within, mut counted) = (0.05, 0, 0);
+    for i in 0..40 {
+        let gone = 120.0 + speed * dt * i as f32;
+        let at = [start[0] + dir[0] * gone, start[1] + dir[1] * gone, start[2]];
+        s.game.time += f64::from(dt);
+        fighting(&mut s, R_SB_NOTHING, at);
+        s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (100.0, reach));
+        s.ai.update_moved(&mut s.game, &s.nav, dt, &mut OnFoot);
+        if i >= 20 {
+            counted += 1;
+            within += usize::from(dist(s.feet(R_SB_NOTHING), at) <= reach);
+        }
+    }
+    within as f32 / counted as f32
+}
+
+#[test]
+fn a_fighter_keeps_within_reach_of_a_target_backing_away() {
+    // #2163: a target that keeps moving off is followed, not left to walk out of reach.
+    for speed in [70.0, 150.0] {
+        let share = within_reach_of_a_backing_target(speed, 106.0);
+        assert!(share >= 0.9, "backing away at {speed}: within reach {share} of the time");
+    }
+}
+
+#[test]
+fn a_fighter_chases_its_detected_target_where_it_is_not_where_it_was_measured() {
+    // #2163: detection measures a target a few times a second; the player has moved on
+    // 150 units since. The fighter does not stop where the player was measured.
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let start = s.feet(R_SB_NOTHING);
+    let to = [POST_TARGET[0] - start[0], POST_TARGET[1] - start[1]];
+    let len = to[0].hypot(to[1]);
+    let point = |d: f32| [start[0] + to[0] / len * d, start[1] + to[1] / len * d, start[2]];
+    let (measured, really) = (point(150.0), point(300.0));
+    {
+        let p = s.game.world.get(FormId::PLAYER_REF).unwrap();
+        (p.cell, p.pos) = (Some(FormId(CELL_C)), really);
+    }
+    for _ in 0..60 {
+        s.game.time += 0.05;
+        fighting(&mut s, R_SB_NOTHING, measured);
+        s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (100.0, 106.0));
+        s.ai.update_moved(&mut s.game, &s.nav, 0.05, &mut OnFoot);
+    }
+    let feet = s.feet(R_SB_NOTHING);
+    assert!(dist(feet, really) <= 100.0, "{} from the player, {} from where it was measured", dist(feet, really), dist(feet, measured));
+    assert_eq!(search(&s), holding());
+    assert_eq!(s.events(R_SB_NOTHING).iter().filter(|e| matches!(e, AiEvent::Hold { .. })).count(), 1, "it stopped once, at its distance");
+}
+
+#[test]
+fn a_chase_is_planned_again_sooner_near_its_target_and_leads_one_that_moves() {
+    use fnv_ai::alert::{keeps_way, lead, replan_slack, Drift, CHASE_LEAD_MAX, CLOSE_REPLAN_DISTANCE, CLOSE_REPLAN_NEAR};
+    // Far off, the target may move 96 units before the way is planned again; with 100
+    // units still to come, 25; at its distance, 12.
+    assert_eq!(replan_slack(2000.0, 150.0), CLOSE_REPLAN_DISTANCE);
+    assert_eq!(replan_slack(250.0, 150.0), 25.0);
+    assert_eq!(replan_slack(160.0, 150.0), CLOSE_REPLAN_NEAR);
+    assert_eq!(replan_slack(100.0, 150.0), CLOSE_REPLAN_NEAR);
+    let to = [0.0, 0.0, 0.0];
+    assert!(keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 10.5));
+    assert!(!keeps_way(to, 10.0, [30.0, 0.0, 0.0], 250.0, 150.0, 10.5), "the target moved 30 units, 25 allowed");
+    assert!(!keeps_way(to, 10.0, [20.0, 0.0, 0.0], 250.0, 150.0, 11.6), "1.5 s have passed");
+    // The target's speed: measured over 0.05 s or more, evened with the one before.
+    let d = Drift::begin(to, 10.0);
+    assert_eq!(d.speed, [0.0, 0.0]);
+    assert_eq!(d.on([5.0, 0.0, 0.0], 10.02), d, "too soon to measure");
+    let d = d.on([30.0, 0.0, 0.0], 10.1);
+    assert!((d.speed[0] - 150.0).abs() < 0.01 && d.speed[1] == 0.0, "{d:?}");
+    let d = d.on([60.0, 0.0, 0.0], 10.2);
+    assert!((d.speed[0] - 225.0).abs() < 0.01, "{d:?}");
+    // A moving target is closed in on 0.35 s ahead of it, at most 96 units; a slow one
+    // where it is.
+    assert_eq!(lead([100.0, 50.0, 7.0], [200.0, 0.0]), [170.0, 50.0, 7.0]);
+    assert_eq!(lead([100.0, 50.0, 7.0], [0.0, -1000.0]), [100.0, 50.0 - CHASE_LEAD_MAX, 7.0]);
+    assert_eq!(lead([100.0, 50.0, 7.0], [30.0, 0.0]), [100.0, 50.0, 7.0]);
 }
 
 #[test]
