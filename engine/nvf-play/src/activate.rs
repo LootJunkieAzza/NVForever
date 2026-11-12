@@ -178,6 +178,13 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
     let name = sim.name(base.id)?.to_string();
     let state = sim.world.peek(id);
     let placed = sim.refs.get(id);
+    // The drinking contest's prop (`fnv_game::drink_table`): the bottle starts the
+    // contest ("Drink"), the bill under it is not offered.
+    match fnv_game::drink_table::piece_of(id).map(|(_, p)| p) {
+        Some(fnv_game::drink_table::Piece::Bottle) => return Some((name, Action::Drink)),
+        Some(_) => return None,
+        None => {}
+    }
     // A primitive (XPRM) is a trigger volume or marker, not an object to use, whatever
     // name its activator has (docs/spec-notes/level-design.md §4.1).
     if placed.is_some_and(|p| p.primitive.is_some()) {
@@ -672,7 +679,7 @@ pub(crate) fn activate(
     (mut seat, mut steal, mut ui, mut screen): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::pickpocket::OpenPickpocket>, MessageWriter<crate::ui_sounds::UiSound>, Option<ResMut<crate::loading::Loading>>),
     script: Option<ResMut<crate::script::ScriptState>>,
     (locks, stats, control): ActivateHolds,
-    (mut hold, mut picked): (Option<ResMut<HeldActivation>>, Option<ResMut<Messages<PickedUp>>>),
+    (mut hold, mut picked, mut bottles): (Option<ResMut<HeldActivation>>, Option<ResMut<Messages<PickedUp>>>, MessageWriter<crate::drink_world::BottleUsed>),
 ) {
     // A reference queued by a lock just opened, or by the perks' choice list answered
     // with the default action: activated as if E were pressed on it.
@@ -727,6 +734,13 @@ pub(crate) fn activate(
         seat.leave |= seat.hold.is_some();
         return;
     };
+    // A drinking contest's bottle: the contest's stake page (`crate::drink_world`), never
+    // taken or held.
+    if fnv_game::drink_table::bar_of_bottle(FormId(t.form_id)).is_some() {
+        info!("activate 0x{:08X} {}: a drinking contest's bottle", t.form_id, t.name);
+        bottles.write(crate::drink_world::BottleUsed { bottle: t.form_id });
+        return;
+    }
     // E pressed on something the player can hold: a tap activates it when E comes up,
     // a hold picks it up (`crate::grab`, docs/spec-notes/grab.md §2).
     if queued.is_none() && !fired {
