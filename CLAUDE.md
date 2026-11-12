@@ -62,6 +62,7 @@ python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
+python -m unittest discover -s tools/release/tests   # .github/workflows/ or tools/release/ changed
 python -m unittest discover -s tools/profile/tests
 (cd engine && cargo clippy --release --all-targets -- -D warnings)   # Bevy workspace (viewer + game)
 ```
@@ -94,7 +95,9 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   It prints one line per scenario. **The summary is enough**: open a log in
   `target/smoke/` only for a FAIL, and then only the lines it quotes. `plan` shows what
   would run; `check` judges the saved logs again after you edit a scenario; `--no-merge`
-  runs scenarios one by one. Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
+  runs scenarios one by one. While fixing: `--failed` reruns only the last run's FAILs,
+  `--fail-fast` starts no launch after the first FAIL (a full run before the push still).
+  Environment instead of arguments: `NVF_EXE`, `NVF_DATA`,
   `NVF_FNVTOOL`, `NVF_SMOKE_LOCKS` (other machines), `NVF_OBSERVER_SAMPLES` (the AI observer
   captures).
 - **Stop only your own runner, by the PID you started.** Never stop processes by a

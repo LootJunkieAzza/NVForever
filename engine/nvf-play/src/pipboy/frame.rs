@@ -41,7 +41,8 @@ pub const TEXT: f32 = 255.0;
 /// measured: the screen menu (Use Pip-Boy off) keeps the file's 255. The flat image a
 /// Pip-Boy model without a screen falls back to shows the device's drawing, so it takes 213
 /// with it [design: the canvas is drawn once per frame kind]. The pages drawn from their
-/// menu files keep the file's 255 on the device too (docs/spec-notes/pipboy.md §3).
+/// menu files take it on the device too, for their pieces at the file's full bright level
+/// (`crate::tiles::draw::device_brightness`, docs/spec-notes/pipboy.md §3).
 pub const DEVICE_TEXT: f32 = 213.0;
 pub const DIMMED: f32 = 128.0;
 pub const FILL: (f32, f32) = (128.0, 32.0);
@@ -558,6 +559,7 @@ pub fn draw(
     inventory: Option<Res<crate::tiles::inventory_menu::InventoryTiles>>,
     repair_tiles: Option<Res<crate::tiles::repair_menu::RepairTiles>>,
     map_tiles: Option<Res<crate::tiles::map_menu::MapTiles>>,
+    item_mod_tiles: Option<Res<crate::tiles::item_mod_menu::ItemModTiles>>,
     mut shown: Local<Option<(Page, usize, Frame, bool)>>,
 ) {
     // Laid out in the Pip-Boy's screen texture, at its size whatever the UI scale (#1631).
@@ -566,6 +568,8 @@ pub fn draw(
     let tiled = tiles.is_some_and(|t| t.ready.is_some()) || inventory.is_some_and(|t| t.ready.is_some());
     // The repair page likewise (`crate::tiles::repair_menu::RepairTiles::ready`).
     let tiled = tiled || repair_tiles.is_some_and(|t| t.ready.is_some());
+    // The weapon mod menu likewise (`crate::tiles::item_mod_menu::ItemModTiles::ready`).
+    let tiled = tiled || item_mod_tiles.is_some_and(|t| t.ready.is_some());
     // The DATA page likewise, on the tabs it draws (`crate::tiles::map_menu::MapTiles::ready`).
     let tiled = tiled || map_tiles.is_some_and(|t| t.ready.is_some());
     let want = pip.shown().then(|| (pip.page, pip.tab(), pip.frame, tiled));

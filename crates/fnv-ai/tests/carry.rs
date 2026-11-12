@@ -2159,6 +2159,31 @@ fn an_actor_taken_off_its_furniture_by_an_alert_settles_again() {
     assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)), "{:?}", s.events(R_TO_CHAIR));
 }
 
+/// A patroller whose walk to a point an alert cut off walks on along its route once the
+/// search ends (issue #2137: Nipton's patroller stood 118 s after a fight) [documented:
+/// "Actor moves along patrol route continuously until another package evaluates", GECK
+/// wiki Patrol Package].
+#[test]
+fn a_patroller_whose_walk_an_alert_cut_off_walks_on_after_the_search() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_LOOP]);
+    s.run(3.0);
+    assert_eq!(s.ai.agents[&FormId(R_LOOP)].activity, Activity::Travelling);
+    let at = s.feet(R_LOOP);
+    alert(&mut s, R_LOOP, [at[0] + 40.0, at[1], 0.0]);
+    s.run(2.0);
+    s.game.awareness.actors.remove(&FormId(R_LOOP));
+    s.run(45.0);
+    let ev = s.events(R_LOOP);
+    let over = ev.iter().rposition(|e| matches!(e, AiEvent::SearchOver { .. })).expect("search over");
+    let points: Vec<u32> = ev[over..].iter().filter_map(|e| match e {
+        AiEvent::Arrived { patrol_point: Some(p), .. } => Some(p.0),
+        _ => None,
+    }).collect();
+    assert!(points.len() >= 2, "it goes round again: {ev:?}");
+    assert!(matches!(ev[over + 1], AiEvent::SearchBack { .. }), "{ev:?}");
+}
+
 /// An actor without packages (Ranger Ghost, playtest list 5 item 29) walks back to where
 /// it was placed after a search.
 #[test]
@@ -3529,6 +3554,283 @@ fn a_sandboxer_tells_the_game_what_it_does() {
             assert_ne!(w[1], SandboxPhase::Sitting, "{seen:?}");
         }
     }
+}
+
+// ---- the drawn walk (#2124, `fnv_ai::carry::drawn_walk_share`) --------------------
+
+/// Body armour of the medium class (upper body), for the drawn walk's armour rule.
+const MEDIUM_ARMOUR: u32 = 0xA05;
+
+/// [`with_arms`] with [`MEDIUM_ARMOUR`].
+fn with_arms_and_armour() -> Fixture {
+    use fnv_sim::forms::{ArmorClass, BaseData, BaseForm, ItemKind};
+    let mut f = with_arms(fixture());
+    let BaseData::Item(mut it) = f.forms.bases[&FormId(PISTOL)].data.clone() else { unreachable!("the pistol is an item") };
+    (it.kind, it.slots, it.armor_class, it.weapon_traits, it.drawable, it.projectile) = (ItemKind::Armor, Some(fnv_game::detection::UPPER_BODY), ArmorClass::Medium, None, false, None);
+    let id = FormId(MEDIUM_ARMOUR);
+    f.forms.sigs.insert(id, *b"ARMO");
+    f.forms.bases.insert(id, BaseForm { id, sig: *b"ARMO", edid: None, name: None, script: None, prompt: None, voice_filter: false, data: BaseData::Item(it) });
+    f
+}
+
+/// `actor` holds `weapon` (outfitted, as a drawn actor is) and has it out as SetWeaponOut
+/// 1 holds it (`Game::wants_weapon_out`).
+fn draw(s: &mut Sim, actor: u32, weapon: u32) {
+    let me = FormId(actor);
+    s.game.world.add_item(me, FormId(weapon), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(weapon)).unwrap();
+    assert_eq!(s.game.held_weapon(me).map(|w| w.0), Some(FormId(weapon)));
+    s.game.hud.forced_out.insert(me);
+}
+
+fn walk_speed(s: &Sim, actor: u32) -> f32 {
+    s.ai.agents[&FormId(actor)].walker.speed
+}
+
+#[test]
+fn a_person_with_a_pistol_drawn_walks_its_package_at_its_walk_over_fmovenoweaponmult() {
+    let f = with_arms(fixture());
+    let mut drawn = sim(&f, &[R_RADIUS]);
+    draw(&mut drawn, R_RADIUS, PISTOL);
+    let mut holstered = sim(&f, &[R_RADIUS]);
+    drawn.run(2.0);
+    holstered.run(2.0);
+    // 100 (the test's walk) / 1.1 (fMoveNoWeaponMult's default).
+    assert!((walk_speed(&drawn, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&drawn, R_RADIUS));
+    assert_eq!(walk_speed(&holstered, R_RADIUS), 100.0);
+    // Both still on their way, the holstered one 1.1 times as far.
+    let gone = |s: &Sim| {
+        assert_eq!(s.ai.agents[&FormId(R_RADIUS)].activity, Activity::Travelling);
+        s.ai.agents[&FormId(R_RADIUS)].walker.travelled
+    };
+    let ratio = gone(&holstered) / gone(&drawn);
+    assert!((1.07..=1.13).contains(&ratio), "{ratio}");
+}
+
+#[test]
+fn a_walk_under_way_follows_the_weapon_drawn_and_put_away() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    s.game.world.add_item(me, FormId(PISTOL), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(PISTOL)).unwrap();
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    // The animating side tells the weapon out once it is drawn, after the walk was planned.
+    let frame = |s: &mut Sim, out: bool| {
+        s.game.set_weapon_out(me, out);
+        s.game.tick();
+        s.ai.update(&mut s.game, &s.nav, 0.5);
+    };
+    frame(&mut s, true);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    frame(&mut s, false);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+}
+
+#[test]
+fn the_drawn_walk_keeps_speed_mult_sneaking_and_the_setting() {
+    // Speed Mult 120 (the engine's people's speeds, `creature_pace::paced_speeds`: the
+    // walk × Speed Mult × the armour's share).
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let own = fnv_ai::Speeds { walk: 120.0, run: 480.0 };
+    s.ai.set_speeds(FormId(R_RADIUS), fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    // Sneaking: × fMoveSneakMult (0.57) on top.
+    let mut s = sim(&f, &[R_RADIUS]);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.game.extra.entry(FormId(R_RADIUS)).or_default().force_sneak = true;
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1 * 0.57).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    // The load order's fMoveNoWeaponMult.
+    let mut f = with_arms(fixture());
+    f.forms.settings.insert("fmovenoweaponmult".into(), fnv_sim::settings::Setting::Float(1.25));
+    let mut s = sim(&f, &[R_RADIUS]);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 80.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+}
+
+#[test]
+fn a_pistol_taken_off_on_the_way_gives_the_unarmed_walk_back() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    // Back to its fists, SetWeaponOut 1 still on; the animating side's last drawn weapon
+    // (not cleared on unequipping) does not count against its inventory.
+    s.game.set_held_weapon(me, Some(FormId(PISTOL)));
+    s.game.world.unequip(me, FormId(PISTOL)).unwrap();
+    assert_eq!(s.game.held_weapon(me), None);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+}
+
+#[test]
+fn a_walk_whose_base_speed_changed_on_the_way_still_follows_the_weapon() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    s.game.world.add_item(me, FormId(PISTOL), 1).unwrap();
+    s.game.world.outfit(me).unwrap();
+    s.game.world.equip(me, FormId(PISTOL)).unwrap();
+    s.run(1.0);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    let planned = plans(&s, R_RADIUS);
+    // New speeds of its own on the way (armour, Speed Mult): the walk takes them at once
+    // (`Ai::set_speeds`, issue #2118) and stays the package's own.
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    assert_eq!(walk_speed(&s, R_RADIUS), 120.0);
+    s.run(0.5);
+    assert_eq!(walk_speed(&s, R_RADIUS), 120.0);
+    // Drawn, then put away: the walk follows from its new speed.
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    assert_eq!(plans(&s, R_RADIUS), planned, "{:?}", s.events(R_RADIUS));
+}
+
+/// A Speed Mult refresh during a drawn walk (`Ai::set_speeds` rewriting the walk under
+/// way, #2118) keeps the drawn share and the walk's ownership: the walk goes on at the new
+/// walk / fMoveNoWeaponMult and still follows the weapon, also through a stop at Speed
+/// Mult 0 in which the weapon is put away.
+#[test]
+fn a_speed_mult_refresh_during_a_drawn_walk_keeps_the_share() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    let near = |s: &Sim, want: f32| assert!((walk_speed(s, R_RADIUS) - want).abs() < 1e-3, "{} against {want}", walk_speed(s, R_RADIUS));
+    near(&s, 100.0 / 1.1);
+    let planned = plans(&s, R_RADIUS);
+    // Speed Mult 120: at once, and kept on the next steps (not given up as another's).
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0 / 1.1);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    // Put away and drawn again: the walk is still the package's own.
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    near(&s, 120.0);
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    // Speed Mult 0: it stands; back to 120, the drawn walk again.
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    s.run(0.5);
+    near(&s, 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0 / 1.1);
+    // Standing again, put away while it stands: it goes on at the holstered walk, and
+    // drawn after at the drawn one.
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    near(&s, 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0);
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    // All on the one walk: no new plan gave it its speeds.
+    assert_eq!(plans(&s, R_RADIUS), planned, "{:?}", s.events(R_RADIUS));
+}
+
+/// A package's walk planned with the pistol drawn while the speeds are 0 goes on at the
+/// drawn walk when they come back (`Ai::plan` keeps the share with the stop's gait).
+#[test]
+fn a_drawn_walk_planned_at_speed_0_goes_on_drawn() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert_eq!(walk_speed(&s, R_RADIUS), 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    assert!((walk_speed(&s, R_RADIUS) - 120.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+}
+
+#[test]
+fn a_walk_another_owner_takes_over_with_the_same_speed_is_left_alone() {
+    // A wanderer with its pistol out: its sandbox's walk is the drawn walk.
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_SB_WANDER, R_SB_NOTHING]);
+    let me = FormId(R_SB_WANDER);
+    draw(&mut s, R_SB_WANDER, PISTOL);
+    let drawn = 100.0 / 1.1;
+    let mut owned = false;
+    for _ in 0..120 {
+        s.run(0.5);
+        let a = &s.ai.agents[&me];
+        if a.activity == Activity::Travelling && (a.walker.speed - drawn).abs() < 1e-3 {
+            owned = true;
+            break;
+        }
+    }
+    assert!(owned, "the wanderer never walked with its pistol drawn: {:?}", doings(&s, R_SB_WANDER));
+    // In the same frame a random conversation takes the walk over at the speed it has
+    // (as `social`'s set-off would, the walk's end and the next walk in one frame).
+    let agent = s.ai.agents.get_mut(&me).unwrap();
+    agent.walker.go_to(&s.nav, fnv_nav::path::Place { space: C, pos: [10750.0, 10450.0, 0.0] }, &fnv_nav::path::PathParams::default()).unwrap();
+    agent.activity = Activity::Travelling;
+    agent.chat = Some(fnv_ai::Chat::Going { partner: FormId(R_SB_NOTHING), since: s.game.time });
+    // Put away: the conversation's walk keeps its speed.
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert!((walk_speed(&s, R_SB_WANDER) - drawn).abs() < 1e-3, "{}", walk_speed(&s, R_SB_WANDER));
+}
+
+#[test]
+fn the_drawn_walk_leaves_runs_other_stances_armour_creatures_and_fights_alone() {
+    let f = with_arms_and_armour();
+    // A run with the pistol drawn keeps the run.
+    let mut s = sim(&f, &[R_RUN]);
+    draw(&mut s, R_RUN, PISTOL);
+    s.run(0.5);
+    assert_eq!(walk_speed(&s, R_RUN), 400.0);
+    // A knife (Melee 1 Hand, not measured) keeps the holstered walk.
+    let mut s = sim(&f, &[R_RADIUS]);
+    draw(&mut s, R_RADIUS, KNIFE);
+    s.run(1.0);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    // So does the pistol in medium armour (not measured drawn).
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.game.world.add_item(FormId(R_RADIUS), FormId(MEDIUM_ARMOUR), 1).unwrap();
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.game.world.equip(FormId(R_RADIUS), FormId(MEDIUM_ARMOUR)).unwrap();
+    s.run(1.0);
+    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
+    // A creature given a pistol to hold, and a person fighting.
+    let mut s = sim(&f, &[R_HOUND, R_SB_NOTHING]);
+    s.game.set_held_weapon(FormId(R_HOUND), Some(FormId(PISTOL)));
+    s.game.hud.forced_out.insert(FormId(R_HOUND));
+    assert!(s.game.weapon_is_out(FormId(R_HOUND)));
+    assert_eq!(fnv_ai::carry::drawn_walk_share(&s.game, FormId(R_HOUND)), 1.0);
+    draw(&mut s, R_SB_NOTHING, PISTOL);
+    assert!(fnv_ai::carry::drawn_walk_share(&s.game, FormId(R_SB_NOTHING)) < 1.0);
+    fighting(&mut s, R_SB_NOTHING, [10450.0, 10950.0, 0.0]);
+    assert_eq!(fnv_ai::carry::drawn_walk_share(&s.game, FormId(R_SB_NOTHING)), 1.0);
 }
 
 // ---- re-arming (`fnv_ai::rearm`, docs/design/combat-ai.md §22) ----------------------

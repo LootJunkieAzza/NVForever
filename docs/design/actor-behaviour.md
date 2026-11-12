@@ -60,8 +60,14 @@ Goodsprings (packages.md §4).
      target [documented]. Conditions are not evaluated outside the schedule
      [documented], which also keeps random conditions from being rolled needlessly.
 3. **No valid package: keep the current one** if it is a package of the list
-   [observed; hypothesis that it is the current rather than the last of the list].
-   An actor that has none stays without a package.
+   [observed; hypothesis that it is the current rather than the last of the list],
+   unless its own conditions fail (only its schedule or Once Per Day may rule it out):
+   then the actor has no package, stands where it is and leaves its furniture
+   [hypothesis, from the data, issue #2235: Mister Burke sits on his bar chair under
+   MS11BurkeBattle; the arrest talk ends its condition (MS11 battle 2) and nothing else
+   of his list applies, yet Lucas Simms' script, Fallout 3's and TTW's alike, has Burke
+   shoot him only once Burke's GetSitting reads 0]. An actor that has none stays
+   without a package.
 
 Two ways of choosing:
 - **`evaluate_package`** (the `EvaluatePackage` function, and the first choice): always
@@ -102,9 +108,17 @@ switch delays after a schedule boundary are spread from 0.4 to 26 real seconds].
 and disabled actors do not choose. Menus stop the clock as they stop scripts.
 
 **Package scripts** (only with `package_interval` set): a new package runs its begin
-script and OnPackageStart; a package replaced before its goal runs its change script and
-OnPackageChange; a package whose goal is met runs its end script and OnPackageDone
-[documented: the three state changes; hypothesis: no change event after the end event].
+script and OnPackageStart; a package whose goal is met runs its end script and
+OnPackageDone; a package the actor leaves for another runs its change script and
+OnPackageChange, also after its end script ran [documented: the three state changes;
+hypothesis from the data: TTW's CG02AndyCutCake (Must Complete, Once Per Day) sets the
+cake stage the birthday party waits for only in its change script, and nothing ends it
+before its goal, issue #2221; until 2026-11-12 no change event followed the end event].
+A Once Per Day package whose goal is met is not chosen again within the day even while
+it is still the current one, so the next valid package takes over ("not immediately
+selected again after being completed", GECK wiki Category:Packages); TTW's chains of
+such travels (Andy's cake, Amata's escape route `CG04AmataToApartmentDoor1` → `…2new`
+→ `CG04AmataToOverseersOffice`, #2227) depend on it.
 Without the interval nothing runs by itself and the Layer 5 runner's `package` input
 stands in, so Layer 5 scenarios behave as before apart from the validity rules.
 
@@ -254,6 +268,25 @@ plays the run clip faster to match (up to its 2.5 rate limit), so the feet do no
   included (navmesh.md). Everything the actor carries counts as a key for locked doors.
   Always Run packages run (344 units a second), others walk (86.8) [observed: the
   player's speeds; NPC speeds are not captured].
+- **Walking with a pistol drawn** (#2124, `fnv_ai::carry::drawn_walk_share`): a person
+  in light armour or clothes walking a package outside combat with a pistol out walks
+  its walk / fMoveNoWeaponMult (85.3 / 1.1 = 77.5) [observed: 77.5–78.3, actors.md §8.10,
+  People; design: the fit chosen, docs/owner-review.md]. A package's walk (planned by
+  `Ai::plan`, a Dialogue package's approach, a sandbox's or a Find errand's walk)
+  remembers the share it was given (`Agent::walk_pace`) until it ends, and while it travels (`Ai::repace_walk`, the AI's own steps: not
+  in a fight, an alert or a script's weapon use) its speed is scaled to the share now
+  when the weapon is drawn or put away, whatever its base. Every other setter of the
+  walker's speed gives that up (a run, a Follow package's walk, a companion's Back Up, a
+  walk-up to the player, a search, a random conversation's walk), and so does a walk a
+  random conversation or a search has taken over: it keeps its speed. New speeds on the
+  way (a Speed Mult or armour change, `Ai::set_speeds`, #2118) keep the share and the
+  walk's own: it goes on at the new walk / 1.1, also after a stop at Speed Mult 0. A
+  follower's speed comes through `Ai::pace` too and is worked out again under way as the
+  gap changes, so it takes the share at once (in step, its target's pace wins, the share
+  only lowering the slowest it eases to) [design: not measured, actors.md §8.10]. The weapon is the one
+  the actor's equipment holds (none: its fists); the animating side's last drawn weapon
+  counts only for an actor the simulation has no equipment for. Other stances and armour
+  classes keep the holstered walk.
 - **No way there** (no navmesh at either end, no chain of doors, a locked door without
   the key, or a location that names nothing): the package is set aside for one game
   hour (`Game::block_package`, `PackageCheck::Unreachable`) and the actor chooses again:

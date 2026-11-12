@@ -143,6 +143,15 @@ the spec it links to.
     (Cook-Cook, Speed Mult 110) ran at the people's speed without his Speed Mult. Keep the
     matched feet, take the sliding feet, or have people ignore Speed Mult?
     ([actor-flags §3](spec-notes/actor-flags.md), [actors §8.10](spec-notes/actors.md))
+55. **People walk slower with a pistol drawn outside combat (#2124).** A person in light
+    armour or clothes walking a package with a pistol out, not in combat, walks its walk
+    divided by fMoveNoWeaponMult (1.1): 85.3 / 1.1 = 77.5 units/s (the original's were
+    77.5-78.3). The other two ways to reach 77-78, the `1hm`/`h2h` walk clip (77.5) or
+    fMoveBaseSpeed (77), were not taken, and every other weapon stance, medium and heavy
+    armour and walks in combat keep the holstered walk until measured. If you rule
+    otherwise, the drawn walk takes the clip's or the setting's number, or reaches the
+    unmeasured stances too. (`fnv_ai::carry::drawn_walk_share`;
+    [actors §8.10](spec-notes/actors.md))
 38. **Variable refresh on your screen.** Display sync has a new "Variable refresh" choice
     for G-Sync: vsync stays on and the frame rate is held under your monitor's refresh rate
     (138 at 144 Hz). Does G-SYNC engage in borderless and in exclusive full screen (the
@@ -253,8 +262,11 @@ the spec it links to.
     costs a second world render while aiming. Planned as a Gameplay switch, off = the
     original overlay. Should it be on by default, and should the view around the lens
     zoom a little or not at all? ([scope-3d-lens](design/scope-3d-lens.md))
-34. **MCM and the pause menu (UI tile tree).** MCM lives in the original's StartMenu,
-    which is where our own pause and settings pages are. Chosen (not built yet): our
+34. **MCM and the pause menu (UI tile tree).** Built 2026-11-12 and on by default (#976):
+    with MCM installed and an MCM mod loaded, the pause menu's Mods entry opens MCM's own
+    window, drawn from MCM's files where the original draws it; look at it beside the
+    original (your screenshots of 2026-11-12 are the reference). MCM lives in the original's StartMenu,
+    which is where our own pause and settings pages are. Chosen: our
     column and settings stay as they are. The game's StartMenu is built from its files
     behind them while the pause or main menu is open, so MCM's scripts find their
     tiles. A "Mods" entry joins our column only when a mod added one, and opens MCM's

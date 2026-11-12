@@ -485,11 +485,7 @@ pub fn is_weapon_out(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
     if base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"CREA") && super::items::equipped_weapon(g, r).is_none() {
         return yes(false);
     }
-    let told = g.senses.weapon_told.get(&r).is_some_and(|&t| (g.time - t).abs() < 1.0);
-    if r == FormId::PLAYER_REF || told {
-        return yes(g.extra.get(&r).is_some_and(|e| e.weapon_out));
-    }
-    yes(g.wants_weapon_out(r))
+    yes(g.weapon_is_out(r))
 }
 
 /// GetWeaponAnimType's value for a WEAP DNAM animation type (the record's numbering).

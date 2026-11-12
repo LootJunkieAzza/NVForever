@@ -93,6 +93,8 @@ struct Job {
     held: Duration,
     /// One refresh of the window's monitor (zero when not known): the least spacing.
     refresh: Duration,
+    /// NVIDIA low latency: the markers that map this frame's presents to it (nv_low_latency.rs).
+    out_of_band: Option<crate::nv_low_latency::OutOfBandPresents>,
 }
 
 pub(crate) struct Shared {
@@ -175,7 +177,8 @@ impl Presenter {
     /// limit). [`Handed::Behind`]: the wait ran to its limit; the frame is not handed over
     /// either. Handed over, it joined a queue with no end whose stand-ins the render thread
     /// draws over in turn before they are copied, and every frame of it was shown wrong.
-    pub(crate) fn send(&mut self, frames: Vec<wgpu::TextureView>, refresh: Duration) -> Handed {
+    /// `out_of_band`: NVIDIA low latency's markers for the frame's presents, when it is on.
+    pub(crate) fn send(&mut self, frames: Vec<wgpu::TextureView>, refresh: Duration, out_of_band: Option<crate::nv_low_latency::OutOfBandPresents>) -> Handed {
         let Some(jobs) = &self.jobs else { return Handed::Ended };
         let index = self.sent + 1;
         let needed = index.saturating_sub(STAND_INS as u64 - 1);
@@ -200,7 +203,7 @@ impl Presenter {
         // With what the limiter held frames back for this thread to catch up
         // (frame_pace.rs `catch_up`): not the frames' own time either.
         let held = sent - started + Duration::from_nanos(crate::frame_pace::HELD_FOR_PRESENTER_NANOS.swap(0, Ordering::Relaxed));
-        if jobs.send(Job { index, frames, sent, held, refresh }).is_err() {
+        if jobs.send(Job { index, frames, sent, held, refresh, out_of_band }).is_err() {
             return Handed::Ended;
         }
         self.sent = index;
@@ -312,7 +315,8 @@ fn run(received: &mpsc::Receiver<Job>, surface: &SharedSurface, device: &wgpu::D
                 };
                 crate::frame_pace::PRESENTER_LAG_NANOS.store(lag.as_nanos() as u64, Ordering::Relaxed);
             }
-            guard.present(queue, image);
+            // NVIDIA low latency: each present names the rendered frame it shows.
+            crate::nv_low_latency::OutOfBandPresents::around(job.out_of_band.as_ref(), || guard.present(queue, image));
             shared.presents.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(issued);
         }
         shared.copied(job.index);
@@ -445,7 +449,7 @@ mod tests {
         });
         let mut presenter = Presenter { jobs: Some(jobs), thread: Some(thread), shared: Arc::new(Shared::new(Default::default(), Default::default())), sent: 0, said_behind: false };
         assert!(presenter.running());
-        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Over, "handed over while the thread runs");
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO, None), Handed::Over, "handed over while the thread runs");
         let deadline = Instant::now() + Duration::from_secs(10);
         while presenter.running() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(1));
@@ -454,11 +458,11 @@ mod tests {
         // Behind (two frames handed over and not copied): the wait for the copies ends at once.
         presenter.sent = 5;
         let started = Instant::now();
-        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Ended, "nothing handed over");
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO, None), Handed::Ended, "nothing handed over");
         assert!(started.elapsed() < Duration::from_millis(100), "{:?}", started.elapsed());
         // Not behind: the closed channel says so.
         presenter.sent = 0;
-        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Ended);
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO, None), Handed::Ended);
     }
 
     #[test]
@@ -473,15 +477,15 @@ mod tests {
         let mut presenter = Presenter { jobs: Some(jobs), thread: Some(thread), shared: Arc::new(Shared::new(Default::default(), Default::default())), sent: 0, said_behind: false };
         // The first frames fit the stand-ins.
         for _ in 0..STAND_INS - 1 {
-            assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Over);
+            assert_eq!(presenter.send(Vec::new(), Duration::ZERO, None), Handed::Over);
         }
         let started = Instant::now();
-        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Behind);
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO, None), Handed::Behind);
         assert!(started.elapsed() >= Duration::from_millis(240), "{:?}", started.elapsed());
         assert_eq!(presenter.sent, STAND_INS as u64 - 1, "the frame left out has no number");
         // Caught up: frames go over again.
         presenter.shared.copied(presenter.sent);
-        assert_eq!(presenter.send(Vec::new(), Duration::ZERO), Handed::Over);
+        assert_eq!(presenter.send(Vec::new(), Duration::ZERO, None), Handed::Over);
         let _ = stop.send(());
     }
 

@@ -803,6 +803,8 @@ mod tests {
             colour: [1.0; 4],
             depth: 0.0,
             tex: None,
+            turn: None,
+            crop: None,
         }
     }
 

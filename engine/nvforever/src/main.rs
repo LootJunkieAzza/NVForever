@@ -71,6 +71,7 @@ mod fog;
 mod fly;
 mod foot_ik;
 mod anti_lag;
+mod nv_low_latency;
 mod frame_pace;
 mod frame_telemetry;
 mod blit_warm;
@@ -173,6 +174,7 @@ mod tree;
 mod treelod;
 mod underwater;
 mod vigor_view;
+mod walk_probe;
 mod water;
 mod window_icon;
 mod window_mode;
@@ -443,8 +445,9 @@ struct Args {
     /// switch wins over this flag, as for every switch.
     #[arg(long)]
     fps: bool,
-    /// Latency reduction: AMD Anti-Lag through Vulkan (AMD GPUs only), the driver keeping the
-    /// CPU from preparing frames ahead of the GPU (anti_lag.rs). Once any setting is saved,
+    /// Latency reduction: AMD Anti-Lag or NVIDIA low latency through Vulkan, whichever the
+    /// GPU's driver has, the driver keeping the CPU from preparing frames ahead of the GPU
+    /// (anti_lag.rs, nv_low_latency.rs). Once any setting is saved,
     /// NVForever.ini's Latency reduction switch wins over this flag, as for every switch.
     #[arg(long)]
     latency_reduction: bool,
@@ -1318,7 +1321,8 @@ fn main() -> AppExit {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(ms / 1000.0)));
         app.add_systems(Startup, move || info!("fixed frame time: every frame {ms} ms (NVF_FIXED_FRAME_TIME_MS)"));
     }
-    // Asks for VK_AMD_anti_lag when Bevy creates the device: before DefaultPlugins (anti_lag.rs).
+    // Asks for VK_AMD_anti_lag or VK_NV_low_latency2 when Bevy creates the device: before
+    // DefaultPlugins (anti_lag.rs, nv_low_latency.rs).
     app.add_plugins(anti_lag::AntiLagInitPlugin);
     app.add_plugins(
         DefaultPlugins
@@ -1380,7 +1384,7 @@ fn main() -> AppExit {
     )
     .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
-    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, fog::FogPlugin, eye_adapt::EyeAdaptPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, terrain::TerrainPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     // The switches the settings page weighs against the INI (`--play` only), for the
     // frame split's start-time decision (perf_overlay/split.rs).
@@ -1511,7 +1515,10 @@ fn main() -> AppExit {
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
     .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
-    .add_systems(Last, (crash::note_place, events_log::note_context, crash::report_exit, stray_commands::report));
+    .add_systems(Last, (crash::note_place, events_log::note_context, stray_commands::report))
+    // After Bevy's window-closed exit, which writes AppExit in Last too: before it, closing
+    // the window left no clean-exit line and the run was reported as a native crash (#2203).
+    .add_systems(Last, crash::report_exit.after(bevy::window::ExitSystems));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }
@@ -1654,6 +1661,8 @@ fn main() -> AppExit {
             app.add_plugins(actor_scale::ActorScalePlugin);
             // Creatures' own speeds and alert stance (creature_pace.rs).
             app.add_plugins(creature_pace::CreaturePacePlugin);
+            // How fast chosen actors walk (NVF_PLAY_TEST_WALK_PROBE; nothing without it).
+            app.add_plugins(walk_probe::WalkProbePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).

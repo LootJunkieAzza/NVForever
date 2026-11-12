@@ -86,6 +86,7 @@ pub mod message_menu;
 pub mod moved;
 pub mod music;
 pub mod pad;
+pub mod full_screen_key;
 pub mod pause;
 pub mod graphics_resume;
 pub mod phys;
@@ -426,6 +427,7 @@ impl Plugin for PlayPlugin {
         test_aid::setup(app);
         stress::setup(app);
         settings::setup(app);
+        full_screen_key::setup(app);
     }
 }
 

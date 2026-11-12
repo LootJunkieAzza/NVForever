@@ -1010,8 +1010,10 @@ struct Core {
     guard_wander: Option<guard_wander::Probe>,
     list: Vec<Resident>,
     known: HashSet<u32>,
-    /// Cells whose actors were handed over (`all`).
+    /// Cells whose actors were handed over (`all`), and the worldspace whose grid squares
+    /// the exterior ones are: a grid square names another cell in another worldspace.
     cells_seen: HashSet<CellKey>,
+    cells_seen_world: u32,
     /// The game's loaded cells when actors placed elsewhere were last looked for there.
     loaded_seen: BTreeSet<FormId>,
     clock: Clock,
@@ -1252,6 +1254,13 @@ impl Residents {
         self.core.ai.alert_speeds(actor)
     }
 
+    /// `actor`'s walk as the AI has it: whether it is on its way, its walker's speed and
+    /// its calm run (`walk_probe.rs`).
+    pub fn walk_of(&self, actor: FormId) -> Option<(bool, f32, f32)> {
+        let a = self.core.ai.agents.get(&actor)?;
+        Some((a.activity == fnv_ai::Activity::Travelling, a.walker.speed, self.core.ai.calm_speeds(actor).run))
+    }
+
     /// The share of its speed `actor` moves at (crippled legs, `limping.rs`).
     pub fn set_pace(&mut self, actor: FormId, pace: f32) {
         self.core.ai.set_pace(actor, pace);
@@ -1292,6 +1301,7 @@ impl Residents {
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
+            cells_seen_world: 0,
             loaded_seen: BTreeSet::new(),
             clock,
             prepared: false,
@@ -1576,6 +1586,14 @@ impl Core {
             Some(c) => [CellKey::Interior(c)].into(),
             None => streamer.loaded.keys().map(|g| CellKey::Exterior(*g)).collect(),
         };
+        // A grid square of another worldspace is another cell: TTW's MegatonWorld lies on
+        // the grid squares of the Wasteland cells around its gate, so after the gate every
+        // square counted as handed over and Megaton's people never joined until an
+        // interior cleared the set (issue #2233).
+        if self.cells_seen_world != world.world {
+            self.cells_seen.retain(|k| !matches!(k, CellKey::Exterior(_)));
+            self.cells_seen_world = world.world;
+        }
         let new: Vec<CellKey> = now.difference(&self.cells_seen).copied().collect();
         self.cells_seen = now;
         let before = self.list.len();
@@ -2506,6 +2524,7 @@ impl Core {
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. }
                 | AiEvent::Resettles { .. }
+                | AiEvent::TakesUpAgain { .. }
                 | AiEvent::BackHome { .. }
                 | AiEvent::BackUp { .. }
                 | AiEvent::WeaponUse { .. }
@@ -2813,6 +2832,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
         AiEvent::Resettles { package } => format!("is back in the place of {}: settles there again", n(package)),
+        AiEvent::TakesUpAgain { package } => format!("takes up {} afresh", n(package)),
         AiEvent::BackHome { away, length } => format!(
             "has no package: walks back to where it was placed, {} off, {length:.0} units to go",
             if away.is_finite() { format!("{away:.0} units") } else { "in another space".to_string() }
