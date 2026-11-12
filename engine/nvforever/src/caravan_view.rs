@@ -36,9 +36,11 @@
 //!   Caps and coins are the game's own Caravan models (`meshes\terminals\nv_caravan\
 //!   currency-coin_1.nif` the cap, `_2` silver, `_3` gold [observed: their textures and
 //!   shapes]), so they stand up off the planks and catch the lamp; the notes lie flat. A
-//!   piece goes only where no card can ever lie (`card_zones`); one that finds no such
-//!   place is left out [design, owner 2026-11-09: "make sure things on the table don't
-//!   overlap with the cards, cash can go under everything else just stay away"].
+//!   piece goes only where no card lies in a caravan of up to four cards, a hand or a deck
+//!   (`money_zones`); one that finds no such place is left out [design, owner 2026-11-09:
+//!   "make sure things on the table don't overlap with the cards, cash can go under
+//!   everything else just stay away"; 2026-11-12, circling the planks past the caravans:
+//!   "space that can be used for more piles"].
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -50,7 +52,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, T
 use bevy::window::PrimaryWindow;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::{nif_material, NifMaterial};
-use nvf_play::caravan::screen::{card_texture, card_zones, table_cards, text_zones, view_width, TableCard, FRAME_W};
+use nvf_play::caravan::screen::{card_texture, money_zones, table_cards, text_zones, view_width, TableCard, FRAME_W};
 use nvf_play::caravan::{CaravanScreen, CaravanView, Session, Stage};
 use crate::caravan_pot::PotSim;
 use nvf_play::pause::AidTime;
@@ -111,20 +113,40 @@ const NOTE_SIZE: Vec2 = Vec2::new(156.0 * MM, 156.0 * MM * 740.0 / 1312.0);
 /// The most pieces on the table (the owner, 2026-11-12, of a pot of 10434 shown as 48:
 /// "There should be way more money for a pot that big").
 const MONEY_MAX: usize = 240;
-/// The first this many heaps are laid side by side; pieces past them pile on those heaps
-/// again, a layer at a time, so a big pot grows taller heaps, not more of them [design].
-const HEAPS_SIDE: usize = 6;
-/// How far a piece keeps from where a card can lie, and how many places it tries.
-const MONEY_CLEAR: f32 = 10.0;
-const MONEY_TRIES: u32 = 96;
-/// The pot lies in heaps (the owner, 2026-11-12: stacked in 3D, not "all spread out"):
-/// this many pieces to a heap; the caps and coins of a heap spiral out from its middle
-/// this far apart (by the golden angle, so each new one overlaps the ones before and rests
-/// on them), the notes flat under them [design].
-const HEAP_PIECES: usize = 15;
-const HEAP_STEP: f32 = CAP_SIZE.x * 0.35;
-/// A heap's reach from its middle: its outermost cap's edge.
-const HEAP_R: f32 = HEAP_STEP * 3.9 + CAP_SIZE.x / 2.0;
+/// How many notes, coins and caps lie in one spot ([`money`]), fewest and most (the owner,
+/// 2026-11-12: "Bigger piles of caps ... 10 caps to 30 caps a pile"), and how far apart
+/// spots keep (frame units) [design].
+const SPOT_PIECES: [(usize, usize); 3] = [(3, 6), (8, 16), (10, 30)];
+const SPOT_GAP: f32 = 10.0;
+/// Spots may sit this much of their reaches apart, so piles overlap at their edges and
+/// many more fit on the planks between the cards (the owner, 2026-11-12: "more possible
+/// pile spots and overlapping piles is exactly what I want") [design].
+const SPOT_NEAR: f32 = 0.55;
+/// The most pieces a spot of notes, coins and caps grows to once there is no room for
+/// another of its kind [design: notes stay few, the pot test, 2026-11-12, had a fan of
+/// many press its bottom note into the planks].
+const SPOT_MOST: [usize; 3] = [8, 30, 45];
+/// How many searches for a new spot of a kind may find no room before that kind only
+/// grows its spots [design].
+const SPOT_MISSES: usize = 3;
+/// How far a spot's notes lie from its middle, in a note's widths [design: at 0.3 with up
+/// to 8 notes, the pot test, 2026-11-12, had one pressed into the planks under the rest].
+const NOTE_FAN: f32 = 0.45;
+/// How many ways a note is tried before it is left out.
+const NOTE_TRIES: u32 = 8;
+/// How far a piece keeps from where a card can lie, and how many places it tries; the
+/// pot's walls stand [`MONEY_WALL`] off those places, so a piece thrown a little off its
+/// place still misses them (the pot test, 2026-11-12, at 5 apart: a cap leaning 40
+/// degrees on one) [design].
+const MONEY_CLEAR: f32 = 20.0;
+const MONEY_WALL: f32 = 4.0;
+const MONEY_TRIES: u32 = 400;
+/// Each spot is a low pile (the owner, 2026-11-12: stacked in 3D, not "all spread out"):
+/// its caps spiral out from its middle this far apart (by the golden angle, so each new
+/// one overlaps the ones before and rests on them) [design].
+/// (0.35 piled the big piles so steeply that a cap wedged high in one rested 43 degrees
+/// off flat, the pot test, 2026-11-12.)
+const HEAP_STEP: f32 = CAP_SIZE.x * 0.42;
 /// The golden angle (radians).
 const GOLDEN: f32 = 2.399_963;
 /// How tall a cap and a coin are [hypothesis: a crown cap is about 6 mm tall, a coin
@@ -245,24 +267,67 @@ pub struct Piece {
     pub lean: Vec2,
 }
 
-/// The pot's pieces, in heaps of [`HEAP_PIECES`]: a heap's middle is anywhere on the
-/// planks clear of the cards and the screen's words, apart from the other heaps; its
-/// notes lie flat round the middle, its caps and coins spiral out from it, each resting
-/// on the highest piece it overlaps and leaning away from it [design, the owner
-/// 2026-11-12: stacked in 3D]. Piece `i` is the same for every pot that has it, so the
-/// pot only grows; a heap with no room, or a piece over a card's or a word's place, is
-/// left out.
+/// Which kind of spot a piece lies in: notes, coins or caps.
+fn spot_kind(kind: Money) -> usize {
+    match kind {
+        Money::Cap | Money::NukaCap => 2,
+        Money::Denarius | Money::Aureus => 1,
+        _ => 0,
+    }
+}
+
+/// How far apart a spot's caps or coins spiral out (frame units).
+fn spot_step(g: usize) -> f32 {
+    if g == 1 { DENARIUS_SIZE.x * 0.42 } else { HEAP_STEP }
+}
+
+/// How many pieces the `s`-th spot of kind `g` holds: each a little different, within
+/// [`SPOT_PIECES`].
+fn spot_size(g: usize, s: usize) -> usize {
+    let (lo, hi) = SPOT_PIECES[g];
+    lo + ((hi - lo + 1) as f32 * scatter(s * 3 + g, 601)).min((hi - lo) as f32) as usize
+}
+
+/// The reach from its middle (frame units) of a spot of kind `g` holding `size`: its
+/// outermost piece's far edge.
+fn spot_reach(g: usize, size: usize) -> f32 {
+    let out = (size.max(1) - 1) as f32;
+    match g {
+        0 => NOTE_SIZE.y * NOTE_FAN + NOTE_SIZE.length() / 2.0,
+        1 => spot_step(1) * out.sqrt() + DENARIUS_SIZE.x / 2.0,
+        _ => HEAP_STEP * out.sqrt() + CAP_SIZE.x / 2.0,
+    }
+}
+
+/// The pot's pieces, each kind in spots of its own (the owner, 2026-11-12: "give them all
+/// their own spots ... caps here and here ... cash here ... coins here", not all piled in
+/// one): a spot holds [`SPOT_PIECES`] of one kind, its middle anywhere on the planks clear
+/// of the cards and the screen's words and [`SPOT_GAP`] apart from every other spot; its
+/// notes lie fanned flat round the middle, its caps or coins spiral out from it in a low
+/// pile, each resting on the highest piece it overlaps and leaning away from it. Piece `i`
+/// is the same for every pot that has it, so the pot only grows; a spot with no room, or a
+/// piece over a card's or a word's place, is left out.
 pub fn money(pot: u32) -> Vec<Piece> {
     if pot == 0 {
         return Vec::new();
     }
     let n = (((pot as f32).sqrt() * 3.0).ceil() as usize).clamp(2, MONEY_MAX);
     // Off the cards and off the screen's words [design, owner 2026-11-09; parity 2026-11-12].
-    let mut zones = card_zones(MONEY_CLEAR);
+    let mut zones = money_zones(MONEY_CLEAR);
     zones.extend(text_zones(MONEY_CLEAR));
-    let mut sites: Vec<Option<Vec2>> = Vec::new();
-    // Each heap's caps and coins so far: middle, bottom's height, thickness, radius.
-    let mut heaps: Vec<Vec<(Vec2, f32, f32, f32)>> = Vec::new();
+    // Every spot's middle and reach, each kind's spots (index into `sites`), how full the
+    // kind's newest spot is, whether the kind has no room for another (and then which of
+    // its spots is next), how many spots were tried, and how many pieces each spot has.
+    let mut sites: Vec<(Vec2, f32)> = Vec::new();
+    let mut spots: [Vec<usize>; 3] = Default::default();
+    let mut filled = [0usize; 3];
+    let mut full = [false; 3];
+    let mut missed = [0usize; 3];
+    let mut over = [0usize; 3];
+    let mut laid = 0usize;
+    let mut heaps: Vec<usize> = Vec::new();
+    // The caps and coins so far: middle, bottom's height, thickness, radius.
+    let mut rounds: Vec<(Vec2, f32, f32, f32)> = Vec::new();
     let mut out = Vec::new();
     for i in 0..n {
         let kind = if pot >= 40 && i % 4 == 3 {
@@ -281,68 +346,109 @@ pub fn money(pot: u32) -> Vec<Piece> {
         } else {
             Money::Cap
         };
-        // Past the first heaps, the next layer goes on them again (one with no room is
-        // passed over for the next one that has).
-        let (heap, layer) = if i < HEAPS_SIDE * HEAP_PIECES {
-            (i / HEAP_PIECES, 0)
-        } else {
-            let j = i / HEAP_PIECES;
-            let layer = j / HEAPS_SIDE;
-            match (0..HEAPS_SIDE).map(|d| (j + d) % HEAPS_SIDE).find(|&h| sites.get(h).is_some_and(|s| s.is_some())) {
-                Some(h) => (h, layer),
-                None => continue,
-            }
-        };
-        while sites.len() <= heap {
-            let j = sites.len();
+        // Its own kind's spot: the one being filled, or a new one once that is full; once
+        // the planks have no room for another of its kind, the next of that kind's spots
+        // in turn, which grows past its size (up to SPOT_MOST).
+        let g = spot_kind(kind);
+        let mut overflow = full[g];
+        if !full[g] && (spots[g].is_empty() || filled[g] >= spot_size(g, spots[g].len() - 1)) {
+            let j = laid;
+            laid += 1;
+            let reach = spot_reach(g, spot_size(g, spots[g].len()));
+            // The middle wants this much clear round it: a fan of notes a note's width, a
+            // pile of caps or coins a cap's (the planks between the cards are narrow; each
+            // piece is still kept off the cards and words by itself, and moved on screen).
+            let core = if g == 0 { NOTE_SIZE.y * 0.5 } else { (reach * 0.8).min(CAP_SIZE.x) };
+            // (Its pieces past the screen's edge are moved in, [`NOTE_EDGE`] inside the
+            // edge walls: the bands along the top and bottom are narrower than a pile.)
+            let edge = core + NOTE_EDGE;
             let site = (0..MONEY_TRIES)
-                .map(|k| Vec2::new(HEAP_R + scatter(j, 211 + k) * (FRAME_W - 2.0 * HEAP_R), HEAP_R + scatter(j, 307 + k) * (960.0 - 2.0 * HEAP_R)))
-                .find(|c| disc_clear(&zones, *c, HEAP_R * 0.8) && sites.iter().flatten().all(|o| o.distance(*c) >= 2.0 * HEAP_R));
-            sites.push(site);
-            heaps.push(Vec::new());
+                .map(|t| Vec2::new(edge + scatter(j, 211 + t) * (FRAME_W - 2.0 * edge), edge + scatter(j, 307 + t) * (960.0 - 2.0 * edge)))
+                .find(|c| disc_clear(&zones, *c, core) && sites.iter().all(|(o, r)| o.distance(*c) >= (r + reach) * SPOT_NEAR + SPOT_GAP));
+            match site {
+                Some(c) => {
+                    spots[g].push(sites.len());
+                    sites.push((c, reach));
+                    heaps.push(0);
+                    filled[g] = 0;
+                }
+                // This piece goes on the kind's spots; the next tries other places, until
+                // [`SPOT_MISSES`] tries have found none.
+                None => {
+                    missed[g] += 1;
+                    full[g] = missed[g] >= SPOT_MISSES;
+                    overflow = true;
+                }
+            }
         }
-        let Some(c) = sites[heap] else { continue };
+        let heap = if overflow {
+            if spots[g].is_empty() {
+                continue;
+            }
+            let h = spots[g][over[g] % spots[g].len()];
+            over[g] += 1;
+            h
+        } else {
+            filled[g] += 1;
+            *spots[g].last().expect("a spot was just laid out")
+        };
+        // Its place in its spot.
+        let k = heaps[heap];
+        if k >= SPOT_MOST[g] {
+            continue;
+        }
+        heaps[heap] += 1;
+        let (c, _) = sites[heap];
         let turn = scatter(i, 53) * 2.0 * PI;
         if kind.note() {
-            // Flat round the middle, a hair over the notes before it.
-            let a = scatter(i, 401) * 2.0 * PI;
-            let at = on_screen(c + Vec2::from_angle(a) * scatter(i, 409) * NOTE_SIZE.y * 0.45, kind.size(), turn);
-            if clear_of(&zones, at, kind.size(), turn) {
-                out.push(Piece { kind, at, turn, lift: 0.004 * (i % HEAP_PIECES) as f32, lean: Vec2::ZERO });
+            // Fanned flat round the middle, a hair over the notes before it; turned and
+            // placed again (up to [`NOTE_TRIES`] times) where it would lie over a card or
+            // a word, rather than left out.
+            let placed = (0..NOTE_TRIES).find_map(|t| {
+                let turn = if t == 0 { turn } else { scatter(i, 53 + 17 * t) * 2.0 * PI };
+                let a = scatter(i, 401 + 17 * t) * 2.0 * PI;
+                let at = on_screen(c + Vec2::from_angle(a) * scatter(i, 409 + 17 * t) * NOTE_SIZE.y * NOTE_FAN, kind.size(), turn);
+                clear_of(&zones, at, kind.size(), turn).then_some((at, turn))
+            });
+            if let Some((at, turn)) = placed {
+                out.push(Piece { kind, at, turn, lift: 0.004 * k as f32, lean: Vec2::ZERO });
             }
             continue;
         }
-        // Each layer spirals over the one under it, turned a little and spread a little wider,
-        // so the heap slopes gently rather than piling into a steep cone where a cap wedges
-        // on its edge (the first try, 2026-11-12, left one leaning 50 degrees).
-        let k = heaps[heap].len() % HEAP_PIECES;
-        let a = k as f32 * GOLDEN + scatter(heap, 503) * 2.0 * PI + layer as f32 * 1.3;
-        let spread = 1.0 + 0.1 * layer.min(2) as f32;
-        let at = c + Vec2::from_angle(a) * HEAP_STEP * spread * (k as f32 + 0.5 * layer.min(1) as f32).sqrt();
+        // Spiralling out from the middle by the golden angle, each overlapping the ones
+        // before and resting on them: a low pile.
+        let a = k as f32 * GOLDEN + scatter(heap, 503) * 2.0 * PI;
         let me = kind.size().x / 2.0;
+        // Moved in, whole on the screen, rather than spilling over its edge.
+        let at = on_screen(c + Vec2::from_angle(a) * spot_step(g) * (k as f32).sqrt(), Vec2::splat(2.0 * me), 0.0);
         if !disc_clear(&zones, at, me) {
             continue;
         }
         // On the highest piece it overlaps, leaning away from it.
         let mut lift = ROUND_BASE;
         let mut lean = Vec2::ZERO;
-        for (p, l, t, r) in &heaps[heap] {
+        // (Any spot's: a pile grown past its size may reach a neighbour.)
+        for (p, l, t, r) in &rounds {
             let d = p.distance(at);
             if d < (r + me) * 0.95 && l + t > lift {
                 lift = l + t;
                 lean = (at - *p).normalize_or_zero() * (t / (d + me)).atan().min(LEAN_MAX);
             }
         }
-        heaps[heap].push((at, lift, kind.thick(), me));
+        rounds.push((at, lift, kind.thick(), me));
         out.push(Piece { kind, at, turn, lift, lean });
     }
     out
 }
 
-/// How far in from the screen's edges a note lies whole (frame units): past the pot's edge
-/// walls ([`crate::caravan_pot`]), which one placed across them could not be pushed out of
-/// (the fourth shots, 2026-11-12: two notes hung off the screen).
-const NOTE_EDGE: f32 = 20.0;
+/// How far in from the screen's edges every piece is laid whole (frame units): past the
+/// pot's edge walls ([`crate::caravan_pot::EDGE_IN`]), which one placed across them could
+/// not be pushed out of (the fourth shots, 2026-11-12: two notes hung off the screen;
+/// parity, 2026-11-12: caps of the big heaps did).
+/// Well inside them: a cap thrown off its place or a note gliding as it falls that ends
+/// against an edge wall leans on it, or is wedged into the planks (the pot test,
+/// 2026-11-12, with 4 units: a cap 52 degrees off flat, a note pressed in).
+const NOTE_EDGE: f32 = crate::caravan_pot::EDGE_IN + 16.0;
 
 /// `at` moved in just far enough that a piece `size` turned by `turn` lies whole inside
 /// the screen, [`NOTE_EDGE`] from its edges.
@@ -465,8 +571,8 @@ fn place_money(commands: &mut Commands, models: &mut ModelCtx, b: &mut Built, po
         }
     }
     let pieces = money(pot);
-    let mut zones = card_zones(MONEY_CLEAR / 2.0);
-    zones.extend(text_zones(MONEY_CLEAR / 2.0));
+    let mut zones = money_zones(MONEY_WALL);
+    zones.extend(text_zones(MONEY_WALL));
     let mut sim = PotSim::new(&zones);
     sim.add(&pieces, 0);
     let mut drawn = Vec::new();
@@ -914,22 +1020,34 @@ mod tests {
         assert!(money(100_000).len() <= MONEY_MAX);
         // The pile only grows: a piece is where it was in the smaller pot.
         assert_eq!(&money(170)[..4].iter().map(|m| m.at).collect::<Vec<_>>(), &mid[..4].iter().map(|m| m.at).collect::<Vec<_>>());
-        let mut zones = card_zones(0.0);
+        let mut zones = money_zones(0.0);
         zones.extend(text_zones(0.0));
         for Piece { kind, at, turn, .. } in &big {
             assert!(at.x > 0.0 && at.x < FRAME_W && at.y > 0.0 && at.y < 960.0);
-            assert!(clear_of(&zones, *at, kind.size(), *turn), "{kind:?} at {at} lies where a card or the screen's words can");
+            // (A cap or coin is a disc, a note a turned card.)
+            let clear = if kind.note() { clear_of(&zones, *at, kind.size(), *turn) } else { disc_clear(&zones, *at, kind.size().x / 2.0) };
+            assert!(clear, "{kind:?} at {at} lies where a card or the screen's words can");
         }
         assert!(big.len() > 40, "the big pot still fills the free planks: {}", big.len());
     }
 
     #[test]
-    fn every_note_lies_whole_on_the_screen() {
+    fn every_piece_lies_whole_on_the_screen() {
+        let mut zones = money_zones(0.0);
+        zones.extend(text_zones(0.0));
         for pot in [40, 164, 600, 2000, 10_434, 100_000] {
-            for p in money(pot).into_iter().filter(|p| p.kind.note()) {
-                let (s, c) = (p.turn.sin().abs(), p.turn.cos().abs());
-                let size = p.kind.size();
-                let reach = Vec2::new(c * size.x + s * size.y, s * size.x + c * size.y) / 2.0;
+            for p in money(pot) {
+                // A cap or coin is a disc, whatever its turn.
+                let reach = if p.kind.note() {
+                    let (s, c) = (p.turn.sin().abs(), p.turn.cos().abs());
+                    let size = p.kind.size();
+                    Vec2::new(c * size.x + s * size.y, s * size.x + c * size.y) / 2.0
+                } else {
+                    Vec2::splat(p.kind.size().x / 2.0)
+                };
+                if !p.kind.note() {
+                    assert!(disc_clear(&zones, p.at, reach.x), "pot {pot}: {:?} at {} lies on a card's or word's place", p.kind, p.at);
+                }
                 assert!(p.at.x - reach.x >= NOTE_EDGE - 0.01 && p.at.x + reach.x <= FRAME_W - NOTE_EDGE + 0.01, "pot {pot}: {:?} at {} turned {} off the side", p.kind, p.at, p.turn);
                 assert!(p.at.y - reach.y >= NOTE_EDGE - 0.01 && p.at.y + reach.y <= 960.0 - NOTE_EDGE + 0.01, "pot {pot}: {:?} at {} turned {} off the top or bottom", p.kind, p.at, p.turn);
             }
