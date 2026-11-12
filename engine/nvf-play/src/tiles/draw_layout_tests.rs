@@ -34,7 +34,7 @@ struct Canvas(Entity);
 fn paint_tree(mut commands: Commands, tree: Res<Tree>, canvas: Res<Canvas>, mut kit: FontKit, mut nodes: Nodes, glyphs: Res<crate::pad::PadGlyphs>, mut drawn: Local<Drawn>) {
     let (set, _) = pieces(&tree.0, tree.1, &|_, _, _| (0.0, 0.0), Select::Whole { kept: &[], strip: None }, true);
     let target = Target::image(canvas.0, Vec2::new(1706.0, 960.0), SCALE, 1);
-    paint(&mut commands, &mut drawn, set, target, 0.0, Some(&tree.0), &mut kit, &mut nodes, &glyphs);
+    paint(&mut commands, &mut drawn, set, target, Brightness::File, 0.0, Some(&tree.0), &mut kit, &mut nodes, &glyphs);
 }
 
 fn app(xml: &str) -> App {

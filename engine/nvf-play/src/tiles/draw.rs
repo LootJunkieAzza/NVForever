@@ -1091,6 +1091,8 @@ pub(crate) struct View<'w, 's> {
     page: Option<Res<'w, crate::pause::Page>>,
     /// The Pip-Boy's image and the STATS tiles' one decision (`super::stats_menu`).
     screen: Option<Res<'w, crate::pipboy::PipBoyScreen>>,
+    /// The Pip-Boy's frame, for its pages' brightness on the device ([`pipboy_brightness`]).
+    pip: Option<Res<'w, crate::pipboy::PipBoy>>,
     stats: Option<ResMut<'w, super::stats_menu::StatsTiles>>,
     /// The ITEMS page's one decision (`super::inventory_menu`).
     inventory: Option<ResMut<'w, super::inventory_menu::InventoryTiles>>,
@@ -1267,10 +1269,10 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
             // queue out for a view 960 units high, and in a lower one they run into each
             // other (seen at 150 %).
             let _units = interface::units_at(interface::menu_scale());
-            paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z), heading, ui, &mut kit, &mut nodes, &glyphs);
+            paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
             continue;
         }
-        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), heading, ui, &mut kit, &mut nodes, &glyphs);
+        paint(&mut commands, drawn, pieces, Target::window(scale * interface::menu_scale(), z).in_frame(anchor), Brightness::File, heading, ui, &mut kit, &mut nodes, &glyphs);
     }
     *blur = blur_now;
     pipboy_pages(&mut commands, game, &mut view, &mut kit, (&mut others.stats, &mut others.inventory, &mut others.map), &mut nodes, heading, &glyphs);
@@ -1285,6 +1287,14 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
     hud(&mut commands, &script, &view, &mut kit, &mut drawn, &mut nodes, scale * interface::ui_scale(), heading, &glyphs);
 }
 
+/// How bright the Pip-Boy's pages drawn from their files are painted: the hand-built pages'
+/// device brightness while the Pip-Boy is on the device (`Frame::Device`, the flat image a model
+/// without a screen falls back to included: it shows the device's drawing), the file's in the
+/// screen menu ([`device_brightness`]). Not the image target: the screen menu draws into one too.
+fn pipboy_brightness(view: &View) -> Brightness {
+    Brightness::pipboy(view.pip.as_ref().is_some_and(|p| p.frame == crate::pipboy::Frame::Device))
+}
+
 /// The Pip-Boy's pages drawn from their files, in the Pip-Boy's image, each while it is ready
 /// (`super::stats_menu::StatsTiles::ready`, `super::inventory_menu::InventoryTiles::ready`,
 /// decided before this drawing). What was painted is published for the next frame's tile input,
@@ -1292,6 +1302,7 @@ pub(crate) fn draw(mut commands: Commands, script: Res<ScriptState>, mut view: V
 #[allow(clippy::too_many_arguments)]
 fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, (stats_drawn, inventory_drawn, map_drawn): (&mut Drawn, &mut Drawn, &mut Drawn), nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let target = (target, pipboy_brightness(view));
     let ui = game.map(|g| &g.ui_tree);
     let live = |ready: Option<TileId>| ready.filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
     // The one measured layout each decision checked; worked out again next frame.
@@ -1319,7 +1330,7 @@ fn pipboy_pages(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view
 /// Logged when it changes: how many pieces go to the painter, and how many of them are the rows'
 /// names. That is structure, before painting: it says nothing of the pixels, which only shots can.
 #[allow(clippy::too_many_arguments)]
-fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Option<TileId>, pieces: Vec<Piece>, target: Target, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
+fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Option<TileId>, pieces: Vec<Piece>, (target, brightness): (Target, Brightness), kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     match ui.zip(menu) {
         Some((ui, menu)) => {
             // The STATS page is told once its rows are there, on whichever tab first has some:
@@ -1340,7 +1351,7 @@ fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Optio
         }
         None => drawn.counts = (0, 0),
     }
-    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
+    paint(commands, drawn, pieces, target, brightness, heading, ui, kit, nodes, glyphs);
 }
 
 /// The Pip-Boy's repair page, in the Pip-Boy's image, while it is ready
@@ -1348,6 +1359,7 @@ fn pipboy_page(commands: &mut Commands, ui: Option<&Ui>, name: &str, menu: Optio
 #[allow(clippy::too_many_arguments)]
 fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let brightness = pipboy_brightness(view);
     let name = super::repair_menu::REPAIR_MENU;
     let ui = game.map(|g| &g.ui_tree);
     let ready = view.repair_page.as_ref().and_then(|s| s.ready);
@@ -1373,7 +1385,7 @@ fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view:
             Vec::new()
         }
     };
-    paint(commands, drawn, pieces, target, heading, ui, kit, nodes, glyphs);
+    paint(commands, drawn, pieces, target, brightness, heading, ui, kit, nodes, glyphs);
     let shown = menu.map(|(_, m)| m);
     if let Some(page) = view.repair_page.as_mut().filter(|s| s.shown != shown) {
         page.shown = shown;
@@ -1385,6 +1397,7 @@ fn repair_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view:
 #[allow(clippy::too_many_arguments)]
 fn item_mod_page(commands: &mut Commands, game: Option<&fnv_game::Game<'_>>, view: &mut View, kit: &mut FontKit, drawn: &mut Drawn, nodes: &mut Nodes, heading: f32, glyphs: &crate::pad::PadGlyphs) {
     let Some(target) = view.screen.as_ref().map(|s| Target::image(s.camera, crate::pipboy::CANVAS, s.scale, PIPBOY_TILES_Z)) else { return };
+    let target = (target, pipboy_brightness(view));
     let ui = game.map(|g| &g.ui_tree);
     let menu = view.item_mod.as_ref().and_then(|s| s.ready).filter(|&m| ui.is_some_and(|ui| ui.is_live(m)));
     let pieces = menu.and(view.item_mod.as_mut()).map_or_else(Vec::new, |s| std::mem::take(&mut s.pieces));
@@ -1425,7 +1438,7 @@ fn mods_page(commands: &mut Commands, script: &ScriptState, on: bool, kit: &mut 
         drawn.counts = counts;
     }
     // In the middle of the view, as the pause menu's page under it (`crate::pause`).
-    paint(commands, drawn, pieces, Target::window(scale, super::mods::MODS_Z).in_frame(interface::MIDDLE), heading, ui, kit, nodes, glyphs);
+    paint(commands, drawn, pieces, Target::window(scale, super::mods::MODS_Z).in_frame(interface::MIDDLE), Brightness::File, heading, ui, kit, nodes, glyphs);
 }
 
 /// The fonts of `pieces`' texts that are not loaded (`loaded` says which are), each once:
@@ -1545,14 +1558,71 @@ fn hud(commands: &mut Commands, script: &ScriptState, view: &View, kit: &mut Fon
         drawn.counts = counts;
     }
     // The HUD keeps the view's own frame: its places are written for the scaled view.
-    paint(commands, drawn, pieces, Target::window(scale, TILES_Z), heading, ui, kit, nodes, glyphs);
+    paint(commands, drawn, pieces, Target::window(scale, TILES_Z), Brightness::File, heading, ui, kit, nodes, glyphs);
+}
+
+/// How bright a menu's pieces are painted ([`paint`]), chosen by the caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Brightness {
+    /// As the file resolves them: every menu in the window, and the Pip-Boy's pages in the
+    /// screen menu (Use Pip-Boy off), where the hand-built pages keep the file's 255 too.
+    File,
+    /// A Pip-Boy page on the device (`crate::pipboy::Frame::Device`, its flat fallback image
+    /// too), whose page colour is `bright` (`crate::interface::pipboy_rgb`): the pieces at the
+    /// file's full bright level take the hand-built pages' device brightness
+    /// ([`device_brightness`]).
+    PipBoyDevice { bright: [u8; 3] },
+}
+
+impl Brightness {
+    /// A Pip-Boy page's: [`Brightness::PipBoyDevice`] while the Pip-Boy is on the device
+    /// (`device`), else the file's.
+    pub(crate) fn pipboy(device: bool) -> Brightness {
+        if device {
+            Brightness::PipBoyDevice { bright: interface::pipboy_rgb() }
+        } else {
+            Brightness::File
+        }
+    }
+}
+
+/// The hand-built pages' device brightness on the Pip-Boy's pages drawn from their files
+/// [design: #2212]. On the device the hand-built pages draw only their bright role at
+/// `crate::pipboy::frame::DEVICE_TEXT` (213) instead of the file's 255: the text, the Vault
+/// Boy, icons, bars and the map's picture (`Ctx::bright`); their lines stay at 200, the dimmed
+/// text and the fills at 128 and the map's location icons at 220 (255 under the highlight box)
+/// (`pipboy::frame`, `pipboy::data`, docs/spec-notes/pipboy.md §3). So no flat multiplier:
+/// a piece painted at the page's colour at its full level (the file's resolved `brightness`
+/// 255 over `bright`, what [`pieces`] gives as `bright / 255`) takes 213 of 255; a piece the
+/// file already dims (its lines' 200, its dimmed texts and fills, its background's 90), one
+/// in another colour, and the map's location icons (`super::map_menu::MARKER_ROW`, whose
+/// 220/255 the hand-built page keeps too) keep the file's colour; the alpha is never touched.
+/// The file's heading lines resolve at 255 (`line.xml`'s brightness picked by the heading),
+/// so they take 213 where the hand-built heading's lines are 200 [design: the rule kept
+/// whole rather than special-cased by picture; docs/spec-notes/pipboy.md §3].
+pub(crate) fn device_brightness(pieces: &mut [Piece], ui: Option<&Ui>, brightness: Brightness) {
+    let Brightness::PipBoyDevice { bright } = brightness else { return };
+    let factor = crate::pipboy::frame::DEVICE_TEXT / 255.0;
+    let full = bright.map(|c| f32::from(c) / 255.0);
+    for p in pieces.iter_mut() {
+        let at_full = p.colour[..3].iter().zip(full).all(|(c, f)| (c - f).abs() <= 0.5 / 255.0);
+        if !at_full || ui.is_some_and(|ui| super::map_menu::keeps_file_brightness(ui, p.tile)) {
+            continue;
+        }
+        for c in &mut p.colour[..3] {
+            *c *= factor;
+        }
+    }
 }
 
 /// Bring one menu's drawn nodes in line with its `pieces` on `target`: nothing when they and
 /// the target are as last drawn; otherwise each piece's slot kept, moved and recoloured in
-/// place, spawned again or removed ([`change`]).
+/// place, spawned again or removed ([`change`]). `brightness` is applied to the pieces before
+/// they are compared ([`device_brightness`]), so a page whose frame switches between the
+/// device and the screen menu is recoloured.
 #[allow(clippy::too_many_arguments)]
-fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, target: Target, brightness: Brightness, heading: f32, ui: Option<&Ui>, kit: &mut FontKit, nodes: &mut Nodes, glyphs: &crate::pad::PadGlyphs) {
+    device_brightness(&mut pieces, ui, brightness);
     let scale = target.scale;
     // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
     super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
@@ -2622,7 +2692,107 @@ mod tests {
 
     fn paint_painted(mut commands: Commands, painted: Res<Painted>, mut kit: FontKit, mut nodes: Nodes, glyphs: Res<crate::pad::PadGlyphs>, mut drawn: Local<Drawn>) {
         let (set, _) = pieces(&painted.0, painted.1, &plain, Select::Whole { kept: &[], strip: None }, true);
-        paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+        paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), Brightness::File, 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+    }
+
+    /// A small page of its own (#1512) in one colour, 200 100 50, at the brightness levels a
+    /// Pip-Boy page's file resolves: a bright text, a dimmed text, a line at 200, a faint fill
+    /// at full brightness, a location icon at 255, and a text in another colour.
+    const DEVICE_PAGE: &str = r#"<menu name="D"><rect name="Page"><width>400</width><height>300</height>
+      <text name="Bright"><string>A</string><red>200</red><green>100</green><blue>50</blue></text>
+      <text name="Dimmed"><string>B</string><red>200</red><green>100</green><blue>50</blue><brightness>128</brightness><y>30</y></text>
+      <image name="Line"><filename>solid.dds</filename><width>100</width><height>2</height><red>200</red><green>100</green><blue>50</blue><brightness>200</brightness><y>60</y></image>
+      <rect name="Fill"><width>50</width><height>20</height><red>200</red><green>100</green><blue>50</blue><alpha>32</alpha><y>90</y></rect>
+      <image name="MapMarker"><filename>icon.dds</filename><width>20</width><height>20</height><red>200</red><green>100</green><blue>50</blue><y>120</y></image>
+      <text name="Other"><string>C</string><red>10</red><green>20</green><blue>30</blue><y>150</y></text>
+    </rect></menu>"#;
+    const DEVICE_BRIGHT: [u8; 3] = [200, 100, 50];
+
+    fn device_page() -> (Ui, TileId) {
+        let src = MemSource::default().with("d.xml", DEVICE_PAGE);
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "d.xml").unwrap();
+        ui.update();
+        (ui, menu)
+    }
+
+    /// [design: #2212] On the device only the pieces at the page colour's full level take the
+    /// hand-built pages' device brightness (213 of 255); the dimmed text, the line at 200, the
+    /// location icon and a piece in another colour keep the file's; the alpha is never touched.
+    /// The file's brightness (the screen menu, every window menu) changes nothing.
+    #[test]
+    fn a_pipboy_page_on_the_device_dims_only_its_full_bright_pieces() {
+        let (ui, menu) = device_page();
+        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, true);
+        let of = |set: &[Piece], name: &str| set.iter().find(|p| ui.tile(p.tile).name == name).unwrap().colour;
+        let full = DEVICE_BRIGHT.map(|c| f32::from(c) / 255.0);
+        assert_eq!(of(&set, "Bright"), [full[0], full[1], full[2], 1.0], "the fixture's bright text is at its full colour");
+        let mut file = set.clone();
+        device_brightness(&mut file, Some(&ui), Brightness::File);
+        assert_eq!(file, set, "the file's brightness: nothing changes");
+        assert_eq!(Brightness::pipboy(false), Brightness::File, "the screen menu keeps the file's");
+        let mut device = set.clone();
+        device_brightness(&mut device, Some(&ui), Brightness::PipBoyDevice { bright: DEVICE_BRIGHT });
+        let k = crate::pipboy::frame::DEVICE_TEXT / 255.0;
+        let near = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
+        assert!(near(of(&device, "Bright"), [full[0] * k, full[1] * k, full[2] * k, 1.0]), "{:?}", of(&device, "Bright"));
+        let fill = of(&set, "Fill");
+        assert!((fill[3] - 32.0 / 255.0).abs() < 1e-6, "the fill is faint: {fill:?}");
+        assert!(near(of(&device, "Fill"), [full[0] * k, full[1] * k, full[2] * k, fill[3]]), "a full-bright fill dimmed, its alpha kept: {:?}", of(&device, "Fill"));
+        for kept in ["Dimmed", "Line", "MapMarker", "Other"] {
+            assert_eq!(of(&device, kept), of(&set, kept), "{kept} keeps the file's colour");
+        }
+        // Without the tree the location icon is not known, and is at full colour: dimmed.
+        let mut blind = set.clone();
+        device_brightness(&mut blind, None, Brightness::PipBoyDevice { bright: DEVICE_BRIGHT });
+        assert_ne!(of(&blind, "MapMarker"), of(&set, "MapMarker"));
+        // Every Pip-Boy switch off: no pieces, nothing to change.
+        let mut none: Vec<Piece> = Vec::new();
+        device_brightness(&mut none, Some(&ui), Brightness::PipBoyDevice { bright: DEVICE_BRIGHT });
+        assert!(none.is_empty());
+    }
+
+    /// [design] The brightness a test paints [`DEVICE_PAGE`] with.
+    #[derive(Resource)]
+    struct PaintedBrightness(Brightness);
+
+    fn paint_device_page(mut commands: Commands, painted: Res<Painted>, brightness: Res<PaintedBrightness>, mut kit: FontKit, mut nodes: Nodes, glyphs: Res<crate::pad::PadGlyphs>, mut drawn: Local<Drawn>) {
+        let (set, _) = pieces(&painted.0, painted.1, &plain, Select::Whole { kept: &[], strip: None }, true);
+        paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), brightness.0, 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+    }
+
+    /// [design: #2212] The brightness is part of what the painter compares: the frame switched
+    /// from the device to the screen menu and back recolours the full-bright fill in place.
+    #[test]
+    fn a_pipboy_page_is_recoloured_when_its_frame_switches() {
+        let (ui, menu) = device_page();
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<crate::pad::PadGlyphs>()
+            .init_resource::<super::super::runtime_images::RuntimeImages>()
+            .insert_resource(ScriptState::over_no_plugins())
+            .insert_resource(Painted(ui, menu))
+            .insert_resource(PaintedBrightness(Brightness::PipBoyDevice { bright: DEVICE_BRIGHT }))
+            .add_systems(Update, paint_device_page);
+        let fills = |app: &mut App| -> Vec<(Entity, Srgba)> {
+            let world = app.world_mut();
+            world.query::<(Entity, &Ink, &BackgroundColor)>().iter(world).filter(|(_, ink, _)| **ink == Ink::Fill).map(|(e, _, c)| (e, c.0.to_srgba())).collect()
+        };
+        let k = crate::pipboy::frame::DEVICE_TEXT / 255.0;
+        let red = f32::from(DEVICE_BRIGHT[0]) / 255.0;
+        app.update();
+        let device = fills(&mut app);
+        assert_eq!(device.len(), 1, "one fill: {device:?}");
+        assert!((device[0].1.red - red * k).abs() < 1e-5 && (device[0].1.alpha - 32.0 / 255.0).abs() < 1e-5, "{device:?}");
+        app.world_mut().resource_mut::<PaintedBrightness>().0 = Brightness::File;
+        app.update();
+        let screen = fills(&mut app);
+        assert_eq!(screen[0].0, device[0].0, "recoloured in place");
+        assert!((screen[0].1.red - red).abs() < 1e-5, "the screen menu: the file's 255: {screen:?}");
+        app.world_mut().resource_mut::<PaintedBrightness>().0 = Brightness::PipBoyDevice { bright: DEVICE_BRIGHT };
+        app.update();
+        assert!((fills(&mut app)[0].1.red - red * k).abs() < 1e-5, "back on the device: dimmed again");
     }
 
     /// The pictures drawn: each node's entity and texture.

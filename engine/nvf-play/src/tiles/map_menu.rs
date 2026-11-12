@@ -97,7 +97,7 @@ const HIGHLIGHT_BOX: &str = main_rect!("MM_Highlight_ClipWindow/MM_MapHighlightB
 const HIGHLIGHT_NAME: &str = main_rect!("MM_Highlight_ClipWindow/MM_MapHighlightBox/MM_HighlightLocationName");
 /// The World Map's templates and the rows they make [documented: map_menu.xml].
 const MARKER_TEMPLATE: &str = "MapMarkerTemplate";
-const MARKER_ROW: &str = "MapMarker";
+pub(super) const MARKER_ROW: &str = "MapMarker";
 const QUEST_TEMPLATE: &str = "WorldMapQuestMarkerTemplate";
 const QUEST_ROW: &str = "WorldMapQuestMarker";
 const NODE_TEMPLATE: &str = "WaypointTemplate";
@@ -805,6 +805,14 @@ fn map_picture_piece(ui: &Ui, clip: &str, picture: &str) -> Option<Piece> {
         None => Source::Own,
     };
     Some(Piece { tile: parent, look: Look::Picture { name, source, fit: Fit::Stretch }, rect, clip: Some(cut), colour: [r, g, bl, alpha], depth, tex: None, turn: None, crop: None })
+}
+
+/// Whether `tile` is one of the maps' location icons (a [`MARKER_ROW`] row, World Map and Local
+/// Map alike), which keep the file's brightness on the device: the hand-built page draws them at
+/// 220 (255 under the highlight box) in both frames (`crate::pipboy::data`), as the file's
+/// `MapMarkerTemplate` resolves them [documented: map_menu.xml] (`super::draw::device_brightness`).
+pub(super) fn keeps_file_brightness(ui: &Ui, tile: TileId) -> bool {
+    ui.tile(tile).name.eq_ignore_ascii_case(MARKER_ROW)
 }
 
 /// `pieces` (in drawing order, by depth) with the map's picture ([`map_picture_piece`]) among

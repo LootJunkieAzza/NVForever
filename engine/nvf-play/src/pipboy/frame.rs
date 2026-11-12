@@ -41,7 +41,8 @@ pub const TEXT: f32 = 255.0;
 /// measured: the screen menu (Use Pip-Boy off) keeps the file's 255. The flat image a
 /// Pip-Boy model without a screen falls back to shows the device's drawing, so it takes 213
 /// with it [design: the canvas is drawn once per frame kind]. The pages drawn from their
-/// menu files keep the file's 255 on the device too (docs/spec-notes/pipboy.md §3).
+/// menu files take it on the device too, for their pieces at the file's full bright level
+/// (`crate::tiles::draw::device_brightness`, docs/spec-notes/pipboy.md §3).
 pub const DEVICE_TEXT: f32 = 213.0;
 pub const DIMMED: f32 = 128.0;
 pub const FILL: (f32, f32) = (128.0, 32.0);
