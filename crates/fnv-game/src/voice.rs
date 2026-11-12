@@ -77,7 +77,12 @@ impl Game<'_> {
             let chars = self.data.infos.get(&info).and_then(|d| d.response_chars.get(response)).copied().unwrap_or(0);
             return voice.and_then(|v| v.file_seconds(path)).unwrap_or_else(|| fitted_seconds(chars));
         }
-        let sound = voice.and_then(|v| v.response_seconds(info, response, voice_base)).or_else(|| {
+        // The player speaks with the voice type of her or his sex (upstream #2088).
+        let own = match self.voice_override(voice_base) {
+            Some(vt) => voice.and_then(|v| v.response_seconds_in_voice(info, response, vt)),
+            None => voice.and_then(|v| v.response_seconds(info, response, voice_base)),
+        };
+        let sound = own.or_else(|| {
             let fixed = self.dialogue_view().info(&info).and_then(|d| d.speaker).filter(|s| Some(*s) != voice_base && Some(*s) != placed_base)?;
             voice?.response_seconds(info, response, Some(fixed))
         });
