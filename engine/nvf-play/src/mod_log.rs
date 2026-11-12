@@ -9,6 +9,8 @@
 //!   (`fnv_game::plugin_questions`: a "not there" is why a mod switches itself off), and
 //!   the first of each failure in a mod's script (a function not built, a call that
 //!   failed, a statement skipped, a script stopped early).
+//! - Under the pause menu's Mods page: where MCM's mod list stands, each time it changes
+//!   ([`mcm_list_line`]).
 //! - At exit: the counts per mod, and what was asked for and not there.
 //!
 //! A mod is a plugin that is not one of the game's own files ([`GAME_PLUGINS`]). The
@@ -144,6 +146,8 @@ pub struct ModLog {
     /// The questions answered "not there", for the line at exit.
     absent: Vec<String>,
     asked: usize,
+    /// MCM's list as last said ([`mcm_list_line`]).
+    mcm_list: String,
 }
 
 impl ModLog {
@@ -231,6 +235,59 @@ pub fn frame(log: &mut ModLog, game: &mut fnv_game::Game<'_>, events: &[Event]) 
     }
     for line in events.iter().filter_map(|e| log.event(e)) {
         warn!("mods: {line}");
+    }
+}
+
+/// MCM's mod list in the start menu's tree (menu-xml.md §10).
+const MCM_LIST: &str = "StartMenu/MCM/MCM_ModList";
+
+/// Where MCM's mod list stands: what places its rows (the selected mod, the count of its
+/// sub menus, the arrows, the row step) and each row that is switched on, a mod's (`Mod1`
+/// to `Mod23`) or a sub menu's (`SubMenu1` to `SubMenu10`), with the name it shows.
+/// `None` without MCM's list in the tree.
+pub fn mcm_list_line(ui: &fnv_ui::Ui) -> Option<String> {
+    ui.find_tile(MCM_LIST)?;
+    let read = |p: &str| ui.get_float(p).map_or("none".to_string(), |v| ((v * 100.0).round() / 100.0).to_string());
+    let list = |p: &str| read(&format!("{MCM_LIST}/{p}"));
+    let names = (1..=23).map(|k| format!("Mod{k}")).chain((1..=10).map(|k| format!("SubMenu{k}")));
+    let rows: Vec<String> = names
+        .filter(|n| ui.get_float(&format!("{MCM_LIST}/{n}/_enable")).unwrap_or(0.0) != 0.0)
+        .map(|n| {
+            let text = ui.get_string(&format!("{MCM_LIST}/{n}/text/string")).unwrap_or_default();
+            format!(
+                "{n} {:?} y {} (text {}) height {} visible {} _modID {} _subID {}",
+                text.trim(),
+                list(&format!("{n}/y")),
+                list(&format!("{n}/text/y")),
+                list(&format!("{n}/height")),
+                list(&format!("{n}/visible")),
+                list(&format!("{n}/_modID")),
+                list(&format!("{n}/_subID"))
+            )
+        })
+        .collect();
+    Some(format!(
+        "MCM's list: _selected {}, _subCount {}, ArrowUp y {}, ArrowDown y {}, row height {}, _spacing {}, _listY {}; MCM _ActiveMod {}, _ActiveSubMenu {}; rows on: {}",
+        list("_selected"),
+        list("_subCount"),
+        list("ArrowUp/y"),
+        list("ArrowDown/y"),
+        list("MCM_ModList_Size/height"),
+        list("_spacing"),
+        list("_listY"),
+        read("StartMenu/MCM/_ActiveMod"),
+        read("StartMenu/MCM/_ActiveSubMenu"),
+        if rows.is_empty() { "none".to_string() } else { rows.join("; ") }
+    ))
+}
+
+/// A frame under the pause menu's Mods page: the questions asked there, and MCM's list
+/// when it changed.
+pub fn mods_page(log: &mut ModLog, game: &mut fnv_game::Game<'_>) {
+    frame(log, game, &[]);
+    if let Some(line) = mcm_list_line(&game.ui_tree).filter(|l| *l != log.mcm_list) {
+        info!("mods: {line}");
+        log.mcm_list = line;
     }
 }
 

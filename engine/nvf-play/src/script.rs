@@ -1928,6 +1928,9 @@ pub(crate) fn run_scripts(
             if mods_ticks.frames == 1 {
                 info!("scripts: MenuMode {} blocks run under the pause menu's Mods page", fnv_game::game::menus::START);
             }
+            if let Some(log) = st.mod_log.as_mut() {
+                crate::mod_log::mods_page(log, &mut rt.game);
+            }
         }
         return;
     }
