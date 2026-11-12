@@ -533,7 +533,7 @@ mod tests {
         assert!((radius(1) - 0.85).abs() < 1e-6);
         assert!(radius(4) < radius(3));
         assert_eq!(radius(40), MIN_RADIUS);
-        assert!(MIN_RADIUS > BALL * 2.0);
+        const { assert!(MIN_RADIUS > BALL * 2.0) };
     }
 
     #[test]
