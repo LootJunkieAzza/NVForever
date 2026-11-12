@@ -12,7 +12,9 @@ use bevy::prelude::*;
 use bevy::render::renderer::raw_vulkan_init::{AdditionalVulkanFeatures, RawVulkanInitSettings, VulkanLibraryInstance};
 use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderContext, RenderDevice, RenderInstance, RenderQueue};
 use bevy::render::RenderApp;
-use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32};
+use windows_sys::Win32::System::LibraryLoader::{
+    AddDllDirectory, LoadLibraryExW, SetDefaultDllDirectories, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32,
+};
 
 use super::evaluate::{Evaluator, OptionsKey, VIEWPORT};
 use super::ffi::{
@@ -208,6 +210,14 @@ pub(super) fn start(app: &mut App) {
             return;
         }
     };
+    // What Streamline loads by name from here on is looked up in the program's folder, the DLSS
+    // folder and System32 only (`limit_dll_search`).
+    if let Err(why) = limit_dll_search(&folder) {
+        note(Level::WARN, format!("inactive: the process's DLL search could not be limited before Streamline ({why}); the stock Vulkan path"));
+        set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
+        return;
+    }
+    note(Level::INFO, format!("dll search: from now on, DLLs loaded by name are looked up in the program's folder, {} and System32 only", folder.display()));
     // The checked file stays open, kept from writes, renames and deletes, until it is loaded
     // (security.rs, "One file, checked and loaded").
     let loaded = load(&interposer);
@@ -416,6 +426,37 @@ fn load(interposer: &Path) -> Option<Api> {
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
     }
     api
+}
+
+/// The process's DLL search limited to the program's folder, the DLSS folder and System32, before
+/// Streamline is loaded; only on this path, never on the stock one.
+///
+/// `load` fixes where the interposer's own imports come from, but not what Streamline loads
+/// later: it loads its plugins with a plain `LoadLibraryW(path)` [documented:
+/// `src/secureLoadLibrary.cpp:31-41`], whose imports are searched by the process's default
+/// order, and `sl.common` delay-loads `NvLowLatencyVk.dll` by name [documented: Streamline's
+/// `premake.lua:480-485`, `/DELAYLOAD:NvLowLatencyVk.dll` when built with `with-nvllvk`; the
+/// release's `sl.common` asks for it, observed as the log's error for a missing
+/// `NvLowLatencyVk.dll`, docs/design/dlss-upscaling.md]. That default order includes the working
+/// directory and `PATH`.
+/// `SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)` replaces it with the application
+/// directory, the directories added with `AddDllDirectory`, and System32; the folder is added
+/// first, so that a failure there changes nothing [documented: Microsoft Learn,
+/// "SetDefaultDllDirectories function (libloaderapi.h)" and "AddDllDirectory function
+/// (libloaderapi.h)", read 2026-11-12]. The change "persists for the life of the process" and
+/// cannot be reverted (same page); docs/design/dlss-upscaling.md says why that is safe.
+fn limit_dll_search(folder: &Path) -> Result<(), String> {
+    let folder_w = backslashed(wide(folder.as_os_str()));
+    // SAFETY: a NUL-terminated absolute path (`resolve_folder` takes only absolute ones).
+    let cookie = unsafe { AddDllDirectory(folder_w.as_ptr()) };
+    if cookie.is_null() {
+        return Err(format!("AddDllDirectory({}) failed: {}", folder.display(), std::io::Error::last_os_error()));
+    }
+    // SAFETY: a documented flag value; no pointers.
+    if unsafe { SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) } == 0 {
+        return Err(format!("SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) failed: {}", std::io::Error::last_os_error()));
+    }
+    Ok(())
 }
 
 /// A NUL-terminated wide path with every `/` written as `\`.

@@ -14,8 +14,9 @@ and `src/exports.def` in `source/core/sl.interposer/`, `src/log.cpp` in `source/
 `src/ota.cpp` in `source/core/sl.ota/`, `src/pluginManager.cpp` in
 `source/core/sl.plugin-manager/`, `src/vulkan.cpp` in `source/platforms/sl.chi/`,
 `src/commonEntry.cpp` and `src/commonInterface.cpp` in `source/plugins/sl.common/`, and
-`src/dlssEntry.cpp` in `source/plugins/sl.dlss/` (the tag's file list, read 2026-11-12). Line
-numbers are those files' at the tag. Everything is described in our
+`src/dlssEntry.cpp` in `source/plugins/sl.dlss/`, `src/secureLoadLibrary.cpp` in
+`source/core/sl.security/`; `premake.lua` is at the repository's root (the tag's file list, read
+2026-11-12). Line numbers are those files' at the tag. Everything is described in our
 words; no NVIDIA text or code is reproduced here beyond names.
 
 ## Files

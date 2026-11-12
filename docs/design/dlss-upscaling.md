@@ -73,6 +73,24 @@ detail in the module notes of the file named.
   up in the DLSS folder, then in System32, never in the working directory or `PATH`, so a DLL
   dropped there cannot be loaded into the game. (The review of #2206; before it,
   `LOAD_WITH_ALTERED_SEARCH_PATH`, which also searched those two.)
+- **The process's DLL search, before Streamline** (`dlss/win.rs` `limit_dll_search`). The
+  interposer's flags do not reach what Streamline loads later: its plugins with a plain
+  `LoadLibraryW(path)` (`src/secureLoadLibrary.cpp:31-41`), whose imports follow the process's
+  default search, and `NvLowLatencyVk.dll`, which `sl.common` delay-loads by name (Streamline's
+  `premake.lua:480-485`) [documented]. That default search includes the working directory and
+  `PATH`. So, on the Streamline path only, just before the interposer is loaded, the DLSS folder
+  is added (`AddDllDirectory`) and the process's default search set to the program's folder,
+  the added folder and System32 (`SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)`).
+  Either call failing keeps the stock path (`StreamlineRefused`, one log line); the folder is
+  added first, so a failure there changes nothing. The stock path never makes these calls.
+  The change lasts for the rest of the process and cannot be undone [documented: Microsoft
+  Learn, "SetDefaultDllDirectories function"]. It is safe for the rest of the game because it
+  only drops the working directory, `PATH` and the Windows folder from searches by name; what
+  the game loads after it comes by full path or from System32 [hypothesis, from how they are
+  loaded: the Vulkan loader from System32 (`vulkan-1.dll`), the GPU drivers and Vulkan layers by
+  the full paths their registrations give, the audio and system libraries from System32]; a
+  Vulkan layer registered with a bare file name that lies only on `PATH` would no longer load
+  in a session that took the Streamline path. (The second review of #2206.)
 - **Loaded whenever the files are there** (`main.rs`, `upscaler.rs` `UpscalerStartup`,
   `dlss::bundle_present`) [design: the user's decision after the play-test of #2206,
   2026-11-12]. `main` works out the requested choice before the renderer exists, from the
