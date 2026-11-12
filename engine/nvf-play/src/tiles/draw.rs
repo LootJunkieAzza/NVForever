@@ -164,6 +164,8 @@ pub(crate) struct FontKit<'w> {
     data: Option<Res<'w, GameData>>,
     images: ResMut<'w, Assets<Image>>,
     formats: Option<Res<'w, CompressedImageFormatSupport>>,
+    /// The pictures the code made (`super::runtime_images`).
+    runtime: Option<Res<'w, super::runtime_images::RuntimeImages>>,
 }
 
 impl FontKit<'_> {
@@ -340,6 +342,12 @@ pub enum Source {
     /// own file's slanted ends and single line on the original's screenshots, not the
     /// shared atlas piece's square ends and doubled line; menu-xml.md §3.1.3].
     Own,
+    /// A `filename` with the runtime prefix (`super::runtime_images::PREFIX`): a texture
+    /// the code made, looked up before any atlas or file, stamped with its entry's revision
+    /// and size as the pieces are painted (`super::runtime_images::mark`; none from
+    /// [`pieces`], none while no entry is set), so a new picture under the same name
+    /// repaints [design: menu-xml.md §3.1.5].
+    Runtime(Option<super::runtime_images::Stamp>),
 }
 
 /// What one drawn tile looks like.
@@ -626,6 +634,7 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
                     _ => Fit::Stretch,
                 };
                 let source = match image.texatlas.as_ref().map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
+                    _ if super::runtime_images::is_runtime(&image.filename) => Source::Runtime(None),
                     _ if !whole => Source::Shared,
                     Some(atlas) => Source::Index(atlas),
                     None => Source::Own,
@@ -805,6 +814,8 @@ pub(crate) struct Drawn {
     /// The texture offsets' and alpha maps' textures, baked images, budget and told lines
     /// (`super::texmod`).
     tex: super::texmod::State,
+    /// What was said once about the runtime pictures (`super::runtime_images`).
+    runtime_told: super::runtime_images::Told,
 }
 
 /// A `tile` picture baked into one image ([`crate::repeat`]): the image and its node's
@@ -1472,6 +1483,8 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
     let scale = target.scale;
     // ITR's texture offsets and alpha maps on the pictures, before they are compared (#1833).
     super::texmod::mark(&mut pieces, nodes.script.rt.as_ref().map(|rt| &rt.game.other.itr));
+    // The runtime pictures' revisions and sizes, so a new one under the same name repaints.
+    super::runtime_images::mark(&mut pieces, kit.runtime.as_deref(), &mut drawn.runtime_told);
     drawn.tex.frame();
     drawn.tex.prune(&pieces, ui);
     // A camera's image is laid out at its own size whatever the UI scale (#1631).
@@ -1588,11 +1601,19 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                     Source::Shared => pictures.picture_sized(name, None, data, &mut kit.images, bc),
                     Source::Index(atlas) => pictures.picture_sized(name, Some(atlas), data, &mut kit.images, bc),
                     Source::Own => pictures.own_sized(name, data, &mut kit.images, bc),
+                    Source::Runtime(_) => super::runtime_images::picture(kit.runtime.as_deref(), name, &mut drawn.runtime_told),
                 },
                 _ => None,
             };
             // A `tile` picture's repeats, baked into one image.
             let baked = match (&piece.look, &picture, data) {
+                // A runtime picture's texels are not read back: Bevy's tiles repeat it.
+                (Look::Picture { name, source: Source::Runtime(_), fit }, Some((_, rect, size)), _) => {
+                    if matches!(placed(*fit, rect.is_some(), (f64::from(size.x), f64::from(size.y))), Placed::Repeat { .. }) {
+                        super::runtime_images::unbaked(name, &mut drawn.runtime_told);
+                    }
+                    None
+                }
                 (Look::Picture { name, source, fit }, Some((_, rect, size)), Some(data)) => {
                     let texels = (f64::from(size.x), f64::from(size.y));
                     match placed(*fit, rect.is_some(), texels) {
@@ -1632,7 +1653,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
             };
             // The compass strip's window, baked into one image (`crate::compass_strip`).
             let strip = match (&piece.look, &picture, data) {
-                (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) => {
+                (Look::Picture { name, source, fit: Fit::Strip }, Some((_, rect, _)), Some(data)) if !matches!(source, Source::Runtime(_)) => {
                     let atlas = match source {
                         Source::Index(a) => Some(a.as_str()),
                         _ => None,
@@ -2486,6 +2507,98 @@ mod tests {
         assert_eq!(turned(&corner).translation, Val2::new(u(f(x)), u(f(y))));
         // Turned further, same look and size: in place.
         assert_eq!(change(arrow, &corner), Change::InPlace);
+    }
+
+    /// [design] The tree and menu a test paints through [`paint`] itself.
+    #[derive(Resource)]
+    struct Painted(Ui, TileId);
+
+    fn paint_painted(mut commands: Commands, painted: Res<Painted>, mut kit: FontKit, mut nodes: Nodes, glyphs: Res<crate::pad::PadGlyphs>, mut drawn: Local<Drawn>) {
+        let (set, _) = pieces(&painted.0, painted.1, &plain, Select::Whole { kept: &[], strip: None }, true);
+        paint(&mut commands, &mut drawn, set, Target::window(1.0, 1), 0.0, Some(&painted.0), &mut kit, &mut nodes, &glyphs);
+    }
+
+    /// The pictures drawn: each node's entity and texture.
+    fn drawn_images(app: &mut App) -> Vec<(Entity, Handle<Image>)> {
+        let world = app.world_mut();
+        world.query::<(Entity, &ImageNode)>().iter(world).map(|(e, i)| (e, i.image.clone())).collect()
+    }
+
+    /// [design] A runtime picture through the real painting: nothing while no entry is set,
+    /// its texture once one is, repainted by a new handle, by the same handle set again and
+    /// by a new size under the one name, kept while nothing changes, gone when removed.
+    #[test]
+    fn a_runtime_picture_repaints_when_its_entry_changes_under_the_same_name() {
+        let src = MemSource::default().with(
+            "rt.xml",
+            r#"<menu name="RT"><image name="Map"><filename> nvf:test_map </filename><width>64</width><height>32</height><zoom>-1</zoom></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "rt.xml").unwrap();
+        ui.update();
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<TileFonts>()
+            .init_resource::<crate::pad::PadGlyphs>()
+            .init_resource::<super::super::runtime_images::RuntimeImages>()
+            .insert_resource(ScriptState::over_no_plugins())
+            .insert_resource(Painted(ui, menu))
+            .add_systems(Update, paint_painted);
+        let image = |app: &mut App| app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
+        let set = |app: &mut App, h: &Handle<Image>, size: Vec2| {
+            let name = app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().set("test_map", h.clone(), size);
+            assert_eq!(name, "nvf:test_map");
+        };
+        app.update();
+        assert!(drawn_images(&mut app).is_empty(), "no entry: nothing drawn");
+        let (a, b) = (image(&mut app), image(&mut app));
+        set(&mut app, &a, Vec2::new(64.0, 32.0));
+        app.update();
+        let first = drawn_images(&mut app);
+        assert_eq!(first.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), [a.clone()], "set late: drawn");
+        app.update();
+        assert_eq!(drawn_images(&mut app), first, "nothing changed: the same node");
+        set(&mut app, &b, Vec2::new(64.0, 32.0));
+        app.update();
+        let second = drawn_images(&mut app);
+        assert_eq!(second.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), [b.clone()], "a new handle, the same name: repainted");
+        set(&mut app, &b, Vec2::new(64.0, 32.0));
+        app.update();
+        let third = drawn_images(&mut app);
+        assert_eq!(third.len(), 1);
+        assert_ne!(third[0].0, second[0].0, "the same handle set again (its texels changed): repainted");
+        set(&mut app, &b, Vec2::new(128.0, 32.0));
+        app.update();
+        assert_ne!(drawn_images(&mut app)[0].0, third[0].0, "a new size: repainted");
+        assert!(app.world_mut().resource_mut::<super::super::runtime_images::RuntimeImages>().remove("nvf:test_map"));
+        app.update();
+        assert!(drawn_images(&mut app).is_empty(), "removed: nothing drawn");
+    }
+
+    /// [design] A runtime name is looked up as a runtime picture whatever the tile's atlas,
+    /// and its piece carries no stamp until painted.
+    #[test]
+    fn a_runtime_name_is_its_own_source() {
+        let src = MemSource::default().with(
+            "rn.xml",
+            r#"<menu name="RN"><image name="A"><filename>NVF:Outline</filename><texatlas>Interface\InterfaceShared.tai</texatlas><width>9</width><height>9</height></image>
+              <image name="B"><filename>Interface\nvf\b.dds</filename><width>9</width><height>9</height></image></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "rn.xml").unwrap();
+        ui.update();
+        let (set, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, true);
+        assert!(matches!(&set[0].look, Look::Picture { source: Source::Runtime(None), .. }));
+        assert!(matches!(&set[1].look, Look::Picture { source: Source::Own, .. }));
+        // Stamped by its entry; a texture offset is dropped from it, said once.
+        let mut set = set;
+        set[0].tex = Some(super::super::texmod::TexMod { offset: (0.5, 0.0), mask: None });
+        let mut images = super::super::runtime_images::RuntimeImages::default();
+        images.set("outline", Handle::default(), Vec2::new(9.0, 9.0));
+        let mut told = super::super::runtime_images::Told::default();
+        super::super::runtime_images::mark(&mut set, Some(&images), &mut told);
+        assert!(matches!(&set[0].look, Look::Picture { source: Source::Runtime(Some(s)), .. } if s.size == Vec2::new(9.0, 9.0)));
+        assert!(set[0].tex.is_none() && told.texmod("nvf:outline"));
     }
 
     #[test]

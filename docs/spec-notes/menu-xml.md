@@ -542,6 +542,28 @@ What the code does (`nvf-play/src/tiles/layout.rs` `Turn`, `tiles/draw.rs` `turn
 - [design] The pointer is tested against a turned tile's unturned box (`fnv_ui::input`),
   as no turned tile in the files takes the pointer.
 
+### 3.1.5 Pictures the code sets: runtime images
+
+[documented: `menus\main\map_menu.xml`] Some images have no picture in their file and are
+given one by the original's code (the Local Map's `MM_LocalMap_ParentImage`; pipboy.md
+§5.3.1). NVForever's code makes such pictures itself (the Local Map's outline,
+`nvf-play/src/pipboy/data/outline.rs`). What the code does (`nvf-play/src/tiles/runtime_images.rs`):
+
+- [design] A `filename` that starts with `nvf:` (any case) names a picture the code made,
+  kept in the `RuntimeImages` resource by name with its texture, its size in texels and a
+  revision. No game path starts so (the menu files name pictures under `textures\` by
+  relative paths; in Windows paths a colon only follows a drive letter). It is looked up
+  before the atlas indexes and the files, and never enters the file-name cache.
+- [design] Each `RuntimeImages::set` or `touch` is a new revision. The renderer stamps the
+  picture's piece with its entry's revision and size before comparing the frame's pieces
+  with the last ones, so a new texture, the same texture changed, an entry set late,
+  removed or resized repaints the piece under the same name.
+- [design] It fills its box as any picture by `zoom` and `tile` (§3.1.3; `zoom` -1
+  stretches it over the box). Its `tile` repeats are drawn by Bevy's tiles, not baked
+  into one image (the baking reads files); SetUITexOffset and SetUIAlphaMap are not
+  applied to it (they read files); each said once in the log. A name with no entry draws
+  nothing and says so once.
+
 ### 3.2 The pointer and keys (T8)
 
 What the game's code writes for input, and how `fnv_ui::input` reads the files for it.
