@@ -232,6 +232,14 @@ line and kind of their first error, and those functions with the number of units
 each (fnv.ext.report/1; `--detail` adds the compiler's words, which may quote the mod's
 script and so stay private). A plugin outside the Data folder is given by its full path.
 
+For a played run, the test aid `NVF_PLAY_TEST_MOD_LOG=1` (`nvf_play::mod_log`) writes the
+same per plugin into the game's log in lines that start with `mods:` [design]: the load
+order; each mod's scripts (how many use the extender and run from source, which do not
+compile, the functions and names not in NVForever); then, each once, what a mod's scripts
+ask about plugins and read (IsPluginInstalled, GetPluginVersion, IsDLLLoaded, IsModLoaded,
+GetModIndex: `fnv_game::plugin_questions`, kept only under the aid) and the first of each
+failure in a mod's script; at exit the counts per mod. The lines quote no script text.
+
 **At the console** (docs/design/console.md): a statement the console's own reader does
 not take goes through the compiler and runs as a one-line result script
 (`Game::run_source`), on the selected reference. That covers a `set` whose value is an

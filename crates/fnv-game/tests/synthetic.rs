@@ -4609,3 +4609,24 @@ fn built_in_plugins_report_installed() {
         assert_eq!(q(&mut g, &format!("GetPluginVersion \"{name}\"")), Ok(XVal::Num(-1.0)), "{name}");
     }
 }
+
+/// The test aid's list of what scripts ask about plugins (`fnv_game::plugin_questions`):
+/// nothing is kept by default; switched on, each question comes once with its answer.
+#[test]
+fn plugin_questions_are_kept_only_when_asked_for() {
+    let f = udf_fixture();
+    let mut g = game(&f);
+    let q = |g: &mut fnv_game::Game, body: &str| g.run_query(&format!("Begin Function {{ }}\nSetFunctionValue ({body})\nEnd\n"), Default::default()).unwrap();
+    q(&mut g, "IsPluginInstalled \"yUI\"");
+    assert!(g.plugin_questions.is_none());
+    g.plugin_questions = Some(Default::default());
+    for body in ["IsPluginInstalled \"yUI\"", "IsPluginInstalled \"yUI\"", "GetPluginVersion \"JIP NVSE Plugin\"", "IsDLLLoaded \"no_such\"", "IsModLoaded \"Nothing.esp\"", "GetModIndex \"Nothing.esp\""] {
+        q(&mut g, body);
+    }
+    let got = g.plugin_questions.as_mut().unwrap().take();
+    let read: Vec<(&str, &str, f64, bool)> = got.iter().map(|x| (x.function.as_str(), x.name.as_str(), x.answer, x.absent())).collect();
+    assert_eq!(
+        read,
+        [("isplugininstalled", "yUI", 0.0, true), ("getpluginversion", "JIP NVSE Plugin", 57.3, false), ("isdllloaded", "no_such", 0.0, true), ("ismodloaded", "Nothing.esp", 0.0, true), ("getmodindex", "Nothing.esp", 255.0, true)]
+    );
+}

@@ -193,6 +193,10 @@ pub trait Host {
     }
     /// A line for the console (Ar_Dump and the extender's printing functions).
     fn print(&mut self, _text: &str) {}
+    /// A script asked whether a plugin is there (IsPluginInstalled, GetPluginVersion,
+    /// GetModIndex, by the function's lower-case name) and read `answer`: for a host
+    /// that keeps what the load order's scripts look for.
+    fn plugin_asked(&mut self, _function: &str, _name: &str, _answer: f64) {}
     /// A script error worth the console's attention: a call that crashes the original
     /// game answers its default value here and says so [decision: the owner, 2026-10-26,
     /// "scripts should never crash the game; log it on the console as a script error"].
@@ -2833,7 +2837,9 @@ impl Vm<'_, '_> {
             // [documented: GetModIndex] 255 when the plugin is not loaded.
             "getmodindex" => {
                 let n = text(val(self, 0)?).unwrap_or_default();
-                XVal::Num(self.host.mod_index(&n).unwrap_or(255) as f64)
+                let index = self.host.mod_index(&n).unwrap_or(255) as f64;
+                self.host.plugin_asked("getmodindex", &n, index);
+                XVal::Num(index)
             }
             // [documented: GetSourceModIndex] the load-order index of the form's plugin: its
             // FormID's top byte here, where FormIDs are load-order FormIDs.
@@ -2918,11 +2924,13 @@ impl Vm<'_, '_> {
             "isplugininstalled" | "getpluginversion" => {
                 let p = text(val(self, 0)?).unwrap_or_default();
                 let found = jip::PLUGINS.iter().find(|(name, _)| name.eq_ignore_ascii_case(&p)).map(|(_, v)| *v);
-                XVal::Num(match (n, found) {
+                let answer = match (n, found) {
                     ("isplugininstalled", f) => f64::from(u8::from(f.is_some())),
                     (_, Some(v)) => v,
                     (_, None) => -1.0,
-                })
+                };
+                self.host.plugin_asked(n, &p, answer);
+                XVal::Num(answer)
             }
             _ => return Ok(None),
         }))

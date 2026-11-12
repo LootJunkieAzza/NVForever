@@ -249,6 +249,9 @@ pub struct ScriptState {
     /// playing holds it until the old run has ended (nvforever `handoff`; owner
     /// 2026-11-01, #1357, #1651).
     pub held: bool,
+    /// Test aid `NVF_PLAY_TEST_MOD_LOG` (`crate::mod_log`): how the mods loaded and what
+    /// their scripts met, in the log; none when the aid is off.
+    pub mod_log: Option<crate::mod_log::ModLog>,
 }
 
 /// A save's game snapshot for the runtime to restore when it is made (`crate::save`).
@@ -384,7 +387,7 @@ impl ScriptState {
         let write = (!unattended || own_home).then(|| fnv_install::EngineHome::default_root().map(|r| fnv_install::EngineHome::new(r).mods())).flatten();
         fnv_game::mod_files::update_roots(|r| r.write = write);
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None, held: false }
+        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None, held: false, mod_log: None }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -1806,6 +1809,10 @@ pub(crate) fn run_scripts(
                 st.loader = None;
                 let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
                 rt.start = st.start.clone();
+                // Before any script runs, so the restart's and the load's questions count.
+                if crate::mod_log::on() {
+                    crate::mod_log::keep_questions(&mut rt.game);
+                }
                 tiles.install_measure(&mut rt.game);
                 let mut restored = false;
                 if let Some(PendingGame(snap, path)) = st.pending_game.take() {
@@ -1893,6 +1900,9 @@ pub(crate) fn run_scripts(
                     data.scripts.len(),
                     data.quests.len()
                 );
+                if crate::mod_log::on() {
+                    st.mod_log = Some(crate::mod_log::start(&mut rt.game));
+                }
                 st.rt = Some(rt);
             }
         }
@@ -2132,6 +2142,9 @@ pub(crate) fn run_scripts(
     }
     let t = secs(rt.started);
     let gt = rt.game.time;
+    if let Some(log) = st.mod_log.as_mut() {
+        crate::mod_log::frame(log, &mut rt.game, &events);
+    }
     for e in &events {
         log_event(rt.game.data, e);
         crate::dialogue::log_farewell(&mut rt.game, e);
@@ -2371,6 +2384,9 @@ fn write_final(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>
         return;
     }
     let st = &mut *script;
+    if let (Some(log), Some(rt)) = (st.mod_log.as_mut(), st.rt.as_mut()) {
+        crate::mod_log::finish(log, &mut rt.game);
+    }
     let Some(rt) = st.rt.as_ref() else {
         info!("scripts: never ran ({})", st.off.as_deref().unwrap_or("not ready before exit"));
         return;
@@ -2474,7 +2490,7 @@ impl ScriptState {
             choices_passed: None,
             activate_pick: None,
         };
-        ScriptState { loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None, held: false }
+        ScriptState { loader: None, rt: Some(rt), off: None, trace: None, aids: Vec::new(), aids_started: false, gates: HashMap::new(), auto_close: None, no_messages: false, on_screen: None, walks: Vec::new(), new_game: false, start: GameStart::default(), used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None, held: false, mod_log: None }
     }
 
     /// The player answered the open menu: it closes after this frame's scripts.

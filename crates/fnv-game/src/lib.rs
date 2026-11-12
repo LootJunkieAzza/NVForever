@@ -64,6 +64,7 @@ pub mod crafting;
 pub mod crime;
 pub mod data;
 pub mod source_compile;
+pub mod plugin_questions;
 pub mod sweep;
 pub mod death_items;
 pub mod detection;

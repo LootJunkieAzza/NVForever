@@ -1282,6 +1282,9 @@ pub struct Game<'a> {
     /// Lines for the console: what scripts print (PrintC, Print …) and script errors;
     /// the engine's console takes them each frame.
     pub console_out: Vec<String>,
+    /// Test aid: what scripts asked about plugins and read, each question once
+    /// (`crate::plugin_questions`); `None`, the default: not kept.
+    pub plugin_questions: Option<crate::plugin_questions::Questions>,
     /// SetNthEffectTraitNumeric's changes: (form, entry, trait) -> value, the session's.
     pub(crate) effect_overrides: std::collections::HashMap<(FormId, usize, usize), f64>,
     /// JIP switches kept for the session (ToggleTeammateKillable, SetWheelDisabled,
@@ -2314,6 +2317,7 @@ impl<'a> Game<'a> {
             playable_overrides: std::collections::HashMap::new(),
             player_magazine: None,
             console_out: Vec::new(),
+            plugin_questions: None,
             effect_overrides: std::collections::HashMap::new(),
             jip_flags: std::collections::HashSet::new(),
             box_callback: None,
@@ -6192,6 +6196,16 @@ impl Host for Exec<'_, '_> {
         self.game.emit(EventKind::ScriptError { unit, error: text.to_string() });
     }
 
+    fn plugin_asked(&mut self, function: &str, name: &str, answer: f64) {
+        if self.game.plugin_questions.is_none() {
+            return;
+        }
+        let (unit, plugin) = (self.unit.key(), self.calling_plugin().unwrap_or_default());
+        if let Some(q) = self.game.plugin_questions.as_mut() {
+            q.record(function, name, answer, unit, plugin);
+        }
+    }
+
     fn box_callback(&mut self, func: fnv_script::vm::XVal) {
         self.game.box_callback = Some(func);
     }
@@ -6397,7 +6411,14 @@ impl Host for Exec<'_, '_> {
         // reads the calling script.
         self.game.other.plugin = self.calling_plugin().unwrap_or_default();
         self.game.other.script = self.current_script().map(FormId);
-        crate::nvse::call(self.game, &ctx, name, on, args)
+        let out = crate::nvse::call(self.game, &ctx, name, on, args);
+        // The host's own plugin questions (IsDLLLoaded, IsModLoaded), for the test aid.
+        if self.game.plugin_questions.is_some() && crate::plugin_questions::FUNCTIONS.contains(&name) {
+            if let (Some(Ok(fnv_script::vm::XVal::Num(answer))), Some(fnv_script::vm::XVal::Str(asked))) = (&out, args.first()) {
+                self.plugin_asked(name, asked, *answer);
+            }
+        }
+        out
     }
 
     fn game_setting(&mut self, name: &str) -> Option<fnv_script::vm::XVal> {
