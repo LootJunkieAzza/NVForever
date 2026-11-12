@@ -25376,3 +25376,22 @@ order = [[
   { text = "controls: input device Controller", label = "the controller is picked" },
   { re = 'pause menu: inspect: back \S+  B\)', label = "Back names the controller's B" },
 ]]
+
+[[scenario]]
+name = "container-pad-category"
+source = "issue #1827: in the container menu a controller's LT and RT pick the player's list and the container's, and the D-pad's left and right change the picked list's category, as the original (owner's play; container_menu.xml CM_Items_TitleButton LT, CM_Container_TitleButton RT); pad.rs menu_buttons"
+note = "Controller chosen on the pause menu (open 2 s to 5 s) at 3 s; the Refrigerator opened with A at 16 s (as container-e-key with E). The menu opens with the container's list focused [observed: the first run]: D-pad right at 18 s steps it from All to Weapons, LT at 19 s gives the player's list the focus, D-pad left at 20 s steps it from All round to Ammo, RT at 21 s gives the container's list the focus back, B at 23 s closes. Before the fix the D-pad moved the focus and nothing changed the category"
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/look.rs"]
+env = { NVFOREVER_HOME = "container-pad-category-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105658", NVF_PLAY_TEST_PAUSE = "2:5", NVF_PLAY_TEST_SETTINGS = "3:device:Controller", NVF_PLAY_TEST_KEYS = "16:pad-A,18:pad-D-Pad Right,19:pad-LT,20:pad-D-Pad Left,21:pad-RT,23:pad-B" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 26
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { text = 'menu: open Container(0x00105658) "Refrigerator"', label = "A opens the Refrigerator" },
+  { re = 'menu: Category\(Container, 1\): the Container list shows Weapons', label = "the D-pad's right steps the container's list's category" },
+  { re = 'menu: Focus\(Player\): the Player list has the focus', label = "LT picks the player's list" },
+  { re = 'menu: Category\(Player, -1\): the Player list shows Ammo', label = "the D-pad's left steps the player's list's category" },
+  { re = 'menu: Focus\(Container\): the Container list has the focus', label = "RT picks the container's list" },
+  { text = "menu: close", label = "B closes" },
+]]

@@ -988,6 +988,7 @@ pub(crate) struct MenuPages<'w> {
     lockpick: Option<Res<'w, crate::lockpick::LockpickScreen>>,
     poker: Option<Res<'w, crate::poker::PokerScreen>>,
     stats: Option<Res<'w, crate::pipboy::stats::StatsView>>,
+    items: Option<Res<'w, crate::menu::ActiveMenu>>,
 }
 
 impl MenuPages<'_> {
@@ -1002,7 +1003,11 @@ impl MenuPages<'_> {
         let help = self.blackjack.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()))
             || self.roulette.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()))
             || self.slots.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()))
-            || self.lockpick.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()));
+            || self.lockpick.as_ref().is_some_and(|b| b.0.as_ref().is_some_and(|s| s.help.is_some()))
+            // "How many?" over an item menu: the D-pad steps the amount, LT and RT by ten, A
+            // is Ok and B Cancel, its keys through the shared buttons, not the menu's own
+            // (the container's D-pad changes the category) [design, #1827].
+            || self.items.as_ref().is_some_and(|a| a.0.as_ref().is_some_and(|m| m.quantity.is_some()));
         let tab = if help { HELP_PAGE } else { self.pip.as_ref().map_or(0, |p| p.tab()) };
         let rad = code == Some(fnv_game::game::menus::STATS) && tab == 0 && self.stats.as_ref().is_some_and(|s| s.status == 1);
         MenuAt { code, tab: if rad { STATS_RAD } else { tab } }
@@ -1014,7 +1019,7 @@ impl MenuPages<'_> {
 /// "file"], pressing the key NVForever's hand-built menu answers for that control.
 pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
     use fnv_game::game::menus;
-    use GamepadButton::{East, LeftTrigger, LeftTrigger2, North, RightTrigger2, South, West};
+    use GamepadButton::{DPadLeft, DPadRight, East, LeftTrigger, LeftTrigger2, North, RightTrigger2, South, West};
     // A help box over a minigame: its own buttons rest, so A (Enter) and B (Esc) close
     // the box as its keys do (blackjack's A is otherwise its F) [design, #1662].
     if at.tab == HELP_PAGE {
@@ -1027,10 +1032,15 @@ pub fn menu_buttons(at: MenuAt) -> &'static [(GamepadButton, KeyCode)] {
     use KeyCode::*;
     let Some(code) = at.code else { return &[] };
     match code {
-        // container_menu.xml: Take All X.
-        crate::script::MENU_CONTAINER => &[(West, KeyR)],
-        // barter_menu.xml: Accept X (B exits, as Esc).
-        menus::BARTER => &[(West, KeyA)],
+        // container_menu.xml: Take All X. LT and RT pick the player's list and the
+        // container's (the arrow keys), the hints under the lists (`CM_Items_TitleButton`
+        // LT, `CM_Container_TitleButton` RT); the D-pad's left and right change the picked
+        // list's category (`[` and `]`) [observed: the original, issue #1827].
+        crate::script::MENU_CONTAINER => &[(West, KeyR), (LeftTrigger2, ArrowLeft), (RightTrigger2, ArrowRight), (DPadLeft, BracketLeft), (DPadRight, BracketRight)],
+        // barter_menu.xml: Accept X (B exits, as Esc). LT, RT and the D-pad as the container
+        // menu's [documented: `BM_Items_TitleButton` LT and `BM_Container_TitleButton` RT;
+        // the D-pad: hypothesis, as the container menu, #1827].
+        menus::BARTER => &[(West, KeyA), (LeftTrigger2, ArrowLeft), (RightTrigger2, ArrowRight), (DPadLeft, BracketLeft), (DPadRight, BracketRight)],
         // inventory_menu.xml: Repair Y, Mod LB (Drop X: `crate::pipboy::items`, which has
         // no key for it; Hotkey RB: the hotkeys are held digits, not built for the pad).
         menus::INVENTORY => &[(North, KeyR), (LeftTrigger, KeyX), (LeftTrigger2, F1), (RightTrigger2, F3)],
@@ -1449,7 +1459,29 @@ mod tests {
         assert_eq!(menu_key_at(West, PAUSE_AT), Some(KeyCode::Delete));
         // Other menus keep theirs: the triggers are Page Up and Page Down where a menu has none.
         assert_eq!(menu_key_at(LeftTrigger2, MenuAt::default()), Some(KeyCode::PageUp));
-        assert_eq!(menu_key_at(RightTrigger2, at_menu(fnv_game::game::menus::BARTER)), Some(KeyCode::PageDown));
+        assert_eq!(menu_key_at(RightTrigger2, HELP_AT), Some(KeyCode::PageDown));
+    }
+
+    /// Issue #1827: in the container and barter menus LT and RT pick the player's list and
+    /// the other one, and the D-pad's left and right change the picked list's category.
+    #[test]
+    fn the_item_menus_triggers_pick_a_list_and_the_d_pad_its_category() {
+        use GamepadButton::*;
+        for at in [at_menu(crate::script::MENU_CONTAINER), at_menu(fnv_game::game::menus::BARTER)] {
+            assert_eq!(menu_key_at(LeftTrigger2, at), Some(KeyCode::ArrowLeft));
+            assert_eq!(menu_key_at(RightTrigger2, at), Some(KeyCode::ArrowRight));
+            assert_eq!(menu_key_at(DPadLeft, at), Some(KeyCode::BracketLeft));
+            assert_eq!(menu_key_at(DPadRight, at), Some(KeyCode::BracketRight));
+            // LB and RB still page the list; up and down still move the selection.
+            assert_eq!(menu_key_at(LeftTrigger, at), Some(KeyCode::PageUp));
+            assert_eq!(menu_key_at(DPadUp, at), Some(KeyCode::ArrowUp));
+            // The hints under the lists name the triggers.
+            assert_eq!(hint_as(&[KeyCode::ArrowLeft], at, Labels::Xbox), "LT)");
+            assert_eq!(hint_as(&[KeyCode::ArrowRight], at, Labels::PlayStation), "R2)");
+        }
+        // "How many?" over them: the shared buttons, the D-pad stepping the amount.
+        assert_eq!(menu_key_at(DPadLeft, HELP_AT), Some(KeyCode::ArrowLeft));
+        assert_eq!(menu_key_at(LeftTrigger2, HELP_AT), Some(KeyCode::PageUp));
     }
 
     #[test]

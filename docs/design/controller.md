@@ -62,8 +62,8 @@ Start cannot be bound.
 
   | Menu | Buttons |
   |------|---------|
-  | Container | X Take All |
-  | Barter | X Accept |
+  | Container | X Take All; LT / RT pick the player's list / the container's, "LT)" and "RT)" drawn under them; D-pad left / right the picked list's category [observed: the original, #1827; documented: `CM_Items_TitleButton`, `CM_Container_TitleButton`]; while "How many?" is up its own buttons rest: the D-pad steps the amount, LT / RT by ten [design, #1827] |
+  | Barter | X Accept; LT / RT and the D-pad as the container menu's [documented: `BM_Items_TitleButton`, `BM_Container_TitleButton`; the D-pad: hypothesis, #1827] |
   | Pip-Boy (every page) | LT / RT the previous / next page (STATS, ITEMS, DATA, round again); D-pad left / right the tabs [design: owner 2026-11-02] |
   | Pip-Boy ITEMS | X Drop (`pipboy::items`, not while "How many?" is up), Y Repair, LB Mod |
   | Pip-Boy STATS | status tab: A Stimpak, Y Doctor's Bag, X Rad-X; General tab: X switch lists |
