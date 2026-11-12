@@ -46,8 +46,10 @@
 //!   propagation (before the frusta are built) and writes the camera's global transform
 //!   itself, so it wins without a hook in the minigames' code [engineering choice].
 //! - **Leaving** [design]: when the result menu closes the screen fades to black over
-//!   [`FADE_OUT`] s with the camera held (the body kept drawn by the creator's portrait
-//!   flag, `PlayerControl::portrait`, for those frames), stays black [`HOLD`] s, and
+//!   [`FADE_OUT`] s with the camera held (the body kept drawn by
+//!   `PlayerControl::end_view`; not the creator's portrait flag, which lit the scene with
+//!   the creator's lights for those frames [observed: c-night-15 wide play-51.5s]), stays
+//!   black [`HOLD`] s, and
 //!   comes back over [`FADE_IN`] s in the view the player had before the game (the
 //!   minigame's stage gives it back). A new match at the same board (the winner cleared)
 //!   ends the end view without a fade.
@@ -386,6 +388,16 @@ pub fn arm_heading(table: [f32; 2], seats: [[f32; 2]; 2], feet: [f32; 2]) -> Opt
 /// behind the doorframe south of the saloon's table [observed: c-night-7 r3 play-55s, the
 /// post across the left fifth of the shot] [design].
 pub const ARM_VIEW: Portrait = Portrait { distance: 160.0, drop: 20.0, ..END_VIEW };
+/// How much higher the arm-wrestling end view aims for each unit nearer than [`ARM_VIEW`]
+/// it stands, so the top of the frame stays over the raised fists [design: tan of half the
+/// upright field of view, about 60 at the game's FOV setting 75 (free_cam::vertical_fov);
+/// c-night-14 wide play-49s, the fists past the top at 100 with ARM_VIEW's drop].
+pub const ARM_RAISE: f32 = 0.58;
+
+/// [`ARM_VIEW`] at `distance`, aimed higher the nearer it stands ([`ARM_RAISE`]).
+pub fn arm_view(distance: f32) -> Portrait {
+    Portrait { distance, drop: ARM_VIEW.drop - (ARM_VIEW.distance - distance) * ARM_RAISE, ..ARM_VIEW }
+}
 
 /// How far the arm-wrestling end view's aim moves from the player toward the far chair
 /// (game units): the opponent stands up beside it, about twice that from the player, so
@@ -403,6 +415,177 @@ fn arm_middle(eye: [f32; 3], seats: [[f32; 2]; 2], feet: [f32; 2]) -> [f32; 3] {
         return eye;
     }
     [eye[0] + ax / len * ARM_CENTER, eye[1] + ay / len * ARM_CENTER, eye[2]]
+}
+
+/// The sides the arm-wrestling end view tries, radians off [`arm_heading`]'s (square to
+/// the chairs' line), nearest first: out to near profile, for an onlooker standing in front
+/// of the pair [design: c-night-15, the south-west spot of the laptop's ship14 watch runs
+/// is out of the frame from 0.45 off; the close one, 42 in front of the pair's middle, from
+/// none].
+pub const ARM_YAWS: [f32; 9] = [0.0, 0.45, -0.45, 0.9, -0.9, 1.2, -1.2, 1.4, -1.4];
+/// The distances it tries at each side, furthest first: a camera nearer the pair stands in
+/// front of an onlooker the further one would see past [design].
+pub const ARM_DISTANCES: [f32; 4] = [160.0, 140.0, 120.0, 100.0];
+/// How close to the camera an onlooker's head, chest or hips may come (game units)
+/// [design: a body's half width and the near plane].
+pub const ARM_NEAR: f32 = 45.0;
+/// A body's half width, as the camera sees it (game units) [design: shoulders; a raised
+/// fist's reach is left to the margin of [`ARM_VIEW`]'s frame].
+pub const ARM_BODY: f32 = 22.0;
+/// Half the end view's width across (radians): a body nearer the camera than either of the
+/// pair is kept out of it [design: the game's FOV setting 75 across 4:3 kept upright, about 91
+/// across at 16:9 (free_cam::vertical_fov); the lead: a spectator anywhere between the
+/// camera and the pair rules that spot out].
+pub const ARM_FRAME: f32 = 0.8;
+/// How near the far chair the opponent's head stands once up (game units) [observed:
+/// c-night-8, the Settler up beside his chair] [design: margin].
+pub const ARM_OPPONENT: f32 = 70.0;
+/// A head this near the player's feet (level) is the player's own [design].
+const ARM_SELF: f32 = 30.0;
+/// Heads further than this from the player's feet (level) are not near enough to be in
+/// the end view (game units) [design: past [`ARM_DISTANCES`]' furthest camera; the
+/// saloon's other room counted two at 800, c-night-10].
+const ARM_CROWD: f32 = 400.0;
+
+/// The arm-wrestling end view's heading and distance: the first of [`ARM_YAWS`] off
+/// `base` at the furthest of [`ARM_DISTANCES`] whose camera, aimed at `aim`, the walls
+/// leave clear (`walls` is how far the line from the look point to the camera is free) and
+/// that sees the two of the `pair` (heads) apart with no onlooker (`crowd`, heads) over
+/// them ([`crowd_margin`] not below 0), and `true`. None so: of those the walls leave
+/// clear (an onlooker right in front of the pair covers one of them from every side), the
+/// view the pair alone would have, [`hide_blockers`] taking the onlookers out of it, and
+/// `false`; `base` at [`ARM_VIEW`]'s distance when the walls leave none.
+pub fn pick_arm(aim: [f32; 3], base: f32, pair: [[f32; 3]; 2], crowd: &[[f32; 3]], mut walls: impl FnMut([f32; 3], [f32; 3]) -> f32) -> (f32, f32, bool) {
+    let mut walled = true;
+    for d in ARM_DISTANCES {
+        for dy in ARM_YAWS {
+            let view = arm_view(d);
+            let (at, look) = end_camera_of(view, aim, base + dy);
+            let free = walls(at, look);
+            let m = crowd_margin(at, look, pair, crowd);
+            debug!("match end: arm end view candidate yaw {dy:+.2} distance {d:.0}: walls leave {free:.0}, margin {m:.2}");
+            if free < SEATED_CLEAR * d {
+                continue;
+            }
+            if m >= 0.0 {
+                return (base + dy, d, true);
+            }
+            walled = false;
+        }
+    }
+    // Nowhere clear: the onlookers in the way are not drawn for it ([`hide_blockers`]), so
+    // the view the pair alone would have.
+    if walled || crowd.is_empty() {
+        return (base, ARM_VIEW.distance, false);
+    }
+    let (h, d, _) = pick_arm(aim, base, pair, &[], walls);
+    (h, d, false)
+}
+
+/// A point as a camera at `cam` looking along `fwd` sees it: how far ahead, the angle
+/// across from the middle (radians) and the half width of a body there.
+fn seen(cam: Vec3, fwd: Vec3, right: Vec3, p: Vec3) -> (f32, f32, f32) {
+    let v = p - cam;
+    let ahead = v.dot(fwd);
+    (ahead, v.dot(right).atan2(ahead.max(1e-3)), ARM_BODY.atan2(ahead.max(1e-3)))
+}
+
+/// How clear a camera at `at` looking at `look` (game space, z up) leaves the pair, in
+/// radians across the shot (below 0: covered by that much): the gap between the two of the
+/// `pair` (heads), bodies' widths taken off, and how far out of the frame ([`ARM_FRAME`])
+/// any of `heads` (an onlooker; its chest and hips below it) stands that is nearer the
+/// camera than either of the pair; -1 when an onlooker comes within [`ARM_NEAR`] of the
+/// camera. An onlooker beside them (no nearer), or behind, is left in the shot.
+/// [`f32::MAX`] for a pair seen apart and nobody about.
+pub fn crowd_margin(at: [f32; 3], look: [f32; 3], pair: [[f32; 3]; 2], heads: &[[f32; 3]]) -> f32 {
+    let cam = Vec3::from(at);
+    let fwd = (Vec3::from(look) - cam).normalize_or_zero();
+    let right = fwd.cross(Vec3::Z).normalize_or_zero();
+    let [a, b] = pair.map(|q| seen(cam, fwd, right, Vec3::from(q)));
+    let mut m = (a.1 - b.1).abs() - a.2 - b.2;
+    for &h in heads {
+        let h = Vec3::from(h);
+        for p in [h, h - Vec3::Z * MATE_CHEST, h - Vec3::Z * 2.0 * MATE_CHEST] {
+            if p.distance(cam) < ARM_NEAR {
+                return -1.0;
+            }
+            let (ahead, x, w) = seen(cam, fwd, right, p);
+            if ahead > 0.0 && ahead < a.0.min(b.0) {
+                m = m.min(x.abs() - w - ARM_FRAME);
+            }
+        }
+    }
+    if m >= 0.0 && heads.is_empty() {
+        f32::MAX
+    } else {
+        m
+    }
+}
+
+/// Which of the `crowd` (heads) still cover the pair in the view `(at, look)`: each on its
+/// own, the margin below 0 and below what the pair alone leaves ([`crowd_margin`]; a view
+/// that sees the two a little over each other counts nobody for that).
+pub fn blockers(at: [f32; 3], look: [f32; 3], pair: [[f32; 3]; 2], crowd: &[[f32; 3]]) -> Vec<usize> {
+    let alone = crowd_margin(at, look, pair, &[]);
+    (0..crowd.len())
+        .filter(|&k| {
+            let m = crowd_margin(at, look, pair, &crowd[k..k + 1]);
+            m < 0.0 && m < alone
+        })
+        .collect()
+}
+
+/// Whether a camera at `at` looking at `look` fails the pair ([`crowd_margin`] below 0).
+#[cfg(test)]
+pub fn crowd_blocks(at: [f32; 3], look: [f32; 3], pair: [[f32; 3]; 2], heads: &[[f32; 3]]) -> bool {
+    crowd_margin(at, look, pair, heads) < 0.0
+}
+
+/// Where the opponent's head stands for the arm-wrestling end view: as far again past
+/// `aim` from the player's `eye` (he stands up beside the far chair) [design].
+fn arm_opponent(eye: [f32; 3], aim: [f32; 3]) -> [f32; 3] {
+    [2.0 * aim[0] - eye[0], 2.0 * aim[1] - eye[1], eye[2]]
+}
+
+/// The heads in `crowd` that are onlookers: not the player (up at `feet`) nor the
+/// opponent, the head nearest the far chair within [`ARM_OPPONENT`] of it (he stands up
+/// beside it).
+pub fn onlookers(crowd: &[[f32; 3]], seats: [[f32; 2]; 2], feet: [f32; 2]) -> Vec<[f32; 3]> {
+    let flat = |h: [f32; 2], q: [f32; 2]| (h[0] - q[0]).hypot(h[1] - q[1]);
+    let far = if flat(seats[0], feet) >= flat(seats[1], feet) { seats[0] } else { seats[1] };
+    let level = |h: &[f32; 3]| [h[0], h[1]];
+    let opponent = crowd
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| flat(level(h), far) < ARM_OPPONENT)
+        .min_by(|a, b| flat(level(a.1), far).total_cmp(&flat(level(b.1), far)))
+        .map(|(i, _)| i);
+    crowd
+        .iter()
+        .enumerate()
+        .filter(|&(i, h)| Some(i) != opponent && (ARM_SELF..ARM_CROWD).contains(&flat(level(h), feet)))
+        .map(|(_, h)| *h)
+        .collect()
+}
+
+/// The heads of the actors near the arm-wrestling table, for its end view's pick: every
+/// drawn body but this player's own (game space), while an arm-wrestling result shows.
+fn crowd(mut st: ResMut<MatchEnd>, rigs: Query<(Entity, &ActorRig)>, globals: Query<&GlobalTransform>) {
+    if !matches!(st.phase, Phase::Result { kind: Kind::ArmWrestle, .. }) || st.arm_pick.is_some() {
+        if !st.crowd.is_empty() {
+            st.crowd.clear();
+        }
+        return;
+    }
+    st.crowd = rigs
+        .iter()
+        .filter(|(_, r)| r.reference != fnv_sim::FormId::PLAYER_REF.0)
+        .filter_map(|(e, r)| crate::knockouts::bone(r, &globals, "Bip01 Head").map(|b| (e, b)))
+        .map(|(e, b)| {
+            let g = space::to_game(b);
+            (e, [g[0], g[1], g[2]])
+        })
+        .collect();
 }
 
 /// The two chairs of the arm-wrestling table where they are placed
@@ -505,8 +688,6 @@ pub struct MatchEnd {
     /// This player's own reaction: its serial on the third-person body, its mood and when
     /// it began (real seconds).
     own: Option<(u32, Mood, f32)>,
-    /// The portrait flag was set here (for the fade out) and is to be cleared.
-    portrait: bool,
     /// The camera as the game placed it when the end view began, to ease from.
     from: Option<Transform>,
     /// The clips read ahead for a game under way.
@@ -529,6 +710,15 @@ pub struct MatchEnd {
     face: Option<f32>,
     /// The seated end camera's side was picked for this result ([`pick_seated`]).
     picked: bool,
+    /// The arm-wrestling end view picked for this result ([`pick_arm`]): the heading the
+    /// player turns to and the camera's distance.
+    arm_pick: Option<(f32, f32)>,
+    /// The heads of the actors near the arm-wrestling table but this player (game space),
+    /// this frame ([`crowd`]).
+    crowd: Vec<(Entity, [f32; 3])>,
+    /// The onlookers the arm-wrestling end view could not keep out of the pair's way
+    /// ([`blockers`]): not drawn on this screen while it shows ([`hide_blockers`]).
+    arm_hide: Vec<Entity>,
 }
 
 impl MatchEnd {
@@ -554,7 +744,8 @@ impl Plugin for MatchEndPlugin {
         app.init_resource::<MatchEnd>()
             .add_systems(Startup, spawn_blackout)
             .add_systems(Update, (ends, watch, end_view_flag, stand, cards, react).chain().before(nvf_play::player::BodySet).before(crate::idles::drive))
-            .add_systems(PostUpdate, (camera, blackout, arms_clear).after(TransformSystems::Propagate).before(VisibilitySystems::UpdateFrusta));
+            .add_systems(PostUpdate, (crowd.before(camera), camera, blackout, arms_clear).after(TransformSystems::Propagate).before(VisibilitySystems::UpdateFrusta))
+            .add_systems(PostUpdate, hide_blockers.after(camera).before(VisibilitySystems::VisibilityPropagate));
     }
 }
 
@@ -578,7 +769,6 @@ fn watch(
     darts: Option<Res<DartsScreen>>,
     pool: Option<Res<PoolScreen>>,
     opponent: Option<Res<DartsOpponent>>,
-    mut control: Option<ResMut<PlayerControl>>,
     mut pi: Option<ResMut<PlayerIdles>>,
     (mut parts, mut models): (ResMut<ActorParts>, ModelCtx),
 ) {
@@ -610,6 +800,8 @@ fn watch(
             st.stood = false;
             st.view = st.seated.then_some(SEATED_VIEW);
             st.picked = false;
+            st.arm_pick = None;
+            st.arm_hide.clear();
         }
         if st.shown != Some((e.kind, e.table, e.winner)) {
             st.shown = Some((e.kind, e.table, e.winner));
@@ -629,17 +821,13 @@ fn watch(
                 stop_own(st, pi.as_deref_mut());
             } else {
                 info!("match end: the menu closed; fading to black");
+                // The body stays drawn ([`end_view_flag`]) and the camera held ([`camera`])
+                // while the screen darkens.
                 st.phase = Phase::FadeOut { since: now };
-                // The body stays drawn and the camera held while the screen darkens.
-                if let Some(c) = control.as_deref_mut().filter(|c| c.portrait.is_none()) {
-                    c.portrait = Some(st.view());
-                    st.portrait = true;
-                }
             }
         }
         Phase::FadeOut { since } if now - since >= FADE_OUT => {
             st.phase = Phase::FadeIn { since: now };
-            give_back(st, control.as_deref_mut());
             stop_own(st, pi.as_deref_mut());
             info!("match end: black; back to the player's view");
         }
@@ -660,16 +848,6 @@ fn end_view_flag(st: Res<MatchEnd>, control: Option<ResMut<PlayerControl>>) {
     if c.end_view != want {
         c.end_view = want;
         info!("match end: the view counts as third person: {want}");
-    }
-}
-
-/// The portrait flag back off, if it was set here.
-fn give_back(st: &mut MatchEnd, control: Option<&mut PlayerControl>) {
-    if std::mem::take(&mut st.portrait) {
-        let view = st.view();
-        if let Some(c) = control.filter(|c| c.portrait == Some(view)) {
-            c.portrait = None;
-        }
     }
 }
 
@@ -704,7 +882,9 @@ fn stand(
     // table to face the end view ([`arm_heading`]).
     if kind == Kind::ArmWrestle {
         if let Some(t) = sim.world.peek(fnv_sim::FormId(table)) {
-            if let Some(h) = arm_heading([t.pos[0], t.pos[1]], arm_seats(), [player.feet[0], player.feet[1]]) {
+            // The end view's own pick ([`pick_arm`]) when it has made it.
+            let h = st.arm_pick.map(|(h, ..)| h).or_else(|| arm_heading([t.pos[0], t.pos[1]], arm_seats(), [player.feet[0], player.feet[1]]));
+            if let Some(h) = h {
                 player.heading = h;
                 info!("match end: this player turns out from the arm-wrestling table, heading {:.0} deg", h.to_degrees());
             }
@@ -967,18 +1147,45 @@ fn camera(
         _ => return,
     };
     let (Some(p), Ok((mut t, mut g, parented))) = (player, cams.single_mut()) else { return };
-    if let Phase::Result { kind, table, .. } = st.phase {
-        st.face = match kind {
-            Kind::ArmWrestle => sim.as_deref().and_then(|s| s.world.peek(fnv_sim::FormId(table))).and_then(|t| arm_heading([t.pos[0], t.pos[1]], arm_seats(), [p.feet[0], p.feet[1]])),
-            _ => None,
-        };
-    }
     let eye = body.as_deref().and_then(BodyView::portrait_eye).unwrap_or_else(|| p.eye());
+    let arm = matches!(st.phase, Phase::Result { kind: Kind::ArmWrestle, .. }) || (st.arm_pick.is_some() && matches!(st.phase, Phase::FadeOut { .. }));
+    // Arm wrestling: the pair framed, not the player alone ([`ARM_VIEW`]), from a side no
+    // onlooker stands in, picked once ([`pick_arm`]).
+    let feet = [p.feet[0], p.feet[1]];
+    let aim = arm_middle(eye, arm_seats(), feet);
+    if let (Phase::Result { kind: Kind::ArmWrestle, table, .. }, None) = (st.phase, st.arm_pick) {
+        let base = sim.as_deref().and_then(|s| s.world.peek(fnv_sim::FormId(table))).and_then(|t| arm_heading([t.pos[0], t.pos[1]], arm_seats(), feet));
+        if let Some(base) = base {
+            let heads: Vec<[f32; 3]> = st.crowd.iter().map(|c| c.1).collect();
+            let crowd = onlookers(&heads, arm_seats(), feet);
+            let pair = [eye, arm_opponent(eye, aim)];
+            let (h, d, clear) = pick_arm(aim, base, pair, &crowd, |at, look| match phys.as_deref_mut() {
+                Some(phys) => crate::death_cam::clear(phys, space::to_bevy(look), space::to_bevy(at)).distance(space::to_bevy(look)),
+                None => f32::INFINITY,
+            });
+            info!(
+                "match end: the arm-wrestling end view stands {d:.0} out at heading {:.0} deg, onlookers {:?}{}",
+                h.to_degrees(),
+                crowd.iter().map(|h| [h[0].round(), h[1].round()]).collect::<Vec<_>>(),
+                if clear { "" } else { "; no side clear of them, the pair's own view kept" }
+            );
+            // Nowhere clear: the onlookers still in the way are taken out of the shot.
+            st.arm_hide = if clear {
+                Vec::new()
+            } else {
+                let (at, look) = end_camera_of(arm_view(d), aim, h);
+                let hide: Vec<Entity> = blockers(at, look, pair, &crowd).into_iter().filter_map(|k| st.crowd.iter().find(|c| c.1 == crowd[k]).map(|c| c.0)).collect();
+                info!("match end: {} onlooker(s) in the pair's way not drawn for the end view", hide.len());
+                hide
+            };
+            st.arm_pick = Some((h, d));
+        }
+    }
+    st.face = if arm { st.arm_pick.map(|(h, ..)| h) } else { None };
     let heading = st.face.unwrap_or(p.heading);
-    // Arm wrestling: the pair framed, not the player alone ([`ARM_VIEW`]).
-    let (eye, arm_view) = match st.face {
-        Some(_) => (arm_middle(eye, arm_seats(), [p.feet[0], p.feet[1]]), Some(ARM_VIEW)),
-        None => (eye, None),
+    let (eye, arm_view) = match (arm, st.arm_pick) {
+        (true, Some((_, d))) => (aim, Some(arm_view(d))),
+        _ => (eye, None),
     };
     if st.seated && !st.picked {
         st.picked = true;
@@ -1000,7 +1207,11 @@ fn camera(
         None => at,
     };
     let want = Transform::from_translation(at).looking_at(look, Vec3::Y);
-    let from = *st.from.get_or_insert(*t);
+    // Arm wrestling cuts straight to its view: eased from the game's own camera, the first
+    // frames showed a high corner view of the player getting up [observed: the laptop's
+    // ship14 armwrestle-watch-close, P1 play-67.5s, then the pair at 68s].
+    let first = if arm_view.is_some() { want } else { *t };
+    let from = *st.from.get_or_insert(first);
     let out = ease(from, want, (real.elapsed_secs() - since) / EASE_IN);
     if !out.translation.is_finite() || !out.rotation.is_finite() {
         return;
@@ -1054,6 +1265,38 @@ fn arms_clear(
     }
 }
 
+/// The onlookers the arm-wrestling end view could not see past ([`MatchEnd`]'s
+/// `arm_hide`) are not drawn on this screen from its first frame (it cuts in) to the end
+/// of its fade, then drawn as they were [design: a third-person camera keeps a body
+/// standing in its line out of the shot; the laptop's ship14 watch run's close spot, 42 in
+/// front of the pair, covers one of them from every side].
+fn hide_blockers(st: Res<MatchEnd>, mut vis: Query<(&mut Visibility, Option<&ActorRig>)>, mut tags: Option<ResMut<nvf_play::world_marks::HiddenTags>>, mut kept: Local<Vec<(Entity, Visibility)>>) {
+    let showing = st.arm_pick.is_some() && matches!(st.phase, Phase::Result { kind: Kind::ArmWrestle, .. } | Phase::FadeOut { .. });
+    if showing {
+        for &e in &st.arm_hide {
+            let Ok((mut v, rig)) = vis.get_mut(e) else { continue };
+            if !kept.iter().any(|k| k.0 == e) {
+                kept.push((e, *v));
+                // Nor its name tag over the empty spot.
+                if let (Some(r), Some(t)) = (rig, tags.as_deref_mut()) {
+                    t.0.push(r.reference);
+                }
+            }
+            // Set every frame: the co-op scene's hiding sets other players' bodies too.
+            v.set_if_neq(Visibility::Hidden);
+        }
+    } else {
+        for (e, was) in kept.drain(..) {
+            if let Ok((mut v, rig)) = vis.get_mut(e) {
+                v.set_if_neq(was);
+                if let (Some(r), Some(t)) = (rig, tags.as_deref_mut()) {
+                    t.0.retain(|&x| x != r.reference);
+                }
+            }
+        }
+    }
+}
+
 fn blackout(real: Res<Time<Real>>, st: Res<MatchEnd>, mut q: Query<(&mut BackgroundColor, &mut Visibility), With<Blackout>>) {
     let f = black(st.phase, real.elapsed_secs());
     for (mut c, mut v) in &mut q {
@@ -1094,6 +1337,60 @@ mod tests {
         // The placed chairs are the ones it is given in the game.
         let s = arm_seats();
         assert!((s[0][0] - s[1][0]).hypot(s[0][1] - s[1][1]) > 1.0);
+    }
+
+    #[test]
+    fn the_arm_wrestling_end_view_keeps_onlookers_out_of_the_shot() {
+        // The saloon's table, the player up south-west of it, a watcher at the close, the
+        // south-west and the wide spots (the laptop's ship14 watch runs).
+        let (table, seats) = ([350.0, 337.7], [[315.0, 337.7], [385.0, 337.7]]);
+        let feet = [305.0, 295.0];
+        let eye = [feet[0], feet[1], 3577.0];
+        let base = arm_heading(table, seats, feet).unwrap();
+        let aim = arm_middle(eye, seats, feet);
+        let pair = [eye, arm_opponent(eye, aim)];
+        let head = |x: f32, y: f32| [x, y, 3577.0];
+        let free = |_: [f32; 3], _: [f32; 3]| f32::INFINITY;
+        // Unchecked, the close and the wide watcher spoil the square view.
+        let (at, look) = end_camera_of(ARM_VIEW, aim, base);
+        assert!(!crowd_blocks(at, look, pair, &[]), "the pair alone");
+        assert!(crowd_blocks(at, look, pair, &[head(350.0, 250.0)]), "close");
+        assert!(crowd_blocks(at, look, pair, &[head(340.0, 140.0)]), "wide");
+        for (name, spot) in [("south-west", head(270.0, 260.0)), ("wide", head(350.0, 140.0))] {
+            let (h, d, clear) = pick_arm(aim, base, pair, &[spot], free);
+            assert!(clear, "{name}: no side clear");
+            let (at, look) = end_camera_of(arm_view(d), aim, h);
+            assert!(!crowd_blocks(at, look, pair, &[spot]), "{name}: at {at:?}");
+        }
+        // Right in front of the pair's middle the watcher covers one of them from every
+        // side: the pair's own view is kept and the watcher is the one taken out of it.
+        let spot = head(350.0, 250.0);
+        for dy in ARM_YAWS {
+            for d in ARM_DISTANCES {
+                let (at, look) = end_camera_of(arm_view(d), aim, base + dy);
+                assert!(crowd_blocks(at, look, pair, &[spot]), "close, level: yaw {dy} distance {d}");
+            }
+        }
+        let (h, d, clear) = pick_arm(aim, base, pair, &[spot], free);
+        let (at2, look2) = end_camera_of(arm_view(d), aim, h);
+        assert_eq!((h, d, clear), (base, ARM_VIEW.distance, false), "the pair's own view, the watcher not drawn");
+        let behind = head(340.0, 420.0);
+        assert_eq!(blockers(at2, look2, pair, &[behind, spot]), vec![1], "only the watcher in the way");
+        // Nobody about: the square view, at its full distance.
+        assert_eq!(pick_arm(aim, base, pair, &[], free), (base, ARM_VIEW.distance, true));
+        // Walls everywhere: the square view all the same, said not clear.
+        assert_eq!(pick_arm(aim, base, pair, &[], |_, _| 0.0), (base, ARM_VIEW.distance, false));
+        // Beside the pair (no nearer the camera than they are) or behind it, a watcher is
+        // left in the shot.
+        assert!(!crowd_blocks(at, look, pair, &[head(200.0, 320.0)]), "beside");
+        assert!(!crowd_blocks(at, look, pair, &[head(340.0, 420.0)]), "behind");
+        // Seen end on, the pair covers itself.
+        let (at, look) = end_camera_of(ARM_VIEW, aim, base - std::f32::consts::FRAC_PI_2);
+        assert!(crowd_blocks(at, look, pair, &[]), "end on");
+        // The player's own head and the opponent's (up beside the far chair) are not
+        // onlookers; the watcher is.
+        let crowd = [head(306.0, 296.0), head(392.0, 320.0), head(350.0, 250.0), head(235.0, -493.0)];
+        assert_eq!(onlookers(&crowd, seats, feet), vec![head(350.0, 250.0)]);
     }
 
     #[test]
