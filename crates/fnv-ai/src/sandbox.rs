@@ -528,8 +528,8 @@ impl Sandbox {
             roll < 0.0
         });
         let kind = kind.unwrap_or_else(|| (0..3).rfind(|k| w[*k] > 0.0).unwrap_or(WANDER));
-        for k in 0..3 {
-            self.weights[k] = if k == kind { 0.0 } else { (self.weights[k] + 0.5).min(1.0) };
+        for (k, wk) in self.weights.iter_mut().enumerate() {
+            *wk = if k == kind { 0.0 } else { (*wk + 0.5).min(1.0) };
         }
         // Within a kind, nearer objects are likelier.
         let jitter = self.rng.range(0.75, 1.25) as f64;
