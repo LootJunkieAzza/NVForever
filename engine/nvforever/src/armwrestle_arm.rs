@@ -622,8 +622,9 @@ const THUMB_DIRS: [[f32; 3]; 3] = [[0.5, 0.6, 0.6], [0.75, 0.05, 0.65], [0.35, -
 /// The losing side's upper body follows its arm a little [design: owner 2026-11-12, "when
 /// someone is losing the torso should follow a little bit, keep the elbow anchored"; with
 /// only the arm bent, nothing on the body supported it]: at most this much rolled down to
-/// its own right (where the clasp goes), radians (about 11 degrees) ...
-const FOLLOW_ROLL: f32 = 0.2;
+/// its own right (where the clasp goes), radians (about 17 degrees; 0.2 hardly showed from
+/// over the table, pvpwb run b-win-view12) ...
+const FOLLOW_ROLL: f32 = 0.3;
 /// ... and turned, the right shoulder opening back and out after the hand, radians (about
 /// 14 degrees) [design].
 const FOLLOW_TWIST: f32 = 0.25;
@@ -673,7 +674,13 @@ fn lean_in(root: Entity, rig: &ActorRig, spot: Vec3, toward: Vec3, follow: f32, 
     // Towards the planted elbow, not only straight at the table: a body seated off the
     // table's middle line rolls its shoulder in over the elbow [design: the player sat
     // with the right shoulder 16 to the right of the middle, run 2026-11-11 18:26].
-    let to_spot = Vec3::new(spot.x - sh_t.x, 0.0, spot.z - sh_t.z).normalize_or(toward);
+    // The way in is taken from where the shoulder would be without the follow: from the
+    // rolled shoulder it pointed back across under the roll, and the bend undid it, the
+    // chest leaning away from its pinned arm (owner 2026-11-12, pvpwb: "roll that way ...
+    // with the arm"). Bent along the unrolled way, the roll stays and the bend only keeps
+    // the shoulder an upper arm from the elbow.
+    let sh_0 = pivot + twist_towards(pivot, sh, spot, TWIST * w) * (sh - pivot);
+    let to_spot = Vec3::new(spot.x - sh_0.x, 0.0, spot.z - sh_0.z).normalize_or(toward);
     let axis = Vec3::Y.cross(to_spot).normalize_or(Vec3::X);
     let bend = lean_bend(pivot, sh_t, sh.distance(el), spot, axis) * w;
     // About Y x the way in, a positive turn takes up towards it.
@@ -1014,11 +1021,16 @@ mod tests {
         assert!(moved.y < sh.y && (moved - sh).dot(right) > 0.0 && (moved - sh).dot(toward) < 0.0, "{moved}");
         // The bend in, solved from where the follow left the shoulder, still puts it an
         // upper arm from the planted elbow.
+        // Bent along the way in from the unrolled shoulder (as lean_in does), the roll stays:
+        // the shoulder ends out to the wrestler's right of where the plain bend puts it.
         let spot = Vec3::new(9.0, 45.0, -20.0);
-        let axis = Vec3::Y.cross(Vec3::new(spot.x - moved.x, 0.0, spot.z - moved.z).normalize());
+        let axis = Vec3::Y.cross(Vec3::new(spot.x - sh.x, 0.0, spot.z - sh.z).normalize());
         let b = lean_bend(pivot, moved, 18.0, spot, axis);
         let at = pivot + Quat::from_axis_angle(axis, b) * (moved - pivot);
         assert!((at.distance(spot) - 18.0).abs() < 0.2, "{at}");
+        let b0 = lean_bend(pivot, sh, 18.0, spot, axis);
+        let plain = pivot + Quat::from_axis_angle(axis, b0) * (sh - pivot);
+        assert!((at - plain).dot(right) > 2.0, "{at} {plain}");
     }
 
     #[test]
