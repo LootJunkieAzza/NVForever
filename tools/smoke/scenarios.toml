@@ -25871,3 +25871,22 @@ order = [[
   { text = "test aid NVF_PLAY_TEST_PAUSE: Esc (resume)", label = "the pause menu's test aid resumes it" },
   { text = "pause menu: resume", label = "only then is it resumed" },
 ]]
+
+[[scenario]]
+name = "bsa-version-103"
+kind = "tool"
+source = "issue #2092: the original game loads version 103 (Oblivion-layout) archives, so NVForever reads them too (docs/spec-notes/bsa.md, Version 103)"
+areas = ["assets"]
+paths = ["crates/fnv-bsa/", "crates/fnvtool/src/bsa_cmd.rs"]
+requires = ["NVF_BSA_103"]
+note = "NVF_BSA_103: the path of a version 103 archive on this machine (a mod's; never committed). The rules rest on the public pages; this is the check against a real archive that #2092 asks for: it lists as 103, every file decodes, and it rewrites byte for byte"
+commands = [
+  ["bsa", "list", "{env:NVF_BSA_103}"],
+  ["bsa", "verify", "{env:NVF_BSA_103}"],
+]
+expect = [
+  { json = "header.version", schema = "fnv.bsa.listing/1", equals = 103, label = "the archive is version 103" },
+  { json = "errors.#", schema = "fnv.bsa.listing/1", equals = 0, label = "every file decodes (no path stripped from a block)" },
+  { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
+  { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
+]
