@@ -550,8 +550,11 @@ fn leave(
 /// The meter's track, interface units.
 const METER_W: f32 = 420.0;
 const METER_H: f32 = 14.0;
-/// The tap prompt's place: the view's middle, a little low [design].
-const PROMPT_TOP: f32 = 560.0;
+/// The tap prompt's place: the view's lower third, under the clasped hands the match camera
+/// centres (nvforever `armwrestle_view`), above the HUD's bars (their tops at about 800 of
+/// the 960 units) [design: the lead, 2026-11-11, run15: at 560 the prompt and bar sat on the
+/// clasp].
+const PROMPT_TOP: f32 = 680.0;
 
 fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: Option<Res<CasinoFaces>>, old: Query<Entity, With<ArmRoot>>, mut arm: ResMut<ArmSeat>) {
     for e in &old {

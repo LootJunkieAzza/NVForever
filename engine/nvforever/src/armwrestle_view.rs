@@ -1,18 +1,24 @@
 //! The arm-wrestling match's camera (queue item 199; the bout is `nvf_play::armwrestle`):
-//! once the player sits down to a match, the game's camera goes close over the player's
-//! shoulder, looking across the table at the clasped hands, the opponent behind them
-//! [design: the lead's spec 2026-11-11, after the run12 shots showed a wide room view with
-//! the clasp hidden behind the player's head; the original game has no arm wrestling].
+//! once the player sits down to a match, the game's camera looks at the clasped hands from
+//! behind the player's side of the table, three-quarters round, the opponent across them
+//! [design: the lead's spec 2026-11-11; the original game has no arm wrestling].
 //!
-//! - **Where it stands.** [`BACK`] behind the seated player's head along the table's axis,
-//!   [`SIDE`] to one side and [`UP`] above it: the shoulder away from the wall, the side
-//!   the camera is pulled in less on (the left when both are clear); the head is the drawn body's `Bip01 Head`
-//!   (leaning in over the table with the arm, `armwrestle_arm`), else a seated head over the
-//!   stool ([`SEATED_HEAD`]).
-//! - **Where it looks.** At the clasp: the middle between the two stools, [`CLASP_UP`] over
-//!   the table's top. From that spot it is about 10 to 15 degrees down.
-//! - **Walls.** The camera is pulled in towards the head in front of anything between the
-//!   two ([`WALL_MARGIN`]), as the third-person camera is (`nvf_play::control::place_camera`).
+//! - **Where it looks.** At the clasped hands: the player's own `Bip01 R Hand` as the arm
+//!   pose (`armwrestle_arm`) puts it, a little on into the grip, followed slowly
+//!   ([`AIM_FOLLOW`]) so the view goes with the lean and the pin without shaking with each
+//!   tap; without the bone, the middle between the stools [`CLASP_UP`] over the table.
+//! - **Where it stands.** Placed from the hands, not from the player's head: [`REACH`] from
+//!   them, round from straight back along the table's axis towards one side ([`ANGLE`] to
+//!   the player's right, [`ANGLE_LEFT`] to the left), and
+//!   [`RISE`] above them, so it looks about 28 degrees down ([`spot`]). From behind the head
+//!   (run16, armwrestle-a's elbows-planted pose) the wrestlers' heads, bent down to the
+//!   hands' height within about 13 of them, covered the clasp from any shoulder offset; from
+//!   this angle the line to the hands passes well clear of the player's own head and body.
+//! - **Which side.** The one away from the wall: the side the camera is pulled in less on
+//!   (the right, the gripping arm's, when both are clear), chosen as it takes the view and
+//!   again [`SIDE_AGAIN`] later, once the hands are in place.
+//! - **Walls.** Pulled in towards the hands in front of anything between the two
+//!   ([`WALL_MARGIN`]), as the third-person camera is (`nvf_play::control::place_camera`).
 //! - **In and out.** It eases in from where the camera was over [`EASE_IN`]. It stays
 //!   through getting up, until the screen closes; the player's own view comes back then
 //!   (first person, the eye), so the change never passes through the table.
@@ -20,8 +26,9 @@
 //!   (`PlayerControl::scene_cam`), so the player's body is drawn and the first-person
 //!   arms are not, as at the slot machine (`slots_view.rs`). The mouse does not move it.
 //!
-//! Log: `arm wrestle view: over the shoulder at <stool> ...` once when it takes the view,
-//! with the camera's spot and its pitch, and `arm wrestle view: the player's camera again`.
+//! Log: `arm wrestle view: ...` when it takes the view (the side and the spot), once the
+//! bout is under way (where the hands are, the camera's spot and pitch), and `arm wrestle
+//! view: the player's camera again`.
 
 use bevy::prelude::*;
 use fnv_sim::FormId;
@@ -32,38 +39,47 @@ use nvf_play::phys::PhysState;
 use nvf_play::sim::SimState;
 use nvf_play::space::{look_rotation, to_bevy};
 
-/// Behind the head along the table's axis, game units [design: the lead, "about 60-80"].
-pub const BACK: f32 = 55.0;
-/// To the head's side, game units: enough that the line from the camera to the clasp passes
-/// beside the player's own head leaned in over the table (about 15 to its side there)
-/// [design: run13, at 40 the leaned head still covered part of the clasp; the lead's run12
-/// shot had it behind the head].
-pub const SIDE: f32 = 50.0;
-/// Above the head, game units [design: "head height or a little above"; run14, at 22 the
-/// opponent, leaned in with his face near the hands, was in the middle of the view: from
-/// about his head's height his face stands well above the clasp].
-pub const UP: f32 = 6.0;
-/// The clasped hands' middle over the table's top, game units [design: an upright forearm
-/// and half a hand over the elbow's spot, as `armwrestle_arm::clasp` puts them].
-pub const CLASP_UP: f32 = 28.0;
-/// A seated head over the floor when the body's head bone is not found, game units
-/// [observed: run14, the seated player's `Bip01 Head` at z 3567 over the saloon's floor at
-/// 3456, leaned in over the table].
-pub const SEATED_HEAD: f32 = 111.0;
+/// From the hands to the camera, level, game units [design: run16 plan; the players'
+/// bodies in view to the waist].
+pub const REACH: f32 = 95.0;
+/// Round from straight back along the table's axis to the player's right, radians (70
+/// degrees) [design: run16, each wrestler's head is bent down to the hands' height, 12 to 13
+/// behind them and 8 to 10 to its own left; from the right the player's own head is beyond
+/// the hands, and the line passes about 15 from the opponent's].
+pub const ANGLE: f32 = 70.0 * std::f32::consts::PI / 180.0;
+/// The same to the player's left, radians (110 degrees, a little past side on) [design: the
+/// player's own head leans to that side; run18, at 70 degrees it stood in front of the hands
+/// in P2's view; at 110 the line passes about 15 from each head].
+pub const ANGLE_LEFT: f32 = 110.0 * std::f32::consts::PI / 180.0;
+/// Above the hands, game units: about 28 degrees down, so the line comes over a head bent
+/// down level with the hands [design: the lead asked for 10-15 degrees; shallower, the
+/// heads come in front of the hands; run17, at 40 (23 degrees) the winner's face came
+/// beside the hands near the pin].
+pub const RISE: f32 = 50.0;
+/// Seconds after taking the view that the side is chosen again, from where the hands are by
+/// then [design: run17, chosen at once the hand was still down by the seat, 75 from the
+/// table, and P2's camera went into the north wall].
+pub const SIDE_AGAIN: f32 = 1.5;
+/// The clasped hands' middle over the table's top without the hand bone, game units
+/// [observed: run16, the right hand at z 3527, 19.6 over the top].
+pub const CLASP_UP: f32 = 20.0;
 /// How close the camera may come to what is behind it, game units (the third-person
 /// camera's margin, control.rs) [engineering choice].
 pub const WALL_MARGIN: f32 = 8.0;
 /// Seconds for the camera to come in from where it was [design].
 pub const EASE_IN: f32 = 0.6;
+/// How fast the aim follows the hands, per second [design].
+pub const AIM_FOLLOW: f32 = 3.0;
 
 /// The camera's spot and its heading and pitch (game space, radians; pitch up positive)
-/// for a seated head at `head`, sat facing `toward` (unit, level), looking at `clasp`, over
-/// the left shoulder (`left`) or the right.
-pub fn spot(head: [f32; 3], toward: [f32; 2], clasp: [f32; 3], left: bool) -> ([f32; 3], f32, f32) {
-    // The left of a player facing `toward`: (−y, x).
-    let k = if left { SIDE } else { -SIDE };
-    let side = [-toward[1], toward[0]];
-    let at = [head[0] - toward[0] * BACK + side[0] * k, head[1] - toward[1] * BACK + side[1] * k, head[2] + UP];
+/// looking at `clasp` for a player sat facing `toward` (unit, level), round to their right
+/// (`right`) or left.
+pub fn spot(clasp: [f32; 3], toward: [f32; 2], right: bool) -> ([f32; 3], f32, f32) {
+    // A player facing `toward` has their right at (y, −x).
+    let side = if right { [toward[1], -toward[0]] } else { [-toward[1], toward[0]] };
+    let (sn, cs) = if right { ANGLE } else { ANGLE_LEFT }.sin_cos();
+    let out = [-toward[0] * cs + side[0] * sn, -toward[1] * cs + side[1] * sn];
+    let at = [clasp[0] + out[0] * REACH, clasp[1] + out[1] * REACH, clasp[2] + RISE];
     let (heading, pitch) = aim(at, clasp);
     (at, heading, pitch)
 }
@@ -78,12 +94,18 @@ pub fn aim(from: [f32; 3], to: [f32; 3]) -> (f32, f32) {
 #[derive(Default)]
 pub struct View {
     on: Option<FormId>,
-    /// Over the left shoulder (else the right), chosen once as it takes the view.
-    left: bool,
-    /// The body's head has been said in the log.
+    /// Round to the player's right (else the left), chosen once as it takes the view.
+    right: bool,
+    /// The framing under way has been said in the log.
     told: bool,
+    /// The side has been chosen again from the hands' place ([`SIDE_AGAIN`]).
+    settled: bool,
     from: Option<Transform>,
     start: f32,
+    /// Where it looks, following the hands.
+    aim: Option<[f32; 3]>,
+    /// What it put on the camera last frame.
+    last: Option<Transform>,
 }
 
 /// The arm-wrestling match's camera, after the player's camera has been placed this frame.
@@ -126,66 +148,79 @@ pub fn camera(
     let toward = [dx / len, dy / len];
     let floor = fnv_game::armwrestle_table::FLOOR_Z;
     let top = fnv_game::armwrestle_table::TABLE_TOP_Z;
-    // The drawn body's head (last frame's, leaned in), else one over the stool.
-    let bone = body.as_deref().and_then(|b| b.third_rig()).and_then(|(_, rig)| {
-        let i = rig.skel.names.iter().position(|n| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case("Bip01 Head")))?;
+    // The drawn body's right hand (last frame's), game space, if it is at this seat (not on
+    // a body still standing somewhere else).
+    let hand = body.as_deref().and_then(|b| b.third_rig()).and_then(|(_, rig)| {
+        let i = rig.skel.names.iter().position(|n| n.as_deref().is_some_and(|n| n.eq_ignore_ascii_case("Bip01 R Hand")))?;
         let g = globals.get(*rig.nodes.get(i)?).ok()?.translation();
         // Bevy (x, y up, z) to game (x, -z, y), as `to_bevy` maps the other way.
         let p = nvf_play::space::to_game(g);
-        // Only a head that is at this seat (not one still standing up somewhere else).
-        let near = ((p[0] - s[0]).powi(2) + (p[1] - s[1]).powi(2)).sqrt() < 60.0 && p[2] > floor + 40.0 && p[2] < floor + 140.0;
+        let near = ((p[0] - s[0]).powi(2) + (p[1] - s[1]).powi(2)).sqrt() < 80.0 && p[2] > floor + 20.0 && p[2] < floor + 140.0;
         near.then_some(p)
     });
-    let head = bone.unwrap_or([s[0], s[1], floor + SEATED_HEAD]);
-    // The clasp is over the middle between the two wrestlers' shoulders
-    // (`armwrestle_arm`): the bodies sit off the line between the stools' references (run14:
-    // 45 to its side), so the middle is moved across by as much as this head is.
+    // The bodies sit off the line between the stools' references (run14: 45 to its side),
+    // so the table's middle is moved across by as much as the hand is.
     let across = [-toward[1], toward[0]];
-    let off = (head[0] - s[0]) * across[0] + (head[1] - s[1]) * across[1];
-    let clasp = [(s[0] + o[0]) / 2.0 + across[0] * off, (s[1] + o[1]) / 2.0 + across[1] * off, top + CLASP_UP];
+    let off = hand.map_or(0.0, |h| (h[0] - s[0]) * across[0] + (h[1] - s[1]) * across[1]);
+    let between = [(s[0] + o[0]) / 2.0 + across[0] * off, (s[1] + o[1]) / 2.0 + across[1] * off, top + CLASP_UP];
+    // The hands: this player's right hand (the wrist), a little on into the grip.
+    let target = hand.map_or(between, |h| [h[0] + toward[0] * 3.0, h[1] + toward[1] * 3.0, h[2]]);
+    let k = (time.delta_secs() * AIM_FOLLOW).min(1.0);
+    let clasp = match view.aim.filter(|_| view.on == Some(a.stool)) {
+        Some(p) => [p[0] + (target[0] - p[0]) * k, p[1] + (target[1] - p[1]) * k, p[2] + (target[2] - p[2]) * k],
+        None => target,
+    };
+    view.aim = Some(clasp);
     let filter = fnv_phys::Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
-    // From the head out to the spot, pulled in front of whatever is between (a wall, the
-    // table): the spot reached and how far short of the wanted one it is.
-    let mut reach = |want: [f32; 3]| -> ([f32; 3], f32) {
-        let d = [want[0] - head[0], want[1] - head[1], want[2] - head[2]];
+    // From `from` out to the spot, pulled in front of whatever is between (a wall): the spot
+    // reached and how far short of the wanted one it is.
+    let mut reach = |from: [f32; 3], want: [f32; 3]| -> ([f32; 3], f32) {
+        let d = [want[0] - from[0], want[1] - from[1], want[2] - from[2]];
         let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         let Some(phys) = phys.as_deref_mut().filter(|_| l > 1e-3) else { return (want, 0.0) };
         let u = [d[0] / l, d[1] / l, d[2] / l];
-        match phys.ray(head, u, l + WALL_MARGIN, filter.clone()) {
+        match phys.ray(from, u, l + WALL_MARGIN, filter.clone()) {
             Some(h) => {
                 let r = (h.distance - WALL_MARGIN).clamp(0.0, l);
-                ([head[0] + u[0] * r, head[1] + u[1] * r, head[2] + u[2] * r], l - r)
+                ([from[0] + u[0] * r, from[1] + u[1] * r, from[2] + u[2] * r], l - r)
             }
             None => (want, 0.0),
         }
     };
-    if view.on != Some(a.stool) {
-        // The shoulder away from the wall: the side the camera is pulled in less on (the
-        // left when both are clear) [design: the lead, ship10, P2's camera in the north wall].
-        let short = |left: bool, reach: &mut dyn FnMut([f32; 3]) -> ([f32; 3], f32)| reach(spot(head, toward, clasp, left).0).1;
-        let (l, r) = (short(true, &mut reach), short(false, &mut reach));
-        view.left = l <= r + 1.0;
-        info!("arm wrestle view: pulled in {l:.0} over the left shoulder, {r:.0} over the right: the {}", if view.left { "left" } else { "right" });
+    let again = view.on == Some(a.stool) && !view.settled && now - view.start > SIDE_AGAIN;
+    if view.on != Some(a.stool) || again {
+        // The side away from the wall, tested from the hands: the one pulled in less (the
+        // right, the gripping arm's, when both are clear) [design: the lead, ship10, P2's
+        // camera in the north wall]. Chosen as it takes the view, and again once the hands
+        // are in place; a change eases across.
+        let r = reach(clasp, spot(clasp, toward, true).0).1;
+        let l = reach(clasp, spot(clasp, toward, false).0).1;
+        let right = r <= l + 1.0;
+        info!("arm wrestle view: pulled in {r:.0} round to the right, {l:.0} to the left: the {}", if right { "right" } else { "left" });
+        if again {
+            view.settled = true;
+            if right != view.right {
+                view.from = view.last.or(Some(*t));
+                view.start = now;
+            }
+        }
+        view.right = right;
     }
-    let (want, heading, pitch) = spot(head, toward, clasp, view.left);
-    let (out, pulled) = reach(want);
-    if bone.is_some() && view.on == Some(a.stool) && !std::mem::replace(&mut view.told, true) {
-        info!("arm wrestle view: from the body's head {head:.0?}: camera {out:.0?} pulled in {pulled:.0}, heading {:.0} pitch {:.0} deg", heading.to_degrees(), pitch.to_degrees());
-    }
-    let to = Transform { translation: to_bevy(out), rotation: look_rotation(heading, pitch), scale: Vec3::ONE };
-    if view.on != Some(a.stool) {
-        *view = View { on: Some(a.stool), left: view.left, told: false, from: Some(*t), start: now };
-        control.scene_cam = true;
+    let (want, heading, pitch) = spot(clasp, toward, view.right);
+    let (out, pulled) = reach(clasp, want);
+    if view.on == Some(a.stool) && now - view.start > 4.0 && !std::mem::replace(&mut view.told, true) {
         info!(
-            "arm wrestle view: over the shoulder at {:08X}: head {:.0?} ({}), camera {:.0?} pulled in {:.0}, heading {:.0} pitch {:.0} deg",
-            a.stool.0,
-            head,
-            if bone.is_some() { "the body's" } else { "over the stool" },
-            out,
-            pulled,
+            "arm wrestle view: at the {} {clasp:.0?}: camera {out:.0?} pulled in {pulled:.0}, heading {:.0} pitch {:.0} deg",
+            if hand.is_some() { "right hand" } else { "table's middle" },
             heading.to_degrees(),
             pitch.to_degrees()
         );
+    }
+    let to = Transform { translation: to_bevy(out), rotation: look_rotation(heading, pitch), scale: Vec3::ONE };
+    if view.on != Some(a.stool) {
+        *view = View { on: Some(a.stool), right: view.right, told: false, settled: false, from: Some(*t), start: now, aim: view.aim, last: None };
+        control.scene_cam = true;
+        info!("arm wrestle view: at {:08X}, looking at {clasp:.0?} from {out:.0?} pulled in {pulled:.0}, heading {:.0} pitch {:.0} deg", a.stool.0, heading.to_degrees(), pitch.to_degrees());
     }
     if !control.scene_cam {
         control.scene_cam = true;
@@ -196,48 +231,52 @@ pub fn camera(
         Some(from) if f < 1.0 => Transform { translation: from.translation.lerp(to.translation, f), rotation: from.rotation.slerp(to.rotation, f), scale: Vec3::ONE },
         _ => to,
     };
+    view.last = Some(*t);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_camera_is_behind_left_and_looks_down_onto_the_clasp() {
-        // Sat at x 312 facing east (+x) across a table whose clasp is 38 ahead.
-        let head = [312.0, 337.0, 3567.0];
-        let clasp = [350.0, 337.0, 3456.0 + 51.7 + CLASP_UP];
-        let (at, heading, pitch) = spot(head, [1.0, 0.0], clasp, true);
-        // Behind (west of) the head, to its left (north, +y), a little above.
-        assert!((at[0] - (312.0 - BACK)).abs() < 1e-3 && (at[1] - (337.0 + SIDE)).abs() < 1e-3 && (at[2] - (3567.0 + UP)).abs() < 1e-3, "{at:?}");
-        // Looking east, a little south to the clasp, and 10 to 25 degrees down.
-        assert!(heading.to_degrees() > 90.0 && heading.to_degrees() < 135.0, "{}", heading.to_degrees());
-        assert!(pitch.to_degrees() < -10.0 && pitch.to_degrees() > -25.0, "{}", pitch.to_degrees());
+    /// The level distance from `p` to the segment from `a` to `b`.
+    fn off_line(p: [f32; 2], a: [f32; 3], b: [f32; 3]) -> f32 {
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let t = (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+        ((a[0] + dx * t - p[0]).powi(2) + (a[1] + dy * t - p[1]).powi(2)).sqrt()
     }
 
     #[test]
-    fn the_other_side_mirrors_it() {
-        let head = [388.0, 337.0, 3567.0];
-        let clasp = [350.0, 337.0, 3536.0];
-        let (at, heading, _) = spot(head, [-1.0, 0.0], clasp, true);
-        // Facing west, the left is south.
-        assert!(at[0] > 388.0 && at[1] < 337.0, "{at:?}");
-        assert!((heading.to_degrees().rem_euclid(360.0) - 270.0).abs() < 45.0);
-        // Over the right shoulder, facing west: north of the head.
-        let (at, ..) = spot(head, [-1.0, 0.0], clasp, false);
-        assert!(at[0] > 388.0 && at[1] > 337.0, "{at:?}");
+    fn the_camera_stands_behind_to_the_side_and_looks_down_onto_the_hands() {
+        // Sat at x 312 facing east (+x); the hands 38 ahead of the seat.
+        let clasp = [350.0, 337.0, 3527.0];
+        let (at, heading, pitch) = spot(clasp, [1.0, 0.0], true);
+        // A little behind (west of) the hands and well to the player's right (south, −y).
+        assert!(at[0] < 350.0 - 20.0 && at[1] < 337.0 - 80.0, "{at:?}");
+        assert!((at[2] - clasp[2] - RISE).abs() < 1e-3);
+        // Looking north and a little east at them, 15 to 30 degrees down.
+        assert!(heading.to_degrees() > 0.0 && heading.to_degrees() < 90.0, "{}", heading.to_degrees());
+        assert!(pitch.to_degrees() < -15.0 && pitch.to_degrees() > -30.0, "{}", pitch.to_degrees());
+        // The left: a little in front of the hands (east), well to the player's left (north).
+        let (left, heading, _) = spot(clasp, [1.0, 0.0], false);
+        assert!(left[0] > 350.0 + 20.0 && left[1] > 337.0 + 80.0, "{left:?}");
+        assert!(heading.to_degrees() < -150.0 || heading.to_degrees() > 180.0, "{}", heading.to_degrees());
     }
 
     #[test]
-    fn the_line_to_the_clasp_passes_beside_the_head() {
-        let head = [312.0, 337.0, 3567.0];
-        let clasp = [350.0, 337.0, 3536.0];
-        for left in [true, false] {
-            let (at, ..) = spot(head, [1.0, 0.0], clasp, left);
-            // Where the line from the camera to the clasp passes the head's x.
-            let k = (head[0] - at[0]) / (clasp[0] - at[0]);
-            let y = at[1] + (clasp[1] - at[1]) * k;
-            assert!((y - head[1]).abs() > 12.0, "{left}: {}", y - head[1]);
+    fn the_line_to_the_hands_passes_clear_of_the_players_head() {
+        // Run16: the heads bent down to the hands' height, 12 to 13 back from them along
+        // the table and up to 10 to the wrestler's own left (P1 facing east: north, +y);
+        // the opponent's the same from his side (12 east of the hands, 10 south).
+        let clasp = [350.0, 337.0, 3527.0];
+        for right in [true, false] {
+            let (at, ..) = spot(clasp, [1.0, 0.0], right);
+            for (x, y) in [(-12.0, 10.0), (-13.0, 0.0), (-25.0, 10.0), (-38.0, 0.0), (12.0, -10.0), (13.0, 0.0)] {
+                let d = off_line([350.0 + x, 337.0 + y], at, clasp);
+                assert!(d > 12.0, "{right} {x} {y}: {d}");
+            }
         }
+        // Facing west, the right is north.
+        let (at, ..) = spot([350.0, 337.0, 3527.0], [-1.0, 0.0], true);
+        assert!(at[0] > 350.0 && at[1] > 337.0, "{at:?}");
     }
 }
