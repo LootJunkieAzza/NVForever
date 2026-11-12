@@ -91,10 +91,12 @@ const PASSES: u32 = 2;
 pub const END_VIEW: Portrait = Portrait { yaw: 0.35, distance: 150.0, drop: 30.0, pitch: 0.12, shift: 0.0 };
 /// The camera while a seated player's result shows (a slot machine's stool): the machine
 /// is right in front of them, so the camera stands round at their side, a little above
-/// the eye, looking at their face and raised arms from there [design: [`END_VIEW`]'s
-/// 150 units straight ahead are inside the machine; the wall check then pulled the camera
-/// against the chest, slots-seated 2026-11-11].
-pub const SEATED_VIEW: Portrait = Portrait { yaw: 1.5, distance: 105.0, drop: 25.0, pitch: 0.3, shift: 0.0 };
+/// the eye, far enough back that the whole seated body and both raised fists fit with a
+/// margin, aimed at the middle of that (a little under the eye) [design: [`END_VIEW`]'s
+/// 150 units straight ahead are inside the machine, and the wall check pulled the camera
+/// against the chest; at 105 units the cheer's raised fist left the frame, slots-seated
+/// 2026-11-11].
+pub const SEATED_VIEW: Portrait = Portrait { yaw: 1.5, distance: 165.0, drop: 12.0, pitch: 0.12, shift: 0.0 };
 /// Seconds the camera takes to swing from the game's camera to the end view [design].
 pub const EASE_IN: f32 = 0.6;
 /// Seconds to black after the result menu closes, held black, and back [design].
