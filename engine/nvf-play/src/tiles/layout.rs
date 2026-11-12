@@ -110,6 +110,71 @@ pub enum Kind {
     Menu,
 }
 
+/// How a tile is turned on the screen: its `rotateangle` about the point its `rotateaxisx`
+/// and `rotateaxisy` name (docs/spec-notes/menu-xml.md §3.1.4).
+///
+/// - `angle`: radians [documented: GECK wiki "Rotation UI directives", `Rotateangle` "sets
+///   the rotation degree of an element, in radians", its example 1.570796 "Pi/2
+///   rotation"]; a positive angle turns the tile clockwise on the screen, the view's y
+///   running down [hypothesis: the wiki gives no sense; `map_menu.xml` turns its player
+///   arrow by the code, and a heading runs clockwise from north; the same sense as Bevy's
+///   `UiTransform` rotation and the hand-built DATA page's arrow and dotted lines].
+/// - `pivot`: the point turned about, in interface units from the tile's own box's top
+///   left: `rotateaxisx` "relative to X coordinate of an element", `rotateaxisy` the same
+///   for Y [documented: the wiki page, its example `width` / 2 "the X center of the
+///   element"; `map_menu.xml`'s comments "Rotate arrow about its center" over `width` / 2
+///   and `height` / 2, and "leftmost-center point" over 0 and `height` / 2]. Without the
+///   traits the box's top left (0, 0) [hypothesis: no file turns a tile without them].
+///
+/// [documented: the wiki page, "Those traits won't work if element has children"] A tile
+/// with live children is not turned, and a turn is never passed to children. [design] The
+/// tile is turned as drawn only: clips above it still cut it on the screen, unturned, and
+/// the pointer is tested against its unturned box (`fnv_ui::input::hit`; no tile the
+/// files turn takes the pointer: the arrows and the dotted path lines have no `target`
+/// [documented: `map_menu.xml`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Turn {
+    pub angle: f64,
+    pub pivot: (f64, f64),
+}
+
+impl Turn {
+    /// Where the point `at` (interface units, as `rect`) of a tile whose unturned box is
+    /// `rect` stands once turned.
+    pub fn point(self, rect: Rect, at: (f64, f64)) -> (f64, f64) {
+        let (ox, oy) = (rect.left + self.pivot.0, rect.top + self.pivot.1);
+        let (dx, dy) = (at.0 - ox, at.1 - oy);
+        let (sin, cos) = self.angle.sin_cos();
+        (ox + dx * cos - dy * sin, oy + dx * sin + dy * cos)
+    }
+
+    /// The turned box's corners: top left, top right, bottom right, bottom left.
+    pub fn corners(self, rect: Rect) -> [(f64, f64); 4] {
+        let (l, t, r, b) = (rect.left, rect.top, rect.left + rect.width, rect.top + rect.height);
+        [(l, t), (r, t), (r, b), (l, b)].map(|c| self.point(rect, c))
+    }
+
+    /// How far a node turned about its own box's middle (as Bevy turns a UI node) must be
+    /// moved so that it stands turned about [`Turn::pivot`] instead: `(I - R)(pivot -
+    /// middle)` for a box `width` by `height`, in interface units.
+    pub fn shift(self, width: f64, height: f64) -> (f64, f64) {
+        let (px, py) = (self.pivot.0 - width / 2.0, self.pivot.1 - height / 2.0);
+        let (sin, cos) = self.angle.sin_cos();
+        (px - (px * cos - py * sin), py - (px * sin + py * cos))
+    }
+}
+
+/// A tile's [`Turn`]: none at angle 0 (so an unturned tile lays out exactly as before),
+/// for an angle that is not a number, or for a tile with live children ([`Turn`]).
+fn turn(ui: &Ui, tile: &Tile) -> Option<Turn> {
+    let angle = number(tile, "rotateangle", 0.0);
+    if angle == 0.0 || !angle.is_finite() || tile.children.iter().any(|&c| ui.tile(c).live) {
+        return None;
+    }
+    let axis = |name| Some(number(tile, name, 0.0)).filter(|v| v.is_finite()).unwrap_or(0.0);
+    Some(Turn { angle, pivot: (axis("rotateaxisx"), axis("rotateaxisy")) })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DrawItem {
     pub tile: TileId,
@@ -121,6 +186,8 @@ pub struct DrawItem {
     pub visible: bool,
     pub clip: Option<Rect>,
     pub colour: Colour,
+    /// Its own turn ([`Turn`]); never one of a tile above.
+    pub turn: Option<Turn>,
 }
 
 /// [design] Font number, string and optional wrap width in; measured screen units out.
@@ -260,7 +327,8 @@ fn children_context(tile: &Tile, mut context: Context, above: Context) -> Contex
 
 /// [design] Lay out a live subtree in parent-first order, siblings stably sorted by
 /// local depth. Ancestors outside root still contribute place, alpha, depth and clips.
-/// Hidden items retain visible=false; menu/hotrect containers emit no item.
+/// Hidden items retain visible=false; menu/hotrect containers emit no item. A turned tile
+/// keeps its unturned box in `rect` and its turn in `turn` ([`Turn`]).
 /// `t15` is `tiles::interface_screen`'s switch gate for the hotrect-alpha hypothesis.
 pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<DrawItem> {
     let mut ancestors = Vec::new();
@@ -304,6 +372,7 @@ pub fn layout(ui: &Ui, root: TileId, measure: &Measure<'_>, t15: bool) -> Vec<Dr
                     systemcolor: optional(tile, "systemcolor"),
                     systemcolor_name: symbol(tile, "systemcolor"),
                 },
+                turn: turn(ui, tile),
             });
         }
         let parent = children_context(tile, context, parent);
@@ -594,6 +663,81 @@ mod tests {
         assert_eq!(items[3].rect, Rect { left: 100.0, top: 20.0, width: 0.0, height: 0.0 });
         let Kind::Text(text) = &items[3].kind else { panic!("expected text") };
         assert_eq!((text.justify, text.alignment), (17.0, Alignment::Left));
+    }
+
+    fn close(a: (f64, f64), b: (f64, f64)) -> bool {
+        (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9
+    }
+
+    #[test]
+    fn an_unturned_tile_lays_out_exactly_as_one_without_the_traits() {
+        // [design] Angle 0 with the axis traits, and no traits at all: the same items.
+        let plain = r#"<menu name="M"><rect name="W"><x>5</x><y>7</y><width>60</width><height>40</height><clips>&true;</clips>
+            <image name="A"><filename>a.dds</filename><x>3</x><y>4</y><width>20</width><height>10</height></image></rect></menu>"#;
+        let zero = r#"<menu name="M"><rect name="W"><x>5</x><y>7</y><width>60</width><height>40</height><clips>&true;</clips>
+            <image name="A"><filename>a.dds</filename><x>3</x><y>4</y><width>20</width><height>10</height>
+              <rotateangle>0</rotateangle><rotateaxisx>10</rotateaxisx><rotateaxisy>5</rotateaxisy></image></rect></menu>"#;
+        let (a, ra) = tree(plain);
+        let (b, rb) = tree(zero);
+        let (items_a, items_b) = (layout(&a, ra, &unmeasured, true), layout(&b, rb, &unmeasured, true));
+        assert_eq!(items_a, items_b);
+        assert!(items_b.iter().all(|i| i.turn.is_none()));
+    }
+
+    #[test]
+    fn a_quarter_turn_about_a_corner_and_about_the_middle() {
+        // [design] A 40 x 10 picture at (10, 20), turned a quarter (pi / 2) clockwise.
+        let (mut ui, root) = tree(
+            r#"<menu name="M"><image name="P"><filename>p.dds</filename><x>10</x><y>20</y><width>40</width><height>10</height>
+              <rotateangle>1.5707963267948966</rotateangle></image></menu>"#,
+        );
+        let item = |ui: &Ui| layout(ui, root, &unmeasured, true).remove(0);
+        let it = item(&ui);
+        assert_eq!(it.rect, Rect { left: 10.0, top: 20.0, width: 40.0, height: 10.0 }, "the box is the unturned one");
+        let turn = it.turn.expect("turned");
+        assert_eq!(turn.pivot, (0.0, 0.0), "no axis traits: the top left");
+        // About its top left: the right end swings down, the box now 10 wide and 40 down.
+        let c = turn.corners(it.rect);
+        assert!(close(c[0], (10.0, 20.0)) && close(c[1], (10.0, 60.0)) && close(c[2], (0.0, 60.0)) && close(c[3], (0.0, 20.0)), "{c:?}");
+        assert!(close(turn.shift(40.0, 10.0), (-25.0, 15.0)), "a node turned about its middle is moved back onto the corner");
+        // About its middle (the axis traits half its size, as the arrows'): the middle stays.
+        let p = ui.find_tile("M/P").unwrap();
+        ui.set_trait(p, "rotateaxisx", Value::Num(20.0));
+        ui.set_trait(p, "rotateaxisy", Value::Num(5.0));
+        ui.update();
+        let it = item(&ui);
+        let turn = it.turn.unwrap();
+        assert!(close(turn.point(it.rect, (30.0, 25.0)), (30.0, 25.0)));
+        let c = turn.corners(it.rect);
+        assert!(close(c[0], (35.0, 5.0)) && close(c[2], (25.0, 45.0)), "{c:?}");
+        assert!(close(turn.shift(40.0, 10.0), (0.0, 0.0)), "Bevy's own pivot, nothing to move");
+        // About its left middle (the dotted lines'): that point stays, the line points down.
+        ui.set_trait(p, "rotateaxisx", Value::Num(0.0));
+        ui.update();
+        let it = item(&ui);
+        let turn = it.turn.unwrap();
+        assert!(close(turn.point(it.rect, (10.0, 25.0)), (10.0, 25.0)));
+        assert!(close(turn.point(it.rect, (50.0, 25.0)), (10.0, 65.0)));
+    }
+
+    #[test]
+    fn a_turned_tile_keeps_the_unturned_clips_above_it_and_turns_nothing_else() {
+        // [design] A turned picture under a clipping rect: the crop is the rect's own box;
+        // the rect's turn (it has a child) and the picture's never reach other tiles.
+        let (ui, root) = tree(
+            r#"<menu name="M"><rect name="W"><x>100</x><y>50</y><width>80</width><height>60</height><clips>&true;</clips><rotateangle>1</rotateangle>
+              <image name="P"><filename>p.dds</filename><x>-20</x><width>200</width><height>8</height><rotateangle>-0.5</rotateangle><rotateaxisy>4</rotateaxisy></image>
+              <image name="Q"><filename>q.dds</filename><width>8</width><height>8</height></image></rect></menu>"#,
+        );
+        let items = layout(&ui, root, &unmeasured, true);
+        let at = |name: &str| items.iter().find(|i| ui.tile(i.tile).name == name).unwrap();
+        assert_eq!(at("W").turn, None, "a tile with children is not turned");
+        assert_eq!(at("P").turn, Some(Turn { angle: -0.5, pivot: (0.0, 4.0) }));
+        assert_eq!(at("P").clip, Some(Rect { left: 100.0, top: 50.0, width: 80.0, height: 60.0 }));
+        assert_eq!(at("P").rect, Rect { left: 80.0, top: 50.0, width: 200.0, height: 8.0 });
+        assert_eq!(at("Q").turn, None, "a sibling is not turned");
+        // Laid out alone, the same turn.
+        assert_eq!(layout(&ui, at("P").tile, &unmeasured, true)[0].turn, at("P").turn);
     }
 
     #[test]

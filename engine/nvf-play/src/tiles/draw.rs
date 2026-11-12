@@ -488,6 +488,9 @@ pub struct Piece {
     /// A picture's SetUITexOffset offset and SetUIAlphaMap mask, put on by
     /// [`super::texmod::mark`] as the pieces are painted (#1833); none from [`pieces`].
     pub tex: Option<super::texmod::TexMod>,
+    /// Its tile's turn ([`layout::Turn`]): a box's or a picture's (not the compass strip's);
+    /// texts and models are not turned, as no file turns one [design: menu-xml.md §3.1.4].
+    pub turn: Option<layout::Turn>,
 }
 
 /// Which tiles of the menu draw.
@@ -655,7 +658,12 @@ pub fn pieces(ui: &Ui, menu: TileId, measure: &layout::Measure<'_>, select: Sele
         if matches!(item.kind, Kind::Hotrect) {
             alpha = alpha.powf(2.2);
         }
-        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None });
+        let turn = match &look {
+            Look::Box => item.turn,
+            Look::Picture { fit, .. } if *fit != Fit::Strip => item.turn,
+            _ => None,
+        };
+        out.push(Piece { tile: item.tile, look, rect: item.rect, clip: item.clip, colour: [r, g, bl, alpha], depth: item.depth, tex: None, turn });
         if let Some(r) = root {
             drawn_roots.insert(r);
         }
@@ -865,6 +873,19 @@ fn f(v: f64) -> f32 {
     v as f32
 }
 
+/// The transform that turns a piece's outer node (its box's size) by its turn about its
+/// pivot: Bevy turns a node about its middle, so it is moved by [`layout::Turn::shift`]
+/// too; the identity for an unturned piece [design: menu-xml.md §3.1.4].
+pub fn turned(piece: &Piece) -> UiTransform {
+    match piece.turn {
+        Some(turn) => {
+            let (x, y) = turn.shift(piece.rect.width, piece.rect.height);
+            UiTransform { translation: Val2::new(u(f(x)), u(f(y))), rotation: Rot2::radians(f(turn.angle)), ..default() }
+        }
+        None => UiTransform::IDENTITY,
+    }
+}
+
 /// What setting a piece out reads besides the piece.
 struct Ctx<'a> {
     fonts: &'a TileFonts,
@@ -875,7 +896,17 @@ struct Ctx<'a> {
     heading: f32,
 }
 
+/// A piece's outer node, turned when its tile is ([`turned`]; inside its clip wrapper, so
+/// the unturned clip cuts the turned quad).
 fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
+    let outer = spawn_unturned(p, piece, ctx, picture, baked, strip, model)?;
+    if piece.turn.is_some() {
+        p.commands().entity(outer).insert(turned(piece));
+    }
+    Some(outer)
+}
+
+fn spawn_unturned(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
     let r = piece.rect;
     let (dx, dy) = piece.clip.map_or((0.0, 0.0), |c| (c.left, c.top));
     let [cr, cg, cb, ca] = piece.colour;
@@ -1526,6 +1557,12 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                             node.left = u(f(piece.rect.left - dx));
                             node.top = u(f(piece.rect.top - dy));
                         }
+                    }
+                }
+                // Turned further (the map's arrow as the player turns): turned in place.
+                if was.turn != piece.turn {
+                    if let Some(e) = slot.outer {
+                        commands.entity(e).insert(turned(piece));
                     }
                 }
                 if was.colour != piece.colour {
@@ -2390,6 +2427,7 @@ mod tests {
             colour: [1.0, 0.7, 0.3, 1.0],
             depth: 0.0,
             tex: None,
+            turn: None,
         };
         let mut dimmer = model.clone();
         dimmer.colour[3] = 0.5;
@@ -2409,6 +2447,45 @@ mod tests {
         assert_eq!(keys[0], (all[0].tile, 0));
         assert_eq!(*keys.last().unwrap(), (all[0].tile, 1));
         assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
+    }
+
+    /// [design] Turns reach a picture's and a box's piece, not a text's; a piece only turned
+    /// further changes in place; an unturned piece's node keeps the identity transform.
+    #[test]
+    fn a_turned_picture_carries_its_turn_and_turns_about_its_pivot() {
+        let src = MemSource::default().with(
+            "r.xml",
+            r#"<menu name="R"><rect name="Clip"><width>50</width><height>50</height><clips>&true;</clips>
+              <image name="Arrow"><filename>arrow.dds</filename><x>10</x><y>10</y><width>20</width><height>30</height><zoom>-1</zoom>
+                <rotateangle>3.141592653589793</rotateangle><rotateaxisx>10</rotateaxisx><rotateaxisy>15</rotateaxisy></image>
+              <rect name="Bar"><width>40</width><height>4</height><red>255</red><rotateangle>0.5</rotateangle></rect>
+              <text name="Word"><string>N</string><rotateangle>1</rotateangle></text>
+              <image name="Still"><filename>still.dds</filename><width>8</width><height>8</height></image></rect></menu>"#,
+        );
+        let mut ui = Ui::new();
+        let menu = ui.load_menu(&src, "r.xml").unwrap();
+        ui.update();
+        let (drawn, _) = pieces(&ui, menu, &plain, Select::Whole { kept: &[], strip: None }, true);
+        let of = |name: &str| drawn.iter().find(|p| ui.tile(p.tile).name == name).unwrap();
+        let arrow = of("Arrow");
+        assert_eq!(arrow.turn, Some(layout::Turn { angle: std::f64::consts::PI, pivot: (10.0, 15.0) }));
+        assert_eq!(arrow.clip, Some(TileRect { left: 0.0, top: 0.0, width: 50.0, height: 50.0 }), "the clip stays the unturned window");
+        // About its middle: Bevy's own pivot, the node only turned.
+        let t = turned(arrow);
+        assert_eq!(t.translation, Val2::new(u(0.0), u(0.0)));
+        assert!((t.rotation.as_radians() - std::f32::consts::PI).abs() < 1e-6);
+        assert_eq!(of("Bar").turn.map(|t| t.pivot), Some((0.0, 0.0)));
+        assert_eq!(of("Word").turn, None, "texts are not turned");
+        assert_eq!(of("Still").turn, None);
+        assert_eq!(turned(of("Still")), UiTransform::IDENTITY);
+        // About its top left a quarter: moved by the shift the layout works out.
+        let mut corner = arrow.clone();
+        corner.turn = Some(layout::Turn { angle: std::f64::consts::FRAC_PI_2, pivot: (0.0, 0.0) });
+        let (x, y) = corner.turn.unwrap().shift(20.0, 30.0);
+        assert!((x - -25.0).abs() < 1e-9 && (y - -5.0).abs() < 1e-9, "({x}, {y})");
+        assert_eq!(turned(&corner).translation, Val2::new(u(f(x)), u(f(y))));
+        // Turned further, same look and size: in place.
+        assert_eq!(change(arrow, &corner), Change::InPlace);
     }
 
     #[test]
