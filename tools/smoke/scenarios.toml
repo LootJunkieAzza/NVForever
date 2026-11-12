@@ -23813,14 +23813,14 @@ forbid = [{ re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an e
 
 [[scenario]]
 name = "dlss-live-switch"
-source = "#2198's play-test, docs/design/dlss-upscaling.md \"Switching\": with NVIDIA's files in the folder the start loads Streamline although FSR is chosen; DLSS picked on the Upscaler row then draws at once (its output observed), and FSR picked again draws at once, without a restart"
-note = "needs NVF_DLSS_DIR (NVIDIA's files): the files alone load the loader (no NVF_DLSS_PRELOAD). The picks use the two rows' own keys (settings: upscaler <name>). Leaving DLSS for FSR frees DLSS's resources at once (dlss/evaluate.rs `Evaluator::release`, the free: line), so the shutdown has none left to free"
+source = "#2198's play-test, docs/design/dlss-upscaling.md \"Switching\": with NVIDIA's files in the folder the start loads Streamline although FSR is chosen; DLSS picked on the Upscaler row then draws at once (its output observed), FSR picked again draws at once and DLSS's resources are freed, and DLSS picked once more sets its options again and draws (its output observed again, generation 2), without a restart"
+note = "needs NVF_DLSS_DIR (NVIDIA's files): the files alone load the loader (no NVF_DLSS_PRELOAD). The picks use the two rows' own keys (settings: upscaler <name>). Leaving DLSS for FSR frees DLSS's resources at once (dlss/evaluate.rs `Evaluator::release`, the free: line). Back to DLSS after that release: the options are set again without a recreate (nothing held, so options set again stays 0), a new output-proof generation (2) is observed, and the shutdown frees the resources DLSS holds again; the forbid on a shutdown free became that expectation when the return to DLSS was added (2026-11-12, the review's coverage gap)"
 areas = ["graphics", "ui"]
 paths = ["engine/nvforever/src/dlss/**", "engine/nvforever/src/upscaler*", "engine/nvforever/src/upscaler/**", "engine/nvforever/src/settings.rs", "engine/nvforever/src/main.rs", "engine/nvforever/src/fsr*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
 requires = ["NVF_DLSS_DIR"]
-env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "12:upscaler=DLSS,16:upscaler=FSR 3.1" }
+env = { WGPU_BACKEND = "vulkan", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:24", NVF_PLAY_TEST_SETTINGS = "12:upscaler=DLSS,16:upscaler=FSR 3.1,19:upscaler=DLSS" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--size", "1280x720", "--upscaler", "fsr", "--upscaler-quality", "quality", "--no-voice", "--no-lodgen"]
-run_seconds = 23
+run_seconds = 27
 expect = [
   "upscaler: FSR 3.1 Quality chosen at start; the DLSS files are in the dlss folder: Streamline loaded before the renderer, so DLSS switches without a restart",
   "DLSS: route: interposer (the Vulkan instance was made through sl.interposer.dll)",
@@ -23828,6 +23828,7 @@ expect = [
   "settings: upscaler DLSS",
   "settings: upscaler FSR 3.1",
   { re = 'DLSS: evaluates: ([1-9]\d*) ok, 0 failed; options set again 0 times; resources freed 1 times when DLSS stopped drawing', label = "evaluates ok, none failed; freed once on leaving DLSS" },
+  { text = "DLSS: shutdown: slFreeResources(DLSS, viewport 0) eOk", label = "the resources DLSS holds again after the return freed at shutdown" },
   "DLSS: shutdown done: Streamline down before the Vulkan device and instance were released",
 ]
 order = [[
@@ -23837,8 +23838,12 @@ order = [[
   { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720', label = "DLSS draws in its own pass" },
   { text = "upscaler: FSR 3.1 Quality asked for, FSR 3.1 Quality draws", label = "FSR again at once" },
   { text = "DLSS: free: DLSS stopped drawing: GPU drained, slFreeResources(DLSS, viewport 0) eOk", label = "DLSS's resources freed once DLSS stopped drawing" },
+  { text = "upscaler: DLSS Quality asked for, DLSS Quality draws", label = "DLSS again at once after the release" },
+  { re = 'DLSS: options: Quality \(MaxQuality\), 1280x720 output, HDR on, model Default \(auto exposure on, alpha upscaling off\)', label = "the options set again after the release" },
+  { re = 'DLSS: evaluate active: Quality \(MaxQuality\), 1280x720 output, HDR on, 853x480 -> 1280x720', label = "DLSS draws again in its own pass" },
+  { re = 'DLSS: output observed: Quality \(MaxQuality\), 1280x720 output, HDR on, generation 2, mean RGB', label = "its output seen again (generation 2)" },
 ]]
-forbid = [{ text = "until the next start", label = "a switch waiting for a restart" }, { text = "settings: upscaler DLSS not taken", label = "DLSS held out of reach" }, { text = "DLSS: shutdown: slFreeResources", label = "DLSS's resources still held at shutdown" }, { re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
+forbid = [{ text = "until the next start", label = "a switch waiting for a restart" }, { text = "settings: upscaler DLSS not taken", label = "DLSS held out of reach" }, { re = 'DLSS: recreate: ', label = "a recreate on the return: the release left nothing to free first" }, { re = 'DLSS: output not (observed|valid)' }, "DLSS: NGX reported an evaluate error", "dlss_output_proof", { text = "slEvaluateFeature: ", label = "a failed evaluate" }, { text = "frames running without DLSS's output", label = "DLSS given up on" }, { text = "FSR dispatch failed", label = "FSR failing" }, { text = "Validation Error", label = "a Vulkan validation error" }, { text = "Caught rendering error", label = "a rendering error" }]
 
 [[scenario]]
 name = "dlss-restart-pick"
