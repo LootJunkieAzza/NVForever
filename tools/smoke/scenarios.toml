@@ -25510,7 +25510,8 @@ expect = [
   "arm wrestle: up; closed",
   { re = 'arm wrestle view: at the right hand', label = "the match camera looks at the clasped hands side on" },
   { re = 'arm wrestle view: the win \(pinned away\), up over the table', label = "the win: the camera rises over the table, the pin (north, away from it) in view" },
-  { re = "arm wrestle view: the player's camera again", label = "the player's own camera comes back at getting up" },
+  { re = 'arm wrestle view: getting up; back and up over the table', label = "getting up: the match camera goes back and up, over the standing heads" },
+  { re = "arm wrestle view: the player's camera again", label = "the player's own camera comes back once the screen closes" },
 ]
 
 [[scenario]]

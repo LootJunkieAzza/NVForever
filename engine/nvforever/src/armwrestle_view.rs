@@ -30,8 +30,13 @@
 //! - **Walls.** Pulled in towards the hands in front of anything between the two
 //!   ([`WALL_MARGIN`]), as the third-person camera is (`nvf_play::control::place_camera`).
 //! - **In and out.** It eases in from where the camera was over [`EASE_IN`]. As getting up
-//!   starts the player's own camera comes back [the lead, 2026-11-11: "hand back normally at
-//!   get-up"; run20 and run21, kept through getting up, the bodies rose and walked into it].
+//!   starts it eases back and up ([`UP_REACH`] out, [`UP_RISE`] over the hands, the aim held
+//!   on the table), well over the standing heads, and keeps the view until the player stands
+//!   and the screen closes; the end view (`match_end.rs`) or the player's own camera takes it
+//!   then, so the change never passes through a body or the table [the lead, 2026-11-12:
+//!   run22, handed back as getting up started, the first-person view dropped to the table's
+//!   height with the leaderboard still up; run21, eased back to the match spot at head
+//!   height, the standing bodies filled it].
 //! - The camera counts as a third-person view while it has the view
 //!   (`PlayerControl::scene_cam`), so the player's body is drawn and the first-person
 //!   arms are not, as at the slot machine (`slots_view.rs`). The mouse does not move it.
@@ -100,6 +105,21 @@ pub const AWAY_REACH: f32 = 20.0;
 /// The same: above the hands, game units (about 78 degrees down) [design].
 pub const AWAY_RISE: f32 = 95.0;
 
+/// Getting up: out from the hands, level, game units [design].
+pub const UP_REACH: f32 = 90.0;
+/// Getting up: above the hands, game units (about 59 degrees down; the camera some 80 over a
+/// standing head) [design: run21, at 60 the standing bodies came into the camera].
+pub const UP_RISE: f32 = 150.0;
+
+/// Getting up: the camera's spot, heading and pitch, on the same side as [`spot`], looking
+/// at `clasp` from [`UP_REACH`] out and [`UP_RISE`] up, for a player sat facing `toward`.
+pub fn up_spot(clasp: [f32; 3], toward: [f32; 2], right: bool) -> ([f32; 3], f32, f32) {
+    let side = if right { [toward[1], -toward[0]] } else { [-toward[1], toward[0]] };
+    let at = [clasp[0] + side[0] * UP_REACH, clasp[1] + side[1] * UP_REACH, clasp[2] + UP_RISE];
+    let (heading, pitch) = aim(at, clasp);
+    (at, heading, pitch)
+}
+
 /// The win's view: the camera's spot, heading and pitch, on the same side as [`spot`]
 /// (`right`), looking at the hands at `clasp` from [`TOP_REACH`] out and [`TOP_RISE`] up, or
 /// from [`AWAY_REACH`] and [`AWAY_RISE`] when the pin went `away` from that side, for a player
@@ -138,6 +158,8 @@ pub struct View {
     top: bool,
     /// The pin went away from the camera's side.
     away: bool,
+    /// Getting up: back and up, the aim held.
+    rising: bool,
 }
 
 /// The arm-wrestling match's camera, after the player's camera has been placed this frame.
@@ -155,11 +177,11 @@ pub fn camera(
     mut view: Local<View>,
 ) {
     let now = time.elapsed_secs();
-    // Seated at this match's stool, until getting up starts: the player's own camera then
-    // (the lead, 2026-11-11: "hand back normally at get-up").
+    // Seated at this match's stool; once it has the view it keeps it while the player gets
+    // up, until the screen closes (the module notes).
     let arm = screen.as_deref().and_then(|s| s.0.as_ref());
     let sat = seat.as_deref().and_then(|s| s.on.filter(|_| s.hold.is_some()));
-    let mine = arm.filter(|a| !a.leaving && (sat == Some(a.stool.0) || view.on == Some(a.stool)));
+    let mine = arm.filter(|a| sat == Some(a.stool.0) || view.on == Some(a.stool));
     let (Some(a), Some(sim), Ok(mut t)) = (mine, sim.as_deref(), cams.single_mut()) else {
         if view.on.take().is_some() {
             control.scene_cam = false;
@@ -202,6 +224,8 @@ pub fn camera(
     let target = hand.map_or(between, |h| [h[0] + toward[0] * 3.0, h[1] + toward[1] * 3.0, h[2]]);
     let k = (time.delta_secs() * AIM_FOLLOW).min(1.0);
     let clasp = match view.aim.filter(|_| view.on == Some(a.stool)) {
+        // Getting up: the aim stays on the table, not on the rising hand.
+        Some(p) if view.rising => p,
         Some(p) => [p[0] + (target[0] - p[0]) * k, p[1] + (target[1] - p[1]) * k, p[2] + (target[2] - p[2]) * k],
         None => target,
     };
@@ -253,7 +277,16 @@ pub fn camera(
         view.start = now;
         view.told = false;
     }
-    let (want, heading, pitch) = if view.top { top_spot(clasp, toward, view.right, view.away) } else { spot(clasp, toward, view.right) };
+    // Getting up: back and up, from where the camera is.
+    if view.on == Some(a.stool) && a.leaving && !view.rising {
+        view.rising = true;
+        view.from = view.last.or(Some(*t));
+        view.start = now;
+        info!("arm wrestle view: getting up; back and up over the table");
+    }
+    let (want, heading, pitch) = if view.rising {
+        up_spot(clasp, toward, view.right)
+    } else if view.top { top_spot(clasp, toward, view.right, view.away) } else { spot(clasp, toward, view.right) };
     let (out, pulled) = reach(clasp, want);
     if view.top && now - view.start > EASE_IN && !std::mem::replace(&mut view.told, true) {
         info!("arm wrestle view: the win ({}), up over the table at {clasp:.0?} (the head at {head:.0?}): camera {out:.0?} pulled in {pulled:.0}, heading {:.0} pitch {:.0} deg", if view.away { "pinned away" } else { "pinned towards the camera" }, heading.to_degrees(), pitch.to_degrees());
@@ -268,7 +301,7 @@ pub fn camera(
     }
     let to = Transform { translation: to_bevy(out), rotation: look_rotation(heading, pitch), scale: Vec3::ONE };
     if view.on != Some(a.stool) {
-        *view = View { on: Some(a.stool), right: view.right, told: false, settled: false, from: Some(*t), start: now, aim: view.aim, last: None, top: false, away: false };
+        *view = View { on: Some(a.stool), right: view.right, told: false, settled: false, from: Some(*t), start: now, aim: view.aim, last: None, top: false, away: false, rising: false };
         control.scene_cam = true;
         info!("arm wrestle view: at {:08X}, looking at {clasp:.0?} from {out:.0?} pulled in {pulled:.0}, heading {:.0} pitch {:.0} deg", a.stool.0, heading.to_degrees(), pitch.to_degrees());
     }
@@ -342,5 +375,10 @@ mod tests {
             let over = clasp[2] + (at[2] - clasp[2]) * k;
             assert!(over - (clasp[2] + 8.0) > 15.0, "{right} {toward_cam} {over}");
         }
+        // Getting up: well over a standing head (about 120 over the floor, the hands 60 over
+        // it), same heading.
+        let (at, heading, pitch) = up_spot(clasp, [1.0, 0.0], true);
+        assert!(at[2] - (clasp[2] - 60.0 + 120.0) > 60.0, "{at:?}");
+        assert!(heading.to_degrees().abs() < 1.0 && pitch.to_degrees() < -50.0, "{} {}", heading.to_degrees(), pitch.to_degrees());
     }
 }
