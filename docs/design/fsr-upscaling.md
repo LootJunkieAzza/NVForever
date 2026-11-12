@@ -15,7 +15,7 @@ is the other upscaler of the same settings row, on the same common preparation:
 ## Using it
 
 **Settings > Graphics > Picture > Upscaler** offers Off (the default), FSR 3.1 and DLSS
-([dlss-upscaling](dlss-upscaling.md)); **Upscaling quality** below it, Native AA, Quality,
+([dlss-upscaling](dlss-upscaling.md)); **Upscaling mode** below it, Native AA, Quality,
 Balanced, Performance and Ultra Performance, for either (dimmed while Upscaler is Off). They
 are saved as `upscaler` and `upscaler-quality`; an older INI's single `fsr-upscaling` line,
 with the names FSR's choices were always saved by (`Off`, `Native AA`, `Quality`, …), still

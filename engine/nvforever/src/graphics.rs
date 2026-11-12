@@ -83,7 +83,7 @@ pub const FSR_CHOICES: [(&str, FsrMode); 6] = [
 
 /// The older `fsr-upscaling` row's choices by the names its INI lines and the test aids use:
 /// [`FSR_CHOICES`]' six as they always were (off and FSR 3.1 at each quality), then DLSS at
-/// each quality (#2198). The Upscaler and Upscaling quality rows took over from it and still
+/// each quality (#2198). The Upscaler and Upscaling mode rows took over from it and still
 /// read these (`settings.rs` `parse_legacy`, the test aid's `fsr-upscaling=<name>`).
 pub const FSR_UPSCALING_CHOICES: [(&str, UpscalerChoice); 11] = [
     ("Off", UpscalerChoice::Off),
