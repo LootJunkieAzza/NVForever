@@ -107,12 +107,12 @@ sep = ","
 [[check]]
 name = "root cargo test"
 paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
-cmd = ["cargo", "test", "--workspace", "--release"]
+cmd = ["cargo", "test", "--workspace", "--release", "--locked"]
 
 [[check]]
 name = "root clippy"
 paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
-cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--release", "--", "-D", "warnings"]
+cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--release", "--locked", "--", "-D", "warnings"]
 
 [[check]]
 name = "cargo deny"
@@ -125,9 +125,15 @@ paths = ["engine/Cargo.toml", "engine/Cargo.lock", "deny.toml"]
 cmd = ["cargo", "deny", "--manifest-path", "engine/Cargo.toml", "check", "licenses", "advisories", "bans", "sources"]
 
 [[check]]
+name = "engine cargo test"
+paths = ["engine/", "crates/", "Cargo.toml", "schemas/"]
+cmd = ["cargo", "test", "--release", "--locked"]
+cwd = "engine"
+
+[[check]]
 name = "engine clippy"
 paths = ["engine/", "crates/", "Cargo.toml", "schemas/"]
-cmd = ["cargo", "clippy", "--release", "--all-targets", "--", "-D", "warnings"]
+cmd = ["cargo", "clippy", "--release", "--locked", "--all-targets", "--", "-D", "warnings"]
 cwd = "engine"
 
 [[check]]
