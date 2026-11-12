@@ -2388,15 +2388,31 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     }
 }
 
-/// The turn of the player's arrow for heading `heading` (radians, clockwise from north): a
-/// quarter turn less, as `glow_cursor.dds` points right unturned [documented: its texels, the
-/// arrow in the top half pointing right] while the original's arrow points up at heading 0
-/// [observed: a capture of the original's World Map at 1280x720, 2026-11, heading 0]. Both
-/// drawings, the hand-built page and the file's `MM_WorldMapCursor`/`MM_LocalMapCursor`, turn it
-/// so (until 2026-11-12 the hand-built arrow was turned by the heading itself, a quarter turn
-/// clockwise of the way the player faces).
+/// The arrow in `glow_cursor.dds` (32 × 64 texels): a pointer in its upper half, its tip at
+/// (9, 9) and its base from (24, 23) to (9, 29), an isosceles triangle whose axis, base middle
+/// to tip, runs `ARROW_AXIS` texels (left and up) [documented: the texels in the load order's
+/// archive, the opaque core read at alpha 200].
+const ARROW_AXIS: Vec2 = Vec2::new(-7.5, -17.0);
+
+/// The part of `glow_cursor.dds` an arrow `w` × `h` shows: the file draws it at its texels' size
+/// times its zoom, `w` × 3.5 (1.4 times at the 40 wide arrow), from its top left, cut to the
+/// box [documented: `MM_WorldMapCursor`'s `zoom`]; so the hand-built page shows the same part at
+/// the same scale, the arrow's shape undistorted (until 2026-11-12 it stretched the whole
+/// picture over the box) [design].
+fn arrow_texels(w: f32, h: f32) -> Vec2 {
+    Vec2::new(w, h) / (w * 3.5 / 100.0)
+}
+
+/// The turn of the player's arrow for heading `heading` (radians, clockwise from north): the
+/// heading and the turn that brings the picture's arrow, its tip to the left of up unturned
+/// ([`ARROW_AXIS`], about 0.416), to point up; so it points the way the player faces, up at
+/// heading 0 as the original's [observed: a capture of the original's World Map at 1280x720,
+/// 2026-11, heading 0: a sharp symmetric triangle pointing up]. Both drawings turn it so, the
+/// hand-built page and the file's `MM_WorldMapCursor`/`MM_LocalMapCursor`, about the box's
+/// middle (the file's axis traits). Until 2026-11-12 the hand-built arrow was turned by the
+/// heading itself, its tip some 24 degrees left of the way the player faced, and stretched.
 pub(crate) fn arrow_turn(heading: f32) -> f32 {
-    heading - std::f32::consts::FRAC_PI_2
+    heading + (-ARROW_AXIS.x).atan2(-ARROW_AXIS.y)
 }
 
 /// The player's standing with reputation `rep` (its title), when the scripts' game runs.
@@ -3410,6 +3426,9 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         if let Some((spot, heading)) = m.player {
             if let Some((image, rect)) = c.picture(CURSOR_FILE) {
                 let (w, h) = (CURSOR, CURSOR * CURSOR_ASPECT);
+                // The picture's top left part at the file's scale ([`arrow_texels`]).
+                let from = rect.map_or(Vec2::ZERO, |r| r.min);
+                let rect = Some(Rect::from_corners(from, from + arrow_texels(w, h)));
                 p.spawn((
                     at(spot.x - w / 2.0, spot.y - h / 2.0, w, h),
                     ImageNode { rect, color: c.bright(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) },
@@ -3901,14 +3920,29 @@ mod tests {
     #[test]
     fn the_arrow_points_the_way_the_player_faces() {
         use std::f32::consts::{FRAC_PI_2, PI};
+        // The picture's arrow, its axis turned clockwise (y down) by the turn.
+        let turned = |t: f32| {
+            let (s, c) = t.sin_cos();
+            Vec2::new(ARROW_AXIS.x * c - ARROW_AXIS.y * s, ARROW_AXIS.x * s + ARROW_AXIS.y * c).normalize()
+        };
+        assert!((arrow_turn(0.0) - 0.4157).abs() < 1e-3, "the picture's tip some 24 degrees left of up");
         for (heading, want) in [(0.0, Vec2::new(0.0, -1.0)), (FRAC_PI_2, Vec2::new(1.0, 0.0)), (PI, Vec2::new(0.0, 1.0)), (-FRAC_PI_2, Vec2::new(-1.0, 0.0))] {
-            let t = arrow_turn(heading);
-            let points = Vec2::new(t.cos(), t.sin());
+            let points = turned(arrow_turn(heading));
             assert!((points - want).length() < 1e-5, "heading {heading}: {points:?}");
             // The way the player walks at that heading, north up on the map (y down).
             let forward = Vec2::new(heading.sin(), -heading.cos());
             assert!((points - forward).length() < 1e-5);
         }
+    }
+
+    /// The hand-built arrow shows the part of the picture the file's zoom shows: 1.4 times its
+    /// texels at the 40 wide arrow, 28.6 × 36.6 texels of it, the whole of its arrow (its texels
+    /// run to 24 across and 29 down).
+    #[test]
+    fn the_hand_built_arrow_shows_the_files_part_of_the_picture() {
+        let shown = arrow_texels(CURSOR, CURSOR * CURSOR_ASPECT);
+        assert!((shown - Vec2::new(40.0 / 1.4, 51.2 / 1.4)).length() < 1e-4, "{shown:?}");
+        assert!(shown.x > 24.0 && shown.y > 29.0, "the arrow whole");
     }
 
     fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {
