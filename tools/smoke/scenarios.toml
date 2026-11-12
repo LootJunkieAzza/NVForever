@@ -24967,3 +24967,23 @@ order = [[
   { text = "GoodspringsSettler03Ref: package DefaultFollowPlayerFar", label = "the script package is taken up" },
   { text = "script: test aid calls GetIsCurrentPackage on GoodspringsSettler03Ref = 1", label = "still its package at 40 s" },
 ]]
+
+[[scenario]]
+name = "tutorial-close-hint-pad"
+source = "issue #1904: the tutorial menu's Close hint is in the usual button style and follows the input device, \"Close E)\" with the keyboard and \"Close B)\" with a controller, as in the original (owner's play); Next and Previous the same way (tutorial_menu.rs hints, docs/spec-notes/tutorial-menu.md)"
+note = "Healing Limbs opens at 3 s with the keyboard (the aid closes it after 2 s); the pause menu at 6 s picks Controller at 7 s; the same tutorial at 11 s then names the controller's buttons. Before the fix both read \"[A]\", \"[S]\", \"[E]\""
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVFOREVER_HOME = "tutorial-close-hint-pad-home", NVF_PLAY_TEST_SCRIPT_MENUS = "2", NVF_PLAY_TEST_SCRIPT = "3:call:-:ShowTutorialMenu:0x00072358,11:call:-:ShowTutorialMenu:0x00072358", NVF_PLAY_TEST_PAUSE = "6:9", NVF_PLAY_TEST_SETTINGS = "7:device:Controller" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+order = [[
+  { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens with the keyboard" },
+  { re = 'tutorial menu: hints [^,]+ A\), [^,]+ S\), [^,]+ E\)', label = "its hints name the keys: Close E)" },
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'tutorial menu: page 1/1 "Healing Limbs"', label = "the tutorial opens again" },
+  { re = 'tutorial menu: hints [^,]+ RT\), [^,]+ LT\), [^,]+ B\)', label = "its hints name the buttons: Close B)" },
+]]
+expect = [
+  { re = 'tutorial menu: hints .*\[', max = 0, label = "no hint in square brackets" },
+]
