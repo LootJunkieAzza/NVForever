@@ -30,6 +30,7 @@ pub mod container_anim;
 pub mod control;
 pub mod campfire;
 pub mod armwrestle_coop;
+pub mod drink_coop;
 pub mod coop_audio;
 pub mod coop_companions;
 pub mod coop_downed;
@@ -98,6 +99,7 @@ pub mod slots;
 pub mod blackjack;
 pub mod companion_wheel;
 pub mod caravan;
+pub mod stake;
 pub mod challenges;
 pub mod poker;
 pub mod pool;
@@ -433,6 +435,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(armwrestle::ArmWrestlePlugin)
             .add_plugins(drink_contest::DrinkContestPlugin)
             .add_plugins(armwrestle_coop::ArmCoopPlugin)
+            .add_plugins(drink_coop::DrinkCoopPlugin)
             .add_plugins(tutorial_menu::TutorialMenuPlugin)
             .add_plugins(campfire::CampfirePlugin)
             .add_plugins(credits::CreditsPlugin)
