@@ -25579,7 +25579,7 @@ expect = [
 name = "armwrestle-solo"
 source = "Queue item 199 part A: the player sits on the west chair of the arm-wrestling table in the Prospector Saloon's back hall (armwrestle_table), the card waits for the Goodsprings Settler to walk over and sit, the test aid starts the bout 2 s later and taps 9 a second against his about 6, the bout is won, the Strength highlight shows, the player gets up and the end view plays"
 areas = ["minigames", "furniture"]
-paths = ["crates/fnv-game/src/armwrestle.rs", "engine/nvforever/src/armwrestle_arm.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvforever/src/match_end.rs", "engine/nvf-play/src/flourish.rs"]
+paths = ["crates/fnv-game/src/armwrestle.rs", "engine/nvforever/src/armwrestle_arm.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvforever/src/match_end.rs", "engine/nvf-play/src/flourish.rs", "engine/nvforever/src/armwrestle_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "8:armwrestle_card.png,20:armwrestle_coming.png,26:armwrestle_26.png,29:armwrestle_29.png,32:armwrestle_32.png,35:armwrestle_35.png,38:armwrestle_38.png,41:armwrestle_41.png,44:armwrestle_44.png,47:armwrestle_47.png,52:armwrestle_end.png" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 60
@@ -25594,6 +25594,10 @@ expect = [
   "flourish: ArmWrestle",
   "match end: ArmWrestle at",
   "arm wrestle: up; closed",
+  { re = 'arm wrestle view: at the right hand', label = "the match camera looks at the clasped hands side on" },
+  { re = 'arm wrestle view: the win \(pinned away\), up over the table', label = "the win: the camera rises over the table, the pin (north, away from it) in view" },
+  { re = 'arm wrestle view: getting up; back and up over the table', label = "getting up: the match camera goes back and up, over the standing heads" },
+  { re = "arm wrestle view: the player's camera again", label = "the player's own camera comes back once the screen closes" },
 ]
 
 [[scenario]]
