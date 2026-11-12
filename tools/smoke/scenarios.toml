@@ -11022,9 +11022,9 @@ name = "slots-seated"
 source = "queue item 170 part A: The Tops' machine 0x0016546A has its stool 0x0011E62E (TopsSlotMachineStool01L) 56 units out in front [observed: the load-order survey]; activated, the player sits on it by the stool's own getting-on clip, the menu opens once seated, each spin plays NVSlotMachineInsertCoin, a loss NVSlotMachineLoose, the jackpot (160 x) the cheer for 3 s on the upper body, and leaving gets the player up by the getting-off clip; third person for the screenshots"
 areas = ["slots", "furniture"]
 paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/furniture.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:6-6-6,50.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_seated_sitting_down.png,44.2:slots_seated_insert_coin.png,47:slots_seated_loss.png,54:slots_seated_cheer.png,59.5:slots_seated_getting_up.png,64:slots_seated_up.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:6-6-6,50.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_seated_sitting_down.png,44.2:slots_seated_insert_coin.png,47:slots_seated_loss.png,54:slots_seated_cheer.png,58.5:slots_seated_end_00.png,59.5:slots_seated_end_01.png,61:slots_seated_end_02.png,62.2:slots_seated_end_03.png,63:slots_seated_end_04.png,64:slots_seated_getting_up_00.png,65:slots_seated_getting_up_01.png,66:slots_seated_getting_up_02.png,67:slots_seated_up_00.png,68.5:slots_seated_up_01.png,70:slots_seated_up_02.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 66
+run_seconds = 72
 order = [[
   "slots seat: the player sits on stool 0011E62E at machine 0016546A",
   "furniture: the player uses 0011E62E",
@@ -11040,14 +11040,17 @@ order = [[
   "slots seat: the player plays Cheer",
   "slots seat: celebration ended",
   "slots: closed (the player left)",
-  "slots seat: the player gets up from stool 0011E62E",
+  "slots seat: the menu closed; the player stays on stool 0011E62E for the end view",
+  { re = 'match end: left Slots \(-?\d+ to -?\d+\); won; the end view, seated', label = "the end view on the stool (item 166, owner 2026-11-11)" },
+  { re = 'match end: this player plays \S+cheeringbotharmsup\.kf \(upper body, seated\)', label = "the cheer on the upper body, seated" },
+  "match end: black; back to the player's view",
+  "slots seat: the player gets up from stool 0011E62E after the end view",
   "furniture: the player got off 0011E62E",
   "slots seat: the player is up",
 ]]
 expect = [
   { re = 'slots seat: \S+specialidle_nvinsertcoin\.kf: [\d.]+s, \d+ upper-body tracks', label = "InsertCoin loads, upper body only" },
   { re = 'slots seat: \S+specialidle_nvloose\.kf: [\d.]+s, \d+ upper-body tracks', label = "Loose loads" },
-  { re = 'match end: left Slots .* the end view', label = "the end view after the player is up (item 166)" },
 ]
 
 [[scenario]]
@@ -11090,21 +11093,27 @@ expect = []
 
 [[scenario]]
 name = "slots-seated-holster"
-source = "queue item 170 part A: The Tops' machine 0x0016546A with its stool 0x0011E62E, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated, through the jackpot's cheer and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Screenshots: the gun drawn, seated, the cheer, up again"
+source = "queue item 170 part A: The Tops' machine 0x0016546A with its stool 0x0011E62E, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Two losing spins: the visit lost, so its end view (item 166) plays the beaten reaction on the stool, then the getting-off clip (owner 2026-11-11). Screenshots: the gun drawn, seated, the end view, getting off, up again"
 areas = ["slots", "furniture"]
 paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon,26:orbit=150:-10,31:release", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,50:reels:6-6-6,50.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "29:slots_seated_holster_drawn.png,36.5:slots_seated_holster_seated.png,54:slots_seated_holster_cheer.png,64:slots_seated_holster_up.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon,26:orbit=150:-10,31:release", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,49:reels:2-3-4,49.5:spin,55:exit", NVF_PLAY_TEST_SHOTS = "29:slots_seated_holster_drawn.png,36.5:slots_seated_holster_seated.png,55.5:slots_seated_holster_end_00.png,56.5:slots_seated_holster_end_01.png,58:slots_seated_holster_end_02.png,59.2:slots_seated_holster_end_03.png,60:slots_seated_holster_end_04.png,61:slots_seated_holster_getting_up_00.png,62:slots_seated_holster_getting_up_01.png,63:slots_seated_holster_getting_up_02.png,64:slots_seated_holster_up_00.png,65.5:slots_seated_holster_up_01.png,67:slots_seated_holster_up_02.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 66
+run_seconds = 69
 order = [[
   "slots seat: the player sits on stool 0011E62E at machine 0016546A",
   "furniture: the player is on 0011E62E",
   "slots seat: seated at machine 0016546A on stool 0011E62E",
   "slots seat: the weapon is away (sitting put it away)",
-  "slots: the reels stop on Orange Orange Orange: Three oranges pays 160 x 5 = 800 chips",
-  "slots seat: the player plays Cheer",
+  "slots seat: the player plays Loose",
+  "slots seat: the player plays Loose",
   "slots: closed (the player left)",
-  "slots seat: the player is up",
+  "slots seat: the menu closed; the player stays on stool 0011E62E for the end view",
+  { re = 'match end: left Slots \(-?\d+ to -?\d+\); lost; the end view, seated', label = "the beaten end view on the stool" },
+  { re = 'match end: this player plays \S+ \(upper body, seated\)', label = "the beaten reaction, upper body" },
+  { re = 'match end: black; back to the', label = "the fade back, still seated" },
+  { re = 'gets up from stool 0011E62E after the end view', label = "off the stool only after the end view" },
+  { re = 'furniture: the player got off 0011E62E', label = "the getting-off clip" },
+  { re = 'slots seat: the player is up', label = "up, the weapon still away" },
 ]]
 expect = []
 

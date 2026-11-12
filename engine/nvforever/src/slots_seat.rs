@@ -37,6 +37,7 @@ use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::ModelCtx;
 use nvf_coop::net::{emote as phase, EmoteState};
+use nvf_play::slots::seat::SeatPhase;
 use nvf_play::slots::{SlotsScreen, SlotsSeat, SlotsSpin, SpinPhase};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -130,17 +131,60 @@ impl Plugin for SlotsSeatPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SlotIdle>()
             .init_resource::<SlotClips>()
-            .add_systems(Update, hold.in_set(nvf_play::player::BodySet).before(crate::furniture::drive_player))
+            .add_systems(Update, (get_up, hold).chain().in_set(nvf_play::player::BodySet).before(crate::furniture::drive_player))
             .add_systems(Update, (own, puppets).chain().after(nvf_play::PlaySet::Ui));
     }
 }
 
-/// The menu's keys are not movement while it is open.
+/// The menu's keys are not movement while it is open, nor while the end view plays on
+/// the stool.
 fn hold(screen: Res<SlotsScreen>, slots_seat: Res<SlotsSeat>, mut seat: ResMut<nvf_play::furniture::PlayerSeat>) {
-    let at = screen.0.is_some() || slots_seat.phase == nvf_play::slots::seat::SeatPhase::Sitting;
-    if at && seat.leave && slots_seat.phase != nvf_play::slots::seat::SeatPhase::Leaving {
+    let at = screen.0.is_some() || matches!(slots_seat.phase, SeatPhase::Sitting | SeatPhase::Ending);
+    if at && seat.leave && slots_seat.phase != SeatPhase::Leaving {
         seat.leave = false;
     }
+}
+
+/// How long the stool waits for an end view to begin after the menu closed: a visit with
+/// nothing played has none [engineering choice: `match_end::ends` sees the menu closed
+/// within a frame or two].
+const END_VIEW_WAIT: f32 = 0.5;
+/// The longest the player stays on the stool for the end view, whatever happens (real
+/// seconds) [design: the timed view 3.5 s, its fade 1.15 s].
+const END_VIEW_MAX: f32 = 8.0;
+
+/// The menu closed on the stool (`SeatPhase::Ending`): the visit's end view plays seated
+/// (`match_end.rs`); once it is over (back from black), or if none begins, the player gets
+/// up by the getting-off clip [owner 2026-11-11: the end view "in the seat", the get-off
+/// after it].
+fn get_up(
+    real: Res<Time<Real>>,
+    time: nvf_play::pause::AidTime,
+    match_end: Option<Res<crate::match_end::MatchEnd>>,
+    mut slots_seat: ResMut<SlotsSeat>,
+    mut seat: ResMut<nvf_play::furniture::PlayerSeat>,
+    mut ending: Local<Option<(f32, bool)>>,
+) {
+    if slots_seat.phase != SeatPhase::Ending {
+        *ending = None;
+        return;
+    }
+    let now = real.elapsed_secs();
+    let (since, seen) = ending.get_or_insert((now, false));
+    let showing = match_end.as_deref().is_some_and(|m| m.phase != crate::match_end::Phase::Off);
+    *seen |= showing;
+    let over = if *seen { !showing } else { now - *since > END_VIEW_WAIT };
+    if !over && now - *since < END_VIEW_MAX {
+        return;
+    }
+    let stool = match slots_seat.stance {
+        Some(nvf_play::slots::Stance::Seated { stool }) => stool,
+        _ => 0,
+    };
+    info!("slots seat: the player gets up from stool {stool:08X}{}", if *seen { " after the end view" } else { " (no end view)" });
+    seat.leave = true;
+    *slots_seat = SlotsSeat { phase: SeatPhase::Leaving, since: time.elapsed_secs(), ..*slots_seat };
+    *ending = None;
 }
 
 /// This player's body: the idle for each event, and what goes to the others.
