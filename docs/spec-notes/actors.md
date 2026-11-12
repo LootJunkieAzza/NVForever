@@ -131,7 +131,11 @@ actor meshes`]:
   the elbow to the Pip-Boy, and another outfit's brown cuff between the Pip-Boy and the
   glove], any other actor the `PipBoyOff…` shapes [hypothesis, from the names]
   (`fnv_actor::mesh::pipboy_sleeve`). The same holds in first person, where the sleeve
-  is drawn beside the `Arms…` shapes (`fnv_actor::first_person::is_first_person_shape`).
+  is drawn beside the `Arms…` shapes (`fnv_actor::first_person::is_first_person_shape`):
+  `PipBoyOn…` with a Pip-Boy, `PipBoyOff…` without [hypothesis: the original's player
+  always wears one]. Until 2026-11-11 only `PipBoyOn…` was a first-person shape, so with
+  the Pip-Boy off the arms had no forearm sleeve and the body shown in first person kept
+  `PipBoyOff…` in the air where its hidden arm was (#2173).
   Before 2026-10-10 both sleeves were drawn on everyone, and none in first person.
 - Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and

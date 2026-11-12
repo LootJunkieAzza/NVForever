@@ -809,6 +809,8 @@ impl Ai {
                 Some("it is in furniture")
             } else if a.talk == Some(Talking::Speaking) {
                 Some("it faces whom it talks to (its Dialogue package)")
+            } else if a.fixed {
+                Some("it never turns (Immobile, Turning Speed 0)")
             } else {
                 None
             };
