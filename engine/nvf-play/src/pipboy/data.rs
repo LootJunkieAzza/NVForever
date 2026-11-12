@@ -2355,6 +2355,17 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
     }
 }
 
+/// The turn of the player's arrow for heading `heading` (radians, clockwise from north): a
+/// quarter turn less, as `glow_cursor.dds` points right unturned [documented: its texels, the
+/// arrow in the top half pointing right] while the original's arrow points up at heading 0
+/// [observed: a capture of the original's World Map at 1280x720, 2026-11, heading 0]. Both
+/// drawings, the hand-built page and the file's `MM_WorldMapCursor`/`MM_LocalMapCursor`, turn it
+/// so (until 2026-11-12 the hand-built arrow was turned by the heading itself, a quarter turn
+/// clockwise of the way the player faces).
+pub(crate) fn arrow_turn(heading: f32) -> f32 {
+    heading - std::f32::consts::FRAC_PI_2
+}
+
 /// The player's standing with reputation `rep` (its title), when the scripts' game runs.
 fn standing(game: &Game, rep: u32) -> Option<&'static str> {
     let rt = game.script.as_ref().and_then(|s| s.rt.as_ref())?;
@@ -3348,7 +3359,7 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
                 p.spawn((
                     at(spot.x - w / 2.0, spot.y - h / 2.0, w, h),
                     ImageNode { rect, color: c.bright(), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) },
-                    UiTransform::from_rotation(Rot2::radians(heading)),
+                    UiTransform::from_rotation(Rot2::radians(arrow_turn(heading))),
                 ));
             }
         }
@@ -3810,6 +3821,22 @@ mod tests {
         // Another tab: nothing.
         st.refit_map(QUESTS, moved, Vec2::ZERO);
         assert_eq!(st.cursor[WORLD], Some(cursor));
+    }
+
+    /// The arrow points the way the player faces: up (north) at heading 0, right (east) at a
+    /// quarter turn, and so on round, the picture pointing right unturned; a turned picture's
+    /// right is where (cos, sin) of its turn points with y down.
+    #[test]
+    fn the_arrow_points_the_way_the_player_faces() {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        for (heading, want) in [(0.0, Vec2::new(0.0, -1.0)), (FRAC_PI_2, Vec2::new(1.0, 0.0)), (PI, Vec2::new(0.0, 1.0)), (-FRAC_PI_2, Vec2::new(-1.0, 0.0))] {
+            let t = arrow_turn(heading);
+            let points = Vec2::new(t.cos(), t.sin());
+            assert!((points - want).length() < 1e-5, "heading {heading}: {points:?}");
+            // The way the player walks at that heading, north up on the map (y down).
+            let forward = Vec2::new(heading.sin(), -heading.cos());
+            assert!((points - forward).length() < 1e-5);
+        }
     }
 
     fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {

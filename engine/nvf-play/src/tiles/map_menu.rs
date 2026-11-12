@@ -895,7 +895,7 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
         if let Some((uv, heading)) = s.arrow {
             ui.write_changed(cursor, "_x", num_of(uv[0]));
             ui.write_changed(cursor, "_y", num_of(uv[1]));
-            ui.write_changed(cursor, "rotateangle", num_of(heading));
+            ui.write_changed(cursor, "rotateangle", num_of(data::arrow_turn(heading)));
         }
     }
     if let Some(b) = ui.find_tile(HIGHLIGHT_BOX) {
@@ -3191,7 +3191,7 @@ mod tests {
         assert!(trait_of(&ui, lines[1].tile, "rotateangle").abs() < 1e-6);
         // The arrow: the player's place and heading, shown; its brightness the painter's default,
         // which the file does not give and the nodes and lines copy; its zoom the file's.
-        assert_eq!((at(&ui, WORLD_CURSOR, "_x"), at(&ui, WORLD_CURSOR, "_y"), at(&ui, WORLD_CURSOR, "rotateangle"), at(&ui, WORLD_CURSOR, "visible")), (0.5, 0.5, 0.25, 1.0));
+        assert_eq!((at(&ui, WORLD_CURSOR, "_x"), at(&ui, WORLD_CURSOR, "_y"), at(&ui, WORLD_CURSOR, "rotateangle"), at(&ui, WORLD_CURSOR, "visible")), (0.5, 0.5, f64::from(data::arrow_turn(0.25)), 1.0));
         assert_eq!(at(&ui, WORLD_CURSOR, "brightness"), 255.0);
         assert!(ui.tile(ui.find_tile(WORLD_CURSOR).unwrap()).get("zoom").is_none(), "nothing written over the file's zoom");
         let c = ui.find_tile(WORLD_CURSOR).unwrap();
@@ -3402,11 +3402,11 @@ mod tests {
         assert!(quests.iter().all(|r| ui.tile(r.tile).name == "LocalMapQuestMarker"), "the Local Map's template");
         assert!(t.written.local.nodes.is_empty() && t.written.local.lines.is_empty(), "no dotted line on the Local Map");
         // The arrow: its place, turned by the heading about its pivot, shown.
-        assert_eq!((at(&ui, LOCAL_CURSOR, "rotateangle"), at(&ui, LOCAL_CURSOR, "visible")), (0.75, 1.0));
+        assert_eq!((at(&ui, LOCAL_CURSOR, "rotateangle"), at(&ui, LOCAL_CURSOR, "visible")), (f64::from(data::arrow_turn(0.75)), 1.0), "a quarter turn less than the heading: the picture points right");
         assert_eq!(at(&ui, LOCAL_CURSOR, "_x"), f64::from(ws.arrow.unwrap().0[0]));
         let cursor = ui.find_tile(LOCAL_CURSOR).unwrap();
         let arrow = t.pieces.iter().find(|p| p.tile == cursor).expect("the arrow painted");
-        assert_eq!(arrow.turn.map(|r| (r.angle, r.pivot)), Some((0.75, (5.0, 10.0))), "turned about the file's axis");
+        assert_eq!(arrow.turn.map(|r| (r.angle, r.pivot)), Some((f64::from(data::arrow_turn(0.75)), (5.0, 10.0))), "turned about the file's axis");
         // The highlight box on the door, its name.
         assert_eq!((at(&ui, HIGHLIGHT_BOX, "x"), at(&ui, HIGHLIGHT_BOX, "y")), (427.5 - 80.0, 250.0 - 80.0));
         assert_eq!(words(&ui, HIGHLIGHT_BOX, "_Title"), "Door 7");
