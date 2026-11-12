@@ -2,6 +2,10 @@
 //! (`fnv_game::ui_input`, `fnv_ui::input`), each frame before scripts [design:
 //! ui-tile-tree.md §4.1 step 1].
 //!
+//! - **Turned tiles** (`rotateangle`, `super::layout::Turn`): hit-tested on their unturned
+//!   box, as `fnv_ui::input::hit` reads the tree [design: no tile the files turn takes the
+//!   pointer, `map_menu.xml`'s arrows and dotted path lines have no `target`; menu-xml.md
+//!   §3.1.4].
 //! - **Which menus take input**: a menu drawn from its file that the player works: since
 //!   T15a the message box and the "How many?" prompt while drawn from tiles
 //!   (`[UI] TileMenus=MessageMenu,QuantityMenu`, or for the prompt a container menu drawn

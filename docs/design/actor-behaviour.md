@@ -190,15 +190,26 @@ when the target has moved 64 units, at most twice a second. On its way after a t
 that moves it keeps step (`carry::follow_speed`): the target's own pace since the last
 plan plus the gap beyond the distance closed in 3 seconds, between half its walk and its
 run, so the walk clip plays faster or slower and the run clip comes only when it is well
-behind; it stops once within the distance when the target has stopped (no new plan for a
-second, or slower than 20 units/s), else only 64 units inside it [our choice; owner's
+behind [our choice; owner's
 playtest 2026-10-24: the Novac pack brahmin, kept about 450 units back by its package, stood,
 set off running past a fixed 512, caught up and stood again all the way after its
 merchant]. In the original game the same brahmin walked at its merchant's pace 440–530
 units behind it, ran only once it was about 800–1,060 behind, and closed to about 300
 when the merchant stopped [observed: AI observer 2026-10-24, docs/spec-notes/actors.md
-§8.10, Brahmin]: the rule above agrees except for that last stop, which is at the
-distance here. A target that is gone or dead
+§8.10, Brahmin]. A follower on its way stops 150 units inside its distance
+(`FOLLOW_STOP_INSET`), but not nearer than 128 (`COLUMN_GAP`) and never beyond the
+distance (`carry::follow_stop_at`); in step with a moving target it stays near the
+distance, so in practice it comes in once the target stops or slows: 180 for Boone's 330,
+300 for the brahmin's 450, 362 for DefaultFollowPlayerFar's 512, 128 for the usual 256
+[design, #2122: Boone came to 177 of his 330 once the player stopped
+(docs/spec-notes/npc-behaviour-compare.md, Boone) and the brahmin to about 300 of 450,
+both about 150 inside [observed]; one share of the distance fits the two less well (0.54
+and 0.67), and the original's rule is not known; in owner-review.md]. Distances of 128
+and less keep the earlier rule: within the distance once the target has stopped (no new
+plan for a second, or slower than 20 units/s), else 64 units inside it; so do the gaps of
+a column (below). Before #2122 every follower used that rule, and a run of main
+(bdd4cb8ba) had GoodspringsSettler01Ref on DefaultFollowPlayerFar stop at 404 of 512
+[observed: issue #2122]. A target that is gone or dead
 is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
 choice may replace the package as it may any other. The target being attacked and the
 Wait/StopWaiting functions (used by no script of the masters) are not built. The
@@ -207,7 +218,8 @@ of cells, fighting the player's foes, waiting by their Guard packages. `fnvtool 
 reach`: 256 of the 265 follow-type actor-package pairs of FalloutNV.esm are now
 "follows: goes after its target from where it is"; 5 name no reference (not carried
 out) and 4 are Escort; every other verdict is unchanged. Log: `ai [h] <actor>: walks
-after <target> (<package>): <n> units away, …` and `: has caught up with <target>`.
+after <target> (<package>): <n> units away, …` and `: has caught up with <target>: <n>
+units away, stops within <n>`.
 
 *Followers in a line* (`Ai::ahead_in_column`; owner playtest 2026-10-24: three
 mercenaries following one leader should walk behind it in single file, not bunch up on
@@ -242,6 +254,25 @@ plays the run clip faster to match (up to its 2.5 rate limit), so the feet do no
   included (navmesh.md). Everything the actor carries counts as a key for locked doors.
   Always Run packages run (344 units a second), others walk (86.8) [observed: the
   player's speeds; NPC speeds are not captured].
+- **Walking with a pistol drawn** (#2124, `fnv_ai::carry::drawn_walk_share`): a person
+  in light armour or clothes walking a package outside combat with a pistol out walks
+  its walk / fMoveNoWeaponMult (85.3 / 1.1 = 77.5) [observed: 77.5–78.3, actors.md §8.10,
+  People; design: the fit chosen, docs/owner-review.md]. A package's walk (planned by
+  `Ai::plan`, a Dialogue package's approach, a sandbox's or a Find errand's walk)
+  remembers the share it was given (`Agent::walk_pace`) until it ends, and while it travels (`Ai::repace_walk`, the AI's own steps: not
+  in a fight, an alert or a script's weapon use) its speed is scaled to the share now
+  when the weapon is drawn or put away, whatever its base. Every other setter of the
+  walker's speed gives that up (a run, a Follow package's walk, a companion's Back Up, a
+  walk-up to the player, a search, a random conversation's walk), and so does a walk a
+  random conversation or a search has taken over: it keeps its speed. New speeds on the
+  way (a Speed Mult or armour change, `Ai::set_speeds`, #2118) keep the share and the
+  walk's own: it goes on at the new walk / 1.1, also after a stop at Speed Mult 0. A
+  follower's speed comes through `Ai::pace` too and is worked out again under way as the
+  gap changes, so it takes the share at once (in step, its target's pace wins, the share
+  only lowering the slowest it eases to) [design: not measured, actors.md §8.10]. The weapon is the one
+  the actor's equipment holds (none: its fists); the animating side's last drawn weapon
+  counts only for an actor the simulation has no equipment for. Other stances and armour
+  classes keep the holstered walk.
 - **No way there** (no navmesh at either end, no chain of doors, a locked door without
   the key, or a location that names nothing): the package is set aside for one game
   hour (`Game::block_package`, `PackageCheck::Unreachable`) and the actor chooses again:
@@ -452,7 +483,7 @@ Wander packages in the masters):
 
 | Flag | In the record | Sandbox packages with the behaviour on | What we do |
 |---|---|---|---|
-| Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, on a seat if one is free; no food is picked up or eaten |
+| Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, only on a free seat (furniture on); no seat, no meal (#2011); no food is picked up or eaten |
 | Sleeping | bit 1 "No Sleeping" | 305 | to a bed of the area for the rolled night; no bed, no sleep [hypothesis] |
 | Conversation | bit 2 "No Conversation" | 654 | the actor takes part in no random conversation (`fnv_ai::social`, docs/spec-notes/dialogue.md §5.2) |
 | Idle markers | bit 3 "No Idle Markers" | 706 | goes to a marker and faces its way, and plays the marker's idles there (docs/spec-notes/idles.md §5) |
@@ -478,8 +509,17 @@ packages.md §2). Wander packages are treated as sandboxes with their own flags
    between `fSandboxSleepStartMin` and `Max` (19:00 to 01:00), length between
    `fSandboxSleepDurationMin` and `Max` (6 to 10 hours) [documented defaults; the
    masters do not set them].
-2. In a meal window, with eating on: a meal until the window ends (breakfast starting
-   6 to 9, lunch 11 to 14, dinner 17 to 20, lasting 0.5 to 2 hours, rolled likewise).
+2. In a meal window, with eating and furniture on and a seat free in the area: a meal on
+   that seat until the window ends (breakfast starting 6 to 9, lunch 11 to 14, dinner 17
+   to 20, lasting 0.5 to 2 hours, rolled likewise). With no free seat (none in the area,
+   each one kept for another actor or waiting out a failed way to it) the meal is not
+   chosen and step 3 goes on (each such choice is counted, `Sandbox::seatless_meal_choices`:
+   the exit report's `ai sandbox meals` line for named residents, `seatless_meal_choices`
+   in `fnvtool ai run`); a seat that comes free within the window is taken at the next
+   choice [design, #2011: the original reported no EAT procedure under Sandbox
+   packages that allow eating, observed: npc-behaviour-compare.md §6a; until 2026-11-11
+   a seatless meal held the actor standing on the spot to the window's end. Whether the
+   original's sandbox eats on a seat at all is observer check 113].
 3. Otherwise one of: a seat, an idle marker, a wander. Each kind has a weight that drops
    to zero when the kind was just chosen and grows back by half each time another is;
    the object just used is not chosen again at once [documented]. Low energy (AIDT
@@ -515,6 +555,35 @@ retry tests' timing, about 0.5, 65.5, 190.5 and 435.5 seconds after it; other be
 move those); a shorter wait left may mean fewer. No test loads a game here; this is from the
 delays.
 
+**The only object, used again** [design, #1505: the maintainer's handed-off choice, under
+review in owner-review.md; no vanilla-parity claim, the original is unmeasured: observer
+check 114]: the object just used stays out of the choices, and with several objects open
+the actor goes from one to another as above. When the object used last is the only one
+open (no other seat or idle marker the package allows that is present, not given to
+another actor and not waiting out a failed way), it comes back once the actor has done
+something else for 60 seconds of `Game::time` (`SOLE_OBJECT_AGAIN_AFTER` in
+`crates/fnv-ai/src/sandbox.rs`), counted from when the first behaviour without an object
+(standing, wandering, a meal with no seat) began after it. So at least one other choice comes between, and
+the look on getting up never takes it again. The time runs on through an interruption
+(combat taking the sandbox for a while does not restart it, nor let the object through
+early). 60 seconds is about a short sit (45) or a default idle marker's stint (30), so a
+lone chair is sat on about as long as it is left; with nothing else on, the actor stands,
+looks every 10 seconds, and the first look past the minute takes the chair. Using any
+object starts the minute over; the time is not saved, like the object just used (a load
+forgets both). Before this, a sandbox with one object used it once and then stood (or
+wandered) until the package changed [observed: issue #1505's synthetic run, 50 standing
+choices in 600 s].
+
+The GECK wiki documents a setting for this area, `iSandBoxPreventRepeatedActionTime`,
+default 30: a sandboxing NPC does not repeat an action on the same object until that many
+seconds have passed [documented: GECK wiki, iSandBoxPreventRepeatedActionTime;
+docs/spec-notes/packages.md §3]. NVForever does not read it. The two differ: the setting
+reads as a wait on every object (several objects could each come back after 30 s), with
+nothing said about when the seconds start; ours keeps the object just used out for as
+long as any other object is open, and lets it back only when it is the only one, 60 s
+after the first other behaviour began. Whether to follow the setting instead is the
+maintainer's question in owner-review.md.
+
 **Also in this step**: a patrol waits out a point's idle time (REFR `XPRD`) before going
 on [documented: Idle Markers, Patrol Data]; the furniture a package gives its actor
 (§5.4) is decided headless now (`goal::package_furniture`, `Agent::using`), so
@@ -524,14 +593,51 @@ on [documented: Idle Markers, Patrol Data]; the furniture a package gives its ac
 radius and uses nothing; no-wander alternates chair and idle marker; all off stands; the
 night's bed and the meal's chair at the rolled hours; an idle marker's heading (turned to
 on the spot at 120°/s since 2026-10-11, `Agent::face_to`, actors.md §8.9); two
-sandboxers never on one chair; the same run twice; the patrol wait). `fnvtool ai run
+sandboxers never on one chair; the same run twice; the patrol wait). The only object
+(#1505), in the same file: a lone chair, and a lone idle marker, used again a minute after
+each stand and never at the look after it, nor early after an interruption; a disabled
+second chair and one with no way to it (its #1504 backoff going on) leave the first as the
+only one; two chairs, and a chair with a marker, still take turns without standing between.
+`fnvtool ai run
 --actor GSChetRef --start-hour 9`: a meal on a chair, an idle marker, a wander, a seat,
 in his store. In `nvforever`: Chet walks about his store and sits down (screenshots);
 flying over the map with `all`, 161 wanders, 37 meals, 6 idle markers at 26 frames a
 second as before.
 
-**Not done**: conversations; food; the idle manager's idles (package and marker idles
-are played, docs/spec-notes/idles.md); sandboxing "at each
+**A guard's wander (2026-11-11, #2027)**: a Guard package whose location has a radius
+over 0 has its actor "wander within that radius" [documented: GECK wiki, Guard Package].
+Once there (`settle`, after the package's furniture, before an xMarkerHeading's facing)
+the guard gets a sandbox with only wandering on (`Sandbox::guard`), whatever the record's
+type-specific bits (not Sandbox switches on a Guard): no seats, idle markers, meals or
+beds. Its centre is the location's place (where it settled for "near current location"),
+its radius the location's, not the guarded reference's guard radius. Its spots are random
+points of the actor's walkable area within the radius (a small radius holds few triangle
+centres: one or two within 128 units of a Goodsprings settler outdoors [observed:
+`fnvtool nav near`]), a triangle centre when eight tries find none; the pause at a spot
+and the walk are a sandbox's [design, #2027]. A spot is at least half the radius (at most
+64, a sandbox's distance) from where the guard stands, and counts as reached within half
+that, so a radius of 32 or 64 still moves; a radius below 16 (`GUARD_WANDER_MIN_RADIUS`),
+whose steps would be a few units, stands like one of 0 [design, #2027]. A spot bounds where the guard stops, not the
+way there: round a wall the way can leave the circle. A guard off its area when a search,
+flight, push or conversation ends (in another cell after fleeing through a door, or
+outside the circle) gives the wander up and walks back to the wander's area, its goal
+from then on, where it wanders again (`back_to_package`): a "near current location"
+guard keeps the area it began in. An "in cell" location has no radius (the editor greys it out
+[documented: GECK wiki, Category:Packages, Standard Location]): its guard stands as
+before, whatever radius is stored. The package and procedure stay
+Guard's (GetCurrentAIPackage 35, GetCurrentAIProcedure 44: `package_procedure` reads the
+sandbox's phase only for Sandbox packages). Combat, a warning or flight interrupts it as
+any sandbox (`interrupt_sandbox`) and it goes on from where the guard is. Left as they
+were: a radius of 0 (the guard stands where it arrived), Remain Near Reference to Guard
+(its place is the guarded reference's), the warning rules, and a location reference that
+moves (the centre is where it was when the package began). Checks:
+`crates/fnv-ai/tests/guard_wander.rs` (13 tests) and the smoke scenario
+`guard-radius-wander`; the original's cadence is observer check 115.
+
+**Not done**: conversations; food; the rest of the idle manager's idles (package and
+marker idles are played, and the tree's fidgets with the weapon out, the weapon away,
+on furniture, talking and for calm creatures, docs/spec-notes/idles.md §11–§14; how
+often the original asks its tree is open, observer check 116); sandboxing "at each
 point of a linked patrol route" [documented]; energy changing over the day; the game's
 real scores and durations (to be captured: an observer run in a loaded sandbox area
 recording GetSitting, GetCurrentAIProcedure and positions).

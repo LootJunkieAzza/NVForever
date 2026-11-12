@@ -1612,7 +1612,8 @@ stopped and started, as Victor's walk had before #258). Code:
   (`fnv_ai::keep_step_speed`, `catch_up`: up to 1.5 × the run, 333).
   The brahmin kept 440–530 units behind it while both walked, closed to
   about 300 when the merchant stopped, and ran when about 800–1,060 behind
-  (docs/design/actor-behaviour.md, Follow).
+  (docs/design/actor-behaviour.md, Follow; since #2122 ours closes to 150 inside the
+  distance once its target stops, 300 for 450).
 - **People** (added 2026-10-24; `fnv_ai::NPC_WALK`, `NPC_RUN`,
   `fnv_game::combat::armor_speed`, `creature_pace::person_pace`). Before this every person
   walked at 86.8 and ran at 344, the player's speeds (physics.md §6.3).
@@ -1668,9 +1669,35 @@ stopped and started, as Victor's walk had before #258). Code:
     two-handed run penalty was built before (`npc_combat::pace`, item 61) for every
     two-handed weapon drawn in combat; whether rifles count as "big" is not measured
     (the paladins walked holstered with Gauss rifles at about the heavy armour's pace).
-  - **Not built**: the walk with a weapon drawn outside combat (77–78 here, about the
-    `1hm`/`h2h` clip or `fMoveBaseSpeed`, which of the two is open); in combat, walking
-    with a weapon drawn was faster (a fiend 105, Cook-Cook 97; not explained).
+  - **The walk with a pistol drawn** (issue #2124; `fnv_ai::carry::drawn_walk_share`)
+    [design, the fit chosen: docs/owner-review.md]: a person, not a creature, in light
+    armour or clothes, with a pistol out (WEAP animation type 3 or 4, the ballistic and
+    energy pistols; IsWeaponOut's state, `Game::weapon_is_out`) and not in combat walks its
+    walk divided by `fMoveNoWeaponMult` (1.1 [documented: GECK wiki Movement Settings,
+    "Movement speed is multiplied by this when the actor's weapon is holstered, or the
+    actor has no weapon equipped"]): 85.3 / 1.1 = 77.5 against the 10mm pistol walks
+    above (78.0, 77.5, 78.3). Our holstered walk being the fitted one, the setting is
+    read backwards; the `1hm`/`h2h` walk clip (77.5) and `fMoveBaseSpeed` (77) give
+    about the same number and are not taken. It is a package's walk (`Ai::pace`), times
+    the actor's Speed Mult and fMoveSneakMult as before; a walk under way changes
+    between the two paces when the weapon is drawn or put away, a run, a follower's
+    matched pace and the alert and combat speeds do not. New speeds on the way (a Speed
+    Mult or armour change, `Ai::set_speeds`, issue #2118) keep the walk's share: the walk
+    goes on at the new walk / 1.1 and still follows the weapon, also through a stop at
+    Speed Mult 0 [design]. A follower (a Follow or Accompany package) takes the share
+    too, as every walk `Ai::pace` gives does [design: no person was measured following
+    with a weapon drawn, observer check 13; the movement settings apply "to all actors
+    unless otherwise noted", documented: GECK wiki Movement Settings]: in step with its
+    target it goes at the target's pace (`keep_step_speed`; the share only lowers its
+    slowest walk), and at the drawn walk where the target's pace is not known (its first
+    plan, a way through another space). Its speed is worked out again under way as the
+    gap changes (`follow_step`, `follow_speed`), so a weapon drawn or put away on the way
+    shows at once: as its walk where the target's pace is not known, as the slowest it
+    eases to otherwise. Every other stance, medium and
+    heavy armour keep the holstered walk until they are measured drawn (the stances'
+    walk clips differ, above; observer check 13).
+  - **Not built**: in combat, walking with a weapon drawn was faster (a fiend 105,
+    Cook-Cook 97; not explained).
   - **The player** (issues #1364, #1742): the player's walk and run (86.8 and 344) are
     multiplied by its Speed Mult over 100 (SetAV's base, ModAV's and effects' modifiers
     and damage, as GetActorValue reads it; 0 at the least) and by its body armour's
@@ -2626,6 +2653,31 @@ Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
   the skeleton's root with the whole transform below the part's root.
 - Hidden nodes, editor markers and dismemberment caps are left out as for NPCs.
 - Textures are the models' own (NIFT texture hashes are not read).
+- **Part nodes for the clips** (#2228): the named nodes between such a shape and where
+  it hangs are kept as nodes of their own (`creature_rigid_chain`; with a `Prn` bone and
+  a named node, the part's root as one too), and a clip track naming a node the
+  skeleton lacks drives the part node of that name (`BlendPlayer::add_part_node`). The
+  same placement as before when nothing moves. [observed: `SpecialIdle_CutCake.kf`
+  (IDLE `CutCake`, Mister Handy cutting the cake) has 40 rotation keys on
+  `Buzzsawblad`, about one turn every 0.4 s from 3.3 s; `Buzzsawblad` is a node of
+  `gutsybuzzsaw.nif` (root the identity, `Prn` `Bip01 R Foot 01`), whose stored
+  rotation is the track's first key, and not of `creatures\mistergutsy\skeleton.nif`;
+  hypothesis: the original grafts the part's nodes under the bone, so its clips reach
+  them.]
+- **Parts that move by themselves** (#2228): a part with no skinned shape whose file has
+  controllers no sequence drives (Active, not manager controlled: texture scrolls,
+  alpha, emittance, refraction strength, transforms, visibility; `nvf_assets::model`
+  "free" tracks) is drawn as a model on its `Prn` bone at the part's root transform,
+  playing them each on its own cycle as a placed object does, its billboards turning
+  and add-on nodes emitting (`shot_fx::spawn_playing_itself`), unless a shape of it
+  hangs from a skeleton-named node of the part. [observed: Mister Handy's and Gutsy's
+  jet `fxmrhandyjetaddon.nif` (`Prn` `Bip01 Pelvis`) has no sequence; under three
+  NiBillboardNodes `##JetFlames…`, the three flame shapes share one
+  NiTexturingProperty with two looping NiTextureTransformControllers (0.47 s and
+  2.13 s) and one NiMaterialProperty with an NiAlphaController; each refraction cloud
+  node has a looping NiTransformController (0.67 s) and its shader property a
+  BSRefractionStrengthController.] Such a part is not a dismemberment shape (it is not
+  hidden with a severed limb) [design].
 
 ### 10.3 Idle
 

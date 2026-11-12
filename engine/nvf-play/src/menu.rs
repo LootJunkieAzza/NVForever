@@ -23,7 +23,9 @@
 //!   Esc or Tab close [observed: the screenshot's "Take All R)" and "Exit E)"]. Barter:
 //!   the same, but Left/Right only, A accepts and X exits [observed: "Accept A)", "Exit
 //!   X)"]; Esc and Tab exit too. In both, `[` and `]` change the focused list's category
-//!   [design], the pointer selects the row it is on and a click acts on it, Shift+click
+//!   [design]; with a controller LT and RT pick the list (the arrow keys) and the D-pad's
+//!   left and right change its category (`[` and `]`), the hints "LT)" and "RT)" under
+//!   the lists [observed: the original, #1827; `crate::pad::menu_buttons`], the pointer selects the row it is on and a click acts on it, Shift+click
 //!   on the whole stack; the title arrows and the buttons are clickable. The inventory's
 //!   keys are the Pip-Boy's (`crate::pipboy::items`). [hypothesis:
 //!   the original's PC keys beyond the hints shown are not captured]
@@ -834,6 +836,13 @@ fn apply_input(
         }
         if asking && m.quantity.is_none() && matches!(cmd, Command::AmountCancel | Command::Close) {
             info!("menu: {cmd:?}: prompt closed");
+        }
+        match cmd {
+            Command::Category(side, _) | Command::SetCategory(side, _) if m.mode != Mode::Inventory => {
+                info!("menu: {cmd:?}: the {side:?} list shows {:?}", m.category[side as usize]);
+            }
+            Command::Focus(_) => info!("menu: {cmd:?}: the {:?} list has the focus", m.focus),
+            _ => {}
         }
         // What the command did, for its sound (`crate::ui_sounds`).
         if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {

@@ -1717,6 +1717,10 @@ pub struct Game<'a> {
     /// Scripted doors' last answers to the NPCs walking through them, by (actor, door)
     /// (`crate::npc_doors`). Not part of the saved state.
     pub door_gates: std::collections::HashMap<(FormId, FormId), crate::npc_doors::Gate>,
+    /// The NPC door crossings the extender heard, by (actor, door), and when one the AI
+    /// never closed (`Game::npc_door_left`) stops counting as the same crossing, game
+    /// seconds (`crate::npc_doors`); expired entries are dropped. Not saved.
+    pub door_heard: std::collections::HashMap<(FormId, FormId), f64>,
     /// The door block being run for an NPC walking through it (`Game::npc_door`).
     pub npc_door_run: Option<crate::npc_doors::DoorRun>,
     /// Reference events the engine reported outside a script run (a container menu
@@ -1752,6 +1756,11 @@ pub struct Game<'a> {
     /// The random numbers of the idle tree's talking gestures (`crate::idles`), kept
     /// apart so that picking them does not move the scripts' `rng`. Not saved.
     pub(crate) idle_rng: ChaCha8Rng,
+    /// Test aid: while set, `GetRandomPercent` reads this (0 to 99) instead of a roll.
+    /// The engine sets it only around the walks for fidgets with the weapon away
+    /// (`NVF_PLAY_TEST_HOLSTERED_ROLL`), so a smoke run can make the idle tree's random
+    /// branches pass and check their clips play (#2026). Not saved.
+    pub fixed_random_percent: Option<u32>,
     /// Run-time changes to base forms and cells.
     pub forms: FormChanges,
     /// Magic effects active on actors, in the order they started.
@@ -2447,6 +2456,7 @@ impl<'a> Game<'a> {
             time: 0.0,
             pending_onload: Vec::new(),
             door_gates: Default::default(),
+            door_heard: Default::default(),
             npc_door_run: None,
             queued_ref_events: Vec::new(),
             action_refs: Default::default(),
@@ -2462,6 +2472,7 @@ impl<'a> Game<'a> {
             stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
             idle_rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x1D1E_7A1C),
+            fixed_random_percent: None,
             forms: FormChanges::default(),
             effects: Vec::new(),
             next_effect: 1,
@@ -3412,11 +3423,15 @@ impl<'a> Game<'a> {
         hs.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.seq.cmp(&b.seq)));
         self.event_names.push(event.to_string());
         let ctx = RunCtx { self_ref: on, ..RunCtx::default() };
+        // A handler is no part of a door block being run for an NPC (`crate::npc_doors`):
+        // its own `Activate` of that door is an activation of its own [design, #2123].
+        let door_run = self.npc_door_run.take();
         for h in &hs {
             if let Err(error) = self.run_function(&h.func, on.map(|f| Value::Ref(f.0)), args.clone(), None, ctx) {
                 self.emit(EventKind::ScriptError { unit: format!("event handler for {event}"), error });
             }
         }
+        self.npc_door_run = door_run;
         self.event_names.pop();
         hs.len()
     }
@@ -4846,11 +4861,17 @@ impl<'a> Game<'a> {
     /// `actor` activates `target`. A destroyed door or activator
     /// ([`Game::activation_refused`]) does nothing: no default action, no OnActivate.
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
-        if !self.activation_begins(actor, target) {
+        // A door's block letting the NPC that walks through it go on (`crate::npc_doors`):
+        // the extender heard that attempt before the block ran, so this `Activate` is the
+        // same activation and is not heard twice [design, #2123].
+        let npc_door = mode == ActMode::Default && self.in_npc_door_run(actor, target);
+        if !npc_door {
+            self.activation_heard(actor, target);
+        }
+        if !self.activation_goes_on(actor, target) {
             return Ok(serde_json::json!({"result": "destroyed"}));
         }
-        // A door's block letting the NPC that walks through it go on (`crate::npc_doors`).
-        if mode == ActMode::Default && self.npc_door_activated(actor, target) {
+        if npc_door && self.npc_door_activated(actor, target) {
             return Ok(serde_json::json!({"result": "npc door"}));
         }
         let has_block = self.ref_script(target).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
@@ -4871,7 +4892,19 @@ impl<'a> Game<'a> {
     /// Handling]. Whether it goes on (not [`Game::activation_refused`]), with `actor` as
     /// the target's action reference.
     fn activation_begins(&mut self, actor: FormId, target: FormId) -> bool {
+        self.activation_heard(actor, target);
+        self.activation_goes_on(actor, target)
+    }
+
+    /// The extender's OnActivate handlers hear `actor` activating `target` (the target
+    /// first, the action reference second) [documented: NVSE Event Handling, OnActivate
+    /// row]. Also the first step of an NPC's walk through a door (`crate::npc_doors`).
+    pub(crate) fn activation_heard(&mut self, actor: FormId, target: FormId) {
         self.dispatch_event("OnActivate", vec![fnv_script::vm::XVal::Ref(target.0), fnv_script::vm::XVal::Ref(actor.0)], Some(target));
+    }
+
+    /// [`Game::activation_begins`] after the handlers: whether the activation goes on.
+    fn activation_goes_on(&mut self, actor: FormId, target: FormId) -> bool {
         if self.activation_refused(target) {
             return false;
         }

@@ -144,7 +144,7 @@ fn mcm_setting(ui: &fnv_ui::Ui, at: fnv_ui::TileId, setting: &str) -> Option<(fn
 /// Item3 nor MCM_List; `3 3 2` set nothing; `3 0 1` set Item1 only; a missing trait
 /// stayed missing; MCM's own `5 24 33` reaches SubMenu1-10, the 24th to 33rd children of
 /// MCM_ModList]. One exception was seen and is not followed: `1 36 37 "depth" 33` left
-/// ArrowUp, MCM_Options' 37th child, as it was [observed; open: observer-checks.md, check 112].
+/// ArrowUp, MCM_Options' 37th child, as it was [observed; open: observer-checks.md, check 118].
 fn mcm_mass(ui: &mut fnv_ui::Ui, args: &[XVal], value: Value) {
     let Some(parent) = mcm_place(ui, &[num(args, 0) as i64]) else { return };
     let (first, last) = (num(args, 1) as i64, num(args, 2) as i64);
