@@ -460,7 +460,12 @@ fn draw(mut commands: Commands, screen: Res<DrinkScreen>, time: AidTime, casino:
             })
             .collect();
         let foot = (c.pot() > 0).then(|| format!("Pot {} caps", c.pot()));
-        crate::casino_hud::score_panel(p, f, &rows, foot.as_deref());
+        // The leaderboard says it all once it shows; the roster under it would cross it
+        // on a narrow view (1280x800 run, drink_board.png).
+        let board = d.page == Page::Result && d.ended.is_some_and(|e| now - e >= board_after(d.won() == Some(true)));
+        if !board {
+            crate::casino_hud::score_panel(p, f, &rows, foot.as_deref());
+        }
         match d.page {
             Page::Play => {
                 let Some(me) = d.me.and_then(|i| c.slots.get(i)) else { return };
