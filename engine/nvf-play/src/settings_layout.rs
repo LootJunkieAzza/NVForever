@@ -104,7 +104,6 @@ pub const SECTIONS: &[Section] = &[
             "shadow-filter",
             "ambient-occlusion",
             "fine-shadows",
-            "lighter-shadows",
             "bloom",
             "glow",
             "eye-adaptation",
@@ -304,7 +303,7 @@ mod tests {
     /// Every row the registry can hold today (upstream main 9af0a4552 and f4015fae8, with #1966's
     /// quality and enhanced rows, #2014's counter rows and the two VATS rows), by the group it
     /// registers with.
-    const KNOWN: [(&str, &str); 105] = [
+    const KNOWN: [(&str, &str); 104] = [
         ("detached-camera", "Gameplay"),
         ("menu-pause", "Gameplay"),
         ("dialogue-goodbye-hint", "Gameplay"),
@@ -384,7 +383,6 @@ mod tests {
         ("shadow-filter", "Graphics"),
         ("ambient-occlusion", "Graphics"),
         ("fine-shadows", "Graphics"),
-        ("lighter-shadows", "Graphics"),
         ("bloom", "Graphics"),
         ("glow", "Graphics"),
         ("eye-adaptation", "Graphics"),

@@ -1,8 +1,9 @@
-//! Lighter sun shadows: a settings switch (off by default) that trades some of the sun
-//! shadows' precision for frame time. [engineering choices throughout; the original casts
-//! no sun shadows from the world at all, docs/spec-notes/world.md §6]
+//! The sun shadows' modes: the settings page's Sun shadows row, Off, Performance or Quality
+//! ([`SUN_SHADOW_CHOICES`]; `--sun-shadows[=quality|performance]`). Performance trades some
+//! of the shadows' precision for frame time. [engineering choices throughout; the original
+//! casts no sun shadows from the world at all, docs/spec-notes/world.md §6]
 //!
-//! With the switch on:
+//! Performance:
 //! - **The sun's shadow maps are drawn every other frame** ([`hold_cascades`]). On the
 //!   frames between, the lights keep the cascades of the frame that drew them, so the maps
 //!   and the matrices they are read with still belong together, and the renderer is told
@@ -10,8 +11,8 @@
 //!   engine/vendor/README.md). The shadow of a moving thing then moves at half the frame
 //!   rate, and on a fast turn the edge of the view can lie outside a held cascade for one
 //!   frame (unshadowed).
-//! - **The sun's shadows are split over [`LIGHTER_CASCADES`] cascades** instead of
-//!   `sky::DEFAULT_SHADOW_CASCADES` ([`set_lighter`]): one shadow view less, and shadows
+//! - **The sun's shadows are split over [`PERFORMANCE_CASCADES`] cascades** instead of
+//!   `sky::DEFAULT_SHADOW_CASCADES` ([`set_performance`]): one shadow view less, and shadows
 //!   near the camera a little coarser.
 //! - **The first-person arms have no shade light of their own** (player_body.rs
 //!   `shade_light`): another shadow view less; the arms take the sun's own shadows.
@@ -19,7 +20,7 @@
 //!   ([`far_trees_cast_no_shadow`]): a SpeedTree tree is thousands of leaf cards and a
 //!   finely divided trunk in every cascade it falls in.
 //!
-//! With the switch off the sun's cascades are drawn on a staggered schedule
+//! Quality (the default) draws the sun's cascades on a staggered schedule
 //! ([`STAGGERED_SCHEDULE`], #2063): the nearest every frame, the middle one every other
 //! frame, the farthest every fourth, each held cascade kept with the matrices of the frame
 //! that drew it, as above. A moving thing's shadow in the far cascades moves at a half or
@@ -37,12 +38,48 @@ use bevy::pbr::HoldDirectionalShadowMaps;
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResourcePlugin;
 
-/// The switch (settings key `lighter-shadows`).
-#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub struct LighterShadows(pub bool);
+/// `--sun-shadows=<mode>`: the mode the sun's shadows start in.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SunShadowMode {
+    Performance,
+    Quality,
+}
 
-/// The sun's cascades with the switch on.
-pub const LIGHTER_CASCADES: usize = 2;
+/// Sun shadows in Performance mode (the Sun shadows row's middle choice).
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PerformanceShadows(pub bool);
+
+/// The Sun shadows row's choices, in the order the page and the INI keep them: an INI
+/// written while the row was an on/off switch (`1`/`0`) reads back as Quality or Off.
+pub const SUN_SHADOW_CHOICES: [&str; 3] = ["Off", "Performance", "Quality"];
+
+/// The Sun shadows row's choice now (an index into [`SUN_SHADOW_CHOICES`]).
+pub fn sun_shadow_choice(world: &World) -> usize {
+    if !world.resource::<SkyState>().shadows {
+        0
+    } else if world.resource::<PerformanceShadows>().0 {
+        1
+    } else {
+        2
+    }
+}
+
+/// Set the Sun shadows row's choice: Off turns the sun's shadows off and leaves the mode
+/// as it was; Performance and Quality set the mode, then turn the shadows on.
+pub fn set_sun_shadow_choice(world: &mut World, choice: usize) {
+    if choice > 0 {
+        let performance = choice == 1;
+        if world.resource::<PerformanceShadows>().0 != performance {
+            set_performance(world, performance);
+        }
+    }
+    if world.resource::<SkyState>().shadows != (choice > 0) {
+        crate::sky::set_shadows(world, choice > 0);
+    }
+}
+
+/// The sun's cascades in Performance mode.
+pub const PERFORMANCE_CASCADES: usize = 2;
 
 /// With the switch on a tree casts a shadow within this distance of the camera (game
 /// units: about 43 m), and again once it is back within [`TREE_SHADOW_BACK`] of it.
@@ -52,23 +89,23 @@ pub const TREE_SHADOW_BACK: f32 = 2700.0;
 /// Seconds between two looks at the trees.
 const TREES_EVERY: f32 = 0.5;
 
-/// The sun's cascade count the switch replaced when it went on (`--graphics-cycle
-/// cascades=` or the default), given back when it goes off.
+/// The sun's cascade count Performance replaced when it was chosen (`--graphics-cycle
+/// cascades=` or the default), given back with Quality.
 #[derive(Resource, Default)]
-struct CascadesBeforeLighter(Option<usize>);
+struct CascadesBeforePerformance(Option<usize>);
 
-/// Turn the switch on or off now (the settings page): the cascade count changes with it.
+/// Performance mode on or off now (the Sun shadows row): the cascade count changes with it.
 /// Only the count is set here; graphics.rs `sun_shadow_quality` puts the cascades on the
 /// sun as the hour wants them (the moon's single cascade by night).
-pub fn set_lighter(world: &mut World, on: bool) {
-    let was = std::mem::replace(&mut world.resource_mut::<LighterShadows>().0, on);
+pub fn set_performance(world: &mut World, on: bool) {
+    let was = std::mem::replace(&mut world.resource_mut::<PerformanceShadows>().0, on);
     let current = world.resource::<SkyState>().shadow_cascades;
-    let mut before = world.get_resource_or_init::<CascadesBeforeLighter>();
+    let mut before = world.get_resource_or_init::<CascadesBeforePerformance>();
     let cascades = if on {
         if !was {
             before.0 = Some(current);
         }
-        LIGHTER_CASCADES
+        PERFORMANCE_CASCADES
     } else if was {
         before.0.take().unwrap_or(crate::sky::DEFAULT_SHADOW_CASCADES)
     } else {
@@ -76,7 +113,7 @@ pub fn set_lighter(world: &mut World, on: bool) {
     };
     world.resource_mut::<SkyState>().shadow_cascades = cascades;
     let how = if on {
-        "lighter (maps drawn every other frame, trees cast near the camera only, no arms shade light)"
+        "performance (maps drawn every other frame, trees cast near the camera only, no arms shade light)"
     } else if staggered() {
         "cascades on a staggered schedule (the nearest every frame, the farther ones less often)"
     } else {
@@ -103,7 +140,7 @@ pub fn tree_casts(distance: f32, casting_now: bool) -> bool {
 /// off every tree casts again.
 fn far_trees_cast_no_shadow(
     mut commands: Commands,
-    on: Res<LighterShadows>,
+    on: Res<PerformanceShadows>,
     time: Res<Time<Real>>,
     cams: Query<&GlobalTransform, With<FlyCam>>,
     trees: Query<(Entity, &GlobalTransform, Has<FarTreeNoShadow>), With<TreePart>>,
@@ -135,7 +172,7 @@ fn far_trees_cast_no_shadow(
 /// How often each cascade's map is drawn, nearest cascade first: `(n, phase)` draws it on
 /// the frames where (frame + phase) is a multiple of n; a cascade past the list is drawn
 /// every frame. With the switch on, both cascades every other frame, together.
-pub const LIGHTER_SCHEDULE: [(u32, u32); 2] = [(2, 0), (2, 0)];
+pub const PERFORMANCE_SCHEDULE: [(u32, u32); 2] = [(2, 0), (2, 0)];
 /// With the switch off: the nearest cascade every frame, the middle one every other frame
 /// and the farthest every fourth, on different frames, so at most two are drawn in one
 /// frame (1.75 of 3 on average). The farthest holds most of the casters (about 1,150 of
@@ -171,12 +208,12 @@ fn staggered() -> bool {
     *ON.get_or_init(|| std::env::var("NVF_PLAY_TEST_SHADOW_STAGGER").map_or(true, |v| v != "0"))
 }
 
-/// The cascades not drawn this frame ([`LIGHTER_SCHEDULE`], [`STAGGERED_SCHEDULE`]): give
+/// The cascades not drawn this frame ([`PERFORMANCE_SCHEDULE`], [`STAGGERED_SCHEDULE`]): give
 /// the directional lights back those cascades as the frame that drew them had them, and
 /// have the renderer keep their maps (module notes). Runs after Bevy has built this
 /// frame's cascades and before it fits the lights' frusta to them.
 fn hold_cascades(
-    on: Res<LighterShadows>,
+    on: Res<PerformanceShadows>,
     map: Option<Res<DirectionalLightShadowMap>>,
     mut hold: ResMut<HoldDirectionalShadowMaps>,
     mut lights: Query<(Entity, &mut Cascades), With<DirectionalLight>>,
@@ -186,7 +223,7 @@ fn hold_cascades(
 ) {
     *frame = frame.wrapping_add(1);
     let schedule: &[(u32, u32)] = if on.0 {
-        &LIGHTER_SCHEDULE
+        &PERFORMANCE_SCHEDULE
     } else if staggered() {
         &STAGGERED_SCHEDULE
     } else {
@@ -236,12 +273,16 @@ fn hold_cascades(
     }
 }
 
-pub struct ShadowRatePlugin;
+/// `performance`: start in Performance mode (`--sun-shadows=performance`; the program sets
+/// `SkyState`'s cascade count to match).
+pub struct ShadowRatePlugin {
+    pub performance: bool,
+}
 
 impl Plugin for ShadowRatePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LighterShadows>()
-            .init_resource::<CascadesBeforeLighter>()
+        app.insert_resource(PerformanceShadows(self.performance))
+            .insert_resource(CascadesBeforePerformance(self.performance.then_some(crate::sky::DEFAULT_SHADOW_CASCADES)))
             .init_resource::<HoldDirectionalShadowMaps>()
             .add_plugins(ExtractResourcePlugin::<HoldDirectionalShadowMaps>::default())
             .add_systems(
@@ -284,31 +325,31 @@ mod tests {
     #[test]
     fn the_switch_gives_back_the_cascades_it_replaced() {
         let mut world = World::new();
-        world.init_resource::<LighterShadows>();
+        world.init_resource::<PerformanceShadows>();
         let mut sky = SkyState::default();
         sky.shadow_cascades = 4;
         world.insert_resource(sky);
-        set_lighter(&mut world, true);
-        assert_eq!(world.resource::<SkyState>().shadow_cascades, LIGHTER_CASCADES);
-        set_lighter(&mut world, true);
-        set_lighter(&mut world, false);
+        set_performance(&mut world, true);
+        assert_eq!(world.resource::<SkyState>().shadow_cascades, PERFORMANCE_CASCADES);
+        set_performance(&mut world, true);
+        set_performance(&mut world, false);
         assert_eq!(world.resource::<SkyState>().shadow_cascades, 4);
         // Off when it already is: the count stays.
-        set_lighter(&mut world, false);
+        set_performance(&mut world, false);
         assert_eq!(world.resource::<SkyState>().shadow_cascades, 4);
     }
 
     #[test]
     fn the_schedules_hold_the_cascades_they_should() {
-        // Lighter: both cascades every other frame, together.
-        let lighter: Vec<u32> = (0..4).map(|f| held_mask(&LIGHTER_SCHEDULE, f, 2)).collect();
-        assert_eq!(lighter, [0, 0b11, 0, 0b11]);
+        // Performance: both cascades every other frame, together.
+        let performance: Vec<u32> = (0..4).map(|f| held_mask(&PERFORMANCE_SCHEDULE, f, 2)).collect();
+        assert_eq!(performance, [0, 0b11, 0, 0b11]);
         // Staggered: the nearest every frame, the middle every other, the farthest every
         // fourth, never both of the far two drawn in one frame.
         let staggered: Vec<u32> = (0..4).map(|f| held_mask(&STAGGERED_SCHEDULE, f, 3)).collect();
         assert_eq!(staggered, [0b110, 0b100, 0b010, 0b100]);
         // More cascades than the schedule: those are drawn every frame.
-        assert_eq!(held_mask(&LIGHTER_SCHEDULE, 1, 3), 0b011);
+        assert_eq!(held_mask(&PERFORMANCE_SCHEDULE, 1, 3), 0b011);
         assert_eq!(held_mask(&[], 1, 3), 0);
     }
 

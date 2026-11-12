@@ -58,7 +58,7 @@ per-view visibility filter of pending entries were tried with it and dropped: th
 (2026-11-07).
 
 Another change (held shadow maps, docs/design/frame-rate-audit.md §9 and §10; the game's
-Lighter sun shadows switch and staggered cascades, nvforever shadow_rate.rs), marked
+Sun shadows' Performance mode and staggered cascades, nvforever shadow_rate.rs), marked
 `NVForever held shadow maps`:
 
 - `src/render/light.rs`: the render-world resource `HoldDirectionalShadowMaps`, a bit per

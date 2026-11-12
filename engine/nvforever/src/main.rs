@@ -335,8 +335,10 @@ struct Args {
     /// frame cost and that flicker). Runs without --play (screenshots, the parity lab)
     /// keep them off: the original game casts no sun shadows from the world
     /// (docs/spec-notes/world.md §6, "Sun path and shadows").
-    #[arg(long)]
-    sun_shadows: bool,
+    /// `--sun-shadows=performance` chooses the cheaper mode (shadow_rate.rs); a bare
+    /// `--sun-shadows` or `=quality` the default one.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "quality", require_equals = true)]
+    sun_shadows: Option<shadow_rate::SunShadowMode>,
     /// With --play: the sun casts no shadows (the settings page turns them on and off too).
     #[arg(long, conflicts_with = "sun_shadows")]
     no_sun_shadows: bool,
@@ -1108,7 +1110,11 @@ fn main() -> AppExit {
     if let Some(saved) = pending.as_ref().and_then(|p| p.body.engine.extra.get(sky::SAVE_HOOK.key)) {
         sky_state.restore_saved(saved);
     }
-    sky_state.shadows = (args.sun_shadows || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
+    sky_state.shadows = (args.sun_shadows.is_some() || (args.play && !args.no_sun_shadows)) && args.shadow_distance > 0.0;
+    let performance_shadows = args.sun_shadows == Some(shadow_rate::SunShadowMode::Performance);
+    if performance_shadows {
+        sky_state.shadow_cascades = shadow_rate::PERFORMANCE_CASCADES;
+    }
     if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
     }
@@ -1408,7 +1414,7 @@ fn main() -> AppExit {
     .add_plugins(draw_distance::DrawDistancePlugin(draw_distance::DrawDistances::new(&args)))
     // Small objects far away cast no sun shadows (shadow_thin.rs).
     .add_plugins(shadow_thin::ShadowThinPlugin(args.shadow_thin))
-    .add_plugins(shadow_rate::ShadowRatePlugin)
+    .add_plugins(shadow_rate::ShadowRatePlugin { performance: performance_shadows })
     // Interiors draw the rooms seen through portals only (rooms.rs).
     .add_plugins(rooms::RoomsPlugin { off: args.no_room_culling, planes_off: args.no_occlusion_planes, planes_outdoors: args.occlusion_planes_outdoors })
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
@@ -2305,6 +2311,17 @@ mod tests {
             let args = parse(a);
             assert!(args.play && args.menu && !args.explore, "{a:?}");
         }
+    }
+
+    /// `--sun-shadows` alone still means the default mode (Quality); `=performance` the
+    /// cheaper one; the value needs its `=`, so a following argument is never taken for it.
+    #[test]
+    fn sun_shadows_take_an_optional_mode() {
+        use crate::shadow_rate::SunShadowMode;
+        assert_eq!(parse(&["--cell", "Goodsprings"]).sun_shadows, None);
+        assert_eq!(parse(&["--sun-shadows", "--cell", "Goodsprings"]).sun_shadows, Some(SunShadowMode::Quality));
+        assert_eq!(parse(&["--sun-shadows=performance"]).sun_shadows, Some(SunShadowMode::Performance));
+        assert_eq!(parse(&["--sun-shadows=quality"]).sun_shadows, Some(SunShadowMode::Quality));
     }
 
     #[test]
