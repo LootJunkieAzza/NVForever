@@ -178,6 +178,22 @@ docs/spec-notes/crime-karma.md); the player's reputation does not.
   had his chair package back at the fight's end and sat again about 5 real seconds
   later [observed: AI observer 2026-11-10]; the bed case is not settled by that capture
   [design]. Smoke: `resident-resettles-after-fight`, `resident-resettles-in-bed`.
+  Packages whose goal has no place to stay at (issue #2137) [design, unless tagged]:
+  - **Patrol.** A walk to a point cut off by the fight, or a wait at a point cleared by
+    the search, a warning or a flight: the patroller walks on to the point it was at or
+    going to. Standing at that point, it goes on to the next one. A route walked to its
+    end stays done ["Actor moves along patrol route continuously until another package
+    evaluates", documented: GECK wiki Patrol Package].
+  - **Ambush.** The ambusher walks back to its wait location ["When combat ends, the
+    actor will return to the Wait Location", documented: GECK wiki Ambush Package].
+    Sprung, it stands there and is not set to lie in wait again; whether the original
+    re-arms it is not known.
+  - **Escort, Find, Use Item At.** One not finished is taken up afresh at the next update
+    (log `… takes up <package> afresh`), as after a search that leaves the loaded area.
+    One whose goal was met stays done.
+
+  Which patrol point the original resumes at, and how soon, is not captured. Smoke:
+  `patrol-resumes-after-fight` (the issue's Nipton scene).
 
 ### Sandbox interruption [design]
 

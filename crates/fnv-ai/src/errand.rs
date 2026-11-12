@@ -241,6 +241,10 @@ impl Ai {
                 self.log(game, actor, AiEvent::Arrived { package, seconds, travelled, patrol_point: None });
                 self.lie_in_wait(game, actor, package, &am);
             }
+            // Back at its wait location after the fight (`Ai::back_to_package`): it stands.
+            (Some(Goal::Ambush(_)), Some(Errand::Ambush { sprung: true, .. })) => {
+                self.log(game, actor, AiEvent::Arrived { package, seconds, travelled, patrol_point: None });
+            }
             (Some(Goal::Flee(_)), Some(Errand::Flee { from, .. })) => {
                 self.log(game, actor, AiEvent::FleeSafe { package, from, seconds });
                 *self.errand_mut(actor) = Some(Errand::Flee { from: None, next_look: game.time + FLEE_LOOK_SECONDS });
