@@ -1,0 +1,18 @@
+# The totals `fnvtool ext report {data} --mo2-profile <Blue Moon profile> --schema
+# schemas/fnv` must print for the owner's Blue Moon list (211 plugins, profile
+# "1 - A Blue Moon 2.0"): the smoke scenario modlist-blue-moon (tools/smoke/scenarios.toml)
+# expects each value below, by its JSON path, to equal the run's (issue #2275). Counts
+# only; nothing of the mods is kept here.
+#
+# units_picked: the units the game runs from their source text (they use the extender);
+# units_kept_bytes: those whose source does not compile, which keep compiled bytes whose
+# extender calls all give 0. A branch that fixes a cause lowers units_kept_bytes and
+# raises units_from_source by as much; a rise fails the run (find the plugin and cause in
+# the report's per_plugin list before raising anything). A change to the mod list itself changes these too: write the new summary here.
+
+[summary]
+units_picked = 2014
+units_from_source = 1948
+units_kept_bytes = 66
+# Functions the scripts call that NVForever has no entry for (their calls do nothing).
+"unknown_functions.#" = 47
