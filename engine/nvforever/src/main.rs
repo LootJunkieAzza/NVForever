@@ -96,6 +96,7 @@ mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
 mod slots_view;
+mod caravan_pot;
 mod caravan_view;
 mod body_weapons;
 mod terminal_view;

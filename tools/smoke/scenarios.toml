@@ -11159,6 +11159,40 @@ expect = [
 ]
 
 [[scenario]]
+name = "caravan-pot-drop"
+source = "owner 2026-11-12: the Caravan pot falls onto the table as real objects (engine/nvforever/src/caravan_pot.rs): the notes flutter down first, then the caps and coins drop onto them and heap up, none on its rim, nothing in the planks. As the caravan scenario (pot 108 against Ringo); the pot is laid when play starts (about 23 s) and comes to rest by itself"
+areas = ["caravan"]
+paths = ["engine/nvforever/src/caravan_pot.rs", "engine/nvforever/src/caravan_view.rs", "engine/nvf-play/src/caravan/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "23.6:caravan_pot_small_falling.png,31:caravan_pot_small_settled.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 34
+manual = "caravan_pot_small_*.png: the notes falling flat, then the pot at rest in heaps on its notes, clear of the cards and the screen's words, no cap on its rim"
+order = [[
+  { re = 'caravan view: the pot of 108 on the table as \d+ pieces, falling in', label = "the pot of 108 is laid and falls" },
+  { re = 'caravan view: the pot of 108 settled: ', label = "and comes to rest" },
+]]
+expect = [
+  { re = 'caravan view: the pot of 108 settled: \d+ pieces, \d+ caps and coins resting on others, \d+ pinned, at rest by itself: true, in the planks: 0', label = "at rest by itself, nothing in the planks" },
+]
+
+[[scenario]]
+name = "caravan-pot-drop-large"
+source = "as caravan-pot-drop with a pot of 10434 (Ringo given 5000 caps, the player 20000, the whole bet raised): many notes and Legion coins, the caps and coins heaped on others, every note whole on the screen (0cda73198)"
+areas = ["caravan"]
+paths = ["engine/nvforever/src/caravan_pot.rs", "engine/nvforever/src/caravan_view.rs", "engine/nvf-play/src/caravan/screen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:104C7D.additem 0000000F 5000;12.3:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:20000,15:cards:15D7A2,16:open:104C7D:15D7A2:1.0,18:help,19:match,20:accept,21:help,22:randomize,23:play,23.5:help", NVF_PLAY_TEST_SHOTS = "24:caravan_pot_large_falling.png,34:caravan_pot_large_settled.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 37
+manual = "caravan_pot_large_*.png: notes fluttering down flat, then heaps of caps and coins on the notes, every note whole on the screen"
+order = [[
+  { re = 'caravan view: the pot of 10434 on the table as \d+ pieces, falling in', label = "the pot of 10434 is laid and falls" },
+  { re = 'caravan view: the pot of 10434 settled: ', label = "and comes to rest" },
+]]
+expect = [
+  { re = 'caravan view: the pot of 10434 settled: \d+ pieces, (?P<n>\d+) caps and coins resting on others, \d+ pinned, at rest by itself: true, in the planks: 0', range = [3, 1000], label = "heaped (some resting on others), at rest by itself, nothing in the planks" },
+]
+
+[[scenario]]
 name = "slots-seated-holster"
 source = "queue item 170 part A: The Tops' machine 0x0016546A with its stool 0x0011E62E, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Two losing spins: the visit lost, so its end view (item 166) plays the beaten reaction on the stool, then the getting-off clip (owner 2026-11-11). Screenshots: the gun drawn, seated, the end view, getting off, up again"
 areas = ["slots", "furniture"]

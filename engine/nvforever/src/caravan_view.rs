@@ -45,14 +45,14 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ImageRenderTarget, RenderTarget, ScalingMode};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::light::{AmbientLight, NotShadowCaster};
-use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::window::PrimaryWindow;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::{nif_material, NifMaterial};
-use nvf_play::caravan::screen::{card_texture, card_zones, table_cards, view_width, TableCard, FRAME_W};
+use nvf_play::caravan::screen::{card_texture, card_zones, table_cards, text_zones, view_width, TableCard, FRAME_W};
 use nvf_play::caravan::{CaravanScreen, CaravanView, Session, Stage};
+use crate::caravan_pot::PotSim;
 use nvf_play::pause::AidTime;
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -101,7 +101,7 @@ const NOTE_20: [f32; 4] = sheet(2745.0, 534.0, 4056.0, 1275.0);
 /// a US note is 156 by 66.3 mm; a crown cap is about 32 mm across; the Legion coins are
 /// given a quarter's 24.3 mm (denarius) and an aureus's 20 mm, hypothesis: the game gives
 /// no coin size].
-const MM: f32 = 147.0 / 88.9;
+pub(crate) const MM: f32 = 147.0 / 88.9;
 /// A cap across, a coin across, a note's length; the note keeps its picture's shape
 /// (1312 by 740 on the sheet: 156 by 88 mm), which a real note's 156 by 66 would squash.
 const CAP_SIZE: Vec2 = Vec2::new(32.0 * MM, 32.0 * MM);
@@ -113,9 +113,24 @@ const MONEY_MAX: usize = 90;
 /// How far a piece keeps from where a card can lie, and how many places it tries.
 const MONEY_CLEAR: f32 = 10.0;
 const MONEY_TRIES: u32 = 96;
-/// The least distance between the middles of two caps or coins: a cap across and a
-/// little, the same for every round piece so a coin turning into a cap moves nothing.
-const ROUND_APART: f32 = CAP_SIZE.x * 1.1;
+/// The pot lies in heaps (the owner, 2026-11-12: stacked in 3D, not "all spread out"):
+/// this many pieces to a heap; the caps and coins of a heap spiral out from its middle
+/// this far apart (by the golden angle, so each new one overlaps the ones before and rests
+/// on them), the notes flat under them [design].
+const HEAP_PIECES: usize = 15;
+const HEAP_STEP: f32 = CAP_SIZE.x * 0.35;
+/// A heap's reach from its middle: its outermost cap's edge.
+const HEAP_R: f32 = HEAP_STEP * 3.9 + CAP_SIZE.x / 2.0;
+/// The golden angle (radians).
+const GOLDEN: f32 = 2.399_963;
+/// How tall a cap and a coin are [hypothesis: a crown cap is about 6 mm tall, a coin
+/// about 2 mm; the game gives no size].
+pub(crate) const CAP_THICK: f32 = 6.0 * MM;
+const COIN_THICK: f32 = 2.0 * MM;
+/// The most a piece resting on another leans (radians, about 14 degrees) [design].
+const LEAN_MAX: f32 = 0.25;
+/// A cap or coin on the planks sits on the notes under it (table units) [design].
+const ROUND_BASE: f32 = 0.6;
 /// The game's Caravan cap and coin models.
 const CAP_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_1.nif";
 const SILVER_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_2.nif";
@@ -142,7 +157,7 @@ pub enum Money {
 }
 
 impl Money {
-    fn rect(self) -> [f32; 4] {
+    pub(crate) fn rect(self) -> [f32; 4] {
         match self {
             Money::Cap => CAP_PLAIN,
             Money::NukaCap => CAP_NUKA,
@@ -154,7 +169,7 @@ impl Money {
         }
     }
 
-    fn size(self) -> Vec2 {
+    pub(crate) fn size(self) -> Vec2 {
         match self {
             Money::Cap | Money::NukaCap => CAP_SIZE,
             Money::Denarius => DENARIUS_SIZE,
@@ -163,8 +178,17 @@ impl Money {
         }
     }
 
-    fn note(self) -> bool {
+    pub(crate) fn note(self) -> bool {
         matches!(self, Money::Note5 | Money::Note20 | Money::Note100)
+    }
+
+    /// How tall the piece is on the table.
+    pub(crate) fn thick(self) -> f32 {
+        match self {
+            Money::Cap | Money::NukaCap => CAP_THICK,
+            Money::Denarius | Money::Aureus => COIN_THICK,
+            _ => 0.0,
+        }
     }
 
     /// The game's model for a cap or coin, and how much of the model across the piece is.
@@ -200,101 +224,296 @@ fn scatter(i: usize, salt: u32) -> f32 {
     (h % 10_000) as f32 / 9_999.0
 }
 
-/// The pot's pieces: what each is, its middle (frame units, y down) and its turn
-/// (radians). Piece `i` is the same for every pot that has it, so the pile grows.
-pub fn money(pot: u32) -> Vec<(Money, Vec2, f32)> {
+/// Whether a disc of radius `r` at `at` keeps out of every zone.
+fn disc_clear(zones: &[(Vec2, Vec2)], at: Vec2, r: f32) -> bool {
+    zones.iter().all(|(a, b)| at.clamp(*a, *b).distance(at) >= r)
+}
+
+/// A piece of the pot on the table: what it is, its middle (frame units, y down), its turn
+/// about the up axis (radians), how high its bottom is over the planks and its lean (the
+/// way its low side goes, frame units, as long as the angle in radians).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Piece {
+    pub kind: Money,
+    pub at: Vec2,
+    pub turn: f32,
+    pub lift: f32,
+    pub lean: Vec2,
+}
+
+/// The pot's pieces, in heaps of [`HEAP_PIECES`]: a heap's middle is anywhere on the
+/// planks clear of the cards and the screen's words, apart from the other heaps; its
+/// notes lie flat round the middle, its caps and coins spiral out from it, each resting
+/// on the highest piece it overlaps and leaning away from it [design, the owner
+/// 2026-11-12: stacked in 3D]. Piece `i` is the same for every pot that has it, so the
+/// pot only grows; a heap with no room, or a piece over a card's or a word's place, is
+/// left out.
+pub fn money(pot: u32) -> Vec<Piece> {
     if pot == 0 {
         return Vec::new();
     }
     let n = (((pot as f32).sqrt() * 3.0).ceil() as usize).clamp(2, MONEY_MAX);
-    let zones = card_zones(MONEY_CLEAR);
-    // The caps and coins placed so far: one never lands on another (the owner,
-    // 2026-11-12: "Overlapping caps!"); notes may lie under them [design].
-    let mut round: Vec<Vec2> = Vec::new();
-    (0..n)
-        .filter_map(|i| {
-            let kind = if pot >= 40 && i % 4 == 3 {
-                match (pot, i % 3) {
-                    (0..=149, _) => Money::Note5,
-                    (150..=599, 0) => Money::Note5,
-                    (150..=599, _) => Money::Note20,
-                    (_, 0) => Money::Note20,
-                    _ => Money::Note100,
-                }
-            } else if pot >= 20 && i % 5 == 2 {
-                // Legion coins; gold among them once the pot is big.
-                if pot >= 300 && i % 3 == 0 { Money::Aureus } else { Money::Denarius }
-            } else if scatter(i, 7) < 0.6 {
-                Money::NukaCap
-            } else {
-                Money::Cap
-            };
-            // Anywhere on the planks where no card can lie; left out if nowhere is found
-            // (the same tries for the same piece, so the pile still only grows) [design].
-            let turn = scatter(i, 53) * 2.0 * PI;
-            let h = kind.size().max_element() / 2.0;
-            let is_round = !kind.note();
-            let at = (0..MONEY_TRIES)
-                .map(|k| Vec2::new(h + scatter(i, 11 + k) * (FRAME_W - 2.0 * h), h + scatter(i, 131 + k) * (960.0 - 2.0 * h)))
-                .find(|at| clear_of(&zones, *at, kind.size(), turn) && (!is_round || round.iter().all(|r| r.distance(*at) >= ROUND_APART)))?;
-            if is_round {
-                round.push(at);
+    // Off the cards and off the screen's words [design, owner 2026-11-09; parity 2026-11-12].
+    let mut zones = card_zones(MONEY_CLEAR);
+    zones.extend(text_zones(MONEY_CLEAR));
+    let mut sites: Vec<Option<Vec2>> = Vec::new();
+    // Each heap's caps and coins so far: middle, bottom's height, thickness, radius.
+    let mut heaps: Vec<Vec<(Vec2, f32, f32, f32)>> = Vec::new();
+    let mut out = Vec::new();
+    for i in 0..n {
+        let kind = if pot >= 40 && i % 4 == 3 {
+            match (pot, i % 3) {
+                (0..=149, _) => Money::Note5,
+                (150..=599, 0) => Money::Note5,
+                (150..=599, _) => Money::Note20,
+                (_, 0) => Money::Note20,
+                _ => Money::Note100,
             }
-            Some((kind, at, turn))
-        })
-        .collect()
+        } else if pot >= 20 && i % 5 == 2 {
+            // Legion coins; gold among them once the pot is big.
+            if pot >= 300 && i % 3 == 0 { Money::Aureus } else { Money::Denarius }
+        } else if scatter(i, 7) < 0.6 {
+            Money::NukaCap
+        } else {
+            Money::Cap
+        };
+        let heap = i / HEAP_PIECES;
+        while sites.len() <= heap {
+            let j = sites.len();
+            let site = (0..MONEY_TRIES)
+                .map(|k| Vec2::new(HEAP_R + scatter(j, 211 + k) * (FRAME_W - 2.0 * HEAP_R), HEAP_R + scatter(j, 307 + k) * (960.0 - 2.0 * HEAP_R)))
+                .find(|c| disc_clear(&zones, *c, HEAP_R * 0.8) && sites.iter().flatten().all(|o| o.distance(*c) >= 2.0 * HEAP_R));
+            sites.push(site);
+            heaps.push(Vec::new());
+        }
+        let Some(c) = sites[heap] else { continue };
+        let turn = scatter(i, 53) * 2.0 * PI;
+        if kind.note() {
+            // Flat round the middle, a hair over the notes before it.
+            let a = scatter(i, 401) * 2.0 * PI;
+            let at = on_screen(c + Vec2::from_angle(a) * scatter(i, 409) * NOTE_SIZE.y * 0.45, kind.size(), turn);
+            if clear_of(&zones, at, kind.size(), turn) {
+                out.push(Piece { kind, at, turn, lift: 0.004 * (i % HEAP_PIECES) as f32, lean: Vec2::ZERO });
+            }
+            continue;
+        }
+        let k = heaps[heap].len();
+        let a = k as f32 * GOLDEN + scatter(heap, 503) * 2.0 * PI;
+        let at = c + Vec2::from_angle(a) * HEAP_STEP * (k as f32).sqrt();
+        let me = kind.size().x / 2.0;
+        if !disc_clear(&zones, at, me) {
+            continue;
+        }
+        // On the highest piece it overlaps, leaning away from it.
+        let mut lift = ROUND_BASE;
+        let mut lean = Vec2::ZERO;
+        for (p, l, t, r) in &heaps[heap] {
+            let d = p.distance(at);
+            if d < (r + me) * 0.95 && l + t > lift {
+                lift = l + t;
+                lean = (at - *p).normalize_or_zero() * (t / (d + me)).atan().min(LEAN_MAX);
+            }
+        }
+        heaps[heap].push((at, lift, kind.thick(), me));
+        out.push(Piece { kind, at, turn, lift, lean });
+    }
+    out
 }
 
-/// A unit square showing `rect` of its picture.
-fn atlas_quad(rect: [f32; 4]) -> Option<Mesh> {
-    let mut m = Mesh::from(Rectangle::new(1.0, 1.0));
-    if let Some(VertexAttributeValues::Float32x2(uv)) = m.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
-        for p in uv.iter_mut() {
-            p[0] = rect[0] + p[0] * (rect[2] - rect[0]);
-            p[1] = rect[1] + p[1] * (rect[3] - rect[1]);
+/// How far in from the screen's edges a note lies whole (frame units): past the pot's edge
+/// walls ([`crate::caravan_pot`]), which one placed across them could not be pushed out of
+/// (the fourth shots, 2026-11-12: two notes hung off the screen).
+const NOTE_EDGE: f32 = 20.0;
+
+/// `at` moved in just far enough that a piece `size` turned by `turn` lies whole inside
+/// the screen, [`NOTE_EDGE`] from its edges.
+fn on_screen(at: Vec2, size: Vec2, turn: f32) -> Vec2 {
+    let (s, c) = (turn.sin().abs(), turn.cos().abs());
+    let reach = Vec2::new(c * size.x + s * size.y, s * size.x + c * size.y) / 2.0 + Vec2::splat(NOTE_EDGE);
+    Vec2::new(at.x.clamp(reach.x, FRAME_W - reach.x), at.y.clamp(reach.y, 960.0 - reach.y))
+}
+
+/// A note's mesh: this many strips along its length, so it can bend.
+const NOTE_STRIPS: usize = 12;
+
+/// A note's mesh, a unit rectangle (x along its length) showing `rect` of the money sheet,
+/// bent by `bend` (table units: the ends this far over the middle, the whole kept centred).
+/// Two-sided: a note that lands face down shows the same print from below, the right way
+/// round (the sheet has one face per note), rather than vanishing.
+fn note_mesh(rect: [f32; 4], bend: f32, length: f32) -> Mesh {
+    let (pos, normals) = note_shape(bend, length);
+    let mut uv = Vec::new();
+    for back in [false, true] {
+        for i in 0..=NOTE_STRIPS {
+            let x = i as f32 / NOTE_STRIPS as f32;
+            let x = if back { 1.0 - x } else { x };
+            for j in 0..2 {
+                uv.push([rect[0] + x * (rect[2] - rect[0]), rect[1] + (1 - j) as f32 * (rect[3] - rect[1])]);
+            }
         }
     }
-    m.with_generated_tangents().ok()
+    let mut idx = Vec::new();
+    let behind = 2 * (NOTE_STRIPS as u32 + 1);
+    for i in 0..NOTE_STRIPS as u32 {
+        let (a, b, c, d) = (2 * i, 2 * i + 2, 2 * i + 3, 2 * i + 1);
+        idx.extend([a, b, c, a, c, d]);
+        idx.extend([a, c, b, a, d, c].map(|k| k + behind));
+    }
+    let m = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+        .with_inserted_indices(bevy::mesh::Indices::U32(idx));
+    m.clone().with_generated_tangents().unwrap_or(m)
 }
 
-/// Lays the pot out again when it changed.
+/// A falling piece is drawn this far over its body's middle (table units).
+const NOTE_UP: f32 = 0.05;
+/// The least a drawn note's lowest point stays over the planks (table units).
+const NOTE_CLEAR: f32 = 0.2;
+
+/// The bend to draw a note with, `bend` or less, so that no point of it goes under the
+/// planks: a note's middle sags as its ends rise ([`note_shape`]), and a note just landed
+/// still bends while the air's push eases off (the owner, 2026-11-12: "Make sure notes
+/// can't clip through table"). `z` is its middle's height drawn, `rot` its turn, `size`
+/// its length and width, `grow` its drawn scale.
+fn bend_above_table(z: f32, rot: Quat, size: Vec2, grow: f32, bend: f32) -> f32 {
+    // The note's lowest point, for a bend: its height is linear in the bend at each point,
+    // so the lowest is concave in it and scaling the bend down by t keeps at least
+    // (1 - t) of the flat note's clearance plus t of the bent one's.
+    let lowest = |b: f32| {
+        let mut low = f32::MAX;
+        for i in 0..=NOTE_STRIPS {
+            let x = i as f32 / NOTE_STRIPS as f32 - 0.5;
+            for y in [-0.5f32, 0.5] {
+                let p = Vec3::new(x * size.x, y * size.y, b * (4.0 * x * x - 1.0 / 3.0));
+                low = low.min(z + grow * (rot * p).z);
+            }
+        }
+        low
+    };
+    let (flat, bent) = (lowest(0.0), lowest(bend));
+    if bent >= NOTE_CLEAR {
+        return bend;
+    }
+    if flat <= NOTE_CLEAR {
+        return 0.0;
+    }
+    bend * ((flat - NOTE_CLEAR) / (flat - bent)).clamp(0.0, 1.0)
+}
+
+/// A note's points and normals bent by `bend` (see [`note_mesh`]): the face up, then the
+/// same points again facing down.
+fn note_shape(bend: f32, length: f32) -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+    let (mut pos, mut normals) = (Vec::new(), Vec::new());
+    for side in [1.0f32, -1.0] {
+        for i in 0..=NOTE_STRIPS {
+            let x = i as f32 / NOTE_STRIPS as f32 - 0.5;
+            let z = bend * (4.0 * x * x - 1.0 / 3.0);
+            let slope = bend * 8.0 * x / length.max(1.0);
+            let n = Vec3::new(-slope, 0.0, 1.0).normalize() * side;
+            for j in 0..2 {
+                pos.push([x, j as f32 - 0.5, z]);
+                normals.push(n.to_array());
+            }
+        }
+    }
+    (pos, normals)
+}
+
+/// The pot on the table: its bodies, and for each piece its entity and, for a note, its
+/// mesh and the bend it was last drawn with.
+struct PotDrawn {
+    sim: PotSim,
+    pieces: Vec<(Entity, Option<NoteDrawn>)>,
+    /// The pot's caps, and whether its coming to rest was logged.
+    pot: u32,
+    told: bool,
+}
+
+/// A note's own mesh and the bend it was last drawn with.
+type NoteDrawn = (Handle<Mesh>, f32);
+
+/// Lays the pot out again when it changed: every piece falls in anew (`caravan_pot`).
 fn place_money(commands: &mut Commands, models: &mut ModelCtx, b: &mut Built, pot: u32) {
     if b.money_pot == Some(pot) {
         return;
     }
     b.money_pot = Some(pot);
-    for e in b.money.drain(..) {
-        commands.entity(e).despawn();
+    if let Some(old) = b.pot.take() {
+        for (e, _) in old.pieces {
+            commands.entity(e).despawn();
+        }
     }
     let pieces = money(pot);
-    for (i, (kind, at, turn)) in pieces.iter().enumerate() {
+    let mut zones = card_zones(MONEY_CLEAR / 2.0);
+    zones.extend(text_zones(MONEY_CLEAR / 2.0));
+    let mut sim = PotSim::new(&zones);
+    sim.add(&pieces, 0);
+    let mut drawn = Vec::new();
+    for p in &sim.pieces {
+        let kind = p.piece.kind;
+        // Hidden until it falls; placed each frame where its body is.
+        let holder = commands.spawn((Transform::default(), Visibility::Hidden, ChildOf(b.space))).id();
+        let mut note = None;
         if let Some((path, body)) = kind.model() {
-            if let Some(e) = spawn_piece(commands, models, b, path, body * kind.size().x * MODEL_FIT, on_table(*at), *turn) {
-                b.money.push(e);
-                continue;
-            }
+            spawn_piece(commands, models, b, holder, path, body * kind.size().x * MODEL_FIT, kind.thick());
+        } else if let Some(mat) = money_material(models, &mut b.materials, MONEY_SHEET) {
+            let mesh = models.meshes.add(note_mesh(kind.rect(), 0.0, kind.size().x));
+            commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat), Transform::from_scale(kind.size().extend(1.0)), b.layer.clone(), ChildOf(holder)));
+            note = Some((mesh, 0.0));
         }
-        let Some(mat) = money_material(models, &mut b.materials, MONEY_SHEET) else { continue };
-        let mesh = match b.money_meshes.iter().find(|(k, _)| k == kind) {
-            Some((_, m)) => m.clone(),
-            None => {
-                let Some(m) = atlas_quad(kind.rect()) else { continue };
-                let m = models.meshes.add(m);
-                b.money_meshes.push((*kind, m.clone()));
-                m
-            }
-        };
-        // Notes first, caps over them; each a hair over the last, all under the cards.
-        let up = if kind.note() { 0.3 } else { 0.9 } + 0.004 * i as f32;
-        let tr = Transform::from_translation(on_table(*at).extend(up)).with_rotation(Quat::from_rotation_z(*turn)).with_scale(kind.size().extend(1.0));
-        b.money.push(commands.spawn((Mesh3d(mesh), MeshMaterial3d(mat), tr, b.layer.clone(), ChildOf(b.space))).id());
+        drawn.push((holder, note));
     }
-    info!("caravan view: the pot of {pot} on the table as {} pieces", pieces.len());
+    info!("caravan view: the pot of {pot} on the table as {} pieces, falling in", pieces.len());
+    b.pot = Some(PotDrawn { sim, pieces: drawn, pot, told: false });
 }
 
-/// A cap or coin from the game's model, `across` wide (its piece, not the disc round it),
-/// standing on the planks at `at`, turned by `turn`.
-fn spawn_piece(commands: &mut Commands, models: &mut ModelCtx, b: &Built, path: &str, across: f32, at: Vec2, turn: f32) -> Option<Entity> {
+/// Runs the pot on by `dt` and draws each piece where its body is.
+fn move_money(models: &mut ModelCtx, b: &mut Built, transforms: &mut Query<&mut Transform>, visible: &mut Query<&mut Visibility>, dt: f32) {
+    let Some(pot) = b.pot.as_mut() else { return };
+    if pot.sim.settled() && pot.pieces.iter().all(|(_, n)| n.as_ref().is_none_or(|(_, bend)| *bend == 0.0)) {
+        return;
+    }
+    pot.sim.advance(dt);
+    if pot.sim.settled() && !pot.told {
+        pot.told = true;
+        info!("caravan view: the pot of {} settled: {}", pot.pot, pot.sim.report());
+    }
+    for k in 0..pot.pieces.len() {
+        let Some(sh) = pot.sim.shown(k, dt) else { continue };
+        let (e, note) = &mut pot.pieces[k];
+        if let Ok(mut v) = visible.get_mut(*e) {
+            if *v != Visibility::Inherited {
+                *v = Visibility::Inherited;
+            }
+        }
+        // Seen from straight above: bigger the higher it falls, so the fall shows.
+        let grow = sh.grow;
+        if let Ok(mut t) = transforms.get_mut(*e) {
+            *t = Transform::from_translation(sh.at + Vec3::Z * NOTE_UP).with_rotation(sh.rot).with_scale(Vec3::splat(grow));
+        }
+        if let Some((mesh, drawn)) = note {
+            let size = pot.sim.pieces[k].piece.kind.size();
+            let bend = bend_above_table(sh.at.z + NOTE_UP, sh.rot, size, grow, sh.bend);
+            let bend = if bend.abs() < 0.05 { 0.0 } else { bend };
+            if (bend - *drawn).abs() >= 0.05 || (bend == 0.0 && *drawn != 0.0) {
+                if let Some(mut m) = models.meshes.get_mut(&*mesh) {
+                    let (pos, normals) = note_shape(bend, pot.sim.pieces[k].piece.kind.size().x);
+                    m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+                    m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+                }
+                *drawn = bend;
+            }
+        }
+    }
+}
+
+/// A cap or coin from the game's model under `holder` (which is placed where its body is,
+/// the body's middle), `across` wide, `thick` tall: the model's bottom half the piece's
+/// height under the holder.
+#[allow(clippy::too_many_arguments)]
+fn spawn_piece(commands: &mut Commands, models: &mut ModelCtx, b: &mut Built, holder: Entity, path: &str, across: f32, thick: f32) -> Option<()> {
     let pm = models.model(path)?;
     let (lo, hi) = pm.bounds?;
     let wide = (hi.x - lo.x).max(hi.y - lo.y);
@@ -302,20 +521,39 @@ fn spawn_piece(commands: &mut Commands, models: &mut ModelCtx, b: &Built, path: 
         return None;
     }
     let k = across / wide;
-    // On the planks, under the cards (which lie from 2 up), its bottom on the wood.
-    let holder = commands
-        .spawn((Transform::from_translation(at.extend(0.2 - lo.z * k)).with_rotation(Quat::from_rotation_z(turn)).with_scale(Vec3::splat(k)), Visibility::Inherited, ChildOf(b.space)))
-        .id();
-    let root = commands.spawn((Transform::from_matrix(Mat4::from(pm.root)), Visibility::Inherited, ChildOf(holder))).id();
+    // The model stands taller than the piece's body (a cap's is 2.4 times a 6 mm cap at
+    // that width, the log's line below): pressed to the body's height, so a piece drawn
+    // under another never reaches up through it (the owner's shot, 2026-11-12).
+    let kz = if hi.z > lo.z { thick / (hi.z - lo.z) } else { k };
+    let inner = commands.spawn((Transform::from_translation(Vec3::Z * (-thick / 2.0 - lo.z * kz)).with_scale(Vec3::new(k, k, kz)), Visibility::Inherited, ChildOf(holder))).id();
+    let root = commands.spawn((Transform::from_matrix(Mat4::from(pm.root)), Visibility::Inherited, ChildOf(inner))).id();
     let nodes: Vec<Entity> = pm.nodes.iter().map(|n| commands.spawn((Transform::from_matrix(Mat4::from(n.local)), Visibility::Inherited)).id()).collect();
     for (n, e) in pm.nodes.iter().zip(&nodes) {
         commands.entity(n.parent.map_or(root, |p| nodes[p])).add_child(*e);
     }
     for s in &pm.shapes {
-        let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.own)), Visibility::Inherited, b.layer.clone())).id();
+        let material = two_sided(models, &mut b.materials, &s.material);
+        let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(s.own)), Visibility::Inherited, b.layer.clone())).id();
         commands.entity(s.node.map_or(root, |n| nodes[n])).add_child(e);
     }
-    Some(holder)
+    static NAMED: std::sync::Once = std::sync::Once::new();
+    NAMED.call_once(|| info!("caravan view: {path}: shapes {:?}, {:.1} tall at {across:.1} across, drawn {thick:.1} tall", pm.shapes.iter().map(|s| s.name.clone()).collect::<Vec<_>>(), (hi.z - lo.z) * k));
+    Some(())
+}
+
+/// `m` drawn from both sides: a cap's model is its crown and skirt with no inside, so one
+/// lying crown down would show only its rim (the first pot-drop shots, 2026-11-12).
+fn two_sided(models: &mut ModelCtx, cache: &mut HashMap<String, Handle<NifMaterial>>, m: &Handle<NifMaterial>) -> Handle<NifMaterial> {
+    let key = format!("two-sided {:?}", m.id());
+    if let Some(h) = cache.get(&key) {
+        return h.clone();
+    }
+    let Some(mut both) = models.materials.get(m).cloned() else { return m.clone() };
+    both.base.cull_mode = None;
+    both.base.double_sided = true;
+    let h = models.materials.add(both);
+    cache.insert(key, h.clone());
+    h
 }
 
 fn money_material(models: &mut ModelCtx, cache: &mut HashMap<String, Handle<NifMaterial>>, path: &str) -> Option<Handle<NifMaterial>> {
@@ -364,9 +602,8 @@ struct Built {
     materials: HashMap<String, Handle<NifMaterial>>,
     view_w: f32,
     /// The pot's pieces on the table, the pot they show, their meshes by kind.
-    money: Vec<Entity>,
+    pot: Option<PotDrawn>,
     money_pot: Option<u32>,
-    money_meshes: Vec<(Money, Handle<Mesh>)>,
 }
 
 #[derive(Default)]
@@ -439,6 +676,7 @@ fn show(
     window: Query<&Window, With<PrimaryWindow>>,
     time: AidTime,
     mut transforms: Query<&mut Transform>,
+    mut visible: Query<&mut Visibility>,
     mut projections: Query<&mut Projection>,
     mut drawn: Local<Drawn>,
 ) {
@@ -480,6 +718,7 @@ fn show(
     let dt = (time.delta_secs_f64() as f32).clamp(0.0, 0.1);
     place_cards(&mut commands, &mut models, b, s, now);
     place_money(&mut commands, &mut models, b, s.bet.pot());
+    move_money(&mut models, b, &mut transforms, &mut visible, dt);
     let close = 1.0 - (-SLIDE_RATE * dt).exp();
     let cards = table_cards(s);
     let goals: HashMap<&str, (Vec3, Quat)> = cards.iter().enumerate().map(|(k, c)| (c.key.as_str(), (target(c, k), turn(&c.key, c.face_up)))).collect();
@@ -624,7 +863,7 @@ fn build(commands: &mut Commands, models: &mut ModelCtx, window: Option<&Window>
         .id();
     commands.insert_resource(CaravanView { image });
     info!("caravan view: the table built ({PLANKS}, normal map {}), view {view_w:.0} wide", if has_normal { "found" } else { "missing" });
-    Some(Built { entities: vec![holder, camera, lamp], space, camera, planks, layer, card_mesh, cards: HashMap::new(), leaving: Vec::new(), materials: HashMap::new(), view_w, money: Vec::new(), money_pot: None, money_meshes: Vec::new() })
+    Some(Built { entities: vec![holder, camera, lamp], space, camera, planks, layer, card_mesh, cards: HashMap::new(), leaving: Vec::new(), materials: HashMap::new(), view_w, pot: None, money_pot: None })
 }
 
 #[cfg(test)]
@@ -645,35 +884,78 @@ mod tests {
     fn the_pot_grows_into_more_money_and_bigger_notes() {
         assert!(money(0).is_empty());
         let small = money(10);
-        assert!(small.iter().all(|m| !m.0.note()), "a small pot is caps");
+        assert!(small.iter().all(|m| !m.kind.note()), "a small pot is caps");
         let mid = money(164);
         let big = money(2000);
         assert!(mid.len() > small.len() && big.len() > mid.len());
-        assert!(mid.iter().any(|m| m.0.note()));
-        assert!(big.iter().any(|m| m.0 == Money::Note100));
-        assert!(mid.iter().any(|m| m.0 == Money::Denarius), "Legion coins in the pot");
-        assert!(big.iter().any(|m| m.0 == Money::Aureus));
+        assert!(mid.iter().any(|m| m.kind.note()));
+        assert!(big.iter().any(|m| m.kind == Money::Note100));
+        assert!(mid.iter().any(|m| m.kind == Money::Denarius), "Legion coins in the pot");
+        assert!(big.iter().any(|m| m.kind == Money::Aureus));
         assert!(money(100_000).len() <= MONEY_MAX);
         // The pile only grows: a piece is where it was in the smaller pot.
-        assert_eq!(&money(170)[..4].iter().map(|m| m.1).collect::<Vec<_>>(), &mid[..4].iter().map(|m| m.1).collect::<Vec<_>>());
-        let zones = card_zones(0.0);
-        for (kind, at, turn) in &big {
+        assert_eq!(&money(170)[..4].iter().map(|m| m.at).collect::<Vec<_>>(), &mid[..4].iter().map(|m| m.at).collect::<Vec<_>>());
+        let mut zones = card_zones(0.0);
+        zones.extend(text_zones(0.0));
+        for Piece { kind, at, turn, .. } in &big {
             assert!(at.x > 0.0 && at.x < FRAME_W && at.y > 0.0 && at.y < 960.0);
-            assert!(clear_of(&zones, *at, kind.size(), *turn), "{kind:?} at {at} lies where a card can");
+            assert!(clear_of(&zones, *at, kind.size(), *turn), "{kind:?} at {at} lies where a card or the screen's words can");
         }
         assert!(big.len() > 40, "the big pot still fills the free planks: {}", big.len());
     }
 
     #[test]
-    fn no_cap_or_coin_lies_on_another() {
-        for pot in [5, 20, 54, 108, 164, 400, 2000, 100_000] {
-            let round: Vec<Vec2> = money(pot).iter().filter(|m| !m.0.note()).map(|m| m.1).collect();
-            for (i, a) in round.iter().enumerate() {
-                for b in &round[i + 1..] {
-                    assert!(a.distance(*b) >= CAP_SIZE.x, "pot {pot}: caps at {a} and {b} overlap");
-                }
+    fn every_note_lies_whole_on_the_screen() {
+        for pot in [40, 164, 600, 2000, 10_434, 100_000] {
+            for p in money(pot).into_iter().filter(|p| p.kind.note()) {
+                let (s, c) = (p.turn.sin().abs(), p.turn.cos().abs());
+                let size = p.kind.size();
+                let reach = Vec2::new(c * size.x + s * size.y, s * size.x + c * size.y) / 2.0;
+                assert!(p.at.x - reach.x >= NOTE_EDGE - 0.01 && p.at.x + reach.x <= FRAME_W - NOTE_EDGE + 0.01, "pot {pot}: {:?} at {} turned {} off the side", p.kind, p.at, p.turn);
+                assert!(p.at.y - reach.y >= NOTE_EDGE - 0.01 && p.at.y + reach.y <= 960.0 - NOTE_EDGE + 0.01, "pot {pot}: {:?} at {} turned {} off the top or bottom", p.kind, p.at, p.turn);
             }
         }
+    }
+
+    #[test]
+    fn a_bent_note_is_never_drawn_under_the_table() {
+        let size = Money::Note20.size();
+        for (z, tip) in [(0.7, 0.0), (1.5, 0.0), (3.0, 0.1), (6.0, 0.3), (40.0, 0.0), (2.0, -0.2)] {
+            let rot = Quat::from_rotation_x(tip) * Quat::from_rotation_z(0.4);
+            for bend in [-9.0, -4.0, 4.0, 9.0] {
+                let b = bend_above_table(z, rot, size, 1.0, bend);
+                assert!(b.abs() <= bend.abs() + 1e-4 && b * bend >= 0.0);
+                let (pos, _) = note_shape(b, size.x);
+                let low = pos.iter().map(|p| z + (rot * Vec3::new(p[0] * size.x, p[1] * size.y, p[2])).z).fold(f32::MAX, f32::min);
+                let flat = pos.iter().map(|p| z + (rot * Vec3::new(p[0] * size.x, p[1] * size.y, 0.0)).z).fold(f32::MAX, f32::min);
+                assert!(low >= NOTE_CLEAR - 1e-3 || low >= flat - 1e-3, "at {z} tipped {tip}, bend {bend} drawn as {b}: lowest {low}");
+            }
+        }
+        // High up, the bend is left alone.
+        assert_eq!(bend_above_table(40.0, Quat::IDENTITY, size, 1.0, 9.0), 9.0);
+    }
+
+    #[test]
+    fn the_caps_and_coins_stack_in_heaps_and_rest_on_each_other() {
+        for pot in [5, 20, 54, 108, 164, 400, 2000, 100_000] {
+            let round: Vec<Piece> = money(pot).into_iter().filter(|m| !m.kind.note()).collect();
+            // A cap or coin over another (they overlap) is a whole piece's height above it:
+            // none goes through another.
+            for (i, a) in round.iter().enumerate() {
+                for b in &round[i + 1..] {
+                    let reach = (a.kind.size().x + b.kind.size().x) / 2.0 * 0.95;
+                    if a.at.distance(b.at) < reach {
+                        assert!(b.lift >= a.lift + a.kind.thick() - 1e-3, "pot {pot}: {:?} at {} goes through {:?} at {}", b.kind, b.at, a.kind, a.at);
+                    }
+                }
+                assert!(a.lean.length() <= LEAN_MAX + 1e-6);
+            }
+        }
+        // A big pot heaps up: pieces rest on pieces, several high.
+        let big: Vec<Piece> = money(2000).into_iter().filter(|m| !m.kind.note()).collect();
+        let on_others = big.iter().filter(|m| m.lift > ROUND_BASE).count();
+        assert!(on_others * 2 > big.len(), "{on_others} of {} rest on another", big.len());
+        assert!(big.iter().any(|m| m.lift >= ROUND_BASE + 2.0 * CAP_THICK), "a heap three or more high");
     }
 
     #[test]

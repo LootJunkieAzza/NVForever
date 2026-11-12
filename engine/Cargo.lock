@@ -4803,6 +4803,7 @@ dependencies = [
  "nvf-coop",
  "nvf-play",
  "png",
+ "rapier3d",
  "rfd",
  "serde_json",
  "sysinfo",
