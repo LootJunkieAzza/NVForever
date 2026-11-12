@@ -44,6 +44,14 @@
 //! keep it, and unless it is kept by then it goes back to the one before
 //! ([`PendingKeep`]); until it is kept, the INI keeps the one before.
 //!
+//! A list may show its choices by other words than their names ([`set_choice_labels`]) and
+//! hold some of them out of reach for a reason ([`set_choice_unavailable`]) [design:
+//! docs/design/dlss-upscaling.md]. The names stay what the INI, the log and the test aids
+//! use; the words are only what the page draws. A choice out of reach is drawn dim and
+//! cannot be taken from the page or by a test aid ([`pick`] refuses it with a log line),
+//! but the INI's text still loads it ([`apply_stored`]): a stored request survives a run in
+//! which it cannot be met.
+//!
 //! What is not here: choices fixed when the game starts (which NPCs live by their
 //! packages, FaceGen, the load order), most numbers (the volumes, the field of view and the
 //! draw distances are sliders) and the test aids.
@@ -277,12 +285,27 @@ impl Setting {
 
 type DisabledStatus = fn(&World) -> Option<&'static str>;
 
+/// The words the page shows for a list's choice, by its name ([`set_choice_labels`]).
+pub type ChoiceLabel = fn(&World, &str) -> String;
+
+/// Why a list's choice cannot be taken now, by its name; `None`: it can
+/// ([`set_choice_unavailable`]).
+pub type ChoiceUnavailable = fn(&World, &str) -> Option<String>;
+
+/// How a list shows its choices and which it holds out of reach (module notes); a list
+/// without them shows every choice by its name, every one in reach.
+#[derive(Clone, Copy, Default)]
+pub struct ChoiceLooks {
+    pub label: Option<ChoiceLabel>,
+    pub unavailable: Option<ChoiceUnavailable>,
+}
+
 /// The switches in the registry's order: by group, each group in the order its switches
 /// were added. The values, the INI and the test aids go by a row's index in it; where the
 /// page shows a row (its tab and heading) is `crate::settings_layout`'s, not this order
 /// [design: #1953].
 #[derive(Resource, Default)]
-pub struct Settings(Vec<Setting>, Vec<(&'static str, ChoiceList)>, Vec<(&'static str, DisabledStatus)>, Vec<&'static str>);
+pub struct Settings(Vec<Setting>, Vec<(&'static str, ChoiceList)>, Vec<(&'static str, DisabledStatus)>, Vec<&'static str>, Vec<(&'static str, ChoiceLooks)>);
 
 impl Settings {
     /// Add a switch, after the last one of its group. A key added twice is kept once.
@@ -314,6 +337,27 @@ impl Settings {
     pub fn disabled_status(&self, world: &World, i: usize) -> Option<&'static str> {
         let key = self.0.get(i)?.key;
         (self.2.iter().find(|(k, _)| *k == key)?.1)(world)
+    }
+
+    /// List row `i`'s words and reasons for its choices, when it has any ([`ChoiceLooks`]).
+    pub fn choice_looks(&self, i: usize) -> Option<ChoiceLooks> {
+        let key = self.0.get(i)?.key;
+        self.4.iter().find(|(k, _)| *k == key).map(|(_, l)| *l)
+    }
+
+    /// The words the page shows for choice `name` of list row `i`: its label, or the name
+    /// itself when the list has none.
+    pub fn choice_label(&self, world: &World, i: usize, name: &str) -> String {
+        match self.choice_looks(i).and_then(|l| l.label) {
+            Some(label) => label(world, name),
+            None => name.to_string(),
+        }
+    }
+
+    /// Why choice `name` of list row `i` cannot be taken now; `None`: it can (or the list
+    /// holds none out of reach).
+    pub fn choice_unavailable(&self, world: &World, i: usize, name: &str) -> Option<String> {
+        (self.choice_looks(i)?.unavailable?)(world, name)
     }
 
     /// Every row's state as a number: [`Setting::value`], a list's chosen index (-1: not
@@ -368,6 +412,32 @@ pub fn set_disabled_status(app: &mut App, key: &'static str, status: fn(&World) 
     settings.2.push((key, status));
 }
 
+/// Show list `key`'s choices by `label`'s words instead of their names (module notes). The
+/// names stay what is kept in the INI and what the test aids and the log use.
+pub fn set_choice_labels(app: &mut App, key: &'static str, label: ChoiceLabel) {
+    app.init_resource::<Settings>();
+    choice_looks_mut(&mut app.world_mut().resource_mut::<Settings>(), key).label = Some(label);
+}
+
+/// Hold list `key`'s choices out of reach while `unavailable` gives a reason (module
+/// notes): drawn dim with the reason as their note, not taken by [`pick`]; a stored one
+/// still loads from the INI.
+pub fn set_choice_unavailable(app: &mut App, key: &'static str, unavailable: ChoiceUnavailable) {
+    app.init_resource::<Settings>();
+    choice_looks_mut(&mut app.world_mut().resource_mut::<Settings>(), key).unavailable = Some(unavailable);
+}
+
+fn choice_looks_mut<'a>(settings: &'a mut Settings, key: &'static str) -> &'a mut ChoiceLooks {
+    let at = match settings.4.iter().position(|(k, _)| *k == key) {
+        Some(at) => at,
+        None => {
+            settings.4.push((key, ChoiceLooks::default()));
+            settings.4.len() - 1
+        }
+    };
+    &mut settings.4[at].1
+}
+
 /// Register a row of named choices (a dropdown) with its [`Setting`] (`slider` `None`).
 pub fn add_choice_list(app: &mut App, s: Setting, list: ChoiceList) {
     app.init_resource::<Settings>();
@@ -379,8 +449,10 @@ pub fn add_choice_list(app: &mut App, s: Setting, list: ChoiceList) {
 }
 
 /// Take choice `name` of list row `i` and keep every row in the INI; false: not taken
-/// (not a list, not one of its choices, or chosen already). A list that asks to be kept
-/// waits for it ([`keep`]).
+/// (not a list, not one of its choices, chosen already, or out of reach now:
+/// [`set_choice_unavailable`], logged). A list that asks to be kept waits for it
+/// ([`keep`]). Every way the page and the test aids take a choice comes here; loading the
+/// INI's text does not ([`apply_stored`]).
 pub fn pick(world: &mut World, i: usize, name: &str) -> bool {
     let Some(settings) = world.get_resource::<Settings>() else { return false };
     if settings.disabled_status(world, i).is_some() {
@@ -389,6 +461,16 @@ pub fn pick(world: &mut World, i: usize, name: &str) -> bool {
     let Some(c) = settings.choices(i) else { return false };
     if (c.chosen)(world) == name {
         return false;
+    }
+    if settings.choice_looks(i).is_some_and(|l| l.unavailable.is_some()) {
+        // By its name as listed: a list may take a name in another case.
+        let names = (c.names)(world);
+        let listed = names.iter().find(|n| *n == name).or_else(|| names.iter().find(|n| n.eq_ignore_ascii_case(name))).map_or(name, String::as_str);
+        if let Some(reason) = settings.choice_unavailable(world, i, listed) {
+            let key = settings.list()[i].key;
+            info!("settings: {key} {listed} not taken: {reason}");
+            return false;
+        }
     }
     let pick = c.pick;
     take(world, i, |w| pick(w, name))
@@ -1152,5 +1234,76 @@ reach=0.5
         // Restored, it is no longer listed; the others are left as they are.
         restore(world, 1, base[1]);
         assert_eq!(changed_rows(world, &base), [0], "the disabled lamp cannot be put back and stays listed");
+    }
+
+    /// A list's choice out of reach (`set_choice_unavailable`) for 1920x1080 while `Big`
+    /// says so, its choices shown by other words (`set_choice_labels`).
+    #[derive(Resource)]
+    struct Big(bool);
+
+    fn looked_sizes(app: &mut App) {
+        add_choice_list(app, setting("size", "Test"), ChoiceList { ask_keep: false, ..sizes() });
+        set_choice_labels(app, "size", |_, n| format!("{n} pixels"));
+        set_choice_unavailable(app, "size", |w, n| (n == "1920x1080" && !w.resource::<Big>().0).then(|| "Needs a bigger monitor".to_string()));
+    }
+
+    #[test]
+    fn a_choice_out_of_reach_is_refused_by_pick_but_loads_from_the_ini() {
+        let dir = std::env::temp_dir().join(format!("nvf-settings-reach-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A stored choice out of reach now still loads: loading is not the page taking it.
+        std::fs::write(&path, "[Settings]\nsize=1920x1080;kept\n").unwrap();
+        let mut app = App::new();
+        app.init_resource::<Lamp>().insert_resource(Size("1280x800".into())).insert_resource(Big(false));
+        app.insert_resource(SettingsFile(Some(path.clone())));
+        looked_sizes(&mut app);
+        app.add_systems(PostStartup, apply_stored);
+        app.update();
+        let w = app.world_mut();
+        assert_eq!(w.resource::<Size>().0, "1920x1080", "the stored request loads");
+        assert_eq!(w.resource::<Settings>().choice_unavailable(w, 0, "1920x1080").as_deref(), Some("Needs a bigger monitor"));
+        // Another choice is taken; the one out of reach is not, in any case of its name.
+        assert!(pick(w, 0, "800x600"));
+        assert_eq!(w.resource::<Size>().0, "800x600");
+        assert!(!pick(w, 0, "1920x1080"), "out of reach");
+        assert!(!pick(w, 0, "1920X1080"), "out of reach by its listed name");
+        assert_eq!(w.resource::<Size>().0, "800x600", "nothing taken");
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert!(ini.contains("size=800x600;kept"), "{ini}");
+        // Defaults' fallback by index goes through pick too: refused.
+        w.remove_resource::<StartChoices>();
+        restore(w, 0, 2.0);
+        assert_eq!(w.resource::<Size>().0, "800x600");
+        // Back in reach: taken as any other.
+        w.resource_mut::<Big>().0 = true;
+        assert!(pick(w, 0, "1920x1080"));
+        assert_eq!(w.resource::<Size>().0, "1920x1080");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn labels_change_the_words_shown_not_the_names_kept() {
+        let dir = std::env::temp_dir().join(format!("nvf-settings-labels-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut app = App::new();
+        app.init_resource::<Lamp>().insert_resource(Size("1280x800".into())).insert_resource(Big(true));
+        app.insert_resource(SettingsFile(Some(path.clone())));
+        add_choice_list(&mut app, setting("plain", "Test"), ChoiceList { ask_keep: false, ..sizes() });
+        looked_sizes(&mut app);
+        let w = app.world_mut();
+        let s = w.resource::<Settings>();
+        assert_eq!(s.choice_label(w, 1, "1280x800"), "1280x800 pixels");
+        assert_eq!(s.choice_label(w, 0, "1280x800"), "1280x800", "a list without labels shows its names");
+        assert!(s.choice_looks(0).is_none() && s.choice_unavailable(w, 0, "1920x1080").is_none(), "nor holds any out of reach");
+        assert!(s.choice_looks(1).is_some_and(|l| l.label.is_some() && l.unavailable.is_some()), "both kept for one list");
+        // Taken by its name; the INI keeps the name, never the words.
+        assert!(!pick(w, 1, "1920x1080 pixels"), "the words are not a name");
+        assert!(pick(w, 1, "1920x1080"));
+        let ini = std::fs::read_to_string(&path).unwrap();
+        assert!(ini.contains("size=1920x1080;kept") && !ini.contains("pixels"), "{ini}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
