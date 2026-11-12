@@ -631,7 +631,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance, menu, modded, no_prompt, campfires, arm): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>, Option<Res<crate::armwrestle::ArmScreen>>),
+    (texts, pipboy, glance, menu, modded, no_prompt, campfires, arm, arm_seat): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>, Option<Res<crate::armwrestle::ArmScreen>>, Option<Res<crate::armwrestle_coop::ArmSeat>>),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -692,7 +692,11 @@ fn draw(
     let wrestling = arm.is_some_and(|a| a.0.is_some());
     let menu_up = pipboy.as_deref().is_some_and(|p| p.shown()) || trading || wrestling;
     let mut locks = locks.as_deref().copied().unwrap_or_default();
-    locks.movement |= pip_up;
+    // Nor is the crosshair itself over the bout and its result, drawn by the table's own
+    // HUD (`ArmSeat::hud`): it sat on the clasped hands (armwrestle-a desktop runs
+    // 2026-11-12) [design].
+    let bout = arm_seat.is_some_and(|a| a.hud);
+    locks.movement |= pip_up || bout;
     locks.rollover |= menu_up;
     let aimed = target.0.is_some();
     let foe = hostile.is_some_and(|h| h.0);

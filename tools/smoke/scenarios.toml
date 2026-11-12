@@ -25511,6 +25511,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "armwrestle-space-stays"
+source = "Owner's night-pass bug (2026-11-11): pressing Space got the player up off the arm wrestling chair; only Tab should. Space is the tap (nvf-play armwrestle.rs TAP) and also Jump, which player.rs read_input took as a movement control asking to get up. The armwrestle-solo match with real Space presses through the card and the bout: the player stays seated, the bout is won, and gets up once, at the end"
+areas = ["minigames", "furniture"]
+paths = ["engine/nvf-play/src/player.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvf-play/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_KEYS = "9:space,14:space,20:space,24:space,26:space,28:space,30:space,32:space,34:space", NVF_PLAY_TEST_SHOTS = "10:armwrestle_space_card.png,30:armwrestle_space_bout.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 60
+manual = "armwrestle_space_card.png and armwrestle_space_bout.png: still seated at the table after Space was pressed"
+expect = [
+  "arm wrestle: seated on stool 0",
+  { re = 'arm wrestle: won after (?P<s>[\d.]+)s', range = [1, 30], label = "the bout is played out and won, not left" },
+  { text = "arm wrestle: getting up", count = 1, label = "the player gets up once, after the bout (Space never gets up)" },
+  "arm wrestle: up; closed",
+]
+
+[[scenario]]
 name = "armwrestle-table"
 source = "queue item 199 (owner 2026-11-10): an arm-wrestling table with two stools in the Prospector Saloon, new references in an unoccupied spot, not blocking NPC paths. fnv-game armwrestle_table.rs: a diner table (dinertable01NV) with a Chair01TableR and a Chair01TableL facing each other across its narrow side, the game's own pair at that table, made in the back hall (armwrestle-a's spot) when the saloon loads; the player sits on the west chair and the Goodsprings Settler (GSSettlerCM, 0x00104F08) walks over from the bar and sits on the east one (fnv-ai seat override, nvforever furniture.rs created furniture)"
 areas = ["minigames", "ai", "furniture"]
