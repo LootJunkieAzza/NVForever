@@ -39,10 +39,15 @@ tracing-subscriber = "0.3"
 name = "integration"
 path = "tests/main.rs"
 
-# Change process-wide state (mod_files' roots, nvse_jg7's combat-music flag).
+# Change process-wide state (mod_files' roots, nvse_jg7's combat-music flag,
+# source_compile's mode).
 [[test]]
 name = "anim_folders"
 path = "tests/anim_folders.rs"
+
+[[test]]
+name = "build_shortcuts"
+path = "tests/build_shortcuts.rs"
 
 [[test]]
 name = "jg7"

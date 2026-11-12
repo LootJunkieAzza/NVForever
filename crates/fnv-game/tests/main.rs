@@ -3,8 +3,10 @@
 //! optimised once, not once per file. Each file stays a module of its own; run one with
 //! `cargo test -p fnv-game --release --test integration <file>::`.
 //! The files that change process-wide state (mod_files' roots, nvse_jg7's combat-music
-//! flag) are test binaries of their own, listed in Cargo.toml: in one process they would
-//! change each other's.
+//! flag, source_compile's mode) are test binaries of their own, listed in Cargo.toml: in
+//! one process they would change each other's, or the setting other tests read.
+//! A new file goes in the list below or, if it sets such state, in Cargo.toml as a
+//! `[[test]]`; `every_test_file_is_built` fails until it is in one of them.
 
 mod common;
 #[path = "common/digest.rs"]
@@ -17,7 +19,6 @@ mod appearance;
 mod area_effects;
 mod ash_piles;
 mod build_identity;
-mod build_shortcuts;
 mod camera_paths;
 mod caravan_data;
 mod combat_blocks;
@@ -94,3 +95,32 @@ mod ui_more;
 mod unconscious;
 mod vendor_services;
 mod zones;
+
+/// With `autotests = false` Cargo builds only the files named, so a new file in `tests/`
+/// would never run: every one is a `mod` here or a `[[test]]` in Cargo.toml, not both.
+#[test]
+fn every_test_file_is_built() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let main = std::fs::read_to_string(dir.join("tests/main.rs")).unwrap();
+    let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+    let mods: Vec<&str> = main.lines().filter_map(|l| l.strip_prefix("mod ")?.strip_suffix(';')).collect();
+    let own: Vec<&str> =
+        manifest.lines().filter_map(|l| l.trim().strip_prefix("path = \"tests/")?.strip_suffix(".rs\"")).collect();
+    let mut problems = Vec::new();
+    for entry in std::fs::read_dir(dir.join("tests")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|x| x != "rs") {
+            continue;
+        }
+        let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
+        if stem == "main" {
+            continue;
+        }
+        match (mods.contains(&stem.as_str()), own.contains(&stem.as_str())) {
+            (false, false) => problems.push(format!("tests/{stem}.rs is not built: add `mod {stem};` to tests/main.rs")),
+            (true, true) => problems.push(format!("tests/{stem}.rs is built twice: in tests/main.rs and as a [[test]]")),
+            _ => {}
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
