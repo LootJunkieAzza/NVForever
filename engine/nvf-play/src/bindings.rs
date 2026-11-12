@@ -850,7 +850,15 @@ pub fn rebind_pad(world: &mut World, c: Control, p: PadInput) {
 /// Switch the device that works the controls (the Controls tab's first row).
 pub fn set_device(world: &mut World, d: InputDevice) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let changed = b.device != d;
     b.device = d;
+    // The old device's release will no longer reach `read_controls`; cancel its
+    // holds without a POV tap, reload or holster [design, #2200].
+    if changed {
+        if let Some(mut control) = world.get_resource_mut::<crate::control::PlayerControl>() {
+            control.cancel_input_holds();
+        }
+    }
     info!("controls: input device {}", d.name());
     store(world);
 }

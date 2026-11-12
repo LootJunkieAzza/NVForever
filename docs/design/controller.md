@@ -52,6 +52,28 @@ keyboard presses/releases mirrored into that state. Only physical keys enter a d
 switch's consumed-key snapshot. Consumed Alt releases still clear the fullscreen
 shortcut's modifier bookkeeping, so a later plain Enter keeps its menu action.
 
+[design, #2200; `bindings::set_device`, `control::PlayerControl::cancel_input_holds`]
+An actual device change cancels gameplay holds immediately, for both manual and
+automatic selection. Orbit stops being held without a POV tap; its angles, detached
+state and chosen POV stay as they were. Ready Item's timer is canceled without a reload
+or holster. Aim/block and attack are cleared. Assigning the same device keeps holds.
+Scheduled regressions in `pad/device.rs` exercise `control::read_controls` across both
+directions, old-device releases and fresh actions.
+
+[design / file refs] Held-state audit for #2200:
+
+| State | Across a device change |
+|---|---|
+| Orbit held/moved; Ready Item timer (`control.rs`) | Canceled in `set_device`; neither release-dependent tap action runs. |
+| Aim/block, attack (`control::read_controls`) | Cleared in `set_device`, then recomputed from the selected device each frame. |
+| Sneak, Always Run, Auto Move (`control::read_controls`) | Intentional press toggles stay chosen; they do not wait for a release. |
+| Run modifier, movement (`player::read_input`) | Read from the selected device each frame; no retained key hold. |
+| Physical and consumed keys/buttons (`pad/device.rs`) | Hardware releases/neutral update bookkeeping independently of the selected device. |
+| Synthetic menu keys (`pad::menu_keys`, `MenuKeys::held`) | Deselection releases their keys and empties the held list. Stick-button state is recomputed each frame. |
+| Menu adjustment repeats (`pad::sideways`, `chargen.rs`, `levelup.rs`) | Keyboard repeat messages, with consumed events filtered; no retained repeat timer. D-pad presses act once. |
+| Pointer/slider holds (`pause.rs`, `tiles/input.rs`, `ui_pointer.rs`) | Mouse-down or mouse-release is read independently of the gameplay device; drags end on mouse-up. |
+| Fullscreen Alt bookkeeping (`full_screen_key.rs`) | Releases clear the modifier even when consumed (round 1 regression). |
+
 ## 2. Defaults are the game's
 
 Each control's controller input comes from the game's own `[Controls]` byte `JJ`
