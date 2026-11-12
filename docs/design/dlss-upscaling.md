@@ -111,8 +111,19 @@ detail in the module notes of the file named.
   again; the history resets. A drain that fails leaves the options unset, and the spatial
   fallback draws. (Step 5.)
 - **Proof that DLSS drew.** `eOk` from the evaluate is not proof that NGX wrote anything (spec
-  notes, "Evaluate"), so once per DLSS setup NVForever checks that DLSS wrote the picture.
-  (Step 6.)
+  notes, "Evaluate"), so once per DLSS setup NVForever checks that DLSS wrote the picture
+  (step 6, `dlss/evaluate.rs` `OutputProof`) [design]. A setup (a generation) begins with each
+  `slDLSSSetOptions` that sets new options: the start, a mode change, a resize. Right after the
+  evaluate, before the alpha pass or any effect touches the output, a small compute pass reads a
+  16x16 grid of the output's texels into a buffer that is copied out and mapped without the frame
+  waiting for it. Since the output was cleared to black just before the evaluate, finite RGB that
+  is not all black can only be DLSS's: `output observed`. All black is inconclusive (a black scene
+  looks the same) and is tried again, 30 evaluated frames apart, ten times, then said as `output
+  not observed` without counting DLSS as failed; NaN or infinity is said as `output not valid`.
+  Streamline's log lines that report an NGX evaluate error are latched without taking the
+  evaluator's lock and each counts as one frame without output for the 60-frame rule above. This
+  proves NGX wrote the picture, not that it is a good picture; that stays with screenshots and
+  the smoke scenarios.
 - **One Upscaling row** (`settings.rs`, `graphics::UPSCALER_CHOICES`). The settings row,
   **Upscaling**, keeps its key `fsr-upscaling` and its six saved values (Off, Native AA,
   Quality, Balanced, Performance, Ultra Performance, which stay FSR's) and gains five DLSS
