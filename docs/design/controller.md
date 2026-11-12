@@ -126,7 +126,7 @@ Start cannot be bound.
   General/Reputation switch, DATA's Challenges/Notes, crafting, repair services,
   level-up and the tag-skill/trait lists, lockpicking and every minigame's help box
   Close, blackjack, roulette, slots, caravan, poker, the Wait/Sleep menu, the dialogue's
-  Goodbye hint, the pause menu's Delete and Yes/No, the tutorial menu's Next, Previous
+  Goodbye hint, the pause menu's Delete and Yes/No and its pages' Back ("Back  B)" [observed, #1893]; Defaults has none, its Y in the original being the rail key here, #1953), the tutorial menu's Next, Previous
   and Close ("Close E)", with a controller "Close B)" [observed, #1904]). The help texts' control strings
   (`&sUActnCrouch;` …, `lockpick::help::expand_keys`) name the control's button. Menus
   drawn with a view kept for change detection redraw when the device changes; the others

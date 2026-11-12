@@ -25144,3 +25144,19 @@ order = [[
   { re = 'activate 0x00153FCE  \(Activate\): its script.s OnActivate ran', label = "E runs the panel's script" },
   { text = 'message box shown: This control box is connected to the main computer banks at Hoover Dam. ["Leave it alone.", "Install the override chip."]', label = "the box offers to install the override chip" },
 ]]
+
+[[scenario]]
+name = "settings-back-hint"
+source = "issue #1893: the settings page's Back carries its hint as the menu's Delete does, \"Back  Esc)\" with the keyboard and \"Back  B)\" with a controller, as the original's B (owner's play); pause.rs back_label"
+note = "The pause menu at 2 s, the Gameplay tab at 3 s, inspected with the keyboard at 4 s; Controller chosen at 5 s and inspected again at 6 s. Defaults keeps no hint (its Y is the rail key here, #1953). Before the fix Back was drawn bare"
+areas = ["menus", "controller", "settings"]
+paths = ["engine/nvf-play/src/pause.rs"]
+env = { NVFOREVER_HOME = "settings-back-hint-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "2:9", NVF_PLAY_TEST_SETTINGS = "3:tab:Gameplay,5:device:Controller", NVF_PLAY_TEST_PAUSE_MENU = "4:inspect,6:inspect" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 11
+order = [[
+  { re = 'pause menu: inspect: Gameplay,', label = "the Gameplay tab is inspected" },
+  { re = 'pause menu: inspect: back \S+  Esc\)', label = "Back names the keyboard's Esc" },
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'pause menu: inspect: back \S+  B\)', label = "Back names the controller's B" },
+]]
