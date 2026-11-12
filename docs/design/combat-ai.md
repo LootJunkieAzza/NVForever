@@ -304,8 +304,10 @@ share FiendsFactionNV with her (Assistance 2), so they now join her fights.
 
 CSTY is read (CSTD, CSAD, CSSD) [documented: layout xEdit wbDefinitionsFNV.pas CSTY;
 meanings GECK wiki Combat Style]; FalloutNV.esm has 84 [observed]. An actor's style is
-its ZNAM, from the template that supplies its AI data [hypothesis], else
-`DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
+its ZNAM, from the template that supplies its traits, as the death item is
+[documented: GECK wiki Traits Tab - NPC and Traits Tab - Creatures list Combat Style
+among the tab's fields, AI Data Tab has none; Template Data, "Use Traits: Use the traits
+of the ActorBase"; #2138], else `DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
 
 - **Weapon Restrictions** Melee Only: a gun held is not fired; the actor fights with
   its fists. Ranged Only changes nothing yet (there is no weapon choice).
@@ -1041,11 +1043,11 @@ Each ACBS template flag now decides where its group is read (factions.md §7):
 
 | Flag | Read from the template's source now | Before |
 |---|---|---|
-| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity | the placed base |
+| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity; combat style (#2138; before it, from the AI Data source) | the placed base |
 | Stats | health, attributes, skills, level, fatigue, speed; a creature's attack, GetIsCreatureType [hypothesis: the type sits in CREA DATA with the stats] | the same (type: the base) |
 | Factions | factions | the same |
 | Actor Effect List | not read by the game layer | — |
-| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius, combat style | the same |
+| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius | the same |
 | AI Packages | the package list | the same |
 | Model/Animation | the drawn model, skeleton and animations (`fnv_actor::resolve`) | the same |
 | Base Data | the name shown (prompt, loot menu, conversation, hit messages); Essential, Respawn, No Low Level Processing, Invulnerable | the base's (Respawn: the same) |
