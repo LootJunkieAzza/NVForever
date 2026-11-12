@@ -388,9 +388,6 @@ pub const BUFFER_MOTION_VECTORS: u32 = 1;
 pub const BUFFER_SCALING_INPUT_COLOR: u32 = 3;
 pub const BUFFER_SCALING_OUTPUT_COLOR: u32 = 4;
 
-/// `sl::DLSSMode::eMaxQuality`, the "Quality" mode [documented: `sl_dlss.h:34-44`].
-pub const DLSS_MODE_MAX_QUALITY: u32 = 3;
-
 /// `sl::Extent`: top **before** left [documented: `sl_consts.h:143-169`]; all zero = the whole
 /// resource (`sl_core_types.h:425`).
 #[repr(C)]
@@ -1011,7 +1008,7 @@ mod tests {
         assert_eq!((o.color_buffers_hdr, o.use_auto_exposure, o.alpha_upscaling_enabled, o.quality_preset), (1, 0, 0, 0));
         let s = DlssOptimalSettings::new();
         assert_eq!((s.base.struct_type.data1, s.base.struct_type.data4, s.render_width_max), (0xef1d0957, [0xb5, 0x04, 0x8b, 0x69, 0xd8, 0xaa, 0x6b, 0x76], 0));
-        assert_eq!((DLSS_MODE_MAX_QUALITY, BUFFER_DEPTH, BUFFER_MOTION_VECTORS, BUFFER_SCALING_INPUT_COLOR), (3, 0, 1, 3));
+        assert_eq!((crate::dlss::sizing::MODE_MAX_QUALITY, BUFFER_DEPTH, BUFFER_MOTION_VECTORS, BUFFER_SCALING_INPUT_COLOR), (3, 0, 1, 3));
     }
 
     #[test]

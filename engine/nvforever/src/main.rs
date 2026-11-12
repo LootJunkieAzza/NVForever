@@ -1357,6 +1357,9 @@ fn main() -> AppExit {
     app.add_plugins(
         DefaultPlugins
             .set(task_pools(cpu_placed.pool_threads))
+            // Bevy's own renderer plugin, with the GPU the DLSS loader checked asked for by
+            // name when it pinned one (dlss/ "Adapter pin"); otherwise `RenderPlugin::default()`.
+            .set(dlss::render_plugin())
             .set(ImagePlugin {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,

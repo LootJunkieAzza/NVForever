@@ -1,12 +1,21 @@
-//! Stage 2: one DLSS Super Resolution evaluate per frame, in `fsr::fsr_pass` in place of FSR's
-//! dispatch (design decision 6 and change F in `fork-notes/dlss-streamline/spike-design.md`).
-//! FSR's input preparation, its masks, the main-texture flip, its history luminance and the depth
-//! expansion stay in `fsr_pass`; only `FsrContext::dispatch` is replaced.
+//! One DLSS Super Resolution evaluate per frame, in DLSS's own pass (`mod.rs` `dlss_pass`,
+//! which draws the common corrected depth before it and restores alpha and expands the depth
+//! after it; design decision 6 and change F in `fork-notes/dlss-streamline/spike-design.md`,
+//! moved out of `fsr::fsr_pass` in the plan's step 5). Nothing of FSR's is read or made.
+//!
+//! **Before the frame** ([`Evaluator::configure`], from `mod.rs` `configure`): DLSS's options
+//! (`slDLSSSetOptions`) when the mode, the output size or the colour's HDR-ness changes: the
+//! mode (`sizing::mode`), auto exposure, alpha upscaling off. When options were set before, DLSS
+//! may hold a feature for the viewport: the GPU is drained first (`Device::poll` wait, every
+//! submitted frame finished) and `slFreeResources` frees the viewport (it releases the NGX
+//! feature at once [documented: `src/dlssEntry.cpp:884-902`], which is safe only with the GPU
+//! done with it), so a resize or a mode change never leaves a feature to Streamline's
+//! three-frame delay [documented: `src/dlssEntry.cpp:357-369`]. The render size is the optimal
+//! one the view preparation asked for (`sizing.rs`).
 //!
 //! **Per frame**, in this order:
-//! 1. DLSS options (`slDLSSGetOptimalSettings`, then `slDLSSSetOptions`) when the output size or
-//!    the colour's HDR-ness changes: Quality, auto exposure, alpha upscaling off. FSR's render
-//!    size is kept; outside the range DLSS reports for it, FSR's dispatch draws the frame (said
+//! 1. The options checked: set for this frame's mode, output size and HDR-ness, and the render
+//!    size within the range DLSS reported; otherwise the spatial fallback draws the frame (said
 //!    once per size).
 //! 2. `slGetNewFrameToken` (Streamline counts the frames) and `slSetConstants` with it.
 //! 3. On Bevy's encoder: the output cleared by a render pass with Clear + Store (so wgpu counts
@@ -39,8 +48,9 @@
 //!    texture) order neither after the transition before it nor before the layout transition
 //!    after it [observed: Khronos synchronization validation, `SYNC-HAZARD-WRITE-AFTER-WRITE`
 //!    on both sides of `nv.ngx.dlss.Evaluate`, 2026-11-12].
-//! 6. On Bevy's next encoder: the output's alpha set to 1 (the passes after FSR expect it unless
-//!    FSR's alpha copy runs, fsr.rs `restore_alpha`, which `fsr_pass` still runs after this).
+//! 6. On Bevy's next encoder: the output's alpha set to 1 (the passes after the upscaler expect
+//!    it unless the common alpha copy runs, `prep::Pipelines::restore_alpha`, which `dlss_pass`
+//!    runs after this while a shape marks its pixels).
 //!
 //! **Layouts afterwards**: what wgpu's tracker believes. DLSS moves the tagged images to what
 //! NGX needs and back to the state each `Resource` reported, inside a scoped reverse transition
@@ -73,8 +83,9 @@ use bevy::render::renderer::RenderContext;
 use super::ffi::{
     BaseStructure, Constants, DlssOptimalSettings, DlssOptions, Extent, FrameToken, Resource, ResourceTag, SlDlssGetOptimalSettings, SlDlssSetOptions, SlResult,
     SubresourceRange, ViewportHandle, BOOL_FALSE, BOOL_TRUE, BUFFER_DEPTH, BUFFER_MOTION_VECTORS, BUFFER_SCALING_INPUT_COLOR, BUFFER_SCALING_OUTPUT_COLOR,
-    DLSS_MODE_MAX_QUALITY, FEATURE_DLSS, LIFECYCLE_VALID_UNTIL_EVALUATE,
+    FEATURE_DLSS, LIFECYCLE_VALID_UNTIL_EVALUATE,
 };
+use super::sizing::{self, size, Key, Optimal};
 use super::win::{Api, Held};
 use super::{note, Frame, Outcome};
 
@@ -101,31 +112,23 @@ struct Kept {
     _views: [wgpu::TextureView; 4],
 }
 
-/// The render sizes DLSS reports for Quality at one output size.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Range {
-    optimal: UVec2,
-    min: UVec2,
-    max: UVec2,
-}
-
-impl Range {
-    /// `size` within min..=max; when DLSS reports no range (max zero, the header says the
-    /// range is given "if dynamic resolution is supported" [documented:
-    /// `ProgrammingGuideDLSS.md:126`]) only the optimal size.
-    fn contains(&self, size: UVec2) -> bool {
-        if self.max == UVec2::ZERO {
-            return size == self.optimal;
-        }
-        size.cmpge(self.min).all() && size.cmple(self.max).all()
-    }
+/// DLSS's options for a key (`slDLSSGetOptimalSettings` takes the same structure): the mode,
+/// the output size, the HDR-ness, auto exposure on and alpha upscaling off.
+fn options(key: Key) -> DlssOptions {
+    let mut options = DlssOptions::new();
+    options.mode = sizing::mode(key.quality);
+    options.output_width = key.output.x;
+    options.output_height = key.output.y;
+    options.color_buffers_hdr = if key.hdr { BOOL_TRUE } else { BOOL_FALSE };
+    options.use_auto_exposure = BOOL_TRUE;
+    options.alpha_upscaling_enabled = BOOL_FALSE;
+    options
 }
 
 /// The options last set for the viewport.
 struct Options {
-    output: UVec2,
-    hdr: bool,
-    range: Range,
+    key: Key,
+    range: Optimal,
     /// "evaluate active" said for these options.
     active_said: bool,
     /// The render size whose "outside the range" was said.
@@ -143,9 +146,11 @@ pub(super) struct Evaluator {
     previous_was_dlss: bool,
     ok: u64,
     failed: u64,
-    /// Frames left to FSR's dispatch without a failed call (render size outside DLSS's range,
-    /// no previous view).
+    /// Frames left to the spatial fallback without a failed call (render size outside DLSS's
+    /// range, no previous view, no options for the frame).
     skipped: u64,
+    /// Options set again after the first time (each with the GPU drained and the viewport freed).
+    recreated: u64,
     /// Each failed call and result, with how often it came.
     results: Vec<(&'static str, SlResult, u64)>,
     said: Vec<&'static str>,
@@ -166,6 +171,7 @@ impl Evaluator {
             ok: 0,
             failed: 0,
             skipped: 0,
+            recreated: 0,
             results: Vec::new(),
             said: Vec::new(),
             alpha: None,
@@ -173,50 +179,82 @@ impl Evaluator {
         }
     }
 
-    /// One frame: the module comment's order. Any failure leaves the frame to FSR's dispatch.
-    pub(super) fn frame(&mut self, api: &Api, held: &Held, ctx: &mut RenderContext, frame: &Frame) -> Outcome {
-        if frame.frame_generation {
-            self.say_once("frame generation", Level::WARN, "frame generation is on: FSR's dispatch draws these frames");
-            return self.fsr();
+    /// `slDLSSGetOptimalSettings` for a key (the view preparation asks, `sizing::OptimalSizes`).
+    pub(super) fn optimal_settings(&self, key: Key) -> Result<Optimal, String> {
+        let options = options(key);
+        let mut settings = DlssOptimalSettings::new();
+        // SAFETY: both structures from their constructors, alive for the call.
+        let r = unsafe { (self.get_optimal_settings)(&options, &mut settings) };
+        if !r.is_ok() {
+            return Err(format!("slDLSSGetOptimalSettings {}", r.name()));
         }
+        Ok(Optimal {
+            render: UVec2::new(settings.optimal_render_width, settings.optimal_render_height),
+            min: UVec2::new(settings.render_width_min, settings.render_height_min),
+            max: UVec2::new(settings.render_width_max, settings.render_height_max),
+        })
+    }
+
+    /// The options for `key`, before anything of the frame is recorded (the module comment's
+    /// "Before the frame"). Nothing when they are set already.
+    pub(super) fn configure(&mut self, api: &Api, held: &Held, key: Key, range: Optimal) {
+        if let Some(options) = self.options.as_mut().filter(|o| o.key == key) {
+            options.range = range;
+            return;
+        }
+        let previous = self.options.take().map(|o| o.key);
+        let viewport = ViewportHandle::new(VIEWPORT);
+        if self.options_set {
+            // Every submitted frame finished, so no evaluate still uses the viewport's feature.
+            let polled = held.device.poll(wgpu::PollType::wait_indefinitely());
+            if !matches!(&polled, Ok(status) if status.wait_finished()) {
+                note(Level::WARN, format!("recreate: the GPU drain returned {polled:?}; the options stay unset and the spatial fallback draws"));
+                self.failed += 1;
+                return;
+            }
+            // SAFETY: after the drain; a viewport handle from its constructor.
+            let freed = unsafe { (api.free_resources)(FEATURE_DLSS, &viewport) };
+            self.recreated += 1;
+            note(
+                if freed.is_ok() { Level::INFO } else { Level::WARN },
+                format!(
+                    "recreate: {} -> {}: GPU drained, slFreeResources(DLSS, viewport {VIEWPORT}) {}",
+                    previous.map_or_else(|| "none".to_string(), |k| k.describe()),
+                    key.describe(),
+                    freed.name()
+                ),
+            );
+        }
+        let options = options(key);
+        // SAFETY: from its constructor; Streamline copies the options [documented: src/dlssEntry.cpp:1058-1063].
+        let r = unsafe { (self.set_options)(&viewport, &options) };
+        if !r.is_ok() {
+            self.count_failure("slDLSSSetOptions", r);
+            return;
+        }
+        self.options_set = true;
+        // DLSS's history went with the old options.
+        self.previous_was_dlss = false;
+        note(Level::INFO, format!("options: {} (auto exposure on, alpha upscaling off)", key.describe()));
+        self.options = Some(Options { key, range, active_said: false, outside_said: None });
+    }
+
+    /// One frame: the module comment's order. Any failure leaves the frame to the spatial
+    /// fallback.
+    pub(super) fn frame(&mut self, api: &Api, held: &Held, ctx: &mut RenderContext, frame: &Frame) -> Outcome {
         let Some(previous) = frame.previous else {
-            self.say_once("previous view", Level::WARN, "the camera has no PreviousViewData: FSR's dispatch draws these frames");
+            self.say_once("previous view", Level::WARN, "the camera has no PreviousViewData: the spatial fallback draws these frames");
             self.skipped += 1;
-            return self.fsr();
+            return self.fallback();
         };
 
-        // 1. Options when the output size or HDR-ness changes.
-        let hdr = matches!(frame.target.main_texture_format(), wgpu::TextureFormat::Rgba16Float | wgpu::TextureFormat::Rgba32Float | wgpu::TextureFormat::Rg11b10Ufloat);
-        if self.options.as_ref().is_none_or(|o| o.output != frame.output_size || o.hdr != hdr) {
-            self.options = None;
-            let mut options = DlssOptions::new();
-            options.mode = DLSS_MODE_MAX_QUALITY;
-            options.output_width = frame.output_size.x;
-            options.output_height = frame.output_size.y;
-            options.color_buffers_hdr = if hdr { BOOL_TRUE } else { BOOL_FALSE };
-            options.use_auto_exposure = BOOL_TRUE;
-            options.alpha_upscaling_enabled = BOOL_FALSE;
-            let mut settings = DlssOptimalSettings::new();
-            // SAFETY: both structures from their constructors, alive for the call.
-            let r = unsafe { (self.get_optimal_settings)(&options, &mut settings) };
-            if !r.is_ok() {
-                return self.failed_call("slDLSSGetOptimalSettings", r);
-            }
-            let viewport = ViewportHandle::new(VIEWPORT);
-            // SAFETY: as above; Streamline copies the options [documented: src/dlssEntry.cpp:1058-1063].
-            let r = unsafe { (self.set_options)(&viewport, &options) };
-            if !r.is_ok() {
-                return self.failed_call("slDLSSSetOptions", r);
-            }
-            self.options_set = true;
-            let range = Range {
-                optimal: UVec2::new(settings.optimal_render_width, settings.optimal_render_height),
-                min: UVec2::new(settings.render_width_min, settings.render_height_min),
-                max: UVec2::new(settings.render_width_max, settings.render_height_max),
-            };
-            self.options = Some(Options { output: frame.output_size, hdr, range, active_said: false, outside_said: None });
-        }
-        let Some(options) = self.options.as_mut() else { return self.fsr() };
+        // 1. The options for this frame and the render size within DLSS's range.
+        let key = Key { quality: frame.quality, output: frame.output_size, hdr: sizing::hdr_format(frame.target.main_texture_format()) };
+        let Some(options) = self.options.as_mut().filter(|o| o.key == key) else {
+            self.say_once("no options", Level::WARN, "no DLSS options are set for this frame's mode and size: the spatial fallback draws these frames");
+            self.skipped += 1;
+            return self.fallback();
+        };
         let range = options.range;
         if !range.contains(frame.render_size) {
             if options.outside_said != Some(frame.render_size) {
@@ -224,17 +262,17 @@ impl Evaluator {
                 note(
                     Level::WARN,
                     format!(
-                        "render size {} outside DLSS Quality's range for {} (optimal {}, min {} max {}): FSR's dispatch draws these frames",
+                        "render size {} outside the range DLSS reports for {} (optimal {}, min {} max {}): the spatial fallback draws these frames",
                         size(frame.render_size),
-                        size(frame.output_size),
-                        size(range.optimal),
+                        key.describe(),
+                        size(range.render),
                         size(range.min),
                         size(range.max)
                     ),
                 );
             }
             self.skipped += 1;
-            return self.fsr();
+            return self.fallback();
         }
 
         // The raw handles before anything is recorded, so a failure leaves the encoder as it was.
@@ -246,9 +284,9 @@ impl Evaluator {
         let described = {
             // SAFETY: only read.
             let Some(adapter) = (unsafe { held.adapter.as_hal::<wgpu::hal::api::Vulkan>() }) else {
-                self.say_once("not vulkan", Level::WARN, "the adapter is not a Vulkan one: FSR's dispatch draws these frames");
+                self.say_once("not vulkan", Level::WARN, "the adapter is not a Vulkan one: the spatial fallback draws these frames");
                 self.failed += 1;
-                return self.fsr();
+                return self.fallback();
             };
             [
                 describe(&adapter, color_in, color_in_view, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL),
@@ -258,18 +296,18 @@ impl Evaluator {
             ]
         };
         let [Some(mut color_in_res), Some(mut depth_res), Some(mut motion_res), Some(mut output_res)] = described else {
-            self.say_once("handles", Level::WARN, "a texture or view has no Vulkan handle: FSR's dispatch draws these frames");
+            self.say_once("handles", Level::WARN, "a texture or view has no Vulkan handle: the spatial fallback draws these frames");
             self.failed += 1;
-            return self.fsr();
+            return self.fallback();
         };
         if self.raw_device.is_none() {
             // SAFETY: only the function table and handle are cloned; the guard is dropped at once.
             self.raw_device = unsafe { held.device.as_hal::<wgpu::hal::api::Vulkan>() }.map(|d| d.raw_device().clone());
         }
         let Some(raw_device) = self.raw_device.as_ref() else {
-            self.say_once("raw device", Level::WARN, "the device is not a Vulkan one: FSR's dispatch draws these frames");
+            self.say_once("raw device", Level::WARN, "the device is not a Vulkan one: the spatial fallback draws these frames");
             self.failed += 1;
-            return self.fsr();
+            return self.fallback();
         };
 
         // 2. Frame token and constants.
@@ -388,9 +426,9 @@ impl Evaluator {
             Some(r) if r.is_ok() => {}
             Some(r) => return self.failed_call("slEvaluateFeature", r),
             None => {
-                self.say_once("raw encoder", Level::WARN, "the evaluate's encoder is not a Vulkan one: FSR's dispatch draws these frames");
+                self.say_once("raw encoder", Level::WARN, "the evaluate's encoder is not a Vulkan one: the spatial fallback draws these frames");
                 self.failed += 1;
-                return self.fsr();
+                return self.fallback();
             }
         }
 
@@ -424,10 +462,11 @@ impl Evaluator {
             note(
                 Level::INFO,
                 format!(
-                    "evaluate active: Quality, {} -> {}, optimal {}, min {} max {}",
+                    "evaluate active: {}, {} -> {}, optimal {}, min {} max {}",
+                    key.describe(),
                     size(frame.render_size),
                     size(frame.output_size),
-                    size(options.range.optimal),
+                    size(options.range.render),
                     size(options.range.min),
                     size(options.range.max)
                 ),
@@ -436,25 +475,30 @@ impl Evaluator {
         Outcome::Evaluated
     }
 
-    /// FSR's dispatch draws this frame; its history is stale when DLSS drew the last one.
-    fn fsr(&mut self) -> Outcome {
-        let reset = self.previous_was_dlss;
+    /// The spatial fallback draws this frame (`dlss_pass`); DLSS's history is stale for the next
+    /// evaluate, which resets.
+    fn fallback(&mut self) -> Outcome {
         self.previous_was_dlss = false;
-        Outcome::Fsr { reset }
+        Outcome::Fallback
     }
 
     /// A call that did not return `eOk`: said the first time for each call and result, counted
-    /// always (the counts at shutdown), and FSR's dispatch draws the frame.
-    fn failed_call(&mut self, call: &'static str, result: SlResult) -> Outcome {
+    /// always (the counts at shutdown).
+    fn count_failure(&mut self, call: &'static str, result: SlResult) {
         match self.results.iter_mut().find(|(c, r, _)| *c == call && *r == result) {
             Some((_, _, count)) => *count += 1,
             None => {
-                note(Level::WARN, format!("{call}: {}; FSR's dispatch draws this frame (later {call} {} results are counted, the count at shutdown)", result.name(), result.name()));
+                note(Level::WARN, format!("{call}: {}; the spatial fallback draws (later {call} {} results are counted, the count at shutdown)", result.name(), result.name()));
                 self.results.push((call, result, 1));
             }
         }
         self.failed += 1;
-        self.fsr()
+    }
+
+    /// A failed call during a frame: counted, and the spatial fallback draws the frame.
+    fn failed_call(&mut self, call: &'static str, result: SlResult) -> Outcome {
+        self.count_failure(call, result);
+        self.fallback()
     }
 
     fn say_once(&mut self, key: &'static str, level: Level, text: &str) {
@@ -466,19 +510,15 @@ impl Evaluator {
 
     /// The counts, for the shutdown.
     pub(super) fn report(&self) {
-        let mut line = format!("evaluates: {} ok, {} failed", self.ok, self.failed);
+        let mut line = format!("evaluates: {} ok, {} failed; options set again {} times", self.ok, self.failed, self.recreated);
         if self.skipped > 0 {
-            line.push_str(&format!("; {} more frames left to FSR's dispatch without a failed call (render size outside DLSS's range or no previous view)", self.skipped));
+            line.push_str(&format!("; {} more frames left to the spatial fallback without a failed call (no options for the frame, render size outside DLSS's range or no previous view)", self.skipped));
         }
         note(Level::INFO, line);
         for (call, result, count) in &self.results {
             note(Level::WARN, format!("{call} {}: {count} times in all", result.name()));
         }
     }
-}
-
-fn size(s: UVec2) -> String {
-    format!("{}x{}", s.x, s.y)
 }
 
 /// A Vulkan handle (a `u64`) as the `void*` Streamline takes.
@@ -528,8 +568,8 @@ fn vk_usage(usage: wgpu::TextureUsages, depth: bool) -> u32 {
     flags.as_raw()
 }
 
-/// The common constants (`sl_consts.h:179-258`) from Bevy's view, the previous view and FSR's
-/// camera. Matrices unjittered (`ExtractedView::clip_from_view` is; the view uniform jitters a
+/// The common constants (`sl_consts.h:179-258`) from Bevy's view, the previous view and the
+/// camera's history metadata (`prep::UpscaleCamera`). Matrices unjittered (`ExtractedView::clip_from_view` is; the view uniform jitters a
 /// copy [design: vendor/bevy_render/src/view/mod.rs:1218-1223]; `PreviousViewData` is made
 /// without jitter [design: vendor/bevy_pbr/src/prepass/mod.rs:196-216]). A glam matrix is
 /// column-major for column vectors; written column by column it is Streamline's row-major
@@ -605,16 +645,39 @@ fn alpha_one_pipeline(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgp
 mod tests {
     use super::*;
 
+    unsafe extern "C" fn no_optimal_settings(_: *const DlssOptions, _: *mut DlssOptimalSettings) -> SlResult {
+        SlResult(1)
+    }
+
+    unsafe extern "C" fn no_options(_: *const ViewportHandle, _: *const DlssOptions) -> SlResult {
+        SlResult(1)
+    }
+
     #[test]
-    fn range_checks_min_and_max_or_only_the_optimal_size() {
-        let range = Range { optimal: UVec2::new(853, 480), min: UVec2::new(427, 240), max: UVec2::new(1280, 720) };
-        assert!(range.contains(UVec2::new(853, 480)));
-        assert!(range.contains(UVec2::new(427, 240)) && range.contains(UVec2::new(1280, 720)));
-        assert!(!range.contains(UVec2::new(426, 480)));
-        assert!(!range.contains(UVec2::new(853, 721)));
-        let fixed = Range { max: UVec2::ZERO, min: UVec2::ZERO, ..range };
-        assert!(fixed.contains(UVec2::new(853, 480)));
-        assert!(!fixed.contains(UVec2::new(854, 480)));
+    fn a_failure_falls_back_and_resets_the_next_evaluate() {
+        let mut eval = Evaluator::new(no_optimal_settings, no_options);
+        eval.previous_was_dlss = true;
+        assert_eq!(eval.failed_call("slEvaluateFeature", SlResult(1)), Outcome::Fallback, "never FSR: the common fallback");
+        assert!(!eval.previous_was_dlss, "DLSS's history is stale for the next evaluate");
+        assert_eq!((eval.failed, eval.results.len()), (1, 1));
+        eval.failed_call("slEvaluateFeature", SlResult(1));
+        assert_eq!((eval.failed, eval.results.len(), eval.results[0].2), (2, 1, 2), "counted, said once");
+        eval.previous_was_dlss = true;
+        assert_eq!(eval.fallback(), Outcome::Fallback);
+        assert!(!eval.previous_was_dlss);
+        // A failed query is an error, not a size.
+        let key = Key { quality: crate::upscaler::UpscaleQuality::Quality, output: UVec2::new(1280, 720), hdr: true };
+        assert!(eval.optimal_settings(key).unwrap_err().starts_with("slDLSSGetOptimalSettings"));
+    }
+
+    #[test]
+    fn options_carry_the_mode_size_and_hdr() {
+        use crate::upscaler::UpscaleQuality;
+        let o = options(Key { quality: UpscaleQuality::UltraPerformance, output: UVec2::new(2560, 1440), hdr: true });
+        assert_eq!((o.mode, o.output_width, o.output_height), (sizing::MODE_ULTRA_PERFORMANCE, 2560, 1440));
+        assert_eq!((o.color_buffers_hdr, o.use_auto_exposure, o.alpha_upscaling_enabled), (BOOL_TRUE, BOOL_TRUE, BOOL_FALSE));
+        let o = options(Key { quality: UpscaleQuality::NativeAa, output: UVec2::new(1280, 720), hdr: false });
+        assert_eq!((o.mode, o.color_buffers_hdr), (sizing::MODE_DLAA, BOOL_FALSE));
     }
 
     #[test]

@@ -20,7 +20,8 @@ use super::ffi::{
     SlGetFeatureFunction, SlGetFeatureRequirements, SlGetFeatureVersion, SlGetNewFrameToken, SlInit, SlIsFeatureLoaded, SlIsFeatureSupported, SlResult, SlSetConstants,
     SlShutdown, ViewportHandle, FEATURE_DLSS, LOG_TYPE_ERROR, LOG_TYPE_WARN, PREFERENCE_ALLOW_OTA, PREFERENCE_LOAD_DOWNLOADED_PLUGINS, RENDER_API_VULKAN, SDK_VERSION,
 };
-use super::preflight::{self, Requirements, Selection, Snapshot};
+use super::preflight::{self, Checked, Pin, Requirements, Selection, Snapshot};
+use super::sizing::{Key, Optimal};
 use super::{missing_files, note, note_sl, resolve_folder, set_loader_state, FolderSource, Frame, Outcome, ACTIVE, ENV_DIR, FILES};
 use crate::upscaler::{DlssState, Unavailable};
 
@@ -40,7 +41,7 @@ pub(super) struct Api {
     get_feature_version: SlGetFeatureVersion,
     get_feature_function: SlGetFeatureFunction,
     get_feature_requirements: SlGetFeatureRequirements,
-    free_resources: SlFreeResources,
+    pub(super) free_resources: SlFreeResources,
     pub(super) get_new_frame_token: SlGetNewFrameToken,
     pub(super) set_constants: SlSetConstants,
     pub(super) evaluate_feature: SlEvaluateFeature,
@@ -74,6 +75,25 @@ struct Spike {
 }
 
 static STATE: Mutex<Option<Spike>> = Mutex::new(None);
+
+/// What the device check passed and what it pinned (`preflight::pin`), for the renderer's
+/// plugin ([`pinned_name`]) and the comparison once the device exists (`after_device`).
+struct Adapters {
+    checked: Vec<Checked>,
+    pin: Option<Checked>,
+}
+
+static ADAPTERS: Mutex<Option<Adapters>> = Mutex::new(None);
+
+fn adapters() -> MutexGuard<'static, Option<Adapters>> {
+    ADAPTERS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The adapter name the renderer is asked for (`mod.rs` `render_plugin`), when the loader
+/// pinned one.
+pub(super) fn pinned_name() -> Option<String> {
+    adapters().as_ref().and_then(|a| a.pin.as_ref()).map(|pin| pin.name.clone())
+}
 
 fn state() -> MutexGuard<'static, Option<Spike>> {
     STATE.lock().unwrap_or_else(PoisonError::into_inner)
@@ -277,8 +297,26 @@ fn folder_allows_streamline(folder: &Path) -> bool {
 fn device_check(api: &Api, snapshot: &Snapshot) -> Result<(), (Unavailable, String)> {
     let requirements = requirements(api).map_err(|why| (Unavailable::StreamlineRefused, why))?;
     note(Level::INFO, format!("requirements: DLSS asks for {requirements}"));
-    let checked = preflight::judge(snapshot, &requirements, &Selection::from_env()).map_err(|d| (d.reason, d.why))?;
+    let selection = Selection::from_env();
+    let checked = preflight::judge(snapshot, &requirements, &selection).map_err(|d| (d.reason, d.why))?;
     note(Level::INFO, format!("device check: passed for {} (every GPU the renderer could pick)", checked.join(", ")));
+    // The same candidates `judge` checked, for the pin (preflight.rs `pin`).
+    let picks = preflight::candidates(&snapshot.devices, &selection);
+    let pin = match preflight::pin(&snapshot.devices, &picks, selection.adapter_name.as_deref()) {
+        Pin::Set(pin) => {
+            note(Level::INFO, format!("adapter pin: the renderer is asked for {} (Bevy's adapter name), the one checked NVIDIA GPU", pin.name));
+            Some(pin)
+        }
+        Pin::UserChose => {
+            note(Level::INFO, "adapter pin: none, WGPU_ADAPTER_NAME is set and the device check followed it");
+            None
+        }
+        Pin::Declined(why) => {
+            note(Level::INFO, format!("adapter pin: none ({why}); every GPU the renderer could pick passed the device check"));
+            None
+        }
+    };
+    *adapters() = Some(Adapters { checked: picks.iter().map(|&i| Checked::of(&snapshot.devices[i])).collect(), pin });
     Ok(())
 }
 
@@ -434,7 +472,25 @@ pub(super) fn after_device(app: &mut App) {
 
     // Change E: the physical device and a valid 8-byte LUID; without the LUID Streamline does
     // not check the adapter at all [documented: src/sl.cpp:855-860].
-    let (supported, asked, refusal) = match adapter_identity(&held.adapter) {
+    let identity = adapter_identity(&held.adapter);
+    // The adapter pin's other half (preflight.rs `pin`): the GPU Bevy chose against the checked
+    // one, by name and LUID. A mismatch keeps DLSS off; the device exists already, so nothing
+    // else changes.
+    let adapter_ok = {
+        let expected = adapters();
+        let (checked, pin) = expected.as_ref().map_or((&[][..], None), |a| (a.checked.as_slice(), a.pin.as_ref()));
+        match preflight::verify_choice(&adapter_name, identity.and_then(|(_, luid)| luid), pin, checked) {
+            Ok(line) => {
+                note(Level::INFO, format!("adapter check: {line}"));
+                true
+            }
+            Err(why) => {
+                note(Level::WARN, format!("adapter check: {why}; DLSS stays off this session"));
+                false
+            }
+        }
+    };
+    let (supported, asked, refusal) = match identity {
         Some((physical, Some(mut luid))) => {
             let mut info = AdapterInfo::new();
             info.device_luid = luid.as_mut_ptr();
@@ -465,11 +521,13 @@ pub(super) fn after_device(app: &mut App) {
         ),
     );
     spike.phase = Phase::Holding(held);
-    if supported {
+    if !adapter_ok {
+        set_loader_state(DlssState::Unavailable(Unavailable::DeviceUnsuitable));
+    } else if supported {
         spike.eval = dlss_functions(&spike.api).map(|(get_optimal_settings, set_options)| Evaluator::new(get_optimal_settings, set_options));
         if spike.eval.is_some() {
             ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
-            note(Level::INFO, "active: slDLSSGetOptimalSettings and slDLSSSetOptions fetched; DLSS evaluates in place of FSR's dispatch while frame generation is off");
+            note(Level::INFO, "active: slDLSSGetOptimalSettings and slDLSSSetOptions fetched; DLSS draws a camera FSR is asked for, at its quality, in its own pass");
             set_loader_state(DlssState::Ready);
         } else {
             set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
@@ -509,8 +567,22 @@ fn dlss_functions(api: &Api) -> Option<(SlDlssGetOptimalSettings, SlDlssSetOptio
 /// One frame's evaluate (`evaluate.rs`), with the spike's state locked for it.
 pub(super) fn evaluate(ctx: &mut RenderContext, frame: &Frame) -> Outcome {
     let mut guard = state();
-    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return Outcome::Fsr { reset: false } };
+    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return Outcome::Fallback };
     eval.frame(api, held, ctx, frame)
+}
+
+/// `slDLSSGetOptimalSettings` for a key (`evaluate.rs`), with the spike's state locked for it.
+pub(super) fn optimal_settings(key: Key) -> Result<Optimal, String> {
+    let guard = state();
+    let Some(Spike { phase: Phase::Holding(_), eval: Some(eval), .. }) = guard.as_ref() else { return Err("DLSS is not active".to_string()) };
+    eval.optimal_settings(key)
+}
+
+/// DLSS's options for a key before the frame is recorded (`evaluate.rs` "Before the frame").
+pub(super) fn configure(key: Key, range: Optimal) {
+    let mut guard = state();
+    let Some(Spike { api, phase: Phase::Holding(held), eval: Some(eval) }) = guard.as_mut() else { return };
+    eval.configure(api, held, key, range);
 }
 
 /// The adapter's `VkPhysicalDevice` and its LUID when the driver says the LUID is valid

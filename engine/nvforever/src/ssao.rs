@@ -113,7 +113,7 @@ impl Plugin for SsaoPlugin {
             .add_systems(RenderStartup, init_pipelines)
             .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources))
             .add_systems(Core3d, ao_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).before(bevy::anti_alias::fxaa::fxaa).before(bevy::anti_alias::smaa::smaa).before(crate::imagespace::blur_pass))
-            .add_systems(Core3d, ao_before_fsr.in_set(Core3dSystems::EarlyPostProcess).before(crate::fsr::fsr_pass));
+            .add_systems(Core3d, ao_before_fsr.in_set(Core3dSystems::EarlyPostProcess).before(crate::fsr::fsr_pass).before(crate::dlss::dlss_pass));
     }
 }
 
@@ -350,7 +350,7 @@ fn occlusion_pass(
 /// of the pass at the display size (FSR Quality: the render size has 0.44 of the pixels). It
 /// darkens the HDR light before tonemapping, so bright surfaces lose less than when it is
 /// multiplied into the tonemapped picture. Runs before every upscaler's pass
-/// (`fsr::fsr_pass`; DLSS's from step 5).
+/// (`fsr::fsr_pass`, `dlss::dlss_pass`).
 #[allow(clippy::type_complexity)]
 pub(crate) fn ao_before_fsr(
     view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures, &crate::upscaler::prep::PreparedUpscale, Option<&crate::fsr::PreparedFsr>)>,

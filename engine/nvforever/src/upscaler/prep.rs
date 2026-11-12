@@ -1,12 +1,12 @@
 //! The view preparation every temporal upscaler shares (#2198, docs/design/dlss-upscaling.md
-//! "The prepared-view seam"). Lifted out of `fsr.rs` unchanged; FSR uses it, and DLSS (step 5)
-//! will use it without creating any of FSR's state.
+//! "The prepared-view seam"). Lifted out of `fsr.rs` unchanged; FSR uses it, and DLSS (`dlss::dlss_pass`)
+//! uses it without creating any of FSR's state.
 //!
 //! Per camera that asks for a temporal upscaler ([`FsrUpscaling`] or [`DlssUpscaling`]):
 //! - [`extract`]: the camera's history metadata ([`UpscaleCamera`]), for cut detection;
 //! - [`prepare`] (`RenderSystems::PrepareViews`, before the view targets): the view checked,
 //!   the backend's [`Policy`] (render size, jitter phase count, mip bias: FSR's in `fsr.rs`,
-//!   DLSS's in step 5), the render-size override (`MainPassResolutionOverride`), the jitter and
+//!   DLSS's in `dlss/sizing.rs` from the size DLSS reports), the render-size override (`MainPassResolutionOverride`), the jitter and
 //!   mip bias applied to the camera, the ambient occlusion's render size, and the
 //!   [`PreparedUpscale`] (the corrected depth, the depth expanded afterwards, the resolution
 //!   uniform, whether the upscaler reconstructed this frame);
@@ -50,6 +50,7 @@ impl Plugin for PrepPlugin {
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
         render_app
             .init_resource::<UpscaleRenderer>()
+            .init_resource::<crate::dlss::OptimalSizes>()
             .add_systems(ExtractSchedule, extract)
             .add_systems(Render, prepare.in_set(RenderSystems::PrepareViews).before(prepare_view_targets));
     }
@@ -60,7 +61,7 @@ impl Plugin for PrepPlugin {
 pub(crate) enum UpscaleSettings {
     /// FSR 3.1 with its quality and its own sharpening strength.
     Fsr(FsrUpscaling),
-    /// DLSS at a quality (drawn from step 5).
+    /// DLSS at a quality (`dlss::dlss_pass`).
     Dlss(UpscaleQuality),
 }
 
@@ -151,19 +152,29 @@ pub(crate) struct Policy {
     pub(crate) mip_bias: f32,
 }
 
-/// The backend's policy for a view (`fsr::policy` for FSR).
-pub(crate) fn policy(settings: UpscaleSettings, output: UVec2, limits: &wgpu::Limits) -> Option<Policy> {
+/// The backend's policy for a view: `fsr::policy` for FSR; for DLSS `dlss::sizing::policy`
+/// from the optimal settings `dlss_optimal` gives for the quality (DLSS's reported render size,
+/// never FSR's ratio; `None`: the view renders natively). FSR never calls `dlss_optimal`.
+pub(crate) fn policy(
+    settings: UpscaleSettings,
+    output: UVec2,
+    limits: &wgpu::Limits,
+    dlss_optimal: impl FnOnce(UpscaleQuality) -> Option<crate::dlss::sizing::Optimal>,
+) -> Option<Policy> {
     match settings {
         UpscaleSettings::Fsr(fsr) => crate::fsr::policy(fsr.quality, output, limits),
-        UpscaleSettings::Dlss(quality) => dlss_policy(quality, output),
+        UpscaleSettings::Dlss(quality) => crate::dlss::sizing::policy(quality, output, dlss_optimal(quality)),
     }
 }
 
-/// DLSS's policy [design: docs/design/dlss-upscaling.md, step 5]: the render size DLSS reports
-/// for the mode and output size (never FSR's ratio), its own jitter phase count and mip bias.
-/// Until step 5 builds it, `None`: a DLSS camera renders natively and nothing is prepared.
-fn dlss_policy(_quality: UpscaleQuality, _output: UVec2) -> Option<Policy> {
-    None
+/// The DLSS spike's rule applied to a camera's settings (`dlss::spike_choice`, until the
+/// setting replaces it in the plan's step 8): FSR asked for while DLSS is ready is drawn by DLSS
+/// at the same quality, without FSR's sharpening.
+fn with_spike(settings: UpscaleSettings, dlss_ready: bool) -> UpscaleSettings {
+    match crate::dlss::spike_choice(settings.choice(), dlss_ready) {
+        UpscalerChoice::Dlss(quality) => UpscaleSettings::Dlss(quality),
+        _ => settings,
+    }
 }
 
 /// The jitter for `frame` among `phases` (AMD's Halton sequence from the wgpu-ffx port, in
@@ -195,8 +206,9 @@ pub(crate) fn extract(
     pipboy_screen: Extract<Option<Res<nvf_play::pipboy::PipBoyScreen>>>,
 ) {
     let mut active = Vec::new();
+    let dlss_ready = crate::dlss::spike_ready();
     for (entity, camera, projection, transform, fsr, dlss) in &cameras {
-        let (Some(settings), Projection::Perspective(projection)) = (camera_settings(fsr, dlss, support.0), projection) else { continue };
+        let (Some(settings), Projection::Perspective(projection)) = (camera_settings(fsr, dlss, support.0).map(|s| with_spike(s, dlss_ready)), projection) else { continue };
         if !camera.is_active || camera.physical_viewport_size().is_none_or(|s| s.x < 32 || s.y < 32) {
             continue;
         }
@@ -324,6 +336,7 @@ pub(crate) fn prepare(
     mut commands: Commands,
     device: Res<RenderDevice>,
     mut renderer: ResMut<UpscaleRenderer>,
+    mut dlss_sizes: ResMut<crate::dlss::OptimalSizes>,
     mut views: Query<(
         Entity, &ExtractedView, &UpscaleCamera, &Msaa, &mut CameraMainTextureUsages,
         &mut TemporalJitter, &mut MipBias, Option<&mut PreparedUpscale>, Option<&mut crate::ssao::AmbientOcclusion>,
@@ -347,7 +360,11 @@ pub(crate) fn prepare(
             commands.entity(entity).remove::<UnsuitableViewWarned>();
         }
         let output_size = view.viewport.zw();
-        let Some(policy) = policy(camera.settings, output_size, &device.limits()) else {
+        // DLSS's optimal settings asked here, once per mode, output size and HDR-ness, before
+        // the render targets and uniforms are prepared (dlss/sizing.rs).
+        let hdr = crate::dlss::sizing::hdr_format(view.target_format);
+        let dlss_optimal = |quality| dlss_sizes.render_size(crate::dlss::sizing::Key { quality, output: output_size, hdr });
+        let Some(policy) = policy(camera.settings, output_size, &device.limits(), dlss_optimal) else {
             jitter.offset = Vec2::ZERO;
             bias.0 = 0.0;
             commands.entity(entity).remove::<(PreparedUpscale, MainPassResolutionOverride)>();
@@ -355,7 +372,10 @@ pub(crate) fn prepare(
         };
         let render_size = policy.render_size;
         renderer.0.get_or_insert_with(|| Pipelines::new(device.wgpu_device()));
-        usages.0 |= crate::dlss::main_texture_usages();
+        // DLSS's own usages on the cameras it draws (FSR adds its own in `fsr::prepare`).
+        if matches!(camera.settings, UpscaleSettings::Dlss(_)) {
+            usages.0 |= crate::dlss::main_texture_usages();
+        }
         // Bevy applies its projection jitter with the opposite displacement sign.
         jitter.offset = -jitter_offset(camera.frame, policy.jitter_phases);
         bias.0 = policy.mip_bias;
@@ -600,14 +620,38 @@ mod tests {
     }
 
     #[test]
-    fn the_backend_policy_is_fsrs_for_fsr_and_none_for_dlss_until_step_5() {
+    fn the_backend_policy_is_fsrs_for_fsr_and_dlsss_reported_size_for_dlss() {
+        use crate::dlss::sizing::{self, Optimal};
         let limits = wgpu::Limits { max_storage_textures_per_shader_stage: 8, ..default() };
         let output = UVec2::new(1280, 720);
-        let fsr_policy = policy(fsr(Quality), output, &limits).expect("FSR Quality at 720p");
+        let never = |_| -> Option<Optimal> { panic!("FSR never asks DLSS") };
+        let fsr_policy = policy(fsr(Quality), output, &limits, never).expect("FSR Quality at 720p");
         assert_eq!(fsr_policy.render_size, UVec2::new(853, 480));
         assert_eq!(fsr_policy.jitter_phases, wgpu_ffx::get_jitter_phase_count(853, 1280));
-        assert_eq!(policy(UpscaleSettings::Dlss(Quality), output, &limits), None, "DLSS never borrows FSR's ratio");
-        assert_eq!(policy(fsr(UltraPerformance), UVec2::splat(96), &limits), None, "below FSR's smallest render size");
+        assert_eq!(policy(fsr(UltraPerformance), UVec2::splat(96), &limits, never), None, "below FSR's smallest render size");
+        // DLSS: what DLSS reports for the asked quality, never FSR's ratio.
+        let optimal = Optimal { render: UVec2::new(862, 485), min: UVec2::new(640, 360), max: output };
+        let mut asked = None;
+        let dlss_policy = policy(UpscaleSettings::Dlss(Balanced), output, &limits, |q| {
+            asked = Some(q);
+            Some(optimal)
+        })
+        .expect("DLSS reported a size");
+        assert_eq!(asked, Some(Balanced));
+        assert_eq!(dlss_policy.render_size, UVec2::new(862, 485));
+        assert_eq!(dlss_policy.jitter_phases, sizing::jitter_phases(Balanced, optimal.render, output));
+        assert_eq!(dlss_policy.mip_bias, sizing::mip_bias(optimal.render, output));
+        assert_eq!(policy(UpscaleSettings::Dlss(Quality), output, &limits, |_| None), None, "no size from DLSS: native");
+    }
+
+    #[test]
+    fn the_spike_turns_fsr_cameras_into_dlss_ones_only_when_ready() {
+        let sharp = UpscaleSettings::Fsr(FsrUpscaling { quality: Performance, sharpness: 0.2 });
+        assert!(matches!(with_spike(sharp, true), UpscaleSettings::Dlss(Performance)));
+        assert!(matches!(with_spike(sharp, false), UpscaleSettings::Fsr(f) if f.quality == Performance));
+        assert!(matches!(with_spike(UpscaleSettings::Dlss(NativeAa), false), UpscaleSettings::Dlss(NativeAa)));
+        // The DLSS camera made from it gets the common prepared view only.
+        assert!(!allocates_fsr_state(with_spike(sharp, true).upscaler()));
     }
 
     #[test]
