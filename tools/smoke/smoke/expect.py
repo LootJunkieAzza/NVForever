@@ -20,11 +20,16 @@ An expectation is written in the scenario file as a string or as a table:
   the values that pass; `all = true` wants every value to pass. Default: at least one.
 - `known_failing = "why"`: a failure is reported as KNOWN and does not fail the run; a
   pass is reported so the mark can be removed.
+- `known_failing = { linux = "why" }`: the same mark on the named platforms only
+  (`linux`, `windows`, `macos`). On a platform the table does not name the expectation
+  is judged as if it had no mark: a missing line is a failure, and a pass is not
+  reported as one to drop.
 """
 from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -61,6 +66,37 @@ def number(s: str) -> float:
     return float(s.replace(",", ""))
 
 
+def platform_name(sys_platform: str | None = None) -> str:
+    """The name a `known_failing` table uses for this platform: linux, windows or macos."""
+    p = sys.platform if sys_platform is None else sys_platform
+    if p.startswith("linux"):
+        return "linux"
+    if p in ("win32", "cygwin", "msys"):
+        return "windows"
+    if p == "darwin":
+        return "macos"
+    return p
+
+
+PLATFORMS = ("linux", "windows", "macos")
+
+
+def mark(value, where: str = "") -> str | dict[str, str] | None:
+    """A `known_failing` value: a reason for every platform, or a table of them by platform."""
+    if value is None or isinstance(value, str):
+        return value
+    if not isinstance(value, dict) or not value:
+        raise ScenarioError(f"{where}: known_failing must be a string or a table of platform = reason")
+    out = {}
+    for platform, reason in value.items():
+        if platform not in PLATFORMS:
+            raise ScenarioError(f"{where}: known_failing names {platform!r}; use one of {', '.join(PLATFORMS)}")
+        if not isinstance(reason, str) or not reason:
+            raise ScenarioError(f"{where}: known_failing.{platform} must be a non-empty string")
+        out[platform] = reason
+    return out
+
+
 @dataclass
 class Expect:
     label: str
@@ -71,7 +107,7 @@ class Expect:
     range: tuple[float, float] | None = None
     all: bool = False
     gap: tuple["Expect", "Expect"] | None = None
-    known_failing: str | None = None
+    known_failing: str | dict[str, str] | None = None
     json_path: list[str] | None = None
     schema: str | None = None
     equals: object = None
@@ -88,7 +124,7 @@ class Expect:
         extra = set(item) - known
         if extra:
             raise ScenarioError(f"{where}: unknown expectation keys {sorted(extra)}")
-        e = cls(label=item.get("label", ""), known_failing=item.get("known_failing"))
+        e = cls(label=item.get("label", ""), known_failing=mark(item.get("known_failing"), where))
         if "gap" in item:
             a, b = item["gap"]
             e.gap = (cls.parse(a, where), cls.parse(b, where))
@@ -123,6 +159,15 @@ class Expect:
                 raise ScenarioError(f"{where}: range needs a capture group in {e.label!r}")
         e.all = bool(item.get("all", False))
         return e
+
+    def known_reason(self, platform: str | None = None) -> str | None:
+        """The known-failing reason on `platform` (default: this one); none when unmarked."""
+        k = self.known_failing
+        if isinstance(k, str):
+            return k
+        if isinstance(k, dict):
+            return k.get(platform_name() if platform is None else platform)
+        return None
 
     def json_values(self, docs: list) -> list:
         out = []
@@ -241,7 +286,7 @@ def short(line: str, n: int = 220) -> str:
     return line if len(line) <= n else line[: n - 1] + "…"
 
 
-def check_json(e: Expect, lines: list[str]) -> Outcome:
+def check_json(e: Expect, lines: list[str], platform: str | None = None) -> Outcome:
     vals = e.json_values(json_docs(lines))
     good = [v for v in vals if e.value_ok(v)]
     shown = ", ".join(json.dumps(v)[:40] for v in vals[:6]) + (" …" if len(vals) > 6 else "")
@@ -249,26 +294,26 @@ def check_json(e: Expect, lines: list[str]) -> Outcome:
         lo = e.count if e.count is not None else (e.min or 0)
         hi = e.count if e.count is not None else (e.max if e.max is not None else float("inf"))
         ok = lo <= len(good) <= hi
-        return Outcome(ok, e.known_failing, "count", e.label, f"{len(good)} of {len(vals)} values pass ({shown})")
+        return Outcome(ok, e.known_reason(platform), "count", e.label, f"{len(good)} of {len(vals)} values pass ({shown})")
     if not vals:
-        return Outcome(False, e.known_failing, "missing", e.label, "no such path in the output")
+        return Outcome(False, e.known_reason(platform), "missing", e.label, "no such path in the output")
     ok = len(good) == len(vals) if e.all else bool(good)
-    return Outcome(ok, e.known_failing, "value", e.label, "" if ok else f"got {shown}")
+    return Outcome(ok, e.known_reason(platform), "value", e.label, "" if ok else f"got {shown}")
 
 
-def check_one(e: Expect, lines: list[str]) -> Outcome:
+def check_one(e: Expect, lines: list[str], platform: str | None = None) -> Outcome:
     if e.json_path is not None:
-        return check_json(e, lines)
+        return check_json(e, lines, platform)
     if e.gap is not None:
         a, b = (x.first(lines) for x in e.gap)
         if a is None or b is None:
-            return Outcome(False, e.known_failing, "missing", e.label, "a line of the pair is missing")
+            return Outcome(False, e.known_reason(platform), "missing", e.label, "a line of the pair is missing")
         ta, tb = stamp_seconds(lines[a]), stamp_seconds(lines[b])
         if ta is None or tb is None:
-            return Outcome(False, e.known_failing, "gap", e.label, "lines carry no timestamp")
+            return Outcome(False, e.known_reason(platform), "gap", e.label, "lines carry no timestamp")
         gap = tb - ta
         ok = e.range[0] <= gap <= e.range[1]
-        return Outcome(ok, e.known_failing, "gap", e.label, f"{gap:.2f} s apart, want {e.range[0]:g}–{e.range[1]:g}",
+        return Outcome(ok, e.known_reason(platform), "gap", e.label, f"{gap:.2f} s apart, want {e.range[0]:g}–{e.range[1]:g}",
                        [] if ok else [short(lines[a]), short(lines[b])])
     hits = [(i, m) for i, ln in enumerate(lines) if (m := e.pattern.search(ln))]
     if e.count is not None or e.min is not None or e.max is not None:
@@ -278,22 +323,22 @@ def check_one(e: Expect, lines: list[str]) -> Outcome:
         ok = lo <= n <= hi
         want = f"{e.count}" if e.count is not None else f"{lo}–{'' if hi == float('inf') else hi}"
         ctx = [short(lines[i]) for i, _ in hits[:3]] if not ok else []
-        return Outcome(ok, e.known_failing, "count", e.label, f"{n} lines, want {want}", ctx)
+        return Outcome(ok, e.known_reason(platform), "count", e.label, f"{n} lines, want {want}", ctx)
     if not hits:
-        return Outcome(False, e.known_failing, "missing", e.label, "", hint_lines(lines, e.label))
+        return Outcome(False, e.known_reason(platform), "missing", e.label, "", hint_lines(lines, e.label))
     if e.range is not None:
         vals = [(i, e.value(m)) for i, m in hits]
         good = [v for _, v in vals if v is not None and e.range[0] <= v <= e.range[1]]
         ok = len(good) == len(vals) if e.all else bool(good)
         if not ok:
             shown = ", ".join("?" if v is None else f"{v:g}" for _, v in vals[:6])
-            return Outcome(False, e.known_failing, "range", e.label,
+            return Outcome(False, e.known_reason(platform), "range", e.label,
                            f"values {shown}; want {e.range[0]:g}–{e.range[1]:g}{' (every line)' if e.all else ''}",
                            [short(lines[i]) for i, _ in vals[:2]])
-    return Outcome(True, e.known_failing, "ok", e.label)
+    return Outcome(True, e.known_reason(platform), "ok", e.label)
 
 
-def check_order(seq: list[Expect], lines: list[str]) -> list[Outcome]:
+def check_order(seq: list[Expect], lines: list[str], platform: str | None = None) -> list[Outcome]:
     out = []
     at = 0
     for k, e in enumerate(seq):
@@ -303,19 +348,19 @@ def check_order(seq: list[Expect], lines: list[str]) -> list[Outcome]:
             detail = "" if anywhere is None else f"found only before the previous step (line {anywhere + 1})"
             prev = seq[k - 1].label if k else ""
             ctx = hint_lines(lines, e.label)
-            out.append(Outcome(False, e.known_failing, "order" if anywhere is not None else "missing", e.label,
+            out.append(Outcome(False, e.known_reason(platform), "order" if anywhere is not None else "missing", e.label,
                                detail + (f"; expected after {prev!r}" if prev else ""), ctx))
             return out
-        out.append(Outcome(True, e.known_failing, "ok", e.label))
+        out.append(Outcome(True, e.known_reason(platform), "ok", e.label))
         at = i + 1
     return out
 
 
-def check_forbid(e: Expect, lines: list[str]) -> Outcome:
+def check_forbid(e: Expect, lines: list[str], platform: str | None = None) -> Outcome:
     if e.pattern is None:
         raise ScenarioError(f"forbid needs text or re: {e.label!r}")
     for ln in lines:
         m = e.pattern.search(ln)
         if m and e.in_range(m):
-            return Outcome(False, e.known_failing, "unexpected", e.label, "", [short(ln)])
-    return Outcome(True, e.known_failing, "ok", e.label)
+            return Outcome(False, e.known_reason(platform), "unexpected", e.label, "", [short(ln)])
+    return Outcome(True, e.known_reason(platform), "ok", e.label)

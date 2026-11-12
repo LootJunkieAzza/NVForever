@@ -42,6 +42,7 @@ pub mod recipe_menu;
 pub mod repair_cards;
 pub mod repair_menu;
 pub mod repair_services_menu;
+pub mod runtime_images;
 mod item_menu;
 pub mod dialog_menu;
 pub mod draw;
@@ -981,6 +982,7 @@ impl Plugin for TilesPlugin {
         map_menu::setup(app);
         vats_menu::setup(app);
         app.init_resource::<draw::TileFonts>()
+            .init_resource::<runtime_images::RuntimeImages>()
             .init_resource::<TutorialScrollCheck>()
             .init_resource::<container_menu::ContainerTiles>()
             .init_resource::<barter_menu::BarterTiles>()
@@ -1025,6 +1027,8 @@ impl Plugin for TilesPlugin {
             // the acts, what it shows) is `data::prepare`, before the decision and the frame.
             .add_systems(Update, map_menu::feed.after(input::feed).after(crate::pipboy::PointerSet).before(PlaySet::Activation))
             .add_systems(Update, map_menu::write.after(map_menu::feed).before(PlaySet::Activation))
+            // The Local Map's outline as its runtime picture, before the decision writes its name.
+            .add_systems(Update, map_menu::give_outline.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(map_menu::settle))
             .add_systems(Update, map_menu::settle.in_set(PlaySet::Ui).after(crate::pipboy::data::prepare).before(crate::pipboy::frame::draw))
             // The Pip-Boy's repair page, in the same three steps; its model's keys have run by
             // `prepare`, in the Pip-Boy's chain.

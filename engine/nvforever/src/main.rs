@@ -1510,7 +1510,10 @@ fn main() -> AppExit {
     .add_systems(Startup, move || cpu_placed.report())
     .add_plugins(start_times::StartTimesPlugin)
     .add_plugins(reports::ReportsPlugin { plugins: args.plugins.clone(), data: args.data().to_path_buf(), mo2: fnv_install::mo2::usvfs_loaded(), handoff: args.handoff.is_some(), start_kind: if args.load.is_some() { "save_load" } else { "new_game" } })
-    .add_systems(Last, (crash::note_place, events_log::note_context, crash::report_exit, stray_commands::report));
+    .add_systems(Last, (crash::note_place, events_log::note_context, stray_commands::report))
+    // After Bevy's window-closed exit, which writes AppExit in Last too: before it, closing
+    // the window left no clean-exit line and the run was reported as a native crash (#2203).
+    .add_systems(Last, crash::report_exit.after(bevy::window::ExitSystems));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);
     }
@@ -1860,6 +1863,24 @@ fn main() -> AppExit {
             if let Ok(mut w) = w.single_mut() {
                 w.set_maximized(true);
             }
+        });
+    }
+    // `Update` runs its systems one after another on the main thread (Bevy's
+    // single-threaded executor). The game's Update is some hundreds of small systems,
+    // most of them chained or sharing data, so the multithreaded executor found little to
+    // run side by side and its own work (a task per system, woken on another thread) cost
+    // more than the systems did: at Goodsprings the schedule took about 4.2 ms of the
+    // main thread around 1.5 ms of systems [observed 2026-11-10, Ryzen 7 7700X, release
+    // build, frames held by the CPU: Goodsprings 5.67 -> 5.36 ms, the Strip 5.93 -> 5.68 ms,
+    // a 25-a-side battle 10.72 -> 10.62 ms, the Prospector Saloon unchanged;
+    // docs/design/frame-rate-audit.md section 9]. Systems that split their own work over
+    // the task pools (transform propagation, par_iter) still do. The other schedules
+    // measured no different either way and keep Bevy's default.
+    // `NVF_PLAY_TEST_UPDATE_EXECUTOR=multi` (test aid) puts Bevy's default back, for
+    // measuring one against the other.
+    if std::env::var("NVF_PLAY_TEST_UPDATE_EXECUTOR").as_deref() != Ok("multi") {
+        app.edit_schedule(Update, |s| {
+            s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
         });
     }
     app.run()
