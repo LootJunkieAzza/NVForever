@@ -652,6 +652,9 @@ pub struct DartsView {
     pub thrower: u8,
     /// A match being gathered at the board ([`crate::match_lobby`]).
     pub lobby: Option<crate::match_lobby::LobbyView>,
+    /// A players' match's stake ([`StakeView`]): from the gathering's end until the match
+    /// is over.
+    pub bets: Option<StakeView>,
 }
 
 fn hit_code(w: &mut W, h: fnv_game::darts::Hit) {
@@ -662,6 +665,55 @@ fn read_hit(r: &mut R) -> Option<fnv_game::darts::Hit> {
     let number = r.u8()?;
     let m = r.u8()?;
     Some(fnv_game::darts::Hit { number, multiplier: m & 0x0F, off_board: m & 0x10 != 0 })
+}
+
+/// A players' match's stake at a table, as its owner's view carries it to the others
+/// (`crate::stake`; the owner leads and decides it): every seat's caps and last offer, the
+/// owner's own among them, the stake once agreed, and the players who left a staked match
+/// (each loses its own; the others share it).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StakeView {
+    pub seats: Vec<(u8, u32, Option<u32>)>,
+    pub agreed: Option<u32>,
+    pub gone: Vec<u8>,
+}
+
+/// No offer yet, on the wire.
+const NO_OFFER: u32 = u32::MAX;
+
+impl StakeView {
+    pub fn write(&self, w: &mut W) {
+        w.u8(self.seats.len().min(4) as u8);
+        for (p, funds, offer) in self.seats.iter().take(4) {
+            w.u8(*p).u32(*funds).u32(offer.unwrap_or(NO_OFFER));
+        }
+        w.u32(self.agreed.unwrap_or(NO_OFFER));
+        w.u8(self.gone.len().min(4) as u8);
+        for p in self.gone.iter().take(4) {
+            w.u8(*p);
+        }
+    }
+
+    pub fn read(r: &mut R) -> Option<StakeView> {
+        let n = r.u8()? as usize;
+        if n > 4 {
+            return None;
+        }
+        let mut seats = Vec::new();
+        for _ in 0..n {
+            seats.push((r.u8()?, r.u32()?, Some(r.u32()?).filter(|o| *o != NO_OFFER)));
+        }
+        let agreed = Some(r.u32()?).filter(|o| *o != NO_OFFER);
+        let ng = r.u8()? as usize;
+        if ng > 4 {
+            return None;
+        }
+        let mut gone = Vec::new();
+        for _ in 0..ng {
+            gone.push(r.u8()?);
+        }
+        Some(StakeView { seats, agreed, gone })
+    }
 }
 
 impl DartsView {
@@ -687,7 +739,7 @@ impl DartsView {
         }
         w.u32(self.foe);
         // The players' match and the lobby: a trailing part, left out when neither is on.
-        if !self.players.is_empty() || self.lobby.is_some() {
+        if !self.players.is_empty() || self.lobby.is_some() || self.bets.is_some() {
             w.u8(self.players.len().min(4) as u8);
             for p in self.players.iter().take(4) {
                 w.u8(*p);
@@ -701,6 +753,10 @@ impl DartsView {
                 None => {
                     w.u8(0);
                 }
+            }
+            // The stake: a trailing part of its own, left out when there is none.
+            if let Some(b) = &self.bets {
+                b.write(&mut w);
             }
         }
         w.0
@@ -753,7 +809,8 @@ impl DartsView {
                 lobby = Some(crate::match_lobby::LobbyView::read(&mut r)?);
             }
         }
-        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0, draw, released, flights, foe, players, teams, thrower, lobby })
+        let bets = if r.done() { None } else { Some(StakeView::read(&mut r)?) };
+        r.done().then_some(DartsView { owner, stake, sides, up, turn_over: flags & 1 != 0, winner, aim, stuck, open_seat: flags & 2 != 0, draw, released, flights, foe, players, teams, thrower, lobby, bets })
     }
 }
 
@@ -769,6 +826,9 @@ pub enum DartsAction {
     Next,
     /// The answer to the board's invitation to a players' match (`match_lobby`).
     Answer(bool),
+    /// A players' match's stake: this player's caps and its offer, when it made one
+    /// (`crate::stake`; the owner's view answers with every seat's and the agreement).
+    Bet { funds: u32, offer: Option<u32> },
 }
 
 impl DartsAction {
@@ -780,6 +840,7 @@ impl DartsAction {
             DartsAction::Throw(x, z) => w.u8(2).f32(x).f32(z),
             DartsAction::Next => w.u8(3),
             DartsAction::Answer(yes) => w.u8(4).u8(u8::from(yes)),
+            DartsAction::Bet { funds, offer } => w.u8(5).u32(funds).u32(offer.unwrap_or(NO_OFFER)),
         };
         w.0
     }
@@ -792,6 +853,7 @@ impl DartsAction {
             2 => DartsAction::Throw(r.f32()?, r.f32()?),
             3 => DartsAction::Next,
             4 => DartsAction::Answer(r.u8()? != 0),
+            5 => DartsAction::Bet { funds: r.u32()?, offer: Some(r.u32()?).filter(|o| *o != NO_OFFER) },
             _ => return None,
         };
         r.done().then_some(a)
@@ -1299,8 +1361,17 @@ mod tests {
             teams: false,
             thrower: 255,
             lobby: None,
+            bets: None,
         };
         assert_eq!(DartsView::decode(&d.encode()), Some(d.clone()));
+        // A players' match being staked: the seats' offers, then agreed with one gone.
+        let staking = DartsView { players: vec![1, 2, 3], bets: Some(StakeView { seats: vec![(1, 500, Some(60)), (2, 300, None), (3, 90, Some(60))], agreed: None, gone: Vec::new() }), ..d.clone() };
+        assert_eq!(DartsView::decode(&staking.encode()), Some(staking.clone()));
+        let agreed = DartsView { bets: Some(StakeView { agreed: Some(0), gone: vec![3], ..staking.bets.clone().unwrap() }), lobby: Some(crate::match_lobby::LobbyView { mode: 1, seats: Vec::new() }), ..staking.clone() };
+        assert_eq!(DartsView::decode(&agreed.encode()), Some(agreed.clone()));
+        for a in [DartsAction::Bet { funds: 300, offer: None }, DartsAction::Bet { funds: 300, offer: Some(0) }] {
+            assert_eq!(DartsAction::decode(&a.encode()), Some(a));
+        }
         // Four players in two teams, and a lobby.
         let four = DartsView {
             sides: vec![(1, 301, Vec::new()), (2, 280, Vec::new())],

@@ -131,6 +131,9 @@ pub enum PvpIn {
     Deck(Vec<FormId>),
     Move(Move),
     Forfeit,
+    /// This player's own link to the session dropped (`crate::coop_social`): the one who
+    /// disconnects loses, so this player forfeits and a stake held stays lost.
+    Dropped,
 }
 
 /// The game against another player that a [`Session`] plays.
@@ -1319,6 +1322,22 @@ fn pvp_step(s: &mut Session, rt: &mut crate::script::Runtime, sim: &mut SimState
                     info!("caravan: {} left before the deal: the player's stake {held} back, theirs {theirs} won; the player has {} caps", s.opponent_name, player_caps(sim));
                     s.status = Some(if theirs > 0 { format!("{} left the game. You win {theirs} caps.", s.opponent_name) } else { format!("{} left the game.", s.opponent_name) });
                     s.begin_leaving(now + END_SECONDS - LEAVE_SECONDS, "the other player left");
+                }
+                None => {}
+            },
+            PvpIn::Dropped => match s.game.as_mut() {
+                Some(g) if g.phase != Phase::Over => {
+                    g.forfeit(PLAYER);
+                    info!("caravan: the connection was lost: the player forfeits");
+                    settle(s, rt, sim, OPPONENT, End::Forfeit, now, stats, sounds);
+                }
+                Some(_) => {}
+                None if !s.settled => {
+                    s.settled = true;
+                    let held = s.pvp.as_ref().map_or(0, |p| p.held);
+                    info!("caravan: the connection was lost before the deal: the player's stake {held} lost; the player has {} caps", player_caps(sim));
+                    s.status = Some(if held > 0 { format!("The connection was lost. Your stake of {held} caps is lost.") } else { "The connection was lost.".into() });
+                    s.begin_leaving(now + END_SECONDS - LEAVE_SECONDS, "the connection was lost");
                 }
                 None => {}
             },

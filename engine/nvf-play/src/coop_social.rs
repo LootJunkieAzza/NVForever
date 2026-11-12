@@ -71,6 +71,9 @@ const BODY_HEIGHT: f32 = 128.0;
 const BANNER_SECONDS: f32 = 4.0;
 /// The real seconds a trade waits for the answers to buys in flight after it closes.
 const TRADE_LINGER: f32 = 6.0;
+/// A guest that has lost the host this long is taken as the one who disconnected: a duel
+/// or Caravan stake it holds is forfeit [hypothesis: long enough to ride out a short drop].
+const DROPPED_SECONDS: f32 = 10.0;
 /// The orange sweep: how long it crosses and how long its grade fades (real seconds).
 pub const SWEEP_SECONDS: f32 = crate::vats_mode::ENTER_SWIPE;
 pub const SWEEP_FADE: f32 = 0.9;
@@ -180,6 +183,8 @@ pub struct Social {
     sales: Vec<(u32, u16, u32)>,
     /// Caps the duel's stake moves for this player: taken (held) below 0, given above.
     duel_caps: i64,
+    /// A guest: since when its link to the host has been lost (real seconds).
+    host_lost_since: Option<f32>,
     rng: Option<rand_chacha::ChaCha8Rng>,
     /// The wheel was open this frame: its Activate press is not also the prompt's
     /// ([`target`]).
@@ -863,12 +868,26 @@ fn talk(real: Res<Time<Real>>, mut tables: ResMut<Tables>, mut social: ResMut<So
     }
     // A player gone (left, lost): its sessions end.
     let gone = |id: u8| mates.get(id).is_none_or(|m| m.lost);
+    // Stakes: the player who leaves or disconnects loses its own. One that left the
+    // session (removed: its goodbye, or the host dropped it) loses, and this player is
+    // paid. A link lost looks the same from both ends, so the session decides: the host
+    // stays, and a guest that has lost the host for DROPPED_SECONDS (or has no session
+    // left) is the one who disconnected and forfeits; nobody is paid twice.
+    let host_lost = mates.me.is_none() || (mates.me != Some(0) && mates.get(0).is_some_and(|m| m.lost));
+    s.host_lost_since = if host_lost { s.host_lost_since.or(Some(now)) } else { None };
+    let dropped = mates.me.is_none() || s.host_lost_since.is_some_and(|t| now - t >= DROPPED_SECONDS);
+    let left = |id: u8| mates.me.is_some() && mates.get(id).is_none();
     for i in s.invites.asked.iter().map(|i| i.with).chain(s.invites.out.map(|o| o.with)).filter(|&i| gone(i)).collect::<Vec<_>>() {
         s.invites.gone(i);
     }
-    if let Some(d) = s.duel.as_mut().filter(|d| gone(d.with) && !d.done()) {
-        info!("co-op social: duel with player {}: they went away (stake held {})", d.with + 1, d.held);
-        let outs = d.other_gone();
+    if let Some(d) = s.duel.as_mut().filter(|d| (dropped || left(d.with)) && !d.done()) {
+        let outs = if dropped {
+            info!("co-op social: duel with player {}: this player's link was lost (stake held {}, lost)", d.with + 1, d.held);
+            d.this_dropped()
+        } else {
+            info!("co-op social: duel with player {}: they left (stake held {}; theirs is won)", d.with + 1, d.held);
+            d.other_gone()
+        };
         duel_outs(s, outs, &mates, now, &mut out);
         s.duel = None;
     }
@@ -876,10 +895,15 @@ fn talk(real: Res<Time<Real>>, mut tables: ResMut<Tables>, mut social: ResMut<So
         close_trade(s, now);
     }
     // Once: the menu closes on its own frame later.
-    if let Some((with, nonce)) = s.caravan.filter(|&(w, n)| gone(w) && *caravan_gone != Some(n)) {
+    if let Some((with, nonce)) = s.caravan.filter(|&(w, n)| (dropped || left(w)) && *caravan_gone != Some(n)) {
         *caravan_gone = Some(nonce);
-        info!("co-op social: caravan with player {}: they went away", with + 1);
-        wire_cv.inbox.push(crate::caravan::PvpIn::Forfeit);
+        if dropped {
+            info!("co-op social: caravan with player {}: this player's link was lost", with + 1);
+            wire_cv.inbox.push(crate::caravan::PvpIn::Dropped);
+        } else {
+            info!("co-op social: caravan with player {}: they left", with + 1);
+            wire_cv.inbox.push(crate::caravan::PvpIn::Forfeit);
+        }
     }
     for (to, m) in out {
         tables.send(to as u32, game::SOCIAL, m.encode());

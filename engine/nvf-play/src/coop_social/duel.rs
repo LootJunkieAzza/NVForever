@@ -293,7 +293,21 @@ impl Duel {
         self.phase = Phase::Done;
         match std::mem::take(&mut self.held) {
             0 => vec![Out::Say("The duel is called off".into())],
-            v => vec![Out::Pay(2 * v), Out::Say(format!("The duel is called off: they left. You win {v} caps"))],
+            v => vec![Out::Pay(2 * v), Out::Say(format!("The duel is called off: they left and lose their stake. You win {v} caps"))],
+        }
+    }
+
+    /// This player's link to the session dropped mid-duel (a guest that lost the host):
+    /// the one who disconnects loses, so a stake held stays lost and nothing is paid.
+    pub fn this_dropped(&mut self) -> Vec<Out> {
+        if matches!(self.phase, Phase::Over { .. } | Phase::Done) {
+            self.phase = Phase::Done;
+            return Vec::new();
+        }
+        self.phase = Phase::Done;
+        match std::mem::take(&mut self.held) {
+            0 => vec![Out::Say("The duel is called off: the connection was lost".into())],
+            v => vec![Out::Say(format!("The connection was lost mid-duel: your stake of {v} caps is lost"))],
         }
     }
 
@@ -674,6 +688,8 @@ mod tests {
         pass(&oa, &mut b, 1.0);
         assert_eq!(b.stake_lines("A").0, "DUEL WITH A FOR 30 CAPS", "the offer on the table");
         assert!(b.stake_lines("A").1.starts_with("A offers 30, you 0. W) Auto Match"), "{:?}", b.stake_lines("A"));
+        assert!(!b.stake_lines("A").1.contains("F) Accept"), "no Accept below the offer: {:?}", b.stake_lines("A"));
+        assert!(b.bet(BetKey::Accept, 1.5).is_empty(), "Accept at 0 against 30 does nothing");
         b.bet(BetKey::AutoMatch, 2.0);
         assert!(b.stake_lines("A").1.starts_with("A offers 30. A) Raise  F) Accept"), "{:?}", b.stake_lines("A"));
         let ob = b.bet(BetKey::Accept, 2.0);
@@ -716,5 +732,9 @@ mod tests {
         assert!(a.step(1.0 + POSITION_SECONDS, Stance::Facing, "B", 0).contains(&Out::Pay(10)));
         let mut c = Duel { held: 10, ..Duel::new(0, 1, 6, true, 0.0) };
         assert!(c.other_gone().contains(&Out::Pay(20)));
+        // This player's own link dropped: the one who disconnects loses, nothing is paid.
+        let mut d = Duel { held: 10, ..Duel::new(1, 0, 7, false, 0.0) };
+        let o = d.this_dropped();
+        assert!(d.done() && d.held == 0 && !o.iter().any(|o| matches!(o, Out::Pay(_))) && says(&o, "stake of 10 caps is lost"), "{o:?}");
     }
 }
