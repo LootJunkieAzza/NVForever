@@ -285,7 +285,9 @@ mod tests {
     fn the_switch_gives_back_the_cascades_it_replaced() {
         let mut world = World::new();
         world.init_resource::<LighterShadows>();
-        world.insert_resource(SkyState { shadow_cascades: 4, ..default() });
+        let mut sky = SkyState::default();
+        sky.shadow_cascades = 4;
+        world.insert_resource(sky);
         set_lighter(&mut world, true);
         assert_eq!(world.resource::<SkyState>().shadow_cascades, LIGHTER_CASCADES);
         set_lighter(&mut world, true);
