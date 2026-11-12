@@ -1704,7 +1704,7 @@ is drawn.
 | Model (`pipboy::data`) | Tile, trait | Notes |
 |---|---|---|
 | The picture, its size at 1 (`MNAM`) and the magnification | `MM_WorldMap_ParentImage`: `filename`, `filewidth`, `fileheight`, `_Magnification`; `x`, `y`, `width`, `height` and `dragdeltax`/`dragdeltay` from `MapView`, put right on every pass | The place is written, not left to the file's expressions: they would read a drag NVForever does not feed. The children keep the file's hierarchy and texture coordinates, so a pan or a zoom moves the picture alone and the file's expressions place the rows on it. |
-| The picture drawn | an image NVForever makes under the hotrect (`NVF_MapPicture`, from a template of its own, `NVF_MapPictureTemplate`, put on the menu once a tree): `filename`, `zoom` -1 (stretched over its box), `x`/`y` 0, `width`/`height` the hotrect's, `alpha` 128, `brightness` 255, depth -2 under the markers | The tile painter draws no hotrect's picture; the original's code draws this one in a way not known. |
+| The picture drawn | none in the tree: the page paints a piece of its own from the hotrect's traits as resolved (`map_menu::map_picture_piece`): its `filename` (the model's, or what a script wrote since), stretched over its place and size, at its `alpha` (128) and `brightness` in the colour its `systemcolor` above gives, at its depth (under its rows), cut to the map's window | The tile painter paints no hotrect's picture, and no hotrect with a `filename` is painted in general; the original's code draws this one in a way not known. Nothing is added to the game's tree. |
 | The widths | the hotrect's `user0` 24, `user1` 56, `user2` 40 | The hand-built page's sizes (§5.3). |
 | The markers the player knows (`known`), by reference | `MapMarkerTemplate` rows under the hotrect, kept by the marker's FormID: `_x`/`_y` (§5.3's projection, each marker by its own worldspace's numbers), `filename` (its icon, `model::marker_icon`), `_selected` (the marker the highlight box is on, the model's pick), `_LocationName`, `_MarkerIndex` | Made once and kept across frames and while the page goes down and up; a marker found or gone adds or unloads its row alone, and a frame whose markers did not change writes none of them (a pan or a zoom writes only the picture). The original makes them every update. |
 | The active quest's targets, by reference; the custom marker | `WorldMapQuestMarkerTemplate` rows under the hotrect: `_x`/`_y`, `filename` (`glow_hud_compass_objective_marker.dds`; the custom marker's `glow_hud_compass_pc_marker.dds` at depth 5) | The custom marker from the quest markers' template [hypothesis: the capture shows it as wide as they are, §5.3]. |
@@ -1827,9 +1827,10 @@ on mouseover), which the hand-built page does not draw; the file's own hint rule
 Radio's waveform: the original animates `MM_Waveform` (which animation, and whether its centre line
 shows under it, is not known); here `MM_Waveform` stays hidden and the hand-built trace is painted
 over the file's frame, its centre line standing under the trace while the radio plays (the
-hand-built panel draws no flat line then). The World Map: the picture is an image NVForever makes
-under the file's hotrect; the markers are kept, not made every update; the arrow and the dotted
-lines draw unturned until the tile painter turns pictures by `rotateangle`; the question boxes are
+hand-built panel draws no flat line then). The World Map: the picture is a piece the page paints from
+the file's hotrect's traits, outside the tree; the markers are kept, not made every update; the
+arrow and the dotted lines turn by `rotateangle` as the tile painter reads it (radians, clockwise
+with y down, about the file's `rotateaxisx`/`rotateaxisy` [hypothesis: the sense]); the question boxes are
 NVForever's own box painted over the tiles (the original's box is another menu, not read here); the
 reputation's line is the hand-built page's words; the sizes `user0`/`user1`/`user2` are the
 hand-built page's and do not change with the zoom (the file's comment says the arrow's does, by

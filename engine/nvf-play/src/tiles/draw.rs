@@ -554,7 +554,7 @@ fn system_colour(v: &Value) -> Option<[f32; 3]> {
 /// Color UI directives, "Systemcolor is by default 1 and always assign"; observed: the
 /// ammo type's label, a menu child with no `systemcolor` above it, drew white before
 /// T12c where the hand-built HUD and the original draw the HUD's texts amber].
-fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
+pub(super) fn base_colour(ui: &Ui, id: TileId, own: [f32; 3]) -> [f32; 3] {
     let tile = ui.tile(id);
     if let Some(v) = tile.get("systemcolor") {
         return system_colour(v).unwrap_or(own);

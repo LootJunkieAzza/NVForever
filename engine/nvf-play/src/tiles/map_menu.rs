@@ -39,7 +39,7 @@
 //!   box, picking and travel stay the model's, read in the window this page publishes
 //!   (`DataState::publish_map`), so one owner starts travel.
 
-use super::draw::{Look, Piece};
+use super::draw::{Fit, Look, Piece, Source};
 use super::input::{frame_keys, log_report, Devices};
 use super::list::{self, BarPiece, ListView, RowTile, Wanted};
 use super::menus::{self, SizesWritten, Tiled};
@@ -107,12 +107,7 @@ const PATH_ROW: &str = "PathLine";
 /// lines can be made under it by path [design].
 const START_NODE_ROW: &str = "WaypointStart";
 const WORLD_TEMPLATES: [&str; 4] = [MARKER_TEMPLATE, QUEST_TEMPLATE, NODE_TEMPLATE, PATH_TEMPLATE];
-/// `MM_WorldMap_ParentImage` is a hotrect, which the tile painter does not paint; the picture it
-/// names is drawn by an image NVForever makes under it, from a template of its own put on the menu
-/// once [design: the file's picture, its alpha and brightness copied].
-const PICTURE_TEMPLATE: &str = "NVF_MapPictureTemplate";
-const PICTURE_ROW: &str = "NVF_MapPicture";
-const PICTURE_TEMPLATE_XML: &str = r#"<template name="NVF_MapPictureTemplate"><image name="NVF_MapPicture"><zoom>-1</zoom><clips>&true;</clips><depth>-2</depth></image></template>"#;
+
 /// Radio's waveform panel: its frame (the tick meters, the centre line) and the image the
 /// original's code animates in it [documented: map_menu.xml `MM_WaveformRect`, `MM_Waveform`].
 const WAVE_RECT: &str = main_rect!("MM_WaveformRect");
@@ -666,11 +661,10 @@ fn write_model(ui: &mut Ui, s: &Shown, w: &mut Written) -> Result<(), String> {
     Ok(())
 }
 
-/// What [`write_world`] keeps: the picture's image, each template's rows by what they stand for,
-/// and what it wrote last (so a frame whose markers did not change writes none of them).
+/// What [`write_world`] keeps: each template's rows by what they stand for, and what it wrote last
+/// (so a frame whose markers did not change writes none of them).
 #[derive(Default)]
 struct WorldRows {
-    picture: Option<TileId>,
     markers: Vec<RowTile<u32>>,
     quests: Vec<RowTile<QuestRow>>,
     nodes: Vec<RowTile<NodeRow>>,
@@ -680,8 +674,7 @@ struct WorldRows {
 
 impl WorldRows {
     fn all_live(&self, ui: &Ui) -> bool {
-        self.picture.is_none_or(|t| ui.is_live(t))
-            && self.markers.iter().all(|r| ui.is_live(r.tile))
+        self.markers.iter().all(|r| ui.is_live(r.tile))
             && self.quests.iter().all(|r| ui.is_live(r.tile))
             && self.nodes.iter().all(|r| ui.is_live(r.tile))
             && self.lines.iter().all(|r| ui.is_live(r.tile))
@@ -703,19 +696,50 @@ fn keep_rows<K: PartialEq + Clone>(ui: &mut Ui, parent: &str, template: &str, ro
     Ok(())
 }
 
-/// The picture's image under `MM_WorldMap_ParentImage`, made once a tree from NVForever's own
-/// template ([`PICTURE_TEMPLATE`]), which is put on the menu first when it has none.
-fn ensure_picture(ui: &mut Ui, rows: &mut WorldRows) -> Result<TileId, String> {
-    if let Some(t) = rows.picture.filter(|&t| ui.is_live(t)) {
-        return Ok(t);
+/// The map's picture as a piece the page paints itself, outside the tree: `MM_WorldMap_ParentImage`
+/// is a hotrect, which the tile painter does not paint (no hotrect with a `filename` is painted in
+/// general), so its picture is drawn from its traits as they are resolved: its `filename` (the
+/// model's, or what a script wrote since), stretched over its place and size (the model's
+/// viewport, [`keep_world`]), at its `alpha` and `brightness` in its colour (`systemcolor` above
+/// it), at its depth (under its rows), cut to the map's window [design: the original's code draws
+/// it in a way not known]. None while it is hidden or names no picture.
+fn map_picture_piece(ui: &Ui, clip: &str, picture: &str) -> Option<Piece> {
+    let parent = ui.find_tile(picture)?;
+    if !shown_up(ui, parent) {
+        return None;
     }
-    let menu = ui.menu(MAP_MENU).ok_or_else(|| format!("{MAP_MENU} is not in the tree"))?;
-    if !ui.tile(menu).templates.iter().any(|t| t.name.eq_ignore_ascii_case(PICTURE_TEMPLATE)) {
-        ui.inject_text(&fnv_ui::MemSource::default(), MAP_MENU, PICTURE_TEMPLATE_XML);
+    let tile = ui.tile(parent);
+    let name = tile.get("filename").map(|v| v.text().trim().to_string()).filter(|n| !n.is_empty())?;
+    let window = map_window_of(ui, clip)?;
+    let (x, y) = origin(ui, parent);
+    let rect = super::layout::Rect { left: x, top: y, width: num(ui, parent, "width"), height: num(ui, parent, "height") };
+    let cut = super::layout::Rect { left: f64::from(window.min.x), top: f64::from(window.min.y), width: f64::from(window.width()), height: f64::from(window.height()) };
+    let trait_or = |name: &str, or: f64| tile.get(name).map_or(or, Value::num);
+    let own = ["red", "green", "blue"].map(|n| (trait_or(n, 255.0).clamp(0.0, 255.0) / 255.0) as f32);
+    let b = (trait_or("brightness", 255.0).clamp(0.0, 255.0) / 255.0) as f32;
+    let [r, g, bl] = super::draw::base_colour(ui, parent, own).map(|c| c * b);
+    let alpha = (trait_or("alpha", 255.0).clamp(0.0, 255.0) / 255.0) as f32;
+    let mut depth = 0.0;
+    let mut at = Some(parent);
+    while let Some(t) = at {
+        depth += num(ui, t, "depth");
+        at = ui.tile(t).parent;
     }
-    let t = ui.add_code_tile_from_template(&fnv_ui::MemSource::default(), WORLD_PICTURE, PICTURE_TEMPLATE, Some(PICTURE_ROW)).ok_or("the map's picture was not made")?;
-    rows.picture = Some(t);
-    Ok(t)
+    let source = match tile.get("texatlas").map(|a| a.text().trim().to_string()).filter(|a| !a.is_empty()) {
+        Some(atlas) => Source::Index(atlas),
+        None => Source::Own,
+    };
+    Some(Piece { tile: parent, look: Look::Picture { name, source, fit: Fit::Stretch }, rect, clip: Some(cut), colour: [r, g, bl, alpha], depth, tex: None, turn: None })
+}
+
+/// `pieces` (in drawing order, by depth) with the map's picture ([`map_picture_piece`]) among
+/// them, under every piece deeper than it and under its own rows.
+fn with_map_picture(ui: &Ui, mut pieces: Vec<Piece>, picture: Option<Piece>) -> Vec<Piece> {
+    if let Some(p) = picture {
+        let at = pieces.iter().position(|q| q.depth > p.depth || stats_menu::inside(ui, q.tile, p.tile)).unwrap_or(pieces.len());
+        pieces.insert(at, p);
+    }
+    pieces
 }
 
 fn num_of(v: f32) -> Value {
@@ -727,7 +751,8 @@ fn num_of(v: f32) -> Value {
 /// - `MM_WorldMap_ParentImage`: `filename`, `filewidth`/`fileheight` (the picture's size at a
 ///   magnification of 1), `_Magnification`, the markers' widths `user0` (map markers), `user1`
 ///   (quest markers) and `user2` (the arrow), and its place and size from the model's viewport
-///   ([`keep_world`] puts those right every pass); its image ([`ensure_picture`]) stretched over it.
+///   ([`keep_world`] puts those right every pass); the picture is painted from those traits
+///   ([`map_picture_piece`]).
 /// - Under it, kept by record: a `MapMarkerTemplate` row per marker (`_x`/`_y` its texture
 ///   coordinates, `filename` its icon, `_selected` under the highlight box, `_LocationName`,
 ///   `_MarkerIndex`); a `WorldMapQuestMarkerTemplate` row per quest target and one for the custom
@@ -738,7 +763,6 @@ fn num_of(v: f32) -> Value {
 ///   player is on this map.
 /// - `MM_MapHighlightBox`: `_Title` (the name and the line under it).
 fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), String> {
-    let picture = ensure_picture(ui, rows)?;
     let parent = ui.find_tile(WORLD_PICTURE).ok_or("the map's picture is gone")?;
     ui.write_changed(parent, "filename", text(&s.texture));
     ui.write_changed(parent, "filewidth", num_of(s.usable.x));
@@ -747,9 +771,6 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
     ui.write_changed(parent, "user0", num_of(data::MARKER));
     ui.write_changed(parent, "user1", num_of(data::QUEST_MARKER));
     ui.write_changed(parent, "user2", num_of(data::CURSOR));
-    ui.write_changed(picture, "filename", text(&s.texture));
-    ui.write_changed(picture, "alpha", num_of(data::MAP_ALPHA));
-    ui.write_changed(picture, "brightness", Value::Num(255.0));
     let same_markers = rows.written.as_ref().is_some_and(|w| w.markers == s.markers) && rows.markers.len() == s.markers.len() && rows.markers.iter().all(|r| ui.is_live(r.tile));
     if !same_markers {
         let keys: Vec<u32> = s.markers.iter().map(|m| m.form).collect();
@@ -835,9 +856,9 @@ fn path_line(from: [f32; 2], to: [f32; 2], usable: Vec2) -> (f32, f32) {
 /// The World Map's places, put right on every pass as the hints are: the file works the picture's
 /// place out from its drag and its size from its magnification, and the highlight box's place and
 /// the windows' `visible` from the tab, again whenever what they read changes [design: as
-/// [`keep_hints`]]. The picture stands where the model's viewport puts it, its image stretched
-/// over it; the highlight box on the model's highlight (its window may stand apart from the map's).
-fn keep_world(ui: &mut Ui, s: &WorldShown, rows: &WorldRows) {
+/// [`keep_hints`]]. The picture stands where the model's viewport puts it (and is painted
+/// there, [`map_picture_piece`]); the highlight box on the model's highlight (its window may stand apart from the map's).
+fn keep_world(ui: &mut Ui, s: &WorldShown) {
     for path in [WORLD_CLIP, HIGHLIGHT_CLIP, HIGHLIGHT_BOX] {
         if let Some(t) = ui.find_tile(path) {
             keep(ui, t, "visible", 1.0);
@@ -851,12 +872,6 @@ fn keep_world(ui: &mut Ui, s: &WorldShown, rows: &WorldRows) {
         keep(ui, p, "dragdeltay", f64::from(r.min.y));
         keep(ui, p, "x", f64::from(r.min.x));
         keep(ui, p, "y", f64::from(r.min.y));
-    }
-    if let Some(t) = rows.picture.filter(|&t| ui.is_live(t)) {
-        keep(ui, t, "x", 0.0);
-        keep(ui, t, "y", 0.0);
-        keep(ui, t, "width", f64::from(r.width()));
-        keep(ui, t, "height", f64::from(r.height()));
     }
     if let Some(c) = ui.find_tile(WORLD_CURSOR) {
         keep(ui, c, "visible", if s.arrow.is_some() { 1.0 } else { 0.0 });
@@ -1156,7 +1171,7 @@ pub fn usable(ui: &Ui, menu: TileId, w: &Written, tab: usize, pieces: &[Piece]) 
         _ => None,
     };
     let map = match world {
-        Some(s) => Some((world_shows(ui, w, s, pieces)?, hint_boxes(ui))),
+        Some(s) => Some((world_shows(ui, s, pieces)?, hint_boxes(ui))),
         None => None,
     };
     Ok(Checked { rows: rows.len(), rows_in_clip, hit_tests: wanted.len() + optional.len(), pane, missed, wave, map })
@@ -1214,7 +1229,7 @@ fn hint_boxes(ui: &Ui) -> Vec<Rect> {
 /// out with a size, wholly on the canvas and shown (what the model reads the pointer in, and
 /// where the picture is cut); the picture's image painted inside it; the highlight box shown
 /// [design]. A file whose window is gone or hidden leaves the hand-built page.
-fn world_shows(ui: &Ui, w: &Written, s: &WorldShown, pieces: &[Piece]) -> Result<Rect, String> {
+fn world_shows(ui: &Ui, s: &WorldShown, pieces: &[Piece]) -> Result<Rect, String> {
     let clip = ui.find_tile(WORLD_CLIP).ok_or("the world map's window is gone")?;
     // A hotrect lays out no box of its own: its place and size are its traits, under its parents'.
     if !shown_up(ui, clip) {
@@ -1226,8 +1241,8 @@ fn world_shows(ui: &Ui, w: &Written, s: &WorldShown, pieces: &[Piece]) -> Result
         return Err("the world map's window does not fit".into());
     }
     let window = Rect::new(r.left as f32, r.top as f32, (r.left + r.width) as f32, (r.top + r.height) as f32);
-    let picture = w.world.picture.ok_or("the map's picture was not made")?;
-    if !s.texture.is_empty() && !pieces.iter().any(|p| p.tile == picture && p.clip.is_some_and(|c| c.width > 0.0 && c.height > 0.0)) {
+    let picture = ui.find_tile(WORLD_PICTURE).ok_or("the map's picture is gone")?;
+    if !s.texture.is_empty() && !pieces.iter().any(|p| p.tile == picture && matches!(p.look, Look::Picture { .. }) && p.clip.is_some_and(|c| c.width > 0.0 && c.height > 0.0)) {
         return Err("the map's picture is not shown in its window".into());
     }
     if ui.find_tile(HIGHLIGHT_BOX).and_then(|b| shown_box(ui, b)).is_none() {
@@ -1547,9 +1562,9 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
         }
         (None, Some(world)) => {
             // The picture's size first, then its place: the file works its place out from its size.
-            keep_world(ui, world, &w.world);
+            keep_world(ui, world);
             ui.update();
-            keep_world(ui, world, &w.world);
+            keep_world(ui, world);
         }
         (None, None) => {}
     }
@@ -1558,7 +1573,10 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     }
     ui.update();
     if late {
-        let pieces = fonts.set_out(ui, menu);
+        let mut pieces = fonts.set_out(ui, menu);
+        if s.world.is_some() {
+            pieces = with_map_picture(ui, pieces, map_picture_piece(ui, WORLD_CLIP, WORLD_PICTURE));
+        }
         let places = tab_places(ui, &w.tabs);
         if w.places_told.as_ref() != Some(&places) {
             info!("tiles: {MAP_MENU} tabs stand: {places}");
@@ -2925,13 +2943,18 @@ mod tests {
         assert_eq!(f64::from(ws.picture.min.x), trait_of(&ui, parent, "x"));
         assert_eq!((words(&ui, WORLD_PICTURE, "filename"), at(&ui, WORLD_PICTURE, "_Magnification"), at(&ui, WORLD_PICTURE, "filewidth")), ("map.dds".to_string(), 1.0, 1000.0));
         assert_eq!((at(&ui, WORLD_PICTURE, "user0"), at(&ui, WORLD_PICTURE, "user1"), at(&ui, WORLD_PICTURE, "user2")), (f64::from(data::MARKER), f64::from(data::QUEST_MARKER), f64::from(data::CURSOR)));
-        // Its image, stretched over it, at the file's alpha, painted inside the window.
-        let picture = t.written.world.picture.unwrap();
-        assert_eq!(ui.tile(picture).parent, Some(parent));
-        assert_eq!((trait_of(&ui, picture, "width"), trait_of(&ui, picture, "alpha"), trait_of(&ui, picture, "zoom")), (1000.0, f64::from(data::MAP_ALPHA), -1.0));
-        let piece = t.pieces.iter().find(|p| p.tile == picture).expect("the picture painted");
+        // Its picture painted from its traits, outside the tree: stretched over its place, at its
+        // alpha, under its rows, cut to the window; nothing added to the tree.
+        let piece = t.pieces.iter().find(|p| p.tile == parent).expect("the picture painted");
+        assert_eq!(piece.look, Look::Picture { name: "map.dds".into(), source: Source::Own, fit: Fit::Stretch });
+        assert_eq!((piece.rect.left, piece.rect.top, piece.rect.width, piece.rect.height), (40.0 - 72.5, 90.0 - 250.0, 1000.0, 1000.0));
         let clip = piece.clip.unwrap();
         assert_eq!((clip.left, clip.top, clip.width, clip.height), (40.0, 90.0, 855.0, 500.0), "cut to the window");
+        assert_eq!(piece.colour[3], 128.0 / 255.0, "the file's alpha");
+        let at_piece = t.pieces.iter().position(|p| p.tile == parent).unwrap();
+        let first_marker = t.pieces.iter().position(|p| t.written.world.markers.iter().any(|r| r.tile == p.tile));
+        assert!(first_marker.is_none_or(|m| m > at_piece), "under the markers");
+        assert_eq!(ui.tile(parent).children.iter().filter(|&&c| ui.tile(c).name.starts_with("NVF")).count(), 0, "no tile of NVForever's in the file's tree");
         // The markers by record under the picture, at their texture coordinates, placed on it.
         let rows = t.written.world.markers.clone();
         assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), vec![10, 20]);
@@ -2987,16 +3010,14 @@ mod tests {
         let marks = vec![marker(10, [0.25, 0.5], false), marker(20, [0.5, 0.5], true), marker(30, [0.75, 0.125], false)];
         run(&mut ui, Some(world(1.0, [0.5, 0.5], marks.clone())), &mut t).unwrap();
         let tiles: Vec<TileId> = t.written.world.markers.iter().map(|r| r.tile).collect();
-        let picture = t.written.world.picture.unwrap();
         // Zoomed in twice and panned to a corner: the same rows, their texture coordinates kept,
         // the picture 2000 across, each row re-placed with it.
         let s = world(2.0, [0.0, 0.0], marks.clone());
         run(&mut ui, Some(s.clone()), &mut t).unwrap();
         assert_eq!(t.written.world.markers.iter().map(|r| r.tile).collect::<Vec<_>>(), tiles);
-        assert_eq!(t.written.world.picture, Some(picture));
         let parent = ui.find_tile(WORLD_PICTURE).unwrap();
         assert_eq!((trait_of(&ui, parent, "x"), trait_of(&ui, parent, "y"), trait_of(&ui, parent, "width")), (427.5, 250.0, 2000.0), "the corner at the middle, no further");
-        assert_eq!(trait_of(&ui, picture, "width"), 2000.0);
+        assert_eq!(t.pieces.iter().find(|p| p.tile == parent).map(|p| p.rect.width), Some(2000.0), "the picture painted at its new size");
         assert_eq!(trait_of(&ui, tiles[2], "_x"), 0.75);
         let (x, _) = laid_left_top(&ui, tiles[2]);
         assert_eq!(x, 40.0 + 427.5 + 0.75 * 2000.0);
@@ -3026,7 +3047,8 @@ mod tests {
         ui.update();
         run(&mut ui, Some(world(1.0, [0.5, 0.5], marks)), &mut t).unwrap();
         assert_eq!(t.written.world.markers.len(), 3);
-        assert!(t.written.world.markers.iter().all(|r| ui.is_live(r.tile)) && t.written.world.picture.is_some_and(|p| ui.is_live(p)));
+        assert!(t.written.world.markers.iter().all(|r| ui.is_live(r.tile)));
+        assert!(t.pieces.iter().any(|p| Some(p.tile) == ui.find_tile(WORLD_PICTURE)), "the picture painted in the new tree");
     }
 
     /// Markers at the picture's corners and two on the same spot each have their row; the
@@ -3097,9 +3119,14 @@ mod tests {
         assert!(t.written.layout_failure);
         let (mut ui, mut t) = (tree_changed(with_world), MapTiles::default());
         assert!(run(&mut ui, Some(world(1.0, [0.5, 0.5], Vec::new())), &mut t).is_ok());
-        // The picture's image hidden (by a script, say): nothing of the map would show.
-        let picture = t.written.world.picture.unwrap();
-        ui.set_trait(picture, "visible", Value::Num(0.0));
+        // A script's picture on the map's tile is the one painted, from its traits.
+        let parent = ui.find_tile(WORLD_PICTURE).unwrap();
+        ui.set_trait(parent, "filename", Value::Str("scripted.dds".into()));
+        ui.update();
+        assert!(run(&mut ui, None, &mut t).is_ok());
+        assert!(matches!(&t.pieces.iter().find(|p| p.tile == parent).unwrap().look, Look::Picture { name, .. } if name == "scripted.dds"));
+        // The picture's tile hidden (by a script, say): nothing of the map would show.
+        ui.set_trait(parent, "visible", Value::Num(0.0));
         ui.update();
         assert_eq!(run(&mut ui, None, &mut t), Err("the map's picture is not shown in its window".to_string()));
     }
