@@ -22,8 +22,7 @@
 //! - **The HUD**: the target ring and the small circle (centred low in the view, over the
 //!   soft backdrop), the next drink's ring faintly in its last [`WARN`] seconds, one
 //!   prompt under them ("Keep it centered", "Get back in!" while outside, the countdown);
-//!   the roster in the score panel (who is in, who passed out, each one's Endurance and
-//!   drinks); the pot as its foot.
+//!   the roster in the score panel: each drinker's name and drinks (owner, 2026-11-12).
 //! - **The end**: for a win the highlight (`flourish::Highlight::DrinkContest`, the
 //!   Endurance picture) first, then the leaderboard (last one standing first, then in
 //!   reverse order of passing out); [`RESULT_HOLD`] after it the screen closes and
@@ -456,17 +455,17 @@ fn draw(mut commands: Commands, screen: Res<DrinkScreen>, time: AidTime, casino:
     commands.entity(root).with_children(|p| {
         let rows: Vec<ScoreRow> = (0..c.slots.len())
             .map(|i| {
+                // Names and drinks only (owner, 2026-11-12: "The hud in the left should just
+                // say names and number of drinks").
                 let s = &c.slots[i];
-                let state = if s.out.is_some() { "Out" } else { "In" };
-                ScoreRow { name: d.name(i), score: state.into(), note: format!("END {}  {} {}", c.drinkers[i].endurance, s.step, if s.step == 1 { "drink" } else { "drinks" }), up: Some(i) == d.me && s.out.is_none() }
+                ScoreRow { name: d.name(i), score: format!("{} {}", s.step, if s.step == 1 { "drink" } else { "drinks" }), note: String::new(), up: Some(i) == d.me && s.out.is_none() }
             })
             .collect();
-        let foot = (c.pot() > 0).then(|| format!("Pot {} caps", c.pot()));
         // The leaderboard says it all once it shows; the roster under it would cross it
         // on a narrow view (1280x800 run, drink_board.png).
         let board = d.page == Page::Result && d.ended.is_some_and(|e| now - e >= board_after(d.won() == Some(true)));
         if !board {
-            crate::casino_hud::score_panel(p, f, &rows, foot.as_deref());
+            crate::casino_hud::score_panel(p, f, &rows, None);
         }
         match d.page {
             Page::Play => {
