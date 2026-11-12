@@ -123,8 +123,8 @@ pub(crate) fn jitter_phases(quality: UpscaleQuality, render: UVec2, output: UVec
     i32::try_from(phases).unwrap_or(i32::MAX).max(min_phases(quality))
 }
 
-/// DLSS's texture mip bias: "NativeBias + log2(Render XResolution / Display XResolution) - 1.0
-/// + epsilon" [documented: the guide above, §3.5 "Mip-Map Bias", p. 14], the native bias 0 here
+/// DLSS's texture mip bias: "NativeBias + log2(Render XResolution / Display XResolution) -
+/// 1.0 + epsilon" [documented: the guide above, §3.5 "Mip-Map Bias", p. 14], the native bias 0 here
 /// (a camera without an upscaler has none) and epsilon 0 until tuned. FSR's
 /// `NVF_FSR_MIP_BIAS_OFFSET` does not apply.
 pub(crate) fn mip_bias(render: UVec2, output: UVec2) -> f32 {
