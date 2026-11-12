@@ -278,6 +278,15 @@ docs/handoff/ui-tile-tree-tasks.md]: `x` `y` `width` `height` `depth` `alpha` `v
 - [hypothesis] `depth` adds down the tree, with zero when absent. Parents precede
   children; siblings sort by increasing depth, preserving file order for ties. Neither
   this note's earlier sections nor hud.md establish cumulative depth or traversal order.
+  [observed: MCM 1.5's prefabs] MCM's files argue against plain summing. Its slider and list
+  windows (`MCM_Scale`, `MCM_List`, pieces at `depth` 15 to 17 under a rect with none)
+  are meant to cover the option rows. Those rows sum to 25 (`OptionN` 13 plus its
+  texts' 12). The rule is open (an observer check). Until it is settled the Mods page draws
+  those two windows 20 higher (`_NVFDepthLift`, engine-only, `tiles::layout::DEPTH_LIFT`).
+  MCM's hotrects that set their own `red`/`green`/`blue` (the windows' black `Scale_BG`,
+  `Title_BG`, `List_BG`, the colour previews) draw their box filled
+  (`tiles::mods::fill_mcm_boxes`) [hypothesis: the original fills such a hotrect; the one
+  vanilla case, the race menu's `RSM_Face_Grab`, is left as it was].
 - [hypothesis, T15a] A `hotrect`'s own `alpha` is not passed to its children: every
   vanilla text button is a hotrect of alpha 0 (`text_box.xml`) whose text sets its own
   alpha (128, or 255 while it is a target), the message box's list and its rows
