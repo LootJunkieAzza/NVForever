@@ -2491,6 +2491,25 @@ height's RMS vertical acceleration while moving fell from 7409 to 549 units/s² 
 largest from 66 218 to 2712 (the feet 8153 / 68 609); walks along and across the road
 that never leave the ground are unchanged.
 
+**The view and walking pace** (2026-11-12, the owner's video and save walking west over
+Novac's broken road, cell −13,−13, from (−52595, −52475) facing 269°) [design;
+`step_lift.rs`, `player_body.rs`]: two things still moved the view there. (1) The body is
+drawn on the drawn ground (`drawn_sink`) and the eye counts from the feet, but a change of
+the drawn ground went whole into the lift, which the eye includes: a crack in the road
+model's drawn floor moved the view at once and eased it back. The lift now keeps the
+drawn ground's share apart (`StepLift::ground_at`, eased the same way), and the eye, the
+first-person rig and the third-person pivot leave it out. (2) The feet drop off the
+broken road pieces' edges in quick 8-10 unit drops [observed: `fnvtool phys walk` on
+that line at 75 units/s, 2026-11-12]; eased in 0.24 s at a walk they showed as a dip.
+The stages' rate now follows the horizontal speed: 22/s at 250 units/s and faster, in
+proportion below, at least 10/s, so a step is eased over about the same distance walked.
+In game on that line at a walk [observed: smoke `novac-broken-road-walk`, 2026-11-12]
+the RMS vertical acceleration of the view fell from 203 to 61 units/s² (the body 203 →
+70, the feet 2534); replayed, a walk along the Goodsprings road 102 → 82, the broken lane
+walked 145 → 88. Runs are unchanged (the road run's view 290 for the body's 363). The
+cost: walking, the body is drawn up to 22 units off the feet for a moment after those
+drops, and 9.1 over the top of a 30° slope (6.6).
+
 ### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
 
 - **Settings** [observed: FalloutNV.esm GMST]: `fJumpFallHeightMin` 600,
