@@ -25040,3 +25040,19 @@ order = [[
   { re = 'levelup: (\w+ ?)+ \d+ -> \d+; \d+ points left', label = "and another" },
   { re = 'levelup: (\w+ ?)+ \d+ -> \d+; \d+ points left', label = "D-pad left takes one back" },
 ]]
+
+[[scenario]]
+name = "melee-chases-backing-player"
+source = "#2163 (owner's playtest 2026-11-11): melee fighters and creatures never hit a player who backed away. The chase went to where detection last measured the target; a feral ghoul stopped there and set off again 19 times in 7 s without a blow. A detected target is chased where it is, the chaser keeps its pace (fnv-ai alert.rs: keeps_way, lead, Drift), and a creature's attack on the run counts the target's own movement (nvforever npc_combat.rs closing_speed)"
+note = "Searchlight Airport runway (as grenade-launcher-arc; the radscorpions about killed first), the player 2,600 units along it looking on along it (heading 75); a feral ghoul (VCrTier1FeralGhoul1A, runs 384 units/s) put 600 units in front of the player at 3.2 s and set on the player; from 6 s to 14 s the player runs backwards (272.8 units/s). On main before the change (2026-11-11, the same run with 7 s of backing away): 2 blows before the player moved, none while it did"
+areas = ["combat", "creatures", "ai"]
+paths = ["crates/fnv-ai/src/alert.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "1:killall;1.3:close", NVF_PLAY_TEST_LOOK = "2:75:0", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:VCrTier1FeralGhoul1A:1,3.2:moveto:0xFF000000:player:580:155:0,3.5:combat:0xFF000000:player", NVF_PLAY_TEST_MOVE = "6:-1:0,14:0:0" }
+args = ["--cell", "Goodsprings", "--pos=39511,-116487,6180", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 15
+expect = [
+  { text = "test aid: movement keys forward -1 right 0", label = "the player backs away" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [7, 16], label = "the ghoul keeps striking while the player backs away: about a blow a second over 11 s of fighting (3 without the change)" },
+  { re = 'npc combat summary.*the player was hit (?P<n>\d+) times', range = [6, 16], label = "and its blows land" },
+  { re = 'VCrTier1FeralGhoul1A 0xFF000000: (runs at|stops and faces) the player', max = 12, label = "it keeps the player's pace instead of stopping and setting off again (19 pairs in 7 s without the change)" },
+]
