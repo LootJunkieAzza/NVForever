@@ -998,7 +998,8 @@ Goodsprings at 12:00 with SMAA, the switch on and changes 1-8 (release): 5.51, 5
 of five more made while the machine was in use (two of those runs had a 0.9 s stall at
 their start and one was held at 60 a second for part of it; they are left out). With the
 switch off: 6.23 ms (160). That is at the 5.56 ms of 180 a second with nothing to spare.
-The smoke scenario `lighter-sun-shadows` was added for the switch and has not been run.
+The smoke scenario `lighter-sun-shadows` turns the switch on and off in play; it passed on
+#2182's branch, as did the rest of that branch's smoke run (122 scenarios).
 
 ### What is left, and why Goodsprings is not at 180
 
@@ -1113,8 +1114,18 @@ cascade keeps its map and the matrices of the frame that drew it
 5.78 → 5.42 ms, Novac 7.02 → 6.34, Primm 6.70 → 6.21. Screenshots against every frame:
 0.26 % and 0.61 % of pixels over 24/255 at Goodsprings and Novac (two runs drawing every
 frame: 0.20 % and 0.42 %; NPCs' shadows move). The Lighter switch keeps its schedule, both
-cascades every other frame. A cache of static casters (#2063's proposal) needs a shadow
-renderer of its own in vendored bevy_pbr and was not attempted.
+cascades every other frame.
+
+A cache of static casters (#2063's proposal) was prototyped and measured, and not adopted
+[observed 2026-11-10, branch `perf/shadow-cache-prototype`, commit 056695cf3]: cascades
+from the second on kept a cache of what stands still, with matrices 15 % wider (texels
+30 % coarser), and drew only what moves on it each frame, putting the cache back by tiles
+where moving things lay. Lighter switch off, ms, every frame / staggered / cached:
+Goodsprings 5.71 / 5.40 / 5.48, Novac 6.96 / 6.34 / 6.12, Primm 6.60 / 6.13 / 6.18,
+Freeside 5.39 / 5.17 / 5.28; switch on, no cache / cached: Goodsprings 5.12 / 5.10, Novac
+5.62 / 5.58, Primm 5.51 / 5.44, Freeside 4.79 / 4.92. No better than the staggered
+schedule overall, with coarser far shadows and far more vendored code (a split shadow
+pass, cache textures, a part-render of a binned phase).
 
 ### Result
 
