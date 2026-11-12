@@ -2653,6 +2653,31 @@ Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
   the skeleton's root with the whole transform below the part's root.
 - Hidden nodes, editor markers and dismemberment caps are left out as for NPCs.
 - Textures are the models' own (NIFT texture hashes are not read).
+- **Part nodes for the clips** (#2228): the named nodes between such a shape and where
+  it hangs are kept as nodes of their own (`creature_rigid_chain`; with a `Prn` bone and
+  a named node, the part's root as one too), and a clip track naming a node the
+  skeleton lacks drives the part node of that name (`BlendPlayer::add_part_node`). The
+  same placement as before when nothing moves. [observed: `SpecialIdle_CutCake.kf`
+  (IDLE `CutCake`, Mister Handy cutting the cake) has 40 rotation keys on
+  `Buzzsawblad`, about one turn every 0.4 s from 3.3 s; `Buzzsawblad` is a node of
+  `gutsybuzzsaw.nif` (root the identity, `Prn` `Bip01 R Foot 01`), whose stored
+  rotation is the track's first key, and not of `creatures\mistergutsy\skeleton.nif`;
+  hypothesis: the original grafts the part's nodes under the bone, so its clips reach
+  them.]
+- **Parts that move by themselves** (#2228): a part with no skinned shape whose file has
+  controllers no sequence drives (Active, not manager controlled: texture scrolls,
+  alpha, emittance, refraction strength, transforms, visibility; `nvf_assets::model`
+  "free" tracks) is drawn as a model on its `Prn` bone at the part's root transform,
+  playing them each on its own cycle as a placed object does, its billboards turning
+  and add-on nodes emitting (`shot_fx::spawn_playing_itself`), unless a shape of it
+  hangs from a skeleton-named node of the part. [observed: Mister Handy's and Gutsy's
+  jet `fxmrhandyjetaddon.nif` (`Prn` `Bip01 Pelvis`) has no sequence; under three
+  NiBillboardNodes `##JetFlames…`, the three flame shapes share one
+  NiTexturingProperty with two looping NiTextureTransformControllers (0.47 s and
+  2.13 s) and one NiMaterialProperty with an NiAlphaController; each refraction cloud
+  node has a looping NiTransformController (0.67 s) and its shader property a
+  BSRefractionStrengthController.] Such a part is not a dismemberment shape (it is not
+  hidden with a severed limb) [design].
 
 ### 10.3 Idle
 

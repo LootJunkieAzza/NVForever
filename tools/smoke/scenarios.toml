@@ -22053,6 +22053,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "handy-cake-saw-jet"
+source = "owner 2026-11-12 (#2228): Andy (CG02Andy, a Mister Handy) cutting the cake (IDLE CutCake, creatures/mistergutsy/idleanims/specialidle_cutcake.kf): the KF spins `Buzzsawblad`, a node of the saw part gutsybuzzsaw.nif that the skeleton lacks, and fxmrhandyjetaddon.nif's flames are controllers of its own (scrolls, refraction clouds, billboards) [observed: fnvtool nif decode]; both were still"
+note = "Andy placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to him at 4 s; PlayIdle CutCake at 5 s, the blade spins from 3.3 s into it; frames at 9 and 9.15 s (blade turned between them, jet flames on) for the eye"
+areas = ["actors", "creatures", "idles"]
+paths = ["engine/nvf-assets/src/actor.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/shot_fx.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:player:PlaceAtMe:CG02Andy:1:300:0,3.2:call:0xFF000000:SetRestrained:1,5:call:0xFF000000:PlayIdle:CutCake", NVF_PLAY_TEST_CONTROL = "4:aimactor", NVF_PLAY_TEST_SHOTS = "9:handy_cake_a.png,9.15:handy_cake_b.png" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice", "--no-messages", "--plugins", "FalloutNV.esm"]
+run_seconds = 11
+expect = [
+  { re = 'creature parts: CG02Andy \(00020456\): part node\(s\) .*Buzzsawblad.* for its clips to drive', label = "the saw's blade is a node of its own for the clips" },
+  { re = 'creature parts: CG02Andy \(00020456\): \S*fxmrhandyjetaddon\.nif plays its own controllers on Bip01 Pelvis', label = "the jet plays its own controllers on the pelvis" },
+  { re = 'idle: 0xFF000000 plays CutCake ', label = "Andy cuts the cake" },
+]
+
+[[scenario]]
 name = "radscorpion-intact-caps"
 source = "#1075 (docs/spec-notes/dismemberment.md §2.5): the radscorpion's `meatcapbody` holds its torso caps (part flag bit 0 clear) and one editor-visible BP_TORSO triangle, so the whole-shape cap rule drew every torso cap on an intact radscorpion; cap partitions are now hidden one by one [observed: fnvtool nif decode]"
 note = "a radscorpion (CrRadscorpion1Small) placed 300 units from the player (GOD, UNSEEN) at 3 s and held (SetRestrained); the view turns to it at 5 s, a frame at 6 s (no caps on its leg roots or stinger)"
