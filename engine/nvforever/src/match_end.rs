@@ -46,8 +46,10 @@
 //!   propagation (before the frusta are built) and writes the camera's global transform
 //!   itself, so it wins without a hook in the minigames' code [engineering choice].
 //! - **Leaving** [design]: when the result menu closes the screen fades to black over
-//!   [`FADE_OUT`] s with the camera held (the body kept drawn by the creator's portrait
-//!   flag, `PlayerControl::portrait`, for those frames), stays black [`HOLD`] s, and
+//!   [`FADE_OUT`] s with the camera held (the body kept drawn by
+//!   `PlayerControl::end_view`; not the creator's portrait flag, which lit the scene with
+//!   the creator's lights for those frames [observed: c-night-15 wide play-51.5s]), stays
+//!   black [`HOLD`] s, and
 //!   comes back over [`FADE_IN`] s in the view the player had before the game (the
 //!   minigame's stage gives it back). A new match at the same board (the winner cleared)
 //!   ends the end view without a fade.
@@ -668,8 +670,6 @@ pub struct MatchEnd {
     pending: Vec<Pending>,
     /// The serial of this player's own reaction on the third-person body.
     own: Option<u32>,
-    /// The portrait flag was set here (for the fade out) and is to be cleared.
-    portrait: bool,
     /// The camera as the game placed it when the end view began, to ease from.
     from: Option<Transform>,
     /// The clips read ahead for a game under way.
@@ -744,7 +744,6 @@ fn watch(
     darts: Option<Res<DartsScreen>>,
     pool: Option<Res<PoolScreen>>,
     opponent: Option<Res<DartsOpponent>>,
-    mut control: Option<ResMut<PlayerControl>>,
     mut pi: Option<ResMut<PlayerIdles>>,
     (mut parts, mut models): (ResMut<ActorParts>, ModelCtx),
 ) {
@@ -797,17 +796,13 @@ fn watch(
                 stop_own(st, pi.as_deref_mut());
             } else {
                 info!("match end: the menu closed; fading to black");
+                // The body stays drawn ([`end_view_flag`]) and the camera held ([`camera`])
+                // while the screen darkens.
                 st.phase = Phase::FadeOut { since: now };
-                // The body stays drawn and the camera held while the screen darkens.
-                if let Some(c) = control.as_deref_mut().filter(|c| c.portrait.is_none()) {
-                    c.portrait = Some(st.view());
-                    st.portrait = true;
-                }
             }
         }
         Phase::FadeOut { since } if now - since >= FADE_OUT => {
             st.phase = Phase::FadeIn { since: now };
-            give_back(st, control.as_deref_mut());
             stop_own(st, pi.as_deref_mut());
             info!("match end: black; back to the player's view");
         }
@@ -828,16 +823,6 @@ fn end_view_flag(st: Res<MatchEnd>, control: Option<ResMut<PlayerControl>>) {
     if c.end_view != want {
         c.end_view = want;
         info!("match end: the view counts as third person: {want}");
-    }
-}
-
-/// The portrait flag back off, if it was set here.
-fn give_back(st: &mut MatchEnd, control: Option<&mut PlayerControl>) {
-    if std::mem::take(&mut st.portrait) {
-        let view = st.view();
-        if let Some(c) = control.filter(|c| c.portrait == Some(view)) {
-            c.portrait = None;
-        }
     }
 }
 
