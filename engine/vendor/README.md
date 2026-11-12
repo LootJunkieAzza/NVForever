@@ -107,6 +107,15 @@ store's measurements keep upstream's import time (frame telemetry exports it as 
 docs/design/frame-telemetry.md). `nvforever/src/perf_overlay/split.rs` uses the pairs to
 read only the measurements of frames recorded in its window and since its row began to show.
 
+Another change (a measuring aid, docs/design/frame-rate-audit.md §9), in
+`src/renderer/render_context.rs`, marked `NVForever encoder spans`: with
+`NVF_PLAY_TEST_PROFILE_ENCODERS=1` and a diagnostics recorder (the `profile` build's
+`NVF_PLAY_TEST_PROFILE`), every render system's command encoder is wrapped in a GPU time
+span `enc:<system>`, opened when the encoder is made and closed when the system's
+`RenderContext` is dropped. The passes' own spans nest inside it, so the difference is the
+GPU time of what a system records outside its passes: image copies, multisample resolves,
+passes without a span. Without the variable nothing is recorded.
+
 Fourth change (#1778, docs/design/latency-reduction.md): Bevy's `raw_vulkan_init` feature,
 which the engine turns on so `anti_lag.rs` can add a device extension, no longer changes which
 backend starts or which validation wgpu runs. Each part is marked by a comment starting
