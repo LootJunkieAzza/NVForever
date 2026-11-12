@@ -176,6 +176,13 @@ the spec it links to.
     face buttons; menu hints write the names (the game fonts have no symbols). Select and
     Start rather than Share/Create and Options. Right choices, and do the glyphs look
     right? ([controller §3a](design/controller.md))
+58. **Followers come in once you stop (#2122).** A follower on its way now stops 150
+    units inside its package's distance (not nearer than 128): Boone 180 of his 330,
+    DefaultFollowPlayerFar 362 of 512, the usual 256 at 128; before, it stood near the
+    distance. The original's two recorded arrivals were about 150 inside (Boone 177, the
+    pack brahmin about 300 of 450); its rule is not known. Keep the fixed 150, take a
+    share of the distance, or the old stop at the distance?
+    ([actor-behaviour §5.1](design/actor-behaviour.md), `FOLLOW_STOP_INSET`)
 
 ## Tier 3: rules where we chose to differ, or that the original has no answer for
 
@@ -308,7 +315,25 @@ the spec it links to.
    went from 4.4–6.2 to 3.4–3.6 ms a frame. Say if re-shot corpses should move longer
    (or not at all). ([ragdoll §4](spec-notes/ragdoll.md),
    [frame-rate-audit §5](design/frame-rate-audit.md))
+60. **Guards wander inside a location radius of 16 or more (#2027).** The GECK wiki says a
+   guard "will wander within that radius" when it is greater than 0, and guards now do. A
+   radius of 1 to 15 is left standing, as 0 is (`GUARD_WANDER_MIN_RADIUS`): its spots
+   would lie within a step of the guard, so the walk would only twitch it on the spot.
+   The pauses and walk pace are the sandbox's own. Say if every positive radius should
+   wander (that needs a finer arrival tolerance for guard walks), or if the floor should
+   differ. ([actor-behaviour §5.5](design/actor-behaviour.md),
+   [packages](spec-notes/packages.md))
 
+59. **A sandbox's only object comes back after 60 s (#1505).** Your handed-off rule: the
+    object just used stays out while any other seat or idle marker is open, and when it is
+    the only one it comes back 60 s after the actor began standing or wandering
+    (`SOLE_OBJECT_AGAIN_AFTER`). The GECK wiki documents a setting for this,
+    `iSandBoxPreventRepeatedActionTime`, default 30 s, which reads as a wait on every object
+    rather than a rule for the last one left; NVForever does not read it. Keep 60 s and the
+    sole-object rule, or follow the setting (30 s, from the data's GMST when a load order
+    sets one)? ([actor-behaviour §5.5](design/actor-behaviour.md),
+    [packages §3](spec-notes/packages.md); what the original does:
+    [observer check 114](handoff/observer-checks.md))
 57. **A Use Weapon package with Continue During Combat keeps firing at its own target
     when attacked (#2120, #2145).** With the flag, an actor attacked by the player (or
     anyone) stays at its stand and goes on firing its package's volleys at the package's
@@ -337,6 +362,15 @@ the spec it links to.
     remove it, or the word could change. The victim looking around and spotting you
     (item 5, second part) is not built yet.
     ([pickpocket §5](spec-notes/pickpocket.md))
+
+61. **Holstered fidgets come rarer than in the original (#2026).** NPCs standing with the
+    weapon away now bite their nails, smoke and so on, by the idle tree's factions and
+    chances. The tree is asked every 2 s, the drawn-weapon fidgets' pace
+    (`FIDGET_CHECK_SECONDS`); a merchant then begins a general fidget about every 200 s,
+    where the original's capture saw 3 in 360 s. The original's pace (an Energy timer) is
+    observer check 116. Until it is answered: keep 2 s, or ask more often (1 s would
+    double every tree fidget, the drawn-weapon and furniture ones too)?
+    ([idles §11.4](spec-notes/idles.md))
 
 ## Not a gameplay decision: what the extender work needs from you (2026-10-25)
 

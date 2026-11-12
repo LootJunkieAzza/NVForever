@@ -557,7 +557,7 @@ Their JSON layouts are defined by the code and the spec notes named; `fnvtool <g
 | `actor chargen` | `fnv.actor.chargen/1` | character creation as a new player sees it (spec-notes/chargen.md §6) |
 | `actor factions` | `fnv.actor.factions/1` | named actors' template chains, factions and stand towards the player (spec-notes/factions.md) |
 | `actor karma` | `fnv.actor.karma/1` | karma and crime settings, actors' karma and kill karma, cells' owners (spec-notes/crime-karma.md) |
-| `actor fidgets` | `fnv.actor.fidgets/1` | drawn-weapon fidgets from the IDLE tree; `--furniture` the furniture ones (spec-notes/idles.md §11) |
+| `actor fidgets` | `fnv.actor.fidgets/1` | drawn-weapon fidgets from the IDLE tree; `--weapon-away` those with the weapon away (§11.4), `--furniture` the furniture ones (spec-notes/idles.md §11); picks per idle and per parent node |
 | `actor gestures` | `fnv.actor.gestures/1` | talking and listening gestures picked from the IDLE tree (spec-notes/idles.md §12) |
 | `actor detect` | `fnv.actor.detect/1` | one actor's detection numbers against a target at several distances (design/detection.md §4) |
 | `actor creator` | `fnv.actor.creator/1` | the character creator's races, hairs, eyes, faces, beards, colours and named FaceGen sliders (spec-notes/character-creator.md §7) |

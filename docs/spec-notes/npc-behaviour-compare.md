@@ -281,6 +281,17 @@ were created at run time):
 Every one of the 67 reported the record's own runtime type code (GetCurrentAIPackage), and
 none was in use more than 5 % of its time outside its record's schedule window.
 
+No Sandbox record reported EAT in the table above [observed], though 465 of the masters'
+791 Sandbox packages leave eating on (actor-behaviour.md §5.5, from `fnvtool ai
+packages`). The AI observer capture of 2026-11-09 (Goodsprings, 24 game hours
+from 06:00, 2,963 samples) says the same per actor: GoodspringsSettler01Ref
+(GSSettlerAAMSandbox6x16, eating allowed) and GoodspringsSettler03Ref (GSSettlerSandbox)
+spent 0.00 h in EAT, while Easy Pete under his Eat package (EasyPeteEat12x2) spent 1.8 h
+in it [observed, issue #2011]. So the original's sandbox does not hold a meal on the
+spot. NVForever's sandbox therefore takes a meal only on a free seat and otherwise goes
+on with its choices [design, #2011; actor-behaviour.md §5.5]; whether it eats on a seat
+at all is not known (observer check 113).
+
 ## 7. After the fixes
 
 The same scenes in our engine with this branch's two changes:
@@ -888,7 +899,8 @@ are GetAnimAction entering 2. Hits are OnHit events on the player.
   - **Once the player stopped.** He came to 177 units behind (15 left) and stood there.
     So he came in well inside his package's 330. Ours stops once within the distance, so
     about 330 off [hypothesis: the original stops at about half the distance; one
-    arrival].
+    arrival]. (Since #2122 ours stops 150 units inside the distance, 180 for Boone:
+    docs/design/actor-behaviour.md, Follow.)
 - **Sneaking.** The player was force-sneaked for 600 samples (about 20 s, most of it
   standing after the walk). Boone's IsSneaking stayed 0 throughout [observed]. A follower
   does not crouch with the player, at least not when standing. (Withdrawn as a general

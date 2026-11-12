@@ -67,6 +67,7 @@ use nvf_play::RefVisual;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::f32::consts::FRAC_PI_4;
 
+mod guard_wander;
 mod knock_run;
 pub(crate) mod melee_knockback;
 mod sandbox_interrupt;
@@ -1005,6 +1006,8 @@ struct Core {
     ai: Ai,
     /// Opt-in phase-gated #1497 regression aid; absent in ordinary runs.
     sandbox_interrupt: Option<sandbox_interrupt::Probe>,
+    /// Opt-in #2027 guard wander measurement; absent in ordinary runs.
+    guard_wander: Option<guard_wander::Probe>,
     list: Vec<Resident>,
     known: HashSet<u32>,
     /// Cells whose actors were handed over (`all`).
@@ -1285,6 +1288,7 @@ impl Residents {
             // Test aid: conversations between NPCs anywhere in the loaded area.
             ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), find_buying: std::env::var("NVF_PLAY_TEST_FIND_BUYING").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
             sandbox_interrupt: sandbox_interrupt::Probe::from_env(refs),
+            guard_wander: guard_wander::Probe::from_env(refs),
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
@@ -2219,6 +2223,10 @@ impl Core {
             probe.tick(self, game, phys.as_deref());
             self.sandbox_interrupt = Some(probe);
         }
+        if let Some(mut probe) = self.guard_wander.take() {
+            probe.tick(self, game);
+            self.guard_wander = Some(probe);
+        }
         // Knockbacks push their actors, and attack clips that travel carry theirs, over
         // their walks.
         {
@@ -2685,7 +2693,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             away.map(|a| format!("{a:.0} units away, ")).unwrap_or_else(|| "in another cell, ".into()),
             doors.len()
         ),
-        AiEvent::CaughtUp { target, .. } => format!("has caught up with {}", n(target)),
+        AiEvent::CaughtUp { target, away, stop_at, .. } => format!("has caught up with {}: {away:.0} units away, stops within {stop_at:.0}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
         AiEvent::TalkUnseen { package, target, away } => format!("waits to talk to {} ({}): {away:.0} units away, with something solid between", n(target), n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
@@ -3338,6 +3346,13 @@ pub fn report(
         };
         Some(format!("{}: {package}, {state} in {}, walked {:.0} units, {} doors opened", r.label, nav::space_name(&world, a.walker.space), a.walker.travelled, r.doors_opened))
     };
+    // Named sandboxers' choices in a meal window with no free seat, so no meal (#2011;
+    // the smoke test sandbox-no-seat-meals reads them).
+    for r in core.list.iter().filter(|r| r.named) {
+        if let Some(sb) = core.ai.agents.get(&r.actor).and_then(|a| a.sandbox.as_ref()) {
+            info!("ai sandbox meals: {}: {} choices in a meal window with no free seat", r.label, sb.seatless_meal_choices());
+        }
+    }
     // The named ones, then those of the crowd that walked the most.
     let mut each: Vec<String> = core.list.iter().filter(|r| r.named).filter_map(one).collect();
     let mut crowd: Vec<&Resident> = core.list.iter().filter(|r| !r.named && core.ai.agents.get(&r.actor).is_some_and(|a| a.walker.travelled > 0.0)).collect();

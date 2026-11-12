@@ -55,6 +55,13 @@ pub struct Follower {
     /// Held at that stop ([`Steer::OpenDoor`] given) until [`Follower::door_opened`]:
     /// a door pushing the actor about while it opens does not send it walking again.
     pub holding: bool,
+    /// The doors this follower has gone through ([`Follower::door_opened`]'s stop door,
+    /// [`Follower::door_used`]'s leg door) since its owner last took them
+    /// (`std::mem::take`; [`Walker::update_with`] moves them to [`Walker::passed`]): the
+    /// AI ends an actor's crossing of a door there (`fnv_ai`, issue #2123). Not part of
+    /// the serialised path state.
+    #[serde(skip)]
+    pub passed: Vec<u32>,
 }
 
 /// A place a stuck actor could be moved on to along its path ([`Follower::skip_candidates`]):
@@ -118,7 +125,7 @@ pub fn goal_height_fits(feet: [f32; 3], goal: [f32; 3]) -> bool {
 
 impl Follower {
     pub fn new(path: Path) -> Follower {
-        Follower { path, leg: 0, next: 1, arrive_radius: 16.0, goal_radius: GOAL_RADIUS, door_radius: 48.0, stop: 0, holding: false }
+        Follower { path, leg: 0, next: 1, arrive_radius: 16.0, goal_radius: GOAL_RADIUS, door_radius: 48.0, stop: 0, holding: false, passed: Vec::new() }
     }
 
     /// The space of the leg being walked.
@@ -200,6 +207,7 @@ impl Follower {
 
     /// The door that ended the current leg was used: go on with the next leg.
     pub fn door_used(&mut self) {
+        self.passed.extend(self.path.legs.get(self.leg).and_then(|l| l.door).map(|d| d.door));
         self.leg += 1;
         self.next = 1;
         self.stop = 0;
@@ -209,6 +217,7 @@ impl Follower {
     /// The door of the current [`Steer::OpenDoor`] is open: walk on through it.
     pub fn door_opened(&mut self) {
         let Some(s) = self.path.legs.get(self.leg).and_then(|l| l.door_stops.get(self.stop)).copied() else { return };
+        self.passed.push(s.door);
         self.stop += 1;
         self.holding = false;
         self.next = self.next.max(s.point + 1);
@@ -670,6 +679,11 @@ pub struct Walker {
     /// Goal heights waived so far ([`Walker::off_path`]).
     #[serde(skip)]
     pub height_waivers: u32,
+    /// The doors its own steps ([`Walker::update_with`]) went through since its owner
+    /// last took them, also when the walk ended on that step and the follower with it
+    /// (`Follower::passed`; issue #2123).
+    #[serde(skip)]
+    pub passed: Vec<u32>,
 }
 
 /// Where a [`Walker`] was last asked to go: the place as asked for, not where the path
@@ -786,6 +800,7 @@ impl Walker {
             trip: None,
             height_searches: 0,
             height_waivers: 0,
+            passed: Vec::new(),
         }
     }
 
@@ -873,6 +888,7 @@ impl Walker {
     pub fn update_with(&mut self, nav: &NavGraph, dt: f32, open: &mut dyn FnMut(u32) -> bool) -> WalkEvent {
         let Some(mut f) = self.follower.take() else { return WalkEvent::Idle };
         let ev = self.advance(nav, &mut f, dt, open);
+        self.passed.append(&mut f.passed);
         self.moving = ev == WalkEvent::Moved;
         // Keep the path unless it ended (an idle update with the path not finished keeps it).
         let keep = match ev {
@@ -917,7 +933,12 @@ impl Walker {
         // A step may pass several close corners.
         for _ in 0..8 {
             match f.steer(self.feet) {
-                Steer::OffPath if let Some(new) = self.off_path(nav, self.feet, f) => *f = new,
+                Steer::OffPath if let Some(new) = self.off_path(nav, self.feet, f) => {
+                    // The doors gone through this step stay told.
+                    let passed = std::mem::take(&mut f.passed);
+                    *f = new;
+                    f.passed = passed;
+                }
                 Steer::Arrived | Steer::OffPath => return if moved { WalkEvent::Arrived } else { WalkEvent::Idle },
                 Steer::OpenDoor { door, .. } => {
                     if open(door) {
