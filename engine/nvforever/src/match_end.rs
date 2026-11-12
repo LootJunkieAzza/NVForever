@@ -108,6 +108,17 @@ const SEATED_CLEAR: f32 = 0.97;
 /// How near another player's head may pass the seated end camera's line (game units)
 /// [design: a head's half width and a margin].
 pub const MATE_CLEAR: f32 = 40.0;
+/// A mate seen beyond the player within this window of the shot's centre (radians across,
+/// radians up and down: a seated body with raised fists is tall and narrow), head or
+/// chest, is in the shot's background behind the player's raised arms: that side counts
+/// half clear [design: ship 14's slots-coop exit, 2026-11-12: at 0016546A the left side
+/// was clear, but the guest standing by the next machine about 200 units beyond, his head
+/// just above the host's on screen, had the cheering fist crossing his body].
+pub const MATE_BEHIND: (f32, f32) = (0.21, 0.44);
+/// ... when no further beyond the player than this (game units) [design: a few steps].
+pub const MATE_BEHIND_REACH: f32 = 350.0;
+/// The chest under a mate's head (game units) [design].
+const MATE_CHEST: f32 = 45.0;
 /// Seconds the camera takes to swing from the game's camera to the end view [design].
 pub const EASE_IN: f32 = 0.6;
 /// Seconds to black after the result menu closes, held black, and back [design].
@@ -348,7 +359,8 @@ pub fn pick_seated(eye: [f32; 3], heading: f32, mut reach: impl FnMut([f32; 3], 
 }
 
 /// How far the line from `look` to `at` runs before it passes within [`MATE_CLEAR`] of
-/// one of `heads` (game space), or its whole length.
+/// one of `heads` (game space), or its whole length; half that when a head stands in the
+/// shot's background ([`MATE_BEHIND`]).
 pub fn mates_reach(look: [f32; 3], at: [f32; 3], heads: impl IntoIterator<Item = [f32; 3]>) -> f32 {
     let (a, b) = (Vec3::from(look), Vec3::from(at));
     let d = b - a;
@@ -357,11 +369,18 @@ pub fn mates_reach(look: [f32; 3], at: [f32; 3], heads: impl IntoIterator<Item =
         return len;
     }
     let mut reach = len;
+    let mut behind = false;
     for h in heads {
         let h = Vec3::from(h);
         let t = (h - a).dot(d) / (len * len);
-        // Behind the look point, or past the camera by more than the margin: not in the way.
-        if t <= 0.0 || (t - 1.0) * len > MATE_CLEAR {
+        // Behind the player as the camera sees them: the shot's background, if near its
+        // centre on screen.
+        if t <= 0.0 {
+            behind |= -t * len <= MATE_BEHIND_REACH && [h, h - Vec3::Z * MATE_CHEST].into_iter().any(|p| in_window(b, a, p));
+            continue;
+        }
+        // Past the camera by more than the margin: not in the way.
+        if (t - 1.0) * len > MATE_CLEAR {
             continue;
         }
         let near = a + d * t.min(1.0);
@@ -369,7 +388,26 @@ pub fn mates_reach(look: [f32; 3], at: [f32; 3], heads: impl IntoIterator<Item =
             reach = reach.min((t.min(1.0) * len - MATE_CLEAR).max(0.0));
         }
     }
-    reach
+    if behind {
+        reach * 0.5
+    } else {
+        reach
+    }
+}
+
+/// Whether `p` is seen from a camera at `cam` looking at `look` (game space, z up) within
+/// [`MATE_BEHIND`]'s window of the centre.
+fn in_window(cam: Vec3, look: Vec3, p: Vec3) -> bool {
+    let fwd = (look - cam).normalize_or_zero();
+    let right = fwd.cross(Vec3::Z).normalize_or_zero();
+    let up = right.cross(fwd);
+    let v = p - cam;
+    let ahead = v.dot(fwd);
+    if ahead <= 0.0 {
+        return false;
+    }
+    let (x, y) = (v.dot(right).atan2(ahead) / MATE_BEHIND.0, v.dot(up).atan2(ahead) / MATE_BEHIND.1);
+    x * x + y * y < 1.0
 }
 
 /// A reaction waiting for its clip or its body.
@@ -427,7 +465,7 @@ impl Plugin for MatchEndPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MatchEnd>()
             .add_systems(Startup, spawn_blackout)
-            .add_systems(Update, (ends, watch, stand, cards, react).chain().before(nvf_play::player::BodySet).before(crate::idles::drive))
+            .add_systems(Update, (ends, watch, end_view_flag, stand, cards, react).chain().before(nvf_play::player::BodySet).before(crate::idles::drive))
             .add_systems(PostUpdate, (camera, blackout, arms_clear).after(TransformSystems::Propagate).before(VisibilitySystems::UpdateFrusta));
     }
 }
@@ -522,6 +560,18 @@ fn watch(
             st.seated = false;
         }
         _ => {}
+    }
+}
+
+/// While the end view shows (the result and the fade out), the view counts as a third
+/// person one ([`PlayerControl::end_view`]): from first person the body was drawn as
+/// first person draws it, without its head, the arms rig beside it.
+fn end_view_flag(st: Res<MatchEnd>, control: Option<ResMut<PlayerControl>>) {
+    let Some(mut c) = control else { return };
+    let want = matches!(st.phase, Phase::Result { .. } | Phase::FadeOut { .. });
+    if c.end_view != want {
+        c.end_view = want;
+        info!("match end: the view counts as third person: {want}");
     }
 }
 
@@ -954,16 +1004,28 @@ mod tests {
         let eye = [0.0, 0.0, 100.0];
         // All clear: the right side, as before.
         assert_eq!(pick_seated(eye, 0.0, |_, _| 1000.0).0.yaw, SEATED_YAWS[0]);
-        // Another player on the stool to the right (+x, heading north): the left side.
+        // Another player on the stool to the right (+x, heading north): not the right side
+        // (his head in the line), nor round the left while he stands in the background
+        // behind the player: one further round towards the back.
         let mate = [125.0, 0.0, 100.0];
         let (v, free) = pick_seated(eye, 0.0, |at, look| mates_reach(look, at, [mate]));
-        assert_eq!(v.yaw, -1.5, "{v:?}");
+        assert!(v.yaw.abs() > 1.9, "{v:?}");
         assert!(free >= SEATED_CLEAR);
+        // One upstairs (well clear of the frame): the right side.
+        let (v, _) = pick_seated(eye, 0.0, |at, look| mates_reach(look, at, [[125.0, 0.0, 100.0 + 300.0]]));
+        assert_eq!(v.yaw, SEATED_YAWS[0], "{v:?}");
         // Nothing clear: the side clear furthest.
         let (v, _) = pick_seated(eye, 0.0, |at, _| if at[0] < 0.0 && at[1] < 0.0 { 120.0 } else { 30.0 });
         assert!(v.yaw < -1.9, "{v:?}");
-        // A head behind the look point or well past the camera is not in the way.
-        assert_eq!(mates_reach([0.0; 3], [100.0, 0.0, 0.0], [[-30.0, 0.0, 0.0], [200.0, 0.0, 0.0]]), 100.0);
+        // A head well past the camera, or behind the look point off to the side, is not in
+        // the way; one just behind the player in the frame halves the side.
+        assert_eq!(mates_reach([0.0; 3], [100.0, 0.0, 0.0], [[-30.0, 90.0, 0.0], [200.0, 0.0, 0.0]]), 100.0);
+        assert_eq!(mates_reach([0.0; 3], [100.0, 0.0, 0.0], [[-80.0, 20.0, 0.0]]), 50.0);
+        assert_eq!(mates_reach([0.0; 3], [100.0, 0.0, 0.0], [[-500.0, 0.0, 0.0]]), 100.0);
+        // Standing 200 beyond, his head 60 above the line (just above the player's on
+        // screen): in the background; as far off to the side: not.
+        assert_eq!(mates_reach([0.0; 3], [165.0, 0.0, 0.0], [[-200.0, 0.0, 60.0]]), 82.5);
+        assert_eq!(mates_reach([0.0; 3], [165.0, 0.0, 0.0], [[-200.0, 120.0, 45.0]]), 165.0);
         assert!(mates_reach([0.0; 3], [100.0, 0.0, 0.0], [[60.0, 10.0, 0.0]]) < 30.0);
     }
 

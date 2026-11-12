@@ -612,7 +612,7 @@ fn draw(
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>, Option<bool>)>,
-    (locks, bindings, creator, sights, scope, driven, kill_cam): (
+    (locks, bindings, creator, sights, scope, driven, kill_cam, control): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
         Option<Res<crate::creator::CreatorMenu>>,
@@ -620,6 +620,7 @@ fn draw(
         Option<Res<crate::aim_zoom::Scope>>,
         Option<Res<crate::player::ViewDriven>>,
         Option<Res<crate::kill_cam::KillCam>>,
+        Option<Res<crate::control::PlayerControl>>,
     ),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -643,7 +644,12 @@ fn draw(
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034],
     // nor under the weapon wheel (docs/design/weapon-wheel.md §7).
     let killcam = kill_cam.is_some_and(|k| k.active());
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !wheel.is_some_and(|w| w.is_open());
+    // Nor while a card game's or a slot machine's end view frames the player (nvforever
+    // `match_end.rs`): a framed shot, no aim and nothing to use [owner 2026-11-12, ship 14:
+    // "like it was made with the game originally"; observed: the crosshair and "E) Activate
+    // Bed" over the blackjack cheer].
+    let end_view = control.is_some_and(|c| c.end_view);
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !end_view && !wheel.is_some_and(|w| w.is_open());
     // What the idle keeps off the screen, once per target.
     let kept = held.then(|| target.0.as_ref().map(|t| t.name.clone())).flatten();
     if kept != logged.3 {

@@ -11092,6 +11092,92 @@ order = [[
 expect = []
 
 [[scenario]]
+name = "slots-seated-defeat-first-person"
+source = "owner 2026-11-12: from first person the player's head vanished in the slots defeat end view. The Tops' machine 0x0016546A on its stool 0x0011E62E, played from first person (no view toggle), two losing spins, then exit: the end view (item 166) counts as a third-person view while it shows (`PlayerControl::end_view`), so the body is drawn whole, head and all, and first person comes back with the fade. Screenshots: the end view and the view after"
+areas = ["slots", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "24:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,31:help,32:bet:5,33:reels:1-2-3,33.5:spin,39:reels:2-3-4,39.5:spin,45:exit", NVF_PLAY_TEST_SHOTS = "45.6:slots_first_defeat_end_00.png,46.5:slots_first_defeat_end_01.png,48:slots_first_defeat_end_02.png,52:slots_first_defeat_after.png,57:slots_first_defeat_up.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 59
+order = [[
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots: closed (the player left)",
+  { re = 'match end: left Slots \(-?\d+ to -?\d+\); lost; the end view, seated', label = "the beaten end view on the stool" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays \S+ \(upper body, seated\)', label = "the beaten reaction, upper body, from first person" },
+  { re = "match end: the seated reaction's arms stayed clear", label = "the arms clear of the world" },
+  "match end: the view counts as third person: false",
+  { re = 'slots seat: the player gets up from stool 0011E62E after the end view', label = "then the get-off" },
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the slot machine's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the slot machine's end view" },
+]
+
+[[scenario]]
+name = "blackjack-end-view-first-person"
+source = "owner 2026-11-12 PvP Caravan playtest: after the match the winner had no head and a torso lay on the ground. The card tables' timed end view (item 127/166) from first person: Gomorrah's blackjack opened as the tables' script does, a stacked natural won, the player leaves: the end view counts as a third-person view (`PlayerControl::end_view`), the body drawn whole with its head and no first-person arms rig left in the scene; first person again after the fade. Screenshots: the end view and after"
+areas = ["blackjack", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;16.2:close", NVF_PLAY_TEST_BLACKJACK = "1:seed:7,15:chips:140521:500,15.5:stack:Ah-9c-Kd-7s,19:help,20:bet:25,21:deal,26:exit", NVF_PLAY_TEST_SHOTS = "26.6:blackjack_first_end_00.png,27.5:blackjack_first_end_01.png,29:blackjack_first_end_02.png,34:blackjack_first_after.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
+run_seconds = 36
+order = [[
+  "blackjack: round 1 over: blackjack (dealer 16); paid 62, net 37",
+  { re = 'match end: left Blackjack', label = "the visit ends: its end view" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays \S+cheeringbotharmsup\.kf', label = "the whole-body cheer" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the blackjack table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the blackjack table's end view" },
+]
+
+[[scenario]]
+name = "armwrestle-end-view-first-person"
+source = "parity 2026-11-12 (armwrestle-199 c-night-4, NVGrinderWorkbench-dense-r9, play-55.5s.png): from first person the arm-wrestling end view showed the player's body headless, hunched, arms hanging (the body drawn first-person style under the end camera; the same cause as the slots defeat view and the PvP Caravan winner with no head). As armwrestle-solo without the third-person key: the end view counts as a third-person view (`PlayerControl::end_view`), the whole body with its head plays the cheer, first person again after the fade. Screenshots: the end view, every 2 s"
+areas = ["minigames", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:308:222:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "40:armwrestle_first_end_00.png,42:armwrestle_first_end_01.png,44:armwrestle_first_end_02.png,46:armwrestle_first_end_03.png,48:armwrestle_first_end_04.png,50:armwrestle_first_end_05.png,52:armwrestle_first_end_06.png,54:armwrestle_first_end_07.png,56:armwrestle_first_end_08.png,58:armwrestle_first_end_09.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 62
+manual = "armwrestle_first_end_*.png: the end view frames the whole player with a head, cheering, no crosshair or prompt; the last ones first person again, no stray body"
+order = [[
+  { re = 'arm wrestle: won after', label = "the bout is won" },
+  "arm wrestle: up; closed",
+  "match end: ArmWrestle at",
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays \S+cheeringbotharmsup\.kf', label = "the cheer" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the arm-wrestling table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the arm-wrestling table's end view" },
+]
+
+[[scenario]]
+name = "caravan-end-view-first-person"
+source = "owner 2026-11-12 PvP Caravan playtest: after the match the winner had no head and an extra torso lay on the ground. As the caravan scenario (the game against Ringo plays itself out) from first person: the card table's end view counts as a third-person view (`PlayerControl::end_view`), the body drawn whole with its head and no first-person body left in the scene; first person again after the fade. Screenshots: the end view (the seed-7 game is over at about 37 s, the results close and the end view runs about 43 to 46.5 s) and after"
+areas = ["caravan", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "43.4:caravan_first_end_00.png,44.2:caravan_first_end_01.png,45.2:caravan_first_end_02.png,46.1:caravan_first_end_03.png,49:caravan_first_after.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 52
+manual = "caravan_first_end_*.png: the end view, the player whole with a head reacting, no crosshair or prompt, no torso on the floor; first person again after"
+order = [[
+  "caravan: game over:",
+  { re = 'match end: .*Caravan', label = "the game ends: its end view" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays ', label = "the player's reaction" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the Caravan table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the Caravan table's end view" },
+]
+
+[[scenario]]
 name = "slots-seated-holster"
 source = "queue item 170 part A: The Tops' machine 0x0016546A with its stool 0x0011E62E, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Two losing spins: the visit lost, so its end view (item 166) plays the beaten reaction on the stool, then the getting-off clip (owner 2026-11-11). Screenshots: the gun drawn, seated, the end view, getting off, up again"
 areas = ["slots", "furniture"]
