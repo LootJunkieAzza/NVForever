@@ -51,22 +51,26 @@ Fix or explain every regression.
 ## Checks before every push
 
 Run only the ones your change calls for (`python tools/smoke plan` lists them; `run --checks`
-runs them): root tests and clippy when `crates/` (or the root Cargo files, `schemas/`)
-changed, engine clippy when `engine/` or `crates/` changed, a Python suite when its folder
-changed.
+runs them): cargo deny when a Cargo file or `deny.toml` changed (`cargo install cargo-deny`),
+root tests and clippy when `crates/` (or the root Cargo files, `schemas/`) changed, engine
+tests and clippy (the Bevy workspace: viewer and game) when `engine/` or `crates/` changed,
+a Python suite when its folder changed (`tools/release/tests`: `.github/workflows/` too).
+They are the commands CI runs, in its order (`tools/smoke/tests/test_check_lists.py` keeps
+this list, CONTRIBUTING.md, docs/development.md, the `[[check]]` entries and ci.yml the same).
 
 ```
-cargo test --workspace --release
-cargo clippy --workspace --all-targets --release -- -D warnings
+cargo deny check licenses advisories bans sources
+cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources
+cargo test --workspace --release --locked
+cargo clippy --workspace --all-targets --release --locked -- -D warnings
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
 python -m unittest discover -s tools/stress/tests
-python -m unittest discover -s tools/release/tests   # .github/workflows/ or tools/release/ changed
 python -m unittest discover -s tools/profile/tests
-(cd engine && cargo clippy --release --all-targets -- -D warnings)   # Bevy workspace (viewer + game)
-cargo deny check licenses advisories bans sources                     # a dependency or deny.toml changed
-cargo deny --manifest-path engine/Cargo.toml check licenses advisories bans sources   # (cargo install cargo-deny)
+python -m unittest discover -s tools/release/tests
+(cd engine && cargo test --release --locked)
+(cd engine && cargo clippy --release --locked --all-targets -- -D warnings)
 ```
 
 With game data available (owner's install, read-only): build `fnvtool`, set
