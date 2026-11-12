@@ -189,6 +189,21 @@ fn unstuck(speed: f32) -> Unstuck {
     u
 }
 
+/// Actor `id`'s stuck rule, kept in step with the speed it moves at now (`speed`:
+/// `Walker::moving_speed`, its package's or fight's speed times its crippled legs' share,
+/// so the progress asked of it is what it can make; `Unstuck::set_speed`). `None` at a
+/// speed of 0 (a Speed Mult of 0, issue #2118): the actor stands where it is and is never
+/// stuck, and its rule forgets the second before, so the time it stood does not count when
+/// its speed comes back. Before, the rule kept the speed its walk had when the rule was
+/// made: an actor at Speed Mult 0, or slowed under a fifth of that, was moved on along its
+/// path every second, and one whose rule was made at 0 was never found stuck.
+fn stuck_rule(rules: &mut HashMap<u32, Unstuck>, id: u32, speed: f32) -> Option<&mut Unstuck> {
+    let moving = speed.is_finite() && speed > 0.0;
+    let rule = rules.entry(id).or_insert_with(|| unstuck(0.0));
+    rule.set_speed(if moving { speed } else { 0.0 });
+    moving.then_some(rule)
+}
+
 /// Horizontal speed over a ledge at the most, game units per second [design: the arc's
 /// own speed lands it on the landing point (`fnv_nav::jump::Flight`); a short wide drop
 /// asks for more than any run].
@@ -388,6 +403,7 @@ impl Mover for PhysMover<'_> {
         // frame below goes as if it fitted, so a body that never lands is not held up by
         // it (docs/design/navmesh.md §4.1).
         let judged = phys.npcs[&id].ch.grounded && !phys.npcs[&id].ch.swimming;
+        let airborne = !phys.npcs[&id].ch.grounded;
         let mut f = walker.follower.take()?;
         // Back to the walker: where physics left the actor, on the same path.
         let give_up = |phys: &mut PhysState, walker: &mut Walker, f| {
@@ -446,6 +462,21 @@ impl Mover for PhysMover<'_> {
                 phys.remove_npc(id);
                 return Some(WalkEvent::UsedDoor(d));
             }
+            // At a speed of 0 (a Speed Mult of 0, issue #2118) it stands where it is, its
+            // walk and its body kept, as the walker does on the navmesh (no step, no turn
+            // on the spot): not counted as stuck and not moved on along its path
+            // (`stuck_rule`), nor handed to the walker for its last steps. Already in the
+            // air over a ledge, the flight lands it first (`hop_or_obstacle`, which only
+            // takes off from the ground).
+            Steer::Walk { .. } if walker.moving_speed().is_nan() || walker.moving_speed() <= 0.0 => {
+                if self.unstuck.get(&id).is_none_or(|u| u.speed > 0.0) {
+                    info!("actor {id:08X} stands on its walk at ({:.0}, {:.0}, {:.0}): its speed is 0, not stuck", feet[0], feet[1], feet[2]);
+                }
+                let _ = stuck_rule(self.unstuck, id, 0.0);
+                walker.turning = false;
+                let v = if airborne && f.hop().is_some() { hop_or_obstacle(phys, id, &f, walker, [0.0, 0.0], self.stats, self.hopped).0 } else { [0.0, 0.0] };
+                (if v == [0.0, 0.0] { WalkEvent::Idle } else { WalkEvent::Moved }, v)
+            }
             // The last steps to the place itself are the walker's: packages send actors
             // to chairs, beds and markers, which the character cannot stand in. Not a
             // fighter's: its posts (cover, a peek point, a flank) are places to stand, and
@@ -476,7 +507,7 @@ impl Mover for PhysMover<'_> {
                 walker.turning = !walker.face(heading_of(dir), dt);
                 (WalkEvent::Turned, [0.0, 0.0])
             }
-            Steer::Walk { dir, remaining, .. } => match self.unstuck.entry(id).or_insert_with(|| unstuck(walker.speed)).advise_moved(feet, dir, dt) {
+            Steer::Walk { dir, remaining, .. } => match stuck_rule(self.unstuck, id, walker.moving_speed()).map_or(Advice::Head(dir), |u| u.advise_moved(feet, dir, dt)) {
                 Advice::Head(h) => {
                     // The heading turns at the walking rate and the actor walks along it
                     // (an arc round a corner), slowing while it is off the way to go
@@ -540,7 +571,7 @@ impl Mover for PhysMover<'_> {
                         phys.place_npc(id, to);
                         // Stuck again where it was put down, it is moved on again without
                         // the detours that failed already (`Unstuck::after_skip`).
-                        let mut u = unstuck(walker.speed);
+                        let mut u = unstuck(walker.moving_speed());
                         u.after_skip();
                         self.unstuck.insert(id, u);
                         return Some(WalkEvent::Moved);
@@ -843,6 +874,9 @@ struct Resident {
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
     /// ([`flies`]).
     perched: bool,
+    /// Its base is flagged Immobile ([`ACBS_IMMOBILE`]): with a Turning Speed of 0 it
+    /// never turns either ([`never_turns`]).
+    immobile: bool,
     /// The space its walker was in at the last frame (the space of a door it has just
     /// gone through).
     last_space: Option<Space>,
@@ -911,6 +945,18 @@ fn acbs_flag(world: &WorldData, base: u32, bit: u32) -> bool {
     let Some((plugin, r)) = fnv_world::fields::winner(world.lo, base) else { return false };
     let Ok(f) = fnv_world::fields::Fields::new(r, plugin, world.schema) else { return false };
     &f.sig == b"CREA" && f.raw(b"ACBS").and_then(|s| s.data.get(..4)).is_some_and(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & bit != 0)
+}
+
+/// An Immobile creature whose Turning Speed (CREA TNAM, `Game::creature_turning_speed`)
+/// is 0 never turns: a screen, not a turret. In FalloutNV.esm the Immobile creatures
+/// with 0 are MrHouse, MrHouseOFFLINE, YesManMainframe (the penthouse screens) and
+/// CRVoid; the 46 others, turrets and spore plants among them, have 30 to 300
+/// [observed: the master's CREA ACBS and TNAM; hypothesis: that the original reads the
+/// two so, it fits the owner's sight of a screen that stays still, issues #1543 and
+/// #2150]. A creature that walks keeps its own rule for a TNAM of 0
+/// (`creature_pace::creature_turn_rate`).
+fn never_turns(immobile: bool, turning_speed: Option<f32>) -> bool {
+    immobile && turning_speed == Some(0.0)
 }
 
 /// Whether the base form's ACBS flags have "Flies".
@@ -1403,19 +1449,21 @@ impl Core {
     /// Look up who of the listed creatures cannot walk ([`cannot_walk`], or flagged
     /// Immobile), before they are handed to the AI.
     fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData, actors: Option<&ActorWorld>) {
-        let mut by_base: HashMap<u32, (bool, bool)> = HashMap::new();
+        let mut by_base: HashMap<u32, (bool, bool, bool)> = HashMap::new();
         for r in self.list.iter_mut().filter(|r| r.rooted.is_none()) {
             let reference = r.actor.0;
-            let (rooted, perched) = *by_base.entry(r.base).or_insert_with(|| {
+            let (rooted, perched, immobile) = *by_base.entry(r.base).or_insert_with(|| {
                 // An Immobile creature (the turrets, Mr. House's screens) is held too:
                 // the flag "prevents movement" [documented: GECK wiki Animation Tab].
                 // A leveled template's pick is the first resident's of that base
                 // [hypothesis: the picks of one base share a skeleton family].
-                let rooted = cannot_walk(world, data, actors, r.base, reference) || acbs_flag(world, r.base, ACBS_IMMOBILE);
-                (rooted, rooted && flies(world, r.base))
+                let immobile = acbs_flag(world, r.base, ACBS_IMMOBILE);
+                let rooted = cannot_walk(world, data, actors, r.base, reference) || immobile;
+                (rooted, rooted && flies(world, r.base), immobile)
             });
             r.rooted = Some(rooted);
             r.perched = perched;
+            r.immobile = immobile;
         }
     }
 
@@ -1506,6 +1554,7 @@ impl Core {
             // Only creatures: people walk with the race's clips.
             rooted: (!creature).then_some(false),
             perched: false,
+            immobile: false,
             moved: false,
             last_space: None,
             aim_heading: None,
@@ -1737,6 +1786,10 @@ impl Core {
             } else if r.rooted == Some(true) {
                 self.ai.root(game, r.actor);
                 info!("ai: {} cannot move (no movement animations, or flagged Immobile): it stays where it is{}", r.label, if r.perched { "; it flies, so it is in nobody's way" } else { "" });
+                if never_turns(r.immobile, game.creature_turning_speed(FormId(r.base), r.actor)) {
+                    self.ai.fix_heading(r.actor);
+                    info!("ai: {} never turns (flagged Immobile, Turning Speed 0): it keeps its heading", r.label);
+                }
             }
         }
     }
@@ -2444,6 +2497,7 @@ impl Core {
                 | AiEvent::Cornered { .. }
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. }
+                | AiEvent::Resettles { .. }
                 | AiEvent::BackHome { .. }
                 | AiEvent::BackUp { .. }
                 | AiEvent::WeaponUse { .. }
@@ -2750,6 +2804,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
+        AiEvent::Resettles { package } => format!("is back in the place of {}: settles there again", n(package)),
         AiEvent::BackHome { away, length } => format!(
             "has no package: walks back to where it was placed, {} off, {length:.0} units to go",
             if away.is_finite() { format!("{away:.0} units") } else { "in another space".to_string() }
@@ -3158,7 +3213,10 @@ pub fn drive(
         let held = lock_target.is_some() && r.lock_held == lock_target;
         let lock = lock.map(|(_, at)| at);
         r.lock_held = None;
-        let heading = match (lock.or_else(|| core.aims.get(&r.actor).copied()), r.aim_heading) {
+        // One that never turns (`fnv_ai::Ai::fix_heading`: Mr. House's screen) is drawn
+        // at its walker's heading, which nothing changes, with a target or without (#2150).
+        let aim = lock.or_else(|| core.aims.get(&r.actor).copied()).filter(|_| !agent.fixed);
+        let heading = match (aim, r.aim_heading.filter(|_| !agent.fixed)) {
             (Some(t), from) => {
                 let want = heading_of([t[0] - feet[0], t[1] - feet[1]]);
                 let from = from.unwrap_or(w.heading);
@@ -3475,6 +3533,18 @@ mod tests {
         assert_eq!(use_aim(None, true), None);
     }
 
+    /// Only an Immobile creature with a Turning Speed of 0 never turns: Mr. House's
+    /// screen does not, a turret (Immobile, 30 and more) and a walking creature whose
+    /// record carries 0 do (issue #2150).
+    #[test]
+    fn only_an_immobile_creature_with_no_turning_speed_never_turns() {
+        use super::never_turns;
+        assert!(never_turns(true, Some(0.0)));
+        assert!(!never_turns(true, Some(30.0)));
+        assert!(!never_turns(false, Some(0.0)));
+        assert!(!never_turns(true, None));
+    }
+
     /// ResetAI on a seated actor whose package gives it the same chair again: it gets up
     /// by the exit clip, nothing tells it to sit while that plays, and once off it may sit
     /// down again (issue #2119). Without the restart the same chair changes nothing.
@@ -3524,6 +3594,44 @@ mod tests {
         assert_eq!(r.note(1, 14.0), 2);
         assert_eq!(r.note(1, 14.0 + SKIP_REFUSED_FORGET + 1.0), 1);
         assert_eq!(r.total, 7);
+    }
+
+    /// The maintainer's review of #2143: a walk under way at Speed Mult 0 (speeds of 0, the
+    /// walk kept) stands and is never moved on along its path; one slowed under a fifth of
+    /// the speed its walk started at is judged by its new speed; and a rule made while the
+    /// speed was 0 still finds the actor stuck once its speed is back. Each frame as
+    /// `PhysMover::walk` asks it: no advice at 0, else `advise_moved` with the feet.
+    #[test]
+    fn a_walk_at_speed_zero_is_never_moved_on_along_its_path() {
+        use super::stuck_rule;
+        use fnv_nav::follow::Advice;
+        let dt = 1.0 / 60.0;
+        let mut rules = HashMap::new();
+        // Frames at `speed` (the feet moving at `moves` units/s along +x): any skip advised.
+        let frames = |rules: &mut HashMap<u32, fnv_nav::follow::Unstuck>, x: &mut f32, speed: f32, moves: f32, seconds: f32| {
+            let mut skipped = false;
+            for _ in 0..(seconds / dt).round() as usize {
+                *x += moves * dt;
+                if let Some(u) = stuck_rule(rules, 7, speed) {
+                    skipped |= matches!(u.advise_moved([*x, 0.0, 0.0], [1.0, 0.0], dt), Advice::Skip | Advice::GiveUp);
+                }
+            }
+            skipped
+        };
+        let mut x = 0.0;
+        assert!(!frames(&mut rules, &mut x, 100.0, 100.0, 2.0));
+        // SetAV SpeedMult 0 mid-walk, held ten seconds: the rule is not asked, its speed is 0.
+        assert!(!frames(&mut rules, &mut x, 0.0, 0.0, 10.0));
+        assert_eq!((rules[&7].speed, rules[&7].detours, rules[&7].replans), (0.0, 0, 0));
+        // Back to 100, then down to 15 (under a fifth of 100) and walking at 15.
+        assert!(!frames(&mut rules, &mut x, 100.0, 100.0, 3.0));
+        assert!(!frames(&mut rules, &mut x, 15.0, 15.0, 5.0));
+        assert_eq!((rules[&7].detours, rules[&7].replans), (0, 0));
+        // A rule first made at 0 finds a blocked actor stuck once its speed is back.
+        let mut late = HashMap::new();
+        let mut y = 0.0;
+        assert!(!frames(&mut late, &mut y, 0.0, 0.0, 3.0));
+        assert!(frames(&mut late, &mut y, 100.0, 0.0, 10.0), "stuck at 100 and moved on");
     }
 
     #[test]

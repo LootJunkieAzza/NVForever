@@ -510,8 +510,14 @@ struct Fighter {
     /// A rush rolled for this approach: `Some(true)` rushing (§17.2).
     rush: Option<bool>,
     /// A creature's attack on the run rolled for this approach ([`lunge_band`]): rolled
-    /// once as its target comes within the band, again after it has left it.
+    /// once as its target comes within the band, again after it has left it or
+    /// [`RUN_ATTACK_AGAIN`] after the roll (`lunge_at`, clock).
     lunge_rolled: bool,
+    lunge_at: f32,
+    /// Where its target's feet were last frame and how the target moves on the ground,
+    /// units/s, for how fast it gains on it ([`closing_speed`]).
+    target_feet: Option<(FormId, V3)>,
+    target_velocity: [f32; 2],
     /// Where its fight began or it was last hit, and its health then; beyond its Combat
     /// Radius now (§17.4).
     anchor: V3,
@@ -930,6 +936,26 @@ pub const RUN_ATTACK_SPEED: f32 = 100.0;
 /// leap of about 3 m (at 300 a Goodsprings dog lunged from 419 units); the measured closing speed is also capped at the creature's own
 /// running speed, as a frame's step after a MoveTo or a physics snap is no run].
 pub const RUN_ATTACK_MAX: f32 = 200.0;
+/// A creature still short of its target this long after its attack on the run was rolled
+/// may begin another, seconds [design: owner's playtest 2026-11-11, #2163: rolled once an
+/// approach, a creature chasing a player who backed away within [`RUN_ATTACK_MAX`] of
+/// its reach never began a second].
+pub const RUN_ATTACK_AGAIN: f32 = 1.0;
+/// A target's measured speed above this is a move by a script or a physics snap, not
+/// its pace, units/s ([`closing_speed`]) [engineering choice].
+pub const TARGET_SPEED_MAX: f32 = 2000.0;
+
+/// How fast an attacker gains on its target along the line to it (`to`, attacker to
+/// target), units/s: its own speed that way, at most `cap` (its running speed, as a
+/// frame's step after a MoveTo is no run), less the target's speed away from it. A
+/// target backing away from a faster creature is gained on at the difference, so the
+/// blow begun on the run ([`lunge_band`]) lands [design, #2163: with the attacker's own
+/// speed alone a cazador began its sting 100 units too far from a player backing away].
+pub fn closing_speed(own: [f32; 2], target: [f32; 2], to: [f32; 2], cap: f32) -> f32 {
+    let len = to[0].hypot(to[1]).max(1e-3);
+    let along = |v: [f32; 2]| (v[0] * to[0] + v[1] * to[1]) / len;
+    along(own).min(cap) - along(target)
+}
 
 /// How far beyond its strike distance a creature closing in at `closing` units/s may begin
 /// a blow whose clip reaches its `Hit` key after `hit` seconds: the ground it covers until
@@ -1692,6 +1718,9 @@ pub(crate) fn fight(
                         dodge: None,
                         rush: None,
                         lunge_rolled: false,
+                        lunge_at: 0.0,
+                        target_feet: None,
+                        target_velocity: [0.0, 0.0],
                         anchor,
                         anchor_health,
                         leashed: false,
@@ -2582,7 +2611,8 @@ pub(crate) fn fight(
                         &mut deadline,
                         input,
                         g,
-                        |g| g.world.peek(me).and_then(|s| s.inventory.as_ref()).and_then(|inv| npc_grenades::carried(&c.forms, inv.iter())),
+                        // Not a live unit planted on it (`Extra::live`, #1640).
+                        |g| g.world.peek(me).and_then(|s| s.inventory.as_ref()).and_then(|inv| npc_grenades::carried(&c.forms, inv.free_iter())),
                         |g, gr| {
                             let spares = style.is_none_or(|s| g.spares_spectators(me, s));
                             let ignores_group = style.is_some_and(|s| s.ignore_damaging_group);
@@ -2614,7 +2644,7 @@ pub(crate) fn fight(
                                 let gr = throw.grenade;
                                 fire.write(ActorFire { shooter: me, weapon: gr.weapon, origin: throw.origin, aim: throw.aim, cone: GRENADE_CONE, muzzle: None, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(gr.weapon), melee: false, sights: false, kind: Move::Attack, power: None, swing: None });
-                                let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.count(gr.weapon));
+                                let left = g.world.peek(me).and_then(|s| s.inventory.as_ref()).map_or(0, |i| i.free_count(gr.weapon));
                                 f.stats.grenades += 1;
                                 info!("npc combat: {me_name} throws {} at {target_name} ({away_feet:.0} units, blast {:.0}); {left} left", g.data.name(gr.weapon), gr.blast);
                                 g.attack_line(me, Some(target), false, true);
@@ -2810,6 +2840,21 @@ pub(crate) fn fight(
                         fighter.velocity = [(feet[0] - l[0]) / dt, (feet[1] - l[1]) / dt];
                     }
                     fighter.walk_feet = Some(feet);
+                    // How its target moves: this frame's step evened with the last
+                    // (a frame without a physics step reads as standing still).
+                    fighter.target_velocity = match fighter.target_feet {
+                        Some((t, l)) if t == target && dt > 0.0 => {
+                            let now = [(tfeet[0] - l[0]) / dt, (tfeet[1] - l[1]) / dt];
+                            if now[0].hypot(now[1]) > TARGET_SPEED_MAX {
+                                [0.0, 0.0]
+                            } else {
+                                [(now[0] + fighter.target_velocity[0]) * 0.5, (now[1] + fighter.target_velocity[1]) * 0.5]
+                            }
+                        }
+                        Some((t, _)) if t == target => fighter.target_velocity,
+                        _ => [0.0, 0.0],
+                    };
+                    fighter.target_feet = Some((target, tfeet));
                     // Where its walk stops short of the target: a lunge carries it no nearer.
                     let stop = match (&arm, gap) {
                         (Arm::Creature(..), gap) => creature_spacing(gap.map(|gap| away - gap), reach).0,
@@ -2886,22 +2931,24 @@ pub(crate) fn fight(
                     if let Arm::Creature(..) = &arm {
                         let strike_at = creature_spacing(gap.map(|gap| away - gap), reach).1;
                         let to = [tfeet[0] - feet[0], tfeet[1] - feet[1]];
-                        let len = to[0].hypot(to[1]).max(1e-3);
                         let run = residents.as_deref().map_or(f32::INFINITY, |r| r.alert_speeds(me).run * g.awareness.pace_of(me));
-                        let closing = ((fighter.velocity[0] * to[0] + fighter.velocity[1] * to[1]) / len).min(run * 1.1);
+                        let closing = closing_speed(fighter.velocity, fighter.target_velocity, to, run * 1.1);
                         let hit_normal = times.hit.get(&id).copied().unwrap_or(DEFAULT_HIT);
                         let forward = times.powers.get(&id).and_then(|have| have.iter().copied().find(|p| p.0 == Power::Forward)).filter(|_| !lame);
                         let band_normal = lunge_band(closing, hit_normal);
                         let band_forward = forward.map_or(0.0, |p| lunge_band(closing, p.1));
                         let band = band_normal.max(band_forward);
                         // Rolled again only once the target is beyond the widest band (a
-                        // frame without a physics step reads as standing still).
-                        if !near && away > strike_at + RUN_ATTACK_MAX {
+                        // frame without a physics step reads as standing still), or it
+                        // has been short of its target for a while since (a target that
+                        // keeps backing away within the band).
+                        if !near && (away > strike_at + RUN_ATTACK_MAX || clock - fighter.lunge_at >= RUN_ATTACK_AGAIN) {
                             fighter.lunge_rolled = false;
                         }
                         let in_band = !near && band > 0.0 && away <= strike_at + band;
                         if in_band && !fighter.lunge_rolled && ready && !fleeing && fighter.strike_in <= 0.0 && (feet[2] - tfeet[2]).abs() < 128.0 {
                             fighter.lunge_rolled = true;
+                            fighter.lunge_at = clock;
                             let lunge = forward.filter(|_| away <= strike_at + band_forward).into_iter().collect::<Vec<_>>();
                             let ordinary_ok = away <= strike_at + band_normal;
                             // No attack-chance roll on the run: a creature running in
@@ -3677,6 +3724,17 @@ mod tests {
         // units out; never more than the cap.
         assert!((lunge_band(400.0, 0.4) - 160.0).abs() < 1e-3);
         assert_eq!(lunge_band(2000.0, 1.0), RUN_ATTACK_MAX);
+        // Gaining on a target: its own speed towards it less the target's away from it.
+        let east = [100.0, 0.0];
+        assert_eq!(closing_speed([955.0, 0.0], [0.0, 0.0], east, 1050.0), 955.0);
+        assert_eq!(closing_speed([955.0, 0.0], [272.8, 0.0], east, 1050.0), 955.0 - 272.8);
+        // A target coming at it is gained on faster; one moving across, as if it stood.
+        assert_eq!(closing_speed([300.0, 0.0], [-100.0, 0.0], east, 330.0), 400.0);
+        assert_eq!(closing_speed([300.0, 0.0], [0.0, 250.0], east, 330.0), 300.0);
+        // Its own speed is capped (a MoveTo's step), the target's is not added to the cap.
+        assert_eq!(closing_speed([5000.0, 0.0], [200.0, 0.0], east, 1050.0), 850.0);
+        // A person as fast as its target gains nothing: no blow begins short of its reach.
+        assert_eq!(lunge_band(closing_speed([272.8, 0.0], [272.8, 0.0], east, 300.0), 0.4), 0.0);
     }
 
     #[test]
