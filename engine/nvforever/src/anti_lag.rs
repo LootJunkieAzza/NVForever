@@ -3,6 +3,10 @@
 //! sooner [hypothesis: not yet measured on an AMD GPU]. Off by default: Settings > Graphics >
 //! Latency reduction, or `--latency-reduction`.
 //!
+//! The switch, the frame indices and the points in the frame are here; on NVIDIA GPUs the same
+//! switch drives the driver's low latency mode instead (`VK_NV_low_latency2`,
+//! `nv_low_latency.rs`), from the same points. A device has one of the two or neither.
+//!
 //! - **The extension.** Bevy creates the Vulkan device. With its `raw_vulkan_init` feature, a
 //!   callback ([`AntiLagInitPlugin`]) adds `VK_AMD_anti_lag` and turns its `antiLag` feature on
 //!   when the GPU's driver offers both [documented: Vulkan registry `vk.xml`, extension 477].
@@ -115,6 +119,7 @@ impl Plugin for AntiLagInitPlugin {
                 features.insert::<AntiLagEnabled>();
             });
         }
+        crate::nv_low_latency::ask_for_extension(&mut settings);
     }
 }
 
@@ -164,9 +169,21 @@ impl AntiLagDriver {
     }
 }
 
+/// The driver technique latency reduction runs on, on this GPU: `None` when its Vulkan driver
+/// has neither (the settings row is dimmed, and the switch does nothing).
+pub fn technique(world: &World) -> Option<&'static str> {
+    if world.contains_resource::<AntiLagDriver>() {
+        Some("AMD Anti-Lag")
+    } else if world.contains_resource::<crate::nv_low_latency::NvLowLatency>() {
+        Some("NVIDIA low latency")
+    } else {
+        None
+    }
+}
+
 /// Whether this GPU's driver takes latency reduction (for the settings row).
 pub fn available(world: &World) -> bool {
-    world.contains_resource::<AntiLagDriver>()
+    technique(world).is_some()
 }
 
 /// Frame indices in the main world: `current` is the frame whose input this update
@@ -179,9 +196,9 @@ struct Frames {
 
 /// The render world's copy: the frame it draws, and whether the switch was on for it.
 #[derive(Resource, Default, Clone, Copy)]
-struct Presenting {
-    frame: u64,
-    on: bool,
+pub(crate) struct Presenting {
+    pub(crate) frame: u64,
+    pub(crate) on: bool,
 }
 
 /// The switch and the calls to the driver.
@@ -198,6 +215,7 @@ impl Plugin for AntiLagPlugin {
             .init_resource::<Presenting>()
             .add_systems(ExtractSchedule, extract)
             .add_systems(Render, announce_present.in_set(RenderSystems::Render).before(render_system));
+        crate::nv_low_latency::add_systems(app);
     }
 
     fn finish(&self, app: &mut App) {
@@ -205,7 +223,7 @@ impl Plugin for AntiLagPlugin {
         if announce_input_after_hand_off(app) {
             app.insert_resource(crate::frame_pace::WaitsAfterHandOff);
         } else {
-            app.add_systems(Last, announce_input.after(crate::frame_pace::cap_rate));
+            app.add_systems(Last, announce_input_in_last.after(crate::frame_pace::cap_rate));
         }
         let Some(render) = app.get_sub_app(RenderApp) else { return };
         let world = render.world();
@@ -218,7 +236,15 @@ impl Plugin for AntiLagPlugin {
                 app.insert_resource(driver);
                 app.sub_app_mut(RenderApp).insert_resource(driver);
             }
-            None => info!("latency reduction: not available on {adapter}: its Vulkan driver has no VK_AMD_anti_lag (AMD GPUs only)"),
+            // No Anti-Lag: NVIDIA's low latency mode, where the driver has that.
+            None => match crate::nv_low_latency::load(app) {
+                Ok(driver) => {
+                    info!("latency reduction: NVIDIA low latency (VK_NV_low_latency2) available on {adapter}");
+                    app.insert_resource(driver.clone());
+                    app.sub_app_mut(RenderApp).insert_resource(driver);
+                }
+                Err(why) => info!("latency reduction: not available on {adapter}: no AMD Anti-Lag (its Vulkan driver has no VK_AMD_anti_lag) and no NVIDIA low latency ({why})"),
+            },
         }
     }
 }
@@ -247,6 +273,8 @@ fn announce_input_after_hand_off(app: &mut App) -> bool {
     let Some(extract_app) = app.get_sub_app_mut(RenderExtractApp) else { return false };
     let mut hand_off = extract_app.take_extract();
     extract_app.set_extract(move |main_world, extract_world| {
+        // The frame's simulation ends here: the hand-off first waits for the render thread.
+        crate::nv_low_latency::simulation_end(main_world, main_world.resource::<Frames>().current);
         if let Some(hand_off) = hand_off.as_mut() {
             hand_off(main_world, extract_world);
         }
@@ -256,14 +284,24 @@ fn announce_input_after_hand_off(app: &mut App) -> bool {
     true
 }
 
-/// Announces the next frame at input: the one after the frame this update processed.
+/// Without pipelined rendering: the frame's simulation ends and the next frame is announced at
+/// the end of `Last`.
+fn announce_input_in_last(world: &mut World) {
+    crate::nv_low_latency::simulation_end(world, world.resource::<Frames>().current);
+    announce_input(world);
+}
+
+/// Announces the next frame at input: the one after the frame this update processed. On
+/// NVIDIA this is where the driver's sleep is waited for (`nv_low_latency.rs`).
 fn announce_input(world: &mut World) {
     let mut frames = world.resource_mut::<Frames>();
     frames.next = frames.current + 1;
     let next = frames.next;
+    let on = world.resource::<LatencyReduction>().active();
     if let Some(driver) = world.get_resource::<AntiLagDriver>() {
-        driver.send(world.resource::<LatencyReduction>().active(), STAGE_INPUT, next);
+        driver.send(on, STAGE_INPUT, next);
     }
+    crate::nv_low_latency::input(world, on, next);
 }
 
 fn extract(mut presenting: ResMut<Presenting>, switch: Extract<Res<LatencyReduction>>, frames: Extract<Res<Frames>>) {
@@ -276,15 +314,17 @@ fn announce_present(presenting: Res<Presenting>, driver: Option<Res<AntiLagDrive
     }
 }
 
-/// Says when the switch turns on or off (and that it does nothing where the driver lacks it).
-fn log_switch(switch: Res<LatencyReduction>, driver: Option<Res<AntiLagDriver>>, mut said: Local<Option<bool>>) {
+/// Says when the switch turns on or off, with the technique it runs on (or that it does
+/// nothing where the driver has neither).
+fn log_switch(world: &World, mut said: Local<Option<bool>>) {
+    let switch = world.resource::<LatencyReduction>();
     let on = switch.active();
     if *said == Some(on) || (said.is_none() && !on) {
         *said = Some(on);
         return;
     }
     *said = Some(on);
-    let how = if driver.is_some() { "AMD Anti-Lag" } else { "not available on this GPU" };
+    let how = technique(world).unwrap_or("not available on this GPU");
     let why = if switch.by_frame_generation && !switch.on { ", with frame generation" } else { "" };
     info!("latency reduction: {} ({how}{why})", if on { "on" } else { "off" });
 }
