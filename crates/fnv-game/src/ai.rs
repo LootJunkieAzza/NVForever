@@ -154,7 +154,11 @@ impl<'a> Game<'a> {
         }
         if def.has(flags::ONCE_PER_DAY) {
             let e = self.extra.get(&actor);
-            let running = e.is_some_and(|e| e.current_package == Some(package) && !e.package_goal_met);
+            // Finished, it still runs while its schedule duration holds it: the original's
+            // Goodsprings geckos kept a FindFood that reached DONE until its 2 h were up
+            // (owner-decision-captures.md §7; `Game::end_timed_packages`).
+            let timed = e.is_some_and(|e| e.package_ends_by_schedule && e.package_ends.is_some_and(|(p, until)| p == package && (now as f64) < until));
+            let running = e.is_some_and(|e| e.current_package == Some(package) && (!e.package_goal_met || timed));
             let chosen = e.and_then(|e| e.package_chosen_at.get(&package)).copied();
             if !running && chosen.is_some_and(|t| now - t < 1.0) {
                 return PackageCheck::OncePerDay;

@@ -102,9 +102,17 @@ switch delays after a schedule boundary are spread from 0.4 to 26 real seconds].
 and disabled actors do not choose. Menus stop the clock as they stop scripts.
 
 **Package scripts** (only with `package_interval` set): a new package runs its begin
-script and OnPackageStart; a package replaced before its goal runs its change script and
-OnPackageChange; a package whose goal is met runs its end script and OnPackageDone
-[documented: the three state changes; hypothesis: no change event after the end event].
+script and OnPackageStart; a package whose goal is met runs its end script and
+OnPackageDone; a package the actor leaves for another runs its change script and
+OnPackageChange, also after its end script ran [documented: the three state changes;
+hypothesis from the data: TTW's CG02AndyCutCake (Must Complete, Once Per Day) sets the
+cake stage the birthday party waits for only in its change script, and nothing ends it
+before its goal, issue #2221; until 2026-11-12 no change event followed the end event].
+A Once Per Day package whose goal is met is not chosen again within the day even while
+it is still the current one, so the next valid package takes over ("not immediately
+selected again after being completed", GECK wiki Category:Packages); TTW's chains of
+such travels (Andy's cake, Amata's escape route `CG04AmataToApartmentDoor1` → `…2new`
+→ `CG04AmataToOverseersOffice`, #2227) depend on it.
 Without the interval nothing runs by itself and the Layer 5 runner's `package` input
 stands in, so Layer 5 scenarios behave as before apart from the validity rules.
 
