@@ -156,8 +156,8 @@ pub const CLOSE_REPLAN_NEAR: f32 = 12.0;
 /// A target that moves is closed in on where it will be this many seconds on, at the
 /// speed it moved since the way was last planned, at most [`CHASE_LEAD_MAX`] units
 /// ahead of it; a target slower than [`CHASE_LEAD_MIN_SPEED`] units/s stands
-/// ([`lead`]) [design, #2163: the chaser ends inside its distance from a target that
-/// keeps going, with the time a blow takes to land in hand].
+/// ([`lead`]), while the actor is beyond its distance [design, #2163: the chaser
+/// catches up with a target that keeps going instead of trailing it].
 pub const CHASE_LEAD_SECONDS: f32 = 0.35;
 pub const CHASE_LEAD_MAX: f32 = 96.0;
 pub const CHASE_LEAD_MIN_SPEED: f32 = 40.0;
@@ -393,7 +393,13 @@ impl Ai {
             // in on, whatever the distance, halving the gap, until it sees it again
             // [design: an actor that stood where it could not see its target went Lost
             // and back to Combat every few seconds at Cook-Cook's camp].
-            let close_in = (!sees && engage.is_some()) || engage.is_some_and(|(stop, resume)| away > if holding { resume } else { stop });
+            // On the way to a target that keeps moving it does not stop at its
+            // distance to set off again a few units later: it keeps on to where its
+            // way ends, [`STOP_SHORT`] of the distance, and so keeps its target's pace
+            // there [design, #2163].
+            let keeps_pace = matches!(a.search, Some(Search::Closing { target: t, drift, .. }) if t == target && drift.speed[0].hypot(drift.speed[1]) >= CHASE_LEAD_MIN_SPEED);
+            let close_in = (!sees && engage.is_some())
+                || engage.is_some_and(|(stop, resume)| away > if holding { resume } else if keeps_pace { stop * STOP_SHORT } else { stop });
             let stop = if sees { engage.map_or(0.0, |e| e.0) } else { away * BLIND_CLOSE_SHARE };
             let going = a.activity == Activity::Travelling;
             match (close_in, a.search) {
@@ -401,6 +407,14 @@ impl Ai {
                 (true, Some(Search::Closing { target: t, to, since, .. })) if t == target && going && keeps_way(to, since, at, away, stop, now) => {}
                 (true, _) => self.close_in(game, nav, actor, target, at, away, stop),
                 (false, Some(Search::Holding { target: t })) if t == target => {}
+                // At the end of its way behind a target that moves: it waits there for
+                // the target's next step, measuring its speed, and holds once the
+                // target has stopped. So too until the target's speed has first been
+                // measured (a short way from standing ends before [`DRIFT_SECONDS`]).
+                (false, Some(Search::Closing { target: t, to, since, drift })) if t == target && (keeps_pace || now - drift.at < f64::from(DRIFT_SECONDS)) => {
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    a.search = Some(Search::Closing { target, to, since, drift: drift.on(at, now) });
+                }
                 (false, _) => {
                     let a = self.agents.get_mut(&actor).expect("listed");
                     a.walker.follower = None;
@@ -552,7 +566,8 @@ impl Ai {
             Some(Search::Closing { target: t, drift, .. }) if t == target => drift.on(at, now),
             _ => Drift::begin(at, now),
         };
-        let ahead = lead(at, drift.speed);
+        // Led only while it has ground to make up: at its distance it keeps there.
+        let ahead = if away > stop { lead(at, drift.speed) } else { at };
         let back = [a.walker.feet[0] - ahead[0], a.walker.feet[1] - ahead[1]];
         let len = back[0].hypot(back[1]).max(1e-3);
         let short = (stop * STOP_SHORT).min(len);
