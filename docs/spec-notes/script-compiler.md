@@ -223,6 +223,14 @@ the editor-parity and runtime compiles keep their errors) [decision]:
   parentheses with an operand right after it, where text would leave two operands side
   by side: there it is the call [observed: JIP Companions Command & Control 2.60,
   `SetFunctionValue (CCCInFaction <faction> == 0)`].
+- **A variable with an extender function's name** (`short break`) is a warning there, not
+  the editor's error: the unit shipped with compiled bytes, and a local is read before a
+  function of its name [observed: Project Nevada - Core.esm 2.5, a stage's result script].
+- **A form of the game itself that no plugin defines**, named by a script: `MapMarker` is
+  0x00000010 (`compile::env::BUILT_IN`) [observed: CASM with MCM 1.8's compiled script
+  lists that form where its source says `rRef.gbo == MapMarker`]. Until then the name
+  compiled as an unknown function and the line was skipped every frame (256,575 skips in
+  the owner's eight-minute run of 2026-11-12). Only forms read this way are listed.
 - **An enumeration name the table lacks** (an animation group, an actor value, a
   statistic) compiles, with a warning, to code 65535, which no entry has. The table holds
   only the names seen in compiled scripts (scripts.md §2).

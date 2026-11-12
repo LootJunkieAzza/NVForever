@@ -52,7 +52,8 @@
     "ptAxis": "axis",
     "ptSex": "enum:sex",
     "ptMiscStat": "enum:misc_stat",
-    "ptCriticalStage": "enum:critical_stage"
+    "ptCriticalStage": "enum:critical_stage",
+    "ptFormType": "enum:form_type"
   },
   "enums": {
     "actor_value": {
@@ -73,9 +74,11 @@
     "anim_group": {
       "0": "Idle", "2": "SpecialIdle", "3": "Forward", "4": "Backward", "5": "Left", "6": "Right",
       "7": "FastForward", "8": "FastBackward", "9": "FastLeft", "10": "FastRight", "15": "TurnLeft",
-      "17": "Aim", "24": "Equip", "25": "Unequip", "227": "JumpStart", "228": "JumpLoop"
+      "17": "Aim", "24": "Equip", "25": "Unequip", "44": "Attack4", "47": "Attack4IS", "50": "Attack5",
+      "62": "Attack7", "201": "JamB", "223": "Stagger", "227": "JumpStart", "228": "JumpLoop"
     },
     "sex": {"0": "Male", "1": "Female"},
+    "form_type": {"27": "Container"},
     "misc_stat": {
       "0": "Quests Completed", "1": "Locations Discovered", "2": "People Killed",
       "3": "Creatures Killed", "4": "Locks Picked", "5": "Computers Hacked",

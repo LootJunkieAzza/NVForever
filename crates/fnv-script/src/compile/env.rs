@@ -107,6 +107,17 @@ impl<'a> LoadOrderIndex<'a> {
     }
 }
 
+/// Forms of the game itself that scripts name and no plugin defines: Editor ID, FormID
+/// (below 0x800, the game's own range), record type. Only what was read:
+/// `MapMarker` is 0x00000010 [observed: CASM with MCM 1.8's compiled script lists form
+/// 0x00000010 where its source says `rRef.gbo == MapMarker`; the base game's map marker
+/// references have that base, refs.md]; a static [hypothesis: nothing here reads the type].
+const BUILT_IN: [(&str, u32, [u8; 4]); 1] = [("MapMarker", 0x0000_0010, *b"STAT")];
+
+fn built_in(editor_id: &str) -> Option<FormInfo> {
+    BUILT_IN.iter().find(|b| b.0.eq_ignore_ascii_case(editor_id)).map(|b| FormInfo { form: b.1, sig: b.2 })
+}
+
 pub struct PluginEnv<'a> {
     ix: &'a LoadOrderIndex<'a>,
     plugin: usize,
@@ -114,7 +125,9 @@ pub struct PluginEnv<'a> {
 
 impl Env for PluginEnv<'_> {
     fn form(&self, editor_id: &str) -> Option<FormInfo> {
-        let cands = self.ix.edids.get(&editor_id.to_ascii_lowercase())?;
+        let Some(cands) = self.ix.edids.get(&editor_id.to_ascii_lowercase()) else {
+            return built_in(editor_id);
+        };
         // The last visible definition whose Editor ID (as the viewer sees the form) matches.
         let mut best: Option<(usize, FormInfo)> = None;
         for &f in cands {
@@ -124,15 +137,18 @@ impl Env for PluginEnv<'_> {
                 }
             }
         }
-        best.map(|b| b.1)
+        best.map(|b| b.1).or_else(|| built_in(editor_id))
     }
 
     fn info(&self, form: u32) -> Option<FormInfo> {
-        self.ix.def(form, self.plugin).map(|d| FormInfo { form, sig: d.sig })
+        self.ix.def(form, self.plugin).map(|d| FormInfo { form, sig: d.sig }).or_else(|| BUILT_IN.iter().find(|b| b.1 == form).map(|b| FormInfo { form, sig: b.2 }))
     }
 
     fn editor_id(&self, form: u32) -> Option<String> {
-        self.ix.def(form, self.plugin)?.edid.clone()
+        match self.ix.def(form, self.plugin) {
+            Some(d) => d.edid.clone(),
+            None => BUILT_IN.iter().find(|b| b.1 == form).map(|b| b.0.to_string()),
+        }
     }
 
     fn local_form(&self, local: u32) -> Option<u32> {

@@ -1557,3 +1557,37 @@ fn an_unknown_name_before_an_operand_in_parentheses_is_a_call() {
     // The editor-parity compile keeps its error.
     assert!(compile(src, &table(), &World, None).errors().count() > 0);
 }
+
+#[test]
+fn names_read_from_mods_compiled_bytes_have_their_codes() {
+    // [observed: the compiled scripts of Project Nevada 2.5 and Unofficial Patch NVSE Plus
+    // 1.7.3 beside their source: PlayGroup Attack4 44, Attack4IS 47, Attack5 50, Attack7
+    // 62, JamB 201, Stagger 223; GetIsObjectType Container 27, stored as an animation
+    // group is (a count, then the code).]
+    let t = table();
+    for (group, code) in [("Attack4", 44u16), ("Attack4IS", 47), ("Attack5", 50), ("Attack7", 62), ("JamB", 201), ("Stagger", 223)] {
+        let c = compile(&format!("begin GameMode\nPlayGroup {group} 1\nend"), &t, &World, None);
+        assert_eq!(c.errors().count(), 0, "{group}: {:?}", c.diags);
+        assert!(c.bytes.windows(8).any(|w| w[..2] == 0x1013u16.to_le_bytes() && w[6..8] == code.to_le_bytes()), "{group}: {:02X?}", c.bytes);
+    }
+    let c = compile("ref r\nshort a\nbegin GameMode\nif r.GetIsObjectType Container == 1 && a\nendif\nend", &t, &World, None);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert!(c.bytes.windows(8).any(|w| w == [0xB1, 0x11, 0x04, 0x00, 0x01, 0x00, 0x1B, 0x00]), "{:02X?}", c.bytes);
+    // A form type not read yet: an error in the editor's compile, a warning in a mod's.
+    let src = "ref r\nbegin GameMode\nif r.GetIsObjectType NoSuchType\nendif\nend";
+    assert_eq!(compile(src, &t, &World, None).errors().map(|d| d.kind).collect::<Vec<_>>(), ["unknown_enum_name"]);
+    let (c, _) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.diags);
+    assert_eq!(warnings(&c, "unknown_enum_name"), ["form_type: NoSuchType"]);
+}
+
+#[test]
+fn a_mods_variable_may_bear_an_extender_functions_name() {
+    // [observed: Project Nevada - Core.esm 2.5, a variable `break` in a stage's result
+    // script, shipped with compiled bytes.] The editor's compile refuses the name.
+    let src = "short break\nbegin GameMode\nset break to 1\nif break\nendif\nend";
+    let (c, _) = mod_source(src);
+    assert_eq!(c.errors().count(), 0, "{:?}", c.errors().collect::<Vec<_>>());
+    assert_eq!(warnings(&c, "variable_named_like_a_function"), ["break"]);
+    assert!(compile(src, &table(), &World, None).errors().any(|d| d.kind == "variable_named_like_a_function"));
+}

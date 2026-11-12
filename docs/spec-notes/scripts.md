@@ -180,7 +180,15 @@ the unknown opcode 0x127C) decodes with values only [observed]. The functions an
   SpecialIdle, 3 Forward, 4 Backward, 5 Left, 6 Right, 7–10 Fast*, 15 TurnLeft, 17 Aim,
   24 Equip, 25 Unequip [observed]; 227 JumpStart, 228 JumpLoop [observed: a mod's compiled
   script, JustAssortedMods.esp 4.6 `JVSAnimEffectScript`, whose two IsAnimPlaying calls
-  carry these codes in source order; no shipped unit names them]).
+  carry these codes in source order; no shipped unit names them]; 44 Attack4, 47
+  Attack4IS, 50 Attack5, 62 Attack7, 201 JamB, 223 Stagger [observed: the PlayGroup calls
+  of Project Nevada 2.5's and Unofficial Patch NVSE Plus 1.7.3's compiled scripts beside
+  their source, each name with one code in every unit that has it]).
+- **enum, form type**: GetIsObjectType's parameter, stored as an animation group is
+  (xEdit's `ptFormType`). 27 Container [observed: Project Nevada - Core.esm 2.5,
+  `obj.GetIsObjectType Container` compiled to `B1 11 04 00 01 00 1B 00`; no shipped unit
+  calls the function]. Other type names are not read yet: an error in the editor's
+  compile, a warning and code 65535 in a mod's source (script-compiler.md §7).
 - **enum, sex**: GetIsSex 6, GetPCIsSex 8, SexChange 12 (0 Male, 1 Female).
 - **enum, misc stat**: ModPCMiscStat 6, GetPCMiscStat 4 (the source writes the stat name
   quoted, `"Corpses Eaten"`; the bytes hold the code).

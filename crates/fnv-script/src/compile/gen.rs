@@ -391,8 +391,12 @@ impl<'a> Gen<'a> {
         // A variable may not take an extender function's name or alias [observed: a
         // runtime-compiled script declaring `ref rK` (ReleaseKey's alias) is refused, rF
         // rG rB rD rP are not; hypothesis that every extender name is refused].
+        // In a mod's source compiled by the engine it is a warning: the unit shipped with
+        // compiled bytes, so the compiler of its day took the name [observed: Project
+        // Nevada - Core.esm 2.5 declares a variable `break` in a stage's result script],
+        // and a local is read before a function of its name (`x::xword`).
         if self.table.unnumbered.contains_key(&name.to_ascii_lowercase()) {
-            self.diag("variable_named_like_a_function", true, name.to_string());
+            self.diag("variable_named_like_a_function", !self.unknown_calls, name.to_string());
         }
         // A string or array variable holds an id [documented: Array Variable; String
         // Variable]; NVForever keeps the kind in the type (the record's list cannot).
