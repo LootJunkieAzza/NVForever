@@ -450,6 +450,12 @@ pub struct TweakSettings {
     /// quest's open objectives, at most once in `objectives_gap` seconds.
     pub objectives_on_arrival: bool,
     pub objectives_gap: f32,
+    /// `bClearNearbyPlayerMarker`/`fDistance`: the custom map marker goes when the player
+    /// comes this near it (game units; 0 never).
+    pub clear_marker_within: f32,
+    /// `iPlaceMapMarkerAtPlayerPosKey`/`sMessage`: the Place Marker Here key says so in
+    /// the corner.
+    pub place_marker_here_says: bool,
 }
 
 /// The colours a companion's compass pip may take, ours; the first leaves it as anyone's.
@@ -700,6 +706,8 @@ impl Default for TweakSettings {
             hi_res_npc_weapons: false,
             objectives_on_arrival: false,
             objectives_gap: 30.0,
+            clear_marker_within: 0.0,
+            place_marker_here_says: true,
         }
     }
 }
@@ -836,7 +844,7 @@ impl Plugin for TweaksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TweakSettings>()
             .add_systems(Update, sync.in_set(crate::PlaySet::Input))
-            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight).in_set(crate::PlaySet::Input))
+            .add_systems(Update, (keys, drop_weapon, radio_volume_keys, last_weapon, hold_breath, repeat_activate, toggle_sight, place_marker_here, clear_near_marker).in_set(crate::PlaySet::Input))
             .add_systems(Update, objectives_on_arrival.in_set(crate::PlaySet::Ui))
             .add_systems(PreUpdate, trigger_dead_zones.before(bevy::input::InputSystems))
             .add_systems(Update, ap_costs.after(crate::PlaySet::Input).after(crate::player::encumbered_walks).before(crate::PlaySet::Physics));
@@ -1705,6 +1713,11 @@ impl Plugin for TweaksPlugin {
         switch!(app, "usable-ammo-first", "Usable Ammo First", "In the Pip-Boy's ammo list, ammo that a weapon you carry can fire comes first. (Stewie's Tweaks bSortEquipableAmmo)", usable_ammo_first);
         switch!(app, "better-flycam", "Better Free Camera", "The console's free camera (tfc) flies up with Space and down with Ctrl, keeps flying forward after Q (S stops it) and turns with Z and C; the wheel still sets its speed. (Stewie's Tweaks bBetterFlycam)", better_flycam);
         switch!(app, "recent-markers-red", "New Places Red on the Map", "Places you found since starting NVForever are drawn red on the world map. (Stewie's Tweaks bColorRecentlyAddedMapMarkers)", game.recent_markers_red);
+        switch!(app, "no-marker-popup", "No Place Marker Question", "Place Marker on the Pip-Boy's maps asks nothing: it puts your marker there, or takes it away while one is placed. (Stewie's Tweaks bNoPlaceMarkerPopup)", game.no_marker_popup);
+        switch!(app, "marker-shift-removes", "No Question: Shift Removes", "With No Place Marker Question, Place Marker always puts the marker there; with Shift held it takes it away. (Stewie's Tweaks bPlaceMarkerShiftToReset)", game.marker_shift_removes);
+        switch!(app, "marker-removed-on-it", "No Question: Remove When On It", "With No Place Marker Question, Place Marker always puts the marker there, and takes it away when the highlight box is on it. (Stewie's Tweaks bResetIfHovered)", game.marker_removed_on_it);
+        amount!(app, "clear-marker-within", "Clear Marker When Near", "Your map marker goes when you come this near it, in game units (a door is about 100 across); 0 keeps it. (Stewie's Tweaks bClearNearbyPlayerMarker)", 2000.0, f32, clear_marker_within);
+        switch!(app, "place-marker-here-says", "Place Marker Here Says So", "The Place Marker Here key (on the Controls page, unbound until you bind it) puts your map marker where you stand; this shows a line in the corner when it does. (Stewie's Tweaks iPlaceMapMarkerAtPlayerPosKey)", place_marker_here_says);
         switch!(app, "repeat-activate-takes-only", "Repeat Activate Takes Only", "The Repeat Activate key (on the Controls page, unbound until you bind it), held, takes things again and again; off, it activates anything. (Stewie's Tweaks iRepeatActivateKey)", repeat_activate_takes_only);
         switch!(app, "hi-res-npc-weapons", "Fine Weapon Models for Everyone", "People hold the detailed first-person models of their weapons; weapons drawn after the change. (Stewie's Tweaks bForceHiResWeaponModels)", hi_res_npc_weapons);
         switch!(app, "empty-reload-swaps-ammo", "Reload Swaps Spent Ammo", "Reloading when none of the ammo in use is left changes to another kind you carry. (Stewie's Tweaks bReloadingWithNoAmmoSwapsAmmoTypes)", game.empty_reload_swaps_ammo);
@@ -1901,6 +1914,76 @@ fn repeat_activate(
         n.0 = Some(t.form_id);
         *wait = REPEAT_ACTIVATE_SECS;
         info!("tweaks: Repeat Activate on 0x{:08X} {}", t.form_id, t.name);
+    }
+}
+
+/// The player's space (an interior cell, else the worldspace) and feet, while playing.
+fn player_spot(state: &State<crate::PlayState>, loc: Option<&crate::Location>, player: Option<&crate::player::Player>) -> Option<(u32, [f32; 3])> {
+    let (loc, player) = (loc?, player?);
+    (*state.get() == crate::PlayState::Playing).then(|| (loc.interior.unwrap_or(loc.world), player.feet))
+}
+
+/// The Place Marker Here key (`crate::bindings::Control::PlaceMarkerHere`) puts the
+/// custom map marker where the player stands, in the game's copy the Pip-Boy, scripts
+/// and the save read (`crate::pipboy::data::marker`) [design: docs/design/tweaks.md].
+fn place_marker_here(
+    input: crate::bindings::ControlInput,
+    state: Res<State<crate::PlayState>>,
+    tweaks: Res<TweakSettings>,
+    (loc, player): (Option<Res<crate::Location>>, Option<Res<crate::player::Player>>),
+    mut script: Option<ResMut<ScriptState>>,
+    mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
+) {
+    if !input.just_pressed(crate::bindings::Control::PlaceMarkerHere) {
+        return;
+    }
+    let Some((space, feet)) = player_spot(&state, loc.as_deref(), player.as_deref()) else { return };
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let m = crate::pipboy::data::marker::CustomMarker { space, pos: feet };
+    rt.game.other.jg8.custom_marker = Some(m.to_game());
+    info!("tweaks: Place Marker Here at ({:.0}, {:.0}) in {}", feet[0], feet[1], fnv_sim::FormId(space));
+    if tweaks.place_marker_here_says {
+        if let Some(c) = corner.as_deref_mut() {
+            // NVForever's own words [design].
+            c.push(crate::script_events::Note::from("Your marker is placed here.".to_string()));
+        }
+    }
+}
+
+/// The Clear Marker When Near tweak: the custom map marker goes when the player comes
+/// within [`TweakSettings::clear_marker_within`] of it, once they have been farther:
+/// a marker placed where the player stands stays until they leave and come back
+/// [design: docs/design/tweaks.md].
+fn clear_near_marker(
+    state: Res<State<crate::PlayState>>,
+    tweaks: Res<TweakSettings>,
+    (loc, player): (Option<Res<crate::Location>>, Option<Res<crate::player::Player>>),
+    mut script: Option<ResMut<ScriptState>>,
+    mut armed: Local<Option<(crate::pipboy::data::marker::CustomMarker, bool)>>,
+) {
+    use crate::pipboy::data::marker::{near, CustomMarker};
+    let within = tweaks.clear_marker_within;
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let (Some(m), Some((space, feet))) = (rt.game.custom_map_marker().map(CustomMarker::from_game), player_spot(&state, loc.as_deref(), player.as_deref())) else {
+        *armed = None;
+        return;
+    };
+    if within <= 0.0 {
+        *armed = None;
+        return;
+    }
+    let is_near = near(m, space, feet, within);
+    match armed.as_mut() {
+        Some((was, far)) if *was == m => {
+            if is_near && *far {
+                rt.game.other.jg8.custom_marker = None;
+                *armed = None;
+                info!("tweaks: the custom map marker is cleared, the player is within {within:.0} of it");
+            } else if !is_near {
+                *far = true;
+            }
+        }
+        _ => *armed = Some((m, !is_near)),
     }
 }
 

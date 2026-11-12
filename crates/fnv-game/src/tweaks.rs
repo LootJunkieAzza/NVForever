@@ -514,6 +514,15 @@ pub struct Tweaks {
     /// `bColorRecentlyAddedMapMarkers`: places found since the game was started are red
     /// on the world map.
     pub recent_markers_red: bool,
+    /// `bNoPlaceMarkerPopup`: Place Marker asks nothing; it places the marker, or takes
+    /// it away while one is placed.
+    pub no_marker_popup: bool,
+    /// `bNoPlaceMarkerPopup`/`bPlaceMarkerShiftToReset`: without the question Place
+    /// Marker always places it; with Shift held it takes it away.
+    pub marker_shift_removes: bool,
+    /// `bNoPlaceMarkerPopup`/`bResetIfHovered`: without the question Place Marker
+    /// always places it, and takes it away when the highlight box is on it.
+    pub marker_removed_on_it: bool,
     /// `bReloadingWithNoAmmoSwapsAmmoTypes`: reloading with none of the ammo in use left
     /// swaps to another carried type.
     pub empty_reload_swaps_ammo: bool,
@@ -802,6 +811,9 @@ impl Default for Tweaks {
             mine_blasts_heard: false,
             blasts_spare_items: false,
             recent_markers_red: false,
+            no_marker_popup: false,
+            marker_shift_removes: false,
+            marker_removed_on_it: false,
             empty_reload_swaps_ammo: false,
         }
     }

@@ -96,6 +96,54 @@ pub fn apply(placed: Option<CustomMarker>, a: MarkerAnswer) -> Option<CustomMark
     }
 }
 
+/// How Place Marker answers at once, with no question, under the player's No Place
+/// Marker Popup tweak [design: docs/design/tweaks.md]: `Toggle` places the marker while
+/// there is none and takes it away while there is one; `ShiftRemoves` always places (or
+/// moves) it, and takes it away with Shift held; `RemoveOnIt` always places it, and takes
+/// it away when the highlight box is on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quick {
+    Toggle,
+    ShiftRemoves,
+    RemoveOnIt,
+}
+
+impl Quick {
+    /// The way the tweak's two switches pick (Shift Removes first).
+    pub fn of(shift_removes: bool, remove_on_it: bool) -> Quick {
+        if shift_removes {
+            Quick::ShiftRemoves
+        } else if remove_on_it {
+            Quick::RemoveOnIt
+        } else {
+            Quick::Toggle
+        }
+    }
+}
+
+/// The answer Place Marker gives at `at` with no question ([`Quick`]): `shift` whether
+/// Shift is held, `on_it` whether the highlight box is on the placed marker.
+pub fn quick(placed: Option<CustomMarker>, at: CustomMarker, how: Quick, shift: bool, on_it: bool) -> MarkerAnswer {
+    let remove = match how {
+        Quick::Toggle => placed.is_some(),
+        Quick::ShiftRemoves => shift,
+        Quick::RemoveOnIt => on_it,
+    };
+    match (placed, remove) {
+        (Some(_), true) => MarkerAnswer::Removed,
+        (None, true) => MarkerAnswer::Declined,
+        (Some(_), false) => MarkerAnswer::Moved(at),
+        (None, false) => MarkerAnswer::Placed(at),
+    }
+}
+
+/// Whether the player, at `feet` in `space` (an interior cell or a worldspace), is within
+/// `within` game units of the marker `m`, across the ground (height left out: a marker
+/// placed on the World Map has the player's height then) [design: docs/design/tweaks.md].
+pub fn near(m: CustomMarker, space: u32, feet: [f32; 3], within: f32) -> bool {
+    m.space == space && within > 0.0 && Vec2::new(m.pos[0] - feet[0], m.pos[1] - feet[1]).length() <= within
+}
+
 /// A word of the box: its game setting's name [documented: GECK wiki, Complete List of
 /// GameSettings, names only] and NVForever's own word where the load order defines
 /// none [design: written for this box, LEGAL.md].
@@ -221,6 +269,30 @@ mod tests {
         let (q, b) = Words::of(MarkerAsk::Change(at(0.0, 0.0)), look);
         assert_eq!(q, Words::CHANGE_QUESTION.1);
         assert_eq!(b, [Words::MOVE.1, Words::REMOVE.1, Words::LEAVE.1]);
+    }
+
+    #[test]
+    fn with_no_question_the_marker_toggles_or_follows_its_switches() {
+        let (placed, here) = (Some(at(1.0, 2.0)), at(5.0, 6.0));
+        assert_eq!(quick(None, here, Quick::Toggle, false, false), MarkerAnswer::Placed(here));
+        assert_eq!(quick(placed, here, Quick::Toggle, false, false), MarkerAnswer::Removed);
+        assert_eq!(quick(placed, here, Quick::ShiftRemoves, false, false), MarkerAnswer::Moved(here));
+        assert_eq!(quick(placed, here, Quick::ShiftRemoves, true, false), MarkerAnswer::Removed);
+        assert_eq!(quick(None, here, Quick::ShiftRemoves, true, false), MarkerAnswer::Declined);
+        assert_eq!(quick(placed, here, Quick::RemoveOnIt, false, false), MarkerAnswer::Moved(here));
+        assert_eq!(quick(placed, here, Quick::RemoveOnIt, false, true), MarkerAnswer::Removed);
+        assert_eq!(Quick::of(true, true), Quick::ShiftRemoves);
+        assert_eq!(Quick::of(false, true), Quick::RemoveOnIt);
+        assert_eq!(Quick::of(false, false), Quick::Toggle);
+    }
+
+    #[test]
+    fn near_is_across_the_ground_in_the_same_space() {
+        let m = CustomMarker { space: 7, pos: [100.0, 0.0, 5000.0] };
+        assert!(near(m, 7, [0.0, 0.0, 0.0], 100.0));
+        assert!(!near(m, 7, [0.0, 0.0, 0.0], 99.0));
+        assert!(!near(m, 8, [100.0, 0.0, 0.0], 100.0));
+        assert!(!near(m, 7, [100.0, 0.0, 0.0], 0.0));
     }
 
     #[test]

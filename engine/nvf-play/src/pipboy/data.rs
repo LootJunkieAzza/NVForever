@@ -493,6 +493,9 @@ pub struct DataState {
     /// The place under each map's highlight box when last drawn: where Place Marker puts
     /// the marker.
     spot: [Option<CustomMarker>; 2],
+    /// Where each map drew the custom marker when last drawn (window units), for the No
+    /// Place Marker Popup tweak's "on it".
+    custom_on_map: [Option<Vec2>; 2],
     /// Where each map showed the custom marker when last logged (whole units; `None`:
     /// not shown).
     custom_logged: [Option<Option<(i32, i32)>>; 2],
@@ -1386,7 +1389,8 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
             }
             // The A button's hints do what Enter does on the tab.
             Act::Button(k) if k.is_a() => use_it = true,
-            Act::Button(k) => button(st, tab, k, input),
+            Act::Button(ButtonKind::PlaceMarker) => place_marker(st, tab, game, &input.keys),
+            Act::Button(k) => button(st, k, input),
             Act::Bar(b) if tab == QUESTS || tab == NOTES => bar_act(st, b, pointer, &mut pane),
             Act::PaneTo(v) if tab == QUESTS || tab == NOTES => pane.drag += v - st.text_first,
             _ => {}
@@ -1750,12 +1754,22 @@ fn choose(p: &mut Popup, hold: &mut BoxHold, pointer: Option<Vec2>, b: &BoxInput
 
 /// Place Marker: ask about the place under the highlight box ([`marker::ask`]) in the
 /// question box, its words from the load order's settings, else NVForever's own
-/// ([`marker::Words`]).
-fn place_marker(st: &mut DataState, tab: usize) {
+/// ([`marker::Words`]). Under the player's No Place Marker Popup tweak it answers at once
+/// ([`marker::quick`]) [design: docs/design/tweaks.md].
+fn place_marker(st: &mut DataState, tab: usize, game: &mut Game, keys: &ButtonInput<KeyCode>) {
     let Some(at) = st.spot.get(tab).copied().flatten() else {
         info!("pipboy map: Place Marker: no place under the highlight box");
         return;
     };
+    let quick = game.script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game.tweaks).filter(|t| t.no_marker_popup).map(|t| marker::Quick::of(t.marker_shift_removes, t.marker_removed_on_it));
+    if let Some(how) = quick {
+        let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        let box_at = st.cursor.get(tab).copied().flatten();
+        let on_it = matches!((box_at, st.custom_on_map[tab]), (Some(b), Some(c)) if b.distance(c) <= SNAP);
+        info!("pipboy map: Place Marker answers at once ({how:?}, tweak)");
+        answer_marker(st, game, marker::quick(st.custom, at, how, shift, on_it));
+        return;
+    }
     let ask = marker::ask(st.custom, at);
     let (text, buttons) = marker::Words::of(ask, |(name, ours)| super::labels::label(name, ours).to_string());
     info!("pipboy map: Place Marker asks {text:?} ({} answers) for ({:.0}, {:.0}) in {}", buttons.len(), at.pos[0], at.pos[1], FormId(at.space));
@@ -1780,7 +1794,7 @@ fn answer_marker(st: &mut DataState, game: &mut Game, a: marker::MarkerAnswer) {
     }
 }
 
-fn button(st: &mut DataState, tab: usize, k: ButtonKind, input: &mut Input) {
+fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
     match k {
         ButtonKind::NotesFilter => {
             st.notes_of_active = !st.notes_of_active;
@@ -1797,7 +1811,8 @@ fn button(st: &mut DataState, tab: usize, k: ButtonKind, input: &mut Input) {
             st.text_first = 0.0;
             info!("pipboy data: {} shown", if st.challenges { "challenges" } else { "notes" });
         }
-        ButtonKind::PlaceMarker => place_marker(st, tab),
+        // With the game, in the acts' loop ([`place_marker`]).
+        ButtonKind::PlaceMarker => {}
         ButtonKind::NextChallenge => info!("pipboy data: {k:?} is not built"),
         // Taken as Enter in `take_input`.
         ButtonKind::Travel | ButtonKind::MakeActive | ButtonKind::PlayAudio | ButtonKind::Tune => {}
@@ -1875,6 +1890,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
         pad: crate::pad::labels() != crate::pad::Labels::Keys,
         marker: st.travel_marker.is_some(),
         quests: !l.quests.is_empty(),
+        no_show_location: game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.tweaks.no_show_quest_location),
         quest_done: l.quests.get(st.sel[QUESTS]).map(|q| q.done),
         notes: l.has_notes,
         notes_of_active: st.notes_of_active,
@@ -1914,6 +1930,8 @@ struct HintFacts {
     /// Quests are listed, and whether the selected one is done.
     quests: bool,
     quest_done: Option<bool>,
+    /// The player's tweak drops Show Location [design: docs/design/tweaks.md].
+    no_show_location: bool,
     /// The player has a note (whatever the filter keeps); the notes' filter is on; the
     /// selected note is an audio note, and whether it plays; Misc shows the challenges.
     notes: bool,
@@ -1975,7 +1993,7 @@ fn tab_buttons(tab: usize, f: &HintFacts) -> Vec<Button> {
         // the original's World Map and Local Map with no controller, `MM_ButtonX` visible and a
         // target, "Place Marker" at the top right with no key; capture 2026-11-10].
         LOCAL | WORLD => Some(b(built_in_label("sPlaceMarker"), if f.pad { x_key() } else { String::new() }, false, ButtonKind::PlaceMarker)),
-        QUESTS if f.quests => Some(b(built_in_label("sShowLocation"), x_key(), false, ButtonKind::ShowLocation)),
+        QUESTS if f.quests && !f.no_show_location => Some(b(built_in_label("sShowLocation"), x_key(), false, ButtonKind::ShowLocation)),
         NOTES if f.notes && f.challenges => Some(b(built_in_label("sNextChallenge"), x_key(), true, ButtonKind::NextChallenge)),
         NOTES if f.notes => {
             let filter = built_in_label(if f.notes_of_active { "sShowAllNotes" } else { "sShowActiveNotes" });
@@ -2216,6 +2234,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         Some((c, on_map(projection.uv(c.pos[0], c.pos[1]))))
     });
     log_custom(st, WORLD, custom.map(|c| c.0));
+    st.custom_on_map[WORLD] = custom.map(|c| c.1);
     let drawn_found = marks.iter().filter(|mk| matches!(mk.icon, Some((_, true)))).count();
     let logged = (world, total, marks.len(), drawn_found, drawn_other);
     if st.world_logged != Some(logged) {
@@ -2413,6 +2432,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     st.spot[LOCAL] = Some(CustomMarker { space, pos: [spot[0], spot[1], feet[2]] });
     let custom = st.custom.filter(|c| c.space == space);
     log_custom(st, LOCAL, custom);
+    st.custom_on_map[LOCAL] = custom.map(|c| on_map(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
     MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None }
 }
@@ -4086,7 +4106,7 @@ mod tests {
         st.cursor[WORLD] = Some(MAP_MID + off);
         let shown = world_map(&mut st, &game, None, false);
         assert_eq!((shown.custom, shown.nodes.len(), shown.lines.len()), (None, 0, 0));
-        place_marker(&mut st, WORLD);
+        place_marker(&mut st, WORLD, &mut game, &ButtonInput::default());
         let (ask, answers) = asked(&st);
         assert!(matches!(ask, marker::MarkerAsk::Set(_)));
         assert_eq!(answers, 2);
@@ -4112,7 +4132,7 @@ mod tests {
         // Moved from the Local Map: 100 left of its middle is 2800 west of the player.
         st.cursor[LOCAL] = Some(MAP_MID - Vec2::new(100.0, 0.0));
         local_map(&mut st, &game, None);
-        place_marker(&mut st, LOCAL);
+        place_marker(&mut st, LOCAL, &mut game, &ButtonInput::default());
         let (ask, answers) = asked(&st);
         assert_eq!(answers, 3);
         answer_marker(&mut st, &mut game, marker::answer(ask, 0));
@@ -4123,7 +4143,7 @@ mod tests {
         let left = -2800.0 / (4.0 * model::CELL) * model::MAP_SPAN * 2048.0;
         assert!(near(shown.custom.unwrap(), quest_corner(MAP_MID + Vec2::new(left, 0.0))), "{:?}", shown.custom);
         // Keep leaves it; remove takes it away from both maps.
-        place_marker(&mut st, WORLD);
+        place_marker(&mut st, WORLD, &mut game, &ButtonInput::default());
         let (ask, _) = asked(&st);
         answer_marker(&mut st, &mut game, marker::answer(ask, 2));
         assert_eq!(st.custom, Some(moved));

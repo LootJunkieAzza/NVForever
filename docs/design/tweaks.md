@@ -574,6 +574,9 @@ unless the player binds them, so nothing changes until then.
 | (already so) | `bAllowActivateWhileAnimPlays` | `activate` refuses nothing for a clip playing (reload, shot, jump, landing) |
 | Reload Swaps Spent Ammo | `bReloadingWithNoAmmoSwapsAmmoTypes` | a reload asked for with none of `Combat::ammo` carried takes the Ammo Swap path (the next carried type); loading a save with none is not handled |
 | Objectives on Arrival | `bShowQuestObjectivesOnCellChange` | `tweaks::objectives_on_arrival` sees `Location` change (another interior, or a worldspace) and pushes the active quest's shown, open objectives as a `QuestNotice::Objectives`, at most once in the gap (30 s by default, ours) |
+| No Place Marker Question | `bNoPlaceMarkerPopup` | `pipboy::data::place_marker` answers at once with `marker::quick`: toggled, or (`bPlaceMarkerShiftToReset`) always placed and taken away with Shift, or (`bResetIfHovered`) taken away when the highlight box is within the snap distance of the marker drawn (`DataState::custom_on_map`) |
+| Clear Marker When Near | `bClearNearbyPlayerMarker` | `tweaks::clear_near_marker` clears the game's marker (`jg8.custom_marker`) when `marker::near` (same space, across the ground) after the player was once farther, so a marker placed underfoot stays |
+| Place Marker Here | `iPlaceMapMarkerAtPlayerPosKey` | a new unbound control, `Control::PlaceMarkerHere`; `tweaks::place_marker_here` sets the game's marker to the player's space and feet, with a corner line in our words unless switched off |
 | (already so) | `bNoKillcamKillSound`, `bDisableHitShader`, `bNoScreenshotPopup`, `bNoInteriorBlackLoadingScreen` | NVForever plays no kill-camera kill sound, draws no hit shader, shows no screenshot message and shows an interior's picture rather than black; nothing to switch |
 
 Every tweak has now been looked at against the code: each "to do" row says what it
@@ -595,8 +598,8 @@ game's Data folder, read-only).
 <!-- generated: the table below lists every tweak of AllTweaks.json (v9.87) by its INI key -->
 | Status | Count |
 |---|---|
-| done | 500 |
-| to do | 103 |
+| done | 504 |
+| to do | 99 |
 | unsure, skipped | 17 |
 | n/a | 15 |
 | skipped: fix | 10 |
@@ -621,6 +624,7 @@ game's Data folder, read-only).
 | `bBarterCheckActorBuySellFlags` | done |  | 2 | Merchants Keep to Their Lists (the ammo and perk options not built) |
 | `bBillyGoatMode` | done |  | 3 | Steepest Walkable Slope (30-80 degrees; one angle for walking, jumping and auto-walk) |
 | `bCapSkillsBySPECIAL` | done |  | 5 | Skills Capped by S.P.E.C.I.A.L. (defaults ours: 50 + 5 per attribute point, cap 100) |
+| `bClearNearbyPlayerMarker` | done |  | 1 | Clear Marker When Near (0 to 2000 units; goes once the player has been farther) |
 | `bCompanionsDontUseAmmo` | done |  |  | already so: NPCs carry no ammo and reload without spending any |
 | `bContactMines` | done |  | 2 | Contact Mines (Player) and (Others): a mine stood on, within 24 units of the body's axis, goes off with no fuse |
 | `bCrippledLegsScaleJumpHeight` | done |  | 2 | Jumping on a Crippled Leg (one part per crippled leg) |
@@ -729,7 +733,6 @@ game's Data folder, read-only).
 | `bHiddenFragsFix` | to do | yes |  | NPCs' own unplayable explosives are hidden from the pickpocket list |
 | `bMoreFrequentNPCLightUpdates` | unsure, skipped | yes | 1 | NVForever lights actors its own way; unclear what to change |
 | `bCharacterRadiation` | to do |  | 1 | not built: only the player takes environment radiation |
-| `bClearNearbyPlayerMarker` | to do |  | 1 | not built: no player-placed map marker |
 | `bCrippledLimbsPlayPainSoundWhenFalling` | to do |  | 1 | falls::hurt with a crippled leg; NVForever has no pain sound, only the landing ones |
 | `bHardcoreTweaks` | to do |  | 3 | unsure which way each option goes outside Hardcore |
 | `bHipFireAnimsWhileScoped` | unsure, skipped |  |  | depends on alternate animations |
@@ -987,9 +990,9 @@ game's Data folder, read-only).
 | `bHUDMarkerNameIndicator` | to do |  | 7 | no such HUD text yet |
 | `bHUDShowRegionNames` | to do |  | 1 | not built: the HUD has no region text |
 | `bHUDWeaponNameLabel` | unsure, skipped |  | 5 | needs the plugin's own menu XML |
-| `bPlacedMarkerHeightIndicator` | to do |  | 1 | not built: no player-placed markers |
 | `bShowDoorsOnCompass` | to do |  | 5 | a door mark kind, icons and gathering |
 | `bWaterSourcesShowH2O` | to do |  | 1 | not built: water prompts carry no line |
+| `bPlacedMarkerHeightIndicator` | to do |  | 1 | the compass draws no custom marker yet |
 
 ### Menus
 
@@ -1062,7 +1065,9 @@ game's Data folder, read-only).
 | `bNoCapitaliseContainerCategories` | done |  |  | Quiet Category Titles |
 | `bNoExitConfirm` | done |  |  | already so: the main menu's Quit asks nothing |
 | `bNoExitHacking` | done |  | 1 | No Leaving a Hack (the fail-on-exit option not built) |
+| `bNoPlaceMarkerPopup` | done |  | 2 | No Place Marker Question, with Shift Removes and Remove When On It |
 | `bPauseHolotapes` | done |  | 1 | already so for pausing: picking the playing holotape pauses it (reset and dialogue options not built) |
+| `bPlaceMarkersAtLocations` | done | yes | 1 | already so: the highlight box takes to a place or door near the pointer, and Place Marker puts the marker on it (both maps) |
 | `bPreventNoFastTravelMessage` | done |  | 1 | Quiet Undiscovered Markers (the sound option not built) |
 | `bPreviewPerksOnLevelUp` | done |  |  | Preview Perks on Level Up (the page with none to take) |
 | `bReputationShowsFameInfamy` | done |  | 3 | Show Fame and Infamy (numbers; the percentage option not built) |
@@ -1093,7 +1098,6 @@ game's Data folder, read-only).
 | `bTimescaleAffectsMinigames` | done |  |  | Lockpicking Follows the Time Speed (the lock only; the card and slot games keep their pace) |
 | `bChallengeMenuIcons` | unsure, skipped | yes |  | needs another mod (challenge icons) |
 | `bMainMenuContinueIcon` | to do | yes |  | thumbnails are on the load page only |
-| `bPlaceMarkersAtLocations` | to do | yes | 1 | placing a marker on the map is not built |
 | `bRememberPipboyScrollPositions` | to do | yes |  | the inventory is a new MenuModel on each opening |
 | `bRemoveDownloadsButton` | n/a | yes |  | NVForever has no Downloads button |
 | `bSaveCharacterSelector` | unsure, skipped | yes | 1 | needs the plugin's own menu XML |
@@ -1111,7 +1115,6 @@ game's Data folder, read-only).
 | `bLocalMapRespawnedCellIndicator` | to do |  | 2 | not built: the local map has no cell grid |
 | `bMapShowUnconsciousCompanions` | to do |  |  | companions are not drawn on the world map yet |
 | `bNoMinCompanionMapDistance` | to do |  |  | companions are not drawn on the world map yet |
-| `bNoPlaceMarkerPopup` | to do |  | 2 | not built: no custom markers |
 | `bNoteMenuShowSeparateMenu` | unsure, skipped |  | 1 | needs another mod (Book Menu Restored) |
 | `bQuantityMenuRespectsCompanionCarryCap` | to do |  |  | asks_quantity has no world |
 | `bQuestTextVisibleInMenus` | to do |  |  | quest_messages held; check what draws over the Pip-Boy |
@@ -1141,6 +1144,7 @@ game's Data folder, read-only).
 | `iPipboyDataKey` | done |  | 1 | Pip-Boy: Data key (Controls page) |
 | `iPipboyItemsKey` | done |  | 1 | Pip-Boy: Items key (Controls page) |
 | `iPipboyStatsKey` | done |  | 1 | Pip-Boy: Stats key (Controls page) |
+| `iPlaceMapMarkerAtPlayerPosKey` | done |  | 3 | Place Marker Here key (Controls page) and Place Marker Here Says So; the sound option is not built (no sound by editor ID) |
 | `iPrevRadioStationKey` | done |  | 1 | already so: [ steps to the previous station in the Pip-Boy |
 | `iRadioVolumeDownKey` | done |  | 1 | Radio Volume Down key |
 | `iRadioVolumeUpKey` | done |  | 1 | Radio Volume Up key (a tenth of the Radio volume) |
@@ -1155,7 +1159,6 @@ game's Data folder, read-only).
 | `iToggleTrueIronSightsKey` | done |  | 1 | True Iron Sights key |
 | `iVATSAcceptKey` | done |  | 1 | already so: accepting is the Activate control, rebindable on the Controls page |
 | `iHideHUDKey` | to do |  | 6 | the HUD parts have no roots of their own to hide; Toggle Menus already hides the whole HUD |
-| `iPlaceMapMarkerAtPlayerPosKey` | to do |  | 3 | not built: no player-placed markers |
 | `iSkipRadioSongKey` | to do |  | 1 | the playing line and the broadcast both move |
 
 ### Cheat
