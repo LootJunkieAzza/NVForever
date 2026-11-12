@@ -15,6 +15,14 @@
 //!   id is given [documented: `src/commonEntry.cpp:1494-1535`]). Then Bevy's raw Vulkan init is
 //!   told to make the instance from the interposer (vendored bevy_render,
 //!   `RawVulkanInitSettings::set_vulkan_library`). Any failure: today's path.
+//! - **Preflight** (`preflight.rs`): the folder is listed before the interposer is loaded and
+//!   again just before `slInit`; an `nvngx_update.exe` in it, in any case, or a folder that
+//!   cannot be listed keeps Streamline out (Streamline would start that file unchecked). Every
+//!   GPU the renderer could pick is read through the system's Vulkan loader before the interposer
+//!   is loaded, and after `slInit` checked against `slGetFeatureRequirements(DLSS)` plus what
+//!   Streamline's `vkCreateDevice` always adds; any GPU short of it, or a pick that cannot be
+//!   told, and `slShutdown` runs and the stock path follows, before `set_vulkan_library`.
+//!   [`loader_state`] says what the loader ended in.
 //!   Clearing the two update flags does not stop Streamline starting NVIDIA's updater, and a
 //!   driver override can still pick downloaded plugins [documented: `src/pluginManager.cpp:
 //!   966-968, 994-1005`]; watch for that in runs.
@@ -56,10 +64,16 @@ use bevy::prelude::*;
 use bevy::render::renderer::RenderContext;
 use bevy::render::view::{ExtractedView, ViewTarget};
 
+use crate::upscaler::DlssState;
+#[cfg(not(windows))]
+use crate::upscaler::Unavailable;
+
 #[cfg(windows)]
 mod evaluate;
 #[cfg(windows)]
 mod ffi;
+#[cfg(any(windows, test))]
+mod preflight;
 #[cfg(windows)]
 mod security;
 #[cfg(windows)]
@@ -155,7 +169,25 @@ fn start(app: &mut App) {
 
 #[cfg(not(windows))]
 fn start(_app: &mut App) {
+    set_loader_state(DlssState::Unavailable(Unavailable::NotWindows));
     note(Level::INFO, "inactive: Windows only (Streamline's libraries are Windows DLLs)");
+}
+
+/// What the loader ended in (set at start and once the device exists).
+static LOADER_STATE: Mutex<DlssState> = Mutex::new(DlssState::NotLoaded);
+
+fn set_loader_state(state: DlssState) {
+    *LOADER_STATE.lock().unwrap_or_else(PoisonError::into_inner) = state;
+}
+
+/// What the DLSS loader ended in this session: `NotLoaded` when it never ran (DLSS not asked
+/// for), `Ready` once DLSS is supported and its functions fetched, otherwise the first reason it
+/// stopped at (`Unavailable`). Final after `Plugin::cleanup`; for the settings (the plan's
+/// step 8).
+// Read by the settings in a later step; remove this then.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn loader_state() -> DlssState {
+    *LOADER_STATE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The spike is active: the device came through Streamline, DLSS is supported and its
@@ -282,6 +314,15 @@ fn missing_files(folder: &Path) -> Vec<&'static str> {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    #[test]
+    fn loader_state_reports_what_the_loader_set() {
+        assert_eq!(DlssState::default(), DlssState::NotLoaded);
+        set_loader_state(DlssState::Unavailable(crate::upscaler::Unavailable::UpdaterInFolder));
+        assert_eq!(loader_state(), DlssState::Unavailable(crate::upscaler::Unavailable::UpdaterInFolder));
+        set_loader_state(DlssState::NotLoaded);
+        assert_eq!(loader_state(), DlssState::NotLoaded);
+    }
 
     #[test]
     fn folder_from_the_variable_or_beside_the_program() {
