@@ -93,9 +93,11 @@ const SALOON_FLOOR: f32 = 3456.0;
 /// each at scale 1.2 and 30 above the floor; Table01's bounds are 31 from its centre and
 /// 24 above and below its origin].
 const SALOON_TABLE: TableDef = TableDef { edid: "Table01", pos: [215.0, -725.0, SALOON_FLOOR + 30.0], heading: 0.0, scale: 1.2 };
-/// Table01's top above its origin at scale 1 [observed: its bounds, 24 above the origin;
-/// checked against the model with `fnvtool phys cell`].
-pub const TABLE01_TOP: f32 = 24.0;
+/// Table01's top above its origin at scale 1 [observed: the top of the collision mesh of
+/// `meshesurniture	able01.nif`, 30.99 above the origin (`fnvtool collide objects`), its
+/// foot 25.35 below; the record's bounds say 24 and put the bill inside the top, seen in
+/// the first shot].
+pub const TABLE01_TOP: f32 = 31.0;
 
 /// The bars, in the order their fixed numbers are given.
 pub const BARS: &[Bar] = &[Bar {
