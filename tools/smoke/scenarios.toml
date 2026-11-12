@@ -3,7 +3,8 @@
 # Each [[scenario]] is one check that used to be prose in CLAUDE.md. Rules:
 # - Carry every expectation over; never loosen one to make a run pass (the parity-lab
 #   rules apply in spirit). A check that fails on main stays, marked
-#   `known_failing = "why"` on the expectation.
+#   `known_failing = "why"` on the expectation, or `known_failing = { linux = "why" }`
+#   when the check fails on named platforms only.
 # - "about N" in the prose is N ± 25 % (rounded outwards); "a dozen" is 9–15; counts
 #   the prose says vary are not checked beyond "at least one".
 # - `paths` are globs over the files a branch changed (`**` any depth); `areas` are
@@ -155,7 +156,7 @@ env = { NVF_PLAY_TEST_VRAM_MB = "512" }
 args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
 run_seconds = 40
 expect = [
-  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid" },
+  { re = 'memory budget: RAM \d+ MB .*GPU budget 512 MB \(test aid; the device.s \d+ MB, VK_EXT_memory_budget, device-local heaps; this process uses \d+ MB', label = "the GPU budget read, then capped by the test aid", known_failing = { linux = "Linux 2026-11-10: wgpu-hal 30 leaves VK_EXT_memory_budget off on Mesa's RADV, so the line names amdgpu sysfs and this process's use from fdinfo instead of the extension" } },
   "caches keep unused models and textures 30 s, at most 128 per cache",
   { re = 'memory budget: near a budget, caches pressed \(GPU: this process uses \d+ of 512 MB', label = "the flight's use of the device-local heaps near the 512 MB budget presses the caches" },
 ]
@@ -25338,6 +25339,27 @@ expect = [
   { re = 'guard wander check: done .* package_type=(\d+)', range = [35, 35], label = "still on the Guard package at the end" },
   { text = "script: test aid calls GetCurrentAIProcedure on GoodspringsSettler03Ref = 44", count = 2, label = "procedure GUARD at 120 s and 240 s" },
 ]
+
+[[scenario]]
+name = "tutorial-stick-scroll-pad"
+source = "issue #1905: with a controller, the left stick Up and Down scroll the tutorial menu's text as the D-pad does, as in the original (owner's play on a PS3 pad); tutorial_menu.rs stick_scroll, the left stick read as crate::pad::StickButtons"
+note = "Controller chosen in the settings at 2 s; the long Movement and Combat tutorial at 6 s, held open; the scripted controller's left stick pushed down at 8 s and 9 s and up at 10 s (the pad- key aid's stick directions). Before the fix the stick did not scroll"
+areas = ["menus", "controller"]
+paths = ["engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/test_aid.rs"]
+env = { NVFOREVER_HOME = "tutorial-stick-scroll-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowTutorialMenu:0x0006D914", NVF_PLAY_TEST_KEYS = "8:pad-Left Stick Down,9:pad-Left Stick Down,10:pad-Left Stick Up" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 13
+expect = [
+  { text = "test aid: real input Stick(Down) pressed", count = 2, label = "two pushes down" },
+  { text = "test aid: real input Stick(Up) pressed", count = 1, label = "one push up" },
+]
+order = [[
+  { text = "controls: input device Controller", label = "the controller is picked" },
+  { re = 'tutorial menu: page 1/\d+ "', label = "the tutorial opens" },
+  { re = 'tutorial menu: scroll 30 of \d+', label = "the stick down scrolls a step" },
+  { re = 'tutorial menu: scroll 60 of \d+', label = "and another" },
+  { re = 'tutorial menu: scroll 30 of \d+', label = "the stick up scrolls back a step" },
+]]
 
 [[scenario]]
 name = "settings-back-hint"
