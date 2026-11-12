@@ -1898,3 +1898,15 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
      pause menu and MCM's window open: `SetMCMFloatMass 1 37 38 "depth" 33` and `1 36 37
      "visible" 0`, reading ArrowUp, ArrowDown and Option36 before and after in one script;
      and `5 23 24 "_enable" 1` reading Mod23 and SubMenu1.
+
+## Added 2026-11-12 (dialogue zoom lock, issue #2254)
+
+119. **Does the original keep the camera on the speaker throughout dialogue, and can
+     the mouse turn the view?** (P2; dialogue-play.md §8.) Players report a locked camera
+     [hypothesis: player reports, not captured]. NVForever now follows and locks while
+     zoomed by default, with an optional free-look setting [design, #2254]. Record a
+     conversation held beyond five seconds, first with no input as the speaker finishes
+     turning and idles, then moving the mouse during a line and while choices wait.
+     Does the view keep following the face as the actor steps or walks? Does mouse
+     motion move only the cursor, or also the view? Repeat across a choices-to-line
+     transition without touching the mouse; record any camera motion on cursor capture.

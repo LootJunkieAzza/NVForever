@@ -213,11 +213,13 @@ everything a script can see.
 - **Running**: the conversation's lines, subtitles and voice; and everything that is
   only presentation: actors' idle animations, wind in the trees, water, the sky's
   clouds, rendering effects. Nothing snaps to a frozen frame when the screen opens.
-- **Looking**: the player looks around freely with the mouse while the actor speaks;
+- **Looking** [design, #2254; dialogue-play.md §8]: zoomed conversations keep the view
+  on the speaker and the cursor free by default. With `dialogue-lock=0`, follow lasts
+  until the player looks away. Without zoom the player looks around freely while the actor speaks;
   while choices are offered the cursor is free for clicking and the view holds
   [owner decision 2026-10-10: "go with the first option"].
 - **Facing each other** (step D7) is presentation: the actor turning to the player and
-  the view turning to the actor run while game logic is held. The view turns to the
+  the view turning to the actor run while game logic is held. Without zoom, the view turns to the
   actor when the conversation starts and is the player's own after that [owner decision
   2026-10-10; `--dialogue-recentre` brings it back onto the actor each time the choices
   appear]. With `original` the turns are completed at once, so

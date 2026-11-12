@@ -730,7 +730,7 @@ fn take_knockbacks(knocks: Option<MessageReader<crate::combat::Knockback>>, mut 
 /// (control.rs). Not while a script has locked looking: the view stays where it is
 /// [documented: GECK wiki DisablePlayerControls, LookingFlag].
 #[allow(clippy::too_many_arguments)]
-fn mouse_look(
+pub(crate) fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     (pads, time, vats): (Query<&Gamepad>, Res<Time>, Option<Res<crate::vats_mode::VatsMode>>),
     state: Res<State<PlayState>>,
@@ -746,7 +746,17 @@ fn mouse_look(
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
     assist: Option<Res<crate::aim_assist::AimAssistState>>,
     (talk, switches): (Option<Res<crate::dialogue_zoom::DialogueZoom>>, Option<Res<crate::script_switches::ScriptSwitches>>),
+    (facing, mut mouse_guard, mut facing_view): (Option<Res<crate::dialogue_look::LookSettings>>, Local<DialogueMouseGuard>, Option<ResMut<crate::dialogue_look::ViewLook>>),
 ) {
+    let dialogue = *state.get() == PlayState::Dialogue;
+    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
+    let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
+    let mouse_delta = mouse_guard.filter(motion.delta, grabbed && playing, dialogue);
+    // Locked dialogue owns the view even if capture has not yet caught up [design,
+    // #2254; dialogue::sync_state releases the pointer]. Includes the right stick.
+    if dialogue && facing.is_some_and(|s| s.locked(talk.as_deref().is_some_and(|z| z.wanted()))) {
+        return;
+    }
     // The classic VATS style turns the view itself (`crate::vats_mode`, vats-classic.md §5).
     if vats.is_some_and(|v| v.holds_view()) {
         return;
@@ -758,9 +768,6 @@ fn mouse_look(
     if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) || control.wheel || kill_cam.is_some_and(|k| k.active()) || switches.as_deref().is_some_and(|s| s.hud_cursor) {
         return;
     }
-    let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
-    // The player looks around freely while an actor speaks in a conversation.
-    let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
     // The right stick's turn this frame, as mouse counts of a thousandth of a radian
     // (`crate::bindings::LOOK_SPEED_HORIZONTAL`), pushed a little turning slowly
     // (squared) [design], slower on a nearby hostile (`crate::aim_assist`; never the
@@ -773,12 +780,19 @@ fn mouse_look(
         (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
     } else {
         // The axes ToggleMouseMovement left on (`crate::script_switches`).
-        (switches.as_deref().map_or(motion.delta, |s| s.look(motion.delta)), bindings.mouse_sensitivity)
+        (switches.as_deref().map_or(mouse_delta, |s| s.look(mouse_delta)), bindings.mouse_sensitivity)
     };
     // The Controls tab's Vertical Sensitivity of the device in use (#2201).
     let delta = vertical_scaled(delta, bindings.vertical_sensitivity());
     if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
+    }
+    // Any accepted input ends unlocked zoom follow, including one slow mouse count
+    // below Ease::step's angular tolerance [design, #2254].
+    if dialogue && talk.as_deref().is_some_and(|z| z.wanted()) {
+        if let Some(view) = facing_view.as_deref_mut() {
+            view.hand_to_player();
+        }
     }
     // A conversation's zoom: the picture moves as far as it does unzoomed.
     let s = s * talk.as_deref().map_or(1.0, crate::dialogue_zoom::DialogueZoom::look_scale);
@@ -806,6 +820,30 @@ fn mouse_look(
         let dy = if inv { -delta.y } else { delta.y };
         seat.look[0] += delta.x * s;
         seat.look[1] -= dy * s;
+    }
+}
+
+/// Discard dialogue capture-transition motion in the current and following input frame:
+/// the window backend applies capture asynchronously [design, #2254; grab_cursor and
+/// Bevy bevy_winit::system::changed_cursor_options]. This is a guard, not a measured artifact.
+#[derive(Default)]
+pub(crate) struct DialogueMouseGuard {
+    active: bool,
+    settling: u8,
+}
+
+/// Ignore the transition frame and the next input frame [design, #2254].
+const DIALOGUE_CURSOR_SETTLE_FRAMES: u8 = 2;
+
+impl DialogueMouseGuard {
+    pub(crate) fn filter(&mut self, delta: Vec2, active: bool, dialogue: bool) -> Vec2 {
+        if dialogue && active != self.active {
+            self.settling = DIALOGUE_CURSOR_SETTLE_FRAMES;
+        }
+        self.active = active;
+        let settling = self.settling > 0;
+        self.settling = self.settling.saturating_sub(1);
+        if dialogue && settling { Vec2::ZERO } else { delta }
     }
 }
 

@@ -26,7 +26,8 @@
 //!   real time (`Game::tick` advances them in menu mode too).
 //!   What the picture does is the switch for every menu, [`MenuPause`] (`--menu-pause`,
 //!   `crate::pause`): `living` (the default) keeps everything that is only presentation
-//!   running (animations, wind, water, sky, effects) and lets the player look around
+//!   running (animations, wind, water, sky, effects). Zoomed dialogue locks the view by
+//!   default [design, #2254; `crate::dialogue_look`]; free-look modes allow looking around
 //!   with the mouse while the actor speaks ([`FreeLook`]; the cursor comes back when
 //!   choices are offered [owner decision 2026-10-10]); `original` stops the virtual
 //!   clock, so the picture stands still, with the cursor free throughout [owner
@@ -684,8 +685,8 @@ impl ViewInput {
 pub struct WorldHeld(pub bool);
 
 /// The player may look around with the mouse although not `Playing`: while an actor
-/// speaks in a conversation, in [`MenuPause::Living`] (`player::mouse_look`,
-/// `player::grab_cursor`).
+/// speaks in an unlocked conversation, in [`MenuPause::Living`] [design, #2254;
+/// `player::mouse_look`, `player::grab_cursor`].
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FreeLook(pub bool);
 
@@ -986,6 +987,8 @@ fn sync_state(
     mut next: ResMut<NextState<PlayState>>,
     mut world_held: ResMut<WorldHeld>,
     mut look: ResMut<FreeLook>,
+    facing: Res<crate::dialogue_look::LookSettings>,
+    zoom: Res<crate::dialogue_zoom::DialogueZoom>,
 ) {
     let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let talking = game.is_some_and(|g| g.dialogue.is_some());
@@ -1002,7 +1005,8 @@ fn sync_state(
     // message box.
     let speaking = game.is_some_and(|g| !held(g) && g.dialogue.as_ref().is_some_and(|c| c.line.is_some()));
     // Whether the picture stands still meanwhile is `crate::pause::freeze_picture`'s.
-    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue));
+    // Keep the pointer free throughout a locked close-up [design, #2254].
+    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue && !facing.locked(zoom.wanted())));
 }
 
 // ---- drawing ----------------------------------------------------------------------------

@@ -8,19 +8,18 @@
 //! - **Field of view.** Worked out from the distance to the face and an assumed head
 //!   ([`framed_vfov`]); never wider than the view the player has, never narrower than
 //!   [`MIN_VFOV`]. It follows the speaker's distance slowly ([`FOLLOW_SECONDS`]), not the
-//!   mouse: the player still looks around while zoomed.
+//!   mouse [design: `DialogueZoom::step`].
 //! - **Creatures and robots.** They are framed by how tall they are drawn, not by a human's
 //!   head ([`creature_framing`]): the view grows with it, and the point lands lower so most
 //!   of it shows, as with the original's Marcus, Victor and Mr. House [observed, 2026-11-06].
 //!   Human-style actors (ACHR) keep the numbers above whatever their hit volume
 //!   says: a hat or a seat changes that, and not their framing.
 //! - **Framing.** The opening turn (`crate::dialogue_look`) aims [`face_drop`] under the
-//!   face, so the face lands at [`FACE_FROM_TOP`], and stays on it for
-//!   [`crate::dialogue_look::ZOOM_HOLD_SECONDS`] while the speaker finishes turning; after
-//!   it, and at the first move of the mouse, the view is the player's [owner decision
-//!   2026-10-10].
-//! - **Looking around** is scaled with the zoom ([`DialogueZoom::look_scale`]), so the
-//!   mouse moves the picture as far as it does unzoomed.
+//!   face, so the face lands at [`FACE_FROM_TOP`]. Follow lasts throughout dialogue by
+//!   default; with `dialogue-lock` off it ends when the player looks away [design,
+//!   #2254; `crate::dialogue_look::Ease::follow`].
+//! - **Looking around with the lock off** is scaled with the zoom
+//!   ([`DialogueZoom::look_scale`]) [design, #2254].
 //! - **Who owns the field of view** (as `chargen/vigor.rs`'s `fov_before`). [`DialogueZoom`]
 //!   keeps what was on the camera underneath its own value and gives it back. A value on
 //!   the camera that is not the one it last wrote is someone else's (the settings slider,
@@ -219,6 +218,14 @@ pub struct DialogueZoom {
 }
 
 impl DialogueZoom {
+    #[cfg(test)]
+    pub(crate) fn for_test_conversation() -> Self {
+        let mut zoom = Self::default();
+        zoom.step(Some(0.2), IN_SECONDS, false);
+        zoom.apply(1.0);
+        zoom
+    }
+
     /// The field of view underneath `fov`, what is on the camera now: `fov` itself unless
     /// this module wrote it. Who keeps a base goes by this (the module notes).
     pub fn underlying(&self, fov: f32) -> f32 {
