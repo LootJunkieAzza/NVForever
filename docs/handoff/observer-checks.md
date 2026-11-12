@@ -1514,3 +1514,13 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     snap back 59° every 2.67 s. Record Victor walking beside the player out of Goodsprings
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
+
+## Added 2026-11-12 (the player's marker on the compass)
+
+105. **How does the compass show the custom map marker?** (P3; hud.md §11.) NVForever
+    marks it only in the player's own interior or worldspace, holds it at the band's
+    end when it is off the band (as a quest target), and draws it over the quest marks
+    [hypothesis]. Place a marker on the Local Map 20 m behind the player, close the
+    Pip-Boy and screenshot the compass; then walk through a door into an interior and
+    screenshot it again. Held at an end or gone behind the player, and shown or not
+    (at the door?) from the interior, settle both.
