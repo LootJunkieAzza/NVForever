@@ -18,7 +18,9 @@
 //! The two PDH counters are separate queries, so a hidden GPU row collects no GPU
 //! counters; the game's processor time and its working set are separate requests too, so
 //! the RAM row alone reads no processor time and the CPU row alone no memory counters.
-//! Off Windows, or where a counter cannot be opened, that part reads none.
+//! Off Windows the same parts come from `/proc` and amdgpu's sysfs (the `linux` module),
+//! and where a counter or a file cannot be read, or the card is not an amdgpu, that part
+//! reads none.
 //!
 //! Each showing has a generation ([`Shared::show`] bumps it). The sampler tags what it
 //! publishes with the generation it collected under, and the game takes only what was
@@ -118,7 +120,7 @@ impl Shared {
         self.want.store(bit(cpu, WANT_CPU) | bit(gpu, WANT_GPU) | bit(process_cpu, WANT_PROCESS_CPU) | bit(ram, WANT_RAM), Ordering::Relaxed);
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn wants(&self, part: u8) -> bool {
         self.want.load(Ordering::Relaxed) & part != 0
     }
@@ -142,8 +144,8 @@ impl Shared {
     }
 
     /// Store a collection made under `generation`, tagged with it (the sampler thread's,
-    /// none off Windows but in the tests).
-    #[cfg_attr(not(windows), allow(dead_code))]
+    /// Windows' or Linux's, and in the tests on any other target).
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn publish(&self, generation: u32, u: Usage) {
         let percent = |v: Option<f32>| v.map_or(NONE, |p| (p.clamp(0.0, 100.0) * 10.0).round() as u32);
         self.cpu.store(percent(u.cpu), Ordering::Relaxed);
@@ -154,9 +156,10 @@ impl Shared {
     }
 }
 
-/// Where the sampler's readings come from: Windows' counters on the sampler thread
-/// (`windows::Counters`), a stand-in in the tests.
-#[cfg_attr(not(windows), allow(dead_code))]
+/// Where the sampler's readings come from: Windows' counters (`windows::Counters`) or
+/// Linux's `/proc` and sysfs readers (`linux::Counters`), both on the sampler thread, and
+/// a stand-in in the tests.
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub trait Source {
     /// Collect the machine's CPU counter and read it: a rate, so none until the second
     /// collection since it was last forgotten.
@@ -175,7 +178,7 @@ pub trait Source {
 
 /// The sampler's own state between collections: the generation it last collected under
 /// and the game's processor time at its last collection (seconds, and when).
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 #[derive(Default)]
 pub struct Baselines {
     generation: Option<u32>,
@@ -186,7 +189,7 @@ pub struct Baselines {
 /// them under the generation they were collected for; a new generation (a new showing,
 /// even one that began and ended between two turns) starts every rate afresh. False: the
 /// overlay is hidden, nothing was collected.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub fn step(shared: &Shared, b: &mut Baselines, src: &mut impl Source) -> bool {
     if !shared.is_on() {
         src.forget(true, true);
@@ -230,13 +233,21 @@ pub fn step(shared: &Shared, b: &mut Baselines, src: &mut impl Source) -> bool {
     true
 }
 
-/// Starts the sampler thread (none off Windows) and returns what it fills in.
+/// Starts the sampler thread (none where the parts are not read) and returns what it fills
+/// in.
 pub fn start() -> Arc<Shared> {
     let shared = Arc::new(Shared::new());
     #[cfg(windows)]
     {
         let s = shared.clone();
         if let Err(e) = std::thread::Builder::new().name("fps-usage".into()).spawn(move || windows::run(&s)) {
+            bevy::log::warn!("fps counter: no CPU/GPU usage thread: {e}");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let s = shared.clone();
+        if let Err(e) = std::thread::Builder::new().name("fps-usage".into()).spawn(move || linux::run(&s)) {
             bevy::log::warn!("fps counter: no CPU/GPU usage thread: {e}");
         }
     }
@@ -440,6 +451,190 @@ mod windows {
         }
         // SAFETY: `len` wide characters precede the NUL.
         String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, len) })
+    }
+}
+
+/// The same parts off Windows with no counters to read them: `/proc` and amdgpu's sysfs.
+/// - The machine's CPU use: the `cpu` line of `/proc/stat`, the busy share over the sample
+///   period (`total - idle - iowait`), the figure `top` shows [documented: proc(5)].
+/// - A GPU's use: amdgpu's `gpu_busy_percent` under each `/sys/class/drm/card*/device/`,
+///   the busiest card, as Windows takes the busiest engine. Intel and NVIDIA's drivers
+///   expose no such file, so their cards read none [hypothesis]; the RX 7700S on this
+///   machine is the only card with one [observed].
+/// - The game's own CPU use, as cores kept busy: utime+stime from `/proc/self/stat` over
+///   the processor time passed [documented: proc(5)], the ticks taken as 100 a second on
+///   x86-64 and ARM (`sysconf(_SC_CLK_TCK)`; see `USER_HZ`).
+/// - The game's RAM: `VmRSS` from `/proc/self/status`, MB [documented: proc(5)].
+///
+/// Where a file is missing that part reads none, as a Windows counter that cannot be
+/// opened does; the overlay leaves the row blank rather than showing a made-up figure.
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    use super::{step, Baselines, Shared, Source};
+
+    /// As on Windows: a collection a second while the overlay shows.
+    const PERIOD: Duration = Duration::from_secs(1);
+
+    /// `/proc/stat` and `/proc/<pid>/stat` time is in these ticks a second. proc(5) says
+    /// to take the rate from `sysconf(_SC_CLK_TCK)`; it is 100 on x86-64 and ARM Linux
+    /// [documented: proc(5), time(7); observed 100 here], which are the architectures
+    /// this build runs on. No other architecture is claimed to read the right seconds.
+    const USER_HZ: f64 = 100.0;
+
+    pub fn run(shared: &Shared) {
+        let mut src = Counters { cpu: None, cards: gpu_cards(), start: Instant::now() };
+        // The same line on every machine, as Windows logs it whether or not its counters
+        // opened; a machine without an amdgpu says so on the next line.
+        bevy::log::info!("fps counter: usage counters cpu true gpu {}", src.cards.len());
+        if src.cards.is_empty() {
+            bevy::log::warn!("fps counter: no amdgpu gpu_busy_percent, GPU use not shown");
+        }
+        let mut baselines = Baselines::default();
+        loop {
+            // Hidden: look again soon, so a showing does not wait a whole period.
+            let collected = step(shared, &mut baselines, &mut src);
+            std::thread::sleep(if collected { PERIOD } else { PERIOD / 4 });
+        }
+    }
+
+    /// `/sys/class/drm/card*/device/gpu_busy_percent` for every card that has one.
+    fn gpu_cards() -> Vec<PathBuf> {
+        let Ok(dir) = fs::read_dir("/sys/class/drm") else {
+            return Vec::new();
+        };
+        let mut cards: Vec<PathBuf> = dir
+            .filter_map(Result::ok)
+            .filter(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                name.starts_with("card") && name[4..].chars().all(|c| c.is_ascii_digit())
+            })
+            .map(|e| e.path().join("device/gpu_busy_percent"))
+            .filter(|p| p.is_file())
+            .collect();
+        cards.sort();
+        cards
+    }
+
+    /// The parts read on the sampler thread.
+    struct Counters {
+        /// The last `/proc/stat` busy and total ticks; a rate needs a pair.
+        cpu: Option<(u64, u64)>,
+        cards: Vec<PathBuf>,
+        start: Instant,
+    }
+
+    impl Source for Counters {
+        fn machine_cpu(&mut self) -> Option<f32> {
+            let now = cpu_ticks(&fs::read_to_string("/proc/stat").ok()?)?;
+            let last = self.cpu.replace(now);
+            let (busy, total) = now;
+            let (was_busy, was_total) = last?;
+            let (dbusy, dtotal) = (busy.saturating_sub(was_busy), total.saturating_sub(was_total));
+            (dtotal > 0).then(|| (100.0 * dbusy as f32 / dtotal as f32).clamp(0.0, 100.0))
+        }
+
+        fn gpu(&mut self) -> Option<f32> {
+            self.cards
+                .iter()
+                .filter_map(|p| fs::read_to_string(p).ok())
+                .filter_map(|s| s.trim().parse::<u32>().ok())
+                .map(|p| p.min(100) as f32)
+                .reduce(f32::max)
+        }
+
+        fn forget(&mut self, cpu: bool, _gpu: bool) {
+            if cpu {
+                self.cpu = None;
+            }
+        }
+
+        fn process_cpu_secs(&mut self) -> Option<f64> {
+            let stat = fs::read_to_string("/proc/self/stat").ok()?;
+            process_cpu_secs(&stat)
+        }
+
+        fn working_set_mb(&mut self) -> Option<u64> {
+            working_set_mb(&fs::read_to_string("/proc/self/status").ok()?)
+        }
+
+        fn now(&mut self) -> f64 {
+            self.start.elapsed().as_secs_f64()
+        }
+    }
+
+    /// The machine's busy and total ticks from `/proc/stat`'s `cpu` line: idle and iowait
+    /// are not busy, everything else is [documented: proc(5)]. The guest figures are
+    /// already in user and nice, so the first eight numbers are the whole line
+    /// [documented: kernel/sched/cputime.c, `account_guest_time` adds guest time to
+    /// `CPUTIME_USER` or `CPUTIME_NICE` as well as to `CPUTIME_GUEST`].
+    fn cpu_ticks(stat: &str) -> Option<(u64, u64)> {
+        let line = stat.lines().find(|l| l.starts_with("cpu "))?;
+        let mut fields = line.split_whitespace();
+        if fields.next()? != "cpu" {
+            return None;
+        }
+        let v: Vec<u64> = fields.take(8).map(|f| f.parse().ok()).collect::<Option<_>>()?;
+        if v.len() < 8 {
+            return None;
+        }
+        let total: u64 = v.iter().sum();
+        let idle = v[3] + v[4];
+        Some((total.saturating_sub(idle), total))
+    }
+
+    /// The process's processor time in seconds from `/proc/<pid>/stat`: utime and stime
+    /// are fields 14 and 15, after the `(comm)` that may itself hold spaces and brackets
+    /// [documented: proc(5)].
+    fn process_cpu_secs(stat: &str) -> Option<f64> {
+        let rest = &stat[stat.rfind(')')? + 1..];
+        let after_comm: Vec<&str> = rest.split_whitespace().collect();
+        // Field 3 (state) is the first here, so field 14 is index 11.
+        let utime: u64 = after_comm.get(11)?.parse().ok()?;
+        let stime: u64 = after_comm.get(12)?.parse().ok()?;
+        Some((utime + stime) as f64 / USER_HZ)
+    }
+
+    /// The process's resident set, MB, from `/proc/<pid>/status`'s `VmRSS` line (kB)
+    /// [documented: proc(5)].
+    fn working_set_mb(status: &str) -> Option<u64> {
+        let line = status.lines().find(|l| l.starts_with("VmRSS:"))?;
+        let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+        Some(kb / 1024)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        const STAT: &str = "cpu  123 45 67 890 12 3 4 5 0 0\ncpu0 1 2 3 4 5 6 7 8 0 0\n";
+
+        #[test]
+        fn the_machines_cpu_line_counts_everything_but_idle_and_iowait() {
+            // 123+45+67+890+12+3+4+5 = 1149 total, 890+12 = 902 idle.
+            assert_eq!(cpu_ticks(STAT), Some((247, 1149)));
+            assert_eq!(cpu_ticks("cpu  1 2 3 4\n"), None, "a short line reads none");
+            assert_eq!(cpu_ticks("intr 1 2 3\n"), None, "no cpu line");
+        }
+
+        #[test]
+        fn the_process_cpu_time_survives_a_bracketed_name_with_spaces() {
+            let stat = "1234 (nvforever (smoke) test) R 1 1234 1234 0 -1 4194560 100 0 0 0 25 15 0 0 20 0 1 0 100 12345 678 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 3 0 0 0 0 0";
+            // utime 25 + stime 15 = 40 ticks = 0.40 s.
+            assert_eq!(process_cpu_secs(stat), Some(0.4));
+            assert_eq!(process_cpu_secs("no comm here"), None);
+        }
+
+        #[test]
+        fn the_working_set_is_the_rss_in_megabytes() {
+            let status = "Name:\tnvforever\nVmPeak:\t 9000000 kB\nVmRSS:\t 4928512 kB\nThreads:\t20\n";
+            assert_eq!(working_set_mb(status), Some(4813));
+            assert_eq!(working_set_mb("Name:\tnvforever\n"), None);
+        }
     }
 }
 

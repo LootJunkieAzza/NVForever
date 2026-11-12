@@ -27,6 +27,7 @@ use crate::trace::EventKind;
 use fnv_sim::{clock, FormId};
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// How far from the player a StartConversation speaker may be and still talk at once,
 /// game units ([`Game::walk_up_greet`]) [design: twice the AI's standard talk distance].
@@ -41,6 +42,9 @@ pub const DIALOGUE_MENU: u16 = 1009;
 /// `fSayOncePerDayInfoTimer` is not defined [documented: Category:Dialogue, 12 hours].
 pub const SAY_ONCE_A_DAY_HOURS: f64 = 12.0;
 pub const SAY_ONCE_A_DAY_SETTING: &str = "fSayOncePerDayInfoTimer";
+/// A hello or idle chatter line is not said again, by any actor, within this many seconds
+/// of play ([`Game::say_hello_fresh`]) [design: owner's playtest 2026-11-11, #2156].
+pub const IDLE_LINE_MEMORY: f64 = 180.0;
 
 /// The line an actor is saying in a conversation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -418,6 +422,15 @@ impl<'a> Game<'a> {
     /// `lead_only`, follow-up lines ([`GameData::follow_up_targets`]) count as lines the
     /// speaker cannot say.
     fn select_among(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId], keep: &impl Fn(&InfoDef) -> bool, lead_only: bool, says: Says) -> Option<FormId> {
+        self.select_among_but(speaker, listener, lines, keep, lead_only, says, &BTreeSet::new())
+    }
+
+    /// [`Game::select_among`], a pool picking among its lines that are not in `stale`
+    /// while it has one ([`Game::say_hello_fresh`]). Which plain line or which pool is
+    /// taken does not change: a stale line still counts as one the speaker can say, so a
+    /// line stored further down is not said in its place.
+    #[allow(clippy::too_many_arguments)]
+    fn select_among_but(&mut self, speaker: FormId, listener: Option<FormId>, lines: &[FormId], keep: &impl Fn(&InfoDef) -> bool, lead_only: bool, says: Says, stale: &BTreeSet<FormId>) -> Option<FormId> {
         let dv = self.dialogue_view();
         let flag = |i: &FormId, f: u16| dv.info(i).is_some_and(|d| d.has(f));
         let kept = |i: &FormId| !(lead_only && dv.is_follow_up(i)) && dv.info(i).is_some_and(keep);
@@ -441,6 +454,8 @@ impl<'a> Game<'a> {
             }
             let pool: Vec<FormId> = lines[at..end].to_vec();
             let sayable: Vec<FormId> = pool.into_iter().filter(|i| kept(i) && self.can_say_as(speaker, listener, *i, says)).collect();
+            let fresh: Vec<FormId> = sayable.iter().copied().filter(|i| !stale.contains(i)).collect();
+            let sayable = if fresh.is_empty() { sayable } else { fresh };
             match sayable.len() {
                 0 => {}
                 1 => return Some(sayable[0]),
@@ -1359,6 +1374,47 @@ impl<'a> Game<'a> {
         let listener = Some(FormId::PLAYER_REF);
         let info = self.select_line_where(actor, listener, topic, |d| d.link_from.is_empty())?;
         self.say_line(actor, listener, topic, info, LineKind::Hello);
+        Some(info)
+    }
+
+    /// [`Game::say_hello`] for the hellos actors say on their own (`fnv_ai::social`),
+    /// without the lines said of late: a hello or idle chatter line any actor said within
+    /// [`IDLE_LINE_MEMORY`] seconds is not said again. A Random pool picks among its
+    /// other lines; an actor whose line (a plain one, or every line of its pool it can
+    /// say) was said of late says nothing rather than a line stored further down, which
+    /// the earlier lines are there to keep back [design: owner's playtest 2026-11-11,
+    /// #2156: "all the legion in the Legion Fort say the same", the slaves' Burned Man
+    /// stories "one after another without variations"; the original's rule is not
+    /// documented].
+    pub fn say_hello_fresh(&mut self, actor: FormId) -> Option<FormId> {
+        let topic = self.hello_topic()?;
+        self.say_idle(actor, topic, |d| d.link_from.is_empty(), LineKind::Hello)
+    }
+
+    /// `actor` says its line of `topic` (IdleChatter) to nobody, as [`Game::say`] does,
+    /// unless the line was said of late ([`Game::say_hello_fresh`]).
+    pub fn say_chatter(&mut self, actor: FormId, topic: FormId) -> Option<FormId> {
+        self.say_idle(actor, topic, |_| true, LineKind::Say)
+    }
+
+    fn say_idle(&mut self, actor: FormId, topic: FormId, keep: impl Fn(&InfoDef) -> bool, kind: LineKind) -> Option<FormId> {
+        let now = self.time;
+        self.idle_said.retain(|_, at| now - *at < IDLE_LINE_MEMORY);
+        let stale: BTreeSet<FormId> = self.idle_said.keys().copied().collect();
+        let data = self.data;
+        let lines = data.lines_tried(topic);
+        let listener = Some(FormId::PLAYER_REF);
+        let Some(info) = self.select_among_but(actor, listener, &lines, &keep, false, Says::Actor, &stale) else {
+            if kind != LineKind::Hello {
+                self.emit(EventKind::NoLine { speaker: actor, topic });
+            }
+            return None;
+        };
+        if stale.contains(&info) {
+            return None;
+        }
+        self.idle_said.insert(info, now);
+        self.say_line(actor, if kind == LineKind::Hello { listener } else { None }, topic, info, kind);
         Some(info)
     }
 
