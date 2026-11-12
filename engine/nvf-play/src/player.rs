@@ -523,9 +523,10 @@ fn read_input(
         return;
     }
     if seat.hold.is_some() {
-        // Held by furniture: no movement; a movement control asks to get up.
+        // Held by furniture: no movement; a movement control asks to get up, unless a
+        // game played from the seat has the keys (`PlayerSeat::game`).
         let moving = [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight, Control::Jump];
-        if moving.into_iter().any(|c| input.just_pressed(c)) {
+        if !seat.game && moving.into_iter().any(|c| input.just_pressed(c)) {
             seat.leave = true;
         }
         control.auto_move = false;
@@ -1639,5 +1640,28 @@ mod tests {
     #[test]
     fn interpolation() {
         assert_eq!(lerp3([0.0; 3], [2.0, 4.0, 6.0], 0.5), [1.0, 2.0, 3.0]);
+    }
+
+    /// Seated, Space (Jump) asks to get up, unless a game played from the seat has the
+    /// keys (the arm-wrestling stools: Space is its tap key; owner's playtest, ship13).
+    #[test]
+    fn a_seated_game_keeps_space_from_standing_the_player_up() {
+        let pressed_space = |game: bool| {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin)
+                .init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<crate::bindings::Bindings>()
+                .init_resource::<PlayerControl>()
+                .init_resource::<MoveIntent>()
+                .insert_resource(crate::furniture::PlayerSeat { hold: Some([0.0; 3]), on: Some(1), seated: true, game, ..Default::default() })
+                .insert_state(PlayState::Playing)
+                .add_systems(Update, read_input);
+            app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Space);
+            app.update();
+            app.world().resource::<crate::furniture::PlayerSeat>().leave
+        };
+        assert!(pressed_space(false));
+        assert!(!pressed_space(true));
     }
 }
