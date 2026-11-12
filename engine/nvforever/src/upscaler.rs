@@ -226,7 +226,8 @@ pub enum Unavailable {
     /// The DLSS folder holds an `nvngx_update.exe`, which Streamline would start unchecked
     /// (docs/spec-notes/streamline.md, "NVIDIA's updater"), or could not be inspected.
     UpdaterInFolder,
-    /// The interposer's signature did not verify.
+    /// The interposer's signature did not verify, or it is not a tested build (its SHA-256,
+    /// `dlss/security.rs` `TESTED_INTERPOSERS`).
     SignatureRejected,
     /// Streamline would not load or initialise (`LoadLibrary`, exports, `slInit`, the instance).
     StreamlineRefused,
@@ -266,7 +267,7 @@ impl Unavailable {
             Self::NotVulkan => "DLSS needs the Vulkan renderer",
             Self::FilesMissing => "DLSS files missing: put them in the dlss folder beside nvforever.exe, then restart",
             Self::UpdaterInFolder => "The dlss folder holds NVIDIA's updater (nvngx_update.exe): remove it, then restart",
-            Self::SignatureRejected => "The DLSS files are not signed by NVIDIA",
+            Self::SignatureRejected => "The DLSS files are not the tested NVIDIA release (Streamline 2.14.16)",
             Self::StreamlineRefused => "DLSS did not start (the log says why)",
             Self::DeviceUnsuitable => "A graphics card the game may use cannot run DLSS",
             Self::GpuNotSupported => "Not on this GPU or driver (DLSS needs an NVIDIA RTX card)",

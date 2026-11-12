@@ -10,13 +10,26 @@
 //! some (`:178-192, 238-242`); the signer-info buffers are `Vec`s, not `LocalAlloc`; a nested
 //! signature attribute without a value is treated as no signature instead of read.
 //!
-//! # Open point for Step 3: the secondary signature is not bound to the file
+//! # The tested build: a SHA-256 allowlist
+//!
+//! Beside the signature, the interposer must be a build NVIDIA published and NVForever was tested
+//! with: its SHA-256 must be one of [`TESTED_INTERPOSERS`] (today one, Streamline 2.14.16's)
+//! [design: the PR owner's decision after the review of #2206, 2026-11-12]. Both checks must
+//! pass ([`check_interposer`]); a file that fails either is refused with
+//! `Unavailable::SignatureRejected` and its hash in the log. This closes the open point below for
+//! the tested build: a file carrying a copied NVIDIA nested signature is not byte-for-byte that
+//! build, so its hash differs. A new Streamline release needs its hash added here after it was
+//! tested.
+//!
+//! # Open point: the secondary signature is not bound to the file
 //!
 //! Like the header, this check verifies the primary signature (index 0) against the file and then
 //! only compares the public key of the nested (secondary) signature's signer with Streamline's
 //! NVIDIA key. Nothing shows that the nested signature signs this file: a file validly signed by
 //! someone else, carrying a copy of NVIDIA's nested-signature attribute from a genuine file, could
-//! pass [hypothesis, from the stage-1 review]. Tried and taken out again:
+//! pass the signature check alone [hypothesis, from the stage-1 review]; the allowlist above
+//! refuses it. The cryptographic binding would let other builds than the listed ones be
+//! trusted; it stays open. Tried and taken out again:
 //! - `WinVerifyTrust` on index 1 (`WSS_VERIFY_SPECIFIC`, `dwIndex` 1) rejects the genuine
 //!   `sl.interposer.dll` of Streamline 2.14.16 with `0x800b0109` (`CERT_E_UNTRUSTEDROOT`)
 //!   [observed, 2026-11-12]: NVIDIA's secondary signature chains to a root Windows does not trust,
@@ -27,7 +40,7 @@
 //!   [documented: Microsoft Learn, "WinVerifyTrust function (wintrust.h)", Return value; "Example
 //!   C Program: Verifying the Signature of a PE File", read 2026-11-12].
 //!
-//! The route left for Step 3 [hypothesis, not built]: verify the nested PKCS#7 message itself
+//! The route left [hypothesis, not built]: verify the nested PKCS#7 message itself
 //! against the pinned certificate (`CryptMsgControl`, `CMSG_CTRL_VERIFY_SIGNATURE_EX`), decode its
 //! content as `SpcIndirectDataContent` and check that digest against this file through the
 //! subject interface package (`CryptSIPRetrieveSubjectGuid`, `CryptSIPLoad`, the dispatch's
@@ -79,6 +92,7 @@ use windows_sys::Win32::Security::WinTrust::{
 use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
 use super::ffi::{get_proc, wide};
+use crate::upscaler::Unavailable;
 
 /// `szOID_CERT_STRONG_SIGN_OS_CURRENT` as an ANSI string: the header casts the ANSI macro to
 /// `LPSTR` (`sl_security.h:419`), and `CERT_STRONG_SIGN_PARA`'s `pszOID` is a `PSTR`; windows-sys
@@ -110,6 +124,72 @@ const STREAMLINE_PUBLIC_KEY: [u8; 411] = [
     0x7b, 0x64, 0x42, 0x09, 0xb0, 0x1d,
 ];
 
+/// The `sl.interposer.dll` builds NVForever was tested with: what each is, and its SHA-256 in
+/// hex. Only these are loaded (the module's "The tested build").
+pub(super) const TESTED_INTERPOSERS: [(&str, &str); 1] = [(
+    "Streamline 2.14.16",
+    // `bin\x64\sl.interposer.dll` of NVIDIA's release archive `streamline-sdk-v2.14.16.zip`
+    // [observed: the release zip's file and the tested bundle, 2026-11-12].
+    "b1d7395aebd7b9722841d64dcf7433680020b6a8e421f851c16d5ba0c2182edf",
+)];
+
+/// 64 hex digits (either case) as 32 bytes; `None` for anything else.
+fn parse_sha256(hex: &str) -> Option<[u8; 32]> {
+    let digits = hex.as_bytes();
+    if digits.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (byte, pair) in out.iter_mut().zip(digits.chunks_exact(2)) {
+        let high = char::from(pair[0]).to_digit(16)?;
+        let low = char::from(pair[1]).to_digit(16)?;
+        *byte = (high * 16 + low) as u8;
+    }
+    Some(out)
+}
+
+/// The tested build whose SHA-256 is `digest`, if any.
+fn tested_build(digest: &[u8; 32]) -> Option<&'static str> {
+    TESTED_INTERPOSERS.iter().find(|(_, hex)| parse_sha256(hex).as_ref() == Some(digest)).map(|(build, _)| *build)
+}
+
+/// The tested builds as the log names them: "Streamline 2.14.16 b1d7…".
+fn tested_list() -> String {
+    TESTED_INTERPOSERS.iter().map(|(build, hex)| format!("{build} {hex}")).collect::<Vec<_>>().join(", ")
+}
+
+/// The interposer, accepted by [`check_interposer`].
+pub(super) struct Accepted {
+    /// The file's SHA-256 in hex.
+    pub(super) sha256: String,
+    /// The tested build it is.
+    pub(super) build: &'static str,
+}
+
+/// Why [`check_interposer`] refused the interposer: the reason the settings show, and the log's
+/// words.
+pub(super) struct Refused {
+    pub(super) reason: Unavailable,
+    pub(super) why: String,
+}
+
+/// The interposer's two checks, both of which must pass: its signature
+/// ([`verify_embedded_signature`]) and its SHA-256 being a tested build's ([`TESTED_INTERPOSERS`]).
+/// `path` is a full path.
+pub(super) fn check_interposer(path: &Path) -> Result<Accepted, Refused> {
+    let bytes = std::fs::read(path).map_err(|e| Refused { reason: Unavailable::StreamlineRefused, why: format!("it could not be read for its checks: {e}") })?;
+    let digest = fnv_util::sha256::digest(&bytes);
+    let sha256 = fnv_util::sha256::to_hex(&digest);
+    verify_embedded_signature(path).map_err(|why| Refused { reason: Unavailable::SignatureRejected, why: format!("{why} (SHA-256 {sha256})") })?;
+    let Some(build) = tested_build(&digest) else {
+        return Err(Refused {
+            reason: Unavailable::SignatureRejected,
+            why: format!("its SHA-256 {sha256} is not a tested build's (tested: {}); its signature passed", tested_list()),
+        });
+    };
+    Ok(Accepted { sha256, build })
+}
+
 // The signatures of the functions looked up, as windows-sys declares them
 // (`Win32/Security/WinTrust/mod.rs:15`, `Win32/Security/Cryptography/mod.rs:84-285`), with
 // pointers to structures this file does not build written as `*const c_void`.
@@ -140,7 +220,7 @@ fn system_library(name: &str) -> Option<HMODULE> {
 /// signature's signer carrying Streamline's NVIDIA key. A file passes only when all three hold.
 /// `path` must be a full path (`:328-330`). The secondary signature is not verified against the
 /// file; see the module's open point.
-pub fn verify_embedded_signature(path: &Path) -> Result<(), String> {
+fn verify_embedded_signature(path: &Path) -> Result<(), String> {
     let path_w = wide(path.as_os_str());
     let wintrust = system_library("wintrust.dll").ok_or("wintrust.dll did not load")?;
     // SAFETY: windows-sys's signature of `WinVerifyTrust`.
@@ -418,4 +498,38 @@ fn nested_signer_is_streamline(crypt: &Crypt32, encoding: u32, blob: &CRYPT_INTE
     // SAFETY: allocated by CryptDecodeObjectEx with the alloc flag.
     unsafe { LocalFree(decoded) };
     same
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sha256_hex_is_parsed_strictly() {
+        let lower = parse_sha256(TESTED_INTERPOSERS[0].1).expect("the listed hash parses");
+        assert_eq!(&lower[..4], &[0xb1, 0xd7, 0x39, 0x5a]);
+        assert_eq!(lower[31], 0xdf);
+        assert_eq!(parse_sha256(&TESTED_INTERPOSERS[0].1.to_ascii_uppercase()), Some(lower), "either case");
+        let zeros = "0".repeat(64);
+        assert_eq!(parse_sha256(&zeros), Some([0; 32]));
+        assert_eq!(parse_sha256(&"0".repeat(63)), None, "too short");
+        assert_eq!(parse_sha256(&"0".repeat(65)), None, "too long");
+        assert_eq!(parse_sha256(&format!("{}g", "0".repeat(63))), None, "not hex");
+        assert_eq!(parse_sha256(&format!("+{}", "0".repeat(63))), None, "a sign is not a digit");
+        assert_eq!(parse_sha256(""), None);
+    }
+
+    #[test]
+    fn only_a_tested_build_is_matched() {
+        let tested = parse_sha256(TESTED_INTERPOSERS[0].1).unwrap();
+        assert_eq!(tested_build(&tested), Some("Streamline 2.14.16"));
+        let mut other = tested;
+        other[31] ^= 1;
+        assert_eq!(tested_build(&other), None, "one bit off");
+        assert_eq!(tested_build(&[0; 32]), None);
+        // The empty file's SHA-256 is not a tested build's.
+        assert_eq!(tested_build(&fnv_util::sha256::digest(b"")), None);
+        assert_eq!(fnv_util::sha256::to_hex(&tested), TESTED_INTERPOSERS[0].1, "the log writes the listed form");
+        assert!(tested_list().contains("Streamline 2.14.16 b1d7395aebd7"));
+    }
 }

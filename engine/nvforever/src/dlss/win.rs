@@ -182,17 +182,20 @@ pub(super) fn start(app: &mut App) {
         return;
     }
     let interposer = folder.join(FILES[0]);
-    if let Err(why) = super::security::verify_embedded_signature(&interposer) {
-        note(Level::WARN, format!("signature: {} not accepted: {why}", FILES[0]));
-        note(Level::INFO, "inactive: the interposer's signature did not verify; the stock Vulkan path");
-        set_loader_state(DlssState::Unavailable(Unavailable::SignatureRejected));
-        return;
-    }
+    let accepted = match super::security::check_interposer(&interposer) {
+        Ok(accepted) => accepted,
+        Err(refused) => {
+            note(Level::WARN, format!("signature: {} not accepted: {}", FILES[0], refused.why));
+            note(Level::INFO, "inactive: the interposer did not pass its checks; the stock Vulkan path");
+            set_loader_state(DlssState::Unavailable(refused.reason));
+            return;
+        }
+    };
     note(
         Level::INFO,
         format!(
-            "signature: {} accepted (Windows' Authenticode check of the primary signature, index 0; exactly one secondary signature; Streamline's NVIDIA key on its signer; the secondary signature itself not verified against the file)",
-            FILES[0]
+            "signature: {} accepted (Windows' Authenticode check of the primary signature, index 0; exactly one secondary signature; Streamline's NVIDIA key on its signer; SHA-256 {}, the tested {} build)",
+            FILES[0], accepted.sha256, accepted.build
         ),
     );
     // Every GPU read through the system's loader while no Streamline code is loaded; the check
