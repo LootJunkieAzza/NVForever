@@ -333,6 +333,11 @@ where
         if is_link(&path, &file)? {
             return Err(Fault::Link);
         }
+        // Windows will not open a folder as a file; other systems will, so a folder with a
+        // DLL's name is refused here as well [design: the same refusal everywhere].
+        if !file.metadata()?.is_file() {
+            return Err(Fault::Unreadable(std::io::Error::other("not a file")));
+        }
         Ok((path, file))
     };
     let hash = |name: &OsStr| -> Result<[u8; 32], Fault> {
