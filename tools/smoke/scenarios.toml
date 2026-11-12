@@ -24747,7 +24747,7 @@ expect = [
   { re = 'tiles: MapMenu local map frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared, \d+ by hand as the Pip-Boy came up or went down', count = 2, label = "each visit: no frame by hand with the Pip-Boy up (frames as it rises or lowers counted apart)" },
   { text = "MapMenu drawn by hand", count = 0, label = "no fallback warned of" },
 ]
-order = [["tiles: MapMenu draws local map from tiles", { re = 'tiles: MapMenu local map picture given' }, "pipboy: down", "tiles: MapMenu draws local map from tiles"]]
+order = [[{ re = 'tiles: MapMenu local map picture given' }, "pipboy: down", "tiles: MapMenu draws local map from tiles"]]
 
 [[scenario]]
 name = "tiles-data-radio"
