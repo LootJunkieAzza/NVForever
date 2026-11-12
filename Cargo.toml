@@ -18,3 +18,11 @@ thiserror = "2"
 
 [profile.release]
 debug = 1
+
+# For iterating (#1956): release with incremental compilation, in target/release-quick, so it never
+# invalidates target/release (engine/Cargo.toml has the same profile and the numbers).
+# `cargo quick` (.cargo/config.toml) builds with it; `cargo test --profile release-quick`
+# runs the tests. Profile and measure from `--release`.
+[profile.release-quick]
+inherits = "release"
+incremental = true

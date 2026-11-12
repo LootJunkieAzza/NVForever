@@ -71,9 +71,11 @@ def parser() -> argparse.ArgumentParser:
         q.add_argument("--tools-only", action="store_true", help="only fnvtool scenarios")
         if name == "run":
             q.add_argument("--checks", action="store_true", help="also run the push checks the change calls for")
-            q.add_argument("--exe", type=Path, default=None, help="nvforever (default NVF_EXE or <repo>/engine/target/release)")
+            q.add_argument("--exe", type=Path, default=None,
+                           help="nvforever (default NVF_EXE, or the newer of <repo>/engine/target/release and release-quick)")
             q.add_argument("--data", default=None, help="game Data folder (default NVF_DATA or FNVLAB_DATA_DIR)")
-            q.add_argument("--fnvtool", type=Path, default=None, help="fnvtool (default NVF_FNVTOOL or <repo>/target/release)")
+            q.add_argument("--fnvtool", type=Path, default=None,
+                           help="fnvtool (default NVF_FNVTOOL, or the newer of <repo>/target/release and release-quick)")
             q.add_argument("--lock-poll", type=float, default=30.0)
             q.add_argument("--no-locks", action="store_true", help="for machines where nobody else runs the game")
             q.add_argument("--slots", type=int, default=None,
@@ -182,11 +184,18 @@ def cmd_plan(a, suite: Suite, say) -> int:
     return 0
 
 
+def newest_build(target: Path, name: str) -> Path:
+    """`name` in target/release or target/release-quick (`cargo quick`, the incremental profile for
+    iterating, #1956), whichever was built last; target/release's when neither exists."""
+    found = [p for p in (target / "release" / name, target / "release-quick" / name) if p.exists()]
+    return max(found, key=lambda p: p.stat().st_mtime) if found else target / "release" / name
+
+
 def resolve(a, suite: Suite, say) -> Env:
     exe = a.exe or (Path(os.environ["NVF_EXE"]) if os.environ.get("NVF_EXE") else
-                    a.repo / "engine" / "target" / "release" / EXE_NAME)
+                    newest_build(a.repo / "engine" / "target", EXE_NAME))
     tool = a.fnvtool or (Path(os.environ["NVF_FNVTOOL"]) if os.environ.get("NVF_FNVTOOL") else
-                         a.repo / "target" / "release" / TOOL_NAME)
+                         newest_build(a.repo / "target", TOOL_NAME))
     data = a.data or os.environ.get("NVF_DATA") or os.environ.get("FNVLAB_DATA_DIR")
     return Env(a.repo, out_dir(a), exe, data, tool, say, suite.masters)
 
@@ -239,6 +248,8 @@ def cmd_run(a, suite: Suite, say) -> int:
     if any(x.kind != GAME for x in launches) and not env.fnvtool.exists():
         say(f"warning: no fnvtool at {env.fnvtool}; tool scenarios will fail (build it or pass --fnvtool)")
     say(f"{len(chosen)} scenarios in {len(games)} game launches and {len(launches) - len(games)} tool runs; logs in {env.out}")
+    if games:
+        say(f"nvforever: {env.exe}")
     locks, jobs = game_gate(a, say, game_groups(launches))
     if jobs > 1 and len(launches) > 1:
         say(f"up to {jobs} launches at once (smoke slots: {locks.count if isinstance(locks, slots.Slots) else 'none'})")
