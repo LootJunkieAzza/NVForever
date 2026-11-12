@@ -43,9 +43,9 @@
 //!   spectator's head stood 18 from the camera; P2 getting up passed under the camera].
 //!   Looked at again every [`RECHECK`] s; a change eases across.
 //! - **The frame.** Each spot is also seen through the camera's lens ([`faults`]): a
-//!   spectator's upper body cut by the frame's left, right or top edge, or a wrestler's face
+//!   spectator's upper body cut by any edge of the frame, or a wrestler's face or crown
 //!   just behind the hands in it, rules the spot out; the bout and the win then try the
-//!   spot turned further ([`BOUT_TURNS`]), raised ([`BOUT_LIFTS`]) and pulled in to 0.8
+//!   spot turned further ([`BOUT_TURNS`]), raised ([`BOUT_LIFTS`]) and pulled in
 //!   ([`BOUT_SCALES`]), so a spectator is either whole in the frame or out of it [parity,
 //!   ship15 laptop run, watch-close play-48s: the head and shoulder cut by the right edge].
 //!   Getting up, both standing wrestlers must be whole in it, the aim on their middle
@@ -184,11 +184,13 @@ pub const SETTLE: f32 = 0.75;
 /// round the hands (degrees) ... [design: parity, ship15 laptop run, watch-close play-48s:
 /// turned 25 degrees clear of the spectator's line, its head and shoulder were cut by the
 /// frame's right edge].
-pub const BOUT_TURNS: [f32; 5] = [0.0, 25.0, -25.0, 40.0, -40.0];
+pub const BOUT_TURNS: [f32; 7] = [0.0, 25.0, -25.0, 40.0, -40.0, 55.0, -55.0];
 /// ... raised by these parts of its height, then pulled in by [`BOUT_SCALES`]: not to the
-/// close-up (0.55), which put the clasp on a face (run b10).
+/// close-up (0.55), which put the clasp on a face (run b10); the face test ([`faults`])
+/// rules that out where it would happen [design: b-win-view12 watch-close, no spot to
+/// 0.8 was clear of the walls and the frame].
 pub const BOUT_LIFTS: [f32; 3] = [1.0, 1.35, 1.7];
-pub const BOUT_SCALES: [f32; 2] = [1.0, 0.8];
+pub const BOUT_SCALES: [f32; 3] = [1.0, 0.8, 0.65];
 /// Getting up: the aim on the two standing wrestlers ([`up_aim`]), not the table, and the
 /// spot's height scaled by these until both are in the frame whole (lower first, in case
 /// the ceiling pulls it in) [design: parity, ship15 laptop pvp run, P2 play-38.5s, aimed at
@@ -206,18 +208,31 @@ pub const FACE_CLEAR: f32 = 0.12;
 /// frame's edges, game units [design].
 pub const FRAME_NEAR: f32 = 320.0;
 
-/// The camera's lens: the tangents of half its vertical and horizontal fields of view.
+/// How much wider a body is taken to be in the frame (parts of the half frame) when a spot
+/// is chosen, and narrower while the spot in use is kept [design: b-win-view13 watch-close,
+/// a spectator on the frame's edge flickered between cut and clear as it idled, and the
+/// view swapped spots four times in the bout].
+pub const FRAME_PAD: f32 = 0.06;
+
+/// The camera's lens: the tangents of half its vertical and horizontal fields of view, and
+/// the margin a body is widened by in the frame ([`FRAME_PAD`]; negative narrows it).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Lens {
     pub tan_v: f32,
     pub tan_h: f32,
+    pub pad: f32,
 }
 
 impl Lens {
     /// From the vertical field of view (radians) and the width over the height.
     pub fn new(fov_v: f32, aspect: f32) -> Lens {
         let tan_v = (fov_v / 2.0).tan();
-        Lens { tan_v, tan_h: tan_v * aspect }
+        Lens { tan_v, tan_h: tan_v * aspect, pad: 0.0 }
+    }
+
+    /// The same lens with bodies widened by `pad`.
+    pub fn padded(self, pad: f32) -> Lens {
+        Lens { pad, ..self }
     }
 }
 
@@ -236,7 +251,7 @@ pub fn project(cam: [f32; 3], heading: f32, pitch: f32, lens: Lens, p: [f32; 3])
 }
 
 /// What is wrong with a shot from `cam` (heading, pitch) of the hands at `clasp`:
-/// spectators cut by its left, right or top edge, wrestlers not whole in it (`whole`:
+/// spectators cut by any of its edges, wrestlers not whole in it (`whole`:
 /// getting up, from the hips to the crown), a wrestler's face behind the hands (`faces`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Faults {
@@ -263,51 +278,49 @@ pub fn faults(cam:[f32; 3], heading: f32, pitch: f32, lens: Lens, clasp: [f32; 3
         let crown = [head[0], head[1], head[2] + CROWN];
         // The upper body, hips to crown, and its width either side and before and behind
         // (level, as the camera faces): a body just behind the camera may have a shoulder
-        // in front of it. A cut lower down (the legs under the frame) is a shot from the
-        // waist up, not a cut.
+        // in front of it. Any edge counts, the bottom too: a spectator's head and shoulder
+        // up from the bottom corner is as cut as from the side (b-win-view12 watch-close
+        // play-36s).
         let (sh, ch) = heading.sin_cos();
         let (fl, rl) = ([sh * SHOULDERS, ch * SHOULDERS], [ch * SHOULDERS, -sh * SHOULDERS]);
-        let offsets = [[0.0, 0.0], rl, [-rl[0], -rl[1]], fl, [-fl[0], -fl[1]]];
+        let offsets = [[0.0, 0.0], rl, [-rl[0], -rl[1]], [rl[0] / 2.0, rl[1] / 2.0], [-rl[0] / 2.0, -rl[1] / 2.0], fl, [-fl[0], -fl[1]]];
         let samples: Vec<[f32; 3]> = [0.5f32, 0.7, 0.85, 1.0]
             .iter()
             .map(|&k| [feet[0] + (head[0] - feet[0]) * k, feet[1] + (head[1] - feet[1]) * k, feet[2] + (head[2] - feet[2]) * k])
             .chain(std::iter::once(crown))
             .flat_map(|c| offsets.map(|o| [c[0] + o[0], c[1] + o[1], c[2]]))
             .collect();
+        // Each point in the frame or not, one by one: the points of a body beside the
+        // camera fall far out to both sides, and a box round them spanned the frame though
+        // nothing of it showed (b-win-view14 watch-close: the clean close-up dropped as cut).
         let seen: Vec<Option<(f32, f32, f32)>> = samples.iter().map(|&q| project(cam, heading, pitch, lens, q)).collect();
-        let (mut x0, mut x1, mut y0, mut y1) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
-        let mut near = f32::MAX;
-        for &(x, y, z) in seen.iter().flatten() {
-            x0 = x0.min(x);
-            x1 = x1.max(x);
-            y0 = y0.min(y);
-            y1 = y1.max(y);
-            near = near.min(z);
-        }
-        let any = seen.iter().any(Option::is_some);
+        let within = |x: f32, y: f32, edge: f32| x.abs() < edge && y.abs() < edge;
+        let near = seen.iter().flatten().map(|v| v.2).fold(f32::MAX, f32::min);
         let behind = seen.iter().any(Option::is_none);
         if wrestler {
-            if whole && (behind || x0 < -1.0 || x1 > 1.0 || y0 < -1.0 || y1 > 1.0) {
+            // Whole: every point in, short of the edge by the pad.
+            if whole && (behind || seen.iter().flatten().any(|&(x, y, _)| !within(x, y, 1.0 - lens.pad))) {
                 out.out += 1;
             }
             if faces {
-                if let (Some((hx, hy, _)), Some((fx, fy, _))) = (hands, project(cam, heading, pitch, lens, head)) {
-                    let gap = ((hx - fx) * lens.tan_h).hypot((hy - fy) * lens.tan_v);
-                    out.face |= gap < FACE_CLEAR;
+                // The face and the top of the head (a hat over the clasp, run b7).
+                for q in [head, crown] {
+                    if let (Some((hx, hy, _)), Some((fx, fy, _))) = (hands, project(cam, heading, pitch, lens, q)) {
+                        let gap = ((hx - fx) * lens.tan_h).hypot((hy - fy) * lens.tan_v);
+                        out.face |= gap < FACE_CLEAR;
+                    }
                 }
             }
             continue;
         }
-        if !any || near > FRAME_NEAR {
+        if near > FRAME_NEAR {
             continue;
         }
-        let rows = y1 > -1.0 && y0 < 1.0;
-        let cols = x1 > -1.0 && x0 < 1.0;
-        let inside = rows && cols;
-        let side = rows && ((x0 < -1.0 && x1 > -1.0) || (x0 < 1.0 && x1 > 1.0));
-        let top = cols && y0 < 1.0 && y1 > 1.0;
-        // Partly behind the camera and partly in the frame: cut by the frame's edge.
-        if side || top || (behind && inside) {
+        // Cut: some of it in the frame (within the pad of the edge) and some out of it or
+        // behind the camera.
+        let shown = seen.iter().flatten().any(|&(x, y, _)| within(x, y, 1.0 + lens.pad));
+        let hidden = behind || seen.iter().flatten().any(|&(x, y, _)| !within(x, y, 1.0 - lens.pad));
+        if shown && hidden {
             out.cut += 1;
         }
     }
@@ -685,19 +698,24 @@ pub fn camera(
         view.checked = now;
         let current = view.pick.filter(|(f, _)| *f == framing).map(|(_, p)| p);
         let base_pulled = reach(clasp, placed(framing, base, clasp, toward, away).0).1;
-        let mut look = |p: Pick| {
+        // A spot to move to is judged with the bodies widened ([`FRAME_PAD`]), the one in
+        // use with them narrowed, so a body on the frame's edge does not swap the view to and
+        // fro.
+        let mut look = |p: Pick, pad: f32| {
             let (out, pulled) = reach(clasp, placed(framing, p, clasp, toward, away).0);
             let (line, cam) = room(out, clasp, &bodies);
             let (heading, pitch) = aim(out, clasp);
-            let bad = faults(out, heading, pitch, lens, clasp, &bodies, framing == Framing::Up, framing == Framing::Bout);
+            let bad = faults(out, heading, pitch, lens.padded(pad), clasp, &bodies, framing == Framing::Up, framing == Framing::Bout);
             (line, cam, pulled <= base_pulled + 10.0, bad)
         };
         // The first spot clean in the order, else the one with the most room and the
         // fewest faults.
         let mut first = None;
         let mut best: Option<(Pick, f32)> = None;
+        let mut tried = Vec::new();
         for p in picks(framing, view.right) {
-            let (line, cam, walls, bad) = look(p);
+            let (line, cam, walls, bad) = look(p, FRAME_PAD);
+            tried.push((p, line, cam, walls, bad));
             if walls && line >= BODY_CLEAR && cam >= BODY_NEAR && bad.none() {
                 first = Some(p);
                 break;
@@ -707,13 +725,15 @@ pub fn camera(
                 best = Some((p, score));
             }
         }
-        let target = first.or(best.map(|(p, _)| p)).unwrap_or(base);
         // A body in the camera itself moves it at once; otherwise the change waits until
         // the same spot has been the one to take for [`SETTLE`] s, so a body walking past
         // the line does not swing the view, and it comes back once the way is clear.
-        let had = current.map(&mut look);
+        let had = current.map(|c| look(c, -FRAME_PAD));
         let blocked = had.is_some_and(|(line, cam, walls, bad)| !walls || line < 0.0 || cam < 0.0 || !bad.none());
         let inside = had.is_some_and(|(_, cam, _, _)| cam < 0.0);
+        // No spot clean: the one in use is kept unless a body is in the camera (a fallback
+        // chosen on points swung the view over the Settler's shoulder, b-win-view14).
+        let target = first.or(current.filter(|_| !inside)).or(best.map(|(p, _)| p)).unwrap_or(base);
         let chosen = match current {
             None => target,
             // Kept while clear, unless the plain spot is clear again.
@@ -747,6 +767,30 @@ pub fn camera(
                     if first.is_none() { ", none clean" } else { "" },
                     had.map_or("none".to_string(), |(line, cam, walls, bad)| format!("line room {line:.0}, camera room {cam:.0}, walls {}, {} cut by the frame, {} wrestlers not whole, face behind the hands {}", if walls { "clear" } else { "in" }, bad.cut, bad.out, bad.face))
                 );
+                if first.is_none() {
+                    // Why each spot was not taken: side, turn, reach, height; line room,
+                    // camera room, w(alls in), c(ut), o(ut), f(ace).
+                    let why: Vec<String> = tried
+                        .iter()
+                        .map(|(p, line, cam, walls, bad)| {
+                            format!(
+                                "{}{:.0}/{:.2}/{:.2}:{:.0},{:.0}{}{}{}{}",
+                                if p.right { 'R' } else { 'L' },
+                                p.turn.to_degrees(),
+                                p.scale,
+                                p.lift,
+                                line.min(999.0),
+                                cam.min(999.0),
+                                if *walls { "" } else { " w" },
+                                if bad.cut > 0 { " c" } else { "" },
+                                if bad.out > 0 { " o" } else { "" },
+                                if bad.face { " f" } else { "" }
+                            )
+                        })
+                        .collect();
+                    let at: Vec<String> = bodies.iter().map(|(f, h, w)| format!("{}{:.0?}-{:.0}", if *w { "W" } else { "S" }, f, h[2])).collect();
+                    info!("arm wrestle view: none clean; bodies {} ; spots {}", at.join(" "), why.join(" "));
+                }
             }
         }
         view.pick = Some((framing, chosen));
