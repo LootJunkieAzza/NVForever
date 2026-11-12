@@ -261,6 +261,22 @@ impl Game<'_> {
         [crate::game::event::ON_TRIGGER_ENTER, crate::game::event::ON_TRIGGER, crate::game::event::ON_TRIGGER_LEAVE].iter().any(|&b| unit.has_block(b))
     }
 
+    /// [`Game::controls_locked`] without NVForever's own in-world mini-games' locks
+    /// ([`ENGINE_GAME_LOCK_PREFIX`]): what a co-op scene holds this player with. At a
+    /// drinking contest's table the other drinkers' bodies stay drawn.
+    pub fn scene_locks(&self) -> [bool; 7] {
+        let mut out = self.player.controls_disabled;
+        for (o, l) in out.iter_mut().zip(self.coop_host_locks) {
+            *o |= l;
+        }
+        for (_, locks) in self.other.alt_locks.iter().filter(|(k, _)| !k.starts_with(ENGINE_GAME_LOCK_PREFIX)) {
+            for (o, l) in out.iter_mut().zip(locks) {
+                *o |= l;
+            }
+        }
+        out
+    }
+
     pub fn controls_locked(&self) -> [bool; 7] {
         let mut out = self.player.controls_disabled;
         for (o, l) in out.iter_mut().zip(self.coop_host_locks) {

@@ -26,7 +26,8 @@
 //!   is over. The others see the puppet fall by co-op's own rule for a player lying in
 //!   its own game.
 //! - **The winner dances** ([`WIN_DANCE`], the tap dance) from its `Winner` until the
-//!   contest's end, in place by the table, then stands as before.
+//!   contest's end, in place by the table, then stands as before. A drink still playing
+//!   ends first ([`ContestDrinkStop`]), so the dance is not under its last seconds.
 //! - **Waking up**: when the contest ends (`DrinkEnded`, or its screen gone), the hold
 //!   is let go: the body gets up by the game's get-up clip (`GetUpFaceUp` /
 //!   `GetUpFaceDown`), the view and the controls come back with it, and the view the
@@ -34,8 +35,9 @@
 //!
 //! Test aid `NVF_PLAY_TEST_DRINK_TABLE=<seconds>:<seed>[:<skill>[:<NPCs>]]`: that long
 //! after the start (world aid seconds), a contest at the first bar's bottle with this
-//! player, its steering held to the centre this well (0..1, `DrinkLink::aid_skill`; 0
-//! drifts out and passes out), against the nearest NPCs of the loaded cells where they
+//! player, its steering held to the centre this well (0..[`MAX_AID_SKILL`],
+//! `DrinkLink::aid_skill`: 1 is the aid's usual pull, more pulls harder; 0 drifts out and
+//! passes out), against the nearest NPCs of the loaded cells where they
 //! stand (none by default; alone the contest runs until this player passes out, with
 //! NPCs it has a winner). A test aid; not a game behaviour.
 //!
@@ -65,6 +67,16 @@ pub struct BottleUsed {
 pub struct ContestDrink {
     pub item: u32,
 }
+
+/// This player's contest drink still playing ends now (nvforever `consume_anims`): the
+/// winner's dance starts at once instead of under the end of the last drink.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContestDrinkStop;
+
+/// The test aid's strongest steering ([`NVF_PLAY_TEST_DRINK_TABLE`](self)'s skill): 1 is
+/// drink-a's bot pull, which loses to some seeds against a strong drinker; up to this
+/// much more, for a run that has to win (the tap dance's).
+pub const MAX_AID_SKILL: f32 = 4.0;
 
 /// The speed a passing-out body is tipped away from the table with (game units a
 /// second): it falls where it stands, not onto the table [design: a slump, far under a
@@ -113,6 +125,7 @@ impl Plugin for DrinkWorldPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<BottleUsed>()
             .add_message::<ContestDrink>()
+            .add_message::<ContestDrinkStop>()
             .init_resource::<DrinkWorld>()
             .add_systems(Update, (test_aid, activated, started, events, ended).chain().after(PlaySet::Activation))
             .add_systems(Last, report);
@@ -188,7 +201,7 @@ fn started(
 fn events(
     mut events: MessageReader<DrinkEvent>,
     mut world: ResMut<DrinkWorld>,
-    mut drinks: MessageWriter<ContestDrink>,
+    (mut drinks, mut stop): (MessageWriter<ContestDrink>, MessageWriter<ContestDrinkStop>),
     mut emotes: MessageWriter<crate::emotes::EmoteAsk>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
@@ -224,10 +237,11 @@ fn events(
             }
             Event::Winner { slot: Some(slot), .. } if slot == at.slot && !at.held => match crate::emotes::by_key(WIN_DANCE) {
                 Some(emote) => {
+                    stop.write(ContestDrinkStop);
                     emotes.write(crate::emotes::EmoteAsk::Play { emote, cancel_after: None, variant: None });
                     at.dancing = true;
                     w.dances += 1;
-                    info!("drink world: {}: this player wins: the {WIN_DANCE} until the contest's end", at.bar.key);
+                    info!("drink world: {}: this player wins: the drink ends, the {WIN_DANCE} until the contest's end", at.bar.key);
                 }
                 None => warn!("drink world: no emote {WIN_DANCE}: the winner does not dance"),
             },
@@ -331,7 +345,7 @@ fn test_aid(time: crate::pause::AidTime, mut done: Local<bool>, mut script: Opti
         }
     }
     if let Some(k) = skill {
-        link.aid_skill = Some(k.clamp(0.0, 1.0));
+        link.aid_skill = Some(k.clamp(0.0, MAX_AID_SKILL));
     }
     info!("drink world: test aid starts a contest at bottle {:08X} (seed {seed}, skill {skill:?}, {} NPC(s))", bottle.0, drinkers.len() - 1);
     start.write(DrinkStart { bottle: bottle.0, drinkers, seed, stake: 0 });

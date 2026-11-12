@@ -39,7 +39,9 @@
 //!   inventories come first (morning-report designs\coop-dlc-inventory.md).
 //!
 //! - **Bodies hidden.** While a scene holds a player's movement and looking, the other
-//!   players' bodies are not drawn ([`hide_players_in_scene`], item 116).
+//!   players' bodies are not drawn ([`hide_players_in_scene`], item 116). Not for an
+//!   NVForever mini-game's own lock (`Game::scene_locks`): at a drinking contest's table
+//!   the other drinkers are seen.
 //!
 //! Not shared: the player packages its scripts give the host's
 //! player (the guests' copies of the host are drawn where the host is, and a guest held
@@ -510,7 +512,7 @@ pub(super) fn hide_players_in_scene(
     mut hidden: Local<bool>,
     mut blocks: Option<ResMut<nvf_play::blocking::ActorBlocks>>,
 ) {
-    let held = (coop.is_host() || coop.is_guest()) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| scene_holds_view(rt.game.controls_locked()));
+    let held = (coop.is_host() || coop.is_guest()) && script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| scene_holds_view(rt.game.scene_locks()));
     if held != *hidden {
         *hidden = held;
         info!("co-op: scene: the other players' bodies {}", if held { "hidden while the scene holds the view" } else { "drawn again" });
