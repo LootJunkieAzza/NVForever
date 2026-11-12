@@ -872,7 +872,7 @@ fn ease(from: Transform, to: Transform, k: f32) -> Transform {
 }
 
 /// The end view: in front of this player, looking back at them (module notes).
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn camera(
     real: Res<Time<Real>>,
     mut st: ResMut<MatchEnd>,
