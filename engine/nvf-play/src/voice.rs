@@ -15,6 +15,11 @@
 //!   (cut by another line, or its speaker gone) has the sound stopped. One log line per
 //!   sound started: `voice: playing <path> (<seconds> s) ...`; a response without a file
 //!   logs `voice: no file ...`.
+//! - **A line's sound stopped** (cut by another line, its speaker gone, a response
+//!   replaced) fades out over `audio_out::DECLICK_FADE` (#2217) [design] instead of being
+//!   cut mid-waveform (`audio_out::stop_sound`, counted as voice stops in `sfx declicks:
+//!   …`), the voice files, the panned and the cut-to-one-cry lines alike; a held line is
+//!   resumed for its fade. A line nearly over is still left to finish by itself.
 //! - **Held with its line.** Whatever holds a line's timer holds its sound
 //!   ([`line_held`]): a SayTo or Say line stands still in menu mode (the inventory, a
 //!   container, a message box, a conversation with the player), so its sound is paused
@@ -31,7 +36,7 @@
 //!   player's eye, falling as minimum ÷ distance beyond it and fading to nothing at
 //!   [`DIALOG_MAX_DISTANCE`] ([`voice_gain`]),
 //!   and panned to the side it is on (`crate::sfx::pan_gains`), following the speaker and
-//!   the player while it plays. A speaker in another cell (an interior other than the
+//!   the player while it plays (its gains eased, `crate::sfx::PAN_EASE`). A speaker in another cell (an interior other than the
 //!   player's, or inside while the player is outside) is not heard. While a line is not
 //!   heard it is silent and shows no subtitle (`crate::script_hud`; [`audible`]): both
 //!   follow the distance while the line lasts; the log says `voice: … out of hearing`
@@ -70,7 +75,7 @@ use crate::sfx::{pan_gains, Pan, Panned, PcmSound, PlaySound};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
-use crate::audio_out::{AddAudioSource, SoundCategory};
+use crate::audio_out::{stop_sound, AddAudioSource, Retiring, SoundCategory, StopReason};
 use bevy::prelude::*;
 use fnv_game::game::Speech;
 use fnv_game::Game;
@@ -459,7 +464,8 @@ fn play(
     sim: Res<SimState>,
     (sounds, mut panned, player): (Option<ResMut<Assets<AudioSource>>>, Option<ResMut<Assets<Panned<AudioSource>>>>, Option<Res<Player>>),
     paused: Res<crate::pause::Paused>,
-    sinks: Query<&AudioSink, With<VoiceSound>>,
+    // Not a line fading out after it was stopped (audio_out).
+    sinks: Query<&AudioSink, (With<VoiceSound>, Without<Retiring>)>,
     mut effects: MessageWriter<PlaySound>,
     (sfx, sfx_settings): (Option<Res<crate::sfx::Sfx>>, Option<Res<crate::sfx::SfxSettings>>),
     mut cut_sounds: Option<ResMut<Assets<Panned<PcmSound>>>>,
@@ -479,7 +485,7 @@ fn play(
         let said = said_now.iter().any(|s| s.speaker == *speaker && s.info == p.info);
         if !said && (p.held || now < p.ends_at - TAIL_SECONDS) {
             if let Some(e) = p.entity.take() {
-                commands.entity(e).try_despawn();
+                stop_sound(&mut commands, e, StopReason::Voice);
             }
             info!("voice: stopped {} line {} ({:.2} s before its end)", g.data.name(*speaker), g.data.name(p.info), p.ends_at - now);
         }
@@ -525,7 +531,7 @@ fn play(
         if let Some(old) = st.playing.remove(&s.speaker) {
             if old.held || now < old.ends_at - TAIL_SECONDS {
                 if let Some(e) = old.entity {
-                    commands.entity(e).try_despawn();
+                    stop_sound(&mut commands, e, StopReason::Voice);
                 }
             }
         }
