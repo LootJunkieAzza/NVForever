@@ -1515,9 +1515,19 @@ to the decoded file by cross-correlation and a per-band transfer estimate.
     (the wheel side on, 30 fps or better, 10 s or more) and step through the frames at
     each 2.67 s mark: a steady turn says it adds up, a jump says it does not.
 
+## Added 2026-11-11 (Mr. House's screen, issue #2150)
+
+105. **Does Mr. House's screen enter combat, and does it ever turn?** (P3; packages.md
+     §7.1b.) NVForever keeps an Immobile creature with a Turning Speed of 0 at its placed
+     heading always [hypothesis for the rule; the owner saw the original's screen stay
+     still]. Not observed: whether the original's `Lucky38MrHouseREF` (0x001264C5) takes
+     a combat target at all when a fight starts in the penthouse or it is shot
+     (`IsInCombat`, `GetCombatTarget`), and its `GetAngle Z` through a conversation, a
+     goodbye line and a fight. Here it can still be in combat, only without turning.
+
 ## Added 2026-11-11 (a regenerating weapon's ammo counter)
 
-105. **What do the HUD counter's two figures show with a Recharger Rifle out?** (P3;
+106. **What do the HUD counter's two figures show with a Recharger Rifle out?** (P3;
     hud.md §5, #2170.) NVForever shows the weapon's charge as the first figure and the
     carried count of its ammo type, with nothing taken off, as the second [hypothesis].
     Equip a Recharger Rifle, screenshot the counter at full charge, after three shots and
