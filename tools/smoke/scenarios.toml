@@ -24691,6 +24691,65 @@ expect = [
 order = [["tiles: MapMenu leaves world map hand-built: MapMarkerTemplate missing", "pipboy map: custom marker placed at", "tiles: MapMenu draws quests from tiles"]]
 
 [[scenario]]
+name = "tiles-data-local"
+source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Local Map is drawn from map_menu.xml outdoors: its frame (the outline's grid) placed from the viewport the hand-built page shares (MapView), the outline given as the runtime picture nvf:local_map once made and painted from MM_LocalMap_ParentImage's traits, the doors and markers as MapMarkerTemplate rows by record, the arrow turned by the heading, the highlight box; Place Marker's box painted over the tiles and answered by keys (the marker placed and shown); a drag off the outline makes a new one, given again as it is made; every frame of the visit drawn from the tiles"
+note = "pipboy-custom-marker's pointer (canvas 527, 350) and pipboy-list5's drag; the outline is made a few hundred rays a frame, so its picture comes a moment after the tab shows (the frame count's 'before it was prepared' covers the Pip-Boy coming up, not the outline: the page is drawn from its tiles while the picture is not made yet). Shots: tiles_data_local.png (the outline and the marker), tiles_data_local_dragged.png, to compare with tiles-data-local-off's."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/outline.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/tiles/runtime_images.rs", "engine/nvf-play/src/tiles/draw.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,16:point=527:350,17:placemarker,18:key=use,20:drag=-1500:0,24:tab=2,26:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "19:tiles_data_local.png,23:tiles_data_local_dragged.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { text = "tiles: MapMenu draws local map from tiles", min = 1, label = "the Local Map is drawn from its file" },
+  { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', min = 1, label = "the outline made outdoors (the model's)" },
+  { re = 'tiles: MapMenu local map picture given, \d+ x \d+ texels', min = 2, label = "the outline given as the runtime picture, and again for the new one after the drag" },
+  { re = 'tiles: MapMenu page from tiles: tab local map, \d+ markers, \d+ quest markers, (no )?custom marker, picture \d+ x \d+, "[^"]*" highlighted, magnification \d\.\d\d, hints: X [^,]+, device$', min = 1, label = "the frame with its picture, the rows and the hints written" },
+  { re = 'pipboy data: question box over the tiles \(2 answers\)', count = 1, label = "Place Marker's question over the tiles" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
+  { re = 'tiles: MapMenu page from tiles: tab local map, .*, custom marker, ', min = 1, label = "the custom marker written on the Local Map" },
+  { text = "pipboy data: map dragged by (-1500, 0)", count = 1, label = "the drag, the model's" },
+  { re = 'tiles: MapMenu local map frames: [1-9]\d* from tiles, 0 by hand, \d+ before it was prepared', count = 1, label = "every frame of the visit to the Local Map drawn from its tiles, as the outline filled in and was replaced" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback warned of" },
+]
+order = [["tiles: MapMenu draws local map from tiles", { re = 'tiles: MapMenu local map picture given' }, { re = 'pipboy data: question box over the tiles' }, "pipboy map: custom marker placed at", "pipboy data: map dragged by (-1500, 0)", { re = 'tiles: MapMenu local map picture given' }, { re = 'tiles: MapMenu local map frames: ' }, "tiles: MapMenu draws quests from tiles"]]
+
+[[scenario]]
+name = "tiles-data-local-off"
+source = "[design] pipboy.md section 5.3.1: without the switch the Local Map is the hand-built page: nothing of the tile page runs, no runtime picture is given, and its outline, Place Marker and drag work as before"
+note = "the same steps and times as tiles-data-local. Shots to compare with it."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/outline.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,16:point=527:350,17:placemarker,18:key=use,20:drag=-1500:0,24:tab=2,26:close", NVF_PLAY_TEST_SHOTS = "19:tiles_data_local_off.png,23:tiles_data_local_dragged_off.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 29
+expect = [
+  { re = 'tiles: MapMenu|MapMenu drawn by hand|question box over the tiles', count = 0, label = "switch off: nothing of the tile page runs" },
+  { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', min = 2, label = "switch off: the outline made, and again after the drag, as before" },
+  { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\)', count = 1, label = "switch off: Place Marker on the Local Map, as before" },
+  { text = "pipboy data: map dragged by (-1500, 0)", count = 1, label = "switch off: the drag, as before" },
+]
+order = [["pipboy map: custom marker placed at", "pipboy data: map dragged by (-1500, 0)"]]
+
+[[scenario]]
+name = "tiles-data-local-interior"
+source = "[design] pipboy.md section 5.3.1: the Local Map drawn from map_menu.xml indoors (Goodsprings' general store): the closer scale, the doors leading out as rows by record, no map marker, the interior's outline given as the runtime picture; a reopening keeps the page drawn from its tiles"
+note = "GSGeneralStore as other scenarios start in it; its door out to Goodsprings is taken to be read as a door leading elsewhere [hypothesis until the first run]. Shot: tiles_data_local_interior.png."
+areas = ["ui", "menus", "pipboy"]
+paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/outline.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,18:close,20:open,23:close", NVF_PLAY_TEST_TILE_MENUS = "MapMenu", NVF_PLAY_TEST_SHOTS = "17:tiles_data_local_interior.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 25
+expect = [
+  { text = "tiles: MapMenu draws local map from tiles", min = 2, label = "the Local Map indoors drawn from its file, and again after the reopening" },
+  { re = 'pipboy data: local map outline \d+x\d+ samples 28 apart, [1-9]\d* landed \(interior\)', min = 1, label = "the interior's outline, at the closer spacing (the model's)" },
+  { re = 'tiles: MapMenu local map picture given, \d+ x \d+ texels', min = 1, label = "the interior's outline given as the runtime picture" },
+  { re = 'tiles: MapMenu page from tiles: tab local map, [1-9]\d* markers, 0 quest markers, (no )?custom marker, picture \d+ x \d+, ', min = 1, label = "the doors leading out as rows, with the picture" },
+  { re = 'tiles: MapMenu local map frames: [1-9]\d* from tiles, 0 by hand, \d+ before it was prepared', count = 2, label = "each visit drawn from its tiles every frame" },
+  { text = "MapMenu drawn by hand", count = 0, label = "no fallback warned of" },
+]
+order = [["tiles: MapMenu draws local map from tiles", { re = 'tiles: MapMenu local map picture given' }, "pipboy: down", "tiles: MapMenu draws local map from tiles"]]
+
+[[scenario]]
 name = "tiles-data-radio"
 source = "[design] pipboy.md section 5.3.1, issue 1513: with [UI] TileMenus=MapMenu the DATA page's Radio tab is drawn from map_menu.xml: the stations in MM_RadioStationList (the playing one's square filled), the waveform's frame from MM_WaveformRect (MM_Waveform hidden) and the hand-built trace painted over it while the radio plays; a click on a station tunes to it through its tile, Enter on the playing one turns the radio off (the hand-built page's rules)"
 note = "the points are canvas units on the page as run [hypothesis until the first run: the first station's words about 200, 150, as the first quest's in tiles-data-quests]; Goodsprings is assumed to receive at least two stations at noon (Mojave Music Radio is the first the radio-pipboy scenario tunes to) and the Pip-Boy radio to be off at the start. The click tunes to the first station; Down and Enter (the test aid's key steps, the hand-built page's keys) tune to the second; Enter again turns it off. Shots: tiles_data_radio.png (the trace over the file's panel) against tiles-data-radio-off's at the same time."
@@ -24729,7 +24788,7 @@ order = [[{ re = 'pipboy data: radio tuned to ' }, { re = 'pipboy data: radio tu
 
 [[scenario]]
 name = "tiles-data-custom-marker"
-source = "#1954 with #1513 (docs/spec-notes/pipboy.md §5.3.1): with [UI] TileMenus=MapMenu the World Map is drawn from its file (its question box painted over the tiles) and the Local Map keeps the whole hand-built page, both prepared before the frame (data::prepare), and Place Marker's question box works on both as with the switch off: placed on the World Map, moved from the Local Map, removed; the page goes back to its tiles on Quests"
+source = "#1954 with #1513 (docs/spec-notes/pipboy.md §5.3.1): with [UI] TileMenus=MapMenu both maps are drawn from their file (the question box painted over the tiles), prepared before the frame (data::prepare), and Place Marker's question box works on both as with the switch off: placed on the World Map, moved from the Local Map, removed; the page goes on drawn from its tiles on Quests"
 note = "pipboy-custom-marker's steps with the switch on, then Quests; the question box's answers are the hand-built page's, its hover reset when they are spawned again (data::draw)."
 areas = ["pipboy", "ui"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/tiles/map_menu.rs"]
@@ -24738,7 +24797,7 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
 run_seconds = 27
 expect = [
   { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "the World Map is drawn from its file since #1513's World Map slice; before: it kept the hand-built page" },
-  { text = "tiles: MapMenu leaves local map hand-built: not drawn from the file yet", min = 1, label = "the Local Map keeps the hand-built page" },
+  { text = "tiles: MapMenu draws local map from tiles", min = 1, label = "the Local Map is drawn from its file since #1513's Local Map slice (tiles-data-local); before: it kept the hand-built page" },
   { re = 'pipboy map: Place Marker asks ".+" \(2 answers\)', count = 1, label = "with no marker the question has two answers" },
   { re = 'pipboy map: custom marker placed at \(-?\d+, -?\d+\) in 0x[0-9A-F]{8}', count = 1, label = "Yes places the marker" },
   { re = 'pipboy map: dotted line to custom marker \(\d+ segments\)', min = 1, label = "the World Map's dotted line to it" },

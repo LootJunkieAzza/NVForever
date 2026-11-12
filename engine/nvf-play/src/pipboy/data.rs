@@ -28,7 +28,8 @@
 //!   The picture's place, the pointer's window and the controller's cursor come from one
 //!   viewport ([`view::MapView`]) that the page drawn from `map_menu.xml` paints from too
 //!   (`crate::tiles::map_menu`, which publishes its window as laid out, [`DataState::publish_map`]);
-//!   over that page the question boxes are painted by [`popup_over_tiles`].
+//!   over that page the question boxes are painted by [`popup_over_tiles`]. The Local Map
+//!   reads the same viewport, with its own projection ([`view::LocalProjection`]).
 //! - **Local Map**: the doors leading elsewhere, the known map markers and the quest
 //!   markers around the player, with the player's arrow, over an outline of the place
 //!   made from the physics world's collision ([`outline`]; the original's picture of the
@@ -610,8 +611,11 @@ pub(crate) struct WorldParts {
     /// The player's arrow and heading (radians, clockwise from north).
     pub(crate) arrow: Option<([f32; 2], f32)>,
     /// The dotted lines' far ends, from the arrow ([`waypoints`]): what each leads to, its
-    /// target's reference (0 for the custom marker) and where.
+    /// target's reference (0 for the custom marker) and where. None on the Local Map.
     pub(crate) ends: Vec<(LineTo, u32, [f32; 2])>,
+    /// The Local Map's outline picture, once made, and its size in texels: the picture its
+    /// frame shows ([`outline`]); none on the World Map.
+    pub(crate) outline: Option<(Handle<Image>, Vec2)>,
 }
 
 impl MapShown {
@@ -2327,7 +2331,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>, aiming: boo
         cursor,
         label,
         detail,
-        world: Some(WorldParts { view, texture: m.texture.clone(), mag, quests: target_uvs, custom: custom_uv, arrow: arrow_uv, ends }),
+        world: Some(WorldParts { view, texture: m.texture.clone(), mag, quests: target_uvs, custom: custom_uv, arrow: arrow_uv, ends, outline: None }),
     }
 }
 
@@ -2416,14 +2420,24 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let mag = st.magnify[LOCAL].max(ZOOM.0);
     let centre = *st.centre[LOCAL].get_or_insert([feet[0], feet[1]]);
     let scale = local_scale(loc.interior.is_some());
-    let on_map = |x: f32, y: f32| MAP_MID + Vec2::new(x - centre[0], centre[1] - y) * mag / scale;
+    // The frame the picture covers: the outline's grid (made before this, `advance_outline`), or
+    // the one it would make.
+    let frame = match st.outline.as_ref() {
+        Some(o) => (o.origin, Vec2::new(o.size[0] as f32, o.size[1] as f32) * o.step),
+        None => Outline::frame_for(loc.interior, loc.world, centre, feet[2], MAP.size(), scale),
+    };
+    // The one viewport both drawings paint from and the pointer is read in.
+    let view = MapView::local(map_window(st, LOCAL), view::LocalProjection { centre, mag, scale, origin: frame.0, extent: frame.1 });
+    let on_map = |x: f32, y: f32| view.place(x, y);
     let outline = st.outline.as_ref().and_then(|o| {
         let image = o.image.clone()?;
         let top_left = on_map(o.origin[0], o.origin[1]);
         let size = Vec2::new(o.size[0] as f32, o.size[1] as f32) * o.step * mag / scale;
         Some((image, Rect::from_corners(top_left, top_left + size)))
     });
-    let inside = |p: Vec2| p.x >= -MARKER && p.y >= -MARKER && p.x <= MAP.width() + MARKER && p.y <= MAP.height() + MARKER;
+    let outline_texels = st.outline.as_ref().and_then(|o| Some((o.image.clone()?, Vec2::new(o.size[0] as f32, o.size[1] as f32))));
+    let extent = view.extent();
+    let inside = |p: Vec2| p.x >= -MARKER && p.y >= -MARKER && p.x <= extent.x + MARKER && p.y <= extent.y + MARKER;
     let grid = ((centre[0] / model::CELL).floor() as i32, (centre[1] / model::CELL).floor() as i32);
     let key = (loc.interior, if loc.interior.is_some() { (0, 0) } else { grid });
     if let Entry::Vacant(e) = st.doors.entry(key) {
@@ -2451,7 +2465,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     for d in st.doors.get(&key).into_iter().flatten().filter(|d| enabled(d.form)) {
         let at = on_map(d.pos[0], d.pos[1]);
         if inside(at) {
-            marks.push(MapMark { icon: None, highlighted: false, at, form: d.form, name: d.name.clone(), uv: None });
+            marks.push(MapMark { icon: None, highlighted: false, at, form: d.form, name: d.name.clone(), uv: Some(view.local_uv(d.pos[0], d.pos[1])) });
             names.push(d.name.clone());
         }
     }
@@ -2461,30 +2475,30 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             let Some(found) = known(st, game, mk) else { continue };
             let at = on_map(mk.pos[0], mk.pos[1]);
             if inside(at) {
-                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, name: mk.name.clone(), uv: None });
+                marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at, form: mk.form, name: mk.name.clone(), uv: Some(view.local_uv(mk.pos[0], mk.pos[1])) });
                 names.push(mk.name.clone());
             }
         }
     }
     // Quest markers stay inside the window [documented: map_menu.xml
     // LocalMapQuestMarkerTemplate, clamped to the view rectangle].
-    let quests = quest_targets(st, game)
-        .into_iter()
-        .filter(|t| t.interior == loc.interior && (t.interior.is_some() || t.world == loc.world))
-        .map(|t| local_quest_corner(on_map(t.pos[0], t.pos[1])))
-        .collect();
+    let targets: Vec<Target> = quest_targets(st, game).into_iter().filter(|t| t.interior == loc.interior && (t.interior.is_some() || t.world == loc.world)).collect();
+    let quests = targets.iter().map(|t| local_quest_corner(on_map(t.pos[0], t.pos[1]))).collect();
+    let target_uvs = targets.iter().map(|t| (t.form, view.local_uv(t.pos[0], t.pos[1]))).collect();
     let (cursor, label, _) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
     // Place Marker's place: the point under the highlight box's middle, in this interior
     // or worldspace; the custom marker shows when it is in the space shown, clamped
     // inside the window as the quest markers are [hypothesis: their template]. No dotted
     // line here [observed: the original's Local Map has no waypoint nodes].
     let space = loc.interior.unwrap_or(loc.world);
-    let spot = marker::local_point(centre, MAP_MID, mag, scale, cursor);
+    let spot = view.local_point(cursor).unwrap_or([centre[0], centre[1]]);
     st.spot[LOCAL] = Some(CustomMarker { space, pos: [spot[0], spot[1], feet[2]] });
     let custom = st.custom.filter(|c| c.space == space);
     log_custom(st, LOCAL, custom);
+    let custom_uv = custom.map(|c| view.local_uv(c.pos[0], c.pos[1]));
     let custom = custom.map(|c| local_quest_corner(on_map(c.pos[0], c.pos[1])));
-    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: None }
+    let world = WorldParts { view, texture: String::new(), mag, quests: target_uvs, custom: custom_uv, arrow: Some((view.local_uv(feet[0], feet[1]), heading)), ends: Vec::new(), outline: outline_texels };
+    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, custom, nodes: Arc::default(), lines: Arc::default(), cursor, label, detail: None, world: Some(world) }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -3689,6 +3703,62 @@ mod tests {
         // The highlight box kept its place on the canvas: (150, 120) + (300, 200) less (50, 100).
         assert_eq!(st.cursor[WORLD], Some(Vec2::new(400.0, 220.0)));
         assert_eq!(refit_hand_built(&mut st, WORLD, &game, None), None, "already the hand-built window's");
+    }
+
+    /// [design] The Local Map's parts as the page drawn from the file writes them, from the one
+    /// viewport the hand-built drawing paints from: indoors at 8 units a unit and outdoors at 28,
+    /// the frame its outline's grid; each door and marker by its reference at its frame's texture
+    /// coordinates, drawn where the projection puts it; the arrow's place and heading; the
+    /// outline's picture and its texels once made; a new outline's frame replacing the old.
+    #[test]
+    fn the_local_maps_parts_come_from_one_viewport_indoors_and_out() {
+        use bevy::ecs::system::SystemState;
+
+        let door = |form, x: f32, y: f32| read::Door { form, pos: [x, y, 0.0], name: format!("Door {form}") };
+        for interior in [Some(0x0001_2345_u32), None] {
+            let mut st = DataState::default();
+            // The doors' cells: the interior, or the grid square at the map's middle (10, 20).
+            let key = (interior, (0, 0));
+            st.doors.insert(key, vec![door(7, 100.0, 50.0), door(8, -300.0, -200.0)]);
+            st.markers = Some(Vec::new());
+            let mut world = World::new();
+            world.insert_resource(Location { world: 1, interior });
+            world.insert_resource(Player { heading: 1.2, pitch: 0.0, eye_height: 0.0, feet: [10.0, 20.0, 0.0], body_eye: None, body_view: None, placed: None });
+            let mut state = SystemState::<Game>::new(&mut world);
+            let game = state.get_mut(&mut world).unwrap();
+            let shown = local_map(&mut st, &game, None);
+            let parts = shown.world.clone().expect("the Local Map's parts");
+            let p = parts.view.local.expect("the Local Map's projection");
+            assert_eq!(p.scale, if interior.is_some() { outline::INTERIOR_SCALE } else { LOCAL_SCALE });
+            assert_eq!(p.centre, [10.0, 20.0]);
+            let (origin, extent) = outline::Outline::frame_for(interior, 1, [10.0, 20.0], 0.0, MAP.size(), p.scale);
+            assert_eq!((p.origin, p.extent), (origin, extent), "the frame the outline's grid would cover");
+            assert_eq!(parts.view.window, hand_built_window());
+            // The player at the window's middle, as the hand-built drawing has it.
+            assert_eq!(shown.player, Some((MAP_MID, 1.2)));
+            let (arrow, heading) = parts.arrow.unwrap();
+            assert_eq!(heading, 1.2);
+            assert!((parts.view.to_window(arrow) - MAP_MID).length() < 1e-2);
+            for m in &shown.marks {
+                let uv = m.uv.expect("the door's place on the frame");
+                assert!((parts.view.to_window(uv) - m.at).length() < 1e-2, "{m:?}");
+            }
+            assert_eq!(shown.marks.iter().map(|m| m.form).collect::<Vec<_>>(), vec![7, 8]);
+            assert_eq!((parts.outline.clone(), parts.texture.as_str(), parts.ends.len()), (None, "", 0), "no outline yet, no line");
+            // The outline made: its picture and texels; a new outline (another place) another frame.
+            let mut o = outline::Outline::new(interior, 1, [10.0, 20.0], 0.0, MAP.size(), p.scale);
+            let handle = Handle::<Image>::default();
+            o.image = Some(handle.clone());
+            let texels = Vec2::new(o.size[0] as f32, o.size[1] as f32);
+            st.outline = Some(o);
+            let parts = local_map(&mut st, &game, None).world.unwrap();
+            assert_eq!(parts.outline, Some((handle, texels)));
+            let moved = outline::Outline::new(interior, 1, [50000.0, -40000.0], 0.0, MAP.size(), p.scale);
+            let new_origin = moved.origin;
+            st.outline = Some(moved);
+            let parts = local_map(&mut st, &game, None).world.unwrap();
+            assert_eq!((parts.outline, parts.view.local.unwrap().origin), (None, new_origin), "the new grid's frame, its picture not made yet");
+        }
     }
 
     fn shown(tab: usize, f: &HintFacts) -> Vec<(String, bool)> {

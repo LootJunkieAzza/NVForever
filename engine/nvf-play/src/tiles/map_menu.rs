@@ -9,8 +9,9 @@
 //!   (the picture placed from the model's viewport, `crate::pipboy::data::MapView`, its markers,
 //!   quest markers, custom marker and dotted lines as the file's template rows kept by record, the
 //!   player's arrow and the highlight box; the question boxes painted over it,
-//!   `crate::pipboy::data::popup_over_tiles`). The Local Map keeps the whole hand-built page while
-//!   it shows, as STATS' tabs not yet drawn from its file do.
+//!   `crate::pipboy::data::popup_over_tiles`), and the Local Map likewise (its frame the outline's
+//!   grid, its picture the outline as the runtime picture `nvf:local_map`, its doors, markers,
+//!   quest markers and custom marker, no dotted line).
 //! - **The one decision** ([`MapTiles::ready`]): the switch on, DATA showing on a tab it draws, the
 //!   page prepared for that tab (`crate::pipboy::data::prepare`, before this), the file's tiles
 //!   there ([`built`]), the tabs made and a usable measured layout ([`usable`]). A question box up
@@ -107,6 +108,33 @@ const PATH_ROW: &str = "PathLine";
 /// lines can be made under it by path [design].
 const START_NODE_ROW: &str = "WaypointStart";
 const WORLD_TEMPLATES: [&str; 4] = [MARKER_TEMPLATE, QUEST_TEMPLATE, NODE_TEMPLATE, PATH_TEMPLATE];
+/// The Local Map's window, its picture's hotrect (no picture in the file: set in code, and hidden
+/// until code shows it) and the player's arrow, and its quest markers' template, which keeps them
+/// inside the window [documented: map_menu.xml].
+const LOCAL_CLIP: &str = main_rect!("MM_LocalMap_ClipWindow");
+const LOCAL_PICTURE: &str = main_rect!("MM_LocalMap_ClipWindow/MM_LocalMap_ParentImage");
+const LOCAL_CURSOR: &str = main_rect!("MM_LocalMap_ClipWindow/MM_LocalMapCursor");
+const LOCAL_QUEST_TEMPLATE: &str = "LocalMapQuestMarkerTemplate";
+const LOCAL_QUEST_ROW: &str = "LocalMapQuestMarker";
+const LOCAL_TEMPLATES: [&str; 2] = [MARKER_TEMPLATE, LOCAL_QUEST_TEMPLATE];
+/// The Local Map's outline picture's runtime name (`super::runtime_images`).
+const LOCAL_IMAGE: &str = "local_map";
+
+/// The tiles one of the maps is written into [documented: map_menu.xml].
+struct MapPaths {
+    /// For the log and the reasons.
+    name: &'static str,
+    clip: &'static str,
+    picture: &'static str,
+    cursor: &'static str,
+    quest_template: &'static str,
+    quest_row: &'static str,
+    /// The other map's window, hidden while this one shows.
+    other_clip: &'static str,
+}
+
+const WORLD_PATHS: MapPaths = MapPaths { name: "world map", clip: WORLD_CLIP, picture: WORLD_PICTURE, cursor: WORLD_CURSOR, quest_template: QUEST_TEMPLATE, quest_row: QUEST_ROW, other_clip: LOCAL_CLIP };
+const LOCAL_PATHS: MapPaths = MapPaths { name: "local map", clip: LOCAL_CLIP, picture: LOCAL_PICTURE, cursor: LOCAL_CURSOR, quest_template: LOCAL_QUEST_TEMPLATE, quest_row: LOCAL_QUEST_ROW, other_clip: WORLD_CLIP };
 
 /// Radio's waveform panel: its frame (the tick meters, the centre line) and the image the
 /// original's code animates in it [documented: map_menu.xml `MM_WaveformRect`, `MM_Waveform`].
@@ -147,11 +175,11 @@ const ITEM_OBJECTIVES: f64 = 4.0;
 const DONE_ALPHA: f64 = 128.0;
 const FULL_ALPHA: f64 = 255.0;
 
-/// The tabs drawn from the file; the Local Map keeps the hand-built page [design, #1513]: its
-/// picture is made in code (a runtime image, later). Radio's waveform is the file's frame with the
-/// hand-built trace painted over it: the file's `MM_Waveform` is an image its code animates (which
-/// animation is not known), which stays hidden. The World Map's picking stays the model's.
-pub const TILED_TABS: [usize; 4] = [data::WORLD, data::QUESTS, data::NOTES, data::RADIO];
+/// The tabs drawn from the file: all five [design, #1513]. The Local Map's picture is the outline
+/// NVForever makes (a runtime picture). Radio's waveform is the file's frame with the hand-built
+/// trace painted over it: the file's `MM_Waveform` is an image its code animates (which animation
+/// is not known), which stays hidden. The maps' picking stays the model's.
+pub const TILED_TABS: [usize; 5] = [data::LOCAL, data::WORLD, data::QUESTS, data::NOTES, data::RADIO];
 
 /// The tab's list the page shows: Quests' quests, Misc's notes or its challenges, Radio's stations
 /// [documented: the lists' `visible`; `MM_NotesList` and `MM_ChallengeList` both show on Misc, so
@@ -273,6 +301,7 @@ fn required_paths(tab: Option<usize>) -> Vec<String> {
         // The waveform's frame; its animated image is hidden when there and needs nothing.
         Some(data::RADIO) => paths.push(WAVE_RECT.to_string()),
         Some(data::WORLD) => paths.extend([WORLD_CLIP, WORLD_PICTURE, WORLD_CURSOR, HIGHLIGHT_CLIP, HIGHLIGHT_BOX, HIGHLIGHT_NAME].iter().map(|s| (*s).to_string())),
+        Some(data::LOCAL) => paths.extend([LOCAL_CLIP, LOCAL_PICTURE, LOCAL_CURSOR, HIGHLIGHT_CLIP, HIGHLIGHT_BOX, HIGHLIGHT_NAME].iter().map(|s| (*s).to_string())),
         _ => {}
     }
     paths.extend(BUTTONS.iter().map(|(name, _)| button_path(name)));
@@ -283,9 +312,13 @@ fn required_paths(tab: Option<usize>) -> Vec<String> {
 /// restructured keeps the hand-built page whole. `cut`: [`CUT_AID`].
 pub fn built(ui: &Ui, cut: Option<&str>, tab: Option<usize>) -> Tiled {
     let paths = required_paths(tab);
-    let world = tab == Some(data::WORLD);
+    let templates: &[&str] = match tab {
+        Some(data::WORLD) => &WORLD_TEMPLATES,
+        Some(data::LOCAL) => &LOCAL_TEMPLATES,
+        _ => &[],
+    };
     if let Some(cut) = cut {
-        if cut.eq_ignore_ascii_case(ROW_TEMPLATE) || cut.eq_ignore_ascii_case(TAB_TEMPLATE) || (world && WORLD_TEMPLATES.iter().any(|t| cut.eq_ignore_ascii_case(t))) {
+        if cut.eq_ignore_ascii_case(ROW_TEMPLATE) || cut.eq_ignore_ascii_case(TAB_TEMPLATE) || templates.iter().any(|t| cut.eq_ignore_ascii_case(t)) {
             return Tiled::No(format!("{cut} missing"));
         }
         if let Some(path) = paths.iter().find(|p| p.rsplit('/').next().is_some_and(|n| n.eq_ignore_ascii_case(cut))) {
@@ -303,7 +336,7 @@ pub fn built(ui: &Ui, cut: Option<&str>, tab: Option<usize>) -> Tiled {
     if !has_template(TAB_TEMPLATE) {
         return Tiled::No(format!("{TAB_TEMPLATE} missing"));
     }
-    if let Some(missing) = WORLD_TEMPLATES.iter().find(|t| world && !has_template(t)) {
+    if let Some(missing) = templates.iter().find(|t| !has_template(t)) {
         return Tiled::No(format!("{missing} missing"));
     }
     Tiled::Yes
@@ -344,6 +377,11 @@ enum NodeRow {
 /// highlight box (the window's units), its name and the line under it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct WorldShown {
+    /// The Local Map (`MM_LocalMap_*`, its picture the outline as a runtime image) or the World
+    /// Map.
+    pub local: bool,
+    /// The Local Map's outline picture and its size in texels, once made (`data::WorldParts`).
+    pub outline: Option<(Handle<Image>, Vec2)>,
     /// The model's viewport, in the window it was made in (`window`).
     pub view: data::MapView,
     pub texture: String,
@@ -362,10 +400,12 @@ pub(crate) struct WorldShown {
 }
 
 impl WorldShown {
-    /// The World Map the model gathered, `m`: none for a map without its viewport (no
-    /// worldspace map, the Local Map).
+    /// The map the model gathered, `m`: none for a map without its viewport (no worldspace map,
+    /// no place). The Local Map's picture is its outline, by its runtime name once made.
     pub(crate) fn of(m: &data::MapShown) -> Option<WorldShown> {
         let w = m.world.as_ref()?;
+        let local = w.view.local.is_some();
+        let texture = if local { w.outline.as_ref().map(|_| super::runtime_images::filename(LOCAL_IMAGE)).unwrap_or_default() } else { w.texture.clone() };
         let markers = m
             .marks()
             .iter()
@@ -373,8 +413,10 @@ impl WorldShown {
             .collect();
         let (cursor, label, detail) = m.highlight();
         Some(WorldShown {
+            local,
+            outline: w.outline.clone(),
             view: w.view,
-            texture: w.texture.clone(),
+            texture,
             picture: w.view.picture(),
             window: w.view.window,
             mag: w.mag,
@@ -420,6 +462,11 @@ impl WorldShown {
             (Some(l), None) => l.clone(),
             _ => String::new(),
         }
+    }
+
+    /// The tiles this map is written into.
+    fn paths(&self) -> &'static MapPaths {
+        if self.local { &LOCAL_PATHS } else { &WORLD_PATHS }
     }
 }
 
@@ -520,10 +567,11 @@ impl Shown {
         // A question box up changes nothing here: it is drawn over the page
         // (`data::popup_over_tiles`).
         if let Body::Map(m) = &v.body {
-            if v.tab != data::WORLD {
-                return Err("the tab is not drawn from the file".into());
-            }
-            let world = WorldShown::of(m).ok_or("the world map has no picture here")?;
+            let world = match v.tab {
+                data::WORLD => WorldShown::of(m).filter(|w| !w.local).ok_or("the world map has no picture here")?,
+                data::LOCAL => WorldShown::of(m).filter(|w| w.local).ok_or("the local map has no place here")?,
+                _ => return Err("the tab is not drawn from the file".into()),
+            };
             return Ok(Shown {
                 tab: v.tab,
                 device,
@@ -655,7 +703,7 @@ fn write_model(ui: &mut Ui, s: &Shown, w: &mut Written) -> Result<(), String> {
         write_row(ui, row.tile, r, true);
     }
     if let Some(world) = &s.world {
-        write_world(ui, world, &mut w.world)?;
+        write_world(ui, world, w.map_rows(world.local))?;
     }
     ui.update();
     Ok(())
@@ -762,8 +810,16 @@ fn num_of(v: f32) -> Value {
 /// - `MM_WorldMapCursor`: `_x`/`_y` the player's place, `rotateangle` the heading, shown while the
 ///   player is on this map.
 /// - `MM_MapHighlightBox`: `_Title` (the name and the line under it).
+///
+/// The Local Map likewise into `MM_LocalMap_*` ([`LOCAL_PATHS`]): its frame (the outline's grid)
+/// is the picture's place, its `filename` the outline's runtime name once made (given by [`pass`]
+/// before this writes it; empty before), the doors and the markers from `MapMarkerTemplate`, the
+/// quest markers and the custom marker from `LocalMapQuestMarkerTemplate` (which keeps them inside
+/// the window), no dotted line [observed: the original's Local Map has no waypoint nodes,
+/// pipboy.md §5.3].
 fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), String> {
-    let parent = ui.find_tile(WORLD_PICTURE).ok_or("the map's picture is gone")?;
+    let paths = s.paths();
+    let parent = ui.find_tile(paths.picture).ok_or("the map's picture is gone")?;
     ui.write_changed(parent, "filename", text(&s.texture));
     ui.write_changed(parent, "filewidth", num_of(s.usable.x));
     ui.write_changed(parent, "fileheight", num_of(s.usable.y));
@@ -774,7 +830,7 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
     let same_markers = rows.written.as_ref().is_some_and(|w| w.markers == s.markers) && rows.markers.len() == s.markers.len() && rows.markers.iter().all(|r| ui.is_live(r.tile));
     if !same_markers {
         let keys: Vec<u32> = s.markers.iter().map(|m| m.form).collect();
-        keep_rows(ui, WORLD_PICTURE, MARKER_TEMPLATE, &mut rows.markers, &keys, MARKER_ROW)?;
+        keep_rows(ui, paths.picture, MARKER_TEMPLATE, &mut rows.markers, &keys, MARKER_ROW)?;
         for (i, (row, m)) in rows.markers.iter().zip(&s.markers).enumerate() {
             ui.write_changed(row.tile, "_x", num_of(m.uv[0]));
             ui.write_changed(row.tile, "_y", num_of(m.uv[1]));
@@ -787,7 +843,7 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
     let mut quests: Vec<(QuestRow, [f32; 2])> = s.quests.iter().map(|&(f, uv)| (QuestRow::Target(f), uv)).collect();
     quests.extend(s.custom.map(|uv| (QuestRow::Custom, uv)));
     let keys: Vec<QuestRow> = quests.iter().map(|q| q.0).collect();
-    keep_rows(ui, WORLD_PICTURE, QUEST_TEMPLATE, &mut rows.quests, &keys, QUEST_ROW)?;
+    keep_rows(ui, paths.picture, paths.quest_template, &mut rows.quests, &keys, paths.quest_row)?;
     for (row, (key, uv)) in rows.quests.iter().zip(&quests) {
         ui.write_changed(row.tile, "_x", num_of(uv[0]));
         ui.write_changed(row.tile, "_y", num_of(uv[1]));
@@ -804,8 +860,8 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
     let end_keys: Vec<NodeRow> = nodes.iter().filter(|n| n.0 != NodeRow::Start).map(|n| n.0).collect();
     let mut start_rows: Vec<RowTile<NodeRow>> = rows.nodes.iter().filter(|r| r.key == NodeRow::Start).cloned().collect();
     let mut end_rows: Vec<RowTile<NodeRow>> = rows.nodes.iter().filter(|r| r.key != NodeRow::Start).cloned().collect();
-    keep_rows(ui, WORLD_PICTURE, NODE_TEMPLATE, &mut start_rows, &start_keys, START_NODE_ROW)?;
-    keep_rows(ui, WORLD_PICTURE, NODE_TEMPLATE, &mut end_rows, &end_keys, NODE_ROW)?;
+    keep_rows(ui, paths.picture, NODE_TEMPLATE, &mut start_rows, &start_keys, START_NODE_ROW)?;
+    keep_rows(ui, paths.picture, NODE_TEMPLATE, &mut end_rows, &end_keys, NODE_ROW)?;
     rows.nodes = start_rows.into_iter().chain(end_rows).collect();
     for row in &rows.nodes {
         if let Some((_, uv)) = nodes.iter().find(|n| n.0 == row.key) {
@@ -830,7 +886,7 @@ fn write_world(ui: &mut Ui, s: &WorldShown, rows: &mut WorldRows) -> Result<(), 
             }
         }
     }
-    if let Some(cursor) = ui.find_tile(WORLD_CURSOR) {
+    if let Some(cursor) = ui.find_tile(paths.cursor) {
         if let Some((uv, heading)) = s.arrow {
             ui.write_changed(cursor, "_x", num_of(uv[0]));
             ui.write_changed(cursor, "_y", num_of(uv[1]));
@@ -859,13 +915,19 @@ fn path_line(from: [f32; 2], to: [f32; 2], usable: Vec2) -> (f32, f32) {
 /// [`keep_hints`]]. The picture stands where the model's viewport puts it (and is painted
 /// there, [`map_picture_piece`]); the highlight box on the model's highlight (its window may stand apart from the map's).
 fn keep_world(ui: &mut Ui, s: &WorldShown) {
-    for path in [WORLD_CLIP, HIGHLIGHT_CLIP, HIGHLIGHT_BOX] {
+    let paths = s.paths();
+    // The map's window, its picture's hotrect (the Local Map's is hidden in the file, shown in
+    // code) and the highlight box shown; the other map's window hidden.
+    for path in [paths.clip, paths.picture, HIGHLIGHT_CLIP, HIGHLIGHT_BOX] {
         if let Some(t) = ui.find_tile(path) {
             keep(ui, t, "visible", 1.0);
         }
     }
+    if let Some(t) = ui.find_tile(paths.other_clip) {
+        keep(ui, t, "visible", 0.0);
+    }
     let r = s.picture;
-    if let Some(p) = ui.find_tile(WORLD_PICTURE) {
+    if let Some(p) = ui.find_tile(paths.picture) {
         keep(ui, p, "width", f64::from(r.width()));
         keep(ui, p, "height", f64::from(r.height()));
         keep(ui, p, "dragdeltax", f64::from(r.min.x));
@@ -873,11 +935,11 @@ fn keep_world(ui: &mut Ui, s: &WorldShown) {
         keep(ui, p, "x", f64::from(r.min.x));
         keep(ui, p, "y", f64::from(r.min.y));
     }
-    if let Some(c) = ui.find_tile(WORLD_CURSOR) {
+    if let Some(c) = ui.find_tile(paths.cursor) {
         keep(ui, c, "visible", if s.arrow.is_some() { 1.0 } else { 0.0 });
     }
     // The box's middle on the model's highlight, in its own window's units.
-    let (Some(b), Some(clip), Some(map)) = (ui.find_tile(HIGHLIGHT_BOX), ui.find_tile(HIGHLIGHT_CLIP), ui.find_tile(WORLD_CLIP)) else { return };
+    let (Some(b), Some(clip), Some(map)) = (ui.find_tile(HIGHLIGHT_BOX), ui.find_tile(HIGHLIGHT_CLIP), ui.find_tile(paths.clip)) else { return };
     let (c, m) = (origin(ui, clip), origin(ui, map));
     let shift = (m.0 - c.0, m.1 - c.1);
     let (w, h) = (num(ui, b, "width"), num(ui, b, "height"));
@@ -1230,18 +1292,20 @@ fn hint_boxes(ui: &Ui) -> Vec<Rect> {
 /// where the picture is cut); the picture's image painted inside it; the highlight box shown
 /// [design]. A file whose window is gone or hidden leaves the hand-built page.
 fn world_shows(ui: &Ui, s: &WorldShown, pieces: &[Piece]) -> Result<Rect, String> {
-    let clip = ui.find_tile(WORLD_CLIP).ok_or("the world map's window is gone")?;
+    let paths = s.paths();
+    let name = paths.name;
+    let clip = ui.find_tile(paths.clip).ok_or_else(|| format!("the {name}'s window is gone"))?;
     // A hotrect lays out no box of its own: its place and size are its traits, under its parents'.
     if !shown_up(ui, clip) {
-        return Err("the world map's window is not shown".into());
+        return Err(format!("the {name}'s window is not shown"));
     }
     let at = origin(ui, clip);
     let r = super::layout::Rect { left: at.0, top: at.1, width: num(ui, clip, "width"), height: num(ui, clip, "height") };
     if !on_canvas(&r) {
-        return Err("the world map's window does not fit".into());
+        return Err(format!("the {name}'s window does not fit"));
     }
     let window = Rect::new(r.left as f32, r.top as f32, (r.left + r.width) as f32, (r.top + r.height) as f32);
-    let picture = ui.find_tile(WORLD_PICTURE).ok_or("the map's picture is gone")?;
+    let picture = ui.find_tile(paths.picture).ok_or("the map's picture is gone")?;
     if !s.texture.is_empty() && !pieces.iter().any(|p| p.tile == picture && matches!(p.look, Look::Picture { .. }) && p.clip.is_some_and(|c| c.width > 0.0 && c.height > 0.0)) {
         return Err("the map's picture is not shown in its window".into());
     }
@@ -1372,8 +1436,9 @@ pub struct Written {
     objectives: Vec<RowTile<usize>>,
     /// Each list's own scroll, and the list Misc showed last (the notes or the challenges).
     views: [ListView<u32>; 4],
-    /// The World Map's rows ([`write_world`]).
+    /// The World Map's rows and the Local Map's ([`write_world`]).
     world: WorldRows,
+    local: WorldRows,
     misc_list: Option<ListKind>,
     sizes: SizesWritten,
     shown: Option<Shown>,
@@ -1421,6 +1486,8 @@ pub struct MapTiles {
     pub(crate) pieces: Vec<Piece>,
     /// Radio's waveform panel, while the page is ready on Radio ([`settle`]).
     pub wave: Option<WaveShown>,
+    /// The Local Map's outline picture last given as its runtime picture ([`sync_outline`]).
+    local_image: Option<Handle<Image>>,
     /// The frames of this visit to a tab drawn from the file, by what drew them ([`settle`]).
     frames: Frames,
     /// [`CUT_AID`] and its time.
@@ -1460,6 +1527,11 @@ fn check_file(ui: &Ui, cut: Option<&str>, tab: Option<usize>) -> Result<Vec<Tile
 }
 
 impl Written {
+    /// One map's rows: the Local Map's or the World Map's.
+    fn map_rows(&mut self, local: bool) -> &mut WorldRows {
+        if local { &mut self.local } else { &mut self.world }
+    }
+
     /// The list the page shows (Quests' before anything is shown).
     fn list(&self) -> ListKind {
         self.shown.as_ref().map(|s| s.list).unwrap_or_default()
@@ -1493,7 +1565,7 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     let made = ensure_tabs(ui, &mut w.tabs)?;
     let mut changed = false;
     if let Some(s) = new {
-        let rows_dead = !w.rows.iter().flatten().all(|r| ui.is_live(r.tile)) || !w.objectives.iter().all(|r| ui.is_live(r.tile)) || !w.world.all_live(ui);
+        let rows_dead = !w.rows.iter().flatten().all(|r| ui.is_live(r.tile)) || !w.objectives.iter().all(|r| ui.is_live(r.tile)) || !w.world.all_live(ui) || !w.local.all_live(ui);
         if rows_dead || w.shown.as_ref() != Some(&s) {
             write_model(ui, &s, w)?;
             w.shown = Some(s);
@@ -1576,8 +1648,8 @@ pub(crate) fn page(ui: &mut Ui, new: Option<Shown>, late: bool, tiles: &mut MapT
     ui.update();
     if late {
         let mut pieces = fonts.set_out(ui, menu);
-        if s.world.is_some() {
-            pieces = with_map_picture(ui, pieces, map_picture_piece(ui, WORLD_CLIP, WORLD_PICTURE));
+        if let Some(paths) = s.world.as_ref().map(WorldShown::paths) {
+            pieces = with_map_picture(ui, pieces, map_picture_piece(ui, paths.clip, paths.picture));
         }
         let places = tab_places(ui, &w.tabs);
         if w.places_told.as_ref() != Some(&places) {
@@ -1629,6 +1701,17 @@ fn describe(w: &Written) -> String {
     let hints: Vec<String> = s.hints.iter().map(|h| format!("{:?} {} {}{}", h.slot, h.word, h.key, if h.dim { " (dim)" } else { "" })).collect();
     let hints = if hints.is_empty() { "none".to_string() } else { hints.join(", ") };
     let frame = if s.device { "device" } else { "screen menu" };
+    if let Some(m) = s.world.as_ref().filter(|m| m.local) {
+        return format!(
+            "tiles: {MAP_MENU} page from tiles: tab local map, {} markers, {} quest markers, {}, picture {}, \"{}\" highlighted, magnification {:.2}, hints: {hints}, {frame}",
+            m.markers.len(),
+            m.quests.len(),
+            if m.custom.is_some() { "custom marker" } else { "no custom marker" },
+            m.outline.as_ref().map_or_else(|| "not made yet".to_string(), |o| format!("{} x {}", o.1.x, o.1.y)),
+            m.label.as_deref().unwrap_or("nothing"),
+            m.mag,
+        );
+    }
     if let Some(m) = &s.world {
         return format!(
             "tiles: {MAP_MENU} page from tiles: tab world map, {} markers, {} quest markers, {}, {} dotted lines, \"{}\" highlighted, magnification {:.2}, hints: {hints}, {frame}",
@@ -1692,6 +1775,30 @@ pub(crate) struct MapPage<'w> {
     tiles: ResMut<'w, MapTiles>,
     fonts: super::draw::FontKit<'w>,
     time: crate::pause::AidTime<'w>,
+    /// The Local Map's outline picture, by its runtime name.
+    images: Option<ResMut<'w, super::runtime_images::RuntimeImages>>,
+}
+
+/// The Local Map's outline picture as the runtime picture [`LOCAL_IMAGE`]: given again for each
+/// new picture (the outline is made anew when the map is panned off it, the player goes elsewhere
+/// or goes in or out; its picture is made once its grid is filled in), before the page writes its
+/// name; taken away when there is none. `last` is the picture given last. Returns whether it
+/// changed. The texels of a picture given never change in place (a new outline is a new picture),
+/// so it is never touched [design: `outline::Outline`].
+fn sync_outline(images: &mut super::runtime_images::RuntimeImages, outline: Option<&(Handle<Image>, Vec2)>, last: &mut Option<Handle<Image>>) -> bool {
+    match outline {
+        Some((handle, size)) if last.as_ref() != Some(handle) => {
+            images.set(LOCAL_IMAGE, handle.clone(), *size);
+            *last = Some(handle.clone());
+            true
+        }
+        None if last.is_some() => {
+            images.remove(LOCAL_IMAGE);
+            *last = None;
+            true
+        }
+        _ => false,
+    }
 }
 
 /// A pass; `None` when the page is not eligible or has nothing to show yet (nothing is touched).
@@ -1728,6 +1835,12 @@ fn pass(p: &mut MapPage<'_>, late: bool) -> Option<Result<TileId, String>> {
     let new = new.map(|s| refit_to_tree(tree_ui, s));
     // What it would show changed since the last pass, written or not (a failure forgets what was
     // written, not what was asked for).
+    // The Local Map's outline as its runtime picture, before its name is written.
+    if let (Some(ws), Some(images)) = (new.as_ref().and_then(|s| s.world.as_ref()).filter(|w| w.local), p.images.as_mut()) {
+        if sync_outline(images, ws.outline.as_ref(), &mut p.tiles.local_image) {
+            info!("tiles: {MAP_MENU} local map picture {}", ws.outline.as_ref().map_or_else(|| "taken away".to_string(), |o| format!("given, {} x {} texels", o.1.x, o.1.y)));
+        }
+    }
     let changed = new.is_some() && new != p.tiles.written.asked;
     if new.is_some() {
         p.tiles.written.asked.clone_from(&new);
@@ -1761,7 +1874,7 @@ fn map_window_of(ui: &Ui, clip: &str) -> Option<Rect> {
 /// where it lays it out; any other page as it is.
 fn refit_to_tree(ui: &Ui, mut s: Shown) -> Shown {
     if let Some(w) = s.world.as_mut() {
-        if let Some(window) = map_window_of(ui, WORLD_CLIP) {
+        if let Some(window) = map_window_of(ui, w.paths().clip) {
             w.refit(window);
         }
     }
@@ -2958,6 +3071,8 @@ mod tests {
             pane: Pane::None,
             hints: vec![HintShown { slot: Slot::X, kind: ButtonKind::PlaceMarker, word: "Put Marker".into(), key: String::new(), dim: false }],
             world: Some(WorldShown {
+                local: false,
+                outline: None,
                 view,
                 texture: "map.dds".into(),
                 picture: view.picture(),
@@ -3150,6 +3265,165 @@ mod tests {
         assert_eq!(same, world(1.0, [0.5, 0.5], Vec::new()));
     }
 
+    /// The fixture with the World Map's parts and the Local Map's, written for these tests with
+    /// their own numbers and expressions (none of them the file's): the Local Map's window at the
+    /// same place, its picture's hotrect hidden as the file has it and placed by its drag, its arrow
+    /// on it by texture coordinates with a pivot at its middle, and a quest marker template of its
+    /// own (placed as the others, no clamp).
+    fn with_local(x: String) -> String {
+        let local = r#"<hotrect name="MM_LocalMap_ClipWindow"><y>50</y><width>855</width><height>500</height><clipwindow>&true;</clipwindow>
+                <hotrect name="MM_LocalMap_ParentImage"><clips>&true;</clips><visible>&false;</visible><_Magnification>1</_Magnification>
+                  <width><copy src="me()" trait="filewidth"/><mul src="me()" trait="_Magnification"/></width>
+                  <height><copy src="me()" trait="fileheight"/><mul src="me()" trait="_Magnification"/></height>
+                  <x><copy src="me()" trait="dragdeltax"/></x><y><copy src="me()" trait="dragdeltay"/></y>
+                </hotrect>
+                <image name="MM_LocalMapCursor"><filename>arrow.dds</filename><clips>&true;</clips><visible>&false;</visible><height>20</height><rotateaxisx>5</rotateaxisx><rotateaxisy>10</rotateaxisy>
+                  <width><copy src="sibling(MM_LocalMap_ParentImage)" trait="user2"/></width>
+                  <x><copy src="sibling(MM_LocalMap_ParentImage)" trait="width"/><mul src="me()" trait="_x"/><add src="sibling(MM_LocalMap_ParentImage)" trait="x"/></x>
+                  <y><copy src="sibling(MM_LocalMap_ParentImage)" trait="height"/><mul src="me()" trait="_y"/><add src="sibling(MM_LocalMap_ParentImage)" trait="y"/></y>
+                </image>
+              </hotrect>"#;
+        let place = r#"<x><copy src="parent()" trait="width"/><mul src="me()" trait="_x"/></x><y><copy src="parent()" trait="height"/><mul src="me()" trait="_y"/></y>"#;
+        let template = format!(r#"<template name="LocalMapQuestMarkerTemplate"><image name="LocalMapQuestMarker"><clips>&true;</clips><width><copy src="parent()" trait="user1"/></width><height>12</height>{place}</image></template>"#);
+        with_world(x).replace(r#"<text name="MM_Headline_ChallengeType"></text>"#, &format!(r#"<text name="MM_Headline_ChallengeType"></text>{local}"#)).replace("</menu>", &format!("{template}</menu>"))
+    }
+
+    /// The Local Map in the fixture's window, its frame 24000 by 20000 game units round the
+    /// player at `centre` (28 units a unit outdoors), `outline` its picture's texels once made,
+    /// two doors, a quest target and the custom marker; the highlight box on the first door.
+    fn local(outline: Option<Vec2>, mag: f32) -> Shown {
+        let p = data::view::LocalProjection { centre: [1000.0, 2000.0], mag, scale: 28.0, origin: [-11000.0, 12000.0], extent: Vec2::new(24000.0, 20000.0) };
+        let view = data::MapView::local(WORLD_W, p);
+        let door = |form, x: f32, y: f32, selected| MarkerShown { form, uv: view.local_uv(x, y), icon: "door.dds".into(), selected, name: format!("Door {form}") };
+        Shown {
+            tab: data::LOCAL,
+            rows: Vec::new(),
+            selected: None,
+            pane: Pane::None,
+            hints: vec![HintShown { slot: Slot::X, kind: ButtonKind::PlaceMarker, word: "Put Marker".into(), key: String::new(), dim: false }],
+            world: Some(WorldShown {
+                local: true,
+                outline: outline.map(|t| (Handle::<Image>::default(), t)),
+                view,
+                texture: outline.map(|_| super::super::runtime_images::filename(LOCAL_IMAGE)).unwrap_or_default(),
+                picture: view.picture(),
+                window: WORLD_W,
+                mag,
+                usable: p.extent / p.scale,
+                markers: vec![door(7, 1000.0, 2000.0, true), door(8, 1500.0, 1000.0, false)],
+                quests: vec![(55, view.local_uv(2000.0, 2000.0))],
+                custom: Some(view.local_uv(0.0, 2000.0)),
+                arrow: Some((view.local_uv(1000.0, 2000.0), 0.75)),
+                ends: Vec::new(),
+                cursor: view.place(1000.0, 2000.0),
+                label: Some("Door 7".into()),
+                detail: None,
+            }),
+            ..shown(0, 0, 0)
+        }
+    }
+
+    #[test]
+    fn the_local_map_writes_its_frame_outline_rows_and_turned_arrow() {
+        let (mut ui, mut t) = (tree_changed(with_local), MapTiles::default());
+        // The World Map first: its window hidden once the Local Map shows.
+        run(&mut ui, Some(world(1.0, [0.5, 0.5], Vec::new())), &mut t).unwrap();
+        let s = local(Some(Vec2::new(250.0, 209.0)), 1.0);
+        let ws = s.world.clone().unwrap();
+        run(&mut ui, Some(s), &mut t).unwrap();
+        assert_eq!((at(&ui, LOCAL_CLIP, "visible"), at(&ui, WORLD_CLIP, "visible"), at(&ui, LOCAL_PICTURE, "visible")), (1.0, 0.0, 1.0), "its window and picture shown, the World Map's hidden");
+        // The frame placed by the projection: its top left 12000 west and 10000 north of the
+        // centre at 28 a unit from the window's middle; 24000 / 28 across.
+        let parent = ui.find_tile(LOCAL_PICTURE).unwrap();
+        let (x, y) = (427.5 - 12000.0 / 28.0, 250.0 - 10000.0 / 28.0);
+        assert!((trait_of(&ui, parent, "x") - x).abs() < 1e-3 && (trait_of(&ui, parent, "y") - y).abs() < 1e-3);
+        assert!((trait_of(&ui, parent, "width") - 24000.0 / 28.0).abs() < 1e-3);
+        assert_eq!(words(&ui, LOCAL_PICTURE, "filename"), "nvf:local_map", "the outline by its runtime name");
+        // The picture painted from the hotrect's traits, outside the tree.
+        let piece = t.pieces.iter().find(|p| p.tile == parent).expect("the outline painted");
+        assert_eq!(piece.look, Look::Picture { name: "nvf:local_map".into(), source: Source::Own, fit: Fit::Stretch });
+        // The doors and the quest and custom markers by record under the frame.
+        let rows = &t.written.local.markers;
+        assert_eq!(rows.iter().map(|r| r.key).collect::<Vec<_>>(), vec![7, 8]);
+        assert!(rows.iter().all(|r| ui.tile(r.tile).parent == Some(parent)));
+        assert_eq!(trait_of(&ui, rows[0].tile, "_selected"), 1.0);
+        assert!(t.written.world.markers.is_empty() || t.written.world.markers.iter().all(|r| ui.tile(r.tile).parent != Some(parent)), "the World Map's rows are its own");
+        let quests = &t.written.local.quests;
+        assert_eq!(quests.iter().map(|r| r.key).collect::<Vec<_>>(), vec![QuestRow::Target(55), QuestRow::Custom]);
+        assert!(quests.iter().all(|r| ui.tile(r.tile).name == "LocalMapQuestMarker"), "the Local Map's template");
+        assert!(t.written.local.nodes.is_empty() && t.written.local.lines.is_empty(), "no dotted line on the Local Map");
+        // The arrow: its place, turned by the heading about its pivot, shown.
+        assert_eq!((at(&ui, LOCAL_CURSOR, "rotateangle"), at(&ui, LOCAL_CURSOR, "visible")), (0.75, 1.0));
+        assert_eq!(at(&ui, LOCAL_CURSOR, "_x"), f64::from(ws.arrow.unwrap().0[0]));
+        let cursor = ui.find_tile(LOCAL_CURSOR).unwrap();
+        let arrow = t.pieces.iter().find(|p| p.tile == cursor).expect("the arrow painted");
+        assert_eq!(arrow.turn.map(|r| (r.angle, r.pivot)), Some((0.75, (5.0, 10.0))), "turned about the file's axis");
+        // The highlight box on the door, its name.
+        assert_eq!((at(&ui, HIGHLIGHT_BOX, "x"), at(&ui, HIGHLIGHT_BOX, "y")), (427.5 - 80.0, 250.0 - 80.0));
+        assert_eq!(words(&ui, HIGHLIGHT_BOX, "_Title"), "Door 7");
+        assert_eq!(t.written.counted.map.as_ref().map(|m| m.0), Some(WORLD_W));
+        assert!(describe(&t.written).contains("tab local map, 2 markers, 1 quest markers, custom marker, picture 250 x 209, \"Door 7\" highlighted"), "{}", describe(&t.written));
+    }
+
+    /// [design] The outline's picture as it fills in and is replaced: no picture while its grid is
+    /// being made (nothing painted, the page still drawn), its runtime picture given when made and
+    /// given again for a new outline (a new revision, so the painter repaints), taken away when
+    /// gone; the frame's rows kept across a zoom.
+    #[test]
+    fn the_outline_is_given_as_made_and_replaced_and_the_rows_outlast_a_zoom() {
+        let (mut ui, mut t) = (tree_changed(with_local), MapTiles::default());
+        run(&mut ui, Some(local(None, 1.0)), &mut t).unwrap();
+        let parent = ui.find_tile(LOCAL_PICTURE).unwrap();
+        assert_eq!(words(&ui, LOCAL_PICTURE, "filename"), "");
+        assert!(!t.pieces.iter().any(|p| p.tile == parent), "nothing painted before the outline is made");
+        assert!(describe(&t.written).contains("picture not made yet"));
+        let tiles: Vec<TileId> = t.written.local.markers.iter().map(|r| r.tile).collect();
+        run(&mut ui, Some(local(None, 2.0)), &mut t).unwrap();
+        assert_eq!(t.written.local.markers.iter().map(|r| r.tile).collect::<Vec<_>>(), tiles, "a zoom keeps the rows");
+        assert!((trait_of(&ui, parent, "width") - 2.0 * 24000.0 / 28.0).abs() < 1e-3);
+        // The runtime picture: given, given again for a new outline, taken away.
+        let mut images = super::super::runtime_images::RuntimeImages::default();
+        let mut last = None;
+        let mut assets = Assets::<Image>::default();
+        let first = (assets.add(Image::default()), Vec2::new(250.0, 209.0));
+        assert!(sync_outline(&mut images, Some(&first), &mut last));
+        let r1 = images.get("nvf:local_map").map(|e| (e.revision, e.size));
+        assert_eq!(r1.map(|r| r.1), Some(Vec2::new(250.0, 209.0)), "its texels' size");
+        assert!(!sync_outline(&mut images, Some(&first), &mut last), "the same picture: nothing to do");
+        let second = (assets.add(Image::default()), Vec2::new(300.0, 200.0));
+        assert!(sync_outline(&mut images, Some(&second), &mut last));
+        let r2 = images.get("nvf:local_map").map(|e| (e.revision, e.size)).unwrap();
+        assert!(r2.0 > r1.unwrap().0 && r2.1 == Vec2::new(300.0, 200.0), "a new revision: repainted");
+        assert!(sync_outline(&mut images, None, &mut last));
+        assert!(images.get("nvf:local_map").is_none(), "gone with the outline");
+    }
+
+    #[test]
+    fn the_local_map_falls_back_without_its_window_or_template_and_the_world_map_does_not_need_them() {
+        // A file without the Local Map's quest template: the Local Map falls back, the World Map not.
+        let mut ui = tree_changed(|x| with_local(x).replace("LocalMapQuestMarkerTemplate", "OtherTemplate"));
+        assert_eq!(run(&mut ui, Some(local(None, 1.0)), &mut MapTiles::default()), Err("LocalMapQuestMarkerTemplate missing".to_string()));
+        assert!(run(&mut ui, Some(world(1.0, [0.5, 0.5], Vec::new())), &mut MapTiles::default()).is_ok());
+        // The World Map's fixture alone has no Local Map window.
+        let err = run(&mut tree_changed(with_world), Some(local(None, 1.0)), &mut MapTiles::default()).unwrap_err();
+        assert!(err.contains("MM_LocalMap_ClipWindow missing"), "{err}");
+        // A window off the canvas.
+        let off = |x: String| with_local(x).replace(r#"<hotrect name="MM_LocalMap_ClipWindow"><y>50</y>"#, r#"<hotrect name="MM_LocalMap_ClipWindow"><y>500</y>"#);
+        assert_eq!(run(&mut tree_changed(off), Some(local(None, 1.0)), &mut MapTiles::default()), Err("the local map's window does not fit".to_string()));
+        // The prepared Local Map is read with its parts; a Local Map without a place is not drawn.
+        let p = data::view::LocalProjection { centre: [0.0, 0.0], mag: 1.0, scale: 8.0, origin: [-100.0, 100.0], extent: Vec2::new(200.0, 200.0) };
+        let view = data::MapView::local(WORLD_W, p);
+        let parts = data::WorldParts { view, texture: String::new(), mag: 1.0, quests: Vec::new(), custom: None, arrow: Some(([0.5, 0.5], 0.0)), ends: Vec::new(), outline: Some((Handle::<Image>::default(), Vec2::new(25.0, 25.0))) };
+        let map = data::MapShown::for_test(Vec::new(), Some(parts), Vec2::ZERO, None, None);
+        let prepared = |tab, map: data::MapShown| Prepared { view: data::View { tab, place: String::new(), when: String::new(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None }, keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
+        let s = Shown::of(&prepared(data::LOCAL, map.clone()), true).unwrap();
+        let w = s.world.unwrap();
+        assert!(w.local && w.texture == "nvf:local_map");
+        assert!(Shown::of(&prepared(data::WORLD, map), true).is_err(), "a Local Map is not the World Map's");
+        let bare = data::MapShown::for_test(Vec::new(), None, Vec2::ZERO, None, None);
+        assert_eq!(Shown::of(&prepared(data::LOCAL, bare), true), Err("the local map has no place here".to_string()));
+    }
+
     #[test]
     fn the_world_map_falls_back_without_its_window_or_templates_and_its_tiles_are_only_its_own() {
         // A file without a waypoint template: the World Map falls back, Quests is still drawn.
@@ -3186,7 +3460,7 @@ mod tests {
     fn the_prepared_world_map_is_read_with_its_parts_and_the_local_map_is_not() {
         let view = data::MapView::world(WORLD_W, [0.5, 0.5], Vec2::splat(1000.0), 1.0);
         let mark = |form, uv: Option<[f32; 2]>| data::MapMark { icon: Some((1, true)), highlighted: form == 2, at: Vec2::ZERO, form, name: format!("P{form}"), uv };
-        let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new() };
+        let parts = data::WorldParts { view, texture: "w.dds".into(), mag: 1.0, quests: vec![(9, [0.1, 0.2])], custom: None, arrow: Some(([0.5, 0.5], 1.0)), ends: Vec::new(), outline: None };
         let map = data::MapShown::for_test(vec![mark(1, Some([0.1, 0.1])), mark(2, Some([0.2, 0.2])), mark(3, None)], Some(parts), Vec2::new(5.0, 6.0), Some("P2"), None);
         let view_of = |tab, map: data::MapShown| data::View { tab, place: "Here".into(), when: "now".into(), buttons: Vec::new(), body: Body::Map(Box::new(map)), popup: None };
         let p = |tab, map| Prepared { view: view_of(tab, map), keys: Vec::new(), sel: 0, pointer_pick: false, navigated: 0, challenges: false, filtered: false };
@@ -3332,7 +3606,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_world_map_quests_misc_and_radio_with_the_switch_on_are_eligible() {
+    fn every_data_tab_with_the_switch_on_is_eligible() {
         let mut pip = PipBoy::default();
         (pip.phase, pip.page) = (crate::pipboy::Phase::Up, Page::Data);
         pip.tabs[Page::Data.index()] = data::QUESTS;
@@ -3347,7 +3621,7 @@ mod tests {
         pip.tabs[Page::Data.index()] = data::WORLD;
         assert!(eligible(on, &pip), "and the World Map");
         pip.tabs[Page::Data.index()] = data::LOCAL;
-        assert!(!eligible(on, &pip), "the Local Map keeps the hand-built page");
+        assert!(eligible(on, &pip), "and the Local Map");
         pip.tabs[Page::Data.index()] = data::QUESTS;
         pip.page = Page::Items;
         assert!(!eligible(on, &pip));

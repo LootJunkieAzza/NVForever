@@ -32,12 +32,29 @@ pub struct MapView {
     pub size: Vec2,
     /// The World Map's point (texture coordinates) wanted at the window's middle.
     pub centre: [f32; 2],
+    /// The Local Map's projection, on the Local Map.
+    pub local: Option<LocalProjection>,
+}
+
+/// The Local Map's projection [design: `super::local_scale`, pipboy.md §5.3]: the game point
+/// `centre` (x, y) at the window's middle, north up, `scale` game units a canvas unit at a
+/// magnification of 1, magnified `mag`; and the frame its picture covers (the outline's grid,
+/// `super::outline::Outline`: its top left `origin`, game x and y with y the largest, and its
+/// size `extent` in game units), which the page drawn from the file takes as the picture its
+/// rows' texture coordinates are of.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LocalProjection {
+    pub centre: [f32; 2],
+    pub mag: f32,
+    pub scale: f32,
+    pub origin: [f32; 2],
+    pub extent: Vec2,
 }
 
 impl MapView {
-    /// A window with no picture (the Local Map's, or before a map is read).
+    /// A window with no picture (before a map is read).
     pub fn bare(window: Rect) -> MapView {
-        MapView { window, left: Vec2::ZERO, size: Vec2::ZERO, centre: [0.5, 0.5] }
+        MapView { window, left: Vec2::ZERO, size: Vec2::ZERO, centre: [0.5, 0.5], local: None }
     }
 
     /// The same view seen through another window: the picture's size kept, its place worked out
@@ -45,11 +62,52 @@ impl MapView {
     /// window apart from the one the view was made in shows the same point at its middle
     /// [design].
     pub fn with_window(&self, window: Rect) -> MapView {
+        if let Some(p) = self.local {
+            return MapView::local(window, p);
+        }
         let mid = window.size() / 2.0;
         if self.size == Vec2::ZERO {
             return MapView { window, ..*self };
         }
         MapView { window, left: Vec2::new(model::pan(self.centre[0], self.size.x, mid.x), model::pan(self.centre[1], self.size.y, mid.y)), ..*self }
+    }
+
+    /// The Local Map's view ([`LocalProjection`]): its picture the frame `origin`, `extent`
+    /// placed by the projection.
+    pub fn local(window: Rect, p: LocalProjection) -> MapView {
+        let mut v = MapView { window, left: Vec2::ZERO, size: Vec2::ZERO, centre: [0.5, 0.5], local: Some(p) };
+        v.left = v.place(p.origin[0], p.origin[1]);
+        v.size = p.extent * p.mag / p.scale;
+        v
+    }
+
+    /// Where the game point `x`, `y` falls in the window on the Local Map (the window's middle
+    /// plus its distance from the centre, north up), the hand-built page's own sum; the window's
+    /// middle on any other map.
+    pub fn place(&self, x: f32, y: f32) -> Vec2 {
+        match self.local {
+            Some(p) => self.mid() + Vec2::new(x - p.centre[0], p.centre[1] - y) * p.mag / p.scale,
+            None => self.mid(),
+        }
+    }
+
+    /// The Local Map's game point `x`, `y` in its frame's texture coordinates (0..1 across the
+    /// frame, down from its north edge): [`MapView::to_window`] of them is [`MapView::place`].
+    pub fn local_uv(&self, x: f32, y: f32) -> [f32; 2] {
+        match self.local {
+            Some(p) => {
+                let axis = |d: f32, s: f32| if s > 0.0 { d / s } else { 0.0 };
+                [axis(x - p.origin[0], p.extent.x), axis(p.origin[1] - y, p.extent.y)]
+            }
+            None => [0.0, 0.0],
+        }
+    }
+
+    /// The Local Map's game point under the window's point `at` ([`MapView::place`] undone,
+    /// `super::marker::local_point`); none on another map.
+    pub fn local_point(&self, at: Vec2) -> Option<[f32; 2]> {
+        let p = self.local?;
+        Some(super::marker::local_point(p.centre, self.mid(), p.mag, p.scale, at))
     }
 
     /// The World Map's view: a picture `usable` across at a magnification of 1 (the root's
@@ -59,7 +117,7 @@ impl MapView {
     pub fn world(window: Rect, centre: [f32; 2], usable: Vec2, mag: f32) -> MapView {
         let size = usable * mag;
         let mid = window.size() / 2.0;
-        MapView { window, left: Vec2::new(model::pan(centre[0], size.x, mid.x), model::pan(centre[1], size.y, mid.y)), size, centre }
+        MapView { window, left: Vec2::new(model::pan(centre[0], size.x, mid.x), model::pan(centre[1], size.y, mid.y)), size, centre, local: None }
     }
 
     /// The window's size.
@@ -201,6 +259,34 @@ mod tests {
         assert_eq!((at, over), (Vec2::new(855.0, 0.0), Vec2::new(55.0, -50.0)));
         let (at, over) = v.stick(Vec2::new(400.0, 200.0), Vec2::new(-0.5, 0.0), 0.1, 600.0);
         assert_eq!((at, over), (Vec2::new(370.0, 200.0), Vec2::ZERO));
+    }
+
+    /// [design] The Local Map's projection: the centre at the window's middle, north up, its
+    /// frame's texture coordinates placing a point where the projection does, and the inverse
+    /// giving the game point back; indoors (8 units a unit) and outdoors (28), magnified.
+    #[test]
+    fn the_local_maps_projection_round_trips_through_its_frame_and_the_window() {
+        for (scale, mag) in [(28.0, 1.0), (28.0, 2.5), (8.0, 1.0), (8.0, 4.0)] {
+            let p = LocalProjection { centre: [-70000.0, 2500.0], mag, scale, origin: [-80000.0, 12000.0], extent: Vec2::new(24000.0, 20000.0) };
+            let v = MapView::local(window(), p);
+            assert_eq!(v.place(-70000.0, 2500.0), v.mid(), "the centre at the middle");
+            let east = v.place(-70000.0 + scale, 2500.0);
+            assert!((east - v.mid() - Vec2::new(mag, 0.0)).length() < 1e-3, "east is right, a unit a scale's units");
+            let north = v.place(-70000.0, 2500.0 + scale);
+            assert!((north - v.mid() - Vec2::new(0.0, -mag)).length() < 1e-3, "north is up");
+            for (x, y) in [(-80000.0, 12000.0), (-56000.0, -8000.0), (-71234.5, 3001.25), (-70000.0, 2500.0)] {
+                let uv = v.local_uv(x, y);
+                assert!((v.to_window(uv) - v.place(x, y)).length() < 1e-2, "{scale} {mag} {x} {y}");
+                let back = v.local_point(v.place(x, y)).unwrap();
+                assert!((back[0] - x).abs() < 0.05 && (back[1] - y).abs() < 0.05, "{back:?}");
+            }
+            // The frame's corners are the picture's.
+            assert_eq!(v.local_uv(-80000.0, 12000.0), [0.0, 0.0]);
+            assert_eq!(v.local_uv(-56000.0, -8000.0), [1.0, 1.0]);
+            assert!((v.picture().min - v.place(-80000.0, 12000.0)).length() < 1e-3);
+        }
+        let bare = MapView::bare(window());
+        assert_eq!((bare.local_point(Vec2::ZERO), bare.place(1.0, 2.0)), (None, bare.mid()));
     }
 
     #[test]

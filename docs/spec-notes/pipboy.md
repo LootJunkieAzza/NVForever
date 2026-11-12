@@ -1553,10 +1553,10 @@ prefabs it includes, `list_box.xml`, `list_box_template.xml`, `text_box.xml`, `t
 capture of the original's MapMenu traits was read for this slice but run08's map markers (§5.3);
 what the original writes into the traits below is not known unless tagged.
 
-**This slice draws the World Map, Quests, Misc and Radio** [design, #1513]. The Local Map keeps the
-whole hand-built page while it shows: its picture is made in code (the outline, §5.3), which the
-tile painter cannot show yet. The World Map is drawn from the file through one viewport the
-hand-built page shares (`pipboy/data/view.rs`, `MapView`, below); its picking stays the model's.
+**This slice draws every tab: the Local Map, the World Map, Quests, Misc and Radio** [design,
+#1513]. Both maps are drawn from the file through one viewport the hand-built page shares
+(`pipboy/data/view.rs`, `MapView`, below); their picking stays the model's. The Local Map's picture
+is NVForever's own outline of the place (§5.3), given to the tile painter as a runtime picture.
 Radio's waveform in the file is `MM_Waveform`, an image the code gives an animation ("set in code",
 which one not known); it stays hidden, and the hand-built trace of the radio's loudness (§5.3) is
 painted over the file's own frame of the panel (below). The page goes over to its tiles and back as
@@ -1649,8 +1649,12 @@ page's rules read of the drawing: how many rows fit, how far the right pane can 
   `waypoint_path.dds` repeated, from its parent's middle, a third of its parent's height, as long
   as its `user0` less 4 times its grandparent's `_Magnification`, turned about its left middle,
   depth -1). `LocalMapQuestMarkerTemplate` is the Local Map's.
-- Not read in this slice: the Local Map's window, `MM_Headline_ChallengeType`, the two square
-  highlights above.
+- The Local Map: `MM_LocalMap_ClipWindow` as the World Map's window (shown on tab 0), holding
+  `MM_LocalMap_ParentImage` (a hotrect as the World Map's, with no picture and `visible` false, both
+  set in code) and `MM_LocalMapCursor` (as the World Map's arrow, hidden until code shows it);
+  `LocalMapQuestMarkerTemplate` as the World Map's quest markers' but held inside the window (its
+  `x` and `y` clamped by the picture's place and the window's size).
+- Not read in this slice: `MM_Headline_ChallengeType`, the two square highlights above.
 
 **What the code writes on Quests** [design]:
 
@@ -1714,6 +1718,25 @@ is drawn.
 | The windows | `MM_WorldMap_ClipWindow/visible`, `MM_Highlight_ClipWindow/visible` 1; the clip windows turned on (`item_menu::mark_menu`) | Put right on every pass. |
 | The place and the time | as on Quests | The shared headline writer. |
 | The hints | X Place Marker (bright), A Travel with a controller (dim with no Travel target) | `tab_buttons`, by what each does. |
+
+**What the code writes on the Local Map** [design]: as on the World Map where nothing is said,
+into `MM_LocalMap_ClipWindow` (a clip window 50 down, 855 × 500, shown on tab 0),
+`MM_LocalMap_ParentImage` (a hotrect with no picture in the file and hidden, "set in code"; its
+children the markers) and `MM_LocalMapCursor` [documented: map_menu.xml]. `MapView`'s Local Map
+projection is the hand-built page's (the player's place or where the map was dragged at the window's
+middle, north up, 28 game units a unit outdoors and 8 indoors, magnified 1 to 4) with a frame: the
+grid the outline covers (`outline::Outline`, its top left and size in game units), which the code
+takes as the picture the rows' texture coordinates are of [design: the file has the rows placed by
+`_x`/`_y` times the picture's size, the original's local picture's frame is not known].
+
+| Model (`pipboy::data::local_map`) | Tile, trait | Notes |
+|---|---|---|
+| The frame, the magnification | `MM_LocalMap_ParentImage`: `x`, `y`, `width`, `height` from `MapView` (put right every pass), `filewidth`/`fileheight` the frame's size at 1, `_Magnification`, `visible` 1 (the file's 0: shown in code), `user0`-`user2` | The World Map's window hidden (`visible` 0) while the Local Map shows, and the other way round. |
+| The outline's picture, once made | the hotrect's `filename` `nvf:local_map`, the runtime picture (`tiles::runtime_images`) given the outline's texture and its size in texels before the name is written; given again for each new outline (a new revision, so the painter repaints though the name stays); taken away when there is none; empty while the grid is being made | Painted from the hotrect's traits, outside the tree, as the World Map's picture. The outline is made anew when the map is dragged off it, the player goes elsewhere or in or out, and its picture once its grid is filled in (a few hundred rays a frame), so the picture comes as it fills in and is replaced as the place changes. |
+| The doors leading elsewhere and the markers the player knows near (outdoors) | `MapMarkerTemplate` rows by reference: `_x`/`_y` (the frame's texture coordinates), `filename` (the door icon or the marker's), `_selected`, `_LocationName` | Those inside the window and a marker's width more, as the hand-built page draws them: one panned in or out adds or unloads its row (a change of membership, not every frame). |
+| The active quest's targets here, the custom marker in this space | `LocalMapQuestMarkerTemplate` rows by reference (the file's template keeps them inside the window), the custom marker's picture at depth 5 | No dotted line [observed: the original's Local Map has none, §5.3]. |
+| The player's arrow | `MM_LocalMapCursor`: `_x`/`_y`, `rotateangle` the heading, `visible` 1 (the file's 0) | Turned about its middle by the file's axis traits. |
+| The highlight box | as on the World Map, its name a door's place name or a marker's | No reputation line. |
 
 **The World Map's input** [design]: the tiles take the tabs and the hints (T8, as on the other
 tabs); the map's drag, the wheel's zoom, the controller's sticks, the highlight box and picking
@@ -1788,14 +1811,16 @@ pane's window is published while it scrolls (the objectives, a text). A hint tha
 not take the pointer at its word is warned of and the page stays (its key still works); its key's
 text (`PCShortcutLabel`) stands beside the hint's box [documented: text_box.xml] and is not asked.
 
-**Falls back, whole page, with the reason** [design]: the Local Map;
+**Falls back, whole page, with the reason** [design]:
 `MapMenu` not in the tree; a tile or template above missing (a mod's restructured file), each tab
 asking for its own (a file short of Misc's text still draws Quests from the file, and the other way
 round); the tabs or a row not made; nothing prepared yet for this tab (no failure); the layout not
 usable (on Radio also the waveform panel not shown, without a size or not wholly on the canvas: the
 trace would have no box; on the World Map the map's window hidden, without a size or not wholly on
 the canvas, its picture not painted inside it, or the highlight box not shown; a World Map without
-a picture here). On the World Map each of its four templates is asked for too. The test aid
+a picture here; likewise on the Local Map with its window, a Local Map without a place). On the
+World Map each of its four templates is asked for too, on the Local Map `MapMarkerTemplate` and
+`LocalMapQuestMarkerTemplate`. The test aid
 `NVF_PLAY_TEST_MAP_TILE_CUT=<name>[@<seconds>]` takes a tile or template as missing, and at its end
 builds the menu again from its file, for the recovery (with the switch on only). After three failing
 passes a missing name waits for the tree to change; a layout that is not usable is tried again
@@ -1811,7 +1836,10 @@ when that line changes (an audio note playing changes the time left every frame,
 over the file's panel; `… tab world map, <n> markers, <m> quest markers, custom marker|no custom
 marker, <k> dotted lines, "<name>"|"nothing" highlighted, magnification <x>, hints: <…>` when that
 line changes; `pipboy data: question box over the tiles (<n> answers)` when the box is painted over
-the page; `tiles: MapMenu <tab> frames: <n> from tiles, <m> by hand, <k> before it was prepared` when a
+the page; `… tab local map, <n> markers, <m> quest markers, custom marker|no custom marker, picture
+<w> x <h>|not made yet, "<name>" highlighted, magnification <x>, hints: <…>` when that line changes;
+`tiles: MapMenu local map picture given, <w> x <h> texels|taken away` when the outline's runtime
+picture changes; `tiles: MapMenu <tab> frames: <n> from tiles, <m> by hand, <k> before it was prepared` when a
 visit to a tab drawn from the file ends (another tab, the page down), every frame of it counted by
 what drew it, so a run shows a page that never fell back even for a frame (a fallback is warned of
 only after three passes); `MapMenu drawn by hand: <reason>` (a warning)
@@ -1835,7 +1863,9 @@ the file's hotrect's traits, outside the tree; the markers are kept, not made ev
 arrow and the dotted lines turn by `rotateangle` as the tile painter reads it (radians, clockwise
 with y down, about the file's `rotateaxisx`/`rotateaxisy` [hypothesis: the sense]); the question boxes are
 NVForever's own box painted over the tiles (the original's box is another menu, not read here); the
-reputation's line is the hand-built page's words; the sizes `user0`/`user1`/`user2` are the
+reputation's line is the hand-built page's words; the Local Map's picture is NVForever's
+outline of the collision (§5.3), not the original's picture of the place from above, and its frame
+(the outline's grid) is NVForever's; the sizes `user0`/`user1`/`user2` are the
 hand-built page's and do not change with the zoom (the file's comment says the arrow's does, by
 what the code writes, not known).
 **Not known**: what the original writes into `_TextAlpha`, `_ShowEmptyMarker` and the objectives'
