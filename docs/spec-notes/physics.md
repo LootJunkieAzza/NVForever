@@ -2477,6 +2477,20 @@ ripples a little smoother than before (218 → 205). In game on the broken road 
 14.3 units; `camper-steps`, `repconn-catwalk-stairs`, `pete-porch` and `pete-terrain`
 pass.
 
+**Small drops count as the ground** (2026-11-12, the same feedback, narrowed to walking
+off a road onto the terrain and over small rock clusters) [design; `step_lift::footing`]:
+running over rocks the controller leaves the ground for 2-4 fixed steps each time the feet
+come off one, dropping 16-20 units [observed: `fnvtool phys walk` running south-east over
+the desert south of Goodsprings, from (−70500, −2500) at (250, −150) units/s,
+2026-11-12]; drawn as a fall, the view dropped with the feet and stopped dead on landing.
+The lift now takes in a step in the air too while the character walked off an edge (the
+controller's `walked_off_z`, not set by a jump) and its feet are no more than the step
+height (24) below where it left the ground; a jump, swimming and any drop deeper than that
+are the air as before, so a real fall is not slowed. Replayed on that trace the drawn
+height's RMS vertical acceleration while moving fell from 7409 to 549 units/s² and its
+largest from 66 218 to 2712 (the feet 8153 / 68 609); walks along and across the road
+that never leave the ground are unchanged.
+
 ### 6.12 Fall damage (playtest list 7 item 21, 2026-10-23; `engine/nvf-play/src/falls.rs`)
 
 - **Settings** [observed: FalloutNV.esm GMST]: `fJumpFallHeightMin` 600,

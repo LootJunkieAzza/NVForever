@@ -119,7 +119,9 @@ the spec it links to.
 14. **Steps and road bumps.** Body and view follow the ground through a 0.2 s speed
     prediction and a three-stage ease (2026-11-07, after "every bump" on roads; eased
     2026-11-12 after feedback that curbs felt jarring): road ripples are about 2.5-3x
-    smoother and a curb starts and ends without a jolt, settling in about 0.24 s, but
+    smoother, a curb starts and ends without a jolt, settling in about 0.24 s, and walking
+    off a rock or a road edge (up to 24 units down) is eased the same way instead of drawn
+    as a fall, but
     running onto a steep hill the body is drawn up to 13 units below the feet for a
     moment (up to 24 units allowed; over 48 counts as a teleport). A step-up counts from
     0.25 units of rise. Where a slope or stairs end the body carries on up: up to 13.3

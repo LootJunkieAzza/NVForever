@@ -9059,6 +9059,19 @@ expect = [
 ]
 
 [[scenario]]
+name = "rock-run-smooth"
+source = "player feedback 2026-11-12, issue #2256 (docs/spec-notes/physics.md §6.11): running over the small rocks south of Goodsprings the controller leaves the ground for a few steps off each rock (16-20 units down); the view dropped with the feet and stopped dead on landing. Those drops now count as the ground for the drawn height (`step_lift::footing`), so it must stay much smoother than the feet"
+areas = ["physics", "controls"]
+paths = ["engine/nvf-play/src/phys/step_lift.rs", "engine/nvf-play/src/player.rs", "crates/fnv-phys/src/character.rs"]
+env = { NVF_PLAY_TEST_MOVE = "8:1:0,13:0:0" }
+args = ["--play", "--pos=-70500,-2500,8140", "--heading", "121", "--hour", "12", "--no-actors", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'physics: walking on the ground for (\d+) steps', range = [150, 2000], label = "ran over the rocks, counted as the ground" },
+  { re = 'drawn/feet (\d+\.\d+)', range = [0.0, 0.3], label = "the drawn height's vertical acceleration under a third of the feet's (drops off rocks eased)" },
+]
+
+[[scenario]]
 name = "repconn-catwalk-stairs"
 source = "owner's playtest 2026-10-23 (docs/spec-notes/physics.md §6.9.1): the REPCONN Facility's catwalk stairs up to Chris Haversam's and Jason Bright's intercom (RocketLabMid); walking east up the 312-448 flight (24-unit risers and treads), then left up the 450-504 flight onto the intercom catwalk, without a jump (the feral ghouls left out: they block the stairs and fight)"
 areas = ["physics", "controls"]

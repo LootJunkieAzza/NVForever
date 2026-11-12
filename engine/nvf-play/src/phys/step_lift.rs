@@ -22,7 +22,10 @@
 //!   than [`MAX_GRADE`] × the horizontal distance walked (standing still it is 0, so
 //!   stopping on a slope does not leave the body drawn above the feet). In the air, swimming or put
 //!   somewhere (a change over [`JUMP`]) nothing is taken up and the speed starts again
-//!   from 0.
+//!   from 0. Walking off a small edge counts as the ground ([`footing`]): running over
+//!   rocks or off a road onto the terrain the controller leaves the ground for a few
+//!   steps and drops up to its step height, and drawn as a fall the view dropped with the
+//!   feet and stopped dead on landing (feedback 2026-11-12).
 //! - **How fast** [design]: three first-order stages of rate [`OMEGA`] one after the
 //!   other (a triple critically damped pole), so after a curb the drawn height starts
 //!   with no vertical speed and no vertical acceleration, eases up, and is within a tenth
@@ -55,6 +58,13 @@ pub const MAX_LIFT: f32 = 24.0;
 /// A change of the drawn height over this in one step is a placement, not a step: the
 /// lift goes back to 0 [design].
 pub const JUMP: f32 = 48.0;
+
+/// Whether a character's drawn height is smoothed (see the module notes): on the ground,
+/// or in the air after walking off an edge (not a jump) while its feet are no more than
+/// its step height below where it left the ground; never swimming.
+pub fn footing(c: &fnv_phys::Character) -> bool {
+    !c.swimming && (c.grounded || c.walked_off_z.is_some_and(|z| z - c.feet[2] <= c.params.step_height))
+}
 
 /// A character's drawn lift (see the module notes), stepped with its physics.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -112,8 +122,7 @@ impl Roughness {
 
 impl StepLift {
     /// One fixed step of `dt` seconds in which the feet's drawn height changed by `dz`
-    /// while they moved `horizontal` units; `on_ground`: on the ground before and after
-    /// it and not swimming.
+    /// while they moved `horizontal` units; `on_ground`: [`footing`] before and after it.
     pub fn step(&mut self, dz: f32, horizontal: f32, on_ground: bool, dt: f32) {
         self.prev = self.lift;
         if dz.abs() > JUMP {
@@ -348,6 +357,42 @@ mod tests {
             assert!(jumps < 8.0 * 0.6, "largest drawn change in a step {jumps}");
             assert!(lift.lift.abs() < 0.05, "settled: {}", lift.lift);
         }
+    }
+
+    #[test]
+    fn walking_off_a_small_edge_is_footing_a_jump_or_a_fall_is_not() {
+        let mut world = fnv_phys::PhysWorld::new(fnv_phys::PhysParams::default());
+        let mut c = world.add_character(1, fnv_phys::CharacterParams::default(), [0.0, 0.0, 100.0]);
+        let step = c.params.step_height;
+        c.grounded = true;
+        assert!(footing(&c));
+        // Walked off: footing while within the step height of the edge.
+        c.grounded = false;
+        c.walked_off_z = Some(100.0);
+        c.feet[2] = 100.0 - step;
+        assert!(footing(&c));
+        c.feet[2] = 100.0 - step - 0.5;
+        assert!(!footing(&c), "a drop deeper than a step is a fall");
+        // A jump leaves no walked-off height; swimming is never footing.
+        c.walked_off_z = None;
+        c.feet[2] = 100.0;
+        assert!(!footing(&c));
+        c.grounded = true;
+        c.swimming = true;
+        assert!(!footing(&c));
+    }
+
+    #[test]
+    fn a_drop_off_a_rock_is_eased_like_a_step_down() {
+        // Running off a rock: 16 units down over three steps in the air (the shape of a
+        // `fnvtool phys walk` trace over the rocks south of Goodsprings), then level.
+        let mut lift = StepLift::default();
+        let mut h = vec![0.0; 30];
+        h.extend([-2.0, -6.5, -16.0]);
+        h.extend(std::iter::repeat_n(-16.0, 60));
+        let drawn = walk(&mut lift, &h, 5.0);
+        assert!(sharpest(&drawn) < 0.6, "the drawn vertical speed changed by {} in a step", sharpest(&drawn));
+        assert!(lift.lift.abs() < 0.05, "settled: {}", lift.lift);
     }
 
     #[test]
