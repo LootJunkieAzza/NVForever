@@ -1657,11 +1657,16 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
       two that held have not (raw values 6, 6, 4 against 2, 2) [observed over these five
       packages; that the bit is the cause is a hypothesis: xEdit names no Guard flag
       there, and the packages differ in other fields too].
-    - **Not run yet** (in the campaign, queued behind other sessions' smoke runs when
-      this was written): a Guard with no type-specific flags, as most have
-      (`knife_ed0plain_walk300`, `_walk750`); the 384 line more closely
-      (`knife_ed0_walk450`, `_walk550`); the radius-128 Guard at 1,900 units
-      (`knife_ed128_walk1900`).
+    - **Run without their walk** (2026-11-12, the last run): in `knife_ed0plain_walk300`
+      and `_walk750` (`RHSAmbusherGuard`: radius 0, type-specific flags 0, as most
+      Guard packages with the flag have), `knife_ed0_walk450` and `_walk550` and
+      `knife_ed128_walk1900` the player's walk did not happen (the drive ended at its
+      frame limit, the Forward key having no effect in that run), so the player stood
+      166 to 259 units from the post and all five troopers closed in and fought, as a
+      near enemy let every Guard do. They settle nothing more: whether a Guard with no
+      type-specific flags holds its actor, where between 167 and 654 units the radius-0
+      line is, and whether the radius-128 Guard is held further out than 621 units,
+      are open. Run them again with the game window in front.
     - **Not measured**: an engaged guard whose target then leaves the radius on foot
       (the teleport sessions end the fight for any trooper, check 109); a Guard near a
       reference or the linked reference; an NPC hostile by its own faction instead of

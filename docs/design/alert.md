@@ -270,8 +270,10 @@ kinder, item 5]:
    may go wherever its target is.
 3. **How large**, for a Guard: the package radius × 1.5, at least 384 (the two game
    settings above, read from the load order when a plugin sets them). A Guard whose
-   type-specific flags have bit 2 set is not held [hypothesis from three packages; until
-   settled, hold only Guards without it, so no fighter is pinned on a guess]. Travel
+   type-specific flags have bit 2 set is not held [hypothesis from three packages; a
+   Guard with no type-specific flags, the commonest kind, was not measured beyond 259
+   units. Until settled, hold only Guards without bit 2, so no fighter is pinned on a
+   guess]. Travel
    and the others: no radius, see item 1.
 4. **When it goes back**: when the fight is over (no target left: dead, lost, or
    StopCombat) the package choice runs again and the actor walks back to its place and
