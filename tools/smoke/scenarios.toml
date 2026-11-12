@@ -25674,9 +25674,9 @@ order = [[
   { re = 'drink stage: the fill light comes up at', label = "the fill light fades up on the winner" },
   { text = "drink contest: closed", label = "the contest's screen closes" },
   { re = 'drink world: goodsprings: the contest is over: the win camera lets go', label = "the win camera lets go" },
-  { re = 'drink stage: the fill light is down', label = "the fill light fades down" },
   { re = 'drink world: goodsprings: the contest is over: the dance ends, back to standing', label = "the dance ends at the contest's end" },
   { re = 'drink world: goodsprings: this player stands again', label = "the view is back" },
+  { re = 'drink stage: the fill light is down', label = "the fill light fades down after the dance (0.8 s)" },
 ]]
 
 [[scenario]]
