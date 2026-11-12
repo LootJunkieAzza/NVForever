@@ -3338,6 +3338,13 @@ pub fn report(
         };
         Some(format!("{}: {package}, {state} in {}, walked {:.0} units, {} doors opened", r.label, nav::space_name(&world, a.walker.space), a.walker.travelled, r.doors_opened))
     };
+    // Named sandboxers' choices in a meal window with no free seat, so no meal (#2011;
+    // the smoke test sandbox-no-seat-meals reads them).
+    for r in core.list.iter().filter(|r| r.named) {
+        if let Some(sb) = core.ai.agents.get(&r.actor).and_then(|a| a.sandbox.as_ref()) {
+            info!("ai sandbox meals: {}: {} choices in a meal window with no free seat", r.label, sb.seatless_meal_choices());
+        }
+    }
     // The named ones, then those of the crowd that walked the most.
     let mut each: Vec<String> = core.list.iter().filter(|r| r.named).filter_map(one).collect();
     let mut crowd: Vec<&Resident> = core.list.iter().filter(|r| !r.named && core.ai.agents.get(&r.actor).is_some_and(|a| a.walker.travelled > 0.0)).collect();

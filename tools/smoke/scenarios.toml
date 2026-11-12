@@ -4800,11 +4800,11 @@ expect = [
 [[scenario]]
 name = "hello-shared-quest-order"
 source = "[hypothesis] #1895: Info Index places shared lines within the listing quest (docs/spec-notes/dialogue.md section 1.2); [design] crates/fnv-game/src/data.rs shared_lines preserves the Powder Ganger Random pool"
-note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM), the approaches 65 s apart since #2156: an actor that said an idle line says no other for 60 s (IDLE_LINE_AGAIN). Four approaches must choose eligible Random lines, never the later plain line; a line said in the last 180 s is not said again, so the four are the pool's four lines. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks."
+note = "[design] Only issue-listed actor 000F0AF8 is handed to residents. Detection is disabled before approaching; the player alternates between offsets 900 and 100 units from that actor to rearm hellos (crates/fnv-ai/src/social.rs HELLO_DISTANCE / HELLO_REARM), the approaches 65 s apart since #2156: an actor that said an idle line says no other for 60 s (IDLE_LINE_AGAIN). Four approaches must choose eligible Random lines, never the later plain line; a line said in the last 180 s is not said again, so the four are the pool's four lines. Seeded variation is checked in dialogue_data.rs; this scenario does not require distinct picks. The ganger is restrained at 1 s (#2011): it stays where it stands and keeps its package, so each approach finds it standing; before #2011 it stood through a seatless meal from about 12:09, now it goes on wandering, and an actor on its way does not say hello (crates/fnv-ai/src/social.rs)"
 areas = ["dialogue", "ai", "residents"]
 paths = ["crates/fnv-game/src/data.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-game/tests/dialogue.rs", "crates/fnv-game/tests/dialogue_data.rs", "docs/spec-notes/dialogue.md", "crates/fnv-ai/src/social.rs"]
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F0AF8"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "3:tdetect;3.5:close;8:player.moveto 000F0AF8 0 900 0;8.5:close;15:player.moveto 000F0AF8 0 100 0;15.5:close;73:player.moveto 000F0AF8 0 900 0;73.5:close;80:player.moveto 000F0AF8 0 100 0;80.5:close;138:player.moveto 000F0AF8 0 900 0;138.5:close;145:player.moveto 000F0AF8 0 100 0;145.5:close;203:player.moveto 000F0AF8 0 900 0;203.5:close;210:player.moveto 000F0AF8 0 100 0;210.5:close" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "1:000F0AF8.SetRestrained 1;1.5:close;3:tdetect;3.5:close;8:player.moveto 000F0AF8 0 900 0;8.5:close;15:player.moveto 000F0AF8 0 100 0;15.5:close;73:player.moveto 000F0AF8 0 900 0;73.5:close;80:player.moveto 000F0AF8 0 100 0;80.5:close;138:player.moveto 000F0AF8 0 900 0;138.5:close;145:player.moveto 000F0AF8 0 100 0;145.5:close;203:player.moveto 000F0AF8 0 900 0;203.5:close;210:player.moveto 000F0AF8 0 100 0;210.5:close" }
 run_seconds = 223
 expect = [
   { re = 'ai \[.*\] 000F0AF8: says hello to the player .* line 0x(00151A7B|00151A7A|0015694C|0015694D)\b', min = 4, label = "four approaches select from the eligible Random pool" },
@@ -7182,10 +7182,10 @@ forbid = [{ re = 'provocation: .*0xFF0000[0-9A-F]{2} warns the player inside its
 [[scenario]]
 name = "aggro-warning-look"
 source = "owner's playtest 2026-10-24, \"baby geckos were not showing the aggressive stay away from me warnings\" (crates/fnv-game/src/aggro.rs \"The look\", crates/fnv-ai/src/alert.rs Warnings, engine/nvforever/src/idles.rs creatures' combat idles): a young gecko warning the player stops and faces the player and draws its unarmed stance and holds it (owner 2026-10-25; the original drew and put it away every 2 s, capture `warnings`), not alerted, then attacks 15 s after its first warning; standing in the fight it plays its idle tree's combat idles (hiss, side hops)"
-note = "VERGSGecko6REF 0x00157B3C (VSpawnTier1GeckoSmall, a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512 all day, which allows it); the player starts about 350 units east of its editor spot. The two GS02 gecko hunters 0x0016518B/0x0016518C (within 600 units) and the geckos 0x00157B3F, 0x00157B40, 0x00157B41 (within 5,000) are disabled so that no other fight is joined"
+note = "VERGSGecko6REF 0x00157B3C (VSpawnTier1GeckoSmall, a Young Gecko: Unaggressive, aggro radius 500, DefaultSandboxEditorLocation512 all day, which allows it); the player starts about 350 units east of its editor spot. The two GS02 gecko hunters 0x0016518B/0x0016518C (within 600 units) and the geckos 0x00157B3F, 0x00157B40, 0x00157B41 (within 5,000) are disabled so that no other fight is joined. At 3 s the player is moved 300 units from the gecko (#2011): at 12:00 the gecko is in a rolled lunch window, and before #2011 it stood there through a meal with no seat, about 350 units from the player; now it goes on wandering within 512 of its editor spot, as a sandboxer does, and could wander out of its 500-unit aggro radius before warning"
 areas = ["combat", "alert", "idles"]
 paths = ["crates/fnv-game/src/aggro.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/npc_combat.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:call:0x0016518B:Disable,1:call:0x0016518C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:moveto:player:VERGSGecko6REF:300:0:0,1:call:0x0016518B:Disable,1:call:0x0016518C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable" }
 args = ["--play", "--pos=-66099,-24341,7400", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 50
 order = [[
@@ -25203,4 +25203,40 @@ expect = [
   { re = 'GoodspringsSettler03Ref: has caught up with .*: (\d+) units away, stops within 362$', range = [200, 362], label = "it stops 150 inside DefaultFollowPlayerFar's 512" },
   { re = 'script: test aid calls GetDistance on GoodspringsSettler03Ref = ([\d.]+)', count = 2, label = "both distance checks ran" },
   { re = 'script: test aid calls GetDistance on GoodspringsSettler03Ref = ([\d.]+)', range = [150, 380], all = true, label = "it stands well inside 512 (before #2122: 404)" },
+]
+
+[[scenario]]
+name = "sandbox-no-seat-meals"
+source = "issue #2011, docs/design/actor-behaviour.md §5.5 Choosing step 2: a sandboxer takes a meal only on a free seat; with none it goes on with its choices through the meal window (the original reported no EAT under Sandbox packages, npc-behaviour-compare.md §6a)"
+note = "Goodsprings from 06:00, the two settlers of the issue run by name. Under --play the AI's clock is the game's (the TimeScale global, 30: one game hour in 120 s; --time-scale would move only the sky), and the run's seconds count from when the loading screen comes down, so 490 s end at about 10:05: every breakfast window (start 06:00 to 09:00, fSandboxBreakfastMin/Max) begins inside the run. The headless run of main rolled settler 01's breakfast at about 07:53 and settler 03's at about 06:53, both lasting past the next hour (the rolls are the sandbox's own seeded numbers, the same in the game). The exit report's 'ai sandbox meals' line counts each settler's choices made in a meal window with no free seat: at least one each proves the case was met. Until the fix a settler without a free seat logged 'has a meal standing' and stood on the spot to the window's end"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/sandbox.rs"]
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "6", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref,GoodspringsSettler03Ref"]
+env = { RUST_LOG = "info", NVF_PLAY_TEST_GOD = "1" }
+run_seconds = 490
+expect = [
+  { re = 'ai \[[0-9:]+\] GoodspringsSettler0[13]Ref: sandbox: has a meal standing', count = 0, label = "no settler holds a meal standing" },
+  { re = 'ai \[(0[6-9]|10):[0-9:]+\] GoodspringsSettler01Ref: sandbox: (wanders|goes to idle marker|goes to sit on|has a meal on|stands)', min = 6, label = "settler 01's sandbox choices go on through the morning" },
+  { re = 'ai \[(0[6-9]|10):[0-9:]+\] GoodspringsSettler03Ref: sandbox: (wanders|goes to idle marker|goes to sit on|has a meal on|stands)', min = 6, label = "settler 03's sandbox choices go on through the morning" },
+  { re = 'ai sandbox meals: GoodspringsSettler01Ref: (?P<n>\d+) choices in a meal window with no free seat', range = [1, 100000], label = "settler 01 chose on in a meal window without a free seat" },
+  { re = 'ai sandbox meals: GoodspringsSettler03Ref: (?P<n>\d+) choices in a meal window with no free seat', range = [1, 100000], label = "settler 03 chose on in a meal window without a free seat" },
+  { re = 'ai summary at (09:[45]\d|1\d:\d\d)', label = "the run covered the morning to 09:40 or later (about 10:05 expected)" },
+]
+
+[[scenario]]
+name = "sandbox-no-seat-meals-headless"
+kind = "tool"
+source = "issue #2011, docs/design/actor-behaviour.md §5.5 Choosing step 2: the headless AI run (fnvtool ai run) of the same two settlers over 06:00-10:00, which holds every breakfast window's start (06:00-09:00); seatless_meal_choices counts the choices made in a meal window with no free seat"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/sandbox.rs", "crates/fnvtool/src/ai_run.rs"]
+commands = [
+  ["ai", "run", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--hours", "4", "--start-hour", "6", "--actor", "GoodspringsSettler01Ref", "--actor", "GoodspringsSettler03Ref"],
+]
+expect = [
+  { json = "actors.?actor=GoodspringsSettler01Ref.events.?doing=eating.object", schema = "fnv.ai.run/1", null = true, count = 0, label = "settler 01: no meal without a seat" },
+  { json = "actors.?actor=GoodspringsSettler03Ref.events.?doing=eating.object", schema = "fnv.ai.run/1", null = true, count = 0, label = "settler 03: no meal without a seat" },
+  { json = "actors.?actor=GoodspringsSettler01Ref.event_counts.sandbox", schema = "fnv.ai.run/1", range = [10, 100000], label = "settler 01's choices go on" },
+  { json = "actors.?actor=GoodspringsSettler03Ref.event_counts.sandbox", schema = "fnv.ai.run/1", range = [10, 100000], label = "settler 03's choices go on" },
+  { json = "actors.?actor=GoodspringsSettler01Ref.seatless_meal_choices", schema = "fnv.ai.run/1", range = [1, 100000], label = "settler 01 chose on in a meal window without a free seat" },
+  { json = "actors.?actor=GoodspringsSettler03Ref.seatless_meal_choices", schema = "fnv.ai.run/1", range = [1, 100000], label = "settler 03 chose on in a meal window without a free seat" },
 ]

@@ -21,9 +21,11 @@
 //! formulas"): how an object is scored (nearer is better), how fast weights grow back,
 //! how long each behaviour lasts, how long an object with no way to it stays out of the
 //! choices (`RETRY_DELAYS`), that an actor without a bed in its area does not
-//! sleep, and that an actor does not choose an idle marker whose idles are all another
-//! skeleton's clips (`clip_fits`: a person at a robot's marker, #1660). Not done: conversations between actors, picking up and eating food (an eating
-//! actor sits down if a seat is free, as an Eat package's does), and the idles an idle
+//! sleep, that an actor does not choose an idle marker whose idles are all another
+//! skeleton's clips (`clip_fits`: a person at a robot's marker, #1660), and that a meal is
+//! taken only on a free seat: with none, the actor goes on with its other choices through
+//! the meal window (#2011). Not done: conversations between actors, picking up and eating
+//! food (an eating actor sits down, as an Eat package's does), and the idles an idle
 //! marker lists (the actor goes there and faces its way).
 
 use crate::furniture::Eligibility;
@@ -111,7 +113,8 @@ pub enum Doing {
     Sitting(FormId),
     AtIdleMarker(FormId),
     Sleeping(FormId),
-    /// A meal, on a seat when one is free.
+    /// A meal, on a seat. The sandbox chooses a meal only when a seat is free (#2011);
+    /// `None` is not chosen any more.
     Eating(Option<FormId>),
 }
 
@@ -222,6 +225,9 @@ pub struct Sandbox {
     pub(crate) got_up: bool,
     /// Another behaviour took control; cancellation runs once until the next choice.
     interrupted: bool,
+    /// Choices made in a meal window with no free seat, so no meal (#2011): for reports
+    /// and smoke tests. Not saved.
+    seatless_meals: u32,
 }
 
 /// A sandbox's day as a save keeps it ([`crate::progress`]): where its random numbers
@@ -270,6 +276,7 @@ impl Sandbox {
             got_up: false,
             interrupted: false,
             chosen_at: 0.0,
+            seatless_meals: 0,
         };
         s.roll(game);
         s
@@ -315,6 +322,12 @@ impl Sandbox {
     /// The day's sleep window (start hour, hours) and meals, for reports and tests.
     pub fn times(&self) -> ((f32, f32), [(f32, f32); 3]) {
         (self.sleep, self.meals)
+    }
+
+    /// How many choices this sandbox made inside a meal window with no free seat, so
+    /// without a meal (#2011; reports and smoke tests).
+    pub fn seatless_meal_choices(&self) -> u32 {
+        self.seatless_meals
     }
 
     /// Whether the behaviour in hand is over.
@@ -417,11 +430,18 @@ impl Sandbox {
                 return Choice { doing: Doing::Sleeping(bed.0), target: place(bed.1), heading: None, until: Until::Day(days + left / 24.0) };
             }
         }
-        // Mealtimes: on a seat when one is free.
+        // Mealtimes: on a seat, and only when one is free. With none (no seat in the area,
+        // each one kept for another actor, waiting out a failed way, or furniture off) the
+        // meal is not chosen and the day's other choices go on [design, #2011: the original
+        // reported no EAT procedure under Sandbox packages that allow eating, ~240
+        // actor-hours, observed: docs/spec-notes/npc-behaviour-compare.md §6a; until
+        // 2026-11-11 a seatless meal held the actor standing to the window's end].
         if self.allowed.eating {
             if let Some(left) = self.meals.iter().find_map(|m| Self::left(m.0, m.1, hour)) {
-                let seat = nearest(furniture::SIT).filter(|_| self.allowed.furniture);
-                return Choice { doing: Doing::Eating(seat.map(|s| s.0)), target: seat.and_then(|s| place(s.1)), heading: None, until: Until::Day(days + left / 24.0) };
+                if let Some(seat) = nearest(furniture::SIT).filter(|_| self.allowed.furniture) {
+                    return Choice { doing: Doing::Eating(Some(seat.0)), target: place(seat.1), heading: None, until: Until::Day(days + left / 24.0) };
+                }
+                self.seatless_meals += 1;
             }
         }
         // Otherwise one of the behaviours that take turns. Candidates per kind, without

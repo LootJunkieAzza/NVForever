@@ -1791,3 +1791,19 @@ Fallout Behavior, Weapon Drawn, Continue During Combat).
     (b) for a Repeat Fire package, does that last, or does it go back to the package's target
     after a while? A package aiming at a marker (the Ultra-Luxe kitchen's) is worth the same
     look: does it fire at the marker in combat at all?
+
+## Added 2026-11-11 (sandbox meals and seats, issue #2011)
+
+113. **Does a sandboxer that may eat ever enter EAT, and does a free seat decide it?**
+    (P3; actor-behaviour.md §5.5 Choosing step 2.) Under Sandbox packages that allow eating
+    the original reported no EAT procedure: GoodspringsSettler01Ref
+    (GSSettlerAAMSandbox6x16) and GoodspringsSettler03Ref (GSSettlerSandbox) over 24 game
+    hours from 06:00 (AI observer, 2026-11-09), and none in about 240 actor-hours under
+    Sandbox records (npc-behaviour-compare.md §6a) [observed]. NVForever now takes a
+    sandbox meal only on a free seat and otherwise goes on with its choices [design,
+    #2011]. Put an eating-allowed sandboxer whose area has a free chair (an interior with
+    a table, e.g. the Prospector Saloon's sandboxers) through its breakfast, lunch and
+    dinner windows (06:00-09:00, 11:00-14:00, 17:00-20:00) and log GetCurrentAIProcedure
+    with the furniture it sits on: EAT on the chair says seated meals happen; SITTING only
+    says the original's sandbox does not run meals as a procedure at all, and step 2 should
+    go.

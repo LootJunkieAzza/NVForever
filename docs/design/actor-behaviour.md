@@ -464,7 +464,7 @@ Wander packages in the masters):
 
 | Flag | In the record | Sandbox packages with the behaviour on | What we do |
 |---|---|---|---|
-| Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, on a seat if one is free; no food is picked up or eaten |
+| Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, only on a free seat (furniture on); no seat, no meal (#2011); no food is picked up or eaten |
 | Sleeping | bit 1 "No Sleeping" | 305 | to a bed of the area for the rolled night; no bed, no sleep [hypothesis] |
 | Conversation | bit 2 "No Conversation" | 654 | the actor takes part in no random conversation (`fnv_ai::social`, docs/spec-notes/dialogue.md §5.2) |
 | Idle markers | bit 3 "No Idle Markers" | 706 | goes to a marker and faces its way, and plays the marker's idles there (docs/spec-notes/idles.md §5) |
@@ -490,8 +490,17 @@ packages.md §2). Wander packages are treated as sandboxes with their own flags
    between `fSandboxSleepStartMin` and `Max` (19:00 to 01:00), length between
    `fSandboxSleepDurationMin` and `Max` (6 to 10 hours) [documented defaults; the
    masters do not set them].
-2. In a meal window, with eating on: a meal until the window ends (breakfast starting
-   6 to 9, lunch 11 to 14, dinner 17 to 20, lasting 0.5 to 2 hours, rolled likewise).
+2. In a meal window, with eating and furniture on and a seat free in the area: a meal on
+   that seat until the window ends (breakfast starting 6 to 9, lunch 11 to 14, dinner 17
+   to 20, lasting 0.5 to 2 hours, rolled likewise). With no free seat (none in the area,
+   each one kept for another actor or waiting out a failed way to it) the meal is not
+   chosen and step 3 goes on (each such choice is counted, `Sandbox::seatless_meal_choices`:
+   the exit report's `ai sandbox meals` line for named residents, `seatless_meal_choices`
+   in `fnvtool ai run`); a seat that comes free within the window is taken at the next
+   choice [design, #2011: the original reported no EAT procedure under Sandbox
+   packages that allow eating, observed: npc-behaviour-compare.md §6a; until 2026-11-11
+   a seatless meal held the actor standing on the spot to the window's end. Whether the
+   original's sandbox eats on a seat at all is observer check 113].
 3. Otherwise one of: a seat, an idle marker, a wander. Each kind has a weight that drops
    to zero when the kind was just chosen and grows back by half each time another is;
    the object just used is not chosen again at once [documented]. Low energy (AIDT
