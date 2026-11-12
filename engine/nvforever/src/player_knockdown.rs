@@ -449,7 +449,7 @@ const CHASE_RATE: f32 = 5.0;
 /// While the body lies, hold the camera where it was when the player fell, and while the
 /// player gets up leave it to the third-person camera; a duel's loser is followed
 /// throughout (see the module notes).
-fn follow(
+pub(crate) fn follow(
     real: Res<Time<Real>>,
     mut kd: ResMut<PlayerKnockdown>,
     mut phys: ResMut<PhysState>,
