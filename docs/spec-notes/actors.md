@@ -1681,7 +1681,17 @@ stopped and started, as Victor's walk had before #258). Code:
     about the same number and are not taken. It is a package's walk (`Ai::pace`), times
     the actor's Speed Mult and fMoveSneakMult as before; a walk under way changes
     between the two paces when the weapon is drawn or put away, a run, a follower's
-    matched pace and the alert and combat speeds do not. Every other stance, medium and
+    matched pace and the alert and combat speeds do not. New speeds on the way (a Speed
+    Mult or armour change, `Ai::set_speeds`, issue #2118) keep the walk's share: the walk
+    goes on at the new walk / 1.1 and still follows the weapon, also through a stop at
+    Speed Mult 0 [design]. A follower (a Follow or Accompany package) takes the share
+    too, as every walk `Ai::pace` gives does [design: no person was measured following
+    with a weapon drawn, observer check 13; the movement settings apply "to all actors
+    unless otherwise noted", documented: GECK wiki Movement Settings]: in step with its
+    target it goes at the target's pace (`keep_step_speed`; the share only lowers its
+    slowest walk), and at the drawn walk where the target's pace is not known (its first
+    plan, a way through another space); its walk is not changed under way when the
+    weapon is drawn or put away, its next plan takes the new share. Every other stance, medium and
     heavy armour keep the holstered walk until they are measured drawn (the stances'
     walk clips differ, above; observer check 13).
   - **Not built**: in combat, walking with a weapon drawn was faster (a fiend 105,

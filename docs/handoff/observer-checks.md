@@ -369,7 +369,10 @@ engine if needed, and delete the item here.
       77): people walking a package outside combat with a rifle (`2hr` clip 85.26; the
       setting gives 77.5), a knife or fists (`1hm`/`h2h` 77.5), and a pistol in medium
       armour (the setting gives 71.7), each next to a holstered walker. Walking drawn in
-      combat (about 100) is not built.
+      combat (about 100) is not built. Whether a follower walking after its leader takes
+      the drawn walk is not known either (ours: it does, actors §8.10): a person with a
+      pistol drawn given a Follow package after a holstered walker (85): does it keep
+      step, or drop back at 77.5?
     - Follow distances: stand within distance + 64, run beyond 512. Where a follower
       stops once its leader stops: ours 150 inside the distance, not nearer than 128
       (#2122, from two arrivals: Boone 177 of 330, the pack brahmin about 300 of 450).

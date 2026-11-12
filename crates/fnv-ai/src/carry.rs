@@ -646,7 +646,8 @@ pub struct Agent {
     pub(crate) walk_up: Option<(Place, f64)>,
     /// An ordinary walk's drawn-weapon share ([`drawn_walk_share`]) as last applied and
     /// the walker speed it gave: set where a package's walk is planned at the walk, kept
-    /// up by [`Ai::repace_walk`]; given up once anything else sets the walker's speed.
+    /// up by [`Ai::repace_walk`] and by [`Ai::set_speeds`] (new speeds on the way, the
+    /// share kept); given up once anything else sets the walker's speed.
     pub(crate) walk_pace: Option<(f32, f32)>,
     /// How many times ResetAI had its package taken up afresh ([`Ai::step_actor`];
     /// `Game::take_ai_reset`): the engine gets a seated actor up when this changes, even
@@ -946,7 +947,10 @@ impl Ai {
     /// walk where it is, and it goes on in the same gait when they come back (a package's
     /// walk planned while they were 0 in the gait `Ai::plan` chose, any other at the
     /// calm walk). Crippled
-    /// legs' share ([`Ai::set_pace`]) is the walker's own and stays as it is.
+    /// legs' share ([`Ai::set_pace`]) is the walker's own and stays as it is. A package's
+    /// walk with a drawn-weapon share ([`Agent::walk_pace`], #2124) keeps it: the share is
+    /// in the gait's (`gait_of` finds the walk at that share), and the walk stays its own,
+    /// at the new speed, for [`Ai::repace_walk`] to follow the weapon from [design].
     pub fn set_speeds(&mut self, actor: FormId, speeds: ActorSpeeds) {
         let default = Speeds { walk: self.cfg.walk_speed, run: self.cfg.run_speed };
         let old = self.speeds.insert(actor, speeds).unwrap_or(ActorSpeeds { calm: default, alert: default, turn_rate: None, spot_turn_start: None });
@@ -961,6 +965,8 @@ impl Ai {
             return;
         }
         let to = a.walker.trip.as_ref().map(|t| t.to);
+        // A package's walk at its drawn-weapon share (#2124), still at the speed it set.
+        let owned = a.walk_pace.filter(|&(_, set)| set == a.walker.speed).map(|(applied, _)| applied);
         // The gait this walk was stopped in, or planned in at 0 (`Ai::plan`); none kept
         // for another walk.
         let stall = self.stalled.get(&actor).copied().filter(|s| s.to == to && a.walker.speed <= 0.0);
@@ -968,12 +974,15 @@ impl Ai {
             (Some(s), _) => (s.gait, s.share),
             (None, Some(g)) => g,
             // Planned at 0 where the gait was not kept: it walks [design] until its next
-            // plan rather than standing on its way.
-            (None, None) if a.walker.speed <= 0.0 => (0, 1.0),
+            // plan rather than standing on its way, at its drawn-weapon share.
+            (None, None) if a.walker.speed <= 0.0 => (0, owned.unwrap_or(1.0)),
             (None, None) => return,
         };
         let now = gait_speeds(&speeds)[gait].max(0.0) * share;
         a.walker.speed = now;
+        if let Some(applied) = owned {
+            a.walk_pace = Some((applied, now));
+        }
         if now > 0.0 {
             self.stalled.remove(&actor);
         } else {
@@ -2453,8 +2462,9 @@ impl Ai {
 
     /// A package's walk under way keeps up with the weapon being drawn or put away
     /// ([`drawn_walk_share`]): its speed is scaled from the share last applied to the share
-    /// now ([`Agent::walk_pace`]), whatever its base (an armour or Speed Mult change since
-    /// it was planned waits for the next plan, as before). The walk is owned from where
+    /// now ([`Agent::walk_pace`]), whatever its base (new speeds on the way, an armour or
+    /// Speed Mult change, come through [`Ai::set_speeds`], which keeps the share and the
+    /// walk's ownership). The walk is owned from where
     /// a package's walk is planned (`Ai::plan`, `Ai::approach`, a sandbox's or a Find
     /// errand's walk) until it ends (`Ai::arrived`, or the actor is not travelling); every
     /// other setter of the walker's speed gives it up, as does another owner of the walk
@@ -2476,6 +2486,13 @@ impl Ai {
             let speed = set / applied * want;
             let a = self.agents.get_mut(&actor).expect("listed");
             (a.walker.speed, a.walk_pace) = (speed, Some((want, speed)));
+            // Standing at speeds of 0: the gait it goes on in when they come back takes
+            // the new share too (`Ai::set_speeds`).
+            if speed <= 0.0 {
+                if let Some(stall) = self.stalled.get_mut(&actor) {
+                    stall.share = stall.share / applied * want;
+                }
+            }
         }
     }
 
@@ -2506,7 +2523,9 @@ impl Ai {
                 if speed > 0.0 {
                     self.stalled.remove(&actor);
                 } else {
-                    self.stalled.insert(actor, Stall { gait: usize::from(running), share: sneak_share(game, actor), to });
+                    // A walk's drawn-weapon share (#2124) is kept with the sneak's.
+                    let share = sneak_share(game, actor) * own.map_or(1.0, |(drawn, _)| drawn);
+                    self.stalled.insert(actor, Stall { gait: usize::from(running), share, to });
                 }
                 a.activity = Activity::Travelling;
                 a.trip_started = game.time;

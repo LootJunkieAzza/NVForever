@@ -3608,7 +3608,8 @@ fn a_walk_under_way_follows_the_weapon_drawn_and_put_away() {
 
 #[test]
 fn the_drawn_walk_keeps_speed_mult_sneaking_and_the_setting() {
-    // Speed Mult 120 (the engine's people's speeds, `creature_pace::npc_speeds`).
+    // Speed Mult 120 (the engine's people's speeds, `creature_pace::paced_speeds`: the
+    // walk × Speed Mult × the armour's share).
     let f = with_arms(fixture());
     let mut s = sim(&f, &[R_RADIUS]);
     let own = fnv_ai::Speeds { walk: 120.0, run: 480.0 };
@@ -3659,20 +3660,89 @@ fn a_walk_whose_base_speed_changed_on_the_way_still_follows_the_weapon() {
     s.game.world.equip(me, FormId(PISTOL)).unwrap();
     s.run(1.0);
     assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
-    // New speeds of its own on the way (armour, Speed Mult): the walk keeps its speed
-    // until it is planned again.
-    let own = fnv_ai::Speeds { walk: 120.0, run: 480.0 };
-    s.ai.set_speeds(me, fnv_ai::ActorSpeeds { calm: own, alert: own, turn_rate: None, spot_turn_start: None });
+    let planned = plans(&s, R_RADIUS);
+    // New speeds of its own on the way (armour, Speed Mult): the walk takes them at once
+    // (`Ai::set_speeds`, issue #2118) and stays the package's own.
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    assert_eq!(walk_speed(&s, R_RADIUS), 120.0);
     s.run(0.5);
-    assert_eq!(walk_speed(&s, R_RADIUS), 100.0);
-    // Drawn, then put away: the walk follows from the speed it has.
+    assert_eq!(walk_speed(&s, R_RADIUS), 120.0);
+    // Drawn, then put away: the walk follows from its new speed.
     s.game.hud.forced_out.insert(me);
     s.run(0.5);
     assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
-    assert!((walk_speed(&s, R_RADIUS) - 100.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    assert!((walk_speed(&s, R_RADIUS) - 120.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
     s.game.hud.forced_out.remove(&me);
     s.run(0.5);
-    assert!((walk_speed(&s, R_RADIUS) - 100.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    assert!((walk_speed(&s, R_RADIUS) - 120.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    assert_eq!(plans(&s, R_RADIUS), planned, "{:?}", s.events(R_RADIUS));
+}
+
+/// A Speed Mult refresh during a drawn walk (`Ai::set_speeds` rewriting the walk under
+/// way, #2118) keeps the drawn share and the walk's ownership: the walk goes on at the new
+/// walk / fMoveNoWeaponMult and still follows the weapon, also through a stop at Speed
+/// Mult 0 in which the weapon is put away.
+#[test]
+fn a_speed_mult_refresh_during_a_drawn_walk_keeps_the_share() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    let near = |s: &Sim, want: f32| assert!((walk_speed(s, R_RADIUS) - want).abs() < 1e-3, "{} against {want}", walk_speed(s, R_RADIUS));
+    near(&s, 100.0 / 1.1);
+    let planned = plans(&s, R_RADIUS);
+    // Speed Mult 120: at once, and kept on the next steps (not given up as another's).
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0 / 1.1);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    // Put away and drawn again: the walk is still the package's own.
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    near(&s, 120.0);
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    // Speed Mult 0: it stands; back to 120, the drawn walk again.
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    s.run(0.5);
+    near(&s, 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0 / 1.1);
+    // Standing again, put away while it stands: it goes on at the holstered walk, and
+    // drawn after at the drawn one.
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    near(&s, 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    near(&s, 120.0);
+    s.game.hud.forced_out.insert(me);
+    s.run(0.5);
+    near(&s, 120.0 / 1.1);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    // All on the one walk: no new plan gave it its speeds.
+    assert_eq!(plans(&s, R_RADIUS), planned, "{:?}", s.events(R_RADIUS));
+}
+
+/// A package's walk planned with the pistol drawn while the speeds are 0 goes on at the
+/// drawn walk when they come back (`Ai::plan` keeps the share with the stop's gait).
+#[test]
+fn a_drawn_walk_planned_at_speed_0_goes_on_drawn() {
+    let f = with_arms(fixture());
+    let mut s = sim(&f, &[R_RADIUS]);
+    let me = FormId(R_RADIUS);
+    s.ai.set_speeds(me, speeds(0.0, 0.0));
+    draw(&mut s, R_RADIUS, PISTOL);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&me].activity, Activity::Travelling);
+    assert_eq!(walk_speed(&s, R_RADIUS), 0.0);
+    s.ai.set_speeds(me, speeds(120.0, 480.0));
+    assert!((walk_speed(&s, R_RADIUS) - 120.0 / 1.1).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
+    s.game.hud.forced_out.remove(&me);
+    s.run(0.5);
+    assert!((walk_speed(&s, R_RADIUS) - 120.0).abs() < 1e-3, "{}", walk_speed(&s, R_RADIUS));
 }
 
 #[test]
