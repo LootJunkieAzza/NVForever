@@ -127,13 +127,22 @@ fn nth_child(ui: &fnv_ui::Ui, at: fnv_ui::TileId, i: i64) -> Option<fnv_ui::Tile
 /// A setting under a tile: a trait name, or a path of child names then the trait
 /// (`"ArrowUp/y"`, `"image/depth"`; a leading `/` is the tile itself, `"/visible"`)
 /// [observed: MCM 1.5's scripts pass all three; `SetMCMFloatMass 1 1 2 "image/depth"` set
-/// the trait on each row's `image` child, job mcm976e, menu-xml.md §10.2].
+/// the trait on each row's `image` child, job mcm976e, menu-xml.md §10.2]; a
+/// segment may be `*:N` or `name:N`, the Nth such child.
 fn mcm_setting(ui: &fnv_ui::Ui, at: fnv_ui::TileId, setting: &str) -> Option<(fnv_ui::TileId, String)> {
     let mut parts: Vec<&str> = setting.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
     let name = parts.pop()?.to_string();
     let mut tile = at;
     for p in parts {
-        tile = ui.tile(tile).children.iter().copied().find(|&c| ui.is_live(c) && ui.tile(c).name.eq_ignore_ascii_case(p))?;
+        // `name:N` or `*:N`: the Nth live child of that name (any name for `*`), from 1 in
+        // file order, as `*:N` reads MCM's file-made tiles (§5) [hypothesis: JAM writes an
+        // option's words through `"value/*:1/string"`, the first child of its `value`].
+        let (want, nth) = match p.rsplit_once(':') {
+            Some((n, k)) => (n, k.trim().parse::<usize>().ok()?.checked_sub(1)?),
+            None => (p, 0),
+        };
+        let mut kids = ui.tile(tile).children.iter().copied().filter(|&c| ui.is_live(c) && (want == "*" || ui.tile(c).name.eq_ignore_ascii_case(want)));
+        tile = kids.nth(nth)?;
     }
     Some((tile, name))
 }
@@ -207,8 +216,8 @@ const MCM_METER_INPUTS: [(&str, &str); 7] = [
 /// `_MeterL`, `_MeterL2`, `_MeterR`, `_MeterR2` (the arrows' `_clicked`); MCMMainScript
 /// reads `iInputMeterAccept` … `iInputMeterR2`, never sets them, and on Accept sets
 /// `MCMScale.iNewValue`, which is what writes the slider's value to the mod; no script
-/// reads the rect's traits, so the plugin's DLL is what joins them. The keyboard and
-/// controller inputs (`iInputClick`, `iInputB`, …) are not joined here]. Run before
+/// reads the rect's traits, so the plugin's DLL is what joins them]. Enter goes to
+/// `iInputClick` (below); the other keyboard and controller inputs are not joined. Run before
 /// the start menu's MenuMode blocks; a quest without MCM's variables is left alone.
 pub fn mcm_meter_inputs(g: &mut Game) {
     let Some(scale) = g.ui_tree.find_tile("StartMenu/MCM/MCM_Scale") else { return };
@@ -222,6 +231,23 @@ pub fn mcm_meter_inputs(g: &mut Game) {
         let now = g.var(crate::game::InstKey::Quest { quest: q }, i).num();
         if now != f64::from(u8::from(on)) {
             g.store(crate::game::InstKey::Quest { quest: q }, Some(script), i, fnv_script::vm::Value::Num(f64::from(u8::from(on))), "MCM", false);
+        }
+    }
+    // Enter (keys 28 and 156) as MCM's `iInputClick`, the input that accepts its slider and
+    // list and clicks the option the keys chose: 1 in the first frame Enter is down, while
+    // `iInputHeld` counts the frames it stays down, 0 once it is up [hypothesis, from
+    // MCMMainScript: it reads `iInputClick` beside `iInputMeterAccept` and passes an input
+    // only while `iInputHeld` is under 3; its own `IsKeyPressed 28 || IsKeyPressed 156`
+    // treats both Enter keys alike]. The other keys' and the controller's inputs are not
+    // joined.
+    let (Some(click), Some(held)) = (code.var_index("iInputClick"), code.var_index("iInputHeld")) else { return };
+    let key = |g: &Game| [28u16, 156].iter().any(|k| g.input.held.contains(k) || g.input.script_held.contains(k));
+    let inst = crate::game::InstKey::Quest { quest: q };
+    let frames = g.var(inst, held).num();
+    let (c, h) = if key(g) { (f64::from(u8::from(frames == 0.0)), frames + 1.0) } else { (0.0, 0.0) };
+    for (i, v) in [(click, c), (held, h)] {
+        if g.var(inst, i).num() != v {
+            g.store(inst, Some(script), i, fnv_script::vm::Value::Num(v), "MCM", false);
         }
     }
 }

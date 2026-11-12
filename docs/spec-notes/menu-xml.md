@@ -644,7 +644,10 @@ Shiftclicked, Ref, Input, Hotrect, Wheelmoved pages and "Tutorial: Understanding
   finish writes `_NewValue` 1, which the mod's own script reads to take the value.
   [design] `fnv_ui::input::Pointer::step` (`Report::bare_clicks`),
   `fnv_game::ui_functions::mcm_meter_inputs` (called by `nvf-play` `tiles::mods::tick`).
-  The keyboard and controller inputs are not joined yet. §10.2's observations of
+  Of the keyboard's and the controller's inputs only Enter is joined: [hypothesis] keys
+  28 or 156 down set `iInputClick` 1 in their first frame and `iInputHeld` counts the
+  frames they stay down (MCM passes an input only while that count is under 3), both 0
+  once Enter is up; MCM's script treats `iInputClick` as Accept on its slider. §10.2's observations of
   MCM.dll cover its four list functions only, not these variables, so this stays a
   hypothesis (an observer probe: read `MCM.iInputMeterAccept` in the frame the Accept
   button is clicked, and the next).
@@ -1223,3 +1226,7 @@ plugin's source text), their effects measured in the original with job `mcm976e`
 - Built in `fnv_game::ui_functions` (names in `schemas/script/functions.json` from
   `tools/capture/script_functions.py`'s `PAGELESS`); the setting of every MCM shorthand
   may be a path below the tile (`"ArrowUp/y"`, `"/visible"`, as MCM's scripts pass).
+  A segment of that path may be `*:N` (or `name:N`): the Nth live child, from 1 in file
+  order [hypothesis: JAM writes the words of a choice option, `_type` 1, through
+  `SetMCMString 1 n "value/*:1/string"`; with the segment read as a name the words never
+  showed, owner item 2026-11-11].
