@@ -30,7 +30,7 @@
 //! What it costs and saves: docs/design/frame-rate-audit.md §9 and §10.
 
 use crate::fly::FlyCam;
-use crate::sky::{SkyState, Sun};
+use crate::sky::SkyState;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::light::{Cascades, DirectionalLight, DirectionalLightShadowMap, NotShadowCaster, SimulationLightSystems};
 use bevy::pbr::HoldDirectionalShadowMaps;
@@ -52,14 +52,29 @@ pub const TREE_SHADOW_BACK: f32 = 2700.0;
 /// Seconds between two looks at the trees.
 const TREES_EVERY: f32 = 0.5;
 
+/// The sun's cascade count the switch replaced when it went on (`--graphics-cycle
+/// cascades=` or the default), given back when it goes off.
+#[derive(Resource, Default)]
+struct CascadesBeforeLighter(Option<usize>);
+
 /// Turn the switch on or off now (the settings page): the cascade count changes with it.
+/// Only the count is set here; graphics.rs `sun_shadow_quality` puts the cascades on the
+/// sun as the hour wants them (the moon's single cascade by night).
 pub fn set_lighter(world: &mut World, on: bool) {
-    world.resource_mut::<LighterShadows>().0 = on;
-    let (shadows, distance, reach, cascades) = {
-        let mut sky = world.resource_mut::<SkyState>();
-        sky.shadow_cascades = if on { LIGHTER_CASCADES } else { crate::sky::DEFAULT_SHADOW_CASCADES };
-        (sky.shadows, sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades)
+    let was = std::mem::replace(&mut world.resource_mut::<LighterShadows>().0, on);
+    let current = world.resource::<SkyState>().shadow_cascades;
+    let mut before = world.get_resource_or_init::<CascadesBeforeLighter>();
+    let cascades = if on {
+        if !was {
+            before.0 = Some(current);
+        }
+        LIGHTER_CASCADES
+    } else if was {
+        before.0.take().unwrap_or(crate::sky::DEFAULT_SHADOW_CASCADES)
+    } else {
+        current
     };
+    world.resource_mut::<SkyState>().shadow_cascades = cascades;
     let how = if on {
         "lighter (maps drawn every other frame, trees cast near the camera only, no arms shade light)"
     } else if staggered() {
@@ -68,12 +83,6 @@ pub fn set_lighter(world: &mut World, on: bool) {
         "drawn every frame"
     };
     info!("sun shadows: {how}, {cascades} cascades");
-    if shadows {
-        let suns: Vec<Entity> = world.query_filtered::<Entity, With<Sun>>().iter(world).collect();
-        for sun in suns {
-            world.entity_mut(sun).insert(crate::sky::shadow_cascades(distance, reach, cascades));
-        }
-    }
 }
 
 /// A part of a SpeedTree tree (tree.rs `spawn`).
@@ -232,6 +241,7 @@ pub struct ShadowRatePlugin;
 impl Plugin for ShadowRatePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LighterShadows>()
+            .init_resource::<CascadesBeforeLighter>()
             .init_resource::<HoldDirectionalShadowMaps>()
             .add_plugins(ExtractResourcePlugin::<HoldDirectionalShadowMaps>::default())
             .add_systems(
@@ -267,6 +277,23 @@ mod tests {
         assert!(!same_layout(&kept, &[(sun, &three), (arms, &three)]));
         assert!(!same_layout(&kept, &[(sun, &two)]));
         assert!(!same_layout(&kept, &[(sun, &cascades(arms, 3))]));
+    }
+
+    /// The switch gives back the cascade count it replaced (#2182 review: it reset a
+    /// `--graphics-cycle cascades=` value to the default), and only sets the count.
+    #[test]
+    fn the_switch_gives_back_the_cascades_it_replaced() {
+        let mut world = World::new();
+        world.init_resource::<LighterShadows>();
+        world.insert_resource(SkyState { shadow_cascades: 4, ..default() });
+        set_lighter(&mut world, true);
+        assert_eq!(world.resource::<SkyState>().shadow_cascades, LIGHTER_CASCADES);
+        set_lighter(&mut world, true);
+        set_lighter(&mut world, false);
+        assert_eq!(world.resource::<SkyState>().shadow_cascades, 4);
+        // Off when it already is: the count stays.
+        set_lighter(&mut world, false);
+        assert_eq!(world.resource::<SkyState>().shadow_cascades, 4);
     }
 
     #[test]
