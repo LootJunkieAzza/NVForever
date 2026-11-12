@@ -60,6 +60,14 @@ const ARROW: Vec2 = Vec2::new(17.5, 35.0);
 const FIGURE_RIGHT: f32 = 449.0;
 const CORNER: f32 = 40.0;
 const FOOTER_Y: f32 = 480.0;
+/// The controller's hint under each list, the button that picks it: the files'
+/// `*_Items_TitleButton` (LT) 15 in and `*_Container_TitleButton` (RT) 364 in from the
+/// half's left, 440 under its top, 85 square, shown only with a controller (`&xbox;`)
+/// [documented: container_menu.xml, barter_menu.xml; the hint drawn as text centred in
+/// the square in place of the button's picture: design, #1827].
+const PICK_HINT_X: [f32; 2] = [15.0, 364.0];
+const PICK_HINT_Y: f32 = 440.0;
+const PICK_HINT: f32 = 85.0;
 /// The bottom bracket, 820 down the screen.
 const BRACKET_Y: f32 = 740.0;
 /// Accept / Take All and Exit: right-aligned at 1034 less the box's 10, 670 down the
@@ -435,7 +443,27 @@ fn half(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side) {
     c.fade(p, x0, TOP + FOOTER_Y - CORNER, true, bright);
     c.line(p, x0, TOP + FOOTER_Y, HALF_W, THICK, bright);
     c.fade(p, x0 + HALF_W - THICK, TOP + FOOTER_Y - CORNER, true, bright);
+    if let Some(hint) = pick_hint(m.mode, side, crate::pad::labels()) {
+        let x = x0 + PICK_HINT_X[side as usize] + PICK_HINT / 2.0;
+        c.text(p, false, &hint, x, TOP + PICK_HINT_Y + PICK_HINT / 2.0 - BODY_BASE, Align::Centre, bright);
+    }
     list(p, c, m, side, x0);
+}
+
+/// The hint under a half with a controller in use (labels `l`): the button that picks
+/// that list, "LT)" under the player's and "RT)" under the other ([`PICK_HINT_X`]).
+/// None with the keyboard, as the original shows none.
+pub fn pick_hint(mode: Mode, side: Side, l: crate::pad::Labels) -> Option<String> {
+    let at = match mode {
+        Mode::Barter(_) => crate::pad::at_menu(fnv_game::game::menus::BARTER),
+        Mode::Container(_) => crate::pad::at_menu(crate::script::MENU_CONTAINER),
+        Mode::Inventory => return None,
+    };
+    if l == crate::pad::Labels::Keys {
+        return None;
+    }
+    let key = if side == Side::Player { KeyCode::ArrowLeft } else { KeyCode::ArrowRight };
+    Some(crate::pad::hint_as(&[key], at, l))
 }
 
 fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side, x0: f32) {
@@ -714,6 +742,21 @@ mod tests {
         assert_eq!(flow_figure_x(Flow::Sell, 70.0), 20.0 + 449.0 + 20.0 + 32.5 + 7.5);
         assert_eq!(flow_figure_x(Flow::Buy, 90.0), 20.0 + 449.0 + 32.5 - 20.0);
         assert_eq!(flow_figure_x(Flow::Sell, 90.0), 20.0 + 449.0 + 20.0 + 40.0 + 20.0);
+    }
+
+    /// Issue #1827: with a controller each list names the trigger that picks it, as the
+    /// files' title buttons; with the keyboard none, as the original.
+    #[test]
+    fn the_lists_name_the_trigger_that_picks_them() {
+        use crate::pad::Labels;
+        use fnv_sim::FormId;
+        for mode in [Mode::Container(FormId(0x105658)), Mode::Barter(FormId(0x104C0C))] {
+            assert_eq!(pick_hint(mode, Side::Player, Labels::Xbox).as_deref(), Some("LT)"));
+            assert_eq!(pick_hint(mode, Side::Container, Labels::Xbox).as_deref(), Some("RT)"));
+            assert_eq!(pick_hint(mode, Side::Player, Labels::PlayStation).as_deref(), Some("L2)"));
+            assert_eq!(pick_hint(mode, Side::Player, Labels::Keys), None);
+        }
+        assert_eq!(pick_hint(Mode::Inventory, Side::Player, Labels::Xbox), None);
     }
 
     #[test]

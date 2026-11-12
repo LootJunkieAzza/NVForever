@@ -469,8 +469,9 @@ impl Ai {
             let params = self.path_params(game, actor);
             let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(fnv_game::package::flags::ALWAYS_RUN));
             let speed = self.pace(game, actor, running);
+            let own = Ai::walk_pace_of(game, actor, running, speed);
             let a = self.agents.get_mut(&actor).expect("listed");
-            a.walker.speed = speed;
+            (a.walker.speed, a.walk_pace) = (speed, own);
             let near = to.space == feet.space && hdist(to.pos, feet.pos) <= self.cfg.arrive.max(f.distance);
             let way = if near { Ok(0.0) } else { a.walker.go_to(nav, to, &params).map(|p| p.length) };
             let Ok(length) = way else {
@@ -800,7 +801,7 @@ impl Ai {
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, true);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = speed;
+        (a.walker.speed, a.walk_pace) = (speed, None);
         for to in tries {
             let Ok(length) = a.walker.go_to(nav, to, &params).map(|p| p.length) else { continue };
             a.activity = Activity::Travelling;
