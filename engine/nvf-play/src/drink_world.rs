@@ -32,10 +32,12 @@
 //!   `GetUpFaceDown`), the view and the controls come back with it, and the view the
 //!   player had before the contest is put back once they stand.
 //!
-//! Test aid `NVF_PLAY_TEST_DRINK_TABLE=<seconds>:<seed>[:<skill>]`: that long after the
-//! start (world aid seconds), a contest at the first bar's bottle with this player alone,
-//! its steering held to the centre this well (0..1, `DrinkLink::aid_skill`; 0 drifts out
-//! and passes out). A test aid; not a game behaviour.
+//! Test aid `NVF_PLAY_TEST_DRINK_TABLE=<seconds>:<seed>[:<skill>[:<NPCs>]]`: that long
+//! after the start (world aid seconds), a contest at the first bar's bottle with this
+//! player, its steering held to the centre this well (0..1, `DrinkLink::aid_skill`; 0
+//! drifts out and passes out), against the nearest NPCs of the loaded cells where they
+//! stand (none by default; alone the contest runs until this player passes out, with
+//! NPCs it has a winner). A test aid; not a game behaviour.
 //!
 //! Log lines start `drink world:`.
 
@@ -295,12 +297,13 @@ fn test_aid(time: crate::pause::AidTime, mut done: Local<bool>, mut script: Opti
     if *done || *state.get() != PlayState::Playing {
         return;
     }
-    let Some((at, seed, skill)) = std::env::var("NVF_PLAY_TEST_DRINK_TABLE").ok().and_then(|v| {
+    let Some((at, seed, skill, npcs)) = std::env::var("NVF_PLAY_TEST_DRINK_TABLE").ok().and_then(|v| {
         let mut it = v.trim().split(':');
         let at: f32 = it.next()?.trim().parse().ok()?;
         let seed: u64 = it.next()?.trim().parse().ok()?;
         let skill: Option<f32> = it.next().and_then(|s| s.trim().parse().ok());
-        Some((at, seed, skill))
+        let npcs: usize = it.next().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+        Some((at, seed, skill, npcs))
     }) else {
         *done = true;
         return;
@@ -314,11 +317,23 @@ fn test_aid(time: crate::pause::AidTime, mut done: Local<bool>, mut script: Opti
         return;
     }
     *done = true;
-    let drinkers = vec![crate::drink_contest::player_drinker(rt, &mut sim, 0, "You")];
+    let mut drinkers = vec![crate::drink_contest::player_drinker(rt, &mut sim, 0, "You")];
+    if npcs > 0 {
+        let me = sim.world.peek(FormId::PLAYER_REF).map_or([0.0; 3], |s| s.pos);
+        let mut near = with_world(rt, &mut sim, |rt| {
+            let g = &rt.game;
+            crate::compass::actors_near(g, &Default::default()).into_iter().filter(|(r, _)| *r != FormId::PLAYER_REF && !g.is_dead(*r)).collect::<Vec<_>>()
+        });
+        let d2 = |p: &[f32; 3]| (p[0] - me[0]).powi(2) + (p[1] - me[1]).powi(2);
+        near.sort_by(|a, b| d2(&a.1).total_cmp(&d2(&b.1)));
+        for (r, _) in near.into_iter().take(npcs.min(dt::MARKS - 1)) {
+            drinkers.push(crate::drink_contest::npc_drinker(rt, &mut sim, r));
+        }
+    }
     if let Some(k) = skill {
         link.aid_skill = Some(k.clamp(0.0, 1.0));
     }
-    info!("drink world: test aid starts a contest at bottle {:08X} (seed {seed}, skill {skill:?})", bottle.0);
+    info!("drink world: test aid starts a contest at bottle {:08X} (seed {seed}, skill {skill:?}, {} NPC(s))", bottle.0, drinkers.len() - 1);
     start.write(DrinkStart { bottle: bottle.0, drinkers, seed, stake: 0 });
 }
 
