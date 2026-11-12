@@ -161,11 +161,21 @@ fn dds_image_unguarded(bytes: &[u8], srgb: bool, bc_supported: bool, top_only: b
     let levels = if top_only { &dds.levels[0][..1] } else { &dds.levels[0][..] };
     let (format, data) = match dds.format {
         Format::Dxt1 | Format::Dxt3 | Format::Dxt5 => {
+            if w % 4 != 0 || h % 4 != 0 {
+                // The GPU takes block formats only at multiples of 4: such a texture
+                // (a mod's 179×196 DXT5, dds.md §3) is decoded here instead [#2164].
+                let mut out = Vec::new();
+                for (m, l) in levels.iter().enumerate() {
+                    let (lw, lh) = dds.header.level_dims(m as u32);
+                    out.extend(fnv_dds::decode_blocks(dds.format, lw, lh, l).ok_or("block data too short")?);
+                }
+                let format = if srgb { TextureFormat::Rgba8UnormSrgb } else { TextureFormat::Rgba8Unorm };
+                let mut img = checked_image(w, h, levels.len() as u32, format, out)?;
+                img.sampler = sampler();
+                return Ok(img);
+            }
             if !bc_supported {
                 return Err("GPU lacks BC texture support".into());
-            }
-            if w % 4 != 0 || h % 4 != 0 {
-                return Err(format!("{w}x{h} block-compressed texture is not a multiple of 4"));
             }
             let f = match (dds.format, srgb) {
                 (Format::Dxt1, true) => TextureFormat::Bc1RgbaUnormSrgb,
@@ -575,7 +585,7 @@ fn remembered(known: &Mutex<HashMap<String, bool>>, key: String, compute: impl F
 #[cfg(test)]
 mod tests {
     use super::first_person_texture;
-    use super::{alpha_shares, remembered, AlphaShares};
+    use super::{alpha_shares, dds_image, remembered, AlphaShares, TextureFormat};
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -613,6 +623,28 @@ mod tests {
         blk[0] = a;
         blk[1] = a;
         blk
+    }
+
+    /// A block texture whose sides are not multiples of 4 becomes an RGBA image of its
+    /// own size; one with bytes after its last level loads as if they were not there [#2164].
+    #[test]
+    fn odd_sized_and_overlong_block_textures_load() {
+        // 6x5 DXT5 = 2x2 blocks, every texel opaque.
+        let payload: Vec<u8> = (0..4).flat_map(|_| dxt5_block(255)).collect();
+        let img = dds_image(&dds(b"DXT5", 6, 5, &payload), true, true).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Rgba8UnormSrgb);
+        assert_eq!((img.width(), img.height()), (6, 5));
+        let data = img.data.as_ref().unwrap();
+        assert_eq!(data.len(), 6 * 5 * 4);
+        assert!(data.chunks(4).all(|t| t[3] == 255));
+        // Decoded on the CPU, so a GPU without BC formats shows it too.
+        assert!(dds_image(&dds(b"DXT5", 6, 5, &payload), true, false).is_ok());
+        // 8x8 with 8 bytes over: the blocks go to the GPU as they are.
+        let mut long = payload.clone();
+        long.extend_from_slice(&[0xAB; 8]);
+        let img = dds_image(&dds(b"DXT5", 8, 8, &long), false, true).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Bc3RgbaUnorm);
+        assert_eq!(img.data.as_ref().unwrap().len(), 64);
     }
 
     #[test]
