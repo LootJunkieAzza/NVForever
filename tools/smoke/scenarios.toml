@@ -25511,12 +25511,12 @@ env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_TILE_MENUS = "StatsMenu,
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
-  { re = 'tiles: \[UI\] TileMenus=StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu ', label = "all the Pip-Boy switches on" },
+  { re = 'tiles: \[UI\] TileMenus=StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu ', label = "all the Pip-Boy switches on, screen menu run" },
   "pipboy: frame Screen",
-  { re = 'tiles: StatsMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "STATS from its file" },
-  { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "ITEMS from its file" },
-  { text = "tiles: ItemModMenu ready: drawn from tiles", min = 1, label = "the weapon mod menu from its file" },
-  { re = 'tiles: RepairMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "the repair page from its file" },
-  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared', min = 5, label = "each DATA tab's visit: no frame by hand while the Pip-Boy is up" },
-  { re = '(StatsMenu|InventoryMenu|RepairMenu|ItemModMenu|MapMenu) drawn by hand', count = 0, label = "no page warned of a fallback" },
+  { re = 'tiles: StatsMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "STATS from its file, in the screen menu" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "ITEMS from its file, in the screen menu" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", min = 1, label = "the weapon mod menu from its file, in the screen menu" },
+  { re = 'tiles: RepairMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "the repair page from its file, in the screen menu" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared', min = 5, label = "each DATA tab's visit in the screen menu: no frame by hand while it is up" },
+  { re = '(StatsMenu|InventoryMenu|RepairMenu|ItemModMenu|MapMenu) drawn by hand', count = 0, label = "no page warned of a fallback in the screen menu" },
 ]
