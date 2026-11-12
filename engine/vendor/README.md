@@ -113,6 +113,22 @@ upstream merges the jobs.
 no actors] Compute dispatches a frame 2,518 → 904, compute-active time 16 → 9 % of the
 frame; interleaved runs of one build with and without it: 9.0 → 8.5 ms a frame.
 
+Another change (#2064, docs/design/frame-rate-audit.md §10), marked `NVForever unchanged
+uploads`: `RawBufferVec::write_buffer_if_changed` (`src/render_resource/buffer_vec.rs`)
+queues nothing when the same bytes were last written into the same GPU buffer, and
+`batching/gpu_preprocessing.rs` uses it for each multi-drawn batch set's three buffers that
+only the CPU writes (`render_binned_mesh_instance_buffer`, `bin_metadata_buffer`,
+`bin_index_to_bin_metadata_index_buffer`, read-only in `allocate_uniforms.wesl` and
+`unpack_bins.wesl`). Upstream writes all three every frame: about 300 of a Goodsprings
+frame's 400 `queue.write_buffer` calls, each a copy with its own barrier before the frame's
+first pass. Test aid `NVF_PLAY_TEST_SAME_WRITES=1` writes every frame again.
+
+A measuring aid for the encoder spans (`NVF_PLAY_TEST_PROFILE_ENCODERS=1`, `enc:<system>`, #2060),
+in `src/diagnostic/internal.rs` (marked `NVForever encoder gaps`), adds
+`zz:wall` (the frame's first encoder to its last), `zz:gaps` (time inside that no encoder
+covers, with the four largest gaps by name) and `zz:between_frames` (the previous frame's
+last encoder to this frame's first) to the `profile gpu:` line.
+
 Third change (#1868), in `src/diagnostic/mod.rs`, each part marked by a comment starting
 `NVForever recorder gate`: `begin_diagnostics_frame`, `resolve_encoder` and
 `finish_diagnostics_frame` take the `DiagnosticsRecorder` as optional and do nothing
