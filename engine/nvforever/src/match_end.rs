@@ -14,8 +14,8 @@
 //!   player stays seated for it (`nvf_play::slots::seat::SeatPhase::Ending`): the reaction
 //!   plays on the upper body over the sitting clip, and the getting-off clip follows the
 //!   fade back (`slots_seat.rs`) [owner 2026-11-11: "it should be in the seat"]. Arm wrestling (item 199) once
-//!   both are up from the stools: a timed end view with the stranger reacting too
-//!   ([`arm_end`]). Card games ([`cards`]): each
+//!   both are up from the stools: a timed end view with the stranger, or the other
+//!   player's puppet, reacting too ([`arm_end`]). Card games ([`cards`]): each
 //!   player who won the hand (blackjack, poker) or the game (Caravan) cheers once and each
 //!   who lost looks beaten, with no end view or fade (the round goes on).
 //! - **Where they stand** ([`stand`]): a moment after the result each player steps to its
@@ -166,6 +166,9 @@ pub fn timed_end(kind: Kind, table: u32, won: bool) -> Ended {
 pub fn arm_end(e: &nvf_play::armwrestle::ArmEnded) -> Ended {
     let mut sides = vec![(Who::Me, 0)];
     sides.extend(e.opponent.map(|r| (Who::Npc(r), 1)));
+    // Another player: its puppet reacts on this screen as it does on its own [the lead,
+    // ship14 laptop run: each screen animated only its own player].
+    sides.extend(e.peer.map(|p| (Who::Peer(p), 1)));
     Ended { kind: Kind::ArmWrestle, table: e.table, winner: usize::from(!e.won), seat: (0, sides.len()), sides }
 }
 
@@ -871,10 +874,15 @@ fn react(
                 info!("match end: this player plays {path}{}", if st.seated { " (upper body, seated)" } else { "" });
                 continue;
             }
-            Who::Peer(id) => match coop.as_deref() {
-                Some(c) => c.puppet_reference(id),
-                None => continue,
-            },
+            Who::Peer(id) => {
+                let Some(r) = coop.as_deref().map(|c| c.puppet_reference(id)) else { continue };
+                // Not while its puppet gets up from a chair (as the NPC below).
+                if rigs.iter().any(|(_, g, _, on)| g.reference == r && on) && now - p.since < BODY_WAIT {
+                    waiting.push(p);
+                    continue;
+                }
+                r
+            }
             Who::Npc(r) => {
                 // Not while it walks to its spot: the clip's legs would slide.
                 let walking = opponent.as_deref().and_then(|o| o.0.as_ref()).is_some_and(|o| o.actor.0 == r && o.moving);
@@ -1233,5 +1241,16 @@ mod tests {
     fn the_clips_are_tried_in_order() {
         assert_eq!(Mood::Cheer.clips()[0], CHEER);
         assert_eq!(Mood::Defeat.clips(), [DEFEAT, DEFEAT_FALLBACK]);
+    }
+
+    #[test]
+    fn an_arm_wrestling_peer_reacts_on_this_screen() {
+        // Lost to another player: this player beaten, the other player's puppet cheering.
+        let e = arm_end(&nvf_play::armwrestle::ArmEnded { table: 1, won: false, opponent: None, peer: Some(2) });
+        assert_eq!(e.sides, vec![(Who::Me, 0), (Who::Peer(2), 1)]);
+        assert_eq!(e.winner, 1);
+        let e = arm_end(&nvf_play::armwrestle::ArmEnded { table: 1, won: true, opponent: Some(0x104F08), peer: None });
+        assert_eq!(e.sides, vec![(Who::Me, 0), (Who::Npc(0x104F08), 1)]);
+        assert_eq!(e.winner, 0);
     }
 }
