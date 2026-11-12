@@ -914,18 +914,30 @@ struct Ctx<'a> {
     heading: f32,
 }
 
-/// How a turned piece's outer node (and what it holds) is laid out: unrounded ([`turned`]).
-/// Unturned nodes carry no `LayoutConfig` and are rounded as before.
+/// How a turned piece's clip wrapper and outer node (and what they hold) are laid out:
+/// unrounded ([`turned`]). The wrapper too: the outer node stands at its place less the
+/// clip's unrounded origin, so a wrapper rounded to the pixel (a clip at x 10.3 units is 8
+/// pixels at 0.75 a unit, not 7.725) would move the pivot by the rounding, changing as the
+/// clip moves. Unturned pieces' nodes carry no `LayoutConfig` and are rounded as before.
 pub const UNROUNDED: LayoutConfig = LayoutConfig { use_rounding: false };
 
-/// Turn (or turn back) a piece's spawned outer node `outer` as its piece says: the transform
-/// and unrounded layout while turned; the identity and the inherited rounding when not.
-fn set_turn(commands: &mut Commands, outer: Entity, piece: &Piece) {
+/// Turn (or turn back) a piece's spawned nodes as its piece says: the outer node `outer`
+/// takes the transform, it and the clip `wrapper` the unrounded layout, while turned; the
+/// identity and the inherited rounding when not.
+fn set_turn(commands: &mut Commands, wrapper: Option<Entity>, outer: Entity, piece: &Piece) {
+    let turned_now = piece.turn.is_some();
     let mut node = commands.entity(outer);
-    if piece.turn.is_some() {
+    if turned_now {
         node.insert((turned(piece), UNROUNDED));
     } else {
         node.insert(UiTransform::IDENTITY).remove::<LayoutConfig>();
+    }
+    if let Some(w) = wrapper {
+        if turned_now {
+            commands.entity(w).insert(UNROUNDED);
+        } else {
+            commands.entity(w).remove::<LayoutConfig>();
+        }
     }
 }
 
@@ -934,7 +946,7 @@ fn set_turn(commands: &mut Commands, outer: Entity, piece: &Piece) {
 fn spawn_piece(p: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Option<SizedPicture>, baked: Option<Baked>, strip: Option<StripWindow>, model: Option<model::Prepared>) -> Option<Entity> {
     let outer = spawn_unturned(p, piece, ctx, picture, baked, strip, model)?;
     if piece.turn.is_some() {
-        set_turn(&mut p.commands(), outer, piece);
+        set_turn(&mut p.commands(), None, outer, piece);
     }
     Some(outer)
 }
@@ -1598,7 +1610,7 @@ fn paint(commands: &mut Commands, drawn: &mut Drawn, mut pieces: Vec<Piece>, tar
                 // Turned further (the map's arrow as the player turns): turned in place.
                 if was.turn != piece.turn {
                     if let Some(e) = slot.outer {
-                        set_turn(commands, e, piece);
+                        set_turn(commands, slot.wrapper, e, piece);
                     }
                 }
                 if was.colour != piece.colour {
@@ -1749,6 +1761,10 @@ fn fill(s: &mut ChildSpawnerCommands, piece: &Piece, ctx: &Ctx<'_>, picture: Opt
             wrapper.overflow = Overflow::clip();
             let mut outer = None;
             let id = s.spawn((wrapper, Pickable::IGNORE)).with_children(|w| outer = spawn_piece(w, piece, ctx, picture, baked, strip, model)).id();
+            // A turned piece's wrapper unrounded with it ([`UNROUNDED`]); others as before.
+            if piece.turn.is_some() {
+                s.commands().entity(id).insert(UNROUNDED);
+            }
             (Some(id), outer)
         }
         None => (None, spawn_piece(s, piece, ctx, picture, baked, strip, model)),

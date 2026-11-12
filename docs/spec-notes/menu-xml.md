@@ -535,9 +535,10 @@ What the code does (`nvf-play/src/tiles/layout.rs` `Turn`, `tiles/draw.rs` `turn
 - [design] A box's or a picture's piece is drawn turned (its outer node takes a Bevy
   `UiTransform`: the rotation, and the move that puts the turn about the point instead of
   the node's middle, `Turn::shift`); a piece only turned further is turned in place, its
-  nodes kept. A turned node is laid out unrounded (Bevy's `LayoutConfig`), as the shift is
-  worked out from the box's unrounded size and Bevy turns about the middle of the size it
-  lays out; unturned nodes are rounded as before. The clips above it (`clips`, a turned-on `clipwindow`) stay unturned boxes
+  nodes kept. A turned node and its clip wrapper are laid out unrounded (Bevy's
+  `LayoutConfig`), as the shift is worked out from the box's unrounded size and place and
+  Bevy turns about the middle of the size it lays out; unturned nodes are rounded as
+  before. The clips above it (`clips`, a turned-on `clipwindow`) stay unturned boxes
   and cut the turned quad on the screen (Bevy clips a transformed node by its clip
   rectangles). A `tile` picture is turned whole, its repeats with it.
 - [design] Texts, models and the compass strip are not turned (no file turns one).

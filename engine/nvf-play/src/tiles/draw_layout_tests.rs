@@ -1,7 +1,9 @@
 //! Turned and runtime pictures through the real painting and Bevy's own UI layout, at a
 //! fractional scale (0.75 pixels a unit) [design]. The harness follows
 //! `crate::interface`'s layout tests (Bevy's own `bevy_ui::layout` tests): no window,
-//! renderer or picking.
+//! renderer or picking. As the Pip-Boy's image (`crate::pipboy::PipBoyScreen::target`), the
+//! camera's image is one logical pixel an interface unit: 1280 x 720 pixels at a scale
+//! factor of 0.75 ([`SCALE`]).
 
 use super::*;
 use bevy::app::{HierarchyPropagatePlugin, PostUpdate, PropagateSet, TaskPoolPlugin};
@@ -19,6 +21,8 @@ use super::super::runtime_images::RuntimeImages;
 /// 720 lines: an interface unit (960 to the height) is 0.75 of a pixel.
 const VIEW: UVec2 = UVec2::new(1280, 720);
 const PX: f64 = 720.0 / 960.0;
+/// The image's pixels to a logical pixel (one logical pixel an interface unit).
+const SCALE: f32 = 0.75;
 
 #[derive(Resource)]
 struct Tree(Ui, TileId);
@@ -29,7 +33,7 @@ struct Canvas(Entity);
 /// Paint the tree's whole menu into the camera's image, as the Pip-Boy's pages are painted.
 fn paint_tree(mut commands: Commands, tree: Res<Tree>, canvas: Res<Canvas>, mut kit: FontKit, mut nodes: Nodes, glyphs: Res<crate::pad::PadGlyphs>, mut drawn: Local<Drawn>) {
     let (set, _) = pieces(&tree.0, tree.1, &|_, _, _| (0.0, 0.0), Select::Whole { kept: &[], strip: None }, true);
-    let target = Target::image(canvas.0, Vec2::new(1706.0, 960.0), 1.0, 1);
+    let target = Target::image(canvas.0, Vec2::new(1706.0, 960.0), SCALE, 1);
     paint(&mut commands, &mut drawn, set, target, 0.0, Some(&tree.0), &mut kit, &mut nodes, &glyphs);
 }
 
@@ -60,7 +64,7 @@ fn app(xml: &str) -> App {
     app.configure_sets(PostUpdate, PropagateSet::<ComputedUiRenderTargetInfo>::default().after(propagate_ui_target_cameras).before(ui_layout_system));
     let camera = app
         .world_mut()
-        .spawn((Camera2d, Camera { computed: ComputedCameraValues { target_info: Some(RenderTargetInfo { physical_size: VIEW, scale_factor: 1.0 }), ..default() }, ..default() }))
+        .spawn((Camera2d, Camera { computed: ComputedCameraValues { target_info: Some(RenderTargetInfo { physical_size: VIEW, scale_factor: SCALE }), ..default() }, ..default() }))
         .id();
     app.insert_resource(Canvas(camera));
     app
@@ -172,8 +176,11 @@ fn a_resized_runtime_picture_stands_at_its_new_size() {
 }
 
 /// A `tile` runtime picture is repeated by Bevy's tiles over its box: after a resize the
-/// node draws the new texture, whose own size Bevy repeats ([`RuntimeImages::set`]), at the
-/// zoom's scale; the box stays the tile's.
+/// node draws the new texture and the repeats stand its texels times the zoom apart in
+/// interface units (16 x 4 texels at zoom 50: 8 x 2 units, 6 x 1.5 pixels), as Bevy works the
+/// repeats out from the node's logical size over the texture's own size times the stretch
+/// (`bevy_ui_render`'s `compute_tiled_axis`; the size given to [`RuntimeImages::set`] is the
+/// texture's); the box stays the tile's.
 #[test]
 fn a_resized_tiled_runtime_picture_repeats_its_new_texture() {
     let mut app = app(r#"<menu name="T"><image name="P"><filename>nvf:ticks</filename><width>80</width><height>40</height><tile>&true;</tile><zoom>50</zoom></image></menu>"#);
@@ -185,6 +192,44 @@ fn a_resized_tiled_runtime_picture_repeats_its_new_texture() {
     let image = app.world().get::<ImageNode>(node).unwrap();
     assert_eq!(image.image, second);
     assert_eq!(image.image_mode, NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: 0.5 });
-    assert_eq!(app.world().resource::<Assets<Image>>().get(&second).unwrap().size(), UVec2::new(16, 4));
-    assert_eq!(app.world().get::<ComputedNode>(node).unwrap().size(), Vec2::new(60.0, 30.0));
+    let NodeImageMode::Tiled { stretch_value, .. } = image.image_mode else { unreachable!() };
+    let texels = app.world().resource::<Assets<Image>>().get(&second).unwrap().size().as_vec2();
+    assert_eq!(texels, Vec2::new(16.0, 4.0));
+    let computed = app.world().get::<ComputedNode>(node).unwrap();
+    assert_eq!(computed.size(), Vec2::new(60.0, 30.0));
+    // Bevy's count of repeats over the node, and so how far apart they stand in pixels.
+    let repeats = computed.size() * computed.inverse_scale_factor() / (texels * stretch_value);
+    let apart = computed.size() / repeats;
+    assert!((apart - Vec2::new(6.0, 1.5)).abs().max_element() < 1e-4, "repeats {apart} pixels apart");
+}
+
+/// A turned picture in a clip window at fractional places, the window moved across pixel
+/// edges: the pivot and the corners stay where the turn puts them (the window laid out
+/// unrounded with it); turned back, the window and the picture are rounded again.
+#[test]
+fn a_turned_picture_in_a_moving_fractional_clip_keeps_its_pivot() {
+    let mut app = app(
+        r#"<menu name="T"><rect name="W"><x>10.3</x><y>5.45</y><width>60</width><height>50</height><clips>&true;</clips>
+          <image name="P"><filename>nvf:p</filename><x>4.1</x><y>6.2</y><width>20</width><height>10</height><zoom>-1</zoom>
+            <rotateangle>0.7</rotateangle><rotateaxisx>3</rotateaxisx><rotateaxisy>7</rotateaxisy></image></rect></menu>"#,
+    );
+    give(&mut app, "p", 4, 4);
+    frame(&mut app);
+    let node = picture(&mut app);
+    let wrapper = app.world().get::<ChildOf>(node).unwrap().parent();
+    for x in [10.3, 11.17, 12.04, 13.5] {
+        set(&mut app, "T/W", "x", x);
+        frame(&mut app);
+        assert_eq!(picture(&mut app), node, "moved in place to {x}");
+        assert_eq!(app.world().get::<LayoutConfig>(wrapper), Some(&UNROUNDED), "the window unrounded with its turned picture");
+        for at in [(3.0, 7.0), (20.0, 10.0), (0.0, 0.0)] {
+            let want = wanted(&mut app, "T/W/P", at);
+            near(on_image(app.world(), node, at), want);
+        }
+        near(on_image(app.world(), node, (3.0, 7.0)), ((x + 4.1 + 3.0) * PX, (5.45 + 6.2 + 7.0) * PX));
+    }
+    set(&mut app, "T/W/P", "rotateangle", 0.0);
+    frame(&mut app);
+    assert_eq!(picture(&mut app), node);
+    assert!(app.world().get::<LayoutConfig>(wrapper).is_none() && app.world().get::<LayoutConfig>(node).is_none(), "rounded again");
 }
