@@ -1284,6 +1284,20 @@ fn from_middle(left: f32, top: f32, width: f32, height: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(left)), top: u(top), width: u(width), height: u(height), ..default() }
 }
 
+/// Back at the bottom right with its hint, as Delete has its own: "Back  Esc)", with a
+/// controller "Back  B)" [observed, issue #1893: the original's Settings pages show
+/// "Back" with the controller's B; the keyboard's key in the same place: design].
+/// Defaults keeps no hint: the original's is Y, which here puts the keys on the rail
+/// (#1953), not a press of Defaults.
+fn back_label() -> String {
+    back_label_as(crate::pad::labels())
+}
+
+/// [`back_label`] with the labels `l`.
+fn back_label_as(l: crate::pad::Labels) -> String {
+    format!("{}  {}", tr("Back"), crate::pad::hint_as(&[KeyCode::Escape], crate::pad::PAUSE_AT, l))
+}
+
 /// A right-aligned list entry: the whole row takes the pointer, the box round it when
 /// `boxed`.
 #[allow(clippy::too_many_arguments)]
@@ -1417,7 +1431,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
             // Back (and Defaults) at the bottom right.
             if d.page != Page::Main {
                 let on = |item| matches!(d.page, Page::Settings { .. }) && d.focus == SettingsFocus::Rail(item);
-                right_entry(root, &f.entry, tr("Back"), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
+                right_entry(root, &f.entry, &back_label(), from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Back), PauseButton::Back, glyphs);
                 if matches!(d.page, Page::Settings { .. }) {
                     right_entry(root, &f.entry, tr("Defaults"), from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, on(RailItem::Defaults), PauseButton::Defaults, glyphs);
                 }
@@ -2563,6 +2577,7 @@ fn log_inspect(list: &[Setting], view: &PauseView, selected: Option<RowId>, entr
     }
     info!("pause menu: inspect: words {}", words.join(" | "));
     info!("pause menu: inspect: hovered {}", view.rail_hover.map_or("none", |r| r.name()));
+    info!("pause menu: inspect: back {}", back_label());
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -4084,6 +4099,15 @@ fn finish_resume(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1893: Back carries its hint, the keyboard's Esc or the controller's B.
+    #[test]
+    fn back_names_its_key_and_button() {
+        use crate::pad::Labels;
+        assert_eq!(back_label_as(Labels::Keys), format!("{}  Esc)", tr("Back")));
+        assert_eq!(back_label_as(Labels::Xbox), format!("{}  B)", tr("Back")));
+        assert_eq!(back_label_as(Labels::PlayStation), format!("{}  Circle)", tr("Back")));
+    }
 
     fn resume_app() -> App {
         let mut app = App::new();
