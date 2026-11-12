@@ -161,6 +161,11 @@ pub struct PreparedPart {
     /// (#1429: 23.8 ms in one frame for one creature [observed 2026-11-07, Sierra Madre
     /// lobby]).
     pub projectile_nodes: Vec<(String, Affine3A)>,
+    /// No shape is skinned and the file has controllers of its own (not driven by a
+    /// sequence) that move a node, drive a material or show and hide a node: a creature
+    /// draws such a part as a model playing them on its bone, not as still shapes
+    /// (nvforever `actors::spawn_creature`).
+    pub plays_itself: bool,
 }
 
 /// Whether a node is named as a projectile node (`ProjectileNode…`, WEAP NNAM).
@@ -943,6 +948,14 @@ impl ActorCtx<'_, '_> {
                 geometry_index: order.get(&o.block).copied().unwrap_or(usize::MAX),
             });
         }
+        // Controllers that run by themselves, on a part with no skin: the part moves by
+        // itself (Mister Handy's jet, `fxmrhandyjetaddon.nif`: scrolling flames,
+        // refraction clouds, billboards; #2228), so a creature draws it as a playing model
+        // ([`PreparedPart::plays_itself`]).
+        out.plays_itself = out.shapes.iter().all(|s| s.skin.is_none())
+            && (!crate::model::free_material_tracks(&file, &dec).is_empty()
+                || !crate::model::free_transform_tracks(&file, &dec).is_empty()
+                || !crate::model::free_visibility_tracks(&file, &dec).is_empty());
         Ok(out)
     }
 }
@@ -1025,6 +1038,63 @@ pub fn creature_rigid_attach(skel: &PreparedSkeleton, part: &PreparedPart, s: &P
     }
 }
 
+/// [`creature_rigid_attach`] with the part's own named nodes kept as nodes: the bone,
+/// the nodes from it down to the shape (outermost first: name, local transform; `None`
+/// for the part's root, put in when the shape hangs from `Prn` below a named node, so
+/// those nodes keep the locals the part's clips key them by), and the shape's local
+/// transform under the last of them (under the bone when there are none). Unnamed nodes
+/// are folded into the node or shape below them. The product bone ∘ nodes ∘ shape is
+/// [`creature_rigid_attach`]'s placement. A clip names such a node to move it
+/// (`SpecialIdle_CutCake.kf` spins `Buzzsawblad`, a node of `gutsybuzzsaw.nif` that the
+/// Mister Handy skeleton lacks [observed: `fnvtool nif decode`, #2228]), so the actor
+/// needs an entity for it ([`SpawnedActor::part_nodes`]).
+pub fn creature_rigid_chain(skel: &PreparedSkeleton, part: &PreparedPart, s: &PartShape) -> (usize, Vec<(Option<String>, Affine3A)>, Affine3A) {
+    // Innermost first while walking up: each named node with the transform below it.
+    let mut named: Vec<(String, Affine3A)> = Vec::new();
+    let mut acc = s.own;
+    let mut shape_local = None;
+    let mut bone = None;
+    for (name, t) in &s.ancestors {
+        if let Some(&b) = name.as_ref().and_then(|n| skel.by_name.get(n)) {
+            bone = Some(b);
+            break;
+        }
+        match name.as_ref().filter(|n| !n.is_empty()) {
+            Some(n) => {
+                match named.last_mut() {
+                    Some(last) => last.1 = acc,
+                    None => shape_local = Some(acc),
+                }
+                named.push((n.clone(), Affine3A::IDENTITY));
+                acc = *t;
+            }
+            None => acc = *t * acc,
+        }
+    }
+    let mut root_node = None;
+    let bone = match bone {
+        Some(b) => b,
+        None => match part.prn.as_ref().and_then(|n| skel.by_name.get(n)) {
+            Some(&b) if named.is_empty() => {
+                acc = part.root * acc;
+                b
+            }
+            Some(&b) => {
+                root_node = Some(part.root);
+                b
+            }
+            None => 0,
+        },
+    };
+    match named.last_mut() {
+        Some(last) => last.1 = acc,
+        None => shape_local = Some(acc),
+    }
+    let mut chain: Vec<(Option<String>, Affine3A)> = root_node.map(|r| (None, r)).into_iter().collect();
+    chain.extend(named.into_iter().rev().map(|(n, t)| (Some(n), t)));
+    (bone, chain, shape_local.unwrap_or(acc))
+}
+
 /// Make a skinned shape that is drawn rigidly (a weapon's or a held object's shape hung
 /// from a bone, or a part whose bones the skeleton lacks) a valid skinned draw: a skin of
 /// `joints` joints that are all the shape's own entity `e`, with identity inverse bind
@@ -1059,6 +1129,10 @@ pub struct SpawnedActor {
     pub shape_of: Vec<usize>,
     /// Skinned shapes whose bones the skeleton lacks: drawn rigidly at the root instead.
     pub unbound: usize,
+    /// The named nodes of creature parts that the skeleton lacks ([`creature_rigid_chain`]):
+    /// name, entity and local transform, for the actor's clips to drive
+    /// (`BlendPlayer::add_part_node`).
+    pub part_nodes: Vec<(String, Entity, Transform)>,
 }
 
 /// Spawn an actor under `parent`: the skeleton's nodes (root at `transform`), then every
@@ -1075,7 +1149,7 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
     for (i, p) in skel.parents.iter().enumerate().skip(1) {
         commands.entity(nodes[p.unwrap_or(0)]).add_child(nodes[i]);
     }
-    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
+    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0, part_nodes: Vec::new() };
     spawn_parts(commands, skel, parts, &mut out);
     out
 }
@@ -1163,7 +1237,10 @@ pub struct LimbShape {
 }
 
 pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[PartUse], out: &mut SpawnedActor) {
-    let nodes = &out.nodes;
+    let nodes = out.nodes.clone();
+    // The part nodes spawned so far ([`creature_rigid_chain`]), by part and the way down
+    // to them, so that a part's shapes under one node share it.
+    let mut chains: HashMap<(usize, Vec<Option<String>>), Entity> = HashMap::new();
     for (pi, u) in parts.iter().enumerate() {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
         for (i, s) in u.part.shapes.iter().enumerate() {
@@ -1215,8 +1292,21 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                     (None, _) => {
                         let (at, local) = match bone {
                             _ if u.by_ancestor => {
-                                let (b, local) = creature_rigid_attach(skel, &u.part, s);
-                                (nodes[b], local)
+                                let (b, chain, local) = creature_rigid_chain(skel, &u.part, s);
+                                let mut at = nodes[b];
+                                let mut path: Vec<Option<String>> = Vec::with_capacity(chain.len());
+                                for (name, t) in chain {
+                                    path.push(name.clone());
+                                    at = *chains.entry((pi, path.clone())).or_insert_with(|| {
+                                        let local = Transform::from_matrix(Mat4::from(t));
+                                        let e = commands.spawn((local, Visibility::Inherited, ChildOf(at))).id();
+                                        if let Some(n) = name {
+                                            out.part_nodes.push((n, e, local));
+                                        }
+                                        e
+                                    });
+                                }
+                                (at, local)
                             }
                             Some(b) => (nodes[b], rigid_local(skel, b, &u.part.root, &s.transform)),
                             None => (nodes[0], s.transform),
@@ -1260,7 +1350,12 @@ pub fn bind_clip(skel: &PreparedSkeleton, clip: Arc<Clip>) -> BoundClip {
 /// by node name, so skinned shapes and rigid parts under their bones follow
 /// (docs/spec-notes/actors.md §7 and §8).
 pub fn blend_player(actor: &SpawnedActor, skel: &PreparedSkeleton) -> BlendPlayer {
-    BlendPlayer::new(actor.nodes.clone(), Arc::new(skel.locals.clone()))
+    let mut player = BlendPlayer::new(actor.nodes.clone(), Arc::new(skel.locals.clone()));
+    // A creature part's own named nodes, which its clips may name ([`creature_rigid_chain`]).
+    for (name, e, local) in &actor.part_nodes {
+        player.add_part_node(name, *e, *local);
+    }
+    player
 }
 
 /// The prepared skeleton at `path`, read without a [`ClipReader`] (the examples).
@@ -1381,6 +1476,63 @@ mod tests {
         let (b, local) = creature_rigid_attach(&skel, &part, &shape);
         assert_eq!(b, 3);
         assert!((Vec3::from(local.translation) - Vec3::new(1.0, 5.0, 7.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn creature_part_nodes_are_kept_and_place_shapes_as_before() {
+        let skel = PreparedSkeleton {
+            by_name: HashMap::from([("Bip01 R Foot 01".to_string(), 2), ("Bip01 Head".to_string(), 3)]),
+            bind_world: vec![Affine3A::IDENTITY; 4],
+            ..Default::default()
+        };
+        let blade = Affine3A::from_rotation_translation(Quat::from_rotation_x(1.0), Vec3::new(15.9, -0.7, 0.1));
+        let spacer = Affine3A::from_translation(Vec3::new(0.0, 2.0, 0.0));
+        let own = Affine3A::from_translation(Vec3::new(21.8, 10.8, -3.6));
+        let shape = |ancestors: Vec<(Option<String>, Affine3A)>| PartShape {
+            name: None,
+            mesh: Handle::default(),
+            material: Handle::default(),
+            props: Props::default(),
+            cpu: Arc::new(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)),
+            skin: None,
+            transform: ancestors.iter().rev().fold(Affine3A::IDENTITY, |acc, a| acc * a.1) * own,
+            cap: false,
+            partitions: Arc::default(),
+            ancestors,
+            own,
+            geometry_index: 0,
+        };
+        let product = |b: usize, chain: &[(Option<String>, Affine3A)], local: Affine3A| (b, chain.iter().fold(Affine3A::IDENTITY, |acc, (_, t)| acc * *t) * local);
+        let close = |a: Affine3A, b: Affine3A| (Mat4::from(a) - Mat4::from(b)).abs().max_element() < 1e-4;
+        // `gutsybuzzsaw.nif`: the blade's shape under `Buzzsawblad` under the root, `Prn`
+        // the foot. A root of its own when it is not the identity, then the blade node with
+        // its own transform (what the clip's keys replace), then the shape.
+        let mut part = PreparedPart { prn: Some("Bip01 R Foot 01".into()), root: Affine3A::from_translation(Vec3::new(0.0, 0.0, 3.0)), ..Default::default() };
+        let s = shape(vec![(None, spacer), (Some("Buzzsawblad".into()), blade)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert_eq!(b, 2);
+        assert_eq!(chain.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(), vec![None, Some("Buzzsawblad".to_string())]);
+        assert!(close(chain[1].1, blade));
+        assert!(close(local, spacer * own));
+        let (b0, old) = creature_rigid_attach(&skel, &part, &s);
+        let (b1, new) = product(b, &chain, local);
+        assert_eq!(b0, b1);
+        assert!(close(old, new));
+        // With nothing named below the root: no nodes, the old placement.
+        part.root = Affine3A::IDENTITY;
+        let s = shape(vec![(None, spacer)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert!(chain.is_empty());
+        assert_eq!((b, local), creature_rigid_attach(&skel, &part, &s));
+        // A named node below an ancestor the skeleton has: kept, under that bone.
+        let s = shape(vec![(Some("Screen01".into()), spacer), (Some("Bip01 Head".into()), blade)]);
+        let (b, chain, local) = creature_rigid_chain(&skel, &part, &s);
+        assert_eq!(b, 3);
+        assert_eq!(chain.len(), 1);
+        let (b0, old) = creature_rigid_attach(&skel, &part, &s);
+        let (b1, new) = product(b, &chain, local);
+        assert_eq!(b0, b1);
+        assert!(close(old, new));
     }
 
     #[test]
