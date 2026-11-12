@@ -135,6 +135,22 @@ registered rows; Defaults on every other tab puts back every registered row, as 
 (`pause menu: settings back to their defaults`). A control waiting for its new key is
 `pause::Listening` (the pad presses no menu keys meanwhile).
 
+**A list's choices** [design: #2198, step 7 of docs/design/dlss-upscaling.md]: besides a
+whole row being disabled with a status in place of its value (`set_disabled_status`, the
+anti-aliasing row's "Off (upscaling active)" while an upscaler draws), a list row can show
+its choices by other words than their names (`set_choice_labels`) and hold some out of reach
+for a reason (`set_choice_unavailable`), both kept per row key in the registry, so the other
+lists draw as before. The names stay what the INI, the log and the test aids use; only the
+words shown change (the Upscaling row shows `DLSS Quality` as "DLSS: Quality", and its
+requested entry with "(from the next start)" while a restart is pending). A choice out of
+reach is drawn dim in the open list, and in the row's box when it is the chosen one; its
+reason is the note under the rows while the keys or the pointer are on it; Enter, A or a
+click leave the list open, and Left/Right on the row pass over it. `settings::pick` refuses
+it centrally, also by a name in another case (`settings: <key> <name> not taken: <reason>`),
+so the dropdown, Left/Right, Defaults' fallback by index and the `NVF_PLAY_TEST_SETTINGS` aid
+cannot take it. Loading the INI does not go through that check: a stored choice out of reach
+still loads, so a request survives a run in which it cannot be met.
+
 ## 5. Custom colours (`ui_colour.rs`)
 
 The HUD's and the Pip-Boy's colour lists always offer Custom [design: #1953]. Taking it
