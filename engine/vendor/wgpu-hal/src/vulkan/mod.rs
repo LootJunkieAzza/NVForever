@@ -214,6 +214,15 @@ pub struct Instance {
     shared: Arc<InstanceShared>,
 }
 
+/// NVForever (2026-11-12): calls `call` with the newest swapchain created on a device that has
+/// `VK_NV_low_latency2` (created with `VkSwapchainLatencyCreateInfoNV`, low latency mode
+/// allowed), for that extension's calls. The swapchain is neither replaced nor destroyed until
+/// `call` returns, whatever thread calls; `None`, and no call, while there is no such
+/// swapchain. `call` must not use the surface or wait: configuring the surface waits for it.
+pub fn with_latency_swapchain<R>(call: impl FnOnce(vk::SwapchainKHR) -> R) -> Option<R> {
+    swapchain::with_latency_swapchain(call)
+}
+
 #[expect(missing_debug_implementations, reason = "TODO?")]
 pub struct Surface {
     swapchain: RwLock<Option<Box<dyn swapchain::Swapchain>>>,

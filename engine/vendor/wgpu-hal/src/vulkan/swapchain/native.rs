@@ -15,6 +15,30 @@ use crate::vulkan::{
     DeviceShared, InstanceShared,
 };
 
+// NVForever (2026-11-12): VK_NV_low_latency2 (engine/vendor/README.md). The extension's calls
+// take the swapchain and come from threads that do not present (the one that reads input), so
+// they must never run while the swapchain is replaced or destroyed.
+/// The newest swapchain created on a device that has `VK_NV_low_latency2`, null while there is
+/// none. The lock is held across each call made through [`with_latency_swapchain`], and taken
+/// to clear the handle before the swapchain is handed over as `oldSwapchain` or destroyed.
+static LATENCY_SWAPCHAIN: Mutex<vk::SwapchainKHR> = Mutex::new(vk::SwapchainKHR::null());
+
+/// Calls `call` with that swapchain, which stays alive and in place until `call` returns;
+/// `None` (and no call) while there is none. `call` must not use the surface or wait.
+pub(crate) fn with_latency_swapchain<R>(call: impl FnOnce(vk::SwapchainKHR) -> R) -> Option<R> {
+    let swapchain = LATENCY_SWAPCHAIN.lock();
+    (*swapchain != vk::SwapchainKHR::null()).then(|| call(*swapchain))
+}
+
+/// `raw` is about to be replaced or destroyed: no call is given it from here on, and any
+/// running one has returned.
+fn retire_latency_swapchain(raw: vk::SwapchainKHR) {
+    let mut swapchain = LATENCY_SWAPCHAIN.lock();
+    if *swapchain == raw {
+        *swapchain = vk::SwapchainKHR::null();
+    }
+}
+
 pub(crate) struct NativeSurface {
     raw: vk::SurfaceKHR,
     functor: khr::surface::Instance,
@@ -227,6 +251,20 @@ impl Surface for NativeSurface {
             .clipped(true)
             .old_swapchain(old_swapchain);
 
+        // NVForever (2026-11-12): a swapchain may use low latency mode only when it is created
+        // with `VkSwapchainLatencyCreateInfoNV` [documented: Vulkan spec, "Latency Reduction",
+        // VkSwapchainLatencyCreateInfoNV]. Only a device-creation callback adds the extension.
+        let low_latency = device
+            .shared
+            .enabled_extensions
+            .contains(&ash::nv::low_latency2::NAME);
+        let mut latency_info =
+            vk::SwapchainLatencyCreateInfoNV::default().latency_mode_enable(true);
+        if low_latency {
+            retire_latency_swapchain(old_swapchain);
+            info = info.push_next(&mut latency_info);
+        }
+
         let mut format_list_info = vk::ImageFormatListCreateInfo::default();
         if !raw_view_formats.is_empty() {
             format_list_info = format_list_info.view_formats(&raw_view_formats);
@@ -253,6 +291,11 @@ impl Surface for NativeSurface {
                 });
             }
         };
+
+        // NVForever (2026-11-12): from here the extension's calls go to this swapchain.
+        if low_latency {
+            *LATENCY_SWAPCHAIN.lock() = raw;
+        }
 
         let images = unsafe { functor.get_swapchain_images(raw) }
             .map_err(crate::vulkan::map_host_device_oom_err)?;
@@ -369,6 +412,8 @@ pub(crate) struct NativeSwapchain {
 
 impl Drop for NativeSwapchain {
     fn drop(&mut self) {
+        // NVForever (2026-11-12): no VK_NV_low_latency2 call runs on it, or starts, any more.
+        retire_latency_swapchain(self.raw);
         unsafe {
             self.functor.destroy_swapchain(self.raw, None);
         }
