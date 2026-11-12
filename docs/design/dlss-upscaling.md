@@ -49,6 +49,11 @@ detail in the module notes of the file named.
 - **The signature** (`dlss/security.rs`). The interposer is checked as Streamline's header
   helper does before it is loaded by its full path; the limit of that check is the first open
   point below. (Spike.)
+- **Where its imports come from** (`dlss/win.rs` `load`). The interposer is loaded with
+  `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`: what it imports is looked
+  up in the DLSS folder, then in System32, never in the working directory or `PATH`, so a DLL
+  dropped there cannot be loaded into the game. (The review of #2206; before it,
+  `LOAD_WITH_ALTERED_SEARCH_PATH`, which also searched those two.)
 - **Loaded whenever the files are there** (`main.rs`, `upscaler.rs` `UpscalerStartup`,
   `dlss::bundle_present`) [design: the user's decision after the play-test of #2206,
   2026-11-12]. `main` works out the requested choice before the renderer exists, from the

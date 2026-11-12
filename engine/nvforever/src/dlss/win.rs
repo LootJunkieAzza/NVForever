@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy::render::renderer::raw_vulkan_init::{AdditionalVulkanFeatures, RawVulkanInitSettings, VulkanLibraryInstance};
 use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderContext, RenderDevice, RenderInstance, RenderQueue};
 use bevy::render::RenderApp;
-use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_WITH_ALTERED_SEARCH_PATH};
+use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
 use super::evaluate::{Evaluator, OptionsKey, VIEWPORT};
 use super::ffi::{
@@ -378,12 +378,23 @@ unsafe fn copy_strings(list: *const *const c_char, count: u32, what: &str) -> Re
         .collect()
 }
 
-/// The interposer loaded by full path (its own folder searched first for what it imports) and
-/// never unloaded, and its functions looked up.
+/// The interposer loaded by full path and never unloaded, and its functions looked up.
+///
+/// What it imports is looked up in its own folder, then in System32, and nowhere else: not the
+/// working directory, not `PATH`, so a DLL dropped there cannot be loaded in its place.
+/// `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` puts "the directory that contains the DLL" first in the
+/// list searched "for the DLL's dependencies" and needs a fully qualified path;
+/// `LOAD_LIBRARY_SEARCH_SYSTEM32` adds System32; with these flags "directories in the standard
+/// search path are not searched", and combined they are searched in that order [documented:
+/// Microsoft Learn, "LoadLibraryExW function (libloaderapi.h)", dwFlags and Remarks, read
+/// 2026-11-12]. (`LOAD_WITH_ALTERED_SEARCH_PATH`, used before the review of #2206, also searched
+/// the working directory and `PATH`.) The page asks for backslashes in a path, so a `/` from
+/// `NVF_DLSS_DIR` is written as `\` for the call.
 fn load(interposer: &Path) -> Option<Api> {
-    let path_w = wide(interposer.as_os_str());
-    // SAFETY: a full path to the file whose signature was just verified.
-    let module = unsafe { LoadLibraryExW(path_w.as_ptr(), std::ptr::null_mut(), LOAD_WITH_ALTERED_SEARCH_PATH) };
+    let path_w = backslashed(wide(interposer.as_os_str()));
+    // SAFETY: a full path (`resolve_folder` takes only absolute ones) to the file whose
+    // signature was just verified.
+    let module = unsafe { LoadLibraryExW(path_w.as_ptr(), std::ptr::null_mut(), LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32) };
     if module.is_null() {
         note(Level::WARN, format!("inactive: {} did not load: {}; the stock Vulkan path", interposer.display(), std::io::Error::last_os_error()));
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
@@ -398,6 +409,16 @@ fn load(interposer: &Path) -> Option<Api> {
         set_loader_state(DlssState::Unavailable(Unavailable::StreamlineRefused));
     }
     api
+}
+
+/// A NUL-terminated wide path with every `/` written as `\`.
+fn backslashed(mut path_w: Vec<u16>) -> Vec<u16> {
+    for unit in &mut path_w {
+        if *unit == u16::from(b'/') {
+            *unit = u16::from(b'\\');
+        }
+    }
+    path_w
 }
 
 /// The interposer's exports the spike calls, with their header signatures (ffi.rs).
@@ -726,6 +747,12 @@ mod tests {
         }
         assert!(p.log_message_callback.is_some());
         assert!(p.path_to_logs_and_data.is_null(), "no log file");
+    }
+
+    #[test]
+    fn load_paths_use_backslashes() {
+        let path = backslashed(wide(std::ffi::OsStr::new("C:/nvf/dlss\\sl.interposer.dll")));
+        assert_eq!(String::from_utf16_lossy(&path), "C:\\nvf\\dlss\\sl.interposer.dll\0");
     }
 
     #[test]
