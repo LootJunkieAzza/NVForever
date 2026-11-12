@@ -506,7 +506,7 @@ fn own(
     time: Res<Time>,
     mut st: ResMut<ConsumeAnims>,
     opts: Res<ConsumeOptions>,
-    (mut held, mut used, mut contest): (ResMut<nvf_play::ConsumeAnims>, MessageReader<nvf_play::ItemUsed>, MessageReader<nvf_play::drink_world::ContestDrink>),
+    (mut held, mut used, mut contest, mut contest_stop): (ResMut<nvf_play::ConsumeAnims>, MessageReader<nvf_play::ItemUsed>, MessageReader<nvf_play::drink_world::ContestDrink>, MessageReader<nvf_play::drink_world::ContestDrinkStop>),
     (script, sim, body, mut pi): (Option<Res<nvf_play::script::ScriptState>>, Res<nvf_play::sim::SimState>, Res<PlayerBody>, ResMut<PlayerIdles>),
     now: Now,
     (mut parts, mut models, world, objects): (ResMut<ActorParts>, ModelCtx, Res<WorldData>, Res<crate::anim_objects::AnimObjects>),
@@ -528,6 +528,8 @@ fn own(
             }
         }
     }
+    // A drinking contest's winner: its drink ends now, for its dance.
+    let contest_over = contest_stop.read().count() > 0;
     let Some(ix) = st.index.clone() else {
         used.clear();
         contest.clear();
@@ -687,11 +689,11 @@ fn own(
         (f[0] - pl.feet[0]).hypot(f[1] - pl.feet[1]) > 24.0
     };
     let cut = !o.hardcore && now.control.as_deref().is_some_and(|c| c.trigger || c.aiming);
-    let stop = now.swimming() || (third_now != (pl.view == View::Third)) || walked || cut;
+    let stop = now.swimming() || (third_now != (pl.view == View::Third)) || walked || cut || contest_over;
     let alive = match entry {
         Some(c) if stop => {
             c.play.stop();
-            info!("consume anim: cut short ({})", if cut { "attack or aim" } else if walked { "walked off" } else { "swimming or the view changed" });
+            info!("consume anim: cut short ({})", if contest_over { "the drinking contest is won" } else if cut { "attack or aim" } else if walked { "walked off" } else { "swimming or the view changed" });
             false
         }
         Some(c) => {

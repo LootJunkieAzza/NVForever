@@ -25658,17 +25658,17 @@ order = [[
 
 [[scenario]]
 name = "drink-table-win"
-source = "Drinking contest (owner 2026-11-11 via parity: the winner does \"tap dance or something silly\", drink-c): at the Prospector Saloon's bottle the test aid starts a contest of the player, steered well, against the two nearest NPCs where they stand. The NPCs pass out, the player wins and tap-dances (emote tap-dance, IDLE SpecialIdleNVTapDance) in third person on its mark until the contest's end, then stands and the view is the one before"
+source = "Drinking contest (owner 2026-11-11 via parity: the winner does \"tap dance or something silly\", drink-c): at the Prospector Saloon's bottle the test aid starts a contest of the player, steered well, against the two nearest NPCs where they stand (Sunny Smiles and Cheyenne; at skill 1 seed 42 the player lost at drink 3, so the aid pulls three times as hard). The NPCs pass out, the player wins and tap-dances (emote tap-dance, IDLE SpecialIdleNVTapDance) in third person on its mark until the contest's end, then stands and the view is the one before"
 areas = ["minigames"]
 paths = ["engine/nvf-play/src/drink_world.rs", "engine/nvf-play/src/emotes.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:215:-600:3457", NVF_PLAY_TEST_DRINK_TABLE = "6:42:1:2", NVF_PLAY_TEST_DRINK_SHOTS = "drink-win-shots" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:215:-600:3457", NVF_PLAY_TEST_DRINK_TABLE = "6:42:3:2", NVF_PLAY_TEST_DRINK_SHOTS = "drink-win-shots" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 120
 manual = "in target/smoke/drink-win-shots: drink_win.png and drink_board.png the player in third person on its mark at the table, tap-dancing (whole body with its head); drink_end.png standing again"
 order = [[
-  { re = 'drink world: test aid starts a contest at bottle FF7FA102 \(seed 42, skill Some\(1\.0\), 2 NPC\(s\)\)', label = "a contest at the saloon's bottle against two NPCs" },
+  { re = 'drink world: test aid starts a contest at bottle FF7FA102 \(seed 42, skill Some\(3\.0\), 2 NPC\(s\)\)', label = "a contest at the saloon's bottle against two NPCs" },
   { re = 'drink contest: slot 0 \(You\) wins', label = "the player wins" },
-  { re = 'drink world: goodsprings: this player wins: the tap-dance until the contest', label = "the winner starts the tap dance" },
+  { re = 'drink world: goodsprings: this player wins: the drink ends, the tap-dance until the contest', label = "the winner starts the tap dance" },
   { text = "drink contest: closed", label = "the contest's screen closes" },
   { re = 'drink world: goodsprings: the contest is over: the dance ends, back to standing', label = "the dance ends at the contest's end" },
   { re = 'drink world: goodsprings: this player stands again', label = "the view is back" },
