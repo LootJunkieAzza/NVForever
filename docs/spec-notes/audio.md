@@ -209,8 +209,9 @@ environment: §14.6.
   [design]. Every sound reaches the device (or the drain without one) through one mix
   bus (`nvf-play/src/audio_out.rs` `MixBus`), which counts, for the whole run, the
   loudest sample and the samples over full scale (`abs(sample) > 1`, each channel apart;
-  exactly ±1 is not over), before and after the output's protection. No protection is
-  built yet, so both are the same and no frame is limited. Every stop of a playing sound
+  exactly ±1 is not over), before the output's protection (a limiter, §18, since
+  stage 4) and after it, and the frames the limiter turned down; the raw overloads stay
+  measured, after the limiter none should be over. Every stop of a playing sound
   before its end goes through `audio_out::stop_sound`, which counts it by why: a one-shot
   taken over at the voice limit, a LoopSound stopped, a script's StopSound without a
   fade, an ambient loop, a radio or a voice line no longer wanted, a holotape stopped
@@ -1401,3 +1402,42 @@ before is dropped. The siren's folder is `fx\npc\robotsecuritron\futz\`.
   music at 0.6 still louder than the original's in game; the in-game music level (music
   types' `ANAM` decibels, §13) was not measured. Owner checks:
   docs/handoff/observer-checks.md.
+
+## 18. Output protection (#2217, 2026-11-12)
+
+Whether the original game limits, compresses or clips its summed mix is not known; this
+is NVForever's own [design]. Many sounds at once (a minigun's shots, a pack of mantises)
+can add up past full scale, and what the device's conversion then does with them is not
+measured here [hypothesis: it clips them]. So the summed 48 kHz stereo mix, after the
+categories' and the master's volumes, goes through a look-ahead limiter on its way to
+the device (or to the drain without one) (`nvf-play/src/audio_out.rs` `Limiter`, in the
+run-long `MixBus`):
+
+- **Threshold** 0.98 (`LIMIT_THRESHOLD`): no sample leaves the bus louder; a little
+  below full scale, so nothing over it reaches the device, and ordinary sound below it is
+  not touched.
+- **Look-ahead** 144 frames, 3 ms (`LIMIT_LOOKAHEAD`): each frame needs a gain
+  `a = 0.98 / max(|left|, |right|)` when its louder sample is over 0.98, else 1. A frame
+  goes out 144 frames later at `min(ceiling, the last gain + release step)`, the ceiling
+  being the lowest of `a[n + k] + k / 144` over the next 144 frames and itself (at most
+  1): the gain starts down in a straight line before a peak, so even a single frame over
+  cannot pass, and is never above what the frame itself needs.
+- **Release** 50 ms from no gain to unity at most (`LIMIT_RELEASE`, a step of 1/2400 a
+  frame), so the gain does not pump between peaks close together.
+- **One gain for both channels** of a frame: a sound's place in stereo is kept.
+- **Unity below the threshold**: a mix that stays at or below 0.98 comes out exactly as
+  it went in, 144 frames later. Around an overload the look-ahead and the release turn
+  some quieter samples down with it (up to 3 ms before a peak and up to 50 ms after).
+- **Latency**: all sound reaches the device 3 ms later than it did.
+- A frame with a sample that is not a number (or infinite) goes out as silence (each
+  sound's own guard, `audio_out.rs` `GuardedSource`, turns such samples to silence
+  already).
+- The limiter's delay and gain belong to the bus, so a device reopened (`audio_out.rs`'s
+  watcher, on a change of device) goes on with them. Per frame it costs a few compares and two multiplies; its
+  buffers are allocated at the start; the audio thread allocates, locks and logs nothing
+  more for it.
+- **Measured** in the exit line `audio mix: pre peak P, N samples over full scale; post
+  peak Q, M samples over full scale; K frames limited`: `pre` before the limiter (the raw
+  mix's overloads stay counted), `post` after it (M should be 0 and Q at most 0.98), K
+  the frames it played below unity. It works on the 48 kHz bus; what the device's own
+  conversion does after it is not measured here.

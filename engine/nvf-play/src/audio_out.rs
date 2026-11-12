@@ -67,11 +67,14 @@
 //!   the whole run (a reopened device taps the same bus). It measures the summed mix: the
 //!   loudest sample and the samples over full scale (`abs(sample) > 1`, each channel
 //!   counted apart; exactly ±1 is not over), before and after the output's protection.
-//!   The protection (a limiter) is not built yet: the bus passes the mix as it is, so the
-//!   two measurements are the same and no frame is limited. Each pull measures its block
-//!   locally and publishes the totals once; the audio thread takes no other lock and
-//!   allocates nothing for it. Whether the original game limits or clips its mix is not
-//!   known.
+//!   The protection is a look-ahead limiter ([`Limiter`]): one gain for both channels of
+//!   a frame, no sample out over [`LIMIT_THRESHOLD`] (0.98), turned down over the
+//!   [`LIMIT_LOOKAHEAD`] (3 ms) before a peak and back up over at most [`LIMIT_RELEASE`]
+//!   (50 ms); a mix that stays at or below the threshold passes exactly as it is, 3 ms
+//!   later (all sound is 3 ms later for it). Its delay and gain are the bus's, kept
+//!   across a device reopen. Each pull measures its block locally and publishes the
+//!   totals once; the audio thread takes no other lock and allocates nothing for it.
+//!   Whether the original game limits or clips its mix is not known.
 //! - **Stopping a playing sound** ([`stop_sound`], #2217) [design]: a sound stopped before
 //!   its end (a voice taken over at the voice limit, a loop or a script's sound stopped,
 //!   an ambient loop, a radio or a voice line no longer wanted, a holotape stopped, a
@@ -99,8 +102,9 @@
 //! music X s, … audible` (the same after its volume and the master's: what a slider
 //! turned down leaves to be heard; #1077), then `audio mix: pre peak P, N samples over
 //! full scale; post peak Q, M samples over full scale; K frames limited` (the mix bus's
-//! measurements, peaks to nine decimals). The stop counts are told by `crate::sfx`'s
-//! report (`sfx hard stops: …`).
+//! measurements, peaks to nine decimals: `pre` the summed mix before the limiter, `post`
+//! after it, K the stereo frames it played below unity gain). The stop counts are told
+//! by `crate::sfx`'s report (`sfx hard stops: …`).
 //!
 //! Test aid (unattended runs only; no effect unless set):
 //! `NVF_PLAY_TEST_AUDIO_REOPEN=<seconds>[,...]` drops the device and opens the default
@@ -589,29 +593,161 @@ fn measure(peak: &mut f32, over: &mut u64, s: f32) {
 }
 
 /// The run-long mix on its way to the output (module notes): the mixer every category
-/// plays into, measured before and after the output's protection. The limiter (#2217
-/// stage 4) will keep its state here, so a reopened device goes on with it; it is not
-/// built yet and the bus passes the mix unchanged.
+/// plays into, measured before and after the output's protection, the [`Limiter`]. Kept
+/// in the bus with it for the whole run, so a reopened device goes on with its delay and
+/// its gain as they were.
 pub(crate) struct MixBus {
     source: MixerSource,
+    limiter: Limiter,
+    /// The right sample of a frame a pull of an odd number of samples stopped inside
+    /// (the output pulls whole frames; kept so an odd pull loses nothing).
+    carry: Option<f32>,
 }
 
 impl MixBus {
     fn new(source: MixerSource) -> MixBus {
-        MixBus { source }
+        MixBus { source, limiter: Limiter::new(), carry: None }
     }
 
-    /// `n` samples (whole frames) of the mix as the output gets them, each to `each`,
-    /// measured into `meter`; silence where nothing plays.
+    /// `n` samples of the mix as the output gets them, each to `each`, measured into
+    /// `meter` before the limiter and after it; silence where nothing plays. The mix is
+    /// taken a stereo frame at a time.
     fn fill(&mut self, n: usize, meter: &mut Meter, mut each: impl FnMut(f32)) {
-        for _ in 0..n {
-            let pre = self.source.next().unwrap_or(0.0);
-            measure(&mut meter.pre_peak, &mut meter.pre_over, pre);
-            // The output's protection (the limiter) goes here; until it is built the
-            // output is the mix as it is.
-            let post = pre;
-            measure(&mut meter.post_peak, &mut meter.post_over, post);
-            each(post);
+        let mut left = n;
+        if left > 0 {
+            if let Some(r) = self.carry.take() {
+                each(r);
+                left -= 1;
+            }
+        }
+        while left > 0 {
+            let l = self.source.next().unwrap_or(0.0);
+            let r = self.source.next().unwrap_or(0.0);
+            measure(&mut meter.pre_peak, &mut meter.pre_over, l);
+            measure(&mut meter.pre_peak, &mut meter.pre_over, r);
+            let (l, r, limited) = self.limiter.process(l, r);
+            meter.limited += limited as u64;
+            measure(&mut meter.post_peak, &mut meter.post_over, l);
+            measure(&mut meter.post_peak, &mut meter.post_over, r);
+            each(l);
+            left -= 1;
+            if left > 0 {
+                each(r);
+                left -= 1;
+            } else {
+                self.carry = Some(r);
+            }
+        }
+    }
+}
+
+/// The limiter's ceiling: the loudest a sample leaves the mix bus (#2217) [design: a
+/// little below full scale, so nothing reaches the device over it and ordinary sound
+/// below it is not touched; whether the original limits its mix is not known].
+pub const LIMIT_THRESHOLD: f32 = 0.98;
+/// How far ahead the limiter looks, in 48 kHz frames: 3 ms [design: time enough to turn
+/// the gain down before a peak, so one frame cannot pass over; it delays all sound by
+/// as much].
+pub const LIMIT_LOOKAHEAD: usize = 144;
+/// The fastest the limiter's gain comes back up: from 0 to unity over this [design: not
+/// so fast that it pumps between peaks close together].
+pub const LIMIT_RELEASE: Duration = Duration::from_millis(50);
+/// Room in the limiter's queue of coming peaks: at most `LIMIT_LOOKAHEAD + 2` are held.
+const LIMIT_QUEUE: usize = 256;
+
+/// The output's protection (#2217, module notes) [design]: a look-ahead limiter on the
+/// summed 48 kHz stereo mix, after the categories' and the master's volumes, one gain
+/// for both channels of a frame (so a sound's place in stereo is kept). Each frame `n`
+/// needs a gain `a[n] = LIMIT_THRESHOLD / max(|left|, |right|)` when its louder sample is
+/// over the threshold, else 1. The frame goes out [`LIMIT_LOOKAHEAD`] (`L`) frames later
+/// at `gain[n] = min(ceiling[n], gain[n-1] + 1 / (48000 × LIMIT_RELEASE))`, where
+/// `ceiling[n] = min(1, a[n+k] + k / L for k in 0..=L)`: the gain is never above what the
+/// frame itself needs (no sample leaves over the threshold), starts down in a straight
+/// line `L` frames before a peak, and comes back no faster than the release. The future
+/// minimum is kept in a queue whose values rise from front to back (a frame's
+/// `a + (m - n) / L`, compared by frame numbers' differences, so the numbers can wrap);
+/// frames needing no turn-down are not queued. A stream that stays at or below the
+/// threshold comes out exactly as it went in, `L` frames later; around an overload some
+/// quieter samples are turned down with it. A frame with a sample that is not a number
+/// (or infinite) is silence. Buffers allocated at creation; per frame a few compares and
+/// two multiplies, nothing allocated, no lock, no log.
+pub(crate) struct Limiter {
+    /// The frames on their way out, `L` of them, and where the next goes in.
+    delay: Box<[[f32; 2]]>,
+    pos: usize,
+    /// The coming frames that need turning down: (frame number, `a`), a ring.
+    queue: Box<[(u32, f32)]>,
+    head: usize,
+    len: usize,
+    /// The number of the next frame in (wrapping) and the gain of the last frame out.
+    frame: u32,
+    gain: f32,
+}
+
+impl Limiter {
+    fn new() -> Limiter {
+        Limiter::starting_at(0)
+    }
+
+    /// A limiter whose first frame is numbered `frame` (the tests' wrap of the numbers).
+    fn starting_at(frame: u32) -> Limiter {
+        Limiter {
+            delay: vec![[0.0; 2]; LIMIT_LOOKAHEAD].into_boxed_slice(),
+            pos: 0,
+            queue: vec![(0, 0.0); LIMIT_QUEUE].into_boxed_slice(),
+            head: 0,
+            len: 0,
+            frame,
+            gain: 1.0,
+        }
+    }
+
+    fn release_step() -> f32 {
+        1.0 / (RATE as f32 * LIMIT_RELEASE.as_secs_f32())
+    }
+
+    /// Takes the frame `(l, r)` in and gives out the one [`LIMIT_LOOKAHEAD`] frames before
+    /// it, limited, and whether its gain was below unity.
+    fn process(&mut self, l: f32, r: f32) -> (f32, f32, bool) {
+        let (l, r) = if l.is_finite() && r.is_finite() { (l, r) } else { (0.0, 0.0) };
+        let la = LIMIT_LOOKAHEAD as f32;
+        let i = self.frame;
+        let peak = l.abs().max(r.abs());
+        if peak > LIMIT_THRESHOLD {
+            let a = LIMIT_THRESHOLD / peak;
+            // Those behind it that would never be the lowest again go.
+            while self.len > 0 {
+                let (m, b) = self.queue[(self.head + self.len - 1) % LIMIT_QUEUE];
+                if b - i.wrapping_sub(m) as f32 / la >= a {
+                    self.len -= 1;
+                } else {
+                    break;
+                }
+            }
+            self.queue[(self.head + self.len) % LIMIT_QUEUE] = (i, a);
+            self.len += 1;
+        }
+        // The frame going out, `L` before this one; the queued frames before it go.
+        let out = i.wrapping_sub(LIMIT_LOOKAHEAD as u32);
+        while self.len > 0 && i.wrapping_sub(self.queue[self.head].0) > LIMIT_LOOKAHEAD as u32 {
+            self.head = (self.head + 1) % LIMIT_QUEUE;
+            self.len -= 1;
+        }
+        let ceiling = match self.len {
+            0 => 1.0,
+            _ => {
+                let (m, a) = self.queue[self.head];
+                (a + m.wrapping_sub(out) as f32 / la).min(1.0)
+            }
+        };
+        self.gain = ceiling.min(self.gain + Limiter::release_step());
+        let [ol, or] = std::mem::replace(&mut self.delay[self.pos], [l, r]);
+        self.pos = (self.pos + 1) % LIMIT_LOOKAHEAD;
+        self.frame = i.wrapping_add(1);
+        if self.gain < 1.0 {
+            (ol * self.gain, or * self.gain, true)
+        } else {
+            (ol, or, false)
         }
     }
 }
@@ -1387,7 +1523,7 @@ mod tests {
         assert_eq!((peak, over), (2.5, 3 * (4096 / 14) as u64 + 2), "the pattern's own count (1.25, -2.5 and 1.000001 per round; the last part round holds two)");
         // Pulled in the device's blocks, in uneven blocks, and drained into nothing (the
         // watcher without a device), past the end of the sound into silence.
-        let mut outputs = Vec::new();
+        let (mut outputs, mut meters) = (Vec::new(), Vec::new());
         for blocks in [vec![BLOCK; 10], vec![2, 6, 98, 1000, 40, 3974], vec![5120]] {
             let (bus, stats) = (bus_of(&samples), Stats::default());
             let mut out = Vec::new();
@@ -1399,14 +1535,27 @@ mod tests {
                 }
             }
             let m = stats.mix();
+            // Before the limiter: the mix's own overloads, exactly.
             assert_eq!((m.pre_peak, m.pre_over), (peak, over), "{blocks:?}");
-            // No limiter yet: the output is the mix as it is.
-            assert_eq!((m.post_peak, m.post_over, m.limited), (m.pre_peak, m.pre_over, 0), "{blocks:?}");
+            // After it: none over full scale, nothing over its threshold.
+            assert_eq!(m.post_over, 0, "{blocks:?}");
+            assert!(m.post_peak <= LIMIT_THRESHOLD + 1e-6 && m.post_peak > 0.5, "{blocks:?}: post peak {}", m.post_peak);
+            assert!(m.limited > 0, "{blocks:?}");
             assert_eq!(stats.frames.load(Ordering::Relaxed), 5120 / CHANNELS as u64);
+            meters.push(m);
             outputs.push(out);
         }
-        assert_eq!(&outputs[0][..samples.len()], &samples[..], "passed unchanged");
-        assert!(outputs[0][samples.len()..].iter().all(|&s| s == 0.0), "silence after the sound");
+        assert!(meters.windows(2).all(|w| w[0] == w[1]), "the same measurements however it is pulled: {meters:?}");
+        // The output is the limiter's of the mix (the sound, then silence), the first
+        // look-ahead silent: the bus adds the limiter and nothing else.
+        let mut limiter = Limiter::new();
+        let direct: Vec<f32> = samples.chunks(2).chain(std::iter::repeat_n(&[0.0f32, 0.0][..], (5120 - samples.len()) / 2)).flat_map(|f| {
+            let (l, r, _) = limiter.process(f[0], f[1]);
+            [l, r]
+        }).collect();
+        assert_eq!(outputs[0], direct);
+        assert!(outputs[0][..2 * LIMIT_LOOKAHEAD].iter().all(|&s| s == 0.0), "3 ms late");
+        assert!(outputs[0][samples.len() + 2 * LIMIT_LOOKAHEAD..].iter().all(|&s| s == 0.0), "silence after the sound");
         assert_eq!(outputs[0], outputs[1], "the same however it is split");
     }
 
@@ -1418,13 +1567,150 @@ mod tests {
         // One device's tap takes a block, then it goes and another taps the same bus.
         let first: Vec<f32> = Tap::new(shared.clone(), stats.clone()).take(BLOCK).collect();
         let second: Vec<f32> = Tap::new(shared.clone(), stats.clone()).take(BLOCK).collect();
-        assert_eq!(first, samples[..BLOCK], "the first tap");
-        assert_eq!(second, samples[BLOCK..2 * BLOCK], "the second goes on where the first stopped");
+        // As one tap pulling the same mix all along: the limiter's delay and gain went on
+        // from one tap to the next (its history kept), nothing lost or played twice.
+        let (one, one_stats) = (bus_of(&samples), Stats::default());
+        let mut along = Vec::new();
+        pull(&one, &one_stats, 2 * BLOCK, |s| along.push(s));
+        assert_eq!(first, along[..BLOCK], "the first tap");
+        assert_eq!(second, along[BLOCK..], "the second goes on where the first stopped");
+        assert!(second.iter().any(|&s| s != 0.0) && first[2 * LIMIT_LOOKAHEAD..].iter().any(|&s| s != 0.0));
         // The measurements go on across the taps.
         let (peak, over) = expected(&samples[..2 * BLOCK]);
         let m = stats.mix();
-        assert_eq!((m.pre_peak, m.pre_over, m.post_peak, m.post_over, m.limited), (peak, over, peak, over, 0));
+        assert_eq!((m.pre_peak, m.pre_over, m.post_over), (peak, over, 0));
+        assert_eq!(m, one_stats.mix());
+        assert!(m.limited > 0);
         assert_eq!(stats.frames.load(Ordering::Relaxed), (2 * BLOCK / CHANNELS as usize) as u64);
+    }
+
+    /// `frames` through a fresh limiter starting at frame number `start`: what comes out,
+    /// moved back by the look-ahead (the frame out for each frame in), and the frames it
+    /// turned down.
+    fn limit(frames: &[[f32; 2]], start: u32) -> (Vec<[f32; 2]>, usize) {
+        let mut limiter = Limiter::starting_at(start);
+        let mut limited = 0;
+        let mut out: Vec<[f32; 2]> = frames
+            .iter()
+            .chain(std::iter::repeat_n(&[0.0f32, 0.0], LIMIT_LOOKAHEAD))
+            .map(|f| {
+                let (l, r, down) = limiter.process(f[0], f[1]);
+                limited += down as usize;
+                [l, r]
+            })
+            .collect();
+        assert!(out[..LIMIT_LOOKAHEAD].iter().all(|f| *f == [0.0, 0.0]), "the look-ahead's silence first");
+        out.drain(..LIMIT_LOOKAHEAD);
+        (out, limited)
+    }
+
+    /// The limiter as its definition says, worked out plainly: each frame's ceiling the
+    /// minimum over its whole window, frames before the first as silence.
+    fn limit_plainly(frames: &[[f32; 2]]) -> Vec<[f32; 2]> {
+        let la = LIMIT_LOOKAHEAD as isize;
+        let a = |m: isize| match frames.get(m as usize).filter(|_| m >= 0) {
+            Some(f) if f[0].abs().max(f[1].abs()) > LIMIT_THRESHOLD => LIMIT_THRESHOLD / f[0].abs().max(f[1].abs()),
+            _ => 1.0,
+        };
+        let mut gain = 1.0f32;
+        let mut out = Vec::new();
+        for j in 0..(frames.len() as isize + la) {
+            let n = j - la;
+            let ceiling = (0..=la).map(|k| a(n + k) + k as f32 / la as f32).fold(1.0f32, f32::min);
+            gain = ceiling.min(gain + Limiter::release_step());
+            if n >= 0 {
+                let f = frames[n as usize];
+                out.push(if gain < 1.0 { [f[0] * gain, f[1] * gain] } else { f });
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_limiter_has_unity_gain_below_threshold() {
+        // Signed samples up to the threshold, both ways and exactly at it, and silence.
+        let mut rng = 0x2217u32;
+        let mut next = || {
+            rng = rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (rng >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0
+        };
+        let mut frames: Vec<[f32; 2]> = (0..20_000).map(|_| [next() * LIMIT_THRESHOLD, next() * LIMIT_THRESHOLD]).collect();
+        frames[100] = [LIMIT_THRESHOLD, -LIMIT_THRESHOLD];
+        frames[101] = [-LIMIT_THRESHOLD, LIMIT_THRESHOLD];
+        for f in &mut frames[5000..6000] {
+            *f = [0.0, 0.0];
+        }
+        assert!(frames.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD));
+        let (out, limited) = limit(&frames, 0);
+        // Exactly as it went in, after the look-ahead's delay.
+        assert_eq!(limited, 0);
+        assert!(out == frames, "unity gain below the threshold");
+    }
+
+    #[test]
+    fn the_limiter_catches_a_single_frame_peak() {
+        let la = LIMIT_LOOKAHEAD;
+        let step = Limiter::release_step();
+        let quiet = [0.5f32, -0.25];
+        let ratio = |f: [f32; 2]| f[1] / f[0];
+        // One frame far over full scale in quiet sound.
+        let mut frames = vec![quiet; 5000];
+        let at = 1000;
+        frames[at] = [2.0, -1.0];
+        let a = LIMIT_THRESHOLD / 2.0;
+        // The farthest frame before the peak whose ceiling (a + k / L) is below unity.
+        let reach = (0..=la).rev().find(|&k| a + k as f32 / (la as f32) < 1.0).unwrap();
+        assert!(reach > la / 2 && reach < la);
+        let (out, limited) = limit(&frames, 0);
+        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD + 1e-6), "nothing out over the threshold");
+        assert!((out[at][0] - LIMIT_THRESHOLD).abs() < 1e-6 && (ratio(out[at]) + 0.5).abs() < 1e-6, "the peak at the threshold: {:?}", out[at]);
+        assert!(out.iter().all(|f| (ratio(*f) + 0.5).abs() < 1e-5), "one gain for both channels: the stereo kept");
+        // Turned down in a straight line within the look-ahead before it, not before.
+        assert_eq!(out[at - reach - 1], quiet);
+        assert!(out[at - reach][0] < quiet[0]);
+        let gain = |n: usize| out[n][0] / quiet[0];
+        assert!((gain(at - la / 2) - (a + 0.5)).abs() < 1e-5, "{}", gain(at - la / 2));
+        assert!((at - reach + 1..=at).all(|n| gain(n) < gain(n - 1)), "falling to the peak");
+        // Back up no faster than the release, all the way to unity, then as it was.
+        let back = (at + 1..out.len()).find(|&n| out[n] == quiet).expect("back to unity");
+        assert!((at + 1..back).all(|n| gain(n) >= gain(n - 1) && gain(n) - gain(n - 1) <= step * 1.01));
+        assert!((back - at) as f32 >= (1.0 - a) / step - 1.0, "{} frames to come back", back - at);
+        assert!(out[back..] == frames[back..]);
+        assert_eq!(limited, back - (at - reach));
+        // A sustained overload: held at the threshold all through, stereo kept, then
+        // released to unity.
+        let mut frames = vec![quiet; 8000];
+        for f in &mut frames[1000..3000] {
+            *f = [1.5, -0.75];
+        }
+        let (out, _) = limit(&frames, 0);
+        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD + 1e-6));
+        assert!(out[1000..3000].iter().all(|f| (f[0] - LIMIT_THRESHOLD).abs() < 1e-5 && (ratio(*f) + 0.5).abs() < 1e-5));
+        let released = 3000 + ((1.0 - LIMIT_THRESHOLD / 1.5) / step).ceil() as usize + 2;
+        assert!(out[released..] == frames[released..], "released to unity by frame {released}");
+        // Peaks close together, of every size: the queue's minimum is the plain one, and
+        // the frame numbers wrapping round (a day of 48 kHz frames) change nothing.
+        let mut frames = vec![quiet; 6000];
+        for (k, n) in (300..5500).step_by(37).enumerate() {
+            let size = 0.9 + (k % 9) as f32 * 0.4;
+            frames[n] = [size, -size * 0.5];
+            frames[n + 3] = [-size * 0.7, size];
+        }
+        let (out, _) = limit(&frames, 0);
+        let plain = limit_plainly(&frames);
+        assert_eq!(out.len(), plain.len());
+        for (n, (o, p)) in out.iter().zip(&plain).enumerate() {
+            assert!((o[0] - p[0]).abs() < 1e-6 && (o[1] - p[1]).abs() < 1e-6, "frame {n}: {o:?} against {p:?}");
+        }
+        assert!(out.iter().flatten().all(|s| s.abs() <= LIMIT_THRESHOLD + 1e-6));
+        assert!(limit(&frames, u32::MAX - 2000).0 == out, "across the wrap of the frame numbers");
+        // A frame that is not a number is silence, not a gain of nothing for ever.
+        let mut frames = vec![quiet; 1000];
+        frames[10] = [f32::NAN, 0.5];
+        frames[11] = [f32::INFINITY, 0.5];
+        let (out, _) = limit(&frames, 0);
+        assert_eq!((out[10], out[11]), ([0.0, 0.0], [0.0, 0.0]));
+        assert_eq!(out[12..], frames[12..]);
     }
 
     /// A stereo 48 kHz source of `frames` frames, left 0.5 and right -0.25 throughout.
