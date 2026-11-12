@@ -401,5 +401,24 @@ a new game after leaving, "locked for good", and "locked out for good" on return
 | a wrong word, the last one locking the terminal | `UIHackingPassBad` |
 
 Not played: `UIHackingCharSingle` / `…Multiple` (`…\char\single\`, `…\multiple\`,
-[hypothesis: the text typing out, which is not built]) and the fan hum loop
-`UIHackingFanHumLP`.
+[hypothesis: the text typing out, which is not built]), the loop `UIHackingCharScrollLP`
+[observed: FalloutNV.esm SOUN, named in issue #2216; what it is for is not known] and the
+fan hum loop `UIHackingFanHumLP`.
+
+The pointer's hover sound is held to a rate [design, #2216]: the cursor follows the
+pointer onto every character at once, but `UIHackingCharScroll` starts at most once every
+70 ms of real time (`nvf_play::terminal::HOVER_SOUND_GAP`, the record's 66.6 ms click
+[observed: measured from the file, issue #2216] rounded up); the moves in between make no
+sound, and it is not played late. Leaving the dump does not start the wait again; a new
+hacking game starts without it. Keys (one move a press) and the menu's rows always sound.
+Without it a sweep started a copy every frame the pointer reached another character, a
+run of pops at the frame rate. Check: `NVF_PLAY_TEST_TERMINAL=…,point:<index>,…` and the
+exit line "terminal hover: P changed points, F focus sounds, S suppressed" (smoke
+`hacking-hover-sound`).
+
+Open question (for the original): what plays, and how often, while the mouse sweeps
+across the dump — `UIHackingCharScroll` at a capped rate, one of the unplayed records
+above (`UIHackingCharSingle`, `…Multiple`, the loop `UIHackingCharScrollLP`), or
+something else — and whether moving onto a lone character sounds differently from moving
+onto a word. Until it is answered the record and the 70 ms rule stay as above
+[hypothesis / design].
