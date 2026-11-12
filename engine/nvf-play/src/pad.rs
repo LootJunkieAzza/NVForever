@@ -917,7 +917,13 @@ impl StickButtons {
 /// The furthest-pushed stick of the connected controllers (`left` or right), dead zone
 /// taken off.
 pub fn stick(pads: &crate::pad::ActionPads, left: bool) -> Vec2 {
-    let v = pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }).max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
+    stick_vector(pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }))
+}
+
+// Physical history and filtered actions share the existing stick normalization
+// [design, #2200; stick, update_stick_buttons].
+fn stick_vector(sticks: impl Iterator<Item = Vec2>) -> Vec2 {
+    let v = sticks.max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
     if v.length() < STICK_DEAD {
         Vec2::ZERO
     } else {
@@ -928,7 +934,7 @@ pub fn stick(pads: &crate::pad::ActionPads, left: bool) -> Vec2 {
 // Derived physical edges must not turn a continued stick hold into a fresh press
 // on the frame after switching [design, #2200].
 pub(crate) fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
-    let v = pads.iter().map(|g| g.left_stick()).max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
+    let v = stick_vector(pads.iter().map(|g| g.left_stick()));
     s.before = s.now;
     for d in StickDir::ALL {
         s.now[d.index()] = d.amount(v) >= STICK_PRESS;

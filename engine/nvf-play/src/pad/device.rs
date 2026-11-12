@@ -146,10 +146,16 @@ impl ActionPads<'_, '_> {
     /// Filter current stick activity while retaining physical previous edges
     /// [design, #2200; super::update_stick_buttons].
     pub fn filter_sticks(&self, raw: &super::StickButtons) -> super::StickButtons {
+        let v = super::stick(self, true);
         super::StickButtons {
-            now: std::array::from_fn(|i| raw.now[i] && self.iter().any(|g| super::StickDir::ALL[i].amount(g.left_stick()) >= super::STICK_PRESS)),
+            now: std::array::from_fn(|i| raw.now[i] && super::StickDir::ALL[i].amount(v) >= super::STICK_PRESS),
             before: raw.before,
         }
+    }
+
+    /// Physical history uses the same normalization as actions [design, #2200; super::stick].
+    pub(crate) fn physical_stick(&self, left: bool) -> Vec2 {
+        super::stick_vector(self.raw.iter().map(|(_, g)| if left { g.left_stick() } else { g.right_stick() }))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = ActionPad<'_>> {
@@ -650,6 +656,36 @@ pub(crate) mod tests {
         key(&mut app, true, false);
         app.update();
         assert!(app.world().resource::<Seen>().keys.just_pressed(KeyCode::Enter));
+    }
+
+    #[test]
+    fn diagonal_stick_thresholds_keep_normalization_with_switching_off() {
+        use crate::bindings::{Control, ControlInput};
+        #[derive(Resource, Default)]
+        struct Direction([bool; 3]);
+        fn read(input: ControlInput, mut seen: ResMut<Direction>) {
+            let sticks = input.stick_buttons().unwrap();
+            seen.0 = [input.pressed(Control::SlideRight), input.just_pressed(Control::SlideRight), sticks.just_pressed(super::super::StickDir::Right)];
+        }
+        let (mut app, pad) = observed_app(InputDevice::Controller);
+        app.world_mut().resource_mut::<Bindings>().automatic_input_switching = false;
+        app.init_resource::<super::super::StickButtons>().init_resource::<Direction>()
+            .add_systems(PreUpdate, super::super::update_stick_buttons.after(automatic))
+            .add_systems(Update, read);
+        app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::LeftStickY, 1.0);
+        app.update();
+        assert_eq!(app.world().resource::<Direction>().0, [false; 3]);
+        app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::LeftStickX, 0.55);
+        app.update();
+        assert_eq!(app.world().resource::<Direction>().0, [false; 3], "the normalized horizontal component remains below STICK_PRESS");
+        app.update();
+        assert_eq!(app.world().resource::<Direction>().0, [false; 3]);
+        app.world_mut().get_mut::<Gamepad>(pad).unwrap().analog_mut().set(GamepadAxis::LeftStickX, 0.8);
+        app.update();
+        assert_eq!(app.world().resource::<Direction>().0, [true; 3]);
+        app.update();
+        assert_eq!(app.world().resource::<Direction>().0, [true, false, false]);
+        assert_eq!(app.world().resource::<Bindings>().device, InputDevice::Controller);
     }
 
     #[test]
