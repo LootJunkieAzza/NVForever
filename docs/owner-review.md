@@ -23,6 +23,13 @@ the spec it links to.
 
 ## Tier 1: felt in every fight or every session
 
+- **Pip-Boy pages from their menu files by default (#2215).** [design, #2215] An absent
+  `[UI] TileMenus` selects StatsMenu, InventoryMenu, RepairMenu, ItemModMenu, MapMenu and
+  QuantityMenu, keeping the hand-built fallback for missing or cut-down files. An empty
+  `TileMenus=` restores the hand-built pages. Keep this default at PR review? Reverting
+  `DEFAULT_PIPBOY_MENUS` to an empty list restores the old default; other menus and the
+  existing maintainer choices stay as they are. ([ui-tile-tree section 6.2](design/ui-tile-tree.md#62-one-menu-at-a-time-nothing-broken))
+
 1. **Crippled torso staggers on every hit.** An NPC with a crippled torso staggers on
    any hit (3 s cooldown), which goes further than your "crippling hit and later hits
    to that part" rule. The player flinches the same way: the view jumps up to 4°, the

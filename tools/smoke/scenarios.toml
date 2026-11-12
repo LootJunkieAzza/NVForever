@@ -4212,7 +4212,7 @@ name = "pipboy"
 source = "CLAUDE.md: after Pip-Boy changes (docs/spec-notes/pipboy.md §7)"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy*", "engine/nvforever/src/pipboy_arm.rs", "engine/nvf-assets/src/nif_material*"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,15:page=stats,17:close", NVF_PLAY_TEST_SHOTS = "14:pipboy_items.png,16.5:pipboy_stats.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,15:page=stats,17:close", NVF_PLAY_TEST_SHOTS = "14:pipboy_items.png,16.5:pipboy_stats.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 19
 order = [[
@@ -4244,7 +4244,7 @@ name = "pipboy-screen-fx"
 source = "docs/spec-notes/pipboy.md §3 'Page changes': on the arm a page change washes the screen and, as the test aid forces them, rolls it once through the vertical hold or shudders; a tab change brightens it a little; the beam still sweeps and the pages still draw"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/transition.rs", "engine/nvf-play/src/pipboy/device_screen.rs", "engine/nvf-play/src/pipboy/test_aid.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvf-assets/src/nif_material*", "engine/nvf-assets/src/nif_surface_bindings.wesl"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:glitch=hold,14:page=stats,15:glitch=shudder,15.5:page=data,16.5:glitch=plain,17:page=items,18:tab=1,19:glitch=off,19.5:page=stats,21:close", NVF_PLAY_TEST_SHOTS = "14.1:pipboy_fx_hold.png,15.6:pipboy_fx_shudder.png,17.05:pipboy_fx_plain.png,18.02:pipboy_fx_tab.png,20.5:pipboy_fx_after.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:glitch=hold,14:page=stats,15:glitch=shudder,15.5:page=data,16.5:glitch=plain,17:page=items,18:tab=1,19:glitch=off,19.5:page=stats,21:close", NVF_PLAY_TEST_SHOTS = "14.1:pipboy_fx_hold.png,15.6:pipboy_fx_shudder.png,17.05:pipboy_fx_plain.png,18.02:pipboy_fx_tab.png,20.5:pipboy_fx_after.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 23
 order = [[
@@ -4275,7 +4275,7 @@ name = "pipboy-screen-text"
 source = "docs/spec-notes/pipboy.md §3 'Text edges': eight stills each of S.P.E.C.I.A.L., Status, Skills, ITEMS and DATA on the arm at 1280 x 720, for the edge measure (median of the eight, the beam drops out)"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/device_screen.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvf-assets/src/nif_material.wesl"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13.5:page=stats,14:tab=1,17.5:tab=0,21:tab=2,24.5:page=items,28:page=data,31.5:close", NVF_PLAY_TEST_SHOTS = "15.0:pipboy_text_special_1.png,15.3:pipboy_text_special_2.png,15.6:pipboy_text_special_3.png,15.9:pipboy_text_special_4.png,16.2:pipboy_text_special_5.png,16.5:pipboy_text_special_6.png,16.8:pipboy_text_special_7.png,17.1:pipboy_text_special_8.png,18.5:pipboy_text_status_1.png,18.8:pipboy_text_status_2.png,19.1:pipboy_text_status_3.png,19.4:pipboy_text_status_4.png,19.7:pipboy_text_status_5.png,20.0:pipboy_text_status_6.png,20.3:pipboy_text_status_7.png,20.6:pipboy_text_status_8.png,22.0:pipboy_text_skills_1.png,22.3:pipboy_text_skills_2.png,22.6:pipboy_text_skills_3.png,22.9:pipboy_text_skills_4.png,23.2:pipboy_text_skills_5.png,23.5:pipboy_text_skills_6.png,23.8:pipboy_text_skills_7.png,24.1:pipboy_text_skills_8.png,25.5:pipboy_text_items_1.png,25.8:pipboy_text_items_2.png,26.1:pipboy_text_items_3.png,26.4:pipboy_text_items_4.png,26.7:pipboy_text_items_5.png,27.0:pipboy_text_items_6.png,27.3:pipboy_text_items_7.png,27.6:pipboy_text_items_8.png,29.0:pipboy_text_data_1.png,29.3:pipboy_text_data_2.png,29.6:pipboy_text_data_3.png,29.9:pipboy_text_data_4.png,30.2:pipboy_text_data_5.png,30.5:pipboy_text_data_6.png,30.8:pipboy_text_data_7.png,31.1:pipboy_text_data_8.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13.5:page=stats,14:tab=1,17.5:tab=0,21:tab=2,24.5:page=items,28:page=data,31.5:close", NVF_PLAY_TEST_SHOTS = "15.0:pipboy_text_special_1.png,15.3:pipboy_text_special_2.png,15.6:pipboy_text_special_3.png,15.9:pipboy_text_special_4.png,16.2:pipboy_text_special_5.png,16.5:pipboy_text_special_6.png,16.8:pipboy_text_special_7.png,17.1:pipboy_text_special_8.png,18.5:pipboy_text_status_1.png,18.8:pipboy_text_status_2.png,19.1:pipboy_text_status_3.png,19.4:pipboy_text_status_4.png,19.7:pipboy_text_status_5.png,20.0:pipboy_text_status_6.png,20.3:pipboy_text_status_7.png,20.6:pipboy_text_status_8.png,22.0:pipboy_text_skills_1.png,22.3:pipboy_text_skills_2.png,22.6:pipboy_text_skills_3.png,22.9:pipboy_text_skills_4.png,23.2:pipboy_text_skills_5.png,23.5:pipboy_text_skills_6.png,23.8:pipboy_text_skills_7.png,24.1:pipboy_text_skills_8.png,25.5:pipboy_text_items_1.png,25.8:pipboy_text_items_2.png,26.1:pipboy_text_items_3.png,26.4:pipboy_text_items_4.png,26.7:pipboy_text_items_5.png,27.0:pipboy_text_items_6.png,27.3:pipboy_text_items_7.png,27.6:pipboy_text_items_8.png,29.0:pipboy_text_data_1.png,29.3:pipboy_text_data_2.png,29.6:pipboy_text_data_3.png,29.9:pipboy_text_data_4.png,30.2:pipboy_text_data_5.png,30.5:pipboy_text_data_6.png,30.8:pipboy_text_data_7.png,31.1:pipboy_text_data_8.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 33
 order = [[
@@ -4316,7 +4316,7 @@ name = "pipboy-list5"
 source = "playtest list 5 items 2, 11, 14, 30, 52, 54-56 (docs/spec-notes/pipboy.md §5, §6.1): item figures, karma title, local map outline and drag, the Pip-Boy's sounds"
 areas = ["pipboy", "audio"]
 paths = ["engine/nvf-play/src/pipboy*", "engine/nvf-play/src/flashlight.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONTROL = "8:flashlight", NVF_PLAY_TEST_PIPBOY = "12:open,14:tab=2,16:page=stats,17:tab=4,20:page=data,20.5:tab=0,23.5:drag=-100:0,25:close", NVF_PLAY_TEST_PIPBOY_STATS = "18:mode", NVF_PLAY_TEST_SHOTS = "15,19.5,23,24.5" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONTROL = "8:flashlight", NVF_PLAY_TEST_PIPBOY = "12:open,14:tab=2,16:page=stats,17:tab=4,20:page=data,20.5:tab=0,23.5:drag=-100:0,25:close", NVF_PLAY_TEST_PIPBOY_STATS = "18:mode", NVF_PLAY_TEST_SHOTS = "15,19.5,23,24.5" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 27
 expect = [
@@ -4336,7 +4336,7 @@ name = "pipboy-pointer"
 source = "CLAUDE.md: after changes to the Pip-Boy's pointer (pipboy_arm.rs follow_pointer, pipboy::drive_pointer), click on the model's screen"
 areas = ["pipboy"]
 paths = ["engine/nvforever/src/pipboy_arm.rs", "engine/nvf-play/src/pipboy*"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:point=stats,13.5:point=off,14:click=320:650,16:click=stats,18:click=600:650", NVF_PLAY_TEST_SHOTS = "13.3:pipboy_hover.png,17:pipboy_clicked.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:point=stats,13.5:point=off,14:click=320:650,16:click=stats,18:click=600:650", NVF_PLAY_TEST_SHOTS = "13.3:pipboy_hover.png,17:pipboy_clicked.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 21
 expect = [
@@ -4364,7 +4364,7 @@ source = "#1516: the needle follows total rads, the tab knob the page's tab, the
 note = "rads set while the Pip-Boy is down: the first raise takes 300 at once, the second travels to 900 (108 degrees at 30 a second) on the arm; tabs at 28.5 to 31.5 s; the rows at 32.5 s. The first raise is at 18 s, after the add-ons' start-up message boxes: at 12 s the box still open made the menu ignore the request, so 300 was never read"
 areas = ["pipboy"]
 paths = ["engine/nvforever/src/pipboy_controls.rs", "engine/nvforever/src/pipboy_arm.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "16:set_av:player:RadiationRads:300,22:set_av:player:RadiationRads:900", NVF_PLAY_TEST_PIPBOY = "18:open,20:close,24:open,28.5:tab=1,29.5:tab=2,30.5:tab=4,31.5:tab=0,32.5:key=down,33:key=down,34:close", NVF_PLAY_TEST_SHOTS = "19.5:pipboy_needle_300.png,24.8:pipboy_needle_moving.png,28:pipboy_needle_900.png,31:pipboy_knob_tab4.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "16:set_av:player:RadiationRads:300,22:set_av:player:RadiationRads:900", NVF_PLAY_TEST_PIPBOY = "18:open,20:close,24:open,28.5:tab=1,29.5:tab=2,30.5:tab=4,31.5:tab=0,32.5:key=down,33:key=down,34:close", NVF_PLAY_TEST_SHOTS = "19.5:pipboy_needle_300.png,24.8:pipboy_needle_moving.png,28:pipboy_needle_900.png,31:pipboy_knob_tab4.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 36
 order = [[
@@ -4389,7 +4389,7 @@ name = "pipboy-screen-menu"
 source = "issue #1228 (docs/design/screen-menu.md §6): the Gameplay setting Use Pip-Boy off takes the Pip-Boy and its glove off and the menus show full screen; on puts them back and the menus are on the arm"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy*", "engine/nvforever/src/pipboy_arm.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10.5:player.equipitem 00015038;10.8:close", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,14:page=data,15:tab=1,15.5:page=stats,16:click=600:650,18:close,20:frame=device,22:open,25:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10.5:player.equipitem 00015038;10.8:close", NVF_PLAY_TEST_PIPBOY = "10:frame=screen,12:open,14:page=data,15:tab=1,15.5:page=stats,16:click=600:650,18:close,20:frame=device,22:open,25:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1920x1080"]
 run_seconds = 27
 note = "the console's equipitem at 10.5 s, with Use Pip-Boy off, is taken off again (the setting holds, as for a loaded save or Doc Mitchell's script); 1920x1080 so the image is made larger; the click at 16 s is on the STATS tab line's fourth tab (Perks) through the flat image; 00015038 is the Pip-Boy 3000, 00025B83 the Pip-Boy Glove (FalloutNV.esm)"
@@ -4462,7 +4462,7 @@ source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page's Quests tab
 note = "VMQ02 started from the console at 8 s with 32 of its objectives shown (indices 1 to 113 of its data, far more than the 400-high window holds) and made the active quest, so the Quests tab opens on it. Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back from it to 0 (an empty or fitting pane, 'from 0 to 0 of 0', does not pass). The scroll bar's clicks and drag and the right stick have unit tests only: the test aids press no controller stick and the bar's place depends on the font."
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:StartQuest VMQ02;SetObjectiveDisplayed VMQ02 1 1;SetObjectiveDisplayed VMQ02 2 1;SetObjectiveDisplayed VMQ02 3 1;SetObjectiveDisplayed VMQ02 5 1;SetObjectiveDisplayed VMQ02 6 1;SetObjectiveDisplayed VMQ02 7 1;SetObjectiveDisplayed VMQ02 8 1;SetObjectiveDisplayed VMQ02 9 1;SetObjectiveDisplayed VMQ02 10 1;SetObjectiveDisplayed VMQ02 12 1;SetObjectiveDisplayed VMQ02 15 1;SetObjectiveDisplayed VMQ02 20 1;SetObjectiveDisplayed VMQ02 22 1;SetObjectiveDisplayed VMQ02 25 1;SetObjectiveDisplayed VMQ02 30 1;SetObjectiveDisplayed VMQ02 40 1;SetObjectiveDisplayed VMQ02 41 1;SetObjectiveDisplayed VMQ02 50 1;SetObjectiveDisplayed VMQ02 53 1;SetObjectiveDisplayed VMQ02 55 1;SetObjectiveDisplayed VMQ02 60 1;SetObjectiveDisplayed VMQ02 70 1;SetObjectiveDisplayed VMQ02 75 1;SetObjectiveDisplayed VMQ02 80 1;SetObjectiveDisplayed VMQ02 85 1;SetObjectiveDisplayed VMQ02 90 1;SetObjectiveDisplayed VMQ02 100 1;SetObjectiveDisplayed VMQ02 101 1;SetObjectiveDisplayed VMQ02 110 1;SetObjectiveDisplayed VMQ02 111 1;SetObjectiveDisplayed VMQ02 112 1;SetObjectiveDisplayed VMQ02 113 1;ForceActiveQuest VMQ02;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:StartQuest VMQ02;SetObjectiveDisplayed VMQ02 1 1;SetObjectiveDisplayed VMQ02 2 1;SetObjectiveDisplayed VMQ02 3 1;SetObjectiveDisplayed VMQ02 5 1;SetObjectiveDisplayed VMQ02 6 1;SetObjectiveDisplayed VMQ02 7 1;SetObjectiveDisplayed VMQ02 8 1;SetObjectiveDisplayed VMQ02 9 1;SetObjectiveDisplayed VMQ02 10 1;SetObjectiveDisplayed VMQ02 12 1;SetObjectiveDisplayed VMQ02 15 1;SetObjectiveDisplayed VMQ02 20 1;SetObjectiveDisplayed VMQ02 22 1;SetObjectiveDisplayed VMQ02 25 1;SetObjectiveDisplayed VMQ02 30 1;SetObjectiveDisplayed VMQ02 40 1;SetObjectiveDisplayed VMQ02 41 1;SetObjectiveDisplayed VMQ02 50 1;SetObjectiveDisplayed VMQ02 53 1;SetObjectiveDisplayed VMQ02 55 1;SetObjectiveDisplayed VMQ02 60 1;SetObjectiveDisplayed VMQ02 70 1;SetObjectiveDisplayed VMQ02 75 1;SetObjectiveDisplayed VMQ02 80 1;SetObjectiveDisplayed VMQ02 85 1;SetObjectiveDisplayed VMQ02 90 1;SetObjectiveDisplayed VMQ02 100 1;SetObjectiveDisplayed VMQ02 101 1;SetObjectiveDisplayed VMQ02 110 1;SetObjectiveDisplayed VMQ02 111 1;SetObjectiveDisplayed VMQ02 112 1;SetObjectiveDisplayed VMQ02 113 1;ForceActiveQuest VMQ02;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
 run_seconds = 24
 order = [[
@@ -4476,7 +4476,7 @@ source = "#1667 (docs/spec-notes/pipboy.md §5.3): on the DATA page's Misc tab a
 note = "CaravanRulesNote (a text note) is added at 8 s and is the only note, so Misc shows it. Page Down at 15 s must scroll from 0 to a positive offset of a positive range, Page Up at 16 s back to 0. It is the issue's long note, 'How To Play Caravan' [observed: issue #1667; Editor ID from fnvtool esm inventory, FalloutNV.esm], so the text overflows its 385-high window."
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote CaravanRulesNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote CaravanRulesNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,18:close", NVF_PLAY_TEST_KEYS = "15:pagedown,16:pageup" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--size", "1280x720", "--no-voice", "--no-messages"]
 run_seconds = 24
 order = [[
@@ -5154,7 +5154,7 @@ name = "script-stubs-2-play"
 source = "docs/design/script-stubs.md §3.2: SetGlobalTimeMultiplier slows the clock and puts it back; ShowAllMapMarkers 1 0 0 (the Explorer perk) puts the markers on the Pip-Boy's world map (the test aid call:)"
 areas = ["scripts", "stubs", "pipboy"]
 paths = ["crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/functions/misc.rs", "engine/nvf-play/src/pipboy/data.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:SetGlobalTimeMultiplier:0.5,8:call:-:SetGlobalTimeMultiplier:1,10:call:-:ShowAllMapMarkers:1:0:0", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=data,16:tab=1,19:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:SetGlobalTimeMultiplier:0.5,8:call:-:SetGlobalTimeMultiplier:1,10:call:-:ShowAllMapMarkers:1:0:0", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=data,16:tab=1,19:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 28
 # Before the call only the few markers flagged Visible are on the map; after it, every one that
@@ -5171,7 +5171,7 @@ name = "pipboy-tmm-discovered"
 source = "owner request 2026-10-23: ShowAllMapMarkers 1 (tmm 1, travel on) draws every marker with its own type icon, as discovered; without travel they keep the undiscovered icon (script-stubs-2-play)"
 areas = ["scripts", "pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/model.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 20
 order = [[
@@ -5840,7 +5840,7 @@ source = "owner 2026-10-23: under a Stealth Boy the Pip-Boy's screen was see-thr
 note = "first person; the Stealth Boy used at 8 s (the drop aid turns ITEMS to its Aid tab to reach it, and the Pip-Boy keeps that tab, #1256); the Pip-Boy up on ITEMS at 18 s, after the add-ons' start-up message boxes (frame at 20 s), down at 21 s, up again at 23 s (the screen had turned see-through again), down at 25 s"
 areas = ["aid", "pipboy"]
 paths = ["engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvf-play/src/pipboy/device_screen.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_DROP = "8:00043E94:use", NVF_PLAY_TEST_PIPBOY = "18:open,21:close,23:open,25:close", NVF_PLAY_TEST_SHOTS = "20:stealth_pipboy.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_DROP = "8:00043E94:use", NVF_PLAY_TEST_PIPBOY = "18:open,21:close,23:open,25:close", NVF_PLAY_TEST_SHOTS = "20:stealth_pipboy.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 27
 expect = [
@@ -8362,7 +8362,7 @@ name = "pipboy-items-extras"
 source = "outstanding.md §2 Interface (2026-10-19; docs/spec-notes/pipboy.md §5, repair.md §5): the ITEMS page's skill badge (the Guns picture and the skill the pistol needs, in place of a DPS card, which the original does not show there) and Mod X) for a worn 10mm Pistol; the repair list taken by the pointer: the pointer on the part chooses it, a click on it then uses it (a click on a row not chosen only chooses it: unit test a_click_chooses_a_row_and_a_second_click_uses_the_part)"
 areas = ["repair", "pipboy"]
 paths = ["engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/items.rs"]
-env = { NVFOREVER_HOME = "pipboy-items-extras-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=items,15.5:tab=0,17:repair=open,18:point=260:201,19.5:click=260:201,22:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_items_extras.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-items-extras-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=items,15.5:tab=0,17:repair=open,18:point=260:201,19.5:click=260:201,22:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_items_extras.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 25
 expect = [
@@ -8380,7 +8380,7 @@ source = "owner 2026-10-23: on the STATS page's CND the Stimpak is used on the b
 note = "the console gives 3 Stimpaks and a Doctor's Bag, cripples the left arm and takes 50 health; on CND a Stimpak on the body, one refused on the whole right arm, one on the left arm, the bag, a second bag refused with every limb whole (the start carries some of each already)"
 areas = ["pipboy", "aid"]
 paths = ["engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/aid.rs", "crates/fnv-game/src/aid.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem 15169 3;8.3:player.AddItem CB05C 1;8.6:player.DamageAV LeftAttackCondition 100;8.9:player.DamageAV Health 50;9.5:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,31:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:use=stimpak,24:limb=3,24.5:use=stimpak,25:limb=2,25.5:use=stimpak,27:use=bag,28:use=bag", NVF_PLAY_TEST_SHOTS = "22.5:pipboy_cnd_hurt.png,29:pipboy_cnd_healed.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:player.AddItem 15169 3;8.3:player.AddItem CB05C 1;8.6:player.DamageAV LeftAttackCondition 100;8.9:player.DamageAV Health 50;9.5:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,31:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:use=stimpak,24:limb=3,24.5:use=stimpak,25:limb=2,25.5:use=stimpak,27:use=bag,28:use=bag", NVF_PLAY_TEST_SHOTS = "22.5:pipboy_cnd_hurt.png,29:pipboy_cnd_healed.png" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 33
 expect = [
@@ -8405,7 +8405,7 @@ source = "owner 2026-10-23: in Hardcore the CND page refuses a Stimpak aimed at 
 note = "Hardcore on by the script aid; the console cripples the left arm and takes 50 health; on CND a Stimpak on the left arm (refused), one on the body, then the bag"
 areas = ["pipboy", "aid"]
 paths = ["engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/functions/player.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1", NVF_PLAY_TEST_CONSOLE = "8:player.DamageAV LeftAttackCondition 100;8.3:player.DamageAV Health 50;9:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,29:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:limb=2,23.5:use=stimpak,24.5:limb=none,25:use=stimpak,26.5:use=bag" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1", NVF_PLAY_TEST_CONSOLE = "8:player.DamageAV LeftAttackCondition 100;8.3:player.DamageAV Health 50;9:close", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,29:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:limb=2,23.5:use=stimpak,24.5:limb=none,25:use=stimpak,26.5:use=bag" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 31
 expect = [
@@ -8424,7 +8424,7 @@ name = "pipboy-general-locations"
 source = "outstanding.md §2 Interface (2026-10-19; hud.md §11, misc-stats.md): leaving the start finds Goodsprings: the HUD's XP meter shows +10 XP and the Pip-Boy's General list counts it under Locations Discovered (the tab opens on its Reputation list: mode, then down from Quests Completed)"
 areas = ["hud", "pipboy"]
 paths = ["engine/nvf-play/src/xp_meter.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/misc_stats.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=4,26:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:mode,23.5:down" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=4,26:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:mode,23.5:down" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 28
 expect = [
@@ -8438,7 +8438,7 @@ name = "pipboy-repair"
 source = "todo 6 item 5: repair from the Pip-Boy (engine/nvf-play/src/pipboy/repair.rs, crates/fnv-game/src/repair.rs, docs/spec-notes/repair.md §5): two worn 10mm Pistols (Weap10mmPistol, first in the Weapons tab by name), the ITEMS page's Repair R) hint, R lists the other pistol as the part, using it scraps it and raises the first by the GECK wiki's repair formula at the player's Repair skill; frame pipboy_repair.png in the working folder"
 areas = ["repair", "pipboy"]
 paths = ["engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/items.rs", "crates/fnv-game/src/repair.rs"]
-env = { NVFOREVER_HOME = "pipboy-repair-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,18:repair=use,20:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hint.png,17:pipboy_repair.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-repair-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,18:repair=use,20:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hint.png,17:pipboy_repair.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 23
 expect = [
@@ -8454,7 +8454,7 @@ name = "pipboy-repair-repeat"
 source = "playtest list 7 item 16 (engine/nvf-play/src/pipboy/repair.rs, docs/spec-notes/repair.md §5): the repair list stays open after a repair while the item is below full condition and parts are left; three 10mm Pistols (one at 40 %, two at 30 %): the first use leaves one part and the list open, the second uses it up and the list closes (unit test the_list_stays_open_until_full_or_out_of_parts)"
 areas = ["repair", "pipboy"]
 paths = ["engine/nvf-play/src/pipboy/repair.rs"]
-env = { NVFOREVER_HOME = "pipboy-repair-repeat-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,17:repair=use,18.5:repair=use,20:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-repair-repeat-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,17:repair=use,18.5:repair=use,20:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 23
 expect = [
@@ -8470,7 +8470,7 @@ name = "pipboy-repair-full"
 source = "#1591 (engine/nvf-play/src/pipboy/repair.rs, docs/spec-notes/repair.md §5): the pipboy-repair set-up with the two 10mm Pistols given by plain AddItem (99.9 %, which the vendor counts as full): the hint is dim, R refuses and no pistol is scrapped (unit tests an_item_shown_as_full_is_not_repaired, an_item_shown_as_full_is_not_a_part)"
 areas = ["repair", "pipboy"]
 paths = ["engine/nvf-play/src/pipboy/repair.rs", "crates/fnv-game/src/repair.rs"]
-env = { NVFOREVER_HOME = "pipboy-repair-full-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.5:call:player:AddItem:Weap10mmPistol:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,18:repair=use,20:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-repair-full-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.5:call:player:AddItem:Weap10mmPistol:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,18:repair=use,20:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 23
 expect = [
@@ -8531,7 +8531,7 @@ name = "pipboy-item-mod"
 source = "outstanding.md §2 Interface (2026-10-20; docs/spec-notes/weapon-mods.md §4-§5): the weapon mod menu: an equipped 10mm Pistol (Weap10mmPistol, first in the Weapons tab by name) and a 10mm Pistol Extended Mags (ModNV10mmPistolExtMags, its slot 1, Increase Clip Capacity 4); the ITEMS page's Mod X) bright, X lists the mod, MenuMode 1061 while open, attaching it uses it up and sets flag 1; the menu stays open, so Enter again removes it (flag 0, the mod back) and a third time puts it back on (owner's rule 2026-10-27); the pistol in hand then has a 16-round clip; frame pipboy_item_mod.png in the working folder"
 areas = ["pipboy", "combat"]
 paths = ["engine/nvf-play/src/pipboy/item_mod.rs", "crates/fnv-combat/src/data.rs", "crates/fnv-actor/src/records.rs"]
-env = { NVFOREVER_HOME = "pipboy-item-mod-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,16:mod=down,18:mod=use,18.6:mod=use,19.2:mod=use,20:close", NVF_PLAY_TEST_SHOTS = "17:pipboy_item_mod.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-item-mod-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:mod=open,16:mod=down,18:mod=use,18.6:mod=use,19.2:mod=use,20:close", NVF_PLAY_TEST_SHOTS = "17:pipboy_item_mod.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 25
 expect = [
@@ -8549,7 +8549,7 @@ name = "pipboy-right-click-drop"
 source = "#1393 (owner 2026-11-02; docs/spec-notes/pipboy.md §6): a right click on an ITEMS row drops it; on a 10mm Pistol (Weap10mmPistol, a weapon with mod slots, first in the Weapons tab by name) with a fitting mod carried, so Mod X) shows, the right click drops the pistol and never opens the mod menu or equips it"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/test_aid.rs"]
-env = { NVFOREVER_HOME = "pipboy-right-click-drop-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:rclick=260:150,18:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-right-click-drop-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:rclick=260:150,18:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 21
 expect = [
@@ -9263,7 +9263,7 @@ name = "reputation-box"
 source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('You have discovered'); fame with Goodsprings opens its 'Liked' box, infamy with the Powder Gangers their boxes up to 'Vilified'; the Pip-Boy's General page lists both"
 areas = ["hud", "pipboy"]
 paths = ["engine/nvf-play/src/reputation.rs", "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/functions/reputation.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close;17:player.addreputation 001558E6 0 5;17.2:player.addreputation 001558E6 0 5;17.4:player.addreputation 001558E6 0 5;17.6:close", NVF_PLAY_TEST_PIPBOY = "32:open,33:page=stats,34:tab=4,36:close", NVF_PLAY_TEST_SHOTS = "6,14,19,35" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close;17:player.addreputation 001558E6 0 5;17.2:player.addreputation 001558E6 0 5;17.4:player.addreputation 001558E6 0 5;17.6:close", NVF_PLAY_TEST_PIPBOY = "32:open,33:page=stats,34:tab=4,36:close", NVF_PLAY_TEST_SHOTS = "6,14,19,35" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--heading", "50", "--size", "1280x720"]
 run_seconds = 38
 expect = [
@@ -9857,7 +9857,7 @@ name = "ui-colours"
 source = "owner 2026-10-26: colour pickers on the settings page for the HUD and the Pip-Boy's screens, amber the default; a preset and a slider change each colour at once and the Pip-Boy opens in its own"
 areas = ["settings", "hud", "pipboy"]
 paths = ["engine/nvf-play/src/ui_colour.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings_layout.rs", "engine/nvf-play/src/settings_view.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:hud-colour=Green,12:pipboy-colour=Blue,13:pipboy-red=0.2", NVF_PLAY_TEST_PIPBOY = "17:open,18:page=items,20:close", NVF_PLAY_TEST_SHOTS = "19:ui_colours_pipboy.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:hud-colour=Green,12:pipboy-colour=Blue,13:pipboy-red=0.2", NVF_PLAY_TEST_PIPBOY = "17:open,18:page=items,20:close", NVF_PLAY_TEST_SHOTS = "19:ui_colours_pipboy.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--pos=-68375,4800,8700"]
 run_seconds = 22
 order = [[
@@ -14032,7 +14032,7 @@ name = "pipboy-aid-effects"
 source = "owner's playtest list 7 items 5, 20 and 33 (docs/spec-notes/aid-items.md §14, pipboy.md §5): an aid item's EFFECTS are the effects whose conditions pass for the player, one line per value (Programmer's Digest one Science +10 without Comprehension or Retention, the Blood Pack HP +1 without Hematophage, the Stimpak one HP line); the ITEMS heading reads HP and DT; a skill book is listed on the Aid tab"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/stats/read.rs", "crates/fnv-game/src/aid.rs"]
-env = { NVFOREVER_HOME = "pipboy-aid-effects-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:MagazineNVScience:1,9.2:call:player:AddItem:BloodPack:1,9.4:call:player:AddItem:Stimpak:2,9.6:call:player:AddItem:BookSkillScience:1", NVF_PLAY_TEST_PIPBOY = "15:open,16:page=items,16.5:tab=2,17:key=down,17.4:key=down,17.8:key=down,18.2:key=down,18.6:key=down,19:key=down,19.4:key=down,19.8:key=down,21:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-aid-effects-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:MagazineNVScience:1,9.2:call:player:AddItem:BloodPack:1,9.4:call:player:AddItem:Stimpak:2,9.6:call:player:AddItem:BookSkillScience:1", NVF_PLAY_TEST_PIPBOY = "15:open,16:page=items,16.5:tab=2,17:key=down,17.4:key=down,17.8:key=down,18.2:key=down,18.6:key=down,19:key=down,19.4:key=down,19.8:key=down,21:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 23
 expect = [
@@ -14048,7 +14048,7 @@ name = "pipboy-misc-folders"
 source = "owner's playtest list 7 items 6 and 8 (docs/spec-notes/pipboy.md §5, caravan.md §2): Ringo's Caravan Deck item, added to the player, moves the spare deck's 54 cards to the player with RemoveAllItems, and each card's OnAdd runs AddCardToPlayer; the Misc tab lists the keys in a Keyring row and the cards in a Caravan Cards row, each opening on its items with Back (and Backspace) to return; a game of Caravan against Ringo then opens with the 54 cards"
 areas = ["pipboy", "caravan", "menus"]
 paths = ["engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/menu.rs", "crates/fnv-game/src/functions/items.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "10:player.additem 0015F8C3 1;10.3:player.additem 0017371F 1;10.6:player.additem 00173720 1;11:close", NVF_PLAY_TEST_PIPBOY = "13:open,13.5:page=items,14:tab=3,15:key=use,16:key=use,17:key=down,18:key=use,19:key=back,20:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,24:open:104C7D:15D7A2:0.25" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "10:player.additem 0015F8C3 1;10.3:player.additem 0017371F 1;10.6:player.additem 00173720 1;11:close", NVF_PLAY_TEST_PIPBOY = "13:open,13.5:page=items,14:tab=3,15:key=use,16:key=use,17:key=down,18:key=use,19:key=back,20:close", NVF_PLAY_TEST_CARAVAN = "1:seed:7,24:open:104C7D:15D7A2:0.25" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
 run_seconds = 27
 expect = [
@@ -14597,7 +14597,7 @@ source = "ESM full audit gap 16 (docs/spec-notes/pipboy.md §5.3): map markers c
 note = "FalloutNV.esm has 36 markers with WMI1 (Goodsprings, NCR, Powder Gangers …), no add-on has any; the hover line itself needs the pointer on a marker and is not asserted"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/pipboy/data/model.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 16
 expect = [
@@ -15032,7 +15032,7 @@ source = "owner 2026-10-26: on the Pip-Boy's ITEMS page, hold a hotkey's key and
 note = "the player is given a .357 Magnum Revolver (first on the Weapons tab by its name) and 24 rounds; on ITEMS key 3 is held and the first row clicked (slot 3), then key 4 (the revolver moves from slot 3), key 2 (refused: Ammo Swap); on the Ammo tab key 5 and a click on its first row (ammunition cannot be hotkeyed). After the Pip-Boy closes, a tap of 4 equips the revolver (were it equipped by a click, the tap would say it is already in hand). The screenshot shows the panel with key 3 held"
 areas = ["hotkeys", "pipboy"]
 paths = ["engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/hotkeys.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,14:point=260:150,15:hotkey=3,16:click=260:150,17.5:hotkey=4,18:click=260:150,19:hotkey=2,19.5:click=260:150,20:hotkey=off,21:tab=4,22:hotkey=5,22.5:click=260:150,23.5:hotkey=off,24:close", NVF_PLAY_TEST_HOTKEYS = "27:tap:4", NVF_PLAY_TEST_SHOTS = "17:pipboy_hotkeys.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008F216:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,14:point=260:150,15:hotkey=3,16:click=260:150,17.5:hotkey=4,18:click=260:150,19:hotkey=2,19.5:click=260:150,20:hotkey=off,21:tab=4,22:hotkey=5,22.5:click=260:150,23.5:hotkey=off,24:close", NVF_PLAY_TEST_HOTKEYS = "27:tap:4", NVF_PLAY_TEST_SHOTS = "17:pipboy_hotkeys.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--hour", "14", "--no-voice", "--no-messages"]
 run_seconds = 32
 expect = [
@@ -21585,7 +21585,7 @@ source = "barter-menu.md §5 and §8: without the switch the container menu is t
 note = "the same give and times as tiles-container, by keys alone (the aid's pointer is the tiles'); the 20 rounds given join the start inventory's 50"
 areas = ["ui", "menu", "items"]
 paths = ["engine/nvforever/src/imagespace.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/**", "engine/nvf-play/src/tiles/container_menu.rs", "engine/nvf-play/src/tiles/item_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/pad.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00004241:20,000E9C3B,0008F21A,0003307F,00015169:2,00022102,000E3778,00020423,00034045,0008C214,0008ED0B,0001519E", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_KEYS = "12:f10,14:a,16:enter,17.5:e,18:enter,18.5:a,20:d,22:a,22.2:down,22.4:down,22.6:down,22.8:down,23:down,23.2:down,23.4:down,23.6:down,25:wheel-down,25.5:wheel-up,33:r,35:f10,36.5:e", NVF_PLAY_TEST_SHOTS = "13:default_container_open.png,15:default_container_row.png,17:default_container_prompt.png,21:default_container_right.png,22.5:default_container_card_weapon.png,22.7:default_container_card_armour.png,23.1:default_container_card_aid.png,24:default_container_scrolled.png,27.5:default_container_paged.png,36:default_container_reopened.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00004241:20,000E9C3B,0008F21A,0003307F,00015169:2,00022102,000E3778,00020423,00034045,0008C214,0008ED0B,0001519E", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_KEYS = "12:f10,14:a,16:enter,17.5:e,18:enter,18.5:a,20:d,22:a,22.2:down,22.4:down,22.6:down,22.8:down,23:down,23.2:down,23.4:down,23.6:down,25:wheel-down,25.5:wheel-up,33:r,35:f10,36.5:e", NVF_PLAY_TEST_SHOTS = "13:default_container_open.png,15:default_container_row.png,17:default_container_prompt.png,21:default_container_right.png,22.5:default_container_card_weapon.png,22.7:default_container_card_armour.png,23.1:default_container_card_aid.png,24:default_container_scrolled.png,27.5:default_container_paged.png,36:default_container_reopened.png" }
 args = ["--cell", "GSSchoolHouse", "--play", "--no-voice", "--no-messages", "--size", "1280x720"]
 run_seconds = 40
 expect = [
@@ -22810,7 +22810,7 @@ source = "[design] pipboy.md section 5.1.1: without the switch the page is the h
 note = "the same steps and times as tiles-stats-special, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvforever/src/pipboy_arm.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,37:a,38:d", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=1,30.5:point=200:240,32:click=200:344,33.5:point=off,34:click=500:651,36:tab=1,39:close,41:open,43:close", NVF_PLAY_TEST_SHOTS = "28:tiles_stats_off_device.png,31:tiles_stats_off_device_row.png,35:tiles_stats_off_device_skills.png,42:tiles_stats_off_device_reopened.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,37:a,38:d", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=1,30.5:point=200:240,32:click=200:344,33.5:point=off,34:click=500:651,36:tab=1,39:close,41:open,43:close", NVF_PLAY_TEST_SHOTS = "28:tiles_stats_off_device.png,31:tiles_stats_off_device_row.png,35:tiles_stats_off_device_skills.png,42:tiles_stats_off_device_reopened.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 46
 expect = [
@@ -22828,7 +22828,7 @@ source = "[design] pipboy.md section 5.1.1: without the switch the screen menu's
 note = "the same steps and times as tiles-stats-special-screen. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvforever/src/pipboy_arm.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,37:a,38:d", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=stats,27:tab=1,30.5:point=200:240,32:click=200:344,33.5:point=off,33.7:click=320:35,34.2:page=stats,34.7:click=500:651,36:tab=1,39:close,41:open,43:close", NVF_PLAY_TEST_SHOTS = "28:tiles_stats_off_screen.png,31:tiles_stats_off_screen_row.png,35:tiles_stats_off_screen_skills.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,37:a,38:d", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=stats,27:tab=1,30.5:point=200:240,32:click=200:344,33.5:point=off,33.7:click=320:35,34.2:page=stats,34.7:click=500:651,36:tab=1,39:close,41:open,43:close", NVF_PLAY_TEST_SHOTS = "28:tiles_stats_off_screen.png,31:tiles_stats_off_screen_row.png,35:tiles_stats_off_screen_skills.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 46
 expect = [
@@ -23787,7 +23787,7 @@ name = "pipboy-first-open"
 source = "issue #1803; docs/spec-notes/pipboy.md section 8: hidden start warm-up and the first visible raise"
 areas = ["pipboy", "loading", "pipelines"]
 paths = ["engine/nvforever/src/pipboy_ready.rs", "engine/vendor/bevy_pbr/src/material.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/pipeline_gate.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/loading.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.25", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PIPELINE_DEFS = "1", NVF_PLAY_TEST_PIPBOY_DRAW = "1", NVF_PLAY_TEST_PIPBOY = "5:open,8:page=stats,10:close", NVF_PLAY_TEST_SHOTS = "4.9:first_down.png,5.3:first_a.png,5.8:first_b.png,6.5:first_c.png,8.5:first_d.png,10.8:first_closed.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.25", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PIPELINE_DEFS = "1", NVF_PLAY_TEST_PIPBOY_DRAW = "1", NVF_PLAY_TEST_PIPBOY = "5:open,8:page=stats,10:close", NVF_PLAY_TEST_SHOTS = "4.9:first_down.png,5.3:first_a.png,5.8:first_b.png,6.5:first_c.png,8.5:first_d.png,10.8:first_closed.png" }
 args = ["--play", "--cell", "Goodsprings", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 11
 expect = [
@@ -23810,7 +23810,7 @@ name = "pipboy-first-open-no-warm"
 source = "issue #1803 negative control: the same first raise with NVF_PLAY_TEST_NO_PIPBOY_WARM=1"
 areas = ["pipboy", "loading", "pipelines"]
 paths = ["engine/nvforever/src/pipboy_ready.rs", "engine/vendor/bevy_pbr/src/material.rs", "engine/nvforever/src/pipboy_arm.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/pipeline_gate.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/loading.rs"]
-env = { NVF_PLAY_TEST_NO_PIPBOY_WARM = "1", NVF_PLAY_TEST_PIPBOY_DRAW = "1", NVF_PLAY_TEST_PIPELINE_DEFS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.25", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PIPBOY = "5:open,8:page=stats,10:close", NVF_PLAY_TEST_SHOTS = "4.9:first_down.png,5.3:first_a.png,5.8:first_b.png,6.5:first_c.png,8.5:first_d.png,10.8:first_closed.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_NO_PIPBOY_WARM = "1", NVF_PLAY_TEST_PIPBOY_DRAW = "1", NVF_PLAY_TEST_PIPELINE_DEFS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.25", NVF_PLAY_TEST_PIPELINE_LOG = "1", NVF_PLAY_TEST_PIPBOY = "5:open,8:page=stats,10:close", NVF_PLAY_TEST_SHOTS = "4.9:first_down.png,5.3:first_a.png,5.8:first_b.png,6.5:first_c.png,8.5:first_d.png,10.8:first_closed.png" }
 args = ["--play", "--cell", "Goodsprings", "--no-voice", "--hour", "12", "--size", "1280x720"]
 run_seconds = 11
 expect = [
@@ -24119,7 +24119,7 @@ source = "[design] pipboy.md section 5.1.2: without the switch the Skills tab is
 note = "the same steps and times as tiles-stats-skills, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,35:wheel-down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=250:240,31.3:point=250:292,32:click=250:344,33.5:point=off,34:click=51:570,36:click=645:652,38:tab=2,39:close", NVF_PLAY_TEST_SHOTS = "28:tiles_skills_off_device.png,31:tiles_skills_off_device_row.png,35.5:tiles_skills_off_device_scrolled.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_KEYS = "29:s,35:wheel-down", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=2,30.5:point=250:240,31.3:point=250:292,32:click=250:344,33.5:point=off,34:click=51:570,36:click=645:652,38:tab=2,39:close", NVF_PLAY_TEST_SHOTS = "28:tiles_skills_off_device.png,31:tiles_skills_off_device_row.png,35.5:tiles_skills_off_device_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -24202,7 +24202,7 @@ source = "[design] pipboy.md section 5.1.2: without the switch the Perks tab is 
 note = "the same steps and times as tiles-stats-perks, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=00044CB1,20.05:perk=00044CB1,20.1:perk=00031DB7", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:point=250:188,32:click=250:136,34:close", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_off_device.png,31:tiles_perks_off_device_row.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:perk=00044CB1,20.05:perk=00044CB1,20.1:perk=00031DB7", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=3,30:point=250:188,32:click=250:136,34:close", NVF_PLAY_TEST_SHOTS = "29:tiles_perks_off_device.png,31:tiles_perks_off_device_row.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 38
 expect = [
@@ -24258,7 +24258,7 @@ source = "[design] pipboy.md section 5.1.2: without the switch the General tab i
 note = "the same steps and times as tiles-stats-general, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:fame=00104C22=4", NVF_PLAY_TEST_KEYS = "32:wheel-down,36:r", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=4,28.3:point=250:126,29.5:point=off,30:click=840:120,31.3:point=250:230,33:click=56:300,39:close", NVF_PLAY_TEST_SHOTS = "29:tiles_general_off_reputation.png,31:tiles_general_off_statistics.png,35:tiles_general_off_scrolled.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY_STATS = "20:fame=00104C22=4", NVF_PLAY_TEST_KEYS = "32:wheel-down,36:r", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=4,28.3:point=250:126,29.5:point=off,30:click=840:120,31.3:point=250:230,33:click=56:300,39:close", NVF_PLAY_TEST_SHOTS = "29:tiles_general_off_reputation.png,31:tiles_general_off_statistics.png,35:tiles_general_off_scrolled.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 42
 expect = [
@@ -24316,7 +24316,7 @@ source = "[design] pipboy.md section 5.1.3: without the switch the Status tab is
 note = "the same steps and times as tiles-stats-status, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/list.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/layout.rs", "engine/nvf-play/src/tiles/menus.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs", "crates/fnv-game/src/ui_loading.rs", "crates/fnv-ui/src/tree.rs", "crates/fnv-ui/src/input.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22:player.AddItem 15169 3;22.3:player.AddItem CB05C 1;22.6:player.DamageAV LeftAttackCondition 60;22.9:player.DamageAV Health 50;23.5:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=860:146,31:click=650:213,33:click=860:250,35:click=92:188,37:click=92:240,39:click=92:136,41:close", NVF_PLAY_TEST_KEYS = "39.5:e", NVF_PLAY_TEST_SHOTS = "28:tiles_status_off_cnd.png,36:tiles_status_off_rad.png,38:tiles_status_off_eff.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22:player.AddItem 15169 3;22.3:player.AddItem CB05C 1;22.6:player.DamageAV LeftAttackCondition 60;22.9:player.DamageAV Health 50;23.5:close", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=stats,27:tab=0,29:click=860:146,31:click=650:213,33:click=860:250,35:click=92:188,37:click=92:240,39:click=92:136,41:close", NVF_PLAY_TEST_KEYS = "39.5:e", NVF_PLAY_TEST_SHOTS = "28:tiles_status_off_cnd.png,36:tiles_status_off_rad.png,38:tiles_status_off_eff.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -24452,7 +24452,7 @@ source = "[design] pipboy.md section 5.2.1: without the switch the page is the h
 note = "the same steps and times as tiles-items, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/hotkey_panel.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/menu.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=250:203,32:click=250:151,34:click=797:650,36:tab=0,38:rclick=250:203,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_device.png,31:tiles_items_off_device_row.png,35:tiles_items_off_device_ammo.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "22.5:player.equipitem 00015038;22.8:close", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "25:open,26:page=items,27:tab=0,30:point=250:203,32:click=250:151,34:click=797:650,36:tab=0,38:rclick=250:203,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_device.png,31:tiles_items_off_device_row.png,35:tiles_items_off_device_ammo.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -24469,7 +24469,7 @@ source = "[design] pipboy.md section 5.2.1: without the switch the screen menu's
 note = "the same steps and times as tiles-items-screen. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=250:203,32:click=250:151,33.5:click=172:35,34.5:page=items,35:click=797:650,37:tab=0,38.5:rclick=250:203,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_screen.png,31:tiles_items_off_screen_row.png,36:tiles_items_off_screen_ammo.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GIVE = "0008F216:1,000E3778:1,0008ED02:24", NVF_PLAY_TEST_PIPBOY = "22:frame=screen,25:open,26:page=items,27:tab=0,30:point=250:203,32:click=250:151,33.5:click=172:35,34.5:page=items,35:click=797:650,37:tab=0,38.5:rclick=250:203,40:close", NVF_PLAY_TEST_SHOTS = "28:tiles_items_off_screen.png,31:tiles_items_off_screen_row.png,36:tiles_items_off_screen_ammo.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 44
 expect = [
@@ -24584,7 +24584,7 @@ source = "[observed: run08 captures of MapMenu traits, 2026-11-07] A child using
 note = "Freeside's northern worldspace, by --world and a place in it as other Freeside scenarios start; ShowAllMapMarkers and Pip-Boy steps follow pipboy-tmm-discovered. More than 100 shown markers from other worldspaces proves the child is using the family."
 areas = ["pipboy", "fast-travel"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/pipboy/data/model.rs", "docs/spec-notes/pipboy.md", "docs/spec-notes/fast-travel.md"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
 args = ["--play", "--world", "FreesideNorthWorld", "--pos=2371,-6671,1053", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 20
 order = [[
@@ -24602,7 +24602,7 @@ source = "[observed: run08 captures of MapMenu traits, 2026-11-07] The main map 
 note = "Goodsprings is on the main map; a nonzero count of shown markers from other worldspaces proves child markers enter the rendered list used for highlighting and travel."
 areas = ["pipboy", "fast-travel"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/read.rs", "engine/nvf-play/src/pipboy/data/model.rs", "docs/spec-notes/pipboy.md", "docs/spec-notes/fast-travel.md"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowAllMapMarkers:1", NVF_PLAY_TEST_PIPBOY = "8:open,9:page=data,10:tab=1,13:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 20
 order = [[
@@ -24823,7 +24823,7 @@ name = "pipboy-items-hints"
 source = "#1896 (docs/spec-notes/pipboy.md §4): with the keyboard and mouse the ITEMS page shows only the repair hint (Repair/Maintain R)) on every tab and Mod X) under it on Weapons, as the original's InventoryMenu button tiles read with keyboard and mouse on 2026-11-09 (equip, drop and hotkey buttons hidden); the repair hint dim where it does nothing (Aid, Misc, Ammo); the weapon mod menu shows Mod Enter) over Exit E), Mod dim on the weapon's own row; an equipped 10mm Pistol (Weap10mmPistol, mod slots) with its Extended Mags, Stimpaks and 10mm rounds carried; frames pipboy_items_hints_weapons.png, pipboy_items_hints_aid.png, pipboy_items_hints_mod.png in the working folder. The controller's whole column: pipboy-items-hints-pad"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs"]
-env = { NVFOREVER_HOME = "pipboy-items-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_weapons.png,17:pipboy_items_hints_aid.png,22.5:pipboy_items_hints_mod.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-items-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_weapons.png,17:pipboy_items_hints_aid.png,22.5:pipboy_items_hints_mod.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
 run_seconds = 26
 expect = [
@@ -24845,7 +24845,7 @@ source = "#1896 (docs/spec-notes/pipboy.md §4): with Controller as the Input De
 note = "a home of its own keeps the Controller choice away from the other scenarios (as controller-menu-hints); the pause menu's settings aid picks the device before the Pip-Boy steps"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/items.rs", "engine/nvf-play/src/pipboy/item_mod.rs", "engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs"]
-env = { NVFOREVER_HOME = "pipboy-items-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_pad_weapons.png,17:pipboy_items_hints_pad_aid.png,22.5:pipboy_items_hints_pad_mod.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-items-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:Weap10mmPistol:1,9.3:call:player:EquipItem:Weap10mmPistol,9.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9.8:call:player:AddItem:Stimpak:2,10:call:player:AddItem:Ammo10mm:24", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:tab=1,16:tab=2,17.5:tab=3,18.5:tab=4,19.5:tab=0,20.5:mod=open,21.5:mod=down,23:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hints_pad_weapons.png,17:pipboy_items_hints_pad_aid.png,22.5:pipboy_items_hints_pad_mod.png" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--size", "1280x720"]
 run_seconds = 26
 expect = [
@@ -24868,7 +24868,7 @@ source = "#1897 (docs/spec-notes/pipboy.md §5.3): with the keyboard and mouse e
 note = "the console's addnote is the one pipboy-holotape uses; the objective aid the one of the script-look scenario (VCG02 3)"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
-env = { NVFOREVER_HOME = "pipboy-data-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,20:tab=4,21.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_world.png,19.5:pipboy_data_hints_misc.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-data-hints-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,20:tab=4,21.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_world.png,19.5:pipboy_data_hints_misc.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
 run_seconds = 24
 expect = [
@@ -24886,7 +24886,7 @@ source = "#1897 (docs/spec-notes/pipboy.md §5.3): with Controller as the Input 
 note = "a home of its own keeps the Controller choice away from the other scenarios (as pipboy-items-hints-pad); the pause menu's settings aid picks the device before the Pip-Boy steps; no --no-voice, so the picked holotape plays and its hint turns to Stop"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy/labels.rs", "engine/nvf-play/src/pad.rs"]
-env = { NVFOREVER_HOME = "pipboy-data-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,19.5:note=001618BF,21:tab=4,22.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_pad_world.png,19:pipboy_data_hints_pad_misc.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-data-hints-pad-home", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,15:tab=1,17:tab=2,18.5:tab=3,19.5:note=001618BF,21:tab=4,22.5:close", NVF_PLAY_TEST_SHOTS = "16.5:pipboy_data_hints_pad_world.png,19:pipboy_data_hints_pad_misc.png" }
 args = ["--cell", "Goodsprings", "--play", "--size", "1280x720"]
 run_seconds = 25
 expect = [
@@ -24949,7 +24949,7 @@ source = "[design] pipboy.md section 5.3.1: without the switch the DATA page is 
 note = "the same steps and times as tiles-data-quests, at the hand-built places (the X hint about 860, 145 and the quest about 200, 150 there too). Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/tiles/draw.rs", "engine/nvf-play/src/tiles/input.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/vanilla.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,16:point=200:150,17:click=200:150,18:point=off,19:click=860:145,21:tab=2,23:close,25:open,27:close", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_off.png,20:tiles_data_off_world.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=2,16:point=200:150,17:click=200:150,18:point=off,19:click=860:145,21:tab=2,23:close,25:open,27:close", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_off.png,20:tiles_data_off_world.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 30
 expect = [
@@ -25014,7 +25014,7 @@ source = "[design] pipboy.md section 5.3.1: without the switch Misc is the hand-
 note = "the same steps and times as tiles-data-misc, at the hand-built places. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/frame.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,17:point=200:150,18:click=200:150,19:point=off,20:click=880:191,22:click=880:191,23.5:click=860:145,25:tab=4,26:close", NVF_PLAY_TEST_KEYS = "16:down", NVF_PLAY_TEST_SHOTS = "16.5:tiles_data_misc_off.png,21:tiles_data_misc_challenges_off.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:addnote VMQ01CourierNote;addnote VMQ01BeagleJournalNote;8.3:close", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=3,15:note=001618BF,17:point=200:150,18:click=200:150,19:point=off,20:click=880:191,22:click=880:191,23.5:click=860:145,25:tab=4,26:close", NVF_PLAY_TEST_KEYS = "16:down", NVF_PLAY_TEST_SHOTS = "16.5:tiles_data_misc_off.png,21:tiles_data_misc_challenges_off.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 29
 expect = [
@@ -25085,7 +25085,7 @@ source = "[design] pipboy.md section 5.3.1: tiles-data-world-pointer's steps wit
 note = "the same steps and times as tiles-data-world-pointer."
 areas = ["ui", "menus", "pipboy", "fast-travel"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=477:350,16.5:key=down,17:key=use,18:placemarker,19:click=477:400,21:placemarker,23.5:open,24.5:point=off,26:tab=2,28:close", NVF_PLAY_TEST_KEYS = "15:mouse-left:0.15,18.5:mouse-left:1.0,22:tab", NVF_PLAY_TEST_SHOTS = "18.7:tiles_data_world_pointer_box_off.png,24:tiles_data_world_pointer_reopened_off.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=477:350,16.5:key=down,17:key=use,18:placemarker,19:click=477:400,21:placemarker,23.5:open,24.5:point=off,26:tab=2,28:close", NVF_PLAY_TEST_KEYS = "15:mouse-left:0.15,18.5:mouse-left:1.0,22:tab", NVF_PLAY_TEST_SHOTS = "18.7:tiles_data_world_pointer_box_off.png,24:tiles_data_world_pointer_reopened_off.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 31
 expect = [
@@ -25102,7 +25102,7 @@ source = "[design] pipboy.md section 5.3.1: without the switch the World Map is 
 note = "the same steps and times as tiles-data-world. Shots to compare with it."
 areas = ["ui", "menus", "pipboy", "fast-travel"]
 paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:placemarker,19:key=down,19.5:key=use,21:travel=000CDF46,22:key=down,23:key=use,25:tab=2,27:close", NVF_PLAY_TEST_SHOTS = "17:tiles_data_world_off.png,18.5:tiles_data_world_box_off.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,18:placemarker,19:key=down,19.5:key=use,21:travel=000CDF46,22:key=down,23:key=use,25:tab=2,27:close", NVF_PLAY_TEST_SHOTS = "17:tiles_data_world_off.png,18.5:tiles_data_world_box_off.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 30
 expect = [
@@ -25160,7 +25160,7 @@ source = "[design] pipboy.md section 5.3.1: without the switch the Local Map is 
 note = "the same steps and times as tiles-data-local. Shots to compare with it."
 areas = ["ui", "menus", "pipboy"]
 paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/view.rs", "engine/nvf-play/src/pipboy/data/outline.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,16:point=527:350,17:placemarker,18:key=use,20:drag=-1500:0,24:tab=2,26:close", NVF_PLAY_TEST_SHOTS = "19:tiles_data_local_off.png,23:tiles_data_local_dragged_off.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=0,16:point=527:350,17:placemarker,18:key=use,20:drag=-1500:0,24:tab=2,26:close", NVF_PLAY_TEST_SHOTS = "19:tiles_data_local_off.png,23:tiles_data_local_dragged_off.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 29
 expect = [
@@ -25217,7 +25217,7 @@ source = "[design] pipboy.md section 5.3.1: without the switch Radio is the hand
 note = "the same steps and times as tiles-data-radio, at the hand-built places (the first station about 200, 150 there too). Shots to compare with it."
 areas = ["ui", "menus", "pipboy", "radio"]
 paths = ["engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy.rs"]
-env = { NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=4,16:point=200:150,17:click=200:150,18:point=off,20:key=down,20.5:key=use,23:key=use,25:close", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_radio_off_air_off.png,19:tiles_data_radio_off.png,22:tiles_data_radio_second_off.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,14:tab=4,16:point=200:150,17:click=200:150,18:point=off,20:key=down,20.5:key=use,23:key=use,25:close", NVF_PLAY_TEST_SHOTS = "15.5:tiles_data_radio_off_air_off.png,19:tiles_data_radio_off.png,22:tiles_data_radio_second_off.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
 run_seconds = 28
 expect = [
@@ -25274,7 +25274,7 @@ source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): with the keyboa
 note = "the pointer aid holds the highlight box 50 right of the map window's middle (canvas 527, 350) on both maps; placemarker is the maps' X button; key=use takes the chosen answer, key=down moves down the answers; the objective aid gives the World Map a quest marker too (its line is not required)"
 areas = ["pipboy"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data/model.rs", "engine/nvf-play/src/pipboy/test_aid.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,21.5:key=down,22:key=use,23:placemarker,23.5:key=down,24:key=use,25:tab=1,26.5:close", NVF_PLAY_TEST_SHOTS = "16.8:pipboy_custom_marker_world.png,18:pipboy_custom_marker_local.png" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:tab=0,18.5:placemarker,19.5:key=use,20.5:placemarker,21:key=down,21.5:key=down,22:key=use,23:placemarker,23.5:key=down,24:key=use,25:tab=1,26.5:close", NVF_PLAY_TEST_SHOTS = "16.8:pipboy_custom_marker_world.png,18:pipboy_custom_marker_local.png" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--size", "1280x720"]
 run_seconds = 28
 expect = [
@@ -25306,7 +25306,7 @@ source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): the first half 
 note = "the home is shared with pipboy-custom-marker-load, which runs after this one (smoke runs launches of one NVFOREVER_HOME in order); the console saves once the Pip-Boy is down"
 areas = ["pipboy", "save"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/save.rs"]
-env = { NVFOREVER_HOME = "pipboy-marker-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:close", NVF_PLAY_TEST_CONSOLE = "20:save smoke-marker;21:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-marker-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,14:point=527:350,15:placemarker,16:key=use,17:close", NVF_PLAY_TEST_CONSOLE = "20:save smoke-marker;21:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice"]
 run_seconds = 23
 expect = [
@@ -25320,7 +25320,7 @@ name = "pipboy-custom-marker-load"
 source = "#1954 (docs/spec-notes/pipboy.md §5.3, Place Marker): the second half of the round trip: --load the save pipboy-custom-marker-save made; the custom marker comes back and the World Map shows it with its dotted line [design: kept in NVForever's saves; the original's is not captured]"
 areas = ["pipboy", "save"]
 paths = ["engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/data/marker.rs", "engine/nvf-play/src/save.rs"]
-env = { NVFOREVER_HOME = "pipboy-marker-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,15:close" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-marker-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=data,13.5:tab=1,15:close" }
 args = ["--play", "--load", "smoke-marker", "--no-voice"]
 run_seconds = 17
 expect = [
@@ -25335,7 +25335,7 @@ name = "pipboy-stats-rad-radaway"
 source = "[design] #1899: hand-built Status RAD owns keyboard/controller A while its RadAway hint is shown; use the carried aid item and keep the tab (engine/nvf-play/src/pipboy.rs, pipboy/stats/mod.rs; docs/spec-notes/pipboy.md 5.1)"
 areas = ["pipboy", "aid"]
 paths = ["engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/test_aid.rs"]
-env = { NVFOREVER_HOME = "pipboy-stats-rad-radaway-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:RadAway:1", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=0,26:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:sub=1", NVF_PLAY_TEST_KEYS = "24:a" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-stats-rad-radaway-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItem:RadAway:1", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=0,26:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:sub=1", NVF_PLAY_TEST_KEYS = "24:a" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 28
 expect = [
@@ -25352,7 +25352,7 @@ name = "pipboy-stats-cnd-limb-pad"
 source = "[design] #1898: controller X on hand-built Status CND cycles the Stimpak target through the existing pad key routing; the middle hint uses sSwitchLimbs (engine/nvf-play/src/pipboy/stats/mod.rs, pad.rs, test_aid.rs; docs/spec-notes/pipboy.md 5.1)"
 areas = ["pipboy", "controller"]
 paths = ["engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/pipboy/stats/*", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/test_aid.rs"]
-env = { NVFOREVER_HOME = "pipboy-stats-cnd-limb-pad-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=0,27:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:sub=0", NVF_PLAY_TEST_KEYS = "24:pad-X,25:pad-X" }
+env = { NVF_PLAY_TEST_TILE_MENUS = "", NVFOREVER_HOME = "pipboy-stats-cnd-limb-pad-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PAUSE = "1:4", NVF_PLAY_TEST_SETTINGS = "2:device:Controller", NVF_PLAY_TEST_PIPBOY = "20:open,21:page=stats,22:tab=0,27:close", NVF_PLAY_TEST_PIPBOY_STATS = "23:sub=0", NVF_PLAY_TEST_KEYS = "24:pad-X,25:pad-X" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 29
 expect = [
@@ -25948,4 +25948,35 @@ expect = [
   { json = "errors.#", schema = "fnv.bsa.listing/1", equals = 0, label = "every file decodes (no path stripped from a block)" },
   { json = "roundtrip_identical", schema = "fnv.bsa.verify/1", equals = true, label = "it rewrites as 103, byte for byte" },
   { json = "decode_errors.#", schema = "fnv.bsa.verify/1", equals = 0, label = "no decode errors" },
+]
+
+[[scenario]]
+name = "tiles-pipboy-default"
+source = "[design, #2215] ui-tile-tree.md section 6.2: with no TileMenus key or test-aid list, the six Pip-Boy menus use their files; the device tour of tiles-pipboy-all, then a quantity prompt over ITEMS"
+note = "[design, #2215] No NVF_PLAY_TEST_TILE_MENUS override: runner.py strips inherited aids; empty NVFOREVER_HOME clears any inherited custom home, so SettingsFile skips the player INI in this unattended run. The prompt repeats tiles-items-quantity after the tour; the drop aid reopens ITEMS on Aid, A accepts."
+areas = ["ui", "pipboy", "menus"]
+paths = ["crates/fnv-install/src/lib.rs", "engine/nvf-play/src/tiles/vanilla.rs", "engine/nvf-play/src/tiles/mod.rs", "engine/nvf-play/src/tiles/stats_menu.rs", "engine/nvf-play/src/tiles/inventory_menu.rs", "engine/nvf-play/src/tiles/repair_menu.rs", "engine/nvf-play/src/tiles/item_mod_menu.rs", "engine/nvf-play/src/tiles/map_menu.rs", "engine/nvf-play/src/pipboy/frame.rs", "engine/nvf-play/src/pipboy.rs"]
+env = { NVFOREVER_HOME = "", NVF_PLAY_AIDS_FROM_SCRIPTS = "0", NVF_PLAY_TEST_GIVE = "00015169:9", NVF_PLAY_TEST_DROP = "45:00015169:ask", NVF_PLAY_TEST_KEYS = "49:a", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,8.3:call:player:AddItemHealthPercent:Weap10mmPistol:2:0.3,8.6:call:player:AddItem:ModNV10mmPistolExtMags:1,9:objective:VCG02:3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=stats,13.5:tab=0,14.5:tab=1,15.5:tab=2,16.5:tab=3,17.5:tab=4,18.5:page=items,19:tab=0,20:tab=1,21:tab=2,22:tab=3,23:tab=4,24:tab=0,25:mod=open,27:mod=cancel,28:repair=open,30:click=855:148,31.5:page=data,32:tab=0,34:tab=1,36:tab=2,37.5:tab=3,39:tab=4,41:close,47.5:click=250:151,51:close", NVF_PLAY_TEST_SHOTS = "14:tiles_all_status.png,16:tiles_all_skills.png,19.5:tiles_all_weapons.png,21.5:tiles_all_aid.png,26:tiles_all_mod.png,29:tiles_all_repair.png,33:tiles_all_local.png,35:tiles_all_world.png,37:tiles_all_quests.png,38.5:tiles_all_misc.png,40:tiles_all_radio.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 54
+expect = [
+  { re = 'tiles: QuantityMenu drawn from tiles \(\d+ file tiles, 0 code tiles\)', label = "default tour: the default quantity prompt draws its file" },
+  { re = 'menu: AmountOk: Dropped Stimpak x\d+', count = 1, label = "default tour: the default prompt accepts once" },
+  { text = "test aid: pipboy clicked the screen", label = "default tour: the click under the prompt was made" },
+  { text = "tiles: InventoryMenu Select", count = 0, label = "default tour: the prompt blocks the underlying row" },
+  { re = 'tiles: \[UI\] TileMenus=StatsMenu,InventoryMenu,RepairMenu,ItemModMenu,MapMenu,QuantityMenu \(from default\):', label = "default tour: the six menus selected by the missing list" },
+  { re = 'tiles: StatsMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "default tour: STATS from its file" },
+  { re = 'tiles: InventoryMenu page from tiles: ', min = 1, label = "default tour: ITEMS from its file" },
+  { text = "tiles: ItemModMenu ready: drawn from tiles", min = 1, label = "default tour: the weapon mod menu from its file" },
+  { re = 'tiles: RepairMenu drawn from tiles \(\d+ file tiles, [1-9]\d* code tiles\)', min = 1, label = "default tour: the repair page from its file" },
+  { text = "tiles: RepairMenu Cancel on its tiles", count = 1, label = "default tour: the repair page left by its own Cancel" },
+  { text = "tiles: MapMenu draws local map from tiles", min = 1, label = "default tour: Local Map from its file" },
+  { text = "tiles: MapMenu draws world map from tiles", min = 1, label = "default tour: World Map from its file" },
+  { text = "tiles: MapMenu draws radio from tiles", min = 1, label = "default tour: Radio from its file" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: [1-9]\d* from tiles, 0 by hand after a failed pass, 0 by hand with nothing prepared', min = 5, label = "default tour: each DATA tab's visit: no frame by hand while the Pip-Boy is up" },
+  { re = 'tiles: MapMenu (local map|world map|quests|misc|radio) frames: \d+ from tiles, [1-9]\d* by hand after a failed pass', count = 0, label = "default tour: no DATA tab fell back after a failed pass" },
+  { re = '(StatsMenu|InventoryMenu|RepairMenu|ItemModMenu|MapMenu) drawn by hand', count = 0, label = "default tour: no page warned of a fallback" },
+  { re = 'tiles: ItemModMenu no longer drawn from tiles after [1-9]\d* passes: closed', count = 1, label = "default tour: the mod menu drawn from tiles until it closed" },
+  { text = "pipboy: menu code 1061", label = "default tour: mod menu code" },
+  { text = "pipboy: menu code 1035", label = "default tour: repair menu code" },
 ]
