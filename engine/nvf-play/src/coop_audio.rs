@@ -17,7 +17,9 @@
 //!   it says it, it sends the station, topic, line, part and how far into the part it is;
 //!   a guest puts that line on the air there, joining it at the point it has reached, and
 //!   picks no lines of its own (its scripts' radio conversations are left to the host)
-//!   [design]. The stations a guest hears go to the host every [`HEARD_EVERY`] seconds,
+//!   [design]. A guest's copy of the line that drifts more than [`RESYNC`] from where
+//!   the host's clock puts it (a loading screen or pause on either side) is moved back to
+//!   it and its sound starts again there (`crate::radio`, owner 2026-11-11). The stations a guest hears go to the host every [`HEARD_EVERY`] seconds,
 //!   and the host runs their programmes too, heard by it or not, so a station only a
 //!   guest hears is still the host's.
 //! - **Another player's Pip-Boy radio** is heard from that player's body, as a radio's

@@ -10998,9 +10998,9 @@ name = "slots"
 source = "docs/spec-notes/slots.md §7: a slot machine at The Tops (0x0016546A in TOPSCasino) activated with 200 Tops chips: its script's ShowSlotMachineMenuParams opens the menu (bets 1 to 75) with the help the first time; the payout list shown and hidden; a bet of 5 made to stop on three oranges pays 160 x 5, then a cherry on the left reel pays 2 x 5, then a losing line; screenshots of the help, the payout list, the reels turning and a result"
 areas = ["slots", "menus"]
 paths = ["crates/fnv-game/src/slots.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvf-play/src/lockpick/help.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,42.5:payout,44:payout,44.5:reels:6-6-6,45:spin,51:reels:7-1-2,51.5:spin,57:reels:1-2-3,57.5:spin,63:exit", NVF_PLAY_TEST_SHOTS = "40.5:slots_help.png,43.5:slots_payouts.png,46:slots_spin.png,48.5:slots_result.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,42.5:payout,44:payout,44.5:reels:6-6-6,45:spin,51:reels:7-1-2,55.5:spin,63:reels:1-2-3,63.5:spin,70.5:exit", NVF_PLAY_TEST_SHOTS = "40.5:slots_help.png,43.5:slots_payouts.png,46:slots_spin.png,50.1:slots_result.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 66
+run_seconds = 73
 order = [[
   "slots: the player is given 200 chips",
   'slots: open The Tops (0x00144C3F): bets 1 to 75, 200 chips carried, earnings 0 of 10000, reel stops [2, 2, 2, 2, 2, 2, 2] (14 a reel), 7 symbol pictures, model terminals\NV_SlotMachine\NV_SlotMachine-Minigame.NIF; help message shown (first use)',
@@ -11022,9 +11022,9 @@ name = "slots-seated"
 source = "queue item 170 part A: The Tops' machine 0x0016546A has its stool 0x0011E62E (TopsSlotMachineStool01L) 56 units out in front [observed: the load-order survey]; activated, the player sits on it by the stool's own getting-on clip, the menu opens once seated, each spin plays NVSlotMachineInsertCoin, a loss NVSlotMachineLoose, the jackpot (160 x) the cheer for 3 s on the upper body, and leaving gets the player up by the getting-off clip; third person for the screenshots"
 areas = ["slots", "furniture"]
 paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs", "engine/nvf-play/src/furniture.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:6-6-6,50.5:spin,58:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_seated_sitting_down.png,44.2:slots_seated_insert_coin.png,47:slots_seated_loss.png,54:slots_seated_cheer.png,58.5:slots_seated_end_00.png,59.5:slots_seated_end_01.png,61:slots_seated_end_02.png,62.2:slots_seated_end_03.png,63:slots_seated_end_04.png,64:slots_seated_getting_up_00.png,65:slots_seated_getting_up_01.png,66:slots_seated_getting_up_02.png,67:slots_seated_up_00.png,68.5:slots_seated_up_01.png,70:slots_seated_up_02.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:6-6-6,50.5:spin,59.5:exit", NVF_PLAY_TEST_SHOTS = "35.5:slots_seated_sitting_down.png,44.2:slots_seated_insert_coin.png,48.6:slots_seated_loss.png,55.6:slots_seated_cheer.png,60:slots_seated_end_00.png,61:slots_seated_end_01.png,62.5:slots_seated_end_02.png,63.7:slots_seated_end_03.png,64.5:slots_seated_end_04.png,65.5:slots_seated_getting_up_00.png,66.5:slots_seated_getting_up_01.png,67.5:slots_seated_getting_up_02.png,68.5:slots_seated_up_00.png,70:slots_seated_up_01.png,71.5:slots_seated_up_02.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 72
+run_seconds = 74
 order = [[
   "slots seat: the player sits on stool 0011E62E at machine 0016546A",
   "furniture: the player uses 0011E62E",
@@ -11058,7 +11058,7 @@ name = "slots-standing"
 source = "queue item 170 part A: Gomorrah's machine 0x0015EB86 (the cushion row) has no stool in front [observed: the load-order survey]; activated, the player stands 44 units out in front facing it, a spin plays InsertCoin on the upper body, a two-cherry win (5 x) a short cheer, and leaving lets the player go at once"
 areas = ["slots"]
 paths = ["engine/nvf-play/src/slots*", "engine/nvf-play/src/slots/**", "engine/nvforever/src/slots_seat.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_standing_at.png,35.2:slots_standing_insert_coin.png,38:slots_standing_cheer.png,46:slots_standing_left.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_standing_at.png,35.2:slots_standing_insert_coin.png,39.4:slots_standing_cheer.png,46:slots_standing_left.png" }
 args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
 run_seconds = 48
 order = [[
@@ -11079,7 +11079,7 @@ name = "slots-standing-holster"
 source = "queue item 170 part A: at a standing machine (Gomorrah 0x0015EB86, no stool) the weapon is put away, as sitting does (`furniture::drive_player`): the 10mm pistol is equipped and drawn in third person before the machine is activated; the win's cheer then shows both hands empty. Screenshots: the gun drawn, the cheer"
 areas = ["slots"]
 paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "28:slots_holster_drawn.png,38:slots_holster_cheer.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0015EB86", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon", NVF_PLAY_TEST_SCRIPT = "30:activate:0x0015EB86", NVF_PLAY_TEST_SLOTS = "18:chips:200:140521,32:help,33:bet:5,34:reels:7-7-1,34.5:spin,43:exit", NVF_PLAY_TEST_SHOTS = "28:slots_holster_drawn.png,39.4:slots_holster_cheer.png" }
 args = ["--cell", "Gomorrah01", "--play", "--no-voice"]
 run_seconds = 48
 order = [[
@@ -11092,13 +11092,99 @@ order = [[
 expect = []
 
 [[scenario]]
+name = "slots-seated-defeat-first-person"
+source = "owner 2026-11-12: from first person the player's head vanished in the slots defeat end view. The Tops' machine 0x0016546A on its stool 0x0011E62E, played from first person (no view toggle), two losing spins, then exit: the end view (item 166) counts as a third-person view while it shows (`PlayerControl::end_view`), so the body is drawn whole, head and all, and first person comes back with the fade. Screenshots: the end view and the view after"
+areas = ["slots", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "24:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,31:help,32:bet:5,33:reels:1-2-3,33.5:spin,39:reels:2-3-4,39.5:spin,45:exit", NVF_PLAY_TEST_SHOTS = "45.6:slots_first_defeat_end_00.png,46.5:slots_first_defeat_end_01.png,48:slots_first_defeat_end_02.png,52:slots_first_defeat_after.png,57:slots_first_defeat_up.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 59
+order = [[
+  "slots seat: seated at machine 0016546A on stool 0011E62E",
+  "slots: closed (the player left)",
+  { re = 'match end: left Slots \(-?\d+ to -?\d+\); lost; the end view, seated', label = "the beaten end view on the stool" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays \S+ \(upper body, seated\)', label = "the beaten reaction, upper body, from first person" },
+  { re = "match end: the seated reaction's arms stayed clear", label = "the arms clear of the world" },
+  "match end: the view counts as third person: false",
+  { re = 'slots seat: the player gets up from stool 0011E62E after the end view', label = "then the get-off" },
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the slot machine's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the slot machine's end view" },
+]
+
+[[scenario]]
+name = "blackjack-end-view-first-person"
+source = "owner 2026-11-12 PvP Caravan playtest: after the match the winner had no head and a torso lay on the ground. The card tables' timed end view (item 127/166) from first person: Gomorrah's blackjack opened as the tables' script does, a stacked natural won, the player leaves: the end view counts as a third-person view (`PlayerControl::end_view`), the body drawn whole with its head and no first-person arms rig left in the scene; first person again after the fade. Screenshots: the end view and after"
+areas = ["blackjack", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "16:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;16.2:close", NVF_PLAY_TEST_BLACKJACK = "1:seed:7,15:chips:140521:500,15.5:stack:Ah-9c-Kd-7s,19:help,20:bet:25,21:deal,26:exit", NVF_PLAY_TEST_SHOTS = "26.6:blackjack_first_end_00.png,27.5:blackjack_first_end_01.png,29:blackjack_first_end_02.png,34:blackjack_first_after.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
+run_seconds = 36
+order = [[
+  "blackjack: round 1 over: blackjack (dealer 16); paid 62, net 37",
+  { re = 'match end: left Blackjack', label = "the visit ends: its end view" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays \S+cheeringbotharmsup\.kf', label = "the whole-body cheer" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the blackjack table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the blackjack table's end view" },
+]
+
+[[scenario]]
+name = "armwrestle-end-view-first-person"
+source = "parity 2026-11-12 (armwrestle-199 c-night-4, NVGrinderWorkbench-dense-r9, play-55.5s.png): from first person the arm-wrestling end view showed the player's body headless, hunched, arms hanging (the body drawn first-person style under the end camera; the same cause as the slots defeat view and the PvP Caravan winner with no head). As armwrestle-solo without the third-person key: the end view counts as a third-person view (`PlayerControl::end_view`), the whole body with its head plays the cheer, first person again after the fade. Screenshots: the end view, every 2 s"
+areas = ["minigames", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:308:222:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "40:armwrestle_first_end_00.png,42:armwrestle_first_end_01.png,44:armwrestle_first_end_02.png,46:armwrestle_first_end_03.png,48:armwrestle_first_end_04.png,50:armwrestle_first_end_05.png,52:armwrestle_first_end_06.png,54:armwrestle_first_end_07.png,56:armwrestle_first_end_08.png,58:armwrestle_first_end_09.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 62
+manual = "armwrestle_first_end_*.png: the end view frames the whole player with a head, cheering, no crosshair or prompt; the last ones first person again, no stray body"
+order = [[
+  { re = 'arm wrestle: won after', label = "the bout is won" },
+  "arm wrestle: up; closed",
+  "match end: ArmWrestle at",
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays \S+cheeringbotharmsup\.kf', label = "the cheer" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the arm-wrestling table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the arm-wrestling table's end view" },
+]
+
+[[scenario]]
+name = "caravan-end-view-first-person"
+source = "owner 2026-11-12 PvP Caravan playtest: after the match the winner had no head and an extra torso lay on the ground. As the caravan scenario (the game against Ringo plays itself out) from first person: the card table's end view counts as a third-person view (`PlayerControl::end_view`), the body drawn whole with its head and no first-person body left in the scene; first person again after the fade. Screenshots: the end view (the seed-7 game is over at about 37 s, the results close and the end view runs about 43 to 46.5 s) and after"
+areas = ["caravan", "match-end"]
+paths = ["engine/nvforever/src/match_end.rs", "engine/nvf-play/src/control.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CARAVAN = "1:seed:7,14:caps:200,14.5:open:104C7D:15D7A2:0.25,15:cards:15D7A2,16:open:104C7D:15D7A2:0.25,18:help,19:match,20:accept,21:help,22:randomize,23:play,24:auto", NVF_PLAY_TEST_SHOTS = "43.4:caravan_first_end_00.png,44.2:caravan_first_end_01.png,45.2:caravan_first_end_02.png,46.1:caravan_first_end_03.png,49:caravan_first_after.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 52
+manual = "caravan_first_end_*.png: the end view, the player whole with a head reacting, no crosshair or prompt, no torso on the floor; first person again after"
+order = [[
+  "caravan: game over:",
+  { re = 'match end: .*Caravan', label = "the game ends: its end view" },
+  "match end: the view counts as third person: true",
+  { re = 'match end: this player plays ', label = "the player's reaction" },
+  "match end: the view counts as third person: false",
+]]
+expect = [
+  { text = "hud: hidden: the match's end view has the view", label = "the whole HUD goes for the Caravan table's end view" },
+  { text = "hud: back after the match's end view", label = "the HUD back after the Caravan table's end view" },
+]
+
+[[scenario]]
 name = "slots-seated-holster"
 source = "queue item 170 part A: The Tops' machine 0x0016546A with its stool 0x0011E62E, the 10mm pistol equipped and drawn in third person before it is activated: sitting puts the weapon away (`furniture::drive_player`), it stays away while seated and after getting up [hypothesis: the original does not draw it again by itself after the player gets up; design: as the standing machines]. Two losing spins: the visit lost, so its end view (item 166) plays the beaten reaction on the stool, then the getting-off clip (owner 2026-11-11). Screenshots: the gun drawn, seated, the end view, getting off, up again"
 areas = ["slots", "furniture"]
 paths = ["engine/nvf-play/src/slots.rs", "engine/nvforever/src/slots_seat.rs", "engine/nvforever/src/furniture.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon,26:orbit=150:-10,31:release", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,49:reels:2-3-4,49.5:spin,55:exit", NVF_PLAY_TEST_SHOTS = "29:slots_seated_holster_drawn.png,36.5:slots_seated_holster_seated.png,55.5:slots_seated_holster_end_00.png,56.5:slots_seated_holster_end_01.png,58:slots_seated_holster_end_02.png,59.2:slots_seated_holster_end_03.png,60:slots_seated_holster_end_04.png,61:slots_seated_holster_getting_up_00.png,62:slots_seated_holster_getting_up_01.png,63:slots_seated_holster_getting_up_02.png,64:slots_seated_holster_up_00.png,65.5:slots_seated_holster_up_01.png,67:slots_seated_holster_up_02.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_CONTROL = "20:view,24:weapon,26:orbit=150:-10,31:release", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,41:help,42:bet:5,43:reels:1-2-3,43.5:spin,50:reels:2-3-4,50.5:spin,56:exit", NVF_PLAY_TEST_SHOTS = "29:slots_seated_holster_drawn.png,36.5:slots_seated_holster_seated.png,56.5:slots_seated_holster_end_00.png,57.5:slots_seated_holster_end_01.png,59:slots_seated_holster_end_02.png,60.2:slots_seated_holster_end_03.png,61:slots_seated_holster_end_04.png,62:slots_seated_holster_getting_up_00.png,63:slots_seated_holster_getting_up_01.png,64:slots_seated_holster_getting_up_02.png,65:slots_seated_holster_up_00.png,66.5:slots_seated_holster_up_01.png,68:slots_seated_holster_up_02.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 69
+run_seconds = 70
 order = [[
   "slots seat: the player sits on stool 0011E62E at machine 0016546A",
   "furniture: the player is on 0011E62E",
@@ -11123,7 +11209,7 @@ source = "queue item 170 part A, the owner's Strip mods: HOTM.esm's Silver Palac
 areas = ["slots"]
 paths = ["engine/nvf-play/src/slots/seat.rs", "engine/nvforever/src/slots_seat.rs"]
 requires = ["NVF_SLOTS_MOD_DATA"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "08003EF0", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x08003EF0", NVF_PLAY_TEST_SLOTS = "18:chips:200:08003EB0,32:help,33:bet:5,34:reels:1-2-3,34.5:spin,41:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_mod_sp_standing.png,35.2:slots_mod_sp_insert_coin.png,38:slots_mod_sp_loss.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "08003EF0", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x08003EF0", NVF_PLAY_TEST_SLOTS = "18:chips:200:08003EB0,32:help,33:bet:5,34:reels:1-2-3,34.5:spin,41:exit", NVF_PLAY_TEST_SHOTS = "31.5:slots_mod_sp_standing.png,35.2:slots_mod_sp_insert_coin.png,39.2:slots_mod_sp_loss.png" }
 args = ["--plugins", "FalloutNV.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "HonestHearts.esm", "LonesomeRoad.esm", "OldWorldBlues.esm", "Simple Open Strip.esm", "The Strip - 2023 Lite.esm", "HOTM.esm", "--cell", "aaSilverPalaceCasino", "--play", "--no-voice"]
 run_seconds = 45
 order = [[
@@ -11141,7 +11227,7 @@ source = "queue item 170 part A, the owner's Strip mods: HOTM.esm's Monte Carlo 
 areas = ["slots", "furniture"]
 paths = ["engine/nvf-play/src/slots/seat.rs", "engine/nvforever/src/slots_seat.rs"]
 requires = ["NVF_SLOTS_MOD_DATA"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "08003F92", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x08003F92", NVF_PLAY_TEST_SLOTS = "18:chips:200:08003F8C,37:help,38:bet:5,39:reels:4-4-4,39.5:spin,47:exit", NVF_PLAY_TEST_SHOTS = "33:slots_mod_mc_sitting_down.png,40.2:slots_mod_mc_insert_coin.png,43.5:slots_mod_mc_cheer.png,49:slots_mod_mc_getting_up.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "08003F92", NVF_PLAY_TEST_CONTROL = "20:view", NVF_PLAY_TEST_SCRIPT = "30:activate:0x08003F92", NVF_PLAY_TEST_SLOTS = "18:chips:200:08003F8C,37:help,38:bet:5,39:reels:4-4-4,39.5:spin,47:exit", NVF_PLAY_TEST_SHOTS = "33:slots_mod_mc_sitting_down.png,40.2:slots_mod_mc_insert_coin.png,44.3:slots_mod_mc_cheer.png,49:slots_mod_mc_getting_up.png" }
 args = ["--plugins", "FalloutNV.esm", "DeadMoney.esm", "GunRunnersArsenal.esm", "HonestHearts.esm", "LonesomeRoad.esm", "OldWorldBlues.esm", "Simple Open Strip.esm", "The Strip - 2023 Lite.esm", "HOTM.esm", "--cell", "aaMontecarlo", "--play", "--no-voice"]
 run_seconds = 54
 order = [[
@@ -11157,12 +11243,12 @@ expect = []
 
 [[scenario]]
 name = "slots-3d"
-source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): the Tops slot machine 0x0016546A activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera pans slowly in on the reels and stays there for the pull and the turn, out to third person only for a win, back in after; a pull while the win's sequence plays (46.5 s) is ignored and the next spin waits for it to end; the body out of the close camera's view; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
+source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): the Tops slot machine 0x0016546A activated; its own reel nodes turn the casino's symbols (drums of its own in the reel shapes' places), the arm is pulled, the camera pans slowly in on the reels and stays there for the pull and the turn, out to third person only for a win, back in after; a pull while the win's sequence plays (48.1 s) is ignored and the next spin waits for it to end; the body out of the close camera's view; three oranges, a cherry, a loss; the drums go when the menu closes. Screenshots: the reels, the payout list over the world, a clip of the first spin (0.25 s apart), the winning line, a loss. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
 areas = ["slots", "menus"]
 paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs", "engine/nvf-play/src/slots.rs", "engine/nvf-play/src/slots/screen.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,46.5:spin,48.6:spin,53:reels:1-2-3,55:spin,60.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_reels.png,38.5:slots3d_payouts.png,40.00:slots3d_clip_00.png,40.25:slots3d_clip_01.png,40.50:slots3d_clip_02.png,40.75:slots3d_clip_03.png,41.00:slots3d_clip_04.png,41.25:slots3d_clip_05.png,41.50:slots3d_clip_06.png,41.75:slots3d_clip_07.png,42.00:slots3d_clip_08.png,42.25:slots3d_clip_09.png,42.50:slots3d_clip_10.png,42.75:slots3d_clip_11.png,43.00:slots3d_clip_12.png,43.25:slots3d_clip_13.png,43.50:slots3d_clip_14.png,43.75:slots3d_clip_15.png,44.00:slots3d_clip_16.png,45.0:slots3d_cheer.png,46.2:slots3d_win_line.png,46.6:slots3d_blocked.png,47.4:slots3d_back_01.png,47.8:slots3d_back_02.png,48.4:slots3d_back_03.png,49.2:slots3d_pull2.png,51.6:slots3d_small_00.png,52.2:slots3d_small_win.png,52.8:slots3d_small_01.png,54.4:slots3d_small_03.png,56.0:slots3d_loss_00.png,57.4:slots3d_loss_01.png,58.0:slots3d_loss.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0016546A", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x0016546A", NVF_PLAY_TEST_SLOTS = "18:chips:200,36:help,37:bet:5,37.5:payout,39:payout,39.5:reels:6-6-6,40:spin,46:reels:7-1-2,48.1:spin,50.3:spin,57.5:reels:1-2-3,58.5:spin,65.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_reels.png,38.5:slots3d_payouts.png,40.00:slots3d_clip_00.png,40.25:slots3d_clip_01.png,40.50:slots3d_clip_02.png,40.75:slots3d_clip_03.png,41.00:slots3d_clip_04.png,41.25:slots3d_clip_05.png,41.50:slots3d_clip_06.png,41.75:slots3d_clip_07.png,42.00:slots3d_clip_08.png,42.25:slots3d_clip_09.png,42.50:slots3d_clip_10.png,42.75:slots3d_clip_11.png,43.00:slots3d_clip_12.png,43.25:slots3d_clip_13.png,43.50:slots3d_clip_14.png,43.75:slots3d_clip_15.png,44.00:slots3d_clip_16.png,44.25:slots3d_clip_17.png,44.50:slots3d_clip_18.png,46.65:slots3d_cheer.png,47.85:slots3d_win_line.png,48.25:slots3d_blocked.png,49.05:slots3d_back_01.png,49.45:slots3d_back_02.png,50.05:slots3d_back_03.png,50.9:slots3d_pull2.png,54.93:slots3d_small_00.png,55.53:slots3d_small_win.png,56.13:slots3d_small_01.png,57.73:slots3d_small_03.png,59.5:slots3d_loss_00.png,62.5:slots3d_loss_01.png,63.1:slots3d_loss.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
-run_seconds = 64
+run_seconds = 69
 order = [[
   "slots: the machine is 0016546A",
   "slots view: the reel model has 28 faces (radius 7.",
@@ -11191,9 +11277,9 @@ name = "slots-3d-static"
 source = "queue item 170 part B (engine/nvforever/src/slots_view.rs): an Atomic Wrangler slot machine of the static model Slot_Machine02.nif (vWranglerSlot02, 0x00119EC0) has no reel nodes: the drums stand at the vanilla cabinet's reel places; a win of three bells and a loss; screenshots. Activated at 30.5 s: since part A the player first sits on the machine's stool (about 3 s), and the menu must be open before the help is closed at 36 s, or the help stays up and no spin is made"
 areas = ["slots", "menus"]
 paths = ["engine/nvforever/src/slots_view.rs", "engine/nvf-play/src/slots/machines.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00119EC0", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x00119EC0", NVF_PLAY_TEST_SLOTS = "18:chips:200:144C42,36:help,37:bet:5,39.5:reels:1-1-1,40:spin,46:reels:2-3-4,47.5:spin,53.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_static_reels.png,41.2:slots3d_static_spin.png,43.3:slots3d_static_win.png,48.8:slots3d_static_spin2.png,51:slots3d_static_loss.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00119EC0", NVF_PLAY_TEST_SCRIPT = "30.5:activate:0x00119EC0", NVF_PLAY_TEST_SLOTS = "18:chips:200:144C42,36:help,37:bet:5,39.5:reels:1-1-1,40:spin,46:reels:2-3-4,49:spin,55.5:exit", NVF_PLAY_TEST_SHOTS = "37:slots3d_static_reels.png,41.2:slots3d_static_spin.png,44.95:slots3d_static_win.png,50.3:slots3d_static_spin2.png,54.1:slots3d_static_loss.png" }
 args = ["--cell", "FreesideAtomicWrangler", "--play", "--no-voice"]
-run_seconds = 57
+run_seconds = 59
 order = [[
   "slots: the machine is 00119EC0",
   "slots view: drums on 00119EC0 (the cabinet's reel places (static model)",
@@ -25493,7 +25579,7 @@ expect = [
 name = "armwrestle-solo"
 source = "Queue item 199 part A: the player sits on the west chair of the arm-wrestling table in the Prospector Saloon's back hall (armwrestle_table), the card waits for the Goodsprings Settler to walk over and sit, the test aid starts the bout 2 s later and taps 9 a second against his about 6, the bout is won, the Strength highlight shows, the player gets up and the end view plays"
 areas = ["minigames", "furniture"]
-paths = ["crates/fnv-game/src/armwrestle.rs", "engine/nvforever/src/armwrestle_arm.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvforever/src/match_end.rs", "engine/nvf-play/src/flourish.rs"]
+paths = ["crates/fnv-game/src/armwrestle.rs", "engine/nvforever/src/armwrestle_arm.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvforever/src/match_end.rs", "engine/nvf-play/src/flourish.rs", "engine/nvforever/src/armwrestle_view.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_SHOTS = "8:armwrestle_card.png,20:armwrestle_coming.png,26:armwrestle_26.png,29:armwrestle_29.png,32:armwrestle_32.png,35:armwrestle_35.png,38:armwrestle_38.png,41:armwrestle_41.png,44:armwrestle_44.png,47:armwrestle_47.png,52:armwrestle_end.png" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 60
@@ -25507,6 +25593,26 @@ expect = [
   { re = 'arm wrestle: won after (?P<s>[\d.]+)s', range = [3, 30], label = "the bout is won by tapping 9 a second (3-30 s)" },
   "flourish: ArmWrestle",
   "match end: ArmWrestle at",
+  "arm wrestle: up; closed",
+  { re = 'arm wrestle view: at the right hand', label = "the match camera looks at the clasped hands side on" },
+  { re = 'arm wrestle view: the win \(pinned away\), up over the table', label = "the win: the camera rises over the table, the pin (north, away from it) in view" },
+  { re = 'arm wrestle view: getting up; back and up over the table', label = "getting up: the match camera goes back and up, over the standing heads" },
+  { re = "arm wrestle view: the player's camera again", label = "the player's own camera comes back once the screen closes" },
+]
+
+[[scenario]]
+name = "armwrestle-space-stays"
+source = "Owner's night-pass bug (2026-11-11): pressing Space got the player up off the arm wrestling chair; only Tab should. Space is the tap (nvf-play armwrestle.rs TAP) and also Jump, which player.rs read_input took as a movement control asking to get up. The armwrestle-solo match with real Space presses through the card and the bout: the player stays seated, the bout is won, and gets up once, at the end"
+areas = ["minigames", "furniture"]
+paths = ["engine/nvf-play/src/player.rs", "engine/nvf-play/src/armwrestle.rs", "engine/nvf-play/src/furniture.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "1:350:190:3457,3:315:260:3457", NVF_PLAY_TEST_LOOK = "1.2:0:-20,3.5:0:-45", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_ARMWRESTLE = "9:2", NVF_PLAY_TEST_KEYS = "9:space,14:space,20:space,24:space,26:space,28:space,30:space,32:space,34:space", NVF_PLAY_TEST_SHOTS = "10:armwrestle_space_card.png,30:armwrestle_space_bout.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 60
+manual = "armwrestle_space_card.png and armwrestle_space_bout.png: still seated at the table after Space was pressed"
+expect = [
+  "arm wrestle: seated on stool 0",
+  { re = 'arm wrestle: won after (?P<s>[\d.]+)s', range = [1, 30], label = "the bout is played out and won, not left" },
+  { text = "arm wrestle: getting up", count = 1, label = "the player gets up once, after the bout (Space never gets up)" },
   "arm wrestle: up; closed",
 ]
 

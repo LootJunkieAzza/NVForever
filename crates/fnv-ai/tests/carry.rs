@@ -656,6 +656,25 @@ fn a_restrained_actor_stays_in_place_until_released() {
     assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
 }
 
+#[test]
+fn an_actor_let_go_of_its_seat_stays_a_while_then_walks_on() {
+    // The arm-wrestling opponent (`fnv_game::armwrestle_table`): sent to a seat over its
+    // package, then let go; it stays where it stood up for its reaction, then its package
+    // takes it on.
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.game.extra.entry(actor).or_default().seat_override = Some(FormId(MARK_B));
+    s.run(1.0);
+    s.game.extra.get_mut(&actor).unwrap().seat_override = None;
+    s.run(0.1);
+    let up = s.feet(R_TRAVEL);
+    s.run(fnv_ai::carry::SEAT_LINGER - 1.0);
+    assert!(dist(s.feet(R_TRAVEL), up) < 1.0, "it walked off at once");
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "its package did not take it on: feet {:?}, up at {up:?}, {:?}", s.feet(R_TRAVEL), s.events(R_TRAVEL).iter().rev().take(6).collect::<Vec<_>>());
+}
+
 /// A caller whose character movement carries an actor straight on along its heading
 /// (as the engine's character controller does on open ground).
 struct StraightOn;

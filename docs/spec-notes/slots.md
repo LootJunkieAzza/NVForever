@@ -99,9 +99,26 @@ observed: the five casinos]:
   25 from there (blackjack.md §5), between the minimum and the smaller of the maximum
   and the chips carried [design, as roulette's]. Bet Max sets the bet to that largest
   bet [hypothesis: it does not spin as well].
-- **Spin** takes the bet from the inventory and turns the reels; the left reel stops
-  after 1.4 s, the middle after 2.0 s, the right after 2.6 s [design]; then the line is
-  paid (§3) and the result shows for 2 s [design].
+- **Spin** takes the bet from the inventory and turns the reels as the reel models'
+  `Forward` clip does (`nv_slotmachine-reel01..03.nif`, 30 frames a second, 4.37 s, all
+  three alike but for the stop): still for 0.5 s, then all three at one even speed
+  (about 386 degrees a second), the left reel stopping after 2 whole turns at 2.367 s
+  (frame 71), the middle after 3 at 3.300 s (frame 99), the right after 4 at 4.233 s
+  (frame 127); each runs on 5 degrees past its stop in 2 frames and is back on it 2
+  frames later [observed: fnvtool nif decode, the `Cylinder0n` rotation keys; hypothesis:
+  the turn is even, the quadratic keys' tangents being the turn's own size]. Then the
+  line is paid (§3) and the result shows for 2 s [design].
+- **The pull sound holds the stops**: `sfx_slots_pulllever.wav` (GAMESlotsPullLever,
+  4.78 s, 44.1 kHz stereo) has the lever at about 0.17 to 0.45 s and three loud clunks at
+  about 2.375, 3.315 and 4.255 s, each led by a softer click 0.05 to 0.1 s before
+  [observed: the sound's loudness in 5 ms steps]: the reel models' stops, within a frame.
+  There is no SOUN for a single reel's stop [observed: the GAMESlots* and EMTSlots*
+  records]. NVForever starts the pull sound and the spin on the same frame, so the reels
+  stop on the clunks, and pays the line and plays the result sound (§5) at the reel
+  clip's end, 4.367 s (frame 131), the right reel back on its stop: the result sounds are
+  loud from their first frame and would cover the right reel's clunk (loudest 4.255 to
+  4.39 s) if they started on the stop [design]. The result sounds run 1.32 s (lose), 2.47 s (small), 2.74 s (medium) and
+  5.57 s (jackpot) [observed].
 - **Earnings and bans**: the net of each spin goes to the player's earnings at the
   casino and the winnings level (blackjack.md §4, `fnv_game::casino`); at the max
   winnings the player is banned and the menu closes after the result [hypothesis, as

@@ -69,10 +69,30 @@ pub const MENU_SLOTS: u16 = rules::MENU_CODE;
 /// The Tops' casino record, the test aid's default [observed: FalloutNV.esm CSNO
 /// `TheTopsCasinoData`].
 pub const THE_TOPS: u32 = 0x0014_4C3F;
-/// When each reel stops after the spin starts, seconds [design].
-pub const REEL_STOPS: [f32; REELS] = [1.4, 2.0, 2.6];
-/// Whole turns each reel makes before it stops [design].
+/// When the reels start to turn after the lever is pulled, seconds: frame 15 of the reel
+/// models' 30-frame `Forward` clip, all three alike [observed: fnvtool nif decode of
+/// `nv_slotmachine-reel01..03.nif`, the `Cylinder0n` rotation keys].
+pub const REEL_START: f32 = 0.5;
+/// When each reel stops after the lever is pulled, seconds: frames 71, 99 and 127 of the
+/// reel models' `Forward` clip [observed: as [`REEL_START`]]. The pull sound
+/// (GAMESlotsPullLever, `sfx_slots_pulllever.wav`, 4.78 s) has its three stop clunks at
+/// about 2.37, 3.31 and 4.25 s [observed: its loudness over time], so the reels stop on
+/// them when the sound and the spin start together.
+pub const REEL_STOPS: [f32; REELS] = [71.0 / 30.0, 99.0 / 30.0, 127.0 / 30.0];
+/// Whole turns each reel makes before it stops: 720, 1080 and 1440 degrees in the reel
+/// models' clip, one even speed for all three [observed: as [`REEL_START`]].
 pub const REEL_TURNS: [usize; REELS] = [2, 3, 4];
+/// The bounce at each stop: the reel runs on this far past its stop, degrees, in this long,
+/// and comes back in as long again [observed: the keys 5 degrees past each stop, 2 frames
+/// after it, and on the stop again 2 frames later].
+pub const REEL_BOUNCE_DEGREES: f32 = 5.0;
+pub const REEL_BOUNCE_SECONDS: f32 = 2.0 / 30.0;
+/// The reel clip's end, frame 131: the right reel is back on its stop and all three rest
+/// [observed: the `Forward` sequence's stop time, 4.367 s]. The line is paid and its sound
+/// played here, after the right reel's clunk (loudest 4.255 to 4.39 s in the pull sound
+/// [observed]), which the result sounds, loud from their first frame [observed], would
+/// otherwise cover [design].
+pub const REEL_CLIP_END: f32 = 131.0 / 30.0;
 /// How long the result stays on the screen before the next spin can start [design].
 pub const RESULT_SECONDS: f32 = 2.0;
 /// The result stays up this long after a win's celebration ends, seconds [design: room
@@ -138,16 +158,27 @@ pub enum SpinPhase {
 }
 
 /// Where each reel stands, in stops (a fraction while it turns), `t` seconds after a spin
-/// from `from` to `to` started, on a reel of `n` stops: each turns its whole turns and
-/// slows to its stop at its time [design: slots.md §4].
+/// from `from` to `to` started, on a reel of `n` stops, as the reel models' `Forward` clip
+/// turns them: still until [`REEL_START`], then an even speed to the stop at its time
+/// ([`REEL_STOPS`]), a short bounce past it and back (slots.md §4). The keys' tangents
+/// match the turn's own size, so the turn is even [hypothesis: Gamebryo quadratic keys'
+/// tangents span the key interval]; the bounce eases out and back [observed: its tangents].
 pub fn reel_positions(n: usize, from: [usize; REELS], to: [usize; REELS], t: f32) -> [f32; REELS] {
     let n = n.max(1);
     std::array::from_fn(|i| {
-        let k = (t / REEL_STOPS[i]).clamp(0.0, 1.0);
+        let k = ((t - REEL_START) / (REEL_STOPS[i] - REEL_START)).clamp(0.0, 1.0);
         let ahead = (to[i] + n - from[i] % n) % n + REEL_TURNS[i] * n;
-        // Slowing to the stop [design].
-        let eased = 1.0 - (1.0 - k) * (1.0 - k);
-        from[i] as f32 + ahead as f32 * eased
+        let past = REEL_BOUNCE_DEGREES / 360.0 * n as f32;
+        let b = (t - REEL_STOPS[i]) / REEL_BOUNCE_SECONDS;
+        let bounce = if (0.0..1.0).contains(&b) {
+            past * (2.0 * b - b * b)
+        } else if (1.0..2.0).contains(&b) {
+            let s = b - 1.0;
+            past * (1.0 - s * s * (3.0 - 2.0 * s))
+        } else {
+            0.0
+        };
+        from[i] as f32 + ahead as f32 * k + bounce
     })
 }
 
@@ -782,9 +813,21 @@ fn step(
     script: Option<ResMut<ScriptState>>,
     mut stats: ResMut<SlotsStats>,
     (mut sounds, mut spin_out): (MessageWriter<PlaySound>, MessageWriter<SlotsSpin>),
+    mut stopped: Local<(f32, usize)>,
 ) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    // Each reel's stop in the log, against the pull sound's clunk (slots.md §4).
+    if let Phase::Spinning { since, .. } = s.phase {
+        if stopped.0 != since {
+            *stopped = (since, 0);
+        }
+        while stopped.1 < REELS && now - since >= REEL_STOPS[stopped.1] {
+            let i = stopped.1;
+            info!("slots: reel {} stops {:.3}s after the pull (its stop {:.3}s, the pull sound's clunk about {:.3}s)", i + 1, now - since, REEL_STOPS[i], [2.375, 3.315, 4.255][i]);
+            stopped.1 += 1;
+        }
+    }
     if s.celebrating.is_some_and(|until| now >= until) {
         s.celebrating = None;
         info!("slots seat: celebration ended");
@@ -794,7 +837,7 @@ fn step(
         info!("slots: spins open again (the win's sequence is over)");
     }
     match s.phase {
-        Phase::Spinning { since, .. } if now - since >= REEL_STOPS[REELS - 1] => {
+        Phase::Spinning { since, .. } if now - since >= REEL_CLIP_END => {
             let line = s.line();
             let multiple = rules::multiple(line);
             let back = s.bet * multiple;
@@ -820,6 +863,7 @@ fn step(
                     stats.bans += 1;
                 }
             }
+            info!("slots: the result sound {:08X} plays {:.3}s after the pull", win_sound(multiple).0, now - since);
             let names = line.map(|x| rules::NAMES[x as usize]);
             let won = match rules::win_name(line) {
                 Some(w) => format!("{w} pays {multiple} x {} = {back} chips", s.bet),
@@ -976,6 +1020,36 @@ mod tests {
         let mid = reel_positions(14, from, to, REEL_STOPS[0]);
         assert_eq!(mid[0], end[0]);
         assert!(mid[2] < end[2]);
+        // Still until the clip's frame 15, then turning.
+        assert_eq!(reel_positions(14, from, to, REEL_START), [0.0, 5.0, 13.0]);
+        assert!(reel_positions(14, from, to, REEL_START + 0.1)[0] > 0.0);
+    }
+
+    #[test]
+    fn reels_stop_on_the_pull_sounds_clunks() {
+        // The reel models' frames 71, 99 and 127, and the pull sound's clunks at about
+        // 2.37, 3.31 and 4.25 s, within a frame and a half.
+        for (stop, clunk) in REEL_STOPS.iter().zip([2.375, 3.315, 4.255]) {
+            assert!((stop - clunk).abs() < 0.05, "{stop} vs {clunk}");
+        }
+    }
+
+    #[test]
+    fn reels_turn_evenly_then_bounce_on_the_stop() {
+        let (from, to) = ([0, 0, 0], [0, 0, 0]);
+        let at = |t: f32| reel_positions(14, from, to, t);
+        // Halfway through its turn, the first reel has made half its two turns.
+        let half = (REEL_START + REEL_STOPS[0]) / 2.0;
+        assert!((at(half)[0] - 14.0).abs() < 1e-3);
+        // All three turn at one speed.
+        let speed = |i: usize| (REEL_TURNS[i] * 14) as f32 / (REEL_STOPS[i] - REEL_START);
+        assert!((speed(0) - speed(2)).abs() < 0.05);
+        // 5 degrees past the stop two frames on, back on it two frames later.
+        let peak = at(REEL_STOPS[0] + REEL_BOUNCE_SECONDS)[0] - 28.0;
+        assert!((peak - 5.0 / 360.0 * 14.0).abs() < 1e-3);
+        assert!((at(REEL_STOPS[0] + 2.0 * REEL_BOUNCE_SECONDS + 1e-3)[0] - 28.0).abs() < 1e-4);
+        // The clip ends as the right reel is back on its stop.
+        assert!((REEL_STOPS[2] + 2.0 * REEL_BOUNCE_SECONDS - REEL_CLIP_END).abs() < 1e-5);
     }
 
     #[test]

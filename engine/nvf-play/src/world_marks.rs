@@ -111,6 +111,11 @@ pub struct NameTags {
     pub far: f32,
 }
 
+/// The other players whose name tag is not drawn (their references): a body a camera shot
+/// leaves out is not marked there either (the arm-wrestling end view, `match_end`).
+#[derive(Resource, Debug, Clone, Default)]
+pub struct HiddenTags(pub Vec<u32>);
+
 impl Default for NameTags {
     fn default() -> Self {
         NameTags { on: true, near: NEAR_DEFAULT, far: FAR_DEFAULT }
@@ -234,7 +239,7 @@ pub struct WorldMarksPlugin;
 
 impl Plugin for WorldMarksPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<NameTags>().init_resource::<Pings>().add_systems(Update, ping_input.in_set(PlaySet::Input).after(crate::control::read_controls)).add_systems(
+        app.init_resource::<NameTags>().init_resource::<HiddenTags>().init_resource::<Pings>().add_systems(Update, ping_input.in_set(PlaySet::Input).after(crate::control::read_controls)).add_systems(
             Update,
             (take_pings, ping_sound, draw).chain().in_set(PlaySet::Ui),
         );
@@ -432,7 +437,7 @@ type PlayAndPipBoy<'w> = (Res<'w, State<PlayState>>, Option<Res<'w, crate::pipbo
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
-    tags: Res<NameTags>,
+    (tags, hidden): (Res<NameTags>, Res<HiddenTags>),
     pings: Res<Pings>,
     mates: Res<SocialMates>,
     heads: Res<crate::emotes::MateHeads>,
@@ -467,7 +472,7 @@ fn draw(
             d.length_squared() <= FOCUS_RADIUS * FOCUS_RADIUS
         };
         if tags.on {
-            for m in mates.mates.iter().filter(|m| m.here && !m.lost) {
+            for m in mates.mates.iter().filter(|m| m.here && !m.lost && !hidden.0.contains(&m.reference)) {
                 // Over its drawn head (queue item 137; seated on furniture too); its feet
                 // until its puppet is drawn.
                 let p = heads.0.get(&m.reference).map_or([m.feet[0], m.feet[1], m.feet[2] + HEAD_HEIGHT], |h| [h[0], h[1], h[2] + OVER_HEAD]);

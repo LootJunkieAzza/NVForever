@@ -259,11 +259,16 @@ pub struct HudView {
     pub sneak: Option<Sneak>,
     /// A kill camera has the view, which hides the HUD (`crate::kill_cam`).
     pub kill_cam: bool,
+    /// A card game's, slot machine's or arm-wrestling table's end view has the view
+    /// (`PlayerControl::end_view`), which hides the HUD as the kill camera does: the bars,
+    /// the compass, the crosshair and its prompt, the corner and quest notices (they wait)
+    /// [owner 2026-11-12 via parity, ship 14: "an end view is a cutscene-style shot"].
+    pub end_view: bool,
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, kill_cam: false }
+        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None, kill_cam: false, end_view: false }
     }
 }
 
@@ -505,6 +510,7 @@ fn gather(
     (vats, wheel): (Option<Res<crate::vats_mode::VatsMode>>, Option<Res<crate::weapon_wheel::WeaponWheel>>),
     driven: Option<Res<crate::player::ViewDriven>>,
     kill_cam: Option<Res<crate::kill_cam::KillCam>>,
+    arm: Option<Res<crate::armwrestle_coop::ArmSeat>>,
 ) {
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
@@ -520,10 +526,18 @@ fn gather(
     let wheel_open = wheel.is_some_and(|w| w.is_open());
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034].
     let killcam = kill_cam.is_some_and(|k| k.active());
+    // Nor over an arm-wrestling bout and its result, which the table's own HUD draws
+    // (`ArmSeat::hud`): play runs under the match (script.rs hold_player), and Health, AP
+    // and the compass sat under the meter (armwrestle-a desktop runs 2026-11-12) [design].
+    let wrestling = arm.is_some_and(|a| a.hud);
     if killcam != view.kill_cam {
         info!("hud: {}", if killcam { "hidden: the kill camera has the view" } else { "back after the kill camera" });
     }
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam, kill_cam: killcam, ..view.clone() };
+    let end_view = control.as_ref().is_some_and(|c| c.end_view);
+    if end_view != view.end_view {
+        info!("hud: {}", if end_view { "hidden: the match's end view has the view" } else { "back after the match's end view" });
+    }
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating && !posed && !wheel_open && !killcam && !wrestling && !end_view, kill_cam: killcam, end_view, ..view.clone() };
     if let Some(p) = &player {
         // Where the camera looks, not where the character faces (third person).
         now.heading = control.as_deref().map_or(p.heading, |c| c.view_heading(p.heading)).to_degrees();

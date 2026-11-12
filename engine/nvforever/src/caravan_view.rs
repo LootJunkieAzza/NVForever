@@ -112,7 +112,10 @@ const NOTE_SIZE: Vec2 = Vec2::new(156.0 * MM, 156.0 * MM * 740.0 / 1312.0);
 const MONEY_MAX: usize = 90;
 /// How far a piece keeps from where a card can lie, and how many places it tries.
 const MONEY_CLEAR: f32 = 10.0;
-const MONEY_TRIES: u32 = 48;
+const MONEY_TRIES: u32 = 96;
+/// The least distance between the middles of two caps or coins: a cap across and a
+/// little, the same for every round piece so a coin turning into a cap moves nothing.
+const ROUND_APART: f32 = CAP_SIZE.x * 1.1;
 /// The game's Caravan cap and coin models.
 const CAP_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_1.nif";
 const SILVER_MODEL: &str = "meshes\\terminals\\nv_caravan\\currency-coin_2.nif";
@@ -205,6 +208,9 @@ pub fn money(pot: u32) -> Vec<(Money, Vec2, f32)> {
     }
     let n = (((pot as f32).sqrt() * 3.0).ceil() as usize).clamp(2, MONEY_MAX);
     let zones = card_zones(MONEY_CLEAR);
+    // The caps and coins placed so far: one never lands on another (the owner,
+    // 2026-11-12: "Overlapping caps!"); notes may lie under them [design].
+    let mut round: Vec<Vec2> = Vec::new();
     (0..n)
         .filter_map(|i| {
             let kind = if pot >= 40 && i % 4 == 3 {
@@ -227,10 +233,14 @@ pub fn money(pot: u32) -> Vec<(Money, Vec2, f32)> {
             // (the same tries for the same piece, so the pile still only grows) [design].
             let turn = scatter(i, 53) * 2.0 * PI;
             let h = kind.size().max_element() / 2.0;
-            (0..MONEY_TRIES)
+            let is_round = !kind.note();
+            let at = (0..MONEY_TRIES)
                 .map(|k| Vec2::new(h + scatter(i, 11 + k) * (FRAME_W - 2.0 * h), h + scatter(i, 131 + k) * (960.0 - 2.0 * h)))
-                .find(|at| clear_of(&zones, *at, kind.size(), turn))
-                .map(|at| (kind, at, turn))
+                .find(|at| clear_of(&zones, *at, kind.size(), turn) && (!is_round || round.iter().all(|r| r.distance(*at) >= ROUND_APART)))?;
+            if is_round {
+                round.push(at);
+            }
+            Some((kind, at, turn))
         })
         .collect()
 }
@@ -652,6 +662,18 @@ mod tests {
             assert!(clear_of(&zones, *at, kind.size(), *turn), "{kind:?} at {at} lies where a card can");
         }
         assert!(big.len() > 40, "the big pot still fills the free planks: {}", big.len());
+    }
+
+    #[test]
+    fn no_cap_or_coin_lies_on_another() {
+        for pot in [5, 20, 54, 108, 164, 400, 2000, 100_000] {
+            let round: Vec<Vec2> = money(pot).iter().filter(|m| !m.0.note()).map(|m| m.1).collect();
+            for (i, a) in round.iter().enumerate() {
+                for b in &round[i + 1..] {
+                    assert!(a.distance(*b) >= CAP_SIZE.x, "pot {pot}: caps at {a} and {b} overlap");
+                }
+            }
+        }
     }
 
     #[test]

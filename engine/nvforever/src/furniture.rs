@@ -560,6 +560,11 @@ impl OnFurniture {
         matches!(self.stage, Stage::Using(_))
     }
 
+    /// On it, neither getting on nor getting off.
+    pub fn on(&self) -> bool {
+        matches!(&self.stage, Stage::Using(u) if u.state() == state::ON)
+    }
+
     /// Getting off it (its getting-off clip playing).
     pub fn getting_off(&self) -> bool {
         matches!(&self.stage, Stage::Using(u) if u.state() == state::GETTING_OFF)
@@ -1017,6 +1022,7 @@ pub fn drive_player(
             seat.bed = lying && u.usage.phase != Phase::GettingOff;
             seat.on = Some(u.plan.furniture);
             seat.seated = u.usage.phase == Phase::On;
+            seat.getting_off = u.usage.phase == Phase::GettingOff;
             body.0 = Some(b);
         }
         None => {
@@ -1030,6 +1036,7 @@ pub fn drive_player(
             seat.bed = false;
             seat.on = None;
             seat.seated = false;
+            seat.getting_off = false;
             body.0 = None;
             f.stats.player_stood += 1;
             f.release(u.plan.furniture, who.reference);

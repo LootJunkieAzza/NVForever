@@ -101,10 +101,15 @@ fn menu_key(
     mut hold: ResMut<MenuKeyHold>,
     mut light: ResMut<Flashlight>,
     mut inventory: MessageWriter<OpenInventory>,
+    control: Option<Res<crate::control::PlayerControl>>,
 ) {
     let playing = *state.get() == PlayState::Playing;
     match hold.step(input.pressed(Control::MenuMode), input.just_pressed(Control::MenuMode), time.delta_secs(), playing) {
         KeyOutcome::Nothing => {}
+        // Not under a match's end view and its fade (`PlayerControl::end_view`) [design].
+        KeyOutcome::OpenInventory if control.as_deref().is_some_and(|c| c.end_view) => {
+            info!("pip-boy: stays shut under a match's end view");
+        }
         KeyOutcome::OpenInventory => {
             inventory.write(OpenInventory);
         }

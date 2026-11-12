@@ -24,8 +24,6 @@ pub struct JipEvents {
     seq: u64,
     /// Each actor's hit in progress, or its last one (task J7, jip-hit-info.md §5).
     pub hits: std::collections::HashMap<FormId, JipHit>,
-    /// The keys and mouse buttons held last frame, for the key-down and key-up events.
-    pub keys_held: std::collections::BTreeSet<u16>,
     /// ScriptWait: the waiting block of each script instance (one at a time
     /// [documented: ScriptWait]); not saved [hypothesis, as the registrations].
     pub waits: std::collections::HashMap<crate::game::InstKey, Waiting>,
@@ -244,29 +242,6 @@ impl Game<'_> {
             "flag" => XVal::Num(f64::from(u8::from((0..16).contains(&k) && h.flags & (1 << k) != 0))),
             _ => return None,
         })
-    }
-
-    /// Each frame (`Game::tick`): the key-down and key-up events of the keys and mouse
-    /// buttons pressed and let go since the last frame, by DirectX scancode (256 + n for
-    /// the mouse) [documented: SetOnKeyDownEventHandler, SetOnKeyUpEventHandler; the
-    /// handler gets the key]. The keys held are the player's whatever DisableKey says, as
-    /// the events "still run even if the key has been disabled" [documented:
-    /// SetOnKeyDownEventHandler].
-    pub(crate) fn jip_keys(&mut self) {
-        if self.jip.keys_held == self.input.held {
-            return;
-        }
-        let now = self.input.held.clone();
-        let before = std::mem::replace(&mut self.jip.keys_held, now.clone());
-        if self.jip.handlers.iter().all(|h| h.event != "keydown" && h.event != "keyup") {
-            return;
-        }
-        for &k in now.difference(&before) {
-            self.jip_event("keydown", None, vec![XVal::Num(f64::from(k))]);
-        }
-        for &k in before.difference(&now) {
-            self.jip_event("keyup", None, vec![XVal::Num(f64::from(k))]);
-        }
     }
 
     /// An item was made in the recipe menu: SetOnCraftingEventHandler's event, with the

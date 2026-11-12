@@ -21,7 +21,7 @@
 //! - **The end** ([`Page::Result`]): for a win the Strength highlight
 //!   (`flourish::Highlight::ArmWrestle`) first, then ([`board_after`]) the leaderboard;
 //!   [`RESULT_HOLD`] after it the player gets
-//!   up, the game lets the Settler go back to his package, and the end view (nvforever
+//!   up (against another player both at the winner's time, so they rise together), the game lets the Settler go back to his package, and the end view (nvforever
 //!   `match_end`, item 166) shows the winner cheering.
 //! - **Co-op** (part B, `crate::armwrestle_coop`): the match is the deciding game's (the
 //!   host's). This screen sits the player down (`ArmSeat::at`, its side the stool's),
@@ -127,6 +127,9 @@ pub struct Arm {
     pub foe: Option<FormId>,
     pub foe_name: String,
     pub foe_strength: f32,
+    /// The opponent is another player (its co-op id): both get up together, and its
+    /// puppet reacts in the end view.
+    pub foe_player: Option<u8>,
     pub foe_state: Foe,
     /// When he sat down (aid seconds).
     pub foe_seated_at: Option<f32>,
@@ -161,7 +164,10 @@ pub struct ArmScreen(pub Option<Arm>);
 pub struct ArmEnded {
     pub table: u32,
     pub won: bool,
+    /// The NPC opponent's reference.
     pub opponent: Option<u32>,
+    /// The other player's co-op id, when it was a player.
+    pub peer: Option<u8>,
 }
 
 #[derive(Component)]
@@ -276,6 +282,7 @@ fn open(
         foe: None,
         foe_name: String::new(),
         foe_strength: 5.0,
+        foe_player: None,
         foe_state: Foe::Coming,
         foe_seated_at: None,
         // In co-op the stool's side: the match is the table's, not this player's.
@@ -429,6 +436,10 @@ fn step(time: AidTime, mut screen: ResMut<ArmScreen>, mut flourish: MessageWrite
                 Wrestler::Npc(r) => sim.ref_name(None, r).map(str::to_string).filter(|n| !n.is_empty()).unwrap_or_else(|| a.foe_name.clone()),
             };
             a.foe_strength = b.strength[1 - side as usize];
+            a.foe_player = match who[1 - side as usize] {
+                Wrestler::Player(p) => Some(p),
+                Wrestler::Npc(_) => None,
+            };
             if a.page == Page::Offer && b.phase != Phase::Done {
                 info!("arm wrestle: the bout begins against {} (co-op, side {side})", a.foe_name);
                 a.page = Page::Bout;
@@ -453,7 +464,11 @@ fn step(time: AidTime, mut screen: ResMut<ArmScreen>, mut flourish: MessageWrite
             flourish.write(crate::flourish::Flourish { kind: crate::flourish::Highlight::ArmWrestle, text: "YOU WIN".into() });
         }
     }
-    let board = board_after(b.winner == Some(a.side));
+    // Against another player both get up on the winner's schedule, the highlight's
+    // length on: the loser's screen has no highlight, and alone it got up 2.4 s before the
+    // winner, its puppet walking off while the winner still sat [the lead, ship14 laptop
+    // run: the guest up 2.6 s after the loss, the host 5.0 s].
+    let board = board_after(a.foe_player.is_some() || b.winner == Some(a.side));
     if a.page == Page::Result && !a.leaving && b.ended.is_some_and(|e| now - e >= board + RESULT_HOLD) {
         a.leaving = true;
     }
@@ -543,6 +558,14 @@ fn leave(
     mut arm: ResMut<ArmSeat>,
 ) {
     let now = time.elapsed_secs();
+    // On one of the table's stools and not getting up: the keys are this game's, Space
+    // its tap and only Tab gets up (`PlayerSeat::game`; the card may not be open yet,
+    // waiting for a message box to close). Play runs under the card every other frame
+    // [observed: desktop run 2026-11-12, script.rs hold_player sets Playing back each
+    // frame, the arm screen not being one of its tables; the world going on is what lets
+    // the Settler walk over], and there Space was Jump and stood the player up.
+    let staying = screen.0.as_ref().is_none_or(|a| !a.leaving && a.left_at.is_none());
+    seat.game = staying && seat.hold.is_some() && seat.on.is_some_and(|s| table.stool_index(s).is_some());
     let Some(a) = screen.0.as_mut() else { return };
     // Up some other way (the stool left by moving once the menu let go): as leaving.
     if (a.leaving || seat.hold.is_none()) && a.left_at.is_none() {
@@ -559,7 +582,7 @@ fn leave(
     // Up: the screen is done; a settled bout gets its end view.
     if a.left_at.is_some() && seat.hold.is_none() {
         if let Some(won) = a.won() {
-            ended.write(ArmEnded { table: table.table.map_or(a.stool.0, |t| t.0), won, opponent: a.foe.map(|r| r.0) });
+            ended.write(ArmEnded { table: table.table.map_or(a.stool.0, |t| t.0), won, opponent: a.foe.map(|r| r.0), peer: a.foe_player });
         }
         info!("arm wrestle: up; closed");
         screen.0 = None;
@@ -613,11 +636,16 @@ fn draw(mut commands: Commands, screen: Res<ArmScreen>, time: AidTime, casino: O
                 crate::casino_hud::ScoreRow { name: "You".into(), score: format!("{}", b.taps[me]), note: format!("STR {}", a.player_strength as i32), up: true },
                 crate::casino_hud::ScoreRow { name: a.foe_name.clone(), score: format!("{}", b.taps[1 - me]), note: format!("STR {}", b.strength[1 - me] as i32), up: false },
             ];
-            crate::casino_hud::score_panel(p, f, &rows, Some("Taps"));
+            let won = a.won() == Some(true);
+            let board = a.page == Page::Result && b.ended.is_some_and(|e| now - e >= board_after(won));
+            // The taps until the leaderboard, which takes their place (parity's review of
+            // the night shots, 2026-11-12: both up at once) [design].
+            if !board {
+                crate::casino_hud::score_panel(p, f, &rows, Some("Taps"));
+            }
             if a.page == Page::Result {
-                let won = a.won() == Some(true);
                 // The YOU WIN highlight alone first, then the leaderboard.
-                if !b.ended.is_some_and(|e| now - e >= board_after(won)) {
+                if !board {
                     return;
                 }
                 let winner = if won { "You".to_string() } else { a.foe_name.clone() };

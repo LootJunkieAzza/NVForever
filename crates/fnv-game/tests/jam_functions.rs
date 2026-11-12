@@ -74,6 +74,29 @@ fn key_down_and_up_reach_jip_handlers_with_the_code() {
     assert_eq!(aux(&mut g, "*w"), XVal::Num(264.0));
 }
 
+/// One press is one key-down, whichever sender sees it first: the engine's own
+/// (`nvf_play::script_input`, before the frame) or the frame's. A toggle handler (JAM's
+/// bullet time, JBTToggle 1 on V) went on and off in one press when two senders each sent it.
+#[test]
+fn one_press_is_one_key_down() {
+    let f = fixture();
+    let mut g = game(&f);
+    let reg = "Begin Function { }\nSetOnKeyDownEventHandler (Begin Function {int k}\nPlayerRef.AuxVarSetFlt \"*n\" ((PlayerRef.AuxVarGetFlt \"*n\" 0) + 1) 0\nEnd) 1 47\nEnd\n";
+    g.run_query(reg, ctx()).unwrap();
+    // Sent by the frame alone.
+    g.input.held.insert(47);
+    g.tick();
+    g.tick();
+    assert_eq!(aux(&mut g, "*n"), XVal::Num(1.0));
+    g.input.held.clear();
+    g.tick();
+    // Sent before the frame (as the engine does), then the frame.
+    g.input.held.insert(47);
+    g.jam_key_events();
+    g.tick();
+    assert_eq!(aux(&mut g, "*n"), XVal::Num(2.0));
+}
+
 #[test]
 #[ignore = "release 0.7.0: main's JIP 9 / JohnnyGuitar 7, 10 and NIF modules answer these names first (owner, 1110 + mod support: their version wins); tested in jip9.rs, jg7.rs, jg10.rs, jg_nif.rs"]
 fn toggles_and_highlights() {

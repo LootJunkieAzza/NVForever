@@ -1744,6 +1744,9 @@ fn main() -> AppExit {
             app.add_plugins(darts_world::DartsWorldPlugin);
             // Arm wrestling: the wrestlers' right arms posed from the bout (armwrestle_arm.rs).
             app.add_systems(PostUpdate, armwrestle_arm::arms.before(bevy::transform::TransformSystems::Propagate));
+            // Seated at the arm-wrestling table: forearms rested on the top, under the match's
+            // pose (armwrestle_free_arm.rs).
+            app.add_systems(PostUpdate, armwrestle_free_arm::rest.before(armwrestle_arm::arms));
             // The match's camera, close over the shoulder onto the clasp (armwrestle_view.rs).
             app.add_systems(PostUpdate, armwrestle_view::camera.before(bevy::transform::TransformSystems::Propagate));
             // Pool at the mod's tables: the balls and the cue in the world (pool_world.rs).

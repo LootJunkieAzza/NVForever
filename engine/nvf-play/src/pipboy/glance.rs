@@ -332,7 +332,7 @@ fn make_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 /// Whether the glance may be up now.
 #[allow(clippy::too_many_arguments)]
 fn allowed(glance: &Glance, state: PlayState, active: &ActiveMenu, paused: bool, pip: &PipBoy, use_pipboy: &UsePipBoy, sim: Option<&SimState>, control: &PlayerControl) -> bool {
-    glance.on && state == PlayState::Playing && active.0.is_none() && !paused && !pip.shown() && use_pipboy.on && sim.is_some_and(super::wears_pipboy) && control.portrait.is_none() && !control.cinematic
+    glance.on && state == PlayState::Playing && active.0.is_none() && !paused && !pip.shown() && use_pipboy.on && sim.is_some_and(super::wears_pipboy) && control.portrait.is_none() && !control.cinematic && !control.end_view
 }
 
 /// G raises and lowers the glance; anything that leaves no room for it puts it down. Runs

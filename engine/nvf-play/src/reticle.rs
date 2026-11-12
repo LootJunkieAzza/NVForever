@@ -612,7 +612,7 @@ fn draw(
     (combat, hostile, bar, camera, time, dynamic): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>, Option<Res<DynamicCrosshair>>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32, bool, Option<String>, Option<bool>, Option<bool>, Option<CrosshairStyle>, Option<bool>, Option<bool>)>,
-    (locks, bindings, creator, sights, scope, driven, kill_cam): (
+    (locks, bindings, creator, sights, scope, driven, kill_cam, control): (
         Option<Res<ControlLocks>>,
         Option<Res<crate::bindings::Bindings>>,
         Option<Res<crate::creator::CreatorMenu>>,
@@ -620,6 +620,7 @@ fn draw(
         Option<Res<crate::aim_zoom::Scope>>,
         Option<Res<crate::player::ViewDriven>>,
         Option<Res<crate::kill_cam::KillCam>>,
+        Option<Res<crate::control::PlayerControl>>,
     ),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -631,7 +632,7 @@ fn draw(
         Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
         Query<(&Bar, &mut Visibility, &mut Node, &mut ImageNode), (Without<Root>, Without<Cross>)>,
     ),
-    (texts, pipboy, glance, menu, modded, no_prompt, campfires, arm): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>, Option<Res<crate::armwrestle::ArmScreen>>),
+    (texts, pipboy, glance, menu, modded, no_prompt, campfires, arm, arm_seat): (Query<Entity, With<Texts>>, Option<Res<crate::pipboy::PipBoy>>, Option<Res<crate::pipboy::glance::Glance>>, Option<Res<crate::menu::ActiveMenu>>, Option<Res<ScriptHidesReticle>>, Option<Res<ScriptHidesPrompt>>, Option<Res<crate::campfire::Campfires>>, Option<Res<crate::armwrestle::ArmScreen>>, Option<Res<crate::armwrestle_coop::ArmSeat>>),
 ) {
     // The HUD's lengths at the UI scale (`crate::interface::hud_units`, #1631).
     let _hud = crate::interface::hud_units();
@@ -643,7 +644,12 @@ fn draw(
     // Nor while a kill camera plays (`crate::kill_cam`) [owner's playtest request #1034],
     // nor under the weapon wheel (docs/design/weapon-wheel.md §7).
     let killcam = kill_cam.is_some_and(|k| k.active());
-    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !wheel.is_some_and(|w| w.is_open());
+    // Nor while a card game's or a slot machine's end view frames the player (nvforever
+    // `match_end.rs`): a framed shot, no aim and nothing to use [owner 2026-11-12, ship 14:
+    // "like it was made with the game originally"; observed: the crosshair and "E) Activate
+    // Bed" over the blackjack cheer].
+    let end_view = control.is_some_and(|c| c.end_view);
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open()) && !held && !killcam && !end_view && !wheel.is_some_and(|w| w.is_open());
     // What the idle keeps off the screen, once per target.
     let kept = held.then(|| target.0.as_ref().map(|t| t.name.clone())).flatten();
     if kept != logged.3 {
@@ -692,7 +698,11 @@ fn draw(
     let wrestling = arm.is_some_and(|a| a.0.is_some());
     let menu_up = pipboy.as_deref().is_some_and(|p| p.shown()) || trading || wrestling;
     let mut locks = locks.as_deref().copied().unwrap_or_default();
-    locks.movement |= pip_up;
+    // Nor is the crosshair itself over the bout and its result, drawn by the table's own
+    // HUD (`ArmSeat::hud`): it sat on the clasped hands (armwrestle-a desktop runs
+    // 2026-11-12) [design].
+    let bout = arm_seat.is_some_and(|a| a.hud);
+    locks.movement |= pip_up || bout;
     locks.rollover |= menu_up;
     let aimed = target.0.is_some();
     let foe = hostile.is_some_and(|h| h.0);
