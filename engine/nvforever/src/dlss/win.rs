@@ -208,7 +208,11 @@ pub(super) fn start(app: &mut App) {
             return;
         }
     };
-    let Some(api) = load(&interposer) else { return };
+    // The checked file stays open, kept from writes, renames and deletes, until it is loaded
+    // (security.rs, "One file, checked and loaded").
+    let loaded = load(&interposer);
+    drop(accepted);
+    let Some(api) = loaded else { return };
     // Again just before slInit, where Streamline starts the updater (preflight.rs). The
     // interposer is loaded but holds nothing yet.
     if !folder_allows_streamline(&folder) {

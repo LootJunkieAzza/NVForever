@@ -21,6 +21,27 @@
 //! build, so its hash differs. A new Streamline release needs its hash added here after it was
 //! tested.
 //!
+//! # One file, checked and loaded
+//!
+//! [`check_interposer`] opens the interposer once, for reading, sharing read access only (no
+//! `FILE_SHARE_WRITE`, no `FILE_SHARE_DELETE`), so that while the handle is open no one else can
+//! open the file to write, delete or rename it [documented: Microsoft Learn, "CreateFileW
+//! function (fileapi.h)", dwShareMode, read 2026-11-12]. The hash is read through that handle,
+//! `WinVerifyTrust` is given it (`WINTRUST_FILE_INFO.hFile`, the "file handle to the open file to
+//! be verified" [documented: Microsoft Learn, "WINTRUST_FILE_INFO structure (wintrust.h)"]), and
+//! [`Accepted`] keeps it open until `win.rs` has loaded the file, so the file checked is the file
+//! loaded. What remains: `LoadLibraryExW` takes a path only (its `hFile` parameter "is reserved
+//! for future use. It must be NULL" [documented: Microsoft Learn, "LoadLibraryExW function
+//! (libloaderapi.h)"]), and so does `CryptQueryObject`'s file form in [`is_signed_by_nvidia`]:
+//! both open the file again by its path while the handle is held. That they reach the same file
+//! rests on nothing along the path being renamed or re-pointed in between [hypothesis: Windows
+//! refuses to rename a folder holding an open file; not shown for junctions or links above the
+//! DLSS folder, which only someone who can already write there could change]. That the loader's
+//! own open is compatible with a handle sharing read only is [hypothesis] too, checked by every
+//! DLSS run (a refusal would log "did not load" with a sharing violation). A file someone else
+//! holds open for writing at the moment of the check makes the open fail, which refuses the
+//! interposer.
+//!
 //! # Open point: the secondary signature is not bound to the file
 //!
 //! Like the header, this check verifies the primary signature (index 0) against the file and then
@@ -76,6 +97,10 @@
 //! ```
 
 use std::ffi::{c_void, CStr};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom};
+use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 
 use windows_sys::core::{BOOL, GUID, PCSTR};
@@ -89,6 +114,7 @@ use windows_sys::Win32::Security::WinTrust::{
     WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO, WINTRUST_SIGNATURE_SETTINGS, WSS_GET_SECONDARY_SIG_COUNT,
     WSS_VERIFY_SPECIFIC, WTD_CHOICE_FILE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
 };
+use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 
 use super::ffi::{get_proc, wide};
@@ -159,11 +185,15 @@ fn tested_list() -> String {
 }
 
 /// The interposer, accepted by [`check_interposer`].
+/// It holds the file open, shared for reading only, until it is dropped: `win.rs` drops it once
+/// `LoadLibraryExW` has returned.
 pub(super) struct Accepted {
     /// The file's SHA-256 in hex.
     pub(super) sha256: String,
     /// The tested build it is.
     pub(super) build: &'static str,
+    /// The handle both checks read through.
+    _file: File,
 }
 
 /// Why [`check_interposer`] refused the interposer: the reason the settings show, and the log's
@@ -176,18 +206,43 @@ pub(super) struct Refused {
 /// The interposer's two checks, both of which must pass: its signature
 /// ([`verify_embedded_signature`]) and its SHA-256 being a tested build's ([`TESTED_INTERPOSERS`]).
 /// `path` is a full path.
+///
+/// The file is opened once ([`open_for_checks`]) and both checks read it through that handle; the
+/// handle stays open in the [`Accepted`] returned (the module's "One file, checked and loaded").
 pub(super) fn check_interposer(path: &Path) -> Result<Accepted, Refused> {
-    let bytes = std::fs::read(path).map_err(|e| Refused { reason: Unavailable::StreamlineRefused, why: format!("it could not be read for its checks: {e}") })?;
+    let unreadable = |e: std::io::Error| Refused {
+        reason: Unavailable::StreamlineRefused,
+        why: format!("it could not be opened for its checks with writing, renaming and deleting it kept out: {e}"),
+    };
+    let file = open_for_checks(path).map_err(unreadable)?;
+    let bytes = read_from_start(&file).map_err(unreadable)?;
     let digest = fnv_util::sha256::digest(&bytes);
     let sha256 = fnv_util::sha256::to_hex(&digest);
-    verify_embedded_signature(path).map_err(|why| Refused { reason: Unavailable::SignatureRejected, why: format!("{why} (SHA-256 {sha256})") })?;
+    verify_embedded_signature(path, &file).map_err(|why| Refused { reason: Unavailable::SignatureRejected, why: format!("{why} (SHA-256 {sha256})") })?;
     let Some(build) = tested_build(&digest) else {
         return Err(Refused {
             reason: Unavailable::SignatureRejected,
             why: format!("its SHA-256 {sha256} is not a tested build's (tested: {}); its signature passed", tested_list()),
         });
     };
-    Ok(Accepted { sha256, build })
+    Ok(Accepted { sha256, build, _file: file })
+}
+
+/// `path` opened for reading, sharing read access only: no one can write, delete or rename the
+/// file while the handle is open (std's default shares all three; `share_mode` replaces it).
+fn open_for_checks(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(path)
+}
+
+/// The whole file from its start, with the position put back at the start for the next reader
+/// (`WinVerifyTrust` through the same handle) [design: whether `WinVerifyTrust` reads from the
+/// handle's position or from offsets of its own is not documented].
+fn read_from_start(mut file: &File) -> std::io::Result<Vec<u8>> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    file.seek(SeekFrom::Start(0))?;
+    Ok(bytes)
 }
 
 // The signatures of the functions looked up, as windows-sys declares them
@@ -218,16 +273,17 @@ fn system_library(name: &str) -> Option<HMODULE> {
 /// (index 0) verified by Windows (`WINTRUST_ACTION_GENERIC_VERIFY_V2`, no revocation check, the
 /// current OS strong-signature policy), exactly one secondary signature, and that secondary
 /// signature's signer carrying Streamline's NVIDIA key. A file passes only when all three hold.
-/// `path` must be a full path (`:328-330`). The secondary signature is not verified against the
-/// file; see the module's open point.
-fn verify_embedded_signature(path: &Path) -> Result<(), String> {
+/// `path` must be a full path (`:328-330`); `file` is that file, open (the module's "One file,
+/// checked and loaded"), and is handed to `WinVerifyTrust`. The secondary signature is not
+/// verified against the file; see the module's open point.
+fn verify_embedded_signature(path: &Path, file: &File) -> Result<(), String> {
     let path_w = wide(path.as_os_str());
     let wintrust = system_library("wintrust.dll").ok_or("wintrust.dll did not load")?;
     // SAFETY: windows-sys's signature of `WinVerifyTrust`.
     let verify: WinVerifyTrust = unsafe { get_proc(wintrust, c"WinVerifyTrust") }.ok_or("wintrust.dll has no WinVerifyTrust")?;
 
     // 1. The primary signature, also counting the secondary ones (`sl_security.h:407-426`).
-    let primary = verify_primary(verify, &path_w);
+    let primary = verify_primary(verify, &path_w, file);
     if primary.status != 0 {
         return Err(format!("Windows did not verify its primary signature, index 0 (WinVerifyTrust 0x{:08x})", primary.status as u32));
     }
@@ -276,11 +332,13 @@ struct PrimaryCheck {
 /// reads (the first value of the file signer's nested-signature attribute) is the one Windows
 /// counts in `cSecondarySigs`; that the CLOSE call is needed even when VERIFY failed (made here,
 /// as the header does, `sl_security.h:454-456`).
-fn verify_primary(verify: WinVerifyTrust, path_w: &[u16]) -> PrimaryCheck {
+fn verify_primary(verify: WinVerifyTrust, path_w: &[u16], open: &File) -> PrimaryCheck {
+    // The path is required ("This parameter cannot be NULL"), the handle optional; both name the
+    // same file.
     let mut file = WINTRUST_FILE_INFO {
         cbStruct: size_of::<WINTRUST_FILE_INFO>() as u32,
         pcwszFilePath: path_w.as_ptr(),
-        hFile: std::ptr::null_mut(),
+        hFile: open.as_raw_handle(),
         pgKnownSubject: std::ptr::null_mut(),
     };
     let mut policy = CERT_STRONG_SIGN_PARA {
@@ -517,6 +575,38 @@ mod tests {
         assert_eq!(parse_sha256(&format!("{}g", "0".repeat(63))), None, "not hex");
         assert_eq!(parse_sha256(&format!("+{}", "0".repeat(63))), None, "a sign is not a digit");
         assert_eq!(parse_sha256(""), None);
+    }
+
+    /// A file of this test's own in the temporary folder, removed when dropped.
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_checked_file_cannot_be_changed_while_held() {
+        let path = std::env::temp_dir().join(format!("nvf-dlss-share-{}.bin", std::process::id()));
+        std::fs::write(&path, b"not an interposer").unwrap();
+        let scratch = Scratch(path.clone());
+        let held = open_for_checks(&path).unwrap();
+        let bytes = read_from_start(&held).unwrap();
+        assert_eq!(bytes, b"not an interposer");
+        assert_eq!((&held).stream_position().unwrap(), 0, "put back at the start for WinVerifyTrust");
+        assert_eq!(read_from_start(&held).unwrap(), bytes, "read again from the start");
+
+        let write = OpenOptions::new().write(true).open(&path);
+        let sharing_violation = windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32;
+        assert_eq!(write.err().and_then(|e| e.raw_os_error()), Some(sharing_violation), "no writer");
+        assert!(std::fs::remove_file(&path).is_err(), "not deleted");
+        assert!(std::fs::rename(&path, path.with_extension("moved")).is_err(), "not renamed");
+        assert!(OpenOptions::new().read(true).open(&path).is_ok(), "other readers (the loader) still can");
+
+        drop(held);
+        assert!(OpenOptions::new().write(true).open(&path).is_ok(), "released with the handle");
+        drop(scratch);
+        assert!(!path.exists());
     }
 
     #[test]
